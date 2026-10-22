@@ -853,14 +853,67 @@ export function QuoteWorkflow() {
             )}
           </LineBlock>
 
-          {/* Freight metrics. Volumetric and chargeable weight are the air-freight rule (volume ÷
-              6000 against gross weight) and the customer's document prints them for Air only: on
-              any other quote the two tiles stay in the row and say so. */}
+          {/* Freight metrics. Weight and volume are the packages' sum; where the packages give
+              none they are typed here for the whole shipment (computeCargo). Volumetric and
+              chargeable weight are the air-freight rule (volume ÷ 6000 against gross weight) and
+              the customer's document prints them for Air only; any other quote shows the weight /
+              measure instead - 1 t or 1 cbm, the greater - and its chargeable tile says Air only. */}
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             <KpiTile size="text" label="Packages" value={fmtQuantity(cargo.totalPackages)} />
-            <KpiTile size="text" label="Gross weight" value={`${fmtQuantity(cargo.grossWeight)} kg`} />
-            <KpiTile size="text" label="Volume" value={`${fmtQuantity(cargo.cbm)} cbm`} />
-            <KpiTile size="text" label="Volumetric wt" value={airFreight ? `${fmtQuantity(cargo.volumetricWeight)} kg` : AIR_ONLY} />
+            <KpiTile
+              size="text"
+              label="Gross weight"
+              value={
+                cargo.weightFromLines ? (
+                  `${fmtQuantity(cargo.grossWeight)} kg`
+                ) : (
+                  <InputNumber
+                    size="small"
+                    className="!w-full"
+                    aria-label="Gross weight of the shipment in kg"
+                    min={0}
+                    parser={moneyInputParser}
+                    value={draft.weight}
+                    suffix="kg"
+                    placeholder="Total"
+                    onChange={(v) => set({ weight: v ?? undefined })}
+                  />
+                )
+              }
+              hint={cargo.weightFromLines ? "From packages" : "Total for the shipment"}
+            />
+            <KpiTile
+              size="text"
+              label="Volume"
+              value={
+                cargo.cbmFromLines ? (
+                  `${fmtQuantity(cargo.cbm)} cbm`
+                ) : (
+                  <InputNumber
+                    size="small"
+                    className="!w-full"
+                    aria-label="Volume of the shipment in cbm"
+                    min={0}
+                    parser={moneyInputParser}
+                    value={draft.cbm}
+                    suffix="cbm"
+                    placeholder="Total"
+                    onChange={(v) => set({ cbm: v ?? undefined })}
+                  />
+                )
+              }
+              hint={cargo.cbmFromLines ? "From package dimensions" : "Total for the shipment"}
+            />
+            {airFreight ? (
+              <KpiTile size="text" label="Volumetric wt" value={`${fmtQuantity(cargo.volumetricWeight)} kg`} />
+            ) : (
+              <KpiTile
+                size="text"
+                label="Weight / measure"
+                value={cargo.weightMeasure ? `${fmtQuantity(cargo.weightMeasure)} W/M` : EMPTY_CELL}
+                hint="1 t or 1 cbm, the greater"
+              />
+            )}
             <KpiTile size="text" label="Chargeable wt" value={airFreight ? `${fmtQuantity(cargo.chargeableWeight)} kg` : AIR_ONLY} />
           </div>
         </div>

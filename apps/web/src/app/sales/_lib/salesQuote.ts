@@ -176,27 +176,34 @@ export function newestFirst(a: SalesQuote, b: SalesQuote): number {
   return b.createdAt.localeCompare(a.createdAt) || b.quoteNumber.localeCompare(a.quoteNumber);
 }
 
-// Freight cargo metrics. With package lines they are the lines added up. A quote without any has
-// only the one weight and volume stored for the whole shipment - what an inquiry import read - and
-// those count then: the printed quotation and the New Shipment wizard go by them, and a figure
-// that reaches the customer has to show on the screens first. Volumetric weight uses the standard
-// air divisor of 6000 (cm³ → kg); chargeable weight is max(gross, volumetric).
+// Freight cargo metrics. Weight and volume are the package lines added up; when the lines give
+// none - no lines, or lines without a weight or without dimensions - the one weight and volume
+// typed (or imported from an inquiry) for the whole shipment count instead, each on its own. The
+// printed quotation and the New Shipment wizard go by them, and a figure that reaches the
+// customer has to show on the screens first. Volumetric weight uses the standard air divisor of
+// 6000 (cm³ → kg); chargeable weight is max(gross, volumetric). Weight / measure is the freight
+// ton of sea freight: 1 t or 1 cbm, whichever is greater.
 export function computeCargo(data: SalesQuoteData) {
   const pkgs = data.packages ?? [];
   const n = (v: unknown) => Number(v) || 0;
-  const fromLines = pkgs.length > 0;
   const totalPackages = pkgs.reduce((s, p) => s + n(p.qty), 0);
-  const grossWeight = fromLines ? pkgs.reduce((s, p) => s + n(p.qty) * n(p.weight), 0) : n(data.weight);
-  const cbm = fromLines ? pkgs.reduce((s, p) => s + (n(p.qty) * n(p.length) * n(p.width) * n(p.height)) / 1_000_000, 0) : n(data.cbm);
-  const volumetricWeight = fromLines
-    ? pkgs.reduce((s, p) => s + (n(p.qty) * n(p.length) * n(p.width) * n(p.height)) / 6000, 0)
-    : (n(data.cbm) * 1_000_000) / 6000;
+  const linesWeight = pkgs.reduce((s, p) => s + n(p.qty) * n(p.weight), 0);
+  const linesCcm = pkgs.reduce((s, p) => s + n(p.qty) * n(p.length) * n(p.width) * n(p.height), 0);
+  const weightFromLines = linesWeight > 0;
+  const cbmFromLines = linesCcm > 0;
+  const grossWeight = weightFromLines ? linesWeight : n(data.weight);
+  const cbm = cbmFromLines ? linesCcm / 1_000_000 : n(data.cbm);
+  const volumetricWeight = (cbm * 1_000_000) / 6000;
   return {
     totalPackages,
     grossWeight: Math.round(grossWeight * 100) / 100,
     cbm: Math.round(cbm * 1000) / 1000,
+    /** Whether the weight / the volume are the package lines' sum; otherwise they are the shipment's typed total. */
+    weightFromLines,
+    cbmFromLines,
     volumetricWeight: Math.round(volumetricWeight * 100) / 100,
     chargeableWeight: Math.round(Math.max(grossWeight, volumetricWeight) * 100) / 100,
+    weightMeasure: Math.round(Math.max(grossWeight / 1000, cbm) * 1000) / 1000,
   };
 }
 

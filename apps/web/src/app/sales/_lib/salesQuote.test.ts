@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SalesQuoteData } from "./types";
-import { baseRef, followStored, followUpLines, quoteProfitIn, quoteFamily, revisionRoot, withoutPricing, type SalesQuote } from "./salesQuote";
+import { baseRef, computeCargo, followStored, followUpLines, quoteProfitIn, quoteFamily, revisionRoot, withoutPricing, type SalesQuote } from "./salesQuote";
 
 const quote = (quoteNumber: string): SalesQuote => ({ quoteNumber }) as SalesQuote;
 
@@ -84,5 +84,25 @@ describe("quoteProfitIn", () => {
 
   it("is null for a currency nobody has a rate for", () => {
     expect(quoteProfitIn(data, today, "GBP")).toBeNull();
+  });
+});
+
+describe("computeCargo", () => {
+  it("takes the totals typed for the shipment when the packages give no weight or volume", () => {
+    const cargo = computeCargo({ packages: [{ qty: 1, type: "Pallets" }], weight: 1800, cbm: 2.5 });
+    expect(cargo).toMatchObject({ totalPackages: 1, grossWeight: 1800, cbm: 2.5, weightFromLines: false, cbmFromLines: false });
+    // 1.8 t against 2.5 cbm: the volume is the greater
+    expect(cargo.weightMeasure).toBe(2.5);
+  });
+
+  it("goes by the packages for what they give, figure by figure", () => {
+    const cargo = computeCargo({ packages: [{ qty: 2, type: "Pallets", weight: 1500 }], weight: 999, cbm: 1.2 });
+    expect(cargo).toMatchObject({ grossWeight: 3000, cbm: 1.2, weightFromLines: true, cbmFromLines: false, weightMeasure: 3 });
+    const dims = computeCargo({ packages: [{ qty: 2, type: "Pallets", length: 120, width: 80, height: 100, weight: 200 }], weight: 999, cbm: 9 });
+    expect(dims).toMatchObject({ grossWeight: 400, cbm: 1.92, cbmFromLines: true, weightMeasure: 1.92, volumetricWeight: 320, chargeableWeight: 400 });
+  });
+
+  it("has nothing to measure without weight and volume", () => {
+    expect(computeCargo({})).toMatchObject({ grossWeight: 0, cbm: 0, weightMeasure: 0 });
   });
 });
