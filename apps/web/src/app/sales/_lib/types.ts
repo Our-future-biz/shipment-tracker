@@ -52,6 +52,16 @@ export interface QuoteReefer {
   veterinary?: boolean;
 }
 
+// The cargo of a quote with an open top or flat rack among its containers (hasOogEquipment):
+// whether it stays within the box, and if not its overall length (all pieces together), the widest
+// and the highest piece, in cm - what the out-of-gauge check (checkOog) goes by.
+export interface QuoteOog {
+  inGauge?: boolean;
+  length?: number;
+  width?: number;
+  height?: number;
+}
+
 export interface CostLine {
   // The label of the charge ("Road freight"); quotes saved before the catalogue hold only this.
   type: string;
@@ -192,6 +202,8 @@ export interface SalesQuoteData {
   containers?: QuoteContainerLine[];
   // The reefer requirements of a quote with a reefer container among its lines.
   reefer?: QuoteReefer;
+  // The out-of-gauge details of a quote with an open top or flat rack among its lines.
+  oog?: QuoteOog;
   weight?: number;
   cbm?: number;
   // Pricing

@@ -79,6 +79,8 @@ import { QuoteRatesEditor } from "./_components/QuoteRatesEditor";
 import { LINE_TD_CLASS, LINE_TH_CLASS, LINE_TH_RIGHT_CLASS, LineBlock, LineBlockEmpty, LineTable } from "./_components/LineBlock";
 import { MiniButton, RemoveLineButton } from "./_components/QuoteButtons";
 import { QuoteReeferBlock } from "./_components/QuoteReeferBlock";
+import { QuoteOogBlock } from "./_components/QuoteOogBlock";
+import { hasOogEquipment, oogMissing, oogSummary, oogTypes } from "../../_lib/oog";
 import { QuoteSection, QuoteStepTiles, type SectionStatus } from "./_components/QuoteSection";
 import { QuoteRoadCard } from "./_components/QuoteRoadCard";
 import { QuoteRoadPriceDrawer } from "./_components/QuoteRoadPriceDrawer";
@@ -151,6 +153,8 @@ export function QuoteWorkflow() {
   const linkedCustomer = useCustomer(draft.customerId ?? null);
   const { terms } = useTermsConditions();
 
+  // The step "Save & continue" goes to once the out-of-gauge cargo is confirmed, while that is asked.
+  const [confirmCargoTo, setConfirmCargoTo] = useState<SectionKey | null>(null);
   const [modal, setModal] = useState<
     null | "import" | "copyQuote" | "copyShipment" | "duplicate" | "preview" | "email" | "delete" | "replaceSelling" | "allIn" | "closeQuote" | "revise" | "roadPrice" | "approveMargin"
   >(null);
@@ -423,8 +427,9 @@ export function QuoteWorkflow() {
     customer: !!draft.customerName,
     shipment: !!(draft.direction && draft.serviceType && draft.incoterm),
     routing: !!(draft.origin && draft.destination),
-    // A reefer box needs its set-point before the cargo is complete.
-    cargo: !!(draft.commodity || packages.length || containers.length) && !reeferMissing(draft),
+    // A reefer box needs its set-point, an open top or flat rack the in-gauge answer (and the
+    // measures of cargo that is not), before the cargo is complete.
+    cargo: !!(draft.commodity || packages.length || containers.length) && !reeferMissing(draft) && !oogMissing(draft),
     pricing: !!(draft.sellingLines?.length),
     terms: !!draft.shippingTerms,
   };
@@ -870,6 +875,11 @@ export function QuoteWorkflow() {
             <QuoteReeferBlock value={draft.reefer} missing={reeferMissing(draft)} onChange={(patch) => set({ reefer: { ...draft.reefer, ...patch } })} />
           )}
 
+          {/* An open top or flat rack among the containers asks whether the cargo is in gauge. */}
+          {hasOogEquipment(draft) && (
+            <QuoteOogBlock value={draft.oog} types={oogTypes(draft.containers)} missing={oogMissing(draft)} onChange={(patch) => set({ oog: { ...draft.oog, ...patch } })} />
+          )}
+
           {/* A full-container quote lists its boxes above; package lines it still has (from before
               it was one, or copied from a shipment) stay in view rather than counting unseen. */}
           {(!containerQuote || packages.length > 0) && (
@@ -1235,6 +1245,12 @@ export function QuoteWorkflow() {
   // shows the next step. It moves on whatever the server answers - a refused save is announced
   // by the hook and stays in the header until one works.
   const saveAndContinue = (to: SectionKey) => {
+    // Cargo on an open top or flat rack is confirmed before moving on: its measures decide the
+    // equipment and the slots the carrier charges.
+    if (activeSection === "cargo" && hasOogEquipment(draft)) {
+      setConfirmCargoTo(to);
+      return;
+    }
     saveNow();
     setActiveSection(to);
   };
@@ -1426,6 +1442,21 @@ export function QuoteWorkflow() {
           </div>
         </div>
       </div>
+
+      <ConfirmModal
+        open={confirmCargoTo !== null}
+        title="Are the cargo details correct?"
+        description={`${oogSummary(draft)}. Please confirm the cargo details are correct to proceed.`}
+        confirmLabel="Confirm and continue"
+        cancelLabel="Check again"
+        onClose={() => setConfirmCargoTo(null)}
+        onConfirm={() => {
+          const to = confirmCargoTo;
+          setConfirmCargoTo(null);
+          saveNow();
+          if (to) setActiveSection(to);
+        }}
+      />
 
       {/* On a closed quote an import fills in everything but the prices: the server keeps those as stored. */}
       <ImportInquiryModal open={modal === "import"} onClose={() => setModal(null)} onApply={(p) => set(pricingClosed ? withoutPricing(p) : p)} />
