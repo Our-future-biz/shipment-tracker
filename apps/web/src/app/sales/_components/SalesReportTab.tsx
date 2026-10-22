@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
-import { Alert, Table, Spin } from "antd";
+import { useMemo, useState } from "react";
+import { Alert, Button, Table, Spin } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useAllSalesQuotes } from "@/hooks/useAllSalesQuotes";
 import { useCurrentExchangeRates } from "@/hooks/useExchangeRates";
@@ -11,6 +11,10 @@ import { toCzkAt, usePeriodAverages } from "@/app/sales/_lib/usePeriodAverages";
 import { ExchangeRatesError } from "./ExchangeRatesError";
 import { QuotesLoadError } from "./QuotesLoadError";
 import { QuotesLoading } from "./QuotesLoading";
+import { QuoteRefLink } from "./QuoteRefLink";
+import { QuoteStatusPill } from "./QuoteStatusPill";
+import { SalesDialog } from "./SalesDialog";
+import { formatDate } from "@/lib/date";
 
 interface Kpi {
   label: string;
@@ -86,6 +90,9 @@ function groupQuotes(priced: PricedQuote[], keyOf: (q: PricedQuote) => string): 
   return [...groups];
 }
 
+// The owner a quote is counted under in "By sales owner".
+const ownerOf = (q: SalesQuote) => q.ownerName || "Unassigned";
+
 // A table cell with a sum per currency; a dash when the row has nothing to add up.
 const money = (v: string) => v || "—";
 
@@ -94,6 +101,8 @@ export function SalesReportTab() {
   // added up, and the rows below keep the order of a list that is newest first.
   const { quotes, isLoading, progress, isError, reload } = useAllSalesQuotes();
   const exchange = useCurrentExchangeRates();
+  // The sales owner whose quotes are listed in the dialog, while it is open.
+  const [ownerQuotes, setOwnerQuotes] = useState<string | null>(null);
   const avg = usePeriodAverages(quotes.map((q) => Number(monthOf(q).slice(0, 4))).filter(Boolean));
 
   const priced = useMemo<PricedQuote[]>(
@@ -157,7 +166,7 @@ export function SalesReportTab() {
 
   const ownerRows = useMemo<OwnerRow[]>(
     () =>
-      groupQuotes(priced, (q) => q.ownerName || "Unassigned").map(([owner, g]) => {
+      groupQuotes(priced, ownerOf).map(([owner, g]) => {
         const decided = g.won + g.lost;
         return {
           owner,
@@ -173,7 +182,20 @@ export function SalesReportTab() {
   );
 
   const ownerColumns: ColumnsType<OwnerRow> = [
-    { title: "Sales Owner", dataIndex: "owner", render: (v: string) => <span className="font-medium text-slate-700">{v}</span> },
+    {
+      title: "Sales Owner",
+      dataIndex: "owner",
+      // Opens the quotes counted in the row.
+      render: (v: string) => (
+        <button
+          type="button"
+          onClick={() => setOwnerQuotes(v)}
+          className="font-medium text-indigo-600 hover:underline bg-transparent border-0 p-0 cursor-pointer"
+        >
+          {v}
+        </button>
+      ),
+    },
     { title: "Quotes", dataIndex: "quotes" },
     { title: "Won", dataIndex: "won" },
     { title: "Lost", dataIndex: "lost" },
@@ -270,6 +292,10 @@ export function SalesReportTab() {
         />
       </div>
 
+      {ownerQuotes !== null && (
+        <OwnerQuotesDialog owner={ownerQuotes} quotes={priced.filter((q) => ownerOf(q) === ownerQuotes)} onClose={() => setOwnerQuotes(null)} />
+      )}
+
       <div className="bg-white border border-slate-200 rounded-2xl p-4">
         <div className="text-sm font-semibold text-slate-800 mb-3">By service type</div>
         <Table<ServiceRow>
@@ -294,5 +320,44 @@ export function SalesReportTab() {
         />
       </div>
     </div>
+  );
+}
+
+// The quotes a sales owner's row counts, newest first, with the figures the report adds up for
+// them: selling in CZK at the month's ČNB average and the margin. A reference opens the quote.
+function OwnerQuotesDialog({ owner, quotes, onClose }: { owner: string; quotes: PricedQuote[]; onClose: () => void }) {
+  const columns: ColumnsType<PricedQuote> = [
+    { title: "Sales Reference", dataIndex: "quoteNumber", width: 170, render: (v: string) => <QuoteRefLink quoteNumber={v} /> },
+    { title: "Customer", key: "customer", ellipsis: true, render: (_: unknown, q) => q.data.customerName || "—" },
+    { title: "Status", key: "status", width: 110, render: (_: unknown, q) => <QuoteStatusPill status={q.status} /> },
+    { title: "Created", key: "created", width: 100, render: (_: unknown, q) => <span className="tabular-nums">{formatDate(q.createdAt)}</span> },
+    {
+      title: "Selling (CZK)",
+      key: "selling",
+      width: 140,
+      align: "right",
+      render: (_: unknown, q) => <span className="tabular-nums">{q.czk ? fmtByCurrency([["CZK", q.czk.selling]]) : "—"}</span>,
+    },
+    { title: "Margin", key: "margin", width: 80, align: "right", render: (_: unknown, q) => `${marginOf(q)}%` },
+  ];
+  return (
+    <SalesDialog
+      open
+      size="reading"
+      onClose={onClose}
+      title={`Quotes of ${owner}`}
+      subtitle={`${quotes.length} ${quotes.length === 1 ? "quote" : "quotes"}, as counted in the report`}
+      footer={<Button onClick={onClose}>Close</Button>}
+    >
+      <Table<PricedQuote>
+        size="small"
+        rowKey="quoteNumber"
+        dataSource={quotes}
+        columns={columns}
+        tableLayout="fixed"
+        pagination={quotes.length > 20 ? { pageSize: 20, size: "small", showSizeChanger: false } : false}
+        locale={{ emptyText: "No quotes" }}
+      />
+    </SalesDialog>
   );
 }
