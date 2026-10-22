@@ -28,7 +28,7 @@ import { existingMczNumbers, nextMczNumber } from "@/lib/mcz";
 import { useToast } from "@/lib/toast";
 import { useShipments, getFieldValue } from "@/hooks/useShipments";
 import { shipmentAttachmentsKey } from "@/hooks/useShipmentAttachments";
-import { DOCUMENT_TYPES, isReviewedDocumentType } from "@/lib/documentTypes";
+import { DOCUMENT_TYPES, isReviewedDocumentType, supplierInvoiceType } from "@/lib/documentTypes";
 import { chargeLabel, chargeOptions, toChargeCode } from "@/lib/chargeCodes";
 import { useCreateMasterJob, useMasterJobs, useUpdateMasterJob } from "@/hooks/useMasterJobs";
 import { useNextJobNumber } from "@/hooks/useNextJobNumber";
@@ -284,8 +284,9 @@ export function DocumentReadingWorkflow() {
         : null;
   // A pre-alert's shipments share the Master B/L and the booking, so only the House B/L names one.
   const docFields = masterDoc ? masterFields.filter((f) => f.column === "House BoL Number") : fields;
-  // A master job's vendor invoice is named after its invoice number and filed as "Other", so
-  // customs never takes it for the shipment's commercial invoice.
+  // A master job's vendor invoice is named after its invoice number and filed among the
+  // suppliers' invoices by its cost category (Seafreight Charges, …), else as "Other" - never as
+  // "Invoice", which customs would take for the shipment's commercial invoice.
   const docName =
     docNameEdit ??
     (!docToSave
@@ -293,7 +294,8 @@ export function DocumentReadingWorkflow() {
       : invoiceToMaster
         ? numberedFileName(invoiceData.invoice_number ?? "", docToSave.name)
         : savedDocumentName(docFields, docToSave.name));
-  const docType = docTypeEdit ?? (invoiceToMaster ? "Other" : suggestedDocumentType(docFields, docToSave?.name ?? ""));
+  const docType =
+    docTypeEdit ?? (invoiceToMaster ? supplierInvoiceType(invoiceCategory) || "Other" : suggestedDocumentType(docFields, docToSave?.name ?? ""));
   const docNumberLabel = documentNumber(docFields).label;
   const docHint = invoiceToMaster
     ? `Saved to each ticked shipment the invoice is posted to, named after the invoice number. Original file: ${fileName}`

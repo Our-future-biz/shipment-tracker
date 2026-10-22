@@ -23,7 +23,7 @@ import type { interfaces } from "@/lib/api/client";
 import { FileCell, CustomsPill, docPlural } from "./docsShared";
 import { CustomerLinkField } from "../_components/CustomerLinkField";
 import { EditableCell } from "../_components/EditableCell";
-import { DOCUMENT_GROUPS, documentGroupOf, isReviewedDocumentType } from "@/lib/documentTypes";
+import { CUSTOMS_TAB_GROUPS, documentGroupOf, isReviewedDocumentType } from "@/lib/documentTypes";
 
 // Statuses the server derives from the paperwork; while one of them shows, the field is locked.
 const PAPERWORK_STATUSES = ["Waiting For Commercial Paperwork", "Paperwork Verification Pending"];
@@ -379,7 +379,7 @@ export function CustomsTab({
         customsDocsCardHtml() z mockupu: .docs2.cx > .card
         Barvy dle promennych .docs2 (--line #E4E7F0, --card-head #EDEFFC, atd.)
       */}
-      {section !== "details" && DOCUMENT_GROUPS.map((group, index) => {
+      {section !== "details" && CUSTOMS_TAB_GROUPS.map((group, index) => {
         const inGroup = (d: { documentType: string }) => documentGroupOf(d.documentType) === group;
         const documents = attachments.filter(inGroup);
         const filtered = matching.filter(inGroup);
