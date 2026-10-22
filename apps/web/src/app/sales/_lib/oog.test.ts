@@ -40,11 +40,13 @@ describe("checkOog", () => {
   });
 
   it("loses only the slot above an open top whose cargo stands out of its roof", () => {
-    expect(checkOog("40' OT", { length: 1100, width: 230, height: 300 })).toMatchObject({ overHeight: 66, doesNotFit: null, lost: { above: 1, total: 1 } });
+    expect(checkOog("40' OT", { length: 1100, width: 210, height: 300 })).toMatchObject({ loading: "top", overHeight: 66, doesNotFit: null, lost: { above: 1, total: 1 } });
   });
 
   it("says an open top cannot take cargo wider or longer than its walls", () => {
-    expect(checkOog("20' OT", { length: 600, width: 230, height: 200 })?.doesNotFit).toBe("Wider or longer than a 20' OT - it needs a flat rack");
+    expect(checkOog("40' HOT", { length: 1250, width: 240, height: 200 })?.doesNotFit).toBe(
+      "Too long and wide for the roof opening (max 1,150 cm long, 216 cm wide) and too long and wide for the doors (max 1,200 cm long, 232 cm wide) - it needs a flat rack",
+    );
   });
 
   it("knows no measures of other boxes", () => {
@@ -58,7 +60,7 @@ describe("inGaugeMaximum", () => {
   });
 
   it("is the smallest of each measure over several types, so the cargo fits them all", () => {
-    expect(inGaugeMaximum(["40' OT", "20' FR"])).toEqual({ length: 562, width: 234, height: 223, limitedBy: "20' FR" });
+    expect(inGaugeMaximum(["40' OT", "20' FR"])).toEqual({ length: 562, width: 220, height: 223, limitedBy: "20' FR" });
   });
 
   it("knows nothing of boxes without measures", () => {
@@ -77,11 +79,92 @@ describe("oogSummary", () => {
 });
 
 describe("20' open top", () => {
-  it("takes 589 × 220 × 234 cm in gauge and advises the 223 cm roof opening", () => {
-    expect(inGaugeMaximum(["20' OT"])).toEqual({ length: 589, width: 220, height: 234, limitedBy: "20' OT" });
-    expect(checkOog("20' OT", { length: 589, width: 220, height: 234 })).toMatchObject({ doesNotFit: null, lost: { total: 0 } });
-    expect(checkOog("20' OT", { length: 580, width: 222, height: 200 })?.doesNotFit).toBe("Wider or longer than a 20' OT - it needs a flat rack");
-    expect(gaugeAdvice("20' OT")).toBe("Roof opening is 223 cm wide");
+  it("takes 530 × 220 × 234 cm in gauge from the top", () => {
+    expect(inGaugeMaximum(["20' OT"])).toEqual({ length: 530, width: 220, height: 234, limitedBy: "20' OT" });
+    expect(checkOog("20' OT", { length: 530, width: 220, height: 234 })).toMatchObject({ loading: "top", doesNotFit: null, lost: { total: 0 } });
+  });
+
+  it("takes longer cargo up to 589 cm through the doors, within 232 cm wide and 225 cm high", () => {
+    expect(checkOog("20' OT", { length: 589, width: 232, height: 225 })).toMatchObject({ loading: "doors", doesNotFit: null, lost: { total: 0 } });
+  });
+
+  it("sends cargo too long and wide for the roof and too high for the doors to a flat rack", () => {
+    expect(checkOog("20' OT", { length: 531, width: 221, height: 226 })?.doesNotFit).toBe(
+      "Too long and wide for the roof opening (max 530 cm long, 220 cm wide) and too high for the doors (max 225 cm) - it needs a flat rack",
+    );
+  });
+
+  it("advises the 223 cm roof opening and the door limits", () => {
+    expect(gaugeAdvice("20' OT")).toBe("Roof opening is 223 cm wide. Up to 589 cm long when loaded through the doors: max 232 cm wide and 225 cm high");
     expect(gaugeAdvice("40' FR")).toBeNull();
+  });
+});
+
+describe("20' high-cube open top", () => {
+  it("takes 535 × 220 × 264 cm in gauge from the top", () => {
+    expect(inGaugeMaximum(["20' HOT"])).toEqual({ length: 535, width: 220, height: 264, limitedBy: "20' HOT" });
+    expect(checkOog("20' HOT", { length: 535, width: 220, height: 264 })).toMatchObject({ loading: "top", doesNotFit: null, lost: { total: 0 } });
+  });
+
+  it("takes longer cargo up to 589 cm through the doors, within 232 cm wide and 255 cm high", () => {
+    expect(checkOog("20' HOT", { length: 589, width: 232, height: 255 })).toMatchObject({ loading: "doors", doesNotFit: null, overHeight: 0, lost: { total: 0 } });
+    expect(oogSummary({ containers: [{ qty: 1, type: "20' HOT" }], oog: { inGauge: true, length: 589, width: 230, height: 250 } })).toBe(
+      "20' HOT · In gauge · 589 × 230 × 250 cm (L × W × H) · 20' HOT: load through the doors",
+    );
+    expect(gaugeAdvice("20' HOT")).toBe("Up to 589 cm long when loaded through the doors: max 232 cm wide and 255 cm high");
+  });
+
+  it("lets cargo short enough for the roof stand out of it, costing the slot above", () => {
+    expect(checkOog("20' HOT", { length: 500, width: 210, height: 300 })).toMatchObject({ loading: "top", overHeight: 36, lost: { above: 1, total: 1 } });
+  });
+
+  it("sends cargo too long for the roof and too high for the doors to a flat rack, naming only what is over", () => {
+    expect(checkOog("20' HOT", { length: 560, width: 220, height: 260 })?.doesNotFit).toBe(
+      "Too long for the roof opening (max 535 cm) and too high for the doors (max 255 cm) - it needs a flat rack",
+    );
+  });
+});
+
+describe("the flat-rack message", () => {
+  it("names every measure that is over, roof and doors alike", () => {
+    expect(checkOog("20' HOT", { length: 600, width: 240, height: 260 })?.doesNotFit).toBe(
+      "Too long and wide for the roof opening (max 535 cm long, 220 cm wide) and too long, wide and high for the doors (max 589 cm long, 232 cm wide, 255 cm high) - it needs a flat rack",
+    );
+  });
+});
+
+describe("40' open top", () => {
+  it("takes 1150 × 220 × 234 cm in gauge from the top", () => {
+    expect(inGaugeMaximum(["40' OT"])).toEqual({ length: 1150, width: 220, height: 234, limitedBy: "40' OT" });
+    expect(checkOog("40' OT", { length: 1150, width: 220, height: 234 })).toMatchObject({ loading: "top", doesNotFit: null, lost: { total: 0 } });
+  });
+
+  it("takes longer cargo up to 1200 cm through the doors, within 232 cm wide and 225 cm high", () => {
+    expect(checkOog("40' OT", { length: 1200, width: 232, height: 225 })).toMatchObject({ loading: "doors", doesNotFit: null, lost: { total: 0 } });
+    expect(gaugeAdvice("40' OT")).toBe("Up to 1,200 cm long when loaded through the doors: max 232 cm wide and 225 cm high");
+  });
+
+  it("sends cargo too long and wide for the roof and too high for the doors to a flat rack", () => {
+    expect(checkOog("40' OT", { length: 1151, width: 221, height: 226 })?.doesNotFit).toBe(
+      "Too long and wide for the roof opening (max 1,150 cm long, 220 cm wide) and too high for the doors (max 225 cm) - it needs a flat rack",
+    );
+  });
+});
+
+describe("40' high-cube open top", () => {
+  it("takes 1150 × 216 × 264 cm in gauge from the top", () => {
+    expect(inGaugeMaximum(["40' HOT"])).toEqual({ length: 1150, width: 216, height: 264, limitedBy: "40' HOT" });
+    expect(checkOog("40' HOT", { length: 1150, width: 216, height: 264 })).toMatchObject({ loading: "top", doesNotFit: null, lost: { total: 0 } });
+  });
+
+  it("takes longer cargo up to 1200 cm through the doors, within 232 cm wide and 255 cm high", () => {
+    expect(checkOog("40' HOT", { length: 1200, width: 232, height: 255 })).toMatchObject({ loading: "doors", doesNotFit: null, lost: { total: 0 } });
+    expect(gaugeAdvice("40' HOT")).toBe("Up to 1,200 cm long when loaded through the doors: max 232 cm wide and 255 cm high");
+  });
+
+  it("sends cargo too long and wide for the roof and too high for the doors to a flat rack", () => {
+    expect(checkOog("40' HOT", { length: 1151, width: 217, height: 256 })?.doesNotFit).toBe(
+      "Too long and wide for the roof opening (max 1,150 cm long, 216 cm wide) and too high for the doors (max 255 cm) - it needs a flat rack",
+    );
   });
 });

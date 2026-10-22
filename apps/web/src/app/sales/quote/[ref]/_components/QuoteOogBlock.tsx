@@ -149,7 +149,9 @@ export function QuoteOogBlock({ value, types, onChange, missing }: QuoteOogBlock
                               <span className="text-slate-500"> - {lostText(c.lost)}</span>
                             </span>
                           ) : (
-                            <span className="text-green-700 font-semibold">None - within the box</span>
+                            <span className="text-green-700 font-semibold">
+                              None - within the box{c.loading === "doors" && <span className="font-normal text-slate-600"> · load through the doors</span>}
+                            </span>
                           )}
                         </td>
                       </tr>

@@ -25,13 +25,47 @@ interface Gauge {
   flatRack: boolean;
   /** What the user is told of the box besides its measures. */
   advice?: string;
+  /** Longer cargo an open top still takes when it is loaded through its doors, within these measures. */
+  doors?: { length: number; width: number; height: number };
 }
 const GAUGES: Record<string, Gauge> = {
-  // The height holds for cargo up to the 220 cm width; the roof opening itself is 223 cm wide.
-  "20' OT": { length: 589, width: 220, height: 234, flatRack: false, advice: "Roof opening is 223 cm wide" },
-  "20' HOT": { length: 589, width: 234, height: 265, flatRack: false },
-  "40' OT": { length: 1203, width: 234, height: 234, flatRack: false },
-  "40' HOT": { length: 1203, width: 234, height: 265, flatRack: false },
+  // From the top up to 530 cm long - the height holds for cargo up to the 220 cm width, the roof
+  // opening itself is 223 cm wide; through the doors the full 589 cm, as long as the cargo passes them.
+  "20' OT": {
+    length: 530,
+    width: 220,
+    height: 234,
+    flatRack: false,
+    advice: "Roof opening is 223 cm wide. Up to 589 cm long when loaded through the doors: max 232 cm wide and 225 cm high",
+    doors: { length: 589, width: 232, height: 225 },
+  },
+  // From the top up to 535 cm; through the doors the full 589 cm, as long as the cargo passes them.
+  "20' HOT": {
+    length: 535,
+    width: 220,
+    height: 264,
+    flatRack: false,
+    advice: "Up to 589 cm long when loaded through the doors: max 232 cm wide and 255 cm high",
+    doors: { length: 589, width: 232, height: 255 },
+  },
+  // From the top up to 1,150 cm long; through the doors up to 1,200 cm, as long as the cargo passes them.
+  "40' OT": {
+    length: 1150,
+    width: 220,
+    height: 234,
+    flatRack: false,
+    advice: "Up to 1,200 cm long when loaded through the doors: max 232 cm wide and 225 cm high",
+    doors: { length: 1200, width: 232, height: 225 },
+  },
+  // From the top up to 1,150 cm long; through the doors up to 1,200 cm, as long as the cargo passes them.
+  "40' HOT": {
+    length: 1150,
+    width: 216,
+    height: 264,
+    flatRack: false,
+    advice: "Up to 1,200 cm long when loaded through the doors: max 232 cm wide and 255 cm high",
+    doors: { length: 1200, width: 232, height: 255 },
+  },
   "20' FR": { length: 562, width: 244, height: 223, flatRack: true },
   "40' FR": { length: 1162, width: 244, height: 195, flatRack: true },
 };
@@ -49,9 +83,26 @@ export interface OogCheck {
   overLengthPerEnd: number;
   /** What does not go at all: an open top has walls - cargo wider or longer than it needs a flat rack. */
   doesNotFit: string | null;
+  /** How an open top is loaded with the cargo: from the top, or through its doors where it is too long for the roof opening. */
+  loading: "top" | "doors" | null;
   /** Slots lost around one such box, by where they are, and all of them. */
   lost: { above: number; left: number; right: number; front: number; back: number; corners: number; total: number };
 }
+
+// What of the cargo is over a limit, in words, with the place it is over at: "too long for the
+// roof opening (max 535 cm)", "too long and wide for a 20' OT (max 589 cm long, 220 cm wide)".
+// Only the measures the limit has are compared.
+function tooBig(cargo: { length: number; width: number; height: number }, max: Partial<Record<"length" | "width" | "height", number>>, at: string): string {
+  const word = { length: "long", width: "wide", height: "high" } as const;
+  const over = (["length", "width", "height"] as const).filter((m) => max[m] !== undefined && cargo[m] > max[m]!);
+  if (!over.length) return `too big ${at}`;
+  const words = over.map((m) => word[m]);
+  const said = words.length === 1 ? words[0] : `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
+  const cm = (m: (typeof over)[number]) => `${max[m]!.toLocaleString("en-US")} cm`;
+  const limits = over.length === 1 ? cm(over[0]!) : over.map((m) => `${cm(m)} ${word[m]}`).join(", ");
+  return `too ${said} ${at} (max ${limits})`;
+}
+const capitalise = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
 /**
  * The cargo - its overall length, the widest piece and the highest piece, in cm - against one box
@@ -63,13 +114,30 @@ export function checkOog(type: string, cargo: { length: number; width: number; h
   const gauge = GAUGES[type.trim()];
   if (!gauge) return null;
   const round = (v: number) => Math.max(0, Math.round(v));
-  const overWidthPerSide = round((cargo.width - gauge.width) / 2);
-  const overHeight = round(cargo.height - gauge.height);
-  const overLengthPerEnd = round((cargo.length - gauge.length) / 2);
+  let overWidthPerSide = round((cargo.width - gauge.width) / 2);
+  let overHeight = round(cargo.height - gauge.height);
+  let overLengthPerEnd = round((cargo.length - gauge.length) / 2);
 
   let doesNotFit: string | null = null;
-  if (!gauge.flatRack && (overWidthPerSide > 0 || overLengthPerEnd > 0)) {
-    doesNotFit = `Wider or longer than a ${type} - it needs a flat rack`;
+  let loading: OogCheck["loading"] = null;
+  if (!gauge.flatRack) {
+    // An open top is loaded from the top - its walls hold the width and length, and only the
+    // height may stand out of the roof - or, where it has door measures, through its doors with
+    // cargo too long for the roof opening that passes them.
+    const fromTop = overWidthPerSide === 0 && overLengthPerEnd === 0;
+    const doors = gauge.doors;
+    const throughDoors = !!doors && cargo.length <= doors.length && cargo.width <= doors.width && cargo.height <= doors.height;
+    if (fromTop && !(throughDoors && overHeight > 0)) {
+      loading = "top";
+    } else if (throughDoors) {
+      loading = "doors";
+      overWidthPerSide = overHeight = overLengthPerEnd = 0;
+    } else {
+      const walls = { length: gauge.length, width: gauge.width };
+      doesNotFit = doors
+        ? `${capitalise(tooBig(cargo, walls, "for the roof opening"))} and ${tooBig(cargo, doors, "for the doors")} - it needs a flat rack`
+        : `${capitalise(tooBig(cargo, walls, `for a ${type}`))} - it needs a flat rack`;
+    }
   }
 
   const slots = (over: number, size: number) => (over > 0 ? Math.ceil(over / size) : 0);
@@ -84,6 +152,7 @@ export function checkOog(type: string, cargo: { length: number; width: number; h
     overHeight,
     overLengthPerEnd,
     doesNotFit,
+    loading,
     lost: { above, left: side, right: side, front: end, back: end, corners, total: above + side * 2 + end * 2 + corners },
   };
 }
@@ -141,6 +210,7 @@ export function oogSummary(data: Pick<SalesQuoteData, "containers" | "oog">): st
       const check = checkOog(type, { length: o.length, width: o.width, height: o.height });
       if (check?.doesNotFit) parts.push(`${type}: ${check.doesNotFit.toLowerCase()}`);
       else if (check?.lost.total) parts.push(`${type}: ${check.lost.total} lost slot${check.lost.total === 1 ? "" : "s"} per container`);
+      else if (check?.loading === "doors") parts.push(`${type}: load through the doors`);
     }
   }
   return parts.join(" · ");
