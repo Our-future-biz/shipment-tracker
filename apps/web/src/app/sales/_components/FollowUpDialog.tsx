@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Alert, Button, Form, Input } from "antd";
+import type { TextAreaRef } from "antd/es/input/TextArea";
+import { ConfirmModal } from "@/components/ConfirmModal";
 import { businessDateTime } from "@/lib/date";
 import { isFeedbackLine } from "../_lib/salesQuote";
 import type { TimelineEntry } from "../_lib/types";
@@ -36,14 +38,23 @@ export function FollowUpDialog({
   // The request is on its way: the dialog waits for the server's answer.
   const [recording, setRecording] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
+  // "Record follow-up" was pressed with no note: whether to record it so is asked first.
+  const [askEmpty, setAskEmpty] = useState(false);
+  const noteField = useRef<TextAreaRef>(null);
 
-  const record = async () => {
+  const send = async () => {
+    setAskEmpty(false);
     setRecording(true);
     setRefusal(null);
     const refused = await onRecord(note.trim() || undefined);
     setRecording(false);
     if (refused) setRefusal(refused);
     else onClose();
+  };
+
+  const record = () => {
+    if (note.trim()) void send();
+    else setAskEmpty(true);
   };
 
   return (
@@ -72,6 +83,7 @@ export function FollowUpDialog({
       <Form layout="vertical" disabled={recording}>
         <Form.Item label="Note (optional)" className="!mb-0">
           <Input.TextArea
+            ref={noteField}
             rows={3}
             maxLength={MAX_NOTE_LENGTH}
             placeholder="What was said or agreed - it goes into the quote's history"
@@ -81,6 +93,18 @@ export function FollowUpDialog({
         </Form.Item>
       </Form>
       <FollowUpHistory history={history} />
+      <ConfirmModal
+        open={askEmpty}
+        title="No note written"
+        description={`The follow-up on ${quoteNumber} will be recorded without a note of what was said or agreed.`}
+        cancelLabel="Add a note"
+        confirmLabel="Record without note"
+        onClose={() => {
+          setAskEmpty(false);
+          noteField.current?.focus();
+        }}
+        onConfirm={() => void send()}
+      />
     </SalesDialog>
   );
 }
