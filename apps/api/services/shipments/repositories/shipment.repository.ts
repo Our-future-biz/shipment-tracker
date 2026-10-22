@@ -1,4 +1,4 @@
-import { and, eq, or, ilike, inArray, isNotNull, isNull, notInArray, desc, asc, count, sql } from "drizzle-orm";
+import { and, eq, or, ilike, inArray, isNotNull, isNull, notInArray, desc, asc, count, sql, getTableColumns, type SQL } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
@@ -6,6 +6,7 @@ import { shipmentTable, type NewShipmentRecord, type ShipmentRecord } from "../s
 import { CANCELLED_STATUS } from "../lib/fieldDefaults";
 import { shipmentRefCounterRepository } from "./shipmentRefCounter.repository";
 import { masterJobTable } from "../schemas/masterJob.schema";
+import { containerTable } from "../schemas/container.schema";
 import { containsAllWords } from "../../../lib/db/textSearch";
 
 /** A new shipment's own fields; the repository sets the company and the job number. */
@@ -20,6 +21,79 @@ export type NewShipmentData = Omit<NewShipmentRecord, "companyId" | "jobNumber">
  */
 // The business's calendar day. The database runs in UTC, where CURRENT_DATE would still
 // be yesterday for the first hours of a Prague morning.
+/**
+ * What the Shipments search looks in: the parties and the route, every reference a shipment is
+ * known by (B/Ls, booking, customer's and sales references, MRN, warehouse and release
+ * references), the transport (vessel, voyage, line, agent), the cargo, its master job's MCZ and
+ * its container numbers.
+ */
+const MCZ_TEXT = sql`(SELECT ${masterJobTable.mczNumber} FROM ${masterJobTable} WHERE ${masterJobTable.id} = ${shipmentTable.masterJobId})`;
+const containerText = (column: PgColumn) =>
+  sql`(SELECT string_agg(${column}, ' ') FROM ${containerTable} WHERE ${containerTable.shipmentId} = ${shipmentTable.id} AND ${containerTable.deletedAt} IS NULL)`;
+
+const SEARCHED_TEXT = [
+  shipmentTable.jobNumber,
+  shipmentTable.shipper,
+  shipmentTable.consignee,
+  shipmentTable.customer,
+  shipmentTable.pol,
+  shipmentTable.pod,
+  shipmentTable.origin,
+  shipmentTable.destination,
+  shipmentTable.personalReference,
+  shipmentTable.customerReference,
+  shipmentTable.salesNumber,
+  shipmentTable.bookingNumber,
+  shipmentTable.houseBolNumber,
+  shipmentTable.masterBolNumber,
+  shipmentTable.switchBolNumber,
+  shipmentTable.mrn,
+  shipmentTable.warehouseReference,
+  shipmentTable.releaseReference,
+  shipmentTable.redeliveryReference,
+  shipmentTable.vessel,
+  shipmentTable.voyage,
+  shipmentTable.shippingLine,
+  shipmentTable.agent,
+  shipmentTable.cargoDescription,
+  shipmentTable.hsCode,
+  MCZ_TEXT,
+  containerText(containerTable.containerNumber),
+];
+
+const SHIPMENT_COLUMNS: Record<string, PgColumn> = getTableColumns(shipmentTable);
+/** Grid columns whose text is not a shipment column of the same name. */
+const RELATED_TEXT: Record<string, SQL> = {
+  masterJob: MCZ_TEXT,
+  containerNumber: containerText(containerTable.containerNumber),
+  sealNumber: containerText(containerTable.sealNumber),
+};
+
+/**
+ * The text of the grid columns the user has chosen, as the Shipments search looks in it: a
+ * shipment column as stored, a date as the grid shows it (DD.MM.YYYY), the master job's MCZ
+ * and the containers' numbers and seals. A column worked out in the browser (weeks, totals,
+ * profit) or an unknown key is left out; the Internal Reference is always searched.
+ */
+export function searchedColumns(keys: string[]): (PgColumn | SQL)[] {
+  const text: (PgColumn | SQL)[] = [shipmentTable.jobNumber];
+  for (const key of new Set(keys)) {
+    if (key === "jobNumber") continue;
+    const related = Object.hasOwn(RELATED_TEXT, key) ? RELATED_TEXT[key] : undefined;
+    if (related) {
+      text.push(related);
+      continue;
+    }
+    const column = Object.hasOwn(SHIPMENT_COLUMNS, key) ? SHIPMENT_COLUMNS[key] : undefined;
+    if (!column) continue;
+    const type = column.getSQLType();
+    if (type === "text") text.push(column);
+    else if (type === "date") text.push(sql`to_char(${column}, 'DD.MM.YYYY')`);
+    else if (type.startsWith("numeric") || type === "integer") text.push(sql`${column}::text`);
+  }
+  return text;
+}
+
 const TODAY = sql`(now() AT TIME ZONE 'Europe/Prague')::date`;
 
 // Relevant date: export -> departure, otherwise arrival.
@@ -155,6 +229,8 @@ export interface ShipmentListFilters {
   /** Invoicing page: billing (Shipment Status Billing) | not-invoiced | invoiced (Invoicing Status) */
   invoicing?: string;
   search?: string;
+  /** The grid columns (their keys) the search looks in; without them, SEARCHED_TEXT. */
+  searchColumns?: string[];
   limit: number;
   offset: number;
   sortDirection: "asc" | "desc";
@@ -468,7 +544,7 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
     }
     // Every word typed, anywhere in these columns, without regard to diacritics or case.
     if (f.search) {
-      const match = containsAllWords([shipmentTable.jobNumber, shipmentTable.shipper, shipmentTable.consignee, shipmentTable.customer, shipmentTable.pol, shipmentTable.pod], f.search);
+      const match = containsAllWords(f.searchColumns?.length ? searchedColumns(f.searchColumns) : SEARCHED_TEXT, f.search);
       if (match) clauses.push(match);
     }
     const where = and(...clauses);

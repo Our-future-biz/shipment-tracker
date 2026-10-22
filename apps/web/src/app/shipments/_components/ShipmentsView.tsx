@@ -22,8 +22,10 @@ export const ShipmentsView = () => {
   // "Create shipment" on a quote's page leads here with ?fromQuote=QCZ...
   const fromQuote = searchParams.get("fromQuote");
 
+  // The search looks only in the columns the table shows.
+  const [searchColumns, setSearchColumns] = useState<string[]>();
   const { shipments, total, isLoading, createShipment, linkMasterJob, isCreating } =
-    useShipments({ search, statusBucket, tile });
+    useShipments({ search, searchColumns, statusBucket, tile });
   const toast = useToast();
   const [createOpen, setCreateOpen] = useState(false);
   const [masterJobOpen, setMasterJobOpen] = useState(false);
@@ -71,6 +73,7 @@ export const ShipmentsView = () => {
         shipments={shipments}
         cap={{ shown: shipments.length, total }}
         isLoading={isLoading}
+        onVisibleColumnsChange={setSearchColumns}
         onCreateClick={() => setCreateOpen(true)}
         onAddMasterJob={(ids) => {
           setMasterJobPreselected(ids);

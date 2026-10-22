@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { SQL } from "drizzle-orm";
+import { sql, type SQL } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 
 // The parts of the repository that find the shipments of a sales quote and tell what the
@@ -90,7 +90,7 @@ vi.mock("../../db/db", () => ({ db: fake.db }));
 vi.mock("../../repositories/shipmentRefCounter.repository", () => ({ shipmentRefCounterRepository: fake.counter }));
 
 import { SALES_REFERENCE_PATTERN } from "../../../../lib/salesReference";
-import { shipmentRepository } from "../../repositories/shipment.repository";
+import { searchedColumns, shipmentRepository } from "../../repositories/shipment.repository";
 import { shipmentTable } from "../../schemas/shipment.schema";
 
 const COMPANY = "86f202b1-7449-441b-9c5b-5bf4d89f8d88";
@@ -235,5 +235,30 @@ describe("customerFacts", () => {
     expect(fields.firstJobNumber).toBe(shipmentTable.jobNumber);
     expect(sent(fields.lastShipmentAt).sql).toBe('max("shipment"."created_at") over (partition by "shipment"."customer_id")');
     expect(sent(fields.shipmentCount).sql).toBe('count(*) over (partition by "shipment"."customer_id")');
+  });
+});
+
+describe("searchedColumns", () => {
+  // The text the Shipments search looks in for the chosen grid columns, as Postgres gets it.
+  const searched = (keys: string[]) => sent(sql.join(searchedColumns(keys), sql`, `)).sql;
+
+  it("looks in the chosen shipment columns, always with the Internal Reference", () => {
+    expect(searched(["houseBolNumber", "shipper"])).toBe('"shipment"."job_number", "shipment"."house_bol_number", "shipment"."shipper"');
+    expect(searched(["jobNumber"])).toBe('"shipment"."job_number"');
+  });
+
+  it("reads a master job by its MCZ and the containers by their numbers or seals", () => {
+    expect(searched(["masterJob"])).toContain('SELECT "master_job"."mcz_number" FROM "master_job"');
+    expect(searched(["containerNumber"])).toContain('string_agg("container"."container_number"');
+    expect(searched(["sealNumber"])).toContain('string_agg("container"."seal_number"');
+  });
+
+  it("reads a date as the grid shows it", () => {
+    expect(searched(["estimatedDeparture"])).toBe(`"shipment"."job_number", to_char("shipment"."estimated_departure", 'DD.MM.YYYY')`);
+  });
+
+  it("leaves out what the browser works out and keys it doesn't know, an object's own names among them", () => {
+    expect(searched(["freightTon", "estimatedDepartureWeek", "profit", "nonsense"])).toBe('"shipment"."job_number"');
+    expect(searched(["constructor", "toString", "__proto__", "hasOwnProperty"])).toBe('"shipment"."job_number"');
   });
 });

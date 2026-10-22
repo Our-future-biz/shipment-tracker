@@ -67,8 +67,11 @@ export function CustomsView() {
   // The filter runs on the server over every shipment: an Urgent one with a Prague deadline
   // within the next 24 hours or passed, not yet released by customs.
   const urgentOnly = searchParams.get("urgent") === "1";
+  // The search looks only in the columns the table shows.
+  const [searchColumns, setSearchColumns] = useState<string[]>();
   const { shipments, total, isLoading, updateField } = useShipments({
     search,
+    searchColumns,
     customs: urgentOnly ? "urgent" : undefined,
     refetchInterval: urgentOnly ? URGENT_REFRESH_MS : undefined,
   });
@@ -182,6 +185,7 @@ export function CustomsView() {
             shipments={rows}
             cap={{ shown: shipments.length, total }}
             isLoading={isLoading}
+            onVisibleColumnsChange={setSearchColumns}
             toolbarLead={
               <CountToggleButton
                 label="Urgents in next 24hrs"

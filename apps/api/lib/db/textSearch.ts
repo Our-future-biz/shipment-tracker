@@ -81,8 +81,9 @@ export const foldSql = (text: SQL): SQL =>
 /**
  * Rows whose `columns`, joined and folded, contain every word of `search` (see searchTokens),
  * ignoring diacritics and case; % and _ typed by the user are literal. Undefined for no words.
+ * A column can also be an SQL expression (e.g. a value of a related table).
  */
-export function containsAllWords(columns: PgColumn[], search: string): SQL | undefined {
+export function containsAllWords(columns: (PgColumn | SQL)[], search: string): SQL | undefined {
   const words = searchTokens(search);
   if (!words.length) return undefined;
   const text = foldSql(sql`concat_ws(' ', ${sql.join(columns, sql`, `)})`);

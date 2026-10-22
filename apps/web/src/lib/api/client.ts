@@ -1925,6 +1925,7 @@ export namespace shipments {
                 masterJobMcz:  params.masterJobMcz,
                 offset:        params.offset === undefined ? undefined : String(params.offset),
                 search:        params.search,
+                searchColumns: params.searchColumns?.map((v) => v),
                 sortDirection: params.sortDirection === undefined ? undefined : String(params.sortDirection),
                 status:        params.status,
                 statusBucket:  params.statusBucket,
@@ -7170,6 +7171,10 @@ export namespace controllers {
         invoicing?: string
 
         search?: string
+        /**
+         * The grid columns the search looks in (the ones the user has chosen); all the usual ones when not given.
+         */
+        searchColumns?: string[]
     }
 
     export interface ShipmentListResponse {

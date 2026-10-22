@@ -79,6 +79,8 @@ export interface ShipmentsTableProps {
    * when that is not all of them, the list says so.
    */
   cap?: { shown: number; total: number };
+  /** Told the columns shown (their keys, in order) whenever they change: the search looks only in them. */
+  onVisibleColumnsChange?: (columnKeys: string[]) => void;
 }
 
 type ColFilter = { key: string; value: string };
@@ -137,6 +139,7 @@ export const ShipmentsTable = ({
   selectionActions,
   toolbarLead,
   cap,
+  onVisibleColumnsChange,
 }: ShipmentsTableProps) => {
   const router = useRouter();
   const pathname = usePathname();
@@ -155,6 +158,7 @@ export const ShipmentsTable = ({
   const leadColumn = view?.leadColumn;
   const viewReadonly = view?.readonlyColumns;
   const visible = useMemo(() => (leadColumn ? [leadColumn, ...chosen.filter((k) => k !== leadColumn)] : chosen), [chosen, leadColumn]);
+  useEffect(() => onVisibleColumnsChange?.(visible), [visible, onVisibleColumnsChange]);
   // Search text, kept in sync with the URL ?q= param (also driven by the global top-nav search)
   const urlQuery = searchParams.get("q") ?? "";
   const [search, setSearch] = useState(urlQuery);

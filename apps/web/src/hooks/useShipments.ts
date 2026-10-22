@@ -54,8 +54,10 @@ export function buildRowData(shipment: ShipmentItem): Record<string, string> {
 }
 
 export interface ShipmentQueryParams {
-  /** Free-text search, executed server-side across job#, shipper, consignee, customer, POL, POD. */
+  /** Free-text search, executed server-side (in `searchColumns`, else the usual references and parties). */
   search?: string;
+  /** The grid columns the search looks in: the ones the user has chosen to show. */
+  searchColumns?: string[];
   /** Coarse status bucket, matched server-side. */
   statusBucket?: string;
   /** Overview tile filter, matched server-side. */
@@ -252,12 +254,15 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
   const warehouse = params.warehouse || undefined;
   const customs = params.customs || undefined;
   const masterJobMcz = params.masterJobMcz?.trim() || undefined;
+  // The columns only matter to a search: changing them without one doesn't reload the list.
+  const searchColumns = search && params.searchColumns?.length ? params.searchColumns : undefined;
 
   // Search and status are applied server-side (scoped to the company), so they cover the
   // whole dataset rather than only the rows already loaded in the browser.
   const query = useQuery({
-    queryKey: ["shipments", search ?? "", statusBucket ?? "", tile ?? "", warehouse ?? "", customs ?? "", masterJobMcz ?? ""],
-    queryFn: () => api.shipments.shipmentList({ limit: SHIPMENT_LIST_LIMIT, search, statusBucket, tile, warehouse, customs, masterJobMcz }),
+    queryKey: ["shipments", search ?? "", statusBucket ?? "", tile ?? "", warehouse ?? "", customs ?? "", masterJobMcz ?? "", searchColumns?.join(",") ?? ""],
+    queryFn: () =>
+      api.shipments.shipmentList({ limit: SHIPMENT_LIST_LIMIT, search, searchColumns, statusBucket, tile, warehouse, customs, masterJobMcz }),
     placeholderData: (prev) => prev,
     refetchInterval: params.refetchInterval,
     enabled: params.enabled ?? true,

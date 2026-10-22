@@ -23,6 +23,8 @@ interface ShipmentListRequest {
   /** Invoicing page filter: billing | not-invoiced | invoiced */
   invoicing?: string;
   search?: string;
+  /** The grid columns the search looks in (the ones the user has chosen); all the usual ones when not given. */
+  searchColumns?: string[];
 }
 
 interface ShipmentListResponse {
@@ -47,6 +49,7 @@ export const shipmentList = api(
       customs: req.customs,
       invoicing: req.invoicing,
       search: req.search,
+      searchColumns: req.searchColumns?.slice(0, 200),
       limit: Math.min(Math.max(req.limit ?? 100, 1), 200),
       offset: Math.max(req.offset ?? 0, 0),
       sortDirection: req.sortDirection ?? "desc",
