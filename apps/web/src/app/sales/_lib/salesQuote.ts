@@ -341,6 +341,17 @@ export function computeTotals(data: SalesQuoteData, sheet: ExchangeRates, live?:
   };
 }
 
+// The profit a quote calculated, in `currency`: converted from the quote's currency at the quote's
+// own rates (those stored when it was sent), so it stays the figure the quote was sold at. Null
+// when a rate it needs is missing.
+export function quoteProfitIn(data: SalesQuoteData, sheet: ExchangeRates, currency: string): number | null {
+  const { profit, currency: from } = computeTotals(data, sheet);
+  if (from === currency) return profit;
+  const fromRate = rateOf(from, data, sheet);
+  const toRate = rateOf(currency, data, sheet);
+  return fromRate === null || toRate === null ? null : roundCents((profit * fromRate) / toRate);
+}
+
 // One line saying which rates a quote's totals use - for the people pricing it.
 export function fxNote(totals: QuoteTotals): string {
   const currency = totals.currency;

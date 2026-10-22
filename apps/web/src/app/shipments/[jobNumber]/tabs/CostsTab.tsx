@@ -11,7 +11,8 @@ import type { controllers } from "@/lib/api/client";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { formatDate, formatDateTime } from "@/lib/date";
 import { normaliseAmount } from "@/lib/money";
-import { isSalesQuoteRef } from "@/app/sales/_lib/salesQuote";
+import { asData, computeTotals, isSalesQuoteRef, quoteProfitIn } from "@/app/sales/_lib/salesQuote";
+import { useSalesQuoteByRef } from "@/hooks/useSalesQuote";
 import { chargeLabel, chargeOptions } from "@/lib/chargeCodes";
 import { money, signed, num, type BuyingRow, type SellingRow } from "./costsCalc";
 import { useCostsData } from "./useCostsData";
@@ -191,6 +192,16 @@ export function CostsTab({ shipment }: CostsTabProps) {
   // Once a quote's lines are in, the estimate is the quote's alone: a line added by hand gets a
   // real cost only, its Estimated cells stay empty and closed (the server refuses an estimate).
   const quotePriced = quoteRefs.size > 0;
+
+  // The quote the Report compares the profit with: the one the buying lines were copied from,
+  // else the one the Sales Number names. Its profit is the quote's own figure, at its own rates.
+  const shipmentQuote = (shipment.salesNumber ?? "").trim();
+  const profitQuoteRef = [...quoteRefs.values()][0] ?? (isSalesQuoteRef(shipmentQuote) ? shipmentQuote : null);
+  const profitQuote = useSalesQuoteByRef(profitQuoteRef);
+  const profitQuoteData = profitQuote.data?.quote ? asData(profitQuote.data.quote.data) : null;
+  // The job's profit against the quote's, in CZK, for the Report's bar.
+  const quoteProfitCZK = profitQuoteData ? quoteProfitIn(profitQuoteData, rates, "CZK") : null;
+  const vsQuoteCZK = t.hasAny && quoteProfitCZK !== null ? t.profitCZK - quoteProfitCZK : null;
   // Only the trips these rows name are read (a few), not the whole trips list.
   const tripIds = [...new Set([...truckingRefs.values()].flatMap((ref) => {
     const parsed = parseTruckingRef(ref);
@@ -1063,6 +1074,18 @@ export function CostsTab({ shipment }: CostsTabProps) {
                 </span>
               </span>
             ))}
+            {vsQuoteCZK !== null && (
+              <span className="flex items-center gap-2" title={`The job's profit minus the profit ${profitQuoteRef} calculated, in CZK`}>
+                <span className="text-[11.5px] font-semibold text-white/45">vs quote</span>
+                <span
+                  className={`text-[13px] font-bold tabular-nums ${
+                    vsQuoteCZK > 0.004 ? "text-green-400" : vsQuoteCZK < -0.004 ? "text-red-400" : "text-white/70"
+                  }`}
+                >
+                  {signed(vsQuoteCZK)}
+                </span>
+              </span>
+            )}
           </span>
         </button>
 
@@ -1104,6 +1127,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
                     ))}
                   </tr>
                 ))}
+                {profitQuoteRef && <QuoteProfitRows quoteRef={profitQuoteRef} data={profitQuoteData} loading={profitQuote.isLoading} rates={rates} profitCZK={t.profitCZK} hasAny={t.hasAny} />}
               </tbody>
             </table>
 
@@ -1193,5 +1217,63 @@ export function CostsTab({ shipment }: CostsTabProps) {
         </div>
       </Modal>
     </div>
+  );
+}
+
+// The Report's comparison with the quote: the profit the quote calculated - in each column's
+// currency, at the quote's own rates - and how far the job's profit is from it now. A difference
+// below zero is profit lost against the quote.
+function QuoteProfitRows({ quoteRef, data, loading, rates, profitCZK, hasAny }: {
+  quoteRef: string;
+  data: ReturnType<typeof asData> | null;
+  loading: boolean;
+  rates: Record<string, number>;
+  profitCZK: number;
+  hasAny: boolean;
+}) {
+  const label = "px-[15px] py-[10px] text-[13px] text-slate-700 border-b border-slate-100";
+  const cell = "px-[15px] py-[10px] text-right text-[13px] tabular-nums border-b border-slate-100 whitespace-nowrap";
+  const columns = ["CZK", "USD", "EUR"];
+  if (!data) {
+    return (
+      <tr>
+        <td className={label}>Quote profit ({quoteRef})</td>
+        <td colSpan={3} className={`${cell} text-slate-400`}>{loading ? "Loading the quote…" : "The quote could not be read"}</td>
+      </tr>
+    );
+  }
+  const quoted = columns.map((c) => quoteProfitIn(data, rates, c));
+  // A quote line in a currency without a rate is not in the quote's own profit either.
+  const incomplete = computeTotals(data, rates).missingRates.length > 0;
+  const now = columns.map((c) => (c === "CZK" ? profitCZK : rates[c] ? profitCZK / rates[c] : null));
+  const diff = columns.map((_, i) => (quoted[i] === null || now[i] === null ? null : now[i]! - quoted[i]!));
+  const tone = (v: number) => (v > 0.004 ? "text-ok" : v < -0.004 ? "text-danger" : "text-slate-500");
+  return (
+    <>
+      <tr>
+        <td className={label}>
+          Quote profit{" "}
+          <Link href={`/sales/quote/${quoteRef}`} className="text-indigo-600 hover:underline">{quoteRef}</Link>
+          {incomplete && (
+            <Tooltip title="A line of the quote is in a currency without a rate and is left out of its profit">
+              <WarningOutlined className="ml-1.5 text-warn" />
+            </Tooltip>
+          )}
+        </td>
+        {quoted.map((v, i) => (
+          <td key={i} className={`${cell} ${v === null ? "text-slate-300" : "text-slate-900"}`}>{v === null ? "—" : signed(v)}</td>
+        ))}
+      </tr>
+      <tr className="font-bold">
+        <td className={label}>
+          <Tooltip title="The job's profit now minus the profit the quote calculated. Below zero, the job earns less than the quote did.">
+            <span>Difference vs quote</span>
+          </Tooltip>
+        </td>
+        {diff.map((v, i) => (
+          <td key={i} className={`${cell} ${!hasAny || v === null ? "text-slate-300" : tone(v)}`}>{hasAny && v !== null ? signed(v) : "—"}</td>
+        ))}
+      </tr>
+    </>
   );
 }

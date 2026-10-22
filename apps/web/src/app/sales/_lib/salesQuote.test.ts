@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { baseRef, followStored, followUpLines, quoteFamily, revisionRoot, withoutPricing, type SalesQuote } from "./salesQuote";
+import type { SalesQuoteData } from "./types";
+import { baseRef, followStored, followUpLines, quoteProfitIn, quoteFamily, revisionRoot, withoutPricing, type SalesQuote } from "./salesQuote";
 
 const quote = (quoteNumber: string): SalesQuote => ({ quoteNumber }) as SalesQuote;
 
@@ -61,5 +62,27 @@ describe("followUpLines", () => {
     ];
     expect(followUpLines({ timeline }).map((e) => e.at)).toEqual(["2026-10-13T11:00:00Z", "2026-10-12T11:00:00Z", "2026-10-09T10:30:00Z", "2026-10-05T09:00:00Z"]);
     expect(followUpLines({})).toEqual([]);
+  });
+});
+
+describe("quoteProfitIn", () => {
+  // A sent EUR quote: its rates are the ones stored when it was sent, not today's.
+  const data = {
+    currency: "EUR",
+    quoteStatus: "quoted",
+    fx: { date: "2026-10-22", fixingDate: "2026-10-22", roePct: 100, rates: { EUR: 25, USD: 20 } },
+    sellingLines: [{ amount: 275, currency: "EUR" }],
+    buyingLines: [{ amount: 150, currency: "EUR" }],
+  } as unknown as SalesQuoteData;
+  const today = { EUR: 24.26, USD: 21.593 };
+
+  it("is the quote's profit at the quote's own rates, in any currency", () => {
+    expect(quoteProfitIn(data, today, "EUR")).toBe(125);
+    expect(quoteProfitIn(data, today, "CZK")).toBe(3125);
+    expect(quoteProfitIn(data, today, "USD")).toBe(156.25);
+  });
+
+  it("is null for a currency nobody has a rate for", () => {
+    expect(quoteProfitIn(data, today, "GBP")).toBeNull();
   });
 });
