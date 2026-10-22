@@ -2,7 +2,7 @@
 
 import { RightOutlined } from "@ant-design/icons";
 import type { ShipmentItem } from "@/hooks/useShipments";
-import { useShipmentAttachments, type AttachmentItem } from "@/hooks/useShipmentAttachments";
+import { useShipmentAlerts } from "@/hooks/useShipmentAlerts";
 import { CountChip, SectionCard } from "@/components/SectionCard";
 import { formatDateTime } from "@/lib/date";
 import { CustomsPill } from "./docsShared";
@@ -17,11 +17,7 @@ interface NotificationsTabProps {
 // verdict on a document. Only the fact that something changed is told, newest first: a click
 // leads to the Documents tab, where the whole of it (the reason for a decline, ...) is.
 export function NotificationsTab({ shipment, onOpen }: NotificationsTabProps) {
-  const { attachments, isLoading, isError } = useShipmentAttachments(shipment.id);
-  // A document carries customs' latest verdict and when it was given: one alert each.
-  const reviewed = attachments
-    .filter((a): a is AttachmentItem & { customsReviewedAt: string } => !!a.customsStatus && !!a.customsReviewedAt)
-    .sort((a, b) => b.customsReviewedAt.localeCompare(a.customsReviewedAt));
+  const { alerts: reviewed, isLoading, isError } = useShipmentAlerts(shipment.id);
 
   let empty = "No alerts yet";
   if (isLoading) empty = "Loading alerts…";

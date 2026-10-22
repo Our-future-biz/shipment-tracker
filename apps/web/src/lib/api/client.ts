@@ -1615,6 +1615,8 @@ export namespace shipments {
 
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
+            this.alertMarkRead = this.alertMarkRead.bind(this)
+            this.alertReadGet = this.alertReadGet.bind(this)
             this.attachmentClassify = this.attachmentClassify.bind(this)
             this.attachmentContent = this.attachmentContent.bind(this)
             this.attachmentCreate = this.attachmentCreate.bind(this)
@@ -1656,6 +1658,28 @@ export namespace shipments {
             this.taskUpsert = this.taskUpsert.bind(this)
             this.userPrefGet = this.userPrefGet.bind(this)
             this.userPrefSet = this.userPrefSet.bind(this)
+        }
+
+        /**
+         * Marks a shipment's Alerts as seen up to now (called when the Alerts tab is opened).
+         */
+        public async alertMarkRead(shipmentId: string): Promise<{
+    ok: boolean
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/alerts/read`)
+            return await resp.json() as {
+    ok: boolean
+}
+        }
+
+        /**
+         * When this user last opened a shipment's Alerts: what came later is new to them.
+         */
+        public async alertReadGet(shipmentId: string): Promise<controllers.AlertReadResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipments/${encodeURIComponent(shipmentId)}/alerts/read`)
+            return await resp.json() as controllers.AlertReadResponse
         }
 
         public async attachmentClassify(shipmentId: string, attachmentId: string, params: controllers.AttachmentClassifyRequest): Promise<controllers.AttachmentClassifyResponse> {
@@ -4415,6 +4439,13 @@ export namespace controllers {
 
     export interface AddressUpdateResponse {
         address: interfaces.AddressItem
+    }
+
+    export interface AlertReadResponse {
+        /**
+         * When this user last opened the shipment's Alerts; null when never - every alert is new then.
+         */
+        readAt: string | null
     }
 
     export interface AlertsResponse {
