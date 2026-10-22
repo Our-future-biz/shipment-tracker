@@ -76,7 +76,7 @@ const TABS = [
   { key: "warehouse", label: "Warehouse" },
   { key: "tracking", label: "Tracking" },
   { key: "claim", label: "Claim" },
-  { key: "notifications", label: "Notifications" },
+  { key: "alerts", label: "Alerts" },
 ];
 
 /* ── Stepper stages ── */
@@ -1614,7 +1614,7 @@ export function ShipmentDetailContent() {
 
         {activeTab === "claim" && <ClaimsTab shipment={shipment} />}
 
-        {activeTab === "notifications" && <NotificationsTab shipment={shipment} onOpen={setActiveTab} />}
+        {activeTab === "alerts" && <NotificationsTab shipment={shipment} onOpen={setActiveTab} />}
       </div>
 
       {shipment.masterJobMczNumber && (

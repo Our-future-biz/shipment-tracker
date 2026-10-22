@@ -9,26 +9,26 @@ import { CustomsPill } from "./docsShared";
 
 interface NotificationsTabProps {
   shipment: ShipmentItem;
-  /** Opens the tab a notification is about. */
+  /** Opens the tab an alert is about. */
   onOpen: (tab: string) => void;
 }
 
-// What changed on the shipment that the operations team should know about - for now customs'
+// The shipment's Alerts: what changed that the operations team should know about - for now customs'
 // verdict on a document. Only the fact that something changed is told, newest first: a click
 // leads to the Documents tab, where the whole of it (the reason for a decline, ...) is.
 export function NotificationsTab({ shipment, onOpen }: NotificationsTabProps) {
   const { attachments, isLoading, isError } = useShipmentAttachments(shipment.id);
-  // A document carries customs' latest verdict and when it was given: one notification each.
+  // A document carries customs' latest verdict and when it was given: one alert each.
   const reviewed = attachments
     .filter((a): a is AttachmentItem & { customsReviewedAt: string } => !!a.customsStatus && !!a.customsReviewedAt)
     .sort((a, b) => b.customsReviewedAt.localeCompare(a.customsReviewedAt));
 
-  let empty = "No notifications yet";
-  if (isLoading) empty = "Loading notifications…";
-  if (isError) empty = "Could not load notifications.";
+  let empty = "No alerts yet";
+  if (isLoading) empty = "Loading alerts…";
+  if (isError) empty = "Could not load alerts.";
 
   return (
-    <SectionCard title="Notifications" bodyClassName="p-2" extra={reviewed.length > 0 && <CountChip count={reviewed.length} />}>
+    <SectionCard title="Alerts" bodyClassName="p-2" extra={reviewed.length > 0 && <CountChip count={reviewed.length} />}>
       {reviewed.length === 0 ? (
         <p className="text-center text-slate-400 text-sm py-8">{empty}</p>
       ) : (
