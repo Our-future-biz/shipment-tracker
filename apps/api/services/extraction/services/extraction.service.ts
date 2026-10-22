@@ -2,6 +2,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { APIError } from "encore.dev/api";
 import { getClient, MODEL } from "../lib/anthropic";
 import { extractTextFromPdf, isImageType, isPdfType, detectMediaType } from "../lib/pdf";
+import { textReadingUsable } from "../lib/fields";
 import { filterExtracted, parseJsonFromResponse, parseJsonObjectFromResponse, SHIPMENT_FIELDS, BOOKING_FIELDS, INVOICE_FIELDS, QUOTE_FIELDS, CUSTOMS_FIELDS } from "../lib/fields";
 import { SHIPMENT_PROMPT, BOOKING_PROMPT, INVOICE_PROMPT, QUOTE_PROMPT, CUSTOMS_PROMPT } from "../lib/prompts";
 import { normalizeQuoteFields } from "../lib/quoteFields";
@@ -99,6 +100,8 @@ export async function extractFromDocument(
   validFields: string[],
   userPrompt: string,
   maxTokens = 2048,
+  /** Fields a reading of the PDF's text layer must find to be kept; without them the page is read as an image. */
+  requiredFields: string[] = [],
 ): Promise<ExtractionResult> {
   // Image files → go straight to vision
   if (isImageType(mediaType)) {
@@ -113,7 +116,8 @@ export async function extractFromDocument(
 
     if (pdfText.length >= 20) {
       const extracted = await extractViaText(pdfText, systemPrompt, validFields, userPrompt, maxTokens);
-      if (Object.keys(extracted).length > 0) {
+      // A scan may carry only a stamp as text (a recipient's "REF NO."): the document itself is the image.
+      if (textReadingUsable(extracted, requiredFields)) {
         return { extracted, fieldCount: Object.keys(extracted).length, method: "text", fileName };
       }
     }
@@ -163,7 +167,9 @@ export async function extractShipmentFromFile(fileBase64: string, fileName: stri
 
 export async function extractInvoiceFromFile(fileBase64: string, fileName: string): Promise<ExtractionResult> {
   const mediaType = detectMediaType(fileName);
-  return extractFromDocument(fileBase64, fileName, mediaType, INVOICE_PROMPT, INVOICE_FIELDS, "Extract invoice/cost data from this document.", 1024);
+  return extractFromDocument(fileBase64, fileName, mediaType, INVOICE_PROMPT, INVOICE_FIELDS, "Extract invoice/cost data from this document.", 1024, [
+    "total_amount",
+  ]);
 }
 
 export async function extractQuoteFromFile(fileBase64: string, fileName: string): Promise<ExtractionResult> {

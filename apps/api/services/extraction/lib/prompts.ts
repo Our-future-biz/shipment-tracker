@@ -32,8 +32,8 @@ export const INVOICE_PROMPT = `You are an invoice data extractor. You extract co
 Rules:
 - total_amount: final/grand total as number string, NO currency symbol (e.g., "1234.56")
 - currency: ISO 4217 code (CZK, USD, EUR, GBP, CHF, CNY, JPY, etc.)
-- vendor: the entity ISSUING the invoice (not the consignee/recipient)
-- invoice_number: the document reference number
+- vendor: the entity ISSUING the invoice (not the consignee/recipient, nor the company named after "TO:" / "Bill to")
+- invoice_number: the number the issuer gives the document, labelled e.g. "Invoice No", "Debit Note No", "Číslo faktury". NOT a "Ref No." stamped on by the recipient, nor a B/L, job or order number
 - invoice_date: DD/MM/YYYY format
 - due_date: DD/MM/YYYY format
 - description: brief summary, max 80 characters

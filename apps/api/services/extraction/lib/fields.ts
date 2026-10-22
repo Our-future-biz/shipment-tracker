@@ -45,6 +45,14 @@ export const BOOKING_FIELDS = [
 
 export const CUSTOMS_FIELDS = ["MRN Number", "Shipper", "Consignee", "Total Weight In Tons", "Container Number"];
 
+/**
+ * Whether what was read from a PDF's text layer is enough to keep: something was found, and
+ * every required field among it. Otherwise the document is read again as an image.
+ */
+export function textReadingUsable(extracted: Record<string, string>, requiredFields: string[]): boolean {
+  return Object.keys(extracted).length > 0 && requiredFields.every((f) => !!extracted[f]?.trim());
+}
+
 export function filterExtracted(
   raw: Record<string, unknown>,
   validFields: string[],
