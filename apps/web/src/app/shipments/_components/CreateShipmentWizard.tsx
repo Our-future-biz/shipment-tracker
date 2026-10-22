@@ -18,7 +18,7 @@ import { toSalesQuote, type SalesQuote } from "@/app/sales/_lib/salesQuote";
 import { ExchangeRatesError } from "@/app/sales/_components/ExchangeRatesError";
 import { QuotePicker } from "@/app/sales/_components/QuotePicker";
 import { QuoteStatusPill } from "@/app/sales/_components/QuoteStatusPill";
-import { notWonQuoteText } from "@/app/sales/_lib/types";
+import { notWonQuoteText } from "@/app/sales/_lib/shipmentLink";
 import { quoteToCreateRequest, quotePreview } from "./quoteToShipment";
 import type { controllers, interfaces } from "@/lib/api/client";
 
@@ -137,8 +137,8 @@ export const CreateShipmentWizard = ({
       ? { id: selectedQuote.shipmentId, jobNumber: selectedQuote.shipmentJobNumber }
       : null);
 
-  // Why the picked quote cannot be made into a shipment: it is not Won.
-  const notWon = selectedQuote ? notWonQuoteText(selectedQuote.storedStatus) : null;
+  // Why the picked quote cannot be made into a shipment: it is not Won - by the status it is shown with.
+  const notWon = selectedQuote ? notWonQuoteText(selectedQuote.status) : null;
 
   const jobOptions = useMemo(
     () =>

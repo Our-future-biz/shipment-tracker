@@ -338,9 +338,10 @@ function daysBetween(from: string, to: string): number {
   return Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000);
 }
 
-// Refuses a quote no shipment may be linked to yet: one that is not Won.
-function assertLinkable(quote: { quoteNumber: string; status: string }): void {
-  const refusal = shipmentLinkRefusal(quote.status);
+// Refuses a quote no shipment may be linked to yet: one that is not Won. Named by the status it
+// is shown with, so an expired quote is refused as Expired, not as the Quoted it is stored as.
+function assertLinkable(quote: { quoteNumber: string; effectiveStatus: string }): void {
+  const refusal = shipmentLinkRefusal(quote.effectiveStatus);
   if (refusal) throw APIError.failedPrecondition(`${quote.quoteNumber} - ${refusal}`);
 }
 
@@ -870,8 +871,9 @@ class ShipmentService {
    * no shipment names with none.
    */
   async shipmentsNamingQuotes(companyId: string, references: string[]): Promise<QuoteShipments[]> {
+    // Counted as sent, before any of them is looked at.
+    if (references.length > MAX_QUOTE_REFERENCES) throw APIError.invalidArgument(`At most ${MAX_QUOTE_REFERENCES} quotes at once`);
     const wanted = [...new Set(references.map((reference) => reference.trim()).filter(Boolean))];
-    if (wanted.length > MAX_QUOTE_REFERENCES) throw APIError.invalidArgument(`At most ${MAX_QUOTE_REFERENCES} quotes at once`);
     const byReference = new Map(wanted.map((reference): [string, QuoteShipments["shipments"]] => [reference, []]));
     for (const { reference, ...shipment } of await shipmentRepository.liveBySalesNumbers(companyId, wanted)) {
       byReference.get(reference)?.push(shipment);

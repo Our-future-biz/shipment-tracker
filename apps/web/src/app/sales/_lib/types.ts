@@ -250,14 +250,6 @@ export const AWAITING_QUOTE_STATUSES: readonly QuoteStatus[] = ["quoted", "feedb
 // went out already or is closed.
 export const UNSENT_QUOTE_STATUSES: readonly QuoteStatus[] = ["draft", "ready_to_send", "revised"];
 
-// Only a Won quote is linked to a shipment - made from it or named as its Sales Number. The
-// server's rule (shipmentLinkRefusal); the screens only spare a request it would refuse. What a
-// shipment-making control says about any other quote (status as stored); null for a Won one.
-export function notWonQuoteText(status: QuoteStatus): string | null {
-  if (status === "won") return null;
-  return `This quote is ${QUOTE_STATUS_MAP[status]?.label ?? status} - mark it Won before a shipment is made from it`;
-}
-
 export const LOST_REASONS: Record<string, string[]> = {
   Pricing: ["Price too high", "Competitor cheaper", "Margin too low"],
   Operational: ["Transit time too long", "No suitable schedule", "Capacity unavailable"],

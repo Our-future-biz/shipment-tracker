@@ -92,7 +92,12 @@ const synced = (over: Partial<QuoteSyncResult> = {}): QuoteSyncResult => ({
 });
 // What the database layer throws when a statement fails: the statement and what went into it.
 const DATABASE_FAILURE = new Error('Failed query: insert into "container" ("id", "container_number") values (default, $1)\nparams: MSKU1234567');
-const quote = (over: Record<string, unknown> = {}) => ({ quote: { quoteNumber: REF, ownerName: "Martin Koubek", status: "won", data: {}, ...over } }) as Awaited<ReturnType<typeof quotes.salesQuoteGet>>;
+// A quote as the quotes service answers it: Won unless said otherwise, shown as it is stored
+// unless an `effectiveStatus` is given (an expired quote is stored Quoted and shown Expired).
+const quote = (over: Record<string, unknown> = {}) =>
+  ({ quote: { quoteNumber: REF, ownerName: "Martin Koubek", status: "won", effectiveStatus: over.status ?? "won", data: {}, ...over } }) as Awaited<
+    ReturnType<typeof quotes.salesQuoteGet>
+  >;
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -183,6 +188,12 @@ describe("create from a quote", () => {
     }
     expect(repository.createFromQuote).not.toHaveBeenCalled();
     expect(links.syncReference).not.toHaveBeenCalled();
+  });
+
+  it("names the status as it is shown: an expired quote is refused as Expired, not as the stored Quoted", async () => {
+    salesQuoteGet.mockResolvedValueOnce(quote({ status: "quoted", effectiveStatus: "expired" }));
+    await expect(fromQuote()).rejects.toMatchObject({ code: "failed_precondition", message: `${REF} - the quote is Expired - only a Won quote can be linked to a shipment` });
+    expect(repository.createFromQuote).not.toHaveBeenCalled();
   });
 
   it("refuses a second shipment from the same quote with a conflict that names the first - and does nothing else", async () => {
@@ -310,6 +321,12 @@ describe("create without a quote", () => {
     }
     expect(repository.createWithJobNumber).not.toHaveBeenCalled();
     expect(links.syncReference).not.toHaveBeenCalled();
+  });
+
+  it("refuses an expired quote by the status it is shown with", async () => {
+    salesQuoteGet.mockResolvedValueOnce(quote({ status: "feedback", effectiveStatus: "expired" }));
+    await expect(create({ salesNumber: REF })).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringContaining("the quote is Expired") });
+    expect(repository.createWithJobNumber).not.toHaveBeenCalled();
   });
 
   it("refuses a quote reference that cannot be checked, and lets free text pass when the quotes cannot be read", async () => {
@@ -558,6 +575,11 @@ describe("shipmentsNamingQuotes", () => {
   it("refuses more than a page of quotes at once, before reading anything", async () => {
     const references = Array.from({ length: 201 }, (_, i) => `QCZ20261010${String(i).padStart(3, "0")}`);
     await expect(shipmentService.shipmentsNamingQuotes(COMPANY, references)).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(repository.liveBySalesNumbers).not.toHaveBeenCalled();
+  });
+
+  it("counts the references as sent: 201 copies of one quote are over the limit as well", async () => {
+    await expect(shipmentService.shipmentsNamingQuotes(COMPANY, Array.from({ length: 201 }, () => REF))).rejects.toMatchObject({ code: "invalid_argument" });
     expect(repository.liveBySalesNumbers).not.toHaveBeenCalled();
   });
 });

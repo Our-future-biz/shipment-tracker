@@ -18,6 +18,16 @@ export const salesQuoteKeys = {
   one: (quoteNumber: string) => ["sales-quote", quoteNumber] as const,
 };
 
+/**
+ * The live shipments that name each quote on a page of a list (the Shipment(s) column), read from
+ * the shipments. Not under "shipments": the shipment hooks read every cache there as a list of
+ * shipments. Out of date with every shipment written - invalidateQuoteLists names it.
+ */
+export const quoteShipmentsKeys = {
+  all: ["quote-shipments"] as const,
+  of: (references: string[]) => ["quote-shipments", references] as const,
+};
+
 /** The customer page's own, customer-filtered copy of the quotes. */
 export const customerQuotesKeys = {
   all: ["customer-quotes"] as const,

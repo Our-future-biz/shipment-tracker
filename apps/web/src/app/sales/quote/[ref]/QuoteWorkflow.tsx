@@ -41,7 +41,8 @@ import { CustomerAccountTypeBadge } from "@/app/customers/_components/CustomerAc
 import { GeoFlag, GeoSelect } from "@/components/GeoSelect";
 import type { SalesQuoteData, PackageLine, CostLine } from "../../_lib/types";
 import type { QuoteProblem } from "../../_lib/quoteProblem";
-import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, PACKING_TYPES, notWonQuoteText } from "../../_lib/types";
+import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, PACKING_TYPES } from "../../_lib/types";
+import { notWonQuoteText } from "../../_lib/shipmentLink";
 import { CURRENCIES } from "@/lib/enums";
 import { useListKeys } from "@/hooks/useListKeys";
 import { cargoReadyDay, computeTotals, computeCargo, documentBlock, fxNote, stripProtected, type QuoteTotals } from "../../_lib/salesQuote";
@@ -964,10 +965,10 @@ export function QuoteWorkflow() {
                   Shipment {quote.shipmentJobNumber}
                 </ToolbarButton>
               ) : (
-                // Only a Won quote can be made into a shipment.
-                <Tooltip title={notWonQuoteText(quote.status)}>
+                // Only a Won quote can be made into a shipment - said by the status the pill shows.
+                <Tooltip title={notWonQuoteText(quote.effectiveStatus)}>
                   <span>
-                    <ToolbarButton icon={<ContainerOutlined />} onClick={createShipment} disabled={!!notWonQuoteText(quote.status)}>
+                    <ToolbarButton icon={<ContainerOutlined />} onClick={createShipment} disabled={!!notWonQuoteText(quote.effectiveStatus)}>
                       Create shipment
                     </ToolbarButton>
                   </span>

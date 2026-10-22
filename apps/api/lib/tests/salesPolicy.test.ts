@@ -251,7 +251,9 @@ describe("shipmentLinkRefusal", () => {
   it("refuses every other status, named as the screens name it", () => {
     expect(shipmentLinkRefusal("draft")).toBe("the quote is Draft - only a Won quote can be linked to a shipment");
     expect(shipmentLinkRefusal("ready_to_send")).toBe("the quote is Ready to Send - only a Won quote can be linked to a shipment");
-    for (const status of ["quoted", "feedback", "revised", "lost", "expired"]) expect(shipmentLinkRefusal(status)).toMatch(/^the quote is [A-Z]/);
+    expect(shipmentLinkRefusal("expired")).toBe("the quote is Expired - only a Won quote can be linked to a shipment");
+    expect(shipmentLinkRefusal("replaced")).toBe("the quote is Replaced - only a Won quote can be linked to a shipment");
+    for (const status of ["quoted", "feedback", "revised", "lost"]) expect(shipmentLinkRefusal(status)).toMatch(/^the quote is [A-Z]/);
   });
 
   it("refuses a status it does not know, a name of Object.prototype too", () => {
