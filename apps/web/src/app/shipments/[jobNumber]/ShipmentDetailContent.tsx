@@ -46,6 +46,7 @@ import { ContainerDetailsTab } from "./tabs/ContainerDetailsTab";
 import { CargoDetailsTab } from "./tabs/CargoDetailsTab";
 import { DocumentsTab } from "./tabs/DocumentsTab";
 import { TrackingTab } from "./tabs/TrackingTab";
+import { NotificationsTab } from "./tabs/NotificationsTab";
 import { WarehouseTab } from "./tabs/WarehouseTab";
 import { CustomsTab } from "./tabs/CustomsTab";
 import { EditableCell, TradeDirectionContext } from "./_components/EditableCell";
@@ -75,6 +76,7 @@ const TABS = [
   { key: "warehouse", label: "Warehouse" },
   { key: "tracking", label: "Tracking" },
   { key: "claim", label: "Claim" },
+  { key: "notifications", label: "Notifications" },
 ];
 
 /* ── Stepper stages ── */
@@ -1611,6 +1613,8 @@ export function ShipmentDetailContent() {
         {activeTab === "customs" && <CustomsTab shipment={shipment} onCommit={handleCommit} />}
 
         {activeTab === "claim" && <ClaimsTab shipment={shipment} />}
+
+        {activeTab === "notifications" && <NotificationsTab shipment={shipment} onOpen={setActiveTab} />}
       </div>
 
       {shipment.masterJobMczNumber && (
