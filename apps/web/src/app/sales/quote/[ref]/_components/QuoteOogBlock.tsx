@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { Alert, InputNumber, Radio } from "antd";
 import { fmtQuantity } from "../_lib/fmtQuantity";
 import { moneyInputParser } from "@/lib/money";
-import { checkOog, gaugeAdvice, inGaugeMaximum, type OogCheck } from "../../../_lib/oog";
+import { checkOog, gaugeAdvice, hasGauge, inGaugeMaximum, type OogCheck } from "../../../_lib/oog";
 import type { QuoteOog } from "../../../_lib/types";
 import { LINE_TD_CLASS, LINE_TH_CLASS, LINE_TH_RIGHT_CLASS, LineBlock, LineTable } from "./LineBlock";
 
@@ -96,6 +96,12 @@ export function QuoteOogBlock({ value, types, onChange, missing }: QuoteOogBlock
 
         {typeof o.inGauge === "boolean" && (
           <>
+            {/* A type whose measures are not known yet is asked about but not measured. */}
+            {types.filter((t) => !hasGauge(t)).map((t) => (
+              <div key={`unmeasured-${t}`} className="text-[11px] text-slate-500">
+                {t}: no in-gauge measures yet - the cargo is not checked against it.
+              </div>
+            ))}
             {/* What a box's measures alone do not tell, said once per type. */}
             {types.flatMap((t) => {
               const advice = gaugeAdvice(t);
@@ -130,12 +136,13 @@ export function QuoteOogBlock({ value, types, onChange, missing }: QuoteOogBlock
                       <th scope="col" className={LINE_TH_RIGHT_CLASS}>Over-width / side</th>
                       <th scope="col" className={LINE_TH_RIGHT_CLASS}>Over-height</th>
                       <th scope="col" className={LINE_TH_RIGHT_CLASS}>Over-length / end</th>
-                      <th scope="col" className={LINE_TH_CLASS}>Lost slots per container</th>
+                      <th scope="col" className={LINE_TH_CLASS}>Lost slots per container (20&apos; slots)</th>
                     </tr>
                   </thead>
                   <tbody>
                     {checks.map((c) => (
-                      <tr key={c.type}>
+                      // Cargo a flat rack takes only with the liner's confirmation is marked yellow.
+                      <tr key={c.type} className={c.liner.length > 0 && !c.lost.total ? "bg-amber-50" : undefined}>
                         <td className={`${LINE_TD_CLASS} font-medium text-slate-700`}>{c.type}</td>
                         <td className={`${LINE_TD_CLASS} text-right tabular-nums`}>{over(c.overWidthPerSide)}</td>
                         <td className={`${LINE_TD_CLASS} text-right tabular-nums`}>{over(c.overHeight)}</td>
@@ -147,6 +154,10 @@ export function QuoteOogBlock({ value, types, onChange, missing }: QuoteOogBlock
                             <span>
                               <span className="font-semibold text-slate-800">{c.lost.total}</span>
                               <span className="text-slate-500"> - {lostText(c.lost)}</span>
+                            </span>
+                          ) : c.liner.length > 0 ? (
+                            <span className="text-amber-800">
+                              None - <span className="font-bold">you need to have this confirmed by the liner</span>
                             </span>
                           ) : (
                             <span className="text-green-700 font-semibold">
@@ -160,6 +171,18 @@ export function QuoteOogBlock({ value, types, onChange, missing }: QuoteOogBlock
                 </LineTable>
               </div>
             )}
+            {/* Past the in-gauge measures but within the liner limit: said plainly, with which measures. */}
+            {checks
+              .filter((c) => c.liner.length > 0)
+              .map((c) => (
+                <div key={`liner-${c.type}`} className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  <span className="font-bold">{c.type}: you need to have this confirmed by the liner.</span>{" "}
+                  {c.liner
+                    .map((l) => `${l.measure === "length" ? "Length" : l.measure === "width" ? "Width" : "Height"} ${l.value.toLocaleString("en-US")} cm is over the ${l.inGauge.toLocaleString("en-US")} cm in gauge (liner limit ${l.limit.toLocaleString("en-US")} cm)`)
+                    .join("; ")}
+                  .
+                </div>
+              ))}
             {o.inGauge && checks.some((c) => c.doesNotFit || c.overWidthPerSide || c.overHeight || c.overLengthPerEnd) && (
               <Alert type="warning" showIcon message="These measures are out of gauge for the equipment - answer No to In gauge, or choose other equipment." />
             )}
@@ -167,7 +190,7 @@ export function QuoteOogBlock({ value, types, onChange, missing }: QuoteOogBlock
               <Alert
                 type="info"
                 showIcon
-                message="Indicative: measured against standard inside dimensions, cargo centred on the box. The carrier confirms the equipment, the stowage and the lost slots it charges."
+                message="Indicative: measured against standard inside dimensions, cargo centred on the box. Lost slots are counted as 20' slots - a 40' box loses two for each slot above or beside it. The carrier confirms the equipment, the stowage and the lost slots it charges."
               />
             )}
           </>

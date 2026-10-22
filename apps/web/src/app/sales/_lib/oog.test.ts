@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkOog, gaugeAdvice, hasOogEquipment, inGaugeMaximum, isOogType, oogMissing, oogSummary, oogTypes } from "./oog";
+import { checkOog, gaugeAdvice, hasGauge, hasOogEquipment, inGaugeMaximum, isOogType, oogMissing, oogSummary, oogTypes } from "./oog";
 
 describe("out-of-gauge equipment", () => {
   it("knows open tops and flat racks by their type", () => {
@@ -32,15 +32,18 @@ describe("checkOog", () => {
   });
 
   it("measures a flat rack's over-width per side, over-height and over-length per end, and the slots lost", () => {
-    // 300 wide on a 244 box: 28 per side; 250 high on 195 posts: 55 over; 1262 long on 1162: 50 per end
+    // past the liner limit, counted from the in-gauge figure: 300 wide on 244: 28 per side;
+    // 250 high on 194: 56 over; 1262 long on 1150: 56 per end
     const check = checkOog("40' FR", { length: 1262, width: 300, height: 250 });
-    expect(check).toMatchObject({ overWidthPerSide: 28, overHeight: 55, overLengthPerEnd: 50, doesNotFit: null });
-    // one tier above, one row each side, one bay each end, and the two slots diagonally above
-    expect(check?.lost).toEqual({ above: 1, left: 1, right: 1, front: 1, back: 1, corners: 2, total: 7 });
+    expect(check).toMatchObject({ overWidthPerSide: 28, overHeight: 56, overLengthPerEnd: 56, doesNotFit: null, liner: [] });
+    // in 20' slots: one 40' slot above (2), one each side (2 + 2), one bay each end (1 + 1), and
+    // the two 40' slots diagonally above (4)
+    expect(check?.lost).toEqual({ above: 2, left: 2, right: 2, front: 1, back: 1, corners: 4, total: 12 });
   });
 
   it("loses only the slot above an open top whose cargo stands out of its roof", () => {
-    expect(checkOog("40' OT", { length: 1100, width: 210, height: 300 })).toMatchObject({ loading: "top", overHeight: 66, doesNotFit: null, lost: { above: 1, total: 1 } });
+    // the slot above a 40' box is a 40' slot: two 20' slots
+    expect(checkOog("40' OT", { length: 1100, width: 210, height: 300 })).toMatchObject({ loading: "top", overHeight: 66, doesNotFit: null, lost: { above: 2, total: 2 } });
   });
 
   it("says an open top cannot take cargo wider or longer than its walls", () => {
@@ -56,11 +59,11 @@ describe("checkOog", () => {
 
 describe("inGaugeMaximum", () => {
   it("is the box's own measures for one type", () => {
-    expect(inGaugeMaximum(["40' FR"])).toEqual({ length: 1162, width: 244, height: 195, limitedBy: "40' FR" });
+    expect(inGaugeMaximum(["40' FR"])).toEqual({ length: 1150, width: 244, height: 194, limitedBy: "40' FR" });
   });
 
   it("is the smallest of each measure over several types, so the cargo fits them all", () => {
-    expect(inGaugeMaximum(["40' OT", "20' FR"])).toEqual({ length: 562, width: 220, height: 223, limitedBy: "20' FR" });
+    expect(inGaugeMaximum(["40' OT", "20' FR"])).toEqual({ length: 550, width: 220, height: 218, limitedBy: "20' FR" });
   });
 
   it("knows nothing of boxes without measures", () => {
@@ -72,9 +75,9 @@ describe("oogSummary", () => {
   it("says the equipment, the answer, the measures and the lost slots in one line", () => {
     const containers = [{ qty: 1, type: "40' FR" }];
     expect(oogSummary({ containers, oog: { inGauge: false, length: 1262, width: 300, height: 250 } })).toBe(
-      "40' FR · Out of gauge · 1,262 × 300 × 250 cm (L × W × H) · 40' FR: 7 lost slots per container",
+      "40' FR · Out of gauge · 1,262 × 300 × 250 cm (L × W × H) · 40' FR: 12 lost slots per container",
     );
-    expect(oogSummary({ containers, oog: { inGauge: true, length: 1162, width: 244, height: 195 } })).toBe("40' FR · In gauge · 1,162 × 244 × 195 cm (L × W × H)");
+    expect(oogSummary({ containers, oog: { inGauge: true, length: 1150, width: 244, height: 194 } })).toBe("40' FR · In gauge · 1,150 × 244 × 194 cm (L × W × H)");
   });
 });
 
@@ -166,5 +169,90 @@ describe("40' high-cube open top", () => {
     expect(checkOog("40' HOT", { length: 1151, width: 217, height: 256 })?.doesNotFit).toBe(
       "Too long and wide for the roof opening (max 1,150 cm long, 216 cm wide) and too high for the doors (max 255 cm) - it needs a flat rack",
     );
+  });
+});
+
+describe("flat racks", () => {
+  // In gauge, up to the liner limit (with the liner's confirmation), and out of gauge past it.
+  const cases = [
+    { type: "20' FR", inGauge: [550, 244, 218], liner: [563, 244, 223] },
+    { type: "40' FR", inGauge: [1150, 244, 194], liner: [1163, 244, 198] },
+    { type: "40' HFR", inGauge: [1150, 244, 224], liner: [1163, 244, 226] },
+  ] as const;
+  const box = ([length, width, height]: readonly number[]) => ({ length: length!, width: width!, height: height! });
+
+  for (const c of cases) {
+    it(`${c.type}: in gauge up to ${c.inGauge.join(" × ")} cm`, () => {
+      expect(inGaugeMaximum([c.type])).toEqual({ ...box(c.inGauge), limitedBy: c.type });
+      expect(checkOog(c.type, box(c.inGauge))).toMatchObject({ liner: [], lost: { total: 0 }, overHeight: 0, overLengthPerEnd: 0 });
+    });
+
+    it(`${c.type}: up to ${c.liner.join(" × ")} cm only with the liner's confirmation`, () => {
+      const check = checkOog(c.type, box(c.liner));
+      expect(check).toMatchObject({ overWidthPerSide: 0, overHeight: 0, overLengthPerEnd: 0, lost: { total: 0 } });
+      expect(check?.liner.map((l) => l.measure)).toEqual(["length", "height"]);
+    });
+
+    it(`${c.type}: out of gauge past ${c.liner.join(" × ")} cm, counted from the in-gauge measures`, () => {
+      const [l, w, h] = c.liner;
+      const check = checkOog(c.type, { length: l + 1, width: w + 2, height: h + 1 });
+      expect(check).toMatchObject({
+        overWidthPerSide: 1,
+        overHeight: h + 1 - c.inGauge[2],
+        overLengthPerEnd: Math.round((l + 1 - c.inGauge[0]) / 2),
+        liner: [],
+      });
+      expect(check?.lost.total).toBeGreaterThan(0);
+    });
+  }
+
+  it("asks the liner only for the measures in its band, and counts the rest out of gauge", () => {
+    const check = checkOog("40' FR", { length: 1160, width: 244, height: 210 });
+    expect(check?.liner).toEqual([{ measure: "length", value: 1160, inGauge: 1150, limit: 1163 }]);
+    expect(check).toMatchObject({ overHeight: 16, overLengthPerEnd: 0, lost: { above: 2, total: 2 } });
+  });
+
+  it("says the liner's confirmation in the summary", () => {
+    expect(oogSummary({ containers: [{ qty: 1, type: "20' FR" }], oog: { inGauge: true, length: 560, width: 244, height: 220 } })).toBe(
+      "20' FR · In gauge · 560 × 244 × 220 cm (L × W × H) · 20' FR: needs the liner's confirmation",
+    );
+  });
+
+  it("knows 40' HFR as out-of-gauge equipment with measures", () => {
+    expect(isOogType("40' HFR")).toBe(true);
+    expect(hasGauge("40' HFR")).toBe(true);
+    expect(hasGauge("40' HC")).toBe(false);
+  });
+});
+
+describe("lost slots by box size", () => {
+  it("are double on a 40' flat rack what a 20' loses for over-width and over-height", () => {
+    // 1 cm over-width per side and over-height on both
+    const twenty = checkOog("20' FR", { length: 550, width: 246, height: 230 })!.lost;
+    const forty = checkOog("40' FR", { length: 1150, width: 246, height: 210 })!.lost;
+    const hfr = checkOog("40' HFR", { length: 1150, width: 246, height: 240 })!.lost;
+    expect(twenty).toEqual({ above: 1, left: 1, right: 1, front: 0, back: 0, corners: 2, total: 5 });
+    expect(forty).toEqual({ above: 2, left: 2, right: 2, front: 0, back: 0, corners: 4, total: 10 });
+    expect(hfr).toEqual(forty);
+  });
+
+  it("are the same for over-length, one slot per bay at each end", () => {
+    expect(checkOog("20' FR", { length: 600, width: 244, height: 200 })!.lost).toMatchObject({ front: 1, back: 1, total: 2 });
+    expect(checkOog("40' FR", { length: 1200, width: 244, height: 190 })!.lost).toMatchObject({ front: 1, back: 1, total: 2 });
+  });
+});
+
+describe("open-top over-height by box size", () => {
+  it("costs a 40' OT double the slots a 20' OT loses above", () => {
+    // 266 cm high: 32 cm out of the roof of either
+    const twenty = checkOog("20' OT", { length: 500, width: 210, height: 266 })!;
+    const forty = checkOog("40' OT", { length: 1100, width: 210, height: 266 })!;
+    expect(twenty).toMatchObject({ loading: "top", overHeight: 32, lost: { above: 1, total: 1 } });
+    expect(forty).toMatchObject({ loading: "top", overHeight: 32, lost: { above: 2, total: 2 } });
+  });
+
+  it("costs a 40' HOT double the slots a 20' HOT loses above", () => {
+    expect(checkOog("20' HOT", { length: 500, width: 210, height: 300 })!.lost).toMatchObject({ above: 1, total: 1 });
+    expect(checkOog("40' HOT", { length: 1100, width: 210, height: 300 })!.lost).toMatchObject({ above: 2, total: 2 });
   });
 });

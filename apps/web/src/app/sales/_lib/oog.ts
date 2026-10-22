@@ -5,9 +5,14 @@ import { isContainerQuote } from "./salesQuote";
 // by how much, and how many neighbouring slots on board that costs. The measures and the slot
 // rules are indicative - a carrier's own equipment and its stowage planner decide.
 
-/** Whether a container type is special equipment for out-of-gauge cargo: open top (OT, HOT) or flat rack (FR). */
+/** Whether a container type is special equipment for out-of-gauge cargo: open top (OT, HOT) or flat rack (FR, HFR). */
 export function isOogType(type: string | undefined): boolean {
-  return /\b(OT|HOT|FR)$/.test((type ?? "").trim());
+  return /\b(OT|HOT|FR|HFR)$/.test((type ?? "").trim());
+}
+
+/** Whether the out-of-gauge check knows a type's measures: one it does not is asked about, but not measured. */
+export function hasGauge(type: string): boolean {
+  return !!GAUGES[type.trim()];
 }
 
 /** Whether a quote carries such a box: its out-of-gauge requirements are then asked. */
@@ -27,6 +32,11 @@ interface Gauge {
   advice?: string;
   /** Longer cargo an open top still takes when it is loaded through its doors, within these measures. */
   doors?: { length: number; width: number; height: number };
+  /**
+   * How far past its in-gauge measures a flat rack may still go if the liner confirms it. Cargo up
+   * to these measures is not out of gauge, but needs that confirmation; past them it is.
+   */
+  liner?: { length: number; width: number; height: number };
 }
 const GAUGES: Record<string, Gauge> = {
   // From the top up to 530 cm long - the height holds for cargo up to the 220 cm width, the roof
@@ -66,8 +76,10 @@ const GAUGES: Record<string, Gauge> = {
     advice: "Up to 1,200 cm long when loaded through the doors: max 232 cm wide and 255 cm high",
     doors: { length: 1200, width: 232, height: 255 },
   },
-  "20' FR": { length: 562, width: 244, height: 223, flatRack: true },
-  "40' FR": { length: 1162, width: 244, height: 195, flatRack: true },
+  // In gauge; up to the liner limit with the liner's confirmation; out of gauge past it.
+  "20' FR": { length: 550, width: 244, height: 218, flatRack: true, liner: { length: 563, width: 244, height: 223 } },
+  "40' FR": { length: 1150, width: 244, height: 194, flatRack: true, liner: { length: 1163, width: 244, height: 198 } },
+  "40' HFR": { length: 1150, width: 244, height: 224, flatRack: true, liner: { length: 1163, width: 244, height: 226 } },
 };
 
 /** The slot one tier above takes (8'6" box), and the length of a 20' and a 40' slot, in cm. */
@@ -85,7 +97,12 @@ export interface OogCheck {
   doesNotFit: string | null;
   /** How an open top is loaded with the cargo: from the top, or through its doors where it is too long for the roof opening. */
   loading: "top" | "doors" | null;
-  /** Slots lost around one such box, by where they are, and all of them. */
+  /**
+   * The measures of a flat rack's cargo past its in-gauge figure but within the liner limit:
+   * not out of gauge, but only with the liner's confirmation. Empty when none.
+   */
+  liner: { measure: "length" | "width" | "height"; value: number; inGauge: number; limit: number }[];
+  /** Slots lost around one such box, counted as 20' slots, by where they are, and all of them. */
   lost: { above: number; left: number; right: number; front: number; back: number; corners: number; total: number };
 }
 
@@ -114,9 +131,17 @@ export function checkOog(type: string, cargo: { length: number; width: number; h
   const gauge = GAUGES[type.trim()];
   if (!gauge) return null;
   const round = (v: number) => Math.max(0, Math.round(v));
-  let overWidthPerSide = round((cargo.width - gauge.width) / 2);
-  let overHeight = round(cargo.height - gauge.height);
-  let overLengthPerEnd = round((cargo.length - gauge.length) / 2);
+  // A flat rack's cargo is out of gauge in a measure only past the liner limit; what stands out is
+  // then counted from the in-gauge figure. Up to the limit it asks for the liner's confirmation.
+  const outside = (m: "length" | "width" | "height") => cargo[m] > (gauge.liner?.[m] ?? gauge[m]);
+  const liner: OogCheck["liner"] = gauge.liner
+    ? (["length", "width", "height"] as const)
+        .filter((m) => cargo[m] > gauge[m] && !outside(m))
+        .map((m) => ({ measure: m, value: cargo[m], inGauge: gauge[m], limit: gauge.liner![m] }))
+    : [];
+  let overWidthPerSide = outside("width") ? round((cargo.width - gauge.width) / 2) : 0;
+  let overHeight = outside("height") ? round(cargo.height - gauge.height) : 0;
+  let overLengthPerEnd = outside("length") ? round((cargo.length - gauge.length) / 2) : 0;
 
   let doesNotFit: string | null = null;
   let loading: OogCheck["loading"] = null;
@@ -140,12 +165,19 @@ export function checkOog(type: string, cargo: { length: number; width: number; h
     }
   }
 
+  // Slots are counted as 20' slots: the slot above or beside a 40' box is a 40' slot - two of
+  // them - so a 40' box loses double for its over-height and over-width. Over-length reaches into
+  // the bay at each end, one slot per bay whatever the box.
   const slots = (over: number, size: number) => (over > 0 ? Math.ceil(over / size) : 0);
-  const slotLength = type.startsWith("20") ? SLOT_LENGTH[20] : SLOT_LENGTH[40];
-  const above = slots(overHeight, TIER);
-  const side = gauge.flatRack ? slots(overWidthPerSide, ROW) : 0;
+  const forty = !type.startsWith("20");
+  const perSlot = forty ? 2 : 1;
+  const slotLength = forty ? SLOT_LENGTH[40] : SLOT_LENGTH[20];
+  const tiers = slots(overHeight, TIER);
+  const rows = gauge.flatRack ? slots(overWidthPerSide, ROW) : 0;
   const end = gauge.flatRack ? slots(overLengthPerEnd, slotLength) : 0;
-  const corners = above * side * 2;
+  const above = tiers * perSlot;
+  const side = rows * perSlot;
+  const corners = tiers * rows * 2 * perSlot;
   return {
     type: type.trim(),
     overWidthPerSide,
@@ -153,6 +185,7 @@ export function checkOog(type: string, cargo: { length: number; width: number; h
     overLengthPerEnd,
     doesNotFit,
     loading,
+    liner,
     lost: { above, left: side, right: side, front: end, back: end, corners, total: above + side * 2 + end * 2 + corners },
   };
 }
@@ -211,6 +244,7 @@ export function oogSummary(data: Pick<SalesQuoteData, "containers" | "oog">): st
       if (check?.doesNotFit) parts.push(`${type}: ${check.doesNotFit.toLowerCase()}`);
       else if (check?.lost.total) parts.push(`${type}: ${check.lost.total} lost slot${check.lost.total === 1 ? "" : "s"} per container`);
       else if (check?.loading === "doors") parts.push(`${type}: load through the doors`);
+      else if (check?.liner.length) parts.push(`${type}: needs the liner's confirmation`);
     }
   }
   return parts.join(" · ");
