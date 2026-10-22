@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Alert, Button, Table, Spin } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useAllSalesQuotes } from "@/hooks/useAllSalesQuotes";
@@ -90,8 +90,23 @@ function groupQuotes(priced: PricedQuote[], keyOf: (q: PricedQuote) => string): 
   return [...groups];
 }
 
-// The owner a quote is counted under in "By sales owner".
+// What a quote is counted under in each table.
 const ownerOf = (q: SalesQuote) => q.ownerName || "Unassigned";
+const serviceOf = (q: SalesQuote) => q.data.serviceType || "Unspecified";
+const statusLabel = (status: string) => QUOTE_STATUS_MAP[status]?.label ?? status;
+
+// A row clicked in one of the tables: its quotes are listed in a dialog.
+type QuoteGroup = { by: "owner" | "service" | "status"; value: string };
+const GROUP_KEY: Record<QuoteGroup["by"], (q: SalesQuote) => string> = { owner: ownerOf, service: serviceOf, status: (q) => q.status };
+
+// A row's name in a table, which opens the quotes counted in it.
+function GroupLink({ onClick, children }: { onClick: () => void; children: ReactNode }) {
+  return (
+    <button type="button" onClick={onClick} className="font-medium text-indigo-600 hover:underline bg-transparent border-0 p-0 cursor-pointer">
+      {children}
+    </button>
+  );
+}
 
 // A table cell with a sum per currency; a dash when the row has nothing to add up.
 const money = (v: string) => v || "—";
@@ -101,8 +116,8 @@ export function SalesReportTab() {
   // added up, and the rows below keep the order of a list that is newest first.
   const { quotes, isLoading, progress, isError, reload } = useAllSalesQuotes();
   const exchange = useCurrentExchangeRates();
-  // The sales owner whose quotes are listed in the dialog, while it is open.
-  const [ownerQuotes, setOwnerQuotes] = useState<string | null>(null);
+  // The row whose quotes are listed in the dialog, while it is open.
+  const [group, setGroup] = useState<QuoteGroup | null>(null);
   const avg = usePeriodAverages(quotes.map((q) => Number(monthOf(q).slice(0, 4))).filter(Boolean));
 
   const priced = useMemo<PricedQuote[]>(
@@ -142,7 +157,7 @@ export function SalesReportTab() {
 
   const serviceRows = useMemo<ServiceRow[]>(
     () =>
-      groupQuotes(priced, (q) => q.data.serviceType || "Unspecified").map(([serviceType, g]) => ({
+      groupQuotes(priced, serviceOf).map(([serviceType, g]) => ({
         serviceType,
         quotes: g.quotes,
         won: g.won,
@@ -186,15 +201,7 @@ export function SalesReportTab() {
       title: "Sales Owner",
       dataIndex: "owner",
       // Opens the quotes counted in the row.
-      render: (v: string) => (
-        <button
-          type="button"
-          onClick={() => setOwnerQuotes(v)}
-          className="font-medium text-indigo-600 hover:underline bg-transparent border-0 p-0 cursor-pointer"
-        >
-          {v}
-        </button>
-      ),
+      render: (v: string) => <GroupLink onClick={() => setGroup({ by: "owner", value: v })}>{v}</GroupLink>,
     },
     { title: "Quotes", dataIndex: "quotes" },
     { title: "Won", dataIndex: "won" },
@@ -208,7 +215,7 @@ export function SalesReportTab() {
     {
       title: "Freight Mode",
       dataIndex: "serviceType",
-      render: (v: string) => <span className="font-medium text-slate-700">{v}</span>,
+      render: (v: string) => <GroupLink onClick={() => setGroup({ by: "service", value: v })}>{v}</GroupLink>,
     },
     { title: "Quotes", dataIndex: "quotes" },
     { title: "Won", dataIndex: "won" },
@@ -225,8 +232,8 @@ export function SalesReportTab() {
         const def = QUOTE_STATUS_MAP[v];
         return (
           <span className="text-slate-700">
-<span className={`inline-block w-2 h-2 rounded-full mr-1.5 ${def?.tone.dot ?? ""}`} />
-            {def?.label ?? v}
+            <span className={`inline-block w-2 h-2 rounded-full mr-1.5 ${def?.tone.dot ?? ""}`} />
+            <GroupLink onClick={() => setGroup({ by: "status", value: v })}>{statusLabel(v)}</GroupLink>
           </span>
         );
       },
@@ -292,9 +299,7 @@ export function SalesReportTab() {
         />
       </div>
 
-      {ownerQuotes !== null && (
-        <OwnerQuotesDialog owner={ownerQuotes} quotes={priced.filter((q) => ownerOf(q) === ownerQuotes)} onClose={() => setOwnerQuotes(null)} />
-      )}
+      {group && <GroupQuotesDialog group={group} quotes={priced.filter((q) => GROUP_KEY[group.by](q) === group.value)} onClose={() => setGroup(null)} />}
 
       <div className="bg-white border border-slate-200 rounded-2xl p-4">
         <div className="text-sm font-semibold text-slate-800 mb-3">By service type</div>
@@ -323,13 +328,21 @@ export function SalesReportTab() {
   );
 }
 
-// The quotes a sales owner's row counts, newest first, with the figures the report adds up for
-// them: selling in CZK at the month's ČNB average and the margin. A reference opens the quote.
-function OwnerQuotesDialog({ owner, quotes, onClose }: { owner: string; quotes: PricedQuote[]; onClose: () => void }) {
+// The quotes a row of one of the tables counts, newest first, with the figures the report adds up
+// for them: selling in CZK at the month's ČNB average and the margin. A reference opens the quote.
+// The column the rows were grouped by is left out - it would say the same on every line.
+function GroupQuotesDialog({ group, quotes, onClose }: { group: QuoteGroup; quotes: PricedQuote[]; onClose: () => void }) {
+  const title = {
+    owner: `Quotes of ${group.value}`,
+    service: `${group.value} quotes`,
+    status: `${statusLabel(group.value)} quotes`,
+  }[group.by];
   const columns: ColumnsType<PricedQuote> = [
     { title: "Sales Reference", dataIndex: "quoteNumber", width: 170, render: (v: string) => <QuoteRefLink quoteNumber={v} /> },
     { title: "Customer", key: "customer", ellipsis: true, render: (_: unknown, q) => q.data.customerName || "—" },
-    { title: "Status", key: "status", width: 110, render: (_: unknown, q) => <QuoteStatusPill status={q.status} /> },
+    ...(group.by === "owner" ? [] : [{ title: "Sales Owner", key: "owner", width: 140, ellipsis: true, render: (_: unknown, q: PricedQuote) => ownerOf(q) }]),
+    ...(group.by === "service" ? [] : [{ title: "Freight Mode", key: "service", width: 120, ellipsis: true, render: (_: unknown, q: PricedQuote) => serviceOf(q) }]),
+    ...(group.by === "status" ? [] : [{ title: "Status", key: "status", width: 110, render: (_: unknown, q: PricedQuote) => <QuoteStatusPill status={q.status} /> }]),
     { title: "Created", key: "created", width: 100, render: (_: unknown, q) => <span className="tabular-nums">{formatDate(q.createdAt)}</span> },
     {
       title: "Selling (CZK)",
@@ -345,7 +358,7 @@ function OwnerQuotesDialog({ owner, quotes, onClose }: { owner: string; quotes: 
       open
       size="reading"
       onClose={onClose}
-      title={`Quotes of ${owner}`}
+      title={title}
       subtitle={`${quotes.length} ${quotes.length === 1 ? "quote" : "quotes"}, as counted in the report`}
       footer={<Button onClick={onClose}>Close</Button>}
     >
