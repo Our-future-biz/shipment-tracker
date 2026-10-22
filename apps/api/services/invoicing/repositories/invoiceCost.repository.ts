@@ -31,6 +31,12 @@ class InvoiceCostRepository extends TenantRepository<typeof t> {
       .orderBy(asc(t.sortOrder), asc(t.createdAt));
   }
 
+  /** A live line of the shipment that may be written here (not one of Trucking's), or null. */
+  async findLine(id: string, companyId: string, shipmentId: string): Promise<InvoiceCostRecord | null> {
+    const [row] = await this.db.select().from(t).where(lineOf(id, companyId, shipmentId)).limit(1);
+    return row ?? null;
+  }
+
   async updateLine(id: string, companyId: string, shipmentId: string, data: Partial<NewInvoiceCostRecord>): Promise<InvoiceCostRecord | null> {
     const [row] = await this.db
       .update(t)

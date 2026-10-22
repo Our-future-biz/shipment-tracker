@@ -14,6 +14,7 @@ import { generatedInvoiceRepository } from "../repositories/generatedInvoice.rep
 import { sellingCostRepository } from "../repositories/sellingCost.repository";
 import { customsInvoiceLineRepository, customsInvoiceRepository } from "../repositories/customsInvoice.repository";
 import { quoteCostImportRepository } from "../repositories/quoteCostImport.repository";
+import { quoteFixedChanged } from "../utils/quoteCostImport.utils";
 import { truckingLinesRepository } from "../repositories/truckingLines.repository";
 import { sameCostCodes } from "../utils/truckingLines.utils";
 import { quoteLinesToCostRows } from "../utils/quoteCostImport.utils";
@@ -65,6 +66,7 @@ const toCostItem = (r: InvoiceCostRecord): InvoiceCostItem => ({
   haulierId: r.haulierId,
   sortOrder: r.sortOrder,
   sourceTruckingRef: r.sourceTruckingRef,
+  sourceQuoteNumber: r.sourceQuoteNumber,
 });
 
 const toSellingItem = (r: InvoiceSellingCostRecord): SellingCostItem => ({
@@ -212,13 +214,28 @@ class InvoicingService {
     return toCostItem(await invoiceCostRepository.createForCompany(companyId, values));
   }
 
+  // A row copied from a quote keeps the quote's charge, words and estimate (QUOTE_FIXED_FIELDS):
+  // a change to them is refused, the same value sent back with the rest of the row is not one.
+  // Which quote a row came from is set when it is copied and never changes afterwards.
   async updateBuyingCost(id: string, companyId: string, shipmentId: string, input: BuyingCostInput): Promise<InvoiceCostItem> {
-    const row = await invoiceCostRepository.updateLine(id, companyId, shipmentId, buyingChanges(input));
+    const changes = buyingChanges(input);
+    const current = await invoiceCostRepository.findLine(id, companyId, shipmentId);
+    if (!current) throw APIError.notFound("Buying cost not found");
+    if (current.sourceQuoteNumber && quoteFixedChanged(current, changes).length) {
+      throw APIError.failedPrecondition(`this cost was copied from ${current.sourceQuoteNumber}: its category, description and estimate stay as the quote has them`);
+    }
+    const row = await invoiceCostRepository.updateLine(id, companyId, shipmentId, changes);
     if (!row) throw APIError.notFound("Buying cost not found");
     return toCostItem(row);
   }
 
+  // A row copied from a quote is not deleted: the estimate stays the quote's.
   async deleteBuyingCost(id: string, companyId: string, shipmentId: string): Promise<void> {
+    const current = await invoiceCostRepository.findLine(id, companyId, shipmentId);
+    if (!current) throw APIError.notFound("Buying cost not found");
+    if (current.sourceQuoteNumber) {
+      throw APIError.failedPrecondition(`this cost was copied from ${current.sourceQuoteNumber}: it stays as the quote has it`);
+    }
     if (!(await invoiceCostRepository.softDeleteLine(id, companyId, shipmentId))) throw APIError.notFound("Buying cost not found");
   }
 
@@ -237,7 +254,9 @@ class InvoicingService {
       await assertNotKeptByTrucking(companyId, [shipmentId], code);
       const existing = await invoiceCostRepository.findByCategory(shipmentId, companyId, code);
       if (existing) {
-        const row = await invoiceCostRepository.updateLine(existing.id, companyId, shipmentId, changes);
+        // On a row copied from a quote the real cost lands; the estimate stays the quote's.
+        const kept = existing.sourceQuoteNumber ? { ...changes, estAmount: undefined, estCurrency: undefined } : changes;
+        const row = await invoiceCostRepository.updateLine(existing.id, companyId, shipmentId, definedOnly(kept));
         if (!row) throw APIError.notFound("Buying cost not found");
         return toCostItem(row);
       }

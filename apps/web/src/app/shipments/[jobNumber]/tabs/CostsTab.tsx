@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { CURRENCIES } from "@/lib/cargo";
 import Link from "next/link";
 import { App, Input, Select, Checkbox, Tooltip, Modal } from "antd";
-import { DeleteOutlined, UndoOutlined, DownOutlined, CopyOutlined, WarningOutlined } from "@ant-design/icons";
+import { DeleteOutlined, UndoOutlined, DownOutlined, CopyOutlined, WarningOutlined, LockOutlined } from "@ant-design/icons";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, apiErrorMessage, ErrCode, isAPIError } from "@/lib/api";
 import type { controllers } from "@/lib/api/client";
@@ -185,6 +185,9 @@ export function CostsTab({ shipment }: CostsTabProps) {
   const truckingRefs = new Map(
     [...(data?.costs ?? []), ...(data?.sellingCosts ?? [])].filter((c) => isTruckingCost(c.sourceTruckingRef)).map((c) => [c.id, c.sourceTruckingRef ?? ""]),
   );
+  // Buying rows copied from a quote keep the quote's category, description and estimate, and are
+  // not deleted (the server refuses both); the vendor and the real cost stay editable.
+  const quoteRefs = new Map((data?.costs ?? []).filter((c) => c.sourceQuoteNumber).map((c) => [c.id, c.sourceQuoteNumber]));
   // Only the trips these rows name are read (a few), not the whole trips list.
   const tripIds = [...new Set([...truckingRefs.values()].flatMap((ref) => {
     const parsed = parseTruckingRef(ref);
@@ -567,6 +570,9 @@ export function CostsTab({ shipment }: CostsTabProps) {
                 }
                 const locked = buyLocked(r);
                 const fld = lockedField(locked);
+                const fromQuote = quoteRefs.get(r.id);
+                // the quote's fields look like text and do not open, whatever the rest of the row does
+                const fixed = lockedField(locked || !!fromQuote);
                 return (
                 <tr
                   key={r.id}
@@ -582,15 +588,19 @@ export function CostsTab({ shipment }: CostsTabProps) {
                       className={`w-full [&_.ant-select-selector]:!h-[30px] [&_.ant-select-selector]:!border
                                  [&_.ant-select-selector]:!border-slate-200 [&_.ant-select-selector]:!rounded-md
                                  [&_.ant-select-selection-item]:!text-[13px]${
-                        locked ? " [&_.ant-select-selector]:!border-transparent [&_.ant-select-arrow]:!hidden pointer-events-none" : ""
+                        locked || fromQuote ? " [&_.ant-select-selector]:!border-transparent [&_.ant-select-arrow]:!hidden pointer-events-none" : ""
                       }`}
                       options={chargeOptions(r.category)}
+                      open={fromQuote ? false : undefined}
+                      tabIndex={fromQuote ? -1 : undefined}
                       onChange={(v) => updateBuy.mutate({ id: r.id, category: v })}
                     />
                   </td>
                   <td className={CELL}>
                     <input
-                      className={`${FIELD}${fld}`}
+                      className={`${FIELD}${fixed}`}
+                      readOnly={!!fromQuote}
+                      tabIndex={fromQuote ? -1 : undefined}
                       defaultValue={r.description}
                       onBlur={(e) => e.target.value !== r.description && updateBuy.mutate({ id: r.id, description: e.target.value })}
                     />
@@ -605,20 +615,28 @@ export function CostsTab({ shipment }: CostsTabProps) {
                   {/* Estimated */}
                   <td className={CELL}>
                     <input
-                      className={`${FIELD} text-center${fld}`}
+                      className={`${FIELD} text-center${fixed}`}
+                      readOnly={!!fromQuote}
+                      tabIndex={fromQuote ? -1 : undefined}
                       defaultValue={r.estQty}
                       onBlur={(e) => e.target.value !== r.estQty && updateBuy.mutate({ id: r.id, estQty: e.target.value })}
                     />
                   </td>
                   <td className={CELL}>
                     <input
-                      className={`${FIELD} text-right${fld}`}
+                      className={`${FIELD} text-right${fixed}`}
+                      readOnly={!!fromQuote}
+                      tabIndex={fromQuote ? -1 : undefined}
                       defaultValue={r.estAmount}
                       onBlur={(e) => e.target.value !== r.estAmount && updateBuy.mutate({ id: r.id, estAmount: e.target.value })}
                     />
                   </td>
                   <td className={CELL}>
-                    <CurrencyPicker value={r.estCurrency} onChange={(v) => changeEstCurrency(r, v)} />
+                    {fromQuote ? (
+                      <span className="block px-[11px] text-[13px] text-slate-800">{r.estCurrency}</span>
+                    ) : (
+                      <CurrencyPicker value={r.estCurrency} onChange={(v) => changeEstCurrency(r, v)} />
+                    )}
                   </td>
                   {/* Real */}
                   <td className={`${CELL} ${SPLIT}`}>
@@ -672,16 +690,28 @@ export function CostsTab({ shipment }: CostsTabProps) {
                         <CopyOutlined />
                       </button>
                     </Tooltip>
-                    <Tooltip title="Delete row">
-                      <button
-                        onClick={() => removeBuy(r, rowIndex)}
-                        aria-label="Delete buying cost row"
-                        className="w-[26px] h-[26px] rounded-md grid place-items-center text-slate-400
-                                   hover:bg-danger-soft hover:text-danger border-0 bg-transparent cursor-pointer inline-grid"
-                      >
-                        <DeleteOutlined />
-                      </button>
-                    </Tooltip>
+                    {fromQuote ? (
+                      <Tooltip title={`Copied from ${fromQuote}: category, description and estimate stay as the quote has them, and the row can't be deleted`}>
+                        <span
+                          role="img"
+                          aria-label={`Copied from ${fromQuote}, estimate fixed`}
+                          className="w-[26px] h-[26px] rounded-md place-items-center text-slate-400 inline-grid"
+                        >
+                          <LockOutlined />
+                        </span>
+                      </Tooltip>
+                    ) : (
+                      <Tooltip title="Delete row">
+                        <button
+                          onClick={() => removeBuy(r, rowIndex)}
+                          aria-label="Delete buying cost row"
+                          className="w-[26px] h-[26px] rounded-md grid place-items-center text-slate-400
+                                     hover:bg-danger-soft hover:text-danger border-0 bg-transparent cursor-pointer inline-grid"
+                        >
+                          <DeleteOutlined />
+                        </button>
+                      </Tooltip>
+                    )}
                   </td>
                 </tr>
                 );

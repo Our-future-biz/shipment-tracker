@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { quoteLinesToCostRows } from "../../utils/quoteCostImport.utils";
+import { quoteFixedChanged, quoteLinesToCostRows } from "../../utils/quoteCostImport.utils";
 
 // The quote of the audit: three buying lines in three currencies, two selling lines.
 const QUOTE = {
@@ -173,5 +173,23 @@ describe("quoteLinesToCostRows", () => {
   it("copies one side without the other", () => {
     expect(quoteLinesToCostRows({ buyingLines: QUOTE.buyingLines })).toMatchObject({ buying: [{}, {}, {}], selling: [] });
     expect(quoteLinesToCostRows({ sellingLines: QUOTE.sellingLines })).toMatchObject({ buying: [], selling: [{}, {}] });
+  });
+});
+
+describe("quoteFixedChanged", () => {
+  const row = { category: "ocean_freight", description: "Ocean freight", estQty: "1.00", estAmount: "150.00", estCurrency: "EUR", unit: "" };
+
+  it("is no change when the row's own values come back, an amount however it is written", () => {
+    expect(quoteFixedChanged(row, { category: "ocean_freight", description: "Ocean freight", estQty: "1", estAmount: "150", estCurrency: "EUR", unit: "" })).toEqual([]);
+  });
+
+  it("leaves the vendor, the real cost and fields not sent alone", () => {
+    expect(quoteFixedChanged(row, { vendor: "Maersk", realAmount: "160", realCurrency: "USD", invoiceNumber: "F1" })).toEqual([]);
+  });
+
+  it("names every quote field given another value", () => {
+    expect(quoteFixedChanged(row, { estAmount: "140", estCurrency: "USD", description: "Freight" })).toEqual(["description", "estAmount", "estCurrency"]);
+    expect(quoteFixedChanged(row, { estAmount: null })).toEqual(["estAmount"]);
+    expect(quoteFixedChanged({ ...row, estAmount: null }, { estAmount: null })).toEqual([]);
   });
 });
