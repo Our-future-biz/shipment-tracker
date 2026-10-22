@@ -25,6 +25,33 @@ export interface QuoteContainerLine {
   weight?: number;
 }
 
+// What a reefer box of a quote has to be run at, and the papers and power the cold chain needs -
+// asked as soon as a container line is a reefer (hasReefer). Only the set-point is required; the
+// rest is said where the cargo or the shipper needs it.
+export interface QuoteReefer {
+  // 1. Cargo and set-point: °C, with a tolerance (± °C) where one is required (pharma ±2 °C).
+  setPoint?: number;
+  toleranceRequired?: boolean;
+  tolerance?: number;
+  // 2. Atmosphere and airflow: the fresh-air vent closed, or open at m³/h or at a % of opening;
+  // a target humidity only where the unit controls it.
+  ventMode?: "closed" | "m3h" | "percent";
+  ventValue?: number;
+  humidityControl?: boolean;
+  humidity?: number;
+  // 3. Drain holes.
+  drains?: "open" | "closed";
+  // 4. Monitoring and documentation.
+  dataLogger?: boolean;
+  recorderCertificate?: boolean;
+  genset?: boolean;
+  plugIn?: boolean;
+  shorePower?: "available" | "check" | "none";
+  phytosanitary?: boolean;
+  sanitary?: boolean;
+  veterinary?: boolean;
+}
+
 export interface CostLine {
   // The label of the charge ("Road freight"); quotes saved before the catalogue hold only this.
   type: string;
@@ -163,6 +190,8 @@ export interface SalesQuoteData {
   packages?: PackageLine[];
   // The equipment of a full-container quote (isContainerQuote), in place of package lines.
   containers?: QuoteContainerLine[];
+  // The reefer requirements of a quote with a reefer container among its lines.
+  reefer?: QuoteReefer;
   weight?: number;
   cbm?: number;
   // Pricing

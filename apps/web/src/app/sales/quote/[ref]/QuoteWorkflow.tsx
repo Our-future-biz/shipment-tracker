@@ -46,7 +46,7 @@ import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, PACKING_TYPES } from "../../_lib/
 import { CURRENCIES } from "@/lib/enums";
 import { CONTAINER_KINDS, CONTAINER_KINDS_BY_SIZE, CONTAINER_SIZES, teuForType } from "@/lib/cargo";
 import { useListKeys } from "@/hooks/useListKeys";
-import { asData, cargoReadyDay, computeTotals, computeCargo, documentBlock, fxNote, isContainerQuote, revisionRoot, stripProtected, withoutPricing, type QuoteTotals } from "../../_lib/salesQuote";
+import { asData, cargoReadyDay, computeTotals, computeCargo, documentBlock, fxNote, hasReefer, isContainerQuote, reeferMissing, revisionRoot, stripProtected, withoutPricing, type QuoteTotals } from "../../_lib/salesQuote";
 import { PRINT_WINDOW_BLOCKED, exportClosesQuote } from "../../_lib/exportClose";
 import { ExportCloseDialog } from "../../_components/ExportCloseDialog";
 import { NO_CUSTOMER, changesCustomer, customerLinkFields, withCustomerUnit } from "../../_lib/quoteCustomer";
@@ -78,6 +78,7 @@ import { CostLinesEditor } from "./_components/CostLinesEditor";
 import { QuoteRatesEditor } from "./_components/QuoteRatesEditor";
 import { LINE_TD_CLASS, LINE_TH_CLASS, LINE_TH_RIGHT_CLASS, LineBlock, LineBlockEmpty, LineTable } from "./_components/LineBlock";
 import { MiniButton, RemoveLineButton } from "./_components/QuoteButtons";
+import { QuoteReeferBlock } from "./_components/QuoteReeferBlock";
 import { QuoteSection, QuoteStepTiles, type SectionStatus } from "./_components/QuoteSection";
 import { QuoteRoadCard } from "./_components/QuoteRoadCard";
 import { QuoteRoadPriceDrawer } from "./_components/QuoteRoadPriceDrawer";
@@ -422,7 +423,8 @@ export function QuoteWorkflow() {
     customer: !!draft.customerName,
     shipment: !!(draft.direction && draft.serviceType && draft.incoterm),
     routing: !!(draft.origin && draft.destination),
-    cargo: !!(draft.commodity || packages.length || containers.length),
+    // A reefer box needs its set-point before the cargo is complete.
+    cargo: !!(draft.commodity || packages.length || containers.length) && !reeferMissing(draft),
     pricing: !!(draft.sellingLines?.length),
     terms: !!draft.shippingTerms,
   };
@@ -861,6 +863,11 @@ export function QuoteWorkflow() {
                 </LineTable>
               )}
             </LineBlock>
+          )}
+
+          {/* A reefer box among the containers opens its requirements; the set-point is required. */}
+          {hasReefer(draft) && (
+            <QuoteReeferBlock value={draft.reefer} missing={reeferMissing(draft)} onChange={(patch) => set({ reefer: { ...draft.reefer, ...patch } })} />
           )}
 
           {/* A full-container quote lists its boxes above; package lines it still has (from before

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SalesQuoteData } from "./types";
-import { baseRef, computeCargo, followStored, followUpLines, quoteProfitIn, quoteFamily, revisionRoot, withoutPricing, type SalesQuote } from "./salesQuote";
+import { baseRef, computeCargo, hasReefer, isReeferType, reeferMissing, followStored, followUpLines, quoteProfitIn, quoteFamily, revisionRoot, withoutPricing, type SalesQuote } from "./salesQuote";
 
 const quote = (quoteNumber: string): SalesQuote => ({ quoteNumber }) as SalesQuote;
 
@@ -119,5 +119,28 @@ describe("computeCargo", () => {
   it("takes the typed total of a full-container quote whose boxes declare no weight", () => {
     const cargo = computeCargo({ containers: [{ qty: 1, type: "40' HC" }, { qty: 1, type: "40' HC" }], weight: 21000 });
     expect(cargo).toMatchObject({ totalContainers: 2, teu: 4, equipment: "2× 40' HC", grossWeight: 21000, weightFromLines: false, weightFromContainers: false });
+  });
+});
+
+describe("reefer containers", () => {
+  const fcl = (type: string) => ({ serviceType: "Sea FCL", containers: [{ qty: 1, type: "20' GP" }, { qty: 1, type }] });
+
+  it("knows a reefer box by its type, 20' or 40', RF or HR", () => {
+    expect(["20' RF", "40' RF", "40' HR"].map(isReeferType)).toEqual([true, true, true]);
+    expect(["40' HC", "20' GP", "40' FR", "", undefined].map(isReeferType)).toEqual([false, false, false, false, false]);
+  });
+
+  it("asks the reefer requirements of a Sea FCL quote with a reefer among its containers", () => {
+    expect(hasReefer(fcl("40' RF"))).toBe(true);
+    expect(hasReefer(fcl("40' HC"))).toBe(false);
+    expect(hasReefer({ serviceType: "Sea LCL", containers: [{ qty: 1, type: "40' RF" }] })).toBe(false);
+  });
+
+  it("requires the set-point, and a tolerance's value once one is required", () => {
+    expect(reeferMissing(fcl("40' RF"))).toBe("Enter the reefer set-point temperature");
+    expect(reeferMissing({ ...fcl("40' RF"), reefer: { setPoint: -18 } })).toBeNull();
+    expect(reeferMissing({ ...fcl("40' RF"), reefer: { setPoint: 5, toleranceRequired: true } })).toBe("Enter the set-point tolerance");
+    expect(reeferMissing({ ...fcl("40' RF"), reefer: { setPoint: 5, toleranceRequired: true, tolerance: 2 } })).toBeNull();
+    expect(reeferMissing(fcl("40' HC"))).toBeNull();
   });
 });

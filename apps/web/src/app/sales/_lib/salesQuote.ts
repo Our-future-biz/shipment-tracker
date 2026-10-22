@@ -189,6 +189,26 @@ export function isContainerQuote(data: Pick<SalesQuoteData, "serviceType">): boo
   return data.serviceType === "Sea FCL";
 }
 
+// Whether a container type is a reefer: RF, or HR (the high-cube reefer), of any size.
+export function isReeferType(type: string | undefined): boolean {
+  return /\b(RF|HR)$/.test((type ?? "").trim());
+}
+
+// Whether a quote carries a reefer container: its reefer requirements are then asked.
+export function hasReefer(data: Pick<SalesQuoteData, "serviceType" | "containers">): boolean {
+  return isContainerQuote(data) && (data.containers ?? []).some((c) => isReeferType(c.type));
+}
+
+// What a reefer quote still lacks: the set-point is required, and a tolerance asked for needs its
+// value. Null when nothing is missing or the quote has no reefer.
+export function reeferMissing(data: Pick<SalesQuoteData, "serviceType" | "containers" | "reefer">): string | null {
+  if (!hasReefer(data)) return null;
+  const r = data.reefer ?? {};
+  if (typeof r.setPoint !== "number") return "Enter the reefer set-point temperature";
+  if (r.toleranceRequired && typeof r.tolerance !== "number") return "Enter the set-point tolerance";
+  return null;
+}
+
 // A quote's containers in one phrase, "2× 40' HC, 1× 20' GP" - the shipment's own summary of its
 // boxes. Lines of one type are counted together; a line of no type or no quantity says nothing.
 export function fmtEquipment(lines: QuoteContainerLine[]): string {
