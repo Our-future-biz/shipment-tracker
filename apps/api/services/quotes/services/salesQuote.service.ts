@@ -21,6 +21,7 @@ import type {
   QuoteWarehouseInquiryItem,
 } from "../interfaces/interfaces";
 import { quoteAttachmentRepository } from "../repositories/quoteAttachment.repository";
+import { quoteCommentRepository } from "../repositories/quoteComment.repository";
 import { salesQuoteRepository, type NewSalesQuote, type SalesQuoteFilter, type SalesQuotePage } from "../repositories/salesQuote.repository";
 import type { SalesQuoteRecord } from "../schemas/quote.schema";
 import { matchOwnerLabel } from "../utils/ownerMatch.utils";
@@ -149,6 +150,23 @@ function inquiryItem(quote: SalesQuoteRecord, names: Map<string, string>): Quote
     ownerName: (quote.ownerUserId ? names.get(quote.ownerUserId) : undefined) || quote.ownerLabel || "",
     inquiry,
   };
+}
+
+// A warehouse question or answer also goes to the quote's chat, as a message of the one who asked
+// or answered, so the conversation about the quote has it (and the notification under the bell
+// leads to it). The quote is already saved: a chat that cannot be written is logged, not refused.
+async function postInquiryToChat(actor: Actor, quoteNumber: string, message: string): Promise<void> {
+  try {
+    await quoteCommentRepository.createForCompany(actor.companyID, {
+      threadRef: revisionRoot(quoteNumber),
+      quoteNumber,
+      authorId: actor.userID,
+      message,
+      mentionedUserIds: [],
+    });
+  } catch (err) {
+    log.warn("the warehouse inquiry could not be posted to the quote's chat", { quoteNumber, error: String(err) });
+  }
 }
 const MIN_APPROVAL_REASON = 3;
 const MAX_APPROVAL_REASON = 500;
@@ -594,6 +612,7 @@ class SalesQuoteService {
     const at = new Date();
     const names = await userNames();
     const ctx = contextOf(actor, at, names);
+    const comment = `Warehouse asked about ${pieces} piece${pieces === 1 ? "" : "s"} of 12.5 t or more${note ? ` - ${note}` : ""}`;
     const written = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
       if (DECIDED_STATUSES.includes(quote.status) || PRICING_CLOSED.includes(quote.status)) {
         throw APIError.failedPrecondition("A quote that was sent cannot ask the warehouse - revise it");
@@ -616,10 +635,10 @@ class SalesQuoteService {
         comment: "",
         answerSeenAt: null,
       };
-      const comment = `Warehouse asked about ${pieces} piece${pieces === 1 ? "" : "s"} of 12.5 t or more${note ? ` - ${note}` : ""}`;
       return salesQuoteRepository.writeLifecycle(tx, quote, { state: stateOf(quote), entries: [pricingEntry("warehouse_inquiry", comment, ctx)], serverKeys: { warehouseInquiry: inquiry } });
     });
     if (!written) throw notFound();
+    await postInquiryToChat(actor, written.quoteNumber, comment);
     return this.item(written, names, actor, at);
   }
 
@@ -651,6 +670,8 @@ class SalesQuoteService {
     const at = new Date();
     const names = await userNames();
     const ctx = contextOf(actor, at, names);
+    // The answer as the quote's history says it; it goes to the quote's chat too.
+    let line = "";
     const written = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
       const inquiry = readInquiry(quote.data);
       if (!inquiry || inquiry.id !== request.inquiryId) throw APIError.notFound("This inquiry is no longer on the quote");
@@ -666,10 +687,11 @@ class SalesQuoteService {
         answerSeenAt: null,
       };
       const what = `${inquiry.pieces} piece${inquiry.pieces === 1 ? "" : "s"} of 12.5 t or more`;
-      const line = request.approve ? `Warehouse approved ${what}: EUR ${price} per piece${comment ? ` - ${comment}` : ""}` : `Warehouse rejected ${what}: ${comment}`;
+      line = request.approve ? `Warehouse approved ${what}: EUR ${price} per piece${comment ? ` - ${comment}` : ""}` : `Warehouse rejected ${what}: ${comment}`;
       return salesQuoteRepository.writeLifecycle(tx, quote, { state: stateOf(quote), entries: [pricingEntry("warehouse_inquiry", line, ctx)], serverKeys: { warehouseInquiry: decided } });
     });
     if (!written) throw notFound();
+    await postInquiryToChat(actor, written.quoteNumber, line);
     return inquiryItem(written, names)!;
   }
 

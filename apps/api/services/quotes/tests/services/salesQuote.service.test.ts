@@ -14,6 +14,7 @@ vi.mock("~encore/clients", () => ({
   trucking: { truckingRate: vi.fn(), _internalTruckingMarginFloor: vi.fn() },
 }));
 vi.mock("../../repositories/quoteAttachment.repository", () => ({ quoteAttachmentRepository: { deleteForQuote: vi.fn() } }));
+vi.mock("../../repositories/quoteComment.repository", () => ({ quoteCommentRepository: { createForCompany: vi.fn() } }));
 vi.mock("../../repositories/salesQuote.repository", () => ({
   salesQuoteRepository: {
     adoptions: vi.fn(),
@@ -39,6 +40,7 @@ import log from "encore.dev/log";
 import { auth, customers, fx, shipments, trucking } from "~encore/clients";
 import type { Actor } from "../../../../lib/rbac";
 import { quoteAttachmentRepository } from "../../repositories/quoteAttachment.repository";
+import { quoteCommentRepository } from "../../repositories/quoteComment.repository";
 import { salesQuoteRepository, type LifecycleWrite, type QuoteTransaction } from "../../repositories/salesQuote.repository";
 import type { SalesQuoteRecord } from "../../schemas/quote.schema";
 import type { PricedSide, RateLevelResult } from "../../../trucking/interfaces/interfaces";
@@ -49,6 +51,7 @@ import { columnsOf, stateOf } from "../../utils/quoteLifecycle.utils";
 
 const repository = vi.mocked(salesQuoteRepository);
 const attachments = vi.mocked(quoteAttachmentRepository);
+const chat = vi.mocked(quoteCommentRepository);
 const usersList = vi.mocked(auth.usersList);
 const fxRatesOn = vi.mocked(fx.fxRatesOn);
 const namingShipments = vi.mocked(shipments._internalShipmentsNamingQuote);
@@ -1752,6 +1755,14 @@ describe("the warehouse inquiry of pieces of 12.5 t or more", () => {
     expect(write.entries).toEqual([
       { kind: "warehouse_inquiry", at: NOW.toISOString(), user: "Martin Koubek", userId: U_MARTIN, comment: "Warehouse asked about 2 pieces of 12.5 t or more - two press frames" },
     ]);
+    // The question is in the quote's chat too, from the one who asked.
+    expect(chat.createForCompany).toHaveBeenCalledWith(martin.companyID, {
+      threadRef: REF,
+      quoteNumber: REF,
+      authorId: U_MARTIN,
+      message: "Warehouse asked about 2 pieces of 12.5 t or more - two press frames",
+      mentionedUserIds: [],
+    });
   });
 
   it("refuses a second question while one waits, a quote that was sent, and pieces that are not a count", async () => {
@@ -1778,6 +1789,21 @@ describe("the warehouse inquiry of pieces of 12.5 t or more", () => {
     expect(write.serverKeys?.warehouseInquiry).toMatchObject({ status: "approved", priceEurPerPiece: 400, comment: "crane booked", decidedById: U_MANAGER, decidedByName: "Marie Manager", answerSeenAt: null });
     expect(write.entries[0]).toMatchObject({ kind: "warehouse_inquiry", comment: "Warehouse approved 2 pieces of 12.5 t or more: EUR 400 per piece - crane booked" });
     expect(item).toMatchObject({ quoteNumber: REF, quoteStatus: "draft", inquiry: { status: "pending" } });
+    // The answer is in the quote's chat too, from the manager; refused answers posted nothing.
+    expect(chat.createForCompany).toHaveBeenCalledTimes(1);
+    expect(chat.createForCompany).toHaveBeenCalledWith(manager.companyID, expect.objectContaining({
+      threadRef: REF,
+      authorId: U_MANAGER,
+      message: "Warehouse approved 2 pieces of 12.5 t or more: EUR 400 per piece - crane booked",
+    }));
+  });
+
+  it("keeps an answer that was saved when the chat cannot be written", async () => {
+    stored = withData({ warehouseInquiry: pending });
+    chat.createForCompany.mockRejectedValueOnce(new Error("chat is down"));
+    await expect(salesQuoteService.decideWarehouseInquiry(manager, REF, { inquiryId: INQ, approve: false, comment: "broken forklift" })).resolves.toMatchObject({ quoteNumber: REF });
+    expect(repository.writeLifecycle).toHaveBeenCalledTimes(1);
+    expect(log.warn).toHaveBeenCalled();
   });
 
   it("refuses an answer to a question already answered", async () => {

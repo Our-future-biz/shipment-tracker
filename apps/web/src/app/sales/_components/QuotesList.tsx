@@ -254,6 +254,17 @@ export function QuotesList() {
   // The quote whose chat is open (a side drawer, as on the Shipments list), and the unread badges.
   const [chatQuote, setChatQuote] = useState<string | null>(null);
   const unreadByThread = useQuoteChatUnread();
+  // ?chat=<Sales Reference> (from a notification under the bell) opens that quote's chat, then
+  // drops out of the URL so the drawer can be closed and the same link used again.
+  const chatParam = searchParams.get("chat");
+  useEffect(() => {
+    if (!chatParam) return;
+    setChatQuote(chatParam);
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("chat");
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }, [chatParam, searchParams, pathname, router]);
   // The quote whose Export PDF is being confirmed, since it closes the quote.
   const [exportTarget, setExportTarget] = useState<SalesQuote | null>(null);
   // The row's Export PDF reaches the handler of the current render through this, so the columns
