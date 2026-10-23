@@ -82,6 +82,7 @@ import { MiniButton, RemoveLineButton } from "./_components/QuoteButtons";
 import { QuoteReeferBlock } from "./_components/QuoteReeferBlock";
 import { QuoteOogBlock } from "./_components/QuoteOogBlock";
 import { hasOogEquipment, oogMissing, oogSummary, oogTypes } from "../../_lib/oog";
+import { checkContainerWeight, type WeightCheck } from "../../_lib/containerWeight";
 import { QuoteSection, QuoteStepTiles, type SectionStatus } from "./_components/QuoteSection";
 import { QuoteRoadCard } from "./_components/QuoteRoadCard";
 import { QuoteRoadPriceDrawer } from "./_components/QuoteRoadPriceDrawer";
@@ -847,8 +848,11 @@ export function QuoteWorkflow() {
                     </tr>
                   </thead>
                   <tbody>
-                    {containers.map((c, i) => (
-                      <tr key={containerKeys.keys[i]}>
+                    {containers.map((c, i) => {
+                      const weightCheck = checkContainerWeight(c.type, c.weight);
+                      return (
+                      <Fragment key={containerKeys.keys[i]}>
+                      <tr>
                         <td className={LINE_TD_CLASS}>
                           <InputNumber size="small" className="!w-full" aria-label="Number of containers" min={1} precision={0} parser={moneyInputParser} value={c.qty} onChange={(v) => patchContainer(i, { qty: v ?? 1 })} />
                         </td>
@@ -864,7 +868,16 @@ export function QuoteWorkflow() {
                         </td>
                         <td className={`${LINE_TD_CLASS} text-right tabular-nums text-slate-600`}>{fmtQuantity((Number(c.qty) || 0) * teuForType(c.type))}</td>
                         <td className={LINE_TD_CLASS}>
-                          <InputNumber size="small" className="!w-full" aria-label="Cargo weight per container in kg" min={0} parser={moneyInputParser} value={c.weight} placeholder="Cargo" onChange={(v) => patchContainer(i, { weight: v ?? undefined })} />
+                          <InputNumber
+                            size="small"
+                            className={`!w-full ${WEIGHT_FIELD_CLASS[weightCheck?.level ?? "standard"]}`}
+                            aria-label="Cargo weight per container in kg"
+                            min={0}
+                            parser={moneyInputParser}
+                            value={c.weight}
+                            placeholder="Cargo"
+                            onChange={(v) => patchContainer(i, { weight: v ?? undefined })}
+                          />
                         </td>
                         <td className={`${LINE_TD_CLASS} pl-0`}>
                           <RemoveLineButton label={`Remove container ${i + 1}`} onClick={() => {
@@ -874,7 +887,16 @@ export function QuoteWorkflow() {
                           />
                         </td>
                       </tr>
-                    ))}
+                      {weightCheck && (
+                        <tr>
+                          <td colSpan={5} className="px-2 pb-2 pt-0">
+                            <ContainerWeightNote check={weightCheck} />
+                          </td>
+                        </tr>
+                      )}
+                      </Fragment>
+                      );
+                    })}
                   </tbody>
                 </LineTable>
               )}
@@ -1768,4 +1790,30 @@ function TariffTag({ tag }: { tag: LineTariffTag }) {
 function marginTone({ profit, margin }: QuoteTotals): KpiTone | undefined {
   if (margin === null) return profit < 0 ? "red" : undefined;
   return margin >= 15 ? "green" : margin >= 5 ? "amber" : "red";
+}
+
+// The KG / CONTAINER field by where the cargo weight stands: no colour within the standard limit,
+// yellow when it needs a heavy-tested box (or the shipping line's confirmation), red when too heavy.
+const WEIGHT_FIELD_CLASS: Record<WeightCheck["level"], string> = {
+  standard: "",
+  heavyTested: "!bg-yellow-100 !border-yellow-400",
+  confirm: "!bg-yellow-100 !border-yellow-400",
+  tooHeavy: "!bg-red-100 !border-red-400",
+};
+
+// Under a container line: the type's weight limits, and what the cargo weight on it needs.
+function ContainerWeightNote({ check }: { check: WeightCheck }) {
+  const kg = (n: number) => `${n.toLocaleString("en-US")} kg`;
+  return (
+    <div className="text-[11px] text-slate-500">
+      Standard up to {kg(check.standard)} · Heavy tested up to {kg(check.heavyTested)}
+      {check.level === "heavyTested" && <span className="ml-2 text-yellow-700">Heavy-tested box needed</span>}
+      {check.level === "confirm" && (
+        <span className="ml-2 text-yellow-700">
+          Heavy-tested box needed. <strong>You need to have it confirmed by shipping line</strong>
+        </span>
+      )}
+      {check.level === "tooHeavy" && <span className="ml-2 font-semibold text-red-600">Too heavy for this box</span>}
+    </div>
+  );
 }
