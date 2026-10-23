@@ -93,6 +93,14 @@ describe("computeCargo", () => {
     expect(cargo).toMatchObject({ totalPackages: 1, grossWeight: 1800, cbm: 2.5, weightFromLines: false, cbmFromLines: false });
     // 1.8 t against 2.5 cbm: the volume is the greater
     expect(cargo.weightMeasure).toBe(2.5);
+    // 2.5 cbm for 1.8 t
+    expect(cargo.weightRatio).toBe(1.39);
+  });
+
+  it("gives the weight ratio - cbm per ton - once both the weight and the volume are known", () => {
+    expect(computeCargo({ weight: 1500, cbm: 5 }).weightRatio).toBe(3.33);
+    expect(computeCargo({ weight: 1500 }).weightRatio).toBeNull();
+    expect(computeCargo({ cbm: 5 }).weightRatio).toBeNull();
   });
 
   it("goes by the packages for what they give, figure by figure", () => {

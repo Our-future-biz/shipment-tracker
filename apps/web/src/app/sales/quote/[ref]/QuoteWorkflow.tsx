@@ -1004,7 +1004,7 @@ export function QuoteWorkflow() {
               for Air only; any other quote shows the weight / measure instead - 1 t or 1 cbm, the
               greater - and its chargeable tile says Air only. A full-container quote is priced
               per box: it counts its containers and TEU and names its equipment instead. */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <div className={`grid grid-cols-2 gap-3 ${containerQuote ? "md:grid-cols-5" : "md:grid-cols-6"}`}>
             {containerQuote ? (
               <>
                 <KpiTile size="text" label="Containers" value={fmtQuantity(cargo.totalContainers)} />
@@ -1072,6 +1072,12 @@ export function QuoteWorkflow() {
                   />
                 )}
                 <KpiTile size="text" label="Chargeable wt" value={airFreight ? `${fmtQuantity(cargo.chargeableWeight)} kg` : AIR_ONLY} />
+                <KpiTile
+                  size="text"
+                  label="Weight ratio"
+                  value={cargo.weightRatio !== null ? `${fmtQuantity(cargo.weightRatio)} cbm/t` : EMPTY_CELL}
+                  hint="Volume ÷ weight in tons"
+                />
               </>
             )}
           </div>

@@ -257,6 +257,8 @@ export function computeCargo(data: SalesQuoteData) {
     volumetricWeight: Math.round(volumetricWeight * 100) / 100,
     chargeableWeight: Math.round(Math.max(grossWeight, volumetricWeight) * 100) / 100,
     weightMeasure: Math.round(Math.max(grossWeight / 1000, cbm) * 1000) / 1000,
+    /** Cbm per ton of cargo (volume ÷ weight in tons); null until both are known. */
+    weightRatio: grossWeight > 0 && cbm > 0 ? Math.round((cbm / (grossWeight / 1000)) * 100) / 100 : null,
   };
 }
 
