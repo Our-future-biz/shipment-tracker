@@ -155,6 +155,13 @@ export interface GatePickupInfo {
   rows: { haulier: string; licensePlate: string; driver: string; source?: GateTripSource | null }[];
 }
 
+/** "Shipment may need correcting": when it was found and what the history says. */
+export interface GateCorrectionNeeded {
+  /** ISO */
+  at: string;
+  detail: string;
+}
+
 /**
  * A shipment update the gate still owes (the received / released date or the plate written to
  * the linked shipment). "pending" is being retried; "failed" stopped and needs a hand in Shipments.
@@ -390,6 +397,8 @@ export interface GateMovementItem {
   pod: string;
   etd: string;
   eta: string;
+  /** The shipment's closing date (cargo cut-off, YYYY-MM-DD), read with its customs status; "" when none. */
+  closingDate: string;
   vessel: string;
   voyage: string;
   containerNumber: string;
@@ -446,6 +455,11 @@ export interface GateMovementItem {
   shipmentCheckedAt: string | null;
   /** Shipment update still owed by a stamp; null when everything reached the shipment. */
   shipmentUpdate: GateShipmentUpdateState | null;
+  /**
+   * A stamp was voided after its update reached the shipment, so the shipment may still carry the
+   * date the warehouse took back; null when none is open (or it was dismissed).
+   */
+  correctionNeeded: GateCorrectionNeeded | null;
   /** Days in the warehouse, free time and the estimated storage charge. */
   storage: GateStorageInfo;
   /** Damage / short / over exceptions, oldest first (open and resolved). */

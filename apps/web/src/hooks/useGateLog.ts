@@ -139,6 +139,11 @@ export const useGateMovement = (id: string | undefined) => {
     mutationFn: () => api.warehouseConcept.gateMovementShipmentUpdateDismiss(id!),
     onSuccess: onRow,
   });
+  // "Shipment may need correcting" once it was corrected in Shipments by hand.
+  const dismissCorrection = useMutation({
+    mutationFn: () => api.warehouseConcept.gateMovementCorrectionDismiss(id!),
+    onSuccess: onGateEvent,
+  });
   // Gate figures (pieces, kg, cbm) from the position's saved remeasured lines — never the shipment.
   const applyRemeasured = useMutation({
     mutationFn: (sectionVersion: number) => api.warehouseConcept.gateMovementUseRemeasured(id!, { sectionVersion }),
@@ -183,6 +188,7 @@ export const useGateMovement = (id: string | undefined) => {
     refreshFromShipment,
     retryShipmentUpdate,
     dismissShipmentUpdate,
+    dismissCorrection,
     applyRemeasured,
     createException,
     resolveException,

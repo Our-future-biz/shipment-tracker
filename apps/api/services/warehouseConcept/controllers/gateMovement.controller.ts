@@ -62,8 +62,8 @@ interface GateMovementCreateRequest extends GateMovementInput {
 export const gateMovementCreate = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-concept/gate" },
   async (req: GateMovementCreateRequest): Promise<GateMovementResponse> => {
-    const { companyID, userID } = getAuthData()!;
-    return { movement: await gateMovementService.create(companyID, userID, req) };
+    const { companyID, userID, role } = getAuthData()!;
+    return { movement: await gateMovementService.create(companyID, userID, req, role) };
   },
 );
 
@@ -163,6 +163,34 @@ export const gateMovementShipmentUpdateRetry = api(
   async ({ id }: { id: string }): Promise<GateMovementResponse> => {
     const { companyID, userID } = getAuthData()!;
     return { movement: await gateAdminService.retryShipmentUpdate(id, companyID, userID) };
+  },
+);
+
+// "Shipment may need correcting" once it was corrected in Shipments by hand; any user, logged.
+export const gateMovementCorrectionDismiss = api(
+  { expose: true, auth: true, method: "POST", path: "/warehouse-concept/gate/:id/correction/dismiss" },
+  async ({ id }: { id: string }): Promise<GateMovementResponse> => {
+    const { companyID, userID } = getAuthData()!;
+    return { movement: await gateAdminService.dismissCorrection(id, companyID, userID) };
+  },
+);
+
+interface FloorWriteLostRequest {
+  id: string;
+  /** What the phone discarded, in words ("Gate-in", "Survey (receipt)"). */
+  label: string;
+  /** When it was recorded on the phone (ISO). */
+  recordedAt: string;
+  /** Why it was not sent (too old, the last error). */
+  reason?: string;
+}
+
+// Floor mode tells the server it discarded a queued write instead of sending it; logged on the record.
+export const gateMovementFloorWriteLost = api(
+  { expose: true, auth: true, method: "POST", path: "/warehouse-concept/gate/:id/floor-lost" },
+  async ({ id, label, recordedAt, reason }: FloorWriteLostRequest): Promise<void> => {
+    const { companyID, userID } = getAuthData()!;
+    await gateAdminService.reportFloorWriteLost(id, companyID, userID, { label, recordedAt, reason });
   },
 );
 

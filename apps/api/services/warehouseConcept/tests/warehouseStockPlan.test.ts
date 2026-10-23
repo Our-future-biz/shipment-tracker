@@ -183,13 +183,16 @@ describe("bonded register from the gate", () => {
     const entry = entryFrom(open);
     const done = planStockSync(state({ ...t1, impRelease: T1 }, { entry, line: lineFrom(open) }), by);
     expect(done.entryChange).toBe("open->discharged");
-    expect(done.entry?.update).toMatchObject({ balance: 0, dischargedAt: T1, dischargeRef: "26CZ5100001234A7 · T1 26CZ… · WH release" });
+    // The reference is the customs document; how the goods left is in the discharge text.
+    expect(done.entry?.update).toMatchObject({ balance: 0, dischargedAt: T1, dischargeRef: "26CZ5100001234A7 · T1 26CZ…" });
+    expect(done.entry?.update?.discharge).toContain("26CZ5100001234A7 · T1 26CZ… · WH release");
   });
 
   it("customs cleared in the warehouse discharges; SCP opens nothing; a voided receipt voids", () => {
     const entry = entryFrom(planStockSync(state(t1), by));
     const cleared = planStockSync(state({ ...t1, customsStatus: "Customs Cleared/Released" }, { entry }), by);
-    expect(cleared.entry?.update).toMatchObject({ balance: 0, dischargeRef: "26CZ5100001234A7 · T1 26CZ… · customs cleared/released" });
+    expect(cleared.entry?.update).toMatchObject({ balance: 0, dischargeRef: "26CZ5100001234A7 · T1 26CZ…" });
+    expect(cleared.entry?.update?.discharge).toContain("customs cleared/released");
     expect(cleared.line?.insert).toMatchObject({ customs: "Free circulation", customsRegime: "" });
     expect(planStockSync(state({ ...t1, customsMode: "SCP" }), by).entry).toBeNull();
     const voided = planStockSync(state({ ...t1, receivedAt: null, loadInDate: "" }, { entry }), { by: "Boss", why: "tally voided: wrong house" });
@@ -210,7 +213,8 @@ describe("bonded register from the gate", () => {
     expect(again.entryChange).toBeNull();
     const done = planStockSync(state({ ...zero, impRelease: T1 }, { entry, line: lineFrom(open) }), by);
     expect(done.entryChange).toBe("open->discharged");
-    expect(done.entry?.update).toMatchObject({ dischargedAt: T1, dischargeRef: "26CZ5100001234A7 · T1 26CZ… · WH release" });
+    expect(done.entry?.update).toMatchObject({ dischargedAt: T1, dischargeRef: "26CZ5100001234A7 · T1 26CZ…" });
+    expect(done.entry?.update?.discharge).toContain("WH release");
   });
 
   it("a bonded storage operation is a customs warehouse: no deadline; MRN filled in later", () => {

@@ -13,7 +13,7 @@ import { TERMS } from "../../_lib/glossary";
 import { CHIPS, type ChipId } from "../../_lib/worklist";
 import { HealthLine } from "../../_components/tabs/ReportsTab";
 
-// The warehouse managers' cockpit (Council Outlay 5, steps 1 and 2): the Positions quick filters as
+// The warehouse managers' cockpit (Council Outlay 5, steps 1 to 3): the Positions quick filters as
 // tiles, then what to act on today (URGENT) and within 48 hours (ATTENTION), the link with
 // Shipments and storage, what is owed to Shipments, Trucking and suppliers, and what managers did
 // in the last days. Everything comes from one server answer, worked
@@ -182,7 +182,7 @@ function DeliveryLine({ cockpit }: { cockpit: Cockpit }) {
 function AuditLine({ cockpit }: { cockpit: Cockpit }) {
   const a = cockpit.audit;
   const parts = [
-    plural(a.overrides, "override"),
+    `${plural(a.overrides, "override")}${a.overridesPastCustoms ? ` (${a.overridesPastCustoms} past Customs)` : ""}`,
     plural(a.voids, "voided stamp"),
     plural(a.refusals, "refusal"),
     plural(a.archivedWithStamps, "archived with stamps", "archived with stamps"),

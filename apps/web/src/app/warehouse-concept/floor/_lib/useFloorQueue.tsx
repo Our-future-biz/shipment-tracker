@@ -454,6 +454,14 @@ export function FloorQueueProvider({ children }: { children: ReactNode }) {
       const item = itemsRef.current.find((i) => i.id === id);
       commit(itemsRef.current.filter((i) => i.id !== id));
       if (item?.kind === "photo") await dropPhoto(id);
+      // Tell the office what never arrived: logged on the position's gate record (best effort —
+      // a phone still offline cannot, and the discard goes ahead anyway). A container's own stamp
+      // belongs to no position.
+      if (item && !item.movementId.startsWith("container:")) {
+        void api.warehouseConcept
+          .gateMovementFloorWriteLost(item.movementId, { label: item.label, recordedAt: item.recordedAt, reason: item.error || (item.state === "failed" ? "failed" : "discarded") })
+          .catch(() => undefined);
+      }
     },
     [commit],
   );

@@ -3260,8 +3260,10 @@ export namespace warehouseConcept {
             this.gateFileList = this.gateFileList.bind(this)
             this.gateFileUpload = this.gateFileUpload.bind(this)
             this.gateMovementArchive = this.gateMovementArchive.bind(this)
+            this.gateMovementCorrectionDismiss = this.gateMovementCorrectionDismiss.bind(this)
             this.gateMovementCreate = this.gateMovementCreate.bind(this)
             this.gateMovementDelete = this.gateMovementDelete.bind(this)
+            this.gateMovementFloorWriteLost = this.gateMovementFloorWriteLost.bind(this)
             this.gateMovementFollow = this.gateMovementFollow.bind(this)
             this.gateMovementGet = this.gateMovementGet.bind(this)
             this.gateMovementLabelPrinted = this.gateMovementLabelPrinted.bind(this)
@@ -3423,6 +3425,15 @@ export namespace warehouseConcept {
             return await resp.json() as controllers.GateMovementResponse
         }
 
+        /**
+         * "Shipment may need correcting" once it was corrected in Shipments by hand; any user, logged.
+         */
+        public async gateMovementCorrectionDismiss(id: string): Promise<controllers.GateMovementResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/gate/${encodeURIComponent(id)}/correction/dismiss`)
+            return await resp.json() as controllers.GateMovementResponse
+        }
+
         public async gateMovementCreate(params: controllers.GateMovementCreateRequest): Promise<controllers.GateMovementResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/gate`, JSON.stringify(params))
@@ -3441,6 +3452,13 @@ export namespace warehouseConcept {
             return await resp.json() as {
     ok: boolean
 }
+        }
+
+        /**
+         * Floor mode tells the server it discarded a queued write instead of sending it; logged on the record.
+         */
+        public async gateMovementFloorWriteLost(id: string, params: controllers.FloorWriteLostRequest): Promise<void> {
+            await this.baseClient.callTypedAPI("POST", `/warehouse-concept/gate/${encodeURIComponent(id)}/floor-lost`, JSON.stringify(params))
         }
 
         /**
@@ -5417,6 +5435,23 @@ export namespace controllers {
         text: string
 
         destination: string
+    }
+
+    export interface FloorWriteLostRequest {
+        /**
+         * What the phone discarded, in words ("Gate-in", "Survey (receipt)").
+         */
+        label: string
+
+        /**
+         * When it was recorded on the phone (ISO).
+         */
+        recordedAt: string
+
+        /**
+         * Why it was not sent (too old, the last error).
+         */
+        reason?: string
     }
 
     export interface FollowupTaskCreateRequest {
@@ -9204,6 +9239,11 @@ export namespace interfaces {
     export interface CockpitAudit {
         days: number
         overrides: number
+        /**
+         * Of the overrides, those given while the Customs line was not OK.
+         */
+        overridesPastCustoms: number
+
         voids: number
         refusals: number
         archivedWithStamps: number
@@ -10382,6 +10422,18 @@ export namespace interfaces {
         type: string
     }
 
+    /**
+     * "Shipment may need correcting": when it was found and what the history says.
+     */
+    export interface GateCorrectionNeeded {
+        /**
+         * ISO
+         */
+        at: string
+
+        detail: string
+    }
+
     export type GateCustomsMode = "SCP" | "JSD" | "T1" | "T2L" | "ATA Carnet" | "RDT" | "C-Goods"
 
     /**
@@ -10607,6 +10659,11 @@ export namespace interfaces {
         pod: string
         etd: string
         eta: string
+        /**
+         * The shipment's closing date (cargo cut-off, YYYY-MM-DD), read with its customs status; "" when none.
+         */
+        closingDate: string
+
         vessel: string
         voyage: string
         containerNumber: string
@@ -10684,6 +10741,12 @@ export namespace interfaces {
          * Shipment update still owed by a stamp; null when everything reached the shipment.
          */
         shipmentUpdate: GateShipmentUpdateState | null
+
+        /**
+         * A stamp was voided after its update reached the shipment, so the shipment may still carry the
+         * date the warehouse took back; null when none is open (or it was dismissed).
+         */
+        correctionNeeded: GateCorrectionNeeded | null
 
         /**
          * Days in the warehouse, free time and the estimated storage charge.
@@ -14805,6 +14868,11 @@ export namespace interfaces {
         operationType: string
         pod: string
         etd: string
+        /**
+         * The shipment's closing date (cargo cut-off, YYYY-MM-DD); "" when none.
+         */
+        closingDate: string
+
         /**
          * Expected figures of the position (gate figures).
          */

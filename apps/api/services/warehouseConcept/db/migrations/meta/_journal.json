@@ -169,6 +169,13 @@
       "when": 1792419817104,
       "tag": "0023_index_cleanup",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1792753490863,
+      "tag": "0024_closing_date",
+      "breakpoints": true
     }
   ]
 }

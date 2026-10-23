@@ -12,7 +12,10 @@ import { buildCockpit } from "./managersCockpit";
 import { movementStorage } from "./storage";
 import { GATE_EVENT_WHAT } from "./gateEvents.service";
 import { SENDING_STALE_MS } from "./emailSupplier.service";
-import { MAY_NEED_CORRECTING_DAYS, RELEASED_CHARGEABLE_DAYS, STALE_PENDING_MINUTES, SUPPLIER_EMAIL_DAYS } from "./cockpitThresholds";
+import { BONDED_DOCUMENT_DAYS, FLOOR_WRITE_LOST_DAYS, RELEASED_CHARGEABLE_DAYS, STALE_PENDING_MINUTES, SUPPLIER_EMAIL_DAYS } from "./cockpitThresholds";
+import { correctionNeeded, FLOOR_WRITE_LOST_EVENT } from "./correction";
+import { warehouseStockService } from "./warehouseStock.service";
+import { isBareDischargeHow, leftPhysically } from "./warehouseStockPlan";
 
 const DAY = 86_400_000;
 
@@ -38,13 +41,16 @@ class ManagersCockpitService {
     const truckingNotSent = new Map<string, string[]>();
     for (const r of truckingFailed) truckingNotSent.set(r.movementId, [...(truckingNotSent.get(r.movementId) ?? []), GATE_EVENT_WHAT[r.event.kind] ?? r.event.kind]);
     const held = new Set(await gateExceptionRepository.openMovementIds(companyId));
+    const leftWithoutDocument = await this.leftWithoutDocument(companyId, now);
     const matters = (m: GateMovementRow) =>
       (!m.impRelease && !m.leftAt) ||
       unsent.has(m.id) ||
       truckingNotSent.has(m.id) ||
       held.has(m.id) ||
+      leftWithoutDocument.has(m.id) ||
       within(m.impRelease ?? m.leftAt, RELEASED_CHARGEABLE_DAYS, now) ||
-      m.events.some((e) => e.kind === "shipmentDeleted" || (e.kind === "shipmentMayNeedCorrecting" && within(e.at, MAY_NEED_CORRECTING_DAYS, now)));
+      !!correctionNeeded(m.events) ||
+      m.events.some((e) => e.kind === "shipmentDeleted" || (e.kind === FLOOR_WRITE_LOST_EVENT && within(e.at, FLOOR_WRITE_LOST_DAYS, now)));
     const matter = rows.filter(matters);
     const items = await gateMovementService.itemsFor(matter, companyId);
 
@@ -72,9 +78,24 @@ class ManagersCockpitService {
       shipmentUpdates,
       storage,
       truckingNotSent,
+      leftWithoutDocument,
       delivery,
       now,
     });
+  }
+
+  // Bonded entries whose goods left (WH release, or stuffed in a container that went out) under
+  // temporary storage or T1 transit, discharged lately, with no MRN and no customs document: the
+  // gate record id → the regime.
+  private async leftWithoutDocument(companyId: string, now: Date): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    for (const e of await warehouseStockService.listBonded(companyId)) {
+      if (e.status !== "Discharged" || !e.movementId || !within(e.dischargedAt, BONDED_DOCUMENT_DAYS, now)) continue;
+      if (e.regime !== "Temporary storage" && e.regime !== "Transit T1") continue;
+      if (e.mrn.trim() || (e.dischargeRef.trim() && !isBareDischargeHow(e.dischargeRef)) || !leftPhysically(e.discharge)) continue;
+      out.set(e.movementId, e.regime);
+    }
+    return out;
   }
 
   // What the warehouse owes other systems and suppliers: updates and events waiting too long,

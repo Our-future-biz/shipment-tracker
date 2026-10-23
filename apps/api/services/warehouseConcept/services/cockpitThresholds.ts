@@ -35,8 +35,6 @@ export const RELEASE_BLOCKED_HOURS = 2;
 export const MRN_REQUEST_HOURS = 24;
 /** A linked record's customs status not read from its shipment for this many hours (the follow runs every 5 minutes). */
 export const CUSTOMS_READ_STALE_HOURS = 24;
-/** "Shipment may need correcting" stays on the cockpit this many days (it has no Dismiss yet). */
-export const MAY_NEED_CORRECTING_DAYS = 7;
 /** Cargo released with storage charged and "Storage settled" never ticked: shown this many days after it left. */
 export const RELEASED_CHARGEABLE_DAYS = 7;
 
@@ -46,6 +44,19 @@ export const RELEASED_CHARGEABLE_DAYS = 7;
 export const STALE_PENDING_MINUTES = 30;
 /** Supplier e-mails (VGM, survey, remeasurement) that failed are counted over this many days. */
 export const SUPPLIER_EMAIL_DAYS = 7;
+
+// ─── Step 3 ────────────────────────────────────────────────────
+
+/** Export stuffing not finished: URGENT this many days or fewer before the closing date (or ETD without one) (D7). */
+export const STUFFING_URGENT_DAYS = 2;
+/** … and ATTENTION this many days or fewer before it (D7). */
+export const STUFFING_ATTENTION_DAYS = 5;
+/** A container on our yard whose detention expires in this many days or fewer: URGENT (U10). */
+export const DETENTION_URGENT_DAYS = 2;
+/** A write the phone discarded instead of sending stays on the cockpit this many days. */
+export const FLOOR_WRITE_LOST_DAYS = 7;
+/** Goods that left under customs control with no MRN or customs document are shown this many days after the discharge. */
+export const BONDED_DOCUMENT_DAYS = 30;
 
 /** The audit line counts the last this many days. */
 export const AUDIT_DAYS = 7;

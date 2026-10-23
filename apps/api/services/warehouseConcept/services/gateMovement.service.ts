@@ -15,7 +15,8 @@ import type { WarehouseExceptionRecord } from "../schemas/warehouseException.sch
 import { cargoLeg, DOMESTIC, isDomestic, releasePlate, visitOfHandling } from "./direction";
 import type { GateDockSlot, GateExceptionItem, GateMovementInput, GateMovementItem, GatePickupInfo, GateReweighItem, GateSurveyInput } from "../interfaces/gate.interfaces";
 import { EXCEPTION_GATE, exceptionHold, noOpenExceptionSql } from "./osd";
-import { isIsoDate, movementStorage, pragueDate, storageNote, type StorageInfo } from "./storage";
+import { DEFAULT_FREE_DAYS, isIsoDate, movementStorage, pragueDate, storageNote, type StorageInfo } from "./storage";
+import { reopenStorageLine } from "./storageSettled.service";
 import { remeasureTotals, type RemeasureTotals } from "./remeasure";
 import { warehouseSectionTable } from "../schemas/warehouseSection.schema";
 import { CUSTOMS_CLEARED, CUSTOMS_STATUSES, customsLine, setCustomsLineSql } from "./customs";
@@ -36,6 +37,7 @@ import { reweighRepository } from "../repositories/reweigh.repository";
 import type { WarehouseReweighRecord } from "../schemas/warehouseReweigh.schema";
 import { needsReweigh, REWEIGH_FIRST, reweighOkSql } from "./reweigh";
 import { positionLifecycle } from "./lifecycle";
+import { correctionNeeded } from "./correction";
 import { syncStockForMovement, syncStockForMovements } from "./warehouseStockSync";
 import { houseBlocksRelease, houseContexts, houseReleaseOkSql, isExportContainer, lockHouse, positionContainer, releaseHousesForArchive, tallyRequired, type HouseCtx } from "./houses";
 import {
@@ -315,6 +317,7 @@ function toItem(
     archivedAt: iso(deletedAt),
     shipmentCheckedAt: iso(shipmentCheckedAt),
     shipmentUpdate: shipmentUpdateState(outbox),
+    correctionNeeded: correctionNeeded(m.events),
     createdAt: m.createdAt.toISOString(),
     updatedAt: m.updatedAt.toISOString(),
   };
@@ -358,6 +361,13 @@ const armedSql = sql`${t.status} <> 'Refused' AND (${t.overridden} OR NOT EXISTS
 const PICKUP_PIN_FROM_SHIPMENTS = "This movement uses the pick-up PIN from Shipments";
 const NOT_RECEIVED_YET = "The cargo has not arrived yet — stamp the gate-in or the WH receipt before the WH release";
 const isManagerRole = (role: string) => role === "manager" || role === "admin" || role === "superadmin";
+// Free days above the default are storage given away: only a manager gives them (Council Outlay 5,
+// decision 19). Setting the default or fewer, or clearing back to the default, is anyone's.
+function assertFreeDaysAllowed(freeDays: number | null | undefined, role: string) {
+  if (typeof freeDays === "number" && freeDays > DEFAULT_FREE_DAYS && !isManagerRole(role)) {
+    throw APIError.permissionDenied(`Only a manager gives more than ${DEFAULT_FREE_DAYS} free days`);
+  }
+}
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // Outgoing cargo (výdej) leaves only through WH release, which stamps the gate-out too; a
 // gate-out of its own would skip the release gates.
@@ -688,7 +698,8 @@ class GateMovementService {
     };
   }
 
-  async create(companyId: string, userId: string, input: GateMovementInput & { walkIn?: boolean }) {
+  async create(companyId: string, userId: string, input: GateMovementInput & { walkIn?: boolean }, role = "user") {
+    assertFreeDaysAllowed(input.freeDays, role);
     const record = await this.buildRecord(companyId, userId, input);
     const id = await db.transaction(async (tx) => {
       const row = await gateMovementRepository.create(record, tx);
@@ -789,6 +800,7 @@ class GateMovementService {
       clockEvents.push({ kind: "storageClockChanged", label: `Received in warehouse: ${patch.loadInDate || "cleared"}`, at: clockAt, by: patch.updatedBy, detail: `was ${m.loadInDate || "—"}` });
     }
     if (patch.freeDays !== undefined && patch.freeDays !== m.freeDays) {
+      assertFreeDaysAllowed(patch.freeDays, role);
       clockEvents.push({
         kind: "storageClockChanged",
         label: `Free days: ${patch.freeDays ?? "default"}`,
@@ -1043,7 +1055,10 @@ class GateMovementService {
     if (opts.recordedAt && kind === "impRelease") {
       throw APIError.failedPrecondition("WH release needs a connection — it is checked against the release gates when it is stamped");
     }
-    const m = await this.load(id, companyId);
+    let m = await this.load(id, companyId);
+    // Storage charged since the last clock run: "Storage settled" goes back to Pending first, so
+    // the WH release checks it (storageSettled.ts).
+    if (kind === "impRelease" && (await reopenStorageLine(m))) m = await this.load(id, companyId);
     const known = requestId ? stampConflict(m, kind, requestId) : null;
     if (known) return { movement: await this.get(id, companyId), ...known };
     const blocked = stampBlocked(m, kind, await this.stampContext(m, companyId));
@@ -1246,9 +1261,9 @@ class GateMovementService {
   }
 
   // Supervisor-only: arms the release box regardless of the gates, keeping who, when,
-  // a snapshot of the gates at that moment and the mandatory reason.
-  // OPEN DECISION: an override stays armed for exceptions opened later (documented behaviour,
-  // confirm with the owner whether a new exception should disarm it).
+  // a snapshot of the gates at that moment (in the override log, and as data on the history
+  // event) and the mandatory reason. An exception opened later takes the override back
+  // (gateException.service openExceptionInTx; Council Outlay 5, decision 14).
   async override(id: string, companyId: string, userId: string, reason: string) {
     if (!reason.trim()) throw APIError.invalidArgument("An override reason is required");
     const m = await this.load(id, companyId);
@@ -1260,7 +1275,7 @@ class GateMovementService {
       id,
       companyId,
       { overridden: true, overrideLog, status: sql`CASE WHEN ${t.status} = 'Refused' THEN 'In Warehouse' ELSE ${t.status} END` },
-      [{ kind: "override", label: "Supervisor override", at: now.toISOString(), by, detail: reason.trim() }],
+      [{ kind: "override", label: "Supervisor override", at: now.toISOString(), by, detail: reason.trim(), gates: m.releaseGates.map(({ g, s }) => ({ g, s })) }],
     );
     if (!row) throw APIError.notFound("Gate movement not found");
     return this.get(id, companyId);

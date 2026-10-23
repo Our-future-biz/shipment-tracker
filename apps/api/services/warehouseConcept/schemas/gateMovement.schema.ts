@@ -102,6 +102,8 @@ export interface GateEvent {
   requestId?: string;
   /** The value the event replaced (e.g. the typed received date a tally tick overwrote), restored when it is voided. */
   previous?: string;
+  /** A supervisor override: the release gates as they were at that moment. */
+  gates?: { g: string; s: string }[];
 }
 
 // Gate desk row: one expected movement (a position, a delivery run or a container)
@@ -146,6 +148,8 @@ export const gateMovementTable = pgTable(
     pod: text("pod").notNull().default(""),
     etd: text("etd").notNull().default(""),
     eta: text("eta").notNull().default(""),
+    // The shipment's closing date (cargo cut-off, YYYY-MM-DD), read with its customs status; "" when none.
+    closingDate: text("closing_date").notNull().default(""),
     vessel: text("vessel").notNull().default(""),
     voyage: text("voyage").notNull().default(""),
     containerNumber: text("container_number").notNull().default(""),

@@ -104,12 +104,12 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
   {
     term: "Free time / storage",
     meaning:
-      "One calculation everywhere in the warehouse. The clock starts at the receipt — the gate-in for inbound cargo; for outbound cargo the tick-off at the stripping tally of its container (without a container tally, the “Received in warehouse” date) — and stops when the cargo leaves — the WH release (or gate-out) of outbound cargo, the gate-out of the export container inbound cargo was stuffed in (or its WH release). An inbound truck's gate-out is only the delivering truck leaving and does not stop it. Calendar days in Prague time; the receipt day is day 1. After the free days (7 unless set on the record) storage is CZK 22 per W/M a day, at least CZK 120. Expiring = 2 free days left or fewer.",
+      "One calculation everywhere in the warehouse. The clock starts at the receipt — the gate-in for inbound cargo; for outbound cargo the tick-off at the stripping tally of its container (without a container tally, the “Received in warehouse” date) — and stops when the cargo leaves — the WH release (or gate-out) of outbound cargo, the gate-out of the export container inbound cargo was stuffed in (or its WH release). An inbound truck's gate-out is only the delivering truck leaving and does not stop it. Calendar days in Prague time; the receipt day is day 1. After the free days (7 unless set on the record) storage is CZK 22 per W/M a day, at least CZK 120. Expiring = 2 free days left or fewer. Only a manager sets more than 7 free days. When the storage of outbound cargo becomes chargeable, the release gate “Storage settled” goes back to Pending (logged) unless someone ticked it by hand.",
   },
   {
     term: "Exception / On hold",
     meaning:
-      "Damaged, short or over cargo recorded on the gate job (from a survey or by hand). While one is open the cargo is on hold: the release gate “No open exceptions” is Blocked and the WH release is refused unless a supervisor overrides. Anyone resolves it with a note; both are logged.",
+      "Damaged, short or over cargo recorded on the gate job (from a survey or by hand). While one is open the cargo is on hold: the release gate “No open exceptions” is Blocked and the WH release is refused unless a supervisor overrides. Anyone resolves it with a note; both are logged. A new exception takes back a supervisor override in force: the release gates count again.",
     replaces: "OS&D",
   },
   {
@@ -147,7 +147,7 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
   {
     term: `${TERMS.containerGateIn} / ${TERMS.containerGateOut}`,
     meaning:
-      "The container's own stamps (time and who, logged): the container arriving at our yard and leaving it. They fill the yard dates of Dock & Yard. The gate-out of a stuffed export container releases every stuffed house: its storage clock stops, it is Left, and its shipment gets the warehouse released date and the container's truck plate. The gate-out needs a connection.",
+      "The container's own stamps (time and who, logged): the container arriving at our yard and leaving it. They fill the yard dates of Dock & Yard. The gate-out of a stuffed export container releases every stuffed house: its storage clock stops, it is Left, and its shipment gets the warehouse released date and the container's truck plate. The gate-out needs a connection. An export container with T1 transit or temporary-storage houses goes out only when each has its MRN (unless a supervisor overrode).",
   },
   {
     term: TERMS.strippingTally,
@@ -161,7 +161,8 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
   },
   {
     term: `${TERMS.short} / ${TERMS.notArrived}`,
-    meaning: "A house that is not (fully) in the container: recorded at the tally with a reason. It stays in the container's list and is not received.",
+    meaning:
+      "A house that is not (fully) in the container: recorded at the tally with a reason. It stays in the container's list and is not received. The tally opens a Short exception with the reason as its note (not arrived: every piece; short: the pieces missing from the count); voiding the tally resolves it.",
   },
   {
     term: TERMS.stuffingPlan,

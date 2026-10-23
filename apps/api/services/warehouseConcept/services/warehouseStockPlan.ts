@@ -288,8 +288,10 @@ export function planStockSync(s: StockSyncState, opts: StockSyncOptions): StockS
         : m.customsStatus === CUSTOMS_CLEARED
           ? "customs cleared/released"
           : `no longer under customs control (customs mode ${m.customsMode})`;
-      const dischargeRef = [docs, how].filter(Boolean).join(" · ").slice(0, 500);
-      entryPlan = { update: { balance: 0, dischargedAt: at, dischargeRef, discharge: `${pragueDate(at)} · ${dischargeRef}`.slice(0, 500) } };
+      // The reference is the customs document only (MRN, customs docs): empty when there is none,
+      // so it can be filled in afterwards; how the goods left stays in the discharge text.
+      const dischargeRef = docs.slice(0, 500);
+      entryPlan = { update: { balance: 0, dischargedAt: at, dischargeRef, discharge: `${pragueDate(at)} · ${[docs, how].filter(Boolean).join(" · ")}`.slice(0, 500) } };
     }
   }
 
@@ -303,3 +305,12 @@ export function planStockSync(s: StockSyncState, opts: StockSyncOptions): StockS
   };
 }
 
+/**
+ * A discharge reference that names how the goods left but no customs document — what an automatic
+ * entry stored before the reference was kept for the document. Such a reference may still be
+ * replaced by the document.
+ */
+export const isBareDischargeHow = (ref: string) => /^(WH release|Left in container|customs cleared\/released|no longer under customs control)/i.test(ref.trim());
+
+/** The discharge text says the goods physically left (WH release or a container's gate-out). */
+export const leftPhysically = (discharge: string) => /WH release|Left in container/i.test(discharge);

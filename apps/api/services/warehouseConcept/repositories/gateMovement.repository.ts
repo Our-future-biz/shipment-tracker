@@ -66,6 +66,15 @@ class GateMovementRepository {
     return rows.map((r) => r.companyId);
   }
 
+  // Companies with live gate records not released or left yet.
+  async companiesWithOpenRecords(): Promise<string[]> {
+    const rows = await db
+      .selectDistinct({ companyId: gateMovementTable.companyId })
+      .from(gateMovementTable)
+      .where(and(isNull(gateMovementTable.deletedAt), isNull(gateMovementTable.impRelease), isNull(gateMovementTable.leftAt)));
+    return rows.map((r) => r.companyId);
+  }
+
   async listAll(companyId: string): Promise<GateMovementRow[]> {
     const rows = await this.select().where(liveRow(companyId)).orderBy(desc(gateMovementTable.createdAt));
     return rows.map(toRow);

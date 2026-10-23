@@ -29,6 +29,8 @@ import { positionLifecycle } from "./lifecycle";
 import { needsReweigh, needsReweighSql } from "./reweigh";
 import { acceptRecordedAt, checkRequestId, offlineDetail, pragueHhmm } from "./offline";
 import { pragueDate } from "./storage";
+import { customsRegime } from "./warehouseStockCustoms";
+import { openExceptionInTx, resolveTallyExceptionsInTx } from "./gateException.service";
 import { deliverDue } from "./shipmentOutbox.service";
 import { isManager, userName } from "./users";
 import { syncStockForMovement } from "./warehouseStockSync";
@@ -143,6 +145,7 @@ export function containerItem(
       operationType: m.operationType,
       pod: m.pod,
       etd: m.etd,
+      closingDate: m.closingDate,
       pieces: m.colli,
       weightKg: m.weightKg,
       cbm: m.measureCbm,
@@ -456,6 +459,12 @@ class ContainerService {
           if (!m.overridden && (await gateExceptionRepository.openForMovement(tx, m.id, companyId)).length) {
             throw APIError.failedPrecondition(`${ref(m)} is on hold — an open damage / short / over exception; resolve it, or un-stuff the house (a manager voids the close first)`);
           }
+          // Goods under customs control (T1 transit, temporary storage) leave only with their
+          // transit document (Council Outlay 5, decision 16): the MRN, not customs clearance.
+          const regime = customsRegime(m);
+          if (!m.overridden && (regime === "Transit T1" || regime === "Temporary storage") && (!m.mrn.trim() || m.mrn.trim() === "—")) {
+            throw APIError.failedPrecondition(`${ref(m)} is under customs control (${regime === "Transit T1" ? "T1 transit" : "temporary storage"}) with no MRN — record the transit document on the position before the container leaves`);
+          }
         }
       }
       if (opts.recordedAt) at = acceptRecordedAt(opts.recordedAt, now, { requestId, ...(kind === "strippingStart" ? { notBefore: c.gateInAt, after: "the container gate-in" } : {}) });
@@ -651,6 +660,8 @@ class ContainerService {
     const now = new Date();
     let delivered = false;
     let suggestException: TallySuggestion | null = null;
+    // The exception the tally opened itself (short / not arrived): nothing is left to suggest.
+    let autoException: TallySuggestion | null = null;
     const result = await db.transaction(async (tx) => {
       const c = await this.lockContainer(tx, id, companyId);
       const link = await containerPositionRepository.findInContainer(tx, id, movementId, companyId);
@@ -717,6 +728,23 @@ class ContainerService {
           by,
           detail: [reason, counted, offline].filter(Boolean).join(" · "),
         });
+        // A house short or not arrived opens its Short exception here, with the reason as the
+        // note (Council Outlay 5, decision 11): the shortage is a claim, not a choice to make later.
+        // Not arrived: every piece is missing; short: the pieces counted tell how many (a short
+        // without a count opens nothing — the shortage is not known).
+        const missing = outcome === "not_arrived" ? m.colli : pieces !== null && m.colli > pieces ? m.colli - pieces : 0;
+        if (missing > 0) {
+          await openExceptionInTx(tx, m.id, companyId, by, {
+            type: "Short",
+            pieces: missing,
+            note: reason,
+            container: c.number,
+            source: "tally",
+            createdAt: at,
+            detail: [`${TALLY_LABEL[outcome]} at the stripping tally of container ${c.number}`, reason, offline].filter(Boolean).join(" · "),
+          });
+          autoException = { type: "Short", pieces: missing };
+        }
       }
       const updated = await containerPositionRepository.update(
         tx,
@@ -752,13 +780,13 @@ class ContainerService {
         ...(requestId ? { requestId } : {}),
       });
       await this.log(tx, c, companyId, containerEvents, new Map([[m.id, movementEvents]]));
-      if (pieces !== null && m.colli > 0 && pieces !== m.colli) {
+      if (!autoException && pieces !== null && m.colli > 0 && pieces !== m.colli) {
         suggestException = { type: pieces < m.colli ? "Short" : "Over", pieces: Math.abs(m.colli - pieces) };
-      } else if (outcome !== "received" && m.colli > 0 && pieces === null && outcome === "not_arrived") {
-        suggestException = { type: "Short", pieces: m.colli };
       }
+      const auto = autoException as TallySuggestion | null;
       const notice = [
         opts.recordedAt ? `Tallied — recorded offline at ${pragueHhmm(at)}` : "",
+        auto ? `Exception recorded: Short ${auto.pieces} pc${auto.pieces === 1 ? "" : "s"} — the cargo is on hold until it is resolved` : "",
         suggestException ? `${suggestException.type} ${suggestException.pieces} pc${suggestException.pieces === 1 ? "" : "s"} against the expected ${m.colli} — record an exception?` : "",
       ]
         .filter(Boolean)
@@ -838,6 +866,8 @@ class ContainerService {
         tickedBy: "",
         clientRequestId: null,
       });
+      // A voided short / not arrived takes back the Short exception that tally opened.
+      if (link.tallyOutcome !== "received") await resolveTallyExceptionsInTx(tx, m.id, companyId, by, c.number, `Tally voided: ${why}`);
       // A voided tick-off voids the stock line (and bonded entry); a new tick opens the same rows.
       await syncStockForMovement(tx, companyId, m.id, { by, why: `tally voided: ${why}` });
       await this.log(tx, c, companyId, [{ kind: "tallyVoided", label: `Tally voided: ${ref(m)}`, at, by, detail: `${why} · was ${was}` }]);

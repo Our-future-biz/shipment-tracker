@@ -1,0 +1,1 @@
+ALTER TABLE "warehouse_gate_movement" ADD COLUMN IF NOT EXISTS "closing_date" text DEFAULT '' NOT NULL;

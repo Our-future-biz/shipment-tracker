@@ -28,7 +28,7 @@ const t = gateMovementTable;
 // The history event of a position kept after its shipment was deleted (gateAdmin.service).
 const SHIPMENT_GONE = "shipmentDeleted";
 
-type Fetched = { ok: true; customsStatus: string } | { ok: false; error: string };
+type Fetched = { ok: true; customsStatus: string; closingDate: string } | { ok: false; error: string };
 
 // Reads each shipment once, at most PARALLEL at a time, within the time budget. Shipments not
 // answered in time are missing from the result.
@@ -39,7 +39,7 @@ async function fetchStatuses(shipmentIds: string[], budgetMs: number, authData?:
     for (let id = queue.shift(); id; id = queue.shift()) {
       try {
         const { shipment } = await shipments.shipmentGet({ shipmentId: id }, authData ? { authData } : undefined);
-        out.set(id, { ok: true, customsStatus: shipment.customsStatus });
+        out.set(id, { ok: true, customsStatus: shipment.customsStatus, closingDate: shipment.closingDate ?? "" });
       } catch (err) {
         log.warn(err, "warehouse: shipment not read for the customs follow", { shipmentId: id });
         out.set(id, { ok: false, error: "The shipment could not be read" });
@@ -82,6 +82,19 @@ export async function followCustoms(
   for (const m of due) {
     const f = fetched.get(m.shipmentId!);
     if (!f) continue; // not answered in time: read again next time
+    // The shipment's closing date (cargo cut-off) comes with it: the stuffing plan is measured on it.
+    if (f.ok && f.closingDate !== m.closingDate && (!isCustomsStatus(f.customsStatus) || f.customsStatus === m.customsStatus)) {
+      const row = await gateMovementRepository.conditionalUpdate(
+        m.id,
+        companyId,
+        { closingDate: f.closingDate, shipmentCheckedAt: at },
+        [{ kind: "closingFromShipment", label: `Closing date from shipment: ${f.closingDate || "none"}`, at: at.toISOString(), by: "Shipments", detail: `was ${m.closingDate || "none"}` }],
+        sql`${t.impRelease} IS NULL`,
+      );
+      if (row) changed.set(m.id, row);
+      else checkedOnly.push(m.id);
+      continue;
+    }
     if (!f.ok || !isCustomsStatus(f.customsStatus) || f.customsStatus === m.customsStatus) {
       checkedOnly.push(m.id);
       continue;
@@ -91,7 +104,7 @@ export async function followCustoms(
     const row = await gateMovementRepository.conditionalUpdate(
       m.id,
       companyId,
-      { customsStatus: f.customsStatus, releaseGates: setCustomsLineSql(customsLine(f.customsStatus)), shipmentCheckedAt: at },
+      { customsStatus: f.customsStatus, releaseGates: setCustomsLineSql(customsLine(f.customsStatus)), shipmentCheckedAt: at, closingDate: f.closingDate },
       [{ kind: "customsFromShipment", label: `Customs status from shipment: ${f.customsStatus}`, at: at.toISOString(), by: "Shipments", detail: `was ${m.customsStatus}` }],
       sql`${t.customsStatus} = ${m.customsStatus} AND ${t.impRelease} IS NULL`,
     );

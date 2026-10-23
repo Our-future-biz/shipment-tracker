@@ -17,6 +17,7 @@ import { gateExceptionRepository } from "../repositories/gateException.repositor
 import { deliverGateEvents, enqueueGateEvents } from "./gateEvents.service";
 import { publishedSteps, voidedSteps } from "./gateEvents";
 import type { GateMovementRecord } from "../schemas/gateMovement.schema";
+import { CORRECTION_DISMISSED_EVENT, FLOOR_WRITE_LOST_EVENT, correctionNeeded } from "./correction";
 
 // Manager actions on gate records — voiding a wrong stamp, archiving a stamped record and
 // restoring an archived one — and removing a position with its gate records. Every one needs a
@@ -421,6 +422,42 @@ class GateAdminService {
       { kind: "shipmentUpdateDismissed", label: "Failed shipment update dismissed — set in Shipments by hand", at: new Date().toISOString(), by },
     ]);
     return gateMovementService.get(id, companyId);
+  }
+
+  // "Shipment may need correcting" after the shipment was corrected in Shipments by hand: no longer
+  // shown (the gate job, the cockpit). Any user, as the Dismiss of a failed update; logged.
+  async dismissCorrection(id: string, companyId: string, userId: string) {
+    const m = await gateMovementRepository.findByIdAny(id, companyId);
+    if (!m) throw APIError.notFound("Gate movement not found");
+    if (!correctionNeeded(m.events)) throw APIError.failedPrecondition("Nothing to correct on the shipment");
+    const by = await userName(userId);
+    await gateMovementRepository.appendEvents(id, companyId, [
+      { kind: CORRECTION_DISMISSED_EVENT, label: "Shipment corrected in Shipments — dismissed", at: new Date().toISOString(), by },
+    ]);
+    return gateMovementService.get(id, companyId);
+  }
+
+  // Floor mode: a write queued on the phone (offline) was discarded there instead of sent — too old
+  // for the server, or failed and given up. Logged on the record so the office sees what never
+  // arrived. Any user (the phone's own); nothing else changes.
+  async reportFloorWriteLost(id: string, companyId: string, userId: string, input: { label: string; recordedAt: string; reason?: string }) {
+    const label = (input?.label ?? "").trim().slice(0, 200);
+    if (!label) throw APIError.invalidArgument("Say what was discarded");
+    const recorded = new Date(input.recordedAt ?? "");
+    if (Number.isNaN(recorded.getTime())) throw APIError.invalidArgument("When it was recorded on the phone is not a time");
+    const m = await gateMovementRepository.findById(id, companyId);
+    if (!m) throw APIError.notFound("Gate movement not found");
+    const by = await userName(userId);
+    const reason = (input.reason ?? "").trim().slice(0, 300);
+    await gateMovementRepository.appendEvents(id, companyId, [
+      {
+        kind: FLOOR_WRITE_LOST_EVENT,
+        label: `Floor mode: ${label} — discarded on the phone, not sent`,
+        at: new Date().toISOString(),
+        by,
+        detail: [`recorded ${stampText(recorded)}`, reason].filter(Boolean).join(" · "),
+      },
+    ]);
   }
 }
 

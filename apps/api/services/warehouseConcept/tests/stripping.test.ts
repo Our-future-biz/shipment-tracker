@@ -105,7 +105,11 @@ describe("import stripping tally", () => {
     await containerService.stamp(box.id, c, user, "user", "gateIn");
     await expect(containerService.tally(box.id, c, user, "user", a.id, { outcome: "short" })).rejects.toThrow(/reason is required/);
     const short = await containerService.tally(box.id, c, user, "user", a.id, { outcome: "short", pieces: 7, reason: "3 cartons missing" });
-    expect(short.suggestException).toEqual({ type: "Short", pieces: 3 });
+    // The tally opens the Short exception itself (Council Outlay 5, decision 11): nothing to suggest.
+    expect(short.suggestException).toBeNull();
+    expect(short.notice).toMatch(/Exception recorded: Short 3 pcs/);
+    const held = await gateMovementService.get(a.id, c);
+    expect(held.exceptions).toEqual([expect.objectContaining({ type: "Short", pieces: 3, note: "3 cartons missing", source: "tally", container: "MSKU 611 902-7", status: "open" })]);
     expect(short.container.status).toBe("Stripping");
     await expect(containerService.stamp(box.id, c, user, "user", "gateOut")).rejects.toThrow(/1 house not accounted for/);
     // A short house is not received.

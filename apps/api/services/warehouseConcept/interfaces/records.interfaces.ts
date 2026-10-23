@@ -57,6 +57,8 @@ export interface WarehouseContainerHouse {
   operationType: string;
   pod: string;
   etd: string;
+  /** The shipment's closing date (cargo cut-off, YYYY-MM-DD); "" when none. */
+  closingDate: string;
   /** Expected figures of the position (gate figures). */
   pieces: number;
   weightKg: number;

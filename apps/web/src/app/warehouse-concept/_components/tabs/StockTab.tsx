@@ -676,9 +676,14 @@ const bondedFields = (positions: { value: string; label: string }[]): FieldDef[]
 ];
 
 // An automatic entry follows the gate record; a missing MRN or discharge reference is filled in here.
+// An older automatic entry whose reference names only how the goods left (no document) may get it too
+// (the server's isBareDischargeHow, warehouseStockPlan.ts).
+const bareDischargeHow = (ref: string) => /^(WH release|Left in container|customs cleared\/released|no longer under customs control)/i.test(ref.trim());
 const autoBondedFields = (e: BondedEntry): FieldDef[] => [
   ...(e.mrn ? [] : [{ name: "mrn", label: "MRN", placeholder: "26CZ5100001234A7" }]),
-  ...(e.dischargedAt && !e.dischargeRef ? [{ name: "dischargeRef", label: "Discharge reference", placeholder: "Customs document of the discharge", full: true }] : []),
+  ...(e.dischargedAt && (!e.dischargeRef || bareDischargeHow(e.dischargeRef))
+    ? [{ name: "dischargeRef", label: "Discharge reference", placeholder: "Customs document of the discharge", full: true }]
+    : []),
 ];
 
 function Bonded() {

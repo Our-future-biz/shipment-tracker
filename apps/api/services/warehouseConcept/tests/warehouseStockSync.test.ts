@@ -94,7 +94,7 @@ describe("stock line from the gate", () => {
     await gateMovementService.update(id, c, user, { customsStatus: "Customs Cleared/Released" });
     const [after] = await entriesOf(c, id);
     expect(after).toMatchObject({ balance: 0 });
-    expect(after!.dischargeRef).toContain("customs cleared/released");
+    expect(after!.discharge).toContain("customs cleared/released");
     expect((await linesOf(c, id))[0]).toMatchObject({ customs: "Export cleared", customsRegime: "" });
   });
 });
@@ -215,7 +215,7 @@ describe("export container: stuffing, gate-out and its void", () => {
     expect(discharged).toMatchObject({ id: entry!.id, balance: 0 });
     expect(discharged!.dischargedAt).not.toBeNull();
     expect(discharged!.dischargeRef).toContain("26CZ5100009999A1");
-    expect(discharged!.dischargeRef).toContain("TGHU 777 000-1");
+    expect(discharged!.discharge).toContain("TGHU 777 000-1");
 
     await containerService.voidStamp(box.id, c, user, "manager", "gateOut", "wrong truck");
     const [back, ...noNewLine] = await linesOf(c, id);
@@ -249,7 +249,7 @@ describe("customs status from the shipment", () => {
     expect(m.customsStatus).toBe("Customs Cleared/Released");
     const [after] = await entriesOf(c, id);
     expect(after).toMatchObject({ id: entry.id, balance: 0 });
-    expect(after!.dischargeRef).toContain("customs cleared/released");
+    expect(after!.discharge).toContain("customs cleared/released");
     expect((await linesOf(c, id))[0]).toMatchObject({ customsRegime: "", customs: "Free circulation" });
   });
 

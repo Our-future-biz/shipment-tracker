@@ -284,7 +284,7 @@ describe("audit line", () => {
       ],
       NOW,
     );
-    expect(audit).toEqual({ days: 7, overrides: 1, voids: 1, refusals: 1, archivedWithStamps: 1, shipmentsDeleted: 1 });
+    expect(audit).toEqual({ days: 7, overrides: 1, overridesPastCustoms: 0, voids: 1, refusals: 1, archivedWithStamps: 1, shipmentsDeleted: 1 });
   });
 });
 
@@ -348,10 +348,12 @@ describe("time passed (step 2)", () => {
     expect(texts({ ...m, dockSlots: [slot({ tripRef: "LCZ2026000007" })] } as GateMovementItem)).toEqual([]);
   });
 
-  it("a shipment that may need correcting, for 7 days", () => {
-    const corr = (h: number) => item({ events: [{ kind: "shipmentMayNeedCorrecting", label: "Shipment may need correcting", at: hoursAgo(h), by: "Petr" }] });
-    expect(texts(corr(5))).toEqual([`A Shipment may need correcting (${stampText(hoursAgo(5))}): a stamp was voided after it reached Shipments`]);
-    expect(texts(corr(24 * 8))).toEqual([]);
+  it("a shipment that may need correcting, until it is dismissed (step 3: no 7-day limit)", () => {
+    const at = hoursAgo(24 * 8);
+    expect(texts(item({ correctionNeeded: { at, detail: "" } }))).toEqual([
+      `A Shipment may need correcting (${stampText(at)}): a stamp was voided after it reached Shipments — dismiss it on the gate job once corrected`,
+    ]);
+    expect(texts(item({ correctionNeeded: null }))).toEqual([]);
   });
 
   it("events for Trucking that failed for good are urgent, with the shipment's own", () => {
@@ -365,5 +367,51 @@ describe("time passed (step 2)", () => {
     );
     expect(c.urgent.rows[0]!.tags).toEqual([{ text: "Not sent to Trucking: gate-in, gate-out", urgent: true }]);
     expect(c.delivery).toMatchObject({ truckingFailed: 3, supplierEmailsFailed: 2 });
+  });
+});
+
+// ─── Step 3 ────────────────────────────────────────────────────
+
+describe("step 3 signals", () => {
+  const house = (over: Record<string, unknown>) => ({ archived: false, stuffedAt: null, tallyOutcome: "", etd: "", closingDate: "", ...over });
+
+  it("export stuffing against the closing date: red 2 days or fewer, amber up to 5; ETD when there is no closing", () => {
+    const box = (positions: Record<string, unknown>[]) => container({ status: "Stuffing", positions: positions as unknown as WarehouseContainerItem["positions"] });
+    expect(containerSignals(box([house({ closingDate: "2026-10-25" }), house({ closingDate: "2026-10-28" })]), NOW).map((s) => [s.urgent, s.text])).toEqual([
+      [true, "Stuffing: 2 houses not stuffed · closing in 2 days (25.10.2026)"],
+    ]);
+    expect(containerSignals(box([house({ closingDate: "2026-10-27" })]), NOW).map((s) => [s.urgent, s.text])).toEqual([[false, "Stuffing: 1 house not stuffed · closing in 4 days (27.10.2026)"]]);
+    expect(containerSignals(box([house({ etd: "2026-10-24" })]), NOW).map((s) => s.text)).toEqual(["Stuffing: 1 house not stuffed · ETD in 1 day (24.10.2026)"]);
+    expect(containerSignals(box([house({ closingDate: "2026-11-10" })]), NOW)).toEqual([]);
+    // Every house stuffed: nothing left to stuff.
+    expect(containerSignals(box([house({ closingDate: "2026-10-24", stuffedAt: hoursAgo(1) })]), NOW)).toEqual([]);
+  });
+
+  it("detention on our yard: red 2 days or fewer before it expires, and after", () => {
+    const yard = (detentionExpiry: string, gatedOut = "") => container({ kind: "import", status: "Stripped", gatedIn: "2026-10-10", gatedOut, detentionExpiry } as Partial<WarehouseContainerItem>);
+    expect(containerSignals(yard("2026-10-24"), NOW).map((s) => [s.urgent, s.text])).toEqual([[true, "Detention expires in 1 day (24.10.2026) — book the empty return"]]);
+    expect(containerSignals(yard("2026-10-21"), NOW).map((s) => s.text)).toEqual(["Detention expired 2 days ago (21.10.2026) — book the empty return"]);
+    expect(containerSignals(yard("2026-11-01"), NOW)).toEqual([]);
+    expect(containerSignals(yard("2026-10-21", "2026-10-22"), NOW)).toEqual([]);
+  });
+
+  it("a discarded floor write for 7 days, and goods that left under customs with no document", () => {
+    const lost = (h: number) => item({ events: [{ kind: "floorWriteLost", label: "Floor mode: Gate-in — discarded on the phone, not sent", at: hoursAgo(h), by: "Eva" }] });
+    expect(texts(lost(3))).toEqual(["A Floor mode discarded 1 write on the phone: Gate-in"]);
+    expect(texts(lost(24 * 8))).toEqual([]);
+    const left = item({ impRelease: hoursAgo(48) });
+    expect(recordSignals(left, TODAY, NOW, { leftWithoutDocument: "Transit T1" }).map((s) => s.text)).toEqual([
+      "Left under customs control (T1 transit) with no MRN or customs document — attach it in the Bonded Register",
+    ]);
+  });
+
+  it("the audit line counts overrides given past a Customs line that was not OK", () => {
+    const at = hoursAgo(2);
+    const audit = buildAudit(
+      [{ events: [{ kind: "override", label: "", at, by: "", gates: [{ g: "Customs", s: "Pending" }] }, { kind: "override", label: "", at, by: "", gates: [{ g: "Customs", s: "OK" }] }] }],
+      [],
+      NOW,
+    );
+    expect(audit).toMatchObject({ overrides: 2, overridesPastCustoms: 1 });
   });
 });

@@ -10,6 +10,7 @@ import {
 } from "../repositories/warehouseStock.repository";
 import { customsClock, type CustomsRegime } from "./warehouseStockCustoms";
 import { previewStockSync, syncStockForMovements } from "./warehouseStockSync";
+import { isBareDischargeHow } from "./warehouseStockPlan";
 import { userName } from "./users";
 import type {
   warehouseBondedEntryTable,
@@ -480,10 +481,11 @@ class WarehouseStockService {
       }
       const ref = input.dischargeRef?.trim();
       if (ref !== undefined && ref !== cur.dischargeRef) {
-        if (cur.dischargeRef) throw APIError.failedPrecondition("The discharge reference is recorded — it follows the gate record");
+        if (cur.dischargeRef && !isBareDischargeHow(cur.dischargeRef)) throw APIError.failedPrecondition("The discharge reference is recorded — it follows the gate record");
         if (!cur.dischargedAt) throw APIError.failedPrecondition("The entry is not discharged yet");
         patch.dischargeRef = ref.slice(0, 500);
-        patch.discharge = `${pragueDate(cur.dischargedAt)} · ${ref}`.slice(0, 500);
+        // The discharge text keeps how the goods left and gets the document.
+        patch.discharge = `${cur.discharge || pragueDate(cur.dischargedAt)} · ${ref}`.slice(0, 500);
       }
     } else {
       const pos = input.movementId !== undefined ? await this.pickedPosition(companyId, input.movementId) : undefined;

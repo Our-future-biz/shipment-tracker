@@ -14,8 +14,10 @@ import type { GateMovementItem } from "../interfaces/gate.interfaces";
 import { isUniqueViolation } from "../../../lib/db/errors";
 
 // Damage / short / over (OS&D) exceptions of a gate movement. Recording one puts the cargo ON
-// HOLD (the "No open exceptions" release-gate line goes to Blocked); any user may resolve it with
-// a note, logged; when none is left open the line goes to OK. Both run under the movement's row
+// HOLD (the "No open exceptions" release-gate line goes to Blocked) and clears a supervisor
+// override in force (Council Outlay 5, decision 14: the override was given for what was known
+// then, not for the new damage or shortage); any user may resolve it with a note, logged; when
+// none is left open the line goes to OK. Both run under the movement's row
 // lock, so the line always matches the open exceptions, and a WH release racing with a new
 // exception is refused (gateMovement.service armedSql).
 
@@ -30,7 +32,7 @@ const hhmm = (d: Date) => new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/P
 // Locks the live movement until the transaction ends; null when there is none.
 async function lockMovement(tx: Tx, id: string, companyId: string) {
   const [row] = await tx
-    .select({ id: t.id, impRelease: t.impRelease, warehouseTaskId: t.warehouseTaskId })
+    .select({ id: t.id, impRelease: t.impRelease, leftAt: t.leftAt, overridden: t.overridden, warehouseTaskId: t.warehouseTaskId })
     .from(t)
     .where(and(eq(t.id, id), eq(t.companyId, companyId), isNull(t.deletedAt)))
     .for("update");
@@ -38,8 +40,8 @@ async function lockMovement(tx: Tx, id: string, companyId: string) {
 }
 
 // Sets the exceptions line from the exceptions open now (unreleased movements only) and logs
-// `events`, in the caller's transaction.
-async function syncLine(tx: Tx, id: string, companyId: string, released: boolean, events: GateEvent[], resolvedBy: string) {
+// `events`, in the caller's transaction. `clearOverride` also takes back a supervisor override.
+async function syncLine(tx: Tx, id: string, companyId: string, released: boolean, events: GateEvent[], resolvedBy: string, clearOverride = false) {
   const open = await gateExceptionRepository.openForMovement(tx, id, companyId);
   const at = new Date();
   const line: GateReleaseLine = open.length
@@ -49,10 +51,88 @@ async function syncLine(tx: Tx, id: string, companyId: string, released: boolean
     .update(t)
     .set({
       ...(released ? {} : { releaseGates: setExceptionLineSql(line) }),
+      ...(clearOverride ? { overridden: false } : {}),
       events: sql`${t.events} || ${JSON.stringify(events)}::jsonb`,
       updatedAt: at,
     })
     .where(and(eq(t.id, id), eq(t.companyId, companyId)));
+}
+
+export interface OpenExceptionFields {
+  type: string;
+  pieces: number;
+  note: string;
+  container?: string;
+  surveyPhase?: string;
+  /** manual | survey | tally */
+  source: string;
+  fileIds?: string[];
+  createdAt?: Date;
+  clientRequestId?: string;
+  /** Extra text for the history line (e.g. recorded offline). */
+  detail?: string;
+}
+
+/**
+ * Opens an exception on a gate record in the caller's transaction: the record is locked, the
+ * exception stored, the "No open exceptions" line set to Blocked and, while the cargo is still in
+ * the warehouse, a supervisor override in force taken back (logged). The gate job, floor mode and
+ * the stripping tally all open exceptions through here. Null when the record is archived.
+ */
+export async function openExceptionInTx(tx: Tx, id: string, companyId: string, by: string, f: OpenExceptionFields) {
+  const m = await lockMovement(tx, id, companyId);
+  if (!m) return null;
+  const row = await gateExceptionRepository.insert(tx, {
+    companyId,
+    movementId: id,
+    taskId: m.warehouseTaskId,
+    type: f.type,
+    pieces: f.pieces,
+    note: f.note,
+    container: (f.container ?? "").trim().slice(0, 50),
+    surveyPhase: (f.surveyPhase ?? "").trim().slice(0, 100),
+    source: f.source,
+    fileIds: f.fileIds ?? [],
+    createdBy: by,
+    ...(f.createdAt ? { createdAt: f.createdAt } : {}),
+    ...(f.clientRequestId ? { clientRequestId: f.clientRequestId } : {}),
+  });
+  const at = row.createdAt.toISOString();
+  const held = !m.impRelease && !m.leftAt;
+  const events: GateEvent[] = [
+    {
+      kind: "exceptionOpened",
+      label: `Exception: ${f.type} ${f.pieces} pc${f.pieces === 1 ? "" : "s"}${m.impRelease ? "" : " — cargo on hold"}`,
+      at,
+      by,
+      ...(f.detail ? { detail: f.detail } : {}),
+      ...(f.clientRequestId ? { requestId: f.clientRequestId } : {}),
+    },
+  ];
+  const clearOverride = m.overridden && held;
+  if (clearOverride) {
+    events.push({ kind: "overrideCleared", label: "Supervisor override cleared — a new exception was opened; the release gates count again", at, by });
+  }
+  await syncLine(tx, id, companyId, !!m.impRelease, events, by, clearOverride);
+  return row;
+}
+
+/**
+ * Resolves, in the caller's transaction, the Short exceptions a stripping tally of `container`
+ * opened on the record — when that tally is voided, the shortage it recorded no longer stands.
+ * Returns how many were resolved.
+ */
+export async function resolveTallyExceptionsInTx(tx: Tx, id: string, companyId: string, by: string, container: string, note: string) {
+  const m = await lockMovement(tx, id, companyId);
+  if (!m) return 0;
+  const open = (await gateExceptionRepository.openForMovement(tx, id, companyId)).filter((e) => e.source === "tally" && e.container === container);
+  const events: GateEvent[] = [];
+  for (const e of open) {
+    const row = await gateExceptionRepository.resolve(tx, e.id, id, companyId, by, note);
+    if (row) events.push({ kind: "exceptionResolved", label: `Exception resolved: ${row.type} ${row.pieces} pc${row.pieces === 1 ? "" : "s"}`, at: new Date().toISOString(), by, detail: note });
+  }
+  if (events.length) await syncLine(tx, id, companyId, !!m.impRelease, events, by);
+  return events.length;
 }
 
 class GateExceptionService {
@@ -108,30 +188,19 @@ class GateExceptionService {
         if (!m) throw APIError.notFound("Gate movement not found");
         // A copy of this request that got the lock first has made it already.
         if (requestId && (await gateExceptionRepository.findByRequestId(tx, id, companyId, requestId))) return false;
-        const row = await gateExceptionRepository.insert(tx, {
-          companyId,
-          movementId: id,
-          taskId: m.warehouseTaskId,
+        const detail = [note, input.recordedAt ? offlineDetail(at, now) : ""].filter(Boolean).join(" · ");
+        await openExceptionInTx(tx, id, companyId, by, {
           type,
           pieces,
           note,
-          container: (input.container ?? "").trim().slice(0, 50),
-          surveyPhase: (input.surveyPhase ?? "").trim().slice(0, 100),
+          container: input.container,
+          surveyPhase: input.surveyPhase,
           source,
           fileIds,
-          createdBy: by,
           createdAt: at,
           ...(requestId ? { clientRequestId: requestId } : {}),
+          ...(detail ? { detail } : {}),
         });
-        const event: GateEvent = {
-          kind: "exceptionOpened",
-          label: `Exception: ${type} ${pieces} pc${pieces === 1 ? "" : "s"}${m.impRelease ? "" : " — cargo on hold"}`,
-          at: row.createdAt.toISOString(),
-          by,
-          ...(note || input.recordedAt ? { detail: [note, input.recordedAt ? offlineDetail(at, now) : ""].filter(Boolean).join(" · ") } : {}),
-          ...(requestId ? { requestId } : {}),
-        };
-        await syncLine(tx, id, companyId, !!m.impRelease, [event], by);
         return true;
       });
     } catch (err) {

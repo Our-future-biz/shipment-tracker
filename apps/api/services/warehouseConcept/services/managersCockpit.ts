@@ -4,16 +4,20 @@ import type { WarehouseContainerItem, ShipmentUpdateHealth, StorageSummary } fro
 import type { CockpitAudit, CockpitDelivery, CockpitList, CockpitRow, CockpitTag, CockpitTiles, WarehouseManagersCockpit } from "../interfaces/cockpit.interfaces";
 import { CUSTOMS_CLEARED } from "./customs";
 import { isDomestic } from "./direction";
-import { DEFAULT_FREE_DAYS, pragueDate } from "./storage";
+import { DEFAULT_FREE_DAYS, dayNo, pragueDate } from "./storage";
 import { customsClock, customsRegime, type CustomsClockInfo } from "./warehouseStockCustoms";
 import { isTripSource } from "./tripSource";
+import { FLOOR_WRITE_LOST_EVENT } from "./correction";
 import {
   ARRIVED_NOT_RECEIVED_ATTENTION_HOURS,
   ARRIVED_NOT_RECEIVED_URGENT_HOURS,
   AUDIT_DAYS,
   CLOSED_NO_GATE_OUT_HOURS,
   CUSTOMS_READ_STALE_HOURS,
-  MAY_NEED_CORRECTING_DAYS,
+  DETENTION_URGENT_DAYS,
+  FLOOR_WRITE_LOST_DAYS,
+  STUFFING_ATTENTION_DAYS,
+  STUFFING_URGENT_DAYS,
   MRN_REQUEST_HOURS,
   RELEASE_BLOCKED_HOURS,
   RELEASED_CHARGEABLE_DAYS,
@@ -28,7 +32,7 @@ import {
 } from "./cockpitThresholds";
 
 // The managers' cockpit, worked out from the gate records and containers as the server returns
-// them (Council Outlay 5, steps 1 and 2). Pure: no database, tested in tests/managersCockpit.test.ts.
+// them (Council Outlay 5, steps 1 to 3). Pure: no database, tested in tests/managersCockpit.test.ts.
 //
 //   tiles     the Positions quick filters, counted over every position on the server (the same
 //             rules as the web's _lib/worklist.ts, which the tiles open)
@@ -164,9 +168,12 @@ function customsSignal(c: CustomsClockInfo): Signal | null {
   return d <= CUSTOMS_ATTENTION_DAYS ? attention(text, 100 + d) : null;
 }
 
-/** What a record's neighbours know about it: the events for Trucking it failed to send ("gate-in"). */
+/** What a record's neighbours know about it. */
 export interface RecordContext {
+  /** The events for Trucking it failed to send for good ("gate-in"). */
   truckingNotSent?: string[];
+  /** Its bonded entry was discharged when it left, with no MRN or customs document: the regime. */
+  leftWithoutDocument?: string;
 }
 
 /** Every signal of one gate record, in no particular order. */
@@ -279,18 +286,49 @@ export function recordSignals(m: Item, today: string, now: Date, ctx: RecordCont
 
   // History that needs a hand.
   if (m.events.some((e) => e.kind === "shipmentDeleted")) out.push(attention("Shipment deleted in Shipments, position kept — archive it with a reason", 460));
-  const correcting = lastEvent(m, "shipmentMayNeedCorrecting");
-  const since = correcting ? daysAgo(correcting.at, now) : null;
-  if (correcting && since !== null && since <= MAY_NEED_CORRECTING_DAYS) {
-    out.push(attention(`Shipment may need correcting (${stampText(correcting.at)}): a stamp was voided after it reached Shipments`, 470));
+  if (m.correctionNeeded) {
+    out.push(attention(`Shipment may need correcting (${stampText(m.correctionNeeded.at)}): a stamp was voided after it reached Shipments — dismiss it on the gate job once corrected`, 470));
+  }
+  const lost = (m.events ?? []).filter((e) => e.kind === FLOOR_WRITE_LOST_EVENT && (daysAgo(e.at, now) ?? Infinity) <= FLOOR_WRITE_LOST_DAYS);
+  if (lost.length) {
+    const what = lost.map((e) => e.label.replace(/^Floor mode: /, "").replace(/ — discarded on the phone, not sent$/, ""));
+    out.push(attention(`Floor mode discarded ${plural(lost.length, "write")} on the phone: ${what.join(", ")}`, 480));
+  }
+  if (ctx.leftWithoutDocument) {
+    out.push(attention(`Left under customs control (${ctx.leftWithoutDocument === "Transit T1" ? "T1 transit" : "temporary storage"}) with no MRN or customs document — attach it in the Bonded Register`, 490));
   }
   return out;
 }
 
 /** Every signal of one container (houses are listed on their own records). */
-export function containerSignals(c: Container, now: Date): Signal[] {
+export function containerSignals(c: Container, now: Date, today = pragueDate(now)): Signal[] {
   const out: Signal[] = [];
   if (c.gateOutAt) return out;
+  // Detention: the carrier's free time for the box on our yard (a typed date, Dock & Yard).
+  const expiry = dayOf(c.detentionExpiry);
+  if (expiry && c.gatedIn && !c.gatedOut) {
+    const d = dayNo(expiry) - dayNo(today);
+    if (d <= DETENTION_URGENT_DAYS) {
+      const when = d < 0 ? `expired ${plural(-d, "day")} ago` : d === 0 ? "expires today" : `expires in ${plural(d, "day")}`;
+      out.push(urgent(`Detention ${when} (${dayText(expiry)}) — book the empty return`, 80 + clamp(d, -9, 9)));
+    }
+  }
+  // Export stuffing against the earliest closing date of its houses (the shipment's cargo
+  // cut-off); without one, their ETD.
+  if (c.kind === "export" && (c.status === "Planning" || c.status === "Stuffing")) {
+    const houses = c.positions.filter((p) => !p.archived && !p.stuffedAt);
+    const closing = houses.map((p) => dayOf(p.closingDate)).filter(Boolean).sort()[0];
+    const etd = houses.map((p) => dayOf(p.etd)).filter(Boolean).sort()[0];
+    const due = closing || etd;
+    if (due && houses.length) {
+      const d = dayNo(due) - dayNo(today);
+      const what = closing ? "closing" : "ETD";
+      const when = d < 0 ? `${plural(-d, "day")} past the ${what}` : d === 0 ? `${what} today` : `${what} in ${plural(d, "day")}`;
+      const text = `Stuffing: ${plural(houses.length, "house")} not stuffed · ${when} (${dayText(due)})`;
+      if (d <= STUFFING_URGENT_DAYS) out.push(urgent(text, 90 + clamp(d, -9, 9)));
+      else if (d <= STUFFING_ATTENTION_DAYS) out.push(attention(text, 495 + d));
+    }
+  }
   if (c.kind === "import" && c.gateInAt && (c.status === "Arrived" || c.status === "Stripping")) {
     const hours = hoursSince(c.gateInAt, now);
     if (hours !== null && hours >= STRIPPING_OPEN_HOURS) {
@@ -384,19 +422,21 @@ export function buildAudit(records: AuditRecord[], archived: ArchivedRecord[], n
     return !Number.isNaN(t) && t >= since && t <= now.getTime();
   };
   let overrides = 0;
+  let overridesPastCustoms = 0;
   let refusals = 0;
   let shipmentsDeleted = 0;
   let voids = 0;
   for (const r of records) {
     const events = (r.events ?? []).filter((e) => recent(e.at));
     overrides += events.filter((e) => e.kind === "override").length;
+    overridesPastCustoms += events.filter((e) => e.kind === "override" && (e.gates ?? []).some((g) => g.g === "Customs" && g.s !== "OK")).length;
     refusals += events.filter((e) => e.kind === "refused").length;
     shipmentsDeleted += events.filter((e) => e.kind === "shipmentDeleted").length;
     // One void can clear later stamps too (one event each, same moment): count the action once.
     voids += new Set(events.filter((e) => e.kind === "stampVoided").map((e) => `${e.at}|${e.by}`)).size;
   }
   const archivedWithStamps = archived.filter((a) => a.stamped && recent(a.archivedAt)).length;
-  return { days: AUDIT_DAYS, overrides, voids, refusals, archivedWithStamps, shipmentsDeleted };
+  return { days: AUDIT_DAYS, overrides, overridesPastCustoms, voids, refusals, archivedWithStamps, shipmentsDeleted };
 }
 
 // ─── The cockpit ───────────────────────────────────────────────
@@ -413,6 +453,8 @@ export interface CockpitInput {
   storage: StorageSummary;
   /** Gate record id → the events for Trucking it failed to send for good ("gate-in", "gate-out"). */
   truckingNotSent?: Map<string, string[]>;
+  /** Gate record id → the customs regime it left under with no MRN or customs document. */
+  leftWithoutDocument?: Map<string, string>;
   delivery?: CockpitDelivery;
   now: Date;
 }
@@ -437,8 +479,8 @@ export function buildCockpit(input: CockpitInput): WarehouseManagersCockpit {
   };
 
   const ranked = [
-    ...input.items.map((m) => rank(positionRow(m), recordSignals(m, today, now, { truckingNotSent: input.truckingNotSent?.get(m.id) }))),
-    ...input.containers.map((c) => rank(containerRow(c), containerSignals(c, now))),
+    ...input.items.map((m) => rank(positionRow(m), recordSignals(m, today, now, { truckingNotSent: input.truckingNotSent?.get(m.id), leftWithoutDocument: input.leftWithoutDocument?.get(m.id) }))),
+    ...input.containers.map((c) => rank(containerRow(c), containerSignals(c, now, today))),
   ].filter((r): r is Ranked => r !== null);
 
   return {

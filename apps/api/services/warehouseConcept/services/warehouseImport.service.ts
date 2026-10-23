@@ -104,6 +104,7 @@ export function copiedFields(s: Partial<Shipment>) {
     pod: s.pod ?? "",
     etd: s.estimatedDeparture ?? "",
     eta: s.estimatedArrival ?? "",
+    closingDate: s.closingDate ?? "",
     vessel: s.vessel ?? "",
     voyage: s.voyage ?? "",
     containerNumber: s.containerNumber ?? "",

@@ -54,6 +54,8 @@ export interface CockpitTiles {
 export interface CockpitAudit {
   days: number;
   overrides: number;
+  /** Of the overrides, those given while the Customs line was not OK. */
+  overridesPastCustoms: number;
   voids: number;
   refusals: number;
   archivedWithStamps: number;

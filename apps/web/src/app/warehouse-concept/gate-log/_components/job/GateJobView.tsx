@@ -218,6 +218,7 @@ export function GateJobView({ id }: { id: string }) {
     refreshFromShipment,
     retryShipmentUpdate,
     dismissShipmentUpdate,
+    dismissCorrection,
   } = useGateMovement(id);
   const { user } = useAuth();
   const manager = isManager(user);
@@ -502,6 +503,32 @@ export function GateJobView({ id }: { id: string }) {
                   </button>
                 )}
               </div>
+            }
+          />
+        )}
+
+        {m.correctionNeeded && (
+          <Alert
+            className="mt-3"
+            type="warning"
+            showIcon
+            message={`Shipment may need correcting — a stamp was voided after it reached the shipment (${formatDateTime(m.correctionNeeded.at)})`}
+            description={m.correctionNeeded.detail || "The shipment may still carry the date the warehouse took back. Correct it in Shipments, then dismiss this."}
+            action={
+              <button
+                type="button"
+                className={btnDefault}
+                disabled={dismissCorrection.isPending}
+                title="Use once the shipment was corrected in Shipments"
+                onClick={() =>
+                  dismissCorrection
+                    .mutateAsync()
+                    .then(() => toast.success("Dismissed — logged on the movement"))
+                    .catch((e) => toast.error(errorMessage(e, "Failed to dismiss")))
+                }
+              >
+                Corrected — dismiss
+              </button>
             }
           />
         )}
