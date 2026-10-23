@@ -75,17 +75,23 @@ export function NotificationBell() {
     queryFn: () => api.quotes.quoteCommentMentions(),
     refetchInterval: 15000,
   });
-  // Both, newest first: where it was said (job no. or Sales Reference) and where a click leads.
-  const allMentions: BellMention[] = [
-    ...(mentionData?.mentions ?? []).map((m) => ({ ...m, key: `s:${m.id}`, ref: m.jobNumber, href: `/shipments?chat=${m.shipmentId}`, place: "a shipment" })),
-    ...(quoteMentionData?.mentions ?? []).map((m) => ({
-      ...m,
-      key: `q:${m.id}`,
-      ref: m.quoteNumber,
-      href: `/sales/quote/${encodeURIComponent(m.quoteNumber)}?chat=1`,
-      place: "a quote",
-    })),
-  ].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  // Each kind as the bell lists it: where it was said (job no. or Sales Reference) and where a
+  // click leads; undefined while its answer is not here. Both together, newest first.
+  const shipmentMentions: BellMention[] | undefined = mentionData?.mentions.map((m) => ({
+    ...m,
+    key: `s:${m.id}`,
+    ref: m.jobNumber,
+    href: `/shipments?chat=${m.shipmentId}`,
+    place: "a shipment",
+  }));
+  const quoteMentions: BellMention[] | undefined = quoteMentionData?.mentions.map((m) => ({
+    ...m,
+    key: `q:${m.id}`,
+    ref: m.quoteNumber,
+    href: `/sales/quote/${encodeURIComponent(m.quoteNumber)}?chat=1`,
+    place: "a quote",
+  }));
+  const allMentions: BellMention[] = [...(shipmentMentions ?? []), ...(quoteMentions ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   // ČNB rates still missing after the 16:00 pull — admins only; they clear themselves once
   // the rates arrive.
   const { user } = useAuth();
@@ -114,22 +120,29 @@ export function NotificationBell() {
   const answersShown = viewAnswers.filter((a) => matchesAll(query, answerTitle(a), answerText(a), a.quoteNumber, a.inquiry.decidedByName));
   const fxShown = fxAlerts.filter((a) => matchesAll(query, "ČNB exchange rates missing", a.reason, a.fixingDate));
 
-  // Announce only what arrives while the app is open, not the backlog found on load.
-  const seenMentions = useRef<Set<string> | null>(null);
-  useEffect(() => {
-    if (!mentionData && !quoteMentionData) return;
+  // Announce only what arrives while the app is open, not the backlog found on load. Each kind
+  // keeps its own memory of what it has seen: the two lists arrive at their own times, and the
+  // first answer of either must only be remembered - not announced as news because the other
+  // list got there first.
+  const seenShipmentMentions = useRef<Set<string> | null>(null);
+  const seenQuoteMentions = useRef<Set<string> | null>(null);
+  const announceFresh = (list: BellMention[] | undefined, seen: { current: Set<string> | null }) => {
+    if (!list) return;
     // Only unread ones are new: a read mention back in the list is not news.
-    const fresh = seenMentions.current ? allMentions.filter((m) => m.unread && !seenMentions.current!.has(m.key)) : [];
-    seenMentions.current = new Set(allMentions.map((m) => m.key));
+    const fresh = seen.current ? list.filter((m) => m.unread && !seen.current!.has(m.key)) : [];
+    seen.current = new Set(list.map((m) => m.key));
     for (const m of fresh) {
       toast.notify({
         title: `${m.authorName || "A colleague"} mentioned you in ${m.ref || m.place}`,
         description: m.message,
       });
     }
-    // The lists change only with their two answers; the merged array is rebuilt every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mentionData, quoteMentionData, toast]);
+  };
+  // The lists change only with their answers; the mapped arrays are rebuilt every render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => announceFresh(shipmentMentions, seenShipmentMentions), [mentionData, toast]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => announceFresh(quoteMentions, seenQuoteMentions), [quoteMentionData, toast]);
 
   // Announce only answers that arrive while the app is open, not the ones waiting on load.
   const seenAnswers = useRef<Set<string> | null>(null);

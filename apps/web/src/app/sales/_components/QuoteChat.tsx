@@ -54,10 +54,12 @@ export function QuoteChatPanel({ quoteNumber }: { quoteNumber: string }) {
       },
       remove: (id) => api.quotes.quoteCommentDelete(quoteNumber, id),
       markRead: () => api.quotes.quoteCommentMarkRead(quoteNumber),
-      // Reading clears the thread's badge and its mentions under the bell.
+      // Reading clears the thread's badge and its mentions under the bell; a message sent or
+      // deleted changes the badges. The thread's own list is the panel's and is read again by it -
+      // never from here, or every read would fetch the list it was just triggered by once more.
       refresh: (what) => {
-        if (what === "read") queryClient.invalidateQueries({ queryKey: quoteChatKeys.all });
-        else queryClient.invalidateQueries({ queryKey: quoteChatKeys.unread });
+        queryClient.invalidateQueries({ queryKey: quoteChatKeys.unread });
+        if (what === "read") queryClient.invalidateQueries({ queryKey: quoteChatKeys.mentions });
       },
       emptyText: "No messages yet — write the first note about this quote. Its revisions share this chat.",
       showQuoteNumber: true,

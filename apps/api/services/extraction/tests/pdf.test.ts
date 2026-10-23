@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { PDFDocument } from "pdf-lib";
+
+// The PDF helpers log through Encore, which needs its runtime outside `encore test`: stubbed, as
+// the other extraction tests do.
+vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn() } }));
+
 import { mergePagesToPdf, splitPdfToPages } from "../lib/pdf";
 
 // A PDF of `count` pages, each page `width` points wide so the pages can be told apart.

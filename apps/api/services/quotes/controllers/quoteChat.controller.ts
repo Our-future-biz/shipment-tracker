@@ -1,4 +1,5 @@
 import { api } from "encore.dev/api";
+import type { Min, MinLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { writeFileResponse, writeNotFound } from "../../../lib/fileContent";
 import { quoteChatService } from "../services/quoteChat.service";
@@ -47,14 +48,15 @@ export const quoteCommentMarkRead = api(
 
 interface QuoteChatFileUploadRequest {
   quoteNumber: string;
-  fileName: string;
-  fileSize: number;
+  fileName: string & MinLen<1>;
+  fileSize: number & Min<0>;
   fileType: string;
   contentBase64: string;
 }
 
 export const quoteChatFileUpload = api(
-  { expose: true, auth: true, method: "POST", path: "/sales-quotes/:quoteNumber/comments/files" },
+  // 50 MiB, as a shipment's attachments - base64 inflates bytes ~33%, so raw files up to ~37 MiB.
+  { expose: true, auth: true, method: "POST", path: "/sales-quotes/:quoteNumber/comments/files", bodyLimit: 50 * 1024 * 1024 },
   async ({ quoteNumber, ...file }: QuoteChatFileUploadRequest): Promise<{ id: string }> => {
     return quoteChatService.uploadFile(getAuthData()!, quoteNumber, file);
   },

@@ -148,7 +148,11 @@ export function QuoteWorkflow() {
   useEffect(() => {
     if (searchParams.get("chat") !== "1") return;
     setChatOpen(true);
-    router.replace(pathname);
+    // Only the chat flag leaves the address: where the user came from (the origin) stays in it.
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("chat");
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   }, [searchParams, router, pathname]);
   const toast = useToast();
   // Loading, autosave and everything about not losing or overwriting data live in the hook.

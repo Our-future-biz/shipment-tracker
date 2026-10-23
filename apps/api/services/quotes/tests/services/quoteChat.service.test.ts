@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // The quotes' chat, run for real against stand-ins for the repositories, the bucket and the users.
@@ -80,6 +82,15 @@ describe("the thread of a quote", () => {
 });
 
 describe("files and mentions", () => {
+  it("takes a file as large as the shipments chat does, and a file needs a name", () => {
+    // 50 MiB of body, as /shipments/:shipmentId/attachments allows (base64 inflates bytes ~33%).
+    const src = readFileSync(path.join(__dirname, "../../controllers/quoteChat.controller.ts"), "utf8");
+    const upload = src.slice(src.indexOf("interface QuoteChatFileUploadRequest"), src.indexOf("quoteCommentUnread"));
+    expect(upload).toMatch(/bodyLimit: 50 \* 1024 \* 1024/);
+    expect(upload).toMatch(/fileName: string & MinLen<1>/);
+    expect(upload).toMatch(/fileSize: number & Min<0>/);
+  });
+
   it("each file gets a download link with a token", async () => {
     repo.listByThread.mockResolvedValue([{ id: "m1", companyId: "c1", threadRef: ROOT, quoteNumber: ROOT, authorId: "u-eva", message: "see file", createdAt: new Date() }] as never);
     repo.listChatFiles.mockResolvedValue([{ id: "f1", commentId: "m1", fileName: "plan.pdf", fileSize: 10, fileType: "application/pdf" }] as never);

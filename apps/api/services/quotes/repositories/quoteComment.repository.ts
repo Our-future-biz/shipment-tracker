@@ -3,10 +3,19 @@ import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { quoteCommentReadTable, quoteCommentTable, type QuoteCommentRecord } from "../schemas/quoteComment.schema";
 import { quoteAttachmentTable } from "../schemas/quoteAttachment.schema";
+import { quoteTable } from "../schemas/quote.schema";
 
 const c = quoteCommentTable;
 const r = quoteCommentReadTable;
 const f = quoteAttachmentTable;
+
+/**
+ * The thread still has a live sales quote: its original reference, or one of its revisions
+ * (QCZ…001-R2). A thread whose quotes were all deleted opens nowhere, so its messages count as
+ * neither unread nor mentions - they would stay in the bell for good, with no chat to open and
+ * mark them read in.
+ */
+export const threadAliveSql = sql`exists (select 1 from ${quoteTable} where ${quoteTable.companyId} = ${c.companyId} and ${quoteTable.deletedAt} is null and (${quoteTable.quoteNumber} = ${c.threadRef} or ${quoteTable.quoteNumber} like ${c.threadRef} || '-R%'))`;
 
 // The quotes' chat (one thread per original Sales Reference, see quoteComment.schema): its
 // messages, how far each user has read a thread, and the files sent in it (quote_attachment rows
@@ -73,6 +82,7 @@ class QuoteCommentRepository extends TenantRepository<typeof quoteCommentTable> 
         and(
           eq(c.companyId, companyId),
           isNull(c.deletedAt),
+          threadAliveSql,
           sql`${c.authorId} <> ${userId}`,
           sql`(${read.readAt} is null or ${c.createdAt} > ${read.readAt})`,
         ),
@@ -96,6 +106,7 @@ class QuoteCommentRepository extends TenantRepository<typeof quoteCommentTable> 
         and(
           eq(c.companyId, companyId),
           isNull(c.deletedAt),
+          threadAliveSql,
           sql`${c.mentionedUserIds} @> ARRAY[${userId}::uuid]`,
           sql`(${read.readAt} is null or ${c.createdAt} > ${read.readAt} or ${c.createdAt} > now() - make_interval(days => ${keepReadDays}))`,
         ),
