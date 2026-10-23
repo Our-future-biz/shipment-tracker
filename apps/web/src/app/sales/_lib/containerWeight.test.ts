@@ -12,7 +12,7 @@ describe("checkContainerWeight", () => {
     expect(level("20' GP", 28250)).toBe("confirm");
     expect(level("20' GP", 28251)).toBe("tooHeavy");
     // The line under the container shows the most a heavy-tested box takes.
-    expect(checkContainerWeight("20' GP", 0)).toEqual({ standard: 26200, heavyTested: 28250, level: "standard" });
+    expect(checkContainerWeight("20' GP", 0)).toEqual({ standard: 26200, max: 28250, heavyTested: true, level: "standard" });
   });
 
   it("40' GP, 40' HC and 45' HQ go from heavy tested straight to too heavy", () => {
@@ -25,8 +25,14 @@ describe("checkContainerWeight", () => {
     expect(checkContainerWeight("40' HC", undefined)?.level).toBe("standard");
   });
 
+  it("reefers have no heavy-tested box: past standard the shipping line has to confirm it, up to the max", () => {
+    expect([27470, 27471, 29140, 29141].map((kg) => level("20' RF", kg))).toEqual(["standard", "confirm", "confirm", "tooHeavy"]);
+    expect([27600, 27601, 29000, 29001].map((kg) => level("40' HRF", kg))).toEqual(["standard", "confirm", "confirm", "tooHeavy"]);
+    expect(checkContainerWeight("40' HRF", 0)).toEqual({ standard: 27600, max: 29000, heavyTested: false, level: "standard" });
+  });
+
   it("equipment without agreed limits has none, unknown names included", () => {
-    expect(["20' RF", "40' HRF", "20' OT", "40' FR", "", "constructor"].map((t) => checkContainerWeight(t, 30000))).toEqual([null, null, null, null, null, null]);
+    expect(["40' RF", "40' HR", "20' OT", "40' FR", "", "constructor"].map((t) => checkContainerWeight(t, 30000))).toEqual([null, null, null, null, null, null]);
     expect(checkContainerWeight(undefined, 30000)).toBeNull();
   });
 });

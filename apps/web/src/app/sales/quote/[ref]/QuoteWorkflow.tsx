@@ -1806,11 +1806,12 @@ function ContainerWeightNote({ check }: { check: WeightCheck }) {
   const kg = (n: number) => `${n.toLocaleString("en-US")} kg`;
   return (
     <div className="text-[11px] text-slate-500">
-      Standard up to {kg(check.standard)} · Heavy tested up to {kg(check.heavyTested)}
+      Standard up to {kg(check.standard)} · {check.heavyTested ? "Heavy tested up to" : "Max"} {kg(check.max)}
       {check.level === "heavyTested" && <span className="ml-2 text-yellow-700">Heavy-tested box needed</span>}
       {check.level === "confirm" && (
         <span className="ml-2 text-yellow-700">
-          Heavy-tested box needed. <strong>You need to have it confirmed by shipping line</strong>
+          {check.heavyTested && "Heavy-tested box needed. "}
+          <strong>You need to have it confirmed by shipping line</strong>
         </span>
       )}
       {check.level === "tooHeavy" && <span className="ml-2 font-semibold text-red-600">Too heavy for this box</span>}
