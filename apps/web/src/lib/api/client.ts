@@ -1323,6 +1323,11 @@ export namespace quotes {
             this.salesQuoteSave = this.salesQuoteSave.bind(this)
             this.salesQuoteTransition = this.salesQuoteTransition.bind(this)
             this.salesQuoteValidity = this.salesQuoteValidity.bind(this)
+            this.salesQuoteWarehouseInquiryAnswers = this.salesQuoteWarehouseInquiryAnswers.bind(this)
+            this.salesQuoteWarehouseInquiryAsk = this.salesQuoteWarehouseInquiryAsk.bind(this)
+            this.salesQuoteWarehouseInquiryDecide = this.salesQuoteWarehouseInquiryDecide.bind(this)
+            this.salesQuoteWarehouseInquiryList = this.salesQuoteWarehouseInquiryList.bind(this)
+            this.salesQuoteWarehouseInquirySeen = this.salesQuoteWarehouseInquirySeen.bind(this)
         }
 
         public async salesQuoteCreate(params: controllers.SalesQuoteCreateRequest): Promise<controllers.SalesQuoteCreateResponse> {
@@ -1448,6 +1453,67 @@ export namespace quotes {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PUT", `/sales-quotes/${encodeURIComponent(quoteNumber)}/validity`, JSON.stringify(params))
             return await resp.json() as controllers.SalesQuoteValidityResponse
+        }
+
+        /**
+         * The bell: the answers to the signed-in user's own inquiries not opened yet.
+         */
+        public async salesQuoteWarehouseInquiryAnswers(): Promise<{
+    answers: interfaces.QuoteWarehouseInquiryItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/sales-quote-inquiries/answers`)
+            return await resp.json() as {
+    answers: interfaces.QuoteWarehouseInquiryItem[]
+}
+        }
+
+        /**
+         * Any user of the company (Sales): the question goes to the warehouse managers.
+         */
+        public async salesQuoteWarehouseInquiryAsk(quoteNumber: string, params: controllers.WarehouseInquiryAskRequest): Promise<{
+    quote: interfaces.SalesQuoteItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/sales-quotes/${encodeURIComponent(quoteNumber)}/warehouse-inquiry`, JSON.stringify(params))
+            return await resp.json() as {
+    quote: interfaces.SalesQuoteItem
+}
+        }
+
+        /**
+         * A warehouse manager approves with a price per piece, or rejects with a reason.
+         */
+        public async salesQuoteWarehouseInquiryDecide(quoteNumber: string, params: controllers.WarehouseInquiryDecideRequest): Promise<{
+    inquiry: interfaces.QuoteWarehouseInquiryItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/sales-quotes/${encodeURIComponent(quoteNumber)}/warehouse-inquiry/decide`, JSON.stringify(params))
+            return await resp.json() as {
+    inquiry: interfaces.QuoteWarehouseInquiryItem
+}
+        }
+
+        /**
+         * The Managers page: the questions waiting and those answered in the last 30 days. Managers only.
+         */
+        public async salesQuoteWarehouseInquiryList(): Promise<{
+    inquiries: interfaces.QuoteWarehouseInquiryItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/sales-quote-inquiries`)
+            return await resp.json() as {
+    inquiries: interfaces.QuoteWarehouseInquiryItem[]
+}
+        }
+
+        /**
+         * The one who asked opened the answer: it leaves the bell.
+         */
+        public async salesQuoteWarehouseInquirySeen(quoteNumber: string, params: {
+    inquiryId: string
+}): Promise<void> {
+            await this.baseClient.callTypedAPI("POST", `/sales-quotes/${encodeURIComponent(quoteNumber)}/warehouse-inquiry/seen`, JSON.stringify(params))
         }
     }
 }
@@ -8720,6 +8786,41 @@ export namespace controllers {
         results: interfaces.WarehouseImportResult[]
     }
 
+    export interface WarehouseInquiryAskRequest {
+        /**
+         * Pieces of 12.5 t or more.
+         */
+        pieces: number
+
+        /**
+         * The shipment's gross weight, kg.
+         */
+        grossWeightKg: number
+
+        /**
+         * What the warehouse should know.
+         */
+        note?: string
+    }
+
+    export interface WarehouseInquiryDecideRequest {
+        /**
+         * The inquiry answered (a newer question on the quote is not answered by mistake).
+         */
+        inquiryId: string
+
+        approve: boolean
+        /**
+         * Approved: the extra handling per piece, EUR.
+         */
+        priceEurPerPiece?: number | null
+
+        /**
+         * Rejected: why (required); approved: optional.
+         */
+        comment?: string
+    }
+
     export interface WarehouseKpisRequest {
         /**
          * YYYY-MM-DD (Prague), first day included; default 6 days before `to`.
@@ -12980,6 +13081,81 @@ export namespace interfaces {
          * Why the shipment did not make the quote Won.
          */
         note: string | null
+    }
+
+    /**
+     * The warehouse inquiry of a quote (data.warehouseInquiry; the server's key): pieces of 12.5 t or
+     * more have no handling rate, so Sales asks the warehouse, which approves with a price per piece
+     * or rejects with a reason.
+     */
+    export interface QuoteWarehouseInquiry {
+        id: string
+        /**
+         * pending | approved | rejected
+         */
+        status: "pending" | "approved" | "rejected"
+
+        /**
+         * Pieces of 12.5 t or more asked about.
+         */
+        pieces: number
+
+        /**
+         * The shipment's gross weight when asked, kg.
+         */
+        grossWeightKg: number
+
+        /**
+         * What Sales wrote with the question.
+         */
+        note: string
+
+        requestedById: string
+        requestedByName: string
+        /**
+         * ISO
+         */
+        requestedAt: string
+
+        decidedById: string | null
+        decidedByName: string | null
+        decidedAt: string | null
+        /**
+         * Approved: the extra handling per piece, EUR.
+         */
+        priceEurPerPiece: number | null
+
+        /**
+         * The manager's comment; the reason of a rejection.
+         */
+        comment: string
+
+        /**
+         * When the one who asked opened the answer (it then leaves the bell).
+         */
+        answerSeenAt: string | null
+    }
+
+    /**
+     * A warehouse inquiry with the quote it is about, as the warehouse and the bell list it.
+     */
+    export interface QuoteWarehouseInquiryItem {
+        quoteNumber: string
+        /**
+         * The quote's status as stored.
+         */
+        quoteStatus: string
+
+        customerName: string
+        serviceType: string
+        /**
+         * Where from and to, as the quote names them (POL / origin, POD / destination).
+         */
+        from: string
+
+        to: string
+        ownerName: string
+        inquiry: QuoteWarehouseInquiry
     }
 
     export interface RateExtras {

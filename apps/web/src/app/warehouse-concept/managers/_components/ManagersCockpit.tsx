@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { Modal, Table, Tag, Tooltip } from "antd";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Modal, Table, Tabs, Tag, Tooltip } from "antd";
 import { WarningFilled } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { PageHeader } from "@/components/PageHeader";
@@ -12,6 +12,8 @@ import { Badge, VISIT_TONE, nf } from "../../gate-log/_lib/gate";
 import { TERMS } from "../../_lib/glossary";
 import { CHIPS, type ChipId } from "../../_lib/worklist";
 import { HealthLine } from "../../_components/tabs/ReportsTab";
+import { useWarehouseInquiries } from "@/hooks/useWarehouseInquiries";
+import { QuoteInquiries } from "./QuoteInquiries";
 
 // The warehouse managers' cockpit (Council Outlay 5, steps 1 to 3): the Positions quick filters as
 // tiles, then what to act on today (URGENT) and within 48 hours (ATTENTION), the link with
@@ -202,8 +204,16 @@ function AuditLine({ cockpit }: { cockpit: Cockpit }) {
   );
 }
 
+// The page's two tabs: the cockpit, and Sales' questions waiting for the warehouse (?tab=inquiries).
+type PageTab = "cockpit" | "inquiries";
+
 export function ManagersCockpit() {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const tab: PageTab = searchParams.get("tab") === "inquiries" ? "inquiries" : "cockpit";
+  const setTab = (next: PageTab) => router.replace(next === "cockpit" ? pathname : `${pathname}?tab=${next}`);
+  const { waiting: inquiriesWaiting } = useWarehouseInquiries();
   const { cockpit, isLoading, isError } = useManagersCockpit();
   const [openCard, setOpenCard] = useState<CardKey | null>(null);
 
@@ -288,6 +298,28 @@ export function ManagersCockpit() {
           }
         />
 
+        <Tabs
+          activeKey={tab}
+          onChange={(k) => setTab(k as PageTab)}
+          className="[&>.ant-tabs-nav]:!mb-0"
+          items={[
+            { key: "cockpit", label: "Cockpit" },
+            {
+              key: "inquiries",
+              label: (
+                <span className="whitespace-nowrap">
+                  Quote inquiries
+                  {inquiriesWaiting > 0 && <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-px text-[11px] font-semibold text-amber-700">{inquiriesWaiting}</span>}
+                </span>
+              ),
+            },
+          ]}
+        />
+
+        {tab === "inquiries" ? (
+          <QuoteInquiries />
+        ) : (
+          <>
         <Tiles cockpit={cockpit} isLoading={isLoading} isError={isError} />
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -300,6 +332,8 @@ export function ManagersCockpit() {
             <HealthLine report={cockpit} />
             <DeliveryLine cockpit={cockpit} />
             <AuditLine cockpit={cockpit} />
+          </>
+        )}
           </>
         )}
       </div>

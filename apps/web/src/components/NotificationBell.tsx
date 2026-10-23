@@ -12,17 +12,28 @@ import { useFxAlerts, useInvalidateFx } from "@/hooks/useFx";
 import { NoticeSeverityTag } from "@/app/dashboard/_components/NoticeSeverityTag";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { formatDate } from "@/lib/date";
+import { useWarehouseInquiryAnswers, type WarehouseInquiryItem } from "@/hooks/useWarehouseInquiries";
 
 const formatTime = (iso: string) =>
   new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+
+// A warehouse answer as the bell says it.
+const answerTitle = (a: WarehouseInquiryItem) => `Warehouse ${a.inquiry.status === "approved" ? "approved" : "rejected"} ${a.quoteNumber}`;
+const answerText = (a: WarehouseInquiryItem) => {
+  const what = `${a.inquiry.pieces} piece${a.inquiry.pieces === 1 ? "" : "s"} of 12.5 t or more${a.customerName ? ` · ${a.customerName}` : ""}`;
+  return a.inquiry.status === "approved"
+    ? `${what}: EUR ${a.inquiry.priceEurPerPiece ?? 0} per piece${a.inquiry.comment ? ` — ${a.inquiry.comment}` : ""}`
+    : `${what}: ${a.inquiry.comment}`;
+};
 
 // How far back the "All" view of the panel goes.
 const RECENT_NOTICES = 20;
 
 const NOTICE_TOAST_TYPE: Record<string, "info" | "warning" | "error"> = { info: "info", warning: "warning", critical: "error" };
 
-// What the signed-in user has not looked at yet: noticeboard posts from colleagues and
-// chat messages that tag them with @. A new one pops up as a notification; they stay
+// What the signed-in user has not looked at yet: noticeboard posts from colleagues, chat
+// messages that tag them with @, and the warehouse's answers to their questions about pieces of
+// 12.5 t or more on a quote. A new one pops up as a notification; they stay
 // under the bell until the notice or the shipment's chat (mentions) is opened.
 export function NotificationBell() {
   const router = useRouter();
@@ -41,6 +52,8 @@ export function NotificationBell() {
   const invalidateFx = useInvalidateFx();
   const fxAlerts = isAdmin ? (fxAlertData?.alerts ?? []) : [];
   const { announcements, viewer, hasLoaded: noticesLoaded } = useNoticeboard();
+  // The warehouse answered a quote inquiry this user sent; it leaves the bell once opened.
+  const { answers: warehouseAnswers, hasLoaded: answersLoaded, seen: answerSeen } = useWarehouseInquiryAnswers();
   const [open, setOpen] = useState(false);
   // "Unread" is what still needs attention; "All" keeps the recent notices in reach after
   // they have been opened. Mentions exist here only while unread.
@@ -61,6 +74,16 @@ export function NotificationBell() {
       });
     }
   }, [mentionData, toast]);
+
+  // Announce only answers that arrive while the app is open, not the ones waiting on load.
+  const seenAnswers = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!answersLoaded) return;
+    const before = seenAnswers.current;
+    const fresh = before ? warehouseAnswers.filter((a) => !before.has(a.inquiry.id)) : [];
+    seenAnswers.current = new Set(warehouseAnswers.map((a) => a.inquiry.id));
+    for (const a of fresh) toast.notify({ title: answerTitle(a), description: answerText(a), type: a.inquiry.status === "approved" ? "info" : "warning" });
+  }, [warehouseAnswers, answersLoaded, toast]);
 
   const seenFxAlerts = useRef<Set<string> | null>(null);
   useEffect(() => {
@@ -105,7 +128,11 @@ export function NotificationBell() {
     router.push(href);
   };
 
-  const total = mentions.length + notices.length + fxAlerts.length;
+  const total = mentions.length + notices.length + fxAlerts.length + warehouseAnswers.length;
+  const openAnswer = (a: WarehouseInquiryItem) => {
+    answerSeen.mutate({ quoteNumber: a.quoteNumber, inquiryId: a.inquiry.id });
+    go(`/sales/quote/${encodeURIComponent(a.quoteNumber)}`);
+  };
   const rowClass = "block w-full text-left px-4 py-2.5 border-b border-slate-100 last:border-b-0 bg-white hover:bg-slate-50 cursor-pointer";
   const headingClass = "px-4 py-2 border-b border-slate-200 bg-slate-50 text-[11px] font-semibold uppercase tracking-wider text-slate-500";
 
@@ -143,7 +170,21 @@ export function NotificationBell() {
           <span className="block text-[11px] text-slate-400 mt-0.5">System · {formatTime(a.raisedAt)}</span>
         </button>
       ))}
-      {listed.length + mentions.length + fxAlerts.length === 0 && (
+      {warehouseAnswers.length > 0 && <div className={headingClass}>Warehouse answers</div>}
+      {warehouseAnswers.map((a) => (
+        <button key={a.inquiry.id} type="button" onClick={() => openAnswer(a)} className={rowClass}>
+          <span className="flex items-center gap-2">
+            <span role="img" aria-label="Unread" className={`shrink-0 w-2 h-2 rounded-full ${a.inquiry.status === "approved" ? "bg-emerald-500" : "bg-red-500"}`} />
+            <span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-800 truncate">{answerTitle(a)}</span>
+            <span className="shrink-0 text-[11px] font-mono text-slate-500">{a.quoteNumber}</span>
+          </span>
+          <span className="text-[12px] text-slate-600 line-clamp-2">{answerText(a)}</span>
+          <span className="block text-[11px] text-slate-400 mt-0.5">
+            {a.inquiry.decidedByName || "Warehouse"} · {a.inquiry.decidedAt ? formatTime(a.inquiry.decidedAt) : ""}
+          </span>
+        </button>
+      ))}
+      {listed.length + mentions.length + fxAlerts.length + warehouseAnswers.length === 0 && (
         <p className="px-4 py-6 text-center text-xs text-slate-400">{view === "unread" ? "Nothing new." : "No notifications yet."}</p>
       )}
       {listed.length > 0 && <div className={headingClass}>Noticeboard</div>}

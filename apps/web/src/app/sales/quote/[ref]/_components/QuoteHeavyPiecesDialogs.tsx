@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Alert, Button, Input, InputNumber } from "antd";
 import { SalesDialog } from "@/app/sales/_components/SalesDialog";
 import {
@@ -10,10 +10,13 @@ import {
   heavyPiecesProblems,
   heavyTotal,
   rateSurcharge,
+  withInquiryAnswer,
   withinWeight,
   type HeavyBandKey,
   type QuoteHeavyPieces,
 } from "@/app/sales/_lib/heavyPieces";
+import type { QuoteWarehouseInquiry } from "@/app/sales/_lib/types";
+import { formatDateTime } from "@/lib/date";
 import { fmtQuantity } from "../_lib/fmtQuantity";
 
 const eur = (n: number) => `EUR ${n.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
@@ -27,15 +30,72 @@ interface QuoteHeavyPiecesDialogsProps {
   /** Back to the cargo, nothing saved. */
   onCancel: () => void;
   onSave: (heavy: QuoteHeavyPieces) => void;
+  /** The warehouse's answer about pieces of 12.5 t or more (or the question waiting); none when never asked. */
+  inquiry?: QuoteWarehouseInquiry | null;
+  /** Asks the warehouse about `pieces` of 12.5 t or more; resolves with why it was refused, or null. */
+  onInquire?: (pieces: number, note: string) => Promise<string | null>;
+}
+
+// The 12.5 t+ band has no rate: the warehouse is asked ("Inquire Warehouse") and answers on the
+// Warehouse Concept Managers page. The cell says where the question stands.
+function InquiryCell({ pieces, inquiry, onAsk, onUse }: { pieces: number; inquiry?: QuoteWarehouseInquiry | null; onAsk?: () => void; onUse: (amount: number) => void }) {
+  const ask = (label: string) =>
+    onAsk ? (
+      <Button size="small" className="!border-amber-400 !text-amber-700 hover:!bg-amber-50" onClick={onAsk}>
+        {label}
+      </Button>
+    ) : (
+      <span className="font-semibold text-amber-600">Inquire Warehouse</span>
+    );
+  if (pieces <= 0 || !inquiry) return pieces > 0 ? ask("Inquire Warehouse") : <span className="font-semibold text-amber-600">Inquire Warehouse</span>;
+  const who = (name: string | null, at: string | null) => (
+    <span className="block text-[11px] text-slate-400">
+      {name || "—"} · {formatDateTime(at)}
+    </span>
+  );
+  if (inquiry.status === "pending") {
+    return (
+      <span className="inline-block text-right">
+        <span className="font-semibold text-amber-600">Waiting for the warehouse</span>
+        {who(inquiry.requestedByName, inquiry.requestedAt)}
+      </span>
+    );
+  }
+  if (inquiry.status === "approved") {
+    const amount = Math.round((inquiry.priceEurPerPiece ?? 0) * pieces * 100) / 100;
+    return (
+      <span className="inline-block text-right">
+        <span className="font-semibold text-emerald-700">Approved: EUR {inquiry.priceEurPerPiece} per piece</span>
+        {who(inquiry.decidedByName, inquiry.decidedAt)}
+        {inquiry.pieces !== pieces && <span className="block text-[11px] text-amber-600">for {inquiry.pieces} piece{inquiry.pieces === 1 ? "" : "s"}</span>}
+        <button type="button" className="p-0 border-none bg-transparent text-[11px] text-indigo-600 cursor-pointer hover:underline" onClick={() => onUse(amount)}>
+          Use EUR {amount}
+        </button>
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex flex-col items-end gap-1 text-right">
+      <span className="font-semibold text-red-600">Rejected by the warehouse</span>
+      {inquiry.comment && <span className="block max-w-[220px] text-[11px] text-slate-600">{inquiry.comment}</span>}
+      {who(inquiry.decidedByName, inquiry.decidedAt)}
+      {ask("Ask again")}
+    </span>
+  );
 }
 
 // Saving a Sea LCL quote's cargo of over 2 t: is any piece over 2 t? No saves it as it is; yes asks
 // for the pieces per weight band and shows the warehouse's extra handling for them. A surcharge
 // changed from the rate - or the warehouse's figure for 12.5 t and more - then asks for the reason.
-export function QuoteHeavyPiecesDialogs({ open, grossWeight, initial, onCancel, onSave }: QuoteHeavyPiecesDialogsProps) {
+export function QuoteHeavyPiecesDialogs({ open, grossWeight, initial, onCancel, onSave, inquiry, onInquire }: QuoteHeavyPiecesDialogsProps) {
   const [step, setStep] = useState<"ask" | "pieces" | "reason">("ask");
   const [heavy, setHeavy] = useState<QuoteHeavyPieces>({ anyOver2t: true });
   const [tried, setTried] = useState(false);
+  // The question to the warehouse being written (12.5 t+ pieces), and its sending.
+  const [asking, setAsking] = useState(false);
+  const [inquiryNote, setInquiryNote] = useState("");
+  const [sending, setSending] = useState(false);
+  const [inquiryError, setInquiryError] = useState("");
 
   // Each time the dialog opens it asks again, starting from the quote's last answer.
   const [wasOpen, setWasOpen] = useState(false);
@@ -43,10 +103,33 @@ export function QuoteHeavyPiecesDialogs({ open, grossWeight, initial, onCancel, 
     setWasOpen(open);
     if (open) {
       setStep("ask");
-      setHeavy(withinWeight({ anyOver2t: true, pieces: initial?.pieces, surcharge: initial?.surcharge, reason: initial?.reason }, grossWeight));
+      setHeavy(withInquiryAnswer(withinWeight({ anyOver2t: true, pieces: initial?.pieces, surcharge: initial?.surcharge, reason: initial?.reason }, grossWeight), inquiry));
       setTried(false);
+      setAsking(false);
+      setInquiryError("");
     }
   }
+
+  // The question was sent, or answered, while the dialog is open: its figure and reason fill in.
+  const inquiryKey = inquiry ? `${inquiry.id}:${inquiry.status}` : "";
+  useEffect(() => {
+    if (open && inquiry) setHeavy((h) => withInquiryAnswer(h, inquiry));
+    // Only when the question itself changes, not on every render of the same answer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inquiryKey, open]);
+
+  const sendInquiry = async (pieces: number) => {
+    if (!onInquire) return;
+    setSending(true);
+    setInquiryError("");
+    const refused = await onInquire(pieces, inquiryNote.trim());
+    setSending(false);
+    if (refused) setInquiryError(refused);
+    else {
+      setAsking(false);
+      setInquiryNote("");
+    }
+  };
 
   const setPieces = (key: HeavyBandKey, n: number | null) => setHeavy((h) => ({ ...h, pieces: { ...h.pieces, [key]: n ?? 0 } }));
   const setSurcharge = (key: HeavyBandKey, n: number | null) =>
@@ -58,7 +141,7 @@ export function QuoteHeavyPiecesDialogs({ open, grossWeight, initial, onCancel, 
     });
 
   // What stops saving, apart from the reason, which the next step asks for.
-  const blocking = heavyPiecesProblems({ ...heavy, reason: "-" });
+  const blocking = heavyPiecesProblems({ ...heavy, reason: "-" }, { warehouseAsked: inquiry?.status === "pending" });
   const changed = changedBands(heavy);
   const savePieces = () => {
     setTried(true);
@@ -123,7 +206,8 @@ export function QuoteHeavyPiecesDialogs({ open, grossWeight, initial, onCancel, 
               const typed = heavy.surcharge?.[band.key];
               const differs = pieces > 0 && band.rate !== null && typed !== undefined && typed !== atRate;
               return (
-                <tr key={band.key} className="border-b border-slate-100 last:border-b-0">
+                <Fragment key={band.key}>
+                <tr className="border-b border-slate-100 last:border-b-0">
                   <td className="py-2 text-slate-800">{band.label}</td>
                   <td className="py-2">
                     <InputNumber
@@ -138,7 +222,16 @@ export function QuoteHeavyPiecesDialogs({ open, grossWeight, initial, onCancel, 
                     />
                   </td>
                   <td className="py-2 text-right text-slate-500">
-                    {band.rate === null ? <span className="font-semibold text-amber-600">Inquire Warehouse</span> : `EUR ${band.rate} per piece`}
+                    {band.rate === null ? (
+                      <InquiryCell
+                        pieces={pieces}
+                        inquiry={inquiry}
+                        onAsk={onInquire ? () => setAsking(true) : undefined}
+                        onUse={(amount) => setSurcharge(band.key, amount)}
+                      />
+                    ) : (
+                      `EUR ${band.rate} per piece`
+                    )}
                   </td>
                   <td className="py-2 pl-4">
                     {pieces > 0 ? (
@@ -157,6 +250,37 @@ export function QuoteHeavyPiecesDialogs({ open, grossWeight, initial, onCancel, 
                     )}
                   </td>
                 </tr>
+                {band.rate === null && pieces > 0 && asking && (
+                  <tr className="border-b border-slate-100">
+                    <td colSpan={4} className="pb-3">
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                        <div className="text-[12px] font-semibold text-amber-800">
+                          Ask the warehouse about {pieces} piece{pieces === 1 ? "" : "s"} of 12,500 kg or more ({fmtQuantity(grossWeight)} kg in all)
+                        </div>
+                        <div className="text-[11px] text-amber-700 mb-2">A warehouse manager approves with the extra handling per piece, or rejects; the answer comes to your notifications. The quote can be sent once it is approved.</div>
+                        <Input.TextArea
+                          rows={2}
+                          autoFocus
+                          aria-label="Note for the warehouse"
+                          placeholder="What the warehouse should know (dimensions, lifting points, …) — optional"
+                          value={inquiryNote}
+                          maxLength={1000}
+                          onChange={(e) => setInquiryNote(e.target.value)}
+                        />
+                        {inquiryError && <Alert className="mt-2" type="error" showIcon message={inquiryError} />}
+                        <div className="mt-2 flex gap-2">
+                          <Button type="primary" size="small" loading={sending} onClick={() => sendInquiry(pieces)}>
+                            Send to the warehouse
+                          </Button>
+                          <Button size="small" disabled={sending} onClick={() => setAsking(false)}>
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               );
             })}
           </tbody>

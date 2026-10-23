@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
 import { auth, customers, fx, shipments, trucking } from "~encore/clients";
@@ -16,12 +17,15 @@ import type {
   QuoteShipmentsItem,
   QuoteShipmentsResult,
   SalesQuoteItem,
+  QuoteWarehouseInquiry,
+  QuoteWarehouseInquiryItem,
 } from "../interfaces/interfaces";
 import { quoteAttachmentRepository } from "../repositories/quoteAttachment.repository";
 import { salesQuoteRepository, type NewSalesQuote, type SalesQuoteFilter, type SalesQuotePage } from "../repositories/salesQuote.repository";
 import type { SalesQuoteRecord } from "../schemas/quote.schema";
 import { matchOwnerLabel } from "../utils/ownerMatch.utils";
 import { carryKeys, isPlainObject, newDocument } from "../utils/quoteDocument.utils";
+import { inquiryGateMessage, MAX_INQUIRY_NOTE, MAX_INQUIRY_PIECES, MAX_PRICE_PER_PIECE, MIN_REJECT_REASON, readInquiry } from "../utils/warehouseInquiry.utils";
 import { fxWriteFor, mayStampFx, type StoredFx } from "../lib/quoteFx";
 import { currenciesToResolve, formatMargin, marginGateMessage, roadMargin, roadMarginApplies, type MarginContext } from "../lib/roadMargin";
 import { choosePricing, pricedComment, rateRequestOf, replaceTruckingLines, roadPricingOf, truckingLines } from "../lib/roadPricing";
@@ -108,6 +112,42 @@ const DEFAULT_LIMIT = 50;
 const MARGIN_GATED_STATUSES: readonly string[] = ["ready_to_send", "quoted"];
 // A won or lost quote is decided: it is not priced again.
 const DECIDED_STATUSES: readonly string[] = ["won", "lost"];
+/** How far back the warehouse's list shows answered inquiries. */
+const INQUIRY_HISTORY_DAYS = 30;
+/** Who answers the warehouse inquiries: the warehouse managers (the supervisor roles). */
+const canDecideInquiry = (role: string) => role === "superadmin" || role === "admin" || role === "manager";
+
+export interface WarehouseInquiryRequest {
+  pieces: number;
+  grossWeightKg: number;
+  note?: string;
+}
+
+export interface WarehouseInquiryDecision {
+  inquiryId: string;
+  approve: boolean;
+  priceEurPerPiece?: number | null;
+  comment?: string;
+}
+
+const docText = (data: Record<string, unknown>, key: string) => (typeof data[key] === "string" ? (data[key] as string).trim() : "");
+
+/** A quote's inquiry with the quote facts the warehouse needs; null when it has none. */
+function inquiryItem(quote: SalesQuoteRecord, names: Map<string, string>): QuoteWarehouseInquiryItem | null {
+  const inquiry = readInquiry(quote.data);
+  if (!inquiry) return null;
+  const data = isPlainObject(quote.data) ? quote.data : {};
+  return {
+    quoteNumber: quote.quoteNumber,
+    quoteStatus: quote.status,
+    customerName: docText(data, "customerName"),
+    serviceType: docText(data, "serviceType"),
+    from: docText(data, "pol") || docText(data, "origin"),
+    to: docText(data, "pod") || docText(data, "destination"),
+    ownerName: (quote.ownerUserId ? names.get(quote.ownerUserId) : undefined) || quote.ownerLabel || "",
+    inquiry,
+  };
+}
 const MIN_APPROVAL_REASON = 3;
 const MAX_APPROVAL_REASON = 500;
 const MAX_LIMIT = 200;
@@ -387,6 +427,9 @@ class SalesQuoteService {
       // A margin below the Trucking floor goes out only with a manager's approval that covers it.
       const margin = margins ? roadMargin(quote.data, margins) : null;
       if (margin?.needsApproval) throw APIError.failedPrecondition(marginGateMessage(margin));
+      // Pieces of 12.5 t or more go out only once the warehouse approved them.
+      const inquiryGate = inquiryGateMessage(quote.data, request.to);
+      if (inquiryGate) throw APIError.failedPrecondition(inquiryGate);
       // The customer is given totals worked out with the ČNB rates and ROE % of the moment it is
       // sent: they are stored then and never change; back in a draft status they are dropped
       // (see lib/quoteFx). That writes the document, hence a new version of it - and only then.
@@ -421,7 +464,7 @@ class SalesQuoteService {
       const fields = isPlainObject(quote.data) ? quote.data : {};
       // The prices go with what they were given: the tariff pricing they came from and the
       // approval of their margin - the server's keys, which newDocument leaves out.
-      const carried = ["roadPricing", "marginApproval"] as const;
+      const carried = ["roadPricing", "marginApproval", "warehouseInquiry"] as const;
       const priced = Object.fromEntries(carried.filter((key) => key in fields).map((key) => [key, fields[key]]));
       return {
         reference,
@@ -533,6 +576,116 @@ class SalesQuoteService {
     });
     if (!written) throw notFound();
     return this.item(written, names, actor, at);
+  }
+
+  // Sales asks the warehouse about the quote's pieces of 12.5 t or more (no handling rate): the
+  // question waits on the Warehouse Concept Managers page, and the quote cannot be sent until the
+  // warehouse approves. One question at a time; a new one replaces an answered one. Written
+  // without a new version of the document, so the editor the question was asked from goes on.
+  async inquireWarehouse(actor: Actor, quoteNumber: string, request: WarehouseInquiryRequest): Promise<SalesQuoteItem> {
+    const pieces = request.pieces;
+    if (!Number.isInteger(pieces) || pieces < 1 || pieces > MAX_INQUIRY_PIECES) throw APIError.invalidArgument(`Pieces must be a whole number from 1 to ${MAX_INQUIRY_PIECES}`);
+    const grossWeightKg = request.grossWeightKg;
+    if (!Number.isFinite(grossWeightKg) || grossWeightKg < 0) throw APIError.invalidArgument("The gross weight must be a number of kg");
+    const note = (request.note ?? "").trim();
+    if (note.length > MAX_INQUIRY_NOTE) throw APIError.invalidArgument(`The note is too long (at most ${MAX_INQUIRY_NOTE} characters)`);
+    const at = new Date();
+    const names = await userNames();
+    const ctx = contextOf(actor, at, names);
+    const written = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
+      if (DECIDED_STATUSES.includes(quote.status) || PRICING_CLOSED.includes(quote.status)) {
+        throw APIError.failedPrecondition("A quote that was sent cannot ask the warehouse - revise it");
+      }
+      const current = readInquiry(quote.data);
+      if (current?.status === "pending") throw APIError.failedPrecondition(`The warehouse was asked ${current.requestedAt.slice(0, 10)} by ${current.requestedByName || "a colleague"} - wait for its answer`);
+      const inquiry: QuoteWarehouseInquiry = {
+        id: randomUUID(),
+        status: "pending",
+        pieces,
+        grossWeightKg,
+        note,
+        requestedById: actor.userID,
+        requestedByName: ctx.userName,
+        requestedAt: at.toISOString(),
+        decidedById: null,
+        decidedByName: null,
+        decidedAt: null,
+        priceEurPerPiece: null,
+        comment: "",
+        answerSeenAt: null,
+      };
+      const comment = `Warehouse asked about ${pieces} piece${pieces === 1 ? "" : "s"} of 12.5 t or more${note ? ` - ${note}` : ""}`;
+      return salesQuoteRepository.writeLifecycle(tx, quote, { state: stateOf(quote), entries: [pricingEntry("warehouse_inquiry", comment, ctx)], serverKeys: { warehouseInquiry: inquiry } });
+    });
+    if (!written) throw notFound();
+    return this.item(written, names, actor, at);
+  }
+
+  // The warehouse's questions from Sales (the Warehouse Concept Managers page): those waiting and
+  // those answered in the last 30 days. Managers only.
+  async listWarehouseInquiries(actor: Actor): Promise<QuoteWarehouseInquiryItem[]> {
+    if (!canDecideInquiry(actor.role)) throw APIError.permissionDenied("only a warehouse manager answers the warehouse inquiries");
+    const since = new Date(Date.now() - INQUIRY_HISTORY_DAYS * 86_400_000).toISOString();
+    const [rows, names] = await Promise.all([salesQuoteRepository.listWarehouseInquiries(actor.companyID, since), userNames()]);
+    return rows.map((r) => inquiryItem(r, names)).filter((i): i is QuoteWarehouseInquiryItem => i !== null);
+  }
+
+  // A warehouse manager answers: approved with the extra handling per piece (EUR), or rejected
+  // with a reason. The answer goes to the one who asked (the bell) and into the quote's history.
+  async decideWarehouseInquiry(actor: Actor, quoteNumber: string, request: WarehouseInquiryDecision): Promise<QuoteWarehouseInquiryItem> {
+    if (!canDecideInquiry(actor.role)) throw APIError.permissionDenied("only a warehouse manager answers the warehouse inquiries");
+    const comment = (request.comment ?? "").trim();
+    if (comment.length > MAX_INQUIRY_NOTE) throw APIError.invalidArgument(`The comment is too long (at most ${MAX_INQUIRY_NOTE} characters)`);
+    let price: number | null = null;
+    if (request.approve) {
+      price = request.priceEurPerPiece ?? null;
+      if (price === null || !Number.isFinite(price) || price < 0 || price > MAX_PRICE_PER_PIECE) {
+        throw APIError.invalidArgument(`Give the extra handling per piece in EUR (0 to ${MAX_PRICE_PER_PIECE})`);
+      }
+      price = Math.round(price * 100) / 100;
+    } else if (comment.length < MIN_REJECT_REASON) {
+      throw APIError.invalidArgument("Say why the warehouse rejects the pieces");
+    }
+    const at = new Date();
+    const names = await userNames();
+    const ctx = contextOf(actor, at, names);
+    const written = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
+      const inquiry = readInquiry(quote.data);
+      if (!inquiry || inquiry.id !== request.inquiryId) throw APIError.notFound("This inquiry is no longer on the quote");
+      if (inquiry.status !== "pending") throw APIError.failedPrecondition(`This inquiry was already ${inquiry.status} by ${inquiry.decidedByName || "a manager"}`);
+      const decided: QuoteWarehouseInquiry = {
+        ...inquiry,
+        status: request.approve ? "approved" : "rejected",
+        decidedById: actor.userID,
+        decidedByName: ctx.userName,
+        decidedAt: at.toISOString(),
+        priceEurPerPiece: price,
+        comment,
+        answerSeenAt: null,
+      };
+      const what = `${inquiry.pieces} piece${inquiry.pieces === 1 ? "" : "s"} of 12.5 t or more`;
+      const line = request.approve ? `Warehouse approved ${what}: EUR ${price} per piece${comment ? ` - ${comment}` : ""}` : `Warehouse rejected ${what}: ${comment}`;
+      return salesQuoteRepository.writeLifecycle(tx, quote, { state: stateOf(quote), entries: [pricingEntry("warehouse_inquiry", line, ctx)], serverKeys: { warehouseInquiry: decided } });
+    });
+    if (!written) throw notFound();
+    return inquiryItem(written, names)!;
+  }
+
+  // The answers to the signed-in user's own inquiries not opened yet (the bell).
+  async myInquiryAnswers(actor: Actor): Promise<QuoteWarehouseInquiryItem[]> {
+    const [rows, names] = await Promise.all([salesQuoteRepository.listInquiryAnswersFor(actor.companyID, actor.userID), userNames()]);
+    return rows.map((r) => inquiryItem(r, names)).filter((i): i is QuoteWarehouseInquiryItem => i !== null);
+  }
+
+  // The one who asked opened the answer: it leaves the bell. Only theirs; nothing else changes.
+  async markInquiryAnswerSeen(actor: Actor, quoteNumber: string, inquiryId: string): Promise<void> {
+    const at = new Date();
+    const written = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
+      const inquiry = readInquiry(quote.data);
+      if (!inquiry || inquiry.id !== inquiryId || inquiry.requestedById !== actor.userID || inquiry.status === "pending" || inquiry.answerSeenAt) return quote;
+      return salesQuoteRepository.writeLifecycle(tx, quote, { state: stateOf(quote), entries: [], serverKeys: { warehouseInquiry: { ...inquiry, answerSeenAt: at.toISOString() } } });
+    });
+    if (!written) throw notFound();
   }
 
   // A new "Valid until" date, or none.

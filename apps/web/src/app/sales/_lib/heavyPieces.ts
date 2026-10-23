@@ -1,4 +1,4 @@
-import type { CostLine, SalesQuoteData } from "./types";
+import type { CostLine, QuoteWarehouseInquiry, SalesQuoteData } from "./types";
 
 // Heavy pieces on a Sea LCL quote: the warehouse charges extra handling for every piece of 2 t
 // or more, by its weight. When the shipment weighs over 2 t, saving its cargo asks whether any
@@ -80,14 +80,15 @@ export function changedBands(heavy: QuoteHeavyPieces): HeavyBand[] {
 
 /**
  * What still stops the heavy pieces from being saved: no piece entered, a 12.5 t+ piece without
- * the warehouse's figure, or a change from the rate without a reason. Empty when they can be saved.
+ * the warehouse's figure (unless the warehouse is asked and its answer awaited: `warehouseAsked`),
+ * or a change from the rate without a reason. Empty when they can be saved.
  */
-export function heavyPiecesProblems(heavy: QuoteHeavyPieces): string[] {
+export function heavyPiecesProblems(heavy: QuoteHeavyPieces, { warehouseAsked = false }: { warehouseAsked?: boolean } = {}): string[] {
   if (!heavy.anyOver2t) return [];
   const problems: string[] = [];
   const total = HEAVY_BANDS.reduce((n, band) => n + (heavy.pieces?.[band.key] ?? 0), 0);
   if (total <= 0) problems.push("Enter how many pieces are over 2 t");
-  if ((heavy.pieces?.["12500"] ?? 0) > 0 && heavy.surcharge?.["12500"] === undefined) {
+  if ((heavy.pieces?.["12500"] ?? 0) > 0 && heavy.surcharge?.["12500"] === undefined && !warehouseAsked) {
     problems.push("Inquire Warehouse and enter the surcharge for the pieces of 12,500 kg and more");
   }
   if (changedBands(heavy).length > 0 && !heavy.reason?.trim()) problems.push("Give the reason for the changed surcharge");
@@ -147,4 +148,39 @@ export function withHeavyPieces(data: SalesQuoteData, heavy: QuoteHeavyPieces): 
     buyingLines: [...others(data.buyingLines), ...charged],
     sellingLines: [...others(data.sellingLines), ...charged.map((l) => ({ ...l }))],
   };
+}
+
+// ─── The warehouse inquiry (pieces of 12.5 t or more) ──────────
+
+/** The band the warehouse is asked about: no rate. */
+export const INQUIRY_BAND: HeavyBandKey = "12500";
+
+const shortDay = (iso: string) => (iso ? new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", timeZone: "Europe/Prague" }).replace(/\//g, ".") + "." : "");
+
+const WAITING_REASON_START = "The warehouse was asked ";
+
+/** The reason the heavy pieces carry for the warehouse's band, from its answer (or the question waiting). */
+export function inquiryReason(inquiry: QuoteWarehouseInquiry): string {
+  if (inquiry.status === "approved") {
+    return `Warehouse approved EUR ${inquiry.priceEurPerPiece ?? 0} per piece (${inquiry.decidedByName || "warehouse manager"}, ${shortDay(inquiry.decidedAt ?? "")})`;
+  }
+  return `${WAITING_REASON_START}${shortDay(inquiry.requestedAt)} — waiting for its figure`;
+}
+
+/**
+ * The answer as the dialog starts from it, with the warehouse's approved price filled in for the
+ * 12.5 t+ pieces (price × pieces) where no figure is entered yet, and the reason from the answer
+ * where none is given. Anything entered by hand stays.
+ */
+export function withInquiryAnswer(heavy: QuoteHeavyPieces, inquiry: QuoteWarehouseInquiry | null | undefined): QuoteHeavyPieces {
+  const pieces = heavy.pieces?.[INQUIRY_BAND] ?? 0;
+  if (!inquiry || pieces <= 0) return heavy;
+  let next = heavy;
+  if (inquiry.status === "approved" && inquiry.priceEurPerPiece !== null && heavy.surcharge?.[INQUIRY_BAND] === undefined) {
+    next = { ...next, surcharge: { ...next.surcharge, [INQUIRY_BAND]: Math.round(inquiry.priceEurPerPiece * pieces * 100) / 100 } };
+  }
+  // A reason this module wrote for the question waiting gives way to the answer; one typed stays.
+  const generated = !next.reason?.trim() || next.reason.startsWith(WAITING_REASON_START);
+  if ((inquiry.status === "approved" || inquiry.status === "pending") && generated) next = { ...next, reason: inquiryReason(inquiry) };
+  return next;
 }

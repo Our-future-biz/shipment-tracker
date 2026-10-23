@@ -231,6 +231,12 @@ export interface LifecycleWrite {
   drop?: string[];
   /** Set by the action that deletes the quote: who deletes it, and when. */
   deleted?: { by: string; at: Date };
+  /**
+   * Keys only the server writes (PROTECTED_KEYS) that the editor never sends: stored without a
+   * new version of the document, so a quote open in an editor is not disturbed (the warehouse
+   * inquiry and its answer).
+   */
+  serverKeys?: Record<string, unknown>;
 }
 
 class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
@@ -288,6 +294,52 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
     return found?.row ?? null;
   }
 
+  /**
+   * Live sales quotes with a warehouse inquiry (the document's `warehouseInquiry`): those waiting
+   * for the warehouse and those answered since `answeredSince` (ISO), newest question first. For
+   * the Warehouse Concept Managers page; at most 500.
+   */
+  async listWarehouseInquiries(companyId: string, answeredSince: string): Promise<SalesQuoteRecord[]> {
+    const inquiry = sql`${quoteTable.data}->'warehouseInquiry'`;
+    const rows = await db
+      .select()
+      .from(quoteTable)
+      .where(
+        and(
+          eq(quoteTable.companyId, companyId),
+          isNull(quoteTable.deletedAt),
+          isSalesQuote,
+          sql`jsonb_typeof(${inquiry}) = 'object'`,
+          sql`(${inquiry}->>'status' = 'pending' OR coalesce(${inquiry}->>'decidedAt', '') >= ${answeredSince})`,
+        ),
+      )
+      .orderBy(sql`${inquiry}->>'requestedAt' desc`)
+      .limit(500);
+    return salesRows(rows);
+  }
+
+  /** Live sales quotes whose warehouse inquiry `userId` asked and the warehouse answered, not opened yet (the bell). */
+  async listInquiryAnswersFor(companyId: string, userId: string): Promise<SalesQuoteRecord[]> {
+    const inquiry = sql`${quoteTable.data}->'warehouseInquiry'`;
+    const rows = await db
+      .select()
+      .from(quoteTable)
+      .where(
+        and(
+          eq(quoteTable.companyId, companyId),
+          isNull(quoteTable.deletedAt),
+          isSalesQuote,
+          sql`jsonb_typeof(${inquiry}) = 'object'`,
+          sql`${inquiry}->>'requestedById' = ${userId}`,
+          sql`${inquiry}->>'status' IN ('approved', 'rejected')`,
+          sql`coalesce(${inquiry}->>'answerSeenAt', '') = ''`,
+        ),
+      )
+      .orderBy(sql`${inquiry}->>'decidedAt' desc`)
+      .limit(100);
+    return salesRows(rows);
+  }
+
   /** A live sales quote by its reference; null when it is missing, deleted or a row of the old quotes module. */
   async loadSales(companyId: string, quoteNumber: string, options: { lock?: QuoteTransaction } = {}): Promise<SalesQuoteRecord | null> {
     const row = await this.loadLive(companyId, quoteNumber, options);
@@ -336,7 +388,7 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
     // The quote as the action read it. Not the row itself: an adopted label can end in a space
     // no state has (stateOf), and that alone is not a new owner.
     const before = stateOf(quote);
-    const set = { ...mirror.set, ...legacyUnreadable(before, stored), ...write.document };
+    const set = { ...mirror.set, ...legacyUnreadable(before, stored), ...write.serverKeys, ...write.document };
     const now = new Date();
     // An owner chosen by hand is never matched to a user by its text afterwards.
     const ownerChanged = state.ownerUserId !== before.ownerUserId || state.ownerLabel !== before.ownerLabel;

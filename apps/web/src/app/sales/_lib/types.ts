@@ -153,6 +153,7 @@ export const PROTECTED_KEYS = [
   "roadPricing",
   "marginApproval",
   "replacedBy",
+  "warehouseInquiry",
 ] as const satisfies readonly (keyof SalesQuoteData)[];
 
 // The road transport of a quote as the Sales editor enters it; the trucking tariffs price it.
@@ -168,6 +169,7 @@ export interface QuoteRoadPricing {
 
 // A manager's approval of a road margin below the Trucking floor. Written by the server only.
 export type QuoteMarginApproval = interfaces.QuoteMarginApproval;
+export type QuoteWarehouseInquiry = interfaces.QuoteWarehouseInquiry;
 
 // Every other key is one the Sales editor writes. The server stores those as a save sends them
 // and keeps no list of them, so a field added here needs no change in the API to be saved.
@@ -228,6 +230,8 @@ export interface SalesQuoteData {
   road?: QuoteRoadInput;
   roadPricing?: QuoteRoadPricing;
   marginApproval?: QuoteMarginApproval;
+  // Pieces of 12.5 t or more: the warehouse's answer to Sales' question (server only).
+  warehouseInquiry?: QuoteWarehouseInquiry;
   // Shipping terms
   shippingTerms?: string; // name of a terms_condition template
   shippingIncludes?: string;

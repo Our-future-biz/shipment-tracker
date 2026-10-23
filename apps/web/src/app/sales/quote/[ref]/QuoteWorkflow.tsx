@@ -267,6 +267,14 @@ export function QuoteWorkflow() {
     return null;
   };
 
+  // Pieces of 12.5 t or more have no rate: the warehouse is asked; its answer is the server's (no
+  // new version of the document, so this page's draft goes on). Resolves with why it was refused, or null.
+  const inquireWarehouse = async (pieces: number, note: string) => {
+    const refused = await act(() => api.quotes.salesQuoteWarehouseInquiryAsk(ref, { pieces, grossWeightKg: cargo.grossWeight, note }));
+    if (!refused) toast.success("Sent to the warehouse — the answer comes to your notifications");
+    return refused;
+  };
+
   // A manager accepts the margin below the floor; the approval is the server's, like the status.
   const approveMargin = (reason: string) =>
     act((expectedDataVersion) => api.quotes.salesQuoteMarginApprove(ref, { reason, expectedDataVersion }), { versioned: true });
@@ -1502,6 +1510,8 @@ export function QuoteWorkflow() {
         open={heavyPiecesTo !== null}
         grossWeight={cargo.grossWeight}
         initial={draft.heavyPieces}
+        inquiry={draft.warehouseInquiry}
+        onInquire={inquireWarehouse}
         onCancel={() => setHeavyPiecesTo(null)}
         onSave={(heavy) => {
           const to = heavyPiecesTo;

@@ -30,6 +30,8 @@ vi.mock("../../repositories/salesQuote.repository", () => ({
     shipmentLinks: vi.fn(),
     customerFacts: vi.fn(),
     openCustomerQuotes: vi.fn(),
+    listWarehouseInquiries: vi.fn(),
+    listInquiryAnswersFor: vi.fn(),
   },
 }));
 
@@ -1708,5 +1710,114 @@ describe("road transport", () => {
       repository.saveDocument.mockResolvedValue(stored);
       await expect(salesQuoteService.save(martin, REF, { serviceType: "Road" }, 3)).resolves.toMatchObject({ roadMargin: { needsApproval: true } });
     });
+  });
+});
+
+describe("the warehouse inquiry of pieces of 12.5 t or more", () => {
+  const INQ = "7c1d4c2e-1b0a-4f43-8a52-2b7a1c9d0e11";
+  const heavy = { anyOver2t: true, pieces: { "12500": 2 } };
+  const withData = (extra: Record<string, unknown>) => quote({ data: { ...(quote().data as Record<string, unknown>), serviceType: "Sea LCL", heavyPieces: heavy, ...extra } });
+  const pending = {
+    id: INQ,
+    status: "pending",
+    pieces: 2,
+    grossWeightKg: 26000,
+    note: "",
+    requestedById: U_MARTIN,
+    requestedByName: "Martin Koubek",
+    requestedAt: "2026-10-09T08:00:00.000Z",
+    decidedById: null,
+    decidedByName: null,
+    decidedAt: null,
+    priceEurPerPiece: null,
+    comment: "",
+    answerSeenAt: null,
+  };
+
+  it("Sales asks: a pending question with who asked, a history line, and no new version of the document", async () => {
+    stored = withData({});
+    await salesQuoteService.inquireWarehouse(martin, REF, { pieces: 2, grossWeightKg: 26000, note: "  two press frames  " });
+    const write = written();
+    expect(write.document).toBeUndefined();
+    expect(write.serverKeys?.warehouseInquiry).toMatchObject({
+      status: "pending",
+      pieces: 2,
+      grossWeightKg: 26000,
+      note: "two press frames",
+      requestedById: U_MARTIN,
+      requestedByName: "Martin Koubek",
+      requestedAt: NOW.toISOString(),
+      priceEurPerPiece: null,
+    });
+    expect(write.entries).toEqual([
+      { kind: "warehouse_inquiry", at: NOW.toISOString(), user: "Martin Koubek", userId: U_MARTIN, comment: "Warehouse asked about 2 pieces of 12.5 t or more - two press frames" },
+    ]);
+  });
+
+  it("refuses a second question while one waits, a quote that was sent, and pieces that are not a count", async () => {
+    stored = withData({ warehouseInquiry: pending });
+    await expect(salesQuoteService.inquireWarehouse(martin, REF, { pieces: 1, grossWeightKg: 13000 })).rejects.toMatchObject({ code: "failed_precondition" });
+    stored = { ...withData({}), status: "quoted" };
+    await expect(salesQuoteService.inquireWarehouse(martin, REF, { pieces: 1, grossWeightKg: 13000 })).rejects.toMatchObject({ code: "failed_precondition" });
+    stored = withData({});
+    await expect(salesQuoteService.inquireWarehouse(martin, REF, { pieces: 1.5, grossWeightKg: 13000 })).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(repository.writeLifecycle).not.toHaveBeenCalled();
+  });
+
+  it("only a manager answers; approval needs a price, rejection a reason; the answer goes to the one who asked", async () => {
+    stored = withData({ warehouseInquiry: pending });
+    await expect(salesQuoteService.decideWarehouseInquiry(martin, REF, { inquiryId: INQ, approve: true, priceEurPerPiece: 400 })).rejects.toMatchObject({ code: "permission_denied" });
+    await expect(salesQuoteService.decideWarehouseInquiry(manager, REF, { inquiryId: INQ, approve: true })).rejects.toMatchObject({ code: "invalid_argument" });
+    await expect(salesQuoteService.decideWarehouseInquiry(manager, REF, { inquiryId: INQ, approve: false, comment: " " })).rejects.toMatchObject({ code: "invalid_argument" });
+    await expect(salesQuoteService.decideWarehouseInquiry(manager, REF, { inquiryId: "other", approve: true, priceEurPerPiece: 400 })).rejects.toMatchObject({ code: "not_found" });
+    expect(repository.writeLifecycle).not.toHaveBeenCalled();
+
+    const item = await salesQuoteService.decideWarehouseInquiry(manager, REF, { inquiryId: INQ, approve: true, priceEurPerPiece: 400, comment: "crane booked" });
+    const write = written();
+    expect(write.document).toBeUndefined();
+    expect(write.serverKeys?.warehouseInquiry).toMatchObject({ status: "approved", priceEurPerPiece: 400, comment: "crane booked", decidedById: U_MANAGER, decidedByName: "Marie Manager", answerSeenAt: null });
+    expect(write.entries[0]).toMatchObject({ kind: "warehouse_inquiry", comment: "Warehouse approved 2 pieces of 12.5 t or more: EUR 400 per piece - crane booked" });
+    expect(item).toMatchObject({ quoteNumber: REF, quoteStatus: "draft", inquiry: { status: "pending" } });
+  });
+
+  it("refuses an answer to a question already answered", async () => {
+    stored = withData({ warehouseInquiry: { ...pending, status: "rejected", decidedByName: "Marie Manager" } });
+    await expect(salesQuoteService.decideWarehouseInquiry(manager, REF, { inquiryId: INQ, approve: true, priceEurPerPiece: 1 })).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: "This inquiry was already rejected by Marie Manager",
+    });
+  });
+
+  it("keeps the quote from Ready to send and Quoted while the warehouse has not approved", async () => {
+    for (const status of ["pending", "rejected"]) {
+      stored = withData({ warehouseInquiry: { ...pending, status, comment: status === "rejected" ? "too heavy for our crane" : "" } });
+      for (const to of ["ready_to_send", "quoted"]) {
+        await expect(salesQuoteService.transition(martin, REF, { to })).rejects.toMatchObject({ code: "failed_precondition" });
+      }
+    }
+    expect(repository.writeLifecycle).not.toHaveBeenCalled();
+    stored = withData({ warehouseInquiry: { ...pending, status: "rejected", comment: "too heavy for our crane" } });
+    await expect(salesQuoteService.transition(martin, REF, { to: "ready_to_send" })).rejects.toMatchObject({
+      message: "The warehouse rejected the pieces of 12.5 t or more (too heavy for our crane) — change the cargo or ask the warehouse again",
+    });
+    stored = withData({ warehouseInquiry: { ...pending, status: "approved", priceEurPerPiece: 400 } });
+    await expect(salesQuoteService.transition(martin, REF, { to: "ready_to_send" })).resolves.toMatchObject({ changed: true });
+  });
+
+  it("does not hold a quote without pieces of 12.5 t or more", async () => {
+    stored = quote({ data: { ...(quote().data as Record<string, unknown>), heavyPieces: { anyOver2t: true, pieces: { "7500": 1 } }, warehouseInquiry: pending } });
+    await expect(salesQuoteService.transition(martin, REF, { to: "ready_to_send" })).resolves.toMatchObject({ changed: true });
+  });
+
+  it("marks the answer seen for the one who asked only", async () => {
+    stored = withData({ warehouseInquiry: { ...pending, status: "approved", priceEurPerPiece: 400 } });
+    await salesQuoteService.markInquiryAnswerSeen(manager, REF, INQ);
+    expect(repository.writeLifecycle).not.toHaveBeenCalled();
+    await salesQuoteService.markInquiryAnswerSeen(martin, REF, INQ);
+    expect(written().serverKeys?.warehouseInquiry).toMatchObject({ answerSeenAt: NOW.toISOString() });
+  });
+
+  it("is a key only the server writes", () => {
+    expect(PROTECTED_KEYS).toContain("warehouseInquiry");
   });
 });

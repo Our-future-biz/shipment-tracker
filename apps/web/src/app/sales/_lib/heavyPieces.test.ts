@@ -8,10 +8,11 @@ import {
   heavyPiecesProblems,
   heavyTotal,
   withHeavyPieces,
+  withInquiryAnswer,
   withinWeight,
   type QuoteHeavyPieces,
 } from "./heavyPieces";
-import type { CostLine } from "./types";
+import type { CostLine, QuoteWarehouseInquiry } from "./types";
 
 const band = (key: string) => HEAVY_BANDS.find((b) => b.key === key)!;
 
@@ -104,5 +105,42 @@ describe("withHeavyPieces", () => {
   it("charges nothing when the surcharge was changed to 0", () => {
     const patch = withHeavyPieces({}, { anyOver2t: true, pieces: { "2000": 1 }, surcharge: { "2000": 0 }, reason: "Waived" });
     expect(patch.buyingLines).toEqual([]);
+  });
+});
+
+describe("the warehouse inquiry (pieces of 12.5 t or more)", () => {
+  const inquiry = (over: Partial<QuoteWarehouseInquiry> = {}): QuoteWarehouseInquiry => ({
+    id: "i1",
+    status: "approved",
+    pieces: 2,
+    grossWeightKg: 26000,
+    note: "",
+    requestedById: "u1",
+    requestedByName: "Martin",
+    requestedAt: "2026-10-22T08:00:00Z",
+    decidedById: "u2",
+    decidedByName: "Marie Manager",
+    decidedAt: "2026-10-23T08:00:00Z",
+    priceEurPerPiece: 400,
+    comment: "",
+    answerSeenAt: null,
+    ...over,
+  });
+  const heavy = (over: Partial<QuoteHeavyPieces> = {}): QuoteHeavyPieces => ({ anyOver2t: true, pieces: { "12500": 2 }, ...over });
+
+  it("fills the approved price × pieces and the reason, keeping what was entered by hand", () => {
+    expect(withInquiryAnswer(heavy(), inquiry())).toEqual({ anyOver2t: true, pieces: { "12500": 2 }, surcharge: { "12500": 800 }, reason: "Warehouse approved EUR 400 per piece (Marie Manager, 23.10.)" });
+    expect(withInquiryAnswer(heavy({ surcharge: { "12500": 700 }, reason: "agreed" }), inquiry())).toEqual(heavy({ surcharge: { "12500": 700 }, reason: "agreed" }));
+    // The reason written while the question waited gives way to the answer.
+    expect(withInquiryAnswer(heavy({ reason: "The warehouse was asked 22.10. — waiting for its figure" }), inquiry()).reason).toBe("Warehouse approved EUR 400 per piece (Marie Manager, 23.10.)");
+    expect(withInquiryAnswer(heavy(), inquiry({ status: "rejected" }))).toEqual(heavy());
+    expect(withInquiryAnswer(heavy({ pieces: { "7500": 1 } }), inquiry())).toEqual(heavy({ pieces: { "7500": 1 } }));
+  });
+
+  it("saves without the warehouse's figure while its answer is awaited", () => {
+    const waiting = withInquiryAnswer(heavy(), inquiry({ status: "pending", decidedAt: null, priceEurPerPiece: null }));
+    expect(waiting.reason).toBe("The warehouse was asked 22.10. — waiting for its figure");
+    expect(heavyPiecesProblems(waiting)).toEqual(["Inquire Warehouse and enter the surcharge for the pieces of 12,500 kg and more"]);
+    expect(heavyPiecesProblems(waiting, { warehouseAsked: true })).toEqual([]);
   });
 });

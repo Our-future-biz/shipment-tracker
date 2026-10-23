@@ -127,6 +127,50 @@ export interface QuoteMarginApproval {
   marginPercent: number | null;
 }
 
+/**
+ * The warehouse inquiry of a quote (data.warehouseInquiry; the server's key): pieces of 12.5 t or
+ * more have no handling rate, so Sales asks the warehouse, which approves with a price per piece
+ * or rejects with a reason.
+ */
+export interface QuoteWarehouseInquiry {
+  id: string;
+  /** pending | approved | rejected */
+  status: "pending" | "approved" | "rejected";
+  /** Pieces of 12.5 t or more asked about. */
+  pieces: number;
+  /** The shipment's gross weight when asked, kg. */
+  grossWeightKg: number;
+  /** What Sales wrote with the question. */
+  note: string;
+  requestedById: string;
+  requestedByName: string;
+  /** ISO */
+  requestedAt: string;
+  decidedById: string | null;
+  decidedByName: string | null;
+  decidedAt: string | null;
+  /** Approved: the extra handling per piece, EUR. */
+  priceEurPerPiece: number | null;
+  /** The manager's comment; the reason of a rejection. */
+  comment: string;
+  /** When the one who asked opened the answer (it then leaves the bell). */
+  answerSeenAt: string | null;
+}
+
+/** A warehouse inquiry with the quote it is about, as the warehouse and the bell list it. */
+export interface QuoteWarehouseInquiryItem {
+  quoteNumber: string;
+  /** The quote's status as stored. */
+  quoteStatus: string;
+  customerName: string;
+  serviceType: string;
+  /** Where from and to, as the quote names them (POL / origin, POD / destination). */
+  from: string;
+  to: string;
+  ownerName: string;
+  inquiry: QuoteWarehouseInquiry;
+}
+
 /** The margin of a road quote against the Trucking margin floor. Amounts in CZK. */
 export interface RoadMargin {
   sellingCzk: number;

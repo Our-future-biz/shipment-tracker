@@ -7,8 +7,9 @@
  * history), what the lifecycle keeps aside, and the rates a sent quote is priced with (`fx`, the
  * ČNB rates stamped on sending; `rates`, what older quotes stored from the retired weekly
  * sheet), and what a pricing from the trucking tariffs recorded and a manager's approval of its
- * margin (`roadPricing`, `marginApproval`), and the revision that replaced a revised quote
- * (`replacedBy`). A save of the document never changes them.
+ * margin (`roadPricing`, `marginApproval`), the revision that replaced a revised quote
+ * (`replacedBy`), and the warehouse's answer about pieces of 12.5 t or more (`warehouseInquiry`).
+ * A save of the document never changes them.
  */
 export const PROTECTED_KEYS = [
   "reference",
@@ -30,6 +31,7 @@ export const PROTECTED_KEYS = [
   "roadPricing",
   "marginApproval",
   "replacedBy",
+  "warehouseInquiry",
 ] as const;
 
 export function isPlainObject(value: unknown): value is Record<string, unknown> {
