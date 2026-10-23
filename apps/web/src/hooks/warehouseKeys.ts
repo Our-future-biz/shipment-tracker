@@ -59,6 +59,9 @@ export const warehouseImportKeys = {
 
 export const nextJobNumberKey = ["warehouse-concept-next-job-number"] as const;
 
+/** The managers' cockpit (Warehouse Concept → Managers). */
+export const managersCockpitKey = ["warehouse-concept-managers-cockpit"] as const;
+
 /**
  * Everything a gate event (stamp, void, restore, archive, tally, container stamp) can change on the
  * server: the Gate Log, the stock / bonded / KPI lists built from gate events, the sections, and the
@@ -72,5 +75,6 @@ export function invalidateAfterGateEvent(qc: QueryClient): Promise<unknown> {
     qc.invalidateQueries({ queryKey: sectionKeys.all }),
     qc.invalidateQueries({ queryKey: sectionKeys.summary() }),
     qc.invalidateQueries({ queryKey: warehouseTaskKeys.all }),
+    qc.invalidateQueries({ queryKey: managersCockpitKey }),
   ]);
 }

@@ -3320,6 +3320,7 @@ export namespace warehouseConcept {
             this.warehouseImport = this.warehouseImport.bind(this)
             this.warehouseKpis = this.warehouseKpis.bind(this)
             this.warehouseList = this.warehouseList.bind(this)
+            this.warehouseManagersCockpit = this.warehouseManagersCockpit.bind(this)
             this.warehousePositionCreate = this.warehousePositionCreate.bind(this)
             this.warehousePositionMarkSent = this.warehousePositionMarkSent.bind(this)
             this.warehousePositionRemove = this.warehousePositionRemove.bind(this)
@@ -4000,6 +4001,21 @@ export namespace warehouseConcept {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-concept`, undefined, {query})
             return await resp.json() as controllers.WarehouseConceptListResponse
+        }
+
+        /**
+         * The managers' cockpit (Warehouse Concept → Managers): what is urgent in the warehouse or may
+         * turn into an issue, counted over every record of the company. Managers only (the same roles as
+         * the supervisor override); the page polls it every minute.
+         */
+        public async warehouseManagersCockpit(): Promise<{
+    cockpit: interfaces.WarehouseManagersCockpit
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-concept/managers/cockpit`)
+            return await resp.json() as {
+    cockpit: interfaces.WarehouseManagersCockpit
+}
         }
 
         /**
@@ -9181,6 +9197,101 @@ export namespace interfaces {
      * cargo = claim on the shipment · cost = claim on a supplier's invoice
      */
     export type ClaimKind = "cargo" | "cost"
+
+    /**
+     * What managers did, or what happened to records, in the last `days` days.
+     */
+    export interface CockpitAudit {
+        days: number
+        overrides: number
+        voids: number
+        refusals: number
+        archivedWithStamps: number
+        shipmentsDeleted: number
+    }
+
+    /**
+     * A card: how many rows it has in all, and the first ones (most urgent first).
+     */
+    export interface CockpitList {
+        total: number
+        rows: CockpitRow[]
+    }
+
+    /**
+     * A position (gate record) or a container in a card, once, with all its signals.
+     */
+    export interface CockpitRow {
+        /**
+         * position | container
+         */
+        kind: string
+
+        /**
+         * The gate record's id, or the container's id.
+         */
+        id: string
+
+        /**
+         * Warehouse ref of a position (its gate ref without one), or the container number.
+         */
+        ref: string
+
+        /**
+         * Job no. of a position; equipment and status of a container.
+         */
+        sub: string
+
+        customer: string
+        /**
+         * Inbound · Outbound · Domestic (in → out) · Import container · Export container
+         */
+        direction: string
+
+        /**
+         * příjem | výdej | "" (container) — for the direction's colour.
+         */
+        visit: string
+
+        /**
+         * Lifecycle stage label of a position ("In warehouse"); container status otherwise.
+         */
+        lifecycle: string
+
+        /**
+         * Free time in a few words ("2 free days left", "Chargeable 4 days · est. CZK 480"); "" when none.
+         */
+        freeTime: string
+
+        tags: CockpitTag[]
+    }
+
+    /**
+     * One signal on a row, in the module's words ("Pick-up PIN: locked 23.10. 09:12").
+     */
+    export interface CockpitTag {
+        text: string
+        /**
+         * Act today (red); otherwise within 48 hours (amber).
+         */
+        urgent: boolean
+    }
+
+    /**
+     * The tile row: the Positions quick filters' counts, over every position.
+     */
+    export interface CockpitTiles {
+        inWarehouse: number
+        expectedToday: number
+        needsAttention: number
+        onHold: number
+        customsDeadline: number
+        chargeable: number
+        /**
+         * Estimated storage charge to date of the chargeable positions, CZK.
+         */
+        chargeableCzk: number
+    }
 
     /**
      * A saved set of visible columns for one screen
@@ -15160,6 +15271,41 @@ export namespace interfaces {
         shipmentUpdates: ShipmentUpdateHealth
 
         docks: KpiDockSettings
+    }
+
+    export interface WarehouseManagersCockpit {
+        /**
+         * ISO time the figures were made.
+         */
+        asOf: string
+
+        /**
+         * YYYY-MM-DD, Prague: the day the figures count from.
+         */
+        today: string
+
+        tiles: CockpitTiles
+        /**
+         * Act today.
+         */
+        urgent: CockpitList
+
+        /**
+         * Within 48 hours, or it becomes urgent.
+         */
+        attention: CockpitList
+
+        /**
+         * Shipment updates the gate still owes, now.
+         */
+        shipmentUpdates: ShipmentUpdateHealth
+
+        /**
+         * Cargo in the warehouse now, by free time (as on Reports).
+         */
+        storage: StorageSummary
+
+        audit: CockpitAudit
     }
 
     export interface WarehouseRef {

@@ -65,6 +65,15 @@ class ShipmentOutboxRepository extends OutboxRepository<typeof shipmentOutboxTab
   }
 
   // Rows that have not reached the shipment yet (pending or failed) for the given records.
+  // The company's gate records that still owe their shipment an update (pending or failed).
+  async unsentMovementIds(companyId: string): Promise<string[]> {
+    const rows = await db
+      .selectDistinct({ movementId: o.movementId })
+      .from(o)
+      .where(and(eq(o.companyId, companyId), isNull(o.deletedAt), inArray(o.status, ["pending", "failed"])));
+    return rows.map((r) => r.movementId);
+  }
+
   async openForMovements(movementIds: string[], companyId: string) {
     if (!movementIds.length) return [];
     return db

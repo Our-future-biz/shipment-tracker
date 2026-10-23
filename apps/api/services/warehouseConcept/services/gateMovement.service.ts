@@ -479,6 +479,14 @@ class GateMovementService {
   // linked records is brought up to date by followShipments (its own POST endpoint).
   async list(companyId: string, opts: { archived?: boolean } = {}) {
     const movements = opts.archived ? await gateMovementRepository.listArchived(companyId) : await gateMovementRepository.listAll(companyId);
+    return this.itemsFor(movements, companyId);
+  }
+
+  // The gate records as the Gate Log shows them, with their related rows (containers, shipment
+  // updates, exceptions, dock slots, houses, re-weighs, pick-up). Also the managers' cockpit,
+  // for the records that still matter.
+  async itemsFor(movements: GateMovementRow[], companyId: string): Promise<GateMovementItem[]> {
+    if (!movements.length) return [];
     const ids = movements.map((m) => m.id);
     const linked = [...new Set(movements.filter(isLinkedOutbound).map((m) => m.shipmentId!))];
     // The related rows of every listed movement, read at the same time (none depends on another).

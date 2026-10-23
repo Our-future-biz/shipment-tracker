@@ -5,6 +5,7 @@
 export const TERMS = {
   warehouseRef: "Warehouse ref",
   jobNo: "Job no.",
+  needsAttention: "Needs attention",
   direction: "Direction",
   inbound: "Inbound",
   outbound: "Outbound",

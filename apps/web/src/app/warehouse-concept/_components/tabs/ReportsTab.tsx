@@ -78,7 +78,8 @@ export function ReportsTab() {
 
 // One line on the link with Shipments and on storage, both as they are now (not the period):
 // shipment updates the gate still owes (amber / red when not zero) and the cargo by free time.
-function HealthLine({ report }: { report: Report }) {
+// Also on the managers' cockpit (Warehouse Concept → Managers), from its own figures.
+export function HealthLine({ report }: { report: Pick<Report, "shipmentUpdates" | "storage"> }) {
   const u = report.shipmentUpdates;
   const st = report.storage;
   const tone = u.failed > 0 ? "border-red-200 bg-red-50 text-red-700" : u.pending > 0 ? "border-amber-200 bg-amber-50 text-amber-800" : "border-slate-200 bg-white text-slate-600";
