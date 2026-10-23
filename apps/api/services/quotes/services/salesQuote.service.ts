@@ -112,6 +112,8 @@ const DEFAULT_LIMIT = 50;
 const MARGIN_GATED_STATUSES: readonly string[] = ["ready_to_send", "quoted"];
 // A won or lost quote is decided: it is not priced again.
 const DECIDED_STATUSES: readonly string[] = ["won", "lost"];
+/** How long the bell keeps a warehouse answer after it was opened. */
+const READ_ANSWER_KEEP_DAYS = 7;
 /** How far back the warehouse's list shows answered inquiries. */
 const INQUIRY_HISTORY_DAYS = 30;
 /** Who answers the warehouse inquiries: the warehouse managers (the supervisor roles). */
@@ -671,9 +673,11 @@ class SalesQuoteService {
     return inquiryItem(written, names)!;
   }
 
-  // The answers to the signed-in user's own inquiries not opened yet (the bell).
+  // The answers to the signed-in user's own inquiries (the bell): not opened yet, and opened in the
+  // last READ_ANSWER_KEEP_DAYS days (answerSeenAt says which).
   async myInquiryAnswers(actor: Actor): Promise<QuoteWarehouseInquiryItem[]> {
-    const [rows, names] = await Promise.all([salesQuoteRepository.listInquiryAnswersFor(actor.companyID, actor.userID), userNames()]);
+    const seenSince = new Date(Date.now() - READ_ANSWER_KEEP_DAYS * 86_400_000).toISOString();
+    const [rows, names] = await Promise.all([salesQuoteRepository.listInquiryAnswersFor(actor.companyID, actor.userID, seenSince), userNames()]);
     return rows.map((r) => inquiryItem(r, names)).filter((i): i is QuoteWarehouseInquiryItem => i !== null);
   }
 

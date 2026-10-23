@@ -356,6 +356,8 @@ export interface CommentMentionItem {
   authorName: string;
   message: string;
   createdAt: string;
+  /** Not read yet (the shipment's chat not opened since); read ones stay 7 days from when they were written. */
+  unread: boolean;
 }
 
 /** A file sent with a chat message. */

@@ -318,8 +318,11 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
     return salesRows(rows);
   }
 
-  /** Live sales quotes whose warehouse inquiry `userId` asked and the warehouse answered, not opened yet (the bell). */
-  async listInquiryAnswersFor(companyId: string, userId: string): Promise<SalesQuoteRecord[]> {
+  /**
+   * Live sales quotes whose warehouse inquiry `userId` asked and the warehouse answered: not opened
+   * yet, or opened since `seenSince` (ISO) — the bell keeps a read answer for a while.
+   */
+  async listInquiryAnswersFor(companyId: string, userId: string, seenSince: string): Promise<SalesQuoteRecord[]> {
     const inquiry = sql`${quoteTable.data}->'warehouseInquiry'`;
     const rows = await db
       .select()
@@ -332,7 +335,7 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
           sql`jsonb_typeof(${inquiry}) = 'object'`,
           sql`${inquiry}->>'requestedById' = ${userId}`,
           sql`${inquiry}->>'status' IN ('approved', 'rejected')`,
-          sql`coalesce(${inquiry}->>'answerSeenAt', '') = ''`,
+          sql`(coalesce(${inquiry}->>'answerSeenAt', '') = '' OR ${inquiry}->>'answerSeenAt' >= ${seenSince})`,
         ),
       )
       .orderBy(sql`${inquiry}->>'decidedAt' desc`)

@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Badge, Dropdown } from "antd";
-import { BellOutlined } from "@ant-design/icons";
+import { Badge, Dropdown, Input } from "antd";
+import { BellOutlined, SearchOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
@@ -26,15 +26,27 @@ const answerText = (a: WarehouseInquiryItem) => {
     : `${what}: ${a.inquiry.comment}`;
 };
 
-// How far back the "All" view of the panel goes.
-const RECENT_NOTICES = 20;
+// How long a read notification stays under the bell, in the "Last 7 days" view.
+const READ_KEEP_DAYS = 7;
+const READ_KEEP_MS = READ_KEEP_DAYS * 86_400_000;
+const keptSince = (iso: string | null | undefined, now: number) => !!iso && now - Date.parse(iso) <= READ_KEEP_MS;
+
+// The search box: every word must appear somewhere in the item, case and accents ignored.
+const fold = (v: string) => v.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+const matchesAll = (q: string, ...fields: (string | null | undefined)[]) => {
+  const words = fold(q).split(/\s+/).filter(Boolean);
+  if (!words.length) return true;
+  const hay = fold(fields.filter(Boolean).join(" "));
+  return words.every((w) => hay.includes(w));
+};
 
 const NOTICE_TOAST_TYPE: Record<string, "info" | "warning" | "error"> = { info: "info", warning: "warning", critical: "error" };
 
 // What the signed-in user has not looked at yet: noticeboard posts from colleagues, chat
 // messages that tag them with @, and the warehouse's answers to their questions about pieces of
 // 12.5 t or more on a quote. A new one pops up as a notification; they stay
-// under the bell until the notice or the shipment's chat (mentions) is opened.
+// under the bell until the notice or the shipment's chat (mentions) is opened. Read ones stay
+// another 7 days in the "Last 7 days" view, and the search box looks through what is shown.
 export function NotificationBell() {
   const router = useRouter();
   const toast = useToast();
@@ -43,7 +55,8 @@ export function NotificationBell() {
     queryFn: () => api.shipments.commentMentions(),
     refetchInterval: 15000,
   });
-  const mentions = mentionData?.mentions ?? [];
+  // Unread mentions and read ones of the last 7 days (the server says which is which).
+  const allMentions = mentionData?.mentions ?? [];
   // ČNB rates still missing after the 16:00 pull — admins only; they clear themselves once
   // the rates arrive.
   const { user } = useAuth();
@@ -58,14 +71,26 @@ export function NotificationBell() {
   // "Unread" is what still needs attention; "All" keeps the recent notices in reach after
   // they have been opened. Mentions exist here only while unread.
   const [view, setView] = useState<"unread" | "all">("unread");
+  const [query, setQuery] = useState("");
+  const now = Date.now();
   const notices = announcements.filter((a) => a.unread);
-  const listed = view === "unread" ? notices : announcements.slice(0, RECENT_NOTICES);
+  const unreadMentions = allMentions.filter((m) => m.unread);
+  const unreadAnswers = warehouseAnswers.filter((a) => !a.inquiry.answerSeenAt);
+  // "Last 7 days": everything unread, and what was read in the last 7 days (a mention: written in them).
+  const viewNotices = view === "unread" ? notices : announcements.filter((a) => a.unread || keptSince(a.readAt, now));
+  const viewMentions = view === "unread" ? unreadMentions : allMentions;
+  const viewAnswers = view === "unread" ? unreadAnswers : warehouseAnswers;
+  const listed = viewNotices.filter((a) => matchesAll(query, a.title, a.body, a.authorName, a.target));
+  const mentions = viewMentions.filter((m) => matchesAll(query, m.authorName, m.message, m.jobNumber));
+  const answersShown = viewAnswers.filter((a) => matchesAll(query, answerTitle(a), answerText(a), a.quoteNumber, a.inquiry.decidedByName));
+  const fxShown = fxAlerts.filter((a) => matchesAll(query, "ČNB exchange rates missing", a.reason, a.fixingDate));
 
   // Announce only what arrives while the app is open, not the backlog found on load.
   const seenMentions = useRef<Set<string> | null>(null);
   useEffect(() => {
     if (!mentionData) return;
-    const fresh = seenMentions.current ? mentionData.mentions.filter((m) => !seenMentions.current!.has(m.id)) : [];
+    // Only unread ones are new: a read mention back in the list is not news.
+    const fresh = seenMentions.current ? mentionData.mentions.filter((m) => m.unread && !seenMentions.current!.has(m.id)) : [];
     seenMentions.current = new Set(mentionData.mentions.map((m) => m.id));
     for (const m of fresh) {
       toast.notify({
@@ -80,7 +105,7 @@ export function NotificationBell() {
   useEffect(() => {
     if (!answersLoaded) return;
     const before = seenAnswers.current;
-    const fresh = before ? warehouseAnswers.filter((a) => !before.has(a.inquiry.id)) : [];
+    const fresh = before ? warehouseAnswers.filter((a) => !a.inquiry.answerSeenAt && !before.has(a.inquiry.id)) : [];
     seenAnswers.current = new Set(warehouseAnswers.map((a) => a.inquiry.id));
     for (const a of fresh) toast.notify({ title: answerTitle(a), description: answerText(a), type: a.inquiry.status === "approved" ? "info" : "warning" });
   }, [warehouseAnswers, answersLoaded, toast]);
@@ -128,9 +153,10 @@ export function NotificationBell() {
     router.push(href);
   };
 
-  const total = mentions.length + notices.length + fxAlerts.length + warehouseAnswers.length;
+  // The badge counts what is unread, whatever the view or the search.
+  const total = unreadMentions.length + notices.length + fxAlerts.length + unreadAnswers.length;
   const openAnswer = (a: WarehouseInquiryItem) => {
-    answerSeen.mutate({ quoteNumber: a.quoteNumber, inquiryId: a.inquiry.id });
+    if (!a.inquiry.answerSeenAt) answerSeen.mutate({ quoteNumber: a.quoteNumber, inquiryId: a.inquiry.id });
     go(`/sales/quote/${encodeURIComponent(a.quoteNumber)}`);
   };
   const rowClass = "block w-full text-left px-4 py-2.5 border-b border-slate-100 last:border-b-0 bg-white hover:bg-slate-50 cursor-pointer";
@@ -151,13 +177,24 @@ export function NotificationBell() {
                 view === v ? "bg-white text-slate-800 shadow-sm" : "bg-transparent text-slate-500 hover:text-slate-700"
               }`}
             >
-              {v === "unread" ? `Unread${total ? ` (${total})` : ""}` : "All"}
+              {v === "unread" ? `Unread${total ? ` (${total})` : ""}` : `Last ${READ_KEEP_DAYS} days`}
             </button>
           ))}
         </span>
       </div>
-      {fxAlerts.length > 0 && <div className={headingClass}>Exchange rates</div>}
-      {fxAlerts.map((a) => (
+      <div className="sticky top-[41px] z-10 px-3 py-2 border-b border-slate-200 bg-white">
+        <Input
+          size="small"
+          allowClear
+          prefix={<SearchOutlined className="text-slate-400" />}
+          placeholder={view === "unread" ? "Search unread" : `Search the last ${READ_KEEP_DAYS} days`}
+          aria-label="Search notifications"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </div>
+      {fxShown.length > 0 && <div className={headingClass}>Exchange rates</div>}
+      {fxShown.map((a) => (
         <button key={a.id} type="button" onClick={() => go("/exchange")} className={rowClass}>
           <span className="flex items-center gap-2">
             <span role="img" aria-label="Unresolved" className="shrink-0 w-2 h-2 rounded-full bg-red-500" />
@@ -170,12 +207,14 @@ export function NotificationBell() {
           <span className="block text-[11px] text-slate-400 mt-0.5">System · {formatTime(a.raisedAt)}</span>
         </button>
       ))}
-      {warehouseAnswers.length > 0 && <div className={headingClass}>Warehouse answers</div>}
-      {warehouseAnswers.map((a) => (
+      {answersShown.length > 0 && <div className={headingClass}>Warehouse answers</div>}
+      {answersShown.map((a) => (
         <button key={a.inquiry.id} type="button" onClick={() => openAnswer(a)} className={rowClass}>
           <span className="flex items-center gap-2">
-            <span role="img" aria-label="Unread" className={`shrink-0 w-2 h-2 rounded-full ${a.inquiry.status === "approved" ? "bg-emerald-500" : "bg-red-500"}`} />
-            <span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-800 truncate">{answerTitle(a)}</span>
+            {!a.inquiry.answerSeenAt && (
+              <span role="img" aria-label="Unread" className={`shrink-0 w-2 h-2 rounded-full ${a.inquiry.status === "approved" ? "bg-emerald-500" : "bg-red-500"}`} />
+            )}
+            <span className={`min-w-0 flex-1 text-[13px] truncate ${a.inquiry.answerSeenAt ? "font-medium text-slate-500" : "font-semibold text-slate-800"}`}>{answerTitle(a)}</span>
             <span className="shrink-0 text-[11px] font-mono text-slate-500">{a.quoteNumber}</span>
           </span>
           <span className="text-[12px] text-slate-600 line-clamp-2">{answerText(a)}</span>
@@ -184,8 +223,10 @@ export function NotificationBell() {
           </span>
         </button>
       ))}
-      {listed.length + mentions.length + fxAlerts.length + warehouseAnswers.length === 0 && (
-        <p className="px-4 py-6 text-center text-xs text-slate-400">{view === "unread" ? "Nothing new." : "No notifications yet."}</p>
+      {listed.length + mentions.length + fxShown.length + answersShown.length === 0 && (
+        <p className="px-4 py-6 text-center text-xs text-slate-400">
+          {query.trim() ? `Nothing matches “${query.trim()}”.` : view === "unread" ? "Nothing new." : `Nothing in the last ${READ_KEEP_DAYS} days.`}
+        </p>
       )}
       {listed.length > 0 && <div className={headingClass}>Noticeboard</div>}
       {listed.map((a) => (
@@ -206,11 +247,12 @@ export function NotificationBell() {
       {mentions.length > 0 && <div className={headingClass}>Mentions</div>}
       {mentions.map((m) => (
         <button key={m.id} type="button" onClick={() => go(`/shipments?chat=${m.shipmentId}`)} className={rowClass}>
-          <span className="flex items-baseline justify-between gap-2">
-            <span className="text-[13px] font-semibold text-slate-800 truncate">{m.authorName || "Unknown"}</span>
+          <span className="flex items-center justify-between gap-2">
+            {m.unread && <span role="img" aria-label="Unread" className="shrink-0 w-2 h-2 rounded-full bg-red-500" />}
+            <span className={`min-w-0 flex-1 text-[13px] truncate ${m.unread ? "font-semibold text-slate-800" : "font-medium text-slate-500"}`}>{m.authorName || "Unknown"}</span>
             <span className="shrink-0 text-[11px] font-mono text-slate-500">{m.jobNumber}</span>
           </span>
-          <span className="text-[12px] text-slate-600 line-clamp-2">{m.message}</span>
+          <span className={`text-[12px] line-clamp-2 ${m.unread ? "text-slate-600" : "text-slate-400"}`}>{m.message}</span>
           <span className="block text-[11px] text-slate-400 mt-0.5">{formatTime(m.createdAt)}</span>
         </button>
       ))}

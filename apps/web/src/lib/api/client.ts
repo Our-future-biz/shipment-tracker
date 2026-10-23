@@ -1456,7 +1456,7 @@ export namespace quotes {
         }
 
         /**
-         * The bell: the answers to the signed-in user's own inquiries not opened yet.
+         * The bell: the answers to the signed-in user's own inquiries, not opened yet or opened in the last 7 days.
          */
         public async salesQuoteWarehouseInquiryAnswers(): Promise<{
     answers: interfaces.QuoteWarehouseInquiryItem[]
@@ -9518,6 +9518,10 @@ export namespace interfaces {
         authorName: string
         message: string
         createdAt: string
+        /**
+         * Not read yet (the shipment's chat not opened since); read ones stay 7 days from when they were written.
+         */
+        unread: boolean
     }
 
     /**
@@ -16008,6 +16012,11 @@ export namespace services {
          * Posted by someone else and not opened by the reader yet.
          */
         unread: boolean
+
+        /**
+         * When the reader opened it; null when not (yet). The bell keeps a read post for 7 days.
+         */
+        readAt: string | null
 
         attachments: AnnouncementAttachmentInfo[]
     }

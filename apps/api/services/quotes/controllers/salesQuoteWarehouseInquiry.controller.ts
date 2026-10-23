@@ -56,7 +56,7 @@ export const salesQuoteWarehouseInquiryDecide = api(
   },
 );
 
-// The bell: the answers to the signed-in user's own inquiries not opened yet.
+// The bell: the answers to the signed-in user's own inquiries, not opened yet or opened in the last 7 days.
 export const salesQuoteWarehouseInquiryAnswers = api(
   { expose: true, auth: true, method: "GET", path: "/sales-quote-inquiries/answers" },
   async (): Promise<{ answers: QuoteWarehouseInquiryItem[] }> => {

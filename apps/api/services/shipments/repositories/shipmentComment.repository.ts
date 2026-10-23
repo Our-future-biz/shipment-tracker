@@ -48,8 +48,10 @@ class ShipmentCommentRepository extends TenantRepository<typeof shipmentCommentT
       .groupBy(shipmentCommentTable.shipmentId);
   }
 
-  // Messages that tag the user and landed after they last opened that shipment's chat.
-  async unreadMentions(companyId: string, userId: string) {
+  // Messages that tag the user: those that landed after they last opened that shipment's chat
+  // (unread), and read ones written in the last `keepReadDays` days. Only the last opening of a
+  // chat is stored, not when each message was read, so a read one is kept by its own date.
+  async unreadMentions(companyId: string, userId: string, keepReadDays = 0) {
     const read = this.db
       .select({ shipmentId: shipmentCommentReadTable.shipmentId, readAt: shipmentCommentReadTable.readAt })
       .from(shipmentCommentReadTable)
@@ -64,6 +66,7 @@ class ShipmentCommentRepository extends TenantRepository<typeof shipmentCommentT
         authorId: shipmentCommentTable.authorId,
         message: shipmentCommentTable.message,
         createdAt: shipmentCommentTable.createdAt,
+        readAt: read.readAt,
       })
       .from(shipmentCommentTable)
       .innerJoin(shipmentTable, eq(shipmentTable.id, shipmentCommentTable.shipmentId))
@@ -75,11 +78,11 @@ class ShipmentCommentRepository extends TenantRepository<typeof shipmentCommentT
           isNull(shipmentTable.deletedAt),
           // @> (contains), not = ANY: only this form can use the GIN index on the tags.
           sql`${shipmentCommentTable.mentionedUserIds} @> ARRAY[${userId}::uuid]`,
-          sql`(${read.readAt} is null or ${shipmentCommentTable.createdAt} > ${read.readAt})`,
+          sql`(${read.readAt} is null or ${shipmentCommentTable.createdAt} > ${read.readAt} or ${shipmentCommentTable.createdAt} > now() - make_interval(days => ${keepReadDays}))`,
         ),
       )
       .orderBy(desc(shipmentCommentTable.createdAt))
-      .limit(50);
+      .limit(100);
   }
 
   // When a colleague (anyone but the given user) last opened this shipment's chat.

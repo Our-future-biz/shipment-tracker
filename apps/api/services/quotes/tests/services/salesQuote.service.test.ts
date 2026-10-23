@@ -1817,6 +1817,12 @@ describe("the warehouse inquiry of pieces of 12.5 t or more", () => {
     expect(written().serverKeys?.warehouseInquiry).toMatchObject({ answerSeenAt: NOW.toISOString() });
   });
 
+  it("lists the asker's answers not opened yet and those opened in the last 7 days", async () => {
+    repository.listInquiryAnswersFor.mockResolvedValue([]);
+    await salesQuoteService.myInquiryAnswers(martin);
+    expect(repository.listInquiryAnswersFor).toHaveBeenCalledWith(martin.companyID, U_MARTIN, new Date(NOW.getTime() - 7 * 86_400_000).toISOString());
+  });
+
   it("is a key only the server writes", () => {
     expect(PROTECTED_KEYS).toContain("warehouseInquiry");
   });

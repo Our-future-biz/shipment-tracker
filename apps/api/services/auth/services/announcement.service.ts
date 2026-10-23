@@ -52,6 +52,8 @@ export interface AnnouncementInfo {
   canEdit: boolean;
   // Posted by someone else and not opened by the reader yet.
   unread: boolean;
+  // When the reader opened it; null when not (yet). The bell keeps a read post for 7 days.
+  readAt: string | null;
   attachments: AnnouncementAttachmentInfo[];
 }
 
@@ -152,6 +154,7 @@ class AnnouncementService {
       // Admins see every board, but a post counts as unread only for the people it is addressed
       // to — the same audience its read receipts count.
       unread: r.authorId !== actor.userID && !r.readAt && isAddressedTo(r, viewer),
+      readAt: r.readAt ? new Date(r.readAt).toISOString() : null,
       attachments: attachmentsByPost.get(r.id) ?? [],
     }));
     return { viewer, announcements };

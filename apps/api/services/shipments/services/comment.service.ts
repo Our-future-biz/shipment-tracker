@@ -17,6 +17,10 @@ export interface NewComment {
   mentionedUserIds: string[];
 }
 
+
+/** How long the bell keeps a read mention, counted from when it was written. */
+export const READ_MENTION_KEEP_DAYS = 7;
+
 class CommentService {
   async list(shipmentId: string, companyId: string, userId: string): Promise<CommentItem[]> {
     await shipmentService.requireLive(shipmentId, companyId);
@@ -67,8 +71,9 @@ class CommentService {
     await shipmentCommentRepository.markRead(companyId, userId, shipmentId);
   }
 
+  // The bell's mentions: unread ones, and read ones written in the last READ_MENTION_KEEP_DAYS days.
   async unreadMentions(companyId: string, userId: string): Promise<CommentMentionItem[]> {
-    const [rows, names] = await Promise.all([shipmentCommentRepository.unreadMentions(companyId, userId), userNames()]);
+    const [rows, names] = await Promise.all([shipmentCommentRepository.unreadMentions(companyId, userId, READ_MENTION_KEEP_DAYS), userNames()]);
     return rows.map((r) => ({
       id: r.id,
       shipmentId: r.shipmentId,
@@ -76,6 +81,7 @@ class CommentService {
       authorName: names.get(r.authorId) ?? "",
       message: r.message,
       createdAt: iso(r.createdAt),
+      unread: !r.readAt || r.createdAt > r.readAt,
     }));
   }
 
