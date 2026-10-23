@@ -191,7 +191,8 @@ export function isContainerQuote(data: Pick<SalesQuoteData, "serviceType">): boo
 
 // Whether a container type is a reefer: RF, or HR (the high-cube reefer), of any size.
 export function isReeferType(type: string | undefined): boolean {
-  return /\b(RF|HR)$/.test((type ?? "").trim());
+  // HR is the 40' high-cube reefer's former name, still on quotes saved before it was HRF.
+  return /\b(RF|HRF|HR)$/.test((type ?? "").trim());
 }
 
 // Whether a quote carries a reefer container: its reefer requirements are then asked.

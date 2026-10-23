@@ -126,7 +126,7 @@ describe("reefer containers", () => {
   const fcl = (type: string) => ({ serviceType: "Sea FCL", containers: [{ qty: 1, type: "20' GP" }, { qty: 1, type }] });
 
   it("knows a reefer box by its type, 20' or 40', RF or HR", () => {
-    expect(["20' RF", "40' RF", "40' HR"].map(isReeferType)).toEqual([true, true, true]);
+    expect(["20' RF", "40' HRF", "40' HR"].map(isReeferType)).toEqual([true, true, true]);
     expect(["40' HC", "20' GP", "40' FR", "", undefined].map(isReeferType)).toEqual([false, false, false, false, false]);
   });
 

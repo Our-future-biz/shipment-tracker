@@ -371,14 +371,16 @@ export const isMblContainerDetail = (label: string) => /^CNTR (count|length|type
 export function containerTypeFrom(length: string, kind: string): string {
   const size = (length.match(/20|40|45/) ?? [""])[0];
   if (!size) return "";
+  // A reefer stays a reefer whatever the length says; a 40' one is the high-cube reefer (HRF), as
+  // there is no standard-height 40' reefer.
+  const reefer = /^(RF|REEFER|RE|HR|RH|HRF)$/.test(kind.trim().toUpperCase());
   // Documents often put the high cube in the length ("40HC") and the kind as "DRY".
   const k = /HC|HQ|HIGH ?CUBE/i.test(length) ? "HC" : kind.trim().toUpperCase();
   const mapped =
     size === "45" ? "HQ"
+    : reefer ? (size === "40" ? "HRF" : "RF")
     : /^(HQ|HC|HIGH ?CUBE)/.test(k) ? "HC"
     : /^(GP|DV|DRY|ST|STD|GENERAL)/.test(k) || !k ? "GP"
-    : /^(RF|REEFER|RE)$/.test(k) ? "RF"
-    : /^(HR)$/.test(k) ? "HR"
     : /^(OT|OPEN ?TOP)/.test(k) ? "OT"
     : /^(FR|FLAT ?RACK)/.test(k) ? "FR"
     : k;
