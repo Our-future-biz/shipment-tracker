@@ -31,8 +31,29 @@ describe("checkContainerWeight", () => {
     expect(checkContainerWeight("40' HRF", 0)).toEqual({ standard: 27600, max: 29000, heavyTested: false, level: "standard" });
   });
 
-  it("equipment without agreed limits has none, unknown names included", () => {
-    expect(["40' RF", "40' HR", "20' OT", "40' FR", "", "constructor"].map((t) => checkContainerWeight(t, 30000))).toEqual([null, null, null, null, null, null]);
+  it("open tops and flat racks work as reefers: past standard the shipping line confirms it, up to the max", () => {
+    const bands: [string, number, number][] = [
+      ["20' OT", 28000, 30050],
+      ["20' HOT", 27570, 27970],
+      ["20' FR", 31250, 42100],
+      ["40' OT", 26600, 28550],
+      ["40' HOT", 28250, 28650],
+      ["40' FR", 47100, 47400],
+      ["40' HFR", 47300, 49100],
+    ];
+    for (const [type, standard, max] of bands) {
+      expect([standard, standard + 1, max, max + 1].map((kg) => level(type, kg)), type).toEqual(["standard", "confirm", "confirm", "tooHeavy"]);
+      expect(checkContainerWeight(type, 0), type).toEqual({ standard, max, heavyTested: false, level: "standard" });
+    }
+  });
+
+  it("every equipment offered has limits", async () => {
+    const { CONTAINER_TYPES } = await import("@/lib/cargo");
+    expect(CONTAINER_TYPES.filter((t) => !checkContainerWeight(t, 0))).toEqual([]);
+  });
+
+  it("equipment no longer offered and unknown names have none", () => {
+    expect(["40' RF", "40' HR", "20' HC", "", "constructor"].map((t) => checkContainerWeight(t, 30000))).toEqual([null, null, null, null, null]);
     expect(checkContainerWeight(undefined, 30000)).toBeNull();
   });
 });
