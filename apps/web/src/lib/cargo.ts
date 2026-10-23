@@ -28,7 +28,10 @@ export const PACK_TYPES = ["Pallet(s)", "Cartons", "Colli", "Boxes", "Wooden box
 export const packTypeOptions = (query: string) =>
   PACK_TYPES.filter((p) => p.toLowerCase().includes((query ?? "").toLowerCase().trim())).map((p) => ({ value: p }));
 
-export const STACKABLE_OPTIONS = ["Stackable", "Non-stackable", "Overstowable", "Non-overstowable"];
+// A dimension row is either both stackable and overstowable, or neither.
+export const STACKABLE = "Stackable / Overstowable";
+export const NOT_STACKABLE = "Not stackable / Not overstowable";
+export const STACKABLE_OPTIONS = [STACKABLE, NOT_STACKABLE];
 
 // Road freight: the pallet a dimension line stands on, and its ADR (dangerous goods) details.
 export const PALLET_TYPES: { value: interfaces.PalletType; label: string }[] = [

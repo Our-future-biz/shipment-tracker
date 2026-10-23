@@ -428,6 +428,7 @@ export function CargoDetailsTab({
                                   value={l.stackable || undefined}
                                   allowClear
                                   placeholder="—"
+                                  popupMatchSelectWidth={false}
                                   options={STACKABLE_OPTIONS.map((s) => ({ value: s }))}
                                   onChange={(v) => {
                                     patchDim(idx, { stackable: v ?? "" });

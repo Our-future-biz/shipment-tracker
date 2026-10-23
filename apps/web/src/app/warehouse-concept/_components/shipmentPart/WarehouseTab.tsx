@@ -7,6 +7,7 @@ import { DeleteOutlined, PlusOutlined, EditOutlined } from "@ant-design/icons";
 import type { MessageInstance } from "antd/es/message/interface";
 import { buildRowData, getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
 import { formatDateTime } from "@/lib/date";
+import { NOT_STACKABLE, STACKABLE } from "@/lib/cargo";
 import { useWarehouseSection } from "@/hooks/useWarehouseConceptSection";
 import { SectionCard as Card, PillTabs } from "@/components/SectionCard";
 import { PickupSection } from "./PickupSection";
@@ -129,8 +130,8 @@ export function WarehouseTab({ shipment, readOnly = false, pickupReadOnly = !rea
 function StackabilityBadge({ shipment }: { shipment: ShipmentItem }) {
   const rows = shipment.cargoDimensions ?? [];
   let stackability: "stackable" | "not_stackable" | "unknown" = "unknown";
-  const hasStackable = rows.some((r) => r.stackable === "Stackable" || r.stackable === "Overstowable");
-  const hasNotStackable = rows.some((r) => r.stackable === "Non-stackable" || r.stackable === "Non-overstowable");
+  const hasStackable = rows.some((r) => r.stackable === STACKABLE);
+  const hasNotStackable = rows.some((r) => r.stackable === NOT_STACKABLE);
   if (hasNotStackable) stackability = "not_stackable";
   else if (hasStackable) stackability = "stackable";
   const tone =

@@ -9,7 +9,7 @@
 import { computeCargo, computeTotals, quoteCurrency } from "@/app/sales/_lib/salesQuote";
 import { DIRECTIONS, type PackageLine, type QuoteContainerLine, type SalesQuoteData } from "@/app/sales/_lib/types";
 import type { controllers, interfaces } from "@/lib/api/client";
-import { num } from "@/lib/cargo";
+import { NOT_STACKABLE, STACKABLE, num } from "@/lib/cargo";
 import type { ExchangeRates } from "@/lib/exchangeRates";
 import { fmtMoney } from "@/lib/money";
 
@@ -103,7 +103,7 @@ export function quoteToCreateRequest(quoteNumber: string, data: SalesQuoteData, 
       heightCm: s(p.height),
       weightPerPcKg: s(p.weight),
       packageType: packageType(p.type),
-      stackable: p.stackable === true ? "Stackable" : p.stackable === false ? "Non-stackable" : "",
+      stackable: p.stackable === true ? STACKABLE : p.stackable === false ? NOT_STACKABLE : "",
     }));
   if (dimensions.length > 0) out.cargoDimensions = dimensions;
 
@@ -188,12 +188,10 @@ function serviceTypeOf(freightMode: string, loadType: string): string | undefine
 // The cargo dictionary's "Pallet(s)" is the quote's "Pallets"; everything else is kept verbatim.
 const quotePackageType = (t: string): string => (t === "Pallet(s)" ? "Pallets" : t);
 
-// A shipment also says "overstowable" of cargo that other cargo may stand on.
-const STACKABLE: Record<string, boolean> = {
-  Stackable: true,
-  Overstowable: true,
-  "Non-stackable": false,
-  "Non-overstowable": false,
+// A shipment's dimension row as the quote's stackable tick.
+const STACKABLE_TICK: Record<string, boolean> = {
+  [STACKABLE]: true,
+  [NOT_STACKABLE]: false,
 };
 
 // A total as the shipment shows it, with thousands separators: "12,500" kg, "14.5" m³.
@@ -219,7 +217,7 @@ export function shipmentToQuoteData(shipment: interfaces.ShipmentItem): SalesQuo
       width: num(line.widthCm) || undefined,
       height: num(line.heightCm) || undefined,
       weight: num(line.weightPerPcKg) || undefined,
-      stackable: STACKABLE[line.stackable],
+      stackable: STACKABLE_TICK[line.stackable],
     }))
     .filter((p) => p.qty || p.length || p.width || p.height || p.weight);
 

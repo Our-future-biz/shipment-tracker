@@ -81,3 +81,18 @@ describe("quote → shipment totals", () => {
     expect(req.totalVolumeCbm).toBeUndefined();
   });
 });
+
+describe("quote ↔ shipment stackable", () => {
+  it("gives each dimension row the stackable option of its package line", () => {
+    const req = quoteToCreateRequest("QCZ1", { packages: [{ qty: 1, type: "Pallets", stackable: true }, { qty: 1, type: "Pallets", stackable: false }] }, NO_RATES);
+    expect(req.cargoDimensions?.map((d) => d.stackable)).toEqual(["Stackable / Overstowable", "Not stackable / Not overstowable"]);
+  });
+
+  it("ticks the quote's package lines from the shipment's dimension rows", () => {
+    const dim = (stackable: string) => ({ pieces: "1", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "", packageType: "Pallet(s)", stackable });
+    const data = shipmentToQuoteData({
+      cargoDimensions: [dim("Stackable / Overstowable"), dim("Not stackable / Not overstowable")],
+    } as unknown as interfaces.ShipmentItem);
+    expect(data.packages?.map((p) => p.stackable)).toEqual([true, false]);
+  });
+});
