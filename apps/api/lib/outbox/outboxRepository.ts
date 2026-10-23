@@ -140,9 +140,10 @@ export abstract class OutboxRepository<TTable extends OutboxTable> extends Tenan
     return rows as InferSelectModel<TTable>[];
   }
 
-  // Rows (all companies) not delivered in time: failed for good, or still pending after `minutes`.
-  // Counts and the oldest pending one, for the warning log.
-  async unsentHealth(minutes: number) {
+  // Rows not delivered in time: failed for good, or still pending after `minutes`. Counts and the
+  // oldest pending one — of all companies for the warning log, of one with `companyId` (the
+  // warehouse managers' cockpit).
+  async unsentHealth(minutes: number, companyId?: string) {
     const o = this.table;
     const [row] = await this.db
       .select({
@@ -151,7 +152,7 @@ export abstract class OutboxRepository<TTable extends OutboxTable> extends Tenan
         oldest: sql<Date | string | null>`min(${o.createdAt}) FILTER (WHERE ${o.status} = 'pending' AND ${o.createdAt} < now() - make_interval(mins => ${minutes}))`,
       })
       .from(o as PgTable)
-      .where(and(inArray(o.status, ["pending", "failed"]), isNull(o.deletedAt)));
+      .where(and(inArray(o.status, ["pending", "failed"]), isNull(o.deletedAt), companyId ? eq(o.companyId, companyId) : undefined));
     return {
       failed: Number(row?.failed ?? 0),
       stalePending: Number(row?.stale ?? 0),

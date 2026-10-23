@@ -60,6 +60,20 @@ export interface CockpitAudit {
   shipmentsDeleted: number;
 }
 
+/** What the warehouse owes other systems and suppliers and has not delivered, now. */
+export interface CockpitDelivery {
+  /** Shipment updates still pending after `staleMinutes`. */
+  shipmentUpdatesWaiting: number;
+  /** Events for Trucking (gate-in, gate-out, voids) that failed for good. */
+  truckingFailed: number;
+  /** Events for Trucking still pending after `staleMinutes`. */
+  truckingWaiting: number;
+  staleMinutes: number;
+  /** Positions whose latest VGM / survey / remeasurement e-mail of the last `supplierEmailDays` days failed or never finished. */
+  supplierEmailsFailed: number;
+  supplierEmailDays: number;
+}
+
 export interface WarehouseManagersCockpit {
   /** ISO time the figures were made. */
   asOf: string;
@@ -74,5 +88,6 @@ export interface WarehouseManagersCockpit {
   shipmentUpdates: ShipmentUpdateHealth;
   /** Cargo in the warehouse now, by free time (as on Reports). */
   storage: StorageSummary;
+  delivery: CockpitDelivery;
   audit: CockpitAudit;
 }

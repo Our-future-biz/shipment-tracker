@@ -9211,6 +9211,34 @@ export namespace interfaces {
     }
 
     /**
+     * What the warehouse owes other systems and suppliers and has not delivered, now.
+     */
+    export interface CockpitDelivery {
+        /**
+         * Shipment updates still pending after `staleMinutes`.
+         */
+        shipmentUpdatesWaiting: number
+
+        /**
+         * Events for Trucking (gate-in, gate-out, voids) that failed for good.
+         */
+        truckingFailed: number
+
+        /**
+         * Events for Trucking still pending after `staleMinutes`.
+         */
+        truckingWaiting: number
+
+        staleMinutes: number
+        /**
+         * Positions whose latest VGM / survey / remeasurement e-mail of the last `supplierEmailDays` days failed or never finished.
+         */
+        supplierEmailsFailed: number
+
+        supplierEmailDays: number
+    }
+
+    /**
      * A card: how many rows it has in all, and the first ones (most urgent first).
      */
     export interface CockpitList {
@@ -15305,6 +15333,7 @@ export namespace interfaces {
          */
         storage: StorageSummary
 
+        delivery: CockpitDelivery
         audit: CockpitAudit
     }
 

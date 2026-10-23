@@ -13,9 +13,10 @@ import { TERMS } from "../../_lib/glossary";
 import { CHIPS, type ChipId } from "../../_lib/worklist";
 import { HealthLine } from "../../_components/tabs/ReportsTab";
 
-// The warehouse managers' cockpit (Council Outlay 5, step 1): the Positions quick filters as tiles,
-// then what to act on today (URGENT) and within 48 hours (ATTENTION), the link with Shipments and
-// storage, and what managers did in the last days. Everything comes from one server answer, worked
+// The warehouse managers' cockpit (Council Outlay 5, steps 1 and 2): the Positions quick filters as
+// tiles, then what to act on today (URGENT) and within 48 hours (ATTENTION), the link with
+// Shipments and storage, what is owed to Shipments, Trucking and suppliers, and what managers did
+// in the last days. Everything comes from one server answer, worked
 // out over every record of the company in Prague time, so the counts never disagree with each other.
 // Same anatomy as the Shipments page's Needs Attention cards.
 
@@ -89,7 +90,7 @@ const signalsColumn = {
   render: (_: unknown, r: CockpitRow) => (
     <div className="flex flex-wrap gap-1.5">
       {r.tags.map((t, i) => (
-        <Tag key={i} color={t.urgent ? "red" : "orange"} className="m-0 whitespace-normal">
+        <Tag key={i} color={t.urgent ? "red" : "orange"} className="m-0 max-w-full !whitespace-normal break-words">
           {t.text}
         </Tag>
       ))}
@@ -97,7 +98,20 @@ const signalsColumn = {
   ),
 };
 
-const CARD_COLUMNS: ColumnsType<CockpitRow> = [refColumn, directionColumn, signalsColumn];
+// In a card the direction sits under the reference, so the signals keep the width and wrap.
+const CARD_COLUMNS: ColumnsType<CockpitRow> = [
+  {
+    ...refColumn,
+    width: 160,
+    render: (v: unknown, r: CockpitRow) => (
+      <div className="flex flex-col items-start gap-1">
+        {refColumn.render(v, r)}
+        {directionColumn.render(v, r)}
+      </div>
+    ),
+  },
+  signalsColumn,
+];
 
 const DIALOG_COLUMNS: ColumnsType<CockpitRow> = [
   refColumn,
@@ -134,6 +148,33 @@ function Tiles({ cockpit, isLoading, isError }: { cockpit: Cockpit | null; isLoa
           </Tooltip>
         );
       })}
+    </div>
+  );
+}
+
+// What the warehouse owes Shipments, Trucking and the suppliers and has not delivered: red when
+// something failed for good, amber when it only waits too long.
+function DeliveryLine({ cockpit }: { cockpit: Cockpit }) {
+  const d = cockpit.delivery;
+  const failed = d.truckingFailed + d.supplierEmailsFailed > 0;
+  const waiting = d.shipmentUpdatesWaiting + d.truckingWaiting > 0;
+  const tone = failed ? "border-red-200 bg-red-50 text-red-700" : waiting ? "border-amber-200 bg-amber-50 text-amber-800" : "border-slate-200 bg-white text-slate-600";
+  return (
+    <div role="status" className={`flex flex-wrap items-center gap-x-6 gap-y-1 rounded-xl border px-4 py-2 text-xs ${tone}`}>
+      <span>
+        <b>Waiting over {d.staleMinutes} min:</b> {plural(d.shipmentUpdatesWaiting, "shipment update")} · {plural(d.truckingWaiting, "event")} for Trucking
+      </span>
+      <span>
+        <b>Not sent to Trucking:</b> {plural(d.truckingFailed, "event")}
+      </span>
+      <span>
+        <b>Supplier e-mails failed</b> (last {d.supplierEmailDays} days): {plural(d.supplierEmailsFailed, "position")}
+        {d.supplierEmailsFailed > 0 && (
+          <Link href="/warehouse-concept?tab=remeasurement" className="ml-2 font-semibold underline">
+            Open Remeasurement / Release
+          </Link>
+        )}
+      </span>
     </div>
   );
 }
@@ -216,6 +257,7 @@ export function ManagersCockpit() {
           }
           dataSource={(list?.rows ?? []).slice(0, VISIBLE_ROWS)}
           columns={CARD_COLUMNS}
+          tableLayout="fixed"
           pagination={false}
           rowClassName="cursor-pointer"
           onRow={rowProps}
@@ -256,6 +298,7 @@ export function ManagersCockpit() {
         {cockpit && (
           <>
             <HealthLine report={cockpit} />
+            <DeliveryLine cockpit={cockpit} />
             <AuditLine cockpit={cockpit} />
           </>
         )}

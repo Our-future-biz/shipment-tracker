@@ -4,13 +4,15 @@ import { shipments } from "~encore/clients";
 import { gateMovementRepository, type GateMovementRow } from "../repositories/gateMovement.repository";
 import { gateMovementTable, type GateMovementRecord } from "../schemas/gateMovement.schema";
 import { customsLine, isCustomsStatus, setCustomsLineSql } from "./customs";
+import type { ServiceActor } from "../../../lib/outbox/serviceIdentity";
 
 // Customs follow: the customs status of a gate record linked to a shipment follows the
 // shipment (Shipments works it out from its documents). It is read from the shipments service
 // when the gate job is opened or refreshed and, for a limited number of records, when the Gate
 // Log is listed; a changed status updates the Customs line of the release gates, logged as
 // "Customs status from shipment". Released records keep what they were released with.
-// Reads use the caller's own access to Shipments.
+// Reads use the caller's own access to Shipments; the customs follow cron (no caller) reads as the
+// company's service identity. A record whose shipment was deleted in Shipments is not read again.
 
 /** A record opened on its own is read again after this long. */
 export const FOLLOW_ON_GET_MS = 30_000;
@@ -23,18 +25,20 @@ const PARALLEL = 4;
 const BUDGET_MS = 3_000;
 
 const t = gateMovementTable;
+// The history event of a position kept after its shipment was deleted (gateAdmin.service).
+const SHIPMENT_GONE = "shipmentDeleted";
 
 type Fetched = { ok: true; customsStatus: string } | { ok: false; error: string };
 
 // Reads each shipment once, at most PARALLEL at a time, within the time budget. Shipments not
 // answered in time are missing from the result.
-async function fetchStatuses(shipmentIds: string[], budgetMs: number): Promise<Map<string, Fetched>> {
+async function fetchStatuses(shipmentIds: string[], budgetMs: number, authData?: ServiceActor): Promise<Map<string, Fetched>> {
   const out = new Map<string, Fetched>();
   const queue = [...shipmentIds];
   const worker = async () => {
     for (let id = queue.shift(); id; id = queue.shift()) {
       try {
-        const { shipment } = await shipments.shipmentGet({ shipmentId: id });
+        const { shipment } = await shipments.shipmentGet({ shipmentId: id }, authData ? { authData } : undefined);
         out.set(id, { ok: true, customsStatus: shipment.customsStatus });
       } catch (err) {
         log.warn(err, "warehouse: shipment not read for the customs follow", { shipmentId: id });
@@ -61,18 +65,18 @@ async function fetchStatuses(shipmentIds: string[], budgetMs: number): Promise<M
 export async function followCustoms(
   rows: GateMovementRow[],
   companyId: string,
-  opts: { maxAgeMs: number; limit: number; force?: boolean; budgetMs?: number },
+  opts: { maxAgeMs: number; limit: number; force?: boolean; budgetMs?: number; authData?: ServiceActor },
 ): Promise<Map<string, GateMovementRecord>> {
   const changed = new Map<string, GateMovementRecord>();
   const now = Date.now();
   const due = rows
-    .filter((m) => m.shipmentId && !m.impRelease && !m.leftAt)
+    .filter((m) => m.shipmentId && !m.impRelease && !m.leftAt && !m.events.some((e) => e.kind === SHIPMENT_GONE))
     .filter((m) => opts.force || !m.shipmentCheckedAt || now - m.shipmentCheckedAt.getTime() >= opts.maxAgeMs)
     .sort((a, b) => (a.shipmentCheckedAt?.getTime() ?? 0) - (b.shipmentCheckedAt?.getTime() ?? 0))
     .slice(0, opts.limit);
   if (!due.length) return changed;
 
-  const fetched = await fetchStatuses([...new Set(due.map((m) => m.shipmentId!))], opts.budgetMs ?? BUDGET_MS);
+  const fetched = await fetchStatuses([...new Set(due.map((m) => m.shipmentId!))], opts.budgetMs ?? BUDGET_MS, opts.authData);
   const at = new Date();
   const checkedOnly: string[] = [];
   for (const m of due) {

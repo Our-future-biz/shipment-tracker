@@ -22,6 +22,7 @@ import { CUSTOMS_CLEARED, CUSTOMS_STATUSES, customsLine, setCustomsLineSql } fro
 import { deliverDue, shipmentUpdateState } from "./shipmentOutbox.service";
 import { FOLLOW_LIST_LIMIT, FOLLOW_ON_GET_MS, FOLLOW_ON_LIST_MS, followCustoms } from "./shipmentFollow.service";
 import { userName } from "./users";
+import { serviceActor } from "../../../lib/outbox/serviceIdentity";
 import { pickupPinKey } from "./pinKey";
 import { inputMessage } from "./inputError";
 import { assertShipmentExists } from "../../../lib/shipmentRefs";
@@ -555,13 +556,16 @@ class GateMovementService {
   // records not read lately; with `id`, that record — when not read in the last half minute, or
   // always with `force`, "Refresh"). The only place gate records follow their shipments, so the
   // read endpoints never write. Returns how many records changed.
-  async followShipments(companyId: string, opts: { id?: string; force?: boolean } = {}): Promise<number> {
+  // `asService`: no user is calling (the customs follow cron) — Shipments is read as the company's
+  // service identity.
+  async followShipments(companyId: string, opts: { id?: string; force?: boolean; asService?: boolean } = {}): Promise<number> {
     const movements = opts.id
       ? [await this.load(opts.id, companyId)]
       : await gateMovementRepository.listAll(companyId);
+    const authData = opts.asService ? await serviceActor(companyId) : undefined;
     const changed = opts.id
-      ? await followCustoms(movements, companyId, { maxAgeMs: FOLLOW_ON_GET_MS, limit: 1, force: opts.force })
-      : await followCustoms(movements, companyId, { maxAgeMs: FOLLOW_ON_LIST_MS, limit: FOLLOW_LIST_LIMIT });
+      ? await followCustoms(movements, companyId, { maxAgeMs: FOLLOW_ON_GET_MS, limit: 1, force: opts.force, authData })
+      : await followCustoms(movements, companyId, { maxAgeMs: FOLLOW_ON_LIST_MS, limit: FOLLOW_LIST_LIMIT, authData });
     await this.stockAfterFollow(companyId, [...changed.keys()]);
     return changed.size;
   }

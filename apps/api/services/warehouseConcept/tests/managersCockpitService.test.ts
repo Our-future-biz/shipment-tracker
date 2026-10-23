@@ -44,6 +44,7 @@ describe("Managers cockpit (database)", () => {
     expect(listed).not.toContain(archived.id);
     expect(cockpit.audit).toMatchObject({ refusals: 1, archivedWithStamps: 1, overrides: 0 });
     expect(cockpit.shipmentUpdates).toMatchObject({ failed: 0 });
+    expect(cockpit.delivery).toEqual({ shipmentUpdatesWaiting: 0, truckingFailed: 0, truckingWaiting: 0, staleMinutes: 30, supplierEmailsFailed: 0, supplierEmailDays: 7 });
 
     const other = await managersCockpitService.cockpit(randomUUID());
     expect(other.urgent.total + other.attention.total).toBe(0);

@@ -102,6 +102,16 @@ class SettingsRepository extends TenantRepository<typeof warehouseSettingsTable>
     return row ?? null;
   }
 
+  // The latest supplier e-mail attempt of each position and kind made since `since` (the
+  // managers' cockpit counts those that failed or never finished).
+  async latestAttemptsSince(companyId: string, since: Date) {
+    return db
+      .selectDistinctOn([e.taskId, e.kind], { taskId: e.taskId, kind: e.kind, status: e.status, createdAt: e.createdAt })
+      .from(e)
+      .where(and(eq(e.companyId, companyId), isNull(e.deletedAt), sql`${e.createdAt} >= ${since}`))
+      .orderBy(e.taskId, e.kind, desc(e.createdAt));
+  }
+
   async listForTask(taskId: string, companyId: string, limit = 30) {
     return db
       .select()

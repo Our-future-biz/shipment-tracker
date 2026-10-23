@@ -1,15 +1,23 @@
 import type { GateEvent } from "../schemas/gateMovement.schema";
 import type { GateMovementItem } from "../interfaces/gate.interfaces";
 import type { WarehouseContainerItem, ShipmentUpdateHealth, StorageSummary } from "../interfaces/records.interfaces";
-import type { CockpitAudit, CockpitList, CockpitRow, CockpitTag, CockpitTiles, WarehouseManagersCockpit } from "../interfaces/cockpit.interfaces";
+import type { CockpitAudit, CockpitDelivery, CockpitList, CockpitRow, CockpitTag, CockpitTiles, WarehouseManagersCockpit } from "../interfaces/cockpit.interfaces";
 import { CUSTOMS_CLEARED } from "./customs";
 import { isDomestic } from "./direction";
 import { DEFAULT_FREE_DAYS, pragueDate } from "./storage";
 import { customsClock, customsRegime, type CustomsClockInfo } from "./warehouseStockCustoms";
 import { isTripSource } from "./tripSource";
 import {
+  ARRIVED_NOT_RECEIVED_ATTENTION_HOURS,
+  ARRIVED_NOT_RECEIVED_URGENT_HOURS,
   AUDIT_DAYS,
   CLOSED_NO_GATE_OUT_HOURS,
+  CUSTOMS_READ_STALE_HOURS,
+  MAY_NEED_CORRECTING_DAYS,
+  MRN_REQUEST_HOURS,
+  RELEASE_BLOCKED_HOURS,
+  RELEASED_CHARGEABLE_DAYS,
+  TRIP_LATE_HOURS,
   COCKPIT_LIST_LIMIT,
   CUSTOMS_ATTENTION_DAYS,
   CUSTOMS_URGENT_DAYS,
@@ -20,7 +28,7 @@ import {
 } from "./cockpitThresholds";
 
 // The managers' cockpit, worked out from the gate records and containers as the server returns
-// them (Council Outlay 5, step 1). Pure: no database, tested in tests/managersCockpit.test.ts.
+// them (Council Outlay 5, steps 1 and 2). Pure: no database, tested in tests/managersCockpit.test.ts.
 //
 //   tiles     the Positions quick filters, counted over every position on the server (the same
 //             rules as the web's _lib/worklist.ts, which the tiles open)
@@ -121,6 +129,32 @@ const outLegEmpty = (m: Item) => {
   return !leg || (!leg.company.trim() && !leg.plate.trim() && !leg.gateTime.trim());
 };
 
+const hoursText = (h: number) => `${Math.floor(h)} h`;
+const daysAgo = (iso: string | null | undefined, now: Date) => {
+  const h = hoursSince(iso, now);
+  return h === null ? null : h / 24;
+};
+
+/**
+ * Expected and not arrived although its time passed: an IN dock slot that ended, a Trucking trip
+ * more than TRIP_LATE_HOURS past its gate time, or an ETA warehouse (ETW) / slot day before today.
+ * The ETA is not used: it is the vessel's arrival copied from the shipment, not the warehouse's.
+ */
+export function notArrivedReason(m: Item, today: string, now: Date): string | null {
+  if (m.status !== "Expected" || m.gateIn) return null;
+  const slot = m.dockSlots
+    .filter((s) => s.direction === "IN" && (s.status === "Booked" || s.status === "In progress" || s.status === "Overdue") && s.endsAt && Date.parse(s.endsAt) < now.getTime())
+    .sort((a, b) => (a.endsAt ?? "").localeCompare(b.endsAt ?? ""))[0];
+  if (slot) return `Not arrived: dock slot ${slot.dock} ${dayText(slot.date).slice(0, 6)} ${slot.time}${slot.end ? `–${slot.end}` : ""} passed`;
+  const leg = (m.transportLegs ?? []).find((l) => l.leg === "IN");
+  if (leg && isTripSource(leg.source)) {
+    const late = hoursSince(leg.gateTime, now);
+    if (late !== null && late >= TRIP_LATE_HOURS) return `Not arrived: trip ${leg.source.tripRef} due ${stampText(leg.gateTime)}`;
+  }
+  const passed = [dayOf(m.slot), ...m.subPositions.map((s) => dayOf(s.etw))].filter((d) => d && d < today).sort()[0];
+  return passed ? `Not arrived: expected ${dayText(passed)}` : null;
+}
+
 function customsSignal(c: CustomsClockInfo): Signal | null {
   if (!customsDue(c) || c.daysLeft === null) return null;
   const d = c.daysLeft;
@@ -130,8 +164,13 @@ function customsSignal(c: CustomsClockInfo): Signal | null {
   return d <= CUSTOMS_ATTENTION_DAYS ? attention(text, 100 + d) : null;
 }
 
+/** What a record's neighbours know about it: the events for Trucking it failed to send ("gate-in"). */
+export interface RecordContext {
+  truckingNotSent?: string[];
+}
+
 /** Every signal of one gate record, in no particular order. */
-export function recordSignals(m: Item, today: string, now: Date): Signal[] {
+export function recordSignals(m: Item, today: string, now: Date, ctx: RecordContext = {}): Signal[] {
   const out: Signal[] = [];
   const open = !m.impRelease && !m.leftAt;
   const running = m.storage.started && !m.storage.stopped;
@@ -150,11 +189,32 @@ export function recordSignals(m: Item, today: string, now: Date): Signal[] {
     const what = m.shipmentUpdate.what.filter(Boolean).join(", ");
     out.push(urgent(`Not sent: ${what || "shipment update"}`, 2));
   }
+  if (ctx.truckingNotSent?.length) out.push(urgent(`Not sent to Trucking: ${[...new Set(ctx.truckingNotSent)].join(", ")}`, 2));
   if (m.overridden && open) {
     // An override arms the release whatever the gates say; it matters while it lets something pass.
     const passes = notOkGates(m).map((g) => `${g.g} ${g.s}`);
     if (m.openExceptions > 0) passes.push(plural(m.openExceptions, "open exception"));
     if (passes.length) out.push(urgent(`Override in force: ${passes.join(", ")}`, 3));
+  }
+
+  // Time passed: something was due and did not happen.
+  const notArrived = notArrivedReason(m, today, now);
+  if (notArrived) out.push(urgent(notArrived, 50));
+  const requested = lastEvent(m, "releaseRequested");
+  if (requested && !m.armed && !m.impRelease) {
+    const h = hoursSince(requested.at, now);
+    if (h !== null && h >= RELEASE_BLOCKED_HOURS) {
+      const waiting = notOkGates(m).map((g) => g.g);
+      out.push(urgent(`Release requested ${stampText(requested.at)}: blocked ${hoursText(h)}${waiting.length ? ` · ${waiting.join(", ")}` : ""}`, 60));
+    }
+  }
+  if (m.visit !== "výdej" && !isDomestic(m.handling) && m.gateIn && !m.expReceipt && m.status !== "Refused") {
+    const h = hoursSince(m.gateIn, now);
+    if (h !== null && h >= ARRIVED_NOT_RECEIVED_ATTENTION_HOURS) {
+      const reweigh = m.needsReweigh && !m.reweigh ? " · waiting for re-weigh" : "";
+      const text = `Arrived ${stampText(m.gateIn)}, not received (${hoursText(h)})${reweigh}`;
+      out.push(h >= ARRIVED_NOT_RECEIVED_URGENT_HOURS ? urgent(text, 70) : attention(text, 350));
+    }
   }
 
   // Clocks.
@@ -180,19 +240,49 @@ export function recordSignals(m: Item, today: string, now: Date): Signal[] {
   const underCustoms = m.visit === "výdej" && !isDomestic(m.handling) && m.customsStatus !== CUSTOMS_CLEARED;
   if (underCustoms && !m.impRelease && !m.gateOut && (!m.mrn.trim() || m.mrn.trim() === "—")) {
     const asked = lastEvent(m, "mrnRequested");
-    out.push(attention(`MRN missing${asked ? ` · requested ${stampText(asked.at)}` : ""}`, 410));
+    const waited = asked ? hoursSince(asked.at, now) : null;
+    const answer = waited !== null && waited >= MRN_REQUEST_HOURS ? `, no answer for ${hoursText(waited)}` : "";
+    out.push(attention(`MRN missing${asked ? ` · requested ${stampText(asked.at)}${answer}` : ""}`, 410));
   }
-  if (m.shipmentId && open && !m.shipmentCheckedAt && m.releaseGates.some((g) => g.g === "Customs" && g.s !== "OK")) {
-    out.push(attention("Customs status not read from the shipment", 420));
+  if (m.shipmentId && open && m.releaseGates.some((g) => g.g === "Customs" && g.s !== "OK") && !m.events.some((e) => e.kind === "shipmentDeleted")) {
+    const h = hoursSince(m.shipmentCheckedAt, now);
+    if (h === null) out.push(attention("Customs status not read from the shipment", 420));
+    else if (h >= CUSTOMS_READ_STALE_HOURS) out.push(attention(`Customs status last read from the shipment ${stampText(m.shipmentCheckedAt)}`, 420));
   }
-  if ((m.visit === "výdej" || isDomestic(m.handling)) && !m.impRelease && running && m.storage.state === "Chargeable") {
+  // Storage charged on outbound cargo whose "Storage settled" line was never ticked by a person
+  // (it is born OK for LCL and Domestic cargo): while it is here, and for a few days after it left.
+  if ((m.visit === "výdej" || isDomestic(m.handling)) && m.storage.chargeableDays > 0) {
     const settled = m.releaseGates.find((g) => g.g === "Storage settled");
     const ticked = (m.events ?? []).some((e) => e.kind === "releaseGate" && e.label.startsWith("Storage settled:"));
-    if (settled?.s === "OK" && !ticked) out.push(attention(`Storage chargeable (est. CZK ${nf(m.storage.estimatedCzk)}), "Storage settled" OK by default`, 430));
+    const czk = `est. CZK ${nf(m.storage.estimatedCzk)}`;
+    if (settled?.s === "OK" && !ticked) {
+      if (!m.impRelease && running) out.push(attention(`Storage chargeable (${czk}), "Storage settled" OK by default`, 430));
+      else if (m.impRelease) {
+        const d = daysAgo(m.impRelease, now);
+        if (d !== null && d <= RELEASED_CHARGEABLE_DAYS) out.push(attention(`Released ${stampText(m.impRelease)} with storage chargeable (${czk}), "Storage settled" never ticked`, 430));
+      }
+    }
   }
   if (running && m.freeDays !== null && m.freeDays > DEFAULT_FREE_DAYS) {
     const e = lastEvent(m, "storageClockChanged", (x) => x.label.startsWith("Free days:"));
     out.push(attention(`Free days: ${m.freeDays} (default ${DEFAULT_FREE_DAYS})${e?.by ? ` · set by ${e.by}` : ""}`, 440));
+  }
+
+  // Trucking: a trip planned for today that got no dock door (outside the dock hours, or every
+  // dock booked) — the trip only wrote it to the log.
+  for (const leg of m.transportLegs ?? []) {
+    if (!isTripSource(leg.source) || dayOf(leg.gateTime) !== today) continue;
+    if (leg.leg === "IN" ? !!m.gateIn : leg.leg === "OUT" ? !!(m.gateOut || m.impRelease) : true) continue;
+    const ref = leg.source.tripRef;
+    if (!m.dockSlots.some((s) => liveSlot(s) && s.tripRef === ref)) out.push(attention(`Trip ${ref} today ${stampText(leg.gateTime).slice(-5)}, no dock slot`, 450));
+  }
+
+  // History that needs a hand.
+  if (m.events.some((e) => e.kind === "shipmentDeleted")) out.push(attention("Shipment deleted in Shipments, position kept — archive it with a reason", 460));
+  const correcting = lastEvent(m, "shipmentMayNeedCorrecting");
+  const since = correcting ? daysAgo(correcting.at, now) : null;
+  if (correcting && since !== null && since <= MAY_NEED_CORRECTING_DAYS) {
+    out.push(attention(`Shipment may need correcting (${stampText(correcting.at)}): a stamp was voided after it reached Shipments`, 470));
   }
   return out;
 }
@@ -321,8 +411,13 @@ export interface CockpitInput {
   archived: ArchivedRecord[];
   shipmentUpdates: ShipmentUpdateHealth;
   storage: StorageSummary;
+  /** Gate record id → the events for Trucking it failed to send for good ("gate-in", "gate-out"). */
+  truckingNotSent?: Map<string, string[]>;
+  delivery?: CockpitDelivery;
   now: Date;
 }
+
+const NO_DELIVERY: CockpitDelivery = { shipmentUpdatesWaiting: 0, truckingFailed: 0, truckingWaiting: 0, staleMinutes: 0, supplierEmailsFailed: 0, supplierEmailDays: 0 };
 
 export function buildCockpit(input: CockpitInput): WarehouseManagersCockpit {
   const { now } = input;
@@ -342,7 +437,7 @@ export function buildCockpit(input: CockpitInput): WarehouseManagersCockpit {
   };
 
   const ranked = [
-    ...input.items.map((m) => rank(positionRow(m), recordSignals(m, today, now))),
+    ...input.items.map((m) => rank(positionRow(m), recordSignals(m, today, now, { truckingNotSent: input.truckingNotSent?.get(m.id) }))),
     ...input.containers.map((c) => rank(containerRow(c), containerSignals(c, now))),
   ].filter((r): r is Ranked => r !== null);
 
@@ -354,6 +449,7 @@ export function buildCockpit(input: CockpitInput): WarehouseManagersCockpit {
     attention: card(ranked.filter((r) => !r.urgent)),
     shipmentUpdates: input.shipmentUpdates,
     storage: input.storage,
+    delivery: input.delivery ?? NO_DELIVERY,
     audit: buildAudit(input.history, input.archived, now),
   };
 }

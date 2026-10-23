@@ -11,7 +11,7 @@ import {
 } from "../repositories/warehouseRecords.repository";
 import { gateMovementRepository, type GateMovementRow } from "../repositories/gateMovement.repository";
 import { shipmentOutboxRepository } from "../repositories/shipmentOutbox.repository";
-import { movementStorage } from "./storage";
+import { movementStorage, pragueDate } from "./storage";
 import { directionFits, EQUIPMENT_CAPACITY_CBM } from "./containerRules";
 import { containerService } from "./container.service";
 import {
@@ -64,7 +64,8 @@ const notFound = (what: string) => APIError.notFound(`${what} not found`);
 
 // Whole days between two YYYY-MM-DD dates (UTC calendar days).
 const dayIndex = (d: string) => Math.floor(Date.parse(`${d}T00:00:00Z`) / DAY);
-const todayIso = (now = new Date()) => now.toISOString().slice(0, 10);
+// Today in Prague (the warehouse's day), as the gate stamps and the storage clock count it.
+const todayIso = (now = new Date()) => pragueDate(now);
 
 const requireText = (value: string | undefined, label: string) => {
   if (value !== undefined && !value.trim()) throw APIError.invalidArgument(`${label} is required`);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildAudit, buildCockpit, containerSignals, dayText, isExpectedToday, recordSignals, stampText, type CockpitInput } from "../services/managersCockpit";
+import { buildAudit, buildCockpit, containerSignals, dayText, isExpectedToday, notArrivedReason, recordSignals, stampText, type CockpitInput } from "../services/managersCockpit";
 import type { GateMovementItem, GateStorageInfo } from "../interfaces/gate.interfaces";
 import type { WarehouseContainerItem } from "../interfaces/records.interfaces";
 
@@ -176,7 +176,10 @@ describe("attention signals", () => {
 
   it("MRN missing on outbound cargo under customs, with the request time", () => {
     const m = item({ customsStatus: "Under clearance", mrn: "—", events: [{ kind: "mrnRequested", label: "MRN requested", at: "2026-10-22T08:00:00Z", by: "Eva" }] });
-    expect(texts(m)).toEqual(["A MRN missing · requested 22.10. 10:00"]);
+    // Asked 26 hours ago: past the 24 hours it waits for an answer.
+    expect(texts(m)).toEqual(["A MRN missing · requested 22.10. 10:00, no answer for 26 h"]);
+    const recent = item({ customsStatus: "Under clearance", mrn: "", events: [{ kind: "mrnRequested", label: "MRN requested", at: hoursAgo(3), by: "Eva" }] });
+    expect(texts(recent)).toEqual([`A MRN missing · requested ${stampText(hoursAgo(3))}`]);
     expect(texts(item({ customsStatus: "Under clearance", mrn: "", handling: "Domestic" }))).toEqual([]);
     expect(texts(item({ customsStatus: "Under clearance", mrn: "", visit: "příjem", handling: "Export" }))).toEqual([]);
   });
@@ -282,5 +285,85 @@ describe("audit line", () => {
       NOW,
     );
     expect(audit).toEqual({ days: 7, overrides: 1, voids: 1, refusals: 1, archivedWithStamps: 1, shipmentsDeleted: 1 });
+  });
+});
+
+// ─── Step 2 ────────────────────────────────────────────────────
+
+const tripSource = (tripRef: string) => ({ kind: "trucking", tripRef }) as unknown as GateMovementItem["transportLegs"][number]["source"];
+const slot = (over: Partial<GateMovementItem["dockSlots"][number]>) => ({ id: "s", date: TODAY, time: "08:00", end: "09:00", dock: "Dock 2", direction: "IN", status: "Booked", durationMin: 60, startsAt: null, endsAt: null, tripRef: "", ...over });
+
+describe("time passed (step 2)", () => {
+  it("expected and not arrived: a dock slot that ended, a trip 2 h late, an ETW before today — never the vessel's ETA", () => {
+    const exp = (over: Partial<GateMovementItem>) => item({ status: "Expected", visit: "příjem", handling: "Export", ...over });
+    // The slot 08:00–09:00 Prague ended at 07:00 UTC; it is 10:00 UTC.
+    expect(notArrivedReason(exp({ dockSlots: [slot({ endsAt: "2026-10-23T07:00:00Z" })] }), TODAY, NOW)).toBe("Not arrived: dock slot Dock 2 23.10. 08:00–09:00 passed");
+    expect(notArrivedReason(exp({ dockSlots: [slot({ endsAt: "2026-10-23T11:00:00Z" })] }), TODAY, NOW)).toBeNull();
+    expect(notArrivedReason(exp({ dockSlots: [slot({ endsAt: "2026-10-23T07:00:00Z", direction: "OUT" })] }), TODAY, NOW)).toBeNull();
+    const trip = (gateTime: string) => exp({ transportLegs: [{ leg: "IN", company: "", plate: "", driver: "", phone: "", gateTime, source: tripSource("LCZ2026000042") }] });
+    expect(notArrivedReason(trip(hoursAgo(3)), TODAY, NOW)).toBe(`Not arrived: trip LCZ2026000042 due ${stampText(hoursAgo(3))}`);
+    expect(notArrivedReason(trip(hoursAgo(1)), TODAY, NOW)).toBeNull();
+    expect(notArrivedReason(exp({ subPositions: [{ etw: "2026-10-22" }] as GateMovementItem["subPositions"] }), TODAY, NOW)).toBe("Not arrived: expected 22.10.2026");
+    expect(notArrivedReason(exp({ eta: "2026-10-20" }), TODAY, NOW)).toBeNull();
+    expect(notArrivedReason(exp({ gateIn: hoursAgo(1), subPositions: [{ etw: "2026-10-22" }] as GateMovementItem["subPositions"] }), TODAY, NOW)).toBeNull();
+    expect(texts(exp({ subPositions: [{ etw: "2026-10-22" }] as GateMovementItem["subPositions"] }))).toEqual(["U Not arrived: expected 22.10.2026"]);
+  });
+
+  it("a release request still blocked after 2 h, naming the waiting gates", () => {
+    const req = (h: number, armed = false) =>
+      item({ armed, releaseGates: [{ g: "B/L / release order", s: "Pending", note: "" }], events: [{ kind: "releaseRequested", label: "Release requested", at: hoursAgo(h), by: "Eva" }] });
+    expect(texts(req(3))).toEqual([`U Release requested ${stampText(hoursAgo(3))}: blocked 3 h · B/L / release order`]);
+    expect(texts(req(1))).toEqual([]);
+    expect(texts(req(3, true))).toEqual([]);
+  });
+
+  it("an inbound truck gated in and not received: amber after 4 h, red after 8 h, not for Domestic", () => {
+    const arrived = (h: number, over: Partial<GateMovementItem> = {}) => item({ visit: "příjem", handling: "Export", gateIn: hoursAgo(h), ...over });
+    expect(texts(arrived(2))).toEqual([]);
+    expect(texts(arrived(5))).toEqual([`A Arrived ${stampText(hoursAgo(5))}, not received (5 h)`]);
+    expect(texts(arrived(9, { needsReweigh: true, reweigh: null }))).toEqual([`U Arrived ${stampText(hoursAgo(9))}, not received (9 h) · waiting for re-weigh`]);
+    expect(texts(arrived(9, { handling: "Domestic" }))).toEqual([]);
+    expect(texts(arrived(9, { expReceipt: hoursAgo(1) }))).toEqual([]);
+  });
+
+  it("a linked record whose customs status was last read more than a day ago", () => {
+    const m = item({ shipmentId: "s1", releaseGates: [{ g: "Customs", s: "Pending", note: "" }], shipmentCheckedAt: hoursAgo(30) });
+    expect(texts(m)).toEqual([`A Customs status last read from the shipment ${stampText(hoursAgo(30))}`]);
+    // A deleted shipment is not read any more: no "not read" tag, the deletion tag instead.
+    const gone = { ...m, events: [{ kind: "shipmentDeleted", label: "", at: hoursAgo(40), by: "" }] } as GateMovementItem;
+    expect(texts(gone)).toEqual(["A Shipment deleted in Shipments, position kept — archive it with a reason"]);
+  });
+
+  it("released with storage charged and 'Storage settled' never ticked, for 7 days", () => {
+    const released = (days: number) =>
+      item({ impRelease: hoursAgo(days * 24), storage: storage({ started: true, stopped: true, state: "Chargeable", chargeableDays: 3, estimatedCzk: 500 }), releaseGates: [{ g: "Storage settled", s: "OK", note: "" }] });
+    expect(texts(released(2))).toEqual([`A Released ${stampText(hoursAgo(48))} with storage chargeable (est. CZK 500), "Storage settled" never ticked`]);
+    expect(texts(released(9))).toEqual([]);
+  });
+
+  it("a Trucking trip today that got no dock slot", () => {
+    const leg = { leg: "IN" as const, company: "", plate: "", driver: "", phone: "", gateTime: "2026-10-23T12:00:00Z", source: tripSource("LCZ2026000007") };
+    const m = item({ status: "Expected", visit: "příjem", handling: "Export", transportLegs: [leg] });
+    expect(texts(m)).toEqual(["A Trip LCZ2026000007 today 14:00, no dock slot"]);
+    expect(texts({ ...m, dockSlots: [slot({ tripRef: "LCZ2026000007" })] } as GateMovementItem)).toEqual([]);
+  });
+
+  it("a shipment that may need correcting, for 7 days", () => {
+    const corr = (h: number) => item({ events: [{ kind: "shipmentMayNeedCorrecting", label: "Shipment may need correcting", at: hoursAgo(h), by: "Petr" }] });
+    expect(texts(corr(5))).toEqual([`A Shipment may need correcting (${stampText(hoursAgo(5))}): a stamp was voided after it reached Shipments`]);
+    expect(texts(corr(24 * 8))).toEqual([]);
+  });
+
+  it("events for Trucking that failed for good are urgent, with the shipment's own", () => {
+    const m = item({ impRelease: hoursAgo(30) });
+    const c = buildCockpit(
+      input({
+        items: [m],
+        truckingNotSent: new Map([[m.id, ["gate-in", "gate-out", "gate-in"]]]),
+        delivery: { shipmentUpdatesWaiting: 1, truckingFailed: 3, truckingWaiting: 0, staleMinutes: 30, supplierEmailsFailed: 2, supplierEmailDays: 7 },
+      }),
+    );
+    expect(c.urgent.rows[0]!.tags).toEqual([{ text: "Not sent to Trucking: gate-in, gate-out", urgent: true }]);
+    expect(c.delivery).toMatchObject({ truckingFailed: 3, supplierEmailsFailed: 2 });
   });
 });

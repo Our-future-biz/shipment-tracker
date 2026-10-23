@@ -88,7 +88,8 @@ const cp = warehouseContainerPositionTable;
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
 const DAY = 86_400_000;
 const dayIndex = (d: string) => Math.floor(Date.parse(`${d}T00:00:00Z`) / DAY);
-const todayIso = (now = new Date()) => now.toISOString().slice(0, 10);
+// Today in Prague (the warehouse's day), as the gate stamps and the storage clock count it.
+const todayIso = (now = new Date()) => pragueDate(now);
 const ref = (m: Pick<GateMovementRow, "positionRef" | "gateRef">) => m.positionRef || m.gateRef;
 
 function needReason(reason: string | undefined, what: string, max = MAX_REASON): string {

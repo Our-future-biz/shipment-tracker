@@ -55,6 +55,17 @@ class GateMovementRepository {
       .leftJoin(warehouseTaskTable, eq(warehouseTaskTable.id, gateMovementTable.warehouseTaskId));
   }
 
+  // Companies with live gate records linked to a shipment and not released or left yet — the
+  // records whose customs status the customs follow keeps up to date.
+  async companiesFollowingShipments(): Promise<string[]> {
+    const rows = await db
+      .selectDistinct({ companyId: gateMovementTable.companyId })
+      .from(gateMovementTable)
+      .innerJoin(warehouseTaskTable, and(eq(warehouseTaskTable.id, gateMovementTable.warehouseTaskId), isNull(warehouseTaskTable.deletedAt)))
+      .where(and(isNull(gateMovementTable.deletedAt), isNotNull(warehouseTaskTable.shipmentId), isNull(gateMovementTable.impRelease), isNull(gateMovementTable.leftAt)));
+    return rows.map((r) => r.companyId);
+  }
+
   async listAll(companyId: string): Promise<GateMovementRow[]> {
     const rows = await this.select().where(liveRow(companyId)).orderBy(desc(gateMovementTable.createdAt));
     return rows.map(toRow);
