@@ -1,3 +1,4 @@
+import type { QuoteHeavyPieces } from "./heavyPieces";
 import type { interfaces } from "@/lib/api/client";
 
 // A "sales quote" is stored in the shared `quote` table: quoteNumber = reference (QCZ…),
@@ -204,6 +205,9 @@ export interface SalesQuoteData {
   reefer?: QuoteReefer;
   // The out-of-gauge details of a quote with an open top or flat rack among its lines.
   oog?: QuoteOog;
+  // A Sea LCL quote of over 2 t: whether any piece is over 2 t, and the warehouse's extra handling
+  // for them (heavyPieces.ts), posted to Pricing as a buying and a selling line.
+  heavyPieces?: QuoteHeavyPieces;
   weight?: number;
   cbm?: number;
   // Pricing

@@ -83,6 +83,8 @@ import { QuoteReeferBlock } from "./_components/QuoteReeferBlock";
 import { QuoteOogBlock } from "./_components/QuoteOogBlock";
 import { hasOogEquipment, oogMissing, oogSummary, oogTypes } from "../../_lib/oog";
 import { checkContainerWeight, type WeightCheck } from "../../_lib/containerWeight";
+import { asksHeavyPieces, withHeavyPieces } from "../../_lib/heavyPieces";
+import { QuoteHeavyPiecesDialogs } from "./_components/QuoteHeavyPiecesDialogs";
 import { QuoteSection, QuoteStepTiles, type SectionStatus } from "./_components/QuoteSection";
 import { QuoteRoadCard } from "./_components/QuoteRoadCard";
 import { QuoteRoadPriceDrawer } from "./_components/QuoteRoadPriceDrawer";
@@ -157,6 +159,8 @@ export function QuoteWorkflow() {
 
   // The step "Save & continue" goes to once the out-of-gauge cargo is confirmed, while that is asked.
   const [confirmCargoTo, setConfirmCargoTo] = useState<SectionKey | null>(null);
+  // The step "Save & continue" goes to once a Sea LCL quote of over 2 t says whether any piece is over 2 t.
+  const [heavyPiecesTo, setHeavyPiecesTo] = useState<SectionKey | null>(null);
   const [modal, setModal] = useState<
     null | "import" | "copyQuote" | "copyShipment" | "duplicate" | "preview" | "email" | "delete" | "replaceSelling" | "allIn" | "closeQuote" | "revise" | "roadPrice" | "approveMargin"
   >(null);
@@ -1284,6 +1288,12 @@ export function QuoteWorkflow() {
   // shows the next step. It moves on whatever the server answers - a refused save is announced
   // by the hook and stays in the header until one works.
   const saveAndContinue = (to: SectionKey) => {
+    // A Sea LCL shipment of over 2 t is asked whether any piece is over 2 t: the warehouse charges
+    // extra handling for those. Not on a quote whose pricing is closed - its lines stay as sent.
+    if (activeSection === "cargo" && !pricingClosed && asksHeavyPieces(draft.serviceType, cargo.grossWeight)) {
+      setHeavyPiecesTo(to);
+      return;
+    }
     // Cargo on an open top or flat rack is confirmed before moving on: its measures decide the
     // equipment and the slots the carrier charges.
     if (activeSection === "cargo" && hasOogEquipment(draft)) {
@@ -1487,6 +1497,20 @@ export function QuoteWorkflow() {
           </div>
         </div>
       </div>
+
+      <QuoteHeavyPiecesDialogs
+        open={heavyPiecesTo !== null}
+        grossWeight={cargo.grossWeight}
+        initial={draft.heavyPieces}
+        onCancel={() => setHeavyPiecesTo(null)}
+        onSave={(heavy) => {
+          const to = heavyPiecesTo;
+          setHeavyPiecesTo(null);
+          set(withHeavyPieces(draft, heavy));
+          saveNow();
+          if (to) setActiveSection(to);
+        }}
+      />
 
       <ConfirmModal
         open={confirmCargoTo !== null}
