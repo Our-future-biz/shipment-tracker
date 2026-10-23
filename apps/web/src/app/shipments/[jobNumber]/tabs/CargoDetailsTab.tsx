@@ -88,7 +88,9 @@ const currencyOptions = (query: string) => {
 // Words read better than codes in the summary line.
 const UNIT_LABEL: Record<string, string> = { PCS: "pieces", KG: "kg", "M³": "m³" };
 
-const DIM_COLS = "grid grid-cols-[0.7fr_0.8fr_0.8fr_0.8fr_1fr_1fr_1.1fr_1.2fr_1fr_0.9fr_32px] gap-3 items-center";
+// minmax(0, …): every row keeps the same column widths, whatever a cell holds.
+const DIM_COLS =
+  "grid grid-cols-[minmax(0,0.7fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,2fr)_minmax(0,1fr)_minmax(0,0.9fr)_32px] gap-3 items-center";
 const CENTERED_SELECT = "w-full [&_.ant-select-selection-item]:!text-center [&_.ant-select-selection-placeholder]:!text-center";
 const palletLabel = (value: CargoDimensionLine["palletType"]) => PALLET_TYPES.find((p) => p.value === value)?.label ?? "";
 // Wider gaps and roomier number columns so the header labels no longer collide.

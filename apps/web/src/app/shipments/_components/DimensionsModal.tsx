@@ -11,7 +11,10 @@ import { PACK_TYPES, STACKABLE_OPTIONS, dimensionTotals, dimensionVolumePerPiece
 // works like the Cargo Dimensions card of Cargo Details (same columns, same lines), but
 // edited as a whole — nothing is written until Save.
 
-const COLS = "grid grid-cols-[0.7fr_0.8fr_0.8fr_0.8fr_1fr_1fr_1.1fr_1.2fr_32px] gap-3 items-center";
+// minmax(0, …): every row keeps the same column widths, whatever a cell holds (a long
+// Stackability value would otherwise widen its own row and push the columns out of line).
+const COLS =
+  "grid grid-cols-[minmax(0,0.7fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,2.4fr)_32px] gap-3 items-center";
 const CENTERED_SELECT = "w-full [&_.ant-select-selection-item]:!text-center [&_.ant-select-selection-placeholder]:!text-center";
 
 const isEmpty = (l: CargoDimensionLine) =>
@@ -76,7 +79,7 @@ export function DimensionsModal({
     <Modal
       open={!!shipment}
       title={`Dimensions — ${shipment?.jobNumber ?? ""}`}
-      width={980}
+      width={1120}
       centered
       destroyOnHidden
       onCancel={onClose}
