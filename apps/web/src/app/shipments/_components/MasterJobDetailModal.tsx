@@ -189,7 +189,7 @@ function DimensionsViewer({ row, onClose }: { row: DerivedRow | null; onClose: (
       <table className="w-full border-collapse text-xs">
         <thead>
           <tr className="bg-slate-50 border-b border-slate-200">
-            {["Colli", "L (cm)", "W (cm)", "H (cm)", "Weight/pc (kg)", "Vol/pc (CBM)", "Packing", "Stackable"].map((h) => (
+            {["Colli", "L (cm)", "W (cm)", "H (cm)", "Weight/pc (kg)", "Vol/pc (CBM)", "Packing", "Stackability"].map((h) => (
               <th key={h} className="text-left p-2 font-semibold text-slate-500">{h}</th>
             ))}
           </tr>

@@ -23,8 +23,10 @@ import {
   FileTextOutlined,
   EditOutlined,
   DollarOutlined,
+  WarningOutlined,
 } from "@ant-design/icons";
 import { useShipment } from "@/hooks/useShipment";
+import { NOT_STACKABLE, STACKABLE_OPTIONS, shipmentStackability, withShipmentStackability } from "@/lib/cargo";
 import { useInvoicing } from "@/hooks/useInvoicing";
 import { useCanDeleteShipments } from "@/lib/auth/AuthContext";
 import { useShipmentMutations, getFieldValue, buildRowData, type ShipmentItem } from "@/hooks/useShipments";
@@ -372,6 +374,50 @@ interface MemberRowProps {
   labelW?: string;
 }
 
+interface StackabilityRowProps {
+  value: string;
+  onPick: (value: string) => void;
+}
+
+// The shipment's stackability, read from its dimension rows. A double-click picks it for the
+// whole shipment (every row takes it); the long value wraps instead of being cut off.
+function StackabilityRow({ value, onPick }: StackabilityRowProps) {
+  const [editing, setEditing] = useState(false);
+  return (
+    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
+      <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Stackability</span>
+      {editing ? (
+        <Select
+          size="small"
+          autoFocus
+          defaultOpen
+          allowClear
+          placeholder="—"
+          className="flex-1 min-w-0"
+          popupMatchSelectWidth={false}
+          value={value || undefined}
+          options={STACKABLE_OPTIONS.map((s) => ({ value: s }))}
+          onChange={(v) => {
+            onPick(v ?? "");
+            setEditing(false);
+          }}
+          onBlur={() => setEditing(false)}
+        />
+      ) : (
+        <span
+          className="flex-1 min-w-0 cursor-pointer rounded px-1 -mx-1 hover:bg-slate-100 transition-colors text-slate-900 font-medium break-words"
+          // Cargo that needs special handling stands out, like a Yes for Dangerous.
+          style={value === NOT_STACKABLE ? { backgroundColor: "rgba(234, 179, 8, 0.15)" } : undefined}
+          title="Double-click to edit"
+          onDoubleClick={() => setEditing(true)}
+        >
+          {value || <span className="text-slate-300">—</span>}
+        </span>
+      )}
+    </div>
+  );
+}
+
 // Row whose value is picked from the company's members (same list as the sales person).
 function MemberRow({
   label,
@@ -457,14 +503,18 @@ interface RoRowProps {
   label: string;
   value?: string | null;
   labelW?: string;
+  /** Wrap a long value onto more lines instead of fading it out. */
+  wrap?: boolean;
 }
 
 // Read-only horizontal row (label | value), matching FieldRow's look.
-function RoRow({ label, value, labelW = "w-[140px]" }: RoRowProps) {
+function RoRow({ label, value, labelW = "w-[140px]", wrap = false }: RoRowProps) {
   return (
     <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
       <span className={`${labelW} shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide`}>{label}</span>
-      {value ? (
+      {value && wrap ? (
+        <span className="flex-1 min-w-0 text-slate-900 font-medium break-words">{value}</span>
+      ) : value ? (
         <FadeText className="flex-1 text-slate-900 font-medium">{value}</FadeText>
       ) : (
         <span className="flex-1 min-w-0 text-slate-300 font-medium">—</span>
@@ -728,6 +778,13 @@ const COMPLIANCE_FIELDS: FieldDef[] = [
   { key: "isf", label: "ISF (if any)" },
   { key: "bolDraft", label: "BoL Draft" },
   { key: "claim", label: "Claim", ro: true },
+];
+// Stackability is not a field of its own: it is read from the Cargo Details dimension rows
+// and shown above these (see the Cargo Handling card).
+const CARGO_HANDLING_FIELDS: FieldDef[] = [
+  { key: "dangerous", label: "Dangerous" },
+  { key: "outOfGauge", label: "Out Of Gauge" },
+  { key: "temperatureControlled", label: "Temperature Controlled" },
 ];
 const DESTINATION_ROUTING_FIELDS: FieldDef[] = [
   { key: "hub", label: "HUB" },
@@ -1580,6 +1637,31 @@ export function ShipmentDetailContent() {
 
             {/* ── SIDEBAR ── */}
             <div className="space-y-5">
+              {/* CARGO HANDLING — what the cargo needs, ahead of the tasks */}
+              <DetailCard
+                icon={<WarningOutlined />}
+                title="Cargo Handling"
+                columns={[CARGO_HANDLING_FIELDS]}
+                shipment={shipment}
+                onCommit={handleCommit}
+                styleFor={styleFor}
+                renderBefore={{
+                  dangerous: (
+                    <StackabilityRow
+                      value={shipmentStackability(shipment.cargoDimensions ?? [])}
+                      onPick={(stackable) => {
+                        // A new row goes where the Dimensions dialog would put it: the first container, else the shipment.
+                        const containerId = shipment.containers?.find((c) => c.id)?.id ?? null;
+                        updateShipment({
+                          id: shipment.id,
+                          data: { cargoDimensions: withShipmentStackability(shipment.cargoDimensions ?? [], stackable, containerId) },
+                        }).catch((err) => toast.error(apiErrorMessage(err)));
+                      }}
+                    />
+                  ),
+                }}
+              />
+
               {/* TASKS */}
               <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
                 <SectionHeader icon={<CheckSquareOutlined />} title="Tasks" />

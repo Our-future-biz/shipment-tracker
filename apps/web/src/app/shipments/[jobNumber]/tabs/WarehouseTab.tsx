@@ -9,7 +9,7 @@ import { api } from "@/lib/api";
 import { buildRowData, getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
 import type { interfaces } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/date";
-import { NOT_STACKABLE, STACKABLE } from "@/lib/cargo";
+import { NOT_STACKABLE, STACKABLE, shipmentStackability } from "@/lib/cargo";
 import { useWarehouseSection } from "@/hooks/useWarehouseSection";
 import { SectionCard as Card, PillTabs } from "@/components/SectionCard";
 import { PickupSection } from "./warehouse/PickupSection";
@@ -95,12 +95,8 @@ export function WarehouseTab({ shipment }: { shipment: ShipmentItem }) {
 // ─── Stackability Badge ─────────────────────────────────────────
 
 function StackabilityBadge({ shipment }: { shipment: ShipmentItem }) {
-  const rows = shipment.cargoDimensions ?? [];
-  let stackability: "stackable" | "not_stackable" | "unknown" = "unknown";
-  const hasStackable = rows.some((r) => r.stackable === STACKABLE);
-  const hasNotStackable = rows.some((r) => r.stackable === NOT_STACKABLE);
-  if (hasNotStackable) stackability = "not_stackable";
-  else if (hasStackable) stackability = "stackable";
+  const value = shipmentStackability(shipment.cargoDimensions ?? []);
+  const stackability = value === STACKABLE ? "stackable" : value === NOT_STACKABLE ? "not_stackable" : "unknown";
   const tone =
     stackability === "stackable"
       ? "bg-emerald-50 text-emerald-700 border-emerald-200"

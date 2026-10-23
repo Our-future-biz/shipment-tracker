@@ -363,7 +363,7 @@ export function CargoDetailsTab({
                           <span className="text-center truncate">Weight / pc (kg)</span>
                           <span className="text-center truncate">Volume / pc (m³)</span>
                           <span className="text-center truncate">Packages</span>
-                          <span className="text-center truncate">Stackable</span>
+                          <span className="text-center truncate">Stackability</span>
                           <span className="text-center truncate">Pallet</span>
                           <span className="text-center truncate">ADR</span>
                           <span />
@@ -386,7 +386,7 @@ export function CargoDetailsTab({
                                 <span className="text-center tabular-nums">{l.weightPerPcKg || "—"}</span>
                                 <span className="text-center tabular-nums text-slate-500">{vpc ? vpc.toFixed(3) : "—"}</span>
                                 <span className="text-center truncate">{l.packageType || "—"}</span>
-                                <span className="text-center truncate">{l.stackable || "—"}</span>
+                                <span className="text-center truncate" title={l.stackable || undefined}>{l.stackable || "—"}</span>
                                 <span className="text-center truncate">{palletLabel(l.palletType) || "—"}</span>
                                 <span className="text-center truncate text-orange-600 font-medium" title={adrSummary(l)}>
                                   {hasAdr(l) ? adrSummary(l) : <span className="text-slate-700 font-normal">—</span>}

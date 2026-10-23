@@ -33,6 +33,32 @@ export const STACKABLE = "Stackable / Overstowable";
 export const NOT_STACKABLE = "Not stackable / Not overstowable";
 export const STACKABLE_OPTIONS = [STACKABLE, NOT_STACKABLE];
 
+/**
+ * A shipment's stackability from its dimension rows: one row that is not stackable makes the
+ * whole shipment not stackable; otherwise one stackable row makes it stackable; "" when no
+ * row says either.
+ */
+export function shipmentStackability(rows: { stackable: string }[]): string {
+  if (rows.some((r) => r.stackable === NOT_STACKABLE)) return NOT_STACKABLE;
+  if (rows.some((r) => r.stackable === STACKABLE)) return STACKABLE;
+  return "";
+}
+
+/**
+ * The dimension rows with a stackability picked for the whole shipment: every row takes it.
+ * A shipment without rows gets one holding only the stackability (on `containerId`), so the
+ * rows stay the one place it is kept. Clearing it ("") on a shipment without rows adds none.
+ */
+export function withShipmentStackability(
+  rows: CargoDimensionLine[],
+  stackable: string,
+  containerId: string | null = null,
+): CargoDimensionLine[] {
+  if (rows.length > 0) return rows.map((r) => ({ ...r, stackable }));
+  if (!stackable) return [];
+  return [{ containerId, pieces: "", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "", packageType: "", stackable }];
+}
+
 // Road freight: the pallet a dimension line stands on, and its ADR (dangerous goods) details.
 export const PALLET_TYPES: { value: interfaces.PalletType; label: string }[] = [
   { value: "EUR", label: "EUR 120×80" },

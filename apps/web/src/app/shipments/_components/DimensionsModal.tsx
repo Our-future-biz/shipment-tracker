@@ -104,7 +104,7 @@ export function DimensionsModal({
             <span className="text-center truncate">Weight / pc (kg)</span>
             <span className="text-center truncate">Volume / pc (m³)</span>
             <span className="text-center truncate">Packages</span>
-            <span className="text-center truncate">Stackable</span>
+            <span className="text-center truncate">Stackability</span>
             <span />
           </div>
 
