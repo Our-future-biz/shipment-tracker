@@ -83,6 +83,8 @@ export interface ShipmentItem {
   destination: string;
   hsCode: string;
   cargoDescription: string;
+  dangerous: string;
+  outOfGauge: string;
   houseBolNumber: string;
   masterBolNumber: string;
   houseBolType: string;

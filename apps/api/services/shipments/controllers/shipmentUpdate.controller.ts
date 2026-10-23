@@ -35,6 +35,8 @@ interface ShipmentUpdateRequest {
   agent?: string;
   hsCode?: string;
   cargoDescription?: string;
+  dangerous?: string;
+  outOfGauge?: string;
   incotermOrigin?: string;
   incotermDestination?: string;
   houseBolNumber?: string;

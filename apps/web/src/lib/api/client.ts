@@ -7143,6 +7143,8 @@ export namespace controllers {
         agent?: string
         hsCode?: string
         cargoDescription?: string
+        dangerous?: string
+        outOfGauge?: string
         incotermOrigin?: string
         incotermDestination?: string
         houseBolNumber?: string
@@ -7485,6 +7487,8 @@ export namespace controllers {
         agent?: string
         hsCode?: string
         cargoDescription?: string
+        dangerous?: string
+        outOfGauge?: string
         incotermOrigin?: string
         incotermDestination?: string
         houseBolNumber?: string
@@ -13849,6 +13853,8 @@ export namespace interfaces {
         destination: string
         hsCode: string
         cargoDescription: string
+        dangerous: string
+        outOfGauge: string
         houseBolNumber: string
         masterBolNumber: string
         houseBolType: string

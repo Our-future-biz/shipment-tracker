@@ -80,6 +80,8 @@ export const DROPDOWN_OPTIONS: Record<string, string[]> = {
   "BoL draft": ["Not Processed", "Waiting for approval", "Approved"],
   "Invoicing Status": ["Invoiced", "Not Invoiced"],
   "Claim": ["Yes", "No"],
+  "Dangerous": ["Yes", "No"],
+  "Out Of Gauge": ["Yes", "No"],
   "Booking Confirmation": ["Pending", "Received"],
 };
 
@@ -198,6 +200,8 @@ export const COLUMNS: ColumnDef[] = [
   { key: "commercialInvoiceValue", title: "Commercial Invoice Value", width: 160, type: "text", apiField: "commercialInvoiceValue" },
   { key: "hsCode", title: "HS Code", width: 110, type: "text", readonly: true, apiField: "hsCode" },
   { key: "cargoDescription", title: "Cargo Description", width: 220, type: "text", readonly: true, apiField: "cargoDescription" },
+  { key: "dangerous", title: "Dangerous", width: 110, type: "dropdown", options: DROPDOWN_OPTIONS["Dangerous"], apiField: "dangerous" },
+  { key: "outOfGauge", title: "Out Of Gauge", width: 120, type: "dropdown", options: DROPDOWN_OPTIONS["Out Of Gauge"], apiField: "outOfGauge" },
   { key: "pcs", title: "COLLI", width: 100, type: "text", readonly: true, apiField: "pcs" },
   { key: "creditCheck", title: "Credit Check", width: 110, type: "dropdown", options: DROPDOWN_OPTIONS["Credit Check"], apiField: "creditCheck" },
   { key: "approvedBy", title: "Approved By", width: 150, type: "text", apiField: "approvedBy" },
@@ -435,6 +439,11 @@ export function getCellConditionalStyle(
   if (key === "claim") {
     if (value === "Yes") return { backgroundColor: "rgba(244, 63, 94, 0.15)" };
     if (value === "No") return { backgroundColor: "rgba(34, 197, 94, 0.15)" };
+  }
+
+  // Dangerous / Out Of Gauge — cargo that needs special handling stands out (amber)
+  if (key === "dangerous" || key === "outOfGauge") {
+    if (value === "Yes") return { backgroundColor: "rgba(234, 179, 8, 0.15)" };
   }
 
   // Credit Check
