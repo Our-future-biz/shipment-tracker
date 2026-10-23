@@ -17,6 +17,19 @@ import { useWarehouseInquiryAnswers, type WarehouseInquiryItem } from "@/hooks/u
 const formatTime = (iso: string) =>
   new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
+// A mention in a shipment's or a quote's chat, as the bell lists it.
+interface BellMention {
+  key: string;
+  unread: boolean;
+  authorName: string;
+  message: string;
+  createdAt: string;
+  /** Job no. or Sales Reference. */
+  ref: string;
+  href: string;
+  place: string;
+}
+
 // A warehouse answer as the bell says it.
 const answerTitle = (a: WarehouseInquiryItem) => `Warehouse ${a.inquiry.status === "approved" ? "approved" : "rejected"} ${a.quoteNumber}`;
 const answerText = (a: WarehouseInquiryItem) => {
@@ -56,7 +69,23 @@ export function NotificationBell() {
     refetchInterval: 15000,
   });
   // Unread mentions and read ones of the last 7 days (the server says which is which).
-  const allMentions = mentionData?.mentions ?? [];
+  // …and in a quote's chat (a thread shared by the quote and its revisions).
+  const { data: quoteMentionData } = useQuery({
+    queryKey: ["sales-quote-comments", "mentions"],
+    queryFn: () => api.quotes.quoteCommentMentions(),
+    refetchInterval: 15000,
+  });
+  // Both, newest first: where it was said (job no. or Sales Reference) and where a click leads.
+  const allMentions: BellMention[] = [
+    ...(mentionData?.mentions ?? []).map((m) => ({ ...m, key: `s:${m.id}`, ref: m.jobNumber, href: `/shipments?chat=${m.shipmentId}`, place: "a shipment" })),
+    ...(quoteMentionData?.mentions ?? []).map((m) => ({
+      ...m,
+      key: `q:${m.id}`,
+      ref: m.quoteNumber,
+      href: `/sales/quote/${encodeURIComponent(m.quoteNumber)}?chat=1`,
+      place: "a quote",
+    })),
+  ].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   // ČNB rates still missing after the 16:00 pull — admins only; they clear themselves once
   // the rates arrive.
   const { user } = useAuth();
@@ -81,24 +110,26 @@ export function NotificationBell() {
   const viewMentions = view === "unread" ? unreadMentions : allMentions;
   const viewAnswers = view === "unread" ? unreadAnswers : warehouseAnswers;
   const listed = viewNotices.filter((a) => matchesAll(query, a.title, a.body, a.authorName, a.target));
-  const mentions = viewMentions.filter((m) => matchesAll(query, m.authorName, m.message, m.jobNumber));
+  const mentions = viewMentions.filter((m) => matchesAll(query, m.authorName, m.message, m.ref));
   const answersShown = viewAnswers.filter((a) => matchesAll(query, answerTitle(a), answerText(a), a.quoteNumber, a.inquiry.decidedByName));
   const fxShown = fxAlerts.filter((a) => matchesAll(query, "ČNB exchange rates missing", a.reason, a.fixingDate));
 
   // Announce only what arrives while the app is open, not the backlog found on load.
   const seenMentions = useRef<Set<string> | null>(null);
   useEffect(() => {
-    if (!mentionData) return;
+    if (!mentionData && !quoteMentionData) return;
     // Only unread ones are new: a read mention back in the list is not news.
-    const fresh = seenMentions.current ? mentionData.mentions.filter((m) => m.unread && !seenMentions.current!.has(m.id)) : [];
-    seenMentions.current = new Set(mentionData.mentions.map((m) => m.id));
+    const fresh = seenMentions.current ? allMentions.filter((m) => m.unread && !seenMentions.current!.has(m.key)) : [];
+    seenMentions.current = new Set(allMentions.map((m) => m.key));
     for (const m of fresh) {
       toast.notify({
-        title: `${m.authorName || "A colleague"} mentioned you in ${m.jobNumber || "a shipment"}`,
+        title: `${m.authorName || "A colleague"} mentioned you in ${m.ref || m.place}`,
         description: m.message,
       });
     }
-  }, [mentionData, toast]);
+    // The lists change only with their two answers; the merged array is rebuilt every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mentionData, quoteMentionData, toast]);
 
   // Announce only answers that arrive while the app is open, not the ones waiting on load.
   const seenAnswers = useRef<Set<string> | null>(null);
@@ -246,11 +277,11 @@ export function NotificationBell() {
       ))}
       {mentions.length > 0 && <div className={headingClass}>Mentions</div>}
       {mentions.map((m) => (
-        <button key={m.id} type="button" onClick={() => go(`/shipments?chat=${m.shipmentId}`)} className={rowClass}>
+        <button key={m.key} type="button" onClick={() => go(m.href)} className={rowClass}>
           <span className="flex items-center justify-between gap-2">
             {m.unread && <span role="img" aria-label="Unread" className="shrink-0 w-2 h-2 rounded-full bg-red-500" />}
             <span className={`min-w-0 flex-1 text-[13px] truncate ${m.unread ? "font-semibold text-slate-800" : "font-medium text-slate-500"}`}>{m.authorName || "Unknown"}</span>
-            <span className="shrink-0 text-[11px] font-mono text-slate-500">{m.jobNumber}</span>
+            <span className="shrink-0 text-[11px] font-mono text-slate-500">{m.ref}</span>
           </span>
           <span className={`text-[12px] line-clamp-2 ${m.unread ? "text-slate-600" : "text-slate-400"}`}>{m.message}</span>
           <span className="block text-[11px] text-slate-400 mt-0.5">{formatTime(m.createdAt)}</span>

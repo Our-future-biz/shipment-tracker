@@ -259,3 +259,50 @@ export type SettableQuoteStatus = "draft" | "ready_to_send" | "quoted" | "feedba
  * Replaced (it was revised, and its revision QCZ…-R1 took its place).
  */
 export type ShownQuoteStatus = SettableQuoteStatus | "expired" | "replaced";
+
+// ─── The quotes' chat (one thread per original Sales Reference) ───────────────
+
+/** A file sent with a chat message. */
+export interface QuoteCommentAttachment {
+  id: string;
+  fileName: string;
+  fileSize: number;
+  fileType: string;
+  /** A download link with a short-lived token. */
+  contentUrl: string;
+}
+
+/** One message of a quote's chat. */
+export interface QuoteCommentItem {
+  id: string;
+  /** The Sales Reference it was written on (the original or one of its revisions). */
+  quoteNumber: string;
+  /** The thread: the original Sales Reference every revision shares. */
+  threadRef: string;
+  authorId: string;
+  /** Who wrote it (display name, e-mail when they have none). */
+  authorName: string;
+  message: string;
+  createdAt: string;
+  attachments: QuoteCommentAttachment[];
+  /** On the reader's own messages: a colleague has opened the chat since it was sent. */
+  readByOthers: boolean;
+}
+
+/** Unread messages of a thread for the signed-in user. */
+export interface QuoteCommentUnreadItem {
+  threadRef: string;
+  unread: number;
+}
+
+/** A message that tags the signed-in user (the bell). */
+export interface QuoteCommentMentionItem {
+  id: string;
+  quoteNumber: string;
+  threadRef: string;
+  authorName: string;
+  message: string;
+  createdAt: string;
+  /** Not read yet (the thread not opened since); read ones stay 7 days from when they were written. */
+  unread: boolean;
+}

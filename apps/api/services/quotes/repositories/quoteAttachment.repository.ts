@@ -15,7 +15,7 @@ class QuoteAttachmentRepository extends TenantRepository<typeof quoteAttachmentT
   // The attachments of a quote that is being deleted, in the transaction that deletes it: they
   // go with the quote or not at all. Only the rows, stamped with the moment of the quote's own
   // deletion - the files stay in the bucket, so a quote that is brought back (deleted_at cleared)
-  // can have exactly these attachments brought back with it.
+  // can have exactly these attachments brought back with it. Chat files are not the quote's own.
   async deleteForQuote(tx: QuoteTransaction, quoteNumber: string, companyId: string, at: Date): Promise<void> {
     await tx
       .update(quoteAttachmentTable)
@@ -24,6 +24,8 @@ class QuoteAttachmentRepository extends TenantRepository<typeof quoteAttachmentT
         eq(quoteAttachmentTable.companyId, companyId),
         eq(quoteAttachmentTable.quoteNumber, quoteNumber),
         isNull(quoteAttachmentTable.deletedAt),
+        // Files sent in the chat belong to the thread, which the revisions keep using; they stay.
+        isNull(quoteAttachmentTable.commentId),
       ));
   }
 }

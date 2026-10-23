@@ -1310,6 +1310,14 @@ export namespace quotes {
 
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
+            this.quoteChatFileContent = this.quoteChatFileContent.bind(this)
+            this.quoteChatFileUpload = this.quoteChatFileUpload.bind(this)
+            this.quoteCommentCreate = this.quoteCommentCreate.bind(this)
+            this.quoteCommentDelete = this.quoteCommentDelete.bind(this)
+            this.quoteCommentList = this.quoteCommentList.bind(this)
+            this.quoteCommentMarkRead = this.quoteCommentMarkRead.bind(this)
+            this.quoteCommentMentions = this.quoteCommentMentions.bind(this)
+            this.quoteCommentUnread = this.quoteCommentUnread.bind(this)
             this.salesQuoteCreate = this.salesQuoteCreate.bind(this)
             this.salesQuoteDelete = this.salesQuoteDelete.bind(this)
             this.salesQuoteDuplicate = this.salesQuoteDuplicate.bind(this)
@@ -1328,6 +1336,85 @@ export namespace quotes {
             this.salesQuoteWarehouseInquiryDecide = this.salesQuoteWarehouseInquiryDecide.bind(this)
             this.salesQuoteWarehouseInquiryList = this.salesQuoteWarehouseInquiryList.bind(this)
             this.salesQuoteWarehouseInquirySeen = this.salesQuoteWarehouseInquirySeen.bind(this)
+        }
+
+        /**
+         * Streams a chat file. Public by necessity (opened as a plain link); the link carries a
+         * short-lived signed token naming the file and the company, without which nothing is served.
+         * Path: /sales-quote-chat-files/:id/content?t=<token>[&download=1]
+         */
+        public async quoteChatFileContent(method: "GET", id: string, body?: RequestInit["body"], options?: CallParameters): Promise<globalThis.Response> {
+            return this.baseClient.callAPI(method, `/sales-quote-chat-files/${encodeURIComponent(id)}/content`, body, options)
+        }
+
+        public async quoteChatFileUpload(quoteNumber: string, params: controllers.QuoteChatFileUploadRequest): Promise<{
+    id: string
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/sales-quotes/${encodeURIComponent(quoteNumber)}/comments/files`, JSON.stringify(params))
+            return await resp.json() as {
+    id: string
+}
+        }
+
+        public async quoteCommentCreate(quoteNumber: string, params: controllers.QuoteCommentCreateRequest): Promise<{
+    comment: interfaces.QuoteCommentItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/sales-quotes/${encodeURIComponent(quoteNumber)}/comments`, JSON.stringify(params))
+            return await resp.json() as {
+    comment: interfaces.QuoteCommentItem
+}
+        }
+
+        public async quoteCommentDelete(quoteNumber: string, commentId: string): Promise<void> {
+            await this.baseClient.callTypedAPI("DELETE", `/sales-quotes/${encodeURIComponent(quoteNumber)}/comments/${encodeURIComponent(commentId)}`)
+        }
+
+        public async quoteCommentList(quoteNumber: string): Promise<{
+    comments: interfaces.QuoteCommentItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/sales-quotes/${encodeURIComponent(quoteNumber)}/comments`)
+            return await resp.json() as {
+    comments: interfaces.QuoteCommentItem[]
+}
+        }
+
+        public async quoteCommentMarkRead(quoteNumber: string): Promise<{
+    ok: boolean
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/sales-quotes/${encodeURIComponent(quoteNumber)}/comments/read`)
+            return await resp.json() as {
+    ok: boolean
+}
+        }
+
+        /**
+         * Messages that tag the signed-in user (the bell).
+         */
+        public async quoteCommentMentions(): Promise<{
+    mentions: interfaces.QuoteCommentMentionItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/sales-quote-comments/mentions`)
+            return await resp.json() as {
+    mentions: interfaces.QuoteCommentMentionItem[]
+}
+        }
+
+        /**
+         * Unread messages per thread (the Quotes list's chat badges).
+         */
+        public async quoteCommentUnread(): Promise<{
+    unread: interfaces.QuoteCommentUnreadItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/sales-quote-comments/unread`)
+            return await resp.json() as {
+    unread: interfaces.QuoteCommentUnreadItem[]
+}
         }
 
         public async salesQuoteCreate(params: controllers.SalesQuoteCreateRequest): Promise<controllers.SalesQuoteCreateResponse> {
@@ -6568,6 +6655,26 @@ export namespace controllers {
          * More shipments match than are listed - narrow it with the search
          */
         truncated: boolean
+    }
+
+    export interface QuoteChatFileUploadRequest {
+        fileName: string
+        fileSize: number
+        fileType: string
+        contentBase64: string
+    }
+
+    export interface QuoteCommentCreateRequest {
+        message: string
+        /**
+         * Files uploaded for this message (quoteChatFileUpload).
+         */
+        fileIds: string[]
+
+        /**
+         * Colleagues tagged with @.
+         */
+        mentionedUserIds: string[]
     }
 
     export interface RatesOnRequest {
@@ -12946,6 +13053,74 @@ export namespace interfaces {
      * Views of the Invoicing queue: to_bill (Shipment Status Billing) | not_invoiced | invoiced (Invoicing Status)
      */
     export type QueueView = "to_bill" | "not_invoiced" | "invoiced"
+
+    /**
+     * A file sent with a chat message.
+     */
+    export interface QuoteCommentAttachment {
+        id: string
+        fileName: string
+        fileSize: number
+        fileType: string
+        /**
+         * A download link with a short-lived token.
+         */
+        contentUrl: string
+    }
+
+    /**
+     * One message of a quote's chat.
+     */
+    export interface QuoteCommentItem {
+        id: string
+        /**
+         * The Sales Reference it was written on (the original or one of its revisions).
+         */
+        quoteNumber: string
+
+        /**
+         * The thread: the original Sales Reference every revision shares.
+         */
+        threadRef: string
+
+        authorId: string
+        /**
+         * Who wrote it (display name, e-mail when they have none).
+         */
+        authorName: string
+
+        message: string
+        createdAt: string
+        attachments: QuoteCommentAttachment[]
+        /**
+         * On the reader's own messages: a colleague has opened the chat since it was sent.
+         */
+        readByOthers: boolean
+    }
+
+    /**
+     * A message that tags the signed-in user (the bell).
+     */
+    export interface QuoteCommentMentionItem {
+        id: string
+        quoteNumber: string
+        threadRef: string
+        authorName: string
+        message: string
+        createdAt: string
+        /**
+         * Not read yet (the thread not opened since); read ones stay 7 days from when they were written.
+         */
+        unread: boolean
+    }
+
+    /**
+     * Unread messages of a thread for the signed-in user.
+     */
+    export interface QuoteCommentUnreadItem {
+        threadRef: string
+        unread: number
+    }
 
     /**
      * How many rows a copy from a quote added to each side.

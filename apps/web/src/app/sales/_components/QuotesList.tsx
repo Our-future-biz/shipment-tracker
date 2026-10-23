@@ -75,6 +75,7 @@ import { SalesDialog } from "./SalesDialog";
 import { SalesPage } from "./SalesPage";
 import { ToolbarButton, toolbarButtonClass } from "./ToolbarButton";
 import { DEFAULT_QUOTE_COLUMNS, QUOTE_COLUMNS, ValidityDot, quoteCsvColumns, shownColumns, type SortDirection } from "./quoteListColumns";
+import { QuoteChatButton, QuoteChatDrawer, quoteThreadOf, useQuoteChatUnread } from "./QuoteChat";
 
 interface ExportPdfButtonProps {
   quote: SalesQuote;
@@ -250,6 +251,9 @@ export function QuotesList() {
   const settled = debouncedSearch === list.search.trim();
 
   const [preview, setPreview] = useState<SalesQuote | null>(null);
+  // The quote whose chat is open (a side drawer, as on the Shipments list), and the unread badges.
+  const [chatQuote, setChatQuote] = useState<string | null>(null);
+  const unreadByThread = useQuoteChatUnread();
   // The quote whose Export PDF is being confirmed, since it closes the quote.
   const [exportTarget, setExportTarget] = useState<SalesQuote | null>(null);
   // The row's Export PDF reaches the handler of the current render through this, so the columns
@@ -371,10 +375,12 @@ export function QuotesList() {
     cols.push({
       title: <span className="sr-only">Actions</span>,
       key: "action",
-      width: 80,
+      width: 112,
       fixed: "right",
       render: (_: unknown, record: SalesQuote) => (
         <div className="flex items-center justify-end" onClick={(e) => e.stopPropagation()}>
+          {/* The quote's chat; a revision opens its original's thread. */}
+          <QuoteChatButton quoteNumber={record.quoteNumber} unread={unreadByThread.get(quoteThreadOf(record.quoteNumber)) ?? 0} onOpen={() => setChatQuote(record.quoteNumber)} />
           <Button
             size="small"
             type="text"
@@ -388,7 +394,7 @@ export function QuotesList() {
       ),
     });
     return cols;
-  }, [visibleKeys, columnsKnown, sortedBy, sortDirection, exchange, company]);
+  }, [visibleKeys, columnsKnown, sortedBy, sortDirection, exchange, company, unreadByThread]);
 
   // CSV respects the visible columns and their order.
   const csvColumns = () => quoteCsvColumns(visibleKeys, exchange);
@@ -867,6 +873,7 @@ export function QuotesList() {
           onClose={() => setPreview(null)}
         />
       )}
+      <QuoteChatDrawer quoteNumber={chatQuote} onClose={() => setChatQuote(null)} />
     </SalesPage>
   );
 }

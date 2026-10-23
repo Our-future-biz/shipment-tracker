@@ -40,7 +40,7 @@ describe("deleteForQuote", () => {
     const { set, where } = fake.state.updates[0]!;
     expect(set).toEqual({ deletedAt: AT, updatedAt: AT });
     const { sql, params } = new PgDialect().sqlToQuery(where as SQL);
-    expect(sql).toBe('("quote_attachment"."company_id" = $1 and "quote_attachment"."quote_number" = $2 and "quote_attachment"."deleted_at" is null)');
+    expect(sql).toBe('("quote_attachment"."company_id" = $1 and "quote_attachment"."quote_number" = $2 and "quote_attachment"."deleted_at" is null and "quote_attachment"."comment_id" is null)');
     expect(params).toEqual([COMPANY, "QCZ20261010001"]);
   });
 });

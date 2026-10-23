@@ -11,18 +11,44 @@ import { useUsers } from "@/hooks/useUsers";
 import { useToast } from "@/lib/toast";
 import { fileToBase64, formatFileSize } from "@/lib/files";
 import { shipmentAttachmentsKey } from "@/hooks/useShipmentAttachments";
-import type { interfaces } from "@/lib/api/client";
 
-// The shipment's internal conversation, laid out like a messaging app: colleagues on the
-// left with avatar, name and time, own messages on the right in blue with a read tick,
-// files as cards under the message they were sent with, and a separator for each day.
-// Typing @ offers colleagues to tag; a tagged colleague gets a notification.
+// An internal conversation, laid out like a messaging app: colleagues on the left with avatar,
+// name and time, own messages on the right in blue with a read tick, files as cards under the
+// message they were sent with, and a separator for each day. Typing @ offers colleagues to tag;
+// a tagged colleague gets a notification. The same panel serves a shipment's chat (ChatPanel) and
+// a quote's (QuoteChatPanel); what differs is where the messages come from (ChatSource).
 
-interface ChatPanelProps {
-  shipmentId: string;
+/** One message as the panel shows it (the shipments' and the quotes' messages both are). */
+export interface ChatMessage {
+  id: string;
+  authorId: string;
+  authorName: string;
+  message: string;
+  createdAt: string;
+  attachments: { id: string; fileName: string; fileSize: number; fileType: string; contentUrl: string }[];
+  /** On the reader's own messages: a colleague has opened the chat since it was sent. */
+  readByOthers: boolean;
+  /** A quote's chat: the Sales Reference it was written on, when the thread spans revisions. */
+  quoteNumber?: string;
 }
 
-type Comment = interfaces.CommentItem;
+/** Where a chat's messages come from and go to. */
+export interface ChatSource {
+  /** The query key of the message list. */
+  key: readonly unknown[];
+  list: () => Promise<ChatMessage[]>;
+  send: (input: { message: string; files: File[]; mentionedUserIds: string[] }) => Promise<unknown>;
+  remove: (id: string) => Promise<unknown>;
+  markRead: () => Promise<unknown>;
+  /** Other lists to refresh: after a message was sent (with files or not), deleted, or the chat read. */
+  refresh?: (what: "sent" | "sentFiles" | "deleted" | "read") => void;
+  /** The empty chat's line. */
+  emptyText: string;
+  /** Shows the Sales Reference a message was written on (a quote thread spanning revisions). */
+  showQuoteNumber?: boolean;
+}
+
+type Comment = ChatMessage;
 
 const initials = (name: string) =>
   name
@@ -96,7 +122,45 @@ const ReadTicks = ({ read }: { read: boolean }) => (
   </Tooltip>
 );
 
-export const ChatPanel = ({ shipmentId }: ChatPanelProps) => {
+// A shipment's chat: its messages, files kept as ordinary shipment documents.
+export const ChatPanel = ({ shipmentId }: { shipmentId: string }) => {
+  const queryClient = useQueryClient();
+  const source = useMemo<ChatSource>(
+    () => ({
+      key: ["comments", shipmentId],
+      list: async () => (await api.shipments.commentList(shipmentId)).comments,
+      // Files are stored as ordinary shipment documents first, then tied to the message.
+      // authorId is derived server-side from the authenticated user.
+      send: async ({ message, files, mentionedUserIds }) => {
+        const attachmentIds: string[] = [];
+        for (const file of files) {
+          const { attachment } = await api.shipments.attachmentCreate(shipmentId, {
+            fileName: file.name,
+            fileSize: file.size,
+            fileType: file.type,
+            contentBase64: await fileToBase64(file),
+          });
+          attachmentIds.push(attachment.id);
+        }
+        return api.shipments.commentCreate(shipmentId, { message, attachmentIds, mentionedUserIds });
+      },
+      remove: (id) => api.shipments.commentDelete(shipmentId, id),
+      markRead: () => api.shipments.commentMarkRead(shipmentId),
+      refresh: (what) => {
+        // Reading clears both the unread badge and any mention notifications for this shipment.
+        if (what === "read") queryClient.invalidateQueries({ queryKey: ["shipment-comments"] });
+        if (what === "sent" || what === "sentFiles") queryClient.invalidateQueries({ queryKey: ["shipment-comments", "unread"] });
+        // A message's files are shipment documents too, so the document lists change with it.
+        if (what === "sentFiles" || what === "deleted") queryClient.invalidateQueries({ queryKey: shipmentAttachmentsKey(shipmentId) });
+      },
+      emptyText: "No messages yet — write the first update for this shipment.",
+    }),
+    [shipmentId, queryClient],
+  );
+  return <ChatThread source={source} />;
+};
+
+export const ChatThread = ({ source }: { source: ChatSource }) => {
   const { user } = useAuth();
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -113,33 +177,20 @@ export const ChatPanel = ({ shipmentId }: ChatPanelProps) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["comments", shipmentId],
-    queryFn: () => api.shipments.commentList(shipmentId),
+    queryKey: source.key,
+    queryFn: source.list,
     refetchInterval: 10000,
   });
 
   const sendMessage = useMutation({
-    // Files are stored as ordinary shipment documents first, then tied to the message.
-    // authorId is derived server-side from the authenticated user.
     mutationFn: async ({ text, attach }: { text: string; attach: File[] }) => {
-      const attachmentIds: string[] = [];
-      for (const file of attach) {
-        const { attachment } = await api.shipments.attachmentCreate(shipmentId, {
-          fileName: file.name,
-          fileSize: file.size,
-          fileType: file.type,
-          contentBase64: await fileToBase64(file),
-        });
-        attachmentIds.push(attachment.id);
-      }
       // A colleague counts as tagged only while their @name is still in the text.
       const mentionedUserIds = tagged.filter((t) => text.includes(`@${t.name}`)).map((t) => t.id);
-      return api.shipments.commentCreate(shipmentId, { message: text, attachmentIds, mentionedUserIds });
+      return source.send({ message: text, files: attach, mentionedUserIds });
     },
     onSuccess: (_res, { attach }) => {
-      queryClient.invalidateQueries({ queryKey: ["comments", shipmentId] });
-      queryClient.invalidateQueries({ queryKey: ["shipment-comments", "unread"] });
-      if (attach.length > 0) queryClient.invalidateQueries({ queryKey: shipmentAttachmentsKey(shipmentId) });
+      queryClient.invalidateQueries({ queryKey: source.key });
+      source.refresh?.(attach.length > 0 ? "sentFiles" : "sent");
       setMessage("");
       setFiles([]);
       setTagged([]);
@@ -148,27 +199,29 @@ export const ChatPanel = ({ shipmentId }: ChatPanelProps) => {
   });
 
   const deleteComment = useMutation({
-    mutationFn: (commentId: string) => api.shipments.commentDelete(shipmentId, commentId),
+    mutationFn: (commentId: string) => source.remove(commentId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["comments", shipmentId] });
-      // The message's files go with it, so the document lists change too.
-      queryClient.invalidateQueries({ queryKey: shipmentAttachmentsKey(shipmentId) });
+      queryClient.invalidateQueries({ queryKey: source.key });
+      // The message's files go with it.
+      source.refresh?.("deleted");
     },
     onError: () => toast.error("Failed to delete message"),
   });
 
-  const comments = useMemo(() => data?.comments ?? [], [data]);
+  const comments = useMemo(() => data ?? [], [data]);
 
   // Opening the chat (and anything arriving while it is open) counts as read.
+  const keyText = JSON.stringify(source.key);
   useEffect(() => {
-    api.shipments
-      .commentMarkRead(shipmentId)
-      // Clears both the unread badge and any mention notifications for this shipment.
-      .then(() => queryClient.invalidateQueries({ queryKey: ["shipment-comments"] }))
+    source
+      .markRead()
+      .then(() => source.refresh?.("read"))
       .catch(() => {
         // Not fatal — the badge just stays until the next time the chat is opened.
       });
-  }, [shipmentId, comments.length, queryClient]);
+    // The source is rebuilt with its key; reading again follows the key and new messages.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keyText, comments.length]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -249,6 +302,10 @@ export const ChatPanel = ({ shipmentId }: ChatPanelProps) => {
     </div>
   );
 
+  // A quote's thread spans its revisions: each message says which Sales Reference it was written on.
+  const writtenOn = (c: Comment) =>
+    source.showQuoteNumber && c.quoteNumber ? <span className="font-mono text-[10.5px] text-slate-400">{c.quoteNumber}</span> : null;
+
   const row = (c: Comment, isMe: boolean, firstOfGroup: boolean) => {
     const text = c.message && (
       <div
@@ -272,6 +329,7 @@ export const ChatPanel = ({ shipmentId }: ChatPanelProps) => {
             >
               <DeleteOutlined className="text-[11px]" />
             </button>
+            {writtenOn(c)}
             {timeLabel(c.createdAt)}
             <ReadTicks read={c.readByOthers} />
           </span>
@@ -297,6 +355,7 @@ export const ChatPanel = ({ shipmentId }: ChatPanelProps) => {
             <span className="flex items-baseline gap-2">
               <span className="text-[13px] font-bold text-slate-700">{c.authorName || "Unknown"}</span>
               <span className="text-[11px] text-slate-500">{timeLabel(c.createdAt)}</span>
+              {writtenOn(c)}
             </span>
           )}
           {text}
@@ -311,7 +370,7 @@ export const ChatPanel = ({ shipmentId }: ChatPanelProps) => {
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-1.5">
         {isLoading && <p className="text-center text-slate-400 text-xs py-4">Loading…</p>}
         {!isLoading && comments.length === 0 && (
-          <p className="text-center text-slate-400 text-xs py-6">No messages yet — write the first update for this shipment.</p>
+          <p className="text-center text-slate-400 text-xs py-6">{source.emptyText}</p>
         )}
 
         {comments.map((c, i) => {

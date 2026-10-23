@@ -2,8 +2,8 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
-import { Alert, Button, Checkbox, ConfigProvider, DatePicker, Dropdown, Input, InputNumber, Select, Spin, Tooltip } from "antd";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Alert, Badge, Button, Checkbox, ConfigProvider, DatePicker, Dropdown, Input, InputNumber, Select, Spin, Tooltip } from "antd";
 import dayjs from "dayjs";
 import {
   ContainerOutlined,
@@ -15,6 +15,7 @@ import {
   HistoryOutlined,
   ImportOutlined,
   MailOutlined,
+  MessageOutlined,
   MoreOutlined,
   PlusOutlined,
 } from "@ant-design/icons";
@@ -85,6 +86,7 @@ import { hasOogEquipment, oogMissing, oogSummary, oogTypes } from "../../_lib/oo
 import { checkContainerWeight, type WeightCheck } from "../../_lib/containerWeight";
 import { asksHeavyPieces, withHeavyPieces } from "../../_lib/heavyPieces";
 import { QuoteHeavyPiecesDialogs } from "./_components/QuoteHeavyPiecesDialogs";
+import { QuoteChatDrawer, quoteThreadOf, useQuoteChatUnread } from "../../_components/QuoteChat";
 import { QuoteSection, QuoteStepTiles, type SectionStatus } from "./_components/QuoteSection";
 import { QuoteRoadCard } from "./_components/QuoteRoadCard";
 import { QuoteRoadPriceDrawer } from "./_components/QuoteRoadPriceDrawer";
@@ -137,6 +139,17 @@ export function QuoteWorkflow() {
   const truckingOn = canSeeConcepts;
   const { ref } = useParams<{ ref: string }>();
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  // The quote's chat (shared by the original and all its revisions); ?chat=1 (a mention under the
+  // bell) opens it.
+  const [chatOpen, setChatOpen] = useState(false);
+  const chatUnread = useQuoteChatUnread().get(quoteThreadOf(ref)) ?? 0;
+  useEffect(() => {
+    if (searchParams.get("chat") !== "1") return;
+    setChatOpen(true);
+    router.replace(pathname);
+  }, [searchParams, router, pathname]);
   const toast = useToast();
   // Loading, autosave and everything about not losing or overwriting data live in the hook.
   // `draft` is the document being edited; `quote` is the quote as the server last returned it,
@@ -1368,6 +1381,11 @@ export function QuoteWorkflow() {
                 </Tooltip>
               )}
               <span aria-hidden className="w-px h-6 bg-slate-200" />
+              <Badge count={chatUnread} size="small" color="#ef4444" offset={[-4, 2]}>
+                <ToolbarButton icon={<MessageOutlined />} onClick={() => setChatOpen(true)} aria-label={chatUnread ? `Chat — ${chatUnread} unread` : "Chat"}>
+                  Chat
+                </ToolbarButton>
+              </Badge>
               <ToolbarButton icon={<EyeOutlined />} onClick={() => setModal("preview")}>
                 Preview
               </ToolbarButton>
@@ -1505,6 +1523,8 @@ export function QuoteWorkflow() {
           </div>
         </div>
       </div>
+
+      <QuoteChatDrawer quoteNumber={chatOpen ? ref : null} onClose={() => setChatOpen(false)} />
 
       <QuoteHeavyPiecesDialogs
         open={heavyPiecesTo !== null}
