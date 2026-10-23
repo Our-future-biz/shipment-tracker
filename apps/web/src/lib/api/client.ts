@@ -7145,6 +7145,7 @@ export namespace controllers {
         cargoDescription?: string
         dangerous?: string
         outOfGauge?: string
+        temperatureControlled?: string
         incotermOrigin?: string
         incotermDestination?: string
         houseBolNumber?: string
@@ -7489,6 +7490,7 @@ export namespace controllers {
         cargoDescription?: string
         dangerous?: string
         outOfGauge?: string
+        temperatureControlled?: string
         incotermOrigin?: string
         incotermDestination?: string
         houseBolNumber?: string
@@ -13855,6 +13857,7 @@ export namespace interfaces {
         cargoDescription: string
         dangerous: string
         outOfGauge: string
+        temperatureControlled: string
         houseBolNumber: string
         masterBolNumber: string
         houseBolType: string

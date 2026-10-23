@@ -37,6 +37,7 @@ interface ShipmentUpdateRequest {
   cargoDescription?: string;
   dangerous?: string;
   outOfGauge?: string;
+  temperatureControlled?: string;
   incotermOrigin?: string;
   incotermDestination?: string;
   houseBolNumber?: string;

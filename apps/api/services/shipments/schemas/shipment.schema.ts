@@ -27,6 +27,7 @@ export const shipmentTable = pgTable(
     // Yes / No, picked in the shipments grid.
     dangerous: text("dangerous").notNull().default(""),
     outOfGauge: text("out_of_gauge").notNull().default(""),
+    temperatureControlled: text("temperature_controlled").notNull().default(""),
     houseBolNumber: text("house_bol_number").notNull().default(""),
     masterBolNumber: text("master_bol_number").notNull().default(""),
     houseBolType: text("house_bol_type").notNull().default(""),

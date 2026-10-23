@@ -82,6 +82,7 @@ export const DROPDOWN_OPTIONS: Record<string, string[]> = {
   "Claim": ["Yes", "No"],
   "Dangerous": ["Yes", "No"],
   "Out Of Gauge": ["Yes", "No"],
+  "Temperature Controlled": ["Yes", "No"],
   "Booking Confirmation": ["Pending", "Received"],
 };
 
@@ -202,6 +203,7 @@ export const COLUMNS: ColumnDef[] = [
   { key: "cargoDescription", title: "Cargo Description", width: 220, type: "text", readonly: true, apiField: "cargoDescription" },
   { key: "dangerous", title: "Dangerous", width: 110, type: "dropdown", options: DROPDOWN_OPTIONS["Dangerous"], apiField: "dangerous" },
   { key: "outOfGauge", title: "Out Of Gauge", width: 120, type: "dropdown", options: DROPDOWN_OPTIONS["Out Of Gauge"], apiField: "outOfGauge" },
+  { key: "temperatureControlled", title: "Temperature Controlled", width: 170, type: "dropdown", options: DROPDOWN_OPTIONS["Temperature Controlled"], apiField: "temperatureControlled" },
   { key: "pcs", title: "COLLI", width: 100, type: "text", readonly: true, apiField: "pcs" },
   { key: "creditCheck", title: "Credit Check", width: 110, type: "dropdown", options: DROPDOWN_OPTIONS["Credit Check"], apiField: "creditCheck" },
   { key: "approvedBy", title: "Approved By", width: 150, type: "text", apiField: "approvedBy" },
@@ -441,8 +443,8 @@ export function getCellConditionalStyle(
     if (value === "No") return { backgroundColor: "rgba(34, 197, 94, 0.15)" };
   }
 
-  // Dangerous / Out Of Gauge — cargo that needs special handling stands out (amber)
-  if (key === "dangerous" || key === "outOfGauge") {
+  // Dangerous / Out Of Gauge / Temperature Controlled — cargo that needs special handling stands out (amber)
+  if (key === "dangerous" || key === "outOfGauge" || key === "temperatureControlled") {
     if (value === "Yes") return { backgroundColor: "rgba(234, 179, 8, 0.15)" };
   }
 
