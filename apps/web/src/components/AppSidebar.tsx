@@ -58,7 +58,14 @@ const NAV_ITEMS: NavItem[] = [
   { path: "/customs", label: "Customs", icon: <SafetyCertificateOutlined /> },
   { path: "/warehouse", label: "Warehouse", icon: <InboxOutlined /> },
   // The concept modules are prototypes shown to superadmins only (Gate Log is a tab of Warehouse Concept).
-  { path: "/warehouse-concept", label: "Warehouse Concept", icon: <InboxOutlined />, roles: ["superadmin"] },
+  // Warehouse Concept opens its own page; its Managers cockpit is a page of its own under it.
+  {
+    path: "/warehouse-concept",
+    label: "Warehouse Concept",
+    icon: <InboxOutlined />,
+    roles: ["superadmin"],
+    children: [{ path: "/warehouse-concept/managers", label: "Managers" }],
+  },
   { path: "/trucking", label: "Trucking Concept", icon: <CarOutlined />, roles: ["superadmin"] },
   { path: "/master-jobs", label: "Master Jobs", icon: <ClusterOutlined /> },
   { path: "/cockpit", label: "Cockpit", icon: <ControlOutlined /> },

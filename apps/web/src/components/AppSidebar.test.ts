@@ -13,6 +13,12 @@ describe("the menu", () => {
     expect(labels("superadmin")).toEqual(expect.arrayContaining(["Warehouse", "Warehouse Concept", "Trucking Concept"]));
   });
 
+  it("puts Managers under Warehouse Concept, which still opens its own page", () => {
+    const concept = visibleNavItems({ role: "superadmin" }).find((i) => i.label === "Warehouse Concept");
+    expect(concept?.path).toBe("/warehouse-concept");
+    expect(concept?.children).toEqual([{ path: "/warehouse-concept/managers", label: "Managers" }]);
+  });
+
   it("keeps role rules", () => {
     expect(navItemVisible({ roles: ["admin"] }, { role: "user" })).toBe(false);
     expect(navItemVisible({}, { role: "user" })).toBe(true);
