@@ -66,6 +66,7 @@ import {
 } from "../_lib/extraction";
 import { useQuoteReading } from "../_lib/useQuoteReading";
 import { documentNumber, numberedFileName, savedDocumentName, suggestedDocumentType } from "../_lib/savedDocument";
+import { mergeReads } from "../_lib/mergeReads";
 import { missingWm, splitLines, type SplitMethod } from "../_lib/masterInvoice";
 import { MasterInvoiceShipments, type MasterInvoiceShipment } from "./MasterInvoiceShipments";
 import { shipmentFreight } from "@/lib/freightTons";
@@ -129,8 +130,12 @@ export function DocumentReadingWorkflow() {
   const [fileMeta, setFileMeta] = useState({ type: "", size: 0 });
   // A pre-alert can come as several files; all of them are read as one batch
   // under one master job, and listed so the user sees exactly what was taken.
-  const [masterFiles, setMasterFiles] = useState<MasterFile[]>([]);
+  const [masterFiles, setMasterFiles] = useState<UploadedFile[]>([]);
   const [preparedFiles, setPreparedFiles] = useState<{ fileName: string; pageCount: number }[]>([]);
+  // Shipments can read several files for one shipment too: their fields are merged into
+  // one review, and each file is saved to the shipment's documents.
+  const [shipmentFiles, setShipmentFiles] = useState<UploadedFile[]>([]);
+  const [shipmentDocs, setShipmentDocs] = useState<ShipmentDoc[]>([]);
   const [textInput, setTextInput] = useState("");
 
   // Shipment review
@@ -145,7 +150,7 @@ export function DocumentReadingWorkflow() {
   const [saveDocument, setSaveDocument] = useState(true);
   const [docNameEdit, setDocNameEdit] = useState<string | null>(null);
   const [docTypeEdit, setDocTypeEdit] = useState<string | null>(null);
-  const [savedDocName, setSavedDocName] = useState("");
+  const [savedDocNames, setSavedDocNames] = useState<string[]>([]);
   // Booking confirmations go to a new master job or to an existing one (by MCZ).
   const [bookingMode, setBookingMode] = useState<TargetMode>("new");
   const [bookingMcz, setBookingMcz] = useState("");
@@ -226,6 +231,7 @@ export function DocumentReadingWorkflow() {
 
   const approvedCount = fields.filter((f) => f.approved).length;
   const conflictCount = fields.filter((f) => f.hasConflict).length;
+  const differCount = fields.filter((f) => f.choices).length;
 
   // ─── Invoice for a master job ───
   const invoiceToMaster = destination === "invoicing" && invoiceTarget === "masterjob";
@@ -273,11 +279,12 @@ export function DocumentReadingWorkflow() {
       return next;
     });
 
-  // The file Review offers to save to the shipment: the uploaded file of a Shipments read
-  // (pasted text has no file), or the current House B/L's own pages of a pre-alert.
+  // The file Review offers to save to the shipment: the uploaded invoice of a master job, or
+  // the current House B/L's own pages of a pre-alert. A Shipments read saves its files
+  // through shipmentDocs instead (pasted text has no file).
   const masterDoc = destination === "masterjob" ? masterDocs[masterIdx] ?? null : null;
   const docToSave =
-    (destination === "shipment" || invoiceToMaster) && inputMode === "file" && fileBase64
+    invoiceToMaster && inputMode === "file" && fileBase64
       ? { base64: fileBase64, type: fileMeta.type, size: fileMeta.size, name: fileName }
       : masterDoc
         ? { base64: masterDoc.fileBase64, type: masterDoc.fileType, size: masterDoc.fileSize, name: masterDoc.fileName }
@@ -304,7 +311,22 @@ export function DocumentReadingWorkflow() {
     : docNumberLabel
       ? `Named after the ${docNumberLabel.replace("BoL", "B/L")}. Original file: ${fileName}`
       : "No House B/L, Master B/L or Booking number was read, so the original name is kept.";
-  const docNameMissing = !!docToSave && saveDocument && !docName.trim();
+  // Each file of a Shipments read, named after its own document number unless the user renamed it.
+  const shipmentDocViews = (destination === "shipment" && inputMode === "file" ? shipmentDocs : []).map((d) => {
+    const label = documentNumber(d.fields).label;
+    return {
+      ...d,
+      name: d.nameEdit ?? savedDocumentName(d.fields, d.file.name),
+      type: d.typeEdit ?? suggestedDocumentType(d.fields, d.file.name),
+      hint: label
+        ? `Named after the ${label.replace("BoL", "B/L")}. Original file: ${d.file.name}`
+        : `No House B/L, Master B/L or Booking number was read in ${d.file.name}, so its original name is kept.`,
+    };
+  });
+  const editShipmentDoc = (uid: string, change: Partial<ShipmentDoc>) =>
+    setShipmentDocs((prev) => prev.map((d) => (d.file.uid === uid ? { ...d, ...change } : d)));
+  const docNameMissing =
+    (!!docToSave && saveDocument && !docName.trim()) || shipmentDocViews.some((d) => d.save && !d.name.trim());
 
   const successTitle = (() => {
     if (destination === "masterjob")
@@ -334,20 +356,24 @@ export function DocumentReadingWorkflow() {
           ]
             .filter(Boolean)
             .join(" ")
-      : savedDocName
-        ? `The extracted data has been saved, and ${savedDocName} is in the shipment's documents.`
+      : savedDocNames.length > 0
+        ? `The extracted data has been saved, and ${savedDocNames.join(", ")} ${savedDocNames.length === 1 ? "is" : "are"} in the shipment's documents.`
         : "The extracted data has been saved.";
 
   // ─── Input handling ──────────────────────────────────────────────
   const beforeUpload = (file: File) => {
-    if (destination === "masterjob") {
+    if (destination === "masterjob" || destination === "shipment") {
+      const setFiles = destination === "masterjob" ? setMasterFiles : setShipmentFiles;
       fileToBase64(file)
         .then((base64) => {
           // The same file dropped twice is kept once.
-          setMasterFiles((prev) =>
+          setFiles((prev) =>
             prev.some((f) => f.name === file.name && f.size === file.size)
               ? prev
-              : [...prev, { uid: `${file.name}-${file.size}-${file.lastModified}`, name: file.name, size: file.size, base64 }],
+              : [
+                  ...prev,
+                  { uid: `${file.name}-${file.size}-${file.lastModified}`, name: file.name, size: file.size, type: file.type, base64 },
+                ],
           );
           setError(null);
         })
@@ -365,6 +391,8 @@ export function DocumentReadingWorkflow() {
     return false;
   };
 
+  // A pre-alert and a Shipments read take several files; the other reads take one.
+  const severalFiles = destination === "masterjob" || destination === "shipment";
   const masterFilesSize = masterFiles.reduce((sum, f) => sum + f.size, 0);
   const masterFilesTooLarge = masterFilesSize > MASTER_FILES_MAX_BYTES;
 
@@ -379,7 +407,8 @@ export function DocumentReadingWorkflow() {
     if (destination === "booking") return hasInput && (bookingMode === "new" || !!bookingMasterJob);
     if (destination === "customs") return hasInput && !!customsShipmentId;
     if (destination === "masterjob") return masterFiles.length > 0 && !masterFilesTooLarge && !!activeMcz;
-    return hasInput && (shipmentMode === "new" || !!targetShipmentId);
+    const hasShipmentInput = inputMode === "file" ? shipmentFiles.length > 0 : hasInput;
+    return hasShipmentInput && (shipmentMode === "new" || !!targetShipmentId);
   })();
 
   // ─── Extraction ──────────────────────────────────────────────────
@@ -390,25 +419,45 @@ export function DocumentReadingWorkflow() {
     setSaveDocument(true);
     setDocNameEdit(null);
     setDocTypeEdit(null);
-    setSavedDocName("");
+    setSavedDocNames([]);
     setSplitPreview(null);
     setSplitOverwrite(new Set());
     setSplitDone(null);
     try {
       if (destination === "shipment") {
-        const result =
-          inputMode === "file"
-            ? await api.extraction.extractDocument({ fileBase64, fileName })
-            : await api.extraction.extractText({ text: textInput.trim(), destination: "shipment" });
-        const normalized = normalizeExtracted(result.extracted);
+        // Each file is read on its own, then all of them are merged into one review.
+        const reads: { file?: UploadedFile; values: Record<string, string>; method: string }[] = [];
+        if (inputMode === "file") {
+          for (const file of shipmentFiles) {
+            try {
+              const result = await api.extraction.extractDocument({ fileBase64: file.base64, fileName: file.name });
+              reads.push({ file, values: normalizeExtracted(result.extracted), method: result.method });
+            } catch (err) {
+              throw new Error(`${file.name} could not be read: ${apiErrorMessage(err)}`);
+            }
+          }
+        } else {
+          const result = await api.extraction.extractText({ text: textInput.trim(), destination: "shipment" });
+          reads.push({ values: normalizeExtracted(result.extracted), method: result.method });
+        }
+        const merged = mergeReads(reads.map((r) => ({ source: r.file?.name ?? "text", values: r.values })));
         const target = shipmentMode === "existing" ? shipments.find((s) => s.id === targetShipmentId) : undefined;
         setFields(
-          buildFields(normalized, (label) => {
+          buildFields(merged.values, (label) => {
             const apiField = SHIPMENT_FIELD_MAP[label];
             return target && apiField ? getFieldValue(target, apiField) : "";
+          }).map((f) => {
+            const choices = merged.choices[f.column];
+            // Where the files disagree, nothing is written until the user picks or ticks a value.
+            return choices ? { ...f, choices, approved: false } : f;
           }),
         );
-        setExtractionMethod(result.method);
+        setShipmentDocs(
+          reads.flatMap((r) =>
+            r.file ? [{ file: r.file, fields: recordToFields(r.values), save: true, nameEdit: null, typeEdit: null }] : [],
+          ),
+        );
+        setExtractionMethod([...new Set(reads.map((r) => r.method))].join(", "));
         setStep("review");
       } else if (destination === "invoicing") {
         const result =
@@ -488,6 +537,9 @@ export function DocumentReadingWorkflow() {
     setFields((prev) => prev.map((f, idx) => (idx === i ? { ...f, approved: !f.approved } : f)));
   const editField = (i: number, value: string) =>
     setFields((prev) => prev.map((f, idx) => (idx === i ? { ...f, extractedValue: value } : f)));
+  // A value picked from the ones the files gave is meant to be written, so it is ticked.
+  const pickField = (i: number, value: string) =>
+    setFields((prev) => prev.map((f, idx) => (idx === i ? { ...f, extractedValue: value, approved: true } : f)));
   const setAll = (approved: boolean) => setFields((prev) => prev.map((f) => ({ ...f, approved })));
 
   // ─── Commit: shipment ────────────────────────────────────────────
@@ -529,23 +581,33 @@ export function DocumentReadingWorkflow() {
     } catch {
       return toast.error("Failed to write shipment data.");
     }
-    if (await saveReadDocument(shipmentId, jobNumber)) setSavedDocName(docName.trim());
+    const saved: string[] = [];
+    for (const d of shipmentDocViews) {
+      if (!d.save) continue;
+      const doc = { base64: d.file.base64, type: d.file.type, size: d.file.size, name: d.name.trim(), documentType: d.type };
+      if (await saveReadDocument(shipmentId, jobNumber, doc)) saved.push(doc.name);
+    }
+    setSavedDocNames(saved);
     setStep("committed");
   };
 
-  // Saves the file shown on Review to the shipment's documents, when the user left it ticked.
-  // The shipment's customs status follows its documents as for any other upload. A failure
-  // doesn't undo the fields already written. True when a document was saved.
-  const saveReadDocument = async (shipmentId: string, jobNumber: string): Promise<boolean> => {
-    if (!docToSave || !saveDocument) return false;
-    const name = docName.trim();
+  // Saves a read file to the shipment's documents: by default the one shown on Review, when the
+  // user left it ticked. The shipment's customs status follows its documents as for any other
+  // upload. A failure doesn't undo the fields already written. True when a document was saved.
+  const saveReadDocument = async (
+    shipmentId: string,
+    jobNumber: string,
+    doc = docToSave && saveDocument ? { ...docToSave, name: docName.trim(), documentType: docType } : null,
+  ): Promise<boolean> => {
+    if (!doc) return false;
+    const name = doc.name;
     try {
       await api.shipments.attachmentCreate(shipmentId, {
         fileName: name,
-        fileSize: docToSave.size,
-        fileType: docToSave.type || "application/octet-stream",
-        contentBase64: docToSave.base64,
-        documentType: docType,
+        fileSize: doc.size,
+        fileType: doc.type || "application/octet-stream",
+        contentBase64: doc.base64,
+        documentType: doc.documentType,
       });
       queryClient.invalidateQueries({ queryKey: ["shipments"] });
       queryClient.invalidateQueries({ queryKey: shipmentAttachmentsKey(shipmentId) });
@@ -836,8 +898,10 @@ export function DocumentReadingWorkflow() {
     setSaveDocument(true);
     setDocNameEdit(null);
     setDocTypeEdit(null);
-    setSavedDocName("");
+    setSavedDocNames([]);
     setMasterFiles([]);
+    setShipmentFiles([]);
+    setShipmentDocs([]);
     setPreparedFiles([]);
     setTextInput("");
     setFields([]);
@@ -1098,14 +1162,14 @@ export function DocumentReadingWorkflow() {
               accept=".pdf,.jpg,.jpeg,.png"
               beforeUpload={beforeUpload}
               showUploadList={false}
-              multiple={destination === "masterjob"}
-              maxCount={destination === "masterjob" ? undefined : 1}
+              multiple={severalFiles}
+              maxCount={severalFiles ? undefined : 1}
             >
               <p className="ant-upload-drag-icon">
                 <InboxOutlined />
               </p>
               <p className="ant-upload-text">
-                {destination === "masterjob"
+                {severalFiles
                   ? "Click or drag files (PDF, JPG, PNG) — you can add several"
                   : fileName || "Click or drag a file (PDF, JPG, PNG)"}
               </p>
@@ -1120,7 +1184,7 @@ export function DocumentReadingWorkflow() {
                     ? "Pre-alert / manifest with multiple Bills of Lading. All files go under one master job."
                     : destination === "booking"
                     ? "Booking confirmation, booking note, release order…"
-                    : "Bill of Lading, Sea Waybill, Booking Confirmation…"}
+                    : "Bill of Lading, Sea Waybill, Booking Confirmation… Several files are read together into one shipment."}
               </p>
             </Upload.Dragger>
           ) : (
@@ -1135,7 +1199,10 @@ export function DocumentReadingWorkflow() {
           )}
 
           {destination === "masterjob" && masterFiles.length > 0 && (
-            <MasterFileList files={masterFiles} onRemove={(uid) => setMasterFiles((prev) => prev.filter((f) => f.uid !== uid))} />
+            <UploadedFileList files={masterFiles} onRemove={(uid) => setMasterFiles((prev) => prev.filter((f) => f.uid !== uid))} />
+          )}
+          {destination === "shipment" && inputMode === "file" && shipmentFiles.length > 0 && (
+            <UploadedFileList files={shipmentFiles} onRemove={(uid) => setShipmentFiles((prev) => prev.filter((f) => f.uid !== uid))} />
           )}
           {destination === "masterjob" && masterFilesTooLarge && (
             <Alert
@@ -1164,6 +1231,12 @@ export function DocumentReadingWorkflow() {
               <p className="mt-1 mb-0 text-xs text-slate-400">
                 {masterFiles.length} file{masterFiles.length === 1 ? "" : "s"}: {masterFiles.map((f) => f.name).join(", ")}
               </p>
+            ) : destination === "shipment" ? (
+              inputMode === "file" && (
+                <p className="mt-1 mb-0 text-xs text-slate-400">
+                  {shipmentFiles.length} file{shipmentFiles.length === 1 ? "" : "s"}: {shipmentFiles.map((f) => f.name).join(", ")}
+                </p>
+              )
             ) : (
               fileName && <p className="mt-1 mb-0 text-xs text-slate-400">{fileName}</p>
             )}
@@ -1179,6 +1252,11 @@ export function DocumentReadingWorkflow() {
               <span className="text-sm font-semibold">{fields.length} fields extracted</span>
               {extractionMethod && <Tag>{extractionMethod}</Tag>}
               {conflictCount > 0 && <Tag color="orange">{conflictCount} conflict{conflictCount > 1 ? "s" : ""}</Tag>}
+              {differCount > 0 && (
+                <Tag color="gold">
+                  Files differ on {differCount} field{differCount > 1 ? "s" : ""} — pick a value
+                </Tag>
+              )}
             </Space>
             <Space>
               <Button size="small" onClick={() => setAll(true)}>Approve All</Button>
@@ -1186,7 +1264,20 @@ export function DocumentReadingWorkflow() {
             </Space>
           </div>
           {error && <Alert className="mb-3" type="error" showIcon message={error} />}
-          <FieldReviewTable fields={fields} onToggle={toggleField} editable onEdit={editField} />
+          <FieldReviewTable fields={fields} onToggle={toggleField} editable onEdit={editField} onPick={pickField} />
+          {shipmentDocViews.map((d) => (
+            <SaveDocumentBox
+              key={d.file.uid}
+              title={shipmentDocViews.length > 1 ? `Save ${d.file.name} to the shipment's documents` : undefined}
+              checked={d.save}
+              onCheck={(save) => editShipmentDoc(d.file.uid, { save })}
+              name={d.name}
+              onName={(nameEdit) => editShipmentDoc(d.file.uid, { nameEdit })}
+              hint={d.hint}
+              type={d.type}
+              onType={(typeEdit) => editShipmentDoc(d.file.uid, { typeEdit })}
+            />
+          ))}
           {docToSave && (
             <SaveDocumentBox
               checked={saveDocument}
@@ -1552,20 +1643,31 @@ export function DocumentReadingWorkflow() {
 // (a third larger), so this is the most one batch can carry.
 const MASTER_FILES_MAX_BYTES = 70 * 1024 * 1024;
 
-interface MasterFile {
+interface UploadedFile {
   uid: string;
   name: string;
   size: number;
+  type: string;
   base64: string;
 }
 
-interface MasterFileListProps {
-  files: MasterFile[];
+// A file read into Shipments, with its own fields (it is named after its own document
+// number) and the name and type the user approved for it (null: as read).
+interface ShipmentDoc {
+  file: UploadedFile;
+  fields: ExtractedField[];
+  save: boolean;
+  nameEdit: string | null;
+  typeEdit: string | null;
+}
+
+interface UploadedFileListProps {
+  files: UploadedFile[];
   onRemove: (uid: string) => void;
 }
 
-// The files picked for one pre-alert, so it is clear exactly what will be read.
-function MasterFileList({ files, onRemove }: MasterFileListProps) {
+// The files picked for one read, so it is clear exactly what will be read.
+function UploadedFileList({ files, onRemove }: UploadedFileListProps) {
   return (
     <div className="mt-3 border border-slate-200 rounded-lg">
       <div className="px-3 py-2 border-b border-slate-100 text-[11px] font-bold text-slate-500 uppercase tracking-wide">
@@ -1600,15 +1702,17 @@ interface SaveDocumentBoxProps {
   hint: string;
   type: string;
   onType: (type: string) => void;
+  /** Names the file when several are saved; by default "Save the document …". */
+  title?: string;
 }
 
 // The read file, to be saved to the shipment's documents under its document number. The user
 // approves the name and the document type here; both are saved with the fields on Write.
-function SaveDocumentBox({ checked, onCheck, name, onName, hint, type, onType }: SaveDocumentBoxProps) {
+function SaveDocumentBox({ checked, onCheck, name, onName, hint, type, onType, title }: SaveDocumentBoxProps) {
   return (
     <div className="mt-4 border border-slate-200 rounded-lg px-3 py-3">
       <Checkbox checked={checked} onChange={(e) => onCheck(e.target.checked)}>
-        <span className="text-sm font-semibold text-slate-800">Save the document to the shipment&apos;s documents</span>
+        <span className="text-sm font-semibold text-slate-800">{title ?? "Save the document to the shipment's documents"}</span>
       </Checkbox>
       {checked && (
         <div className="mt-3 grid grid-cols-1 lg:grid-cols-[1fr_220px] gap-3">

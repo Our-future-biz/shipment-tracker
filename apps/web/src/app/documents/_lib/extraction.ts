@@ -15,6 +15,8 @@ export interface ExtractedField {
   existingValue: string;
   hasConflict: boolean;
   approved: boolean;
+  // Several files read together disagree on this field: every value read, with its files.
+  choices?: { value: string; sources: string[] }[];
 }
 
 export interface InvoiceExtracted {

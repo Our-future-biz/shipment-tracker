@@ -10,6 +10,8 @@ interface FieldReviewTableProps {
   onToggle: (index: number) => void;
   editable?: boolean;
   onEdit?: (index: number, value: string) => void;
+  /** Picks one of the values the files read together gave (ExtractedField.choices). */
+  onPick?: (index: number, value: string) => void;
   showExisting?: boolean;
   accent?: "teal" | "amber";
 }
@@ -19,6 +21,7 @@ export function FieldReviewTable({
   onToggle,
   editable = false,
   onEdit,
+  onPick,
   showExisting = true,
   accent = "teal",
 }: FieldReviewTableProps) {
@@ -48,8 +51,8 @@ export function FieldReviewTable({
         // Places and countries the AI could not match to the database are flagged; when the
         // value can be edited, it is picked from the database.
         const geoKind = LABEL_GEO_FIELDS[row.column];
-        if (geoKind) {
-          return editable ? (
+        const value = geoKind ? (
+          editable ? (
             <span className="flex items-center">
               <GeoSelect kind={geoKind} size="small" className="w-full max-w-[320px]" value={v} onChange={(next) => onEdit?.(row.index, next)} />
               <GeoFlag kind={geoKind} value={v} />
@@ -59,9 +62,8 @@ export function FieldReviewTable({
               {v}
               <GeoFlag kind={geoKind} value={v} />
             </span>
-          );
-        }
-        return editable ? (
+          )
+        ) : editable ? (
           <Input
             size="small"
             variant="borderless"
@@ -71,6 +73,25 @@ export function FieldReviewTable({
           />
         ) : (
           <span className={`font-mono ${valueClass}`}>{v}</span>
+        );
+        if (!row.choices || !onPick) return value;
+        // The files read together disagree: each value with the files it came from, to pick one.
+        return (
+          <div>
+            {value}
+            <div className="mt-1 flex flex-wrap gap-1">
+              {row.choices.map((c) => (
+                <Tag.CheckableTag
+                  key={c.value}
+                  checked={c.value === v}
+                  onChange={() => onPick(row.index, c.value)}
+                  className="!text-[11px] !border !border-slate-200"
+                >
+                  {c.value} <span className="opacity-60">· {c.sources.join(", ")}</span>
+                </Tag.CheckableTag>
+              ))}
+            </div>
+          </div>
         );
       },
     },
@@ -92,6 +113,8 @@ export function FieldReviewTable({
             render: (_: unknown, row: Row) =>
               row.hasConflict ? (
                 <Tag color="orange">Conflict</Tag>
+              ) : row.choices ? (
+                <Tag color="gold">Files differ</Tag>
               ) : (
                 <Tag color="green">New</Tag>
               ),
