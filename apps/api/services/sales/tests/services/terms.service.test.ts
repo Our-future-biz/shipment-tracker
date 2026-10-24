@@ -31,7 +31,7 @@ const manager = actor("manager");
 const EDITORS = ["superadmin", "admin", "manager"];
 const refused = { code: "permission_denied", message: "only managers and admins can change this" };
 const CREATED = new Date("2026-10-01T08:00:00.000Z");
-const template = { id: ID, name: "AIR IMPORT", includes: "", excludes: "", createdAt: CREATED, updatedAt: CREATED };
+const template = { id: ID, name: "AIR IMPORT", includes: "", excludes: "", subjectTo: "", createdAt: CREATED, updatedAt: CREATED };
 // The template as the service hands it out: times as ISO strings, nothing else of the row.
 const templateItem = { ...template, createdAt: CREATED.toISOString(), updatedAt: CREATED.toISOString() };
 const notFound = { code: "not_found", message: "Terms & conditions not found" };
@@ -81,7 +81,7 @@ describe("create", () => {
       repository.createForCompany.mockClear();
       repository.createForCompany.mockResolvedValue(template as never);
       await expect(termsService.create(actor(role), "  AIR IMPORT "), role).resolves.toEqual(templateItem);
-      expect(repository.createForCompany).toHaveBeenCalledWith(COMPANY, { name: "AIR IMPORT", includes: "", excludes: "" });
+      expect(repository.createForCompany).toHaveBeenCalledWith(COMPANY, { name: "AIR IMPORT", includes: "", excludes: "", subjectTo: "" });
     }
   });
 
@@ -150,6 +150,8 @@ describe("update", () => {
     repository.findByNameInsensitive.mockResolvedValue(template as never);
     await termsService.update(ID, manager, { name: "AIR IMPORT", excludes: "Duties" });
     expect(repository.updateForCompany).toHaveBeenLastCalledWith(ID, COMPANY, { name: "AIR IMPORT", excludes: "Duties" });
+    await termsService.update(ID, manager, { subjectTo: "Space and equipment availability" });
+    expect(repository.updateForCompany).toHaveBeenLastCalledWith(ID, COMPANY, { subjectTo: "Space and equipment availability" });
     await termsService.update(ID, manager, { name: "Air Import" });
     expect(repository.updateForCompany).toHaveBeenLastCalledWith(ID, COMPANY, { name: "Air Import" });
     // The same template, its id written in capitals.

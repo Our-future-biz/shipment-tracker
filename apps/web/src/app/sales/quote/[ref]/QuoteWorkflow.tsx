@@ -542,7 +542,7 @@ export function QuoteWorkflow() {
     routing: !!(draft.origin || draft.destination || draft.pol || draft.pod || draft.pickup || draft.delivery),
     cargo: !!(draft.commodity || packages.length || containers.length || draft.stackable || draft.dangerous),
     pricing: !!(draft.buyingLines?.length || draft.sellingLines?.length),
-    terms: !!(draft.shippingTerms || draft.shippingIncludes || draft.shippingExcludes),
+    terms: !!(draft.shippingTerms || draft.shippingIncludes || draft.shippingExcludes || draft.shippingSubjectTo),
   };
   const sectionStatus = (key: SectionKey): SectionStatus => (done[key] ? "completed" : partial[key] ? "in-progress" : "empty");
 
@@ -630,6 +630,7 @@ export function QuoteWorkflow() {
       shippingTerms: name,
       shippingIncludes: template?.includes?.trim() ? template.includes : draft.shippingIncludes,
       shippingExcludes: template?.excludes?.trim() ? template.excludes : draft.shippingExcludes,
+      shippingSubjectTo: template?.subjectTo?.trim() ? template.subjectTo : draft.shippingSubjectTo,
     };
   };
   // Text the quote already has is replaced only after a question; without such text the template
@@ -637,7 +638,12 @@ export function QuoteWorkflow() {
   const chooseTemplate = (name: string) => {
     const next = templatePatch(name);
     const replaces = (own?: string, text?: string) => !!own?.trim() && own !== text;
-    if (replaces(draft.shippingIncludes, next.shippingIncludes) || replaces(draft.shippingExcludes, next.shippingExcludes)) setTemplateAsked(name);
+    if (
+      replaces(draft.shippingIncludes, next.shippingIncludes) ||
+      replaces(draft.shippingExcludes, next.shippingExcludes) ||
+      replaces(draft.shippingSubjectTo, next.shippingSubjectTo)
+    )
+      setTemplateAsked(name);
     else set(next);
   };
 
@@ -1308,6 +1314,9 @@ export function QuoteWorkflow() {
           <InfoRow label="Rate offer excludes">
             <Input.TextArea size="small" aria-label="Rate offer excludes" rows={4} value={draft.shippingExcludes ?? ""} onChange={(e) => set({ shippingExcludes: e.target.value })} />
           </InfoRow>
+          <InfoRow label="Subject to">
+            <Input.TextArea size="small" aria-label="Subject to" rows={3} value={draft.shippingSubjectTo ?? ""} onChange={(e) => set({ shippingSubjectTo: e.target.value })} />
+          </InfoRow>
           {/* The quote's one validity date, as the lifecycle band and the document show it. It
               decides when the quote expires, so the server keeps it: picking or clearing it here
               changes it at once, and on a quote the customer already has that goes into its
@@ -1726,7 +1735,7 @@ export function QuoteWorkflow() {
             setTemplateAsked(null);
           }}
           title={`Template: ${templateAsked}`}
-          description="Replace Includes and Excludes with the template's text?"
+          description="Replace Includes, Excludes and Subject to with the template's text?"
           confirmLabel="Replace"
           danger
         />

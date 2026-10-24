@@ -9,6 +9,7 @@ interface TermsUpdateRequest {
   name?: string & MinLen<1> & MaxLen<200>;
   includes?: string & MaxLen<20000>;
   excludes?: string & MaxLen<20000>;
+  subjectTo?: string & MaxLen<20000>;
   /**
    * The updatedAt of the copy the change was made on, as the API handed it out. When the stored
    * template is no longer that version - somebody saved it since - nothing is written and the

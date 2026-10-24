@@ -53,8 +53,8 @@ describe("seed", () => {
     await termsConditionRepository.seed(COMPANY, DEFAULTS);
     const { sql, params } = only();
     expect(sql).toBe(
-      'insert into "terms_condition" ("id", "created_at", "updated_at", "deleted_at", "company_id", "name", "includes", "excludes") ' +
-        "values (default, default, default, default, $1, $2, default, default), (default, default, default, default, $3, $4, default, default) " +
+      'insert into "terms_condition" ("id", "created_at", "updated_at", "deleted_at", "company_id", "name", "includes", "excludes", "subject_to") ' +
+        "values (default, default, default, default, $1, $2, default, default, default), (default, default, default, default, $3, $4, default, default, default) " +
         "on conflict do nothing",
     );
     expect(params).toEqual([COMPANY, "AIR IMPORT", COMPANY, "AIR EXPORT"]);
@@ -71,8 +71,8 @@ describe("updateIfUnchanged", () => {
   const EXPECTED = new Date("2026-10-12T08:00:00.123Z");
 
   it("puts the version into the UPDATE itself: the company's live template, still as the caller loaded it", async () => {
-    // id, created_at, updated_at, deleted_at, company_id, name, includes, excludes
-    fake.rows = [[ID, "2026-10-01 07:00:00+00", "2026-10-12 09:00:00.5+00", null, COMPANY, "AIR IMPORT", "Freight", ""]];
+    // id, created_at, updated_at, deleted_at, company_id, name, includes, excludes, subject_to
+    fake.rows = [[ID, "2026-10-01 07:00:00+00", "2026-10-12 09:00:00.5+00", null, COMPANY, "AIR IMPORT", "Freight", "", ""]];
     const written = await termsConditionRepository.updateIfUnchanged(ID, COMPANY, { includes: "Freight" }, EXPECTED);
     const { sql, params } = only();
     expect(sql).toBe(
@@ -80,7 +80,7 @@ describe("updateIfUnchanged", () => {
         'where ("terms_condition"."id" = $3 and "terms_condition"."company_id" = $4 and "terms_condition"."deleted_at" is null ' +
         // Cut to milliseconds: a row stamped by the database carries microseconds the caller never saw.
         `and date_trunc('milliseconds', "terms_condition"."updated_at") = $5::timestamptz) ` +
-        'returning "id", "created_at", "updated_at", "deleted_at", "company_id", "name", "includes", "excludes"',
+        'returning "id", "created_at", "updated_at", "deleted_at", "company_id", "name", "includes", "excludes", "subject_to"',
     );
     expect(params).toEqual([expect.any(String), "Freight", ID, COMPANY, "2026-10-12T08:00:00.123Z"]);
     // The row as written, with the new version a next save names.

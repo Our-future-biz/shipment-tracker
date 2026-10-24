@@ -10,6 +10,8 @@ export const termsConditionTable = pgTable(
     name: text("name").notNull(),
     includes: text("includes").notNull().default(""),
     excludes: text("excludes").notNull().default(""),
+    // What the rate offer is subject to (space and equipment availability, …).
+    subjectTo: text("subject_to").notNull().default(""),
   },
   (table) => [
     ...defaultTableIndexes("terms_condition", table),

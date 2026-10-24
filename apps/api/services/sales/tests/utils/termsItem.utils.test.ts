@@ -11,6 +11,7 @@ const row = (over: Partial<TermsConditionRecord> = {}): TermsConditionRecord => 
   name: "AIR IMPORT",
   includes: "Air freight\nHandling",
   excludes: "Duties and taxes",
+  subjectTo: "Space and equipment availability",
   ...over,
 });
 
@@ -21,6 +22,7 @@ describe("toTermsItem", () => {
       name: "AIR IMPORT",
       includes: "Air freight\nHandling",
       excludes: "Duties and taxes",
+      subjectTo: "Space and equipment availability",
       createdAt: "2026-10-01T08:00:00.123Z",
       updatedAt: "2026-10-02T09:30:00.456Z",
     });
@@ -28,6 +30,6 @@ describe("toTermsItem", () => {
 
   it("hands out nothing else of the row: not the company, not whether it is deleted", () => {
     const item = toTermsItem(row({ deletedAt: new Date("2026-10-03T10:00:00.000Z") }));
-    expect(Object.keys(item).sort()).toEqual(["createdAt", "excludes", "id", "includes", "name", "updatedAt"]);
+    expect(Object.keys(item).sort()).toEqual(["createdAt", "excludes", "id", "includes", "name", "subjectTo", "updatedAt"]);
   });
 });

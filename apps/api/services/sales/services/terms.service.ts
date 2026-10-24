@@ -16,6 +16,7 @@ export interface TermsChange {
   name?: string;
   includes?: string;
   excludes?: string;
+  subjectTo?: string;
   /** The updatedAt (ISO) of the copy the change was made on; without it the change is written whatever is stored. */
   expectedUpdatedAt?: string;
 }
@@ -41,7 +42,7 @@ class TermsService {
     if (!trimmed) throw APIError.invalidArgument("name is required");
     const existing = await termsConditionRepository.findByNameInsensitive(trimmed, actor.companyID);
     if (existing) throw APIError.alreadyExists(NAME_TAKEN);
-    return toTermsItem(await termsConditionRepository.createForCompany(actor.companyID, { name: trimmed, includes: "", excludes: "" }));
+    return toTermsItem(await termsConditionRepository.createForCompany(actor.companyID, { name: trimmed, includes: "", excludes: "", subjectTo: "" }));
   }
 
   // The template as written; not found when the company has no such live template.
@@ -59,6 +60,7 @@ class TermsService {
     }
     if (data.includes !== undefined) patch.includes = data.includes;
     if (data.excludes !== undefined) patch.excludes = data.excludes;
+    if (data.subjectTo !== undefined) patch.subjectTo = data.subjectTo;
     if (data.expectedUpdatedAt === undefined) {
       const row = await termsConditionRepository.updateForCompany(id, actor.companyID, patch);
       if (!row) throw notFound();

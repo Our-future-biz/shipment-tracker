@@ -22,7 +22,7 @@ const SAVED_FLASH_MS = 2000;
 const CONFLICT = "changed by someone else";
 const NO_NAME = "Name is required";
 
-type Fields = Pick<TermsConditionItem, "name" | "includes" | "excludes">;
+type Fields = Pick<TermsConditionItem, "name" | "includes" | "excludes" | "subjectTo">;
 
 // One template as this visit of the page holds it.
 interface Copy {
@@ -32,7 +32,7 @@ interface Copy {
    * again behind every save - and a save names its updatedAt as the version it was made on.
    */
   stored: TermsConditionItem;
-  /** What the three fields hold. */
+  /** What the fields hold. */
   fields: Fields;
   /** A save of it is running. */
   saving: boolean;
@@ -44,7 +44,7 @@ interface Copy {
 
 const copyOf = (stored: TermsConditionItem): Copy => ({
   stored,
-  fields: { name: stored.name, includes: stored.includes, excludes: stored.excludes },
+  fields: { name: stored.name, includes: stored.includes, excludes: stored.excludes, subjectTo: stored.subjectTo ?? "" },
   saving: false,
   problem: null,
   conflict: false,
@@ -57,6 +57,7 @@ function changesOf({ stored, fields }: Copy): Partial<Fields> | null {
   if (fields.name.trim() !== stored.name.trim()) changes.name = fields.name.trim();
   if (fields.includes !== stored.includes) changes.includes = fields.includes;
   if (fields.excludes !== stored.excludes) changes.excludes = fields.excludes;
+  if (fields.subjectTo !== (stored.subjectTo ?? "")) changes.subjectTo = fields.subjectTo;
   return Object.keys(changes).length ? changes : null;
 }
 
@@ -456,6 +457,7 @@ export function TermsTab() {
               {terms.map((t) => {
                 const hasIncludes = !!t.includes && t.includes.trim().length > 0;
                 const hasExcludes = !!t.excludes && t.excludes.trim().length > 0;
+                const hasSubjectTo = !!t.subjectTo && t.subjectTo.trim().length > 0;
                 const chosen = t.id === selectedId;
                 // A template that was left with text the server does not have: its row says so,
                 // since its header is not on screen.
@@ -476,6 +478,7 @@ export function TermsTab() {
                       <span className="text-[11px] text-slate-400">{formatDate(t.updatedAt)}</span>
                       <Pill tone={hasIncludes ? "green" : "slate"}>{hasIncludes ? "Includes ✓" : "Includes"}</Pill>
                       <Pill tone={hasExcludes ? "green" : "slate"}>{hasExcludes ? "Excludes ✓" : "Excludes"}</Pill>
+                      <Pill tone={hasSubjectTo ? "green" : "slate"}>{hasSubjectTo ? "Subject to ✓" : "Subject to"}</Pill>
                       {leftUnsaved && (
                         <Pill tone="red" title="What was typed into this template is not saved - open it to see why">
                           Not saved
@@ -570,6 +573,21 @@ export function TermsTab() {
                   readOnly={!canEdit}
                   aria-label="Rate offer excludes"
                   onChange={(e) => edit(copy.stored.id, { excludes: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="flex items-center gap-2 text-[13px] font-medium text-slate-700 mb-1">
+                  <span className="w-2 h-2 rounded-full bg-amber-500" />
+                  Subject to
+                </label>
+                <Input.TextArea
+                  rows={4}
+                  value={copy.fields.subjectTo}
+                  readOnly={!canEdit}
+                  aria-label="Subject to"
+                  placeholder="e.g. Space and equipment availability, carrier's GRI and surcharges in force at shipment"
+                  onChange={(e) => edit(copy.stored.id, { subjectTo: e.target.value })}
                 />
               </div>
 

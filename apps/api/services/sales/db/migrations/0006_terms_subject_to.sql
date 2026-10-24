@@ -1,0 +1,1 @@
+ALTER TABLE "terms_condition" ADD COLUMN "subject_to" text DEFAULT '' NOT NULL;

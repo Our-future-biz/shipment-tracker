@@ -6,6 +6,8 @@ export interface TermsConditionItem {
   name: string;
   includes: string;
   excludes: string;
+  /** What the rate offer is subject to. */
+  subjectTo: string;
   createdAt: string;
   updatedAt: string;
 }

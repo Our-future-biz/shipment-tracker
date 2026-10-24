@@ -7798,6 +7798,7 @@ export namespace controllers {
         name?: string
         includes?: string
         excludes?: string
+        subjectTo?: string
         /**
          * The updatedAt of the copy the change was made on, as the API handed it out. When the stored
          * template is no longer that version - somebody saved it since - nothing is written and the
@@ -14640,6 +14641,11 @@ export namespace interfaces {
         name: string
         includes: string
         excludes: string
+        /**
+         * What the rate offer is subject to.
+         */
+        subjectTo: string
+
         createdAt: string
         updatedAt: string
     }

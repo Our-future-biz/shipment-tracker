@@ -240,6 +240,8 @@ export interface SalesQuoteData {
   shippingTerms?: string; // name of a terms_condition template
   shippingIncludes?: string;
   shippingExcludes?: string;
+  // What the rate offer is subject to (from the template, like Includes and Excludes).
+  shippingSubjectTo?: string;
   // The former "Additional conditions / notes" box: no longer entered, shown or printed. Text
   // typed before stays stored.
   shippingTermsNotes?: string;

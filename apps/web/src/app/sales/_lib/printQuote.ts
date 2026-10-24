@@ -210,6 +210,8 @@ export function quoteDocument(
     .card.includes h3 { color: #16a34a; }
     .card.excludes { background: #fef2f2; border: 1px solid #fecaca; }
     .card.excludes h3 { color: #dc2626; }
+    .card.subject { grid-column: 1 / -1; background: #fffbeb; border: 1px solid #fde68a; }
+    .card.subject h3 { color: #b45309; }
     .foot { margin-top: 28px; padding-top: 16px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; }
     .foot .sign { margin-top: 12px; font-size: 13px; color: #1e293b; font-weight: bold; }
   </style></head><body>
@@ -270,6 +272,7 @@ export function quoteDocument(
     <div class="cards">
       <div class="card includes"><h3>Includes</h3><div class="text">${esc(data.shippingIncludes) || "—"}</div></div>
       <div class="card excludes"><h3>Excludes</h3><div class="text">${esc(data.shippingExcludes) || "—"}</div></div>
+      ${data.shippingSubjectTo?.trim() ? `<div class="card subject"><h3>Subject to</h3><div class="text">${esc(data.shippingSubjectTo)}</div></div>` : ""}
     </div>
 
     <div class="foot">

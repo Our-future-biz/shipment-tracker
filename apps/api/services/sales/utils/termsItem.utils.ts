@@ -13,6 +13,7 @@ export function toTermsItem(row: TermsConditionRecord): TermsConditionItem {
     name: row.name,
     includes: row.includes,
     excludes: row.excludes,
+    subjectTo: row.subjectTo,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
