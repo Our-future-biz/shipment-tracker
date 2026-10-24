@@ -8,7 +8,8 @@
  * ČNB rates stamped on sending; `rates`, what older quotes stored from the retired weekly
  * sheet), and what a pricing from the trucking tariffs recorded and a manager's approval of its
  * margin (`roadPricing`, `marginApproval`), the revision that replaced a revised quote
- * (`replacedBy`), and the warehouse's answer about pieces of 12.5 t or more (`warehouseInquiry`).
+ * (`replacedBy`), the warehouse's answer about pieces of 12.5 t or more (`warehouseInquiry`), and
+ * the Won quote a Won revision was made from (`wonRevisionOf`).
  * A save of the document never changes them.
  */
 export const PROTECTED_KEYS = [
@@ -32,7 +33,16 @@ export const PROTECTED_KEYS = [
   "marginApproval",
   "replacedBy",
   "warehouseInquiry",
+  "wonRevisionOf",
 ] as const;
+
+/**
+ * Whether a Won quote is the revision of a Won quote (`wonRevisionOf`, set by the server when it
+ * is made): Won, yet its validity and its buying and selling stay open to change.
+ */
+export function isWonRevision(status: string, data: unknown): boolean {
+  return status === "won" && isPlainObject(data) && typeof data.wonRevisionOf === "string" && data.wonRevisionOf !== "";
+}
 
 export function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

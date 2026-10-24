@@ -156,6 +156,7 @@ export const PROTECTED_KEYS = [
   "marginApproval",
   "replacedBy",
   "warehouseInquiry",
+  "wonRevisionOf",
 ] as const satisfies readonly (keyof SalesQuoteData)[];
 
 // The road transport of a quote as the Sales editor enters it; the trucking tariffs price it.
@@ -236,6 +237,9 @@ export interface SalesQuoteData {
   marginApproval?: QuoteMarginApproval;
   // Pieces of 12.5 t or more: the warehouse's answer to Sales' question (server only).
   warehouseInquiry?: QuoteWarehouseInquiry;
+  // A Won quote that is the revision of a Won quote: it names that quote (server only). Its
+  // validity and buying and selling stay open to change.
+  wonRevisionOf?: string;
   // Shipping terms
   shippingTerms?: string; // name of a terms_condition template
   shippingIncludes?: string;

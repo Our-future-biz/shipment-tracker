@@ -10,7 +10,7 @@ vi.mock("~encore/clients", () => ({
   auth: { usersList: vi.fn() },
   customers: { customerActivate: vi.fn() },
   fx: { fxRatesOn: vi.fn(), fxResolve: vi.fn() },
-  shipments: { _internalShipmentsNamingQuote: vi.fn() },
+  shipments: { _internalShipmentsNamingQuote: vi.fn(), _internalShipmentsMoveQuote: vi.fn() },
   trucking: { truckingRate: vi.fn(), _internalTruckingMarginFloor: vi.fn() },
 }));
 vi.mock("../../repositories/quoteAttachment.repository", () => ({ quoteAttachmentRepository: { deleteForQuote: vi.fn() } }));
@@ -553,7 +553,7 @@ describe("revise", () => {
   it("refuses a quote that was not sent or is decided, and one changed since the caller saw it", async () => {
     stored = quote({ status: "draft" });
     await expect(salesQuoteService.revise(martin, REF)).rejects.toMatchObject({ code: "failed_precondition" });
-    stored = quote({ status: "won" });
+    stored = quote({ status: "lost" });
     await expect(salesQuoteService.revise(martin, REF)).rejects.toMatchObject({ code: "failed_precondition" });
     stored = sent();
     await expect(salesQuoteService.revise(martin, REF, 2)).rejects.toMatchObject({ code: "aborted" });
@@ -562,6 +562,33 @@ describe("revise", () => {
   it("is not found for a quote that is not there", async () => {
     stored = null;
     await expect(salesQuoteService.revise(martin, REF)).rejects.toMatchObject({ code: "not_found" });
+  });
+
+  it("revises a Won quote into a Won revision that takes over its shipments", async () => {
+    stored = quote({ status: "won", sentAt: SENT, firstSentAt: SENT, decidedAt: SENT, data: { reference: REF, quoteStatus: "won", sellingLines: [] } });
+    vi.mocked(shipments._internalShipmentsMoveQuote).mockResolvedValue({ moved: ["CZ00000042"] });
+    const result = await salesQuoteService.revise(martin, REF);
+    expect(planned!.write.state.status).toBe("replaced");
+    expect(planned!.row.status).toBe("won");
+    // The shipments told both quotes: they are read again for their links.
+    expect(repository.loadSales).toHaveBeenCalledWith(martin.companyID, `${REF}-R2`);
+    expect((planned!.row.data as Record<string, unknown>).wonRevisionOf).toBe(REF);
+    expect(shipments._internalShipmentsMoveQuote).toHaveBeenCalledWith({ from: REF, to: `${REF}-R2` });
+    expect(result.warning).toBeUndefined();
+  });
+
+  it("still makes the revision of a Won quote when its shipments cannot be moved, and says what to do", async () => {
+    stored = quote({ status: "won", sentAt: SENT, firstSentAt: SENT, decidedAt: SENT, data: { reference: REF, quoteStatus: "won" } });
+    vi.mocked(shipments._internalShipmentsMoveQuote).mockRejectedValue(new Error("down"));
+    const result = await salesQuoteService.revise(martin, REF);
+    expect(result.revision).toMatchObject({ quoteNumber: `${REF}-R2` });
+    expect(result.warning).toBe(`The shipments of ${REF} could not be moved to ${REF}-R2 - change their Sales Reference to ${REF}-R2`);
+  });
+
+  it("does not move shipments for the revision of a quote that was not Won", async () => {
+    stored = sent();
+    await salesQuoteService.revise(martin, REF);
+    expect(shipments._internalShipmentsMoveQuote).not.toHaveBeenCalled();
   });
 });
 

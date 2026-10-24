@@ -25,7 +25,7 @@ import { quoteCommentRepository } from "../repositories/quoteComment.repository"
 import { salesQuoteRepository, type NewSalesQuote, type SalesQuoteFilter, type SalesQuotePage } from "../repositories/salesQuote.repository";
 import type { SalesQuoteRecord } from "../schemas/quote.schema";
 import { matchOwnerLabel } from "../utils/ownerMatch.utils";
-import { carryKeys, isPlainObject, newDocument } from "../utils/quoteDocument.utils";
+import { carryKeys, isPlainObject, isWonRevision, newDocument } from "../utils/quoteDocument.utils";
 import { approvedPricing, inquiryGateMessage, MAX_INQUIRY_NOTE, MAX_INQUIRY_PIECES, MAX_PRICE_PER_PIECE, MIN_REJECT_REASON, readInquiry } from "../utils/warehouseInquiry.utils";
 import { fxWriteFor, mayStampFx, type StoredFx } from "../lib/quoteFx";
 import { currenciesToResolve, formatMargin, marginGateMessage, roadMargin, roadMarginApplies, type MarginContext } from "../lib/roadMargin";
@@ -411,7 +411,9 @@ class SalesQuoteService {
     if (stored.dataVersion !== expectedDataVersion) throw conflict();
     // The prices of a quote that went out stay what the customer was given: a save keeps them as
     // stored, whatever the editor sends. The version check below makes this the status saved on.
-    const carry = PRICING_CLOSED.includes(stored.status) ? [...carryKeys(), ...PRICING_KEYS] : carryKeys();
+    // The revision of a Won quote keeps its prices open (isWonRevision).
+    const closed = PRICING_CLOSED.includes(stored.status) && !isWonRevision(stored.status, stored.data);
+    const carry = closed ? [...carryKeys(), ...PRICING_KEYS] : carryKeys();
     const saved = await salesQuoteRepository.saveDocument(
       companyID,
       quoteNumber,
@@ -470,22 +472,33 @@ class SalesQuoteService {
   // everything the quote holds, prices included - is made Revised, so it can be priced again and
   // sent; the quote itself becomes Replaced and stays as the record of what the customer was
   // given. Both happen in one transaction or not at all.
-  async revise(actor: Actor, quoteNumber: string, expectedDataVersion?: number): Promise<{ quote: SalesQuoteItem; revision: SalesQuoteItem }> {
+  // A Won quote is revised the same way - a delayed shipment, a validity running out - but its
+  // revision stays Won and takes over the shipments that named the quote: their Sales Number is
+  // moved to the revision once it exists. Should that fail, the revision is still made and the
+  // answer says so (`warning`): the shipments then still name the Replaced quote.
+  async revise(
+    actor: Actor,
+    quoteNumber: string,
+    expectedDataVersion?: number,
+  ): Promise<{ quote: SalesQuoteItem; revision: SalesQuoteItem; warning?: string }> {
     const at = new Date();
     const names = await userNames();
     const ctx = contextOf(actor, at, names);
     const root = revisionRoot(quoteNumber);
+    let won = false;
     const result = await salesQuoteRepository.revise(actor.companyID, quoteNumber, `${root}-R`, (quote, existing) => {
       if (expectedDataVersion !== undefined && expectedDataVersion !== quote.dataVersion) throw conflict();
       const reference = nextRevision(revisionRoot(quote.quoteNumber), existing);
       const state = stateOf(quote);
       const replaced = ruled(() => applyRevision(state, reference, ctx));
       const fresh = revisionOf(state, quote.quoteNumber, ctx);
+      won = state.status === "won";
       const fields = isPlainObject(quote.data) ? quote.data : {};
       // The prices go with what they were given: the tariff pricing they came from and the
       // approval of their margin - the server's keys, which newDocument leaves out.
       const carried = ["roadPricing", "marginApproval", "warehouseInquiry"] as const;
-      const priced = Object.fromEntries(carried.filter((key) => key in fields).map((key) => [key, fields[key]]));
+      const priced: Record<string, unknown> = Object.fromEntries(carried.filter((key) => key in fields).map((key) => [key, fields[key]]));
+      if (won) priced.wonRevisionOf = quote.quoteNumber;
       return {
         reference,
         row: {
@@ -499,10 +512,26 @@ class SalesQuoteService {
       };
     });
     if (!result) throw notFound();
-    const margins = await marginsFor([result.quote, result.revision], at);
+    let warning: string | undefined;
+    let { quote: revised, revision } = result;
+    if (won) {
+      try {
+        const { moved } = await shipments._internalShipmentsMoveQuote({ from: revised.quoteNumber, to: revision.quoteNumber });
+        // The shipments told both quotes: read them again for their links.
+        if (moved.length) {
+          revised = (await salesQuoteRepository.loadSales(actor.companyID, revised.quoteNumber)) ?? revised;
+          revision = (await salesQuoteRepository.loadSales(actor.companyID, revision.quoteNumber)) ?? revision;
+        }
+      } catch (err) {
+        log.warn(err, "the shipments of a revised Won quote could not be moved to its revision", { quoteNumber: revised.quoteNumber, revision: revision.quoteNumber });
+        warning = `The shipments of ${revised.quoteNumber} could not be moved to ${revision.quoteNumber} - change their Sales Reference to ${revision.quoteNumber}`;
+      }
+    }
+    const margins = await marginsFor([revised, revision], at);
     return {
-      quote: toItem(result.quote, names, actor, at, margins),
-      revision: toItem(result.revision, names, actor, at, margins),
+      quote: toItem(revised, names, actor, at, margins),
+      revision: toItem(revision, names, actor, at, margins),
+      ...(warning ? { warning } : {}),
     };
   }
 
@@ -731,7 +760,7 @@ class SalesQuoteService {
     const names = await userNames();
     const ctx = contextOf(actor, at, names);
     const written = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
-      const change = ruled(() => applyValidity(stateOf(quote), validUntil, ctx));
+      const change = ruled(() => applyValidity(stateOf(quote), validUntil, ctx, { wonRevision: isWonRevision(quote.status, quote.data) }));
       if (!change.changed) return quote;
       return salesQuoteRepository.writeLifecycle(tx, quote, { state: change.state, entries: change.entry ? [change.entry] : [] });
     });

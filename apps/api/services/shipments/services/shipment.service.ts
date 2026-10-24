@@ -912,6 +912,27 @@ class ShipmentService {
   }
 
   /**
+   * A Won quote was revised: the live shipments that name `from` in their Sales Number name its
+   * revision `to` instead, each with a line in its history, and both quotes are told (the one
+   * gives the shipments up, the other takes them). Returns the job numbers moved.
+   */
+  async moveQuoteReference(companyId: string, userId: string, from: string, to: string): Promise<string[]> {
+    const previous = from.trim();
+    const next = to.trim();
+    if (!previous || !next || previous === next) return [];
+    const naming = await shipmentRepository.liveBySalesNumber(companyId, previous);
+    for (const shipment of naming) {
+      await shipmentAuditRepository.create({ companyId, shipmentId: shipment.id, userId, field: "salesNumber", oldValue: previous, newValue: next });
+      await shipmentRepository.updateForCompany(shipment.id, companyId, { salesNumber: next });
+    }
+    if (naming.length > 0) {
+      await this.tellQuote(companyId, next);
+      await this.tellQuote(companyId, previous);
+    }
+    return naming.map((shipment) => shipment.jobNumber);
+  }
+
+  /**
    * The live shipments that name each of `references` as their Sales Number, the oldest first:
    * what the Quotes list counts and lists per quote. Every reference asked for is answered, one
    * no shipment names with none.

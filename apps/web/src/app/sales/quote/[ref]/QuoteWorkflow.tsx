@@ -401,7 +401,9 @@ export function QuoteWorkflow() {
   const documentBlocked = documentBlock(totals, exchange.isError);
   // A quote that went out (or is decided) has its buying and selling closed: the server keeps
   // them as stored, and the page shows them locked. New prices are a revision of the quote.
-  const pricingClosed = !!quote && !exportClosesQuote(quote.status);
+  // The revision of a Won quote is the exception: it stays Won with its prices open to change.
+  const wonRevision = quote?.status === "won" && !!draft.wonRevisionOf;
+  const pricingClosed = !!quote && !exportClosesQuote(quote.status) && !wonRevision;
   // A warehouse approval from before the server put its fee to Pricing: the lines are added as the
   // quote opens (once per answer; autosave stores them). Not on a quote whose pricing is closed.
   const missingFee = quote && !pricingClosed ? missingWarehouseFee(draft) : null;
@@ -462,6 +464,8 @@ export function QuoteWorkflow() {
     const refused = await act(async (expectedDataVersion) => {
       const answer = await api.quotes.salesQuoteRevise(ref, { expectedDataVersion });
       revision = answer.revision.quoteNumber;
+      // A Won quote's shipments could not be moved to the revision: what to do by hand.
+      if (answer.warning) toast.warning(answer.warning);
       return answer;
     }, { versioned: true });
     if (refused) return refused;
@@ -547,8 +551,9 @@ export function QuoteWorkflow() {
   const sectionStatus = (key: SectionKey): SectionStatus => (done[key] ? "completed" : partial[key] ? "in-progress" : "empty");
 
   const shownValidity = pendingValidity === undefined ? quote.validUntil : pendingValidity;
-  // The server refuses another validity for a quote that is decided, whoever asks.
-  const decided = quote.status === "won" || quote.status === "lost";
+  // The server refuses another validity for a quote that is decided, whoever asks - except the
+  // revision of a Won quote, which is made to get a new one.
+  const decided = (quote.status === "won" && !wonRevision) || quote.status === "lost";
 
   const airFreight = draft.serviceType === "Air";
 
@@ -1705,7 +1710,11 @@ export function QuoteWorkflow() {
             setModal(null);
           }}
           title="Revise as a new quote"
-          description={`${ref} stays as it was sent and becomes Replaced. Its revision - a new quote with the same content and the next free revision number of ${revisionRoot(ref)} (-R1, -R2, ...) - opens, ready for new prices. Revise it?`}
+          description={
+            quote.status === "won"
+              ? `${ref} stays as it was sent and becomes Replaced. Its revision - a new quote with the same content and the next free revision number of ${revisionRoot(ref)} (-R1, -R2, ...) - stays Won, takes over its shipments (their Sales Reference moves to it) and opens with its Valid until and prices open to change. Revise it?`
+              : `${ref} stays as it was sent and becomes Replaced. Its revision - a new quote with the same content and the next free revision number of ${revisionRoot(ref)} (-R1, -R2, ...) - opens, ready for new prices. Revise it?`
+          }
           confirmLabel="Revise"
         />
       )}

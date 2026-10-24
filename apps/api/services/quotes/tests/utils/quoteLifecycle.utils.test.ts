@@ -91,7 +91,7 @@ const ALLOWED: Record<string, string[]> = {
   quoted: ["feedback", "revised", "won", "lost"],
   feedback: ["revised", "won", "lost", "quoted"],
   revised: ["quoted", "won", "lost"],
-  won: [],
+  won: ["revised"],
   lost: ["draft"],
   // stored by the old bulk menu
   expired: ["draft", "revised"],
@@ -259,7 +259,7 @@ describe("allowedTransitions", () => {
   it("does not offer Won on a closed quote because of a shipment", () => {
     const linked = { shipmentId: "shipment-1" };
     expect(allowedTransitions(state({ status: "lost", ...linked }), TODAY)).toEqual(["draft"]);
-    expect(allowedTransitions(state({ status: "won", ...linked }), TODAY)).toEqual([]);
+    expect(allowedTransitions(state({ status: "won", ...linked }), TODAY)).toEqual(["revised"]);
     expect(allowedTransitions(state({ status: "on_hold", ...linked }), TODAY)).toEqual(["draft"]);
   });
 
@@ -1567,10 +1567,11 @@ describe("applyRevision", () => {
     expect(entry).toEqual({ kind: "status", at: AT.toISOString(), userId: "user-1", user: "Martin", status: "replaced", comment: "Replaced by QCZ20261010001-R1" });
   });
 
-  it("revises Quoted, Feedback and Expired quotes only", () => {
+  it("revises Quoted, Feedback, Expired and Won quotes only", () => {
     expect(applyRevision(state({ status: "quoted", sentAt: SENT }), "R", ctx).state.status).toBe("replaced");
     expect(applyRevision(state({ status: "quoted", validUntil: YESTERDAY }), "R", ctx).state.status).toBe("replaced");
-    for (const status of ["draft", "ready_to_send", "revised", "won", "lost", "replaced", "on_hold"]) {
+    expect(applyRevision(state({ status: "won", sentAt: SENT, decidedAt: SENT }), "R", ctx).state).toMatchObject({ status: "replaced", decidedAt: null });
+    for (const status of ["draft", "ready_to_send", "revised", "lost", "replaced", "on_hold"]) {
       expect(refusal(() => applyRevision(state({ status }), "R", ctx)), status).toBe("not_allowed");
     }
   });
@@ -1598,5 +1599,20 @@ describe("revisionOf", () => {
 
   it("can be priced: Revised is not among the closed statuses", () => {
     expect(PRICING_CLOSED).not.toContain("revised");
+  });
+});
+
+describe("the revision of a Won quote", () => {
+  const won = state({ status: "won", sentAt: SENT, firstSentAt: SENT, decidedAt: SENT, validUntil: YESTERDAY, shipmentId: "shipment-1", shipmentJobNumber: "CZ00000042" });
+
+  it("stays Won, with the quote's sending, decision, validity and shipment", () => {
+    const { state: fresh, entry } = revisionOf(won, "QCZ1", ctx);
+    expect(fresh).toMatchObject({ status: "won", sentAt: SENT, firstSentAt: SENT, decidedAt: SENT, validUntil: YESTERDAY, shipmentId: "shipment-1", shipmentJobNumber: "CZ00000042" });
+    expect(entry).toMatchObject({ kind: "status", status: "won", comment: "Revision of QCZ1 - stays Won" });
+  });
+
+  it("may get a new validity; another Won quote may not", () => {
+    expect(applyValidity(won, "2026-12-31", ctx, { wonRevision: true })).toMatchObject({ changed: true, state: { validUntil: "2026-12-31" } });
+    expect(refusal(() => applyValidity(won, "2026-12-31", ctx))).toBe("not_allowed");
   });
 });

@@ -150,7 +150,8 @@ export const NEXT: Record<ShownQuoteStatus, readonly SettableQuoteStatus[]> = {
   quoted: ["feedback", "revised", "won", "lost"],
   feedback: ["revised", "won", "lost", "quoted"],
   revised: ["quoted", "won", "lost"],
-  won: [],
+  // A won deal can be revised (a delayed shipment, a validity running out): see applyRevision.
+  won: ["revised"],
   lost: ["draft"],
   expired: ["draft", "revised"],
   // Its revision took its place: the quote stays as the record of what was sent.
@@ -184,7 +185,7 @@ export const PRICING_CLOSED: readonly string[] = ["quoted", "feedback", "won", "
 export const PRICING_KEYS: readonly string[] = ["buyingLines", "sellingLines", "currency", "allIn", "road"];
 
 // The statuses (as shown) a quote is revised from: it went out and is not decided.
-const REVISABLE: readonly string[] = ["quoted", "feedback", "expired"];
+const REVISABLE: readonly string[] = ["quoted", "feedback", "expired", "won"];
 
 /** The statuses a quote can be set to, each with the win probability it carries. */
 export const WIN_PROBABILITY: Record<SettableQuoteStatus, number> = {
@@ -375,7 +376,7 @@ export function applyTransition(state: LifecycleState, change: StatusChange, ctx
 export function applyRevision(state: LifecycleState, revision: string, ctx: LifecycleContext): { state: LifecycleState; entry: TimelineEntry } {
   const from = effectiveStatus(state.status, state.validUntil, ctx.today);
   if (!REVISABLE.includes(from)) {
-    throw new LifecycleError("not_allowed", `only a Quoted, Feedback or Expired quote can be revised - this one is ${label(from)}`);
+    throw new LifecycleError("not_allowed", `only a Quoted, Feedback, Expired or Won quote can be revised - this one is ${label(from)}`);
   }
   return {
     state: { ...state, status: "replaced", substatus: null, lostReason: null, lostComment: null, decidedAt: null },
@@ -387,8 +388,15 @@ export function applyRevision(state: LifecycleState, revision: string, ctx: Life
  * What the revision of a quote starts with: Revised, so it is priced again and then sent; the
  * owner and the validity of the quote it revises (a validity that has passed is chosen anew
  * when it is sent); no sending, contact or shipment of its own yet.
+ * The revision of a Won quote stays Won instead - the deal is not lost by a delayed shipment -
+ * with the quote's sending and decision, and takes over its shipment; its validity and prices
+ * stay open to change (isWonRevision).
  */
 export function revisionOf(source: LifecycleState, sourceReference: string, ctx: LifecycleContext): { state: LifecycleState; entry: TimelineEntry } {
+  if (source.status === "won") {
+    const state: LifecycleState = { ...source, substatus: null, lostReason: null, lostComment: null, lastContactAt: null, createdAt: ctx.at };
+    return { state, entry: { ...statusEntry("won", ctx), comment: `Revision of ${sourceReference} - stays Won` } };
+  }
   const state: LifecycleState = {
     status: "revised",
     substatus: null,
@@ -417,8 +425,10 @@ export function applyValidity(
   state: LifecycleState,
   validUntil: string | null,
   ctx: LifecycleContext,
+  { wonRevision = false }: { wonRevision?: boolean } = {},
 ): LifecycleChange<TimelineEntry | null> {
-  if (state.status === "won" || state.status === "lost") {
+  // The revision of a Won quote is made to get a new validity: it may.
+  if ((state.status === "won" && !wonRevision) || state.status === "lost") {
     throw new LifecycleError("not_allowed", `the validity of a ${label(state.status)} quote cannot be changed`);
   }
   // Only what quote_lifecycle_of reads back as the same date.

@@ -6935,9 +6935,15 @@ export namespace controllers {
         quote: interfaces.SalesQuoteItem
 
         /**
-         * Its revision: the next -R1, -R2, ... with the same content, Revised, to be priced again and sent.
+         * Its revision: the next -R1, -R2, ... with the same content, Revised, to be priced again and
+         * sent. The revision of a Won quote stays Won and takes over the quote's shipments.
          */
         revision: interfaces.SalesQuoteItem
+
+        /**
+         * Set when the shipments of a Won quote could not be moved to its revision: what to do by hand.
+         */
+        warning?: string
     }
 
     export interface SalesQuoteRoadPriceRequest {
