@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Alert, AutoComplete, Button, Form, Input, Modal, Popconfirm, Popover, Select, Tooltip } from "antd";
-import { CloseOutlined, ContactsOutlined, DeleteOutlined, FilePdfOutlined, SaveOutlined } from "@ant-design/icons";
+import { Alert, AutoComplete, Button, Form, Input, Modal, Popconfirm, Select, Tooltip } from "antd";
+import { ContactsOutlined, DeleteOutlined, FilePdfOutlined, IdcardOutlined, SaveOutlined, TeamOutlined } from "@ant-design/icons";
+import { useUsers } from "@/hooks/useUsers";
+import { EmailAddressListButton } from "./EmailAddressListButton";
 import { useCustomerContacts } from "@/hooks/useCustomerContacts";
 import { invalidAddress, splitAddresses, usedAddresses, withAddress, type AddressField } from "@/app/sales/_lib/emailAddresses";
 import { useEmailAddresses } from "@/app/sales/_lib/useEmailAddresses";
@@ -84,12 +86,14 @@ export function EmailQuoteModal({
   const [refusal, setRefusal] = useState<string | null>(null);
 
   const toast = useToast();
-  // To offers the emails of the quote's customer, from the Customer Database; the addresses the
-  // user emailed before can be put to To, CC or BCC.
+  // To offers the emails of the quote's customer, from the Customer Database. Three lists put an
+  // address to To, CC or BCC: those the user emailed before, the users of the company, and the
+  // customer's contacts.
   const { contacts } = useCustomerContacts(open ? (data.customerId ?? "") : "");
   const customerEmails = contacts.filter((c) => c.email.trim());
   const addresses = useEmailAddresses(open);
-  const [addressSearch, setAddressSearch] = useState("");
+  // The platform's users of the company, for "My organization".
+  const { users } = useUsers();
   const addTo = (field: AddressField, address: string) => {
     form.setFieldValue(field, withAddress(form.getFieldValue(field), address));
     form.validateFields([field]).catch(() => {});
@@ -118,7 +122,6 @@ export function EmailQuoteModal({
       setRefusal(null);
       setNaming(null);
       form.setFieldsValue({ to: prefill.current.to, cc: "", bcc: "" });
-      setAddressSearch("");
       applyTemplate(lastTemplateId() ?? STANDARD_TEMPLATE.id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -306,53 +309,32 @@ export function EmailQuoteModal({
             )}
           </div>
         </Form.Item>
-        <div className="flex justify-end -mb-1">
-          <Popover
-            trigger="click"
-            placement="bottomRight"
+        <div className="flex flex-wrap justify-end gap-2 -mb-1">
+          <EmailAddressListButton
+            label="Used before"
+            icon={<ContactsOutlined />}
             title="Addresses you emailed before"
-            content={
-              <div className="w-[380px] max-w-[80vw]">
-                <Input
-                  size="small"
-                  allowClear
-                  placeholder="Search"
-                  aria-label="Search addresses"
-                  value={addressSearch}
-                  onChange={(e) => setAddressSearch(e.target.value)}
-                />
-                <div className="mt-2 max-h-64 overflow-y-auto flex flex-col">
-                  {addresses.list.filter((a) => a.toLowerCase().includes(addressSearch.trim().toLowerCase())).length === 0 ? (
-                    <div className="py-3 text-center text-[13px] text-slate-500">
-                      {addresses.list.length ? "No address matches" : "None yet - the addresses you email a quote to are kept here"}
-                    </div>
-                  ) : (
-                    addresses.list
-                      .filter((a) => a.toLowerCase().includes(addressSearch.trim().toLowerCase()))
-                      .map((a) => (
-                        <div key={a} className="flex items-center gap-1 py-1 border-b border-slate-100 last:border-0">
-                          <span className="flex-1 min-w-0 truncate text-[13px]" title={a}>
-                            {a}
-                          </span>
-                          {(["to", "cc", "bcc"] as const).map((field) => (
-                            <Button key={field} size="small" onClick={() => addTo(field, a)}>
-                              {field.toUpperCase()}
-                            </Button>
-                          ))}
-                          <Tooltip title="Take off the list">
-                            <Button size="small" type="text" icon={<CloseOutlined />} aria-label={`Take ${a} off the list`} onClick={() => addresses.forget.mutate(a)} />
-                          </Tooltip>
-                        </div>
-                      ))
-                  )}
-                </div>
-              </div>
-            }
-          >
-            <Button size="small" icon={<ContactsOutlined />}>
-              Used before
-            </Button>
-          </Popover>
+            entries={addresses.list.map((address) => ({ address }))}
+            empty="None yet - the addresses you email a quote to are kept here"
+            onAdd={addTo}
+            onForget={(address) => addresses.forget.mutate(address)}
+          />
+          <EmailAddressListButton
+            label="My organization"
+            icon={<TeamOutlined />}
+            title="The users of the platform in your company"
+            entries={users.filter((u) => u.email.trim()).map((u) => ({ address: u.email, name: u.displayName }))}
+            empty="No users with an email"
+            onAdd={addTo}
+          />
+          <EmailAddressListButton
+            label="Customers alternative"
+            icon={<IdcardOutlined />}
+            title={data.customerName ? `The contacts of ${data.customerName} in the Customer Database` : "The customer's contacts"}
+            entries={customerEmails.map((c) => ({ address: c.email, name: `${c.name}${c.isMain ? " · main" : ""}` }))}
+            empty={data.customerId ? "This customer has no contact with an email in the Customer Database" : "Pick the customer under Customer details first"}
+            onAdd={addTo}
+          />
         </div>
         <Form.Item
           name="to"
