@@ -87,6 +87,8 @@ import { hasOogEquipment, oogMissing, oogSummary, oogTypes } from "../../_lib/oo
 import { checkContainerWeight, type WeightCheck } from "../../_lib/containerWeight";
 import { asksHeavyPieces, missingWarehouseFee, WAREHOUSE_PAIR_ID, withHeavyPieces } from "../../_lib/heavyPieces";
 import { HeavyFeeReasonDialog } from "./_components/HeavyFeeReasonDialog";
+import { OverweightReasonDialog } from "./_components/OverweightReasonDialog";
+import { OVERWEIGHT_PAIR_ID, overweightUnexplained, withOverweight } from "../../_lib/overweight";
 import { QuoteHeavyPiecesDialogs } from "./_components/QuoteHeavyPiecesDialogs";
 import { QuoteChatDrawer, quoteThreadOf, useQuoteChatUnread } from "../../_components/QuoteChat";
 import { QuoteSection, QuoteStepTiles, type SectionStatus } from "./_components/QuoteSection";
@@ -184,6 +186,8 @@ export function QuoteWorkflow() {
   const [heavyPiecesTo, setHeavyPiecesTo] = useState<SectionKey | null>(null);
   // The selling line of the warehouse's Heavy Cargo Handling Fee whose amount Sales just changed: kept only with a reason.
   // Or a fee line Sales is removing (`removing`, its side): it goes only with a reason too.
+  // Leaving Pricing with the Overweight surcharge at 0 (to the step named), or removing it (the line's index): the reason is asked.
+  const [overweightAsk, setOverweightAsk] = useState<{ to?: SectionKey; save?: boolean; removing?: number } | null>(null);
   const [feeChange, setFeeChange] = useState<{ index: number; amount: number; before: number; currency: string; reason?: string; removing?: LineSide } | null>(null);
   const [modal, setModal] = useState<
     null | "import" | "copyQuote" | "copyShipment" | "duplicate" | "preview" | "email" | "delete" | "replaceSelling" | "allIn" | "closeQuote" | "revise" | "roadPrice" | "approveMargin"
@@ -243,6 +247,12 @@ export function QuoteWorkflow() {
   // imported inquiry, a copied quote or shipment - also empties what it does not bring of the
   // previous one (withCustomerUnit), and the contact person still being read for a customer
   // picked before is no longer waited for.
+  // What the quote's own rules put with a change, in that same change: the Overweight surcharge as
+  // the cargo has it, then the lines priced by their basis.
+  const derived = (next: SalesQuoteData): Partial<SalesQuoteData> => {
+    const overweight = withOverweight(next) ?? {};
+    return { ...overweight, ...withLineBasis({ ...next, ...overweight }) };
+  };
   const set = (patch: Partial<SalesQuoteData>) => {
     // Nothing of a closed quote is changed here (the server would keep it as stored anyway).
     if (quoteClosed) return;
@@ -254,8 +264,7 @@ export function QuoteWorkflow() {
     // server stores the rates when the quote is sent.
     // A selling line has its buying line's basis, and a line charged per W/M the cargo's weight /
     // measure as its quantity, in the same change - while the pricing is open.
-    const wm = withLineBasis({ ...draft, ...own });
-    change(wm ? { ...own, ...wm } : own);
+    change({ ...own, ...derived({ ...draft, ...own }) });
   };
 
   // A customer picked in the Customer box: the link at once, with the contact fields emptied in
@@ -419,10 +428,11 @@ export function QuoteWorkflow() {
     // Once per answer, not on every render while the change is on its way.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [missingFeeFor]);
-  // Lines from before the basis was copied and W/M followed the cargo are brought in line as the quote opens.
-  const staleWm = quote && !quoteClosed ? withLineBasis(draft) : null;
+  // Lines from before the basis was copied, W/M followed the cargo and the Overweight surcharge was
+  // put to Pricing are brought in line as the quote opens.
+  const staleWm = quote && !quoteClosed ? derived(draft) : null;
   useEffect(() => {
-    if (staleWm) change(staleWm);
+    if (staleWm && Object.keys(staleWm).length) change(staleWm);
     // Once as the quote opens; later changes of the cargo carry it themselves (set).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!quote]);
@@ -628,6 +638,8 @@ export function QuoteWorkflow() {
   // Removing a line that has a counterpart on the other side asks first; one without goes at once.
   const removeLine = (side: LineSide, index: number) => {
     const line = linesOf(side)[index]!;
+    // The Overweight surcharge goes only with a reason, as does leaving it at 0.
+    if (line.pairId === OVERWEIGHT_PAIR_ID) return setOverweightAsk({ removing: index });
     // The warehouse's fee goes only with a reason - its buying and its selling line together.
     if (line.pairId === WAREHOUSE_PAIR_ID) return setFeeChange({ index, amount: 0, before: Number(line.amount) || 0, currency: line.currency, removing: side });
     const other = counterpartIndex(linesOf(side)[index]!, linesOf(side === "buying" ? "selling" : "buying"));
@@ -1351,6 +1363,11 @@ export function QuoteWorkflow() {
   // shows the next step. It moves on whatever the server answers - a refused save is announced
   // by the hook and stays in the header until one works.
   const saveAndContinue = (to: SectionKey) => {
+    // Leaving Pricing with the Overweight surcharge still at 0 asks why first.
+    if (activeSection === "pricing" && !quoteClosed && overweightUnexplained(draft)) {
+      setOverweightAsk({ to, save: true });
+      return;
+    }
     // A Sea LCL shipment of over 2 t is asked whether any piece is over 2 t: the warehouse charges
     // extra handling for those. Not on a quote whose pricing is closed - its lines stay as sent.
     if (activeSection === "cargo" && !quoteClosed && asksHeavyPieces(draft.serviceType, cargo.grossWeight)) {
@@ -1552,7 +1569,11 @@ export function QuoteWorkflow() {
         <QuoteStepTiles
           steps={sections.map((s) => ({ key: s.key, title: s.title, status: sectionStatus(s.key) }))}
           active={shownSection}
-          onSelect={(key) => setActiveSection(key as SectionKey)}
+          onSelect={(key) => {
+            // Another step from Pricing, with the Overweight surcharge still at 0: why is asked first.
+            if (shownSection === "pricing" && key !== "pricing" && !quoteClosed && overweightUnexplained(draft)) return setOverweightAsk({ to: key as SectionKey });
+            setActiveSection(key as SectionKey);
+          }}
         />
 
         <div className="min-w-0">
@@ -1610,6 +1631,19 @@ export function QuoteWorkflow() {
           saveNow();
           if (to) setActiveSection(to);
         }}
+      />
+
+      <OverweightReasonDialog
+        asking={overweightAsk && { removing: overweightAsk.removing !== undefined, ratio: cargo.weightRatio }}
+        onConfirm={(reason) => {
+          const ask = overweightAsk!;
+          setOverweightAsk(null);
+          if (ask.removing !== undefined) return applyRemovals([{ side: "selling", index: ask.removing }], { overweightReason: reason });
+          set({ overweightReason: reason });
+          if (ask.save) saveNow();
+          if (ask.to) setActiveSection(ask.to);
+        }}
+        onCancel={() => setOverweightAsk(null)}
       />
 
       <HeavyFeeReasonDialog

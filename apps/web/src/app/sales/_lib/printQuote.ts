@@ -4,6 +4,7 @@ import type { SalesQuoteData, PackageLine, CostLine } from "./types";
 import { UNSENT_QUOTE_STATUSES } from "./types";
 import { hasCompanyDetails, type StoredCompanyDetails } from "./companyDetails";
 import { escapeHtml } from "@/lib/html";
+import { unpricedOverweight } from "./overweight";
 import { businessDay, businessToday, cargoReadyDay, computeTotals, computeCargo, convertLine, documentBlock, fmtDimensions, fxClause, quoteValidUntil, ratesNeeded } from "./salesQuote";
 
 // Whatever a user typed is text on the document, never markup.
@@ -147,7 +148,8 @@ export function quoteDocument(
   // currency, converted and rounded the way the total adds it up, so the lines sum to the total.
   // The customer reads a line by its description, not by its type (the charge code it is booked
   // under); a line nobody described keeps its type, so that no amount stands without a name.
-  const sellingLines: CostLine[] = data.sellingLines ?? [];
+  // The Overweight surcharge left at 0 (with a reason) is no charge: the customer does not see it.
+  const sellingLines: CostLine[] = (data.sellingLines ?? []).filter((l) => !unpricedOverweight(l));
   const lineRows = sellingLines
     .map(
       (l: CostLine) => `<tr>

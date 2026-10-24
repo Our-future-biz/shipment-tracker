@@ -219,6 +219,8 @@ export interface SalesQuoteData {
   heavyPieces?: QuoteHeavyPieces;
   // Sales removed the warehouse's Heavy Cargo Handling Fee from Pricing, and why (heavyPieces.ts).
   heavyFeeRemoved?: HeavyFeeRemoval;
+  // Why a Sea LCL quote of over 2 t and under 2.2 cbm/t charges no Overweight surcharge (_lib/overweight.ts).
+  overweightReason?: string;
   weight?: number;
   cbm?: number;
   // Pricing
