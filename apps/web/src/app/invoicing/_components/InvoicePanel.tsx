@@ -28,6 +28,8 @@ import { useToast } from "@/lib/toast";
 import { formatDate } from "@/lib/date";
 import { CURRENCIES } from "@/lib/enums";
 import { invoicingKey } from "@/hooks/useInvoicing";
+import { INVOICE_KEYS } from "@/hooks/useInvoiceQueue";
+import { isTruckingCost } from "@/lib/truckingCosts";
 import { moneyCz } from "@/lib/money";
 import { chargeLabel } from "@/lib/chargeCodes";
 import { statusLabel } from "@/lib/shipmentStatus";
@@ -60,10 +62,14 @@ const MAX_DAYS_AFTER_DUZP = 15;
 const TH = "text-[11.5px] font-bold tracking-[.04em] uppercase text-slate-500 px-2 py-2 border-b border-slate-200";
 const TD = "px-2 py-2 border-b border-slate-100 text-[13px] text-slate-700";
 
-/** A row of the lines table: an invoice line (ticked), or a selling row left off the invoice. */
+/**
+ * A row of the lines table: an invoice line (ticked), a selling row left off the invoice, or a row
+ * just ticked whose line the preview does not have yet (ticked, no line).
+ */
 interface TableRow {
   key: string;
   sellingId: string | null;
+  ticked: boolean;
   line?: interfaces.InvoiceDocLineItem;
   row?: interfaces.SellingCostItem;
 }
@@ -144,13 +150,17 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
 
   // the preview is recomputed whenever the rows it is built from change
   const previewKey = useMemo(() => JSON.stringify([billingCur, data?.sellingCosts ?? []]), [billingCur, data?.sellingCosts]);
-  const { preview, previewLoading, previewError, docs, issue, isIssuing, credit, isCrediting } = useInvoiceDocs(shipment.id, {
+  const { preview, previewLoading, previewError, docs, docsLoading, issue, isIssuing, credit, isCrediting } = useInvoiceDocs(shipment.id, {
     customerId,
     duzp,
     previewKey,
   });
 
-  const refreshCosts = () => queryClient.invalidateQueries({ queryKey: invoicingKey(shipment.id) });
+  // The queue's counts (to bill, lines invoiced) come from the same rows, so it is marked stale too.
+  const refreshCosts = () => {
+    void queryClient.invalidateQueries({ queryKey: INVOICE_KEYS.queueAll });
+    return queryClient.invalidateQueries({ queryKey: invoicingKey(shipment.id) });
+  };
 
   // Mutations, so a second change can't start while one is still saving.
   const billingCurrency = useMutation({
@@ -167,11 +177,16 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
   });
 
   // The tick is the selling row's "Invoice" flag, the same one Costs Breakdown shows.
+  // Several rows at once (the header checkbox): every request runs to its end, and the rows are
+  // reloaded even when one failed, so the table never shows a tick the server does not have.
   const lineTick = useMutation({
     mutationFn: async ({ sellingIds, invoice }: { sellingIds: string[]; invoice: boolean }) => {
-      await Promise.all(sellingIds.map((id) => api.invoicing.invoicingUpdateSellingCost(shipment.id, id, { invoice })));
+      const results = await Promise.allSettled(
+        sellingIds.map((id) => api.invoicing.invoicingUpdateSellingCost(shipment.id, id, { invoice })),
+      );
+      if (results.some((r) => r.status === "rejected")) throw new Error("Some lines could not be changed");
     },
-    onSuccess: refreshCosts,
+    onSettled: refreshCosts,
     onError: () => toast.error("Failed to change which lines are invoiced"),
   });
 
@@ -263,26 +278,51 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
   // so a line can be put back. Kept in the Costs Breakdown order.
   const sellingRows = data?.sellingCosts ?? [];
   const orderOf = (id: string | null) => sellingRows.find((r) => r.id === id)?.sortOrder ?? Number.MAX_SAFE_INTEGER;
-  const tableRows: TableRow[] = p
-    ? [
-        ...p.lines.map((l, i): TableRow => ({ key: l.sourceSellingCostId ?? `line-${i}`, sellingId: l.sourceSellingCostId, line: l })),
-        ...sellingRows
-          .filter((r) => !r.invoice && Number(r.amount ?? 0) !== 0)
-          .map((r): TableRow => ({ key: r.id, sellingId: r.id, row: r })),
-      ].sort((a, b) => orderOf(a.sellingId) - orderOf(b.sellingId))
-    : [];
+  // Built from the selling rows, so each row shows once even while the preview is a step behind
+  // a tick (it is refetched after the rows): a ticked row shows its preview line, an unticked one
+  // its own values. Preview lines of no current row (e.g. just deleted) follow at the end.
+  const tableRows: TableRow[] = (() => {
+    if (!p) return [];
+    const lineOf = new Map(p.lines.filter((l) => l.sourceSellingCostId).map((l) => [l.sourceSellingCostId!, l]));
+    // rows on an open invoice are billed already: ticked, but not on the next invoice
+    const billed = new Set(
+      docs
+        .filter((d) => d.kind === "invoice" && d.status === "issued")
+        .flatMap((d) => d.lines.map((l) => l.sourceSellingCostId))
+        .filter((id): id is string => !!id),
+    );
+    const rows: TableRow[] = [];
+    for (const r of [...sellingRows].sort((a, b) => orderOf(a.id) - orderOf(b.id))) {
+      const line = lineOf.get(r.id);
+      lineOf.delete(r.id);
+      const hasValue = Number(r.amount ?? 0) !== 0;
+      if (r.invoice && line) rows.push({ key: r.id, sellingId: r.id, ticked: true, line });
+      else if (r.invoice && hasValue && !billed.has(r.id)) rows.push({ key: r.id, sellingId: r.id, ticked: true, row: r });
+      else if (!r.invoice && hasValue) rows.push({ key: r.id, sellingId: r.id, ticked: false, row: r });
+    }
+    p.lines.forEach((l, i) => {
+      if (!l.sourceSellingCostId || lineOf.has(l.sourceSellingCostId)) rows.push({ key: `line-${i}`, sellingId: null, ticked: true, line: l });
+    });
+    return rows;
+  })();
   const rowDescription = (t: TableRow) => (t.line ? t.line.description : t.row!.customer.trim() || chargeLabel(t.row!.category) || "Service");
   const rowCurrency = (t: TableRow) => (t.line ? t.line.unitCurrency : t.row!.currency);
   const words = lineQuery.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const matches = (text: string) => words.every((w) => text.toLowerCase().includes(w));
-  const shownRows = tableRows.filter(
-    (t) => matches(rowDescription(t)) && (currencyFilter.length === 0 || currencyFilter.includes(rowCurrency(t))),
-  );
-  const tickable = shownRows.filter((t) => t.sellingId);
-  const tickedCount = tickable.filter((t) => t.line).length;
-  const setTicks = (invoice: boolean) =>
-    lineTick.mutate({ sellingIds: tickable.filter((t) => !!t.line !== invoice).map((t) => t.sellingId!), invoice });
+  // A currency picked earlier that no line has any more (billed, changed) no longer filters.
   const lineCurrencies = Array.from(new Set(tableRows.map(rowCurrency))).sort();
+  const activeCurrencies = currencyFilter.filter((c) => lineCurrencies.includes(c));
+  const shownRows = tableRows.filter(
+    (t) => matches(rowDescription(t)) && (activeCurrencies.length === 0 || activeCurrencies.includes(rowCurrency(t))),
+  );
+  // Rows Trucking pushed are kept by Trucking: read-only here, as in Costs Breakdown.
+  const isReadOnly = (t: TableRow) => isTruckingCost(sellingRows.find((r) => r.id === t.sellingId)?.sourceTruckingRef);
+  const tickable = shownRows.filter((t) => t.sellingId && !isReadOnly(t));
+  const tickedCount = tickable.filter((t) => t.ticked).length;
+  const setTicks = (invoice: boolean) => {
+    const sellingIds = tickable.filter((t) => t.ticked !== invoice).map((t) => t.sellingId!);
+    if (sellingIds.length) lineTick.mutate({ sellingIds, invoice });
+  };
 
   // Invoiced: the issued invoices of the job (credit notes stay in the Invoices & Credit Notes tab).
   const issuedInvoices = docs.filter((d) => d.kind === "invoice");
@@ -298,7 +338,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
       else next.add(id);
       return next;
     });
-  const activeFilters = linesView === "to_invoice" ? currencyFilter : statusFilter;
+  const activeFilters = linesView === "to_invoice" ? activeCurrencies : statusFilter;
   // the address on one line, IČO and DIČ together on the next (no separator left hanging)
   const customerAddress = p?.customer?.address ?? "";
   const customerIds = p?.customer
@@ -422,7 +462,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
               {(
                 [
                   { key: "to_invoice", label: "To invoice", count: p ? p.lines.length : undefined },
-                  { key: "invoiced", label: "Invoiced", count: issuedInvoices.length },
+                  { key: "invoiced", label: "Invoiced", count: docsLoading ? undefined : issuedInvoices.length },
                 ] as const
               ).map((t) => {
                 const active = linesView === t.key;
@@ -466,7 +506,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
                       <div className="text-[11px] font-bold uppercase tracking-[.04em] text-slate-500">Currency</div>
                       <Checkbox.Group
                         className="flex flex-col gap-1"
-                        value={currencyFilter}
+                        value={activeCurrencies}
                         onChange={(v) => setCurrencyFilter(v as string[])}
                         options={lineCurrencies.map((c) => ({ value: c, label: c }))}
                       />
@@ -562,14 +602,15 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
                     {shownRows.map((t) => {
                       const l = t.line;
                       const description = rowDescription(t);
-                      const muted = l ? "" : " !text-slate-400";
+                      const muted = t.ticked ? "" : " !text-slate-400";
                       return (
                         <tr key={t.key}>
                           <td className={`${TD} w-8`}>
                             {t.sellingId && (
                               <Checkbox
-                                checked={!!l}
-                                disabled={lineTick.isPending}
+                                checked={t.ticked}
+                                disabled={lineTick.isPending || isReadOnly(t)}
+                                title={isReadOnly(t) ? "Kept by Trucking — change it there" : undefined}
                                 onChange={(e) => lineTick.mutate({ sellingIds: [t.sellingId!], invoice: e.target.checked })}
                                 aria-label={`Put ${description} on the invoice`}
                               />
@@ -582,7 +623,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
                           </td>
                           <td className={TD}>
                             {!l ? (
-                              <span className="text-slate-400">Not invoiced</span>
+                              <span className="text-slate-400">{t.ticked ? "…" : "Not invoiced"}</span>
                             ) : l.vatCode === "NP" ? (
                               <span className="text-slate-500">{VAT_LABEL.NP}</span>
                             ) : (
@@ -597,7 +638,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
                               />
                             )}
                           </td>
-                          <td className={`${TD} text-right tabular-nums font-medium${muted}`}>{l ? moneyCz(Number(l.net)) : "—"}</td>
+                          <td className={`${TD} text-right tabular-nums font-medium${muted}`}>{l ? moneyCz(Number(l.net)) : t.ticked ? "…" : "—"}</td>
                         </tr>
                       );
                     })}
@@ -727,7 +768,11 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
                   {shownInvoices.length === 0 && (
                     <tr>
                       <td colSpan={6} className={`${TD} text-center text-slate-500 py-6`}>
-                        {issuedInvoices.length === 0 ? "No invoice issued for this job yet." : "No invoices match the search or filter."}
+                        {docsLoading
+                          ? "Loading the invoices…"
+                          : issuedInvoices.length === 0
+                            ? "No invoice issued for this job yet."
+                            : "No invoices match the search or filter."}
                       </td>
                     </tr>
                   )}

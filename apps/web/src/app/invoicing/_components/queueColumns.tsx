@@ -132,12 +132,12 @@ interface QueueColumnsArgs {
 // with an ellipsis and keep the full text as their title.
 const W = {
   job: 140,
-  customer: 165,
+  customer: 150,
   direction: 105,
   date: 110,
   duzp: 100,
-  invoices: 120,
-  lines: 95,
+  invoices: 105,
+  lines: 122,
   invoicing: 130,
   open: 88,
 };
@@ -281,7 +281,9 @@ export function queueColumns({
         const done = r.invoicedLines === r.sellingLines;
         return (
           <span
-            className={`tabular-nums font-semibold ${done ? "text-emerald-600" : "text-red-600"}`}
+            // cf-own-color: the count's colour is its meaning, so it keeps it on an OBL row's red text
+            className={`cf-own-color tabular-nums font-semibold ${done ? "text-emerald-600" : "text-red-600"}`}
+            style={{ "--cf-own-color": done ? "var(--color-emerald-600)" : "var(--color-red-600)" } as React.CSSProperties}
             title={`${r.invoicedLines} of ${r.sellingLines} selling lines invoiced`}
           >
             {r.invoicedLines}/{r.sellingLines}

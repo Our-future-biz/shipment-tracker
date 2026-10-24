@@ -70,7 +70,8 @@ function ShipmentSummary({ shipment, nextDuzp }: ShipmentProps & { nextDuzp: str
   const open = (data?.invoices ?? []).filter((d) => d.kind === "invoice" && d.status === "issued");
   // the shared invoicing query (selling rows), already loaded for the Invoice tab
   const { data: costs } = useInvoicing(shipment.id);
-  const lines = invoicedLineCount(costs?.sellingCosts ?? [], data?.invoices ?? []);
+  // counted once both have loaded, so a fully invoiced job never flashes a red 0/N first
+  const lines = costs && data ? invoicedLineCount(costs.sellingCosts, data.invoices) : null;
   const status = shipment.status ?? "";
 
   const handleInvoicingStatus = async (value: string) => {
@@ -87,8 +88,8 @@ function ShipmentSummary({ shipment, nextDuzp }: ShipmentProps & { nextDuzp: str
 
   return (
     // 9 facts in one row on a wide screen: the text facts share the width, the last three take
-    // the width of their label (labels do not wrap)
-    <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,1.3fr)_minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,0.9fr)_max-content_max-content_max-content] gap-x-4 gap-y-3">
+    // the width of their label (labels do not wrap); a long Shipment Status is cut, not widened
+    <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,1.3fr)_minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,0.9fr)_fit-content(120px)_max-content_max-content] gap-x-4 gap-y-3">
       <SummaryItem label="Job">
         <Link href={`/shipments/${shipment.id}`} className="font-semibold text-indigo-600 hover:underline">
           {shipment.jobNumber}
@@ -124,7 +125,7 @@ function ShipmentSummary({ shipment, nextDuzp }: ShipmentProps & { nextDuzp: str
       </SummaryItem>
       {/* as the queue's column: selling lines on an open invoice, of all; green once all are */}
       <SummaryItem label="Lines Invoiced">
-        {lines.total ? (
+        {lines?.total ? (
           <span
             className={`tabular-nums font-semibold ${lines.invoiced === lines.total ? "text-emerald-600" : "text-red-600"}`}
             title={`${lines.invoiced} of ${lines.total} selling lines invoiced`}
