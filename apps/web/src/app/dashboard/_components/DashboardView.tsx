@@ -73,23 +73,9 @@ export function DashboardView() {
     toast.info("This notice has been deleted");
   }, [openId, hasLoaded, openPost, toast]);
 
-  // A notice counts as read once it has been opened and closed again — or left open while the
-  // reader goes elsewhere (Back, a sidebar link), which never closes the dialog.
-  const openUnread = useRef<string | null>(null);
-  openUnread.current = openPost?.unread ? openPost.id : null;
-  const markReadRef = useRef(markRead);
-  markReadRef.current = markRead;
-  useEffect(
-    () => () => {
-      if (openUnread.current) markReadRef.current(openUnread.current);
-    },
-    [],
-  );
-
-  const handleCloseDetail = () => {
-    if (openPost?.unread) markRead(openPost.id);
-    setOpenId(null);
-  };
+  // A notice counts as read only once the reader confirms it with the Read button in the detail;
+  // opening and closing it leaves it unread.
+  const handleCloseDetail = () => setOpenId(null);
 
   const canPost = !!user && POSTING_ROLES.includes(user.role);
   const [filters, setFilters] = useState<NoticeFilters>({});
@@ -141,19 +127,11 @@ export function DashboardView() {
         />
       </div>
 
-      {/* Editing or deleting from the detail closes it first; the next dialog takes over. */}
+      {/* Left only by confirming it was read (or with Close, once it is). Edit and Delete are in the table's row menu. */}
       <NoticeDetailModal
         post={openPost}
         onClose={handleCloseDetail}
-        onEdit={(post) => {
-          handleCloseDetail();
-          openPostDialog({ post });
-        }}
-        onDelete={(post) => {
-          handleCloseDetail();
-          setDeleteTarget(post);
-          setDeleteOpen(true);
-        }}
+        onConfirmRead={(post) => markRead(post.id)}
       />
       <NoticePostModal
         key={postDialog.key}

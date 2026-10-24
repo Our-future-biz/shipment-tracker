@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Button, Dropdown, Modal, Progress } from "antd";
+import { Button, Modal, Progress } from "antd";
 import { useQuery } from "@tanstack/react-query";
-import { DeleteOutlined, EditOutlined, EllipsisOutlined } from "@ant-design/icons";
+import { CheckOutlined } from "@ant-design/icons";
 import { api } from "@/lib/api";
 import { formatDateTime } from "@/lib/date";
 import { downloadDataUrl } from "@/lib/files";
@@ -14,10 +14,11 @@ import { NoticeSeverityTag } from "./NoticeSeverityTag";
 
 interface NoticeDetailModalProps {
   post: Announcement | null;
+  // Closes a notice that is already read (the Close button).
   onClose: () => void;
-  // Offered from the menu in the heading to those who may change the notice.
-  onEdit: (post: Announcement) => void;
-  onDelete: (post: Announcement) => void;
+  // The reader confirms having read the notice (the green Read button): it is marked read and the
+  // dialog closes. An unread notice can be left no other way - no close icon, Escape or outside click.
+  onConfirmRead: (post: Announcement) => Promise<unknown>;
 }
 
 // What the browser renders itself. The preview is typed from this list, never from the
@@ -26,11 +27,13 @@ interface NoticeDetailModalProps {
 // a tab of its own could run script here — SVG files are download-only.
 const PREVIEW_TYPES = ["application/pdf", "image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp", "image/avif"];
 
-export function NoticeDetailModal({ post, onClose, onEdit, onDelete }: NoticeDetailModalProps) {
+export function NoticeDetailModal({ post, onClose, onConfirmRead }: NoticeDetailModalProps) {
   const toast = useToast();
   // Kept while the dialog animates out, so it does not go blank first.
   const [shown, setShown] = useState(post);
   if (post && post !== shown) setShown(post);
+  // The notice whose Read was just pressed: the button stays busy until the server has recorded it.
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
 
   const [preview, setPreview] = useState<{ name: string; url: string; type: string } | null>(null);
   // Documents being fetched: any number of downloads side by side, one preview at a time.
@@ -125,32 +128,55 @@ export function NoticeDetailModal({ post, onClose, onEdit, onDelete }: NoticeDet
     <Modal
       open={!!post}
       onCancel={onClose}
-      footer={null}
+      closable={false}
+      keyboard={false}
+      maskClosable={false}
+      // The reader confirms the notice here (which closes it); once read, a quiet note and a Close button.
+      footer={
+        shown && (
+          <div className="flex justify-end pt-1">
+            {shown.unread ? (
+              <Button
+                color="green"
+                variant="solid"
+                icon={<CheckOutlined />}
+                loading={confirmingId === shown.id}
+                onClick={async () => {
+                  setConfirmingId(shown.id);
+                  try {
+                    await onConfirmRead(shown);
+                    onClose();
+                  } catch {
+                    toast.error("Could not mark the notice as read");
+                  } finally {
+                    setConfirmingId(null);
+                  }
+                }}
+              >
+                Read
+              </Button>
+            ) : (
+              <div className="flex items-center gap-3">
+                <span className="flex items-center gap-1.5 text-[13px] font-medium text-emerald-700">
+                  <CheckOutlined /> Read
+                </span>
+                <Button onClick={onClose}>Close</Button>
+              </div>
+            )}
+          </div>
+        )
+      }
       width={720}
       destroyOnHidden
       // The heading names the dialog for screen readers.
       title={
         shown && (
           <div className="pb-4 border-b border-slate-200 font-normal">
-            <div className="flex items-center gap-2.5 pr-8">
+            <div className="flex items-center gap-2.5">
               <NoticeSeverityTag severity={shown.severity} />
               <span className="min-w-0 flex-1 truncate border-l border-slate-200 pl-2.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                 {addressee}
               </span>
-              {shown.canEdit && (
-                <Dropdown
-                  trigger={["click"]}
-                  placement="bottomRight"
-                  menu={{
-                    items: [
-                      { key: "edit", label: "Edit notice", icon: <EditOutlined />, onClick: () => onEdit(shown) },
-                      { key: "delete", label: "Delete notice", icon: <DeleteOutlined />, danger: true, onClick: () => onDelete(shown) },
-                    ],
-                  }}
-                >
-                  <Button type="text" size="small" icon={<EllipsisOutlined className="!text-[20px]" />} aria-label="Notice actions" className="!text-slate-600 hover:!text-slate-900" />
-                </Dropdown>
-              )}
             </div>
             <h2 className="mt-3 mb-2 text-[22px] leading-tight font-bold text-slate-800 [overflow-wrap:anywhere]">{shown.title}</h2>
             <div className="flex items-center gap-2 text-[13px] text-slate-500">
