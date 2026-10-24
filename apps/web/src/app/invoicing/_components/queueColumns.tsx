@@ -1,21 +1,36 @@
 "use client";
 
 import Link from "next/link";
-import { Tooltip } from "antd";
-import { ContainerOutlined, InfoCircleOutlined, WarningOutlined } from "@ant-design/icons";
+import { Badge, Tooltip } from "antd";
+import {
+  FileTextOutlined,
+  InfoCircleOutlined,
+  MessageOutlined,
+  WarningFilled,
+  WarningOutlined,
+} from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { EMPTY_CELL } from "@/components/EmptyCell";
-import { getCellConditionalStyle, getRowConditionalStyle, type CellStyle } from "@/lib/columnConfig";
+import {
+  getCellConditionalStyle,
+  getRowConditionalStyle,
+  type CellStyle,
+} from "@/lib/columnConfig";
 import { formatDate } from "@/lib/date";
 import { moneyCz } from "@/lib/money";
 import { statusLabel } from "@/lib/shipmentStatus";
-import { invoicingStatusOf, serviceDateKey, serviceDateOf, type QueueRow } from "../_lib/queueColumnModel";
+import {
+  invoicingStatusOf,
+  serviceDateKey,
+  serviceDateOf,
+  type QueueRow,
+} from "../_lib/queueColumnModel";
 
 export type { QueueRow } from "../_lib/queueColumnModel";
 
 // The Selling header's help (what the old footnote under the table said).
 const SELLING_HELP =
-  'What is still to bill: the selling lines ticked for Invoice that are on no open invoice, in the job\'s billing currency. To bill = Shipment Status "Billing". Issuing an invoice sets the job to Billed / Invoiced; a credit note puts it back. Amounts are estimates at today\'s ČNB rates (with the ROE % on other currencies); the invoice uses the ČNB rate of its DUZP.';
+  "What is still to bill: the selling lines ticked for Invoice that are on no open invoice, in the job's billing currency. To bill = Shipment Status \"Billing\". Issuing an invoice sets the job to Billed / Invoiced; a credit note puts it back. Amounts are estimates at today's ČNB rates (with the ROE % on other currencies); the invoice uses the ČNB rate of its DUZP.";
 
 /** The fields the Shipments conditional formatting reads, by Shipments column key. */
 export function queueRowData(r: QueueRow): Record<string, string> {
@@ -54,10 +69,17 @@ const styleOf = (key: string, value: string, info: Info, r: QueueRow) =>
 // As on Shipments: the tint is a background image, so the opaque white of fixed cells cannot
 // hide it and the row hover colour still shows under it.
 // `key` is the Shipments column whose rule applies; a function when it depends on the row.
-const tint = (key: string | ((r: QueueRow) => string), valueOf: (r: QueueRow) => string, info: Info) => (r: QueueRow) => {
-  const bg = styleOf(typeof key === "string" ? key : key(r), valueOf(r), info, r)?.backgroundColor;
-  return bg ? { style: { backgroundImage: `linear-gradient(${bg}, ${bg})` } } : {};
-};
+const tint =
+  (key: string | ((r: QueueRow) => string), valueOf: (r: QueueRow) => string, info: Info) =>
+  (r: QueueRow) => {
+    const bg = styleOf(
+      typeof key === "string" ? key : key(r),
+      valueOf(r),
+      info,
+      r,
+    )?.backgroundColor;
+    return bg ? { style: { backgroundImage: `linear-gradient(${bg}, ${bg})` } } : {};
+  };
 
 // Cells whose text can run long are capped at the column's width (less its 8px side paddings):
 // with fixed columns and scroll x "max-content" antd lays the table out "auto", where a column
@@ -69,7 +91,15 @@ const capped = (width: number) => ({ maxWidth: width - 16 });
  * page when the job is linked to the Customer Database, plain text when the name was only typed.
  * No "!" on the colours, so an OBL row's red (.cf-row-fg) still wins, as on Shipments.
  */
-function CustomerName({ customerId, name, width }: { customerId: string | null; name: string; width: number }) {
+function CustomerName({
+  customerId,
+  name,
+  width,
+}: {
+  customerId: string | null;
+  name: string;
+  width: number;
+}) {
   if (!name) return EMPTY_CELL;
   return (
     <span className="block truncate" style={capped(width)} title={name}>
@@ -122,15 +152,37 @@ interface QueueColumnsArgs {
   jobHref: (shipmentId: string) => string;
   /** Missing selling lines are flagged only where the job waits to be invoiced (To bill). */
   flagMissingLines: boolean;
+  /** Opens the job's Documents / Chat drawer, as the row icons on Shipments do. */
+  onDocs: (r: QueueRow) => void;
+  onChat: (r: QueueRow) => void;
+  /** Unread chat messages per shipment id, for the red badge on the chat icon. */
+  unreadBy: Map<string, number>;
 }
 
 // Widths: Internal Reference and Invoicing Status as on Shipments (lib/columnConfig.ts); the rest
 // trimmed to their headers and usual values, so every column fits a 1440px screen with the sidebar
 // open (a card of about 1114px) without scrolling sideways. Longer names and statuses are cut
 // with an ellipsis and keep the full text as their title.
-const W = { job: 140, customer: 135, direction: 115, date: 110, status: 155, selling: 125, invoices: 100, invoicing: 140, open: 40 };
+const W = {
+  job: 140,
+  customer: 120,
+  direction: 105,
+  date: 110,
+  status: 140,
+  selling: 120,
+  invoices: 100,
+  invoicing: 130,
+  open: 88,
+};
 
-export function queueColumns({ info, jobHref, flagMissingLines }: QueueColumnsArgs): ColumnsType<QueueRow> {
+export function queueColumns({
+  info,
+  jobHref,
+  flagMissingLines,
+  onDocs,
+  onChat,
+  unreadBy,
+}: QueueColumnsArgs): ColumnsType<QueueRow> {
   return [
     {
       key: "jobNumber",
@@ -163,14 +215,17 @@ export function queueColumns({ info, jobHref, flagMissingLines }: QueueColumnsAr
       width: W.customer,
       ellipsis: true,
       sorter: (a, b) => (a.customer || "\uffff").localeCompare(b.customer || "\uffff", "cs"),
-      render: (_, r) => <CustomerName customerId={r.customerId} name={r.customer} width={W.customer} />,
+      render: (_, r) => (
+        <CustomerName customerId={r.customerId} name={r.customer} width={W.customer} />
+      ),
     },
     {
       key: "tradeDirection",
       title: "Trade Direction",
       width: W.direction,
       ellipsis: true,
-      render: (_, r) => (r.tradeDirection ? <span className="text-slate-600">{r.tradeDirection}</span> : EMPTY_CELL),
+      render: (_, r) =>
+        r.tradeDirection ? <span className="text-slate-600">{r.tradeDirection}</span> : EMPTY_CELL,
     },
     {
       // The date the job is billed by, the list's default order (BillingQueue sorts all rows by it).
@@ -208,7 +263,11 @@ export function queueColumns({ info, jobHref, flagMissingLines }: QueueColumnsAr
       onCell: tint("status", (r) => r.shipmentStatus, info),
       render: (_, r) =>
         r.shipmentStatus ? (
-          <span className="block truncate text-slate-600" style={capped(W.status)} title={statusLabel(r.shipmentStatus)}>
+          <span
+            className="block truncate text-slate-600"
+            style={capped(W.status)}
+            title={statusLabel(r.shipmentStatus)}
+          >
             {statusLabel(r.shipmentStatus)}
           </span>
         ) : (
@@ -227,7 +286,8 @@ export function queueColumns({ info, jobHref, flagMissingLines }: QueueColumnsAr
       align: "right",
       showSorterTooltip: false,
       // amounts are only comparable within one currency: group by currency, then by amount
-      sorter: (a, b) => a.billingCurrency.localeCompare(b.billingCurrency) || a.amountToBill - b.amountToBill,
+      sorter: (a, b) =>
+        a.billingCurrency.localeCompare(b.billingCurrency) || a.amountToBill - b.amountToBill,
       render: (_, r) => {
         if (r.billingState === "none") {
           if (!flagMissingLines) return EMPTY_CELL;
@@ -245,8 +305,14 @@ export function queueColumns({ info, jobHref, flagMissingLines }: QueueColumnsAr
         return (
           <span className="inline-flex items-center gap-1 whitespace-nowrap text-slate-600 tabular-nums">
             {missing && (
-              <Tooltip title={`ČNB publishes no rate for ${missing} — those lines are not in this amount`}>
-                <span role="img" aria-label={`No ČNB rate for ${missing}`} className="inline-flex text-amber-600">
+              <Tooltip
+                title={`ČNB publishes no rate for ${missing} — those lines are not in this amount`}
+              >
+                <span
+                  role="img"
+                  aria-label={`No ČNB rate for ${missing}`}
+                  className="inline-flex text-amber-600"
+                >
                   <WarningOutlined aria-hidden />
                 </span>
               </Tooltip>
@@ -276,7 +342,11 @@ export function queueColumns({ info, jobHref, flagMissingLines }: QueueColumnsAr
               }
               trigger={["hover", "focus"]}
             >
-              <span tabIndex={0} className="block truncate font-mono text-slate-600" style={capped(W.invoices)}>
+              <span
+                tabIndex={0}
+                className="block truncate font-mono text-slate-600"
+                style={capped(W.invoices)}
+              >
                 {r.invoiceNumbers.join(", ")}
                 {amounts && <span className="sr-only">{`, issued for ${amounts}`}</span>}
               </span>
@@ -284,7 +354,9 @@ export function queueColumns({ info, jobHref, flagMissingLines }: QueueColumnsAr
           );
         }
         if (r.rowsToBill > 0) {
-          return <span className="text-slate-500">{`${r.rowsToBill} line${r.rowsToBill !== 1 ? "s" : ""}`}</span>;
+          return (
+            <span className="text-slate-500">{`${r.rowsToBill} line${r.rowsToBill !== 1 ? "s" : ""}`}</span>
+          );
         }
         return EMPTY_CELL;
       },
@@ -305,25 +377,55 @@ export function queueColumns({ info, jobHref, flagMissingLines }: QueueColumnsAr
       fixed: "right",
       align: "center",
       onCell: () => ({ className: "!px-1.5" }),
-      render: (_, r) => (
-        <Tooltip title="Open shipment">
-          {/* A link (Ctrl/Cmd-click opens a new tab); the icon span carries the Shipments row-icon
-              colours, which antd's own link colour would beat on the <a>, and which an OBL row's
-              red still overrides. */}
-          <Link
-            href={`/shipments/${r.shipmentId}`}
-            onClick={(e) => e.stopPropagation()}
-            aria-label={`Open shipment ${r.jobNumber}`}
-            className="inline-flex"
-            style={{ color: "inherit" }}
-          >
-            {/* p-1 with a 21px line, as the Shipments row icons: the same row height */}
-            <span className="inline-block p-1 leading-[21px] text-slate-400 hover:text-indigo-500">
-              <ContainerOutlined />
-            </span>
-          </Link>
-        </Tooltip>
-      ),
+      render: (_, r) => {
+        const unread = unreadBy.get(r.shipmentId) ?? 0;
+        return (
+          <span className="inline-flex items-center gap-0.5">
+            {/* Documents and Chat as on Shipments; the click must not open the row */}
+            <Tooltip title="Documents">
+              <button
+                type="button"
+                aria-label={`Documents of ${r.jobNumber}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDocs(r);
+                }}
+                className="text-slate-400 hover:text-indigo-500 bg-transparent border-none cursor-pointer p-1 leading-[21px]"
+              >
+                <FileTextOutlined />
+              </button>
+            </Tooltip>
+            <Tooltip title={unread ? `Chat — ${unread} unread` : "Chat"}>
+              <Badge count={unread} size="small" color="#ef4444" offset={[0, 2]}>
+                <button
+                  type="button"
+                  aria-label={
+                    unread ? `Chat of ${r.jobNumber}, ${unread} unread` : `Chat of ${r.jobNumber}`
+                  }
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onChat(r);
+                  }}
+                  className={`bg-transparent border-none cursor-pointer p-1 leading-[21px] ${unread ? "text-red-500 hover:text-red-600" : "text-slate-400 hover:text-indigo-500"}`}
+                >
+                  <MessageOutlined />
+                </button>
+              </Badge>
+            </Tooltip>
+            {/* Warning triangle as on Shipments; the invoicing rules come later, so for now it
+                shows the Shipments "no warning" look. */}
+            <Tooltip title="No invoicing warning">
+              <span
+                role="img"
+                aria-label="No invoicing warning"
+                className="inline-block p-1 leading-[21px] text-yellow-400"
+              >
+                <WarningFilled />
+              </span>
+            </Tooltip>
+          </span>
+        );
+      },
     },
   ];
 }

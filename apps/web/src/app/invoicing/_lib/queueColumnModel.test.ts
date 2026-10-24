@@ -113,7 +113,7 @@ describe("arrangeQueueColumns", () => {
 
 describe("queueColumns and the column list", () => {
   it("has the listed columns in order, with the actions column last", () => {
-    const keys = queueColumns({ info: new Map(), jobHref: () => "", flagMissingLines: false }).map((c) => String(c.key));
+    const keys = queueColumns({ info: new Map(), jobHref: () => "", flagMissingLines: false, onDocs: () => {}, onChat: () => {}, unreadBy: new Map() }).map((c) => String(c.key));
     expect(keys.filter((k) => k !== "__open")).toEqual(QUEUE_COLUMN_META.map((c) => c.key));
     expect(keys[keys.length - 1]).toBe("__open");
   });

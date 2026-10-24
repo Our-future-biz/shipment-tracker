@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Alert, Input, Select, Tooltip } from "antd";
+import { Alert, Drawer, Input, Select, Tooltip } from "antd";
 import { ClearOutlined, EditOutlined, PlusOutlined, SearchOutlined } from "@ant-design/icons";
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, horizontalListSortingStrategy } from "@dnd-kit/sortable";
@@ -35,6 +35,10 @@ import {
 } from "../_lib/queueColumnModel";
 import { queueColumns, queueRowInfo, type QueueRow } from "./queueColumns";
 import { CreateInvoiceModal } from "./CreateInvoiceModal";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
+import { DocumentsPanel } from "@/app/shipments/_components/DocumentsPanel";
+import { ChatPanel } from "@/app/shipments/_components/ChatPanel";
 
 type View = BillingQueueView;
 const VIEWS = ["all", "to_bill", "not_invoiced", "invoiced"] as const satisfies readonly View[];
@@ -114,6 +118,16 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
   const debounced = useDebounced(urlQuery.trim(), 300);
   const { rows, counts, truncated, hasData, isFetching, isError } = useInvoiceQueue(view, debounced);
   const [createOpen, setCreateOpen] = useState(false);
+  // The row's Documents and Chat drawers, as on Shipments
+  const [docsJob, setDocsJob] = useState<{ id: string; jobNumber: string } | null>(null);
+  const [chatJob, setChatJob] = useState<{ id: string; jobNumber: string } | null>(null);
+  // Unread chat messages per shipment, for the red badge on the chat icon (same query as Shipments)
+  const { data: unreadData } = useQuery({
+    queryKey: ["shipment-comments", "unread"],
+    queryFn: () => api.shipments.commentUnread(),
+    refetchInterval: 30000,
+  });
+  const unreadBy = useMemo(() => new Map((unreadData?.unread ?? []).map((u) => [u.shipmentId, u.unread])), [unreadData]);
   // Ticked rows, as on Shipments; kept per tab, so another tab starts with nothing ticked.
   const [selection, setSelection] = useState<{ view: View; keys: React.Key[] }>({ view, keys: [] });
   const selectedKeys = selection.view === view ? selection.keys : [];
@@ -232,7 +246,14 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
     });
   };
 
-  const columns = arrangeQueueColumns(queueColumns({ info, jobHref, flagMissingLines }), visibleColumns, reordering);
+  const columns = arrangeQueueColumns(queueColumns({
+      info,
+      jobHref,
+      flagMissingLines,
+      onDocs: (r) => setDocsJob({ id: r.shipmentId, jobNumber: r.jobNumber }),
+      onChat: (r) => setChatJob({ id: r.shipmentId, jobNumber: r.jobNumber }),
+      unreadBy,
+    }), visibleColumns, reordering);
 
   let emptyText =
     view === "to_bill" ? "No jobs to bill — a job appears here when its Shipment Status is set to Billing." : "No shipments here.";
@@ -429,6 +450,27 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
           </SortableContext>
         </DndContext>
 
+        <Drawer
+          open={!!docsJob}
+          onClose={() => setDocsJob(null)}
+          width={480}
+          destroyOnHidden
+          styles={{ body: { padding: 0 } }}
+          title={docsJob ? `Documents — ${docsJob.jobNumber}` : "Documents"}
+        >
+          {docsJob && <DocumentsPanel shipmentId={docsJob.id} />}
+        </Drawer>
+        {/* Chat — the shipment's internal conversation; opening it marks it read. */}
+        <Drawer
+          open={!!chatJob}
+          onClose={() => setChatJob(null)}
+          width={460}
+          destroyOnHidden
+          styles={{ body: { padding: 0 } }}
+          title={chatJob ? `Chat — ${chatJob.jobNumber}` : "Chat"}
+        >
+          {chatJob && <ChatPanel shipmentId={chatJob.id} />}
+        </Drawer>
         <CreateInvoiceModal open={createOpen} onClose={() => setCreateOpen(false)} onSelect={onOpen} />
       </div>
     </div>
