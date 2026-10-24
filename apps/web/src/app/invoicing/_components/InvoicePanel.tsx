@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import dayjs from "dayjs";
 import { Alert, Button, DatePicker, Input, Modal, Select, Tag, Tooltip } from "antd";
@@ -78,9 +78,11 @@ interface InvoicePanelProps {
   shipment: ShipmentItem;
   // null while another tab is open: nothing is shown, but what was picked here stays
   section: InvoicePanelSection | null;
+  /** Told the DUZP the next invoice would get (the default, or the one picked here), for the job card. */
+  onDuzpChange?: (iso: string) => void;
 }
 
-export function InvoicePanel({ shipment, section }: InvoicePanelProps) {
+export function InvoicePanel({ shipment, section, onDuzpChange }: InvoicePanelProps) {
   const toast = useToast();
   const queryClient = useQueryClient();
   const { data, billingCur, totals } = useCostsData(shipment);
@@ -176,6 +178,10 @@ export function InvoicePanel({ shipment, section }: InvoicePanelProps) {
   };
 
   const p = preview;
+  const nextDuzp = duzp ?? p?.duzp;
+  useEffect(() => {
+    if (nextDuzp) onDuzpChange?.(nextDuzp);
+  }, [nextDuzp, onDuzpChange]);
   const foreign = !!p && p.currency !== "CZK";
   // Profit against buying costs — only when both are in the same currency and the preview is
   // current (while it reloads after a currency change it can still be in the old one).

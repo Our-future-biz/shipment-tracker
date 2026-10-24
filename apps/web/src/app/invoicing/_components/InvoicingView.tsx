@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Select, Tag } from "antd";
@@ -46,8 +46,8 @@ interface SummaryItemProps {
 function SummaryItem({ label, children }: SummaryItemProps) {
   return (
     <div className="min-w-0">
-      <div className="text-[11px] font-bold uppercase tracking-[.04em] text-slate-500">{label}</div>
-      <div className="text-[13px] text-slate-900 flex items-center flex-wrap gap-x-2 gap-y-1 break-words">{children}</div>
+      <div className="text-[11px] font-bold uppercase tracking-[.04em] text-slate-500 whitespace-nowrap">{label}</div>
+      <div className="mt-1 min-h-7 text-[13px] text-slate-900 flex items-center flex-wrap gap-x-2 gap-y-1 break-words">{children}</div>
     </div>
   );
 }
@@ -61,13 +61,12 @@ interface ShipmentProps {
  * queue) and Invoicing Status, which issuing sets automatically and which can also be changed
  * here by hand (e.g. for a job invoiced outside the app).
  */
-function ShipmentSummary({ shipment }: ShipmentProps) {
+function ShipmentSummary({ shipment, nextDuzp }: ShipmentProps & { nextDuzp: string | null }) {
   const toast = useToast();
   const { updateShipment } = useShipmentMutations();
   const [saving, setSaving] = useState(false);
   const { data } = useInvoiceDocList(shipment.id);
   const open = (data?.invoices ?? []).filter((d) => d.kind === "invoice" && d.status === "issued");
-  const route = [shipment.pol, shipment.pod, shipment.destination].filter(Boolean).join(" → ");
   const status = shipment.status ?? "";
 
   const handleInvoicingStatus = async (value: string) => {
@@ -83,20 +82,28 @@ function ShipmentSummary({ shipment }: ShipmentProps) {
   };
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-x-6 gap-y-3">
+    <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-x-4 gap-y-3">
       <SummaryItem label="Job">
         <Link href={`/shipments/${shipment.id}`} className="font-semibold text-indigo-600 hover:underline">
           {shipment.jobNumber}
         </Link>
-        <span className="text-slate-500">{shipment.tradeDirection}</span>
       </SummaryItem>
+      <SummaryItem label="Direction">{shipment.tradeDirection || "—"}</SummaryItem>
       <SummaryItem label="Customer">{shipment.customer || <span className="text-slate-500">Not linked</span>}</SummaryItem>
-      <SummaryItem label="Route">{route || "—"}</SummaryItem>
-      <SummaryItem label="ETD / ETA">
-        {formatDate(shipment.estimatedDeparture) || "—"} / {formatDate(shipment.estimatedArrival) || "—"}
+      <SummaryItem label="POL">{shipment.pol || "—"}</SummaryItem>
+      <SummaryItem label="POD">
+        <span className="min-w-0">
+          {shipment.pod || "—"}
+          {/* the final destination, which the old Route column also showed */}
+          {shipment.destination && shipment.destination !== shipment.pod && (
+            <span className="block text-[12px] text-slate-500">Destination: {shipment.destination}</span>
+          )}
+        </span>
       </SummaryItem>
+      {/* The tax date: of the newest open invoice once issued, else the one the Invoice tab would use */}
+      <SummaryItem label="DUZP">{formatDate(open.length ? open[open.length - 1]!.duzp : nextDuzp) || "—"}</SummaryItem>
       <SummaryItem label="Shipment Status">
-        {status ? <Tag color={statusTagColor(status)} className="!m-0 !text-[11px]">{statusLabel(status)}</Tag> : "—"}
+        {status ? <Tag color={statusTagColor(status)} title={statusLabel(status)} className="!m-0 !text-[11px] max-w-full truncate">{statusLabel(status)}</Tag> : "—"}
       </SummaryItem>
       <SummaryItem label="Invoicing Status">
         <Select
@@ -105,7 +112,7 @@ function ShipmentSummary({ shipment }: ShipmentProps) {
           onChange={(v) => void handleInvoicingStatus(v)}
           loading={saving}
           options={INVOICING_STATUSES.map((v) => ({ value: v, label: <InvoicingStatusTag value={v} /> }))}
-          className="w-[140px]"
+          className="w-full max-w-[140px]"
           aria-label="Invoicing Status"
         />
         {open.length > 0 && (
@@ -200,6 +207,12 @@ export const InvoicingView = () => {
   // The Costs editor is mounted the first time its tab opens for a job and then kept (hidden on
   // other tabs), so its Undo and unlocked rows survive a look at the Invoice tab, as before.
   const [costsMountedFor, setCostsMountedFor] = useState<string | null>(null);
+  // The DUZP the Invoice tab would use, shown on the job card (kept with the job it belongs to)
+  const [nextDuzp, setNextDuzp] = useState<{ id: string; iso: string } | null>(null);
+  const handleDuzp = useCallback(
+    (iso: string) => selectedShipmentId && setNextDuzp({ id: selectedShipmentId, iso }),
+    [selectedShipmentId],
+  );
   if (activeTab === "costs" && selectedShipmentId && costsMountedFor !== selectedShipmentId) {
     setCostsMountedFor(selectedShipmentId);
   }
@@ -258,7 +271,7 @@ export const InvoicingView = () => {
             {/* The job at a glance, with the tab bar along its bottom edge as on the shipment detail */}
             <section className="bg-white border border-slate-200 rounded-xl shadow-sm min-w-0">
               <div className="px-4 pt-4 pb-3">
-                <ShipmentSummary shipment={selectedShipment} />
+                <ShipmentSummary shipment={selectedShipment} nextDuzp={nextDuzp?.id === selectedShipment.id ? nextDuzp.iso : null} />
               </div>
               <JobTabs shipment={selectedShipment} active={activeTab} onChange={handleTab} />
             </section>
@@ -275,6 +288,7 @@ export const InvoicingView = () => {
                 key={`inv-${selectedShipment.id}`}
                 shipment={selectedShipment}
                 section={activeTab === "costs" ? null : activeTab}
+                onDuzpChange={handleDuzp}
               />
             </div>
           </>
