@@ -49,7 +49,7 @@ import { notWonQuoteText } from "../../_lib/shipmentLink";
 import { CURRENCIES } from "@/lib/enums";
 import { CONTAINER_KINDS, CONTAINER_KINDS_BY_SIZE, CONTAINER_SIZES, containerType, teuForType } from "@/lib/cargo";
 import { useListKeys } from "@/hooks/useListKeys";
-import { asData, cargoReadyDay, computeTotals, computeCargo, documentBlock, fxNote, hasReefer, isContainerQuote, reeferMissing, revisionRoot, stripProtected, withLineBasis, type QuoteTotals } from "../../_lib/salesQuote";
+import { asData, cargoReadyDay, computeTotals, computeCargo, documentBlock, fxNote, hasReefer, isContainerQuote, isWonRevision, reeferMissing, revisionRoot, stripProtected, withLineBasis, type QuoteTotals } from "../../_lib/salesQuote";
 import { PRINT_WINDOW_BLOCKED, exportClosesQuote } from "../../_lib/exportClose";
 import { ExportCloseDialog } from "../../_components/ExportCloseDialog";
 import { NO_CUSTOMER, changesCustomer, customerLinkFields, withCustomerUnit } from "../../_lib/quoteCustomer";
@@ -417,7 +417,7 @@ export function QuoteWorkflow() {
   // was given, so the server keeps the document as stored and the page shows it locked. Changes
   // are a revision of the quote. The revision of a Won quote is the exception: it stays Won with
   // everything open to change.
-  const wonRevision = quote?.status === "won" && !!draft.wonRevisionOf;
+  const wonRevision = !!quote && isWonRevision(quote.status, draft);
   const quoteClosed = !!quote && !exportClosesQuote(quote.status) && !wonRevision;
   // A warehouse approval from before the server put its fee to Pricing: the lines are added as the
   // quote opens (once per answer; autosave stores them). Not on a quote whose pricing is closed.
@@ -442,9 +442,10 @@ export function QuoteWorkflow() {
   };
   // Export PDF closes a quote that has not gone out yet: it is sent as it stands (Quoted), which
   // the user confirms first - unless the margin floor stops the sending, which is said instead.
-  // A closed quote is printed again as it is.
+  // A quote that went out is printed again as it is - the revision of a Won quote too: open to
+  // change, yet Won, which the server does not mark as sent again.
   const exportPdf = () => {
-    if (quoteClosed) printNow();
+    if (quote && !exportClosesQuote(quote.status)) printNow();
     else if (documentBlocked) toast.error(documentBlocked);
     else if (sendBlocked) toast.error(sendBlocked);
     else setModal("closeQuote");
@@ -733,7 +734,9 @@ export function QuoteWorkflow() {
   }
 
   // `note` stands at the foot of a step, left of its "Save & continue".
-  const sections: { key: SectionKey; title: string; subtitle: string; content: ReactNode; note?: ReactNode }[] = [
+  // A step's `content` is locked whole on a closed quote; its `open` part stays usable there (the
+  // validity, which is the server's, not the document's).
+  const sections: { key: SectionKey; title: string; subtitle: string; content: ReactNode; open?: ReactNode; note?: ReactNode }[] = [
     {
       key: "customer",
       title: "Customer details",
@@ -1333,29 +1336,32 @@ export function QuoteWorkflow() {
           <InfoRow label="Subject to">
             <Input.TextArea size="small" aria-label="Subject to" rows={3} value={draft.shippingSubjectTo ?? ""} onChange={(e) => set({ shippingSubjectTo: e.target.value })} />
           </InfoRow>
-          {/* The quote's one validity date, as the lifecycle band and the document show it. It
-              decides when the quote expires, so the server keeps it: picking or clearing it here
-              changes it at once, and on a quote the customer already has that goes into its
-              history. A won or lost quote keeps the validity it was decided with: the picker is
-              locked and says why, instead of offering a change the server refuses. */}
-          <InfoRow label="Valid until">
-            <span className="inline-block" title={decided ? "The validity of a won or lost quote cannot be changed" : undefined}>
-              <DatePicker
-                size="small"
-                className="w-44"
-                aria-label="Valid until"
-                format={DATE_FORMATS}
-                placeholder="Select expiry date"
-                disabled={decided}
-                value={shownValidity ? dayjs(shownValidity) : null}
-                onChange={(date) => {
-                  const picked = date ? date.format(STORED_DATE) : null;
-                  if (picked !== shownValidity) changeValidity(picked);
-                }}
-              />
-            </span>
-          </InfoRow>
         </div>
+      ),
+      // The quote's one validity date, as the lifecycle band and the document show it. It decides
+      // when the quote expires, so the server keeps it: picking or clearing it here changes it at
+      // once, and on a quote the customer already has that goes into its history. It is no part
+      // of the document, so it stays open on a closed quote - the lifecycle band sends people here
+      // to move the date of an expired one. A won or lost quote keeps the validity it was decided
+      // with: the picker is locked and says why, instead of offering a change the server refuses.
+      open: (
+        <InfoRow label="Valid until">
+          <span className="inline-block" title={decided ? "The validity of a won or lost quote cannot be changed" : undefined}>
+            <DatePicker
+              size="small"
+              className="w-44"
+              aria-label="Valid until"
+              format={DATE_FORMATS}
+              placeholder="Select expiry date"
+              disabled={decided}
+              value={shownValidity ? dayjs(shownValidity) : null}
+              onChange={(date) => {
+                const picked = date ? date.format(STORED_DATE) : null;
+                if (picked !== shownValidity) changeValidity(picked);
+              }}
+            />
+          </span>
+        </InfoRow>
       ),
     },
   ];
@@ -1593,12 +1599,14 @@ export function QuoteWorkflow() {
                     }
                   />
                 )}
-                {/* Locked as a whole while closed: every control of every step, antd's and plain buttons alike. */}
+                {/* Locked as a whole while closed: every control of every step, antd's and plain buttons
+                    alike - but for the step's open part, which stays usable (the validity). */}
                 <ConfigProvider componentDisabled={quoteClosed}>
                   <fieldset disabled={quoteClosed} className="contents">
                     {shown.content}
                   </fieldset>
                 </ConfigProvider>
+                {shown.open}
                 {(shown.note || nextSection) && (
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
                     <div className="min-w-0">{shown.note}</div>

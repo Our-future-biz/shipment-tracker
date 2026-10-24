@@ -112,6 +112,9 @@ const DEFAULT_LIMIT = 50;
 const MARGIN_GATED_STATUSES: readonly string[] = ["ready_to_send", "quoted"];
 // A won or lost quote is decided: it is not priced again.
 const DECIDED_STATUSES: readonly string[] = ["won", "lost"];
+// Whether a quote's prices are closed: it went out or is decided (PRICING_CLOSED) - except the
+// revision of a Won quote, which stays Won with its validity and prices open (isWonRevision).
+const pricingClosed = (quote: SalesQuoteRecord): boolean => PRICING_CLOSED.includes(quote.status) && !isWonRevision(quote.status, quote.data);
 /** How long the bell keeps a warehouse answer after it was opened. */
 const READ_ANSWER_KEEP_DAYS = 7;
 /** How far back the warehouse's list shows answered inquiries. */
@@ -411,7 +414,7 @@ class SalesQuoteService {
     // A quote that went out stays what the customer was given, its details as well as its prices:
     // a save keeps the whole document as stored, whatever the editor sends. The version check
     // below makes this the status saved on. The revision of a Won quote stays open (isWonRevision).
-    const closed = PRICING_CLOSED.includes(stored.status) && !isWonRevision(stored.status, stored.data);
+    const closed = pricingClosed(stored);
     const carry = closed ? closedCarryKeys(isPlainObject(stored.data) ? stored.data : {}, data) : carryKeys();
     const saved = await salesQuoteRepository.saveDocument(
       companyID,
@@ -552,6 +555,8 @@ class SalesQuoteService {
     if (!stored) throw notFound();
     const expectPriceable = (quote: SalesQuoteRecord) => {
       if (quote.dataVersion !== request.expectedDataVersion) throw conflict();
+      // The revision of a Won quote stays Won with its prices open: priced again like an open quote.
+      if (isWonRevision(quote.status, quote.data)) return;
       if (DECIDED_STATUSES.includes(quote.status)) throw APIError.failedPrecondition("A won or lost quote cannot be priced again");
       if (PRICING_CLOSED.includes(quote.status)) throw APIError.failedPrecondition("A quote that was sent cannot be priced again - revise it");
     };
@@ -642,7 +647,7 @@ class SalesQuoteService {
     const ctx = contextOf(actor, at, names);
     const comment = `Warehouse asked about ${pieces} piece${pieces === 1 ? "" : "s"} of 12.5 t or more${note ? ` - ${note}` : ""}`;
     const written = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
-      if (DECIDED_STATUSES.includes(quote.status) || PRICING_CLOSED.includes(quote.status)) {
+      if (pricingClosed(quote)) {
         throw APIError.failedPrecondition("A quote that was sent cannot ask the warehouse - revise it");
       }
       const current = readInquiry(quote.data);
@@ -718,7 +723,7 @@ class SalesQuoteService {
       line = request.approve ? `Warehouse approved ${what}: EUR ${price} per piece${comment ? ` - ${comment}` : ""}` : `Warehouse rejected ${what}: ${comment}`;
       // Approved on a quote still open for pricing: the fee goes to Pricing at once - a new version
       // of the document, and a margin approval given before no longer holds.
-      if (request.approve && !DECIDED_STATUSES.includes(quote.status) && !PRICING_CLOSED.includes(quote.status)) {
+      if (request.approve && !pricingClosed(quote)) {
         return salesQuoteRepository.writeLifecycle(tx, quote, {
           state: stateOf(quote),
           entries: [pricingEntry("warehouse_inquiry", line, ctx)],

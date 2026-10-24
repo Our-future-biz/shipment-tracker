@@ -17,7 +17,8 @@ export function useEmailTemplates(enabled: boolean) {
     mutationFn: (templates: SavedEmailTemplate[]) => api.sales.emailTemplatesSet({ templates }),
     onSuccess: (stored) => queryClient.setQueryData(KEY, stored),
   });
-  return { list: query.data?.data ?? [], ready: query.isSuccess, save };
+  // `ready` says the list was read: only then may it be saved, as it is written whole.
+  return { list: query.data?.data ?? [], ready: query.isSuccess, failed: query.isError, save };
 }
 
 // The template the user last chose is where the dialog starts next time - this browser's

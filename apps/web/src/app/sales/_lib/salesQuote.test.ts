@@ -35,6 +35,14 @@ describe("followStored", () => {
     const draft = { buyingLines: [{ type: "Air freight", description: "", currency: "EUR", amount: 999 }], allIn: true };
     expect(followStored(draft, stored, "draft")).toEqual({ ...draft, quoteStatus: "quoted" });
   });
+
+  it("keeps the editor's prices on the revision of a Won quote: it stays Won with its prices open", () => {
+    const draft = { buyingLines: [{ type: "Air freight", description: "", currency: "EUR", amount: 999 }], allIn: true };
+    const won = { ...stored, quoteStatus: "won", wonRevisionOf: "QCZ20261010001" };
+    expect(followStored(draft, won, "won")).toEqual({ ...draft, quoteStatus: "won", wonRevisionOf: "QCZ20261010001" });
+    // Any other Won quote has its prices as stored.
+    expect(followStored(draft, { ...stored, quoteStatus: "won" }, "won")).toEqual({ buyingLines: stored.buyingLines, currency: "EUR", quoteStatus: "won" });
+  });
 });
 
 describe("withoutPricing", () => {

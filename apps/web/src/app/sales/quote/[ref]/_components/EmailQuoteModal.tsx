@@ -142,6 +142,9 @@ export function EmailQuoteModal({
   // The subject and message as a template: this quote's values become placeholders again. A
   // template of the same name is replaced; the standard one is never changed.
   const saveTemplate = async (name: string) => {
+    // The list is written whole: saved before the stored one is read, a list of one would take the
+    // place of every template saved before.
+    if (!templates.ready) return;
     const values = prefill.current.values;
     const same = templates.list.find((t) => t.name.toLowerCase() === name.toLowerCase());
     const template: SavedEmailTemplate = {
@@ -294,7 +297,12 @@ export function EmailQuoteModal({
               onChange={chooseTemplate}
               options={all.map((t) => ({ value: t.id, label: t.id === STANDARD_TEMPLATE.id ? "Standard (built in)" : t.name }))}
             />
-            <Button icon={<SaveOutlined />} onClick={() => setNaming(chosenSaved?.name ?? "")}>
+            <Button
+              icon={<SaveOutlined />}
+              disabled={!templates.ready}
+              title={templates.ready ? undefined : templates.failed ? "Your templates could not be read - close the dialog and open it again" : "Your templates are being read"}
+              onClick={() => setNaming(chosenSaved?.name ?? "")}
+            >
               Save as template
             </Button>
             {chosenSaved && (

@@ -145,10 +145,20 @@ export function quoteFamily(quotes: SalesQuote[], ref: string): SalesQuote[] {
 }
 
 /**
+ * Whether a Won quote is the revision of a Won quote (`wonRevisionOf`, set by the server as it is
+ * made): Won, yet its validity and its buying and selling stay open to change - as the server has
+ * it (quoteDocument.utils isWonRevision).
+ */
+export function isWonRevision(status: QuoteStatus, data: Partial<SalesQuoteData>): boolean {
+  return status === "won" && !!data.wonRevisionOf;
+}
+
+/**
  * The draft after the server answered with the stored quote: the keys only the server writes are
  * taken from it and, for a quote whose prices are closed (PRICING_CLOSED_STATUSES), so are the
  * prices - the server keeps those as stored on every save, and the page shows what is stored.
- * Everything else stays as the user has it.
+ * Everything else stays as the user has it. The revision of a Won quote has its prices open: the
+ * editor's stay, as on any open quote.
  */
 export function followStored(draft: Partial<SalesQuoteData>, stored: SalesQuoteData, status: QuoteStatus): Partial<SalesQuoteData> {
   const next: Record<string, unknown> = stripProtected(draft);
@@ -156,7 +166,7 @@ export function followStored(draft: Partial<SalesQuoteData>, stored: SalesQuoteD
   for (const key of PROTECTED_KEYS) {
     if (key in data) next[key] = data[key];
   }
-  if (PRICING_CLOSED_STATUSES.includes(status)) {
+  if (PRICING_CLOSED_STATUSES.includes(status) && !isWonRevision(status, stored)) {
     for (const key of PRICING_KEYS) {
       if (key in data) next[key] = data[key];
       else delete next[key];

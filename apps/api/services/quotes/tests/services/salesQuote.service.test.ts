@@ -1615,6 +1615,13 @@ describe("road transport", () => {
       expect(truckingRate).not.toHaveBeenCalled();
     });
 
+    it("prices the revision of a Won quote again: it stays Won with its prices open", async () => {
+      stored = roadQuote([], [], { wonRevisionOf: REF }, { status: "won", decidedAt: SENT });
+      await expect(price()).resolves.toMatchObject({ quote: { quoteNumber: REF } });
+      expect(truckingRate).toHaveBeenCalledTimes(1);
+      expect(written().document).toBeDefined();
+    });
+
     it("is not found for a quote that is no sales quote", async () => {
       stored = null;
       await expect(price()).rejects.toMatchObject({ code: "not_found" });
@@ -1801,6 +1808,17 @@ describe("the warehouse inquiry of pieces of 12.5 t or more", () => {
     stored = withData({});
     await expect(salesQuoteService.inquireWarehouse(martin, REF, { pieces: 1.5, grossWeightKg: 13000 })).rejects.toMatchObject({ code: "invalid_argument" });
     expect(repository.writeLifecycle).not.toHaveBeenCalled();
+  });
+
+  it("takes a question from the revision of a Won quote, whose prices stay open, and puts the approved fee to its Pricing", async () => {
+    const wonRevision = (extra: Record<string, unknown>): SalesQuoteRecord => ({ ...withData({ wonRevisionOf: REF, ...extra }), status: "won", decidedAt: SENT });
+    stored = wonRevision({});
+    await expect(salesQuoteService.inquireWarehouse(martin, REF, { pieces: 2, grossWeightKg: 26000 })).resolves.toMatchObject({ quoteNumber: REF });
+    expect(written().serverKeys?.warehouseInquiry).toMatchObject({ status: "pending", pieces: 2 });
+    vi.mocked(repository.writeLifecycle).mockClear();
+    stored = wonRevision({ warehouseInquiry: pending });
+    await salesQuoteService.decideWarehouseInquiry(manager, REF, { inquiryId: INQ, approve: true, priceEurPerPiece: 400 });
+    expect(written().document).toMatchObject({ buyingLines: [expect.objectContaining({ description: "Heavy Cargo Handling Fee", amount: 800 })] });
   });
 
   it("only a manager answers; approval needs a price, rejection a reason; the answer goes to the one who asked", async () => {
