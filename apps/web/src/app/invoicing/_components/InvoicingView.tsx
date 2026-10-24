@@ -114,11 +114,6 @@ function ShipmentSummary({ shipment, nextDuzp }: ShipmentProps & { nextDuzp: str
           className="w-full max-w-[140px]"
           aria-label="Invoicing Status"
         />
-        {open.length > 0 && (
-          <span className="text-[12px] text-slate-500 tabular-nums">
-            {open.length === 1 ? `${open[0]!.number} · ${moneyCz(Number(open[0]!.gross))} ${open[0]!.currency}` : `${open.length} open invoices`}
-          </span>
-        )}
       </SummaryItem>
     </div>
   );
