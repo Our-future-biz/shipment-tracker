@@ -4,7 +4,6 @@ import type { interfaces } from "@/lib/api/client";
 import { matchesGridFilters } from "@/components/gridFilters";
 import { queueColumns } from "../_components/queueColumns";
 import {
-  NO_CUSTOMER,
   QUEUE_COLUMN_META,
   QUEUE_DEFAULT_COLUMNS,
   arrangeQueueColumns,
@@ -27,6 +26,7 @@ const row = (partial: Partial<interfaces.BillingQueueItem> = {}): QueueRow => ({
   tradeDirection: "Import",
   estimatedDeparture: null,
   estimatedArrival: null,
+  duzp: "2026-01-01",
   shipmentStatus: "Billing [IMP]",
   invoicingStatus: "Not Invoiced",
   billingState: "to_bill",
@@ -39,7 +39,7 @@ const row = (partial: Partial<interfaces.BillingQueueItem> = {}): QueueRow => ({
   ...partial,
 });
 
-const NO_FILTERS = { status: "", customer: "", columnFilters: [], flagMissingLines: false };
+const NO_FILTERS = { columnFilters: [], flagMissingLines: false };
 
 describe("normalizeQueueColumns", () => {
   it("keeps known keys once, in order, Internal Reference first, without the actions column", () => {
@@ -57,12 +57,13 @@ describe("normalizeQueueColumns", () => {
     expect(normalizeQueueColumns([1, {}])).toEqual(["jobNumber"]);
   });
 
-  it("defaults to the 6 columns in table order", () => {
+  it("defaults to the 7 columns in table order", () => {
     expect(QUEUE_DEFAULT_COLUMNS).toEqual([
       "jobNumber",
       "customer",
       "tradeDirection",
       "serviceDate",
+      "duzp",
       "invoices",
       "invoicingStatus",
     ]);
@@ -164,7 +165,7 @@ describe("filterQueueRows", () => {
   const ids = (list: QueueRow[]) => list.map((r) => r.shipmentId);
 
   it("keeps rows that pass the selects and the column filters together", () => {
-    const kept = filterQueueRows(rows, { ...NO_FILTERS, customer: "Acme", columnFilters: [{ key: "tradeDirection", value: "Import" }] });
+    const kept = filterQueueRows(rows, { ...NO_FILTERS, columnFilters: [{ key: "customer", value: "acme" }, { key: "tradeDirection", value: "Import" }] });
     expect(ids(kept)).toEqual(["a"]);
   });
 
@@ -190,10 +191,6 @@ describe("filterQueueRows", () => {
       ],
     });
     expect(none).toEqual([]);
-  });
-
-  it("keeps only rows without a customer for No customer", () => {
-    expect(ids(filterQueueRows(rows, { ...NO_FILTERS, customer: NO_CUSTOMER }))).toEqual(["c"]);
   });
 
   it("returns every row with no filters, by service date, missing dates last", () => {

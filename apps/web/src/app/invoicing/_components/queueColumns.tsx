@@ -129,10 +129,11 @@ interface QueueColumnsArgs {
 // with an ellipsis and keep the full text as their title.
 const W = {
   job: 140,
-  customer: 300,
+  customer: 215,
   direction: 105,
   date: 110,
-  invoices: 180,
+  duzp: 100,
+  invoices: 160,
   invoicing: 130,
   open: 88,
 };
@@ -215,6 +216,15 @@ export function queueColumns({
           </span>
         );
       },
+    },
+    {
+      // The tax date as the job detail shows it: the newest open invoice's, else the next one's default.
+      key: "duzp",
+      title: "DUZP",
+      width: W.duzp,
+      ellipsis: true,
+      sorter: (a, b) => (a.duzp || "9999").localeCompare(b.duzp || "9999"),
+      render: (_, r) => (r.duzp ? <span className="text-slate-600">{formatDate(r.duzp)}</span> : EMPTY_CELL),
     },
     {
       key: "invoices",

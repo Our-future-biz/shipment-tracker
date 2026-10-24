@@ -411,6 +411,11 @@ export interface BillingQueueItem {
   tradeDirection: string;
   estimatedDeparture: string | null;
   estimatedArrival: string | null;
+  /**
+   * DUZP as the job detail shows it: that of the newest open invoice, else the default the next
+   * invoice would get (ATA / ETA for imports, ATD / ETD for exports, delivery for road jobs, else today).
+   */
+  duzp: string;
   /** Shipment Status, e.g. "Billing [IMP]" (set by operations) */
   shipmentStatus: string;
   /** Invoiced | Not Invoiced */

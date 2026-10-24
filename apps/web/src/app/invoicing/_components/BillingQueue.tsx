@@ -1,14 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Alert, Drawer, Input, Select, Tooltip } from "antd";
+import { Alert, Drawer, Input, Tooltip } from "antd";
 import { ClearOutlined, EditOutlined, PlusOutlined, SearchOutlined } from "@ant-design/icons";
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, horizontalListSortingStrategy } from "@dnd-kit/sortable";
 import type { interfaces } from "@/lib/api/client";
 import { DataTable } from "@/components/DataTable";
-import { PillTabs } from "@/components/SectionCard";
 import { ListCapNotice } from "@/components/ListCapNotice";
 import { DraggableHeaderCell } from "@/components/DraggableHeaderCell";
 import { ColumnFiltersPopover, type StoredFilter } from "@/components/ColumnFiltersPopover";
@@ -22,10 +21,8 @@ import { useColumnTemplates } from "@/hooks/useColumnTemplates";
 import { useFilterTemplates } from "@/hooks/useFilterTemplates";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { filtersFromSearchParams, writeFiltersToSearchParams } from "@/lib/filterSearchParams";
-import { statusLabel } from "@/lib/shipmentStatus";
 import {
   FIRST_QUEUE_COLUMN,
-  NO_CUSTOMER,
   QUEUE_COLUMN_META,
   QUEUE_DEFAULT_COLUMNS,
   arrangeQueueColumns,
@@ -49,20 +46,20 @@ const VIEW_COUNT: Record<View, keyof interfaces.BillingQueueCounts> = {
   invoiced: "invoiced",
 };
 const DEFAULT_VIEW: View = "all";
-type QueueParam = "queue" | "q" | "status" | "customer";
+type QueueParam = "queue" | "q";
 
 // The user's columns and their order, kept per user in this browser as on Shipments; templates on the server.
 const INVOICING_SCOPE = "invoicing";
 const INVOICING_COLUMN_VIEW: ColumnViewScope = { scope: INVOICING_SCOPE, defaults: QUEUE_DEFAULT_COLUMNS };
 const FIXED_QUEUE_COLUMNS = [FIRST_QUEUE_COLUMN];
 
-// The values the loaded rows carry, so no option leads to an empty list.
-const distinctOptions = (values: string[]) =>
-  Array.from(new Set(values.filter(Boolean)))
-    .sort((a, b) => a.localeCompare(b, "cs"))
-    .map((value) => ({ value, label: value }));
-
-const label = (text: string, n: number | undefined) => (n === undefined ? text : `${text} (${n})`);
+// The stage tabs; a thin line sets "All" and "Invoiced" apart from the two working stages.
+const STAGE_TABS: { key: View; label: string; dividerBefore?: boolean }[] = [
+  { key: "all", label: "All" },
+  { key: "to_bill", label: "To bill", dividerBefore: true },
+  { key: "not_invoiced", label: "Not invoiced" },
+  { key: "invoiced", label: "Invoiced", dividerBefore: true },
+];
 
 interface BillingQueueProps {
   onOpen: (shipmentId: string) => void;
@@ -81,8 +78,6 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
   const rawView = get("queue");
   // the default tab is left out of the URL; anything unknown reads as the default
   const view: View = (VIEWS as readonly string[]).includes(rawView) ? (rawView as View) : DEFAULT_VIEW;
-  const status = get("status");
-  const customer = get("customer");
 
   // The one writer of the queue's URL (tab, search, filters), so no change can undo another.
   // history.replaceState changes the URL at once - Next keeps useSearchParams in step with it,
@@ -206,38 +201,25 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
   };
 
   // Options from all loaded rows of the tab, so they stay while another filter is set.
-  const statusOptions = useMemo(() => distinctOptions(rows.map((r) => statusLabel(r.shipmentStatus))), [rows]);
-  const customerOptions = useMemo(
-    () => [
-      ...distinctOptions(rows.map((r) => r.customer)),
-      ...(rows.some((r) => !r.customer) ? [{ value: NO_CUSTOMER, label: "No customer" }] : []),
-    ],
-    [rows],
-  );
-  // The filter panel's columns: Shipment Status offers the statuses of the loaded rows, like its select.
-  const filterColumns = useMemo(
-    () => QUEUE_COLUMN_META.map((c) => (c.key === "status" ? { ...c, options: statusOptions.map((o) => o.value) } : c)),
-    [statusOptions],
-  );
 
   // Missing selling lines are flagged only where the job waits to be invoiced (To bill).
   const flagMissingLines = view === "to_bill";
   // The server search decides which rows are loaded; the selects and the column filters narrow those here.
   // Stale rows are not shown after an error.
   const shown = useMemo(
-    () => (isError ? [] : filterQueueRows(rows, { status, customer, columnFilters: activeFilters, flagMissingLines })),
-    [rows, isError, status, customer, activeFilters, flagMissingLines],
+    () => (isError ? [] : filterQueueRows(rows, { columnFilters: activeFilters, flagMissingLines })),
+    [rows, isError, activeFilters, flagMissingLines],
   );
   const info = useMemo(() => queueRowInfo(shown), [shown]);
 
-  const hasListFilters = !!status || !!customer || activeFilters.length > 0;
+  const hasListFilters = activeFilters.length > 0;
   const viewCount = counts?.[VIEW_COUNT[view]];
 
   const clearFilters = () => {
     setShownFilters([]);
     writtenFilters.current = "[]";
     writeUrl((p) => {
-      // an old link may still carry the removed direction filter
+      // an old link may still carry the removed direction, status and customer filters
       p.delete("dir");
       p.delete("status");
       p.delete("customer");
@@ -262,37 +244,47 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
   return (
     <div className="bg-slate-50 min-h-full px-8 py-6">
       <div className="max-w-[1400px] mx-auto flex flex-col gap-5">
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="min-w-0">
-            <h1 className="text-2xl font-bold text-slate-900">Invoicing</h1>
+        {/* One bar: the title, the stage tabs with their counts, then search, the table tools and the action. */}
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-3 bg-white border border-slate-200 rounded-2xl px-5 py-3">
+          <h1 className="text-2xl font-bold text-slate-900 m-0">Invoicing</h1>
+          <div role="tablist" aria-label="Invoicing stage" className="flex items-center gap-1 self-stretch">
+            {STAGE_TABS.map((t) => {
+              const active = view === t.key;
+              const n = counts?.[VIEW_COUNT[t.key]];
+              return (
+                <Fragment key={t.key}>
+                  {t.dividerBefore && <span aria-hidden className="w-px h-5 bg-slate-200 mx-2" />}
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => setView(t.key)}
+                    className={`flex items-center gap-2 h-full px-2 -mb-px bg-transparent border-0 border-b-2 cursor-pointer text-sm transition-colors ${
+                      active
+                        ? "border-indigo-500 text-indigo-600 font-semibold"
+                        : "border-transparent text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    {t.label}
+                    {n !== undefined && (
+                      <span
+                        className={`rounded px-1.5 text-xs font-medium leading-5 ${
+                          active ? "bg-indigo-50 text-indigo-600" : "bg-slate-100 text-slate-500"
+                        }`}
+                      >
+                        {n}
+                      </span>
+                    )}
+                  </button>
+                </Fragment>
+              );
+            })}
           </div>
-          <div role="group" aria-label="Invoicing stage">
-            <PillTabs<View>
-              tabs={[
-                { key: "all", label: label("All shipments", counts?.all) },
-                { key: "to_bill", label: label("To bill", counts?.toBill) },
-                { key: "not_invoiced", label: label("Not invoiced", counts?.notInvoiced) },
-                { key: "invoiced", label: label("Invoiced", counts?.invoiced) },
-              ]}
-              active={view}
-              onChange={setView}
-            />
-          </div>
-        </div>
-
-        {/* Toolbar: the action on the left, finding things on the right. */}
-        <div className="flex flex-wrap items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <button type="button" onClick={() => setCreateOpen(true)} className={btnPrimary}>
-              <PlusOutlined />
-              Create invoice
-            </button>
-          </div>
-          {/* It wraps on narrow screens, kept to the right; the square buttons wrap together as one block. */}
+          {/* It wraps on narrow screens, kept to the right. */}
           <div className="flex flex-wrap items-center justify-end gap-3 ml-auto">
             {/* antd gives the input width: 100% outside Tailwind's layers, hence the important flag */}
             <Input
-              placeholder="Search shipments..."
+              placeholder="Search..."
               aria-label="Search shipments"
               prefix={<SearchOutlined className="text-slate-400" />}
               value={query}
@@ -302,86 +294,62 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
                 setParams({ q: e.target.value });
               }}
               allowClear
-              className="!w-60"
+              className="!w-48"
             />
-            <div className="w-px h-6 bg-slate-200 shrink-0" />
-            <Select
-              value={status || undefined}
-              onChange={(v?: string) => setParams({ status: v ?? "" })}
-              options={statusOptions}
-              placeholder="All statuses"
-              aria-label="Shipment status"
-              allowClear
-              showSearch
-              optionFilterProp="label"
-              popupMatchSelectWidth={false}
-              className="w-40"
-            />
-            <Select
-              value={customer || undefined}
-              onChange={(v?: string) => setParams({ customer: v ?? "" })}
-              options={customerOptions}
-              placeholder="All customers"
-              aria-label="Customer"
-              allowClear
-              showSearch
-              optionFilterProp="label"
-              popupMatchSelectWidth={false}
-              className="w-40"
-            />
-            <div className="flex items-center gap-3 shrink-0">
-              {/* A square button, not a text link: at 1440px the toolbar then stays on one row when a filter is
-                  set, so the open Filters panel never jumps away from its button. */}
-              {hasListFilters && (
-                <Tooltip title="Clear filters">
-                  <button
-                    type="button"
-                    aria-label="Clear filters"
-                    onClick={clearFilters}
-                    className={`${TOOLBAR_BUTTON_CLASS} cursor-pointer`}
-                  >
-                    <ClearOutlined />
-                  </button>
-                </Tooltip>
-              )}
-              <ColumnFiltersPopover
-                filters={shownFilters}
-                onChange={handleFiltersChange}
-                columns={filterColumns}
-                templates={knownFilterTemplates}
-                onSaveTemplate={handleSaveFilterTemplate}
-                onDeleteTemplate={filterTemplates.deleteTemplate}
-                isSaving={filterTemplates.isSaving}
-                defaultColumn={FIRST_QUEUE_COLUMN}
-              />
-              <ColumnPickerPopover
-                columns={QUEUE_COLUMN_META}
-                fixedKeys={FIXED_QUEUE_COLUMNS}
-                allKeys={QUEUE_DEFAULT_COLUMNS}
-                visible={visibleColumns}
-                onChange={handleColumnsChange}
-                templates={knownColumnTemplates}
-                onSaveTemplate={handleSaveColumnTemplate}
-                onDeleteTemplate={columnTemplates.deleteTemplate}
-                ready={columnsReady}
-              />
-              <Tooltip title={reordering ? "Done reordering" : "Reorder columns"}>
+            {/* A square button, not a text link, so the bar keeps its width when a filter is set. */}
+            {hasListFilters && (
+              <Tooltip title="Clear filters">
                 <button
                   type="button"
-                  aria-label="Reorder columns"
-                  aria-pressed={reordering}
-                  disabled={!columnsReady}
-                  onClick={() => setReordering((on) => !on)}
-                  className={
-                    reordering
-                      ? "flex items-center justify-center shrink-0 rounded-lg border w-8 h-8 p-0 transition-colors cursor-pointer border-indigo-500 bg-indigo-50 text-indigo-600"
-                      : `${TOOLBAR_BUTTON_CLASS} cursor-pointer disabled:cursor-not-allowed disabled:opacity-50`
-                  }
+                  aria-label="Clear filters"
+                  onClick={clearFilters}
+                  className={`${TOOLBAR_BUTTON_CLASS} cursor-pointer`}
                 >
-                  <EditOutlined />
+                  <ClearOutlined />
                 </button>
               </Tooltip>
-            </div>
+            )}
+            <ColumnFiltersPopover
+              filters={shownFilters}
+              onChange={handleFiltersChange}
+              columns={QUEUE_COLUMN_META}
+              templates={knownFilterTemplates}
+              onSaveTemplate={handleSaveFilterTemplate}
+              onDeleteTemplate={filterTemplates.deleteTemplate}
+              isSaving={filterTemplates.isSaving}
+              defaultColumn={FIRST_QUEUE_COLUMN}
+            />
+            <ColumnPickerPopover
+              columns={QUEUE_COLUMN_META}
+              fixedKeys={FIXED_QUEUE_COLUMNS}
+              allKeys={QUEUE_DEFAULT_COLUMNS}
+              visible={visibleColumns}
+              onChange={handleColumnsChange}
+              templates={knownColumnTemplates}
+              onSaveTemplate={handleSaveColumnTemplate}
+              onDeleteTemplate={columnTemplates.deleteTemplate}
+              ready={columnsReady}
+            />
+            <Tooltip title={reordering ? "Done reordering" : "Reorder columns"}>
+              <button
+                type="button"
+                aria-label="Reorder columns"
+                aria-pressed={reordering}
+                disabled={!columnsReady}
+                onClick={() => setReordering((on) => !on)}
+                className={
+                  reordering
+                    ? "flex items-center justify-center shrink-0 rounded-lg border w-8 h-8 p-0 transition-colors cursor-pointer border-indigo-500 bg-indigo-50 text-indigo-600"
+                    : `${TOOLBAR_BUTTON_CLASS} cursor-pointer disabled:cursor-not-allowed disabled:opacity-50`
+                }
+              >
+                <EditOutlined />
+              </button>
+            </Tooltip>
+            <button type="button" onClick={() => setCreateOpen(true)} className={btnPrimary}>
+              <PlusOutlined />
+              Create invoice
+            </button>
           </div>
         </div>
 
@@ -420,7 +388,7 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
               }}
               loading={isFetching}
               scroll={{ x: "max-content" }}
-              resetKey={`${view}|${debounced}|${status}|${customer}|${JSON.stringify(activeFilters)}`}
+              resetKey={`${view}|${debounced}|${JSON.stringify(activeFilters)}`}
               locale={{ emptyText }}
               rowClassName={(r) => (info.get(r.shipmentId)?.rowStyle?.color ? "cf-row-fg" : "")}
               onRow={(r) => {

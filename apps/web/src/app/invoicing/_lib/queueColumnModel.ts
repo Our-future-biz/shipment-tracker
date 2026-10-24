@@ -21,9 +21,6 @@ export const serviceDateOf = (r: QueueRow) => r[serviceDateKey(r)] ?? "";
 
 export const invoicingStatusOf = (r: QueueRow) => r.invoicingStatus || "Not Invoiced";
 
-/** The Customer filter's value for rows without a customer. */
-export const NO_CUSTOMER = "__none__";
-
 /** Always shown and always first. */
 export const FIRST_QUEUE_COLUMN = "jobNumber";
 /** The open-shipment icon: always last, not offered in the picker. */
@@ -35,6 +32,7 @@ export const QUEUE_COLUMN_META: (GridFilterColumn & { title: string })[] = [
   { key: "customer", title: "Customer" },
   { key: "tradeDirection", title: "Trade Direction", options: DROPDOWN_OPTIONS["Trade Direction"] },
   { key: "serviceDate", title: "ETD / ETA" },
+  { key: "duzp", title: "DUZP" },
   { key: "invoices", title: "Invoices" },
   { key: "invoicingStatus", title: "Invoicing Status", options: DROPDOWN_OPTIONS["Invoicing Status"] },
 ];
@@ -67,6 +65,8 @@ export function queueCellText(r: QueueRow, key: string, flagMissingLines: boolea
       return r.tradeDirection ?? "";
     case "serviceDate":
       return formatDate(serviceDateOf(r));
+    case "duzp":
+      return formatDate(r.duzp);
     case "status":
       return statusLabel(r.shipmentStatus);
     case "selling":
@@ -86,8 +86,6 @@ export function queueCellText(r: QueueRow, key: string, flagMissingLines: boolea
 }
 
 interface QueueFilters {
-  status: string;
-  customer: string;
   columnFilters: readonly { key: string; value: string }[];
   flagMissingLines: boolean;
 }
@@ -96,8 +94,6 @@ interface QueueFilters {
 export function filterQueueRows(rows: QueueRow[], o: QueueFilters): QueueRow[] {
   const kept = rows.filter(
     (r) =>
-      (!o.status || statusLabel(r.shipmentStatus) === o.status) &&
-      (!o.customer || (o.customer === NO_CUSTOMER ? !r.customer : r.customer === o.customer)) &&
       matchesGridFilters(r, o.columnFilters, (row, k) => queueCellText(row, k, o.flagMissingLines), isExactQueueFilter),
   );
   // Default order: the billing date (the ETD / ETA column), oldest first, missing dates last.

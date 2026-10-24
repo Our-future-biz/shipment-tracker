@@ -651,6 +651,13 @@ class InvoiceDocumentService {
       countOf(QUEUE_VIEWS.invoiced),
     ]);
     const settingsById = new Map(settings.map((x) => [x.shipmentId, x.billingCurrency]));
+    // The DUZP of each job's newest open invoice (the highest number).
+    const invoiceDuzp = new Map<string, { number: string; duzp: string }>();
+    for (const i of openInvoices) {
+      const seen = invoiceDuzp.get(i.shipmentId);
+      if (!seen || i.number > seen.number) invoiceDuzp.set(i.shipmentId, { number: i.number, duzp: i.duzp });
+    }
+    const todayIso = pragueToday();
     const billing = new Map<string, QueueEntry>(
       buildBillingQueue({ rows, openInvoices, billingCurrencies: settingsById, rates: today.rates, roePct: today.roePct }).map((e) => [e.shipmentId, e]),
     );
@@ -670,6 +677,7 @@ class InvoiceDocumentService {
         tradeDirection: s.tradeDirection,
         estimatedDeparture: s.estimatedDeparture,
         estimatedArrival: s.estimatedArrival,
+        duzp: invoiceDuzp.get(s.id)?.duzp ?? defaultDuzp(s, todayIso),
         shipmentStatus: s.status ?? "",
         invoicingStatus: s.invoicingStatus,
         billingState: b?.status ?? "none",
