@@ -4,15 +4,23 @@ import type { interfaces } from "@/lib/api/client";
 // with the same 20'→1 / 40'→2 rule) ──
 
 export const CONTAINER_SIZES = ["20'", "40'", "45'"] as const;
-export const CONTAINER_KINDS = ["GP", "HC", "RF", "HRF", "OT", "HOT", "FR"] as const;
+export const CONTAINER_KINDS = ["DC", "HC", "RF", "HRF", "OT", "HOT", "FR"] as const;
 // The equipment offered per size. A 20' comes without a high cube; the high-cube reefer (HRF) and
 // flat rack (HFR) only as a 40', which has no standard-height reefer; 45-foot only as a high cube.
 export const CONTAINER_KINDS_BY_SIZE: Record<string, readonly string[]> = {
-  "20'": ["GP", "RF", "OT", "HOT", "FR"],
-  "40'": ["GP", "HC", "HRF", "OT", "HOT", "FR", "HFR"],
+  "20'": ["DC", "RF", "OT", "HOT", "FR"],
+  "40'": ["DC", "HC", "HRF", "OT", "HOT", "FR", "HFR"],
   "45'": ["HQ"],
 };
 export const CONTAINER_TYPES = CONTAINER_SIZES.flatMap((s) => (CONTAINER_KINDS_BY_SIZE[s] ?? CONTAINER_KINDS).map((k) => `${s} ${k}`));
+
+/**
+ * A container type as the dictionary names it today: the dry box was "GP" before it was "DC", and
+ * quotes and shipments saved before keep "20' GP" / "40' GP" - read as "20' DC" / "40' DC".
+ */
+export function containerType(type: string | null | undefined): string {
+  return (type ?? "").trim().replace(/^(\d\d')\s*GP$/i, "$1 DC");
+}
 
 export function teuForType(type: string): number {
   const t = (type ?? "").trim();

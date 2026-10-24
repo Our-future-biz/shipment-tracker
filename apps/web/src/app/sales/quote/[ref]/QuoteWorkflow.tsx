@@ -47,7 +47,7 @@ import type { QuoteProblem } from "../../_lib/quoteProblem";
 import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, PACKING_TYPES } from "../../_lib/types";
 import { notWonQuoteText } from "../../_lib/shipmentLink";
 import { CURRENCIES } from "@/lib/enums";
-import { CONTAINER_KINDS, CONTAINER_KINDS_BY_SIZE, CONTAINER_SIZES, teuForType } from "@/lib/cargo";
+import { CONTAINER_KINDS, CONTAINER_KINDS_BY_SIZE, CONTAINER_SIZES, containerType, teuForType } from "@/lib/cargo";
 import { useListKeys } from "@/hooks/useListKeys";
 import { asData, cargoReadyDay, computeTotals, computeCargo, documentBlock, fxNote, hasReefer, isContainerQuote, reeferMissing, revisionRoot, stripProtected, withLineBasis, type QuoteTotals } from "../../_lib/salesQuote";
 import { PRINT_WINDOW_BLOCKED, exportClosesQuote } from "../../_lib/exportClose";
@@ -947,7 +947,8 @@ export function QuoteWorkflow() {
                             size="small"
                             className="w-full"
                             aria-label="Container type"
-                            value={c.type}
+                            // A box saved as "40' GP" shows as the "40' DC" it is today.
+                            value={containerType(c.type) || undefined}
                             onChange={(v) => patchContainer(i, { type: v })}
                             options={CONTAINER_TYPE_OPTIONS}
                           />

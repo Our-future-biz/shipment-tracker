@@ -4,7 +4,7 @@ import { useState } from "react";
 import { rowKey } from "@/app/shipments/_lib/rowKey";
 import { App, Button, Input, Select } from "antd";
 import { ContainerOutlined, DeleteOutlined, PlusOutlined } from "@ant-design/icons";
-import { CONTAINER_TYPES } from "@/lib/cargo";
+import { CONTAINER_TYPES, containerType } from "@/lib/cargo";
 import type { MasterJobContainerLine, MasterJobShipmentItem } from "@/hooks/useMasterJobs";
 import { MasterJobCard } from "./MasterJobFields";
 
@@ -119,7 +119,7 @@ export function MasterJobContainers({ id, fromShipments, containers, shipments, 
                     <Select
                       size="small"
                       className="w-full"
-                      value={c.type || undefined}
+                      value={containerType(c.type) || undefined}
                       placeholder="Type"
                       aria-label="Container type"
                       options={CONTAINER_TYPES.map((t) => ({ value: t, label: t }))}

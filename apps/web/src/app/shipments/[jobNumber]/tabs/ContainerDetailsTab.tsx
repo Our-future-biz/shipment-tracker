@@ -34,7 +34,7 @@ const emptyContainer = (): ContainerLine => ({
 const withFirstRow = (list: ContainerLine[] | null | undefined): ContainerLine[] =>
   list && list.length > 0 ? list : [emptyContainer()];
 
-// Grouped "20' GP … 40' FR" options, filtered the way the reference UI does:
+// Grouped "20' DC … 40' FR" options, filtered the way the reference UI does:
 // compare with apostrophes/spaces stripped, and "2"/"20"/"4"/"40" narrows to
 // that size group.
 function containerTypeOptions(query: string) {

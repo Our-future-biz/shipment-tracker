@@ -1,14 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { CONTAINER_TYPES, NOT_STACKABLE, STACKABLE, shipmentStackability, withShipmentStackability } from "./cargo";
+import { CONTAINER_TYPES, containerType, NOT_STACKABLE, STACKABLE, shipmentStackability, withShipmentStackability } from "./cargo";
 import { containerTypeFrom } from "@/app/documents/_lib/extraction";
 
 describe("CONTAINER_TYPES", () => {
-  it("offers the agreed equipment: no 20' HC, 20' HR or 40' RF; the 40' high-cube reefer is HRF", () => {
+  it("offers the agreed equipment: the dry box is DC; no 20' HC, 20' HR or 40' RF; the 40' high-cube reefer is HRF", () => {
     expect(CONTAINER_TYPES).toEqual([
-      "20' GP", "20' RF", "20' OT", "20' HOT", "20' FR",
-      "40' GP", "40' HC", "40' HRF", "40' OT", "40' HOT", "40' FR", "40' HFR",
+      "20' DC", "20' RF", "20' OT", "20' HOT", "20' FR",
+      "40' DC", "40' HC", "40' HRF", "40' OT", "40' HOT", "40' FR", "40' HFR",
       "45' HQ",
     ]);
+  });
+});
+
+describe("containerType", () => {
+  it("reads a dry box saved as GP as the DC it is today, and leaves the others", () => {
+    expect(["20' GP", "40' GP", " 40'GP ", "40' DC", "40' HC", "", undefined].map(containerType)).toEqual(["20' DC", "40' DC", "40' DC", "40' DC", "40' HC", "", ""]);
+  });
+
+  it("reads a document's dry box as DC", () => {
+    expect([containerTypeFrom("20", "DRY"), containerTypeFrom("40", "GP"), containerTypeFrom("40", "DC")]).toEqual(["20' DC", "40' DC", "40' DC"]);
   });
 });
 

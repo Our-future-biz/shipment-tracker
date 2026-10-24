@@ -1,3 +1,5 @@
+import { containerType } from "@/lib/cargo";
+
 // How much cargo a container takes, by type: up to the standard limit any box of the type does;
 // above it a heavy-tested box is needed (dry boxes); past that - or, for a reefer, open top or
 // flat rack, past the standard limit - the shipping line has to confirm it, up to the most the
@@ -14,8 +16,8 @@ interface WeightLimit {
 }
 
 const WEIGHT_LIMITS: Record<string, WeightLimit> = {
-  "20' GP": { standard: 26200, heavyTested: 28000, max: 28250 },
-  "40' GP": { standard: 26500, heavyTested: 28500, max: 28500 },
+  "20' DC": { standard: 26200, heavyTested: 28000, max: 28250 },
+  "40' DC": { standard: 26500, heavyTested: 28500, max: 28500 },
   "40' HC": { standard: 26200, heavyTested: 28400, max: 28400 },
   "45' HQ": { standard: 27700, heavyTested: 28800, max: 28800 },
   "20' RF": { standard: 27470, max: 29140 },
@@ -47,7 +49,9 @@ export interface WeightCheck {
 
 /** The weight limits of a container type and where `weight` (kg of cargo per box) stands; null for a type without limits. */
 export function checkContainerWeight(type: string | undefined, weight: number | undefined): WeightCheck | null {
-  const limit = Object.hasOwn(WEIGHT_LIMITS, (type ?? "").trim()) ? WEIGHT_LIMITS[(type ?? "").trim()] : undefined;
+  // A box saved as "20' GP" is the "20' DC" of today.
+  const key = containerType(type);
+  const limit = Object.hasOwn(WEIGHT_LIMITS, key) ? WEIGHT_LIMITS[key] : undefined;
   if (!limit) return null;
   const kg = Number(weight) || 0;
   const level: WeightLevel =

@@ -382,7 +382,7 @@ export function containerTypeFrom(length: string, kind: string): string {
     size === "45" ? "HQ"
     : reefer ? (size === "40" ? "HRF" : "RF")
     : /^(HQ|HC|HIGH ?CUBE)/.test(k) ? "HC"
-    : /^(GP|DV|DRY|ST|STD|GENERAL)/.test(k) || !k ? "GP"
+    : /^(DC|GP|DV|DRY|ST|STD|GENERAL)/.test(k) || !k ? "DC"
     : /^(OT|OPEN ?TOP)/.test(k) ? "OT"
     : /^(FR|FLAT ?RACK)/.test(k) ? "FR"
     : k;
