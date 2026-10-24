@@ -247,7 +247,7 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
       <div className="max-w-[1400px] mx-auto flex flex-col gap-5">
         {/* One bar: the title, the stage tabs with their counts, then search, the table tools and the action. */}
         <div className="flex flex-wrap items-center gap-x-6 gap-y-3 bg-white border border-slate-200 rounded-2xl px-5 py-3">
-          <h1 className="text-2xl font-bold text-slate-900 m-0">Invoicing</h1>
+          <h1 className="text-2xl font-bold text-slate-900 m-0 uppercase">Invoicing</h1>
           <div role="tablist" aria-label="Invoicing stage" className="flex items-center gap-1 self-stretch">
             {STAGE_TABS.map((t) => {
               const active = view === t.key;
