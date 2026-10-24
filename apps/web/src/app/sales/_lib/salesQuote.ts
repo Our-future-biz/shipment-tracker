@@ -263,19 +263,55 @@ export function computeCargo(data: SalesQuoteData) {
   };
 }
 
+/** The unit of a line charged per W/M: its quantity is the cargo's weight / measure. */
+export const WM_UNIT = "W/M";
+
+/** What a line's Amount column holds: per W/M the rate per W/M, otherwise the whole line. */
+export function lineRate(line: CostLine): number {
+  return Number(line.basis === "wm" ? (line.unitPrice ?? line.amount) : line.amount) || 0;
+}
+
 /**
- * The quote's lines as their basis has them: a selling line is charged by its buying line's basis,
- * and a line charged per W/M has the cargo's weight / measure as its quantity - taken as it is set
- * to W/M, and followed while the cargo changes. Null when every line has them already.
+ * The line with this in its Amount column. Per W/M it is the rate: the line is priced like a
+ * tariff line, the weight / measure as its quantity and the rate as its unit price, and its amount -
+ * what the totals, the margin and Costs Breakdown count - is their product.
+ */
+export function withRate(line: CostLine, rate: number, wm: number): CostLine {
+  if (line.basis !== "wm") return { ...line, amount: rate };
+  return { ...line, value: wm, qty: wm, unit: WM_UNIT, unitPrice: rate, amount: roundCents(rate * wm) };
+}
+
+// A line back from W/M to a lump sum: its rate is the amount again, and nothing is priced per unit.
+function asLumpsum(line: CostLine): CostLine {
+  const lumpsum: CostLine = { ...line, amount: Number(line.unitPrice ?? line.amount) || 0 };
+  delete lumpsum.qty;
+  delete lumpsum.unit;
+  delete lumpsum.unitPrice;
+  return lumpsum;
+}
+
+/**
+ * The quote's lines as their basis has them: a selling line is charged by its buying line's basis;
+ * a line charged per W/M has the cargo's weight / measure as its quantity and costs its rate times
+ * that - taken as it is set to W/M, and followed while the cargo changes; a line set back to a
+ * lump sum costs its rate again. Null when every line has them already.
  */
 export function withLineBasis(data: SalesQuoteData): Pick<SalesQuoteData, "buyingLines" | "sellingLines"> | null {
   const basisCopied = withBuyingBasis(data.buyingLines, data.sellingLines);
   const sellingLines = basisCopied ?? data.sellingLines;
   const wm = computeCargo(data).weightMeasure;
-  const stale = (l: CostLine) => l.basis === "wm" && l.value !== wm;
-  if (!basisCopied && ![...(data.buyingLines ?? []), ...(sellingLines ?? [])].some(stale)) return null;
-  const counted = (side: CostLine[] | undefined) => side?.map((l) => (stale(l) ? { ...l, value: wm } : l));
-  return { buyingLines: counted(data.buyingLines), sellingLines: counted(sellingLines) };
+  const asBasis = (l: CostLine): CostLine => (l.basis === "wm" ? withRate(l, lineRate(l), wm) : l.unit === WM_UNIT ? asLumpsum(l) : l);
+  const same = (a: CostLine, b: CostLine) => a.value === b.value && a.qty === b.qty && a.unit === b.unit && a.unitPrice === b.unitPrice && a.amount === b.amount;
+  let changed = !!basisCopied;
+  const counted = (side: CostLine[] | undefined) =>
+    side?.map((l) => {
+      const next = asBasis(l);
+      if (same(next, l)) return l;
+      changed = true;
+      return next;
+    });
+  const result = { buyingLines: counted(data.buyingLines), sellingLines: counted(sellingLines) };
+  return changed ? result : null;
 }
 
 // The day the cargo is ready (YYYY-MM-DD), when the quote stores one; empty otherwise. The field

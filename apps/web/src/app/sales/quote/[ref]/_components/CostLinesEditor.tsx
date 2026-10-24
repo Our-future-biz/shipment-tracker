@@ -10,7 +10,7 @@ import { chargeLabel, chargeOptions, toChargeCode } from "@/lib/chargeCodes";
 import { CURRENCIES } from "@/lib/enums";
 import { useListKeys } from "@/hooks/useListKeys";
 import { ConfirmModal } from "@/components/ConfirmModal";
-import { convertLine, quoteCurrency, type LivePricing } from "@/app/sales/_lib/salesQuote";
+import { computeCargo, convertLine, lineRate, quoteCurrency, withRate, type LivePricing } from "@/app/sales/_lib/salesQuote";
 import { LockedAmountInput } from "./LockedAmountInput";
 import { MiniButton, RemoveLineButton } from "./QuoteButtons";
 import { LINE_TD_CLASS, LINE_TH_CLASS, LINE_TH_RIGHT_CLASS, LineBlock, LineBlockEmpty, LineTable } from "./LineBlock";
@@ -117,6 +117,9 @@ export function CostLinesEditor({
   const buying = kind === "buying";
   const currency = quoteCurrency(quote);
   const patch = (i: number, p: Partial<CostLine>) => onChange(lines.map((x, j) => (j === i ? { ...x, ...p } : x)));
+  // A line's Amount column: per W/M the rate, which the cargo's weight / measure multiplies.
+  const wm = computeCargo(quote).weightMeasure;
+  const priced = (line: CostLine, rate: number) => withRate(line, rate, wm);
   // The line whose service was changed while its description held text of its own: whether that
   // text gives way to the service's name is asked.
   const [asked, setAsked] = useState<{ index: number; description: string; service: string } | null>(null);
@@ -212,12 +215,12 @@ export function CostLinesEditor({
                   <td className={LINE_TD_CLASS}>
                     <LockedAmountInput
                       aria-label="Amount"
-                      value={amountOf(l)}
+                      value={lineRate(l)}
                       currency={l.currency}
-                      onChange={(amount) => patch(i, { amount })}
+                      onChange={(amount) => onChange(lines.map((x, j) => (j === i ? priced(x, amount) : x)))}
                       onCommit={(amount, before) => {
-                        if (!before && amount > 0) onAmountSet?.({ ...l, amount }, i);
-                        if (amount !== before) onAmountChanged?.({ ...l, amount }, i, before);
+                        if (!before && amount > 0) onAmountSet?.(priced(l, amount), i);
+                        if (amount !== before) onAmountChanged?.(priced(l, amount), i, before);
                       }}
                     />
                   </td>

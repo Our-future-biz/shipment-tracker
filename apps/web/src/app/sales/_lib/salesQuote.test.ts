@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { SalesQuoteData } from "./types";
+import type { CostLine, SalesQuoteData } from "./types";
 import type { QuoteTotals } from "./salesQuote";
-import { baseRef, computeCargo, fxNote, hasReefer, isReeferType, reeferMissing, followStored, followUpLines, quoteProfitIn, quoteFamily, revisionRoot, withoutPricing, withLineBasis, type SalesQuote } from "./salesQuote";
+import { baseRef, computeCargo, fxNote, hasReefer, isReeferType, reeferMissing, followStored, followUpLines, quoteProfitIn, quoteFamily, lineRate, revisionRoot, withoutPricing, withLineBasis, withRate, WM_UNIT, type SalesQuote } from "./salesQuote";
 
 const quote = (quoteNumber: string): SalesQuote => ({ quoteNumber }) as SalesQuote;
 
@@ -176,23 +176,49 @@ describe("fxNote", () => {
 });
 
 describe("withLineBasis", () => {
-  const line = (basis?: "lumpsum" | "wm", value?: number) => ({ type: "Ocean freight", description: "LCL", currency: "EUR", amount: 100, basis, value });
+  const line = (over: Partial<CostLine> = {}): CostLine => ({ type: "Ocean freight", description: "LCL", currency: "EUR", amount: 40, ...over });
+  // 5,917 kg against 7.551 cbm: 7.551 W/M.
+  const cargo = { weight: 5917, cbm: 7.551 };
+  const perWm = (rate: number, over: Partial<CostLine> = {}) => line({ basis: "wm", value: 7.551, qty: 7.551, unit: WM_UNIT, unitPrice: rate, amount: Math.round(rate * 7.551 * 100) / 100, ...over });
 
-  it("gives every W/M line the cargo's weight / measure as its quantity, the others stay", () => {
-    const data = { weight: 5917, cbm: 7.551, buyingLines: [line("wm", 1), line("lumpsum", 2)], sellingLines: [line("wm")] };
-    expect(withLineBasis(data)).toEqual({ buyingLines: [line("wm", 7.551), line("lumpsum", 2)], sellingLines: [line("wm", 7.551)] });
+  it("prices a line set to W/M at its amount per W/M, the weight / measure as its quantity; the others stay", () => {
+    const data = { ...cargo, buyingLines: [line({ basis: "wm", value: 1 }), line({ basis: "lumpsum", value: 2 })], sellingLines: [line({ basis: "wm", amount: 45 })] };
+    expect(withLineBasis(data)).toEqual({ buyingLines: [perWm(40), line({ basis: "lumpsum", value: 2 })], sellingLines: [perWm(45)] });
+    expect(perWm(40).amount).toBe(302.04);
   });
 
-  it("gives a selling line its buying line's basis, and the quantity that goes with it", () => {
-    const paired = (basis?: "lumpsum" | "wm", value?: number) => ({ ...line(basis, value), pairId: "p1" });
-    const data = { weight: 5917, cbm: 7.551, buyingLines: [paired("wm", 7.551)], sellingLines: [paired("lumpsum", 1), line(undefined, 1)] };
+  it("follows the cargo: the rate stays, the quantity and the amount change", () => {
+    expect(withLineBasis({ weight: 5917, cbm: 2, buyingLines: [perWm(40)] })?.buyingLines).toEqual([line({ basis: "wm", value: 5.917, qty: 5.917, unit: WM_UNIT, unitPrice: 40, amount: 236.68 })]);
+  });
+
+  it("costs the rate again once set back to a lump sum", () => {
+    expect(withLineBasis({ ...cargo, buyingLines: [perWm(40, { basis: "lumpsum" })] })?.buyingLines).toEqual([line({ basis: "lumpsum", value: 7.551 })]);
+  });
+
+  it("gives a selling line its buying line's basis, and prices it by that", () => {
+    const data = { ...cargo, buyingLines: [perWm(40, { pairId: "p1" })], sellingLines: [line({ basis: "lumpsum", amount: 45, pairId: "p1" }), line({ value: 1 })] };
     // The second selling line goes with no buying line (the first is taken by its pair): it keeps its own.
-    expect(withLineBasis(data)).toEqual({ buyingLines: data.buyingLines, sellingLines: [paired("wm", 7.551), line(undefined, 1)] });
-    expect(withLineBasis({ ...data, buyingLines: [paired(undefined, 1)], sellingLines: [paired("wm", 7.551)] })?.sellingLines).toEqual([paired("lumpsum", 7.551)]);
+    expect(withLineBasis(data)).toEqual({ buyingLines: data.buyingLines, sellingLines: [perWm(45, { pairId: "p1" }), line({ value: 1 })] });
   });
 
-  it("is null when every W/M line has it, or there is none", () => {
-    expect(withLineBasis({ weight: 5917, cbm: 2, buyingLines: [line("wm", 5.917)] })).toBeNull();
-    expect(withLineBasis({ weight: 5917, cbm: 2, buyingLines: [line(undefined, 1)] })).toBeNull();
+  it("is null when every line is priced by its basis already, or there is no W/M line", () => {
+    expect(withLineBasis({ ...cargo, buyingLines: [perWm(40)], sellingLines: [perWm(45)] })).toBeNull();
+    expect(withLineBasis({ ...cargo, buyingLines: [line({ value: 1 })] })).toBeNull();
+  });
+
+  it("leaves a line priced per unit by a tariff as it is", () => {
+    expect(withLineBasis({ ...cargo, buyingLines: [line({ qty: 3, unit: "pallet", unitPrice: 20, amount: 60 })] })).toBeNull();
+  });
+});
+
+describe("lineRate / withRate", () => {
+  it("reads the Amount column: per W/M the rate, otherwise the whole line (also stored as text or not at all)", () => {
+    const base: CostLine = { type: "Ocean freight", description: "LCL", currency: "EUR", amount: 302.04 };
+    expect(lineRate({ ...base, basis: "wm", unitPrice: 40 })).toBe(40);
+    expect(lineRate(base)).toBe(302.04);
+    expect(lineRate({ ...base, amount: "750" as unknown as number })).toBe(750);
+    expect(lineRate({ ...base, amount: undefined as unknown as number })).toBe(0);
+    expect(withRate({ ...base, basis: "wm" }, 40, 7.551)).toMatchObject({ unitPrice: 40, qty: 7.551, amount: 302.04 });
+    expect(withRate(base, 50, 7.551)).toEqual({ ...base, amount: 50 });
   });
 });

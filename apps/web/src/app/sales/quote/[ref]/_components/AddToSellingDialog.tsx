@@ -4,18 +4,25 @@ import { useEffect, useRef, useState } from "react";
 import { Button, InputNumber, Modal, type GetRef } from "antd";
 import type { CostLine } from "@/app/sales/_lib/types";
 import { fmtMoney, moneyInputParser, round2 } from "@/lib/money";
+import { lineRate, withRate } from "@/app/sales/_lib/salesQuote";
 
-/** The selling line a buying line becomes with a markup in %: the same charge, quantity and basis, its amount marked up. */
+/** The selling line a buying line becomes with a markup in %: the same charge, quantity and basis, its rate marked up. */
 export function sellingFromBuying(line: CostLine, markupPct: number): CostLine {
-  return {
+  return sellingAt(line, round2(lineRate(line) * (1 + markupPct / 100)));
+}
+
+// The selling line of a buying line at this rate (per W/M, or the whole line).
+function sellingAt(line: CostLine, rate: number): CostLine {
+  const selling: CostLine = {
     type: line.type,
     chargeCode: line.chargeCode,
     description: line.description,
     currency: line.currency,
-    amount: round2(line.amount * (1 + markupPct / 100)),
+    amount: rate,
     value: line.value ?? 1,
     ...(line.basis ? { basis: line.basis } : {}),
   };
+  return withRate(selling, rate, line.value ?? 0);
 }
 
 interface AddToSellingDialogProps {
@@ -27,8 +34,10 @@ interface AddToSellingDialogProps {
 
 // Asked when a buying line gets its amount: whether the charge goes to selling as well, and with
 // what markup - in %, or as a lump sum on top. The selling amount can be typed instead; each of
-// the three follows the one typed.
+// the three follows the one typed. A line charged per W/M is marked up per W/M.
 export function AddToSellingDialog({ line, onAdd, onClose }: AddToSellingDialogProps) {
+  const buying = lineRate(line);
+  const per = line.basis === "wm" ? " per W/M" : "";
   const [markup, setMarkup] = useState<number | null>(null);
   const [lump, setLump] = useState<number | null>(null);
   const [selling, setSelling] = useState<number | null>(null);
@@ -45,21 +54,21 @@ export function AddToSellingDialog({ line, onAdd, onClose }: AddToSellingDialogP
   // The three from a selling amount; the one typed is kept as typed.
   const fromSelling = (amount: number | null) => {
     setSelling(amount);
-    setLump(amount === null ? null : round2(amount - line.amount));
-    setMarkup(amount === null || !line.amount ? null : round2((amount / line.amount - 1) * 100));
+    setLump(amount === null ? null : round2(amount - buying));
+    setMarkup(amount === null || !buying ? null : round2((amount / buying - 1) * 100));
   };
   const changeMarkup = (pct: number | null) => {
-    fromSelling(pct === null ? null : round2(line.amount * (1 + pct / 100)));
+    fromSelling(pct === null ? null : round2(buying * (1 + pct / 100)));
     setMarkup(pct);
   };
   const changeLump = (sum: number | null) => {
-    fromSelling(sum === null ? null : round2(line.amount + sum));
+    fromSelling(sum === null ? null : round2(buying + sum));
     setLump(sum);
   };
 
   const add = () => {
     if (selling === null) return;
-    onAdd({ ...sellingFromBuying(line, 0), amount: round2(selling) });
+    onAdd(sellingAt(line, round2(selling)));
   };
 
   return (
@@ -80,7 +89,8 @@ export function AddToSellingDialog({ line, onAdd, onClose }: AddToSellingDialogP
     >
       <div className="flex flex-col gap-3 pt-1">
         <div className="text-sm text-slate-500">
-          Buying: <span className="font-medium text-slate-800 tabular-nums">{fmtMoney(line.amount, line.currency)}</span>
+          Buying: <span className="font-medium text-slate-800 tabular-nums">{fmtMoney(buying, line.currency)}</span>
+          {per}
         </div>
         <label className="flex items-center gap-3">
           <span className="w-28 shrink-0 text-[12px] font-semibold uppercase tracking-wide text-slate-500">Markup</span>

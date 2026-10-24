@@ -25,9 +25,9 @@ describe("sellingFromBuying", () => {
     expect(selling.amount).toBe(750);
   });
 
-  it("keeps the buying line's quantity and basis (a W/M line stays W/M)", () => {
-    const selling = sellingFromBuying({ ...buying, value: 7.551, basis: "wm" }, 10);
-    expect(selling).toMatchObject({ value: 7.551, basis: "wm" });
+  it("marks a W/M line up per W/M and keeps its quantity and basis", () => {
+    const selling = sellingFromBuying({ ...buying, value: 7.551, basis: "wm", qty: 7.551, unit: "W/M", unitPrice: 40, amount: 302.04 }, 10);
+    expect(selling).toMatchObject({ value: 7.551, basis: "wm", qty: 7.551, unit: "W/M", unitPrice: 44, amount: 332.24 });
   });
 
   it("rounds to cents", () => {
