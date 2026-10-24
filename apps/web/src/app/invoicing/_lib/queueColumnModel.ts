@@ -35,7 +35,6 @@ export const QUEUE_COLUMN_META: (GridFilterColumn & { title: string })[] = [
   { key: "customer", title: "Customer" },
   { key: "tradeDirection", title: "Trade Direction", options: DROPDOWN_OPTIONS["Trade Direction"] },
   { key: "serviceDate", title: "ETD / ETA" },
-  { key: "selling", title: "Selling" },
   { key: "invoices", title: "Invoices" },
   { key: "invoicingStatus", title: "Invoicing Status", options: DROPDOWN_OPTIONS["Invoicing Status"] },
 ];

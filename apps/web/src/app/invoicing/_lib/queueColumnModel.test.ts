@@ -43,11 +43,11 @@ const NO_FILTERS = { dir: "", status: "", customer: "", columnFilters: [], flagM
 
 describe("normalizeQueueColumns", () => {
   it("keeps known keys once, in order, Internal Reference first, without the actions column", () => {
-    // "status" (Shipment Status) is no longer a column: a stored layout that has it drops it
-    expect(normalizeQueueColumns(["customer", "nope", "jobNumber", "customer", "__open", "status", "selling"])).toEqual([
+    // "status" (Shipment Status) and "selling" are no longer columns: a stored layout that has them drops them
+    expect(normalizeQueueColumns(["customer", "nope", "jobNumber", "customer", "__open", "status", "selling", "invoices"])).toEqual([
       "jobNumber",
       "customer",
-      "selling",
+      "invoices",
     ]);
   });
 
@@ -57,13 +57,12 @@ describe("normalizeQueueColumns", () => {
     expect(normalizeQueueColumns([1, {}])).toEqual(["jobNumber"]);
   });
 
-  it("defaults to the 7 columns in table order", () => {
+  it("defaults to the 6 columns in table order", () => {
     expect(QUEUE_DEFAULT_COLUMNS).toEqual([
       "jobNumber",
       "customer",
       "tradeDirection",
       "serviceDate",
-      "selling",
       "invoices",
       "invoicingStatus",
     ]);
@@ -113,7 +112,7 @@ describe("arrangeQueueColumns", () => {
 
 describe("queueColumns and the column list", () => {
   it("has the listed columns in order, with the actions column last", () => {
-    const keys = queueColumns({ info: new Map(), jobHref: () => "", flagMissingLines: false, onDocs: () => {}, onChat: () => {}, unreadBy: new Map() }).map((c) => String(c.key));
+    const keys = queueColumns({ info: new Map(), jobHref: () => "", onDocs: () => {}, onChat: () => {}, unreadBy: new Map() }).map((c) => String(c.key));
     expect(keys.filter((k) => k !== "__open")).toEqual(QUEUE_COLUMN_META.map((c) => c.key));
     expect(keys[keys.length - 1]).toBe("__open");
   });

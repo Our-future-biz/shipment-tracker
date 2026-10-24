@@ -249,7 +249,6 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
   const columns = arrangeQueueColumns(queueColumns({
       info,
       jobHref,
-      flagMissingLines,
       onDocs: (r) => setDocsJob({ id: r.shipmentId, jobNumber: r.jobNumber }),
       onChat: (r) => setChatJob({ id: r.shipmentId, jobNumber: r.jobNumber }),
       unreadBy,

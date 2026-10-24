@@ -4,10 +4,8 @@ import Link from "next/link";
 import { Badge, Tooltip } from "antd";
 import {
   FileTextOutlined,
-  InfoCircleOutlined,
   MessageOutlined,
   WarningFilled,
-  WarningOutlined,
 } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { EMPTY_CELL } from "@/components/EmptyCell";
@@ -26,10 +24,6 @@ import {
 } from "../_lib/queueColumnModel";
 
 export type { QueueRow } from "../_lib/queueColumnModel";
-
-// The Selling header's help (what the old footnote under the table said).
-const SELLING_HELP =
-  "What is still to bill: the selling lines ticked for Invoice that are on no open invoice, in the job's billing currency. To bill = Shipment Status \"Billing\". Issuing an invoice sets the job to Billed / Invoiced; a credit note puts it back. Amounts are estimates at today's ČNB rates (with the ROE % on other currencies); the invoice uses the ČNB rate of its DUZP.";
 
 /** The fields the Shipments conditional formatting reads, by Shipments column key. */
 export function queueRowData(r: QueueRow): Record<string, string> {
@@ -118,39 +112,10 @@ function CustomerName({
   );
 }
 
-// antd draws every column title a second time, in a hidden aria-hidden row it measures widths
-// with: the copy there must not take keyboard focus.
-const notFocusableInMeasureRow = (el: HTMLElement | null) => {
-  if (el?.closest(".ant-table-measure-row")) el.tabIndex = -1;
-};
-
-/**
- * Help next to a header label, reachable by keyboard and screen readers too: a button that opens
- * the tooltip on hover and on focus. Its clicks and keys stay off the header, which sorts.
- */
-function HeaderHelp({ label, help }: { label: string; help: string }) {
-  return (
-    <Tooltip title={help} trigger={["hover", "focus"]}>
-      <button
-        ref={notFocusableInMeasureRow}
-        type="button"
-        aria-label={`About the ${label} amount`}
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => e.stopPropagation()}
-        className="inline-flex items-center bg-transparent border-none p-0 cursor-help text-slate-400 hover:text-slate-600"
-      >
-        <InfoCircleOutlined aria-hidden className="text-[11px]" />
-      </button>
-    </Tooltip>
-  );
-}
-
 interface QueueColumnsArgs {
   info: Info;
   /** The page URL that opens a job in Invoicing (?shipment=…), keeping the queue's tab and filters. */
   jobHref: (shipmentId: string) => string;
-  /** Missing selling lines are flagged only where the job waits to be invoiced (To bill). */
-  flagMissingLines: boolean;
   /** Opens the job's Documents / Chat drawer, as the row icons on Shipments do. */
   onDocs: (r: QueueRow) => void;
   onChat: (r: QueueRow) => void;
@@ -164,11 +129,10 @@ interface QueueColumnsArgs {
 // with an ellipsis and keep the full text as their title.
 const W = {
   job: 140,
-  customer: 220,
+  customer: 300,
   direction: 105,
   date: 110,
-  selling: 120,
-  invoices: 140,
+  invoices: 180,
   invoicing: 130,
   open: 88,
 };
@@ -176,7 +140,6 @@ const W = {
 export function queueColumns({
   info,
   jobHref,
-  flagMissingLines,
   onDocs,
   onChat,
   unreadBy,
@@ -249,54 +212,6 @@ export function queueColumns({
             title={key === "estimatedDeparture" ? "Estimated Departure" : "Estimated Arrival"}
           >
             {formatDate(v)}
-          </span>
-        );
-      },
-    },
-    {
-      key: "selling",
-      title: (
-        <span className="inline-flex items-center gap-1">
-          Selling
-          <HeaderHelp label="Selling" help={SELLING_HELP} />
-        </span>
-      ),
-      width: W.selling,
-      align: "right",
-      showSorterTooltip: false,
-      // amounts are only comparable within one currency: group by currency, then by amount
-      sorter: (a, b) =>
-        a.billingCurrency.localeCompare(b.billingCurrency) || a.amountToBill - b.amountToBill,
-      render: (_, r) => {
-        if (r.billingState === "none") {
-          if (!flagMissingLines) return EMPTY_CELL;
-          return (
-            <Tooltip title="No selling costs ticked for Invoice yet — add them in the Costs section of the job">
-              <span className="inline-flex items-center gap-1 whitespace-nowrap text-amber-600">
-                <WarningOutlined aria-hidden />
-                No selling lines
-              </span>
-            </Tooltip>
-          );
-        }
-        if (r.rowsToBill === 0) return EMPTY_CELL;
-        const missing = r.missingCurrencies.join(", ");
-        return (
-          <span className="inline-flex items-center gap-1 whitespace-nowrap text-slate-600 tabular-nums">
-            {missing && (
-              <Tooltip
-                title={`ČNB publishes no rate for ${missing} — those lines are not in this amount`}
-              >
-                <span
-                  role="img"
-                  aria-label={`No ČNB rate for ${missing}`}
-                  className="inline-flex text-amber-600"
-                >
-                  <WarningOutlined aria-hidden />
-                </span>
-              </Tooltip>
-            )}
-            {moneyCz(r.amountToBill)} {r.billingCurrency}
           </span>
         );
       },
