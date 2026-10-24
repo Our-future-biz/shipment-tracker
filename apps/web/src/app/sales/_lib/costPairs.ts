@@ -1,5 +1,5 @@
 import { toChargeCode } from "@/lib/chargeCodes";
-import type { CostLine } from "./types";
+import type { ChargeBasis, CostLine } from "./types";
 
 // A buying line and the selling line made from it (the markup question, "Copy buying → selling")
 // share a pairId, so removing one can offer to remove the other.
@@ -43,4 +43,22 @@ export function lineRemovals(side: LineSide, index: number, other: number, both:
 export function pairedCopies(buying: readonly CostLine[]): { buying: CostLine[]; selling: CostLine[] } {
   const withIds = buying.map((l) => (l.pairId ? l : { ...l, pairId: newPairId() }));
   return { buying: withIds, selling: withIds.map((l) => ({ ...l, supplier: undefined })) };
+}
+
+/** The basis a selling line is charged by: its buying line's, when it has one (lumpsum when that has none). */
+export function buyingBasis(line: CostLine, buying: readonly CostLine[]): ChargeBasis | undefined {
+  const i = counterpartIndex(line, buying);
+  return i < 0 ? undefined : (buying[i]!.basis ?? "lumpsum");
+}
+
+/** The selling lines with the basis of their buying lines; null when every one has it already. */
+export function withBuyingBasis(buying: readonly CostLine[] | undefined, selling: readonly CostLine[] | undefined): CostLine[] | null {
+  let changed = false;
+  const lines = (selling ?? []).map((l) => {
+    const basis = buyingBasis(l, buying ?? []);
+    if (basis === undefined || basis === (l.basis ?? "lumpsum")) return l;
+    changed = true;
+    return { ...l, basis };
+  });
+  return changed ? lines : null;
 }

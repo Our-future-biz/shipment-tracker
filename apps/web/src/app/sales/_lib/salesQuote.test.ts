@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SalesQuoteData } from "./types";
 import type { QuoteTotals } from "./salesQuote";
-import { baseRef, computeCargo, fxNote, hasReefer, isReeferType, reeferMissing, followStored, followUpLines, quoteProfitIn, quoteFamily, revisionRoot, withoutPricing, withWmQuantities, type SalesQuote } from "./salesQuote";
+import { baseRef, computeCargo, fxNote, hasReefer, isReeferType, reeferMissing, followStored, followUpLines, quoteProfitIn, quoteFamily, revisionRoot, withoutPricing, withLineBasis, type SalesQuote } from "./salesQuote";
 
 const quote = (quoteNumber: string): SalesQuote => ({ quoteNumber }) as SalesQuote;
 
@@ -175,16 +175,24 @@ describe("fxNote", () => {
   });
 });
 
-describe("withWmQuantities", () => {
+describe("withLineBasis", () => {
   const line = (basis?: "lumpsum" | "wm", value?: number) => ({ type: "Ocean freight", description: "LCL", currency: "EUR", amount: 100, basis, value });
 
   it("gives every W/M line the cargo's weight / measure as its quantity, the others stay", () => {
     const data = { weight: 5917, cbm: 7.551, buyingLines: [line("wm", 1), line("lumpsum", 2)], sellingLines: [line("wm")] };
-    expect(withWmQuantities(data)).toEqual({ buyingLines: [line("wm", 7.551), line("lumpsum", 2)], sellingLines: [line("wm", 7.551)] });
+    expect(withLineBasis(data)).toEqual({ buyingLines: [line("wm", 7.551), line("lumpsum", 2)], sellingLines: [line("wm", 7.551)] });
+  });
+
+  it("gives a selling line its buying line's basis, and the quantity that goes with it", () => {
+    const paired = (basis?: "lumpsum" | "wm", value?: number) => ({ ...line(basis, value), pairId: "p1" });
+    const data = { weight: 5917, cbm: 7.551, buyingLines: [paired("wm", 7.551)], sellingLines: [paired("lumpsum", 1), line(undefined, 1)] };
+    // The second selling line goes with no buying line (the first is taken by its pair): it keeps its own.
+    expect(withLineBasis(data)).toEqual({ buyingLines: data.buyingLines, sellingLines: [paired("wm", 7.551), line(undefined, 1)] });
+    expect(withLineBasis({ ...data, buyingLines: [paired(undefined, 1)], sellingLines: [paired("wm", 7.551)] })?.sellingLines).toEqual([paired("lumpsum", 7.551)]);
   });
 
   it("is null when every W/M line has it, or there is none", () => {
-    expect(withWmQuantities({ weight: 5917, cbm: 2, buyingLines: [line("wm", 5.917)] })).toBeNull();
-    expect(withWmQuantities({ weight: 5917, cbm: 2, buyingLines: [line(undefined, 1)] })).toBeNull();
+    expect(withLineBasis({ weight: 5917, cbm: 2, buyingLines: [line("wm", 5.917)] })).toBeNull();
+    expect(withLineBasis({ weight: 5917, cbm: 2, buyingLines: [line(undefined, 1)] })).toBeNull();
   });
 });

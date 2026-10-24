@@ -49,7 +49,7 @@ import { notWonQuoteText } from "../../_lib/shipmentLink";
 import { CURRENCIES } from "@/lib/enums";
 import { CONTAINER_KINDS, CONTAINER_KINDS_BY_SIZE, CONTAINER_SIZES, teuForType } from "@/lib/cargo";
 import { useListKeys } from "@/hooks/useListKeys";
-import { asData, cargoReadyDay, computeTotals, computeCargo, documentBlock, fxNote, hasReefer, isContainerQuote, reeferMissing, revisionRoot, stripProtected, withoutPricing, withWmQuantities, type QuoteTotals } from "../../_lib/salesQuote";
+import { asData, cargoReadyDay, computeTotals, computeCargo, documentBlock, fxNote, hasReefer, isContainerQuote, reeferMissing, revisionRoot, stripProtected, withoutPricing, withLineBasis, type QuoteTotals } from "../../_lib/salesQuote";
 import { PRINT_WINDOW_BLOCKED, exportClosesQuote } from "../../_lib/exportClose";
 import { ExportCloseDialog } from "../../_components/ExportCloseDialog";
 import { NO_CUSTOMER, changesCustomer, customerLinkFields, withCustomerUnit } from "../../_lib/quoteCustomer";
@@ -76,7 +76,7 @@ import { PdfPreviewModal } from "./_components/PdfPreviewModal";
 import { EmailQuoteModal } from "./_components/EmailQuoteModal";
 import { AddToSellingDialog } from "./_components/AddToSellingDialog";
 import { RemoveBothDialog } from "./_components/RemoveBothDialog";
-import { counterpartIndex, lineRemovals, newPairId, offerToSelling, pairedCopies, type LineRemoval, type LineSide } from "../../_lib/costPairs";
+import { buyingBasis, counterpartIndex, lineRemovals, newPairId, offerToSelling, pairedCopies, type LineRemoval, type LineSide } from "../../_lib/costPairs";
 import { CostLinesEditor } from "./_components/CostLinesEditor";
 import { QuoteRatesEditor } from "./_components/QuoteRatesEditor";
 import { LINE_TD_CLASS, LINE_TH_CLASS, LINE_TH_RIGHT_CLASS, LineBlock, LineBlockEmpty, LineTable } from "./_components/LineBlock";
@@ -250,9 +250,9 @@ export function QuoteWorkflow() {
     if (!Object.keys(own).length) return;
     // Rates are not copied onto the quote here: a draft is priced at today's ČNB fixing and the
     // server stores the rates when the quote is sent.
-    // A line charged per W/M has the cargo's weight / measure as its quantity, in the same change -
-    // as it is set to W/M, and as the cargo changes while the pricing is open.
-    const wm = pricingClosed ? null : withWmQuantities({ ...draft, ...own });
+    // A selling line has its buying line's basis, and a line charged per W/M the cargo's weight /
+    // measure as its quantity, in the same change - while the pricing is open.
+    const wm = pricingClosed ? null : withLineBasis({ ...draft, ...own });
     change(wm ? { ...own, ...wm } : own);
   };
 
@@ -416,8 +416,8 @@ export function QuoteWorkflow() {
     // Once per answer, not on every render while the change is on its way.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [missingFeeFor]);
-  // W/M lines set before they followed the cargo take its weight / measure as the quote opens.
-  const staleWm = quote && !pricingClosed ? withWmQuantities(draft) : null;
+  // Lines from before the basis was copied and W/M followed the cargo are brought in line as the quote opens.
+  const staleWm = quote && !pricingClosed ? withLineBasis(draft) : null;
   useEffect(() => {
     if (staleWm) change(staleWm);
     // Once as the quote opens; later changes of the cargo carry it themselves (set).
@@ -1224,6 +1224,7 @@ export function QuoteWorkflow() {
             onChange={(l) => updateLines("sellingLines", l)}
             lineTag={sellingTag}
             lineKeys={sellingKeys}
+            basisOf={(line) => buyingBasis(line, buyingLines)}
             onAmountChanged={(line, index, before) => {
               if (line.pairId === WAREHOUSE_PAIR_ID) setFeeChange({ index, amount: Number(line.amount) || 0, before, currency: line.currency, reason: line.changeReason });
             }}

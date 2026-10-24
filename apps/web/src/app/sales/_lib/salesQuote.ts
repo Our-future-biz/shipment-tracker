@@ -4,6 +4,7 @@ import type { ExchangeRates } from "@/lib/exchangeRates";
 import { fmtMoney, roundCents } from "@/lib/money";
 import type { SalesQuoteData, CostLine, PackageLine, QuoteContainerLine, TimelineEntry } from "./types";
 import { teuForType } from "@/lib/cargo";
+import { withBuyingBasis } from "./costPairs";
 import { businessDay, businessToday, formatDate } from "@/lib/date";
 import { FX_DRAFT_STATUSES, PRICING_CLOSED_STATUSES, PRICING_KEYS, PROTECTED_KEYS, type QuoteStatus } from "./types";
 
@@ -263,16 +264,18 @@ export function computeCargo(data: SalesQuoteData) {
 }
 
 /**
- * The quote's lines charged per W/M with the cargo's weight / measure as their quantity: a line
- * set to W/M takes it, and follows it while the cargo changes. Null when every W/M line has it.
+ * The quote's lines as their basis has them: a selling line is charged by its buying line's basis,
+ * and a line charged per W/M has the cargo's weight / measure as its quantity - taken as it is set
+ * to W/M, and followed while the cargo changes. Null when every line has them already.
  */
-export function withWmQuantities(data: SalesQuoteData): Pick<SalesQuoteData, "buyingLines" | "sellingLines"> | null {
+export function withLineBasis(data: SalesQuoteData): Pick<SalesQuoteData, "buyingLines" | "sellingLines"> | null {
+  const basisCopied = withBuyingBasis(data.buyingLines, data.sellingLines);
+  const sellingLines = basisCopied ?? data.sellingLines;
   const wm = computeCargo(data).weightMeasure;
   const stale = (l: CostLine) => l.basis === "wm" && l.value !== wm;
-  const lines = [...(data.buyingLines ?? []), ...(data.sellingLines ?? [])];
-  if (!lines.some(stale)) return null;
+  if (!basisCopied && ![...(data.buyingLines ?? []), ...(sellingLines ?? [])].some(stale)) return null;
   const counted = (side: CostLine[] | undefined) => side?.map((l) => (stale(l) ? { ...l, value: wm } : l));
-  return { buyingLines: counted(data.buyingLines), sellingLines: counted(data.sellingLines) };
+  return { buyingLines: counted(data.buyingLines), sellingLines: counted(sellingLines) };
 }
 
 // The day the cargo is ready (YYYY-MM-DD), when the quote stores one; empty otherwise. The field

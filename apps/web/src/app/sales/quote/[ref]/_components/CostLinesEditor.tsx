@@ -91,6 +91,8 @@ interface CostLinesEditorProps {
   onAmountChanged?: (line: CostLine, index: number, before: number) => void;
   // Takes over removing a line (to ask about its counterpart first); without it the line goes at once.
   onRemove?: (index: number) => void;
+  // The basis a line has from elsewhere (a selling line its buying line's): shown and not chosen here.
+  basisOf?: (line: CostLine) => ChargeBasis | undefined;
 }
 
 // The buying or the selling lines of a quote. Every line keeps its own currency; the "In EUR"
@@ -110,6 +112,7 @@ export function CostLinesEditor({
   onAmountSet,
   onAmountChanged,
   onRemove,
+  basisOf,
 }: CostLinesEditorProps) {
   const buying = kind === "buying";
   const currency = quoteCurrency(quote);
@@ -242,7 +245,9 @@ export function CostLinesEditor({
                       size="small"
                       className="w-full"
                       aria-label="Basis"
-                      value={l.basis ?? "lumpsum"}
+                      disabled={basisOf?.(l) !== undefined}
+                      title={basisOf?.(l) !== undefined ? "The same as its buying line" : undefined}
+                      value={basisOf?.(l) ?? l.basis ?? "lumpsum"}
                       options={BASIS_OPTIONS}
                       onChange={(basis: ChargeBasis) => patch(i, { basis })}
                     />

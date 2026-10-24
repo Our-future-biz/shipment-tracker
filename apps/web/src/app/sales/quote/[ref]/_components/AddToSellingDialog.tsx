@@ -5,7 +5,7 @@ import { Button, InputNumber, Modal, type GetRef } from "antd";
 import type { CostLine } from "@/app/sales/_lib/types";
 import { fmtMoney, moneyInputParser, round2 } from "@/lib/money";
 
-/** The selling line a buying line becomes with a markup in %: the same charge, its amount marked up. */
+/** The selling line a buying line becomes with a markup in %: the same charge, quantity and basis, its amount marked up. */
 export function sellingFromBuying(line: CostLine, markupPct: number): CostLine {
   return {
     type: line.type,
@@ -13,7 +13,8 @@ export function sellingFromBuying(line: CostLine, markupPct: number): CostLine {
     description: line.description,
     currency: line.currency,
     amount: round2(line.amount * (1 + markupPct / 100)),
-    value: 1,
+    value: line.value ?? 1,
+    ...(line.basis ? { basis: line.basis } : {}),
   };
 }
 
