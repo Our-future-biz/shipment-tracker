@@ -9,6 +9,20 @@ import { formatDateTime } from "@/lib/date";
 import type { Announcement } from "@/hooks/useNoticeboard";
 import { NoticeSeverityTag } from "./NoticeSeverityTag";
 
+// An unread notice is a soft card: a light indigo background (the card header's tone), a shade darker
+// on hover, a faint indigo outline with rounded ends, and a white gap below so several unread ones in a
+// row stay apart. Drawn on the cells (the outline as inset shadows, inside the white gap), so it also
+// covers the sorted Date column's own background.
+const UNREAD_ROW = [
+  "[&>td]:!bg-indigo-50/70",
+  "[&:hover>td]:!bg-indigo-100/60",
+  "[&>td]:!border-b-[3px] [&>td]:!border-b-white",
+  "[&>td]:!shadow-[inset_0_1px_0_#e0e7ff,inset_0_-1px_0_#e0e7ff]",
+  "[&>td:first-child]:!shadow-[inset_1px_1px_0_#e0e7ff,inset_0_-1px_0_#e0e7ff]",
+  "[&>td:last-child]:!shadow-[inset_-1px_1px_0_#e0e7ff,inset_0_-1px_0_#e0e7ff]",
+  "[&>td:first-child]:!rounded-l-lg [&>td:last-child]:!rounded-r-lg",
+].join(" ");
+
 interface NoticeBoardCardProps {
   title: string;
   // The reader's own unit on this board, shown next to the title.
@@ -158,7 +172,7 @@ export function NoticeBoardCard({
         pagination={{ pageSize: 8, hideOnSinglePage: true, size: "small", showSizeChanger: false }}
         // A blank area for the spinner during the first load, instead of "No notices.".
         locale={{ emptyText: isLoading ? <div className="h-16" /> : emptyText }}
-        rowClassName="cursor-pointer"
+        rowClassName={(r) => (r.unread ? `cursor-pointer ${UNREAD_ROW}` : "cursor-pointer")}
         onRow={(r) => ({ onClick: () => onOpen(r) })}
       />
     </SectionCard>
