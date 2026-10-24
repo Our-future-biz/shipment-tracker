@@ -38,7 +38,7 @@ import { DocumentsPanel } from "@/app/shipments/_components/DocumentsPanel";
 import { ChatPanel } from "@/app/shipments/_components/ChatPanel";
 
 type View = BillingQueueView;
-const VIEWS = ["all", "to_bill", "not_invoiced", "invoiced"] as const satisfies readonly View[];
+const VIEWS = ["all", "to_bill", "invoiced"] as const satisfies readonly View[];
 const VIEW_COUNT: Record<View, keyof interfaces.BillingQueueCounts> = {
   all: "all",
   to_bill: "toBill",
@@ -53,11 +53,10 @@ const INVOICING_SCOPE = "invoicing";
 const INVOICING_COLUMN_VIEW: ColumnViewScope = { scope: INVOICING_SCOPE, defaults: QUEUE_DEFAULT_COLUMNS };
 const FIXED_QUEUE_COLUMNS = [FIRST_QUEUE_COLUMN];
 
-// The stage tabs; a thin line sets "All" and "Invoiced" apart from the two working stages.
+// The stage tabs, set apart by thin lines.
 const STAGE_TABS: { key: View; label: string; dividerBefore?: boolean }[] = [
   { key: "all", label: "All" },
   { key: "to_bill", label: "To bill", dividerBefore: true },
-  { key: "not_invoiced", label: "Not invoiced" },
   { key: "invoiced", label: "Invoiced", dividerBefore: true },
 ];
 
@@ -66,9 +65,9 @@ interface BillingQueueProps {
 }
 
 /**
- * The first Invoicing page: the queue. Which jobs a tab lists comes from the shipment itself:
- * "To bill" are the jobs operations set to Shipment Status "Billing"; "Not invoiced" / "Invoiced"
- * follow the Invoicing Status. The tab, search and filters are kept in the URL, so Back from a
+ * The first Invoicing page: the queue. It lists only jobs operations released for billing
+ * (Shipment Status "Billing") and jobs already invoiced: "To bill" are the released ones not
+ * invoiced yet, "Invoiced" follows the Invoicing Status. The tab, search and filters are kept in the URL, so Back from a
  * job returns to the queue as it was left.
  */
 export function BillingQueue({ onOpen }: BillingQueueProps) {
@@ -236,7 +235,9 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
     }), visibleColumns, reordering);
 
   let emptyText =
-    view === "to_bill" ? "No jobs to bill — a job appears here when its Shipment Status is set to Billing." : "No shipments here.";
+    view === "invoiced"
+      ? "No invoiced jobs yet."
+      : "No jobs to bill — a job appears here once operations set its Shipment Status to Billing.";
   if (debounced || hasListFilters) emptyText = "No shipments match these filters.";
   if (isFetching) emptyText = "Loading the queue…";
   if (isError) emptyText = "Could not load the invoicing queue.";

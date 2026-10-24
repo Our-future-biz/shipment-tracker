@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import dayjs from "dayjs";
-import { Alert, Button, DatePicker, Input, Modal, Select, Tag, Tooltip, type RefSelectProps } from "antd";
+import { Alert, Button, Checkbox, DatePicker, Input, Modal, Select, Tag, Tooltip, type RefSelectProps } from "antd";
 import {
   DownOutlined,
   EditOutlined,
@@ -25,6 +25,7 @@ import { formatDate } from "@/lib/date";
 import { CURRENCIES } from "@/lib/enums";
 import { invoicingKey } from "@/hooks/useInvoicing";
 import { moneyCz } from "@/lib/money";
+import { chargeLabel } from "@/lib/chargeCodes";
 import { statusLabel } from "@/lib/shipmentStatus";
 import { SectionCard } from "@/components/SectionCard";
 import { useCostsData } from "@/app/shipments/[jobNumber]/tabs/useCostsData";
@@ -54,6 +55,14 @@ const MAX_DAYS_AFTER_DUZP = 15;
 
 const TH = "text-[11.5px] font-bold tracking-[.04em] uppercase text-slate-500 px-2 py-2 border-b border-slate-200";
 const TD = "px-2 py-2 border-b border-slate-100 text-[13px] text-slate-700";
+
+/** A row of the lines table: an invoice line (ticked), or a selling row left off the invoice. */
+interface TableRow {
+  key: string;
+  sellingId: string | null;
+  line?: interfaces.InvoiceDocLineItem;
+  row?: interfaces.SellingCostItem;
+}
 const czDate = (iso: string) => formatDate(iso) || "—";
 const newKey = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
 
@@ -136,6 +145,14 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
       api.invoicing.invoicingUpdateSellingCost(shipment.id, sellingId, { vatCode }),
     onSuccess: refreshCosts,
     onError: () => toast.error("Failed to change the VAT code"),
+  });
+
+  // The tick is the selling row's "Invoice" flag, the same one Costs Breakdown shows.
+  const lineTick = useMutation({
+    mutationFn: ({ sellingId, invoice }: { sellingId: string; invoice: boolean }) =>
+      api.invoicing.invoicingUpdateSellingCost(shipment.id, sellingId, { invoice }),
+    onSuccess: refreshCosts,
+    onError: () => toast.error("Failed to change which lines are invoiced"),
   });
 
   const linkCustomer = useMutation({
@@ -222,6 +239,18 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
   const canIssue = !!p && problems.length === 0 && !previewLoading;
   const customerOptions = customers.map((c) => ({ value: c.id, label: `${c.companyName}${c.ico ? ` · ${c.ico}` : ""}` }));
   const hasLines = !!p && p.lines.length > 0;
+  // The table: the invoice's lines (ticked selling rows) and, greyed, the selling rows left unticked,
+  // so a line can be put back. Kept in the Costs Breakdown order.
+  const sellingRows = data?.sellingCosts ?? [];
+  const orderOf = (id: string | null) => sellingRows.find((r) => r.id === id)?.sortOrder ?? Number.MAX_SAFE_INTEGER;
+  const tableRows: TableRow[] = p
+    ? [
+        ...p.lines.map((l, i): TableRow => ({ key: l.sourceSellingCostId ?? `line-${i}`, sellingId: l.sourceSellingCostId, line: l })),
+        ...sellingRows
+          .filter((r) => !r.invoice && Number(r.amount ?? 0) !== 0)
+          .map((r): TableRow => ({ key: r.id, sellingId: r.id, row: r })),
+      ].sort((a, b) => orderOf(a.sellingId) - orderOf(b.sellingId))
+    : [];
   // the address on one line, IČO and DIČ together on the next (no separator left hanging)
   const customerAddress = p?.customer?.address ?? "";
   const customerIds = p?.customer
@@ -343,12 +372,15 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
             {previewError && <Alert type="error" showIcon className="mb-3" message="The invoice preview could not be loaded" />}
 
             {/* ── Lines ── */}
-            {p && hasLines ? (
+            {p && tableRows.length > 0 ? (
               // -mx-2: the cells' own padding lines the text up with the facts above
               <div className="overflow-x-auto -mx-2">
                 <table className="w-full min-w-[640px] border-collapse">
                   <thead>
                     <tr>
+                      <th className={`${TH} w-8`}>
+                        <span className="sr-only">On the invoice</span>
+                      </th>
                       <th className={`${TH} text-left`}>Service</th>
                       <th className={`${TH} text-right w-[8%]`}>Qty</th>
                       <th className={`${TH} text-right w-[17%]`}>Price</th>
@@ -357,29 +389,48 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
                     </tr>
                   </thead>
                   <tbody>
-                    {p.lines.map((l, i) => (
-                      <tr key={l.sourceSellingCostId ?? i}>
-                        <td className={TD}>{l.description}</td>
-                        <td className={`${TD} text-right tabular-nums`}>{Number(l.qty)}</td>
-                        <td className={`${TD} text-right tabular-nums`}>{moneyCz(Number(l.unitPrice))} {l.unitCurrency}</td>
-                        <td className={TD}>
-                          {l.vatCode === "NP" ? (
-                            <span className="text-slate-500">{VAT_LABEL.NP}</span>
-                          ) : (
-                            <Select<interfaces.SellingVatCode>
-                              size="small"
-                              value={l.vatCode}
-                              onChange={(v) => handleLineVat(l.sourceSellingCostId, v)}
-                              disabled={lineVat.isPending}
-                              options={VAT_OPTIONS}
-                              className="w-[140px]"
-                              aria-label={`VAT code of ${l.description}`}
-                            />
-                          )}
-                        </td>
-                        <td className={`${TD} text-right tabular-nums font-medium`}>{moneyCz(Number(l.net))}</td>
-                      </tr>
-                    ))}
+                    {tableRows.map((t) => {
+                      const l = t.line;
+                      const description = l ? l.description : t.row!.customer.trim() || chargeLabel(t.row!.category) || "Service";
+                      const muted = l ? "" : " !text-slate-400";
+                      return (
+                        <tr key={t.key}>
+                          <td className={`${TD} w-8`}>
+                            {t.sellingId && (
+                              <Checkbox
+                                checked={!!l}
+                                disabled={lineTick.isPending}
+                                onChange={(e) => lineTick.mutate({ sellingId: t.sellingId!, invoice: e.target.checked })}
+                                aria-label={`Put ${description} on the invoice`}
+                              />
+                            )}
+                          </td>
+                          <td className={`${TD}${muted}`}>{description}</td>
+                          <td className={`${TD} text-right tabular-nums${muted}`}>{Number(l ? l.qty : t.row!.qty ?? 1) || 1}</td>
+                          <td className={`${TD} text-right tabular-nums${muted}`}>
+                            {moneyCz(Number(l ? l.unitPrice : t.row!.amount))} {l ? l.unitCurrency : t.row!.currency}
+                          </td>
+                          <td className={TD}>
+                            {!l ? (
+                              <span className="text-slate-400">Not invoiced</span>
+                            ) : l.vatCode === "NP" ? (
+                              <span className="text-slate-500">{VAT_LABEL.NP}</span>
+                            ) : (
+                              <Select<interfaces.SellingVatCode>
+                                size="small"
+                                value={l.vatCode}
+                                onChange={(v) => handleLineVat(l.sourceSellingCostId, v)}
+                                disabled={lineVat.isPending}
+                                options={VAT_OPTIONS}
+                                className="w-[140px]"
+                                aria-label={`VAT code of ${l.description}`}
+                              />
+                            )}
+                          </td>
+                          <td className={`${TD} text-right tabular-nums font-medium${muted}`}>{l ? moneyCz(Number(l.net)) : "—"}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
