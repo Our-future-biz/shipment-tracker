@@ -19,8 +19,7 @@ export const SALES_PAGES = {
   report: { label: "Sales Report", path: "/sales/report" },
   // Job profit in CZK at the month's ČNB average; the page keeps the old Shipment Reports address.
   jobProfit: { label: "Job Profit", path: "/sales/shipments" },
-  // Not daily work, and only a manager can change anything on it. Everybody may still read it:
-  // the quote page links here.
+  // Not daily work: only managers and admins see it and open it (the page says so to anybody else).
   settings: { label: "Settings", path: "/sales/settings", managersOnly: true, divided: true },
 } satisfies Record<string, SalesNavItem>;
 

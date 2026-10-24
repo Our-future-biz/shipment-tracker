@@ -30,6 +30,7 @@ import { PillTabs } from "@/components/SectionCard";
 import { useQuoteFamily } from "@/hooks/useQuoteFamily";
 import { useSalesQuoteDraft } from "@/hooks/useSalesQuoteDraft";
 import { useSalesQuotes } from "@/hooks/useSalesQuotes";
+import { useSalesPermissions } from "@/hooks/useSalesPermissions";
 import { useCurrentExchangeRates } from "@/hooks/useExchangeRates";
 import { useCompanyDetails } from "@/hooks/useSalesPrefs";
 import { useCustomer, useCustomers, type CustomerItem } from "@/hooks/useCustomers";
@@ -174,6 +175,8 @@ export function QuoteWorkflow() {
   // loads the list of all customers: the Customer box asks the server for what is typed.
   const linkedCustomer = useCustomer(draft.customerId ?? null);
   const { terms } = useTermsConditions();
+  // Sales Settings, where the templates are kept, is for managers and admins only.
+  const { canManageSales } = useSalesPermissions();
 
   // The step "Save & continue" goes to once the out-of-gauge cargo is confirmed, while that is asked.
   const [confirmCargoTo, setConfirmCargoTo] = useState<SectionKey | null>(null);
@@ -1291,10 +1294,12 @@ export function QuoteWorkflow() {
                 onChange={chooseTemplate}
                 options={terms.map((t) => ({ value: t.name, label: t.name }))}
               />
-              {/* Where the templates are kept: Sales Settings, which everybody may read. */}
-              <Link href={salesSettingsHref("terms")} className={SMALL_LINK_CLASS}>
-                Templates
-              </Link>
+              {/* Where the templates are kept: Sales Settings, for managers and admins. */}
+              {canManageSales && (
+                <Link href={salesSettingsHref("terms")} className={SMALL_LINK_CLASS}>
+                  Templates
+                </Link>
+              )}
             </div>
           </InfoRow>
           <InfoRow label="Rate offer includes">
