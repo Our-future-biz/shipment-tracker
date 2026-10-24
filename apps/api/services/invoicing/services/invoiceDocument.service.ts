@@ -32,7 +32,7 @@ import type {
 } from "../interfaces/interfaces";
 import { renderInvoicePdf, type InvoiceForPdf } from "../lib/invoicePdf";
 import { loadPdfFonts } from "../lib/pdfFonts";
-import { buildBillingQueue, type QueueEntry } from "../lib/billingQueue";
+import { buildBillingQueue, countInvoicedLines, type QueueEntry } from "../lib/billingQueue";
 import { statusesAfterCredit, statusesAfterIssue, type StatusPatch } from "../lib/shipmentStatus";
 import { invoiceBucket } from "../storage/invoiceBucket";
 import { isUniqueViolation } from "../../../lib/db/errors";
@@ -641,7 +641,7 @@ class InvoiceDocumentService {
     listed.reverse();
 
     const [rows, openInvoices, settings, today, all, toBill, notInvoiced, invoiced] = await Promise.all([
-      sellingCostRepository.listTickedByCompany(companyId),
+      sellingCostRepository.listLiveByCompany(companyId),
       invoiceRepository.listOpenInvoicesWithSources(companyId),
       billingSettingsRepository.listByCompany(companyId),
       ratesForDuzp(pragueToday(), pragueToday()),
@@ -658,8 +658,9 @@ class InvoiceDocumentService {
       if (!seen || i.number > seen.number) invoiceDuzp.set(i.shipmentId, { number: i.number, duzp: i.duzp });
     }
     const todayIso = pragueToday();
+    const lineCounts = countInvoicedLines(rows, openInvoices);
     const billing = new Map<string, QueueEntry>(
-      buildBillingQueue({ rows, openInvoices, billingCurrencies: settingsById, rates: today.rates, roePct: today.roePct }).map((e) => [e.shipmentId, e]),
+      buildBillingQueue({ rows: rows.filter((r) => r.invoice), openInvoices, billingCurrencies: settingsById, rates: today.rates, roePct: today.roePct }).map((e) => [e.shipmentId, e]),
     );
 
     const queue: BillingQueueItem[] = listed.map((s) => {
@@ -687,6 +688,8 @@ class InvoiceDocumentService {
         missingCurrencies: b?.missingCurrencies ?? [],
         invoiceNumbers: b?.invoiceNumbers ?? [],
         invoiced: b?.invoiced ?? [],
+        sellingLines: lineCounts.get(s.id)?.total ?? 0,
+        invoicedLines: lineCounts.get(s.id)?.invoiced ?? 0,
       };
     });
     return { queue, counts: { all, toBill, notInvoiced, invoiced }, truncated: total > listed.length };

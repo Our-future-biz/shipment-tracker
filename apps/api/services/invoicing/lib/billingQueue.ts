@@ -39,6 +39,26 @@ export interface QueueEntry {
   invoiced: { currency: string; gross: number }[];
 }
 
+/**
+ * Per shipment: how many of its selling lines are on an open invoice, of all of them. A line with
+ * no value is left out (it is never invoiced); a line on a credited invoice counts as not invoiced.
+ */
+export function countInvoicedLines(
+  rows: Pick<QueueSellingRow, "id" | "shipmentId" | "qty" | "amount">[],
+  openInvoices: Pick<QueueOpenInvoice, "sourceSellingCostIds">[],
+): Map<string, { invoiced: number; total: number }> {
+  const invoicedRowIds = new Set(openInvoices.flatMap((i) => i.sourceSellingCostIds).filter((x): x is string => !!x));
+  const counts = new Map<string, { invoiced: number; total: number }>();
+  for (const r of rows) {
+    if (!(Number(r.amount ?? 0) * qtyOrOne(r.qty))) continue;
+    const c = counts.get(r.shipmentId) ?? { invoiced: 0, total: 0 };
+    c.total += 1;
+    if (invoicedRowIds.has(r.id)) c.invoiced += 1;
+    counts.set(r.shipmentId, c);
+  }
+  return counts;
+}
+
 function rateOf(currency: string, rates: Record<string, number>): number | null {
   if (!currency || currency === "CZK") return 1;
   const r = rates[currency];

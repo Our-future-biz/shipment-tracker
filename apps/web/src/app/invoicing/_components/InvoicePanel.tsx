@@ -1,12 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import dayjs from "dayjs";
-import { Alert, Button, Checkbox, DatePicker, Input, Modal, Select, Tag, Tooltip, type RefSelectProps } from "antd";
+import { Alert, Button, Checkbox, DatePicker, Dropdown, Input, Modal, Popover, Select, Tag, Tooltip, type RefSelectProps } from "antd";
 import {
   DownOutlined,
   EditOutlined,
+  EllipsisOutlined,
+  FilterOutlined,
+  RightOutlined,
+  SearchOutlined,
   FilePdfOutlined,
   FileTextOutlined,
   RollbackOutlined,
@@ -64,6 +68,15 @@ interface TableRow {
   row?: interfaces.SellingCostItem;
 }
 const czDate = (iso: string) => formatDate(iso) || "—";
+
+/** The two views of the lines card: what goes on the next invoice, and what was invoiced already. */
+type LinesView = "to_invoice" | "invoiced";
+const INVOICE_STATUS: Record<interfaces.InvoiceDocStatus, { label: string; className: string }> = {
+  issued: { label: "Issued", className: "bg-emerald-50 text-emerald-700" },
+  credited: { label: "Credited", className: "bg-orange-50 text-orange-700" },
+};
+const TOOL_BUTTON =
+  "flex items-center justify-center shrink-0 rounded-lg border border-slate-200 bg-white w-8 h-8 p-0 text-slate-500 hover:text-indigo-600 hover:border-indigo-300 transition-colors cursor-pointer";
 const newKey = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
 
 interface FactProps {
@@ -119,6 +132,12 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
   // display only: the customer picker behind the pencil, and the VAT breakdown table
   const [pickingCustomer, setPickingCustomer] = useState(false);
   const [vatOpen, setVatOpen] = useState(false);
+  // the lines card: its view, search and filters (display only)
+  const [linesView, setLinesView] = useState<LinesView>("to_invoice");
+  const [lineQuery, setLineQuery] = useState("");
+  const [currencyFilter, setCurrencyFilter] = useState<string[]>([]);
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
+  const [openInvoices, setOpenInvoices] = useState<Set<string>>(() => new Set());
   const pencilRef = useRef<HTMLButtonElement | HTMLAnchorElement>(null);
   const pickerRef = useRef<RefSelectProps>(null);
   const refocusPencil = useRef(false);
@@ -149,8 +168,9 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
 
   // The tick is the selling row's "Invoice" flag, the same one Costs Breakdown shows.
   const lineTick = useMutation({
-    mutationFn: ({ sellingId, invoice }: { sellingId: string; invoice: boolean }) =>
-      api.invoicing.invoicingUpdateSellingCost(shipment.id, sellingId, { invoice }),
+    mutationFn: async ({ sellingIds, invoice }: { sellingIds: string[]; invoice: boolean }) => {
+      await Promise.all(sellingIds.map((id) => api.invoicing.invoicingUpdateSellingCost(shipment.id, id, { invoice })));
+    },
     onSuccess: refreshCosts,
     onError: () => toast.error("Failed to change which lines are invoiced"),
   });
@@ -251,6 +271,34 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
           .map((r): TableRow => ({ key: r.id, sellingId: r.id, row: r })),
       ].sort((a, b) => orderOf(a.sellingId) - orderOf(b.sellingId))
     : [];
+  const rowDescription = (t: TableRow) => (t.line ? t.line.description : t.row!.customer.trim() || chargeLabel(t.row!.category) || "Service");
+  const rowCurrency = (t: TableRow) => (t.line ? t.line.unitCurrency : t.row!.currency);
+  const words = lineQuery.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const matches = (text: string) => words.every((w) => text.toLowerCase().includes(w));
+  const shownRows = tableRows.filter(
+    (t) => matches(rowDescription(t)) && (currencyFilter.length === 0 || currencyFilter.includes(rowCurrency(t))),
+  );
+  const tickable = shownRows.filter((t) => t.sellingId);
+  const tickedCount = tickable.filter((t) => t.line).length;
+  const setTicks = (invoice: boolean) =>
+    lineTick.mutate({ sellingIds: tickable.filter((t) => !!t.line !== invoice).map((t) => t.sellingId!), invoice });
+  const lineCurrencies = Array.from(new Set(tableRows.map(rowCurrency))).sort();
+
+  // Invoiced: the issued invoices of the job (credit notes stay in the Invoices & Credit Notes tab).
+  const issuedInvoices = docs.filter((d) => d.kind === "invoice");
+  const shownInvoices = issuedInvoices.filter(
+    (d) =>
+      (words.length === 0 || matches(d.number) || d.lines.some((l) => matches(l.description))) &&
+      (statusFilter.length === 0 || statusFilter.includes(d.status)),
+  );
+  const toggleInvoice = (id: string) =>
+    setOpenInvoices((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const activeFilters = linesView === "to_invoice" ? currencyFilter : statusFilter;
   // the address on one line, IČO and DIČ together on the next (no separator left hanging)
   const customerAddress = p?.customer?.address ?? "";
   const customerIds = p?.customer
@@ -368,6 +416,115 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
 
         {/* ── Lines, totals and Issue ── */}
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-clip">
+          {/* ── The card's tabs, search and tools ── */}
+          <div className="flex items-center gap-3 flex-wrap px-4 border-b border-slate-200">
+            <div role="tablist" aria-label="Invoice lines" className="flex items-center gap-4 self-stretch">
+              {(
+                [
+                  { key: "to_invoice", label: "To invoice", count: p ? p.lines.length : undefined },
+                  { key: "invoiced", label: "Invoiced", count: issuedInvoices.length },
+                ] as const
+              ).map((t) => {
+                const active = linesView === t.key;
+                return (
+                  <button
+                    key={t.key}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => setLinesView(t.key)}
+                    className={`flex items-center gap-2 py-3 -mb-px bg-transparent border-0 border-b-2 cursor-pointer text-sm transition-colors ${
+                      active ? "border-indigo-500 text-indigo-600 font-semibold" : "border-transparent text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    {t.label}
+                    {t.count !== undefined && (
+                      <span className={`rounded px-1.5 text-xs font-medium leading-5 ${active ? "bg-indigo-50 text-indigo-600" : "bg-slate-100 text-slate-500"}`}>
+                        {t.count}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex items-center gap-2 ml-auto py-2">
+              <Input
+                placeholder={linesView === "to_invoice" ? "Search services..." : "Search invoices..."}
+                aria-label={linesView === "to_invoice" ? "Search services" : "Search invoices"}
+                prefix={<SearchOutlined className="text-slate-400" />}
+                value={lineQuery}
+                onChange={(e) => setLineQuery(e.target.value)}
+                allowClear
+                className="!w-56"
+              />
+              <Popover
+                trigger="click"
+                placement="bottomRight"
+                content={
+                  linesView === "to_invoice" ? (
+                    <div className="flex flex-col gap-2 min-w-[160px]">
+                      <div className="text-[11px] font-bold uppercase tracking-[.04em] text-slate-500">Currency</div>
+                      <Checkbox.Group
+                        className="flex flex-col gap-1"
+                        value={currencyFilter}
+                        onChange={(v) => setCurrencyFilter(v as string[])}
+                        options={lineCurrencies.map((c) => ({ value: c, label: c }))}
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-2 min-w-[160px]">
+                      <div className="text-[11px] font-bold uppercase tracking-[.04em] text-slate-500">Status</div>
+                      <Checkbox.Group
+                        className="flex flex-col gap-1"
+                        value={statusFilter}
+                        onChange={(v) => setStatusFilter(v as string[])}
+                        options={Object.entries(INVOICE_STATUS).map(([value, x]) => ({ value, label: x.label }))}
+                      />
+                    </div>
+                  )
+                }
+              >
+                <Tooltip title="Filter">
+                  <button
+                    type="button"
+                    aria-label="Filter"
+                    className={`${TOOL_BUTTON} ${activeFilters.length ? "!border-indigo-400 !text-indigo-600 !bg-indigo-50" : ""}`}
+                  >
+                    <FilterOutlined />
+                  </button>
+                </Tooltip>
+              </Popover>
+              <Dropdown
+                trigger={["click"]}
+                placement="bottomRight"
+                menu={{
+                  items: [
+                    // ticking every line is the checkbox in the table header, so it is not repeated here
+                    ...(linesView === "invoiced"
+                      ? [
+                          { key: "expand", label: "Expand all", disabled: shownInvoices.length === 0 },
+                          { key: "collapse", label: "Collapse all", disabled: openInvoices.size === 0 },
+                          ...(onOpenCosts ? [{ type: "divider" as const }] : []),
+                        ]
+                      : []),
+                    ...(onOpenCosts ? [{ key: "costs", label: "Open Costs Breakdown" }] : []),
+                  ],
+                  onClick: ({ key }) => {
+                    if (key === "expand") setOpenInvoices(new Set(shownInvoices.map((d) => d.id)));
+                    if (key === "collapse") setOpenInvoices(new Set());
+                    if (key === "costs") onOpenCosts?.();
+                  },
+                }}
+              >
+                <button type="button" aria-label="More actions" className={TOOL_BUTTON}>
+                  <EllipsisOutlined />
+                </button>
+              </Dropdown>
+            </div>
+          </div>
+
+          {linesView === "to_invoice" && (
+          <>
           <div className="px-4 pt-3 pb-4">
             {previewError && <Alert type="error" showIcon className="mb-3" message="The invoice preview could not be loaded" />}
 
@@ -379,7 +536,13 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
                   <thead>
                     <tr>
                       <th className={`${TH} w-8`}>
-                        <span className="sr-only">On the invoice</span>
+                        <Checkbox
+                          checked={tickable.length > 0 && tickedCount === tickable.length}
+                          indeterminate={tickedCount > 0 && tickedCount < tickable.length}
+                          disabled={lineTick.isPending || tickable.length === 0}
+                          onChange={(e) => setTicks(e.target.checked)}
+                          aria-label="Put every line shown on the invoice"
+                        />
                       </th>
                       <th className={`${TH} text-left`}>Service</th>
                       <th className={`${TH} text-right w-[8%]`}>Qty</th>
@@ -389,9 +552,16 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
                     </tr>
                   </thead>
                   <tbody>
-                    {tableRows.map((t) => {
+                    {shownRows.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className={`${TD} text-center text-slate-500 py-6`}>
+                          No lines match the search or filter.
+                        </td>
+                      </tr>
+                    )}
+                    {shownRows.map((t) => {
                       const l = t.line;
-                      const description = l ? l.description : t.row!.customer.trim() || chargeLabel(t.row!.category) || "Service";
+                      const description = rowDescription(t);
                       const muted = l ? "" : " !text-slate-400";
                       return (
                         <tr key={t.key}>
@@ -400,7 +570,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
                               <Checkbox
                                 checked={!!l}
                                 disabled={lineTick.isPending}
-                                onChange={(e) => lineTick.mutate({ sellingId: t.sellingId!, invoice: e.target.checked })}
+                                onChange={(e) => lineTick.mutate({ sellingIds: [t.sellingId!], invoice: e.target.checked })}
                                 aria-label={`Put ${description} on the invoice`}
                               />
                             )}
@@ -534,6 +704,114 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
               </Tooltip>
             </div>
           </div>
+          </>
+          )}
+
+          {/* ── Invoiced: the job's issued invoices, each folding out to its lines ── */}
+          {linesView === "invoiced" && (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[640px] border-collapse">
+                <thead>
+                  <tr>
+                    <th className={`${TH} w-10 !pl-4`}>
+                      <span className="sr-only">Lines</span>
+                    </th>
+                    <th className={`${TH} text-left`}>Invoice</th>
+                    <th className={`${TH} text-left`}>Date</th>
+                    <th className={`${TH} text-right`}>Items</th>
+                    <th className={`${TH} text-right`}>Total (CZK)</th>
+                    <th className={`${TH} text-left !pl-6 !pr-4`}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {shownInvoices.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className={`${TD} text-center text-slate-500 py-6`}>
+                        {issuedInvoices.length === 0 ? "No invoice issued for this job yet." : "No invoices match the search or filter."}
+                      </td>
+                    </tr>
+                  )}
+                  {shownInvoices.map((d) => {
+                    const open = openInvoices.has(d.id);
+                    const status = INVOICE_STATUS[d.status];
+                    return (
+                      <Fragment key={d.id}>
+                        <tr className="hover:bg-slate-50 cursor-pointer" onClick={() => toggleInvoice(d.id)}>
+                          <td className={`${TD} !pl-4`}>
+                            <button
+                              type="button"
+                              aria-expanded={open}
+                              aria-label={`${open ? "Hide" : "Show"} the lines of ${d.number}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleInvoice(d.id);
+                              }}
+                              className="bg-transparent border-0 p-1 cursor-pointer text-slate-500 hover:text-slate-900"
+                            >
+                              <RightOutlined rotate={open ? 90 : 0} className="!text-[11px]" />
+                            </button>
+                          </td>
+                          <td className={TD}>
+                            <Tooltip title={d.hasPdf ? "Download the PDF" : ""}>
+                              <button
+                                type="button"
+                                disabled={!d.hasPdf || downloading === d.id}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void download(d);
+                                }}
+                                className="bg-transparent border-0 p-0 font-mono font-semibold text-indigo-600 hover:underline cursor-pointer disabled:cursor-default disabled:no-underline"
+                              >
+                                {d.number}
+                              </button>
+                            </Tooltip>
+                          </td>
+                          <td className={`${TD} tabular-nums`}>{czDate(d.issueDate)}</td>
+                          <td className={`${TD} text-right tabular-nums`}>{d.lines.length}</td>
+                          <td className={`${TD} text-right tabular-nums font-medium`}>{moneyCz(Number(d.grossCzk))}</td>
+                          <td className={`${TD} !pl-6 !pr-4`}>
+                            <span className={`inline-block rounded-md px-2 py-0.5 text-[12px] font-medium ${status.className}`}>{status.label}</span>
+                          </td>
+                        </tr>
+                        {open && (
+                          <tr>
+                            <td colSpan={6} className="px-4 py-3 border-b border-slate-100 bg-slate-50/40">
+                              <div className="bg-white border border-slate-200 rounded-lg px-3 py-1">
+                                <table className="w-full border-collapse">
+                                  <thead>
+                                    <tr>
+                                      <th className={`${TH} text-left`}>Service</th>
+                                      <th className={`${TH} text-right w-[8%]`}>Qty</th>
+                                      <th className={`${TH} text-right w-[18%]`}>Price</th>
+                                      <th className={`${TH} text-left w-[16%] !pl-6`}>VAT</th>
+                                      <th className={`${TH} text-right w-[18%]`}>Net ({d.currency})</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {d.lines.map((l, i) => (
+                                      <tr key={l.sourceSellingCostId ?? i}>
+                                        <td className={TD}>{l.description}</td>
+                                        <td className={`${TD} text-right tabular-nums`}>{Number(l.qty)}</td>
+                                        <td className={`${TD} text-right tabular-nums`}>
+                                          {moneyCz(Number(l.unitPrice))} {l.unitCurrency}
+                                        </td>
+                                        <td className={`${TD} !pl-6`}>{VAT_LABEL[l.vatCode] ?? l.vatCode}</td>
+                                        <td className={`${TD} text-right tabular-nums`}>{moneyCz(Number(l.net))}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
         </div>
       )}

@@ -7,6 +7,7 @@ import { Select, Tag } from "antd";
 import { useShipmentMutations, type ShipmentItem } from "@/hooks/useShipments";
 import { useShipment } from "@/hooks/useShipment";
 import { useInvoiceDocList } from "@/hooks/useInvoiceDocs";
+import { useInvoicing } from "@/hooks/useInvoicing";
 import { AppCard } from "@/components/AppCard";
 import { formatDate } from "@/lib/date";
 import { statusLabel, statusTagColor } from "@/lib/shipmentStatus";
@@ -16,6 +17,7 @@ import { CostsTab } from "@/app/shipments/[jobNumber]/tabs/CostsTab";
 import { useCostsData } from "@/app/shipments/[jobNumber]/tabs/useCostsData";
 import { InvoicePanel } from "./InvoicePanel";
 import { BillingQueue } from "./BillingQueue";
+import { invoicedLineCount } from "../_lib/lineCounts";
 
 /** Tabs of a job, as on the shipment detail page; the default one is left out of the URL. */
 const TABS = [
@@ -66,6 +68,9 @@ function ShipmentSummary({ shipment, nextDuzp }: ShipmentProps & { nextDuzp: str
   const [saving, setSaving] = useState(false);
   const { data } = useInvoiceDocList(shipment.id);
   const open = (data?.invoices ?? []).filter((d) => d.kind === "invoice" && d.status === "issued");
+  // the shared invoicing query (selling rows), already loaded for the Invoice tab
+  const { data: costs } = useInvoicing(shipment.id);
+  const lines = invoicedLineCount(costs?.sellingCosts ?? [], data?.invoices ?? []);
   const status = shipment.status ?? "";
 
   const handleInvoicingStatus = async (value: string) => {
@@ -81,7 +86,9 @@ function ShipmentSummary({ shipment, nextDuzp }: ShipmentProps & { nextDuzp: str
   };
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-x-4 gap-y-3">
+    // 9 facts in one row on a wide screen: the text facts share the width, the last three take
+    // the width of their label (labels do not wrap)
+    <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,1.3fr)_minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,0.9fr)_max-content_max-content_max-content] gap-x-4 gap-y-3">
       <SummaryItem label="Job">
         <Link href={`/shipments/${shipment.id}`} className="font-semibold text-indigo-600 hover:underline">
           {shipment.jobNumber}
@@ -114,6 +121,19 @@ function ShipmentSummary({ shipment, nextDuzp }: ShipmentProps & { nextDuzp: str
           className="w-full max-w-[140px]"
           aria-label="Invoicing Status"
         />
+      </SummaryItem>
+      {/* as the queue's column: selling lines on an open invoice, of all; green once all are */}
+      <SummaryItem label="Lines Invoiced">
+        {lines.total ? (
+          <span
+            className={`tabular-nums font-semibold ${lines.invoiced === lines.total ? "text-emerald-600" : "text-red-600"}`}
+            title={`${lines.invoiced} of ${lines.total} selling lines invoiced`}
+          >
+            {lines.invoiced}/{lines.total}
+          </span>
+        ) : (
+          "—"
+        )}
       </SummaryItem>
     </div>
   );

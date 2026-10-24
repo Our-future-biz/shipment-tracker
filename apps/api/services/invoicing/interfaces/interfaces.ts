@@ -429,6 +429,9 @@ export interface BillingQueueItem {
   missingCurrencies: string[];
   invoiceNumbers: string[];
   invoiced: { currency: string; gross: number }[];
+  /** Selling lines of the job (with a value), and how many of them are on an open invoice */
+  sellingLines: number;
+  invoicedLines: number;
 }
 
 /** Number of shipments in each queue view */

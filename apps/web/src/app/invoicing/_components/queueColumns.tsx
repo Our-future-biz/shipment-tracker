@@ -79,6 +79,9 @@ const tint =
 // otherwise grows to its longest value. The full text is the title.
 const capped = (width: number) => ({ maxWidth: width - 16 });
 
+// Share of the selling lines invoiced; a job without lines sorts last.
+const lineShare = (r: QueueRow) => (r.sellingLines ? r.invoicedLines / r.sellingLines : 2);
+
 /**
  * The customer as the Shipments grid shows it (CustomerCell, read only): a link to the customer's
  * page when the job is linked to the Customer Database, plain text when the name was only typed.
@@ -129,11 +132,12 @@ interface QueueColumnsArgs {
 // with an ellipsis and keep the full text as their title.
 const W = {
   job: 140,
-  customer: 215,
+  customer: 165,
   direction: 105,
   date: 110,
   duzp: 100,
-  invoices: 160,
+  invoices: 120,
+  lines: 95,
   invoicing: 130,
   open: 88,
 };
@@ -263,6 +267,26 @@ export function queueColumns({
           );
         }
         return EMPTY_CELL;
+      },
+    },
+    {
+      // How many of the job's selling lines are on an open invoice: green when all are, red otherwise.
+      key: "invoicedLines",
+      title: "Lines Invoiced",
+      width: W.lines,
+      align: "center",
+      sorter: (a, b) => lineShare(a) - lineShare(b),
+      render: (_, r) => {
+        if (!r.sellingLines) return EMPTY_CELL;
+        const done = r.invoicedLines === r.sellingLines;
+        return (
+          <span
+            className={`tabular-nums font-semibold ${done ? "text-emerald-600" : "text-red-600"}`}
+            title={`${r.invoicedLines} of ${r.sellingLines} selling lines invoiced`}
+          >
+            {r.invoicedLines}/{r.sellingLines}
+          </span>
+        );
       },
     },
     {

@@ -34,6 +34,7 @@ export const QUEUE_COLUMN_META: (GridFilterColumn & { title: string })[] = [
   { key: "serviceDate", title: "ETD / ETA" },
   { key: "duzp", title: "DUZP" },
   { key: "invoices", title: "Invoices" },
+  { key: "invoicedLines", title: "Lines Invoiced" },
   { key: "invoicingStatus", title: "Invoicing Status", options: DROPDOWN_OPTIONS["Invoicing Status"] },
 ];
 
@@ -78,6 +79,8 @@ export function queueCellText(r: QueueRow, key: string, flagMissingLines: boolea
       if (r.invoiceNumbers.length > 0) return r.invoiceNumbers.join(", ");
       if (r.rowsToBill > 0) return `${r.rowsToBill} line${r.rowsToBill !== 1 ? "s" : ""}`;
       return "";
+    case "invoicedLines":
+      return r.sellingLines ? `${r.invoicedLines}/${r.sellingLines}` : "";
     case "invoicingStatus":
       return invoicingStatusOf(r);
     default:

@@ -9356,6 +9356,13 @@ export namespace interfaces {
             currency: string
             gross: number
         }[]
+
+        /**
+         * Selling lines of the job (with a value), and how many of them are on an open invoice
+         */
+        sellingLines: number
+
+        invoicedLines: number
     }
 
     export interface BillingSettingsItem {

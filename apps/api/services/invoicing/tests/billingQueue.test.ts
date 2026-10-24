@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildBillingQueue, type QueueOpenInvoice, type QueueSellingRow } from "../lib/billingQueue";
+import { buildBillingQueue, countInvoicedLines, type QueueOpenInvoice, type QueueSellingRow } from "../lib/billingQueue";
 
 const rates = { CZK: 1, EUR: 25, USD: 22 };
 const row = (id: string, shipmentId: string, amount: string, currency = "CZK", qty: string | null = "1.00"): QueueSellingRow => ({
@@ -63,5 +63,22 @@ describe("buildBillingQueue quantities", () => {
   it("counts a blank quantity as 1 and leaves a row with quantity 0 out", () => {
     const [e] = run([row("a", "s1", "100", "CZK", null), row("b", "s1", "100", "CZK", "0")], []);
     expect(e).toMatchObject({ amountToBill: 100, rowsToBill: 1 });
+  });
+});
+
+describe("countInvoicedLines", () => {
+  const row = (id: string, shipmentId: string, amount: string | null = "100.00") => ({ id, shipmentId, qty: "1.00", amount });
+
+  it("counts a job's lines with a value and those on an open invoice", () => {
+    const counts = countInvoicedLines(
+      [row("a", "s1"), row("b", "s1"), row("c", "s1"), row("zero", "s1", "0.00"), row("d", "s2")],
+      [{ sourceSellingCostIds: ["a", "c", null] }],
+    );
+    expect(counts.get("s1")).toEqual({ invoiced: 2, total: 3 });
+    expect(counts.get("s2")).toEqual({ invoiced: 0, total: 1 });
+  });
+
+  it("has no entry for a job without lines", () => {
+    expect(countInvoicedLines([], []).get("s1")).toBeUndefined();
   });
 });

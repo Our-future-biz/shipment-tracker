@@ -19,7 +19,7 @@ const trucking = vi.hoisted(() => ({
 const bucket = vi.hoisted(() => ({ upload: vi.fn(), download: vi.fn(), remove: vi.fn() }));
 const pdf = vi.hoisted(() => ({ render: vi.fn() }));
 const profiles = vi.hoisted(() => ({ getByCompany: vi.fn() }));
-const selling = vi.hoisted(() => ({ listByShipmentId: vi.fn(), listTickedByCompany: vi.fn() }));
+const selling = vi.hoisted(() => ({ listByShipmentId: vi.fn(), listLiveByCompany: vi.fn() }));
 const settings = vi.hoisted(() => ({ getByShipmentId: vi.fn(), listByCompany: vi.fn() }));
 const fxClient = vi.hoisted(() => ({ fxRatesOn: vi.fn() }));
 const clients = vi.hoisted(() => ({
@@ -436,7 +436,7 @@ describe("queue", () => {
       const oldestFirst = [listed({}), listed({ id: "s2", jobNumber: "CZ00000030" })];
       return { pagination: { total: 2 }, data: req.sortDirection === "desc" ? oldestFirst.reverse() : oldestFirst };
     });
-    selling.listTickedByCompany.mockResolvedValue([{ id: "r1", shipmentId: SHIPMENT, qty: "1.00", amount: "1000.00", currency: "EUR" }]);
+    selling.listLiveByCompany.mockResolvedValue([{ id: "r1", shipmentId: SHIPMENT, qty: "1.00", amount: "1000.00", currency: "EUR", invoice: true }]);
     repo.listOpenInvoicesWithSources.mockResolvedValue([]);
     settings.listByCompany.mockResolvedValue([{ shipmentId: SHIPMENT, billingCurrency: "CZK" }]);
   };
@@ -484,7 +484,7 @@ describe("queue", () => {
       const ordered = req.sortDirection === "desc" ? [...all].reverse() : all;
       return { pagination: { total: 1200 }, data: ordered.slice(req.offset ?? 0, (req.offset ?? 0) + req.limit) };
     });
-    selling.listTickedByCompany.mockResolvedValue([]);
+    selling.listLiveByCompany.mockResolvedValue([]);
     repo.listOpenInvoicesWithSources.mockResolvedValue([]);
     settings.listByCompany.mockResolvedValue([]);
 

@@ -36,6 +36,8 @@ const row = (partial: Partial<interfaces.BillingQueueItem> = {}): QueueRow => ({
   missingCurrencies: [],
   invoiceNumbers: [],
   invoiced: [],
+  sellingLines: 0,
+  invoicedLines: 0,
   ...partial,
 });
 
@@ -57,7 +59,7 @@ describe("normalizeQueueColumns", () => {
     expect(normalizeQueueColumns([1, {}])).toEqual(["jobNumber"]);
   });
 
-  it("defaults to the 7 columns in table order", () => {
+  it("defaults to the 8 columns in table order", () => {
     expect(QUEUE_DEFAULT_COLUMNS).toEqual([
       "jobNumber",
       "customer",
@@ -65,6 +67,7 @@ describe("normalizeQueueColumns", () => {
       "serviceDate",
       "duzp",
       "invoices",
+      "invoicedLines",
       "invoicingStatus",
     ]);
   });
