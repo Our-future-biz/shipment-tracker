@@ -222,8 +222,10 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
   const canIssue = !!p && problems.length === 0 && !previewLoading;
   const customerOptions = customers.map((c) => ({ value: c.id, label: `${c.companyName}${c.ico ? ` · ${c.ico}` : ""}` }));
   const hasLines = !!p && p.lines.length > 0;
-  const customerLine = p?.customer
-    ? [p.customer.address, p.customer.ico && `IČO ${p.customer.ico}`, p.customer.dic && `DIČ ${p.customer.dic}`].filter(Boolean).join(" · ")
+  // the address on one line, IČO and DIČ together on the next (no separator left hanging)
+  const customerAddress = p?.customer?.address ?? "";
+  const customerIds = p?.customer
+    ? [p.customer.ico && `IČO ${p.customer.ico}`, p.customer.dic && `DIČ ${p.customer.dic}`].filter(Boolean).join(" · ")
     : "";
 
   // Closing the picker unmounts it: give keyboard focus back to the pencil, unless the user already moved on.
@@ -283,7 +285,8 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
                 sub={
                   p?.customer && (
                     <>
-                      {customerLine && <div>{customerLine}</div>}
+                      {customerAddress && <div>{customerAddress}</div>}
+                      {customerIds && <div className="whitespace-nowrap">{customerIds}</div>}
                       {!shipment.customerId && customerId && <div className="mt-0.5">Linked to the shipment as its customer.</div>}
                     </>
                   )
@@ -328,22 +331,13 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
               />
             </Fact>
             <Fact label="Due date">{p ? czDate(p.dueDate) : "—"}</Fact>
-            <Fact
-              label="Currency"
-              sub={
-                p && foreign ? (
-                  <span className="tabular-nums">
-                    1 {p.currency} = {p.fxRate.toFixed(3).replace(".", ",")} CZK · ČNB{p.fxFixingDate ? `, fixing ${czDate(p.fxFixingDate)}` : ""}
-                  </span>
-                ) : undefined
-              }
-            >
+            <Fact label="Currency">
               <Select size="small" value={billingCur} onChange={(c) => billingCurrency.mutate(c)} loading={billingCurrency.isPending} disabled={billingCurrency.isPending} options={BILLING_CURRENCIES.map((c) => ({ value: c, label: c }))} className="w-[84px]" aria-label="Billing currency" />
             </Fact>
           </div>
         </div>
 
-        {/* ── Lines, totals and Issue; overflow-clip (not hidden) so the sticky Issue bar still sticks ── */}
+        {/* ── Lines, totals and Issue ── */}
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-clip">
           <div className="px-4 pt-3 pb-4">
             {previewError && <Alert type="error" showIcon className="mb-3" message="The invoice preview could not be loaded" />}
@@ -466,8 +460,8 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
             )}
           </div>
 
-          {/* ── Issue: stays visible at the bottom of the screen while scrolling ── */}
-          <div className="sticky bottom-0 z-10 px-4 py-3 bg-white/95 backdrop-blur border-t border-slate-200 flex items-center gap-3 flex-wrap">
+          {/* ── Issue: the card's own last row; it does not follow the scroll ── */}
+          <div className="px-4 py-3 bg-slate-50/60 rounded-b-xl border-t border-slate-200 flex items-center gap-3 flex-wrap">
             <Input
               value={note}
               onChange={(e) => setNote(e.target.value)}
