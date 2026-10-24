@@ -74,3 +74,12 @@ export function newDocument(
 export function carryKeys(): string[] {
   return [...PROTECTED_KEYS];
 }
+
+/**
+ * The keys a save of a closed quote takes from the stored document: all of them. Its details and
+ * prices are what the customer was given, so whatever the editor sends - a key it changed, added
+ * or left out - the document stays as stored. Changes are a revision of the quote.
+ */
+export function closedCarryKeys(stored: Record<string, unknown>, incoming: Record<string, unknown>): string[] {
+  return [...new Set([...PROTECTED_KEYS, ...Object.keys(stored), ...Object.keys(incoming)])];
+}

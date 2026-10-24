@@ -25,7 +25,7 @@ import { quoteCommentRepository } from "../repositories/quoteComment.repository"
 import { salesQuoteRepository, type NewSalesQuote, type SalesQuoteFilter, type SalesQuotePage } from "../repositories/salesQuote.repository";
 import type { SalesQuoteRecord } from "../schemas/quote.schema";
 import { matchOwnerLabel } from "../utils/ownerMatch.utils";
-import { carryKeys, isPlainObject, isWonRevision, newDocument } from "../utils/quoteDocument.utils";
+import { carryKeys, closedCarryKeys, isPlainObject, isWonRevision, newDocument } from "../utils/quoteDocument.utils";
 import { approvedPricing, inquiryGateMessage, MAX_INQUIRY_NOTE, MAX_INQUIRY_PIECES, MAX_PRICE_PER_PIECE, MIN_REJECT_REASON, readInquiry } from "../utils/warehouseInquiry.utils";
 import { fxWriteFor, mayStampFx, type StoredFx } from "../lib/quoteFx";
 import { currenciesToResolve, formatMargin, marginGateMessage, roadMargin, roadMarginApplies, type MarginContext } from "../lib/roadMargin";
@@ -33,7 +33,6 @@ import { choosePricing, pricedComment, rateRequestOf, replaceTruckingLines, road
 import {
   LifecycleError,
   PRICING_CLOSED,
-  PRICING_KEYS,
   isShownStatus,
   applyFollowUp,
   applyRevision,
@@ -409,11 +408,11 @@ class SalesQuoteService {
     const stored = await salesQuoteRepository.loadSales(companyID, quoteNumber);
     if (!stored) throw notFound();
     if (stored.dataVersion !== expectedDataVersion) throw conflict();
-    // The prices of a quote that went out stay what the customer was given: a save keeps them as
-    // stored, whatever the editor sends. The version check below makes this the status saved on.
-    // The revision of a Won quote keeps its prices open (isWonRevision).
+    // A quote that went out stays what the customer was given, its details as well as its prices:
+    // a save keeps the whole document as stored, whatever the editor sends. The version check
+    // below makes this the status saved on. The revision of a Won quote stays open (isWonRevision).
     const closed = PRICING_CLOSED.includes(stored.status) && !isWonRevision(stored.status, stored.data);
-    const carry = closed ? [...carryKeys(), ...PRICING_KEYS] : carryKeys();
+    const carry = closed ? closedCarryKeys(isPlainObject(stored.data) ? stored.data : {}, data) : carryKeys();
     const saved = await salesQuoteRepository.saveDocument(
       companyID,
       quoteNumber,

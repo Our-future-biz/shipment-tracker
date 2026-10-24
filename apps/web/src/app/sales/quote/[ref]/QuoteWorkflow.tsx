@@ -49,7 +49,7 @@ import { notWonQuoteText } from "../../_lib/shipmentLink";
 import { CURRENCIES } from "@/lib/enums";
 import { CONTAINER_KINDS, CONTAINER_KINDS_BY_SIZE, CONTAINER_SIZES, teuForType } from "@/lib/cargo";
 import { useListKeys } from "@/hooks/useListKeys";
-import { asData, cargoReadyDay, computeTotals, computeCargo, documentBlock, fxNote, hasReefer, isContainerQuote, reeferMissing, revisionRoot, stripProtected, withoutPricing, withLineBasis, type QuoteTotals } from "../../_lib/salesQuote";
+import { asData, cargoReadyDay, computeTotals, computeCargo, documentBlock, fxNote, hasReefer, isContainerQuote, reeferMissing, revisionRoot, stripProtected, withLineBasis, type QuoteTotals } from "../../_lib/salesQuote";
 import { PRINT_WINDOW_BLOCKED, exportClosesQuote } from "../../_lib/exportClose";
 import { ExportCloseDialog } from "../../_components/ExportCloseDialog";
 import { NO_CUSTOMER, changesCustomer, customerLinkFields, withCustomerUnit } from "../../_lib/quoteCustomer";
@@ -244,6 +244,8 @@ export function QuoteWorkflow() {
   // previous one (withCustomerUnit), and the contact person still being read for a customer
   // picked before is no longer waited for.
   const set = (patch: Partial<SalesQuoteData>) => {
+    // Nothing of a closed quote is changed here (the server would keep it as stored anyway).
+    if (quoteClosed) return;
     const editable = stripProtected(patch);
     if (changesCustomer(draft, editable)) pickedCustomer.current = null;
     const own = withCustomerUnit(draft, editable);
@@ -252,7 +254,7 @@ export function QuoteWorkflow() {
     // server stores the rates when the quote is sent.
     // A selling line has its buying line's basis, and a line charged per W/M the cargo's weight /
     // measure as its quantity, in the same change - while the pricing is open.
-    const wm = pricingClosed ? null : withLineBasis({ ...draft, ...own });
+    const wm = withLineBasis({ ...draft, ...own });
     change(wm ? { ...own, ...wm } : own);
   };
 
@@ -402,14 +404,15 @@ export function QuoteWorkflow() {
 
   // The customer's document goes out only with a complete total; until then the reason is shown.
   const documentBlocked = documentBlock(totals, exchange.isError);
-  // A quote that went out (or is decided) has its buying and selling closed: the server keeps
-  // them as stored, and the page shows them locked. New prices are a revision of the quote.
-  // The revision of a Won quote is the exception: it stays Won with its prices open to change.
+  // A quote that went out (or is decided) is closed: every detail and price is what the customer
+  // was given, so the server keeps the document as stored and the page shows it locked. Changes
+  // are a revision of the quote. The revision of a Won quote is the exception: it stays Won with
+  // everything open to change.
   const wonRevision = quote?.status === "won" && !!draft.wonRevisionOf;
-  const pricingClosed = !!quote && !exportClosesQuote(quote.status) && !wonRevision;
+  const quoteClosed = !!quote && !exportClosesQuote(quote.status) && !wonRevision;
   // A warehouse approval from before the server put its fee to Pricing: the lines are added as the
   // quote opens (once per answer; autosave stores them). Not on a quote whose pricing is closed.
-  const missingFee = quote && !pricingClosed ? missingWarehouseFee(draft) : null;
+  const missingFee = quote && !quoteClosed ? missingWarehouseFee(draft) : null;
   const missingFeeFor = missingFee ? draft.warehouseInquiry?.id : undefined;
   useEffect(() => {
     if (missingFee) set(missingFee);
@@ -417,7 +420,7 @@ export function QuoteWorkflow() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [missingFeeFor]);
   // Lines from before the basis was copied and W/M followed the cargo are brought in line as the quote opens.
-  const staleWm = quote && !pricingClosed ? withLineBasis(draft) : null;
+  const staleWm = quote && !quoteClosed ? withLineBasis(draft) : null;
   useEffect(() => {
     if (staleWm) change(staleWm);
     // Once as the quote opens; later changes of the cargo carry it themselves (set).
@@ -431,7 +434,7 @@ export function QuoteWorkflow() {
   // the user confirms first - unless the margin floor stops the sending, which is said instead.
   // A closed quote is printed again as it is.
   const exportPdf = () => {
-    if (pricingClosed) printNow();
+    if (quoteClosed) printNow();
     else if (documentBlocked) toast.error(documentBlocked);
     else if (sendBlocked) toast.error(sendBlocked);
     else setModal("closeQuote");
@@ -1161,20 +1164,6 @@ export function QuoteWorkflow() {
       subtitle: "Buying & selling breakdown with margin",
       content: (
         <div className="flex flex-col gap-3">
-          {pricingClosed && (
-            <Alert
-              type="info"
-              showIcon
-              message={
-                quote.status === "replaced"
-                  ? "This quote was replaced by its revision: its buying and selling stay as they were sent."
-                  : "This quote is closed: its buying and selling are what the customer was given. To change prices, click Revise at the top - the revision is a new quote."
-              }
-            />
-          )}
-          {/* Locked as a whole while closed: every control of the prices, antd's and plain buttons alike. */}
-          <ConfigProvider componentDisabled={pricingClosed}>
-          <fieldset disabled={pricingClosed} className="contents">
           <div className="flex items-center gap-2.5 min-h-6">
             <span className={FIELD_LABEL_CLASS}>Currency</span>
             <Select
@@ -1261,8 +1250,6 @@ export function QuoteWorkflow() {
               Quoted as all-in: the customer&apos;s quotation shows one price of {fmtMoney(totals.selling, totals.currency)}, without the selling lines.
             </div>
           )}
-          </fieldset>
-          </ConfigProvider>
           <QuoteRatesEditor data={draft} exchange={exchange} />
           {/* Rates that could not be read leave lines out just the same, but they are not missing:
               the user gets a Retry. */}
@@ -1366,7 +1353,7 @@ export function QuoteWorkflow() {
   const saveAndContinue = (to: SectionKey) => {
     // A Sea LCL shipment of over 2 t is asked whether any piece is over 2 t: the warehouse charges
     // extra handling for those. Not on a quote whose pricing is closed - its lines stay as sent.
-    if (activeSection === "cargo" && !pricingClosed && asksHeavyPieces(draft.serviceType, cargo.grossWeight)) {
+    if (activeSection === "cargo" && !quoteClosed && asksHeavyPieces(draft.serviceType, cargo.grossWeight)) {
       setHeavyPiecesTo(to);
       return;
     }
@@ -1456,6 +1443,7 @@ export function QuoteWorkflow() {
               </ToolbarButton>
               {/* The three ways to fill the quote in from something that exists, behind one button. */}
               <Dropdown
+                disabled={quoteClosed}
                 trigger={["click"]}
                 placement="bottomRight"
                 menu={{
@@ -1466,7 +1454,12 @@ export function QuoteWorkflow() {
                   ],
                 }}
               >
-                <button type="button" className={toolbarButtonClass()}>
+                <button
+                  type="button"
+                  className={toolbarButtonClass()}
+                  disabled={quoteClosed}
+                  title={quoteClosed ? "A closed quote is not changed - revise it" : undefined}
+                >
                   <ImportOutlined />
                   Import data
                   <DownOutlined className="text-[10px] !text-slate-500" />
@@ -1566,11 +1559,33 @@ export function QuoteWorkflow() {
           <div className="flex flex-col gap-3 min-w-0">
             {shown && (
               <QuoteSection key={shown.key} title={shown.title} subtitle={shown.subtitle}>
-                {shown.content}
+                {quoteClosed && (
+                  <Alert
+                    className="!mb-3"
+                    type="info"
+                    showIcon
+                    message={
+                      quote.status === "replaced"
+                        ? "This quote was replaced by its revision: its details and prices stay as they were sent."
+                        : "This quote is closed: its details and prices are what the customer was given. To change anything, click Revise at the top - the revision is a new quote."
+                    }
+                  />
+                )}
+                {/* Locked as a whole while closed: every control of every step, antd's and plain buttons alike. */}
+                <ConfigProvider componentDisabled={quoteClosed}>
+                  <fieldset disabled={quoteClosed} className="contents">
+                    {shown.content}
+                  </fieldset>
+                </ConfigProvider>
                 {(shown.note || nextSection) && (
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
                     <div className="min-w-0">{shown.note}</div>
-                    {nextSection && <ToolbarButton onClick={() => saveAndContinue(nextSection.key)}>Save &amp; continue</ToolbarButton>}
+                    {nextSection &&
+                      (quoteClosed ? (
+                        <ToolbarButton onClick={() => setActiveSection(nextSection.key)}>Continue</ToolbarButton>
+                      ) : (
+                        <ToolbarButton onClick={() => saveAndContinue(nextSection.key)}>Save &amp; continue</ToolbarButton>
+                      ))}
                   </div>
                 )}
               </QuoteSection>
@@ -1633,9 +1648,9 @@ export function QuoteWorkflow() {
       />
 
       {/* On a closed quote an import fills in everything but the prices: the server keeps those as stored. */}
-      <ImportInquiryModal open={modal === "import"} onClose={() => setModal(null)} onApply={(p) => set(pricingClosed ? withoutPricing(p) : p)} />
-      <CopyFromModal open={modal === "copyQuote"} mode="quote" currentRef={ref} onClose={() => setModal(null)} onApply={(p) => set(pricingClosed ? withoutPricing(p) : p)} />
-      <CopyFromModal open={modal === "copyShipment"} mode="shipment" currentRef={ref} onClose={() => setModal(null)} onApply={(p) => set(pricingClosed ? withoutPricing(p) : p)} />
+      <ImportInquiryModal open={modal === "import"} onClose={() => setModal(null)} onApply={set} />
+      <CopyFromModal open={modal === "copyQuote"} mode="quote" currentRef={ref} onClose={() => setModal(null)} onApply={set} />
+      <CopyFromModal open={modal === "copyShipment"} mode="shipment" currentRef={ref} onClose={() => setModal(null)} onApply={set} />
       <DuplicateWizardModal
         open={modal === "duplicate"}
         baseRef={ref}

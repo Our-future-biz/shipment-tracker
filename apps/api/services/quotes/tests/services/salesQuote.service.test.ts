@@ -461,13 +461,14 @@ describe("save", () => {
     await expect(salesQuoteService.save(martin, REF, {}, 1)).rejects.toMatchObject({ code: "not_found" });
   });
 
-  it("keeps the prices of a quote that went out as stored", async () => {
-    const pricing = ["buyingLines", "sellingLines", "currency", "allIn", "road"];
+  it("keeps the whole document of a quote that went out as stored, its details as well as its prices", async () => {
     for (const status of ["quoted", "feedback", "won", "lost", "replaced"]) {
       stored = quote({ status });
       repository.saveDocument.mockResolvedValue(quote({ status, dataVersion: 4 }));
-      await salesQuoteService.save(martin, REF, { sellingLines: [] }, 3);
-      expect(repository.saveDocument).toHaveBeenLastCalledWith(martin.companyID, REF, { data: { sellingLines: [] }, carry: [...PROTECTED_KEYS, ...pricing] }, { dataVersion: 3 });
+      const data = { sellingLines: [], origin: "Prague", commodity: "Parts" };
+      await salesQuoteService.save(martin, REF, data, 3);
+      const carry = repository.saveDocument.mock.lastCall![2].carry as string[];
+      expect(carry).toEqual(expect.arrayContaining([...PROTECTED_KEYS, ...Object.keys(stored.data as object), "sellingLines", "origin", "commodity"]));
     }
     for (const status of ["draft", "ready_to_send", "revised"]) {
       stored = quote({ status });

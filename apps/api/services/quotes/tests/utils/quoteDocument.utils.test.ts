@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   PROTECTED_KEYS,
   carryKeys,
+  closedCarryKeys,
   isPlainObject,
   newDocument,
   stripProtected,
@@ -132,5 +133,13 @@ describe("PROTECTED_KEYS", () => {
     const list = webTypes().match(/export const PROTECTED_KEYS = \[([^\]]*)\]/);
     expect(list, "PROTECTED_KEYS not found in types.ts").not.toBeNull();
     expect([...list![1]!.matchAll(/"(\w+)"/g)].map((m) => m[1])).toEqual([...PROTECTED_KEYS]);
+  });
+});
+
+describe("closedCarryKeys", () => {
+  it("takes every key from the stored document: the protected ones, the stored ones and those the editor sends", () => {
+    const keys = closedCarryKeys({ origin: "Halifax", buyingLines: [] }, { origin: "Prague", commodity: "Parts" });
+    expect(keys).toEqual(expect.arrayContaining([...PROTECTED_KEYS, "origin", "buyingLines", "commodity"]));
+    expect(new Set(keys).size).toBe(keys.length);
   });
 });
