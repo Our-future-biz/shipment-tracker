@@ -4,11 +4,11 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Select, Tag } from "antd";
-import { DownOutlined, RightOutlined } from "@ant-design/icons";
 import { useShipmentMutations, type ShipmentItem } from "@/hooks/useShipments";
 import { useShipment } from "@/hooks/useShipment";
 import { useInvoiceDocList } from "@/hooks/useInvoiceDocs";
 import { AppCard } from "@/components/AppCard";
+import { SectionCard } from "@/components/SectionCard";
 import { formatDate } from "@/lib/date";
 import { statusLabel, statusTagColor } from "@/lib/shipmentStatus";
 import { moneyCz } from "@/lib/money";
@@ -85,7 +85,7 @@ function ShipmentSummary({ shipment }: ShipmentProps) {
   };
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-x-6 gap-y-3 mt-4 pt-4 border-t border-slate-100">
+    <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-x-6 gap-y-3">
       <SummaryItem label="Job">
         <Link href={`/shipments/${shipment.id}`} className="font-semibold text-indigo-600 hover:underline">
           {shipment.jobNumber}
@@ -141,16 +141,12 @@ function CostsSection({ shipment }: ShipmentProps) {
   };
 
   return (
-    <section className="mb-4">
-      <button
-        type="button"
-        onClick={handleToggle}
-        aria-expanded={collapsed === false}
-        className="w-full flex items-center gap-3 px-4 h-10 mb-2 bg-white border border-slate-200 rounded-xl cursor-pointer text-left hover:bg-slate-50"
-      >
-        {collapsed ? <RightOutlined className="text-slate-500 text-[11px]" /> : <DownOutlined className="text-slate-500 text-[11px]" />}
-        <span className="text-[12.5px] font-bold uppercase tracking-[.05em] text-slate-700">Costs</span>
-        <span className="ml-auto flex items-center gap-4 text-[12.5px] text-slate-600 tabular-nums">
+    <SectionCard
+      title="Costs"
+      bodyClassName="p-4 bg-slate-50/60 rounded-b-xl"
+      fold={{ open: collapsed === false, onToggle: handleToggle }}
+      extra={
+        <span className="flex items-center gap-4 text-[12.5px] font-normal text-slate-600 tabular-nums">
           <span>Buying <strong className="text-slate-900">{moneyCz(t.buyTotal)}</strong></span>
           <span>Selling <strong className="text-slate-900">{moneyCz(t.sellTotal)}</strong></span>
           <span>
@@ -161,10 +157,12 @@ function CostsSection({ shipment }: ShipmentProps) {
           </span>
           <span className="text-slate-500">{billingCur}</span>
         </span>
-      </button>
-      {/* key: a fresh Costs editor per shipment, so no row state carries over between shipments */}
+      }
+    >
+      {/* key: a fresh Costs editor per shipment, so no row state carries over between shipments;
+          mounted only while open, as before (the editor is heavy) */}
       {collapsed === false && <CostsTab key={shipment.id} shipment={shipment} />}
-    </section>
+    </SectionCard>
   );
 }
 
@@ -199,22 +197,35 @@ export const InvoicingView = () => {
 
   return (
     <div className="bg-slate-50 min-h-full px-8 py-6">
-      <div className="max-w-[1400px] mx-auto">
-        <h1 className="text-2xl font-bold text-slate-900 mb-5">Invoicing</h1>
-
-        <AppCard className="mb-5">
+      <div className="max-w-[1400px] mx-auto flex flex-col gap-5">
+        {/* Title row as on the queue page: the job switcher sits where the tabs are there */}
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div className="min-w-0">
+            <button
+              type="button"
+              onClick={() => handleSelect(null)}
+              className="p-0 border-0 bg-transparent cursor-pointer text-[13px] text-slate-500 hover:text-indigo-600"
+            >
+              ← Invoicing queue
+            </button>
+            <h1 className="text-2xl font-bold text-slate-900 m-0">
+              Invoicing{selectedShipment ? <span className="text-slate-400 font-semibold"> · {selectedShipment.jobNumber}</span> : null}
+            </h1>
+          </div>
           <ShipmentPicker
             value={selectedShipmentId}
             selected={selectedShipment}
             onChange={handleSelect}
             allowClear
-            className="w-full max-w-xl"
+            className="w-96 max-w-full"
           />
-          {selectedShipment && <ShipmentSummary shipment={selectedShipment} />}
-        </AppCard>
+        </div>
 
         {selectedShipment ? (
           <>
+            <SectionCard title="Job">
+              <ShipmentSummary shipment={selectedShipment} />
+            </SectionCard>
             <CostsSection key={`costs-${selectedShipment.id}`} shipment={selectedShipment} />
             <InvoicePanel key={`inv-${selectedShipment.id}`} shipment={selectedShipment} />
           </>

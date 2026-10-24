@@ -202,10 +202,11 @@ export function InvoicePanel({ shipment }: InvoicePanelProps) {
 
   return (
     // overflow-clip, not overflow-hidden: hidden makes the card a scroll container and the sticky Issue bar would not stick
-    <div className="bg-white border border-slate-200 rounded-xl overflow-clip mb-4">
-      <div className="h-[38px] px-4 flex items-center gap-3 text-[12.5px] font-bold uppercase tracking-[.05em] bg-indigo-50 text-indigo-700">
-        <span>Invoice</span>
-        <span className="ml-auto flex items-center gap-2 normal-case tracking-normal font-medium text-[12.5px] text-slate-600">
+    // Same frame and header as the app's SectionCard (the Job and Costs cards above it)
+    <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-clip">
+      <div className="px-4 py-2.5 flex items-center gap-2.5 bg-indigo-50 border-b border-indigo-100">
+        <h3 className="m-0 text-[13px] font-bold text-slate-800 uppercase tracking-wider">Invoice</h3>
+        <span className="ml-auto flex items-center gap-2 text-[12.5px] font-medium text-slate-600">
           Billing currency
           <Select size="small" value={billingCur} onChange={(c) => billingCurrency.mutate(c)} loading={billingCurrency.isPending} disabled={billingCurrency.isPending} options={BILLING_CURRENCIES.map((c) => ({ value: c, label: c }))} className="w-[84px]" aria-label="Billing currency" />
         </span>
