@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SalesQuoteData } from "./types";
 import type { QuoteTotals } from "./salesQuote";
-import { baseRef, computeCargo, fxNote, hasReefer, isReeferType, reeferMissing, followStored, followUpLines, quoteProfitIn, quoteFamily, revisionRoot, withoutPricing, type SalesQuote } from "./salesQuote";
+import { baseRef, computeCargo, fxNote, hasReefer, isReeferType, reeferMissing, followStored, followUpLines, quoteProfitIn, quoteFamily, revisionRoot, withoutPricing, withWmQuantities, type SalesQuote } from "./salesQuote";
 
 const quote = (quoteNumber: string): SalesQuote => ({ quoteNumber }) as SalesQuote;
 
@@ -172,5 +172,19 @@ describe("fxNote", () => {
     expect(fxNote(totals({ fxLocked: true, lockedAt: "2026-10-24T08:00:00Z" }))).toBe(
       "Totals in EUR based on 2% adjustment of the ČNB rates of 23.10.2026 — stored when the quote was sent 24.10.2026.",
     );
+  });
+});
+
+describe("withWmQuantities", () => {
+  const line = (basis?: "lumpsum" | "wm", value?: number) => ({ type: "Ocean freight", description: "LCL", currency: "EUR", amount: 100, basis, value });
+
+  it("gives every W/M line the cargo's weight / measure as its quantity, the others stay", () => {
+    const data = { weight: 5917, cbm: 7.551, buyingLines: [line("wm", 1), line("lumpsum", 2)], sellingLines: [line("wm")] };
+    expect(withWmQuantities(data)).toEqual({ buyingLines: [line("wm", 7.551), line("lumpsum", 2)], sellingLines: [line("wm", 7.551)] });
+  });
+
+  it("is null when every W/M line has it, or there is none", () => {
+    expect(withWmQuantities({ weight: 5917, cbm: 2, buyingLines: [line("wm", 5.917)] })).toBeNull();
+    expect(withWmQuantities({ weight: 5917, cbm: 2, buyingLines: [line(undefined, 1)] })).toBeNull();
   });
 });

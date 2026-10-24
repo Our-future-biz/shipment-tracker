@@ -227,7 +227,10 @@ export function CostLinesEditor({
                       className="!w-full"
                       aria-label="Quantity"
                       min={0}
-                      precision={2}
+                      // Per W/M: the cargo's weight / measure, 3 decimals as Cargo details shows it.
+                      precision={l.basis === "wm" ? 3 : 2}
+                      disabled={l.basis === "wm"}
+                      title={l.basis === "wm" ? "Weight / measure from Cargo details" : undefined}
                       parser={moneyInputParser}
                       placeholder="=amt"
                       value={l.value}

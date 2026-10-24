@@ -49,7 +49,7 @@ import { notWonQuoteText } from "../../_lib/shipmentLink";
 import { CURRENCIES } from "@/lib/enums";
 import { CONTAINER_KINDS, CONTAINER_KINDS_BY_SIZE, CONTAINER_SIZES, teuForType } from "@/lib/cargo";
 import { useListKeys } from "@/hooks/useListKeys";
-import { asData, cargoReadyDay, computeTotals, computeCargo, documentBlock, fxNote, hasReefer, isContainerQuote, reeferMissing, revisionRoot, stripProtected, withoutPricing, type QuoteTotals } from "../../_lib/salesQuote";
+import { asData, cargoReadyDay, computeTotals, computeCargo, documentBlock, fxNote, hasReefer, isContainerQuote, reeferMissing, revisionRoot, stripProtected, withoutPricing, withWmQuantities, type QuoteTotals } from "../../_lib/salesQuote";
 import { PRINT_WINDOW_BLOCKED, exportClosesQuote } from "../../_lib/exportClose";
 import { ExportCloseDialog } from "../../_components/ExportCloseDialog";
 import { NO_CUSTOMER, changesCustomer, customerLinkFields, withCustomerUnit } from "../../_lib/quoteCustomer";
@@ -250,7 +250,10 @@ export function QuoteWorkflow() {
     if (!Object.keys(own).length) return;
     // Rates are not copied onto the quote here: a draft is priced at today's ČNB fixing and the
     // server stores the rates when the quote is sent.
-    change(own);
+    // A line charged per W/M has the cargo's weight / measure as its quantity, in the same change -
+    // as it is set to W/M, and as the cargo changes while the pricing is open.
+    const wm = pricingClosed ? null : withWmQuantities({ ...draft, ...own });
+    change(wm ? { ...own, ...wm } : own);
   };
 
   // A customer picked in the Customer box: the link at once, with the contact fields emptied in
@@ -413,6 +416,13 @@ export function QuoteWorkflow() {
     // Once per answer, not on every render while the change is on its way.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [missingFeeFor]);
+  // W/M lines set before they followed the cargo take its weight / measure as the quote opens.
+  const staleWm = quote && !pricingClosed ? withWmQuantities(draft) : null;
+  useEffect(() => {
+    if (staleWm) change(staleWm);
+    // Once as the quote opens; later changes of the cargo carry it themselves (set).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!quote]);
   const printNow = () => {
     const blocked = printQuote(ref, draft, exchange, company);
     if (blocked) toast.error(blocked);

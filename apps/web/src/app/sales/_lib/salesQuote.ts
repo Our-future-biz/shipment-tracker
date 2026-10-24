@@ -262,6 +262,19 @@ export function computeCargo(data: SalesQuoteData) {
   };
 }
 
+/**
+ * The quote's lines charged per W/M with the cargo's weight / measure as their quantity: a line
+ * set to W/M takes it, and follows it while the cargo changes. Null when every W/M line has it.
+ */
+export function withWmQuantities(data: SalesQuoteData): Pick<SalesQuoteData, "buyingLines" | "sellingLines"> | null {
+  const wm = computeCargo(data).weightMeasure;
+  const stale = (l: CostLine) => l.basis === "wm" && l.value !== wm;
+  const lines = [...(data.buyingLines ?? []), ...(data.sellingLines ?? [])];
+  if (!lines.some(stale)) return null;
+  const counted = (side: CostLine[] | undefined) => side?.map((l) => (stale(l) ? { ...l, value: wm } : l));
+  return { buyingLines: counted(data.buyingLines), sellingLines: counted(data.sellingLines) };
+}
+
 // The day the cargo is ready (YYYY-MM-DD), when the quote stores one; empty otherwise. The field
 // can also hold what an inquiry said in words ("15 March", "ASAP" - an earlier import left such
 // texts), which is no date to show, to sort a file by or to print: read as one it would come out
