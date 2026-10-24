@@ -1,13 +1,19 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { Table, Button, Dropdown } from "antd";
 import { PlusOutlined, EditOutlined, DeleteOutlined, EllipsisOutlined, PaperClipOutlined } from "@ant-design/icons";
+import { useAuth } from "@/lib/auth/AuthContext";
 import type { ColumnsType } from "antd/es/table";
 import { SectionCard } from "@/components/SectionCard";
 import { formatDateTime } from "@/lib/date";
 import type { Announcement } from "@/hooks/useNoticeboard";
 import { NoticeSeverityTag } from "./NoticeSeverityTag";
+import { SEVERITIES } from "../_lib/boards";
+
+// Every column sorts. Text in Czech order (so "Č" sits after "C"); Status by weight, Critical first.
+const byText = (get: (a: Announcement) => string) => (a: Announcement, b: Announcement) => get(a).localeCompare(get(b), "cs");
+const severityRank = (a: Announcement) => SEVERITIES.findIndex((s) => s.value === a.severity);
 
 // An unread notice is a soft card: a light indigo background (the card header's tone), a shade darker
 // on hover, a faint indigo outline with rounded ends, and a white gap below so several unread ones in a
@@ -16,7 +22,7 @@ import { NoticeSeverityTag } from "./NoticeSeverityTag";
 const UNREAD_ROW = [
   "[&>td]:!bg-indigo-50/70",
   "[&:hover>td]:!bg-indigo-100/60",
-  "[&>td]:!border-b-[3px] [&>td]:!border-b-white",
+  "[&>td]:!border-b-2 [&>td]:!border-b-white",
   "[&>td]:!shadow-[inset_0_1px_0_#e0e7ff,inset_0_-1px_0_#e0e7ff]",
   "[&>td:first-child]:!shadow-[inset_1px_1px_0_#e0e7ff,inset_0_-1px_0_#e0e7ff]",
   "[&>td:last-child]:!shadow-[inset_-1px_1px_0_#e0e7ff,inset_0_-1px_0_#e0e7ff]",
@@ -55,15 +61,32 @@ export function NoticeBoardCard({
   onEdit,
   onDelete,
 }: NoticeBoardCardProps) {
-  // A table: priority, for whom, the notice itself, who posted it, the date (newest first), then a quiet menu.
+  const { user } = useAuth();
+  // The board's own order, kept whenever no column sort is chosen: unread notices on top,
+  // then everything by when it was posted, newest first.
+  const ordered = useMemo(
+    () => [...posts].sort((a, b) => Number(b.unread) - Number(a.unread) || b.createdAt.localeCompare(a.createdAt)),
+    [posts],
+  );
+  const readRank = (a: Announcement) => (a.authorId === user?.id ? 2 : a.unread ? 0 : 1);
+  // A table: priority, for whom, the notice itself, who posted it, the date, whether the
+  // reader has read it, then a quiet menu.
   const columns: ColumnsType<Announcement> = [
-    { title: "Status", dataIndex: "severity", width: 120, render: (v: string) => <NoticeSeverityTag severity={v} /> },
+    {
+      title: "Status",
+      dataIndex: "severity",
+      width: 120,
+      sorter: (a, b) => severityRank(a) - severityRank(b),
+      sortDirections: ["descend", "ascend"],
+      render: (v: string) => <NoticeSeverityTag severity={v} />,
+    },
     ...(showTarget
       ? [
           {
             title: "Department",
             dataIndex: "target",
             width: 200,
+            sorter: byText((a) => a.target ?? ""),
             render: (v: string | null | undefined) =>
               v ? (
                 <span title={v} className="inline-block max-w-full truncate align-middle rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
@@ -76,6 +99,7 @@ export function NoticeBoardCard({
     {
       title: "Title",
       dataIndex: "title",
+      sorter: byText((a) => a.title),
       render: (v: string, r) => (
         <div className="relative flex items-center gap-1.5 min-w-0">
           {/* Shown until the reader has opened the notice; it hangs in the gutter so every title starts on the same line. */}
@@ -99,6 +123,7 @@ export function NoticeBoardCard({
     {
       title: "Posted by",
       dataIndex: "authorName",
+      sorter: byText((a) => a.authorName),
       width: 160,
       render: (v: string) => <span className="block truncate text-slate-600" title={v}>{v}</span>,
     },
@@ -106,10 +131,31 @@ export function NoticeBoardCard({
       title: "Date",
       dataIndex: "createdAt",
       width: 160,
-      defaultSortOrder: "descend",
-      sortDirections: ["descend", "ascend", "descend"],
+      sortDirections: ["descend", "ascend"],
       sorter: (a, b) => a.createdAt.localeCompare(b.createdAt),
       render: (v: string) => <span className="text-slate-500 tabular-nums whitespace-nowrap">{formatDateTime(v)}</span>,
+    },
+    {
+      // Whether the reader has confirmed the notice; their own notices need no confirming.
+      title: "Read",
+      key: "read",
+      width: 120,
+      // Unread first, then read, then the reader's own.
+      sorter: (a, b) => readRank(a) - readRank(b),
+      render: (_: unknown, r: Announcement) =>
+        r.authorId === user?.id ? (
+          // Indigo, the app's own colour (as on the author's initials), apart from green Read and amber Unread.
+          <span className="inline-flex items-center rounded-md bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">Yours</span>
+        ) : r.unread ? (
+          <span className="inline-flex items-center rounded-md bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">Unread</span>
+        ) : (
+          <span
+            title={r.readAt ? `Read ${formatDateTime(r.readAt)}` : undefined}
+            className="inline-flex items-center rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700"
+          >
+            Read
+          </span>
+        ),
     },
     ...(posts.some((p) => p.canEdit)
       ? [
@@ -164,10 +210,10 @@ export function NoticeBoardCard({
         rowKey="id"
         tableLayout="fixed"
         // On a narrow screen the table scrolls sideways rather than squeeze the titles.
-        scroll={{ x: 820 }}
-        className="[&_.ant-table-cell]:!py-2"
+        scroll={{ x: 940 }}
+        className="[&_.ant-table-tbody_.ant-table-cell]:!py-1"
         loading={isLoading}
-        dataSource={posts}
+        dataSource={ordered}
         columns={columns}
         pagination={{ pageSize: 8, hideOnSinglePage: true, size: "small", showSizeChanger: false }}
         // A blank area for the spinner during the first load, instead of "No notices.".
