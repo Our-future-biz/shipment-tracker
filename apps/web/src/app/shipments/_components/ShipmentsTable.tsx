@@ -158,7 +158,10 @@ export const ShipmentsTable = ({
   const leadColumn = view?.leadColumn;
   const viewReadonly = view?.readonlyColumns;
   const visible = useMemo(() => (leadColumn ? [leadColumn, ...chosen.filter((k) => k !== leadColumn)] : chosen), [chosen, leadColumn]);
-  useEffect(() => onVisibleColumnsChange?.(visible), [visible, onVisibleColumnsChange]);
+  // Reported by content, not by array identity: with a template active the column list is a new
+  // array on every render, and the parent storing it would re-render this table forever.
+  const visibleKey = visible.join("\n");
+  useEffect(() => onVisibleColumnsChange?.(visibleKey ? visibleKey.split("\n") : []), [visibleKey, onVisibleColumnsChange]);
   // Search text, kept in sync with the URL ?q= param (also driven by the global top-nav search)
   const urlQuery = searchParams.get("q") ?? "";
   const [search, setSearch] = useState(urlQuery);
