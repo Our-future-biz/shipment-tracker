@@ -382,30 +382,8 @@ export function InvoicePanel({ shipment }: InvoicePanelProps) {
         )}
 
         {/* ── What blocks issuing / needs a look ── */}
-        {(problems.length > 0 || warnings.length > 0) && (
+        {warnings.length > 0 && (
           <div className="flex flex-col gap-2 mt-4">
-            {problems.length > 0 && (
-              <Alert
-                type="warning"
-                showIcon
-                message="Before the invoice can be issued"
-                description={
-                  <ul className="m-0 pl-4">
-                    {problems.map((x) => (
-                      <li key={x}>
-                        {x.includes("Settings → Organization") ? (
-                          <>{x.replace(" (Settings → Organization)", "")} — <Link href="/settings/organization">Settings → Organization</Link></>
-                        ) : x.includes("Exchange page") ? (
-                          <>{x.replace(" — add it on the Exchange page", "")} — <Link href="/exchange">add it on the Exchange page</Link></>
-                        ) : (
-                          x
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                }
-              />
-            )}
             {warnings.map((x) => (
               <div key={x} className="flex items-start gap-2 text-[13px] text-warn bg-warn-faint border border-warn-soft rounded-md px-3 py-2">
                 <WarningOutlined className="mt-[3px]" />
