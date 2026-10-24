@@ -20,7 +20,7 @@ interface ShipmentListRequest {
   warehouse?: string;
   /** Customs page filter: urgent */
   customs?: string;
-  /** Invoicing page filter: billing | not-invoiced | invoiced */
+  /** Invoicing page filter: all | billing | not-invoiced | invoiced */
   invoicing?: string;
   search?: string;
   /** The grid columns the search looks in (the ones the user has chosen); all the usual ones when not given. */

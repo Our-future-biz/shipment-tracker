@@ -119,7 +119,7 @@ export const invoiceDocPdf = api(
 );
 
 interface QueueRequest {
-  /** Default to_bill */
+  /** Default to_bill; all = every shipment except cancelled ones */
   view?: QueueView;
   search?: string & MaxLen<200>;
 }
@@ -131,7 +131,7 @@ interface QueueResponse {
   truncated: boolean;
 }
 
-/** The Invoicing queue: shipments by Shipment Status Billing / Invoicing Status, with the amounts to bill. */
+/** The Invoicing queue: shipments by Shipment Status Billing / Invoicing Status / all shipments, with the amounts to bill. */
 export const invoiceQueue = api(
   { expose: true, auth: true, method: "GET", path: "/invoicing/queue" },
   async (req: QueueRequest): Promise<QueueResponse> => {

@@ -4,7 +4,7 @@ import { keepPreviousData, useQuery, type QueryClient } from "@tanstack/react-qu
 import { api } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
 
-export type BillingQueueView = "to_bill" | "not_invoiced" | "invoiced";
+export type BillingQueueView = interfaces.QueueView;
 
 /** Query keys of everything built from a shipment's invoices. */
 export const INVOICE_KEYS = {
@@ -25,7 +25,7 @@ export function invalidateInvoicingDerived(queryClient: QueryClient) {
   void queryClient.invalidateQueries({ queryKey: INVOICE_KEYS.queueAll });
 }
 
-/** The "Ready to bill" queue: jobs by view, searched on the server across all shipments. */
+/** The Invoicing queue: jobs by view, searched on the server across all shipments. */
 export function useInvoiceQueue(view: BillingQueueView, search: string) {
   const query = useQuery({
     queryKey: INVOICE_KEYS.queue(view, search),

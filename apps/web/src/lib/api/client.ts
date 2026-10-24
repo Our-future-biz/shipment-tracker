@@ -1162,7 +1162,7 @@ export namespace invoicing {
         }
 
         /**
-         * The Invoicing queue: shipments by Shipment Status Billing / Invoicing Status, with the amounts to bill.
+         * The Invoicing queue: shipments by Shipment Status Billing / Invoicing Status / all shipments, with the amounts to bill.
          */
         public async invoiceQueue(params: controllers.QueueRequest): Promise<controllers.QueueResponse> {
             // Convert our params into the objects we need for the request
@@ -6641,7 +6641,7 @@ export namespace controllers {
 
     export interface QueueRequest {
         /**
-         * Default to_bill
+         * Default to_bill; all = every shipment except cancelled ones
          */
         view?: interfaces.QueueView
 
@@ -7390,7 +7390,7 @@ export namespace controllers {
         customs?: string
 
         /**
-         * Invoicing page filter: billing | not-invoiced | invoiced
+         * Invoicing page filter: all | billing | not-invoiced | invoiced
          */
         invoicing?: string
 
@@ -9288,6 +9288,7 @@ export namespace interfaces {
      * Number of shipments in each queue view
      */
     export interface BillingQueueCounts {
+        all: number
         toBill: number
         notInvoiced: number
         invoiced: number
@@ -9302,6 +9303,22 @@ export namespace interfaces {
         customer: string
         shipper: string
         consignee: string
+        /**
+         * The customer's record in the Customer Database; null when the name was only typed
+         */
+        customerId: string | null
+
+        /**
+         * Owning department ("Operation Department", …): colours the Internal Reference as on Shipments
+         */
+        department: string
+
+        /**
+         * House / Master BoL type: an OBL shows the whole row in red, as on Shipments
+         */
+        houseBolType: string
+
+        masterBolType: string
         tradeDirection: string
         estimatedDeparture: string | null
         estimatedArrival: string | null
@@ -13050,9 +13067,9 @@ export namespace interfaces {
     }
 
     /**
-     * Views of the Invoicing queue: to_bill (Shipment Status Billing) | not_invoiced | invoiced (Invoicing Status)
+     * Views of the Invoicing queue: all (every shipment except cancelled ones) | to_bill (Shipment Status Billing) | not_invoiced | invoiced (Invoicing Status)
      */
-    export type QueueView = "to_bill" | "not_invoiced" | "invoiced"
+    export type QueueView = "all" | "to_bill" | "not_invoiced" | "invoiced"
 
     /**
      * A file sent with a chat message.

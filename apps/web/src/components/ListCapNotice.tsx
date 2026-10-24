@@ -9,6 +9,8 @@ interface ListCapNoticeProps {
   total: number;
   /** What the rows are, plural ("shipments"). */
   noun: string;
+  /** How to reach the older rows, when "search or filter" is not how this page finds them. */
+  hint?: string;
 }
 
 /**
@@ -16,14 +18,14 @@ interface ListCapNoticeProps {
  * for one that does not exist. Column filters, sorting and counts on the page cover only the rows
  * shown. Nothing when the list holds them all.
  */
-export function ListCapNotice({ shown, total, noun }: ListCapNoticeProps) {
+export function ListCapNotice({ shown, total, noun, hint = "search or filter to find older ones" }: ListCapNoticeProps) {
   if (total <= shown) return null;
   return (
     <Alert
       type="info"
       showIcon
       className="!mb-3"
-      message={`Showing the newest ${shown.toLocaleString("cs-CZ")} of ${total.toLocaleString("cs-CZ")} ${noun} — search or filter to find older ones.`}
+      message={`Showing the newest ${shown.toLocaleString("cs-CZ")} of ${total.toLocaleString("cs-CZ")} ${noun} — ${hint}.`}
     />
   );
 }

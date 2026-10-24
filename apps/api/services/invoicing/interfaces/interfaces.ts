@@ -190,8 +190,8 @@ export type InvoiceDocKind = "invoice" | "credit_note";
 /** issued; an invoice reversed by a credit note becomes credited */
 export type InvoiceDocStatus = "issued" | "credited";
 
-/** Views of the Invoicing queue: to_bill (Shipment Status Billing) | not_invoiced | invoiced (Invoicing Status) */
-export type QueueView = "to_bill" | "not_invoiced" | "invoiced";
+/** Views of the Invoicing queue: all (every shipment except cancelled ones) | to_bill (Shipment Status Billing) | not_invoiced | invoiced (Invoicing Status) */
+export type QueueView = "all" | "to_bill" | "not_invoiced" | "invoiced";
 
 /** Where a shipment stands with its ticked selling rows */
 export type BillingState = "to_bill" | "partly_invoiced" | "invoiced" | "none";
@@ -401,6 +401,13 @@ export interface BillingQueueItem {
   customer: string;
   shipper: string;
   consignee: string;
+  /** The customer's record in the Customer Database; null when the name was only typed */
+  customerId: string | null;
+  /** Owning department ("Operation Department", …): colours the Internal Reference as on Shipments */
+  department: string;
+  /** House / Master BoL type: an OBL shows the whole row in red, as on Shipments */
+  houseBolType: string;
+  masterBolType: string;
   tradeDirection: string;
   estimatedDeparture: string | null;
   estimatedArrival: string | null;
@@ -421,6 +428,7 @@ export interface BillingQueueItem {
 
 /** Number of shipments in each queue view */
 export interface BillingQueueCounts {
+  all: number;
   toBill: number;
   notInvoiced: number;
   invoiced: number;

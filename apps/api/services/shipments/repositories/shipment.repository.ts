@@ -226,7 +226,7 @@ export interface ShipmentListFilters {
   warehouse?: string;
   /** Customs page: urgent */
   customs?: string;
-  /** Invoicing page: billing (Shipment Status Billing) | not-invoiced | invoiced (Invoicing Status) */
+  /** Invoicing page: all (every shipment but cancelled ones) | billing (Shipment Status Billing) | not-invoiced | invoiced (Invoicing Status) */
   invoicing?: string;
   search?: string;
   /** The grid columns (their keys) the search looks in; without them, SEARCHED_TEXT. */
@@ -238,8 +238,9 @@ export interface ShipmentListFilters {
 
 // Invoicing page queue. "Billing" is the Shipment Status operations set when a job is ready to
 // be invoiced (stored with its direction); Invoicing Status is Invoiced / Not Invoiced.
-type InvoicingFilterId = "billing" | "not-invoiced" | "invoiced";
+type InvoicingFilterId = "all" | "billing" | "not-invoiced" | "invoiced";
 const INVOICING_PREDICATES: Record<InvoicingFilterId, ReturnType<typeof sql>> = {
+  all: NOT_CANCELLED,
   billing: sql`${shipmentTable.status} IN ('Billing [IMP]', 'Billing [EXP]', 'Billing [DOM]')`,
   "not-invoiced": sql`${shipmentTable.invoicingStatus} IS DISTINCT FROM 'Invoiced' AND ${NOT_CANCELLED}`,
   invoiced: sql`${shipmentTable.invoicingStatus} = 'Invoiced'`,

@@ -5,11 +5,9 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Select, Tag } from "antd";
 import { DownOutlined, RightOutlined } from "@ant-design/icons";
-import { useShipmentMutations, useShipments, type ShipmentItem } from "@/hooks/useShipments";
+import { useShipmentMutations, type ShipmentItem } from "@/hooks/useShipments";
 import { useShipment } from "@/hooks/useShipment";
-import { useDebounced } from "@/hooks/useDebounced";
 import { useInvoiceDocList } from "@/hooks/useInvoiceDocs";
-import { PageHeader } from "@/components/PageHeader";
 import { AppCard } from "@/components/AppCard";
 import { formatDate } from "@/lib/date";
 import { statusLabel, statusTagColor } from "@/lib/shipmentStatus";
@@ -18,7 +16,8 @@ import { useToast } from "@/lib/toast";
 import { CostsTab } from "@/app/shipments/[jobNumber]/tabs/CostsTab";
 import { useCostsData } from "@/app/shipments/[jobNumber]/tabs/useCostsData";
 import { InvoicePanel } from "./InvoicePanel";
-import { BillingQueue, InvoicingStatusTag } from "./BillingQueue";
+import { BillingQueue } from "./BillingQueue";
+import { ShipmentPicker } from "./ShipmentPicker";
 
 /** Remembered per browser: whether the Costs section is collapsed. */
 const COSTS_COLLAPSED_KEY = "invoicing.costsCollapsed";
@@ -32,6 +31,14 @@ const readCollapsed = () => {
 };
 
 const INVOICING_STATUSES = ["Not Invoiced", "Invoiced"];
+
+function InvoicingStatusTag({ value }: { value: string }) {
+  return value === "Invoiced" ? (
+    <Tag color="green" bordered={false} className="!m-0">Invoiced</Tag>
+  ) : (
+    <Tag color="red" bordered={false} className="!m-0">{value || "Not Invoiced"}</Tag>
+  );
+}
 
 interface SummaryItemProps {
   label: string;
@@ -173,61 +180,54 @@ export const InvoicingView = () => {
   const searchParams = useSearchParams();
   const selectedShipmentId = searchParams.get("shipment");
   // By id from the API: the shipments list only holds the newest rows, the queue spans all.
-  const { shipment: selectedShipment, isLoading: shipmentLoading, isError: shipmentError } = useShipment(
-    selectedShipmentId ?? undefined,
-  );
-  // The picker searches on the server too, so any job can be found, not just the newest.
-  const [pickerSearch, setPickerSearch] = useState("");
-  const debouncedSearch = useDebounced(pickerSearch.trim(), 300);
-  const { shipments: found } = useShipments({ search: debouncedSearch });
-  const pickerShipments =
-    selectedShipment && !found.some((s) => s.id === selectedShipment.id) ? [selectedShipment, ...found] : found;
+  const {
+    shipment: selectedShipment,
+    isLoading: shipmentLoading,
+    notFound,
+  } = useShipment(selectedShipmentId ?? undefined);
 
   const handleSelect = (id: string | null) => {
     const params = new URLSearchParams(searchParams.toString());
     if (id) params.set("shipment", id);
     else params.delete("shipment");
     const qs = params.toString();
-    // push, not replace: Back returns from a job to the "Ready to bill" queue
+    // push, not replace: Back returns from a job to the queue on the same tab and filters
     router.push(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
 
+  if (!selectedShipmentId) return <BillingQueue onOpen={handleSelect} />;
+
   return (
-    <div className="bg-slate-50 min-h-full p-6">
+    <div className="bg-slate-50 min-h-full px-8 py-6">
       <div className="max-w-[1400px] mx-auto">
-        <PageHeader title="Invoicing" />
+        <h1 className="text-2xl font-bold text-slate-900 mb-5">Invoicing</h1>
 
         <AppCard className="mb-5">
-          <Select
-            placeholder="Select a shipment..."
+          <ShipmentPicker
             value={selectedShipmentId}
+            selected={selectedShipment}
             onChange={handleSelect}
             allowClear
             className="w-full max-w-xl"
-            showSearch
-            filterOption={false}
-            onSearch={setPickerSearch}
-            options={pickerShipments.map((s) => ({ value: s.id, label: `${s.jobNumber} — ${s.shipper} → ${s.consignee}` }))}
-            aria-label="Shipment to invoice"
           />
           {selectedShipment && <ShipmentSummary shipment={selectedShipment} />}
         </AppCard>
 
-        {!selectedShipment ? (
-          selectedShipmentId && (shipmentLoading || shipmentError) ? (
-            <AppCard>
-              <div className="flex items-center justify-center h-[120px] text-slate-500 text-sm">
-                {shipmentLoading ? "Loading the shipment…" : "Shipment not found"}
-              </div>
-            </AppCard>
-          ) : (
-            <BillingQueue onOpen={handleSelect} />
-          )
-        ) : (
+        {selectedShipment ? (
           <>
             <CostsSection key={`costs-${selectedShipment.id}`} shipment={selectedShipment} />
             <InvoicePanel key={`inv-${selectedShipment.id}`} shipment={selectedShipment} />
           </>
+        ) : (
+          <AppCard>
+            <div className="flex items-center justify-center h-[120px] text-slate-500 text-sm">
+              {shipmentLoading
+                ? "Loading the shipment…"
+                : notFound
+                  ? "Shipment not found — choose another job above, or clear the selection to see the queue."
+                  : "Could not load the shipment."}
+            </div>
+          </AppCard>
         )}
       </div>
     </div>

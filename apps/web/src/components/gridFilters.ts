@@ -1,8 +1,9 @@
-import { foldIncludes } from "@/lib/fold";
+import { fold, foldIncludes } from "@/lib/fold";
 
-// "Filter by column" rows shared by the app's grids (AppGrid and the Customer Database list):
-// each row keeps the rows whose cell in `key` contains `value`, ignoring case and diacritics. A row has its own id,
-// so removing one in the middle never shifts what the others show.
+// "Filter by column" rows shared by the app's grids (AppGrid, the Customer Database list, the Invoicing queue):
+// each row keeps the rows whose cell in `key` contains `value`, ignoring case and diacritics; on an exact column
+// (a fixed set of values) the cell must equal it. A row has its own id, so removing one in the middle never
+// shifts what the others show.
 
 export interface GridFilter {
   id: string;
@@ -32,9 +33,20 @@ export const activeGridFilters = <F extends { key: string; value: string }>(filt
 export const storedGridFilters = (filters: readonly { key: string; value: string }[]) =>
   activeGridFilters(filters).map((f) => ({ key: f.key, value: f.value.trim() }));
 
-/** Whether a row passes every active filter; `cellText` gives the row's text in a column. */
-export function matchesGridFilters<T>(row: T, filters: readonly { key: string; value: string }[], cellText: (row: T, key: string) => string): boolean {
-  return activeGridFilters(filters).every((f) => foldIncludes(cellText(row, f.key), f.value));
+/**
+ * Whether a row passes every active filter; `cellText` gives the row's text in a column. Columns for which
+ * `isExact` says yes must equal the value (still ignoring case and diacritics), so "Invoiced" keeps no "Not Invoiced".
+ */
+export function matchesGridFilters<T>(
+  row: T,
+  filters: readonly { key: string; value: string }[],
+  cellText: (row: T, key: string) => string,
+  isExact?: (key: string) => boolean,
+): boolean {
+  return activeGridFilters(filters).every((f) => {
+    const text = cellText(row, f.key);
+    return isExact?.(f.key) ? fold(text) === fold(f.value.trim()) : foldIncludes(text, f.value);
+  });
 }
 
 /** The grid toolbar's square icon button. */

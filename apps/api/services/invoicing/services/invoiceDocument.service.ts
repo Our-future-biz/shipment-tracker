@@ -399,7 +399,7 @@ async function applyStatusPatch(shipmentId: string, patch: StatusPatch, number: 
 }
 
 /** Queue views and the shipments-list filter behind each. */
-export const QUEUE_VIEWS: Record<QueueView, string> = { to_bill: "billing", not_invoiced: "not-invoiced", invoiced: "invoiced" };
+export const QUEUE_VIEWS: Record<QueueView, string> = { all: "all", to_bill: "billing", not_invoiced: "not-invoiced", invoiced: "invoiced" };
 
 /** How many shipments one queue view shows at most (shipments are fetched 200 per page). */
 const QUEUE_MAX = 1000;
@@ -615,8 +615,9 @@ class InvoiceDocumentService {
 
   /**
    * The Invoicing queue. Which shipments are listed comes from the shipment itself
-   * (owner's decision): "To bill" = Shipment Status Billing; "Not invoiced" / "Invoiced" =
-   * Invoicing Status. The selling lines add the amount still to bill and the invoices issued.
+   * (owner's decision): "All shipments" = every shipment except cancelled ones; "To bill" =
+   * Shipment Status Billing; "Not invoiced" / "Invoiced" = Invoicing Status. The selling lines
+   * add the amount still to bill and the invoices issued.
    */
   async queue(
     companyId: string,
@@ -639,11 +640,12 @@ class InvoiceDocumentService {
     // Shown oldest first, as before.
     listed.reverse();
 
-    const [rows, openInvoices, settings, today, toBill, notInvoiced, invoiced] = await Promise.all([
+    const [rows, openInvoices, settings, today, all, toBill, notInvoiced, invoiced] = await Promise.all([
       sellingCostRepository.listTickedByCompany(companyId),
       invoiceRepository.listOpenInvoicesWithSources(companyId),
       billingSettingsRepository.listByCompany(companyId),
       ratesForDuzp(pragueToday(), pragueToday()),
+      countOf(QUEUE_VIEWS.all),
       countOf(QUEUE_VIEWS.to_bill),
       countOf(QUEUE_VIEWS.not_invoiced),
       countOf(QUEUE_VIEWS.invoiced),
@@ -661,6 +663,10 @@ class InvoiceDocumentService {
         customer: s.customer,
         shipper: s.shipper,
         consignee: s.consignee,
+        customerId: s.customerId ?? null,
+        department: s.department ?? "",
+        houseBolType: s.houseBolType ?? "",
+        masterBolType: s.masterBolType ?? "",
         tradeDirection: s.tradeDirection,
         estimatedDeparture: s.estimatedDeparture,
         estimatedArrival: s.estimatedArrival,
@@ -675,7 +681,7 @@ class InvoiceDocumentService {
         invoiced: b?.invoiced ?? [],
       };
     });
-    return { queue, counts: { toBill, notInvoiced, invoiced }, truncated: total > listed.length };
+    return { queue, counts: { all, toBill, notInvoiced, invoiced }, truncated: total > listed.length };
   }
 
   async list(shipmentId: string, companyId: string): Promise<InvoiceDocItem[]> {

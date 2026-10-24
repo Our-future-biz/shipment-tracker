@@ -425,28 +425,55 @@ describe("pdf", () => {
 describe("queue", () => {
   const listed = (over: Record<string, unknown>) => ({
     id: SHIPMENT, jobNumber: "CZ00000028", customer: "Alza.cz a.s.", shipper: "S", consignee: "C", tradeDirection: "Export",
-    estimatedDeparture: "04/07/26", estimatedArrival: null, status: "Billing [EXP]", invoicingStatus: "Not Invoiced", ...over,
+    estimatedDeparture: "04/07/26", estimatedArrival: null, status: "Billing [EXP]", invoicingStatus: "Not Invoiced",
+    customerId: "cust1", department: "Operation Department", houseBolType: "", masterBolType: "OBL", ...over,
   });
 
-  it("lists the shipments of the view and adds the amount still to bill from the selling lines", async () => {
+  // Counts per list filter, and two shipments for any listing.
+  const mockQueue = () => {
     clients.shipmentList.mockImplementation(async (req: { invoicing: string; limit: number; sortDirection?: string }) => {
-      if (req.limit === 1) return { pagination: { total: { billing: 2, "not-invoiced": 5, invoiced: 1 }[req.invoicing] }, data: [] };
+      if (req.limit === 1) return { pagination: { total: { all: 6, billing: 2, "not-invoiced": 5, invoiced: 1 }[req.invoicing] }, data: [] };
       const oldestFirst = [listed({}), listed({ id: "s2", jobNumber: "CZ00000030" })];
       return { pagination: { total: 2 }, data: req.sortDirection === "desc" ? oldestFirst.reverse() : oldestFirst };
     });
     selling.listTickedByCompany.mockResolvedValue([{ id: "r1", shipmentId: SHIPMENT, qty: "1.00", amount: "1000.00", currency: "EUR" }]);
     repo.listOpenInvoicesWithSources.mockResolvedValue([]);
     settings.listByCompany.mockResolvedValue([{ shipmentId: SHIPMENT, billingCurrency: "CZK" }]);
+  };
+
+  it("lists the shipments of the view and adds the amount still to bill from the selling lines", async () => {
+    mockQueue();
 
     const r = await invoiceDocumentService.queue(COMPANY, "to_bill");
     expect(clients.shipmentList).toHaveBeenCalledWith(expect.objectContaining({ invoicing: "billing", limit: 200, offset: 0, sortDirection: "desc" }));
-    expect(r.counts).toEqual({ toBill: 2, notInvoiced: 5, invoiced: 1 });
+    expect(r.counts).toEqual({ all: 6, toBill: 2, notInvoiced: 5, invoiced: 1 });
     expect(r.truncated).toBe(false);
     expect(r.queue.map((x) => [x.jobNumber, x.shipmentStatus, x.billingState, x.amountToBill])).toEqual([
       ["CZ00000028", "Billing [EXP]", "to_bill", 25000],
       // a Billing job without selling lines is still listed, flagged as having none
       ["CZ00000030", "Billing [EXP]", "none", 0],
     ]);
+    expect(r.queue[0]).toMatchObject({ customerId: "cust1", department: "Operation Department", houseBolType: "", masterBolType: "OBL" });
+  });
+
+  it("the All shipments view lists every shipment but cancelled ones through the list filter 'all'", async () => {
+    mockQueue();
+
+    const r = await invoiceDocumentService.queue(COMPANY, "all");
+    expect(clients.shipmentList).toHaveBeenCalledWith(expect.objectContaining({ invoicing: "all", limit: 200, offset: 0, sortDirection: "desc" }));
+    expect(r.counts.all).toBe(6);
+  });
+
+  it("a shipment without department / BoL types / customer record maps to empty values", async () => {
+    mockQueue();
+    clients.shipmentList.mockImplementation(async (req: { limit: number }) =>
+      req.limit === 1
+        ? { pagination: { total: 1 }, data: [] }
+        : { pagination: { total: 1 }, data: [listed({ customerId: undefined, department: undefined, houseBolType: undefined, masterBolType: undefined })] },
+    );
+
+    const r = await invoiceDocumentService.queue(COMPANY, "all");
+    expect(r.queue[0]).toMatchObject({ customerId: null, department: "", houseBolType: "", masterBolType: "" });
   });
 
   it("past its limit leaves out the oldest jobs, never the newest, and says so", async () => {
