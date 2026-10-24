@@ -3,6 +3,9 @@ import type { Actor } from "../../../lib/rbac";
 import { salesPreferenceRepository } from "../repositories/salesPreference.repository";
 import { permissionsService } from "./permissions.service";
 import { EMAIL_TEMPLATES_PREFIX } from "./emailTemplate.service";
+import { EMAIL_ADDRESSES_PREFIX } from "./emailAddress.service";
+
+const PERSONAL_PREFIXES = [EMAIL_TEMPLATES_PREFIX, EMAIL_ADDRESSES_PREFIX];
 
 // Preferences that are settings of the whole company rather than the layout of a screen: they
 // print on every quotation, so only who may edit the Sales settings writes them. The other
@@ -34,8 +37,9 @@ const MAX_VALUE_BYTES = 64 * 1024;
 
 class PreferenceService {
   async get(prefKey: string, companyId: string): Promise<unknown | null> {
-    // A user's email templates are theirs alone: read only through emailTemplate.service.
-    if (prefKey.startsWith(EMAIL_TEMPLATES_PREFIX)) throw APIError.permissionDenied("email templates are read by their author only");
+    // A user's email templates and the addresses they emailed are theirs alone: read only through
+    // emailTemplate.service and emailAddress.service.
+    if (PERSONAL_PREFIXES.some((prefix) => prefKey.startsWith(prefix))) throw APIError.permissionDenied("this is read by its own user only");
     return salesPreferenceRepository.get(prefKey, companyId);
   }
 

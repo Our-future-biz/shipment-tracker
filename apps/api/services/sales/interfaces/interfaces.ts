@@ -128,3 +128,8 @@ export interface EmailTemplate {
 export interface EmailTemplatesResponse {
   data: EmailTemplate[];
 }
+
+/** The addresses a user emailed quotations to, the latest first: their own list to pick To, CC and BCC from. */
+export interface EmailAddressesResponse {
+  data: string[];
+}

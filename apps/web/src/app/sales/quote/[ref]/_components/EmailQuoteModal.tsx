@@ -1,8 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Alert, Button, Form, Input, Modal, Popconfirm, Select, Tooltip } from "antd";
-import { DeleteOutlined, FilePdfOutlined, SaveOutlined } from "@ant-design/icons";
+import { Alert, AutoComplete, Button, Form, Input, Modal, Popconfirm, Popover, Select, Tooltip } from "antd";
+import { CloseOutlined, ContactsOutlined, DeleteOutlined, FilePdfOutlined, SaveOutlined } from "@ant-design/icons";
+import { useCustomerContacts } from "@/hooks/useCustomerContacts";
+import { invalidAddress, splitAddresses, usedAddresses, withAddress, type AddressField } from "@/app/sales/_lib/emailAddresses";
+import { useEmailAddresses } from "@/app/sales/_lib/useEmailAddresses";
 import { useToast } from "@/lib/toast";
 import { PLACEHOLDERS, STANDARD_TEMPLATE, asTemplate, filledTemplate, quoteValues } from "@/app/sales/_lib/emailTemplate";
 import { lastTemplateId, rememberTemplateId, useEmailTemplates, type SavedEmailTemplate } from "@/app/sales/_lib/useEmailTemplates";
@@ -14,17 +17,27 @@ import { businessToday } from "@/app/sales/_lib/salesQuote";
 interface EmailFormValues {
   to: string;
   cc?: string;
+  bcc?: string;
   subject: string;
   message?: string;
 }
 
+// Each of To, CC and BCC takes one address or several, separated by commas or semicolons.
+const ADDRESS_RULE = {
+  validator: (_: unknown, value: string) => {
+    const wrong = invalidAddress(value);
+    return wrong ? Promise.reject(new Error(`Not an email: ${wrong}`)) : Promise.resolve();
+  },
+};
+
 // The message as a mailto: link (RFC 6068). Every value is percent-encoded - a space as %20,
 // because a "+" would arrive as a plus sign - line breaks travel as CRLF, and the "@" of an
-// address stays readable, as mail programs expect it.
-function mailtoLink({ to = "", cc = "", subject = "", message = "" }: Partial<EmailFormValues>): string {
-  const address = (value: string) => encodeURIComponent(value.trim()).replace(/%40/g, "@");
+// address stays readable, as mail programs expect it. Several addresses go comma-separated.
+function mailtoLink({ to = "", cc = "", bcc = "", subject = "", message = "" }: Partial<EmailFormValues>): string {
+  const address = (value: string) => splitAddresses(value).map((a) => encodeURIComponent(a).replace(/%40/g, "@")).join(",");
   const headers = [
     cc.trim() && `cc=${address(cc)}`,
+    bcc.trim() && `bcc=${address(bcc)}`,
     `subject=${encodeURIComponent(subject)}`,
     `body=${encodeURIComponent(message.replace(/\r\n|\r|\n/g, "\r\n"))}`,
   ].filter(Boolean);
@@ -71,6 +84,16 @@ export function EmailQuoteModal({
   const [refusal, setRefusal] = useState<string | null>(null);
 
   const toast = useToast();
+  // To offers the emails of the quote's customer, from the Customer Database; the addresses the
+  // user emailed before can be put to To, CC or BCC.
+  const { contacts } = useCustomerContacts(open ? (data.customerId ?? "") : "");
+  const customerEmails = contacts.filter((c) => c.email.trim());
+  const addresses = useEmailAddresses(open);
+  const [addressSearch, setAddressSearch] = useState("");
+  const addTo = (field: AddressField, address: string) => {
+    form.setFieldValue(field, withAddress(form.getFieldValue(field), address));
+    form.validateFields([field]).catch(() => {});
+  };
   // The user's own templates, and the standard one everybody has. The subject and message start
   // from the template last chosen, filled in from this quote.
   const templates = useEmailTemplates(open);
@@ -94,7 +117,8 @@ export function EmailQuoteModal({
       setOpened(false);
       setRefusal(null);
       setNaming(null);
-      form.setFieldsValue({ to: prefill.current.to, cc: "" });
+      form.setFieldsValue({ to: prefill.current.to, cc: "", bcc: "" });
+      setAddressSearch("");
       applyTemplate(lastTemplateId() ?? STANDARD_TEMPLATE.id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -171,6 +195,9 @@ export function EmailQuoteModal({
     onClick: (e: React.MouseEvent) => {
       if (valid) {
         setOpened(true);
+        // The addresses are remembered for next time; a failure to remember stops nothing.
+        const used = usedAddresses(form.getFieldsValue(["to", "cc", "bcc"]));
+        if (used.length) addresses.used.mutate(used);
         return;
       }
       e.preventDefault();
@@ -279,18 +306,91 @@ export function EmailQuoteModal({
             )}
           </div>
         </Form.Item>
+        <div className="flex justify-end -mb-1">
+          <Popover
+            trigger="click"
+            placement="bottomRight"
+            title="Addresses you emailed before"
+            content={
+              <div className="w-[380px] max-w-[80vw]">
+                <Input
+                  size="small"
+                  allowClear
+                  placeholder="Search"
+                  aria-label="Search addresses"
+                  value={addressSearch}
+                  onChange={(e) => setAddressSearch(e.target.value)}
+                />
+                <div className="mt-2 max-h-64 overflow-y-auto flex flex-col">
+                  {addresses.list.filter((a) => a.toLowerCase().includes(addressSearch.trim().toLowerCase())).length === 0 ? (
+                    <div className="py-3 text-center text-[13px] text-slate-500">
+                      {addresses.list.length ? "No address matches" : "None yet - the addresses you email a quote to are kept here"}
+                    </div>
+                  ) : (
+                    addresses.list
+                      .filter((a) => a.toLowerCase().includes(addressSearch.trim().toLowerCase()))
+                      .map((a) => (
+                        <div key={a} className="flex items-center gap-1 py-1 border-b border-slate-100 last:border-0">
+                          <span className="flex-1 min-w-0 truncate text-[13px]" title={a}>
+                            {a}
+                          </span>
+                          {(["to", "cc", "bcc"] as const).map((field) => (
+                            <Button key={field} size="small" onClick={() => addTo(field, a)}>
+                              {field.toUpperCase()}
+                            </Button>
+                          ))}
+                          <Tooltip title="Take off the list">
+                            <Button size="small" type="text" icon={<CloseOutlined />} aria-label={`Take ${a} off the list`} onClick={() => addresses.forget.mutate(a)} />
+                          </Tooltip>
+                        </div>
+                      ))
+                  )}
+                </div>
+              </div>
+            }
+          >
+            <Button size="small" icon={<ContactsOutlined />}>
+              Used before
+            </Button>
+          </Popover>
+        </div>
         <Form.Item
           name="to"
           label="To"
           rules={[
             { required: true, message: "Recipient is required" },
-            { type: "email", message: "Enter a valid email" },
+            ADDRESS_RULE,
           ]}
         >
-          <Input placeholder="customer@example.com" />
+          <AutoComplete
+            placeholder="customer@example.com"
+            // The customer's emails, picked in place of what the field holds.
+            options={customerEmails.map((c) => ({
+              value: c.email,
+              label: (
+                <div className="flex justify-between gap-3">
+                  <span className="truncate">{c.name}{c.isMain ? " · main" : ""}</span>
+                  <span className="text-slate-500 truncate">{c.email}</span>
+                </div>
+              ),
+            }))}
+            // All of them, whatever the field holds: a customer has a handful.
+            filterOption={false}
+          />
         </Form.Item>
-        <Form.Item name="cc" label="CC" rules={[{ type: "email", message: "Enter a valid email" }]}>
-          <Input placeholder="Optional" />
+        <Form.Item
+          name="cc"
+          label="CC"
+          rules={[ADDRESS_RULE]}
+        >
+          <Input placeholder="Optional - several separated by commas" />
+        </Form.Item>
+        <Form.Item
+          name="bcc"
+          label="BCC"
+          rules={[ADDRESS_RULE]}
+        >
+          <Input placeholder="Optional - several separated by commas" />
         </Form.Item>
         <Form.Item name="subject" label="Subject" rules={[{ required: true, message: "Subject is required" }]}>
           <Input />

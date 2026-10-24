@@ -1612,6 +1612,9 @@ export namespace sales {
 
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
+            this.emailAddressForget = this.emailAddressForget.bind(this)
+            this.emailAddressesGet = this.emailAddressesGet.bind(this)
+            this.emailAddressesUsed = this.emailAddressesUsed.bind(this)
             this.emailTemplatesGet = this.emailTemplatesGet.bind(this)
             this.emailTemplatesSet = this.emailTemplatesSet.bind(this)
             this.followupTaskCreate = this.followupTaskCreate.bind(this)
@@ -1626,6 +1629,33 @@ export namespace sales {
             this.termsDelete = this.termsDelete.bind(this)
             this.termsList = this.termsList.bind(this)
             this.termsUpdate = this.termsUpdate.bind(this)
+        }
+
+        /**
+         * Takes an address off the signed-in user's list.
+         */
+        public async emailAddressForget(params: controllers.EmailAddressForgetRequest): Promise<interfaces.EmailAddressesResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/sales-email-addresses/forget`, JSON.stringify(params))
+            return await resp.json() as interfaces.EmailAddressesResponse
+        }
+
+        /**
+         * The addresses the signed-in user emailed quotations to, the latest first.
+         */
+        public async emailAddressesGet(): Promise<interfaces.EmailAddressesResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/sales-email-addresses`)
+            return await resp.json() as interfaces.EmailAddressesResponse
+        }
+
+        /**
+         * Remembers the addresses a quotation was just emailed to (To, CC and BCC).
+         */
+        public async emailAddressesUsed(params: controllers.EmailAddressesUsedRequest): Promise<interfaces.EmailAddressesResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/sales-email-addresses/used`, JSON.stringify(params))
+            return await resp.json() as interfaces.EmailAddressesResponse
         }
 
         /**
@@ -5548,6 +5578,14 @@ export namespace controllers {
 
     export interface DocumentListResponse {
         data: interfaces.DocumentItem[]
+    }
+
+    export interface EmailAddressForgetRequest {
+        address: string
+    }
+
+    export interface EmailAddressesUsedRequest {
+        addresses: string[]
     }
 
     export interface EmailTemplatesSetRequest {
@@ -10542,6 +10580,13 @@ export namespace interfaces {
     }
 
     export type DocumentType = "Contract" | "NDA" | "Power of attorney" | "Customs" | "Other"
+
+    /**
+     * The addresses a user emailed quotations to, the latest first: their own list to pick To, CC and BCC from.
+     */
+    export interface EmailAddressesResponse {
+        data: string[]
+    }
 
     /**
      * One of a user's own email templates for quotations: the subject and message the Email dialog
