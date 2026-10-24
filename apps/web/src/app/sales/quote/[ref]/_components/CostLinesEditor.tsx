@@ -5,7 +5,7 @@ import { Input, InputNumber, Select } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
 import type { ExchangeRates } from "@/lib/exchangeRates";
 import { fmtMoney, moneyInputParser } from "@/lib/money";
-import type { CostLine, SalesQuoteData } from "@/app/sales/_lib/types";
+import type { ChargeBasis, CostLine, SalesQuoteData } from "@/app/sales/_lib/types";
 import { chargeLabel, chargeOptions, toChargeCode } from "@/lib/chargeCodes";
 import { CURRENCIES } from "@/lib/enums";
 import { useListKeys } from "@/hooks/useListKeys";
@@ -29,6 +29,12 @@ const chargeOf = (code: string): Pick<CostLine, "type" | "chargeCode"> => ({ typ
 
 // The description a service pre-types ("Ocean freight"); "Other" leaves it to be written.
 const describedAs = (code: string): string => (code === "other" ? "" : chargeLabel(code));
+
+// What a line can be charged by; a line without one is a lump sum.
+const BASIS_OPTIONS: { value: ChargeBasis; label: string }[] = [
+  { value: "lumpsum", label: "Lumpsum" },
+  { value: "wm", label: "W/M" },
+];
 
 /** A line's amount as a number: a quote's JSON may hold it as text, or not at all (priced by qty × unit price). */
 export const amountOf = (line: CostLine): number => Number(line.amount) || 0;
@@ -59,6 +65,7 @@ const newCostLine = (quote: SalesQuoteData): CostLine => {
     amount: 0,
     // 1 unless the user sets another.
     value: 1,
+    basis: "lumpsum",
   };
 };
 
@@ -134,7 +141,7 @@ export function CostLinesEditor({
       {lines.length === 0 ? (
         <LineBlockEmpty>No {kind} costs yet.</LineBlockEmpty>
       ) : (
-        <LineTable minWidthClass={buying ? "min-w-[740px]" : "min-w-[630px]"}>
+        <LineTable minWidthClass={buying ? "min-w-[850px]" : "min-w-[740px]"}>
           <colgroup>
             <col className="w-[140px]" />
             <col />
@@ -143,6 +150,7 @@ export function CostLinesEditor({
             <col className="w-24" />
             <col className="w-28" />
             <col className="w-[88px]" />
+            <col className="w-[110px]" />
             <col className="w-10" />
           </colgroup>
           <thead>
@@ -154,6 +162,7 @@ export function CostLinesEditor({
               <th scope="col" className={LINE_TH_CLASS}>Amount</th>
               <th scope="col" className={LINE_TH_RIGHT_CLASS}>In {currency}</th>
               <th scope="col" className={LINE_TH_CLASS}>Quantity</th>
+              <th scope="col" className={LINE_TH_CLASS}>Basis</th>
               <th scope="col" aria-label="Remove line" className={LINE_TH_CLASS} />
             </tr>
           </thead>
@@ -223,6 +232,16 @@ export function CostLinesEditor({
                       placeholder="=amt"
                       value={l.value}
                       onChange={(v) => patch(i, { value: v ?? undefined })}
+                    />
+                  </td>
+                  <td className={LINE_TD_CLASS}>
+                    <Select
+                      size="small"
+                      className="w-full"
+                      aria-label="Basis"
+                      value={l.basis ?? "lumpsum"}
+                      options={BASIS_OPTIONS}
+                      onChange={(basis: ChargeBasis) => patch(i, { basis })}
                     />
                   </td>
                   <td className={`${LINE_TD_CLASS} pl-0`}>
