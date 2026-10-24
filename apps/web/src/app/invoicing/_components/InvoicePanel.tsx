@@ -265,11 +265,11 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
   return (
     <>
       {section === "invoice" && (
-        // overflow-clip, not overflow-hidden: hidden makes the card a scroll container and the sticky Issue bar would not stick
-        // Same frame as the app's SectionCard
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-clip">
-          {/* ── Customer and terms, in the job card's style ── */}
-          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-[minmax(0,2fr)_repeat(4,minmax(0,1fr))] gap-x-4 gap-y-3 px-4 py-4 border-b border-slate-100">
+        // Two cards in the SectionCard frame: who and when on top, what and how much below
+        <div className="flex flex-col gap-4">
+        {/* ── Customer and terms, in the job card's style ── */}
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm">
+          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-[minmax(0,2fr)_repeat(4,minmax(0,1fr))] gap-x-4 gap-y-3 px-4 py-4">
             {p && !p.customer ? (
               <Fact label="Bill to" className="col-span-2 md:col-span-4 xl:col-span-1" sub="Pick one from the Customer Database — it is also linked to the shipment.">
                 <span className="font-medium text-warn">No customer linked</span>
@@ -341,7 +341,10 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
               <Select size="small" value={billingCur} onChange={(c) => billingCurrency.mutate(c)} loading={billingCurrency.isPending} disabled={billingCurrency.isPending} options={BILLING_CURRENCIES.map((c) => ({ value: c, label: c }))} className="w-[84px]" aria-label="Billing currency" />
             </Fact>
           </div>
+        </div>
 
+        {/* ── Lines, totals and Issue; overflow-clip (not hidden) so the sticky Issue bar still sticks ── */}
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-clip">
           <div className="px-4 pt-3 pb-4">
             {previewError && <Alert type="error" showIcon className="mb-3" message="The invoice preview could not be loaded" />}
 
@@ -486,6 +489,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
               </Tooltip>
             </div>
           </div>
+        </div>
         </div>
       )}
 
