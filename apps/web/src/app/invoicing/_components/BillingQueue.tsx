@@ -114,6 +114,10 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
   const debounced = useDebounced(urlQuery.trim(), 300);
   const { rows, counts, truncated, hasData, isFetching, isError } = useInvoiceQueue(view, debounced);
   const [createOpen, setCreateOpen] = useState(false);
+  // Ticked rows, as on Shipments; kept per tab, so another tab starts with nothing ticked.
+  const [selection, setSelection] = useState<{ view: View; keys: React.Key[] }>({ view, keys: [] });
+  const selectedKeys = selection.view === view ? selection.keys : [];
+  const setSelectedKeys = (keys: React.Key[]) => setSelection({ view, keys });
 
   // "Filter by column" rows, as on Customer Database: kept here as typed and copied to the URL as
   // ?f.<column>=<value> (one parameter per filter), so they survive opening a job and coming back.
@@ -398,6 +402,13 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
               dataSource={hasData && !isError ? shown : undefined}
               columns={columns}
               rowKey="shipmentId"
+              rowSelection={{
+                selectedRowKeys: selectedKeys,
+                onChange: setSelectedKeys,
+                preserveSelectedRowKeys: true,
+                fixed: true,
+                columnWidth: 44,
+              }}
               loading={isFetching}
               scroll={{ x: "max-content" }}
               resetKey={`${view}|${debounced}|${dir}|${status}|${customer}|${JSON.stringify(activeFilters)}`}
@@ -406,7 +417,11 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
               onRow={(r) => {
                 const fg = info.get(r.shipmentId)?.rowStyle?.color;
                 return {
-                  onClick: () => onOpen(r.shipmentId),
+                  // a click on the tick box ticks the row; anywhere else opens the job
+                  onClick: (e: React.MouseEvent) => {
+                    if ((e.target as HTMLElement).closest(".ant-table-selection-column")) return;
+                    onOpen(r.shipmentId);
+                  },
                   className: "cursor-pointer",
                   ...(fg ? { style: { "--cf-row-fg": fg } as React.CSSProperties } : {}),
                 };

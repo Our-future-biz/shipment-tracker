@@ -128,7 +128,7 @@ interface QueueColumnsArgs {
 // trimmed to their headers and usual values, so every column fits a 1440px screen with the sidebar
 // open (a card of about 1114px) without scrolling sideways. Longer names and statuses are cut
 // with an ellipsis and keep the full text as their title.
-const W = { job: 140, customer: 150, direction: 115, date: 110, status: 170, selling: 130, invoices: 110, invoicing: 140, open: 40 };
+const W = { job: 140, customer: 135, direction: 115, date: 110, status: 155, selling: 125, invoices: 100, invoicing: 140, open: 40 };
 
 export function queueColumns({ info, jobHref, flagMissingLines }: QueueColumnsArgs): ColumnsType<QueueRow> {
   return [
