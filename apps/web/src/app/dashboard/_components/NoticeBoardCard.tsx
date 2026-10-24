@@ -41,44 +41,61 @@ export function NoticeBoardCard({
   onEdit,
   onDelete,
 }: NoticeBoardCardProps) {
-  // A feed rather than a grid: the priority tag, then the notice taking all the remaining
-  // width (who posted it, when and for whom sit under the title), then a quiet menu.
+  // A table: priority, for whom, the notice itself, who posted it, the date (newest first), then a quiet menu.
   const columns: ColumnsType<Announcement> = [
-    { title: "Priority", dataIndex: "severity", width: 88, render: (v: string) => <NoticeSeverityTag severity={v} /> },
+    { title: "Status", dataIndex: "severity", width: 120, render: (v: string) => <NoticeSeverityTag severity={v} /> },
+    ...(showTarget
+      ? [
+          {
+            title: "Department",
+            dataIndex: "target",
+            width: 200,
+            render: (v: string | null | undefined) =>
+              v ? (
+                <span title={v} className="inline-block max-w-full truncate align-middle rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+                  {v}
+                </span>
+              ) : null,
+          },
+        ]
+      : []),
     {
-      title: "Notice",
+      title: "Title",
       dataIndex: "title",
       render: (v: string, r) => (
-        <div className="relative">
+        <div className="relative flex items-center gap-1.5 min-w-0">
           {/* Shown until the reader has opened the notice; it hangs in the gutter so every title starts on the same line. */}
-          {r.unread && <span role="img" aria-label="Unread" title="Unread" className="absolute -left-3.5 top-[7px] w-2 h-2 rounded-full bg-red-500" />}
-          <div className="min-w-0">
-            {/* A real button, so the notice can be opened from the keyboard; the click itself is the row's. */}
-            <button
-              type="button"
-              className="block w-full p-0 border-none bg-transparent text-left cursor-pointer rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
-            >
-              <span className="text-[15px] leading-tight font-semibold text-slate-800 [overflow-wrap:anywhere] line-clamp-2">{v}</span>
-            </button>
-            <div className="mt-0.5 flex items-center gap-x-1.5 text-xs text-slate-500">
-              {showTarget && r.target && (
-                <span title={r.target} className="min-w-0 max-w-[45%] truncate rounded bg-slate-100 px-1.5 text-slate-600">
-                  {r.target}
-                </span>
-              )}
-              {/* A long name gives way; the date always stays readable. */}
-              <span className="min-w-0 truncate">{r.authorName}</span>
-              <span className="shrink-0">· {formatDateTime(r.createdAt)}</span>
-              {r.attachments.length > 0 && (
-                <span className="shrink-0 flex items-center gap-0.5 text-slate-400" title="Documents attached">
-                  <PaperClipOutlined />
-                  {r.attachments.length}
-                </span>
-              )}
-            </div>
-          </div>
+          {r.unread && <span role="img" aria-label="Unread" title="Unread" className="absolute -left-3.5 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-red-500" />}
+          {/* A real button, so the notice can be opened from the keyboard; the click itself is the row's. */}
+          <button
+            type="button"
+            className="min-w-0 p-0 border-none bg-transparent text-left cursor-pointer rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
+          >
+            <span className="text-[15px] leading-tight font-semibold text-slate-800 [overflow-wrap:anywhere] line-clamp-2">{v}</span>
+          </button>
+          {r.attachments.length > 0 && (
+            <span className="shrink-0 flex items-center gap-0.5 text-xs text-slate-400" title="Documents attached">
+              <PaperClipOutlined />
+              {r.attachments.length}
+            </span>
+          )}
         </div>
       ),
+    },
+    {
+      title: "Posted by",
+      dataIndex: "authorName",
+      width: 160,
+      render: (v: string) => <span className="block truncate text-slate-600" title={v}>{v}</span>,
+    },
+    {
+      title: "Date",
+      dataIndex: "createdAt",
+      width: 160,
+      defaultSortOrder: "descend",
+      sortDirections: ["descend", "ascend", "descend"],
+      sorter: (a, b) => a.createdAt.localeCompare(b.createdAt),
+      render: (v: string) => <span className="text-slate-500 tabular-nums whitespace-nowrap">{formatDateTime(v)}</span>,
     },
     ...(posts.some((p) => p.canEdit)
       ? [
@@ -132,9 +149,9 @@ export function NoticeBoardCard({
         size="small"
         rowKey="id"
         tableLayout="fixed"
-        // The tag and the notice explain themselves; column headings would only make it a table again.
-        showHeader={false}
-        className="[&_.ant-table-cell]:!py-1.5"
+        // On a narrow screen the table scrolls sideways rather than squeeze the titles.
+        scroll={{ x: 820 }}
+        className="[&_.ant-table-cell]:!py-2"
         loading={isLoading}
         dataSource={posts}
         columns={columns}
