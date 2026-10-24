@@ -48,7 +48,7 @@ const VIEW_COUNT: Record<View, keyof interfaces.BillingQueueCounts> = {
   not_invoiced: "notInvoiced",
   invoiced: "invoiced",
 };
-const DEFAULT_VIEW: View = "to_bill";
+const DEFAULT_VIEW: View = "all";
 type QueueParam = "queue" | "q" | "dir" | "status" | "customer";
 
 // The user's columns and their order, kept per user in this browser as on Shipments; templates on the server.
