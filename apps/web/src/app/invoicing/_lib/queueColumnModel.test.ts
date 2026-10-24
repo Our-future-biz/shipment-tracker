@@ -39,7 +39,7 @@ const row = (partial: Partial<interfaces.BillingQueueItem> = {}): QueueRow => ({
   ...partial,
 });
 
-const NO_FILTERS = { dir: "", status: "", customer: "", columnFilters: [], flagMissingLines: false };
+const NO_FILTERS = { status: "", customer: "", columnFilters: [], flagMissingLines: false };
 
 describe("normalizeQueueColumns", () => {
   it("keeps known keys once, in order, Internal Reference first, without the actions column", () => {
@@ -164,7 +164,7 @@ describe("filterQueueRows", () => {
   const ids = (list: QueueRow[]) => list.map((r) => r.shipmentId);
 
   it("keeps rows that pass the selects and the column filters together", () => {
-    const kept = filterQueueRows(rows, { ...NO_FILTERS, dir: "Import", columnFilters: [{ key: "customer", value: "acme" }] });
+    const kept = filterQueueRows(rows, { ...NO_FILTERS, customer: "Acme", columnFilters: [{ key: "tradeDirection", value: "Import" }] });
     expect(ids(kept)).toEqual(["a"]);
   });
 

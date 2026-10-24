@@ -49,7 +49,7 @@ const VIEW_COUNT: Record<View, keyof interfaces.BillingQueueCounts> = {
   invoiced: "invoiced",
 };
 const DEFAULT_VIEW: View = "all";
-type QueueParam = "queue" | "q" | "dir" | "status" | "customer";
+type QueueParam = "queue" | "q" | "status" | "customer";
 
 // The user's columns and their order, kept per user in this browser as on Shipments; templates on the server.
 const INVOICING_SCOPE = "invoicing";
@@ -81,7 +81,6 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
   const rawView = get("queue");
   // the default tab is left out of the URL; anything unknown reads as the default
   const view: View = (VIEWS as readonly string[]).includes(rawView) ? (rawView as View) : DEFAULT_VIEW;
-  const dir = get("dir");
   const status = get("status");
   const customer = get("customer");
 
@@ -207,7 +206,6 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
   };
 
   // Options from all loaded rows of the tab, so they stay while another filter is set.
-  const directionOptions = useMemo(() => distinctOptions(rows.map((r) => r.tradeDirection)), [rows]);
   const statusOptions = useMemo(() => distinctOptions(rows.map((r) => statusLabel(r.shipmentStatus))), [rows]);
   const customerOptions = useMemo(
     () => [
@@ -227,18 +225,19 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
   // The server search decides which rows are loaded; the selects and the column filters narrow those here.
   // Stale rows are not shown after an error.
   const shown = useMemo(
-    () => (isError ? [] : filterQueueRows(rows, { dir, status, customer, columnFilters: activeFilters, flagMissingLines })),
-    [rows, isError, dir, status, customer, activeFilters, flagMissingLines],
+    () => (isError ? [] : filterQueueRows(rows, { status, customer, columnFilters: activeFilters, flagMissingLines })),
+    [rows, isError, status, customer, activeFilters, flagMissingLines],
   );
   const info = useMemo(() => queueRowInfo(shown), [shown]);
 
-  const hasListFilters = !!dir || !!status || !!customer || activeFilters.length > 0;
+  const hasListFilters = !!status || !!customer || activeFilters.length > 0;
   const viewCount = counts?.[VIEW_COUNT[view]];
 
   const clearFilters = () => {
     setShownFilters([]);
     writtenFilters.current = "[]";
     writeUrl((p) => {
+      // an old link may still carry the removed direction filter
       p.delete("dir");
       p.delete("status");
       p.delete("customer");
@@ -306,15 +305,6 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
               className="!w-60"
             />
             <div className="w-px h-6 bg-slate-200 shrink-0" />
-            <Select
-              value={dir || undefined}
-              onChange={(v?: string) => setParams({ dir: v ?? "" })}
-              options={directionOptions}
-              placeholder="All directions"
-              aria-label="Trade direction"
-              allowClear
-              className="w-36"
-            />
             <Select
               value={status || undefined}
               onChange={(v?: string) => setParams({ status: v ?? "" })}
@@ -430,7 +420,7 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
               }}
               loading={isFetching}
               scroll={{ x: "max-content" }}
-              resetKey={`${view}|${debounced}|${dir}|${status}|${customer}|${JSON.stringify(activeFilters)}`}
+              resetKey={`${view}|${debounced}|${status}|${customer}|${JSON.stringify(activeFilters)}`}
               locale={{ emptyText }}
               rowClassName={(r) => (info.get(r.shipmentId)?.rowStyle?.color ? "cf-row-fg" : "")}
               onRow={(r) => {

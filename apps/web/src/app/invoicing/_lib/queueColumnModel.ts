@@ -86,7 +86,6 @@ export function queueCellText(r: QueueRow, key: string, flagMissingLines: boolea
 }
 
 interface QueueFilters {
-  dir: string;
   status: string;
   customer: string;
   columnFilters: readonly { key: string; value: string }[];
@@ -97,7 +96,6 @@ interface QueueFilters {
 export function filterQueueRows(rows: QueueRow[], o: QueueFilters): QueueRow[] {
   const kept = rows.filter(
     (r) =>
-      (!o.dir || r.tradeDirection === o.dir) &&
       (!o.status || statusLabel(r.shipmentStatus) === o.status) &&
       (!o.customer || (o.customer === NO_CUSTOMER ? !r.customer : r.customer === o.customer)) &&
       matchesGridFilters(r, o.columnFilters, (row, k) => queueCellText(row, k, o.flagMissingLines), isExactQueueFilter),
