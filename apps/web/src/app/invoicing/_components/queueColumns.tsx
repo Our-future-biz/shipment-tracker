@@ -18,7 +18,6 @@ import {
 } from "@/lib/columnConfig";
 import { formatDate } from "@/lib/date";
 import { moneyCz } from "@/lib/money";
-import { statusLabel } from "@/lib/shipmentStatus";
 import {
   invoicingStatusOf,
   serviceDateKey,
@@ -165,12 +164,11 @@ interface QueueColumnsArgs {
 // with an ellipsis and keep the full text as their title.
 const W = {
   job: 140,
-  customer: 120,
+  customer: 220,
   direction: 105,
   date: 110,
-  status: 140,
   selling: 120,
-  invoices: 100,
+  invoices: 140,
   invoicing: 130,
   open: 88,
 };
@@ -254,25 +252,6 @@ export function queueColumns({
           </span>
         );
       },
-    },
-    {
-      key: "status",
-      title: "Shipment Status",
-      width: W.status,
-      ellipsis: true,
-      onCell: tint("status", (r) => r.shipmentStatus, info),
-      render: (_, r) =>
-        r.shipmentStatus ? (
-          <span
-            className="block truncate text-slate-600"
-            style={capped(W.status)}
-            title={statusLabel(r.shipmentStatus)}
-          >
-            {statusLabel(r.shipmentStatus)}
-          </span>
-        ) : (
-          EMPTY_CELL
-        ),
     },
     {
       key: "selling",

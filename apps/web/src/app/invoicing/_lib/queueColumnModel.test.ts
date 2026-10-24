@@ -43,10 +43,11 @@ const NO_FILTERS = { dir: "", status: "", customer: "", columnFilters: [], flagM
 
 describe("normalizeQueueColumns", () => {
   it("keeps known keys once, in order, Internal Reference first, without the actions column", () => {
-    expect(normalizeQueueColumns(["customer", "nope", "jobNumber", "customer", "__open", "status"])).toEqual([
+    // "status" (Shipment Status) is no longer a column: a stored layout that has it drops it
+    expect(normalizeQueueColumns(["customer", "nope", "jobNumber", "customer", "__open", "status", "selling"])).toEqual([
       "jobNumber",
       "customer",
-      "status",
+      "selling",
     ]);
   });
 
@@ -56,13 +57,12 @@ describe("normalizeQueueColumns", () => {
     expect(normalizeQueueColumns([1, {}])).toEqual(["jobNumber"]);
   });
 
-  it("defaults to the 8 columns in table order", () => {
+  it("defaults to the 7 columns in table order", () => {
     expect(QUEUE_DEFAULT_COLUMNS).toEqual([
       "jobNumber",
       "customer",
       "tradeDirection",
       "serviceDate",
-      "status",
       "selling",
       "invoices",
       "invoicingStatus",
