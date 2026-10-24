@@ -1,8 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Alert, Button, Form, Input, Tooltip } from "antd";
-import { FilePdfOutlined } from "@ant-design/icons";
+import { Alert, Button, Form, Input, Modal, Popconfirm, Select, Tooltip } from "antd";
+import { DeleteOutlined, FilePdfOutlined, SaveOutlined } from "@ant-design/icons";
+import { useToast } from "@/lib/toast";
+import { PLACEHOLDERS, STANDARD_TEMPLATE, asTemplate, filledTemplate, quoteValues } from "@/app/sales/_lib/emailTemplate";
+import { lastTemplateId, rememberTemplateId, useEmailTemplates, type SavedEmailTemplate } from "@/app/sales/_lib/useEmailTemplates";
 import { LINK_CLASS } from "@/components/linkClass";
 import { SalesDialog } from "@/app/sales/_components/SalesDialog";
 import type { SalesQuoteData } from "@/app/sales/_lib/types";
@@ -67,19 +70,82 @@ export function EmailQuoteModal({
   // Why the server did not mark the quote as sent.
   const [refusal, setRefusal] = useState<string | null>(null);
 
-  const defaultMessage = `Dear ${data.customerContact || "Sir/Madam"},\n\nPlease find our quotation ${quoteNumber} for your shipment ${data.origin || ""} → ${data.destination || ""}.\n\nBest regards,\n${data.salesOwner || "Sales"}`;
+  const toast = useToast();
+  // The user's own templates, and the standard one everybody has. The subject and message start
+  // from the template last chosen, filled in from this quote.
+  const templates = useEmailTemplates(open);
+  const all: SavedEmailTemplate[] = [STANDARD_TEMPLATE, ...templates.list];
+  const [templateId, setTemplateId] = useState(STANDARD_TEMPLATE.id);
+  const chosenSaved = templates.list.find((t) => t.id === templateId) ?? null;
+  // Saving the message as a template: the name asked for; null while not asked.
+  const [naming, setNaming] = useState<string | null>(null);
 
   // Each time the dialog opens it starts from the quote's current values (and only then: what is
   // typed while it is open stays). The values are read through a ref for that reason.
-  const prefill = useRef({ to: data.customerEmail ?? "", subject: `Freight quotation ${quoteNumber}`, message: defaultMessage });
-  prefill.current = { to: data.customerEmail ?? "", subject: `Freight quotation ${quoteNumber}`, message: defaultMessage };
+  const prefill = useRef({ to: data.customerEmail ?? "", values: quoteValues(quoteNumber, data, validUntil), all });
+  prefill.current = { to: data.customerEmail ?? "", values: quoteValues(quoteNumber, data, validUntil), all };
+  const applyTemplate = (id: string) => {
+    const template = prefill.current.all.find((t) => t.id === id) ?? STANDARD_TEMPLATE;
+    setTemplateId(template.id);
+    form.setFieldsValue(filledTemplate(template, prefill.current.values));
+  };
   useEffect(() => {
     if (open) {
       setOpened(false);
       setRefusal(null);
-      form.setFieldsValue({ ...prefill.current, cc: "" });
+      setNaming(null);
+      form.setFieldsValue({ to: prefill.current.to, cc: "" });
+      applyTemplate(lastTemplateId() ?? STANDARD_TEMPLATE.id);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, form]);
+  // The user's templates read after the dialog opened: the one last chosen is put in, unless the
+  // subject or the message were already typed in.
+  useEffect(() => {
+    const last = lastTemplateId();
+    if (open && templates.ready && last && last !== templateId && !form.isFieldsTouched(["subject", "message"])) applyTemplate(last);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, templates.ready]);
+
+  const chooseTemplate = (id: string) => {
+    rememberTemplateId(id);
+    applyTemplate(id);
+  };
+
+  // The subject and message as a template: this quote's values become placeholders again. A
+  // template of the same name is replaced; the standard one is never changed.
+  const saveTemplate = async (name: string) => {
+    const values = prefill.current.values;
+    const same = templates.list.find((t) => t.name.toLowerCase() === name.toLowerCase());
+    const template: SavedEmailTemplate = {
+      id: same?.id ?? crypto.randomUUID(),
+      name,
+      subject: asTemplate(form.getFieldValue("subject") ?? "", values),
+      message: asTemplate(form.getFieldValue("message") ?? "", values),
+    };
+    const list = same ? templates.list.map((t) => (t.id === same.id ? template : t)) : [...templates.list, template];
+    try {
+      await templates.save.mutateAsync(list);
+      setNaming(null);
+      setTemplateId(template.id);
+      rememberTemplateId(template.id);
+      toast.success(`Template "${name}" saved`);
+    } catch (e) {
+      toast.error(`Template not saved - ${e instanceof Error ? e.message : "try again"}`);
+    }
+  };
+
+  const deleteTemplate = async () => {
+    if (!chosenSaved) return;
+    try {
+      await templates.save.mutateAsync(templates.list.filter((t) => t.id !== chosenSaved.id));
+      setTemplateId(STANDARD_TEMPLATE.id);
+      rememberTemplateId(STANDARD_TEMPLATE.id);
+      toast.success(`Template "${chosenSaved.name}" deleted`);
+    } catch (e) {
+      toast.error(`Template not deleted - ${e instanceof Error ? e.message : "try again"}`);
+    }
+  };
 
   // Whether the message may go out is known before the click: the button that hands it over is a
   // real link, and a link has to be stopped in the click itself, not after an asynchronous
@@ -189,6 +255,30 @@ export function EmailQuoteModal({
       </div>
 
       <Form form={form} layout="vertical" disabled={marking}>
+        <Form.Item label="Template">
+          <div className="flex items-center gap-2">
+            <Select
+              className="flex-1 min-w-0"
+              aria-label="Email template"
+              value={templateId}
+              onChange={chooseTemplate}
+              options={all.map((t) => ({ value: t.id, label: t.id === STANDARD_TEMPLATE.id ? "Standard (built in)" : t.name }))}
+            />
+            <Button icon={<SaveOutlined />} onClick={() => setNaming(chosenSaved?.name ?? "")}>
+              Save as template
+            </Button>
+            {chosenSaved && (
+              <Popconfirm
+                title={`Delete the template "${chosenSaved.name}"?`}
+                okText="Delete"
+                okButtonProps={{ danger: true }}
+                onConfirm={deleteTemplate}
+              >
+                <Button danger icon={<DeleteOutlined />} aria-label="Delete template" loading={templates.save.isPending} />
+              </Popconfirm>
+            )}
+          </div>
+        </Form.Item>
         <Form.Item
           name="to"
           label="To"
@@ -205,10 +295,38 @@ export function EmailQuoteModal({
         <Form.Item name="subject" label="Subject" rules={[{ required: true, message: "Subject is required" }]}>
           <Input />
         </Form.Item>
-        <Form.Item name="message" label="Message" className="!mb-0">
+        <Form.Item
+          name="message"
+          label="Message"
+          className="!mb-0"
+          extra={`Saved as a template, this quote's details become placeholders, filled in for the next quote: ${PLACEHOLDERS.map((p) => `{${p.key}}`).join(" ")}.`}
+        >
           <Input.TextArea rows={7} />
         </Form.Item>
       </Form>
+
+      <Modal
+        open={naming !== null}
+        title="Save as template"
+        okText={templates.list.some((t) => t.name.toLowerCase() === (naming ?? "").trim().toLowerCase()) ? "Replace template" : "Save template"}
+        okButtonProps={{ disabled: !(naming ?? "").trim(), loading: templates.save.isPending }}
+        onOk={() => saveTemplate((naming ?? "").trim())}
+        onCancel={() => setNaming(null)}
+        destroyOnHidden
+      >
+        <div className="text-[13px] text-slate-500 mb-2">
+          Only you see your templates. The subject and message are kept with placeholders, so each quote gets its own contact, reference and route.
+        </div>
+        <Input
+          autoFocus
+          maxLength={80}
+          aria-label="Template name"
+          placeholder="e.g. Standard, Follow-up, German"
+          value={naming ?? ""}
+          onChange={(e) => setNaming(e.target.value)}
+          onPressEnter={() => (naming ?? "").trim() && saveTemplate(naming!.trim())}
+        />
+      </Modal>
 
       {opened && (
         <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">

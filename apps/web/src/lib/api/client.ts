@@ -1612,6 +1612,8 @@ export namespace sales {
 
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
+            this.emailTemplatesGet = this.emailTemplatesGet.bind(this)
+            this.emailTemplatesSet = this.emailTemplatesSet.bind(this)
             this.followupTaskCreate = this.followupTaskCreate.bind(this)
             this.followupTaskDelete = this.followupTaskDelete.bind(this)
             this.followupTaskList = this.followupTaskList.bind(this)
@@ -1624,6 +1626,25 @@ export namespace sales {
             this.termsDelete = this.termsDelete.bind(this)
             this.termsList = this.termsList.bind(this)
             this.termsUpdate = this.termsUpdate.bind(this)
+        }
+
+        /**
+         * The signed-in user's own email templates for quotations.
+         */
+        public async emailTemplatesGet(): Promise<interfaces.EmailTemplatesResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/sales-email-templates`)
+            return await resp.json() as interfaces.EmailTemplatesResponse
+        }
+
+        /**
+         * Stores the signed-in user's email templates in place of theirs. Refused for a list that is too
+         * long, a template without a name, two of the same name, or a text that is too long.
+         */
+        public async emailTemplatesSet(params: controllers.EmailTemplatesSetRequest): Promise<interfaces.EmailTemplatesResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/sales-email-templates`, JSON.stringify(params))
+            return await resp.json() as interfaces.EmailTemplatesResponse
         }
 
         /**
@@ -5527,6 +5548,10 @@ export namespace controllers {
 
     export interface DocumentListResponse {
         data: interfaces.DocumentItem[]
+    }
+
+    export interface EmailTemplatesSetRequest {
+        templates: interfaces.EmailTemplate[]
     }
 
     export interface EnsureRefsRequest {
@@ -10517,6 +10542,24 @@ export namespace interfaces {
     }
 
     export type DocumentType = "Contract" | "NDA" | "Power of attorney" | "Customs" | "Other"
+
+    /**
+     * One of a user's own email templates for quotations: the subject and message the Email dialog
+     * starts from. Placeholders such as {contact} or {reference} are filled in from the quote there.
+     */
+    export interface EmailTemplate {
+        id: string
+        name: string
+        subject: string
+        message: string
+    }
+
+    /**
+     * A user's email templates, as stored.
+     */
+    export interface EmailTemplatesResponse {
+        data: EmailTemplate[]
+    }
 
     export type ExceptionCause = "CUSTOMER" | "HAULIER" | "US" | "UNKNOWN"
 

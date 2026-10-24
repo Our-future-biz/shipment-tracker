@@ -112,3 +112,19 @@ export interface SalesPermissions {
   /** Change the company details printed on quotations. */
   canEditCompanyDetails: boolean;
 }
+
+/**
+ * One of a user's own email templates for quotations: the subject and message the Email dialog
+ * starts from. Placeholders such as {contact} or {reference} are filled in from the quote there.
+ */
+export interface EmailTemplate {
+  id: string;
+  name: string;
+  subject: string;
+  message: string;
+}
+
+/** A user's email templates, as stored. */
+export interface EmailTemplatesResponse {
+  data: EmailTemplate[];
+}
