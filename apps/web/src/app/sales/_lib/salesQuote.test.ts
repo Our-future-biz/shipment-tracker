@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SalesQuoteData } from "./types";
-import { baseRef, computeCargo, hasReefer, isReeferType, reeferMissing, followStored, followUpLines, quoteProfitIn, quoteFamily, revisionRoot, withoutPricing, type SalesQuote } from "./salesQuote";
+import type { QuoteTotals } from "./salesQuote";
+import { baseRef, computeCargo, fxNote, hasReefer, isReeferType, reeferMissing, followStored, followUpLines, quoteProfitIn, quoteFamily, revisionRoot, withoutPricing, type SalesQuote } from "./salesQuote";
 
 const quote = (quoteNumber: string): SalesQuote => ({ quoteNumber }) as SalesQuote;
 
@@ -150,5 +151,26 @@ describe("reefer containers", () => {
     expect(reeferMissing({ ...fcl("40' RF"), reefer: { setPoint: 5, toleranceRequired: true } })).toBe("Enter the set-point tolerance");
     expect(reeferMissing({ ...fcl("40' RF"), reefer: { setPoint: 5, toleranceRequired: true, tolerance: 2 } })).toBeNull();
     expect(reeferMissing(fcl("40' HC"))).toBeNull();
+  });
+});
+
+describe("fxNote", () => {
+  const totals = (over: Partial<QuoteTotals> = {}): QuoteTotals => ({
+    currency: "EUR", selling: 0, buying: 0, profit: 0, margin: null,
+    missingRates: [], missingSellingRates: [], missingBuyingRates: [],
+    roePct: 102, fixingDate: "2026-10-23", fxLocked: false, lockedAt: null,
+    ...over,
+  } as QuoteTotals);
+
+  it("names the company ROE as the adjustment of the ČNB rates", () => {
+    expect(fxNote(totals())).toBe("Totals in EUR based on 2% adjustment of ČNB rates (23.10.2026) — stored on the quote when it is sent.");
+    expect(fxNote(totals({ roePct: 98.5 }))).toBe("Totals in EUR based on -1.5% adjustment of ČNB rates (23.10.2026) — stored on the quote when it is sent.");
+    expect(fxNote(totals({ roePct: 100 }))).toBe("Totals in EUR at today's ČNB rates (23.10.2026) — stored on the quote when it is sent.");
+  });
+
+  it("says the stored rates of a sent quote with their adjustment", () => {
+    expect(fxNote(totals({ fxLocked: true, lockedAt: "2026-10-24T08:00:00Z" }))).toBe(
+      "Totals in EUR based on 2% adjustment of the ČNB rates of 23.10.2026 — stored when the quote was sent 24.10.2026.",
+    );
   });
 });

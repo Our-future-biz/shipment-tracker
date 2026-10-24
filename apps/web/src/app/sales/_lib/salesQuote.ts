@@ -415,13 +415,19 @@ export function quoteProfitIn(data: SalesQuoteData, sheet: ExchangeRates, curren
 }
 
 // One line saying which rates a quote's totals use - for the people pricing it.
+// The note under the totals names the company ROE (Exchange) as the adjustment of the ČNB rates:
+// 102 % reads "2% adjustment", 98 % "-2% adjustment"; at 100 % the rates are ČNB's as they are.
 export function fxNote(totals: QuoteTotals): string {
   const currency = totals.currency;
   if (!totals.fixingDate) return `Totals in ${currency}. Loading today's ČNB rates…`;
-  const roe = totals.roePct !== 100 ? ` · selling lines in another currency × ROE ${totals.roePct} %` : "";
-  return totals.fxLocked
-    ? `Totals in ${currency} at the ČNB rates of ${formatDate(totals.fixingDate)}${roe} — stored when the quote was sent ${formatDate(totals.lockedAt ?? "")}.`
-    : `Totals in ${currency} at today's ČNB rates (${formatDate(totals.fixingDate)})${roe} — stored on the quote when it is sent.`;
+  const day = formatDate(totals.fixingDate);
+  const adjustment = Math.round((totals.roePct - 100) * 1000) / 1000;
+  if (totals.fxLocked) {
+    const rates = adjustment ? `based on ${adjustment}% adjustment of the ČNB rates of ${day}` : `at the ČNB rates of ${day}`;
+    return `Totals in ${currency} ${rates} — stored when the quote was sent ${formatDate(totals.lockedAt ?? "")}.`;
+  }
+  const rates = adjustment ? `based on ${adjustment}% adjustment of ČNB rates (${day})` : `at today's ČNB rates (${day})`;
+  return `Totals in ${currency} ${rates} — stored on the quote when it is sent.`;
 }
 
 // The clause for the customer's document when charges in another currency were converted.
