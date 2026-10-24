@@ -138,15 +138,17 @@ function tidy(heavy: QuoteHeavyPieces): QuoteHeavyPieces {
 /** The pricing lines of the surcharge carry this pair id: a new answer replaces them. */
 export const HEAVY_PAIR_ID = "heavy-pieces";
 
-/** The surcharge's line, the same on the buying and the selling side. */
+/** The surcharge's line, the same on the buying and the selling side, the pieces charged for as its quantity. */
 function heavyLine(heavy: QuoteHeavyPieces): CostLine {
-  const counted = HEAVY_BANDS.filter((band) => band.rate !== null && (heavy.pieces?.[band.key] ?? 0) > 0).map((band) => `${heavy.pieces![band.key]}× ${band.label}`);
+  const bands = HEAVY_BANDS.filter((band) => band.rate !== null && (heavy.pieces?.[band.key] ?? 0) > 0);
+  const counted = bands.map((band) => `${heavy.pieces![band.key]}× ${band.label}`);
   return {
     type: "Handling",
     chargeCode: "handling",
     description: `Extra handling - heavy pieces (${counted.join(", ")})`,
     currency: "EUR",
     amount: heavyTotal(heavy),
+    value: bands.reduce((n, band) => n + heavy.pieces![band.key]!, 0),
     pairId: HEAVY_PAIR_ID,
   };
 }

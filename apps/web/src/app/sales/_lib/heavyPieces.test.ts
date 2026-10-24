@@ -76,9 +76,9 @@ describe("the surcharge", () => {
 describe("withHeavyPieces", () => {
   const freight: CostLine = { type: "Ocean freight", description: "LCL", currency: "EUR", amount: 300 };
 
-  it("adds the surcharge as a buying and a selling line of the same amount, keeping the other lines", () => {
+  it("adds the surcharge as a buying and a selling line of the same amount, the pieces as its quantity, keeping the other lines", () => {
     const patch = withHeavyPieces({ buyingLines: [freight], sellingLines: [freight] }, { anyOver2t: true, pieces: { "2000": 2, "5000": 1 } });
-    const line = { type: "Handling", chargeCode: "handling", description: "Extra handling - heavy pieces (2× 2,000 – 2,999 kg, 1× 5,000 – 7,499 kg)", currency: "EUR", amount: 300, pairId: HEAVY_PAIR_ID };
+    const line = { type: "Handling", chargeCode: "handling", description: "Extra handling - heavy pieces (2× 2,000 – 2,999 kg, 1× 5,000 – 7,499 kg)", currency: "EUR", amount: 300, value: 3, pairId: HEAVY_PAIR_ID };
     expect(patch.buyingLines).toEqual([freight, line]);
     expect(patch.sellingLines).toEqual([freight, line]);
     expect(patch.heavyPieces).toEqual({ anyOver2t: true, pieces: { "2000": 2, "5000": 1 } });
@@ -146,7 +146,7 @@ describe("the warehouse inquiry (pieces of 12.5 t or more)", () => {
     const fee: CostLine = { type: "Handling", chargeCode: "handling", description: "Heavy Cargo Handling Fee", currency: "EUR", amount: 800, pairId: WAREHOUSE_PAIR_ID };
     const sold: CostLine = { ...fee, amount: 900, changeReason: "agreed" };
     const kept = withHeavyPieces({ buyingLines: [fee], sellingLines: [sold] }, heavy({ pieces: { "12500": 2, "2000": 1 } }));
-    expect(kept.buyingLines).toEqual([fee, expect.objectContaining({ pairId: HEAVY_PAIR_ID, amount: 50, description: "Extra handling - heavy pieces (1× 2,000 – 2,999 kg)" })]);
+    expect(kept.buyingLines).toEqual([fee, expect.objectContaining({ pairId: HEAVY_PAIR_ID, amount: 50, value: 1, description: "Extra handling - heavy pieces (1× 2,000 – 2,999 kg)" })]);
     expect(kept.sellingLines?.[0]).toEqual(sold);
     const gone = withHeavyPieces({ buyingLines: [fee], sellingLines: [sold] }, heavy({ pieces: { "2000": 1 } }));
     expect(gone.buyingLines?.map((l) => l.pairId)).toEqual([HEAVY_PAIR_ID]);
