@@ -246,7 +246,6 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="min-w-0">
             <h1 className="text-2xl font-bold text-slate-900">Invoicing</h1>
-            <p className="text-xs text-slate-500 mt-0.5">Manage shipment costs, profitability and customer invoices.</p>
           </div>
           <div role="group" aria-label="Invoicing stage">
             <PillTabs<View>
