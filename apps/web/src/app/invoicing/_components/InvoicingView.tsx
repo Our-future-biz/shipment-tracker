@@ -16,7 +16,6 @@ import { CostsTab } from "@/app/shipments/[jobNumber]/tabs/CostsTab";
 import { useCostsData } from "@/app/shipments/[jobNumber]/tabs/useCostsData";
 import { InvoicePanel } from "./InvoicePanel";
 import { BillingQueue } from "./BillingQueue";
-import { ShipmentPicker } from "./ShipmentPicker";
 
 /** Tabs of a job, as on the shipment detail page; the default one is left out of the URL. */
 const TABS = [
@@ -243,7 +242,7 @@ export const InvoicingView = () => {
   return (
     <div className="bg-slate-50 min-h-full px-8 py-6">
       <div className="max-w-[1400px] mx-auto flex flex-col gap-5">
-        {/* Title row as on the queue page: the job switcher sits where the tabs are there */}
+        {/* Title row: back to the queue and the job; jobs are opened from the queue, not switched here */}
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="min-w-0">
             <button
@@ -257,13 +256,6 @@ export const InvoicingView = () => {
               Invoicing{selectedShipment ? <span className="text-slate-400 font-semibold"> · {selectedShipment.jobNumber}</span> : null}
             </h1>
           </div>
-          <ShipmentPicker
-            value={selectedShipmentId}
-            selected={selectedShipment}
-            onChange={handleSelect}
-            allowClear
-            className="w-96 max-w-full"
-          />
         </div>
 
         {selectedShipment ? (
@@ -289,6 +281,7 @@ export const InvoicingView = () => {
                 shipment={selectedShipment}
                 section={activeTab === "costs" ? null : activeTab}
                 onDuzpChange={handleDuzp}
+                onOpenCosts={() => handleTab("costs")}
               />
             </div>
           </>
@@ -298,7 +291,7 @@ export const InvoicingView = () => {
               {shipmentLoading
                 ? "Loading the shipment…"
                 : notFound
-                  ? "Shipment not found — choose another job above, or clear the selection to see the queue."
+                  ? "Shipment not found — go back to the Invoicing queue and open another job."
                   : "Could not load the shipment."}
             </div>
           </AppCard>

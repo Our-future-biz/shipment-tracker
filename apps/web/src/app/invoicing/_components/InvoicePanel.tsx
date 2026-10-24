@@ -1,10 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import dayjs from "dayjs";
-import { Alert, Button, DatePicker, Input, Modal, Select, Tag, Tooltip } from "antd";
-import { FilePdfOutlined, RollbackOutlined, SendOutlined, WarningOutlined } from "@ant-design/icons";
+import { Alert, Button, DatePicker, Input, Modal, Select, Tag, Tooltip, type RefSelectProps } from "antd";
+import {
+  DownOutlined,
+  EditOutlined,
+  FilePdfOutlined,
+  FileTextOutlined,
+  RollbackOutlined,
+  SendOutlined,
+  WarningOutlined,
+} from "@ant-design/icons";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
@@ -16,7 +24,7 @@ import { useToast } from "@/lib/toast";
 import { formatDate } from "@/lib/date";
 import { CURRENCIES } from "@/lib/enums";
 import { invoicingKey } from "@/hooks/useInvoicing";
-import { moneyCz, round2 } from "@/lib/money";
+import { moneyCz } from "@/lib/money";
 import { statusLabel } from "@/lib/shipmentStatus";
 import { SectionCard } from "@/components/SectionCard";
 import { useCostsData } from "@/app/shipments/[jobNumber]/tabs/useCostsData";
@@ -49,19 +57,20 @@ const TD = "px-2 py-2 border-b border-slate-100 text-[13px] text-slate-700";
 const czDate = (iso: string) => formatDate(iso) || "—";
 const newKey = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
 
-interface CardProps {
-  title: string;
-  extra?: React.ReactNode;
+interface FactProps {
+  label: string;
+  /** Grey 12px line(s) under the value. */
+  sub?: React.ReactNode;
+  className?: string;
   children: React.ReactNode;
 }
 
-const Card = ({ title, extra, children }: CardProps) => (
-  <div className="border border-slate-200 rounded-lg p-3 min-w-0">
-    <div className="flex items-center justify-between gap-2 mb-2">
-      <span className="text-[11.5px] font-bold uppercase tracking-[.04em] text-slate-500">{title}</span>
-      {extra}
-    </div>
-    {children}
+/** One fact of the strip at the top of the invoice, styled like the job card above it. */
+const Fact = ({ label, sub, className = "", children }: FactProps) => (
+  <div className={`min-w-0 ${className}`}>
+    <div className="text-[11px] font-bold uppercase tracking-[.04em] text-slate-500 whitespace-nowrap">{label}</div>
+    <div className="mt-1 min-h-7 text-[13px] text-slate-900 flex items-center flex-wrap gap-x-2 gap-y-1 break-words">{children}</div>
+    {sub && <div className="text-[12px] text-slate-500 leading-[18px]">{sub}</div>}
   </div>
 );
 
@@ -80,12 +89,14 @@ interface InvoicePanelProps {
   section: InvoicePanelSection | null;
   /** Told the DUZP the next invoice would get (the default, or the one picked here), for the job card. */
   onDuzpChange?: (iso: string) => void;
+  /** Opens the Costs Breakdown tab (from the empty Invoice tab). */
+  onOpenCosts?: () => void;
 }
 
-export function InvoicePanel({ shipment, section, onDuzpChange }: InvoicePanelProps) {
+export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: InvoicePanelProps) {
   const toast = useToast();
   const queryClient = useQueryClient();
-  const { data, billingCur, totals } = useCostsData(shipment);
+  const { data, billingCur } = useCostsData(shipment);
   const { updateShipment } = useShipmentMutations();
   const { customers } = useCustomers();
 
@@ -96,6 +107,12 @@ export function InvoicePanel({ shipment, section, onDuzpChange }: InvoicePanelPr
   const [creditTarget, setCreditTarget] = useState<{ doc: InvoiceDoc; key: string } | null>(null);
   const [creditReason, setCreditReason] = useState("");
   const [downloading, setDownloading] = useState<string | null>(null);
+  // display only: the customer picker behind the pencil, and the VAT breakdown table
+  const [pickingCustomer, setPickingCustomer] = useState(false);
+  const [vatOpen, setVatOpen] = useState(false);
+  const pencilRef = useRef<HTMLButtonElement | HTMLAnchorElement>(null);
+  const pickerRef = useRef<RefSelectProps>(null);
+  const refocusPencil = useRef(false);
 
   // the preview is recomputed whenever the rows it is built from change
   const previewKey = useMemo(() => JSON.stringify([billingCur, data?.sellingCosts ?? []]), [billingCur, data?.sellingCosts]);
@@ -183,13 +200,6 @@ export function InvoicePanel({ shipment, section, onDuzpChange }: InvoicePanelPr
     if (nextDuzp) onDuzpChange?.(nextDuzp);
   }, [nextDuzp, onDuzpChange]);
   const foreign = !!p && p.currency !== "CZK";
-  // Profit against buying costs — only when both are in the same currency and the preview is
-  // current (while it reloads after a currency change it can still be in the old one).
-  const cost = round2(totals.buyTotal);
-  const profitComparable = !!p && p.currency === billingCur && !previewLoading;
-  const profit = p && profitComparable ? round2(p.net - cost) : 0;
-  const marginPct = p && profitComparable && p.net ? (profit / p.net) * 100 : null;
-  const profitTone = profit > 0 ? "text-ok" : profit < 0 ? "text-danger" : "text-slate-700";
 
   // Issuing is allowed before the job reaches Billing (owner's decision), but it is flagged.
   const releasedForBilling = isBillingStatus(shipment.status);
@@ -211,99 +221,134 @@ export function InvoicePanel({ shipment, section, onDuzpChange }: InvoicePanelPr
   const problems = p?.problems ?? [];
   const canIssue = !!p && problems.length === 0 && !previewLoading;
   const customerOptions = customers.map((c) => ({ value: c.id, label: `${c.companyName}${c.ico ? ` · ${c.ico}` : ""}` }));
+  const hasLines = !!p && p.lines.length > 0;
+  const customerLine = p?.customer
+    ? [p.customer.address, p.customer.ico && `IČO ${p.customer.ico}`, p.customer.dic && `DIČ ${p.customer.dic}`].filter(Boolean).join(" · ")
+    : "";
+
+  // Closing the picker unmounts it: give keyboard focus back to the pencil, unless the user already moved on.
+  const closePicker = () => {
+    refocusPencil.current = !!pickerRef.current?.nativeElement?.contains(document.activeElement);
+    setPickingCustomer(false);
+  };
+  useEffect(() => {
+    if (pickingCustomer || !refocusPencil.current) return;
+    refocusPencil.current = false;
+    const active = document.activeElement;
+    if (!active || active === document.body) pencilRef.current?.focus();
+  }, [pickingCustomer]);
+
+  // The same customer picker in both places; behind the pencil it opens at once and hides again when closed.
+  const customerSelect = (behindPencil: boolean) => (
+    <Select
+      ref={behindPencil ? pickerRef : undefined}
+      size="small"
+      showSearch
+      placeholder={p?.customer ? "Change customer" : "Pick customer"}
+      value={null}
+      onChange={(v) => {
+        if (!behindPencil) setPickingCustomer(false);
+        if (v) handlePickCustomer(v);
+      }}
+      disabled={linkCustomer.isPending}
+      options={customerOptions}
+      optionFilterProp="label"
+      className="w-[220px] max-w-full"
+      aria-label="Customer to invoice"
+      notFoundContent={<span className="text-[12.5px]">No customers — add one in the <Link href="/customers">Customer Database</Link></span>}
+      autoFocus={behindPencil}
+      defaultOpen={behindPencil}
+      onOpenChange={behindPencil ? (open) => !open && closePicker() : undefined}
+    />
+  );
 
   return (
     <>
       {section === "invoice" && (
         // overflow-clip, not overflow-hidden: hidden makes the card a scroll container and the sticky Issue bar would not stick
-        // Same frame and header as the app's SectionCard
+        // Same frame as the app's SectionCard
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-clip">
-          <div className="px-4 py-2.5 flex items-center gap-2.5 bg-indigo-50 border-b border-indigo-100">
-            <h3 className="m-0 text-[13px] font-bold text-slate-800 uppercase tracking-wider">Invoice</h3>
-            <span className="ml-auto flex items-center gap-2 text-[12.5px] font-medium text-slate-600">
-              Billing currency
-              <Select size="small" value={billingCur} onChange={(c) => billingCurrency.mutate(c)} loading={billingCurrency.isPending} disabled={billingCurrency.isPending} options={BILLING_CURRENCIES.map((c) => ({ value: c, label: c }))} className="w-[84px]" aria-label="Billing currency" />
-            </span>
-          </div>
-
-          <div className="p-4">
-            {previewError && <Alert type="error" showIcon className="mb-3" message="The invoice preview could not be loaded" />}
-
-            {/* ── Customer + terms ── */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
-              <Card
-                title="Bill to"
-                extra={
-                  <Select
-                    size="small"
-                    showSearch
-                    placeholder={p?.customer ? "Change customer" : "Pick customer"}
-                    value={null}
-                    onChange={(v) => v && handlePickCustomer(v)}
-                    disabled={linkCustomer.isPending}
-                    options={customerOptions}
-                    optionFilterProp="label"
-                    className="w-[220px]"
-                    aria-label="Customer to invoice"
-                    notFoundContent={<span className="text-[12.5px]">No customers — add one in the <Link href="/customers">Customer Database</Link></span>}
-                  />
+          {/* ── Customer and terms, in the job card's style ── */}
+          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-[minmax(0,2fr)_repeat(4,minmax(0,1fr))] gap-x-4 gap-y-3 px-4 py-4 border-b border-slate-100">
+            {p && !p.customer ? (
+              <Fact label="Bill to" className="col-span-2 md:col-span-4 xl:col-span-1" sub="Pick one from the Customer Database — it is also linked to the shipment.">
+                <span className="font-medium text-warn">No customer linked</span>
+                {customerSelect(false)}
+              </Fact>
+            ) : (
+              // also while the preview loads or failed: a neutral dash, the picker still behind the pencil
+              <Fact
+                label="Bill to"
+                className="col-span-2 md:col-span-4 xl:col-span-1"
+                sub={
+                  p?.customer && (
+                    <>
+                      {customerLine && <div>{customerLine}</div>}
+                      {!shipment.customerId && customerId && <div className="mt-0.5">Linked to the shipment as its customer.</div>}
+                    </>
+                  )
                 }
               >
-                {p?.customer ? (
-                  <div className="text-[13px] text-slate-700 leading-5">
-                    <div className="font-semibold text-slate-900">
-                      {p.customerId ? <Link href={`/customers/${p.customerId}`} className="text-slate-900 hover:text-indigo-600">{p.customer.companyName}</Link> : p.customer.companyName}
-                    </div>
-                    <div>{p.customer.address}</div>
-                    <div className="text-slate-500">
-                      {p.customer.ico && <>IČO {p.customer.ico}</>}
-                      {p.customer.dic && <> · DIČ {p.customer.dic}</>}
-                    </div>
-                    {!shipment.customerId && customerId && <div className="text-[12px] text-slate-500 mt-1">Linked to the shipment as its customer.</div>}
-                  </div>
+                {pickingCustomer ? (
+                  customerSelect(true)
                 ) : (
-                  <p className="text-[13px] text-slate-500 m-0">
-                    No customer linked to {shipment.jobNumber}. Pick one from the Customer Database — it is also linked to the shipment.
-                  </p>
-                )}
-              </Card>
-
-              <Card title="Terms">
-                <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 items-center text-[13px]">
-                  <span className="text-slate-500">Issue date</span>
-                  <span className="text-slate-900">{p ? czDate(p.issueDate) : "—"}</span>
-                  <span className="text-slate-500">DUZP (tax point)</span>
-                  <DatePicker
-                    size="small"
-                    allowClear={false}
-                    format="D.M.YYYY"
-                    value={p ? dayjs(duzp ?? p.duzp) : null}
-                    onChange={(d) => d && setDuzp(d.format("YYYY-MM-DD"))}
-                    className="w-[140px]"
-                    aria-label="DUZP"
-                  />
-                  <span className="text-slate-500">Due date</span>
-                  <span className="text-slate-900">{p ? czDate(p.dueDate) : "—"}</span>
-                  {foreign && (
-                    <>
-                      <span className="text-slate-500">ČNB rate at DUZP</span>
-                      <span className="text-slate-900 tabular-nums">
-                        1 {p!.currency} = {p!.fxRate.toFixed(3).replace(".", ",")} CZK{" "}
-                        <span className="text-slate-500">(ČNB{p!.fxFixingDate ? `, fixing ${czDate(p!.fxFixingDate)}` : ""})</span>
+                  <>
+                    {p?.customer ? (
+                      <span className="font-semibold min-w-0">
+                        {p.customerId ? <Link href={`/customers/${p.customerId}`} className="text-slate-900 hover:text-indigo-600">{p.customer.companyName}</Link> : p.customer.companyName}
                       </span>
-                    </>
-                  )}
-                </div>
-              </Card>
-            </div>
+                    ) : (
+                      <span className="text-slate-400">—</span>
+                    )}
+                    <Tooltip title={p?.customer ? "Change customer" : "Pick customer"}>
+                      <Button
+                        ref={pencilRef}
+                        type="text"
+                        size="small"
+                        icon={<EditOutlined />}
+                        aria-label={p?.customer ? "Change customer" : "Pick customer"}
+                        onClick={() => setPickingCustomer(true)}
+                        className="!text-slate-400 hover:!text-slate-700"
+                      />
+                    </Tooltip>
+                  </>
+                )}
+              </Fact>
+            )}
+            <Fact label="Issue date">{p ? czDate(p.issueDate) : "—"}</Fact>
+            <Fact label="DUZP">
+              <DatePicker
+                size="small"
+                allowClear={false}
+                format="D.M.YYYY"
+                value={p ? dayjs(duzp ?? p.duzp) : null}
+                onChange={(d) => d && setDuzp(d.format("YYYY-MM-DD"))}
+                className="w-[140px] max-w-full"
+                aria-label="DUZP"
+              />
+            </Fact>
+            <Fact label="Due date">{p ? czDate(p.dueDate) : "—"}</Fact>
+            <Fact
+              label="Currency"
+              sub={
+                p && foreign ? (
+                  <span className="tabular-nums">
+                    1 {p.currency} = {p.fxRate.toFixed(3).replace(".", ",")} CZK · ČNB{p.fxFixingDate ? `, fixing ${czDate(p.fxFixingDate)}` : ""}
+                  </span>
+                ) : undefined
+              }
+            >
+              <Select size="small" value={billingCur} onChange={(c) => billingCurrency.mutate(c)} loading={billingCurrency.isPending} disabled={billingCurrency.isPending} options={BILLING_CURRENCIES.map((c) => ({ value: c, label: c }))} className="w-[84px]" aria-label="Billing currency" />
+            </Fact>
+          </div>
+
+          <div className="px-4 pt-3 pb-4">
+            {previewError && <Alert type="error" showIcon className="mb-3" message="The invoice preview could not be loaded" />}
 
             {/* ── Lines ── */}
-            {!p || p.lines.length === 0 ? (
-              <p className="text-[13px] text-slate-500 m-0 mb-4">
-                Nothing to invoice yet. Add selling costs on the Costs Breakdown tab and tick them for Invoice.
-              </p>
-            ) : (
-              <div className="overflow-x-auto mb-4">
+            {p && hasLines ? (
+              // -mx-2: the cells' own padding lines the text up with the facts above
+              <div className="overflow-x-auto -mx-2">
                 <table className="w-full min-w-[640px] border-collapse">
                   <thead>
                     <tr>
@@ -341,26 +386,44 @@ export function InvoicePanel({ shipment, section, onDuzpChange }: InvoicePanelPr
                   </tbody>
                 </table>
               </div>
+            ) : previewError ? null : !p && previewLoading ? (
+              <p className="text-[13px] text-slate-500 m-0 py-2">Loading the invoice preview…</p>
+            ) : (
+              <div className="border border-dashed border-slate-300 rounded-xl px-4 py-4 flex items-center gap-3 flex-wrap">
+                <FileTextOutlined className="!text-[22px] !text-slate-400" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13px] font-semibold text-slate-900">No lines to invoice yet</div>
+                  <div className="text-[12px] text-slate-500">Selling costs ticked for Invoice show up here.</div>
+                </div>
+                {onOpenCosts && <Button onClick={onOpenCosts}>Open Costs Breakdown</Button>}
+              </div>
             )}
 
-            {/* ── Totals ── */}
-            {p && p.lines.length > 0 && (
-              <div className="flex items-start justify-between gap-6 flex-wrap border-t border-slate-200 pt-4">
-                <div className="flex flex-col gap-3">
-                  <div className="flex gap-6 text-[13px]">
-                    <div>
-                      <div className="text-slate-500">Cost</div>
-                      <div className="font-semibold text-slate-900 tabular-nums">{moneyCz(cost)} {p.currency}</div>
+            {/* ── Totals; the VAT summary per code folds out ── */}
+            {p && hasLines && (
+              <>
+                <div className="flex items-start justify-between gap-x-6 gap-y-2 flex-wrap pt-3">
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<DownOutlined rotate={vatOpen ? 180 : 0} className="!text-[10px]" />}
+                    iconPosition="end"
+                    aria-expanded={vatOpen}
+                    aria-controls="invoice-vat-breakdown"
+                    onClick={() => setVatOpen((o) => !o)}
+                    className="-ml-1 !px-1 !text-[12.5px] !text-slate-500 hover:!text-slate-800"
+                  >
+                    VAT breakdown
+                  </Button>
+                  <div className="ml-auto text-right tabular-nums">
+                    <div className="flex items-baseline justify-end gap-x-4 gap-y-1 flex-wrap">
+                      <span className="text-[12.5px] text-slate-500">Net {moneyCz(p.net)} · VAT {moneyCz(p.vat)}</span>
+                      <span className="text-[15px] font-bold text-slate-900">Total {moneyCz(p.gross)} {p.currency}</span>
                     </div>
-                    <div>
-                      <div className="text-slate-500">Profit</div>
-                      <div className={`font-semibold tabular-nums ${profitTone}`}>{profitComparable ? `${moneyCz(profit)} ${p.currency}` : "—"}</div>
-                    </div>
-                    <div>
-                      <div className="text-slate-500">Margin</div>
-                      <div className={`font-semibold tabular-nums ${profitTone}`}>{marginPct === null ? "—" : `${marginPct.toFixed(1).replace(".", ",")} %`}</div>
-                    </div>
+                    {foreign && <div className="text-[12.5px] text-slate-500 mt-0.5">= {moneyCz(p.grossCzk)} CZK (VAT {moneyCz(p.vatCzk)} CZK)</div>}
                   </div>
+                </div>
+                <div id="invoice-vat-breakdown" hidden={!vatOpen} className="overflow-x-auto mt-2">
                   <table className="border-collapse text-[12.5px]">
                     <thead>
                       <tr className="text-slate-500">
@@ -384,18 +447,10 @@ export function InvoicePanel({ shipment, section, onDuzpChange }: InvoicePanelPr
                     </tbody>
                   </table>
                 </div>
-                <div className="text-right">
-                  <div className="text-[12.5px] text-slate-500 tabular-nums">Net {moneyCz(p.net)} · VAT {moneyCz(p.vat)} {p.currency}</div>
-                  <div className="text-[12px] font-bold uppercase tracking-[.05em] text-slate-500 mt-1">Total due</div>
-                  <div className="text-[24px] font-bold text-slate-900 tabular-nums leading-tight">
-                    {moneyCz(p.gross)} <span className="text-[15px] font-semibold text-slate-500">{p.currency}</span>
-                  </div>
-                  {foreign && <div className="text-[12.5px] text-slate-500 tabular-nums">= {moneyCz(p.grossCzk)} CZK (VAT {moneyCz(p.vatCzk)} CZK)</div>}
-                </div>
-              </div>
+              </>
             )}
 
-            {/* ── What blocks issuing / needs a look ── */}
+            {/* ── What needs a look before issuing ── */}
             {warnings.length > 0 && (
               <div className="flex flex-col gap-2 mt-4">
                 {warnings.map((x) => (
@@ -406,25 +461,27 @@ export function InvoicePanel({ shipment, section, onDuzpChange }: InvoicePanelPr
                 ))}
               </div>
             )}
+          </div>
 
-            {/* ── Issue: stays visible at the bottom of the screen while scrolling ── */}
-            <div className="sticky bottom-0 z-10 -mx-4 mt-4 px-4 py-3 bg-white/95 backdrop-blur border-t border-slate-200 flex items-center gap-3 flex-wrap">
-              <Input
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="Note printed on the invoice (optional)"
-                maxLength={300}
-                className="!w-[360px] max-w-full"
-                aria-label="Invoice note"
-              />
-              <span className="ml-auto text-[13px] text-slate-500 tabular-nums">
-                {p && p.lines.length > 0 && (
-                  <>Total due <strong className="text-[16px] text-slate-900">{moneyCz(p.gross)} {p.currency}</strong></>
-                )}
+          {/* ── Issue: stays visible at the bottom of the screen while scrolling ── */}
+          <div className="sticky bottom-0 z-10 px-4 py-3 bg-white/95 backdrop-blur border-t border-slate-200 flex items-center gap-3 flex-wrap">
+            <Input
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Note printed on the invoice (optional)"
+              maxLength={300}
+              className="flex-[1_1_200px] !min-w-[200px] max-w-[360px]"
+              aria-label="Invoice note"
+            />
+            {/* status and button wrap together, so the button stays on the right */}
+            <div className="flex-[3_1_360px] flex items-center justify-end gap-3 min-w-0">
+              {/* what blocks issuing, or that nothing does */}
+              <span className={`min-w-0 max-w-[480px] truncate text-[12.5px] ${problems.length ? "text-slate-500" : "text-ok font-medium"}`}>
+                {problems[0] ?? (canIssue ? "Ready to issue" : "")}
               </span>
               <Tooltip title={canIssue ? "" : problems[0] ?? ""}>
-                <Button type="primary" icon={<SendOutlined />} disabled={!canIssue} onClick={() => setConfirmKey(newKey())}>
-                  Issue invoice…
+                <Button type="primary" icon={<SendOutlined />} disabled={!canIssue} onClick={() => setConfirmKey(newKey())} className="shrink-0 tabular-nums">
+                  {p && hasLines ? `Issue invoice · ${moneyCz(p.gross)} ${p.currency}` : "Issue invoice…"}
                 </Button>
               </Tooltip>
             </div>
