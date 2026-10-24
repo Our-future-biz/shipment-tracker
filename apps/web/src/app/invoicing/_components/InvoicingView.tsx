@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Select, Tag } from "antd";
@@ -8,7 +8,6 @@ import { useShipmentMutations, type ShipmentItem } from "@/hooks/useShipments";
 import { useShipment } from "@/hooks/useShipment";
 import { useInvoiceDocList } from "@/hooks/useInvoiceDocs";
 import { AppCard } from "@/components/AppCard";
-import { SectionCard } from "@/components/SectionCard";
 import { formatDate } from "@/lib/date";
 import { statusLabel, statusTagColor } from "@/lib/shipmentStatus";
 import { moneyCz } from "@/lib/money";
@@ -19,16 +18,15 @@ import { InvoicePanel } from "./InvoicePanel";
 import { BillingQueue } from "./BillingQueue";
 import { ShipmentPicker } from "./ShipmentPicker";
 
-/** Remembered per browser: whether the Costs section is collapsed. */
-const COSTS_COLLAPSED_KEY = "invoicing.costsCollapsed";
-
-const readCollapsed = () => {
-  try {
-    return localStorage.getItem(COSTS_COLLAPSED_KEY) === "1";
-  } catch {
-    return false;
-  }
-};
+/** Tabs of a job, as on the shipment detail page; the default one is left out of the URL. */
+const TABS = [
+  { key: "invoice", label: "Invoice" },
+  { key: "costs", label: "Costs Breakdown" },
+  { key: "documents", label: "Invoices & Credit Notes" },
+] as const;
+type TabKey = (typeof TABS)[number]["key"];
+const DEFAULT_TAB: TabKey = "invoice";
+const isTabKey = (v: string | null): v is TabKey => TABS.some((t) => t.key === v);
 
 const INVOICING_STATUSES = ["Not Invoiced", "Invoiced"];
 
@@ -120,57 +118,70 @@ function ShipmentSummary({ shipment }: ShipmentProps) {
   );
 }
 
-/** The Costs section (the shipment's own Costs tab), collapsible to a one-line summary. */
-function CostsSection({ shipment }: ShipmentProps) {
-  // null until read after mount (localStorage does not exist during server rendering), so the
-  // heavy Costs editor is not mounted and then collapsed again on every visit
-  const [collapsed, setCollapsed] = useState<boolean | null>(null);
+/** The job's Buying / Selling / Profit (the Costs Breakdown totals), shown on every tab. */
+function CostsTotals({ shipment }: ShipmentProps) {
   const { billingCur, totals: t } = useCostsData(shipment);
+  return (
+    // one block that does not squeeze; its parts wrap only if it is wider than the whole row
+    <div className="ml-auto shrink-0 max-w-full whitespace-nowrap flex flex-wrap items-center gap-x-4 gap-y-1 px-2 py-2.5 text-[12.5px] text-slate-600 tabular-nums">
+      <span>Buying <strong className="text-slate-900">{moneyCz(t.buyTotal)}</strong></span>
+      <span>Selling <strong className="text-slate-900">{moneyCz(t.sellTotal)}</strong></span>
+      <span>
+        Profit{" "}
+        <strong className={t.sellTotal - t.buyTotal >= 0 ? "text-ok" : "text-danger"}>
+          {moneyCz(t.sellTotal - t.buyTotal)}
+        </strong>
+      </span>
+      <span className="text-slate-500">{billingCur}</span>
+    </div>
+  );
+}
 
-  useEffect(() => setCollapsed(readCollapsed()), []);
+interface JobTabsProps extends ShipmentProps {
+  active: TabKey;
+  onChange: (key: TabKey) => void;
+}
 
-  const handleToggle = () => {
-    setCollapsed((c) => {
-      try {
-        localStorage.setItem(COSTS_COLLAPSED_KEY, c ? "0" : "1");
-      } catch {
-        // private mode: the choice just isn't remembered
-      }
-      return !c;
-    });
-  };
+/** The tab bar under the job summary, with the costs totals at its right end. */
+function JobTabs({ shipment, active, onChange }: JobTabsProps) {
+  const { data } = useInvoiceDocList(shipment.id);
+  const docCount = data?.invoices.length;
 
   return (
-    <SectionCard
-      title="Costs"
-      bodyClassName="p-4 bg-slate-50/60 rounded-b-xl"
-      fold={{ open: collapsed === false, onToggle: handleToggle }}
-      extra={
-        <span className="flex items-center gap-4 text-[12.5px] font-normal text-slate-600 tabular-nums">
-          <span>Buying <strong className="text-slate-900">{moneyCz(t.buyTotal)}</strong></span>
-          <span>Selling <strong className="text-slate-900">{moneyCz(t.sellTotal)}</strong></span>
-          <span>
-            Profit{" "}
-            <strong className={t.sellTotal - t.buyTotal >= 0 ? "text-ok" : "text-danger"}>
-              {moneyCz(t.sellTotal - t.buyTotal)}
-            </strong>
-          </span>
-          <span className="text-slate-500">{billingCur}</span>
-        </span>
-      }
-    >
-      {/* key: a fresh Costs editor per shipment, so no row state carries over between shipments;
-          mounted only while open, as before (the editor is heavy) */}
-      {collapsed === false && <CostsTab key={shipment.id} shipment={shipment} />}
-    </SectionCard>
+    // wrap-reverse: on a narrow screen the totals go above the tabs, so the tabs stay the card's bottom edge
+    // (in wrap-reverse items-start is the bottom, as items-end was before)
+    <div className="flex items-start justify-between gap-x-4 flex-wrap-reverse px-2 border-t border-slate-100">
+      <div role="tablist" aria-label="Invoicing of the job" className="flex flex-wrap shrink-0 max-w-full">
+        {TABS.map((tab) => (
+          <button
+            key={tab.key}
+            id={`invoicing-tab-${tab.key}`}
+            type="button"
+            role="tab"
+            aria-selected={active === tab.key}
+            aria-controls="invoicing-tab-panel"
+            onClick={() => onChange(tab.key)}
+            className={`px-4 py-2.5 text-sm cursor-pointer transition-all duration-150 border-b-2 bg-transparent ${
+              active === tab.key
+                ? "font-semibold text-indigo-500 border-indigo-500"
+                : "font-normal text-slate-400 border-transparent hover:text-slate-600"
+            }`}
+          >
+            {tab.label}
+            {tab.key === "documents" && !!docCount && <span className="tabular-nums"> ({docCount})</span>}
+          </button>
+        ))}
+      </div>
+      <CostsTotals shipment={shipment} />
+    </div>
   );
 }
 
 /**
  * Invoicing works on the same buying / selling rows as the shipment's Costs tab:
- * the Costs section here IS that tab, and the invoice is built from the selling rows
- * ticked for Invoice. The chosen shipment is kept in the URL (?shipment=…), so the
- * page can be linked to and survives a reload.
+ * the Costs Breakdown tab here IS that tab, and the invoice is built from the selling rows
+ * ticked for Invoice. The chosen shipment and tab are kept in the URL (?shipment=…&tab=…),
+ * so the page can be linked to and survives a reload.
  */
 export const InvoicingView = () => {
   const router = useRouter();
@@ -184,13 +195,34 @@ export const InvoicingView = () => {
     notFound,
   } = useShipment(selectedShipmentId ?? undefined);
 
+  const rawTab = searchParams.get("tab");
+  const activeTab: TabKey = isTabKey(rawTab) ? rawTab : DEFAULT_TAB;
+  // The Costs editor is mounted the first time its tab opens for a job and then kept (hidden on
+  // other tabs), so its Undo and unlocked rows survive a look at the Invoice tab, as before.
+  const [costsMountedFor, setCostsMountedFor] = useState<string | null>(null);
+  if (activeTab === "costs" && selectedShipmentId && costsMountedFor !== selectedShipmentId) {
+    setCostsMountedFor(selectedShipmentId);
+  }
+
   const handleSelect = (id: string | null) => {
     const params = new URLSearchParams(searchParams.toString());
     if (id) params.set("shipment", id);
-    else params.delete("shipment");
+    else {
+      params.delete("shipment");
+      // the job's tab means nothing on the queue
+      params.delete("tab");
+    }
     const qs = params.toString();
     // push, not replace: Back returns from a job to the queue on the same tab and filters
     router.push(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
+
+  const handleTab = (key: TabKey) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (key === DEFAULT_TAB) params.delete("tab");
+    else params.set("tab", key);
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
 
   if (!selectedShipmentId) return <BillingQueue onOpen={handleSelect} />;
@@ -223,11 +255,28 @@ export const InvoicingView = () => {
 
         {selectedShipment ? (
           <>
-            <SectionCard title="Job">
-              <ShipmentSummary shipment={selectedShipment} />
-            </SectionCard>
-            <CostsSection key={`costs-${selectedShipment.id}`} shipment={selectedShipment} />
-            <InvoicePanel key={`inv-${selectedShipment.id}`} shipment={selectedShipment} />
+            {/* The job at a glance, with the tab bar along its bottom edge as on the shipment detail */}
+            <section className="bg-white border border-slate-200 rounded-xl shadow-sm min-w-0">
+              <div className="px-4 pt-4 pb-3">
+                <ShipmentSummary shipment={selectedShipment} />
+              </div>
+              <JobTabs shipment={selectedShipment} active={activeTab} onChange={handleTab} />
+            </section>
+
+            <div role="tabpanel" id="invoicing-tab-panel" aria-labelledby={`invoicing-tab-${activeTab}`} className="min-w-0">
+              {/* key: a fresh Costs editor per shipment */}
+              {costsMountedFor === selectedShipment.id && (
+                <div hidden={activeTab !== "costs"}>
+                  <CostsTab key={selectedShipment.id} shipment={selectedShipment} />
+                </div>
+              )}
+              {/* Mounted on every tab, so the DUZP, customer and note picked on the Invoice tab stay */}
+              <InvoicePanel
+                key={`inv-${selectedShipment.id}`}
+                shipment={selectedShipment}
+                section={activeTab === "costs" ? null : activeTab}
+              />
+            </div>
           </>
         ) : (
           <AppCard>

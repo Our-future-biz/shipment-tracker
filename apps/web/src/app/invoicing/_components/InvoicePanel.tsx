@@ -18,6 +18,7 @@ import { CURRENCIES } from "@/lib/enums";
 import { invoicingKey } from "@/hooks/useInvoicing";
 import { moneyCz, round2 } from "@/lib/money";
 import { statusLabel } from "@/lib/shipmentStatus";
+import { SectionCard } from "@/components/SectionCard";
 import { useCostsData } from "@/app/shipments/[jobNumber]/tabs/useCostsData";
 
 /** Billing currencies offered: the ones the company invoices in, out of the app's currencies. */
@@ -64,6 +65,9 @@ const Card = ({ title, extra, children }: CardProps) => (
   </div>
 );
 
+/** The part of the panel shown: the Invoice tab or the Invoices & credit notes tab. */
+export type InvoicePanelSection = "invoice" | "documents";
+
 /**
  * The invoice for one shipment. Everything shown is the server's preview (the same
  * calculation that issuing uses): selling rows ticked for Invoice, VAT code per line,
@@ -72,9 +76,11 @@ const Card = ({ title, extra, children }: CardProps) => (
  */
 interface InvoicePanelProps {
   shipment: ShipmentItem;
+  // null while another tab is open: nothing is shown, but what was picked here stays
+  section: InvoicePanelSection | null;
 }
 
-export function InvoicePanel({ shipment }: InvoicePanelProps) {
+export function InvoicePanel({ shipment, section }: InvoicePanelProps) {
   const toast = useToast();
   const queryClient = useQueryClient();
   const { data, billingCur, totals } = useCostsData(shipment);
@@ -201,223 +207,228 @@ export function InvoicePanel({ shipment }: InvoicePanelProps) {
   const customerOptions = customers.map((c) => ({ value: c.id, label: `${c.companyName}${c.ico ? ` · ${c.ico}` : ""}` }));
 
   return (
-    // overflow-clip, not overflow-hidden: hidden makes the card a scroll container and the sticky Issue bar would not stick
-    // Same frame and header as the app's SectionCard (the Job and Costs cards above it)
-    <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-clip">
-      <div className="px-4 py-2.5 flex items-center gap-2.5 bg-indigo-50 border-b border-indigo-100">
-        <h3 className="m-0 text-[13px] font-bold text-slate-800 uppercase tracking-wider">Invoice</h3>
-        <span className="ml-auto flex items-center gap-2 text-[12.5px] font-medium text-slate-600">
-          Billing currency
-          <Select size="small" value={billingCur} onChange={(c) => billingCurrency.mutate(c)} loading={billingCurrency.isPending} disabled={billingCurrency.isPending} options={BILLING_CURRENCIES.map((c) => ({ value: c, label: c }))} className="w-[84px]" aria-label="Billing currency" />
-        </span>
-      </div>
+    <>
+      {section === "invoice" && (
+        // overflow-clip, not overflow-hidden: hidden makes the card a scroll container and the sticky Issue bar would not stick
+        // Same frame and header as the app's SectionCard
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-clip">
+          <div className="px-4 py-2.5 flex items-center gap-2.5 bg-indigo-50 border-b border-indigo-100">
+            <h3 className="m-0 text-[13px] font-bold text-slate-800 uppercase tracking-wider">Invoice</h3>
+            <span className="ml-auto flex items-center gap-2 text-[12.5px] font-medium text-slate-600">
+              Billing currency
+              <Select size="small" value={billingCur} onChange={(c) => billingCurrency.mutate(c)} loading={billingCurrency.isPending} disabled={billingCurrency.isPending} options={BILLING_CURRENCIES.map((c) => ({ value: c, label: c }))} className="w-[84px]" aria-label="Billing currency" />
+            </span>
+          </div>
 
-      <div className="p-4">
-        {previewError && <Alert type="error" showIcon className="mb-3" message="The invoice preview could not be loaded" />}
+          <div className="p-4">
+            {previewError && <Alert type="error" showIcon className="mb-3" message="The invoice preview could not be loaded" />}
 
-        {/* ── Customer + terms ── */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
-          <Card
-            title="Bill to"
-            extra={
-              <Select
-                size="small"
-                showSearch
-                placeholder={p?.customer ? "Change customer" : "Pick customer"}
-                value={null}
-                onChange={(v) => v && handlePickCustomer(v)}
-                disabled={linkCustomer.isPending}
-                options={customerOptions}
-                optionFilterProp="label"
-                className="w-[220px]"
-                aria-label="Customer to invoice"
-                notFoundContent={<span className="text-[12.5px]">No customers — add one in the <Link href="/customers">Customer Database</Link></span>}
-              />
-            }
-          >
-            {p?.customer ? (
-              <div className="text-[13px] text-slate-700 leading-5">
-                <div className="font-semibold text-slate-900">
-                  {p.customerId ? <Link href={`/customers/${p.customerId}`} className="text-slate-900 hover:text-indigo-600">{p.customer.companyName}</Link> : p.customer.companyName}
+            {/* ── Customer + terms ── */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
+              <Card
+                title="Bill to"
+                extra={
+                  <Select
+                    size="small"
+                    showSearch
+                    placeholder={p?.customer ? "Change customer" : "Pick customer"}
+                    value={null}
+                    onChange={(v) => v && handlePickCustomer(v)}
+                    disabled={linkCustomer.isPending}
+                    options={customerOptions}
+                    optionFilterProp="label"
+                    className="w-[220px]"
+                    aria-label="Customer to invoice"
+                    notFoundContent={<span className="text-[12.5px]">No customers — add one in the <Link href="/customers">Customer Database</Link></span>}
+                  />
+                }
+              >
+                {p?.customer ? (
+                  <div className="text-[13px] text-slate-700 leading-5">
+                    <div className="font-semibold text-slate-900">
+                      {p.customerId ? <Link href={`/customers/${p.customerId}`} className="text-slate-900 hover:text-indigo-600">{p.customer.companyName}</Link> : p.customer.companyName}
+                    </div>
+                    <div>{p.customer.address}</div>
+                    <div className="text-slate-500">
+                      {p.customer.ico && <>IČO {p.customer.ico}</>}
+                      {p.customer.dic && <> · DIČ {p.customer.dic}</>}
+                    </div>
+                    {!shipment.customerId && customerId && <div className="text-[12px] text-slate-500 mt-1">Linked to the shipment as its customer.</div>}
+                  </div>
+                ) : (
+                  <p className="text-[13px] text-slate-500 m-0">
+                    No customer linked to {shipment.jobNumber}. Pick one from the Customer Database — it is also linked to the shipment.
+                  </p>
+                )}
+              </Card>
+
+              <Card title="Terms">
+                <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 items-center text-[13px]">
+                  <span className="text-slate-500">Issue date</span>
+                  <span className="text-slate-900">{p ? czDate(p.issueDate) : "—"}</span>
+                  <span className="text-slate-500">DUZP (tax point)</span>
+                  <DatePicker
+                    size="small"
+                    allowClear={false}
+                    format="D.M.YYYY"
+                    value={p ? dayjs(duzp ?? p.duzp) : null}
+                    onChange={(d) => d && setDuzp(d.format("YYYY-MM-DD"))}
+                    className="w-[140px]"
+                    aria-label="DUZP"
+                  />
+                  <span className="text-slate-500">Due date</span>
+                  <span className="text-slate-900">{p ? czDate(p.dueDate) : "—"}</span>
+                  {foreign && (
+                    <>
+                      <span className="text-slate-500">ČNB rate at DUZP</span>
+                      <span className="text-slate-900 tabular-nums">
+                        1 {p!.currency} = {p!.fxRate.toFixed(3).replace(".", ",")} CZK{" "}
+                        <span className="text-slate-500">(ČNB{p!.fxFixingDate ? `, fixing ${czDate(p!.fxFixingDate)}` : ""})</span>
+                      </span>
+                    </>
+                  )}
                 </div>
-                <div>{p.customer.address}</div>
-                <div className="text-slate-500">
-                  {p.customer.ico && <>IČO {p.customer.ico}</>}
-                  {p.customer.dic && <> · DIČ {p.customer.dic}</>}
-                </div>
-                {!shipment.customerId && customerId && <div className="text-[12px] text-slate-500 mt-1">Linked to the shipment as its customer.</div>}
-              </div>
-            ) : (
-              <p className="text-[13px] text-slate-500 m-0">
-                No customer linked to {shipment.jobNumber}. Pick one from the Customer Database — it is also linked to the shipment.
+              </Card>
+            </div>
+
+            {/* ── Lines ── */}
+            {!p || p.lines.length === 0 ? (
+              <p className="text-[13px] text-slate-500 m-0 mb-4">
+                Nothing to invoice yet. Add selling costs on the Costs Breakdown tab and tick them for Invoice.
               </p>
-            )}
-          </Card>
-
-          <Card title="Terms">
-            <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 items-center text-[13px]">
-              <span className="text-slate-500">Issue date</span>
-              <span className="text-slate-900">{p ? czDate(p.issueDate) : "—"}</span>
-              <span className="text-slate-500">DUZP (tax point)</span>
-              <DatePicker
-                size="small"
-                allowClear={false}
-                format="D.M.YYYY"
-                value={p ? dayjs(duzp ?? p.duzp) : null}
-                onChange={(d) => d && setDuzp(d.format("YYYY-MM-DD"))}
-                className="w-[140px]"
-                aria-label="DUZP"
-              />
-              <span className="text-slate-500">Due date</span>
-              <span className="text-slate-900">{p ? czDate(p.dueDate) : "—"}</span>
-              {foreign && (
-                <>
-                  <span className="text-slate-500">ČNB rate at DUZP</span>
-                  <span className="text-slate-900 tabular-nums">
-                    1 {p!.currency} = {p!.fxRate.toFixed(3).replace(".", ",")} CZK{" "}
-                    <span className="text-slate-500">(ČNB{p!.fxFixingDate ? `, fixing ${czDate(p!.fxFixingDate)}` : ""})</span>
-                  </span>
-                </>
-              )}
-            </div>
-          </Card>
-        </div>
-
-        {/* ── Lines ── */}
-        {!p || p.lines.length === 0 ? (
-          <p className="text-[13px] text-slate-500 m-0 mb-4">
-            Nothing to invoice yet. Add selling costs in the Costs section above and tick them for Invoice.
-          </p>
-        ) : (
-          <div className="overflow-x-auto mb-4">
-            <table className="w-full min-w-[640px] border-collapse">
-              <thead>
-                <tr>
-                  <th className={`${TH} text-left`}>Service</th>
-                  <th className={`${TH} text-right w-[8%]`}>Qty</th>
-                  <th className={`${TH} text-right w-[17%]`}>Price</th>
-                  <th className={`${TH} text-left w-[18%]`}>VAT</th>
-                  <th className={`${TH} text-right w-[18%]`}>Net ({p.currency})</th>
-                </tr>
-              </thead>
-              <tbody>
-                {p.lines.map((l, i) => (
-                  <tr key={l.sourceSellingCostId ?? i}>
-                    <td className={TD}>{l.description}</td>
-                    <td className={`${TD} text-right tabular-nums`}>{Number(l.qty)}</td>
-                    <td className={`${TD} text-right tabular-nums`}>{moneyCz(Number(l.unitPrice))} {l.unitCurrency}</td>
-                    <td className={TD}>
-                      {l.vatCode === "NP" ? (
-                        <span className="text-slate-500">{VAT_LABEL.NP}</span>
-                      ) : (
-                        <Select<interfaces.SellingVatCode>
-                          size="small"
-                          value={l.vatCode}
-                          onChange={(v) => handleLineVat(l.sourceSellingCostId, v)}
-                          disabled={lineVat.isPending}
-                          options={VAT_OPTIONS}
-                          className="w-[140px]"
-                          aria-label={`VAT code of ${l.description}`}
-                        />
-                      )}
-                    </td>
-                    <td className={`${TD} text-right tabular-nums font-medium`}>{moneyCz(Number(l.net))}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* ── Totals ── */}
-        {p && p.lines.length > 0 && (
-          <div className="flex items-start justify-between gap-6 flex-wrap border-t border-slate-200 pt-4">
-            <div className="flex flex-col gap-3">
-              <div className="flex gap-6 text-[13px]">
-                <div>
-                  <div className="text-slate-500">Cost</div>
-                  <div className="font-semibold text-slate-900 tabular-nums">{moneyCz(cost)} {p.currency}</div>
-                </div>
-                <div>
-                  <div className="text-slate-500">Profit</div>
-                  <div className={`font-semibold tabular-nums ${profitTone}`}>{profitComparable ? `${moneyCz(profit)} ${p.currency}` : "—"}</div>
-                </div>
-                <div>
-                  <div className="text-slate-500">Margin</div>
-                  <div className={`font-semibold tabular-nums ${profitTone}`}>{marginPct === null ? "—" : `${marginPct.toFixed(1).replace(".", ",")} %`}</div>
-                </div>
-              </div>
-              <table className="border-collapse text-[12.5px]">
-                <thead>
-                  <tr className="text-slate-500">
-                    <th className="text-left font-semibold pr-4 pb-1">VAT</th>
-                    <th className="text-right font-semibold pr-4 pb-1">Base {p.currency}</th>
-                    <th className="text-right font-semibold pr-4 pb-1">VAT {p.currency}</th>
-                    {foreign && <th className="text-right font-semibold pr-4 pb-1">Base CZK</th>}
-                    {foreign && <th className="text-right font-semibold pb-1">VAT CZK</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {p.vatSummary.map((v) => (
-                    <tr key={v.vatCode} className="text-slate-700 tabular-nums">
-                      <td className="pr-4">{VAT_LABEL[v.vatCode] ?? v.vatCode}</td>
-                      <td className="text-right pr-4">{moneyCz(v.base)}</td>
-                      <td className="text-right pr-4">{moneyCz(v.vat)}</td>
-                      {foreign && <td className="text-right pr-4">{moneyCz(v.baseCzk)}</td>}
-                      {foreign && <td className="text-right">{moneyCz(v.vatCzk)}</td>}
+            ) : (
+              <div className="overflow-x-auto mb-4">
+                <table className="w-full min-w-[640px] border-collapse">
+                  <thead>
+                    <tr>
+                      <th className={`${TH} text-left`}>Service</th>
+                      <th className={`${TH} text-right w-[8%]`}>Qty</th>
+                      <th className={`${TH} text-right w-[17%]`}>Price</th>
+                      <th className={`${TH} text-left w-[18%]`}>VAT</th>
+                      <th className={`${TH} text-right w-[18%]`}>Net ({p.currency})</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="text-right">
-              <div className="text-[12.5px] text-slate-500 tabular-nums">Net {moneyCz(p.net)} · VAT {moneyCz(p.vat)} {p.currency}</div>
-              <div className="text-[12px] font-bold uppercase tracking-[.05em] text-slate-500 mt-1">Total due</div>
-              <div className="text-[24px] font-bold text-slate-900 tabular-nums leading-tight">
-                {moneyCz(p.gross)} <span className="text-[15px] font-semibold text-slate-500">{p.currency}</span>
+                  </thead>
+                  <tbody>
+                    {p.lines.map((l, i) => (
+                      <tr key={l.sourceSellingCostId ?? i}>
+                        <td className={TD}>{l.description}</td>
+                        <td className={`${TD} text-right tabular-nums`}>{Number(l.qty)}</td>
+                        <td className={`${TD} text-right tabular-nums`}>{moneyCz(Number(l.unitPrice))} {l.unitCurrency}</td>
+                        <td className={TD}>
+                          {l.vatCode === "NP" ? (
+                            <span className="text-slate-500">{VAT_LABEL.NP}</span>
+                          ) : (
+                            <Select<interfaces.SellingVatCode>
+                              size="small"
+                              value={l.vatCode}
+                              onChange={(v) => handleLineVat(l.sourceSellingCostId, v)}
+                              disabled={lineVat.isPending}
+                              options={VAT_OPTIONS}
+                              className="w-[140px]"
+                              aria-label={`VAT code of ${l.description}`}
+                            />
+                          )}
+                        </td>
+                        <td className={`${TD} text-right tabular-nums font-medium`}>{moneyCz(Number(l.net))}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-              {foreign && <div className="text-[12.5px] text-slate-500 tabular-nums">= {moneyCz(p.grossCzk)} CZK (VAT {moneyCz(p.vatCzk)} CZK)</div>}
-            </div>
-          </div>
-        )}
-
-        {/* ── What blocks issuing / needs a look ── */}
-        {warnings.length > 0 && (
-          <div className="flex flex-col gap-2 mt-4">
-            {warnings.map((x) => (
-              <div key={x} className="flex items-start gap-2 text-[13px] text-warn bg-warn-faint border border-warn-soft rounded-md px-3 py-2">
-                <WarningOutlined className="mt-[3px]" />
-                <span>{x}</span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* ── Issue: stays visible at the bottom of the screen while scrolling ── */}
-        <div className="sticky bottom-0 z-10 -mx-4 mt-4 px-4 py-3 bg-white/95 backdrop-blur border-t border-slate-200 flex items-center gap-3 flex-wrap">
-          <Input
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="Note printed on the invoice (optional)"
-            maxLength={300}
-            className="!w-[360px] max-w-full"
-            aria-label="Invoice note"
-          />
-          <span className="ml-auto text-[13px] text-slate-500 tabular-nums">
-            {p && p.lines.length > 0 && (
-              <>Total due <strong className="text-[16px] text-slate-900">{moneyCz(p.gross)} {p.currency}</strong></>
             )}
-          </span>
-          <Tooltip title={canIssue ? "" : problems[0] ?? ""}>
-            <Button type="primary" icon={<SendOutlined />} disabled={!canIssue} onClick={() => setConfirmKey(newKey())}>
-              Issue invoice…
-            </Button>
-          </Tooltip>
-        </div>
 
-        {/* ── Issued documents ── */}
-        <div className="mt-6 border-t border-slate-100 pt-3">
-          <div className="text-[11.5px] font-bold uppercase tracking-[.04em] text-slate-500 mb-2">Issued invoices &amp; credit notes</div>
+            {/* ── Totals ── */}
+            {p && p.lines.length > 0 && (
+              <div className="flex items-start justify-between gap-6 flex-wrap border-t border-slate-200 pt-4">
+                <div className="flex flex-col gap-3">
+                  <div className="flex gap-6 text-[13px]">
+                    <div>
+                      <div className="text-slate-500">Cost</div>
+                      <div className="font-semibold text-slate-900 tabular-nums">{moneyCz(cost)} {p.currency}</div>
+                    </div>
+                    <div>
+                      <div className="text-slate-500">Profit</div>
+                      <div className={`font-semibold tabular-nums ${profitTone}`}>{profitComparable ? `${moneyCz(profit)} ${p.currency}` : "—"}</div>
+                    </div>
+                    <div>
+                      <div className="text-slate-500">Margin</div>
+                      <div className={`font-semibold tabular-nums ${profitTone}`}>{marginPct === null ? "—" : `${marginPct.toFixed(1).replace(".", ",")} %`}</div>
+                    </div>
+                  </div>
+                  <table className="border-collapse text-[12.5px]">
+                    <thead>
+                      <tr className="text-slate-500">
+                        <th className="text-left font-semibold pr-4 pb-1">VAT</th>
+                        <th className="text-right font-semibold pr-4 pb-1">Base {p.currency}</th>
+                        <th className="text-right font-semibold pr-4 pb-1">VAT {p.currency}</th>
+                        {foreign && <th className="text-right font-semibold pr-4 pb-1">Base CZK</th>}
+                        {foreign && <th className="text-right font-semibold pb-1">VAT CZK</th>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {p.vatSummary.map((v) => (
+                        <tr key={v.vatCode} className="text-slate-700 tabular-nums">
+                          <td className="pr-4">{VAT_LABEL[v.vatCode] ?? v.vatCode}</td>
+                          <td className="text-right pr-4">{moneyCz(v.base)}</td>
+                          <td className="text-right pr-4">{moneyCz(v.vat)}</td>
+                          {foreign && <td className="text-right pr-4">{moneyCz(v.baseCzk)}</td>}
+                          {foreign && <td className="text-right">{moneyCz(v.vatCzk)}</td>}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="text-right">
+                  <div className="text-[12.5px] text-slate-500 tabular-nums">Net {moneyCz(p.net)} · VAT {moneyCz(p.vat)} {p.currency}</div>
+                  <div className="text-[12px] font-bold uppercase tracking-[.05em] text-slate-500 mt-1">Total due</div>
+                  <div className="text-[24px] font-bold text-slate-900 tabular-nums leading-tight">
+                    {moneyCz(p.gross)} <span className="text-[15px] font-semibold text-slate-500">{p.currency}</span>
+                  </div>
+                  {foreign && <div className="text-[12.5px] text-slate-500 tabular-nums">= {moneyCz(p.grossCzk)} CZK (VAT {moneyCz(p.vatCzk)} CZK)</div>}
+                </div>
+              </div>
+            )}
+
+            {/* ── What blocks issuing / needs a look ── */}
+            {warnings.length > 0 && (
+              <div className="flex flex-col gap-2 mt-4">
+                {warnings.map((x) => (
+                  <div key={x} className="flex items-start gap-2 text-[13px] text-warn bg-warn-faint border border-warn-soft rounded-md px-3 py-2">
+                    <WarningOutlined className="mt-[3px]" />
+                    <span>{x}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* ── Issue: stays visible at the bottom of the screen while scrolling ── */}
+            <div className="sticky bottom-0 z-10 -mx-4 mt-4 px-4 py-3 bg-white/95 backdrop-blur border-t border-slate-200 flex items-center gap-3 flex-wrap">
+              <Input
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Note printed on the invoice (optional)"
+                maxLength={300}
+                className="!w-[360px] max-w-full"
+                aria-label="Invoice note"
+              />
+              <span className="ml-auto text-[13px] text-slate-500 tabular-nums">
+                {p && p.lines.length > 0 && (
+                  <>Total due <strong className="text-[16px] text-slate-900">{moneyCz(p.gross)} {p.currency}</strong></>
+                )}
+              </span>
+              <Tooltip title={canIssue ? "" : problems[0] ?? ""}>
+                <Button type="primary" icon={<SendOutlined />} disabled={!canIssue} onClick={() => setConfirmKey(newKey())}>
+                  Issue invoice…
+                </Button>
+              </Tooltip>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Issued documents ── */}
+      {section === "documents" && (
+        <SectionCard title="Invoices & credit notes">
           {docs.length === 0 ? (
             <p className="text-[13px] text-slate-500 m-0">None issued for this shipment yet.</p>
           ) : (
@@ -450,8 +461,8 @@ export function InvoicePanel({ shipment }: InvoicePanelProps) {
               </table>
             </div>
           )}
-        </div>
-      </div>
+        </SectionCard>
+      )}
 
       {/* ── Confirm issuing ── */}
       <Modal
@@ -505,6 +516,6 @@ export function InvoicePanel({ shipment }: InvoicePanelProps) {
           />
         </div>
       </Modal>
-    </div>
+    </>
   );
 }
