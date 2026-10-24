@@ -26,7 +26,7 @@ import { salesQuoteRepository, type NewSalesQuote, type SalesQuoteFilter, type S
 import type { SalesQuoteRecord } from "../schemas/quote.schema";
 import { matchOwnerLabel } from "../utils/ownerMatch.utils";
 import { carryKeys, isPlainObject, newDocument } from "../utils/quoteDocument.utils";
-import { inquiryGateMessage, MAX_INQUIRY_NOTE, MAX_INQUIRY_PIECES, MAX_PRICE_PER_PIECE, MIN_REJECT_REASON, readInquiry } from "../utils/warehouseInquiry.utils";
+import { approvedPricing, inquiryGateMessage, MAX_INQUIRY_NOTE, MAX_INQUIRY_PIECES, MAX_PRICE_PER_PIECE, MIN_REJECT_REASON, readInquiry } from "../utils/warehouseInquiry.utils";
 import { fxWriteFor, mayStampFx, type StoredFx } from "../lib/quoteFx";
 import { currenciesToResolve, formatMargin, marginGateMessage, roadMargin, roadMarginApplies, type MarginContext } from "../lib/roadMargin";
 import { choosePricing, pricedComment, rateRequestOf, replaceTruckingLines, roadPricingOf, truckingLines } from "../lib/roadPricing";
@@ -688,6 +688,17 @@ class SalesQuoteService {
       };
       const what = `${inquiry.pieces} piece${inquiry.pieces === 1 ? "" : "s"} of 12.5 t or more`;
       line = request.approve ? `Warehouse approved ${what}: EUR ${price} per piece${comment ? ` - ${comment}` : ""}` : `Warehouse rejected ${what}: ${comment}`;
+      // Approved on a quote still open for pricing: the fee goes to Pricing at once - a new version
+      // of the document, and a margin approval given before no longer holds.
+      if (request.approve && !DECIDED_STATUSES.includes(quote.status) && !PRICING_CLOSED.includes(quote.status)) {
+        return salesQuoteRepository.writeLifecycle(tx, quote, {
+          state: stateOf(quote),
+          entries: [pricingEntry("warehouse_inquiry", line, ctx)],
+          serverKeys: { warehouseInquiry: decided },
+          document: approvedPricing(quote.data, decided),
+          drop: ["marginApproval"],
+        });
+      }
       return salesQuoteRepository.writeLifecycle(tx, quote, { state: stateOf(quote), entries: [pricingEntry("warehouse_inquiry", line, ctx)], serverKeys: { warehouseInquiry: decided } });
     });
     if (!written) throw notFound();

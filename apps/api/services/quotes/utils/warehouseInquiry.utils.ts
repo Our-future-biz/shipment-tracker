@@ -56,14 +56,56 @@ export function heavyInquiryPieces(data: unknown): number {
 
 /**
  * Why the quote may not move to `to` now because of its pieces of 12.5 t or more, or null when it
- * may: the warehouse has not answered yet, or rejected.
+ * may: the warehouse has not answered yet, or rejected. A question waiting holds the quote even
+ * before its pieces are saved: the heavy pieces cannot be saved until the warehouse answers.
  */
 export function inquiryGateMessage(data: unknown, to: string): string | null {
-  if (!INQUIRY_GATED_STATUSES.includes(to) || heavyInquiryPieces(data) === 0) return null;
+  if (!INQUIRY_GATED_STATUSES.includes(to)) return null;
   const inquiry = readInquiry(data);
   if (inquiry?.status === "pending") return "Pieces of 12.5 t or more are waiting for the warehouse's answer — the quote can be sent once the warehouse approves";
+  if (heavyInquiryPieces(data) === 0) return null;
   if (inquiry?.status === "rejected") {
     return `The warehouse rejected the pieces of 12.5 t or more${inquiry.comment ? ` (${inquiry.comment})` : ""} — change the cargo or ask the warehouse again`;
   }
   return null;
+}
+
+// ─── The approved fee in Pricing ──────────
+
+/** The pricing lines of the warehouse's approved fee carry this pair id: a new approval replaces them. */
+export const WAREHOUSE_PAIR_ID = "heavy-cargo-warehouse";
+export const HEAVY_CARGO_FEE = "Heavy Cargo Handling Fee";
+/** What the selling line of the fee is above its buying line, EUR. */
+export const HEAVY_CARGO_MARKUP_EUR = 50;
+
+const lines = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? v.filter(isPlainObject) : []);
+
+/**
+ * What an approval writes to the quote: the fee (price × pieces) as a buying line "Heavy Cargo
+ * Handling Fee" and a selling line EUR 50 above it, each with the pieces asked about as its quantity - replacing those of an earlier approval,
+ * every other line stays - and the pieces of 12.5 t or more in the heavy-pieces answer.
+ */
+export function approvedPricing(data: unknown, inquiry: QuoteWarehouseInquiry): Record<string, unknown> {
+  const d = isPlainObject(data) ? data : {};
+  const buy = Math.round((inquiry.priceEurPerPiece ?? 0) * inquiry.pieces * 100) / 100;
+  const line = (amount: number) => ({
+    type: "Handling",
+    chargeCode: "handling",
+    description: HEAVY_CARGO_FEE,
+    currency: "EUR",
+    amount,
+    value: inquiry.pieces,
+    pairId: WAREHOUSE_PAIR_ID,
+  });
+  const others = (v: unknown) => lines(v).filter((l) => l.pairId !== WAREHOUSE_PAIR_ID);
+  const heavy = isPlainObject(d.heavyPieces) ? d.heavyPieces : {};
+  const pieces = isPlainObject(heavy.pieces) ? heavy.pieces : {};
+  // The fee is its own line now: a figure typed for the band before has no place any more.
+  const { surcharge: typed, ...answer } = heavy;
+  const surcharge = isPlainObject(typed) ? Object.fromEntries(Object.entries(typed).filter(([k]) => k !== INQUIRY_BAND)) : {};
+  return {
+    heavyPieces: { ...answer, anyOver2t: true, pieces: { ...pieces, [INQUIRY_BAND]: inquiry.pieces }, ...(Object.keys(surcharge).length ? { surcharge } : {}) },
+    buyingLines: [...others(d.buyingLines), line(buy)],
+    sellingLines: [...others(d.sellingLines), line(Math.round((buy + HEAVY_CARGO_MARKUP_EUR) * 100) / 100)],
+  };
 }

@@ -5,10 +5,12 @@ import {
   HEAVY_BANDS,
   HEAVY_PAIR_ID,
   heavyBandsFor,
+  missingWarehouseFee,
   heavyPiecesProblems,
   heavyTotal,
+  WAREHOUSE_PAIR_ID,
+  warehouseStanding,
   withHeavyPieces,
-  withInquiryAnswer,
   withinWeight,
   type QuoteHeavyPieces,
 } from "./heavyPieces";
@@ -57,14 +59,11 @@ describe("the surcharge", () => {
     expect(changedBands({ ...heavy, surcharge: { "2000": 100 } })).toEqual([]);
   });
 
-  it("asks the warehouse for a piece of 12.5 t or more: its figure and a reason are needed", () => {
+  it("asks the warehouse for a piece of 12.5 t or more; a figure typed for it is no surcharge", () => {
     const heavy: QuoteHeavyPieces = { anyOver2t: true, pieces: { "12500": 1 } };
-    expect(heavyPiecesProblems(heavy)).toEqual([
-      "Inquire Warehouse and enter the surcharge for the pieces of 12,500 kg and more",
-      "Give the reason for the changed surcharge",
-    ]);
-    expect(heavyPiecesProblems({ ...heavy, surcharge: { "12500": 900 }, reason: "Warehouse quote of 23.10." })).toEqual([]);
-    expect(heavyTotal({ ...heavy, surcharge: { "12500": 900 } })).toBe(900);
+    expect(heavyPiecesProblems(heavy)).toEqual(["Inquire Warehouse about the pieces of 12,500 kg and more"]);
+    expect(heavyTotal({ ...heavy, surcharge: { "12500": 900 } })).toBe(0);
+    expect(changedBands({ ...heavy, surcharge: { "12500": 900 } })).toEqual([]);
   });
 
   it("needs at least one piece once the answer is yes; no needs nothing", () => {
@@ -128,19 +127,48 @@ describe("the warehouse inquiry (pieces of 12.5 t or more)", () => {
   });
   const heavy = (over: Partial<QuoteHeavyPieces> = {}): QuoteHeavyPieces => ({ anyOver2t: true, pieces: { "12500": 2 }, ...over });
 
-  it("fills the approved price × pieces and the reason, keeping what was entered by hand", () => {
-    expect(withInquiryAnswer(heavy(), inquiry())).toEqual({ anyOver2t: true, pieces: { "12500": 2 }, surcharge: { "12500": 800 }, reason: "Warehouse approved EUR 400 per piece (Marie Manager, 23.10.)" });
-    expect(withInquiryAnswer(heavy({ surcharge: { "12500": 700 }, reason: "agreed" }), inquiry())).toEqual(heavy({ surcharge: { "12500": 700 }, reason: "agreed" }));
-    // The reason written while the question waited gives way to the answer.
-    expect(withInquiryAnswer(heavy({ reason: "The warehouse was asked 22.10. — waiting for its figure" }), inquiry()).reason).toBe("Warehouse approved EUR 400 per piece (Marie Manager, 23.10.)");
-    expect(withInquiryAnswer(heavy(), inquiry({ status: "rejected" }))).toEqual(heavy());
-    expect(withInquiryAnswer(heavy({ pieces: { "7500": 1 } }), inquiry())).toEqual(heavy({ pieces: { "7500": 1 } }));
+  it("saves the pieces only once the warehouse approved that many", () => {
+    expect(warehouseStanding(heavy(), null)).toBe("ask");
+    expect(warehouseStanding(heavy(), inquiry({ status: "pending", decidedAt: null, priceEurPerPiece: null }))).toBe("pending");
+    expect(heavyPiecesProblems(heavy(), inquiry({ status: "pending" }))).toEqual(["The warehouse has not answered yet - the pieces can be saved once it approves"]);
+    expect(heavyPiecesProblems(heavy(), inquiry({ status: "rejected", comment: "too heavy" }))).toEqual([
+      "The warehouse rejected the pieces of 12,500 kg and more - change the pieces or ask again",
+    ]);
+    expect(heavyPiecesProblems(heavy(), inquiry())).toEqual([]);
+    // Approved for 2 pieces, but there are 3 now: asked again.
+    expect(warehouseStanding(heavy({ pieces: { "12500": 3 } }), inquiry())).toBe("ask");
+    // A question waiting holds the pieces even when none of 12.5 t is left.
+    expect(warehouseStanding(heavy({ pieces: { "7500": 1 } }), inquiry({ status: "pending" }))).toBe("pending");
+    expect(warehouseStanding(heavy({ pieces: { "7500": 1 } }), inquiry())).toBe("none");
   });
 
-  it("saves without the warehouse's figure while its answer is awaited", () => {
-    const waiting = withInquiryAnswer(heavy(), inquiry({ status: "pending", decidedAt: null, priceEurPerPiece: null }));
-    expect(waiting.reason).toBe("The warehouse was asked 22.10. — waiting for its figure");
-    expect(heavyPiecesProblems(waiting)).toEqual(["Inquire Warehouse and enter the surcharge for the pieces of 12,500 kg and more"]);
-    expect(heavyPiecesProblems(waiting, { warehouseAsked: true })).toEqual([]);
+  it("keeps the fee the approval put to Pricing, and drops it once no piece of 12.5 t is left", () => {
+    const fee: CostLine = { type: "Handling", chargeCode: "handling", description: "Heavy Cargo Handling Fee", currency: "EUR", amount: 800, pairId: WAREHOUSE_PAIR_ID };
+    const sold: CostLine = { ...fee, amount: 900, changeReason: "agreed" };
+    const kept = withHeavyPieces({ buyingLines: [fee], sellingLines: [sold] }, heavy({ pieces: { "12500": 2, "2000": 1 } }));
+    expect(kept.buyingLines).toEqual([fee, expect.objectContaining({ pairId: HEAVY_PAIR_ID, amount: 50, description: "Extra handling - heavy pieces (1× 2,000 – 2,999 kg)" })]);
+    expect(kept.sellingLines?.[0]).toEqual(sold);
+    const gone = withHeavyPieces({ buyingLines: [fee], sellingLines: [sold] }, heavy({ pieces: { "2000": 1 } }));
+    expect(gone.buyingLines?.map((l) => l.pairId)).toEqual([HEAVY_PAIR_ID]);
+    expect(gone.sellingLines?.map((l) => l.pairId)).toEqual([HEAVY_PAIR_ID]);
+  });
+
+  it("adds the fee of an approval that has no lines in Pricing yet, buying and selling EUR 50 above", () => {
+    const freight: CostLine = { type: "Ocean freight", description: "LCL", currency: "EUR", amount: 300 };
+    const data = { heavyPieces: heavy(), warehouseInquiry: inquiry(), buyingLines: [freight], sellingLines: [] };
+    const fee = { type: "Handling", chargeCode: "handling", description: "Heavy Cargo Handling Fee", currency: "EUR", value: 2, pairId: WAREHOUSE_PAIR_ID };
+    expect(missingWarehouseFee(data)).toEqual({ buyingLines: [freight, { ...fee, amount: 800 }], sellingLines: [{ ...fee, amount: 850 }] });
+    // Not once a line is there, nor after Sales removed it for this answer, nor for other pieces or no approval.
+    expect(missingWarehouseFee({ ...data, sellingLines: [{ ...freight, ...fee, amount: 900 }] })).toBeNull();
+    // Lines put there before they had a quantity get the pieces asked about; nothing else changes.
+    const uncounted = { ...fee, value: undefined };
+    expect(missingWarehouseFee({ ...data, buyingLines: [freight, { ...uncounted, amount: 800 }], sellingLines: [{ ...uncounted, amount: 900 }] })).toEqual({
+      buyingLines: [freight, { ...fee, amount: 800 }],
+      sellingLines: [{ ...fee, amount: 900 }],
+    });
+    expect(missingWarehouseFee({ ...data, heavyFeeRemoved: { inquiryId: "i1", reason: "waived" } })).toBeNull();
+    expect(missingWarehouseFee({ ...data, heavyFeeRemoved: { inquiryId: "older", reason: "waived" } })).not.toBeNull();
+    expect(missingWarehouseFee({ ...data, heavyPieces: heavy({ pieces: { "12500": 3 } }) })).toBeNull();
+    expect(missingWarehouseFee({ ...data, warehouseInquiry: inquiry({ status: "pending" }) })).toBeNull();
   });
 });

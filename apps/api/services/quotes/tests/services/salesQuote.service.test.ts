@@ -1785,7 +1785,14 @@ describe("the warehouse inquiry of pieces of 12.5 t or more", () => {
 
     const item = await salesQuoteService.decideWarehouseInquiry(manager, REF, { inquiryId: INQ, approve: true, priceEurPerPiece: 400, comment: "crane booked" });
     const write = written();
-    expect(write.document).toBeUndefined();
+    // The fee goes to Pricing at once: buying price × pieces, selling EUR 50 above it.
+    const fee = { type: "Handling", chargeCode: "handling", description: "Heavy Cargo Handling Fee", currency: "EUR", value: 2, pairId: "heavy-cargo-warehouse" };
+    expect(write.document).toEqual({
+      heavyPieces: { anyOver2t: true, pieces: { "12500": 2 } },
+      buyingLines: [{ ...fee, amount: 800 }],
+      sellingLines: [{ ...fee, amount: 850 }],
+    });
+    expect(write.drop).toEqual(["marginApproval"]);
     expect(write.serverKeys?.warehouseInquiry).toMatchObject({ status: "approved", priceEurPerPiece: 400, comment: "crane booked", decidedById: U_MANAGER, decidedByName: "Marie Manager", answerSeenAt: null });
     expect(write.entries[0]).toMatchObject({ kind: "warehouse_inquiry", comment: "Warehouse approved 2 pieces of 12.5 t or more: EUR 400 per piece - crane booked" });
     expect(item).toMatchObject({ quoteNumber: REF, quoteStatus: "draft", inquiry: { status: "pending" } });
@@ -1830,9 +1837,37 @@ describe("the warehouse inquiry of pieces of 12.5 t or more", () => {
     await expect(salesQuoteService.transition(martin, REF, { to: "ready_to_send" })).resolves.toMatchObject({ changed: true });
   });
 
-  it("does not hold a quote without pieces of 12.5 t or more", async () => {
+  it("holds a quote while its question waits, even before the pieces are saved; a rejection only with pieces of 12.5 t or more", async () => {
     stored = quote({ data: { ...(quote().data as Record<string, unknown>), heavyPieces: { anyOver2t: true, pieces: { "7500": 1 } }, warehouseInquiry: pending } });
+    await expect(salesQuoteService.transition(martin, REF, { to: "ready_to_send" })).rejects.toMatchObject({ code: "failed_precondition" });
+    stored = quote({ data: { ...(quote().data as Record<string, unknown>), heavyPieces: { anyOver2t: true, pieces: { "7500": 1 } }, warehouseInquiry: { ...pending, status: "rejected", comment: "no" } } });
     await expect(salesQuoteService.transition(martin, REF, { to: "ready_to_send" })).resolves.toMatchObject({ changed: true });
+  });
+
+  it("replaces the fee lines of an earlier approval, keeping the other lines and the other bands", async () => {
+    const freight = { type: "Ocean freight", description: "LCL", currency: "EUR", amount: 300 };
+    const old = { type: "Handling", description: "Heavy Cargo Handling Fee", currency: "EUR", amount: 1, pairId: "heavy-cargo-warehouse" };
+    stored = withData({
+      warehouseInquiry: { ...pending, pieces: 1 },
+      heavyPieces: { anyOver2t: true, pieces: { "2000": 1 }, surcharge: { "12500": 5 } },
+      buyingLines: [freight, old],
+      sellingLines: [freight, old],
+    });
+    await salesQuoteService.decideWarehouseInquiry(manager, REF, { inquiryId: INQ, approve: true, priceEurPerPiece: 1250.5 });
+    const doc = written().document!;
+    expect(doc.heavyPieces).toEqual({ anyOver2t: true, pieces: { "2000": 1, "12500": 1 } });
+    expect((doc.buyingLines as { amount: number }[]).map((l) => l.amount)).toEqual([300, 1250.5]);
+    expect((doc.sellingLines as { amount: number }[]).map((l) => l.amount)).toEqual([300, 1300.5]);
+  });
+
+  it("puts nothing to Pricing on a rejection, nor on a quote whose pricing is closed", async () => {
+    stored = withData({ warehouseInquiry: pending });
+    await salesQuoteService.decideWarehouseInquiry(manager, REF, { inquiryId: INQ, approve: false, comment: "too heavy" });
+    expect(written().document).toBeUndefined();
+    vi.mocked(repository.writeLifecycle).mockClear();
+    stored = { ...withData({ warehouseInquiry: pending }), status: "quoted" };
+    await salesQuoteService.decideWarehouseInquiry(manager, REF, { inquiryId: INQ, approve: true, priceEurPerPiece: 400 });
+    expect(written().document).toBeUndefined();
   });
 
   it("marks the answer seen for the one who asked only", async () => {

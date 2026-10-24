@@ -1,16 +1,18 @@
 "use client";
 
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useState } from "react";
 import { Alert, Button, Input, InputNumber } from "antd";
 import { SalesDialog } from "@/app/sales/_components/SalesDialog";
 import {
+  approvedFee,
   bandSurcharge,
   changedBands,
+  HEAVY_CARGO_MARKUP_EUR,
   heavyBandsFor,
   heavyPiecesProblems,
   heavyTotal,
   rateSurcharge,
-  withInquiryAnswer,
+  warehouseStanding,
   withinWeight,
   type HeavyBandKey,
   type QuoteHeavyPieces,
@@ -38,7 +40,7 @@ interface QuoteHeavyPiecesDialogsProps {
 
 // The 12.5 t+ band has no rate: the warehouse is asked ("Inquire Warehouse") and answers on the
 // Warehouse Concept Managers page. The cell says where the question stands.
-function InquiryCell({ pieces, inquiry, onAsk, onUse }: { pieces: number; inquiry?: QuoteWarehouseInquiry | null; onAsk?: () => void; onUse: (amount: number) => void }) {
+function InquiryCell({ pieces, inquiry, onAsk }: { pieces: number; inquiry?: QuoteWarehouseInquiry | null; onAsk?: () => void }) {
   const ask = (label: string) =>
     onAsk ? (
       <Button size="small" className="!border-amber-400 !text-amber-700 hover:!bg-amber-50" onClick={onAsk}>
@@ -47,7 +49,8 @@ function InquiryCell({ pieces, inquiry, onAsk, onUse }: { pieces: number; inquir
     ) : (
       <span className="font-semibold text-amber-600">Inquire Warehouse</span>
     );
-  if (pieces <= 0 || !inquiry) return pieces > 0 ? ask("Inquire Warehouse") : <span className="font-semibold text-amber-600">Inquire Warehouse</span>;
+  if (pieces <= 0 && inquiry?.status !== "pending") return <span className="font-semibold text-amber-600">Inquire Warehouse</span>;
+  if (!inquiry) return ask("Inquire Warehouse");
   const who = (name: string | null, at: string | null) => (
     <span className="block text-[11px] text-slate-400">
       {name || "—"} · {formatDateTime(at)}
@@ -58,19 +61,26 @@ function InquiryCell({ pieces, inquiry, onAsk, onUse }: { pieces: number; inquir
       <span className="inline-block text-right">
         <span className="font-semibold text-amber-600">Waiting for the warehouse</span>
         {who(inquiry.requestedByName, inquiry.requestedAt)}
+        {inquiry.pieces !== pieces && <span className="block text-[11px] text-amber-600">asked about {inquiry.pieces} piece{inquiry.pieces === 1 ? "" : "s"}</span>}
       </span>
     );
   }
   if (inquiry.status === "approved") {
-    const amount = Math.round((inquiry.priceEurPerPiece ?? 0) * pieces * 100) / 100;
+    // Approved for another number of pieces: the warehouse is asked again.
+    if (inquiry.pieces !== pieces) {
+      return (
+        <span className="inline-flex flex-col items-end gap-1 text-right">
+          <span className="text-[11px] text-amber-600">
+            Approved for {inquiry.pieces} piece{inquiry.pieces === 1 ? "" : "s"}, not {pieces}
+          </span>
+          {ask("Ask again")}
+        </span>
+      );
+    }
     return (
       <span className="inline-block text-right">
         <span className="font-semibold text-emerald-700">Approved: EUR {inquiry.priceEurPerPiece} per piece</span>
         {who(inquiry.decidedByName, inquiry.decidedAt)}
-        {inquiry.pieces !== pieces && <span className="block text-[11px] text-amber-600">for {inquiry.pieces} piece{inquiry.pieces === 1 ? "" : "s"}</span>}
-        <button type="button" className="p-0 border-none bg-transparent text-[11px] text-indigo-600 cursor-pointer hover:underline" onClick={() => onUse(amount)}>
-          Use EUR {amount}
-        </button>
       </span>
     );
   }
@@ -86,7 +96,8 @@ function InquiryCell({ pieces, inquiry, onAsk, onUse }: { pieces: number; inquir
 
 // Saving a Sea LCL quote's cargo of over 2 t: is any piece over 2 t? No saves it as it is; yes asks
 // for the pieces per weight band and shows the warehouse's extra handling for them. A surcharge
-// changed from the rate - or the warehouse's figure for 12.5 t and more - then asks for the reason.
+// changed from the rate then asks for the reason. Pieces of 12.5 t or more are saved only once the
+// warehouse approved them; until then the dialog can only go back or be closed.
 export function QuoteHeavyPiecesDialogs({ open, grossWeight, initial, onCancel, onSave, inquiry, onInquire }: QuoteHeavyPiecesDialogsProps) {
   const [step, setStep] = useState<"ask" | "pieces" | "reason">("ask");
   const [heavy, setHeavy] = useState<QuoteHeavyPieces>({ anyOver2t: true });
@@ -103,20 +114,12 @@ export function QuoteHeavyPiecesDialogs({ open, grossWeight, initial, onCancel, 
     setWasOpen(open);
     if (open) {
       setStep("ask");
-      setHeavy(withInquiryAnswer(withinWeight({ anyOver2t: true, pieces: initial?.pieces, surcharge: initial?.surcharge, reason: initial?.reason }, grossWeight), inquiry));
+      setHeavy(withinWeight({ anyOver2t: true, pieces: initial?.pieces, surcharge: initial?.surcharge, reason: initial?.reason }, grossWeight));
       setTried(false);
       setAsking(false);
       setInquiryError("");
     }
   }
-
-  // The question was sent, or answered, while the dialog is open: its figure and reason fill in.
-  const inquiryKey = inquiry ? `${inquiry.id}:${inquiry.status}` : "";
-  useEffect(() => {
-    if (open && inquiry) setHeavy((h) => withInquiryAnswer(h, inquiry));
-    // Only when the question itself changes, not on every render of the same answer.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inquiryKey, open]);
 
   const sendInquiry = async (pieces: number) => {
     if (!onInquire) return;
@@ -141,11 +144,15 @@ export function QuoteHeavyPiecesDialogs({ open, grossWeight, initial, onCancel, 
     });
 
   // What stops saving, apart from the reason, which the next step asks for.
-  const blocking = heavyPiecesProblems({ ...heavy, reason: "-" }, { warehouseAsked: inquiry?.status === "pending" });
+  const blocking = heavyPiecesProblems({ ...heavy, reason: "-" }, inquiry);
+  // Pieces of 12.5 t or more the warehouse has not approved are never saved: while it is asked (or
+  // about to be), only Back and closing are left. Its approval puts the fee to Pricing by itself.
+  const standing = warehouseStanding(heavy, inquiry);
+  const waitsForWarehouse = asking || (standing !== "none" && standing !== "approved");
   const changed = changedBands(heavy);
   const savePieces = () => {
     setTried(true);
-    if (blocking.length > 0) return;
+    if (waitsForWarehouse || blocking.length > 0) return;
     if (changed.length > 0) setStep("reason");
     else onSave({ ...heavy, reason: undefined });
   };
@@ -183,7 +190,12 @@ export function QuoteHeavyPiecesDialogs({ open, grossWeight, initial, onCancel, 
         footer={
           <>
             <Button onClick={() => setStep("ask")}>Back</Button>
-            <Button type="primary" onClick={savePieces}>
+            <Button
+              type="primary"
+              disabled={waitsForWarehouse}
+              title={waitsForWarehouse ? "Pieces of 12,500 kg and more are saved once the warehouse approves them" : undefined}
+              onClick={savePieces}
+            >
               Save
             </Button>
           </>
@@ -223,26 +235,29 @@ export function QuoteHeavyPiecesDialogs({ open, grossWeight, initial, onCancel, 
                   </td>
                   <td className="py-2 text-right text-slate-500">
                     {band.rate === null ? (
-                      <InquiryCell
-                        pieces={pieces}
-                        inquiry={inquiry}
-                        onAsk={onInquire ? () => setAsking(true) : undefined}
-                        onUse={(amount) => setSurcharge(band.key, amount)}
-                      />
+                      <InquiryCell pieces={pieces} inquiry={inquiry} onAsk={onInquire && inquiry?.status !== "pending" ? () => setAsking(true) : undefined} />
                     ) : (
                       `EUR ${band.rate} per piece`
                     )}
                   </td>
                   <td className="py-2 pl-4">
-                    {pieces > 0 ? (
+                    {band.rate === null ? (
+                      // The warehouse's fee is no figure to type: its approval posts it to Pricing.
+                      pieces > 0 && standing === "approved" && inquiry ? (
+                        <span className="text-slate-800">
+                          {eur(approvedFee(inquiry))}
+                          <span className="block text-[11px] text-slate-400">Heavy Cargo Handling Fee in Pricing</span>
+                        </span>
+                      ) : (
+                        <span className="text-slate-300">{pieces > 0 ? "From the warehouse" : "—"}</span>
+                      )
+                    ) : pieces > 0 ? (
                       <InputNumber
                         size="small"
                         className={`!w-[150px] ${differs ? "!bg-yellow-100 !border-yellow-400" : ""}`}
                         min={0}
                         aria-label={`Extra handling for ${band.label} in EUR`}
-                        value={band.rate === null ? (typed ?? null) : bandSurcharge(band, heavy)}
-                        placeholder={band.rate === null ? "From the warehouse" : undefined}
-                        status={band.rate === null && typed === undefined && tried ? "error" : undefined}
+                        value={bandSurcharge(band, heavy)}
                         onChange={(v) => setSurcharge(band.key, v)}
                       />
                     ) : (
@@ -257,7 +272,10 @@ export function QuoteHeavyPiecesDialogs({ open, grossWeight, initial, onCancel, 
                         <div className="text-[12px] font-semibold text-amber-800">
                           Ask the warehouse about {pieces} piece{pieces === 1 ? "" : "s"} of 12,500 kg or more ({fmtQuantity(grossWeight)} kg in all)
                         </div>
-                        <div className="text-[11px] text-amber-700 mb-2">A warehouse manager approves with the extra handling per piece, or rejects; the answer comes to your notifications. The quote can be sent once it is approved.</div>
+                        <div className="text-[11px] text-amber-700 mb-2">
+                          A warehouse manager approves with the extra handling per piece, or rejects; the answer comes to your notifications. Once approved, the fee is put to
+                          Pricing by itself (buying, and selling EUR {HEAVY_CARGO_MARKUP_EUR} above it) and the quote can be sent. Until then the pieces cannot be saved.
+                        </div>
                         <Input.TextArea
                           rows={2}
                           autoFocus
@@ -293,8 +311,19 @@ export function QuoteHeavyPiecesDialogs({ open, grossWeight, initial, onCancel, 
             </tr>
           </tfoot>
         </table>
-        <p className="mt-2 mb-0 text-[11px] text-slate-400">Posted to Pricing as a buying and a selling line of the same amount.</p>
-        {tried && blocking.length > 0 && <Alert className="mt-3" type="error" showIcon message={blocking.join(". ")} />}
+        <p className="mt-2 mb-0 text-[11px] text-slate-400">
+          Posted to Pricing as a buying and a selling line of the same amount. The warehouse&apos;s fee for pieces of 12,500 kg and more is a line of its own, &quot;Heavy
+          Cargo Handling Fee&quot;, put there by its approval.
+        </p>
+        {waitsForWarehouse && !asking && (
+          <Alert
+            className="mt-3"
+            type="warning"
+            showIcon
+            message={standing === "pending" ? "Waiting for the warehouse. Save is possible once it approves - its fee then goes to Pricing by itself." : blocking.filter((p) => p.includes("12,500") || p.includes("warehouse")).join(". ")}
+          />
+        )}
+        {tried && !waitsForWarehouse && blocking.length > 0 && <Alert className="mt-3" type="error" showIcon message={blocking.join(". ")} />}
       </SalesDialog>
     );
   }
@@ -321,7 +350,7 @@ export function QuoteHeavyPiecesDialogs({ open, grossWeight, initial, onCancel, 
           return (
             <li key={band.key}>
               {pieces}× {band.label}: {eur(heavy.surcharge?.[band.key] ?? 0)}{" "}
-              <span className="text-slate-400">{atRate === null ? "(warehouse's figure)" : `instead of ${eur(atRate)}`}</span>
+              <span className="text-slate-400">instead of {eur(atRate ?? 0)}</span>
             </li>
           );
         })}

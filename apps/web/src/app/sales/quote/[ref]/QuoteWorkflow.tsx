@@ -84,7 +84,8 @@ import { QuoteReeferBlock } from "./_components/QuoteReeferBlock";
 import { QuoteOogBlock } from "./_components/QuoteOogBlock";
 import { hasOogEquipment, oogMissing, oogSummary, oogTypes } from "../../_lib/oog";
 import { checkContainerWeight, type WeightCheck } from "../../_lib/containerWeight";
-import { asksHeavyPieces, withHeavyPieces } from "../../_lib/heavyPieces";
+import { asksHeavyPieces, missingWarehouseFee, WAREHOUSE_PAIR_ID, withHeavyPieces } from "../../_lib/heavyPieces";
+import { HeavyFeeReasonDialog } from "./_components/HeavyFeeReasonDialog";
 import { QuoteHeavyPiecesDialogs } from "./_components/QuoteHeavyPiecesDialogs";
 import { QuoteChatDrawer, quoteThreadOf, useQuoteChatUnread } from "../../_components/QuoteChat";
 import { QuoteSection, QuoteStepTiles, type SectionStatus } from "./_components/QuoteSection";
@@ -178,6 +179,9 @@ export function QuoteWorkflow() {
   const [confirmCargoTo, setConfirmCargoTo] = useState<SectionKey | null>(null);
   // The step "Save & continue" goes to once a Sea LCL quote of over 2 t says whether any piece is over 2 t.
   const [heavyPiecesTo, setHeavyPiecesTo] = useState<SectionKey | null>(null);
+  // The selling line of the warehouse's Heavy Cargo Handling Fee whose amount Sales just changed: kept only with a reason.
+  // Or a fee line Sales is removing (`removing`, its side): it goes only with a reason too.
+  const [feeChange, setFeeChange] = useState<{ index: number; amount: number; before: number; currency: string; reason?: string; removing?: LineSide } | null>(null);
   const [modal, setModal] = useState<
     null | "import" | "copyQuote" | "copyShipment" | "duplicate" | "preview" | "email" | "delete" | "replaceSelling" | "allIn" | "closeQuote" | "revise" | "roadPrice" | "approveMargin"
   >(null);
@@ -395,6 +399,15 @@ export function QuoteWorkflow() {
   // A quote that went out (or is decided) has its buying and selling closed: the server keeps
   // them as stored, and the page shows them locked. New prices are a revision of the quote.
   const pricingClosed = !!quote && !exportClosesQuote(quote.status);
+  // A warehouse approval from before the server put its fee to Pricing: the lines are added as the
+  // quote opens (once per answer; autosave stores them). Not on a quote whose pricing is closed.
+  const missingFee = quote && !pricingClosed ? missingWarehouseFee(draft) : null;
+  const missingFeeFor = missingFee ? draft.warehouseInquiry?.id : undefined;
+  useEffect(() => {
+    if (missingFee) set(missingFee);
+    // Once per answer, not on every render while the change is on its way.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [missingFeeFor]);
   const printNow = () => {
     const blocked = printQuote(ref, draft, exchange, company);
     if (blocked) toast.error(blocked);
@@ -551,7 +564,9 @@ export function QuoteWorkflow() {
   };
   const sellingTag = (line: CostLine) => {
     const tag = lineTariffTag(line, draft.roadPricing, "selling");
-    return tag && <TariffTag tag={tag} />;
+    if (tag) return <TariffTag tag={tag} />;
+    // Why the warehouse's fee was changed from what its approval set.
+    return line.pairId === WAREHOUSE_PAIR_ID && line.changeReason ? <span className="text-[11px] text-amber-700">Changed: {line.changeReason}</span> : null;
   };
   const pricedTotals = { buying: draft.roadPricing?.buy, selling: draft.roadPricing?.sell };
   const sideOverrideNote = (kind: "buying" | "selling", lines: CostLine[]) => {
@@ -579,8 +594,8 @@ export function QuoteWorkflow() {
   const keysOf = (side: LineSide) => (side === "buying" ? buyingKeys : sellingKeys);
   // The lines without those removed, as one change (two would each start from the same draft and
   // the second undo the first); each removed row's key goes with it, so the rows after keep theirs.
-  const applyRemovals = (removals: LineRemoval[]) => {
-    const patch: Partial<SalesQuoteData> = {};
+  const applyRemovals = (removals: LineRemoval[], also: Partial<SalesQuoteData> = {}) => {
+    const patch: Partial<SalesQuoteData> = { ...also };
     for (const side of ["buying", "selling"] as const) {
       const own = removals.filter((r) => r.side === side).sort((a, b) => b.index - a.index);
       if (!own.length) continue;
@@ -591,6 +606,9 @@ export function QuoteWorkflow() {
   };
   // Removing a line that has a counterpart on the other side asks first; one without goes at once.
   const removeLine = (side: LineSide, index: number) => {
+    const line = linesOf(side)[index]!;
+    // The warehouse's fee goes only with a reason - its buying and its selling line together.
+    if (line.pairId === WAREHOUSE_PAIR_ID) return setFeeChange({ index, amount: 0, before: Number(line.amount) || 0, currency: line.currency, removing: side });
     const other = counterpartIndex(linesOf(side)[index]!, linesOf(side === "buying" ? "selling" : "buying"));
     if (other >= 0) return setRemoving({ side, index, other });
     applyRemovals(lineRemovals(side, index, other, false));
@@ -1182,6 +1200,9 @@ export function QuoteWorkflow() {
             onChange={(l) => updateLines("sellingLines", l)}
             lineTag={sellingTag}
             lineKeys={sellingKeys}
+            onAmountChanged={(line, index, before) => {
+              if (line.pairId === WAREHOUSE_PAIR_ID) setFeeChange({ index, amount: Number(line.amount) || 0, before, currency: line.currency, reason: line.changeReason });
+            }}
             onRemove={(index) => removeLine("selling", index)}
             actions={
               <>
@@ -1543,6 +1564,26 @@ export function QuoteWorkflow() {
           set(withHeavyPieces(draft, heavy));
           saveNow();
           if (to) setActiveSection(to);
+        }}
+      />
+
+      <HeavyFeeReasonDialog
+        change={feeChange}
+        onConfirm={(reason) => {
+          const { index: at, removing: side } = feeChange!;
+          setFeeChange(null);
+          if (side) {
+            const removals = (["buying", "selling"] as const).flatMap((s) => linesOf(s).flatMap((l, j) => (l.pairId === WAREHOUSE_PAIR_ID ? [{ side: s, index: j }] : [])));
+            // The reason is kept, so opening the quote does not put the fee back for this answer.
+            applyRemovals(removals, draft.warehouseInquiry ? { heavyFeeRemoved: { inquiryId: draft.warehouseInquiry.id, reason } } : {});
+            return;
+          }
+          updateLines("sellingLines", sellingLines.map((l, j) => (j === at ? { ...l, changeReason: reason } : l)));
+        }}
+        onCancel={() => {
+          const { index: at, before, removing: side } = feeChange!;
+          setFeeChange(null);
+          if (!side) updateLines("sellingLines", sellingLines.map((l, j) => (j === at ? { ...l, amount: before } : l)));
         }}
       />
 

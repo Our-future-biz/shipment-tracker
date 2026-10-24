@@ -1,4 +1,4 @@
-import type { QuoteHeavyPieces } from "./heavyPieces";
+import type { HeavyFeeRemoval, QuoteHeavyPieces } from "./heavyPieces";
 import type { interfaces } from "@/lib/api/client";
 
 // A "sales quote" is stored in the shared `quote` table: quoteNumber = reference (QCZ…),
@@ -84,6 +84,8 @@ export interface CostLine {
   tariffRef?: string;
   // Shared by a buying line and the selling line made from it (_lib/costPairs.ts).
   pairId?: string;
+  // Why Sales changed the amount the server set (the selling line of the warehouse's heavy cargo fee).
+  changeReason?: string;
 }
 
 // One exchange rate an older quote kept for itself (the weekly Exchange sheet's, or typed). Read
@@ -210,6 +212,8 @@ export interface SalesQuoteData {
   // A Sea LCL quote of over 2 t: whether any piece is over 2 t, and the warehouse's extra handling
   // for them (heavyPieces.ts), posted to Pricing as a buying and a selling line.
   heavyPieces?: QuoteHeavyPieces;
+  // Sales removed the warehouse's Heavy Cargo Handling Fee from Pricing, and why (heavyPieces.ts).
+  heavyFeeRemoved?: HeavyFeeRemoval;
   weight?: number;
   cbm?: number;
   // Pricing

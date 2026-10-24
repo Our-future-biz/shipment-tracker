@@ -3,8 +3,9 @@ import type { CostLine, QuoteWarehouseInquiry, SalesQuoteData } from "./types";
 // Heavy pieces on a Sea LCL quote: the warehouse charges extra handling for every piece of 2 t
 // or more, by its weight. When the shipment weighs over 2 t, saving its cargo asks whether any
 // piece does; the pieces per band then give the surcharge, posted to Pricing as a buying and a
-// selling line of the same amount. A surcharge changed from the agreed rate needs a reason, and
-// so does a piece of 12.5 t or more, which has no rate: the warehouse is asked.
+// selling line of the same amount. A surcharge changed from the agreed rate needs a reason. A
+// piece of 12.5 t or more has no rate: the warehouse is asked, and the pieces are saved only once
+// it approved them. The approval itself puts its fee to Pricing (the server, warehouseInquiry.utils).
 
 export type HeavyBandKey = "2000" | "3000" | "5000" | "7500" | "10000" | "12500";
 
@@ -67,38 +68,53 @@ export function bandSurcharge(band: HeavyBand, heavy: QuoteHeavyPieces): number 
   return typed !== undefined ? typed : rateSurcharge(band, heavy.pieces?.[band.key] ?? 0);
 }
 
-/** The bands with pieces whose surcharge isn't the agreed rate: changed by the user, or without a rate (12.5 t and more). */
+/** The bands with a rate whose surcharge the user changed from it (the warehouse's band has its own line). */
 export function changedBands(heavy: QuoteHeavyPieces): HeavyBand[] {
   return HEAVY_BANDS.filter((band) => {
     const pieces = heavy.pieces?.[band.key] ?? 0;
     const typed = heavy.surcharge?.[band.key];
-    if (pieces <= 0) return false;
-    if (band.rate === null) return true;
+    if (pieces <= 0 || band.rate === null) return false;
     return typed !== undefined && typed !== rateSurcharge(band, pieces);
   });
 }
 
 /**
- * What still stops the heavy pieces from being saved: no piece entered, a 12.5 t+ piece without
- * the warehouse's figure (unless the warehouse is asked and its answer awaited: `warehouseAsked`),
- * or a change from the rate without a reason. Empty when they can be saved.
+ * Where the pieces of 12.5 t or more stand with the warehouse: none to ask about, to be asked (never
+ * asked, or asked about another number of pieces), waiting for its answer, approved or rejected.
  */
-export function heavyPiecesProblems(heavy: QuoteHeavyPieces, { warehouseAsked = false }: { warehouseAsked?: boolean } = {}): string[] {
+export type WarehouseStanding = "none" | "ask" | "pending" | "approved" | "rejected";
+
+export function warehouseStanding(heavy: QuoteHeavyPieces, inquiry: QuoteWarehouseInquiry | null | undefined): WarehouseStanding {
+  // A question waiting holds the pieces whatever they are now.
+  if (inquiry?.status === "pending") return "pending";
+  const pieces = heavy.anyOver2t ? (heavy.pieces?.[INQUIRY_BAND] ?? 0) : 0;
+  if (pieces <= 0) return "none";
+  if (!inquiry || inquiry.pieces !== pieces) return "ask";
+  return inquiry.status;
+}
+
+/**
+ * What still stops the heavy pieces from being saved: no piece entered, pieces of 12.5 t or more
+ * the warehouse has not approved (not asked, waiting, or rejected), or a change from the rate
+ * without a reason. Empty when they can be saved.
+ */
+export function heavyPiecesProblems(heavy: QuoteHeavyPieces, inquiry?: QuoteWarehouseInquiry | null): string[] {
   if (!heavy.anyOver2t) return [];
   const problems: string[] = [];
   const total = HEAVY_BANDS.reduce((n, band) => n + (heavy.pieces?.[band.key] ?? 0), 0);
   if (total <= 0) problems.push("Enter how many pieces are over 2 t");
-  if ((heavy.pieces?.["12500"] ?? 0) > 0 && heavy.surcharge?.["12500"] === undefined && !warehouseAsked) {
-    problems.push("Inquire Warehouse and enter the surcharge for the pieces of 12,500 kg and more");
-  }
+  const standing = warehouseStanding(heavy, inquiry);
+  if (standing === "ask") problems.push("Inquire Warehouse about the pieces of 12,500 kg and more");
+  if (standing === "pending") problems.push("The warehouse has not answered yet - the pieces can be saved once it approves");
+  if (standing === "rejected") problems.push("The warehouse rejected the pieces of 12,500 kg and more - change the pieces or ask again");
   if (changedBands(heavy).length > 0 && !heavy.reason?.trim()) problems.push("Give the reason for the changed surcharge");
   return problems;
 }
 
-/** The whole surcharge in EUR. */
+/** The whole surcharge of the bands with a rate, in EUR (the warehouse's fee is a line of its own). */
 export function heavyTotal(heavy: QuoteHeavyPieces): number {
   if (!heavy.anyOver2t) return 0;
-  return HEAVY_BANDS.reduce((n, band) => n + ((heavy.pieces?.[band.key] ?? 0) > 0 ? (bandSurcharge(band, heavy) ?? 0) : 0), 0);
+  return HEAVY_BANDS.reduce((n, band) => n + (band.rate !== null && (heavy.pieces?.[band.key] ?? 0) > 0 ? (bandSurcharge(band, heavy) ?? 0) : 0), 0);
 }
 
 // The answer as kept: only the bands that have pieces, a surcharge only where it isn't the rate,
@@ -111,7 +127,7 @@ function tidy(heavy: QuoteHeavyPieces): QuoteHeavyPieces {
     if (n <= 0) continue;
     pieces[band.key] = n;
     const typed = heavy.surcharge?.[band.key];
-    if (typed !== undefined && typed !== rateSurcharge(band, n)) surcharge[band.key] = typed;
+    if (band.rate !== null && typed !== undefined && typed !== rateSurcharge(band, n)) surcharge[band.key] = typed;
   }
   const kept: QuoteHeavyPieces = { anyOver2t: true, pieces };
   if (Object.keys(surcharge).length) kept.surcharge = surcharge;
@@ -124,7 +140,7 @@ export const HEAVY_PAIR_ID = "heavy-pieces";
 
 /** The surcharge's line, the same on the buying and the selling side. */
 function heavyLine(heavy: QuoteHeavyPieces): CostLine {
-  const counted = HEAVY_BANDS.filter((band) => (heavy.pieces?.[band.key] ?? 0) > 0).map((band) => `${heavy.pieces![band.key]}× ${band.label}`);
+  const counted = HEAVY_BANDS.filter((band) => band.rate !== null && (heavy.pieces?.[band.key] ?? 0) > 0).map((band) => `${heavy.pieces![band.key]}× ${band.label}`);
   return {
     type: "Handling",
     chargeCode: "handling",
@@ -137,11 +153,14 @@ function heavyLine(heavy: QuoteHeavyPieces): CostLine {
 
 /**
  * The quote with the answer kept and its pricing lines replaced: the surcharge's buying and selling
- * line when there is one to charge, none otherwise. Other lines stay where they are.
+ * line when there is one to charge, none otherwise. The warehouse's fee stays as the approval put
+ * it (and as Sales adjusted its selling line) - gone only when no piece of 12.5 t or more is left.
+ * Other lines stay where they are.
  */
 export function withHeavyPieces(data: SalesQuoteData, heavy: QuoteHeavyPieces): Partial<SalesQuoteData> {
-  const others = (lines: CostLine[] | undefined) => (lines ?? []).filter((l) => l.pairId !== HEAVY_PAIR_ID);
   const kept: QuoteHeavyPieces = heavy.anyOver2t ? tidy(heavy) : { anyOver2t: false };
+  const dropped = new Set([HEAVY_PAIR_ID, ...((kept.pieces?.[INQUIRY_BAND] ?? 0) > 0 ? [] : [WAREHOUSE_PAIR_ID])]);
+  const others = (lines: CostLine[] | undefined) => (lines ?? []).filter((l) => !l.pairId || !dropped.has(l.pairId));
   const charged = heavyTotal(kept) > 0 ? [heavyLine(kept)] : [];
   return {
     heavyPieces: kept,
@@ -155,32 +174,54 @@ export function withHeavyPieces(data: SalesQuoteData, heavy: QuoteHeavyPieces): 
 /** The band the warehouse is asked about: no rate. */
 export const INQUIRY_BAND: HeavyBandKey = "12500";
 
-const shortDay = (iso: string) => (iso ? new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", timeZone: "Europe/Prague" }).replace(/\//g, ".") + "." : "");
+/** The pricing lines of the warehouse's approved fee (written by the server on approval) carry this pair id. */
+export const WAREHOUSE_PAIR_ID = "heavy-cargo-warehouse";
+/** What the selling line of the warehouse's fee starts above its buying line, EUR. */
+export const HEAVY_CARGO_MARKUP_EUR = 50;
 
-const WAITING_REASON_START = "The warehouse was asked ";
+/** The warehouse's fee for the pieces it approved: price per piece × pieces, EUR. */
+export function approvedFee(inquiry: QuoteWarehouseInquiry): number {
+  return Math.round((inquiry.priceEurPerPiece ?? 0) * inquiry.pieces * 100) / 100;
+}
 
-/** The reason the heavy pieces carry for the warehouse's band, from its answer (or the question waiting). */
-export function inquiryReason(inquiry: QuoteWarehouseInquiry): string {
-  if (inquiry.status === "approved") {
-    return `Warehouse approved EUR ${inquiry.priceEurPerPiece ?? 0} per piece (${inquiry.decidedByName || "warehouse manager"}, ${shortDay(inquiry.decidedAt ?? "")})`;
-  }
-  return `${WAITING_REASON_START}${shortDay(inquiry.requestedAt)} — waiting for its figure`;
+/** Sales removed the warehouse's fee from Pricing, with a reason: it is not put back for that answer. */
+export interface HeavyFeeRemoval {
+  inquiryId: string;
+  reason: string;
+}
+
+/** The fee's buying line and its selling line EUR 50 above it, the pieces asked about as their quantity - as the server writes them on approval. */
+export function warehouseFeeLines(inquiry: QuoteWarehouseInquiry): { buying: CostLine; selling: CostLine } {
+  const buy = approvedFee(inquiry);
+  const line = (amount: number): CostLine => ({
+    type: "Handling",
+    chargeCode: "handling",
+    description: "Heavy Cargo Handling Fee",
+    currency: "EUR",
+    amount,
+    value: inquiry.pieces,
+    pairId: WAREHOUSE_PAIR_ID,
+  });
+  return { buying: line(buy), selling: line(Math.round((buy + HEAVY_CARGO_MARKUP_EUR) * 100) / 100) };
 }
 
 /**
- * The answer as the dialog starts from it, with the warehouse's approved price filled in for the
- * 12.5 t+ pieces (price × pieces) where no figure is entered yet, and the reason from the answer
- * where none is given. Anything entered by hand stays.
+ * The fee lines a quote should have and has not: approved by the warehouse for the pieces the
+ * quote has, but neither line in Pricing (an approval from before the server put them there) and
+ * not removed by Sales for that answer - or fee lines without their quantity (the pieces asked
+ * about), from before it was set. Null when nothing is missing.
  */
-export function withInquiryAnswer(heavy: QuoteHeavyPieces, inquiry: QuoteWarehouseInquiry | null | undefined): QuoteHeavyPieces {
-  const pieces = heavy.pieces?.[INQUIRY_BAND] ?? 0;
-  if (!inquiry || pieces <= 0) return heavy;
-  let next = heavy;
-  if (inquiry.status === "approved" && inquiry.priceEurPerPiece !== null && heavy.surcharge?.[INQUIRY_BAND] === undefined) {
-    next = { ...next, surcharge: { ...next.surcharge, [INQUIRY_BAND]: Math.round(inquiry.priceEurPerPiece * pieces * 100) / 100 } };
+export function missingWarehouseFee(data: SalesQuoteData): Partial<SalesQuoteData> | null {
+  const inquiry = data.warehouseInquiry;
+  if (!inquiry || inquiry.status !== "approved" || inquiry.priceEurPerPiece === null) return null;
+  if (!data.heavyPieces?.anyOver2t || data.heavyPieces.pieces?.[INQUIRY_BAND] !== inquiry.pieces) return null;
+  if (data.heavyFeeRemoved?.inquiryId === inquiry.id) return null;
+  const has = (lines: CostLine[] | undefined) => (lines ?? []).some((l) => l.pairId === WAREHOUSE_PAIR_ID);
+  if (has(data.buyingLines) || has(data.sellingLines)) {
+    const counted = (lines: CostLine[] | undefined) => (lines ?? []).map((l) => (l.pairId === WAREHOUSE_PAIR_ID && l.value === undefined ? { ...l, value: inquiry.pieces } : l));
+    const uncounted = [...(data.buyingLines ?? []), ...(data.sellingLines ?? [])].some((l) => l.pairId === WAREHOUSE_PAIR_ID && l.value === undefined);
+    return uncounted ? { buyingLines: counted(data.buyingLines), sellingLines: counted(data.sellingLines) } : null;
   }
-  // A reason this module wrote for the question waiting gives way to the answer; one typed stays.
-  const generated = !next.reason?.trim() || next.reason.startsWith(WAITING_REASON_START);
-  if ((inquiry.status === "approved" || inquiry.status === "pending") && generated) next = { ...next, reason: inquiryReason(inquiry) };
-  return next;
+  const { buying, selling } = warehouseFeeLines(inquiry);
+  return { buyingLines: [...(data.buyingLines ?? []), buying], sellingLines: [...(data.sellingLines ?? []), selling] };
 }

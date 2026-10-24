@@ -80,6 +80,8 @@ interface CostLinesEditorProps {
   lineKeys: ListKeys;
   // A line whose amount was 0 and was just set by hand.
   onAmountSet?: (line: CostLine, index: number) => void;
+  // A line whose amount was changed by hand (any amount before), with the amount it had.
+  onAmountChanged?: (line: CostLine, index: number, before: number) => void;
   // Takes over removing a line (to ask about its counterpart first); without it the line goes at once.
   onRemove?: (index: number) => void;
 }
@@ -99,6 +101,7 @@ export function CostLinesEditor({
   lineTag,
   lineKeys,
   onAmountSet,
+  onAmountChanged,
   onRemove,
 }: CostLinesEditorProps) {
   const buying = kind === "buying";
@@ -202,6 +205,7 @@ export function CostLinesEditor({
                       onChange={(amount) => patch(i, { amount })}
                       onCommit={(amount, before) => {
                         if (!before && amount > 0) onAmountSet?.({ ...l, amount }, i);
+                        if (amount !== before) onAmountChanged?.({ ...l, amount }, i, before);
                       }}
                     />
                   </td>
