@@ -36,6 +36,8 @@ interface NoticeBoardCardProps {
   posts: Announcement[];
   // Shown above the notices, e.g. the filters.
   toolbar?: ReactNode;
+  // Shown in the middle of the header bar, e.g. the search box.
+  headerExtra?: ReactNode;
   isLoading: boolean;
   emptyText: string;
   // Posts on this board are addressed to more than the reader's own unit, so say to whom.
@@ -52,6 +54,7 @@ export function NoticeBoardCard({
   caption,
   posts,
   toolbar,
+  headerExtra,
   isLoading,
   emptyText,
   showTarget,
@@ -196,6 +199,8 @@ export function NoticeBoardCard({
     <SectionCard
       title={caption ? `${title} · ${caption}` : title}
       bodyClassName="p-2"
+      middle={headerExtra}
+      dense
       extra={
         canPost && (
           <Button type="primary" size="small" icon={<PlusOutlined />} aria-label={`Post Notice to ${title}`} onClick={onPost}>

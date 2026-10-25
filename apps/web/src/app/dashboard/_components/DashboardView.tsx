@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Input } from "antd";
+import { SearchOutlined } from "@ant-design/icons";
 import { PageHeader } from "@/components/PageHeader";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -112,9 +114,20 @@ export function DashboardView() {
         <NoticeBoardCard
           title="Noticeboard"
           posts={shownNotices}
+          headerExtra={
+            <Input
+              placeholder="Search notices..."
+              aria-label="Search notices"
+              prefix={<SearchOutlined className="text-slate-400" />}
+              value={filters.search}
+              onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
+              allowClear
+              className="!w-80 !py-0.5 !ml-112"
+            />
+          }
           toolbar={<NoticeFiltersBar value={filters} onChange={setFilters} shown={shownNotices.length} total={announcements.length} />}
           isLoading={isLoading}
-          emptyText={isError ? "Could not load notices." : filtered ? "No notices match these filters." : "No notices."}
+          emptyText={isError ? "Could not load notices." : filtered ? "No notices match the search or filters." : "No notices."}
           showTarget
           canPost={canPost}
           onPost={() => openPostDialog("new")}
