@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { controllers } from "@/lib/api/client";
@@ -23,11 +24,12 @@ export function useColumnTemplates(userId: string | undefined, token: string | n
     enabled: !!token,
   });
 
-  const templates: ColumnTemplate[] = (query.data?.templates ?? []).map((t) => ({
-    id: t.id,
-    name: t.name,
-    columns: t.columns,
-  }));
+  // Kept stable between renders: the active template's columns feed effects (the grid's
+  // search columns), and a fresh array on every render made the Shipments page re-render forever.
+  const templates: ColumnTemplate[] = useMemo(
+    () => (query.data?.templates ?? []).map((t) => ({ id: t.id, name: t.name, columns: t.columns })),
+    [query.data],
+  );
 
   const upsert = useMutation({
     mutationFn: (params: { name: string; columns: string[] }) =>

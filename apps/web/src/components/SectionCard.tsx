@@ -6,12 +6,16 @@ import { DownOutlined, UpOutlined } from "@ant-design/icons";
 // What a card that folds and one that does not have in common: the frame, the indigo header bar
 // and the type of the title.
 const CARD_CLASS = "bg-white border border-slate-200 rounded-xl shadow-sm min-w-0";
-const HEADER_CLASS = "px-4 py-2.5 flex items-center gap-2.5 bg-indigo-50";
+const HEADER_CLASS = "px-4 flex items-center gap-2.5 bg-indigo-50";
 const TITLE_CLASS = "text-[13px] font-bold text-slate-800 uppercase tracking-wider";
 
 interface SectionCardProps {
   title: string;
   extra?: ReactNode;
+  // Centred in the header bar between the title and `extra`, e.g. a search box. Not for a folding card.
+  middle?: ReactNode;
+  // A slimmer header bar.
+  dense?: boolean;
   children: ReactNode;
   bodyClassName?: string;
   // Makes the card fold. Its header is then one button, so the card opens and closes with one
@@ -27,16 +31,17 @@ interface SectionCardProps {
 }
 
 // White card with the app's indigo section header, as used on the shipment detail tabs.
-export function SectionCard({ title, extra, children, bodyClassName = "p-4", fold }: SectionCardProps) {
+export function SectionCard({ title, extra, middle, dense, children, bodyClassName = "p-4", fold }: SectionCardProps) {
   const bodyId = useId();
 
   if (!fold) {
     return (
       <section className={CARD_CLASS}>
-        <div className={`${HEADER_CLASS} border-b border-indigo-100 rounded-t-xl`}>
+        <div className={`${HEADER_CLASS} ${dense ? "py-2" : "py-2.5"} border-b border-indigo-100 rounded-t-xl`}>
           <h3 className={`min-w-0 truncate ${TITLE_CLASS} m-0`} title={title}>
             {title}
           </h3>
+          {middle && <div className="flex-1 min-w-0 flex justify-center">{middle}</div>}
           {extra && <div className="ml-auto shrink-0 flex items-center gap-2">{extra}</div>}
         </div>
         <div className={bodyClassName}>{children}</div>
@@ -52,7 +57,7 @@ export function SectionCard({ title, extra, children, bodyClassName = "p-4", fol
           aria-expanded={fold.open}
           aria-controls={bodyId}
           onClick={fold.onToggle}
-          className={`w-full ${HEADER_CLASS} text-left cursor-pointer transition-colors hover:bg-indigo-100/70 ${
+          className={`w-full ${HEADER_CLASS} py-2.5 text-left cursor-pointer transition-colors hover:bg-indigo-100/70 ${
             fold.open ? "rounded-t-xl border-b border-indigo-100" : "rounded-xl"
           }`}
         >

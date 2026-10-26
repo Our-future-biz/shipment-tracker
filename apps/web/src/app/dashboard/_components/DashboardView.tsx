@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Input } from "antd";
+import { SearchOutlined } from "@ant-design/icons";
 import { PageHeader } from "@/components/PageHeader";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -73,23 +75,9 @@ export function DashboardView() {
     toast.info("This notice has been deleted");
   }, [openId, hasLoaded, openPost, toast]);
 
-  // A notice counts as read once it has been opened and closed again — or left open while the
-  // reader goes elsewhere (Back, a sidebar link), which never closes the dialog.
-  const openUnread = useRef<string | null>(null);
-  openUnread.current = openPost?.unread ? openPost.id : null;
-  const markReadRef = useRef(markRead);
-  markReadRef.current = markRead;
-  useEffect(
-    () => () => {
-      if (openUnread.current) markReadRef.current(openUnread.current);
-    },
-    [],
-  );
-
-  const handleCloseDetail = () => {
-    if (openPost?.unread) markRead(openPost.id);
-    setOpenId(null);
-  };
+  // A notice counts as read only once the reader confirms it with the Read button in the detail;
+  // opening and closing it leaves it unread.
+  const handleCloseDetail = () => setOpenId(null);
 
   const canPost = !!user && POSTING_ROLES.includes(user.role);
   const [filters, setFilters] = useState<NoticeFilters>({});
@@ -126,9 +114,20 @@ export function DashboardView() {
         <NoticeBoardCard
           title="Noticeboard"
           posts={shownNotices}
+          headerExtra={
+            <Input
+              placeholder="Search notices..."
+              aria-label="Search notices"
+              prefix={<SearchOutlined className="text-slate-400" />}
+              value={filters.search}
+              onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
+              allowClear
+              className="!w-80 !py-0.5 !ml-112"
+            />
+          }
           toolbar={<NoticeFiltersBar value={filters} onChange={setFilters} shown={shownNotices.length} total={announcements.length} />}
           isLoading={isLoading}
-          emptyText={isError ? "Could not load notices." : filtered ? "No notices match these filters." : "No notices."}
+          emptyText={isError ? "Could not load notices." : filtered ? "No notices match the search or filters." : "No notices."}
           showTarget
           canPost={canPost}
           onPost={() => openPostDialog("new")}
@@ -141,19 +140,11 @@ export function DashboardView() {
         />
       </div>
 
-      {/* Editing or deleting from the detail closes it first; the next dialog takes over. */}
+      {/* An unread notice is left only by confirming it was read; any other has Close. Edit and Delete are in the table's row menu. */}
       <NoticeDetailModal
         post={openPost}
         onClose={handleCloseDetail}
-        onEdit={(post) => {
-          handleCloseDetail();
-          openPostDialog({ post });
-        }}
-        onDelete={(post) => {
-          handleCloseDetail();
-          setDeleteTarget(post);
-          setDeleteOpen(true);
-        }}
+        onConfirmRead={(post) => markRead(post.id)}
       />
       <NoticePostModal
         key={postDialog.key}

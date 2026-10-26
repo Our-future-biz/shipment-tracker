@@ -55,6 +55,6 @@ export const useNoticeboard = () => {
     deleteAnnouncement: remove.mutateAsync,
     addAttachment: attach.mutateAsync,
     removeAttachment: detach.mutateAsync,
-    markRead: markRead.mutate,
+    markRead: markRead.mutateAsync,
   };
 };
