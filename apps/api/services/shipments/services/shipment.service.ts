@@ -388,6 +388,38 @@ async function checkPeople(data: Record<string, unknown>, users: UsersOnce, exis
   }
 }
 
+/** The name of the one contact of `contacts` that `value` names (any case); null when none does. */
+export function contactNamed(value: string, contacts: { name: string }[]): string | null {
+  const wanted = value.trim().toLowerCase();
+  return contacts.find((c) => c.name.trim().toLowerCase() === wanted)?.name ?? null;
+}
+
+/**
+ * Customer's PIC is one of the contacts saved on the shipment's customer in the Customer Database,
+ * stored by the contact's name, or nobody (""). A value the shipment already holds passes as it is.
+ * An edit naming anything else is refused; on create (a shipment made from a quote or by another
+ * service) a name that is no contact is left out rather than failing the whole shipment.
+ */
+async function checkCustomerPic(data: Record<string, unknown>, existing: ShipmentRecord | undefined, { strict }: { strict: boolean }): Promise<void> {
+  const value = data.customerPic;
+  if (typeof value !== "string") return;
+  if (existing && value.trim() === existing.customerPic.trim()) {
+    data.customerPic = existing.customerPic;
+    return;
+  }
+  if (!value.trim()) {
+    data.customerPic = "";
+    return;
+  }
+  const customerId = "customerId" in data ? (data.customerId as string | null | undefined) : existing?.customerId;
+  const contacts = customerId ? (await customers.contactList({ customerId })).data : [];
+  const name = contactNamed(value, contacts);
+  if (name) data.customerPic = name;
+  else if (!strict) data.customerPic = "";
+  else if (!customerId) throw APIError.invalidArgument("Customer's PIC: link the shipment to a customer first, then pick one of its contacts");
+  else throw APIError.invalidArgument("Customer's PIC: pick a contact saved for this customer in the Customer Database");
+}
+
 class ShipmentService {
   // The customer's stored rollups (totalRevenue/totalProfit/totalShipments/
   // lastActivityDate) live in the customers service, which cannot query this
@@ -766,6 +798,7 @@ class ShipmentService {
     const shipmentData = sanitizeTypedFields({ ...rest, ...legacyInvoiceFields(commercialInvoices) });
     const users = usersOnce();
     await checkPeople(shipmentData, users);
+    await checkCustomerPic(shipmentData, undefined, { strict: false });
     if (creatorUserId) shipmentData.createdBy = creationStamp(await this.actorOf(creatorUserId), new Date());
     Object.assign(shipmentData, normalizeStops(shipmentData));
     // A new shipment has no paperwork yet, so its customs status starts where the paperwork does.
@@ -831,6 +864,7 @@ class ShipmentService {
     const shipmentData: Partial<NewShipmentRecord> = sanitizeTypedFields({ ...rest, ...legacyInvoiceFields(commercialInvoices) });
     const users = usersOnce();
     await checkPeople(shipmentData, users, existing);
+    await checkCustomerPic(shipmentData, existing, { strict: true });
     Object.assign(shipmentData, normalizeStops(shipmentData, existing));
 
     // Up to "Paperwork Verified" the customs status follows the paperwork; only the steps

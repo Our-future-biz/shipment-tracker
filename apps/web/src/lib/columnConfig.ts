@@ -4,7 +4,7 @@ import { INCOTERMS } from "./incoterms";
 
 // "place" / "country" / "countryCode" are picked from the location database (see lib/places.ts).
 // "user" is a person: one of the company's users, picked with the UserPicker and kept by e-mail.
-export type ColumnType = "text" | "dropdown" | "date" | "checkbox" | "computed" | "popup" | "user" | GeoKind;
+export type ColumnType = "text" | "dropdown" | "date" | "checkbox" | "computed" | "popup" | "user" | "contact" | GeoKind;
 
 const GEO_TYPES: ReadonlySet<string> = new Set<GeoKind>(["place", "country", "countryCode"]);
 
@@ -122,7 +122,7 @@ export const COLUMNS: ColumnDef[] = [
   { key: "customer", title: "Customer", width: 180, type: "text", apiField: "customer" },
   // Chosen in the Customs detail (a company from the customer database).
   { key: "principalParty", title: "Principal Party", width: 180, type: "text", readonly: true, apiField: "principalParty" },
-  { key: "customerPic", title: "Customer's PIC", width: 170, type: "text", apiField: "customerPic" },
+  { key: "customerPic", title: "Customer's PIC", width: 170, type: "contact", apiField: "customerPic" },
   { key: "customerReference", title: "Customer Reference", width: 170, type: "text", apiField: "customerReference" },
 
   // Pickup + POL

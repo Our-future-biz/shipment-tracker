@@ -847,3 +847,57 @@ describe("shipmentsNamingQuotes", () => {
     expect(repository.liveBySalesNumbers).not.toHaveBeenCalled();
   });
 });
+
+describe("Customer's PIC is a contact of the shipment's customer", () => {
+  const CUSTOMER = "00000000-0000-0000-0000-00000000c0c0";
+  const create = (over: Record<string, unknown> = {}) => shipmentService.create(COMPANY, { ...over } as never);
+  const update = (data: Record<string, unknown>) => shipmentService.update(SHIPMENT, COMPANY, data as never, USER);
+  const written = () => repository.updateForCompany.mock.calls[0]![2] as Record<string, unknown>;
+  const contacts = (...names: string[]) =>
+    vi.mocked(customers.contactList).mockResolvedValue({ data: names.map((name, i) => ({ id: `k${i}`, name })) } as never);
+  beforeEach(() => {
+    vi.mocked(customers.customerGet).mockResolvedValue({ customer: { id: CUSTOMER, companyName: "Alfa", registeredAddress: "", country: "CZ" } } as never);
+    vi.mocked(customers.addressList).mockResolvedValue({ data: [] } as never);
+  });
+
+  it("stores the picked contact by its saved name, nobody as empty", async () => {
+    stored.set(SHIPMENT, row({ customerId: CUSTOMER, customerPic: "" }));
+    contacts("Petr Pádlo", "Jana Malá");
+    await update({ customerPic: " petr pádlo " });
+    expect(customers.contactList).toHaveBeenCalledWith({ customerId: CUSTOMER });
+    expect(written()).toMatchObject({ customerPic: "Petr Pádlo" });
+  });
+
+  it("refuses a name that is no contact of the customer, and any name without a customer", async () => {
+    stored.set(SHIPMENT, row({ customerId: CUSTOMER, customerPic: "" }));
+    contacts("Petr Pádlo");
+    await expect(update({ customerPic: "Petr" })).rejects.toMatchObject({
+      code: "invalid_argument",
+      message: "Customer's PIC: pick a contact saved for this customer in the Customer Database",
+    });
+    stored.set(SHIPMENT, row({ customerId: null, customerPic: "" }));
+    await expect(update({ customerPic: "Petr Pádlo" })).rejects.toMatchObject({ code: "invalid_argument", message: expect.stringContaining("link the shipment to a customer first") });
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
+  });
+
+  it("checks against the customer picked in the same write", async () => {
+    stored.set(SHIPMENT, row({ customerId: null, customerPic: "" }));
+    contacts("Jana Malá");
+    await update({ customerId: CUSTOMER, customer: "Alfa", customerPic: "Jana Malá" });
+    expect(customers.contactList).toHaveBeenCalledWith({ customerId: CUSTOMER });
+    expect(written()).toMatchObject({ customerPic: "Jana Malá" });
+  });
+
+  it("keeps an old free-text value the shipment holds, without asking for the contacts", async () => {
+    stored.set(SHIPMENT, row({ customerId: CUSTOMER, customerPic: "Petr" }));
+    await update({ customerPic: "Petr", pol: "Hamburg" });
+    expect(customers.contactList).not.toHaveBeenCalled();
+    expect(written()).toMatchObject({ customerPic: "Petr" });
+  });
+
+  it("leaves a name that is no contact out of a new shipment instead of failing it", async () => {
+    contacts("Petr Pádlo");
+    await create({ customerId: CUSTOMER, customer: "Alfa", customerPic: "Somebody" });
+    expect(repository.createWithJobNumber.mock.calls[0]![1]).toMatchObject({ customerPic: "" });
+  });
+});

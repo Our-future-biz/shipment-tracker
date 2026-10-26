@@ -8,6 +8,7 @@ import { COLUMN_MAP, geoKindOf, getFilteredStatusOptions } from "@/lib/columnCon
 import { GeoFlag, GeoSelect } from "@/components/GeoSelect";
 import { FadeText } from "@/components/FadeText";
 import { UserPicker } from "@/components/UserPicker";
+import { CustomerContactPicker } from "@/components/CustomerContactPicker";
 import { UnlinkedPersonMark } from "@/app/shipments/_components/UnlinkedPersonMark";
 import { formatDate } from "@/lib/date";
 import { statusLabel } from "@/lib/shipmentStatus";
@@ -33,6 +34,12 @@ function toInputISO(s: string): string {
  */
 export const TradeDirectionContext = createContext<string | undefined>(undefined);
 
+/**
+ * The Customer Database id of the customer of the shipment a page shows: a contact cell
+ * (Customer's PIC) inside it offers that customer's contacts. A grid passes it per row instead.
+ */
+export const ShipmentCustomerContext = createContext<string | null | undefined>(undefined);
+
 interface EditableCellProps {
   /** columnConfig key (e.g. "shippingLine") — decides text vs dropdown. */
   fieldKey: string;
@@ -52,6 +59,8 @@ interface EditableCellProps {
   displayStyle?: React.CSSProperties;
   /** The choices of a dropdown, when only some of the column's options are allowed here. */
   options?: string[];
+  /** The shipment's customer, for a contact column; defaults to ShipmentCustomerContext. */
+  customerId?: string | null;
 }
 
 export function EditableCell({
@@ -65,6 +74,7 @@ export function EditableCell({
   className,
   displayStyle,
   options: allowedOptions,
+  customerId: customerIdProp,
 }: EditableCellProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -79,6 +89,10 @@ export function EditableCell({
   const isDate = col?.type === "date";
   // People are picked from the company's users and kept by e-mail.
   const isUser = col?.type === "user";
+  // A customer's person is picked from that customer's saved contacts.
+  const isContact = col?.type === "contact";
+  const contextCustomerId = useContext(ShipmentCustomerContext);
+  const customerId = customerIdProp !== undefined ? customerIdProp : contextCustomerId;
   // Places and countries are picked from the location database.
   const geoKind = geoKindOf(col);
   const tradeDirection = useContext(TradeDirectionContext);
@@ -158,6 +172,30 @@ export function EditableCell({
             const next = personChange(original, email);
             if (next !== null) onCommit(fieldKey, next);
           }}
+          onBlur={() => setEditing(false)}
+        />
+      </div>
+    );
+  }
+
+  if (isContact) {
+    return (
+      <div
+        className={className}
+        onKeyDownCapture={(e) => {
+          if (e.key === "Escape") cancel();
+        }}
+      >
+        <CustomerContactPicker
+          size="small"
+          autoFocus
+          defaultOpen
+          className="w-full min-w-[200px]"
+          popupMatchSelectWidth={false}
+          aria-label={col?.title}
+          customerId={customerId}
+          value={original}
+          onChange={(name) => commit(name)}
           onBlur={() => setEditing(false)}
         />
       </div>
