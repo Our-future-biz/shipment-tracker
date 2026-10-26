@@ -128,6 +128,8 @@ export const truckingConsignmentTable = pgTable(
     index("trucking_consignment_shipment_idx").on(table.companyId, table.shipmentId),
     index("trucking_consignment_status_idx").on(table.companyId, table.status, table.pickupDate),
     index("trucking_consignment_trip_idx").on(table.tripId),
+    // A customer renamed in the Customer Database is written on its consignments (customerLinks).
+    index("trucking_consignment_customer_idx").on(table.companyId, table.customerId),
     // The trip table is declared below; the callback runs after the module has loaded.
     foreignKey({ name: "trucking_consignment_trip_fk", columns: [table.tripId], foreignColumns: [truckingTripTable.id] }).onDelete("restrict"),
     // One live consignment per quote it is priced from (decision 10); a cancelled one frees the quote.
@@ -218,6 +220,8 @@ export const truckingTripTable = pgTable(
     tenantIndex("trucking_trip", table),
     uniqueIndex("trucking_trip_ref_unique").on(table.companyId, table.ref),
     index("trucking_trip_status_idx").on(table.companyId, table.status, table.plannedPickupDate),
+    // A haulier's trips: its portal, and its rename in the Customer Database (customerLinks).
+    index("trucking_trip_haulier_idx").on(table.companyId, table.haulierCustomerId),
     check("trucking_trip_kind_check", sql`${table.kind} IN ('FTL', 'PICKUP_RUN', 'LINEHAUL', 'DELIVERY_RUN')`),
     check("trucking_trip_status_check", sql`${table.status} IN ('DRAFT', 'ORDERED', 'CONFIRMED', 'IN_TRANSIT', 'DONE', 'CANCELLED')`),
     check("trucking_trip_confirmed_via_check", sql`${table.confirmedVia} IS NULL OR ${table.confirmedVia} IN ('LINK', 'USER')`),

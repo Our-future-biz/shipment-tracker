@@ -46,7 +46,8 @@ import { publicFields } from "../lib/rows";
 import { changesTaxDate } from "../lib/taxDate";
 import { normalizeCargoDimensions, normalizeStops } from "../lib/roadFreight";
 import { partyContact, partyStop, stopKeys, type Party } from "../lib/partyAddress";
-import { shipmentDeleted } from "../topics";
+import { CONSIGNEE_CONTACT, CUSTOMER_PIC, SHIPPER_CONTACT, linkContact, type ContactMode } from "../lib/contactLinks";
+import { shipmentDeleted, shipmentPartiesChanged } from "../topics";
 import { companyUsers, matchUser, requireUserEmail, userEmailOf, type CompanyUser } from "../../../lib/companyUsers";
 import { PERSON_FIELDS, planPeopleNormalize, requireApprovedBy } from "../lib/people";
 
@@ -54,6 +55,38 @@ import { PERSON_FIELDS, planPeopleNormalize, requireApprovedBy } from "../lib/pe
 // and for the party fill after it.
 type LinkedCustomer = Awaited<ReturnType<typeof customers.customerGet>>["customer"];
 type LinkedCustomers = Partial<Record<"customerId" | "shipperId" | "consigneeId" | "principalPartyId", LinkedCustomer>>;
+
+// The contacts of the customers a write names, read at most once each per request: the party
+// fill and the contact links share them.
+type CustomerContacts = Awaited<ReturnType<typeof customers.contactList>>["data"];
+type ContactsOnce = (customerId: string) => Promise<CustomerContacts>;
+function contactsOnce(): ContactsOnce {
+  const read = new Map<string, Promise<CustomerContacts>>();
+  return (customerId) => {
+    let contacts = read.get(customerId);
+    if (!contacts) {
+      contacts = customers.contactList({ customerId }).then((r) => r.data);
+      read.set(customerId, contacts);
+    }
+    return contacts;
+  };
+}
+
+/**
+ * Links the contacts a write names to the Customer Database (lib/contactLinks linkContact): the
+ * Customer's PIC (`picMode`: refused or left out when it is no contact of the customer) and the
+ * Shipper / Consignee Contact (free text allowed). `pic: false` leaves the PIC for later.
+ */
+async function linkContacts(
+  data: Record<string, unknown>,
+  existing: ShipmentRecord | undefined,
+  contactsOf: ContactsOnce,
+  { picMode, pic = true }: { picMode: ContactMode; pic?: boolean },
+): Promise<void> {
+  await linkContact(data, existing, SHIPPER_CONTACT, contactsOf, "free");
+  await linkContact(data, existing, CONSIGNEE_CONTACT, contactsOf, "free");
+  if (pic) await linkContact(data, existing, CUSTOMER_PIC, contactsOf, picMode);
+}
 
 // Extra detail rows accepted alongside the shipment's own fields on create/update.
 export interface DetailRows {
@@ -388,36 +421,22 @@ async function checkPeople(data: Record<string, unknown>, users: UsersOnce, exis
   }
 }
 
-/** The name of the one contact of `contacts` that `value` names (any case); null when none does. */
-export function contactNamed(value: string, contacts: { name: string }[]): string | null {
-  const wanted = value.trim().toLowerCase();
-  return contacts.find((c) => c.name.trim().toLowerCase() === wanted)?.name ?? null;
-}
-
 /**
- * Customer's PIC is one of the contacts saved on the shipment's customer in the Customer Database,
- * stored by the contact's name, or nobody (""). A value the shipment already holds passes as it is.
- * An edit naming anything else is refused; on create (a shipment made from a quote or by another
- * service) a name that is no contact is left out rather than failing the whole shipment.
+ * The contact person a quote names becomes the Customer's PIC of the shipment made from it - by
+ * the contact's id when the quote keeps it - unless the request names another (or nobody).
  */
-async function checkCustomerPic(data: Record<string, unknown>, existing: ShipmentRecord | undefined, { strict }: { strict: boolean }): Promise<void> {
-  const value = data.customerPic;
-  if (typeof value !== "string") return;
-  if (existing && value.trim() === existing.customerPic.trim()) {
-    data.customerPic = existing.customerPic;
+function customerPicFromQuote(data: Record<string, unknown>, quoteData: unknown): void {
+  const quote = (quoteData && typeof quoteData === "object" ? quoteData : {}) as Record<string, unknown>;
+  const quoteName = typeof quote.customerContact === "string" ? quote.customerContact : "";
+  const quoteId = typeof quote.customerContactId === "string" ? quote.customerContactId : "";
+  if ("customerPicContactId" in data) return;
+  const sent = data.customerPic;
+  if (sent === undefined) {
+    if (quoteName) data.customerPic = quoteName;
+  } else if (typeof sent !== "string" || sent.trim().toLowerCase() !== quoteName.trim().toLowerCase()) {
     return;
   }
-  if (!value.trim()) {
-    data.customerPic = "";
-    return;
-  }
-  const customerId = "customerId" in data ? (data.customerId as string | null | undefined) : existing?.customerId;
-  const contacts = customerId ? (await customers.contactList({ customerId })).data : [];
-  const name = contactNamed(value, contacts);
-  if (name) data.customerPic = name;
-  else if (!strict) data.customerPic = "";
-  else if (!customerId) throw APIError.invalidArgument("Customer's PIC: link the shipment to a customer first, then pick one of its contacts");
-  else throw APIError.invalidArgument("Customer's PIC: pick a contact saved for this customer in the Customer Database");
+  if (quoteId) data.customerPicContactId = quoteId;
 }
 
 class ShipmentService {
@@ -631,19 +650,20 @@ class ShipmentService {
 
   /**
    * Customer links (customer, shipper, consignee, principal party) point at customers of the
-   * caller's company: an unknown id is refused and a blank one unlinks. The Principal Party
-   * also stores the customer's own name.
+   * caller's company: an unknown id is refused and a blank one unlinks (the name stays as free
+   * text). A linked party stores the customer's current name, whatever text came with the id, so
+   * name and id never disagree; later renames reach it through the customer-changed event.
    */
   private async resolveCustomerLinks(data: Partial<NewShipmentRecord>): Promise<LinkedCustomers> {
     const links = [
-      ["customerId", "customer"],
-      ["shipperId", "shipper"],
-      ["consigneeId", "consignee"],
-      ["principalPartyId", "principal party"],
+      ["customerId", "customer", "customer"],
+      ["shipperId", "shipper", "shipper"],
+      ["consigneeId", "consignee", "consignee"],
+      ["principalPartyId", "principalParty", "principal party"],
     ] as const;
     const linked: LinkedCustomers = {};
     await Promise.all(
-      links.map(async ([key, label]) => {
+      links.map(async ([key, nameKey, label]) => {
         if (!(key in data)) return;
         const id = data[key];
         if (!id) {
@@ -653,7 +673,7 @@ class ShipmentService {
         try {
           const { customer } = await customers.customerGet({ id });
           linked[key] = customer;
-          if (key === "principalPartyId") data.principalParty = customer.companyName;
+          data[nameKey] = customer.companyName;
         } catch (err) {
           if (err instanceof APIError && err.code === ErrCode.NotFound) {
             throw APIError.invalidArgument(`Unknown ${label}`);
@@ -669,35 +689,49 @@ class ShipmentService {
    * A shipper or consignee newly picked from the Customer Database fills its stop - the
    * shipper's pick-up, the consignee's delivery - from that customer's Pickup / Delivery
    * address, else its registered one, and its Contact (Customer Service, else Logistics
-   * Manager, else anyone). A write that sends the stop or the contact itself keeps that part,
-   * as does a customer with no address or no contact.
+   * Manager, else anyone) by name and id. A write that sends the stop or the contact itself keeps
+   * that part, as does a customer with no address or no contact.
    */
-  private async fillPartyStops(data: Partial<NewShipmentRecord>, linked: LinkedCustomers, existing?: ShipmentRecord): Promise<void> {
+  private async fillPartyStops(data: Partial<NewShipmentRecord>, linked: LinkedCustomers, contactsOf: ContactsOnce, existing?: ShipmentRecord): Promise<void> {
     const parties = [
-      ["shipper", "shipperId", "shipperContact"],
-      ["consignee", "consigneeId", "consigneeContact"],
-    ] as const satisfies readonly (readonly [Party, keyof ShipmentRecord, keyof ShipmentRecord])[];
+      ["shipper", "shipperId", "shipperContact", "shipperContactId"],
+      ["consignee", "consigneeId", "consigneeContact", "consigneeContactId"],
+    ] as const satisfies readonly (readonly [Party, keyof ShipmentRecord, keyof ShipmentRecord, keyof ShipmentRecord])[];
     const written: Record<string, unknown> = data;
     const sent = (key: string) => !!String(written[key] ?? "").trim();
     await Promise.all(
-      parties.map(async ([party, idKey, contactKey]) => {
+      parties.map(async ([party, idKey, contactKey, contactIdKey]) => {
         const id = data[idKey];
         const customer = linked[idKey];
         if (!id || !customer || id === existing?.[idKey]) return;
         const keys = stopKeys(party);
         const fillStop = !Object.values(keys).some(sent);
-        const fillContact = !sent(contactKey);
+        const fillContact = !sent(contactKey) && !sent(contactIdKey);
         if (!fillStop && !fillContact) return;
-        const [{ data: addresses }, { data: contacts }] = await Promise.all([
+        const [{ data: addresses }, contacts] = await Promise.all([
           fillStop ? customers.addressList({ customerId: id }) : { data: [] },
-          fillContact ? customers.contactList({ customerId: id }) : { data: [] },
+          fillContact ? contactsOf(id) : [],
         ]);
         const stop = fillStop ? partyStop(party, customer, addresses) : null;
         if (stop) for (const field of Object.keys(keys) as (keyof typeof keys)[]) written[keys[field]] = stop[field];
         const contact = partyContact(contacts);
-        if (contact) written[contactKey] = contact;
+        if (contact) {
+          written[contactKey] = contact.name.trim();
+          written[contactIdKey] = contact.id;
+        }
       }),
     );
+  }
+
+  // Tells the services that copied the shipment's Customer / Customer's PIC (the warehouse gate
+  // record, …) that either changed. The shipment is saved by then, so a failure is logged and the
+  // copy stays as it was until the next change.
+  private async tellParties(companyId: string, shipment: ShipmentRecord): Promise<void> {
+    try {
+      await shipmentPartiesChanged.publish({ companyId, shipmentId: shipment.id, customer: shipment.customer, customerPic: shipment.customerPic });
+    } catch (err) {
+      log.warn(err, "shipment parties change not published", { companyId, shipmentId: shipment.id });
+    }
   }
 
   /** The classified documents uploaded to one shipment, with their customs review. */
@@ -730,6 +764,7 @@ class ShipmentService {
     shipmentData: NewShipmentData,
     rows: DetailRows,
     users: UsersOnce,
+    contactsOf: ContactsOnce,
   ): Promise<CreatedShipment> {
     let quote;
     try {
@@ -739,6 +774,8 @@ class ShipmentService {
       throw err;
     }
     assertLinkable(quote);
+    customerPicFromQuote(shipmentData, quote.data);
+    await linkContact(shipmentData, undefined, CUSTOMER_PIC, contactsOf, "lenient");
     const reference = quote.quoteNumber;
     // Whoever owns the quote sold the shipment - unless the request names somebody itself.
     if (!(shipmentData.salesPerson ?? "").trim()) {
@@ -798,7 +835,6 @@ class ShipmentService {
     const shipmentData = sanitizeTypedFields({ ...rest, ...legacyInvoiceFields(commercialInvoices) });
     const users = usersOnce();
     await checkPeople(shipmentData, users);
-    await checkCustomerPic(shipmentData, undefined, { strict: false });
     // Who created it, by e-mail ("" when nobody can tell); when is the row's createdAt ("Created on").
     if (creatorUserId) shipmentData.createdBy = (await this.actorOf(creatorUserId)).trim();
     Object.assign(shipmentData, normalizeStops(shipmentData));
@@ -810,7 +846,12 @@ class ShipmentService {
     const stored: Record<string, unknown> = shipmentData;
     normalizeCustomsPriority(stored, (key) => stored[key] as string);
     const linked = await this.resolveCustomerLinks(shipmentData);
-    await this.fillPartyStops(shipmentData, linked);
+    const contactsOf = contactsOnce();
+    await this.fillPartyStops(shipmentData, linked, contactsOf);
+    const fromQuote = fromQuoteNumber?.trim();
+    // On create a Customer's PIC that is no contact of the customer is left out, not refused. One
+    // made from a quote is settled once the quote is read (it may name the contact).
+    await linkContacts(shipmentData, undefined, contactsOf, { picMode: "lenient", pic: !fromQuote });
     Object.assign(
       shipmentData,
       exportBolDefaults(shipmentData.tradeDirection ?? "", {
@@ -826,9 +867,8 @@ class ShipmentService {
       cfsDefault(shipmentData.hub, shipmentData.cfs),
     );
 
-    const fromQuote = fromQuoteNumber?.trim();
     if (fromQuote) {
-      return this.createFromQuote(companyId, fromQuote, allowSecondShipment === true, shipmentData, { containers, cargoItems, cargoDimensions, commercialInvoices }, users);
+      return this.createFromQuote(companyId, fromQuote, allowSecondShipment === true, shipmentData, { containers, cargoItems, cargoDimensions, commercialInvoices }, users, contactsOf);
     }
 
     // The Sales Number is stored trimmed: it is what a quote finds its shipments by.
@@ -865,7 +905,6 @@ class ShipmentService {
     const shipmentData: Partial<NewShipmentRecord> = sanitizeTypedFields({ ...rest, ...legacyInvoiceFields(commercialInvoices) });
     const users = usersOnce();
     await checkPeople(shipmentData, users, existing);
-    await checkCustomerPic(shipmentData, existing, { strict: true });
     Object.assign(shipmentData, normalizeStops(shipmentData, existing));
 
     // Up to "Paperwork Verified" the customs status follows the paperwork; only the steps
@@ -884,7 +923,10 @@ class ShipmentService {
       }
     }
     const linked = await this.resolveCustomerLinks(shipmentData);
-    await this.fillPartyStops(shipmentData, linked, existing);
+    const contactsOf = contactsOnce();
+    await this.fillPartyStops(shipmentData, linked, contactsOf, existing);
+    // An edit naming a Customer's PIC that is no contact of the customer is refused.
+    await linkContacts(shipmentData, existing, contactsOf, { picMode: "strict" });
 
     // ATA / ATD is the tax date; once the job is invoiced it is final (owner decision,
     // 14 Oct 2026) — correct it by crediting the invoice first. A trade-direction switch
@@ -969,9 +1011,7 @@ class ShipmentService {
 
     await this.syncDetailRows(id, companyId, { containers, cargoItems, cargoDimensions, commercialInvoices });
 
-    if (Object.keys(shipmentData).length > 0) {
-      await shipmentRepository.updateForCompany(id, companyId, shipmentData);
-    }
+    const updated = Object.keys(shipmentData).length > 0 ? await shipmentRepository.updateForCompany(id, companyId, shipmentData) : null;
     if (truck && plateTyped) {
       await shipmentRepository.setTruckPlate(companyId, truck, shipmentData.plateNumber ?? "");
     }
@@ -981,6 +1021,9 @@ class ShipmentService {
     await this.recalcCustomerRollups(newCustomerId, companyId);
     if (existing.customerId && existing.customerId !== newCustomerId) {
       await this.recalcCustomerRollups(existing.customerId, companyId);
+    }
+    if (updated && (updated.customer !== existing.customer || updated.customerPic !== existing.customerPic)) {
+      await this.tellParties(companyId, updated);
     }
 
     // A changed Sales Number takes the shipment from one quote and gives it to another: both

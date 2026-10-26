@@ -44,6 +44,8 @@ async function oneRegistered<T>(write: () => Promise<T>): Promise<T> {
   }
 }
 
+// A Registered address is also written to the customer's own seat columns, in the same
+// transaction (see lib/seat.ts): the repository's *WithSeat writes do that.
 class CustomerAddressService {
   async listByCustomer(customerId: string, companyId: string): Promise<AddressItem[]> {
     return (await customerAddressRepository.findByCustomer(customerId, companyId)).map(toAddressItem);
@@ -52,7 +54,7 @@ class CustomerAddressService {
   async create(companyId: string, customerId: string, input: AddressInput): Promise<AddressItem> {
     await customerService.requireLive(customerId, companyId);
     const row = await oneRegistered(() =>
-      customerAddressRepository.createForCompany(companyId, {
+      customerAddressRepository.createWithSeat(companyId, {
         customerId,
         label: "",
         ...addressValues(input),
@@ -63,13 +65,13 @@ class CustomerAddressService {
   }
 
   async update(id: string, companyId: string, input: Partial<AddressInput>): Promise<AddressItem> {
-    const row = await oneRegistered(() => customerAddressRepository.updateForCompany(id, companyId, addressValues(input)));
+    const row = await oneRegistered(() => customerAddressRepository.updateWithSeat(id, companyId, addressValues(input)));
     if (!row) throw APIError.notFound("Address not found");
     return toAddressItem(row);
   }
 
   async softDelete(id: string, companyId: string): Promise<void> {
-    if (!(await customerAddressRepository.softDeleteForCompany(id, companyId))) throw APIError.notFound("Address not found");
+    if (!(await customerAddressRepository.softDeleteWithSeat(id, companyId))) throw APIError.notFound("Address not found");
   }
 }
 

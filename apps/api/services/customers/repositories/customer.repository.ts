@@ -301,7 +301,18 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
       return customer;
     });
   }
+
+  /** Live customers of the company among `ids`: id, name and account type only. */
+  async refsByIds(companyId: string, ids: string[]): Promise<CustomerRefRow[]> {
+    if (!ids.length) return [];
+    return this.db
+      .select({ id: customerTable.id, companyName: customerTable.companyName, label: customerTable.label })
+      .from(customerTable)
+      .where(and(eq(customerTable.companyId, companyId), inArray(customerTable.id, ids), isNull(customerTable.deletedAt)));
+  }
 }
+
+export type CustomerRefRow = Pick<CustomerRecord, "id" | "companyName" | "label">;
 
 export type DeletedCustomerRow = Pick<
   CustomerRecord,

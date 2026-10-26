@@ -1,4 +1,6 @@
-import { APIError } from "encore.dev/api";
+import { APIError, ErrCode } from "encore.dev/api";
+import { customers } from "~encore/clients";
+import { isUuid } from "../../../lib/uuid";
 import { masterJobRepository } from "../repositories/masterJob.repository";
 import { masterJobContainerRepository } from "../repositories/masterJobContainer.repository";
 import { shipmentRepository } from "../repositories/shipment.repository";
@@ -82,6 +84,35 @@ function toMasterContainerLine(row: MasterJobContainerRecord): MasterJobContaine
   };
 }
 
+/**
+ * The MBL Shipper / Consignee point at customers of the caller's company: an unknown id is refused,
+ * a blank one unlinks (the name stays as free text), and a linked one stores the customer's current
+ * name whatever text came with it - later renames reach it through the customer-changed event.
+ */
+async function resolveParties(data: Record<string, unknown>): Promise<void> {
+  const parties = [
+    ["shipperId", "shipper", "shipper"],
+    ["consigneeId", "consignee", "consignee"],
+  ] as const;
+  await Promise.all(
+    parties.map(async ([key, nameKey, label]) => {
+      if (!(key in data)) return;
+      const id = data[key];
+      if (typeof id !== "string" || !id) {
+        data[key] = null;
+        return;
+      }
+      if (!isUuid(id)) throw APIError.invalidArgument(`Unknown ${label}`);
+      try {
+        data[nameKey] = (await customers.customerGet({ id })).customer.companyName;
+      } catch (err) {
+        if (err instanceof APIError && err.code === ErrCode.NotFound) throw APIError.invalidArgument(`Unknown ${label}`);
+        throw err;
+      }
+    }),
+  );
+}
+
 class MasterJobService {
   async list(companyId: string): Promise<MasterJobItem[]> {
     const rows = await masterJobRepository.listForCompany(companyId);
@@ -139,6 +170,7 @@ class MasterJobService {
       throw APIError.failedPrecondition(`Load Type is already ${existing.loadType} and can't be changed`);
     }
     const clean: Record<string, unknown> = { ...data };
+    await resolveParties(clean);
     for (const key of Object.keys(clean)) {
       if (!DATE_FIELDS.has(key)) continue;
       if (clean[key] === "") clean[key] = null;

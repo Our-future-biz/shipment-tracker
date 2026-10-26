@@ -133,3 +133,13 @@ export interface EmailTemplatesResponse {
 export interface EmailAddressesResponse {
   data: string[];
 }
+
+/** What a run of POST /sales/links/normalize did to the company's follow-up tasks. */
+export interface SalesLinksNormalizeResult {
+  /** Live tasks linked to a customer record. */
+  checked: number;
+  /** Tasks whose customer name was brought up to date. */
+  changed: number;
+  /** "customer": the name of a linked customer record that is deleted (the name stays), with how many tasks have it. */
+  unmatched: { field: string; value: string; count: number }[];
+}

@@ -20,11 +20,14 @@ export const SECTIONS: Section[] = [
 
 // Fields that belong to each section of a SalesQuoteData record. The sales owner is not one of
 // the customer's: who owns a quote does not change with whose customer details it takes, and a
-// duplicate belongs to whoever makes it, which the server sees to.
+// duplicate belongs to whoever makes it, which the server sees to. The contact person's link goes
+// with its name: copied from another quote it is checked against the customer's contacts first
+// (useQuoteCustomerFields withLiveContact).
 export const SECTION_FIELDS: Record<SectionKey, (keyof SalesQuoteData)[]> = {
   customer: [
     "customerName",
     "customerId",
+    "customerContactId",
     "customerContact",
     "customerEmail",
     "customerPhone",

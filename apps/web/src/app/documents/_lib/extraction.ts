@@ -3,6 +3,7 @@ import { CURRENCIES } from "@/lib/enums";
 import { extractContainerNumbers } from "@/lib/container";
 import { CONTAINER_TYPES, PACK_TYPES } from "@/lib/cargo";
 import { DROPDOWN_OPTIONS } from "@/lib/columnConfig";
+import { fold } from "@/lib/fold";
 
 export type Destination = "shipment" | "invoicing" | "quote" | "masterjob" | "customs" | "booking";
 export type InputMode = "file" | "text";
@@ -164,6 +165,126 @@ export function toShipmentUpdate(labelValues: Record<string, string>): controlle
     if (apiField && value) out[apiField] = value;
   }
   return out;
+}
+
+// ─── Shipper / consignee read off a document → Customer Database link ──
+
+/** A Customer Database customer a name read off a document may be. */
+export interface CustomerRef {
+  id: string;
+  companyName: string;
+}
+
+/** Shipper and consignee names with their Customer Database links, as a shipment or master job keeps them. */
+export interface PartyLinksHolder {
+  shipper?: string | null;
+  shipperId?: string | null;
+  consignee?: string | null;
+  consigneeId?: string | null;
+}
+
+type DocumentParty = "shipper" | "consignee";
+const PARTY_LINKS = [
+  ["shipper", "shipperId"],
+  ["consignee", "consigneeId"],
+] as const;
+
+const companyKey = (name: string) => fold(name).replace(/\s+/g, " ").trim();
+
+/** The same company name, case, diacritics and spacing aside. */
+export const sameCompany = (a: string, b: string): boolean => !!companyKey(a) && companyKey(a) === companyKey(b);
+
+/** The one customer among `found` whose company name `name` is exactly (case, diacritics and spacing aside), else null. */
+export function customerNamed(name: string, found: readonly CustomerRef[]): CustomerRef | null {
+  const same = found.filter((c) => sameCompany(c.companyName, name));
+  return same.length === 1 ? same[0]! : null;
+}
+
+/** Whether a party name written to `current` is the name of the customer that party is linked to already. */
+export function keepsPartyLink(party: DocumentParty, name: string | undefined, current: PartyLinksHolder | undefined): boolean {
+  const idKey = party === "shipper" ? "shipperId" : "consigneeId";
+  return !!name && !!current?.[idKey] && sameCompany(name, current[party] ?? "");
+}
+
+/**
+ * The Customer Database links that go with shipper and consignee names read off a document
+ * (`written`), on a record holding `current` (none for a new one). The name of the customer the
+ * party is linked to keeps the link (the server writes that customer's own name); a name that is
+ * a customer's (`matched`) links to that customer; any other name unlinks the party, so a rename
+ * of the customer it was linked to never overwrites what the document says.
+ */
+export function partyLinks(
+  written: { shipper?: string; consignee?: string },
+  current: PartyLinksHolder | undefined,
+  matched: Partial<Record<DocumentParty, CustomerRef | null>>,
+): { shipperId?: string | null; consigneeId?: string | null } {
+  const out: { shipperId?: string | null; consigneeId?: string | null } = {};
+  for (const [party, idKey] of PARTY_LINKS) {
+    const name = written[party]?.trim();
+    if (!name) continue;
+    const linkedId = current?.[idKey] || null;
+    const match = matched[party];
+    if (linkedId && keepsPartyLink(party, name, current)) out[idKey] = linkedId;
+    else if (match) out[idKey] = match.id;
+    else if (linkedId) out[idKey] = null;
+  }
+  return out;
+}
+
+// A shipment party's stop and Contact. Any part of a stop sent stops the server filling it, so the
+// address is enough when there is one (the other parts are not checked again).
+const PARTY_DETAILS = [
+  {
+    idKey: "shipperId",
+    address: "pickupAddress",
+    stop: ["pickupSiteId", "pickupPostcode", "pickupCountry", "shipperOpeningFrom", "shipperOpeningTo"],
+    contact: "shipperContact",
+    contactId: "shipperContactId",
+  },
+  {
+    idKey: "consigneeId",
+    address: "deliveryAddress",
+    stop: ["deliverySiteId", "deliveryPostcode", "deliveryCountry", "consigneeOpeningFrom", "consigneeOpeningTo"],
+    contact: "consigneeContact",
+    contactId: "consigneeContactId",
+  },
+] as const;
+type PartyDetail = (typeof PARTY_DETAILS)[number];
+type PartyDetailKey = PartyDetail["address"] | PartyDetail["stop"][number] | PartyDetail["contact"] | PartyDetail["contactId"];
+
+/** A shipment's shipper and consignee with their stops and Contacts, as a shipment item holds them. */
+export type ShipmentPartyDetails = PartyLinksHolder & Partial<Record<PartyDetailKey, string | null>>;
+
+/**
+ * What a document's party links (`links`, see partyLinks) must carry so the shipment keeps the stop
+ * and Contact it holds (`current`): the server fills both from a newly linked customer and clears a
+ * Contact linked to the customer a party leaves, and a document says nothing about either. A stop
+ * goes back as it is (its address alone when it has one), the Contact as text with no id (linked
+ * again when the new customer has a contact of that name, kept as typed otherwise). An empty stop
+ * or Contact is left to the server to fill.
+ */
+export function keptPartyDetails(
+  links: { shipperId?: string | null; consigneeId?: string | null },
+  current: ShipmentPartyDetails | undefined,
+): Partial<controllers.ShipmentUpdateRequest> {
+  if (!current) return {};
+  const out: Partial<Record<PartyDetailKey, string | null>> = {};
+  const filled = (key: PartyDetailKey) => !!String(current[key] ?? "").trim();
+  for (const party of PARTY_DETAILS) {
+    if (!(party.idKey in links)) continue;
+    const id = links[party.idKey] || null;
+    if (id === (current[party.idKey] || null)) continue;
+    // Only a new link fills the stop; an unlinked party leaves it alone.
+    if (id) {
+      const keys = filled(party.address) ? [party.address] : party.stop.filter(filled);
+      for (const key of keys) out[key] = current[key] ?? null;
+    }
+    if (filled(party.contact)) {
+      out[party.contact] = current[party.contact]!;
+      out[party.contactId] = null;
+    }
+  }
+  return out as Partial<controllers.ShipmentUpdateRequest>;
 }
 
 export function normalizeCurrency(raw?: string): string {

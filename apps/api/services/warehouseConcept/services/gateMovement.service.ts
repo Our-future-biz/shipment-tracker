@@ -815,6 +815,9 @@ class GateMovementService {
       });
     }
     await db.transaction(async (tx) => {
+      // The customer as stored now, under the row lock (one taken from the shipment since the load
+      // counts): the dock slots that show it follow the new one.
+      const customerBefore = patch.customer !== undefined ? (await gateMovementRepository.lockLive(tx, [id], companyId))[0]?.customer : undefined;
       if (directionChanged) {
         // First, under the row lock: still no stamp (one taken meanwhile refuses the change).
         const rebuilt = await gateMovementRepository.conditionalUpdate(
@@ -828,6 +831,7 @@ class GateMovementService {
         if (!rebuilt) throw APIError.failedPrecondition(DIRECTION_LOCKED);
       }
       await gateMovementRepository.update(id, companyId, patch, tx);
+      if (customerBefore !== undefined) await dockSlotRepository.followCustomer(tx, companyId, id, customerBefore, patch.customer!);
       if (customsChanged) await gateMovementRepository.conditionalUpdate(id, companyId, { releaseGates: setCustomsLineSql(customsLine(input.customsStatus!)) }, undefined, undefined, tx);
       if (clockEvents.length || linkEvents.length) await gateMovementRepository.appendEvents(id, companyId, [...linkEvents, ...clockEvents], tx);
       // Figures, customs mode / status, the received date or the operation type may change the

@@ -45,6 +45,9 @@ export function quoteToCreateRequest(quoteNumber: string, data: SalesQuoteData, 
   set("customer", data.customerName ?? "");
   set("customerId", data.customerId ?? "");
   set("customerPic", data.customerContact ?? "");
+  // The contact person the quote picked, by id: a contact renamed since is still the same person.
+  // A quote saved before contacts were linked has none; the server then matches the name.
+  if (data.customerContactId) out.customerPicContactId = data.customerContactId;
 
   // Direction drives the default status suffix ([IMP]/[EXP]).
   const direction = data.direction === "Export" ? "Export" : data.direction === "Import" ? "Import" : "";

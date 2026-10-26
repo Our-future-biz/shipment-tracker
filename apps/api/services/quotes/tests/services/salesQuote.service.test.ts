@@ -8,7 +8,7 @@ vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 vi.mock("~encore/clients", () => ({
   auth: { usersList: vi.fn() },
-  customers: { customerActivate: vi.fn() },
+  customers: { customerActivate: vi.fn(), _internalCustomerRefs: vi.fn() },
   fx: { fxRatesOn: vi.fn(), fxResolve: vi.fn() },
   shipments: { _internalShipmentsNamingQuote: vi.fn(), _internalShipmentsMoveQuote: vi.fn() },
   trucking: { truckingRate: vi.fn(), _internalTruckingMarginFloor: vi.fn() },
@@ -59,6 +59,7 @@ const fxResolve = vi.mocked(fx.fxResolve);
 const truckingRate = vi.mocked(trucking.truckingRate);
 const marginFloor = vi.mocked(trucking._internalTruckingMarginFloor);
 const customerActivate = vi.mocked(customers.customerActivate);
+const customerRefs = vi.mocked(customers._internalCustomerRefs);
 
 // 10 October 2026, noon in Prague.
 const NOW = new Date("2026-10-10T10:00:00.000Z");
@@ -1960,5 +1961,99 @@ describe("the warehouse inquiry of pieces of 12.5 t or more", () => {
 
   it("is a key only the server writes", () => {
     expect(PROTECTED_KEYS).toContain("warehouseInquiry");
+  });
+});
+
+describe("who a quote is for (the Customer Database)", () => {
+  const ACME = "6d1c3f0e-1a2b-4c3d-8e9f-000000000001";
+  const PETR = "7a000000-0000-4000-8000-000000000001";
+  const KAREL = "7a000000-0000-4000-8000-000000000003";
+  const PETR_NOW = { customerContactId: PETR, customerContact: "Petr Masák", customerEmail: "petr@acme.cz", customerPhone: "+420 601 000 001" };
+
+  beforeEach(() => {
+    customerRefs.mockResolvedValue({
+      customers: [{ id: ACME, companyName: "ACME Logistics s.r.o.", label: "KEY ACCOUNT" }],
+      contacts: [{ id: PETR, customerId: ACME, name: "Petr Masák", email: "petr@acme.cz", phone: "+420 601 000 001", isMain: true }],
+    });
+    repository.saveDocument.mockImplementation(async () => quote({ dataVersion: 4 }));
+    repository.createWithReference.mockImplementation(async (companyId, _prefix, pick, build) => {
+      const quoteNumber = pick([]);
+      return { ...quote(), ...build(quoteNumber), companyId, quoteNumber };
+    });
+  });
+
+  it("saves an open quote with the customer's current name and the picked contact's current details", async () => {
+    await salesQuoteService.save(martin, REF, { customerId: ACME, customerName: "ACME", customerContactId: PETR, customerContact: "Petr" }, 3);
+    expect(customerRefs).toHaveBeenCalledWith({ customerIds: [ACME] });
+    expect(repository.saveDocument.mock.calls[0]![2].data).toEqual({ customerId: ACME, customerName: "ACME Logistics s.r.o.", customerLabel: "KEY ACCOUNT", ...PETR_NOW });
+  });
+
+  it("refuses a contact that is not one of the quote's customer, and writes nothing", async () => {
+    await expect(salesQuoteService.save(martin, REF, { customerId: ACME, customerContactId: KAREL }, 3)).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(repository.saveDocument).not.toHaveBeenCalled();
+  });
+
+  it("saves as sent when the Customer Database cannot be read, but cannot accept a newly picked contact then", async () => {
+    customerRefs.mockRejectedValue(new Error("down"));
+    await salesQuoteService.save(martin, REF, { customerId: ACME, customerName: "ACME" }, 3);
+    expect(repository.saveDocument.mock.calls[0]![2].data).toEqual({ customerId: ACME, customerName: "ACME" });
+    await expect(salesQuoteService.save(martin, REF, { customerId: ACME, customerContactId: PETR }, 3)).rejects.toMatchObject({ code: "unavailable" });
+  });
+
+  it("asks nothing for a quote that names no customer record, or one that went out (kept as stored)", async () => {
+    await salesQuoteService.save(martin, REF, { customerName: "Typed s.r.o." }, 3);
+    stored = quote({ status: "quoted" });
+    await salesQuoteService.save(martin, REF, { customerId: ACME, customerContactId: KAREL }, 3);
+    expect(customerRefs).not.toHaveBeenCalled();
+    expect(repository.saveDocument).toHaveBeenCalledTimes(2);
+  });
+
+  it("creates a quote with the customer and the contact as the Customer Database has them", async () => {
+    const item = await salesQuoteService.create(martin, { customerId: ACME, customerName: "ACME", customerContactId: PETR });
+    expect(item.data).toMatchObject({ customerName: "ACME Logistics s.r.o.", customerLabel: "KEY ACCOUNT", ...PETR_NOW });
+    await expect(salesQuoteService.create(martin, { customerId: ACME, customerContactId: KAREL })).rejects.toMatchObject({ code: "invalid_argument" });
+  });
+
+  it("duplicates with the contact link of the quote it is copied from, even when the caller leaves it out", async () => {
+    stored = quote({ data: { reference: REF, customerId: ACME, customerContactId: PETR, customerContact: "Petr Masák" } });
+    const item = await salesQuoteService.duplicate(martin, REF, { customerId: ACME, customerContact: "Petr Masák" });
+    expect(item.data).toMatchObject(PETR_NOW);
+  });
+
+  // A sent quote revised with the document `data`: what the revision's document and the sent quote's write are.
+  async function revised(data: Record<string, unknown>) {
+    stored = quote({ status: "quoted", sentAt: SENT, firstSentAt: SENT, customerId: ACME, data: { reference: REF, quoteStatus: "quoted", ...data } });
+    let planned: ReturnType<Parameters<typeof salesQuoteRepository.revise>[3]> | undefined;
+    repository.revise.mockImplementation(async (_companyId, _quoteNumber, _prefix, plan) => {
+      planned = plan(stored!, [REF]);
+      return { quote: { ...stored!, ...columnsOf(planned.write.state) }, revision: { ...stored!, ...planned.row, quoteNumber: planned.reference } as SalesQuoteRecord };
+    });
+    await salesQuoteService.revise(martin, REF);
+    return planned!;
+  }
+
+  it("revises a sent quote into a revision that names the customer and the linked contact as they are now", async () => {
+    const planned = await revised({ customerId: ACME, customerName: "ACME", customerContactId: PETR, customerContact: "Petr", customerEmail: "old@acme.cz" });
+    expect(planned.row.data).toMatchObject({ customerName: "ACME Logistics s.r.o.", customerLabel: "KEY ACCOUNT", ...PETR_NOW });
+    // The quote that went out keeps what it was sent with.
+    expect(planned.write.document).toEqual({ replacedBy: `${REF}-R1` });
+  });
+
+  it("keeps a contact typed by hand - or never linked - through a revision: no name is guessed", async () => {
+    for (const link of [{ customerContactId: "" }, {}]) {
+      const planned = await revised({ customerId: ACME, customerName: "ACME", ...link, customerContact: "Petr", customerEmail: "old@acme.cz" });
+      expect(planned.row.data).toMatchObject({ customerName: "ACME Logistics s.r.o.", ...link, customerContact: "Petr", customerEmail: "old@acme.cz" });
+      if (!("customerContactId" in link)) expect(planned.row.data).not.toHaveProperty("customerContactId");
+    }
+  });
+
+  it("stores a contact the editor unlinked as typed by hand, and a later save that leaves the key out keeps it so", async () => {
+    stored = quote({ data: { reference: REF, customerId: ACME, customerContactId: PETR, customerContact: "Petr Masák", customerEmail: "petr@acme.cz" } });
+    await salesQuoteService.save(martin, REF, { customerId: ACME, customerContactId: null, customerContact: "Petr", customerEmail: "private@mail.cz" }, 3);
+    const unlinked = repository.saveDocument.mock.calls[0]![2].data;
+    expect(unlinked).toMatchObject({ customerContactId: "", customerContact: "Petr", customerEmail: "private@mail.cz" });
+    stored = quote({ data: { reference: REF, ...unlinked } });
+    await salesQuoteService.save(martin, REF, { customerId: ACME, customerContact: "Petr", customerEmail: "private@mail.cz" }, 3);
+    expect(repository.saveDocument.mock.calls[1]![2].data).toMatchObject({ customerContactId: "", customerContact: "Petr", customerEmail: "private@mail.cz" });
   });
 });

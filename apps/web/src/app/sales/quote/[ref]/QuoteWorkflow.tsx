@@ -52,8 +52,8 @@ import { useListKeys } from "@/hooks/useListKeys";
 import { asData, cargoReadyDay, computeTotals, computeCargo, documentBlock, fxNote, hasReefer, isContainerQuote, isWonRevision, reeferMissing, revisionRoot, stripProtected, withLineBasis, type QuoteTotals } from "../../_lib/salesQuote";
 import { PRINT_WINDOW_BLOCKED, exportClosesQuote } from "../../_lib/exportClose";
 import { ExportCloseDialog } from "../../_components/ExportCloseDialog";
-import { NO_CUSTOMER, changesCustomer, customerLinkFields, withCustomerUnit } from "../../_lib/quoteCustomer";
-import { useQuoteCustomerFields } from "@/hooks/useQuoteCustomerFields";
+import { NO_CUSTOMER, changesCustomer, contactFields, customerLinkFields, liveCustomerCopies, namedContact, withCustomerUnit } from "../../_lib/quoteCustomer";
+import { useQuoteCustomerFields, useQuoteCustomerLive } from "@/hooks/useQuoteCustomerFields";
 import { useUsers } from "@/hooks/useUsers";
 import { useQuoteListHref } from "../../_lib/quoteListHref";
 import { useQuoteOrigin } from "../../_lib/useQuoteOrigin";
@@ -79,6 +79,7 @@ import { AddToSellingDialog } from "./_components/AddToSellingDialog";
 import { RemoveBothDialog } from "./_components/RemoveBothDialog";
 import { buyingBasis, counterpartIndex, lineRemovals, newPairId, offerToSelling, pairedCopies, type LineRemoval, type LineSide } from "../../_lib/costPairs";
 import { CostLinesEditor } from "./_components/CostLinesEditor";
+import { QuoteContactField } from "./_components/QuoteContactField";
 import { QuoteRatesEditor } from "./_components/QuoteRatesEditor";
 import { LINE_TD_CLASS, LINE_TH_CLASS, LINE_TH_RIGHT_CLASS, LineBlock, LineBlockEmpty, LineTable } from "./_components/LineBlock";
 import { MiniButton, RemoveLineButton } from "./_components/QuoteButtons";
@@ -139,6 +140,8 @@ const FIELD_LABEL_CLASS = "shrink-0 text-[11px] font-bold text-slate-500 upperca
 
 // A small link out of the form, as on the customer page's cards.
 const SMALL_LINK_CLASS = `shrink-0 text-xs font-semibold whitespace-nowrap ${LINK_CLASS}`;
+// The tooltip of the e-mail and phone of a contact picked from the Customer Database.
+const CONTACT_FOLLOWS_TITLE = "From the contact in the Customer Database - change it there, or unlink the contact to type another";
 
 export function QuoteWorkflow() {
   const canSeeConcepts = useCanSeeConcepts();
@@ -164,7 +167,7 @@ export function QuoteWorkflow() {
   // Loading, autosave and everything about not losing or overwriting data live in the hook.
   // `draft` is the document being edited; `quote` is the quote as the server last returned it,
   // with everything the server owns - status, validity, owner - and what may be done with them.
-  const { draft, quote, change, act, load, reload, discard, save, saveNow, pending, reapply, dismissPending } = useSalesQuoteDraft(ref);
+  const { draft, quote, change, follow, act, load, reload, discard, save, syncedAt, saveNow, pending, reapply, dismissPending } = useSalesQuoteDraft(ref);
   const { deleteQuote } = useSalesQuotes();
   const exchange = useCurrentExchangeRates();
   const company = useCompanyDetails();
@@ -180,6 +183,10 @@ export function QuoteWorkflow() {
   // The one customer the quote is linked to, as the Customer Database has it now. The page never
   // loads the list of all customers: the Customer box asks the server for what is typed.
   const linkedCustomer = useCustomer(draft.customerId ?? null);
+  // The same customer and its contacts as the Customer Database has them now, read again when the
+  // page comes back into view: the contact person is picked from them, and an open quote's copies
+  // follow them (below).
+  const live = useQuoteCustomerLive(draft.customerId, syncedAt);
   const { terms } = useTermsConditions();
   // Sales Settings, where the templates are kept, is for managers and admins only.
   const { canManageSales } = useSalesPermissions();
@@ -440,6 +447,22 @@ export function QuoteWorkflow() {
     // Once as the quote opens; later changes of the cargo carry it themselves (set).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!quote]);
+  // "Everything must be linked" (owner, 26 Oct 2026): an open quote names its customer and contact
+  // person as the Customer Database names them now. A rename saved in another screen, tab or by a
+  // colleague shows here once the record is read again, and the link to a contact that was deleted
+  // ends (the name stays, as text). The server does the same to the stored quote. A closed quote
+  // keeps what it went out with.
+  useEffect(() => {
+    if (quote && !quoteClosed) follow(liveCustomerCopies(draft, live.customer, live.contactsFor));
+  }, [quote, quoteClosed, draft, live.customer, live.contactsFor, follow]);
+  // A save the server refused may be about a contact that is no longer the customer's: its
+  // contacts are read again, which ends such a link above and tries the save again.
+  const saveRefused = save.problem?.kind === "failed" ? save.problem : null;
+  const { reloadContacts } = live;
+  const contactLinked = !!draft.customerContactId;
+  useEffect(() => {
+    if (saveRefused && contactLinked) void reloadContacts();
+  }, [saveRefused, contactLinked, reloadContacts]);
   const printNow = () => {
     const blocked = printQuote(ref, draft, exchange, company, people);
     if (blocked) toast.error(blocked);
@@ -709,6 +732,30 @@ export function QuoteWorkflow() {
   // the quote carries is only text - which the Customer box cannot show as its value, so the way
   // to take such a name off the quote is here.
   let customerNote: ReactNode = null;
+  // A contact person picked from the customer's contacts, on a quote that follows them: what is
+  // shown comes from the Customer Database, and Unlink makes it text to be typed over.
+  // A typed name that is one of the contacts, beside an e-mail or phone that is not theirs, is not
+  // linked on its own (that would replace them): the link is offered here.
+  const offeredContact = draft.customerId && !quoteClosed ? namedContact(live.contacts, draft) : undefined;
+  let contactNote: ReactNode = null;
+  if (contactLinked && !quoteClosed) {
+    contactNote = (
+      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+        <span className="text-xs text-slate-500">The contact person, e-mail and phone follow the Customer Database</span>
+        <MiniButton onClick={() => set({ customerContactId: null })}>Unlink</MiniButton>
+      </div>
+    );
+  } else if (offeredContact && !offeredContact.keepsDetails) {
+    const { contact } = offeredContact;
+    contactNote = (
+      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+        <span className="text-xs text-slate-500">
+          {contact.name} is one of this customer&apos;s contacts - linking replaces the e-mail and phone with theirs
+        </span>
+        <MiniButton onClick={() => set(contactFields(contact))}>Link contact</MiniButton>
+      </div>
+    );
+  }
   if (draft.customerId) {
     const record = linkedCustomer.customer;
     customerNote = (
@@ -726,6 +773,14 @@ export function QuoteWorkflow() {
         )}
       </div>
     );
+    if (contactNote) {
+      customerNote = (
+        <div className="flex flex-col gap-1">
+          {customerNote}
+          {contactNote}
+        </div>
+      );
+    }
   } else if (draft.customerName) {
     customerNote = (
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
@@ -760,15 +815,41 @@ export function QuoteWorkflow() {
               />
             </InfoRow>
             <InfoRow label="Contact person">
-              <Input size="small" aria-label="Contact person" value={draft.customerContact ?? ""} onChange={(e) => set({ customerContact: e.target.value })} />
+              <QuoteContactField
+                name={draft.customerContact ?? ""}
+                contactId={draft.customerContactId}
+                email={draft.customerEmail}
+                phone={draft.customerPhone}
+                customerLinked={!!draft.customerId}
+                contacts={draft.customerId ? live.contacts : []}
+                onChange={set}
+              />
             </InfoRow>
           </div>
           <div className="min-w-0">
+            {/* A picked contact's e-mail and phone are the contact's: the server writes them from
+                the Customer Database with every save, so they are not typed over here. */}
             <InfoRow label="Email">
-              <Input size="small" aria-label="Email" value={draft.customerEmail ?? ""} onChange={(e) => set({ customerEmail: e.target.value })} />
+              <Input
+                size="small"
+                aria-label="Email"
+                value={draft.customerEmail ?? ""}
+                readOnly={contactLinked}
+                variant={contactLinked ? "filled" : undefined}
+                title={contactLinked ? CONTACT_FOLLOWS_TITLE : undefined}
+                onChange={(e) => set({ customerEmail: e.target.value })}
+              />
             </InfoRow>
             <InfoRow label="Phone">
-              <Input size="small" aria-label="Phone" value={draft.customerPhone ?? ""} onChange={(e) => set({ customerPhone: limitCzechPhone(e.target.value) })} />
+              <Input
+                size="small"
+                aria-label="Phone"
+                value={draft.customerPhone ?? ""}
+                readOnly={contactLinked}
+                variant={contactLinked ? "filled" : undefined}
+                title={contactLinked ? CONTACT_FOLLOWS_TITLE : undefined}
+                onChange={(e) => set({ customerPhone: limitCzechPhone(e.target.value) })}
+              />
             </InfoRow>
           </div>
         </div>

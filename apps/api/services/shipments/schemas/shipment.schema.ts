@@ -72,6 +72,9 @@ export const shipmentTable = pgTable(
     principalParty: text("principal_party").notNull().default(""),
     customer: text("customer").notNull().default(""),
     customerPic: text("customer_pic").notNull().default(""),
+    // The Customer Database contact the Customer's PIC names (customers service: no FK). The name
+    // above stays as text for search and export; it follows renames of this contact.
+    customerPicContactId: uuid("customer_pic_contact_id"),
     customerReference: text("customer_reference").notNull().default(""),
 
     // — Commercial Parties —
@@ -89,6 +92,10 @@ export const shipmentTable = pgTable(
     deliveryCountry: text("delivery_country"),
     shipperContact: text("shipper_contact").notNull().default(""),
     consigneeContact: text("consignee_contact").notNull().default(""),
+    // The contact of the shipper's / consignee's customer the Contact names, when it is one (a
+    // typed name of somebody not in the Customer Database has none). No FK: customers database.
+    shipperContactId: uuid("shipper_contact_id"),
+    consigneeContactId: uuid("consignee_contact_id"),
     shipperOpeningFrom: text("shipper_opening_from").notNull().default(""),
     shipperOpeningTo: text("shipper_opening_to").notNull().default(""),
     consigneeOpeningFrom: text("consignee_opening_from").notNull().default(""),
@@ -215,6 +222,13 @@ export const shipmentTable = pgTable(
       .on(table.companyId, table.jobNumber)
       .where(sql`deleted_at IS NULL`),
     index("shipment_customer_id_idx").on(table.customerId),
+    // The Customer Database's change events find the copies of a customer or contact by its id.
+    index("shipment_shipper_id_idx").on(table.companyId, table.shipperId),
+    index("shipment_consignee_id_idx").on(table.companyId, table.consigneeId),
+    index("shipment_principal_party_id_idx").on(table.companyId, table.principalPartyId),
+    index("shipment_customer_pic_contact_id_idx").on(table.companyId, table.customerPicContactId),
+    index("shipment_shipper_contact_id_idx").on(table.companyId, table.shipperContactId),
+    index("shipment_consignee_contact_id_idx").on(table.companyId, table.consigneeContactId),
     index("shipment_status_idx").on(table.status),
     index("shipment_master_job_id_idx").on(table.masterJobId),
     check("shipment_customs_priority_check", sql`${table.customsPriority} IN ('Standard', 'Urgent')`),

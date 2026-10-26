@@ -128,6 +128,8 @@ export interface ShipmentItem {
   principalParty: string;
   customer: string;
   customerPic: string;
+  /** The Customer Database contact the Customer's PIC is; null for none (or an old name not linked yet). */
+  customerPicContactId: string | null;
   customerReference: string;
 
   // Commercial parties
@@ -145,6 +147,10 @@ export interface ShipmentItem {
   deliveryCountry: string | null;
   shipperContact: string;
   consigneeContact: string;
+  /** The contact of the shipper's customer the Contact is; null for a typed name of somebody else. */
+  shipperContactId: string | null;
+  /** The contact of the consignee's customer the Contact is; null for a typed name of somebody else. */
+  consigneeContactId: string | null;
   shipperOpeningFrom: string;
   shipperOpeningTo: string;
   consigneeOpeningFrom: string;
@@ -651,4 +657,24 @@ export interface PeopleNormalizeResult {
   changed: number;
   /** The names left as they are, most frequent first: to be fixed by hand. */
   unmatched: UnmatchedPerson[];
+}
+
+/** A copied name the links backfill could not link to the Customer Database. */
+export interface UnmatchedLink {
+  /** Where it is: "customerPic", "shipperContact", "consigneeContact", or a party ("customer", "masterJob.shipper", …) whose customer is gone. */
+  field: string;
+  /** The name as stored. */
+  value: string;
+  /** How many shipments (or master jobs) hold it there. */
+  count: number;
+}
+
+/** What the links backfill did to the company's live shipments and master jobs. */
+export interface LinksNormalizeResult {
+  /** Values looked at: party names with a customer id, and contact names or ids. */
+  checked: number;
+  /** Values changed: names brought up to date and contacts linked. */
+  changed: number;
+  /** The names left as they are, most frequent first: to be linked by hand. */
+  unmatched: UnmatchedLink[];
 }

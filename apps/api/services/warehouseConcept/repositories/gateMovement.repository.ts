@@ -10,6 +10,15 @@ import { isUuid } from "../../../lib/uuid";
 // Gate rows come back with the linked warehouse reference (WCZ…) of their task.
 export type GateMovementRow = GateMovementRecord & { positionRef: string | null; shipmentId: string | null };
 
+/** A live gate record linked to a shipment (liveShipmentLinks). */
+export interface ShipmentLink {
+  id: string;
+  shipmentId: string;
+  jobNumber: string;
+  positionRef: string;
+  gateRef: string;
+}
+
 const liveRow = (companyId: string) =>
   and(eq(gateMovementTable.companyId, companyId), isNull(gateMovementTable.deletedAt));
 // The record with this id. An id out of a request that is not a uuid matches nothing (the
@@ -152,6 +161,41 @@ class GateMovementRepository {
       .where(and(eq(gateMovementTable.companyId, companyId), eq(gateMovementTable.warehouseTaskId, taskId)))
       .limit(1);
     return !!row;
+  }
+
+  // Live gate records whose live task is linked to the shipment (its Customer / Customer's PIC
+  // copies follow the shipment). Walk-ins and stand-alone positions have no shipment: never listed.
+  async liveIdsForShipment(tx: Tx | typeof db, shipmentId: string, companyId: string): Promise<string[]> {
+    if (!isUuid(shipmentId)) return [];
+    const rows = await tx
+      .select({ id: gateMovementTable.id })
+      .from(gateMovementTable)
+      .innerJoin(
+        warehouseTaskTable,
+        and(eq(warehouseTaskTable.id, gateMovementTable.warehouseTaskId), isNull(warehouseTaskTable.deletedAt)),
+      )
+      .where(and(liveRow(companyId), eq(warehouseTaskTable.shipmentId, shipmentId)));
+    return rows.map((r) => r.id);
+  }
+
+  // Live gate records linked to a shipment, with the shipment's id and what names the record to
+  // people (job number, position and gate ref) — for the links backfill and its report.
+  async liveShipmentLinks(companyId: string): Promise<ShipmentLink[]> {
+    const rows = await db
+      .select({
+        id: gateMovementTable.id,
+        shipmentId: warehouseTaskTable.shipmentId,
+        jobNumber: gateMovementTable.jobNumber,
+        positionRef: warehouseTaskTable.taskId,
+        gateRef: gateMovementTable.gateRef,
+      })
+      .from(gateMovementTable)
+      .innerJoin(
+        warehouseTaskTable,
+        and(eq(warehouseTaskTable.id, gateMovementTable.warehouseTaskId), isNull(warehouseTaskTable.deletedAt)),
+      )
+      .where(and(liveRow(companyId), isNotNull(warehouseTaskTable.shipmentId)));
+    return rows.filter((r): r is ShipmentLink => !!r.shipmentId);
   }
 
   // The live gate record of a task, if any.

@@ -96,3 +96,19 @@ describe("quote ↔ shipment stackable", () => {
     expect(data.packages?.map((p) => p.stackable)).toEqual([true, false]);
   });
 });
+
+describe("quote → shipment Customer's PIC", () => {
+  it("gives the shipment the quote's contact person with the contact's id", () => {
+    const data = { customerId: "k1", customerName: "Acme", customerContact: "Petr Masák", customerContactId: "c1" };
+    const req = quoteToCreateRequest("QCZ1", data, NO_RATES);
+    expect(req).toMatchObject({ customerId: "k1", customerPic: "Petr Masák", customerPicContactId: "c1" });
+  });
+
+  it("sends no contact id for a quote that keeps none", () => {
+    const req = quoteToCreateRequest("QCZ1", { customerId: "k1", customerContact: "Petr" }, NO_RATES);
+    expect(req.customerPic).toBe("Petr");
+    expect(req).not.toHaveProperty("customerPicContactId");
+    const cleared = quoteToCreateRequest("QCZ1", { customerContact: "Petr", customerContactId: null }, NO_RATES);
+    expect(cleared).not.toHaveProperty("customerPicContactId");
+  });
+});

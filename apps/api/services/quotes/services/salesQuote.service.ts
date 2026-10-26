@@ -26,6 +26,8 @@ import { salesQuoteRepository, type NewSalesQuote, type SalesQuoteFilter, type S
 import type { SalesQuoteRecord } from "../schemas/quote.schema";
 import { matchOwnerLabel } from "../utils/ownerMatch.utils";
 import { carryKeys, closedCarryKeys, isPlainObject, isWonRevision, newDocument } from "../utils/quoteDocument.utils";
+import { customerIdOf, linkForSave, refreshCopies, withRefresh } from "../utils/customerLinks.utils";
+import { tryCustomerRefs } from "../lib/customerRefs";
 import { approvedPricing, inquiryGateMessage, MAX_INQUIRY_NOTE, MAX_INQUIRY_PIECES, MAX_PRICE_PER_PIECE, MIN_REJECT_REASON, readInquiry } from "../utils/warehouseInquiry.utils";
 import { fxWriteFor, mayStampFx, type StoredFx } from "../lib/quoteFx";
 import { currenciesToResolve, formatMargin, marginGateMessage, roadMargin, roadMarginApplies, type MarginContext } from "../lib/roadMargin";
@@ -254,6 +256,18 @@ function pageOf(request: SalesQuoteListRequest): SalesQuotePage {
 
 const notFound = () => APIError.notFound("Quote not found");
 
+// A document as an editor sends it, with who it is for taken from the Customer Database as it is
+// now (linkForSave): the customer's name and account type by its id, and the picked contact
+// person (data.customerContactId) - which must be a contact of that customer - with their name,
+// e-mail and phone. `stored`: the document the quote had before, if any. Asked before any write.
+async function linkedDocument(data: Record<string, unknown>, stored: Record<string, unknown> | null): Promise<Record<string, unknown>> {
+  const customerId = customerIdOf(data);
+  const refs = customerId ? await tryCustomerRefs([customerId]) : null;
+  const linked = linkForSave(data, stored, refs);
+  if (!linked.ok) throw linked.code === "invalid" ? APIError.invalidArgument(linked.message) : APIError.unavailable(linked.message);
+  return linked.data;
+}
+
 // A won quote makes its customer Active. After the quote is written and outside its lock: the win stands
 // even when the customer cannot be updated, which is logged rather than undoing the user's change.
 async function activateCustomer(companyId: string, customerId: string | null): Promise<void> {
@@ -395,6 +409,7 @@ class SalesQuoteService {
   // A new quote. The reference is assigned here, inside the insert, so two people creating at
   // once get two different numbers: QCZ + today's business day + that day's sequence.
   async create(actor: Actor, fields: Record<string, unknown>): Promise<SalesQuoteItem> {
+    const document = await linkedDocument(fields, null);
     const at = new Date();
     const people = await companyPeople();
     const prefix = salesPrefix(businessDay(at));
@@ -402,7 +417,7 @@ class SalesQuoteService {
       actor.companyID,
       prefix,
       (existing) => formatReference(prefix, nextSequence(prefix, existing)),
-      newRow(contextOf(actor, at, people), fields),
+      newRow(contextOf(actor, at, people), document),
     );
     return toItem(quote, people.emails, actor, at, await marginsFor([quote], at));
   }
@@ -412,6 +427,9 @@ class SalesQuoteService {
   async duplicate(actor: Actor, quoteNumber: string, fields: Record<string, unknown>): Promise<SalesQuoteItem> {
     const source = await salesQuoteRepository.loadSales(actor.companyID, quoteNumber);
     if (!source) throw notFound();
+    // Judged against the quote it is copied from: a contact it is linked to stays linked, also when
+    // the caller does not send the link, and one deleted since is dropped instead of refused.
+    const document = await linkedDocument(fields, isPlainObject(source.data) ? source.data : {});
     // Variants always branch off the base, also when a variant is the one being duplicated.
     const base = baseReference(source.quoteNumber);
     const at = new Date();
@@ -420,7 +438,7 @@ class SalesQuoteService {
       actor.companyID,
       `${base}-`,
       (existing) => nextVariant(base, existing),
-      newRow(contextOf(actor, at, people), fields),
+      newRow(contextOf(actor, at, people), document),
     );
     return toItem(quote, people.emails, actor, at, await marginsFor([quote], at));
   }
@@ -438,11 +456,15 @@ class SalesQuoteService {
     // a save keeps the whole document as stored, whatever the editor sends. The version check
     // below makes this the status saved on. The revision of a Won quote stays open (isWonRevision).
     const closed = pricingClosed(stored);
-    const carry = closed ? closedCarryKeys(isPlainObject(stored.data) ? stored.data : {}, data) : carryKeys();
+    const storedData = isPlainObject(stored.data) ? stored.data : {};
+    const carry = closed ? closedCarryKeys(storedData, data) : carryKeys();
+    // An open quote names its customer and contact as the Customer Database has them now, so an
+    // editor's older copy cannot bring back a name that changed since it was loaded.
+    const document = closed ? data : await linkedDocument(data, storedData);
     const saved = await salesQuoteRepository.saveDocument(
       companyID,
       quoteNumber,
-      { data, carry },
+      { data: document, carry },
       { dataVersion: expectedDataVersion },
     );
     // Nothing was written: somebody saved, or deleted, the quote in this very moment.
@@ -510,6 +532,10 @@ class SalesQuoteService {
     const people = await companyPeople();
     const ctx = contextOf(actor, at, people);
     const root = revisionRoot(quoteNumber);
+    // A revision is an open quote again: it names its customer and contact as the Customer Database
+    // has them now, not as the quote recorded them when it was sent. Read before the lock.
+    const source = await salesQuoteRepository.loadSales(actor.companyID, quoteNumber);
+    const refs = source?.customerId ? await tryCustomerRefs([source.customerId]) : null;
     let won = false;
     const result = await salesQuoteRepository.revise(actor.companyID, quoteNumber, `${root}-R`, (quote, existing) => {
       if (expectedDataVersion !== undefined && expectedDataVersion !== quote.dataVersion) throw conflict();
@@ -518,7 +544,9 @@ class SalesQuoteService {
       const replaced = ruled(() => applyRevision(state, reference, ctx));
       const fresh = revisionOf(state, quote.quoteNumber, ctx);
       won = state.status === "won";
-      const fields = isPlainObject(quote.data) ? quote.data : {};
+      const recorded = isPlainObject(quote.data) ? quote.data : {};
+      // Only copies that are linked by id; a contact name is not guessed here (that is the backfill's).
+      const fields = refs && quote.customerId && quote.customerId === source?.customerId ? withRefresh(recorded, refreshCopies(recorded, refs, { linkByName: false })) : recorded;
       // The prices go with what they were given: the tariff pricing they came from and the
       // approval of their margin - the server's keys, which newDocument leaves out.
       const carried = ["roadPricing", "marginApproval", "warehouseInquiry"] as const;

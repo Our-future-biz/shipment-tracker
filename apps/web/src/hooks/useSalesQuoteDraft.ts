@@ -8,6 +8,7 @@ import type { interfaces } from "@/lib/api/client";
 import type { SalesQuoteData } from "@/app/sales/_lib/types";
 import { asData, followStored, unsavedChanges } from "@/app/sales/_lib/salesQuote";
 import { quoteProblem, type QuoteProblem } from "@/app/sales/_lib/quoteProblem";
+import { customerCopiesUnsaved, followStoredCustomer } from "@/app/sales/_lib/quoteCustomer";
 import { invalidateQuoteLists } from "./useSalesQuotes";
 import { salesQuoteKeys } from "@/hooks/salesQueryKeys";
 
@@ -59,6 +60,10 @@ export function useSalesQuoteDraft(ref: string) {
   const [quote, setQuote] = useState<interfaces.SalesQuoteItem | null>(null);
   const [save, setSave] = useState<QuoteSaveState>(SAVED);
   const [savedAt, setSavedAt] = useState("");
+  // When (this browser's clock, ms) the page last had the quote from the server: loaded, saved or
+  // changed by an action. What was read of the Customer Database before then is older than the
+  // quote's own copies of it (useQuoteCustomerLive).
+  const [syncedAt, setSyncedAt] = useState(0);
   // Changes kept aside when the latest version was loaded after a conflict, to re-apply on top.
   const [pending, setPending] = useState<Partial<SalesQuoteData> | null>(null);
 
@@ -66,8 +71,11 @@ export function useSalesQuoteDraft(ref: string) {
   // request that finishes after the page was left need the latest values, not those of a past render.
   const session = useRef({
     draft: {} as SalesQuoteData,
-    // The stored document the draft is based on, as the server last returned it.
+    // The stored document the draft is based on, as the server last returned it, with the copies
+    // the page followed from the Customer Database since (follow).
     base: {} as SalesQuoteData,
+    // The stored document exactly as the server last returned it, without those followed copies.
+    stored: {} as SalesQuoteData,
     // dataVersion of the stored document the draft is based on, sent with every save as
     // expectedDataVersion. Null while no quote is loaded.
     version: null as number | null,
@@ -110,11 +118,13 @@ export function useSalesQuoteDraft(ref: string) {
         const s = session.current;
         s.draft = asData(res.quote.data);
         s.base = s.draft;
+        s.stored = s.draft;
         s.version = res.quote.dataVersion;
         queryClient.setQueryData(salesQuoteKeys.one(ref), res);
         setDraft(s.draft);
         setQuote(res.quote);
         setSavedAt(res.quote.updatedAt);
+        setSyncedAt(Date.now());
         setLoad({ status: "ready" });
       },
       (err) => {
@@ -150,18 +160,24 @@ export function useSalesQuoteDraft(ref: string) {
   // draft is not edited by that: nothing is marked unsaved, and what the user typed stays.
   // The lists of quotes are marked out of date; they are read again at once only after an action
   // (`refetchLists`), not after every autosave - that would reload them with each pause in typing.
+  // `sent`: the draft the answer is for (a save's), when it is not the document last returned.
   const adopt = useCallback(
-    (stored: interfaces.SalesQuoteItem, { refetchLists = false } = {}) => {
+    (stored: interfaces.SalesQuoteItem, { refetchLists = false, sent }: { refetchLists?: boolean; sent?: SalesQuoteData } = {}) => {
       const s = session.current;
       const data = asData(stored.data);
+      const seen = sent ?? s.base;
       s.base = data;
+      s.stored = data;
       // A quote whose prices are closed keeps them as stored, on every save: the draft follows
-      // them too, so the page never shows prices the quote does not hold.
-      const next = followStored(s.draft, data, stored.status);
+      // them too, so the page never shows prices the quote does not hold. Who the quote is for is
+      // taken as stored as well - the server names an open quote's customer and contact person as
+      // the Customer Database has them - unless the user has changed it since.
+      const next = followStoredCustomer(followStored(s.draft, data, stored.status), seen, data);
       s.draft = next;
       setDraft(next);
       setQuote(stored);
       setSavedAt(stored.updatedAt);
+      setSyncedAt(Date.now());
       queryClient.setQueryData(salesQuoteKeys.one(ref), { quote: stored });
       if (refetchLists) invalidateQuoteLists(queryClient);
       else invalidateQuoteLists(queryClient, { refetchType: "none" });
@@ -182,7 +198,7 @@ export function useSalesQuoteDraft(ref: string) {
         const res = await clientForBody(body).quotes.salesQuoteSave(ref, body);
         s.version = res.quote.dataVersion;
         s.savedRevision = revision;
-        adopt(res.quote);
+        adopt(res.quote, { sent: body.data });
         show({ status: s.revision === revision ? "saved" : "unsaved", problem: null });
       } catch (err) {
         const problem = quoteProblem(err);
@@ -248,6 +264,26 @@ export function useSalesQuoteDraft(ref: string) {
   // A refusal is announced here as for autosave, which leaves the caller only success to report.
   const saveNow = useCallback(() => flush().then(announce), [flush, announce]);
 
+  // Copies the server keeps in step with the Customer Database by itself (who an open quote is
+  // for: the customer's name and account type, the linked contact's name, e-mail and phone, or the
+  // end of a link to a contact that is gone), taken into the draft as they are now. Not an edit:
+  // opening a quote sends nothing for them alone - the server rewrites the stored copies when the
+  // Customer Database announces the change, and every save takes them again - and they are no
+  // change of the user's to re-apply after a conflict. An action saves them first (`act`): sending
+  // freezes the quote as stored, which must not be older than the page. A save that was refused is
+  // tried again with them: the refusal may have been about that contact.
+  const follow = useCallback(
+    (patch: Partial<SalesQuoteData>) => {
+      const s = session.current;
+      if (s.version === null || !Object.keys(patch).length) return;
+      s.draft = { ...s.draft, ...patch };
+      s.base = { ...s.base, ...patch };
+      setDraft(s.draft);
+      if (s.save.problem?.kind === "failed" && s.revision !== s.savedRevision) flush().then(announce);
+    },
+    [flush, announce],
+  );
+
   // The one way the page changes what the server owns of the quote: `run` asks the endpoint for
   // it. What was typed is saved first, so the server decides on the quote the user is looking at,
   // and a save that is refused stops the action. Resolves with why the quote was not changed -
@@ -264,6 +300,11 @@ export function useSalesQuoteDraft(ref: string) {
       enqueue(async (): Promise<string | null> => {
         const s = session.current;
         stopTimer();
+        // Followed copies the stored quote may not hold yet go out like a change - unless a
+        // conflict stops every save, which refuses the action below anyway.
+        if (s.revision === s.savedRevision && s.save.problem?.kind !== "conflict" && customerCopiesUnsaved(s.draft, s.stored)) {
+          s.revision += 1;
+        }
         const saved = await send();
         // Being loaded again ("Load latest version"): there is no quote on the page to act on.
         if (s.version === null) return "the quote is being loaded again";
@@ -377,5 +418,5 @@ export function useSalesQuoteDraft(ref: string) {
     };
   }, [ref, flush, message, queryClient]);
 
-  return { draft, quote, change, act, load, reload, discard, save, savedAt, saveNow, pending, reapply, dismissPending };
+  return { draft, quote, change, follow, act, load, reload, discard, save, savedAt, syncedAt, saveNow, pending, reapply, dismissPending };
 }

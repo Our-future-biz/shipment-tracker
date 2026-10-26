@@ -562,7 +562,8 @@ export const ShipmentsTable = ({
             value={val}
             options={col.key === "status" ? getFilteredStatusOptions(record.tradeDirection) : undefined}
             customerId={record.customerId ?? null}
-            onCommit={(fieldKey, value) => updateField(record.id, fieldKey, value, record)}
+            contactId={record.customerPicContactId ?? null}
+            onCommit={(fieldKey, value, links) => updateField(record.id, fieldKey, value, record, links)}
             placeholder={"\u2014"}
             displayClassName="text-slate-600"
             emptyClassName="text-slate-300"

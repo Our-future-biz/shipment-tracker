@@ -7,7 +7,7 @@ import type { CustomerItem, CustomerLabel, CustomerRole, CustomerStatus, RiskLev
 // The rollups (totalRevenue, totalProfit, totalShipments, lastActivityDate) are not here:
 // they are computed from shipments and written only through customerRollupsUpdate.
 // Nor is the registered address: it lives in the customer's Registered address (the
-// addresses endpoints); the copy on the customer comes from the registry when it is created.
+// addresses endpoints), and the copy on the customer follows it (lib/seat.ts).
 interface CustomerUpdateRequest {
   id: string;
   companyName?: string & MinLen<1> & MaxLen<300>;

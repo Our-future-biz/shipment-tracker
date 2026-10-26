@@ -1,0 +1,2 @@
+CREATE INDEX IF NOT EXISTS "trucking_consignment_customer_idx" ON "trucking_consignment" USING btree ("company_id","customer_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "trucking_trip_haulier_idx" ON "trucking_trip" USING btree ("company_id","haulier_customer_id");

@@ -15,6 +15,7 @@ import { UnlinkedPersonMark } from "@/app/shipments/_components/UnlinkedPersonMa
 import { formatDate } from "@/lib/date";
 import { statusLabel } from "@/lib/shipmentStatus";
 import { personChange, splitPersonStamp } from "@/app/shipments/_lib/personFields";
+import { contactLinks, type ContactLinks } from "@/app/shipments/_lib/parties";
 
 // Dates are stored as ISO "YYYY-MM-DD" (matches the native date input).
 // Still tolerate legacy "MM/DD/YY" values for display prefill.
@@ -36,9 +37,14 @@ function toInputISO(s: string): string {
  */
 export const TradeDirectionContext = createContext<string | undefined>(undefined);
 
-/** The customer's Contacts tab with this contact picked out (?contact= is its name). */
-export const customerContactHref = (customerId: string, name: string) =>
-  `/customers/${customerId}?tab=contacts&contact=${encodeURIComponent(name.trim())}`;
+/**
+ * The customer's Contacts tab with this contact picked out: by its id (?contactId=), or by its
+ * name (?contact=) for a value stored before ids were kept.
+ */
+export const customerContactHref = (customerId: string, name: string, contactId?: string | null) =>
+  contactId
+    ? `/customers/${customerId}?tab=contacts&contactId=${encodeURIComponent(contactId)}`
+    : `/customers/${customerId}?tab=contacts&contact=${encodeURIComponent(name.trim())}`;
 
 /**
  * The Customer Database id of the customer of the shipment a page shows: a contact cell
@@ -46,11 +52,15 @@ export const customerContactHref = (customerId: string, name: string) =>
  */
 export const ShipmentCustomerContext = createContext<string | null | undefined>(undefined);
 
+/** The id of the contact the Customer's PIC of the shipment a page shows is; a grid passes it per row. */
+export const ShipmentCustomerPicContext = createContext<string | null | undefined>(undefined);
+
 interface EditableCellProps {
   /** columnConfig key (e.g. "shippingLine") — decides text vs dropdown. */
   fieldKey: string;
   value?: string | null;
-  onCommit: (fieldKey: string, value: string) => void;
+  /** `links` come with a picked contact: its id, under the field that keeps it (customerPicContactId). */
+  onCommit: (fieldKey: string, value: string, links?: ContactLinks) => void;
   /** Render a multi-line textarea (used by address blocks). */
   multiline?: boolean;
   /** Text shown when the value is empty. */
@@ -67,6 +77,8 @@ interface EditableCellProps {
   options?: string[];
   /** The shipment's customer, for a contact column; defaults to ShipmentCustomerContext. */
   customerId?: string | null;
+  /** The stored contact's id, for a contact column; defaults to ShipmentCustomerPicContext. */
+  contactId?: string | null;
 }
 
 export function EditableCell({
@@ -81,6 +93,7 @@ export function EditableCell({
   displayStyle,
   options: allowedOptions,
   customerId: customerIdProp,
+  contactId: contactIdProp,
 }: EditableCellProps) {
   const [editing, setEditing] = useState(false);
   // A contact cell stays open while its Add contact dialog is (the dialog takes the focus).
@@ -101,6 +114,8 @@ export function EditableCell({
   const isContact = col?.type === "contact";
   const contextCustomerId = useContext(ShipmentCustomerContext);
   const customerId = customerIdProp !== undefined ? customerIdProp : contextCustomerId;
+  const contextContactId = useContext(ShipmentCustomerPicContext);
+  const contactId = (contactIdProp !== undefined ? contactIdProp : contextContactId) ?? null;
   // Places and countries are picked from the location database.
   const geoKind = geoKindOf(col);
   const tradeDirection = useContext(TradeDirectionContext);
@@ -120,6 +135,12 @@ export function EditableCell({
   const commit = (next: string) => {
     setEditing(false);
     if (next !== original) onCommit(fieldKey, next);
+  };
+
+  // A contact is the person picked: the same name of another contact is a change too.
+  const commitContact = (name: string, pickedId: string | null) => {
+    setEditing(false);
+    if (name !== original || pickedId !== contactId) onCommit(fieldKey, name, contactLinks(fieldKey, pickedId));
   };
 
   const cancel = () => {
@@ -150,9 +171,9 @@ export function EditableCell({
           // It is also a link to the contact in the Customer Database: a click opens it, a
           // double click changes the contact (as on every other cell).
           isContact && hasValue && customerId ? (
-            <ContactHoverCard name={original} customerId={customerId}>
+            <ContactHoverCard name={original} contactId={contactId} customerId={customerId}>
               <EditableLink
-                href={customerContactHref(customerId, original)}
+                href={customerContactHref(customerId, original, contactId)}
                 onEdit={startEditing}
                 // The same look as the Customer link beside it (CustomerCell).
                 className="block min-w-0 text-indigo-500 hover:underline font-medium"
@@ -220,7 +241,8 @@ export function EditableCell({
           aria-label={col?.title}
           customerId={customerId}
           value={original}
-          onChange={(name) => commit(name)}
+          contactId={contactId}
+          onChange={commitContact}
           onAddingChange={(adding) => {
             setAddingContact(adding);
             if (!adding) setEditing(false);

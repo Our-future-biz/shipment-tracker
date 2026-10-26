@@ -110,6 +110,24 @@ export interface HaulierCompanyItem {
   country: string;
 }
 
+/** A customer as another service links to it: id, current name and account type. */
+export interface CustomerRef {
+  id: string;
+  companyName: string;
+  label: CustomerLabel;
+}
+
+/** A contact person as another service links to it. */
+export interface CustomerContactRef {
+  id: string;
+  customerId: string;
+  /** "First Last". */
+  name: string;
+  email: string;
+  phone: string;
+  isMain: boolean;
+}
+
 export interface ContactItem {
   id: string;
   customerId: string;
@@ -276,5 +294,15 @@ export interface CustomerPeopleNormalizeResult {
   /** Rows whose person is now recorded by a user's e-mail (a customer's owner also linked to that user). */
   changed: number;
   /** Values left as they are, with how many rows have each: they name no single user of the company. */
+  unmatched: { field: string; value: string; count: number }[];
+}
+
+/** What a run of POST /customers/seats/normalize did to the company's live customers. */
+export interface CustomerSeatNormalizeResult {
+  /** Live customers looked at. */
+  checked: number;
+  /** Customers whose registered address, city or country now match their Registered address. */
+  changed: number;
+  /** Customers without a Registered address (field "registeredAddress", value the company name): left as they are. */
   unmatched: { field: string; value: string; count: number }[];
 }

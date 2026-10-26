@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Modal, Spin } from "antd";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCustomerContacts } from "@/hooks/useCustomerContacts";
+import { findContact, useCustomerContacts } from "@/hooks/useCustomerContacts";
 import { FadeText } from "@/components/FadeText";
 import { useSingleOrDouble } from "@/components/EditableLink";
 
@@ -14,9 +14,20 @@ const DASH = <span className="text-slate-300">—</span>;
 // The contact person of a shipment party (Shipper / Consignee), shown as a link. Clicking it
 // opens the whole contact as saved on that party's customer record: role, e-mail, phone.
 // It is only a preview: nothing leads away to the customer database.
-// The shipment keeps only the name, so the contact is found by it among the customer's contacts.
+// The contact is found among the customer's contacts by the id the shipment keeps, else (a contact
+// typed or stored before ids were kept) by its name; the preview shows its current name.
 // With `onEdit`, a double click changes the contact instead (a click still opens the preview).
-export function PartyContactLink({ name, customerId, onEdit }: { name: string; customerId: string; onEdit?: () => void }) {
+export function PartyContactLink({
+  name,
+  contactId,
+  customerId,
+  onEdit,
+}: {
+  name: string;
+  contactId?: string | null;
+  customerId: string;
+  onEdit?: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const clicks = useSingleOrDouble({ onSingle: () => setOpen(true), onDouble: () => onEdit?.() });
 
@@ -24,7 +35,7 @@ export function PartyContactLink({ name, customerId, onEdit }: { name: string; c
   const { contacts, isLoading } = useCustomerContacts(open ? customerId : "");
   // The hook has no error flag; its query state tells whether loading failed.
   const isError = useQueryClient().getQueryState(["customer-contacts", customerId])?.status === "error";
-  const contact = contacts.find((c) => c.name.trim().toLowerCase() === name.trim().toLowerCase());
+  const contact = findContact(contacts, contactId, name);
 
   return (
     <>
@@ -57,7 +68,7 @@ export function PartyContactLink({ name, customerId, onEdit }: { name: string; c
                 </thead>
                 <tbody>
                   <tr>
-                    <td className={TD}>{name}</td>
+                    <td className={TD}>{contact?.name || name}</td>
                     <td className={TD}>{contact?.role || DASH}</td>
                     <td className={TD}>
                       {contact?.email ? (

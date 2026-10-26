@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { partyUpdate, type PartyField } from "@/app/shipments/_lib/parties";
+import { contactUpdate, partyUpdate, type ContactField, type ContactLinks, type PartyField } from "@/app/shipments/_lib/parties";
 import { useQueryClient } from "@tanstack/react-query";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Badge, Spin, Dropdown, Modal, Tag, Drawer, Tooltip, Select, TimePicker, Button } from "antd";
@@ -54,7 +54,7 @@ import { NotificationsTab } from "./tabs/NotificationsTab";
 import { useShipmentAlerts } from "@/hooks/useShipmentAlerts";
 import { WarehouseTab } from "./tabs/WarehouseTab";
 import { CustomsTab } from "./tabs/CustomsTab";
-import { EditableCell, ShipmentCustomerContext, TradeDirectionContext } from "./_components/EditableCell";
+import { EditableCell, ShipmentCustomerContext, ShipmentCustomerPicContext, TradeDirectionContext } from "./_components/EditableCell";
 import { FadeText } from "@/components/FadeText";
 import { CustomerLinkField } from "./_components/CustomerLinkField";
 import { PartyContactField } from "./_components/PartyContactField";
@@ -68,7 +68,8 @@ import { AttachmentsPanel } from "../_components/AttachmentsPanel";
 import { NotesDrawer } from "../_components/NotesDrawer";
 import { CommercialInvoicesModal } from "../_components/CommercialInvoicesModal";
 
-export type CommitFn = (fieldKey: string, value: string) => void;
+/** `links` go with a value that names a record: a picked contact's id. */
+export type CommitFn = (fieldKey: string, value: string, links?: ContactLinks) => void;
 
 /* ── Tabs ── */
 const TABS = [
@@ -1052,16 +1053,16 @@ export function ShipmentDetailContent() {
   }
 
   // The shipment goes along: it need not be among the rows the list hook knows.
-  const handleCommit: CommitFn = (fieldKey, value) => updateField(shipment.id, fieldKey, value, shipment);
+  const handleCommit: CommitFn = (fieldKey, value, links) => updateField(shipment.id, fieldKey, value, shipment, links);
 
   // Update a party's name + its CRM customer link together.
   const linkParty = (party: PartyField, name: string, customerId: string | null) => {
     updateShipment({ id: shipment.id, data: partyUpdate(party, name, customerId) });
   };
 
-  // Persist a field that isn't part of the shipments table's column config.
-  const commitDirect: CommitFn = (fieldKey, value) =>
-    updateShipment({ id: shipment.id, data: { [fieldKey]: value } as controllers.ShipmentUpdateRequest });
+  // A shipper's or consignee's Contact: its name with the contact's id (null for one typed by hand).
+  const commitContact = (field: ContactField, name: string, contactId: string | null) =>
+    updateShipment({ id: shipment.id, data: contactUpdate(field, name, contactId) });
 
   const styleFor = makeStyleFor(shipment);
   const status = shipment.status ?? "";
@@ -1445,7 +1446,7 @@ export function ShipmentDetailContent() {
                       <CustomerLinkField label="Shipper" name={shipment.shipper} customerId={shipment.shipperId} onChange={(n, id) => linkParty("shipper", n, id)} />
                     ),
                     shipperContact: (
-                      <PartyContactField label="Contact" fieldKey="shipperContact" value={shipment.shipperContact} customerId={shipment.shipperId} onCommit={commitDirect} />
+                      <PartyContactField label="Contact" value={shipment.shipperContact} contactId={shipment.shipperContactId} customerId={shipment.shipperId} onChange={(n, id) => commitContact("shipperContact", n, id)} />
                     ),
                     shipperOpening: (
                       <OpeningHoursRow
@@ -1458,7 +1459,7 @@ export function ShipmentDetailContent() {
                       <CustomerLinkField label="Consignee" name={shipment.consignee} customerId={shipment.consigneeId} onChange={(n, id) => linkParty("consignee", n, id)} />
                     ),
                     consigneeContact: (
-                      <PartyContactField label="Contact" fieldKey="consigneeContact" value={shipment.consigneeContact} customerId={shipment.consigneeId} onCommit={commitDirect} />
+                      <PartyContactField label="Contact" value={shipment.consigneeContact} contactId={shipment.consigneeContactId} customerId={shipment.consigneeId} onChange={(n, id) => commitContact("consigneeContact", n, id)} />
                     ),
                     consigneeOpening: (
                       <OpeningHoursRow
@@ -1816,7 +1817,9 @@ export function ShipmentDetailContent() {
   );
   return (
     <TradeDirectionContext.Provider value={shipment.tradeDirection ?? undefined}>
-      <ShipmentCustomerContext.Provider value={shipment.customerId ?? null}>{page}</ShipmentCustomerContext.Provider>
+      <ShipmentCustomerContext.Provider value={shipment.customerId ?? null}>
+        <ShipmentCustomerPicContext.Provider value={shipment.customerPicContactId ?? null}>{page}</ShipmentCustomerPicContext.Provider>
+      </ShipmentCustomerContext.Provider>
     </TradeDirectionContext.Provider>
   );
 }

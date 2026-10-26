@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { date, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { date, index, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 // A master job is one master bill of lading (MBL) with the house shipments
@@ -66,6 +66,9 @@ export const masterJobTable = pgTable(
     uniqueIndex("master_job_company_mcz_unique")
       .on(table.companyId, table.mczNumber)
       .where(sql`deleted_at IS NULL`),
+    // A customer renamed in the Customer Database is found here by its id.
+    index("master_job_shipper_id_idx").on(table.companyId, table.shipperId),
+    index("master_job_consignee_id_idx").on(table.companyId, table.consigneeId),
   ],
 );
 

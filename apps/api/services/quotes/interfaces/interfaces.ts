@@ -321,3 +321,43 @@ export interface QuotePeopleNormalizeResult {
   /** Owner texts left as they are, with how many quotes have each: they name no single user of the company. */
   unmatched: { field: string; value: string; count: number }[];
 }
+
+/**
+ * Who a sales quote is for: these keys of its document (SalesQuoteItem.data). While the quote is
+ * open (Draft, Ready to Send, Revised, or the revision of a Won quote) the texts follow the
+ * Customer Database by the ids; once it went out they stay as they were sent.
+ */
+export interface QuoteCustomerFields {
+  /** The customer record (Customer Database). */
+  customerId?: string;
+  /** Its company name: set by the server from the record when customerId names one. */
+  customerName?: string;
+  /** Its account type (KEY ACCOUNT, STANDARD, …): set by the server like customerName. */
+  customerLabel?: string;
+  /**
+   * The contact person picked from the customer's contacts. A save checks that it is a contact of
+   * the quote's customer and stores the contact's current name, e-mail and phone with it. Null or
+   * "" = the contact was typed by hand (or there is none): stored as "", and then never linked by
+   * name. Left out, the stored link is kept while the customer and the contact name stay the same;
+   * a changed contact name counts as typed by hand. Absent in a stored quote = from before contacts
+   * were linked (only POST /quotes/links/normalize links those by name).
+   */
+  customerContactId?: string | null;
+  customerContact?: string;
+  customerEmail?: string;
+  customerPhone?: string;
+}
+
+/** What a run of POST /quotes/links/normalize did to the company's open sales quotes. */
+export interface QuoteLinksNormalizeResult {
+  /** Open quotes that name a customer record. */
+  checked: number;
+  /** Quotes whose customer or contact copies were brought up to date, or whose contact got linked. */
+  changed: number;
+  /**
+   * What could not be linked, with how many quotes have each: "customer" = the record the quote
+   * names is deleted (the name stays); "customerContact" = a contact name that is no single contact
+   * of the customer, as "name (customer)".
+   */
+  unmatched: { field: string; value: string; count: number }[];
+}

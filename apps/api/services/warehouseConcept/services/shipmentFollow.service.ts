@@ -4,6 +4,8 @@ import { shipments } from "~encore/clients";
 import { gateMovementRepository, type GateMovementRow } from "../repositories/gateMovement.repository";
 import { gateMovementTable, type GateMovementRecord } from "../schemas/gateMovement.schema";
 import { customsLine, isCustomsStatus, setCustomsLineSql } from "./customs";
+import { partiesChange } from "./gateParties";
+import { gatePartiesService } from "./gateParties.service";
 import type { ServiceActor } from "../../../lib/outbox/serviceIdentity";
 
 // Customs follow: the customs status of a gate record linked to a shipment follows the
@@ -13,6 +15,9 @@ import type { ServiceActor } from "../../../lib/outbox/serviceIdentity";
 // "Customs status from shipment". Released records keep what they were released with.
 // Reads use the caller's own access to Shipments; the customs follow cron (no caller) reads as the
 // company's service identity. A record whose shipment was deleted in Shipments is not read again.
+// The same read also catches a Customer / Customer's PIC that differs from the shipment's (a lost
+// shipment-parties-changed event, or a record imported with a name renamed meanwhile): the
+// shipment's records then follow it as on the event (gateParties.service), within minutes.
 
 /** A record opened on its own is read again after this long. */
 export const FOLLOW_ON_GET_MS = 30_000;
@@ -28,7 +33,7 @@ const t = gateMovementTable;
 // The history event of a position kept after its shipment was deleted (gateAdmin.service).
 const SHIPMENT_GONE = "shipmentDeleted";
 
-type Fetched = { ok: true; customsStatus: string; closingDate: string } | { ok: false; error: string };
+type Fetched = { ok: true; customsStatus: string; closingDate: string; customer: string; customerPic: string } | { ok: false; error: string };
 
 // Reads each shipment once, at most PARALLEL at a time, within the time budget. Shipments not
 // answered in time are missing from the result.
@@ -39,7 +44,13 @@ async function fetchStatuses(shipmentIds: string[], budgetMs: number, authData?:
     for (let id = queue.shift(); id; id = queue.shift()) {
       try {
         const { shipment } = await shipments.shipmentGet({ shipmentId: id }, authData ? { authData } : undefined);
-        out.set(id, { ok: true, customsStatus: shipment.customsStatus, closingDate: shipment.closingDate ?? "" });
+        out.set(id, {
+          ok: true,
+          customsStatus: shipment.customsStatus,
+          closingDate: shipment.closingDate ?? "",
+          customer: shipment.customer ?? "",
+          customerPic: shipment.customerPic ?? "",
+        });
       } catch (err) {
         log.warn(err, "warehouse: shipment not read for the customs follow", { shipmentId: id });
         out.set(id, { ok: false, error: "The shipment could not be read" });
@@ -79,9 +90,21 @@ export async function followCustoms(
   const fetched = await fetchStatuses([...new Set(due.map((m) => m.shipmentId!))], opts.budgetMs ?? BUDGET_MS, opts.authData);
   const at = new Date();
   const checkedOnly: string[] = [];
+  const partiesFollowed = new Set<string>();
   for (const m of due) {
     const f = fetched.get(m.shipmentId!);
     if (!f) continue; // not answered in time: read again next time
+    // Other names than the shipment's: its records follow it (read again under the shipment's
+    // turn, so this read being older than an event applied meanwhile does no harm). Once per shipment.
+    if (f.ok && !partiesFollowed.has(m.shipmentId!) && partiesChange(m, { customer: f.customer, customerContact: f.customerPic })) {
+      partiesFollowed.add(m.shipmentId!);
+      try {
+        const { changed: rows } = await gatePartiesService.follow(companyId, m.shipmentId!, opts.authData);
+        for (const row of rows) changed.set(row.id, row);
+      } catch (err) {
+        log.warn(err, "warehouse: gate records not brought up to date with their shipment's customer", { shipmentId: m.shipmentId });
+      }
+    }
     // The shipment's closing date (cargo cut-off) comes with it: the stuffing plan is measured on it.
     if (f.ok && f.closingDate !== m.closingDate && (!isCustomsStatus(f.customsStatus) || f.customsStatus === m.customsStatus)) {
       const row = await gateMovementRepository.conditionalUpdate(

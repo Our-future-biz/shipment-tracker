@@ -5,6 +5,8 @@ import { api } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
 import { customerQuotesKeys } from "@/hooks/salesQueryKeys";
 import { customerAddressesKey } from "@/hooks/useCustomerAddresses";
+import { refreshShipmentCopies } from "@/hooks/useShipments";
+import { refreshQuoteCopies } from "@/hooks/useSalesQuotes";
 
 export type CustomerItem = interfaces.CustomerItem;
 export type DeletedCustomerItem = interfaces.DeletedCustomerItem;
@@ -117,6 +119,10 @@ export const useCustomer = (id: string | null) => {
     onSuccess: (res) => {
       queryClient.setQueryData<controllers.CustomerGetResponse>(["customer", id], (prev) => (prev ? { ...prev, customer: res.customer } : prev));
       invalidate();
+      // A new name or account type reaches the shipments, open quotes and follow-ups that copy it
+      // (on the server, a moment later): those lists are read again once that has happened.
+      refreshShipmentCopies(queryClient);
+      refreshQuoteCopies(queryClient);
     },
   });
 

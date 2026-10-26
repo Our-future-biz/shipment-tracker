@@ -7,7 +7,7 @@ import { DeleteOutlined, EditOutlined, EllipsisOutlined, PlusOutlined, StarFille
 import type { ColumnsType } from "antd/es/table";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { SectionCard } from "@/components/SectionCard";
-import { useCustomerContacts } from "@/hooks/useCustomerContacts";
+import { findContact, useCustomerContacts } from "@/hooks/useCustomerContacts";
 import type { ContactItem } from "@/hooks/useCustomerContacts";
 import { useToast } from "@/lib/toast";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -39,9 +39,10 @@ export function ContactsTab({ customerId, country }: { customerId: string; count
   // Main contact first, as in the contact pickers on shipments and quotes; the rest stay in the order they were added.
   const rows = useMemo(() => [...contacts].sort((a, b) => Number(b.isMain) - Number(a.isMain)), [contacts]);
 
-  // A link from a shipment's Customer's PIC (?contact=<name>) picks that contact out of the list.
-  const linkedName = (useSearchParams().get("contact") ?? "").trim().toLowerCase();
-  const linkedId = linkedName ? rows.find((c) => c.name.trim().toLowerCase() === linkedName)?.id : undefined;
+  // A link from a shipment's Customer's PIC picks that contact out of the list: by its id
+  // (?contactId=), or by its name (?contact=) in a link made before ids were kept.
+  const params = useSearchParams();
+  const linkedId = findContact(rows, params.get("contactId"), params.get("contact"))?.id;
   useEffect(() => {
     if (linkedId) document.querySelector(`[data-row-key="${linkedId}"]`)?.scrollIntoView({ block: "center" });
   }, [linkedId]);

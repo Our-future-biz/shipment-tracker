@@ -4,11 +4,13 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import { Popover, Spin } from "antd";
 import { MailOutlined, PhoneOutlined } from "@ant-design/icons";
-import { useCustomerContacts } from "@/hooks/useCustomerContacts";
+import { findContact, useCustomerContacts } from "@/hooks/useCustomerContacts";
 
 interface ContactHoverCardProps {
   /** The contact's name as the shipment stores it. */
   name: string;
+  /** The contact's id as the shipment stores it; without one the contact is found by name. */
+  contactId?: string | null;
   /** The customer whose saved contacts it is looked up in. */
   customerId: string;
   children: ReactNode;
@@ -16,10 +18,10 @@ interface ContactHoverCardProps {
 
 // A small card of a customer's contact (name, position, e-mail, phone) that appears when the
 // pointer rests on the name for a moment. The contacts load only then, not for every grid row.
-export function ContactHoverCard({ name, customerId, children }: ContactHoverCardProps) {
+export function ContactHoverCard({ name, contactId, customerId, children }: ContactHoverCardProps) {
   const [opened, setOpened] = useState(false);
   const { contacts, isLoading } = useCustomerContacts(opened ? customerId : "");
-  const contact = contacts.find((c) => c.name.trim().toLowerCase() === name.trim().toLowerCase());
+  const contact = findContact(contacts, contactId, name);
   const fullName = contact ? [contact.firstName, contact.lastName].filter(Boolean).join(" ") || contact.name : name;
 
   const content = isLoading ? (

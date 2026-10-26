@@ -1,6 +1,6 @@
 import { APIError, ErrCode } from "encore.dev/api";
 import log from "encore.dev/log";
-import { quotes } from "~encore/clients";
+import { customers, quotes } from "~encore/clients";
 import { businessDay, isRealYmd } from "../../../lib/businessDate";
 import type { PaginatedResponse } from "../../../lib/db/interface";
 import type { Actor } from "../../../lib/rbac";
@@ -21,6 +21,7 @@ export interface FollowupTaskFields {
   /** A user of the company; null = nobody. */
   assigneeUserId?: string | null;
   customerId?: string | null;
+  /** The customer's name. With a customerId the server stores the name the Customer Database has. */
   customerLabel?: string;
   contact?: string;
   /** The reference of a sales quote; null = none. */
@@ -155,6 +156,20 @@ class FollowupTaskService {
     }
   }
 
+  // The name of a customer record as the Customer Database has it now. A task linked to it stores
+  // that, not the name the screen sending the request loaded, which may be older: "everything must
+  // be linked" (owner, 26 Oct 2026). Null when the customer is deleted (or not of the company) or
+  // the Customer Database cannot be read - logged; the task is written all the same.
+  private async customerName(customerId: string): Promise<string | null> {
+    try {
+      const { customers: found } = await customers._internalCustomerRefs({ customerIds: [customerId] });
+      return found.find((c) => c.id === customerId.toLowerCase())?.companyName ?? null;
+    } catch (err) {
+      log.warn(err, "the Customer Database could not be read for a task's customer");
+      return null;
+    }
+  }
+
   // A live task of the company. An id that is no id names nothing, like one that is unknown.
   private async stored(companyId: string, id: string): Promise<FollowupTaskRecord> {
     const task = isUuid(id) ? await followupTaskRepository.getByIdForCompany(id, companyId) : null;
@@ -181,6 +196,11 @@ class FollowupTaskService {
   async create(actor: Actor, fields: FollowupTaskFields & { type: string }): Promise<FollowupTaskItem> {
     await this.ensureLegacyImported(actor.companyID);
     const values = plainValues(fields);
+    if (values.customerId) {
+      // Without the Customer Database the name sent stays.
+      const name = await this.customerName(values.customerId);
+      if (name !== null) values.customerLabel = name;
+    }
     const emails = await this.emailsWith(fields.assigneeUserId);
     const asked = fields.quoteNumber?.trim() || null;
     const quoteNumber = asked && (await this.quoteReference(asked));
@@ -207,6 +227,13 @@ class FollowupTaskService {
       throw APIError.invalidArgument("customerId and customerLabel are changed together");
     }
     const values = plainValues(changes);
+    if (values.customerId) {
+      const name = await this.customerName(values.customerId);
+      if (name !== null) values.customerLabel = name;
+      // The same customer as stored: the stored name is the one the Customer Database's events
+      // keep current, so an older copy sent back does not replace it.
+      else if (values.customerId.toLowerCase() === stored.customerId?.toLowerCase()) values.customerLabel = stored.customerLabel;
+    }
 
     const reassigned = changes.assigneeUserId !== undefined && changes.assigneeUserId !== stored.assigneeUserId;
     const emails = await this.emailsWith(reassigned ? changes.assigneeUserId : null);

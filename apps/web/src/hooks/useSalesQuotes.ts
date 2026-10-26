@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
 import type { SalesQuoteData } from "@/app/sales/_lib/types";
 import { quoteProblem } from "@/app/sales/_lib/quoteProblem";
-import { customerQuotesKeys, quoteShipmentsKeys, salesQuoteKeys } from "@/hooks/salesQueryKeys";
+import { customerQuotesKeys, followupTaskKeys, quoteShipmentsKeys, salesQuoteKeys } from "@/hooks/salesQueryKeys";
 
 // How many quotes a bulk action changes at the same time.
 const BULK_CONCURRENCY = 4;
@@ -33,6 +33,24 @@ export const invalidateQuoteLists = (queryClient: QueryClient, { refetchType }: 
     // or given another Sales Reference changes it.
     queryClient.invalidateQueries({ queryKey: quoteShipmentsKeys.all, refetchType }),
   ]);
+
+/** How long after a customer or contact is saved the server has rewritten the quotes' copies of it. */
+const COPIES_SETTLE_MS = 1500;
+
+/**
+ * Call after a customer or a contact person was saved in the Customer Database (renamed, deleted,
+ * restored). Open quotes and follow-up tasks keep copies of the customer's name and of the contact
+ * person's name, e-mail and phone, which the server rewrites when the Customer Database announces
+ * the change - a moment after the save, not with it. So every copy of them in Sales is marked out
+ * of date now (read again when next shown) and read again shortly after (what is on screen then
+ * shows the new name without a reload).
+ */
+export function refreshQuoteCopies(queryClient: QueryClient, settleMs = COPIES_SETTLE_MS) {
+  const mark = (refetchType?: "none") =>
+    Promise.all([invalidateQuoteLists(queryClient, { refetchType }), queryClient.invalidateQueries({ queryKey: followupTaskKeys.all, refetchType })]);
+  void mark("none");
+  setTimeout(() => void mark(), settleMs);
+}
 
 // What Sales does to whole quotes: creating, duplicating and deleting them, and changing them
 // from a list. Editing the quote a page has open is useSalesQuoteDraft; reading quotes is

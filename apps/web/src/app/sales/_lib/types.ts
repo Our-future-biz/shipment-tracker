@@ -190,6 +190,10 @@ export interface SalesQuoteData {
   customerEmail?: string;
   customerPhone?: string;
   customerContact?: string;
+  // The contact person picked from the customer's contacts (Customer Database). While it is set,
+  // the server takes customerContact, customerEmail and customerPhone from that contact on every
+  // save of an open quote. Null: typed by hand or cleared; the server stores no null (no key).
+  customerContactId?: string | null;
   customerLabel?: string;
   salesOwner?: string;
   // Shipment details

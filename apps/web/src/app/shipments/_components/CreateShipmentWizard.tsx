@@ -20,6 +20,7 @@ import { QuotePicker } from "@/app/sales/_components/QuotePicker";
 import { QuoteStatusPill } from "@/app/sales/_components/QuoteStatusPill";
 import { notWonQuoteText } from "@/app/sales/_lib/shipmentLink";
 import { quoteToCreateRequest, quotePreview } from "./quoteToShipment";
+import { copiedLinks } from "@/app/shipments/_lib/parties";
 import type { controllers, interfaces } from "@/lib/api/client";
 
 interface CreateShipmentWizardProps {
@@ -203,11 +204,25 @@ export const CreateShipmentWizard = ({
     }
   };
 
+  // The copied names with the records they name. A party deleted from the Customer Database
+  // since the source was made is refused by id; the copy then takes the names as text only.
+  const createLinked = async (request: controllers.ShipmentCreateRequest, links: Partial<controllers.ShipmentCreateRequest>) => {
+    try {
+      return await createShipment({ ...request, ...links });
+    } catch (err) {
+      const unknownParty =
+        isAPIError(err) && err.code === ErrCode.InvalidArgument && /^Unknown (customer|shipper|consignee|principal party)$/.test(err.message);
+      if (!unknownParty || Object.keys(links).length === 0) throw err;
+      return createShipment(request);
+    }
+  };
+
   const handleCreateWithCopy = async () => {
     if (!source) return;
     setSubmitting(true);
 
     const request = baseRequest();
+    const copied: string[] = [];
     let originValue = "";
     for (const key of COPYABLE_FIELDS) {
       if (!selectedFields.has(key)) continue;
@@ -218,11 +233,12 @@ export const CreateShipmentWizard = ({
         continue;
       }
       request[key] = val;
+      copied.push(key);
     }
 
     let newId: string;
     try {
-      newId = (await createShipment(request)).shipment.id;
+      newId = (await createLinked(request, copiedLinks(source, copied))).shipment.id;
     } catch (err) {
       toast.error(`Failed to create shipment - ${apiErrorMessage(err)}`);
       setSubmitting(false);

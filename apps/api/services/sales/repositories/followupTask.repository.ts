@@ -1,5 +1,5 @@
-import { and, asc, count, desc, eq, gt, isNotNull, isNull, sql } from "drizzle-orm";
-import { TenantRepository } from "../../../lib/db/repository";
+import { and, asc, count, desc, eq, gt, isNotNull, isNull, ne, sql } from "drizzle-orm";
+import { TenantRepository, type AnyDb } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { followupTaskTable, type FollowupTaskRecord } from "../schemas/followupTask.schema";
 
@@ -88,6 +88,54 @@ class FollowupTaskRepository extends TenantRepository<typeof followupTaskTable> 
           .offset(page.offset);
     const [found, [{ value: total }]] = await Promise.all([rows, this.db.select({ value: count() }).from(followupTaskTable).where(where)]);
     return { rows: found, total: Number(total) };
+  }
+
+  /**
+   * A customer change event: the company's live tasks linked to the customer take the name
+   * `currentName` reads, in one transaction. Changes of one customer take turns and each reads the
+   * name only once it has its turn (the lock lasts until the transaction ends), so one that read an
+   * older name never commits after one that read the newer: a late or repeated event leaves the
+   * current name. null (or blank) leaves the tasks as they are. Returns how many changed.
+   */
+  async followCustomer(companyId: string, customerId: string, currentName: () => Promise<string | null>): Promise<number> {
+    return this.db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`sales-customer:${companyId}:${customerId}`}))`);
+      const name = await currentName();
+      return name ? this.relabelCustomer(companyId, customerId, name, tx) : 0;
+    });
+  }
+
+  /**
+   * The customer was renamed: the company's live tasks linked to it take its current name, in one
+   * statement. updated_at stays - a rename is no change of the task. A blank name changes nothing
+   * (a copy is never blanked out). Returns how many changed.
+   */
+  async relabelCustomer(companyId: string, customerId: string, name: string, writer: Pick<AnyDb, "update"> = this.db): Promise<number> {
+    const label = name.trim();
+    if (!label) return 0;
+    const rows = await writer
+      .update(followupTaskTable)
+      .set({ customerLabel: label })
+      .where(
+        and(
+          eq(followupTaskTable.companyId, companyId),
+          eq(followupTaskTable.customerId, customerId),
+          isNull(followupTaskTable.deletedAt),
+          ne(followupTaskTable.customerLabel, label),
+        ),
+      )
+      .returning({ id: followupTaskTable.id });
+    return rows.length;
+  }
+
+  /** The customers the company's live tasks are linked to, by the name each task has, with how many tasks. */
+  async customerLinks(companyId: string): Promise<{ customerId: string; customerLabel: string; count: number }[]> {
+    const rows = await this.db
+      .select({ customerId: followupTaskTable.customerId, customerLabel: followupTaskTable.customerLabel, count: count() })
+      .from(followupTaskTable)
+      .where(and(eq(followupTaskTable.companyId, companyId), isNull(followupTaskTable.deletedAt), isNotNull(followupTaskTable.customerId)))
+      .groupBy(followupTaskTable.customerId, followupTaskTable.customerLabel);
+    return rows.flatMap((r) => (r.customerId ? [{ customerId: r.customerId, customerLabel: r.customerLabel, count: Number(r.count) }] : []));
   }
 }
 

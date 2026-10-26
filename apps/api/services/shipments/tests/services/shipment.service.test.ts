@@ -36,7 +36,7 @@ vi.mock("../../repositories/container.repository", () => ({ containerRepository:
 vi.mock("../../repositories/cargoItem.repository", () => ({ cargoItemRepository: { replaceForShipment: vi.fn(), listByShipmentId: vi.fn() } }));
 vi.mock("../../repositories/cargoDimension.repository", () => ({ cargoDimensionRepository: { replaceForShipment: vi.fn(), listByShipmentId: vi.fn() } }));
 vi.mock("../../repositories/commercialInvoice.repository", () => ({ commercialInvoiceRepository: { listByShipmentId: vi.fn(async () => []), syncForShipment: vi.fn() } }));
-vi.mock("../../topics", () => ({ shipmentDeleted: { publish: vi.fn() } }));
+vi.mock("../../topics", () => ({ shipmentDeleted: { publish: vi.fn() }, shipmentPartiesChanged: { publish: vi.fn() } }));
 vi.mock("../../services/quoteLinks.service", () => ({ quoteLinksService: { syncReference: vi.fn(), markDirty: vi.fn() } }));
 
 import log from "encore.dev/log";
@@ -52,6 +52,7 @@ import type { ShipmentRecord } from "../../schemas/shipment.schema";
 import { shipmentAuditRepository } from "../../repositories/shipmentAudit.repository";
 import { quoteLinksService } from "../../services/quoteLinks.service";
 import { shipmentService } from "../../services/shipment.service";
+import { shipmentPartiesChanged } from "../../topics";
 
 const repository = vi.mocked(shipmentRepository);
 const links = vi.mocked(quoteLinksService);
@@ -494,20 +495,20 @@ describe("a shipper or consignee picked from the Customer Database", () => {
     } as never);
     vi.mocked(customers.contactList).mockResolvedValue({
       data: [
-        { name: "Eva Prodej", role: "Sales", isMain: true },
-        { name: "Jana Servis", role: "Customer Service", isMain: false },
+        { id: "c-eva", name: "Eva Prodej", role: "Sales", isMain: true },
+        { id: "c-jana", name: "Jana Servis", role: "Customer Service", isMain: false },
       ],
     } as never);
   });
 
-  it("fills the Contact with the Customer Service contact, unless the write sends one", async () => {
+  it("fills the Contact with the Customer Service contact, by name and id, unless the write sends one", async () => {
     stored.set(SHIPMENT, row({ consigneeId: null, consigneeContact: "Old Person" }));
     await update({ consigneeId: PARTY });
-    expect(written()).toMatchObject({ consigneeContact: "Jana Servis", deliveryAddress: "Dopravní, Praha 11" });
+    expect(written()).toMatchObject({ consigneeContact: "Jana Servis", consigneeContactId: "c-jana", deliveryAddress: "Dopravní, Praha 11" });
 
     stored.set(SHIPMENT, row({ consigneeId: null }));
     await update({ consigneeId: PARTY, consigneeContact: "Typed Person" });
-    expect(repository.updateForCompany.mock.calls[1]![2]).toMatchObject({ consigneeContact: "Typed Person", deliveryAddress: "Dopravní, Praha 11" });
+    expect(repository.updateForCompany.mock.calls[1]![2]).toMatchObject({ consigneeContact: "Typed Person", consigneeContactId: null, deliveryAddress: "Dopravní, Praha 11" });
 
     vi.mocked(customers.contactList).mockResolvedValue({ data: [] } as never);
     stored.set(SHIPMENT, row({ consigneeId: null }));
@@ -898,6 +899,182 @@ describe("Customer's PIC is a contact of the shipment's customer", () => {
   it("leaves a name that is no contact out of a new shipment instead of failing it", async () => {
     contacts("Petr Pádlo");
     await create({ customerId: CUSTOMER, customer: "Alfa", customerPic: "Somebody" });
-    expect(repository.createWithJobNumber.mock.calls[0]![1]).toMatchObject({ customerPic: "" });
+    expect(repository.createWithJobNumber.mock.calls[0]![1]).toMatchObject({ customerPic: "", customerPicContactId: null });
+  });
+
+  it("stores the contact's id with its name, so a rename in the Customer Database reaches the shipment", async () => {
+    stored.set(SHIPMENT, row({ customerId: CUSTOMER, customerPic: "", customerPicContactId: null }));
+    contacts("Petr Pádlo", "Jana Malá");
+    await update({ customerPic: "jana malá" });
+    expect(written()).toMatchObject({ customerPic: "Jana Malá", customerPicContactId: "k1" });
+  });
+
+  it("takes a contact sent by its id, with the name it has now", async () => {
+    stored.set(SHIPMENT, row({ customerId: CUSTOMER, customerPic: "", customerPicContactId: null }));
+    contacts("Petr Masák");
+    await update({ customerPicContactId: "k0", customerPic: "Petr" });
+    expect(written()).toMatchObject({ customerPic: "Petr Masák", customerPicContactId: "k0" });
+  });
+
+  it("refuses an id that is no contact of the customer, and clears name and id together", async () => {
+    stored.set(SHIPMENT, row({ customerId: CUSTOMER, customerPic: "Petr Masák", customerPicContactId: "k0" }));
+    contacts("Petr Masák");
+    await expect(update({ customerPicContactId: "k9" })).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
+    await update({ customerPicContactId: null });
+    expect(written()).toMatchObject({ customerPic: "", customerPicContactId: null });
+  });
+
+  it("clears the PIC when the shipment moves to a customer it is no contact of, and keeps it on one it is", async () => {
+    const OTHER = "00000000-0000-0000-0000-00000000c0c1";
+    vi.mocked(customers.contactList).mockImplementation(async ({ customerId }) =>
+      ({ data: customerId === CUSTOMER ? [{ id: "k0", name: "Petr Masák" }] : [{ id: "k7", name: "Eva Nová" }] }) as never,
+    );
+    stored.set(SHIPMENT, row({ customerId: CUSTOMER, customerPic: "Petr Masák", customerPicContactId: "k0" }));
+    await update({ customerId: OTHER, customer: "Beta" });
+    expect(written()).toMatchObject({ customerId: OTHER, customerPic: "", customerPicContactId: null });
+
+    stored.set(SHIPMENT, row({ customerId: OTHER, customerPic: "Petr Masák", customerPicContactId: "k0" }));
+    await update({ customerId: CUSTOMER });
+    expect(repository.updateForCompany.mock.calls[1]![2]).toMatchObject({ customerId: CUSTOMER, customerPic: "Petr Masák", customerPicContactId: "k0" });
+  });
+
+  it("reads each customer's contacts once per write", async () => {
+    stored.set(SHIPMENT, row({ customerId: null, customerPic: "", shipperId: null, shipperContact: "" }));
+    contacts("Jana Malá");
+    await update({ customerId: CUSTOMER, customerPic: "Jana Malá", shipperId: CUSTOMER, shipperContact: "jana malá", pickupAddress: "typed" });
+    expect(customers.contactList).toHaveBeenCalledTimes(1);
+    expect(written()).toMatchObject({ customerPicContactId: "k0", shipperContact: "Jana Malá", shipperContactId: "k0" });
+  });
+});
+
+describe("a party linked to a customer carries the customer's current name", () => {
+  const CUSTOMER = "00000000-0000-0000-0000-00000000c0c0";
+  const update = (data: Record<string, unknown>) => shipmentService.update(SHIPMENT, COMPANY, data as never, USER);
+  const written = () => repository.updateForCompany.mock.calls[0]![2] as Record<string, unknown>;
+  beforeEach(() => {
+    vi.mocked(customers.customerGet).mockResolvedValue({ customer: { id: CUSTOMER, companyName: "Alfa s.r.o.", registeredAddress: "", country: "CZ" } } as never);
+    vi.mocked(customers.addressList).mockResolvedValue({ data: [] } as never);
+    vi.mocked(customers.contactList).mockResolvedValue({ data: [] } as never);
+  });
+
+  it("stores the Customer Database's name with the id, whatever text the write sends", async () => {
+    stored.set(SHIPMENT, row({ customerId: null, customer: "" }));
+    await update({ customerId: CUSTOMER, customer: "alfa sro", shipperId: CUSTOMER, consigneeId: CUSTOMER, principalPartyId: CUSTOMER });
+    expect(written()).toMatchObject({ customer: "Alfa s.r.o.", shipper: "Alfa s.r.o.", consignee: "Alfa s.r.o.", principalParty: "Alfa s.r.o." });
+  });
+
+  it("does so on create too (Trucking's road jobs send the name they have)", async () => {
+    await shipmentService.create(COMPANY, { customerId: CUSTOMER, customer: "ALFA" } as never);
+    expect(repository.createWithJobNumber.mock.calls[0]![1]).toMatchObject({ customerId: CUSTOMER, customer: "Alfa s.r.o." });
+  });
+
+  it("keeps the text of a party that is unlinked", async () => {
+    stored.set(SHIPMENT, row({ customerId: CUSTOMER, customer: "Alfa s.r.o." }));
+    await update({ customerId: null, customer: "Walk-in customer" });
+    expect(written()).toMatchObject({ customerId: null, customer: "Walk-in customer" });
+  });
+});
+
+describe("a shipper's or consignee's Contact", () => {
+  const PARTY = "3c1e2f0a-5b6d-4e7f-8a9b-0c1d2e3f4a5b";
+  const OTHER = "7d2e1f0a-5b6d-4e7f-8a9b-0c1d2e3f4a5c";
+  const update = (data: Record<string, unknown>) => shipmentService.update(SHIPMENT, COMPANY, data as never, USER);
+  const written = () => repository.updateForCompany.mock.calls[0]![2] as Record<string, unknown>;
+  beforeEach(() => {
+    vi.mocked(customers.customerGet).mockResolvedValue({ customer: { companyName: "Alza.cz a.s.", registeredAddress: "", country: "CZ" } } as never);
+    vi.mocked(customers.addressList).mockResolvedValue({ data: [] } as never);
+    vi.mocked(customers.contactList).mockImplementation(async ({ customerId }) =>
+      ({ data: customerId === PARTY ? [{ id: "c-jana", name: "Jana Servis", role: "Customer Service", isMain: false }] : [] }) as never,
+    );
+  });
+
+  it("links a name of one of the party's contacts, and keeps somebody else's name as typed", async () => {
+    stored.set(SHIPMENT, row({ shipperId: PARTY, shipperContact: "", shipperContactId: null }));
+    await update({ shipperContact: "jana servis" });
+    expect(written()).toMatchObject({ shipperContact: "Jana Servis", shipperContactId: "c-jana" });
+    await update({ shipperContact: "Driver Karel" });
+    expect(repository.updateForCompany.mock.calls[1]![2]).toMatchObject({ shipperContact: "Driver Karel", shipperContactId: null });
+  });
+
+  it("clears a linked Contact when the party changes to one it is no contact of; a typed one stays", async () => {
+    stored.set(SHIPMENT, row({ consigneeId: PARTY, consigneeContact: "Jana Servis", consigneeContactId: "c-jana" }));
+    await update({ consigneeId: OTHER });
+    expect(written()).toMatchObject({ consigneeId: OTHER, consigneeContact: "", consigneeContactId: null });
+
+    stored.set(SHIPMENT, row({ consigneeId: PARTY, consigneeContact: "Driver Karel", consigneeContactId: null }));
+    await update({ consigneeId: OTHER });
+    expect(repository.updateForCompany.mock.calls[1]![2]).not.toHaveProperty("consigneeContact");
+  });
+});
+
+describe("other services are told when the Customer or the Customer's PIC changes", () => {
+  const CUSTOMER = "00000000-0000-0000-0000-00000000c0c0";
+  const update = (data: Record<string, unknown>) => shipmentService.update(SHIPMENT, COMPANY, data as never, USER);
+  const publish = vi.mocked(shipmentPartiesChanged.publish);
+  beforeEach(() => {
+    vi.mocked(customers.customerGet).mockResolvedValue({ customer: { id: CUSTOMER, companyName: "Alfa s.r.o.", registeredAddress: "", country: "CZ" } } as never);
+    vi.mocked(customers.addressList).mockResolvedValue({ data: [] } as never);
+    vi.mocked(customers.contactList).mockResolvedValue({ data: [{ id: "k0", name: "Petr Masák" }] } as never);
+  });
+
+  it("publishes the shipment's Customer and Customer's PIC as they now read", async () => {
+    stored.set(SHIPMENT, row({ customerId: CUSTOMER, customer: "Alfa s.r.o.", customerPic: "", customerPicContactId: null }));
+    await update({ customerPic: "Petr Masák" });
+    expect(publish).toHaveBeenCalledWith({ companyId: COMPANY, shipmentId: SHIPMENT, customer: "Alfa s.r.o.", customerPic: "Petr Masák" });
+
+    stored.set(SHIPMENT, row({ customerId: null, customer: "Old name", customerPic: "" }));
+    await update({ customerId: CUSTOMER });
+    expect(publish).toHaveBeenLastCalledWith({ companyId: COMPANY, shipmentId: SHIPMENT, customer: "Alfa s.r.o.", customerPic: "" });
+  });
+
+  it("publishes nothing when neither changes", async () => {
+    stored.set(SHIPMENT, row({ customerId: CUSTOMER, customer: "Alfa s.r.o.", customerPic: "Petr Masák", customerPicContactId: "k0" }));
+    await update({ pol: "Hamburg", customerPic: "Petr Masák" });
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it("saves the shipment also when the news can't be published: logged", async () => {
+    publish.mockRejectedValue(new Error("pubsub is down"));
+    stored.set(SHIPMENT, row({ customerId: CUSTOMER, customer: "Alfa s.r.o.", customerPic: "" }));
+    await expect(update({ customerPic: "Petr Masák" })).resolves.toMatchObject({ customerPic: "Petr Masák" });
+    expect(log.warn).toHaveBeenCalledWith(expect.any(Error), "shipment parties change not published", expect.objectContaining({ shipmentId: SHIPMENT }));
+  });
+});
+
+describe("the Customer's PIC of a shipment made from a quote", () => {
+  const CUSTOMER = "00000000-0000-0000-0000-00000000c0c0";
+  const fromQuote = (data: Record<string, unknown>, over: Record<string, unknown> = {}) => {
+    salesQuoteGet.mockResolvedValue(quote({ data }));
+    return shipmentService.create(COMPANY, { fromQuoteNumber: REF, customerId: CUSTOMER, customer: "Alfa", ...over } as never);
+  };
+  const created = () => repository.createFromQuote.mock.calls[0]![2] as Record<string, unknown>;
+  beforeEach(() => {
+    vi.mocked(customers.customerGet).mockResolvedValue({ customer: { id: CUSTOMER, companyName: "Alfa", registeredAddress: "", country: "CZ" } } as never);
+    vi.mocked(customers.contactList).mockResolvedValue({ data: [{ id: "k0", name: "Petr Masák" }, { id: "k1", name: "Jana Malá" }] } as never);
+  });
+
+  it("is the contact the quote keeps by id, with the name it has now", async () => {
+    await fromQuote({ customerContact: "Petr", customerContactId: "k0" }, { customerPic: "Petr" });
+    expect(created()).toMatchObject({ customerPic: "Petr Masák", customerPicContactId: "k0" });
+  });
+
+  it("is taken from the quote when the request names nobody", async () => {
+    await fromQuote({ customerContact: "Petr", customerContactId: "k0" });
+    expect(created()).toMatchObject({ customerPic: "Petr Masák", customerPicContactId: "k0" });
+  });
+
+  it("is matched by name for a quote that keeps no id, and left out when it is no contact", async () => {
+    await fromQuote({ customerContact: "jana malá" }, { customerPic: "jana malá" });
+    expect(created()).toMatchObject({ customerPic: "Jana Malá", customerPicContactId: "k1" });
+    await fromQuote({ customerContact: "Petr", customerContactId: "gone" }, { customerPic: "Petr" });
+    expect(repository.createFromQuote.mock.calls[1]![2]).toMatchObject({ customerPic: "", customerPicContactId: null });
+  });
+
+  it("is whom the request names instead, or nobody", async () => {
+    await fromQuote({ customerContact: "Petr", customerContactId: "k0" }, { customerPic: "Jana Malá" });
+    expect(created()).toMatchObject({ customerPic: "Jana Malá", customerPicContactId: "k1" });
+    await fromQuote({ customerContact: "Petr", customerContactId: "k0" }, { customerPic: "" });
+    expect(repository.createFromQuote.mock.calls[1]![2]).toMatchObject({ customerPic: "", customerPicContactId: null });
   });
 });

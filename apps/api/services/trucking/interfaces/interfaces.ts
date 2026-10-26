@@ -1063,3 +1063,25 @@ export interface PlanningBoard {
   unplanned: PlanningLeg[];
   trips: PlanningTrip[];
 }
+
+// ---- Customer Database names kept by id (POST /trucking/links/normalize) --------------------------
+
+/** A copied name the backfill left as it is: its customer is deleted or unknown in the Customer Database. */
+export interface TruckingUnmatchedName {
+  /** Where it is kept: "consignment.customerName" or "trip.haulierName". */
+  field: string;
+  /** The name as stored. */
+  value: string;
+  /** How many consignments / trips hold it there. */
+  count: number;
+}
+
+/** What the backfill did to the company's live consignments and trips. */
+export interface TruckingLinksNormalizeResult {
+  /** Copied names looked at (one per consignment and one per trip). */
+  checked: number;
+  /** Names rewritten to the Customer Database's current name. */
+  changed: number;
+  /** The names left as they are, most frequent first. */
+  unmatched: TruckingUnmatchedName[];
+}

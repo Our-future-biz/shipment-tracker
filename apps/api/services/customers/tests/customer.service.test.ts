@@ -16,15 +16,19 @@ const contacts = vi.hoisted(() => ({
   clearMainFlag: vi.fn(),
   getByIdForCompany: vi.fn(),
   updateForCompany: vi.fn(),
+  hiddenWithCustomer: vi.fn(async () => []),
 }));
 // Logo links are signed with a secret, which needs the Encore runtime.
 vi.mock("encore.dev/config", () => ({ secret: () => () => "test-secret" }));
 vi.mock("../repositories/customer.repository", () => ({ customerRepository: customers }));
 vi.mock("../repositories/contact.repository", () => ({ contactRepository: contacts }));
 vi.mock("../services/ares.service", () => ({ aresService: { lookup: vi.fn() } }));
+const topics = vi.hoisted(() => ({ customerChanged: { publish: vi.fn() }, contactChanged: { publish: vi.fn() } }));
+vi.mock("../topics", () => topics);
 const userLookup = vi.hoisted(() => vi.fn());
 vi.mock("~encore/clients", () => ({ auth: { userLookup } }));
-vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
+const logger = vi.hoisted(() => ({ warn: vi.fn(), error: vi.fn() }));
+vi.mock("encore.dev/log", () => ({ default: logger }));
 // The Encore runtime isn't loaded under vitest; APIError only needs to carry its message here.
 vi.mock("encore.dev/api", () => ({
   APIError: {
@@ -113,6 +117,41 @@ describe("contacts of a customer", () => {
     contacts.updateForCompany.mockResolvedValue(contactRow());
     await contactService.update("k1", COMPANY, { email: "jana@example.cz" });
     expect(contacts.updateForCompany).toHaveBeenCalledWith("k1", COMPANY, { email: "jana@example.cz" });
+  });
+
+  it("need a first and a last name on add, as a new customer's first contact does", async () => {
+    customers.getByIdForCompany.mockResolvedValue({ id: "c1" });
+    await expect(contactService.create(COMPANY, "c1", { firstName: "  ", lastName: "Nováková" })).rejects.toThrow(
+      "The contact person needs a first and a last name",
+    );
+    await expect(contactService.create(COMPANY, "c1", { firstName: "Jana", lastName: " ", isMain: true })).rejects.toThrow(
+      "The contact person needs a first and a last name",
+    );
+    expect(contacts.clearMainFlag).not.toHaveBeenCalled();
+    expect(contacts.createForCompany).not.toHaveBeenCalled();
+  });
+
+  it("a rename that blanks either part is refused before anything is written or sent", async () => {
+    contacts.getByIdForCompany.mockResolvedValue(contactRow());
+    await expect(contactService.update("k1", COMPANY, { lastName: "   ", isMain: true })).rejects.toThrow(
+      "The contact person needs a first and a last name",
+    );
+    await expect(contactService.update("k1", COMPANY, { firstName: "", lastName: "Svobodová" })).rejects.toThrow(
+      "The contact person needs a first and a last name",
+    );
+    expect(contacts.clearMainFlag).not.toHaveBeenCalled();
+    expect(contacts.updateForCompany).not.toHaveBeenCalled();
+    expect(topics.contactChanged.publish).not.toHaveBeenCalled();
+  });
+
+  it("an old one-word contact is renamed only with a last name, and keeps its name through other edits", async () => {
+    contacts.getByIdForCompany.mockResolvedValue(contactRow({ name: "Jana", lastName: "" }));
+    contacts.updateForCompany.mockResolvedValue(contactRow({ name: "Jana", lastName: "" }));
+    await expect(contactService.update("k1", COMPANY, { firstName: "Janička" })).rejects.toThrow("The contact person needs a first and a last name");
+    expect(contacts.updateForCompany).not.toHaveBeenCalled();
+    await contactService.update("k1", COMPANY, { email: "jana@example.cz" });
+    expect(contacts.updateForCompany).toHaveBeenCalledWith("k1", COMPANY, { email: "jana@example.cz" });
+    expect(topics.contactChanged.publish).toHaveBeenCalledWith(expect.objectContaining({ name: "Jana", deleted: false }));
   });
 });
 
@@ -277,5 +316,114 @@ describe("deleted customers", () => {
     customers.restoreWithChildren.mockResolvedValue(deletedRow({ ico: "", deletedAt: null }));
     await customerService.restore("c1", COMPANY);
     expect(customers.findByIco).not.toHaveBeenCalled();
+  });
+});
+
+describe("customer change events (shipments, quotes, follow-ups and trucking keep copies of the name)", () => {
+  const saved = (over: Record<string, unknown> = {}) => ({
+    id: "c1", companyId: COMPANY, companyName: "Alfa s.r.o.", label: "KEY ACCOUNT", roles: ["customer"], registrationDate: null,
+    lastActivityDate: null, logoData: "", createdAt: now, updatedAt: now, deletedAt: null, ...over,
+  });
+
+  it("an edit sends the saved name and account type, after the write", async () => {
+    customers.updateForCompany.mockResolvedValue(saved({ companyName: "Alfa Group s.r.o." }));
+    await customerService.update("c1", COMPANY, "manager", { companyName: "Alfa Group s.r.o.", label: "KEY ACCOUNT" });
+    expect(topics.customerChanged.publish).toHaveBeenCalledWith({
+      companyId: COMPANY, customerId: "c1", companyName: "Alfa Group s.r.o.", label: "KEY ACCOUNT", deleted: false,
+    });
+    expect(customers.updateForCompany.mock.invocationCallOrder[0]).toBeLessThan(topics.customerChanged.publish.mock.invocationCallOrder[0]!);
+  });
+
+  it("any edit is sent, not only a new name (subscribers skip what is already current)", async () => {
+    customers.updateForCompany.mockResolvedValue(saved());
+    await customerService.update("c1", COMPANY, "user", { companyWebsite: "https://alfa.cz" });
+    expect(topics.customerChanged.publish).toHaveBeenCalledTimes(1);
+  });
+
+  it("the name is stored trimmed, and a blank one is refused before anything is written or sent", async () => {
+    customers.updateForCompany.mockResolvedValue(saved());
+    await customerService.update("c1", COMPANY, "user", { companyName: "  Alfa s.r.o. " });
+    expect(customers.updateForCompany).toHaveBeenCalledWith("c1", COMPANY, { companyName: "Alfa s.r.o." });
+    vi.clearAllMocks();
+    await expect(customerService.update("c1", COMPANY, "user", { companyName: "   " })).rejects.toThrow("The company name can't be empty");
+    expect(customers.updateForCompany).not.toHaveBeenCalled();
+    expect(topics.customerChanged.publish).not.toHaveBeenCalled();
+  });
+
+  it("nothing is sent for a customer that isn't there", async () => {
+    customers.updateForCompany.mockResolvedValue(null);
+    await expect(customerService.update("x", COMPANY, "user", { companyName: "Beta" })).rejects.toThrow("Customer not found");
+    customers.softDeleteWithChildren.mockResolvedValue(null);
+    await expect(customerService.softDelete("x", COMPANY)).rejects.toThrow("Customer not found");
+    customers.getDeletedForCompany.mockResolvedValue(saved({ deletedAt: now }));
+    customers.findByIco.mockResolvedValue(null);
+    customers.restoreWithChildren.mockResolvedValue(null);
+    await expect(customerService.restore("x", COMPANY)).rejects.toThrow("Deleted customer not found");
+    expect(topics.customerChanged.publish).not.toHaveBeenCalled();
+  });
+
+  it("a delete is sent with deleted: true, and each contact hidden with it gets its own delete event", async () => {
+    customers.softDeleteWithChildren.mockResolvedValue(saved({ deletedAt: now }));
+    contacts.hiddenWithCustomer.mockResolvedValueOnce([
+      { id: "k1", customerId: "c1", name: "Petr Masák", email: "p@alfa.cz", phone: "+420 777 111 222" },
+    ] as never);
+    await customerService.softDelete("c1", COMPANY);
+    expect(topics.customerChanged.publish).toHaveBeenCalledWith({
+      companyId: COMPANY, customerId: "c1", companyName: "Alfa s.r.o.", label: "KEY ACCOUNT", deleted: true,
+    });
+    expect(contacts.hiddenWithCustomer).toHaveBeenCalledWith(COMPANY, "c1", now);
+    expect(topics.contactChanged.publish).toHaveBeenCalledWith({
+      companyId: COMPANY, customerId: "c1", contactId: "k1", name: "Petr Masák", email: "p@alfa.cz", phone: "+420 777 111 222", deleted: true,
+    });
+  });
+
+  it("a restore is sent with deleted: false; one refused for a clashing registration number is not", async () => {
+    customers.getDeletedForCompany.mockResolvedValue(saved({ ico: "12345678", deletedAt: now }));
+    customers.findByIco.mockResolvedValue(null);
+    customers.restoreWithChildren.mockResolvedValue(saved({ ico: "12345678" }));
+    await customerService.restore("c1", COMPANY);
+    expect(topics.customerChanged.publish).toHaveBeenCalledWith({
+      companyId: COMPANY, customerId: "c1", companyName: "Alfa s.r.o.", label: "KEY ACCOUNT", deleted: false,
+    });
+    vi.clearAllMocks();
+    customers.getDeletedForCompany.mockResolvedValue(saved({ ico: "12345678", deletedAt: now }));
+    customers.findByIco.mockResolvedValue(null);
+    customers.restoreWithChildren.mockRejectedValue(Object.assign(new Error("Failed query"), { cause: { code: "23505" } }));
+    await expect(customerService.restore("c1", COMPANY)).rejects.toThrow("A customer with this registration number already exists");
+    expect(topics.customerChanged.publish).not.toHaveBeenCalled();
+  });
+
+  it("an edit whose publish fails fails the request, so the user can save it again", async () => {
+    customers.updateForCompany.mockResolvedValue(saved());
+    topics.customerChanged.publish.mockRejectedValueOnce(new Error("pubsub down"));
+    await expect(customerService.update("c1", COMPANY, "user", { companyWebsite: "https://alfa.cz" })).rejects.toThrow("pubsub down");
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it("a delete whose publish fails still succeeds (a retry would get 404); the failure is logged with the ids", async () => {
+    customers.softDeleteWithChildren.mockResolvedValue(saved({ deletedAt: now }));
+    const down = new Error("pubsub down");
+    topics.customerChanged.publish.mockRejectedValueOnce(down);
+    await expect(customerService.softDelete("c1", COMPANY)).resolves.toBeUndefined();
+    expect(logger.error).toHaveBeenCalledWith(down, "customer change not published", { companyId: COMPANY, customerId: "c1", deleted: true });
+  });
+
+  it("a restore whose publish fails still returns the customer; the failure is logged with the ids", async () => {
+    customers.getDeletedForCompany.mockResolvedValue(saved({ ico: "", deletedAt: now }));
+    customers.restoreWithChildren.mockResolvedValue(saved({ ico: "" }));
+    const down = new Error("pubsub down");
+    topics.customerChanged.publish.mockRejectedValueOnce(down);
+    await expect(customerService.restore("c1", COMPANY)).resolves.toMatchObject({ id: "c1", companyName: "Alfa s.r.o." });
+    expect(logger.error).toHaveBeenCalledWith(down, "customer change not published", { companyId: COMPANY, customerId: "c1", deleted: false });
+  });
+
+  it("the manual form refuses a blank company name too", async () => {
+    await expect(
+      customerService.createManual(COMPANY, {
+        country: "DE", companyName: "   ", street: "Wittelsbacherplatz 2", city: "München", postalCode: "80333",
+        contact: { firstName: "Hans", lastName: "Müller", email: "hans@example.de" },
+      }),
+    ).rejects.toThrow("The company name can't be empty");
+    expect(customers.createWithContact).not.toHaveBeenCalled();
   });
 });
