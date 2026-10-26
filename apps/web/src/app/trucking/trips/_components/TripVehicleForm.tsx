@@ -9,6 +9,7 @@ import { useTrip, type TripDetail, type TripUpdate } from "@/hooks/useTruckingCo
 import { TERMS } from "../../_lib/glossary";
 import { TRIP_CONFLICT_TEXT, isVersionConflict } from "../../_lib/saveConflict";
 import { TruckingField } from "../../_components/TruckingField";
+import { limitCzechPhone } from "@/lib/phone";
 
 type VehicleDraft = Omit<TripUpdate, "version">;
 
@@ -77,7 +78,7 @@ export const TripVehicleForm = ({ trip, readOnly }: TripVehicleFormProps) => {
           <Input aria-label="Driver" disabled={readOnly} value={draft.driverName} onChange={(e) => set("driverName", e.target.value)} />
         </TruckingField>
         <TruckingField label="Driver phone">
-          <Input aria-label="Driver phone" disabled={readOnly} inputMode="tel" value={draft.driverPhone} onChange={(e) => set("driverPhone", e.target.value)} />
+          <Input aria-label="Driver phone" disabled={readOnly} inputMode="tel" value={draft.driverPhone} onChange={(e) => set("driverPhone", limitCzechPhone(e.target.value))} />
         </TruckingField>
       </div>
       {!readOnly && (

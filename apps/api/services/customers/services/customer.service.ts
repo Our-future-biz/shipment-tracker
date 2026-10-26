@@ -11,6 +11,7 @@ import type {
   CustomerRole,
   CustomerRollups,
   CustomerStatus,
+  DeletedCustomerItem,
   NewCustomerContact,
   RiskLevelOverride,
 } from "../interfaces/interfaces";
@@ -24,6 +25,7 @@ import { toCustomerItem } from "../lib/mappers";
 import { companyOfLogoToken } from "../lib/logoUrl";
 import { aresService } from "./ares.service";
 import { fullName } from "./contact.service";
+import { assertCzechPhone } from "../../../lib/phone";
 
 /** A company outside the Czech Republic, typed in by hand: there is no registry to read it from. */
 export interface ManualCustomerInput {
@@ -48,6 +50,7 @@ function firstContact(contact: NewCustomerContact): Omit<NewContactRecord, "comp
   const phone = (contact.phone ?? "").trim();
   if (!firstName || !lastName) throw APIError.invalidArgument("The contact person needs a first and a last name");
   if (!email && !phone) throw APIError.invalidArgument("The contact person needs an email or a phone number");
+  assertCzechPhone(phone);
   return { name: fullName(firstName, lastName), firstName, lastName, email, phone, role: contact.role ?? "Logistics Manager", isMain: true };
 }
 
@@ -292,6 +295,36 @@ class CustomerService {
   async softDelete(id: string, companyId: string): Promise<void> {
     if (!(await customerRepository.softDeleteWithChildren(id, companyId))) {
       throw APIError.notFound("Customer not found");
+    }
+  }
+
+  /** The company's deleted customers, the most recently deleted first. */
+  async listDeleted(companyId: string): Promise<DeletedCustomerItem[]> {
+    const rows = await customerRepository.listDeleted(companyId);
+    return rows.map((r) => ({ ...r, deletedAt: iso(r.deletedAt) }));
+  }
+
+  /**
+   * Brings a deleted customer back with the contacts, addresses, notes, documents, invoices and
+   * sites deleted together with it. Refused while a live customer has the same registration number.
+   */
+  async restore(id: string, companyId: string): Promise<CustomerItem> {
+    const deleted = await customerRepository.getDeletedForCompany(id, companyId);
+    if (!deleted) throw APIError.notFound("Deleted customer not found");
+    const clash = deleted.ico ? await customerRepository.findByIco(deleted.ico, companyId) : null;
+    if (clash) {
+      throw APIError.alreadyExists(
+        `${clash.companyName} already has the registration number ${deleted.ico}, so ${deleted.companyName} can't be restored`,
+      );
+    }
+    try {
+      const row = await customerRepository.restoreWithChildren(id, companyId);
+      if (!row) throw APIError.notFound("Deleted customer not found");
+      return toCustomerItem(row);
+    } catch (err) {
+      // Another customer with the same registration number was added in the meantime.
+      if (isUniqueViolation(err)) throw APIError.alreadyExists("A customer with this registration number already exists");
+      throw err;
     }
   }
 

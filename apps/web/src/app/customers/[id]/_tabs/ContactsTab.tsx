@@ -9,6 +9,8 @@ import { SectionCard } from "@/components/SectionCard";
 import { useCustomerContacts } from "@/hooks/useCustomerContacts";
 import type { ContactItem } from "@/hooks/useCustomerContacts";
 import { useToast } from "@/lib/toast";
+import { useAuth } from "@/lib/auth/AuthContext";
+import { canDeleteCustomerRecords } from "../../_lib/customerPermissions";
 import { contactRoleColor } from "../../_lib/constants";
 import { CustomerContactDialog } from "../_components/CustomerContactDialog";
 import type { CustomerContactFormValues } from "../_components/CustomerContactDialog";
@@ -27,6 +29,7 @@ interface ContactDialogState {
 export function ContactsTab({ customerId, country }: { customerId: string; country?: string | null }) {
   const { contacts, isLoading, isError, createContact, updateContact, deleteContact } = useCustomerContacts(customerId);
   const toast = useToast();
+  const canDelete = canDeleteCustomerRecords(useAuth().user);
   const [dialog, setDialog] = useState<ContactDialogState>({ key: 0, open: false, contact: null });
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ContactItem | null>(null);
@@ -123,7 +126,10 @@ export function ContactsTab({ customerId, country }: { customerId: string; count
             menu={{
               items: [
                 { key: "edit", label: "Edit", icon: <EditOutlined />, onClick: () => handleOpenDialog(r) },
-                { key: "delete", label: "Delete", icon: <DeleteOutlined />, danger: true, onClick: () => setDeleteTarget(r) },
+                // Superadmins only (the API refuses everyone else).
+                ...(canDelete
+                  ? [{ key: "delete", label: "Delete", icon: <DeleteOutlined />, danger: true, onClick: () => setDeleteTarget(r) }]
+                  : []),
               ],
             }}
           >
@@ -141,8 +147,8 @@ export function ContactsTab({ customerId, country }: { customerId: string; count
   ];
 
   const deleteDescription = deleteTarget?.isMain
-    ? `Delete ${deleteTarget.name}? This is the main contact used on shipments and quotes; mark another one as main afterwards.`
-    : `Delete ${deleteTarget?.name ?? "this contact"}?`;
+    ? `Delete ${deleteTarget.name}? This is the main contact used on shipments and quotes; mark another one as main afterwards. The contact is hidden from everyone but kept in the database, so it can be restored.`
+    : `Delete ${deleteTarget?.name ?? "this contact"}? It is hidden from everyone but kept in the database, so it can be restored.`;
 
   return (
     <div className="space-y-5">

@@ -1,5 +1,6 @@
 import type { controllers, interfaces } from "@/lib/api/client";
 import type { BiText } from "./publicOrder";
+import { czechPhoneProblem } from "@/lib/phone";
 
 // Pure helpers of the haulier portal (/haulier/portal): Czech and English words, the password
 // rules, what the haulier may do on an order now and why not. The server decides in the end; these
@@ -156,8 +157,8 @@ export const PORTAL_USER_STATUS: Record<interfaces.PortalUserItem["status"], { l
 };
 
 /** Why a new portal user cannot be added yet, or null. */
-export function portalUserProblem(draft: { email: string; name: string }): string | null {
+export function portalUserProblem(draft: { email: string; name: string; phone?: string }): string | null {
   if (draft.name.trim().length < 2) return "Enter the name";
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(draft.email.trim())) return "Enter a valid e-mail";
-  return null;
+  return czechPhoneProblem(draft.phone) || null;
 }

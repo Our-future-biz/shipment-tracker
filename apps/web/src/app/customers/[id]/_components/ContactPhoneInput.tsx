@@ -5,6 +5,7 @@ import { Input, Select, Space } from "antd";
 import { getCountries, getCountryCallingCode, parsePhoneNumberFromString } from "libphonenumber-js";
 import type { CountryCode } from "libphonenumber-js";
 import { COUNTRIES, flagOf } from "@/lib/countries";
+import { limitCzechDigits, limitCzechPhone } from "@/lib/phone";
 
 // Numbers saved without a country code are Czech; a new number starts there too.
 export const DEFAULT_PHONE_COUNTRY: CountryCode = "CZ";
@@ -62,6 +63,12 @@ export function isPossiblePhone(value: string): boolean {
   return !!parsePhoneNumberFromString(value, DEFAULT_PHONE_COUNTRY)?.isPossible();
 }
 
+// What may be typed: a Czech number stops at 9 digits (a 10th is not taken), so does one typed with +420.
+export function limitNational({ country, national }: PhoneParts): PhoneParts {
+  if (national.trim().startsWith("+")) return { country, national: limitCzechPhone(national) };
+  return { country, national: country === "CZ" ? limitCzechDigits(national) : national };
+}
+
 interface ContactPhoneInputProps {
   // Set by Form.Item: the number as stored.
   value?: string;
@@ -90,7 +97,8 @@ export function ContactPhoneInput({ value = "", onChange, onPressEnter, id, defa
     if (!parts.national.trim()) setParts({ ...parts, country: startCountry });
   }
 
-  const update = (next: PhoneParts) => {
+  const update = (typed: PhoneParts) => {
+    const next = limitNational(typed);
     const joined = joinPhone(next);
     setParts(next);
     setKnown(joined);

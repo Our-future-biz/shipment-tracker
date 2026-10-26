@@ -97,6 +97,7 @@ import { QuoteRoadPriceDrawer } from "./_components/QuoteRoadPriceDrawer";
 import { QuoteMarginPanel } from "./_components/QuoteMarginPanel";
 import { QuoteMarginApproveDialog } from "./_components/QuoteMarginApproveDialog";
 import { useCanSeeConcepts } from "@/lib/auth/AuthContext";
+import { limitCzechPhone } from "@/lib/phone";
 
 // A new package has no dimensions and no weight: made-up ones would print as real cargo and drive
 // the chargeable weight.
@@ -764,7 +765,7 @@ export function QuoteWorkflow() {
               <Input size="small" aria-label="Email" value={draft.customerEmail ?? ""} onChange={(e) => set({ customerEmail: e.target.value })} />
             </InfoRow>
             <InfoRow label="Phone">
-              <Input size="small" aria-label="Phone" value={draft.customerPhone ?? ""} onChange={(e) => set({ customerPhone: e.target.value })} />
+              <Input size="small" aria-label="Phone" value={draft.customerPhone ?? ""} onChange={(e) => set({ customerPhone: limitCzechPhone(e.target.value) })} />
             </InfoRow>
           </div>
         </div>

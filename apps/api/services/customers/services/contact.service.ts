@@ -4,6 +4,7 @@ import type { NewContactRecord } from "../schemas/contact.schema";
 import type { ContactItem, ContactRole } from "../interfaces/interfaces";
 import { toContactItem } from "../lib/mappers";
 import { customerService } from "./customer.service";
+import { assertCzechPhone } from "../../../lib/phone";
 
 export interface ContactInput {
   firstName: string;
@@ -22,6 +23,7 @@ class ContactService {
   }
 
   async create(companyId: string, customerId: string, input: ContactInput): Promise<ContactItem> {
+    assertCzechPhone(input.phone);
     await customerService.requireLive(customerId, companyId);
     if (input.isMain) await contactRepository.clearMainFlag(customerId, companyId);
     const values: Omit<NewContactRecord, "companyId"> = {
@@ -51,7 +53,10 @@ class ContactService {
       patch.name = fullName(patch.firstName, patch.lastName);
     }
     if (input.email !== undefined) patch.email = input.email;
-    if (input.phone !== undefined) patch.phone = input.phone;
+    if (input.phone !== undefined) {
+      assertCzechPhone(input.phone);
+      patch.phone = input.phone;
+    }
     if (input.role !== undefined) patch.role = input.role;
     if (input.isMain !== undefined) patch.isMain = input.isMain;
     const row = await contactRepository.updateForCompany(id, companyId, patch);

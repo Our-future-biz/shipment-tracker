@@ -24,6 +24,7 @@ import { rateService } from "./rate.service";
 import { settingsService } from "./settings.service";
 import { deliverDue } from "./truckingOutbox.service";
 import { ltlTrips } from "./ltlTrips";
+import { assertCzechPhone } from "../../../lib/phone";
 
 // FTL trips: one consignment on one truck of a subcontracted haulier. The haulier is the
 // engine's first candidate (preferred lane, then cheapest) unless the user picks another - which
@@ -254,6 +255,7 @@ class TripService {
       driverName: text(input.driverName, "The driver's name"),
       driverPhone: text(input.driverPhone, "The driver's phone"),
     };
+    assertCzechPhone(values.driverPhone, "Driver phone");
     const changes: Record<string, { before: unknown; after: unknown }> = {};
     for (const [k, v] of Object.entries(values)) {
       const before = (trip as Record<string, unknown>)[k] ?? null;

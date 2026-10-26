@@ -6,6 +6,7 @@ import type { CustomerSiteItem } from "@/hooks/useCustomerSites";
 import type { interfaces } from "@/lib/api/client";
 import { CUSTOMER_SITE_KIND_LABELS, CUSTOMER_SITE_KINDS } from "../../_lib/constants";
 import { formatPostcode } from "../../_lib/customerSites";
+import { czechPhoneRule, limitCzechPhone } from "@/lib/phone";
 
 export interface CustomerSiteFormValues {
   label: string;
@@ -174,7 +175,7 @@ export function CustomerSiteDialog({ open, site, saving, onCancel, onSubmit }: C
           <Form.Item name="avizaceName" label="Name">
             <Input onPressEnter={handleSubmit} />
           </Form.Item>
-          <Form.Item name="avizacePhone" label="Phone">
+          <Form.Item name="avizacePhone" label="Phone" normalize={(v?: string) => limitCzechPhone(v ?? "")} rules={[czechPhoneRule]}>
             <Input onPressEnter={handleSubmit} />
           </Form.Item>
           <Form.Item

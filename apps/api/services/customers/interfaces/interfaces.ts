@@ -83,6 +83,22 @@ export interface CustomerPipelineItem {
   createdAt: string;
 }
 
+/** A deleted (hidden) customer as the Deleted view of the Customer Database shows it. */
+export interface DeletedCustomerItem {
+  id: string;
+  companyName: string;
+  ico: string;
+  city: string;
+  country: string;
+  label: CustomerLabel;
+  status: CustomerStatus;
+  /** When it was deleted (ISO). */
+  deletedAt: string;
+  /** Contacts and addresses hidden together with it: a restore brings them back. */
+  contactCount: number;
+  addressCount: number;
+}
+
 /** A haulier company as the trucking service needs it. */
 export interface HaulierCompanyItem {
   id: string;

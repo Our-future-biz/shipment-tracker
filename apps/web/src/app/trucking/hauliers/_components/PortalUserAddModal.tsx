@@ -5,6 +5,7 @@ import { Button, Input, Modal } from "antd";
 import { portalUserProblem } from "@/app/haulier/_lib/portal";
 import type { PortalUserCreate } from "@/hooks/useTrucking";
 import { TruckingField } from "../../_components/TruckingField";
+import { limitCzechPhone } from "@/lib/phone";
 
 const EMPTY: PortalUserCreate = { email: "", name: "", phone: "" };
 
@@ -53,7 +54,7 @@ export const PortalUserAddModal = ({ open, loading, onClose, onCreate }: PortalU
           <Input aria-label="E-mail" type="email" value={draft.email} onChange={(e) => set("email", e.target.value)} />
         </TruckingField>
         <TruckingField label="Phone">
-          <Input aria-label="Phone" value={draft.phone} onChange={(e) => set("phone", e.target.value)} />
+          <Input aria-label="Phone" value={draft.phone} onChange={(e) => set("phone", limitCzechPhone(e.target.value))} />
         </TruckingField>
       </div>
     </Modal>

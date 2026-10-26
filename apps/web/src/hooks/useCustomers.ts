@@ -7,6 +7,9 @@ import { customerQuotesKeys } from "@/hooks/salesQueryKeys";
 import { customerAddressesKey } from "@/hooks/useCustomerAddresses";
 
 export type CustomerItem = interfaces.CustomerItem;
+export type DeletedCustomerItem = interfaces.DeletedCustomerItem;
+
+const DELETED_CUSTOMERS_KEY = "deleted-customers";
 
 export interface CustomerQueryParams {
   /** Free-text search, executed server-side across company name, IČO, DIČ and city. */
@@ -89,6 +92,7 @@ export const useCustomer = (id: string | null) => {
       // Drop everything cached about the record: a failed refetch keeps the last good data, so
       // Back or a link from one of its shipments would otherwise show the deleted customer as live.
       for (const key of CUSTOMER_RECORD_KEYS) queryClient.removeQueries({ queryKey: [key, id] });
+      queryClient.invalidateQueries({ queryKey: [DELETED_CUSTOMERS_KEY] });
       return queryClient.invalidateQueries({ queryKey: ["customers"] });
     },
   });
@@ -136,5 +140,36 @@ export const useCustomer = (id: string | null) => {
     deleteCustomer: deleteMutation.mutateAsync,
     uploadLogo: uploadLogoMutation.mutateAsync,
     deleteLogo: deleteLogoMutation.mutateAsync,
+  };
+};
+
+const NO_DELETED_CUSTOMERS: DeletedCustomerItem[] = [];
+
+// The deleted (hidden) customers and their restore: superadmins only, so the list is asked for
+// only when `enabled` (the API refuses everyone else).
+export const useDeletedCustomers = (enabled: boolean) => {
+  const queryClient = useQueryClient();
+
+  const query = useQuery({
+    queryKey: [DELETED_CUSTOMERS_KEY],
+    queryFn: () => api.customers.customerDeletedList(),
+    enabled,
+  });
+
+  const restoreMutation = useMutation({
+    mutationFn: (id: string) => api.customers.customerRestore(id),
+    onSuccess: (_res, id) => {
+      // Whatever was cached about the record while it was deleted (a "not found") goes; and every
+      // list that shows customers (pickers, pipeline, hauliers) is read again with it back in.
+      for (const key of CUSTOMER_RECORD_KEYS) queryClient.removeQueries({ queryKey: [key, id] });
+      return queryClient.invalidateQueries();
+    },
+  });
+
+  return {
+    deletedCustomers: query.data?.data ?? NO_DELETED_CUSTOMERS,
+    isLoading: query.isLoading,
+    isError: query.isError,
+    restoreCustomer: restoreMutation.mutateAsync,
   };
 };

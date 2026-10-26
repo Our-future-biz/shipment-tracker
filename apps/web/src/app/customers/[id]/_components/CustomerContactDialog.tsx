@@ -4,6 +4,7 @@ import { Button, Form, Input, Modal, Select, Switch } from "antd";
 import type { ContactItem } from "@/hooks/useCustomerContacts";
 import type { interfaces } from "@/lib/api/client";
 import { CONTACT_ROLES } from "../../_lib/constants";
+import { czechPhoneRule } from "@/lib/phone";
 import { ContactPhoneInput, isPossiblePhone } from "./ContactPhoneInput";
 
 export interface CustomerContactFormValues {
@@ -112,7 +113,7 @@ export function CustomerContactDialog({ open, contact, saving, onCancel, onSubmi
         <Form.Item
           name="phone"
           label="Phone"
-          rules={[{ validator: (_, value?: string) => (!value || isPossiblePhone(value) ? Promise.resolve() : Promise.reject(new Error("Enter a valid phone number"))) }]}
+          rules={[czechPhoneRule, { validator: (_, value?: string) => (!value || isPossiblePhone(value) ? Promise.resolve() : Promise.reject(new Error("Enter a valid phone number"))) }]}
         >
           <ContactPhoneInput onPressEnter={handleSubmit} defaultCountry={country} />
         </Form.Item>

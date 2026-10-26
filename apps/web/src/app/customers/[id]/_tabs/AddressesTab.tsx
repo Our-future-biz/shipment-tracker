@@ -11,6 +11,8 @@ import type { AddressItem } from "@/hooks/useCustomerAddresses";
 import { useCustomer } from "@/hooks/useCustomers";
 import { COUNTRIES, flagOf } from "@/lib/countries";
 import { useToast } from "@/lib/toast";
+import { useAuth } from "@/lib/auth/AuthContext";
+import { canDeleteCustomerRecords } from "../../_lib/customerPermissions";
 import { addressTypeColor, ADDRESS_TYPES } from "../../_lib/constants";
 import { CustomerAddressDialog } from "../_components/CustomerAddressDialog";
 import type { CustomerAddressFormValues } from "../_components/CustomerAddressDialog";
@@ -41,6 +43,7 @@ export function AddressesTab({ customerId }: AddressesTabProps) {
   const hasRegistered = addresses.some((a) => a.type === "Registered");
   const { customer } = useCustomer(customerId);
   const toast = useToast();
+  const canDelete = canDeleteCustomerRecords(useAuth().user);
   const [dialog, setDialog] = useState<AddressDialogState>({ key: 0, open: false, address: null });
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<AddressItem | null>(null);
@@ -124,8 +127,9 @@ export function AddressesTab({ customerId }: AddressesTabProps) {
             menu={{
               items: [
                 { key: "edit", label: "Edit", icon: <EditOutlined />, onClick: () => handleOpenDialog(r) },
-                // The Registered address is the company's seat: it is corrected, not removed.
-                ...(r.type === "Registered"
+                // Superadmins only (the API refuses everyone else). The Registered address is the
+                // company's seat: it is corrected, not removed.
+                ...(!canDelete || r.type === "Registered"
                   ? []
                   : [{ key: "delete", label: "Delete", icon: <DeleteOutlined />, danger: true, onClick: () => setDeleteTarget(r) }]),
               ],
@@ -187,7 +191,7 @@ export function AddressesTab({ customerId }: AddressesTabProps) {
         onClose={handleCloseDelete}
         onConfirm={handleDelete}
         title="Delete address"
-        description={`Delete the ${deleteTarget?.type ?? ""} address${deleteTarget?.label ? ` “${deleteTarget.label}”` : ""}?`}
+        description={`Delete the ${deleteTarget?.type ?? ""} address${deleteTarget?.label ? ` “${deleteTarget.label}”` : ""}? It is hidden from everyone but kept in the database, so it can be restored.`}
         confirmLabel="Delete"
         danger
         loading={deleting}

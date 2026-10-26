@@ -496,10 +496,12 @@ export namespace customers {
             this.customerCreate = this.customerCreate.bind(this)
             this.customerCreateManual = this.customerCreateManual.bind(this)
             this.customerDelete = this.customerDelete.bind(this)
+            this.customerDeletedList = this.customerDeletedList.bind(this)
             this.customerGet = this.customerGet.bind(this)
             this.customerList = this.customerList.bind(this)
             this.customerListPrefGet = this.customerListPrefGet.bind(this)
             this.customerListPrefSet = this.customerListPrefSet.bind(this)
+            this.customerRestore = this.customerRestore.bind(this)
             this.customerShipmentFinancials = this.customerShipmentFinancials.bind(this)
             this.customerSiteCreate = this.customerSiteCreate.bind(this)
             this.customerSiteDelete = this.customerSiteDelete.bind(this)
@@ -528,6 +530,9 @@ export namespace customers {
             return await resp.json() as controllers.AddressCreateResponse
         }
 
+        /**
+         * Hides the address (soft delete: the row stays in the database and can be restored). Superadmins only.
+         */
         public async addressDelete(id: string): Promise<controllers.AddressDeleteResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("DELETE", `/customer-addresses/${encodeURIComponent(id)}`)
@@ -572,6 +577,9 @@ export namespace customers {
             return await resp.json() as controllers.ContactCreateResponse
         }
 
+        /**
+         * Hides the contact (soft delete: the row stays in the database and can be restored). Superadmins only.
+         */
         public async contactDelete(id: string): Promise<controllers.ContactDeleteResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("DELETE", `/customer-contacts/${encodeURIComponent(id)}`)
@@ -606,12 +614,23 @@ export namespace customers {
         }
 
         /**
-         * Removes the customer with its contacts, notes, documents and invoices: managers and up only.
+         * Hides the customer with its contacts, addresses, notes, documents and invoices (soft delete:
+         * the rows stay in the database and can be restored). Superadmins only.
          */
         public async customerDelete(id: string): Promise<controllers.CustomerDeleteResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("DELETE", `/customers/${encodeURIComponent(id)}`)
             return await resp.json() as controllers.CustomerDeleteResponse
+        }
+
+        /**
+         * The deleted (hidden) customers of the company, for the Deleted view of the Customer
+         * Database. Superadmins only: they are the ones who delete and restore customers.
+         */
+        public async customerDeletedList(): Promise<controllers.CustomerDeletedListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/deleted-customers`)
+            return await resp.json() as controllers.CustomerDeletedListResponse
         }
 
         public async customerGet(id: string): Promise<controllers.CustomerGetResponse> {
@@ -645,6 +664,16 @@ export namespace customers {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PUT", `/customer-list-prefs/${encodeURIComponent(prefKey)}`, JSON.stringify(params))
             return await resp.json() as controllers.CustomerListPrefSetResponse
+        }
+
+        /**
+         * Brings a deleted customer back for everyone, with the contacts, addresses, notes, documents,
+         * invoices and sites deleted together with it. Superadmins only.
+         */
+        public async customerRestore(id: string): Promise<controllers.CustomerRestoreResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/customers/${encodeURIComponent(id)}/restore`)
+            return await resp.json() as controllers.CustomerRestoreResponse
         }
 
         /**
@@ -5286,6 +5315,13 @@ export namespace controllers {
         ok: boolean
     }
 
+    export interface CustomerDeletedListResponse {
+        /**
+         * The most recently deleted first, at most 1000.
+         */
+        data: interfaces.DeletedCustomerItem[]
+    }
+
     export interface CustomerGetResponse {
         customer: interfaces.CustomerItem
     }
@@ -5333,6 +5369,10 @@ export namespace controllers {
          * How many customers match in all (more than `data` holds when it is cut).
          */
         total: number
+    }
+
+    export interface CustomerRestoreResponse {
+        customer: interfaces.CustomerItem
     }
 
     export interface CustomerShipmentFinancialsRequest {
@@ -10445,6 +10485,30 @@ export namespace interfaces {
     }
 
     export type DeadlinePeriod = "OVERDUE" | "TODAY" | "THIS_WEEK" | "NEXT_WEEK" | "LATER"
+
+    /**
+     * A deleted (hidden) customer as the Deleted view of the Customer Database shows it.
+     */
+    export interface DeletedCustomerItem {
+        id: string
+        companyName: string
+        ico: string
+        city: string
+        country: string
+        label: CustomerLabel
+        status: CustomerStatus
+        /**
+         * When it was deleted (ISO).
+         */
+        deletedAt: string
+
+        /**
+         * Contacts and addresses hidden together with it: a restore brings them back.
+         */
+        contactCount: number
+
+        addressCount: number
+    }
 
     export interface DeliveryException {
         id: string

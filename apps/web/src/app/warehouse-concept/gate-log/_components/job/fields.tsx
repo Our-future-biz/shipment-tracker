@@ -5,6 +5,7 @@ import { DatePicker, Input, InputNumber, Select, TimePicker } from "antd";
 import dayjs from "dayjs";
 import customParseFormat from "dayjs/plugin/customParseFormat";
 import { formatDateTime } from "@/lib/date";
+import { czechPhoneProblem, limitCzechPhone } from "@/lib/phone";
 
 dayjs.extend(customParseFormat);
 
@@ -62,24 +63,30 @@ export function InlineText({
   onSave,
   placeholder = "—",
   mono,
+  phone,
   className = "",
 }: {
   value: string;
   onSave: (v: string) => void;
   placeholder?: string;
   mono?: boolean;
+  /** A phone number: a +420 one takes at most 9 digits and is saved only with exactly 9. */
+  phone?: boolean;
   className?: string;
 }) {
   const [draft, setDraft] = useDraft(value);
+  const problem = phone ? czechPhoneProblem(draft) : "";
   return (
     <Input
       size="small"
       variant="borderless"
       value={draft}
       placeholder={placeholder}
+      status={problem ? "error" : undefined}
+      title={problem || undefined}
       className={`${inlineClass} font-medium text-slate-900 ${mono ? "font-mono" : ""} ${className}`}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={() => draft !== value && onSave(draft.trim())}
+      onChange={(e) => setDraft(phone ? limitCzechPhone(e.target.value) : e.target.value)}
+      onBlur={() => !problem && draft !== value && onSave(draft.trim())}
       onPressEnter={(e) => e.currentTarget.blur()}
     />
   );

@@ -1,4 +1,4 @@
-import { and, arrayContains, asc, count, eq, getTableColumns, inArray, desc, isNull, ne, sql } from "drizzle-orm";
+import { and, arrayContains, asc, count, eq, getTableColumns, inArray, desc, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { containsAllWords } from "../../../lib/db/textSearch";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
@@ -181,6 +181,88 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
       return customer;
     });
   }
+
+  /**
+   * The company's deleted customers, the most recently deleted first, with how many contacts and
+   * addresses were hidden together with each one (same deleted_at): those come back on a restore.
+   */
+  async listDeleted(companyId: string, limit = 1000): Promise<DeletedCustomerRow[]> {
+    // Spelled out with an alias: in a single-table select drizzle leaves column names unqualified,
+    // and inside the subquery they would then mean the child table's own columns.
+    const hiddenWith = (table: typeof contactTable | typeof customerAddressTable) =>
+      sql<number>`(select count(*) from ${table} as hidden where hidden.customer_id = "customer"."id" and hidden.company_id = "customer"."company_id" and hidden.deleted_at = "customer"."deleted_at")`.mapWith(Number);
+    const rows = await this.db
+      .select({
+        id: customerTable.id,
+        companyName: customerTable.companyName,
+        ico: customerTable.ico,
+        city: customerTable.city,
+        country: customerTable.country,
+        label: customerTable.label,
+        status: customerTable.status,
+        deletedAt: customerTable.deletedAt,
+        contactCount: hiddenWith(contactTable),
+        addressCount: hiddenWith(customerAddressTable),
+      })
+      .from(customerTable)
+      .where(and(eq(customerTable.companyId, companyId), isNotNull(customerTable.deletedAt)))
+      .orderBy(desc(customerTable.deletedAt), asc(customerTable.companyName))
+      .limit(limit);
+    return rows.map((r) => ({ ...r, deletedAt: r.deletedAt! }));
+  }
+
+  /** A deleted customer of the company; null when there is none (or it is live). */
+  async getDeletedForCompany(id: string, companyId: string): Promise<CustomerRecord | null> {
+    const [row] = await this.db
+      .select()
+      .from(customerTable)
+      .where(and(eq(customerTable.id, id), eq(customerTable.companyId, companyId), isNotNull(customerTable.deletedAt)))
+      .limit(1);
+    return row ?? null;
+  }
+
+  /**
+   * Undoes softDeleteWithChildren in one transaction: the customer and every row hidden together
+   * with it (the same deleted_at) come back. Rows deleted on their own before stay deleted.
+   * Null when the customer is not deleted (or not of this company).
+   */
+  async restoreWithChildren(id: string, companyId: string): Promise<CustomerRecord | null> {
+    return this.db.transaction(async (tx) => {
+      const [deleted] = await tx
+        .select({ deletedAt: customerTable.deletedAt })
+        .from(customerTable)
+        .where(and(eq(customerTable.id, id), eq(customerTable.companyId, companyId), isNotNull(customerTable.deletedAt)))
+        .limit(1);
+      if (!deleted?.deletedAt) return null;
+      const stamp = deleted.deletedAt;
+      const now = new Date();
+      const back = { deletedAt: null, updatedAt: now };
+      const [customer] = await tx
+        .update(customerTable)
+        .set(back)
+        .where(and(eq(customerTable.id, id), eq(customerTable.companyId, companyId), eq(customerTable.deletedAt, stamp)))
+        .returning();
+      if (!customer) return null;
+      await tx.update(customerAddressTable).set(back)
+        .where(and(eq(customerAddressTable.companyId, companyId), eq(customerAddressTable.customerId, id), eq(customerAddressTable.deletedAt, stamp)));
+      await tx.update(contactTable).set(back)
+        .where(and(eq(contactTable.companyId, companyId), eq(contactTable.customerId, id), eq(contactTable.deletedAt, stamp)));
+      await tx.update(customerNoteTable).set(back)
+        .where(and(eq(customerNoteTable.companyId, companyId), eq(customerNoteTable.customerId, id), eq(customerNoteTable.deletedAt, stamp)));
+      await tx.update(customerDocumentTable).set(back)
+        .where(and(eq(customerDocumentTable.companyId, companyId), eq(customerDocumentTable.customerId, id), eq(customerDocumentTable.deletedAt, stamp)));
+      await tx.update(customerInvoiceTable).set(back)
+        .where(and(eq(customerInvoiceTable.companyId, companyId), eq(customerInvoiceTable.customerId, id), eq(customerInvoiceTable.deletedAt, stamp)));
+      await tx.update(customerSiteTable).set(back)
+        .where(and(eq(customerSiteTable.companyId, companyId), eq(customerSiteTable.customerId, id), eq(customerSiteTable.deletedAt, stamp)));
+      return customer;
+    });
+  }
 }
+
+export type DeletedCustomerRow = Pick<
+  CustomerRecord,
+  "id" | "companyName" | "ico" | "city" | "country" | "label" | "status"
+> & { deletedAt: Date; contactCount: number; addressCount: number };
 
 export const customerRepository = new CustomerRepository();

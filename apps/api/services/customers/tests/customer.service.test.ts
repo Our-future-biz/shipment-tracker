@@ -4,6 +4,9 @@ const customers = vi.hoisted(() => ({
   getByIdForCompany: vi.fn(),
   updateForCompany: vi.fn(),
   softDeleteWithChildren: vi.fn(),
+  listDeleted: vi.fn(),
+  getDeletedForCompany: vi.fn(),
+  restoreWithChildren: vi.fn(),
   findByIco: vi.fn(),
   createForCompany: vi.fn(),
   createWithContact: vi.fn(),
@@ -62,6 +65,17 @@ describe("customerService.updateRollups", () => {
 });
 
 describe("contacts of a customer", () => {
+  it("refuse a Czech number (+420) without exactly 9 digits, on add and on edit", async () => {
+    customers.getByIdForCompany.mockResolvedValue({ id: "c1" });
+    await expect(contactService.create(COMPANY, "c1", { firstName: "Aleš", lastName: "Petrák", phone: "+420 774237000000" })).rejects.toThrow(
+      "A Czech phone number (+420) must have exactly 9 digits",
+    );
+    expect(contacts.createForCompany).not.toHaveBeenCalled();
+    contacts.getByIdForCompany.mockResolvedValue(contactRow());
+    await expect(contactService.update("k1", COMPANY, { phone: "+420 774 23" })).rejects.toThrow("exactly 9 digits");
+    expect(contacts.updateForCompany).not.toHaveBeenCalled();
+  });
+
   it("can't be added under a customer that isn't live in the company", async () => {
     customers.getByIdForCompany.mockResolvedValue(null);
     await expect(contactService.create(COMPANY, "other-company-customer", { firstName: "X", lastName: "Y" })).rejects.toThrow("Customer not found");
@@ -214,5 +228,54 @@ describe("customerService.createManual", () => {
       "The contact person needs an email or a phone number",
     );
     expect(customers.createWithContact).not.toHaveBeenCalled();
+  });
+});
+
+describe("deleted customers", () => {
+  const deletedRow = (over: Record<string, unknown> = {}) => ({
+    id: "c1", companyId: COMPANY, ico: "12345678", companyName: "Alfa s.r.o.", roles: ["customer"], registrationDate: null,
+    lastActivityDate: null, logoData: "", createdAt: now, updatedAt: now, deletedAt: now, ...over,
+  });
+
+  it("are listed with the date they were deleted", async () => {
+    customers.listDeleted.mockResolvedValue([
+      { id: "c1", companyName: "Alfa s.r.o.", ico: "12345678", city: "Praha", country: "CZ", label: "STANDARD", status: "Active", deletedAt: now, contactCount: 2, addressCount: 1 },
+    ]);
+    await expect(customerService.listDeleted(COMPANY)).resolves.toEqual([
+      { id: "c1", companyName: "Alfa s.r.o.", ico: "12345678", city: "Praha", country: "CZ", label: "STANDARD", status: "Active", deletedAt: now.toISOString(), contactCount: 2, addressCount: 1 },
+    ]);
+    expect(customers.listDeleted).toHaveBeenCalledWith(COMPANY);
+  });
+
+  it("are restored with what was deleted together with them", async () => {
+    customers.getDeletedForCompany.mockResolvedValue(deletedRow());
+    customers.findByIco.mockResolvedValue(null);
+    customers.restoreWithChildren.mockResolvedValue(deletedRow({ deletedAt: null }));
+    const item = await customerService.restore("c1", COMPANY);
+    expect(customers.findByIco).toHaveBeenCalledWith("12345678", COMPANY);
+    expect(customers.restoreWithChildren).toHaveBeenCalledWith("c1", COMPANY);
+    expect(item.id).toBe("c1");
+  });
+
+  it("can't be restored when they are not deleted (or of another company)", async () => {
+    customers.getDeletedForCompany.mockResolvedValue(null);
+    await expect(customerService.restore("c1", COMPANY)).rejects.toThrow("Deleted customer not found");
+    expect(customers.restoreWithChildren).not.toHaveBeenCalled();
+  });
+
+  it("can't be restored while a live customer has the same registration number", async () => {
+    customers.getDeletedForCompany.mockResolvedValue(deletedRow());
+    customers.findByIco.mockResolvedValue({ id: "c2", companyName: "Alfa nová s.r.o." });
+    await expect(customerService.restore("c1", COMPANY)).rejects.toThrow(
+      "Alfa nová s.r.o. already has the registration number 12345678, so Alfa s.r.o. can't be restored",
+    );
+    expect(customers.restoreWithChildren).not.toHaveBeenCalled();
+  });
+
+  it("without a registration number are not compared with anyone", async () => {
+    customers.getDeletedForCompany.mockResolvedValue(deletedRow({ ico: "" }));
+    customers.restoreWithChildren.mockResolvedValue(deletedRow({ ico: "", deletedAt: null }));
+    await customerService.restore("c1", COMPANY);
+    expect(customers.findByIco).not.toHaveBeenCalled();
   });
 });

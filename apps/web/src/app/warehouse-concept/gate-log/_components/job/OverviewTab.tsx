@@ -600,6 +600,7 @@ export function OverviewTab({
                       cell: (
                         <InlineText
                           value={cfs.phone}
+                          phone
                           className="!text-slate-500"
                           onSave={(v) => setLeg("CFS", { phone: v })}
                         />

@@ -35,7 +35,7 @@ const tokenOf = (link: string) => link.split("/").pop()!;
 
 /** A portal user of Bravo with the password set, and their invitation token. */
 async function active(email = "eva@bravo.cz") {
-  const created = await portalUserService.create(manager, HAULIER, { email, name: "Eva Malá", phone: "+420 777 1" });
+  const created = await portalUserService.create(manager, HAULIER, { email, name: "Eva Malá", phone: "+420 777 111 222" });
   await portalAuthService.setPassword({ token: tokenOf(created.inviteLink), password: PASSWORD });
   return created;
 }
@@ -65,7 +65,7 @@ describe("portal users (app side)", () => {
   });
 
   it("adds a user with a lower-cased e-mail and a one-time link shown once; only the link's hash is stored", async () => {
-    const created = await portalUserService.create(manager, HAULIER, { email: "  Eva@Bravo.CZ ", name: "Eva Malá", phone: "+420 777 1" });
+    const created = await portalUserService.create(manager, HAULIER, { email: "  Eva@Bravo.CZ ", name: "Eva Malá", phone: "+420 777 111 222" });
     expect(created.user).toMatchObject({ email: "eva@bravo.cz", status: "INVITED", haulierCustomerId: HAULIER, lastLoginAt: null });
     expect(created.inviteLink).toMatch(/\/haulier\/portal\/set-password\/[A-Za-z0-9_-]{43}$/);
     expect(created.expiresAt).toBe("2026-10-18T10:00:00.000Z");
@@ -404,5 +404,13 @@ describe("the session every portal endpoint checks", () => {
     await portalAuthService.setPassword({ token: tokenOf(other.inviteLink), password: PASSWORD });
     const { session } = await login("ola@gama.cz");
     expect((await portalAuthService.authenticate(session)).haulierId).toBe(HAULIER2);
+  });
+});
+
+describe("portal user phone", () => {
+  it("refuses a Czech number (+420) without exactly 9 digits", async () => {
+    await expect(portalUserService.create(manager, HAULIER, { email: "jan@bravo.cz", name: "Jan Malý", phone: "+420 777 1" })).rejects.toThrow(
+      "A Czech phone number (+420) must have exactly 9 digits",
+    );
   });
 });

@@ -198,7 +198,7 @@ describe("trip update and cancel", () => {
   it("normalises plates and owes the job a new tractor plate", async () => {
     const c = await booked();
     const { trip } = await tripService.createFtl(user, { consignmentId: c.id, haulierCustomerId: null, vehicleTypeCode: null, price: { source: "TARIFF" } });
-    const t = await tripService.update(user, trip.id, { vehicleTypeCode: null, tractorPlate: "1ab 2345", trailerPlate: "2cd-6789", driverName: "Petr", driverPhone: "+420 1", version: trip.version });
+    const t = await tripService.update(user, trip.id, { vehicleTypeCode: null, tractorPlate: "1ab 2345", trailerPlate: "2cd-6789", driverName: "Petr", driverPhone: "+420 601 111 222", version: trip.version });
     expect(t).toMatchObject({ tractorPlate: "1AB2345", trailerPlate: "2CD6789" });
     expect(outboxOf("plate")).toEqual([expect.objectContaining({ payload: { plateNumber: "1AB2345" } })]);
     await expect(tripService.update(user, trip.id, { vehicleTypeCode: null, tractorPlate: "X", trailerPlate: "", driverName: "", driverPhone: "", version: trip.version })).rejects.toMatchObject({

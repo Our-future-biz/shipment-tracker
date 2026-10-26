@@ -6,6 +6,12 @@ import { toCustomerSiteItem } from "../lib/mappers";
 import { normaliseCountry, normalisePostcode } from "../lib/postcode";
 import { customerService } from "./customer.service";
 import { isUniqueViolation } from "../../../lib/db/errors";
+import { assertCzechPhone } from "../../../lib/phone";
+
+const checkedAvizacePhone = (phone: string): string => {
+  assertCzechPhone(phone, "Avizace phone");
+  return phone;
+};
 
 // Two saves making different sites the default at the same moment: the one-default index refuses the second.
 const DEFAULT_RACE = "Another site of this customer was made the default at the same moment - reload and try again";
@@ -78,7 +84,7 @@ class CustomerSiteService {
       lng: input.lng ?? null,
       openingHours: input.openingHours ?? "",
       avizaceName: input.avizaceName ?? "",
-      avizacePhone: input.avizacePhone ?? "",
+      avizacePhone: checkedAvizacePhone(input.avizacePhone ?? ""),
       avizaceEmail: input.avizaceEmail ?? "",
       loadingNotes: input.loadingNotes ?? "",
       tailLiftNeeded: input.tailLiftNeeded ?? false,
@@ -111,7 +117,7 @@ class CustomerSiteService {
     if (input.lng !== undefined) patch.lng = input.lng;
     if (input.openingHours !== undefined) patch.openingHours = input.openingHours;
     if (input.avizaceName !== undefined) patch.avizaceName = input.avizaceName;
-    if (input.avizacePhone !== undefined) patch.avizacePhone = input.avizacePhone;
+    if (input.avizacePhone !== undefined) patch.avizacePhone = checkedAvizacePhone(input.avizacePhone);
     if (input.avizaceEmail !== undefined) patch.avizaceEmail = input.avizaceEmail;
     if (input.loadingNotes !== undefined) patch.loadingNotes = input.loadingNotes;
     if (input.tailLiftNeeded !== undefined) patch.tailLiftNeeded = input.tailLiftNeeded;

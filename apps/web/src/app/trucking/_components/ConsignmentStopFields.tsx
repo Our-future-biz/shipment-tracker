@@ -7,6 +7,7 @@ import type { StopInput } from "@/hooks/useTruckingConsignments";
 import { stopFromSite } from "../_lib/consignmentForm";
 import { formatPsc, pscDigits } from "../_lib/hauliers";
 import { TruckingField } from "./TruckingField";
+import { limitCzechPhone } from "@/lib/phone";
 
 interface ConsignmentStopFieldsProps {
   title: string;
@@ -80,7 +81,7 @@ export const ConsignmentStopFields = ({ title, stop, sites, onChange, limited = 
           <Input aria-label={`${title} contact name`} disabled={limited} value={stop.contactName} onChange={(e) => set("contactName", e.target.value)} />
         </TruckingField>
         <TruckingField label="Contact phone">
-          <Input aria-label={`${title} contact phone`} disabled={limited} inputMode="tel" value={stop.contactPhone} onChange={(e) => set("contactPhone", e.target.value)} />
+          <Input aria-label={`${title} contact phone`} disabled={limited} inputMode="tel" value={stop.contactPhone} onChange={(e) => set("contactPhone", limitCzechPhone(e.target.value))} />
         </TruckingField>
         <TruckingField label="Reference" hint="Their order or delivery number, printed on the transport order">
           <Input aria-label={`${title} reference`} value={stop.reference} onChange={(e) => set("reference", e.target.value)} />

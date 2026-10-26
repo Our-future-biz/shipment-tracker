@@ -10,6 +10,7 @@ import { api, ErrCode, isAPIError } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
 import { COUNTRY_OPTIONS } from "@/components/countryOptions";
 import { useToast } from "@/lib/toast";
+import { czechPhoneRule } from "@/lib/phone";
 import { ContactPhoneInput, isPossiblePhone } from "../[id]/_components/ContactPhoneInput";
 import { CustomerInfoRow } from "../[id]/_components/CustomerInfoRow";
 import { CONTACT_ROLES, CUSTOMER_ROLE_OPTIONS } from "../_lib/constants";
@@ -476,6 +477,7 @@ export function AddCustomerModal({
               name="phone"
               label="Phone"
               rules={[
+                czechPhoneRule,
                 {
                   validator: (_, value?: string) =>
                     !value || isPossiblePhone(value)

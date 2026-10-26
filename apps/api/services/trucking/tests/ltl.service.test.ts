@@ -456,7 +456,7 @@ describe("transport order, our warehouse and the trip's stamps", () => {
     ]);
     // A new plate is announced again; a job taken off the trip is withdrawn.
     const t = await tripService.get(user, trip.id);
-    await tripService.update(user, trip.id, { vehicleTypeCode: "van", tractorPlate: "1ab 2345", trailerPlate: "", driverName: "Petr", driverPhone: "+420 1", version: t.version });
+    await tripService.update(user, trip.id, { vehicleTypeCode: "van", tractorPlate: "1ab 2345", trailerPlate: "", driverName: "Petr", driverPhone: "+420 601 111 222", version: t.version });
     expect(outboxOf("expect_arrival").at(-1)!.payload).toMatchObject({ plate: "1AB2345", driver: "Petr" });
     const t2 = await tripService.get(user, trip.id);
     await ltlService.assignLegs(user, trip.id, { add: [], remove: [legOf(b.id, "PICKUP").id], stopOrder: null, version: t2.version });
