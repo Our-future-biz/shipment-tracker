@@ -1285,6 +1285,8 @@ export function ShipmentDetailContent() {
                     { key: "salesNumber", label: "Sales Reference" },
                     { key: "serviceName", label: "Service Name" },
                     { key: "customer", label: "Customer", ro: true },
+                    // Picked from the customer's contacts (the contact cell), with its card on hover.
+                    { key: "customerPic", label: "Customer's PIC" },
                     { key: "shipper", label: "Shipper", ro: true },
                     { key: "consignee", label: "Consignee", ro: true },
                     { key: "personInCharge", label: "Handled By" },
