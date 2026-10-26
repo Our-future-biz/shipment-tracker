@@ -140,7 +140,7 @@ export function DashboardView() {
         />
       </div>
 
-      {/* Left only by confirming it was read (or with Close, once it is). Edit and Delete are in the table's row menu. */}
+      {/* An unread notice is left only by confirming it was read; any other has Close. Edit and Delete are in the table's row menu. */}
       <NoticeDetailModal
         post={openPost}
         onClose={handleCloseDetail}

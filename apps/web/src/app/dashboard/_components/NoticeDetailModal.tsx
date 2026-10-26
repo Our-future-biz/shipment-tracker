@@ -14,7 +14,7 @@ import { NoticeSeverityTag } from "./NoticeSeverityTag";
 
 interface NoticeDetailModalProps {
   post: Announcement | null;
-  // Closes a notice that is already read (the Close button).
+  // Closes a notice that is not waiting to be confirmed (the Close button, Escape, a click outside).
   onClose: () => void;
   // The reader confirms having read the notice (the green Read button): it is marked read and the
   // dialog closes. An unread notice can be left no other way - no close icon, Escape or outside click.
@@ -128,10 +128,13 @@ export function NoticeDetailModal({ post, onClose, onConfirmRead }: NoticeDetail
     <Modal
       open={!!post}
       onCancel={onClose}
+      // An unread notice is left only by confirming it; any other closes with Close, Escape or a click outside.
+      // No close icon either way: the heading has no room for it.
       closable={false}
-      keyboard={false}
-      maskClosable={false}
+      keyboard={!shown?.unread}
+      maskClosable={!shown?.unread}
       // The reader confirms the notice here (which closes it); once read, a quiet note and a Close button.
+      // A notice that needs no confirming (the reader's own, or not addressed to them) has just Close.
       footer={
         shown && (
           <div className="flex justify-end pt-1">
@@ -155,13 +158,15 @@ export function NoticeDetailModal({ post, onClose, onConfirmRead }: NoticeDetail
               >
                 Read
               </Button>
-            ) : (
+            ) : shown.readAt ? (
               <div className="flex items-center gap-3">
                 <span className="flex items-center gap-1.5 text-[13px] font-medium text-emerald-700">
                   <CheckOutlined /> Read
                 </span>
                 <Button onClick={onClose}>Close</Button>
               </div>
+            ) : (
+              <Button onClick={onClose}>Close</Button>
             )}
           </div>
         )

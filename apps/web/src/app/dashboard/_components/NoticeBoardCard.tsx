@@ -10,6 +10,7 @@ import { formatDateTime } from "@/lib/date";
 import type { Announcement } from "@/hooks/useNoticeboard";
 import { NoticeSeverityTag } from "./NoticeSeverityTag";
 import { SEVERITIES } from "../_lib/boards";
+import { READ_STATE_RANK, readState } from "../_lib/readState";
 
 // Every column sorts. Text in Czech order (so "Č" sits after "C"); Status by weight, Critical first.
 const byText = (get: (a: Announcement) => string) => (a: Announcement, b: Announcement) => get(a).localeCompare(get(b), "cs");
@@ -71,7 +72,7 @@ export function NoticeBoardCard({
     () => [...posts].sort((a, b) => Number(b.unread) - Number(a.unread) || b.createdAt.localeCompare(a.createdAt)),
     [posts],
   );
-  const readRank = (a: Announcement) => (a.authorId === user?.id ? 2 : a.unread ? 0 : 1);
+  const readRank = (a: Announcement) => READ_STATE_RANK[readState(a, user?.id)];
   // A table: priority, for whom, the notice itself, who posted it, the date, whether the
   // reader has read it, then a quiet menu.
   const columns: ColumnsType<Announcement> = [
@@ -139,26 +140,33 @@ export function NoticeBoardCard({
       render: (v: string) => <span className="text-slate-500 tabular-nums whitespace-nowrap">{formatDateTime(v)}</span>,
     },
     {
-      // Whether the reader has confirmed the notice; their own notices need no confirming.
+      // Whether the reader has confirmed the notice; their own notices need no confirming, nor do
+      // the ones not addressed to them (an admin sees every board).
       title: "Read",
       key: "read",
       width: 120,
-      // Unread first, then read, then the reader's own.
+      // Unread first, then read, then not addressed to the reader, then the reader's own.
       sorter: (a, b) => readRank(a) - readRank(b),
-      render: (_: unknown, r: Announcement) =>
-        r.authorId === user?.id ? (
+      render: (_: unknown, r: Announcement) => {
+        const state = readState(r, user?.id);
+        return state === "yours" ? (
           // Indigo, the app's own colour (as on the author's initials), apart from green Read and amber Unread.
           <span className="inline-flex items-center rounded-md bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">Yours</span>
-        ) : r.unread ? (
+        ) : state === "unread" ? (
           <span className="inline-flex items-center rounded-md bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">Unread</span>
-        ) : (
+        ) : state === "read" ? (
           <span
             title={r.readAt ? `Read ${formatDateTime(r.readAt)}` : undefined}
             className="inline-flex items-center rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700"
           >
             Read
           </span>
-        ),
+        ) : (
+          <span className="text-slate-400" title="Not addressed to you">
+            —
+          </span>
+        );
+      },
     },
     ...(posts.some((p) => p.canEdit)
       ? [
