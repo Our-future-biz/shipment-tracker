@@ -5,6 +5,7 @@ export interface WarehouseConceptTaskItem {
   type: string;
   priority: string;
   status: string;
+  /** E-mail of a user of the company ("" for nobody); an older task may still hold a name. */
   assignee: string;
   /** yyyy-mm-dd, or null when not set */
   dueDate: string | null;
@@ -55,6 +56,7 @@ export interface WarehouseTaskPatch {
   type?: string;
   priority?: string;
   status?: string;
+  /** E-mail of a user of the company, "" for nobody; the task's current value is also accepted. */
   assignee?: string;
   /** yyyy-mm-dd; "" clears it */
   dueDate?: string;

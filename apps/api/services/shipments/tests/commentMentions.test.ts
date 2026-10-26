@@ -5,7 +5,8 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
 vi.mock("../repositories/shipmentComment.repository", () => ({ shipmentCommentRepository: { unreadMentions: vi.fn() } }));
 vi.mock("../repositories/shipmentAttachment.repository", () => ({ shipmentAttachmentRepository: {} }));
-vi.mock("../../../lib/userNames", () => ({ userNames: vi.fn(async () => new Map([["u-eva", "Eva Novak"]])) }));
+// Who wrote a message is shown by e-mail, as every person is.
+vi.mock("../lib/userEmails", () => ({ userEmails: vi.fn(async () => new Map([["u-eva", "eva@firma.cz"]])) }));
 vi.mock("../services/attachment.service", () => ({ attachmentService: {} }));
 vi.mock("../services/shipment.service", () => ({ shipmentService: {} }));
 vi.mock("../lib/contentToken", () => ({ attachmentContentUrl: vi.fn() }));
@@ -27,8 +28,8 @@ describe("the bell's mentions", () => {
     expect(repo.unreadMentions).toHaveBeenCalledWith("c1", "u-me", READ_MENTION_KEEP_DAYS);
     expect(READ_MENTION_KEEP_DAYS).toBe(7);
     expect(mentions.map((m) => [m.id, m.unread, m.authorName, m.jobNumber])).toEqual([
-      ["m1", true, "Eva Novak", "CZ1"],
-      ["m2", false, "Eva Novak", "CZ2"],
+      ["m1", true, "eva@firma.cz", "CZ1"],
+      ["m2", false, "eva@firma.cz", "CZ2"],
       ["m3", true, "", ""],
     ]);
   });

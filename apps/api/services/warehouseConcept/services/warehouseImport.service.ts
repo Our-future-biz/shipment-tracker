@@ -90,6 +90,7 @@ export function copiedFields(s: Partial<Shipment>) {
     customer: s.customer ?? "",
     customerRef: s.customerReference ?? "",
     customerContact: s.customerPic ?? "",
+    // As the shipment holds it (a user's e-mail there too); not checked against the users here.
     shipmentOwner: s.personInCharge ?? "",
     colli: parseInt(s.pcs ?? "", 10) || 0,
     packing: s.typeOfPackages ?? "",

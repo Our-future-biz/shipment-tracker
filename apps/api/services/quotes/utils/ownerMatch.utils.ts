@@ -2,15 +2,9 @@
 // means - or nobody: a wrong guess would hand a quote, and the right to delete it, to the wrong
 // person.
 
-/** A name as it is compared: lower case, without diacritics, single spaces ("Lukáš" = "lukas"). */
-export function normaliseName(name: string): string {
-  return name
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
-}
+import { normaliseName } from "../../../lib/personName";
+
+export { normaliseName };
 
 /**
  * The id of the one user a label names: the user whose display name, e-mail or the part of the

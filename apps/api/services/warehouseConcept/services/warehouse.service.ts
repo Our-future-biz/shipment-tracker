@@ -9,6 +9,8 @@ import { userName } from "./users";
 import { reweighRepository } from "../repositories/reweigh.repository";
 import { kgText, needsReweigh } from "./reweigh";
 import { gateAdminService } from "./gateAdmin.service";
+import { pickedUserFromRequest } from "./pickedUser";
+import { companyUsers } from "../../../lib/companyUsers";
 import type { NewWarehouseTaskRecord, WarehouseTaskRecord } from "../schemas/warehouseTask.schema";
 import type { WarehouseSectionRecord } from "../schemas/warehouseSection.schema";
 import type { Tx } from "../repositories/warehouseSection.repository";
@@ -157,6 +159,8 @@ export const toTaskItem = (r: WarehouseTaskRecord): WarehouseConceptTaskItem => 
 });
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
+/** How a refused assignee is named in the error. */
+export const ASSIGNEE_LABEL = "Assignee";
 
 // A path parameter can't be typed as a union in Encore, so the section is checked here.
 export function toSection(section: string): WarehouseSection {
@@ -192,7 +196,15 @@ class WarehouseService {
 
   async update(id: string, companyId: string, patch: WarehouseTaskPatch): Promise<WarehouseConceptTaskItem> {
     const changes = taskChanges(patch);
-    const task = UUID.test(id) ? await warehouseTaskRepository.update(id, companyId, changes) : null;
+    if (!UUID.test(id)) throw APIError.notFound("Warehouse task not found");
+    // The assignee is picked from the company's users (stored by e-mail); the stored value may be
+    // sent back unchanged.
+    if (changes.assignee !== undefined) {
+      const current = await warehouseTaskRepository.findAny(id, companyId);
+      if (!current || current.deletedAt) throw APIError.notFound("Warehouse task not found");
+      changes.assignee = await pickedUserFromRequest(changes.assignee, current.assignee, ASSIGNEE_LABEL, companyUsers);
+    }
+    const task = await warehouseTaskRepository.update(id, companyId, changes);
     if (!task) throw APIError.notFound("Warehouse task not found");
     return toTaskItem(task);
   }

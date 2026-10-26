@@ -3,7 +3,8 @@ import { CANCELLED_STATUS, LOAD_TYPES, STATUS_COLORS } from "./enums";
 import { INCOTERMS } from "./incoterms";
 
 // "place" / "country" / "countryCode" are picked from the location database (see lib/places.ts).
-export type ColumnType = "text" | "dropdown" | "date" | "checkbox" | "computed" | "popup" | GeoKind;
+// "user" is a person: one of the company's users, picked with the UserPicker and kept by e-mail.
+export type ColumnType = "text" | "dropdown" | "date" | "checkbox" | "computed" | "popup" | "user" | GeoKind;
 
 const GEO_TYPES: ReadonlySet<string> = new Set<GeoKind>(["place", "country", "countryCode"]);
 
@@ -114,8 +115,8 @@ export const COLUMNS: ColumnDef[] = [
   { key: "shipmentsDate", title: "Shipments Date", width: 120, type: "computed", readonly: true },
   { key: "shipmentsYear", title: "Year", width: 80, type: "computed", readonly: true },
   { key: "department", title: "Department", width: 170, type: "dropdown", options: DROPDOWN_OPTIONS["Department"], apiField: "department" },
-  { key: "personInCharge", title: "Person In Charge", width: 180, type: "text", apiField: "personInCharge" },
-  { key: "holidayCover", title: "Holiday Cover", width: 140, type: "text", apiField: "holidayCover" },
+  { key: "personInCharge", title: "Person In Charge", width: 180, type: "user", apiField: "personInCharge" },
+  { key: "holidayCover", title: "Holiday Cover", width: 140, type: "user", apiField: "holidayCover" },
 
   // Customer block
   { key: "customer", title: "Customer", width: 180, type: "text", apiField: "customer" },
@@ -206,7 +207,8 @@ export const COLUMNS: ColumnDef[] = [
   { key: "temperatureControlled", title: "Temperature Controlled", width: 170, type: "dropdown", options: DROPDOWN_OPTIONS["Temperature Controlled"], apiField: "temperatureControlled" },
   { key: "pcs", title: "COLLI", width: 100, type: "text", readonly: true, apiField: "pcs" },
   { key: "creditCheck", title: "Credit Check", width: 110, type: "dropdown", options: DROPDOWN_OPTIONS["Credit Check"], apiField: "creditCheck" },
-  { key: "approvedBy", title: "Approved By", width: 150, type: "text", apiField: "approvedBy" },
+  // A user, or the server's stamp "<e-mail> — <date>" when the credit check turns Green.
+  { key: "approvedBy", title: "Approved By", width: 150, type: "user", apiField: "approvedBy" },
   { key: "bookingConfirmation", title: "Booking Confirmation", width: 180, type: "dropdown", options: DROPDOWN_OPTIONS["Booking Confirmation"], apiField: "bookingConfirmation" },
   // Written by the release action on the detail page, never edited by hand.
   { key: "houseBolRelease", title: "House BoL Release", width: 200, type: "text", readonly: true, apiField: "houseBolRelease" },
@@ -231,7 +233,7 @@ export const COLUMNS: ColumnDef[] = [
 
   // Switch BoL
   { key: "switchBol", title: "Switch BoL", width: 100, type: "dropdown", options: DROPDOWN_OPTIONS["Switch BoL"], apiField: "switchBol" },
-  { key: "switchBolApprovedBy", title: "Switch BoL Approved By", width: 200, type: "text", apiField: "switchBolApprovedBy" },
+  { key: "switchBolApprovedBy", title: "Switch BoL Approved By", width: 200, type: "user", apiField: "switchBolApprovedBy" },
   { key: "switchBolNumber", title: "Switch BoL Number", width: 150, type: "text", apiField: "switchBolNumber" },
   { key: "houseBolNumber", title: "House BoL Number", width: 140, type: "text", apiField: "houseBolNumber" },
   { key: "houseBolType", title: "House BoL Type", width: 120, type: "dropdown", options: DROPDOWN_OPTIONS["House BoL Type"], apiField: "houseBolType" },

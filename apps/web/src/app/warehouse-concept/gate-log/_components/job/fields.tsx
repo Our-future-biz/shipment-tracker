@@ -6,6 +6,7 @@ import dayjs from "dayjs";
 import customParseFormat from "dayjs/plugin/customParseFormat";
 import { formatDateTime } from "@/lib/date";
 import { czechPhoneProblem, limitCzechPhone } from "@/lib/phone";
+import { UserPicker } from "@/components/UserPicker";
 
 dayjs.extend(customParseFormat);
 
@@ -198,6 +199,36 @@ export function InlineSelect<T extends string>({ value, options, onSave, width =
       className={`${inlineClass} [&_.ant-select-selection-item]:!font-medium`}
       options={all.map((o) => ({ value: o, label: labels ? labels(o) : o }))}
       onChange={(v) => onSave(v ?? "")}
+    />
+  );
+}
+
+// A person: one of the company's users, found by name or e-mail, saved by e-mail ("" when cleared).
+// An older value that is no user stays shown (marked) until a user is picked.
+export function InlineUser({
+  value,
+  onSave,
+  label,
+  placeholder = "—",
+  width = 260,
+}: {
+  value: string;
+  onSave: (email: string) => void;
+  label: string;
+  placeholder?: string;
+  width?: number;
+}) {
+  return (
+    <UserPicker
+      size="small"
+      variant="borderless"
+      aria-label={label}
+      value={value}
+      placeholder={placeholder}
+      popupMatchSelectWidth={false}
+      style={{ width }}
+      className={`${inlineClass} [&_.ant-select-selection-item]:!font-medium`}
+      onChange={(email) => email !== value && onSave(email)}
     />
   );
 }

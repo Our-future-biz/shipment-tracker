@@ -8,6 +8,7 @@ import { shipmentRefCounterRepository } from "./shipmentRefCounter.repository";
 import { masterJobTable } from "../schemas/masterJob.schema";
 import { containerTable } from "../schemas/container.schema";
 import { containsAllWords } from "../../../lib/db/textSearch";
+import type { PeopleRewrite, ShipmentPeople } from "../lib/people";
 
 /** A new shipment's own fields; the repository sets the company and the job number. */
 export type NewShipmentData = Omit<NewShipmentRecord, "companyId" | "jobNumber">;
@@ -659,6 +660,44 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
       .update(shipmentTable)
       .set({ plateNumber, updatedAt: new Date() })
       .where(and(eq(shipmentTable.companyId, companyId), eq(shipmentTable.warehouseTruck, truck), isNull(shipmentTable.deletedAt)));
+  }
+
+  /** The columns that name people, of the company's live shipments: what the people backfill reads. */
+  async peopleOf(companyId: string): Promise<ShipmentPeople[]> {
+    return this.db
+      .select({
+        id: shipmentTable.id,
+        personInCharge: shipmentTable.personInCharge,
+        holidayCover: shipmentTable.holidayCover,
+        salesPerson: shipmentTable.salesPerson,
+        switchBolApprovedBy: shipmentTable.switchBolApprovedBy,
+        createdBy: shipmentTable.createdBy,
+        approvedBy: shipmentTable.approvedBy,
+        houseBolRelease: shipmentTable.houseBolRelease,
+      })
+      .from(shipmentTable)
+      .where(and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt)));
+  }
+
+  /**
+   * Replaces stored people values in the company's live shipments, all in one transaction: a
+   * rewrite changes only the rows that still hold its `from`, so an edit made since the read is
+   * kept. updatedAt is left as it is - nobody edited the shipments. Returns the values changed.
+   */
+  async rewritePeople(companyId: string, rewrites: PeopleRewrite[]): Promise<number> {
+    if (!rewrites.length) return 0;
+    return this.db.transaction(async (tx) => {
+      let changed = 0;
+      for (const { field, from, to } of rewrites) {
+        const rows = await tx
+          .update(shipmentTable)
+          .set({ [field]: to })
+          .where(and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt), eq(shipmentTable[field], from)))
+          .returning({ id: shipmentTable.id });
+        changed += rows.length;
+      }
+      return changed;
+    });
   }
 
   // Company-scoped full scan for the dashboard aggregates.

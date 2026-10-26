@@ -4,9 +4,11 @@ import { useRef, useState } from "react";
 import { Alert, Button, Form, Input } from "antd";
 import type { TextAreaRef } from "antd/es/input/TextArea";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { useUsers } from "@/hooks/useUsers";
 import { businessDateTime } from "@/lib/date";
 import { isFeedbackLine } from "../_lib/salesQuote";
 import type { TimelineEntry } from "../_lib/types";
+import { whoDid } from "../_lib/whoDid";
 import { QuoteStatusPill } from "./QuoteStatusPill";
 import { SalesDialog } from "./SalesDialog";
 
@@ -109,10 +111,12 @@ export function FollowUpDialog({
   );
 }
 
-// The follow-ups recorded before, newest first: when, who, and the first line of the note. A change
-// of the status to Feedback is one too, tagged as such, with the comment left on it. A note that
-// is cut opens in full on a click, and closes again on another.
+// The follow-ups recorded before, newest first: when, who (by e-mail, as every person is shown),
+// and the first line of the note. A change of the status to Feedback is one too, tagged as such,
+// with the comment left on it. A note that is cut opens in full on a click, and closes again on
+// another.
 function FollowUpHistory({ history }: { history: TimelineEntry[] }) {
+  const { users } = useUsers();
   // The lines whose note is shown in full, by their place in the list.
   const [open, setOpen] = useState<Set<number>>(new Set());
   const toggle = (i: number) =>
@@ -134,10 +138,11 @@ function FollowUpHistory({ history }: { history: TimelineEntry[] }) {
         <ul className="max-h-60 overflow-y-auto divide-y divide-slate-100 rounded-md border border-slate-200">
           {history.map((entry, i) => {
             const expanded = open.has(i);
+            const who = whoDid(entry.userId, entry.user, users);
             const head = (
               <div className="flex items-baseline gap-2 text-xs">
                 <span className="font-medium text-slate-700 tabular-nums whitespace-nowrap">{businessDateTime(entry.at)}</span>
-                {entry.user && <span className="truncate text-slate-500">{entry.user}</span>}
+                {who && <span className="truncate text-slate-500">{who}</span>}
                 {isFeedbackLine(entry) && (
                   <span className="ml-auto shrink-0">
                     <QuoteStatusPill status="feedback" />

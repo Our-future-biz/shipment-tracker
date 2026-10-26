@@ -31,7 +31,8 @@ export const customerTable = pgTable(
 
     // — CRM data —
     status: text("status").$type<CustomerStatus>().notNull().default("Prospect"),
-    // The owner's name as it was when the user was picked; empty, or a name typed before owners were users.
+    // The owner's e-mail as it was when the user was picked (a person is recorded by e-mail); empty, or a
+    // name typed before owners were users (POST /customers/people/normalize links those it can).
     salesOwner: text("sales_owner").notNull().default(""),
     // A user of the auth service (another database, so no foreign key); null when nobody is picked.
     salesOwnerUserId: uuid("sales_owner_user_id"),

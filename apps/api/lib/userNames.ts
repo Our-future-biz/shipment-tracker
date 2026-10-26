@@ -27,12 +27,12 @@ export async function userNames(): Promise<Map<string, string>> {
  * call (not the whole company). Unknown or deactivated users are missing from the map; a
  * failed call is logged and gives an empty map.
  */
-export async function userRefs(ids: string[]): Promise<Map<string, { name: string; role: string }>> {
+export async function userRefs(ids: string[]): Promise<Map<string, { name: string; email: string; role: string }>> {
   const wanted = [...new Set(ids.filter(Boolean))];
   if (!wanted.length) return new Map();
   try {
     const { users } = await auth.userLookup({ ids: wanted });
-    return new Map(users.map((u) => [u.id, { name: u.name, role: u.role }]));
+    return new Map(users.map((u) => [u.id, { name: u.name, email: u.email, role: u.role }]));
   } catch (err) {
     log.warn(err, "users could not be looked up");
     return new Map();

@@ -66,6 +66,49 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
       .where(and(eq(customerTable.companyId, companyId), isNull(customerTable.deletedAt)));
   }
 
+  /**
+   * The sales owners of the company's live customers, one row per owner user and text, with how
+   * many customers have it. Customers without an owner are left out.
+   */
+  async salesOwnerGroups(companyId: string): Promise<{ userId: string | null; label: string; count: number }[]> {
+    const rows = await this.db
+      .select({ userId: customerTable.salesOwnerUserId, label: customerTable.salesOwner, count: count() })
+      .from(customerTable)
+      .where(
+        and(
+          eq(customerTable.companyId, companyId),
+          isNull(customerTable.deletedAt),
+          sql`(${customerTable.salesOwnerUserId} IS NOT NULL OR ${customerTable.salesOwner} <> '')`,
+        ),
+      )
+      .groupBy(customerTable.salesOwnerUserId, customerTable.salesOwner);
+    return rows.map((r) => ({ ...r, count: Number(r.count) }));
+  }
+
+  /**
+   * Records the owner of the live customers that still have the owner `from` as the user `to`,
+   * by e-mail. A repair, not an edit: updatedAt stays. Returns how many customers changed.
+   */
+  async setSalesOwnerWhere(
+    companyId: string,
+    from: { userId: string | null; label: string },
+    to: { id: string; email: string },
+  ): Promise<number> {
+    const rows = await this.db
+      .update(customerTable)
+      .set({ salesOwnerUserId: to.id, salesOwner: to.email })
+      .where(
+        and(
+          eq(customerTable.companyId, companyId),
+          isNull(customerTable.deletedAt),
+          from.userId === null ? isNull(customerTable.salesOwnerUserId) : eq(customerTable.salesOwnerUserId, from.userId),
+          eq(customerTable.salesOwner, from.label),
+        ),
+      )
+      .returning({ id: customerTable.id });
+    return rows.length;
+  }
+
   // Live companies of the company's Customer Database with the haulier role (all of them, or only
   // `ids` among them), with the few fields the trucking service shows. No logo: it is a base64 image.
   async haulierList(

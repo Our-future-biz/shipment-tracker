@@ -12,6 +12,8 @@ export interface UserRef {
   id: string;
   /** Display name, or the e-mail when there is none. */
   name: string;
+  /** The user's e-mail: how a person is recorded wherever someone is picked. */
+  email: string;
   role: string;
 }
 

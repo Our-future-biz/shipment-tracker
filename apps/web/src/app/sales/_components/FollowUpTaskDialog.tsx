@@ -10,6 +10,7 @@ import type { FollowupTask } from "@/hooks/useFollowupTasks";
 import { useUsers } from "@/hooks/useUsers";
 import { QuotePicker, type PickedQuote } from "./QuotePicker";
 import { SalesDialog } from "./SalesDialog";
+import { matchesUserOption, userIdOptions, UserOptionLabel } from "../_lib/userOptions";
 
 // What a task can be (TASK_TYPES in the API's followupTask.utils.ts).
 const TASK_TYPES = ["Call", "Email", "Visit"] as const;
@@ -129,13 +130,13 @@ export function FollowUpTaskDialog({
   const [saving, setSaving] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
 
-  // Named as Sales names a user everywhere (apps/api/services/sales/services/userNames.ts).
-  const userOptions = users.map((u) => ({ value: u.id, label: u.displayName || u.email }));
-  // The assignee stays selectable by name while the users load, and when they are no longer among
-  // them: a task keeps a colleague who has left the company until it is handed to somebody else.
+  // The company's users by e-mail, as a person is shown everywhere; found by name or e-mail.
+  const userOptions = userIdOptions(users);
+  // The assignee stays selectable while the users load, and when they are no longer among them: a
+  // task keeps a colleague who has left the company until it is handed to somebody else.
   if (assigneeUserId && !users.some((u) => u.id === assigneeUserId)) {
-    const name = assigneeUserId === user?.id ? user.displayName || user.email : task?.assigneeName;
-    userOptions.unshift({ value: assigneeUserId, label: name || "Unknown user" });
+    const email = assigneeUserId === user?.id ? user.email : task?.assigneeName;
+    userOptions.unshift({ value: assigneeUserId, label: email || "Unknown user" });
   }
 
   // A task that names no company, no quote and says nothing is a tick box about nothing.
@@ -208,7 +209,8 @@ export function FollowUpTaskDialog({
               allowClear
               className="w-full"
               placeholder="Nobody"
-              optionFilterProp="label"
+              filterOption={matchesUserOption}
+              optionRender={(option) => <UserOptionLabel label={option.label} name={option.data.name} />}
               value={assigneeUserId ?? undefined}
               onChange={(id?: string) => setAssigneeUserId(id ?? null)}
               options={userOptions}

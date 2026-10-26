@@ -3,12 +3,12 @@ import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
 import type { Actor } from "../../../lib/rbac";
 import { revisionRoot } from "../../../lib/salesReference";
-import { userNames } from "../../../lib/userNames";
 import type { FileContent } from "../../../lib/fileContent";
 import { quoteCommentRepository } from "../repositories/quoteComment.repository";
 import { salesQuoteRepository } from "../repositories/salesQuote.repository";
 import { quoteAttachmentBucket } from "../storage/quoteAttachmentBucket";
 import { chatFileUrl, companyOfChatFileToken } from "../lib/chatFileToken";
+import { companyPeople } from "../lib/people";
 import type { QuoteCommentRecord } from "../schemas/quoteComment.schema";
 import type { QuoteCommentItem, QuoteCommentMentionItem, QuoteCommentUnreadItem } from "../interfaces/interfaces";
 
@@ -16,6 +16,7 @@ import type { QuoteCommentItem, QuoteCommentMentionItem, QuoteCommentUnreadItem 
 // colleague is notified under the bell), send files, and see unread counts. Everything is filed
 // under the original Sales Reference: a revision (QCZ…001-R1) opens the same thread as the quote it
 // revises (QCZ…001), so the whole conversation is under every revision. Any user of the company.
+// Who wrote a message is shown by e-mail, as every person is.
 
 /** How long the bell keeps a read mention, counted from when it was written. */
 export const READ_MENTION_KEEP_DAYS = 7;
@@ -50,13 +51,13 @@ class QuoteChatService {
 
   async list(actor: Actor, quoteNumber: string): Promise<QuoteCommentItem[]> {
     const { threadRef } = await this.thread(actor, quoteNumber);
-    const [comments, files, othersReadAt, names] = await Promise.all([
+    const [comments, files, othersReadAt, { emails }] = await Promise.all([
       quoteCommentRepository.listByThread(actor.companyID, threadRef),
       quoteCommentRepository.listChatFiles(actor.companyID, threadRef),
       quoteCommentRepository.lastReadByOthers(actor.companyID, actor.userID, threadRef),
-      userNames(),
+      companyPeople(),
     ]);
-    return comments.map((c) => toItem(c, files, othersReadAt, names, actor.userID));
+    return comments.map((c) => toItem(c, files, othersReadAt, emails, actor.userID));
   }
 
   // A file for the next message: stored now, tied to the message when it is sent.
@@ -78,8 +79,8 @@ class QuoteChatService {
     if (fileIds.length > MAX_FILES_PER_MESSAGE) throw APIError.invalidArgument(`At most ${MAX_FILES_PER_MESSAGE} files per message`);
     const { threadRef, quoteNumber: writtenOn } = await this.thread(actor, quoteNumber);
     // Only real colleagues of the company can be tagged, and never yourself.
-    const names = await userNames();
-    const mentions = [...new Set(input.mentionedUserIds ?? [])].filter((id) => id !== actor.userID && names.has(id));
+    const { emails } = await companyPeople();
+    const mentions = [...new Set(input.mentionedUserIds ?? [])].filter((id) => id !== actor.userID && emails.has(id));
     const comment = await quoteCommentRepository.createForCompany(actor.companyID, {
       threadRef,
       quoteNumber: writtenOn,
@@ -89,7 +90,7 @@ class QuoteChatService {
     });
     await quoteCommentRepository.linkFiles(actor.companyID, threadRef, fileIds, comment.id);
     const files = await quoteCommentRepository.listChatFiles(actor.companyID, threadRef);
-    return toItem(comment, files, null, names, actor.userID);
+    return toItem(comment, files, null, emails, actor.userID);
   }
 
   // Only the author deletes a message; its files go with it.
@@ -110,12 +111,12 @@ class QuoteChatService {
 
   // The bell's quote mentions: unread ones, and read ones written in the last 7 days.
   async mentions(actor: Actor): Promise<QuoteCommentMentionItem[]> {
-    const [rows, names] = await Promise.all([quoteCommentRepository.mentions(actor.companyID, actor.userID, READ_MENTION_KEEP_DAYS), userNames()]);
+    const [rows, { emails }] = await Promise.all([quoteCommentRepository.mentions(actor.companyID, actor.userID, READ_MENTION_KEEP_DAYS), companyPeople()]);
     return rows.map((m) => ({
       id: m.id,
       quoteNumber: m.quoteNumber,
       threadRef: m.threadRef,
-      authorName: names.get(m.authorId) ?? "",
+      authorName: emails.get(m.authorId) ?? "",
       message: m.message,
       createdAt: m.createdAt.toISOString(),
       unread: !m.readAt || m.createdAt > m.readAt,
@@ -137,13 +138,13 @@ class QuoteChatService {
   }
 }
 
-function toItem(c: QuoteCommentRecord, files: ChatFile[], othersReadAt: Date | null, names: Map<string, string>, userId: string): QuoteCommentItem {
+function toItem(c: QuoteCommentRecord, files: ChatFile[], othersReadAt: Date | null, emails: Map<string, string>, userId: string): QuoteCommentItem {
   return {
     id: c.id,
     quoteNumber: c.quoteNumber,
     threadRef: c.threadRef,
     authorId: c.authorId,
-    authorName: names.get(c.authorId) ?? "",
+    authorName: emails.get(c.authorId) ?? "",
     message: c.message,
     createdAt: c.createdAt.toISOString(),
     attachments: files

@@ -8,6 +8,8 @@ import { PlusOutlined, DeleteOutlined, MobileOutlined, PrinterOutlined, Question
 import { AppGrid, type AppGridColumn } from "@/components/AppGrid";
 import { useCopyJobSearch, useCopyQuotes, useCreatePosition, useWarehouse } from "@/hooks/useWarehouse";
 import { useDebounced } from "@/hooks/useDebounced";
+import { useUsers } from "@/hooks/useUsers";
+import { userByEmail, type PickableUser } from "@/lib/people";
 import { useGateLog, type GateMovement } from "@/hooks/useGateLog";
 import { useStockLines } from "@/hooks/useWarehouseRecords";
 import { useToast } from "@/lib/toast";
@@ -18,6 +20,8 @@ import type { controllers, interfaces } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { asGateCustomsStatus, Badge, CUSTOMS_STATUSES, errorMessage, hasAnyStamp, isFcl, isLcl, isManager, nf } from "../gate-log/_lib/gate";
 import { GateLogView } from "../gate-log/_components/GateLogView";
+import { shipmentOwnerOf } from "../gate-log/_lib/owner";
+import { OwnerCell } from "../gate-log/_components/OwnerCell";
 import { PrintLabelsModal } from "../gate-log/_components/PrintLabelsModal";
 import { DIRECTIONS, RELEASE_GATES_VALUES, TERMS, directionOf, releaseGatesText } from "../_lib/glossary";
 import { CHIPS, CHIP_IDS, exceptionText, isOnHold, pragueToday, type ChipId } from "../_lib/worklist";
@@ -241,7 +245,10 @@ const POSITION_COLUMNS: AppGridColumn<PositionRow>[] = [
     render: (_, r) => numCell(r.m?.measureCbm ? nf(r.m.measureCbm, 2) : ""),
   },
   textCol("commodity", "Commodity", 200),
-  textCol("shipmentOwner", "Person In Charge", 180),
+  textCol("shipmentOwner", "Person In Charge", 180, {
+    text: (r) => shipmentOwnerOf(r.m?.shipmentOwner),
+    render: (_, r) => <OwnerCell value={r.m?.shipmentOwner} />,
+  }),
   textCol("containerNumber", "Container Number", 150, { defaultVisible: false, render: (_, r) => mono(r.m?.containerNumber) }),
   textCol("bookingNumber", "Booking Number", 150, { defaultVisible: false, render: (_, r) => mono(r.m?.bookingNumber) }),
   textCol("vessel", "Vessel", 150, { defaultVisible: false }),
@@ -714,7 +721,8 @@ const num = (v: string | null | undefined) => {
 };
 
 // Values a new position takes over from a shipment job — a copy only, nothing stays linked.
-const fromShipment = (sh: ShipmentItem): Partial<NewPositionValues> => ({
+// The person in charge comes along only when it is a user's e-mail (the API takes nothing else).
+const fromShipment = (sh: ShipmentItem, users: readonly PickableUser[]): Partial<NewPositionValues> => ({
   customer: sh.customer || undefined,
   customerRef: sh.customerReference || undefined,
   customerContact: sh.customerPic || undefined,
@@ -726,7 +734,7 @@ const fromShipment = (sh: ShipmentItem): Partial<NewPositionValues> => ({
   colli: num(sh.pcs) ?? 0,
   weightKg: num(sh.totalWeightTons) != null ? Math.round(num(sh.totalWeightTons)! * 1000) : 0,
   measureCbm: num(sh.totalVolumeCbm) ?? 0,
-  shipmentOwner: sh.personInCharge || undefined,
+  shipmentOwner: userByEmail(sh.personInCharge, users)?.email || undefined,
   customsStatus: asGateCustomsStatus(sh.customsStatus),
   jobNumber: sh.jobNumber || undefined,
   pol: sh.pol || undefined,
@@ -788,6 +796,7 @@ const NewPositionModal = ({ open, onClose, tasks }: { open: boolean; onClose: ()
   const { data: jobData, isFetching: jobsLoading } = useCopyJobSearch(debouncedJobQuery, open && source === "job");
   const { data: quoteData, isFetching: quotesLoading } = useCopyQuotes(open && source === "quote");
   const createPosition = useCreatePosition();
+  const { users } = useUsers();
   const quotes = useMemo(() => (quoteData?.data ?? []).map(toSalesQuote), [quoteData]);
 
   useEffect(() => {
@@ -841,7 +850,7 @@ const NewPositionModal = ({ open, onClose, tasks }: { open: boolean; onClose: ()
     let values: NewPositionValues = {};
     if (from === "job") {
       const sh = jobData?.data.find((x) => x.id === jobId);
-      if (sh) values = fromShipment(sh);
+      if (sh) values = fromShipment(sh, users);
     } else if (from === "quote") {
       const q = quotes.find((x) => x.quoteNumber === quoteNumber);
       if (q) values = fromQuote(q.data);

@@ -123,7 +123,7 @@ export function managerFieldsIn(patch: CustomerPatch): string[] {
   return MANAGER_FIELDS.filter((key) => patch[key] !== undefined);
 }
 
-// The owner columns for a picked user (its id and name), or for nobody.
+// The owner columns for a picked user (its id and e-mail - a person is recorded by e-mail), or for nobody.
 async function salesOwnerOf(userId: string | null): Promise<Pick<NewCustomerRecord, "salesOwner" | "salesOwnerUserId">> {
   if (userId === null) return { salesOwner: "", salesOwnerUserId: null };
   if (!isUuid(userId)) throw APIError.invalidArgument("salesOwnerUserId must be the id of a user");
@@ -131,7 +131,7 @@ async function salesOwnerOf(userId: string | null): Promise<Pick<NewCustomerReco
   const { users } = await auth.userLookup({ ids: [userId] });
   const user = users.find((u) => u.id === userId);
   if (!user) throw APIError.invalidArgument("salesOwnerUserId must be a user of the company");
-  return { salesOwner: user.name, salesOwnerUserId: user.id };
+  return { salesOwner: user.email.trim().toLowerCase(), salesOwnerUserId: user.id };
 }
 
 /**

@@ -356,6 +356,7 @@ export interface CommentMentionItem {
   id: string;
   shipmentId: string;
   jobNumber: string;
+  /** Who wrote it: the user's e-mail; "" when the user is unknown. */
   authorName: string;
   message: string;
   createdAt: string;
@@ -377,7 +378,7 @@ export interface CommentItem {
   id: string;
   shipmentId: string;
   authorId: string;
-  /** Who wrote it (display name, e-mail when they have none). */
+  /** Who wrote it: the user's e-mail, as every person is shown; "" when the user is unknown. */
   authorName: string;
   message: string;
   createdAt: string;
@@ -443,9 +444,9 @@ export interface AttachmentItem {
   customsStatus: AttachmentCustomsStatus;
   customsNote: string;
   customsReviewedAt: string | null;
-  /** Display name of the uploader; "Unknown" when it cannot be resolved. */
+  /** The uploader's e-mail; "Unknown" when it cannot be resolved. */
   uploadedByName: string;
-  /** Display name of the customs reviewer; "" while the document is unreviewed. */
+  /** The customs reviewer's e-mail; "" while the document is unreviewed. */
   customsReviewedByName: string;
 }
 
@@ -611,7 +612,7 @@ export interface RoadJobInput {
   customerReference: string;
   /** A sales quote the order comes from: linked as the job's Sales Number */
   quoteNumber: string | null;
-  /** Who created it, as text ("Trucking · Jana Nováková") */
+  /** Who created it, as Trucking writes it ("Trucking · Jana Nováková"). Stored is "Trucking · <e-mail>" of the user the call acts for; without one, this text only when it names no person ("Trucking", its service identity), else "Trucking" */
   createdBy: string;
   /** "Consolidation" for an LTL consignment (our warehouse consolidates it); default "Full Load" */
   loadType?: "Full Load" | "Consolidation";
@@ -630,4 +631,24 @@ export interface RoadJobBasics {
   plannedDeliveryDate: string | null;
   /** The owning department ("Road Department", …); Trucking bills other departments internally */
   department: string;
+}
+
+/** A name the people backfill could not turn into a user's e-mail: it fits no user, or more than one. */
+export interface UnmatchedPerson {
+  /** The shipment field it is in ("personInCharge", "createdBy", …). */
+  field: string;
+  /** The name as stored (of a stamp, the name part). */
+  value: string;
+  /** How many shipments hold it there. */
+  count: number;
+}
+
+/** What the people backfill did to the company's live shipments. */
+export interface PeopleNormalizeResult {
+  /** Values that name a person (one field of one shipment each), looked at. */
+  checked: number;
+  /** Values rewritten to the user's e-mail. */
+  changed: number;
+  /** The names left as they are, most frequent first: to be fixed by hand. */
+  unmatched: UnmatchedPerson[];
 }

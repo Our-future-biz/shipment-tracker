@@ -36,6 +36,7 @@ import { CONTAINER_STATUS_TONE, KIND_LABEL, TALLY_LABEL, TALLY_TONE, containerKi
 import { positionRemeasurementHref } from "@/app/warehouse-concept/_components/remeasurementLinks";
 import { ReweighSection, kgText } from "./ReweighSection";
 import type { PinCheckResult } from "../../_lib/steps";
+import { shipmentOwnerHint, shipmentOwnerOf } from "../../_lib/owner";
 import {
   btnInline,
   FieldRow,
@@ -45,6 +46,7 @@ import {
   InlineText,
   InlineTime,
   InlineTextarea,
+  InlineUser,
   parseStamp,
   Section,
   YesNo,
@@ -277,7 +279,12 @@ export function OverviewTab({
                   </div>
                 </FieldRow>
                 <FieldRow label="Shipment Owner">
-                  <InlineText value={m.shipmentOwner} onSave={(v) => save({ shipmentOwner: v })} />
+                  <InlineUser
+                    label="Shipment Owner"
+                    value={shipmentOwnerOf(m.shipmentOwner)}
+                    placeholder={shipmentOwnerHint(m)}
+                    onSave={(v) => save({ shipmentOwner: v })}
+                  />
                 </FieldRow>
                 <FieldRow label="Customer Contact">
                   <InlineText

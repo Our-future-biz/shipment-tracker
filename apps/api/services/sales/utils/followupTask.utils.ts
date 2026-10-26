@@ -21,17 +21,18 @@ export function isOverdue(dueDate: string | null, doneAt: Date | null, today: st
 }
 
 /**
- * THE ONE MAPPER from a stored task to what the API hands out. `userNames` are the display names
- * of the company's users by id; `today` is the business day the task is read on.
+ * THE ONE MAPPER from a stored task to what the API hands out. `userEmails` are the e-mails of
+ * the company's users by id - a person is shown by e-mail; `today` is the business day the task
+ * is read on.
  */
-export function toTaskItem(row: FollowupTaskRecord, userNames: Map<string, string>, today: string): FollowupTaskItem {
+export function toTaskItem(row: FollowupTaskRecord, userEmails: Map<string, string>, today: string): FollowupTaskItem {
   return {
     id: row.id,
     type: row.type,
     note: row.note,
     dueDate: row.dueDate,
     assigneeUserId: row.assigneeUserId,
-    assigneeName: (row.assigneeUserId && userNames.get(row.assigneeUserId)) || "",
+    assigneeName: (row.assigneeUserId && userEmails.get(row.assigneeUserId)) || "",
     customerId: row.customerId,
     customerLabel: row.customerLabel,
     contact: row.contact,

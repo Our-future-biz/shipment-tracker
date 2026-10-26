@@ -41,7 +41,8 @@ interface CreateShipmentWizardProps {
 // stays to say which, instead of opening the shipment as if all was done.
 type WizardStep = "ask-copy" | "select-fields" | "confirm-costs" | "created";
 
-// Ordered field keys offered on the "Select Fields to Copy" step.
+// Ordered field keys offered on the "Select Fields to Copy" step. No people: the copy's Person In
+// Charge is whoever creates it, never the source's (which may still be an old free-text name).
 // "origin" is not part of the create payload — it is applied via a follow-up update.
 const COPYABLE_FIELDS = [
   "shipper",
@@ -178,13 +179,14 @@ export const CreateShipmentWizard = ({
   const baseRequest = (): controllers.ShipmentCreateRequest => {
     // No job number: the server gives the shipment the next free one when it is stored, so the
     // number shown above is a preview and a parallel create may take it first. No Created By
-    // either: the server stamps it from the signed-in user.
+    // either: the server stamps it from the signed-in user, who is also its Person In Charge
+    // (a person is kept by e-mail, in lower case).
     return {
       tradeDirection: "Import",
       freightMode: "Sea Freight",
       department: "Operation Department",
       status: "Booking Confirmation Pending [IMP]",
-      personInCharge: user?.email || "",
+      personInCharge: (user?.email ?? "").trim().toLowerCase(),
     };
   };
 

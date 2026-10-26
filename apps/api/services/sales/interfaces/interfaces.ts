@@ -19,7 +19,7 @@ export interface FollowupTaskItem {
   note: string;
   dueDate: string | null;
   assigneeUserId: string | null;
-  /** The assignee's current display name; "" for a task assigned to nobody, or to a user that cannot be resolved. */
+  /** The assignee's current e-mail; "" for a task assigned to nobody, or to a user that cannot be resolved. */
   assigneeName: string;
   customerId: string | null;
   /** The company as typed, or the customer's name at the time the task was linked to the customer. */
@@ -65,7 +65,7 @@ export interface PipelineCard {
   customerId: string;
   companyName: string;
   label: string;
-  /** The customer's sales owner, as set on the customer. */
+  /** The customer's sales owner as set on the customer: the owner user's e-mail (an old typed name until it is matched). */
   salesOwner: string;
   stage: PipelineStage;
   /** When the first quote for the customer went out; null when none did. */

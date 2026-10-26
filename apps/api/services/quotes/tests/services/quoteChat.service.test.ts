@@ -7,8 +7,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 vi.mock("encore.dev/config", () => ({ secret: () => () => "test-secret" }));
-vi.mock("../../../../lib/userNames", () => ({
-  userNames: vi.fn(async () => new Map([["u-me", "Lukas Slavik"], ["u-eva", "Eva Novak"]])),
+// Who wrote a message is shown by e-mail, as every person is.
+vi.mock("../../lib/people", () => ({
+  companyPeople: vi.fn(async () => ({ emails: new Map([["u-me", "lukas@ourfuture.biz"], ["u-eva", "eva@ourfuture.biz"]]) })),
 }));
 vi.mock("../../storage/quoteAttachmentBucket", () => ({ quoteAttachmentBucket: { upload: vi.fn(), download: vi.fn() } }));
 vi.mock("../../repositories/salesQuote.repository", () => ({ salesQuoteRepository: { loadSales: vi.fn() } }));
@@ -61,7 +62,7 @@ describe("the thread of a quote", () => {
     const item = await quoteChatService.create(me, `${ROOT}-R2`, { message: "hello @Eva Novak", fileIds: ["f1", "f1"], mentionedUserIds: ["u-eva", "u-me", "u-stranger"] });
     expect(repo.createForCompany).toHaveBeenCalledWith("c1", { threadRef: ROOT, quoteNumber: `${ROOT}-R2`, authorId: "u-me", message: "hello @Eva Novak", mentionedUserIds: ["u-eva"] });
     expect(repo.linkFiles).toHaveBeenCalledWith("c1", ROOT, ["f1"], "m1");
-    expect(item).toMatchObject({ quoteNumber: `${ROOT}-R2`, threadRef: ROOT, authorName: "Lukas Slavik" });
+    expect(item).toMatchObject({ quoteNumber: `${ROOT}-R2`, threadRef: ROOT, authorName: "lukas@ourfuture.biz" });
     await quoteChatService.markRead(me, `${ROOT}-R1`);
     expect(repo.markRead).toHaveBeenCalledWith("c1", "u-me", ROOT);
   });
@@ -107,8 +108,8 @@ describe("files and mentions", () => {
     const mentions = await quoteChatService.mentions(me);
     expect(repo.mentions).toHaveBeenCalledWith("c1", "u-me", READ_MENTION_KEEP_DAYS);
     expect(mentions.map((x) => [x.id, x.unread, x.quoteNumber, x.authorName])).toEqual([
-      ["a", true, `${ROOT}-R1`, "Eva Novak"],
-      ["b", false, ROOT, "Eva Novak"],
+      ["a", true, `${ROOT}-R1`, "eva@ourfuture.biz"],
+      ["b", false, ROOT, "eva@ourfuture.biz"],
     ]);
   });
 });

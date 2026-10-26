@@ -7,8 +7,11 @@ import dayjs from "dayjs";
 import { COLUMN_MAP, geoKindOf, getFilteredStatusOptions } from "@/lib/columnConfig";
 import { GeoFlag, GeoSelect } from "@/components/GeoSelect";
 import { FadeText } from "@/components/FadeText";
+import { UserPicker } from "@/components/UserPicker";
+import { UnlinkedPersonMark } from "@/app/shipments/_components/UnlinkedPersonMark";
 import { formatDate } from "@/lib/date";
 import { statusLabel } from "@/lib/shipmentStatus";
+import { personChange, splitPersonStamp } from "@/app/shipments/_lib/personFields";
 
 // Dates are stored as ISO "YYYY-MM-DD" (matches the native date input).
 // Still tolerate legacy "MM/DD/YY" values for display prefill.
@@ -74,6 +77,8 @@ export function EditableCell({
   const digitsOnly = fieldKey === "hsCode";
   const clean = (v: string) => (digitsOnly ? v.replace(/\D/g, "") : v);
   const isDate = col?.type === "date";
+  // People are picked from the company's users and kept by e-mail.
+  const isUser = col?.type === "user";
   // Places and countries are picked from the location database.
   const geoKind = geoKindOf(col);
   const tradeDirection = useContext(TradeDirectionContext);
@@ -124,7 +129,38 @@ export function EditableCell({
           </FadeText>
         )}
         {geoKind && <GeoFlag kind={geoKind} value={original} />}
+        {isUser && hasValue && <UnlinkedPersonMark value={original} hint="double-click to pick one" />}
       </span>
+    );
+  }
+
+  if (isUser) {
+    // The picker gets who (an approval stamp's date is not theirs to edit); the same user picked
+    // again changes nothing. Escape is caught before the open list swallows it.
+    const { person } = splitPersonStamp(original);
+    return (
+      <div
+        className={className}
+        onKeyDownCapture={(e) => {
+          if (e.key === "Escape") cancel();
+        }}
+      >
+        <UserPicker
+          size="small"
+          autoFocus
+          defaultOpen
+          className="w-full min-w-[200px]"
+          popupMatchSelectWidth={false}
+          aria-label={col?.title}
+          value={person}
+          onChange={(email) => {
+            setEditing(false);
+            const next = personChange(original, email);
+            if (next !== null) onCommit(fieldKey, next);
+          }}
+          onBlur={() => setEditing(false)}
+        />
+      </div>
     );
   }
 

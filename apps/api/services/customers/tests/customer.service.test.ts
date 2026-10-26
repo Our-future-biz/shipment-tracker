@@ -118,13 +118,13 @@ describe("contacts of a customer", () => {
 
 describe("sales owner", () => {
   const LUKAS = "5d1f6b0e-2c3a-4f4a-9a53-5d0d3a2b6c11";
-  const USERS = [{ id: LUKAS, name: "Lukáš Novák", role: "user" }];
+  const USERS = [{ id: LUKAS, name: "Lukáš Novák", email: "Lukas@OurFuture.biz", role: "user" }];
 
-  it("is a user of the company, stored with the user's name", async () => {
+  it("is a user of the company, stored with the user's e-mail", async () => {
     userLookup.mockResolvedValue({ users: USERS });
     customers.updateForCompany.mockResolvedValue({ id: "c1", createdAt: now, updatedAt: now });
     await customerService.update("c1", COMPANY, "manager", { salesOwnerUserId: LUKAS, status: "Active" });
-    expect(customers.updateForCompany).toHaveBeenCalledWith("c1", COMPANY, { status: "Active", salesOwner: "Lukáš Novák", salesOwnerUserId: LUKAS });
+    expect(customers.updateForCompany).toHaveBeenCalledWith("c1", COMPANY, { status: "Active", salesOwner: "lukas@ourfuture.biz", salesOwnerUserId: LUKAS });
   });
 
   it("can be removed", async () => {

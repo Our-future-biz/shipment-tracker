@@ -809,6 +809,32 @@ describe("list", () => {
     expect(sql.endsWith("LIKE ALL (ARRAY(SELECT jsonb_array_elements_text($10::jsonb)))")).toBe(true);
   });
 
+  describe("the owner, as the list shows it", () => {
+    // The company's users: the owner of a quote is shown by the owner user's e-mail as they have it now.
+    const OWNERS = [
+      { id: "user-1", email: "martin@forwarder.cz", displayName: "Martin Koubek" },
+      { id: "user-2", email: "jana@forwarder.cz", displayName: "Jana Nováková" },
+    ];
+
+    it("sorts by the owner user's e-mail as the users have it now, else by the stored label - empty last", async () => {
+      await salesQuoteRepository.list(COMPANY, {}, { ...PAGE, sortBy: "owner", sortDirection: "asc" }, MOMENT, OWNERS);
+      expect(sent(fake.state.pages[0]!.orderBy[0])).toEqual({
+        sql: `coalesce(nullif($1::jsonb ->> "quote"."owner_user_id"::text, ''), nullif("quote"."owner_label", '')) asc nulls last`,
+        params: [JSON.stringify({ "user-1": "martin@forwarder.cz", "user-2": "jana@forwarder.cz" })],
+      });
+    });
+
+    it("finds a quote of a user by that user's name or e-mail, besides the stored label", async () => {
+      fake.state.pages = [];
+      await salesQuoteRepository.list(COMPANY, { search: ["novakova"] }, PAGE, MOMENT, OWNERS);
+      const { sql, params } = sent(fake.state.pages[0]!.where);
+      expect(sql).toContain("quote.owner_label, $2::jsonb ->> quote.owner_user_id::text, quote.shipment_job_number");
+      expect(params[1]).toBe(JSON.stringify({ "user-1": "Martin Koubek martin@forwarder.cz", "user-2": "Jana Nováková jana@forwarder.cz" }));
+      // The count is of the same condition.
+      expect(sent(fake.state.counts[0])).toEqual({ sql, params });
+    });
+  });
+
   it("sorts newest first by default, what is missing last, the id settling the rest", async () => {
     await list();
     const { orderBy, limit, offset } = fake.state.pages[0]!;
@@ -970,18 +996,28 @@ describe("owner matching", () => {
     await expect(salesQuoteRepository.unexaminedOwnerLabels(COMPANY)).resolves.toEqual(["Martin", "Petr", ""]);
   });
 
-  it("records a match on the quotes that carry the text and were never examined - owner user and stamp, nothing else", async () => {
-    await salesQuoteRepository.recordOwnerMatch(COMPANY, "Martin", "user-1");
+  it("records a match on the quotes that carry the text and were never examined - owner user, stamp, and the owner restated by e-mail, nothing else", async () => {
+    fake.state.updated = [[{ id: "q1" }, { id: "q2" }]];
+    await expect(salesQuoteRepository.recordOwnerMatch(COMPANY, "Martin", { userId: "user-1", label: "martin@forwarder.cz" })).resolves.toEqual(["q1", "q2"]);
     const { set, where } = fake.state.updates[0]!;
-    expect(Object.keys(set).sort()).toEqual(["ownerMatchCheckedAt", "ownerUserId"]);
+    // Not updatedAt, not the version: a page that has the quote open keeps saving.
+    expect(Object.keys(set).sort()).toEqual(["data", "ownerLabel", "ownerMatchCheckedAt", "ownerUserId"]);
     expect(set.ownerUserId).toBe("user-1");
     expect(set.ownerMatchCheckedAt).toBeInstanceOf(Date);
+    // The column and its mirror in the document (a key only the server writes) together.
+    expect(set.ownerLabel).toBe("martin@forwarder.cz");
+    expect(rendered(set.data)).toMatchObject({
+      sql: `CASE WHEN jsonb_typeof("quote"."data") = 'object' THEN "quote"."data" || jsonb_build_object('salesOwner', $1::text) ELSE "quote"."data" END`,
+      params: ["martin@forwarder.cz"],
+    });
     expect(rendered(where)).toMatchObject({ sql: `((${UNEXAMINED}) and "quote"."owner_label" = $2)`, params: [COMPANY, "Martin"] });
   });
 
-  it("stamps a text that fits nobody as examined too, without an owner user", async () => {
-    await salesQuoteRepository.recordOwnerMatch(COMPANY, "Petr", null);
+  it("stamps a text that fits nobody as examined too, without an owner user, leaving the text as it is", async () => {
+    fake.state.updated = [[{ id: "q1" }]];
+    await expect(salesQuoteRepository.recordOwnerMatch(COMPANY, "Petr", null)).resolves.toEqual([]);
     const { set } = fake.state.updates[0]!;
+    expect(Object.keys(set).sort()).toEqual(["ownerMatchCheckedAt", "ownerUserId"]);
     expect(set.ownerUserId).toBeNull();
     expect(set.ownerMatchCheckedAt).toBeInstanceOf(Date);
   });

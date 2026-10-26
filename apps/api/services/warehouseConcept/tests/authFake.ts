@@ -10,11 +10,11 @@ type FakeUser = { id: string; email?: string; displayName?: string; role?: strin
 // the stamping user go through.
 export function authFake(users: FakeUser[] = []) {
   return {
-    usersList: vi.fn(async () => ({ users })),
+    usersList: vi.fn(async () => ({ users: users.map((u) => ({ ...u, email: u.email ?? "", displayName: u.displayName ?? "" })) })),
     userLookup: vi.fn(async ({ ids }: { ids: string[] }) => ({
       users: ids.map((id) => {
         const u = users.find((x) => x.id === id);
-        return { id, name: u?.displayName || u?.email || "", role: fakeRoles.get(id) ?? u?.role ?? "user" };
+        return { id, name: u?.displayName || u?.email || "", email: u?.email ?? "", role: fakeRoles.get(id) ?? u?.role ?? "user" };
       }),
     })),
   };

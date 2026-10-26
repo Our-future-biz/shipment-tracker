@@ -10,6 +10,7 @@ import { useToast } from "@/lib/toast";
 import { apiErrorMessage } from "@/lib/api";
 import { useCanManageCustomers } from "@/lib/auth/AuthContext";
 import { SALES_OWNER_FIELD_ID } from "../../_lib/customerAttention";
+import { matchesUserOption, userIdOptions, UserOptionLabel, type UserIdOption } from "@/app/sales/_lib/userOptions";
 
 // First letters of the first and the last word of a name ("Martin Koubek" -> "MK"); one word gives two letters.
 function initialsOf(name: string): string {
@@ -22,24 +23,28 @@ function initialsOf(name: string): string {
 }
 
 interface OwnerNameProps {
-  name: string;
+  /** What is shown: the owner's e-mail. */
+  email: string;
+  /** The display name, for the initials; the e-mail gives them when there is none. */
+  name?: string;
 }
 
-function OwnerName({ name }: OwnerNameProps) {
+function OwnerName({ email, name }: OwnerNameProps) {
   return (
     <span className="flex items-center gap-2 min-w-0">
       <span
         aria-hidden
         className="flex shrink-0 items-center justify-center w-6 h-6 rounded-full bg-indigo-50 text-indigo-600 text-[10px] font-bold"
       >
-        {initialsOf(name)}
+        {initialsOf(name || email)}
       </span>
-      <span className="truncate font-medium text-slate-800">{name}</span>
+      <span className="truncate font-medium text-slate-800">{email}</span>
     </span>
   );
 }
 
-// Who owns the customer: one of the company's users, picked in the page header. Locked against a stray click:
+// Who owns the customer: one of the company's users, picked in the page header and shown by e-mail (typing a
+// name or an e-mail finds them); the customer stores the user. Locked against a stray click:
 // a double click (or Enter) opens the list, and picking or leaving it locks the field again. The choice shows
 // at once and is saved straight away; a failed save puts the previous owner back.
 interface CustomerSalesOwnerSelectProps {
@@ -57,15 +62,17 @@ export function CustomerSalesOwnerSelect({ customer }: CustomerSalesOwnerSelectP
   const [editing, setEditing] = useState(false);
   const ownerId = picked !== undefined ? picked : customer.salesOwnerUserId;
 
-  // Named as everywhere else; the owner stays shown by name while the users load, or once it is no longer one of them.
-  const options = users.map((user) => ({ value: user.id, label: user.displayName || user.email }));
+  // Shown by e-mail as everywhere else; the owner stays shown as stored while the users load, or once it is no
+  // longer one of them.
+  const options: UserIdOption[] = userIdOptions(users);
   if (customer.salesOwnerUserId && !users.some((user) => user.id === customer.salesOwnerUserId)) {
     options.unshift({ value: customer.salesOwnerUserId, label: customer.salesOwner });
   }
   // A name typed before owners were users: shown so it can be matched, but it is no user.
   const unlinked = customer.salesOwnerUserId ? "" : customer.salesOwner.trim();
 
-  const ownerName = options.find((option) => option.value === ownerId)?.label ?? "";
+  const owner = options.find((option) => option.value === ownerId);
+  const ownerEmail = owner?.label ?? "";
   const placeholder = unlinked ? `${unlinked} (not linked)` : "Select a user";
 
   const handleUnlockKey = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -100,16 +107,16 @@ export function CustomerSalesOwnerSelect({ customer }: CustomerSalesOwnerSelectP
           tabIndex={0}
           aria-label={
             canChange
-              ? `Sales owner: ${ownerName || "none"}. Double-click or press Enter to change.`
-              : `Sales owner: ${ownerName || "none"}.`
+              ? `Sales owner: ${ownerEmail || "none"}. Double-click or press Enter to change.`
+              : `Sales owner: ${ownerEmail || "none"}.`
           }
           title={canChange ? "Double-click to change" : "Only a manager can change the sales owner"}
           onDoubleClick={() => canChange && setEditing(true)}
           onKeyDown={handleUnlockKey}
           className="flex items-center h-6 mb-0.5 pr-2 rounded cursor-default select-none outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
         >
-          {ownerName ? (
-            <OwnerName name={ownerName} />
+          {ownerEmail ? (
+            <OwnerName email={ownerEmail} name={owner?.name} />
           ) : (
             <span className="text-[13px] text-slate-400 truncate">{placeholder}</span>
           )}
@@ -124,15 +131,17 @@ export function CustomerSalesOwnerSelect({ customer }: CustomerSalesOwnerSelectP
           size="small"
           showSearch
           allowClear
-          optionFilterProp="label"
+          filterOption={matchesUserOption}
           className="w-full [&_.ant-select-selector]:!px-0"
           popupMatchSelectWidth={260}
           placeholder={<span className="text-slate-400">{placeholder}</span>}
           loading={isLoading}
           value={ownerId ?? undefined}
           options={options}
-          labelRender={({ label }) => <OwnerName name={String(label ?? "")} />}
-          optionRender={(option) => <OwnerName name={String(option.label ?? "")} />}
+          labelRender={({ label, value }) => (
+            <OwnerName email={String(label ?? "")} name={options.find((option) => option.value === value)?.name} />
+          )}
+          optionRender={(option) => <UserOptionLabel label={option.label} name={option.data.name} />}
           onChange={handleChange}
         />
       )}

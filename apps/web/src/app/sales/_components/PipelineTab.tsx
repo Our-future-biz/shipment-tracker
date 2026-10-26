@@ -7,14 +7,17 @@ import dayjs from "dayjs";
 import { Alert, Button, Select, Spin, Tooltip } from "antd";
 import { LoadingOutlined } from "@ant-design/icons";
 import { CustomerAccountTypeBadge } from "@/app/customers/_components/CustomerAccountTypeBadge";
+import { SalesOwnerText } from "@/app/customers/_components/SalesOwnerText";
 import { asData, businessDay, businessToday, computeTotals, sellingSum, type LivePricing } from "@/app/sales/_lib/salesQuote";
 import { LINK_CLASS } from "@/components/linkClass";
 import { Pill } from "@/components/Pill";
 import { CountChip, SectionCard } from "@/components/SectionCard";
 import { useCurrentExchangeRates } from "@/hooks/useExchangeRates";
 import { useSalesPipeline, type PipelineBoard, type PipelineCard, type PipelineStage } from "@/hooks/useSalesPipeline";
+import { useUsers } from "@/hooks/useUsers";
 import { apiErrorMessage } from "@/lib/api";
 import { formatDate } from "@/lib/date";
+import { isUnlinkedPerson } from "@/lib/people";
 import type { ExchangeRates } from "@/lib/exchangeRates";
 import { useToast } from "@/lib/toast";
 import { SALES_PAGES } from "../_lib/tabs";
@@ -127,6 +130,10 @@ interface CustomerCardProps {
 // Database does; the name is the real link, for the keyboard and for a new tab.
 function CustomerCard({ card, sheet, live }: CustomerCardProps) {
   const router = useRouter();
+  // The sales owner is the owner user's e-mail. The card does not carry the user, so - as a picker
+  // does - an owner that is no user's e-mail (a typed name nobody was matched to) is marked.
+  const { users, isLoading: usersLoading } = useUsers();
+  const ownerLinked = usersLoading || !isUnlinkedPerson(card.salesOwner, users);
   // The value of the open quotes, worked out where every other screen works it out: each quote's
   // lines converted into the quote's currency at its stored ČNB rates (a draft at today's),
   // then one sum per currency - never one across currencies.
@@ -160,7 +167,8 @@ function CustomerCard({ card, sheet, live }: CustomerCardProps) {
             {card.label && <CustomerAccountTypeBadge label={card.label} />}
           </div>
           <div className="truncate text-xs text-slate-500 tabular-nums">
-            {card.salesOwner || "No sales owner"} · {card.lastActivityAt ? `Last activity ${dayOf(card.lastActivityAt)}` : "No activity yet"}
+            {card.salesOwner.trim() ? <SalesOwnerText owner={card.salesOwner} linked={ownerLinked} /> : "No sales owner"} ·{" "}
+            {card.lastActivityAt ? `Last activity ${dayOf(card.lastActivityAt)}` : "No activity yet"}
           </div>
         </div>
       </div>

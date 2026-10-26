@@ -375,6 +375,7 @@ export interface GateMovementItem {
   customer: string;
   customerRef: string;
   customerContact: string;
+  /** E-mail of a user of the company ("" for nobody); an older record may still hold a name. */
   shipmentOwner: string;
   colli: number;
   packing: string;
@@ -542,6 +543,7 @@ export interface GateMovementInput {
   customer?: string;
   customerRef?: string;
   customerContact?: string;
+  /** E-mail of a user of the company, "" for nobody; the record's current value is also accepted. */
   shipmentOwner?: string;
   colli?: number & Min<0>;
   packing?: string;
@@ -584,4 +586,19 @@ export interface GateMovementInput {
   /** Free days of this position (0–365); null = the default (7). */
   freeDays?: number | null;
   note?: string;
+}
+
+/** A stored person value the backfill could not tie to exactly one user of the company. */
+export interface PeopleNormalizeUnmatched {
+  field: string;
+  value: string;
+  /** Records holding it. */
+  count: number;
+}
+
+/** What the people backfill did: values looked at, records changed, values left as they are. */
+export interface PeopleNormalizeResult {
+  checked: number;
+  changed: number;
+  unmatched: PeopleNormalizeUnmatched[];
 }

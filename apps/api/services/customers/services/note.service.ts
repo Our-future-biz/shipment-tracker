@@ -16,10 +16,10 @@ class NoteService {
     return (await customerNoteRepository.findByCustomer(customerId, companyId)).map(toNoteItem);
   }
 
-  /** The author is the user `userId` (the signed-in one): their name as the users list has it. */
+  /** The author is the user `userId` (the signed-in one), recorded by e-mail as every person is. */
   async create(companyId: string, customerId: string, userId: string, input: NoteInput): Promise<NoteItem> {
     await customerService.requireLive(customerId, companyId);
-    const author = (await userRefs([userId])).get(userId)?.name ?? "";
+    const author = (await userRefs([userId])).get(userId)?.email.trim().toLowerCase() ?? "";
     const values: Omit<NewCustomerNoteRecord, "companyId"> = {
       customerId,
       type: input.type ?? "Note",

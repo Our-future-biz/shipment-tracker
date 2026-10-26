@@ -47,7 +47,7 @@ export interface CustomerItem {
   dataSource: string;
   lastRegistryUpdate: string;
   status: CustomerStatus;
-  /** The owner's name; without salesOwnerUserId a name typed before owners were users, or "". */
+  /** The owner user's e-mail; without salesOwnerUserId a name typed before owners were users, or "". */
   salesOwner: string;
   salesOwnerUserId: string | null;
   label: CustomerLabel;
@@ -157,6 +157,7 @@ export interface NoteItem {
   customerId: string;
   type: NoteType;
   content: string;
+  /** Who wrote it: the signed-in user's e-mail (older notes may hold a name). */
   author: string;
   createdAt: string;
   updatedAt: string;
@@ -266,4 +267,14 @@ export interface ShipmentFinancials {
   profit: number | null;
   /** Currencies without a rate that made the totals unknown. */
   missingCurrencies: string[];
+}
+
+/** What a run of POST /customers/people/normalize did to the company's live customers and notes. */
+export interface CustomerPeopleNormalizeResult {
+  /** Customers with a sales owner and notes with an author that were looked at. */
+  checked: number;
+  /** Rows whose person is now recorded by a user's e-mail (a customer's owner also linked to that user). */
+  changed: number;
+  /** Values left as they are, with how many rows have each: they name no single user of the company. */
+  unmatched: { field: string; value: string; count: number }[];
 }

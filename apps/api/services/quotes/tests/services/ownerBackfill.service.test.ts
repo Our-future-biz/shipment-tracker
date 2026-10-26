@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // The matching is run for real against a stand-in for the repository and for the users of the
 // auth service.
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
+vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("~encore/clients", () => ({ auth: { usersList: vi.fn() } }));
 vi.mock("../../repositories/salesQuote.repository", () => ({
   salesQuoteRepository: { adoptions: vi.fn(), unexaminedOwnerLabels: vi.fn(), recordOwnerMatch: vi.fn() },
@@ -31,7 +32,10 @@ const user = (id: string, displayName: string, email: string) => ({
   departmentId: null,
   branchId: null,
 });
-const USERS = [user(U_MARTIN, "Martin Koubek", "martin@forwarder.cz"), user(U_JANA, "Jana Nováková", "jana@forwarder.cz")];
+const USERS = [user(U_MARTIN, "Martin Koubek", "Martin@Forwarder.cz"), user(U_JANA, "Jana Nováková", "jana@forwarder.cz")];
+// What a text that names a user is recorded as: that user, owning the quotes under their e-mail (lower case).
+const MARTIN = { userId: U_MARTIN, label: "martin@forwarder.cz" };
+const JANA = { userId: U_JANA, label: "jana@forwarder.cz" };
 
 // A company of its own for every test: the service remembers companies for as long as the
 // process lives.
@@ -45,6 +49,7 @@ beforeEach(() => {
   usersList.mockResolvedValue({ users: USERS });
   repository.adoptions.mockReturnValue(0);
   repository.unexaminedOwnerLabels.mockResolvedValue([]);
+  repository.recordOwnerMatch.mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -52,7 +57,7 @@ afterEach(() => {
 });
 
 describe("ensureOwnersMatched", () => {
-  it("gives every waiting text the user it names - nobody when it fits none or several - reading the users once", async () => {
+  it("gives every waiting text the user it names - by e-mail - or nobody when it fits none or several, reading the users once", async () => {
     usersList.mockResolvedValue({ users: [...USERS, user(randomUUID(), "Jana Nováková", "jana2@forwarder.cz")] });
     repository.unexaminedOwnerLabels.mockResolvedValue(["Martin", "Petr", "Jana Nováková", ""]);
 
@@ -60,7 +65,7 @@ describe("ensureOwnersMatched", () => {
 
     expect(usersList).toHaveBeenCalledTimes(1);
     expect(repository.recordOwnerMatch.mock.calls).toEqual([
-      [company, "Martin", U_MARTIN],
+      [company, "Martin", MARTIN],
       [company, "Petr", null],
       [company, "Jana Nováková", null],
       [company, "", null],
@@ -94,7 +99,7 @@ describe("ensureOwnersMatched", () => {
     expect(log.warn).toHaveBeenCalledTimes(1);
 
     await ownerBackfillService.ensureOwnersMatched(company);
-    expect(repository.recordOwnerMatch).toHaveBeenCalledWith(company, "Martin", U_MARTIN);
+    expect(repository.recordOwnerMatch).toHaveBeenCalledWith(company, "Martin", MARTIN);
   });
 
   it("looks again once this process has adopted quotes of the company", async () => {
@@ -105,7 +110,7 @@ describe("ensureOwnersMatched", () => {
 
     await ownerBackfillService.ensureOwnersMatched(company);
 
-    expect(repository.recordOwnerMatch).toHaveBeenCalledWith(company, "Jana Nováková", U_JANA);
+    expect(repository.recordOwnerMatch).toHaveBeenCalledWith(company, "Jana Nováková", JANA);
     await ownerBackfillService.ensureOwnersMatched(company);
     expect(repository.unexaminedOwnerLabels).toHaveBeenCalledTimes(2);
   });
@@ -130,7 +135,7 @@ describe("ensureOwnersMatched", () => {
     vi.setSystemTime(NOW.getTime() + 5 * MINUTE);
     repository.unexaminedOwnerLabels.mockResolvedValue(["Martin"]);
     await ownerBackfillService.ensureOwnersMatched(company);
-    expect(repository.recordOwnerMatch).toHaveBeenCalledWith(company, "Martin", U_MARTIN);
+    expect(repository.recordOwnerMatch).toHaveBeenCalledWith(company, "Martin", MARTIN);
   });
 });
 
@@ -139,7 +144,7 @@ describe("matchOwners", () => {
     await ownerBackfillService.ensureOwnersMatched(company);
     repository.unexaminedOwnerLabels.mockResolvedValue(["Jana Nováková"]);
     await ownerBackfillService.matchOwners(company);
-    expect(repository.recordOwnerMatch).toHaveBeenCalledWith(company, "Jana Nováková", U_JANA);
+    expect(repository.recordOwnerMatch).toHaveBeenCalledWith(company, "Jana Nováková", JANA);
   });
 
   it("forgets what was remembered when the users cannot be read", async () => {
@@ -150,6 +155,6 @@ describe("matchOwners", () => {
 
     // The text is known to wait: the next read does not take the company for examined.
     await ownerBackfillService.ensureOwnersMatched(company);
-    expect(repository.recordOwnerMatch).toHaveBeenCalledWith(company, "Jana Nováková", U_JANA);
+    expect(repository.recordOwnerMatch).toHaveBeenCalledWith(company, "Jana Nováková", JANA);
   });
 });

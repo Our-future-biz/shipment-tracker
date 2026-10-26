@@ -12,7 +12,8 @@ interface RoadJobCreateResponse {
 export const _internalShipmentCreateRoad = api(
   { expose: false, auth: true, method: "POST", path: "/internal/shipments/road" },
   async (req: RoadJobInput): Promise<RoadJobCreateResponse> => {
-    return roadJobService.create(getAuthData()!.companyID, req);
+    const auth = getAuthData()!;
+    return roadJobService.create(auth.companyID, req, auth.userID);
   },
 );
 

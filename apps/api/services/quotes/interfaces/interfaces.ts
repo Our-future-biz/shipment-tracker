@@ -39,9 +39,9 @@ export interface SalesQuoteItem {
   lastContactAt: string | null;
   followUpDue: boolean;
   ownerUserId: string | null;
-  /** The owner's current display name; the stored label when the owner is not linked to a user. */
+  /** The owner user's current e-mail; the stored label when the owner is not linked to a user. */
   ownerName: string;
-  /** The owner as text, as stored: what old quotes had instead of a user. */
+  /** The owner as text, as stored: the owner user's e-mail, or what old quotes had instead of a user. */
   ownerLabel: string;
   shipmentId: string | null;
   shipmentJobNumber: string | null;
@@ -119,6 +119,7 @@ export interface QuoteRoadPricing {
 /** A manager's approval of a margin below the floor (data.marginApproval; the server's key). */
 export interface QuoteMarginApproval {
   byUserId: string;
+  /** Who approved, by e-mail (older approvals recorded the display name). */
   byName: string;
   at: string;
   reason: string;
@@ -143,10 +144,12 @@ export interface QuoteWarehouseInquiry {
   /** What Sales wrote with the question. */
   note: string;
   requestedById: string;
+  /** Who asked, by e-mail (older inquiries recorded the display name). */
   requestedByName: string;
   /** ISO */
   requestedAt: string;
   decidedById: string | null;
+  /** Who answered, by e-mail (older answers recorded the display name). */
   decidedByName: string | null;
   decidedAt: string | null;
   /** Approved: the extra handling per piece, EUR. */
@@ -167,6 +170,7 @@ export interface QuoteWarehouseInquiryItem {
   /** Where from and to, as the quote names them (POL / origin, POD / destination). */
   from: string;
   to: string;
+  /** The quote owner's e-mail, as SalesQuoteItem.ownerName. */
   ownerName: string;
   inquiry: QuoteWarehouseInquiry;
 }
@@ -280,7 +284,7 @@ export interface QuoteCommentItem {
   /** The thread: the original Sales Reference every revision shares. */
   threadRef: string;
   authorId: string;
-  /** Who wrote it (display name, e-mail when they have none). */
+  /** Who wrote it, by e-mail. */
   authorName: string;
   message: string;
   createdAt: string;
@@ -300,9 +304,20 @@ export interface QuoteCommentMentionItem {
   id: string;
   quoteNumber: string;
   threadRef: string;
+  /** Who wrote it, by e-mail. */
   authorName: string;
   message: string;
   createdAt: string;
   /** Not read yet (the thread not opened since); read ones stay 7 days from when they were written. */
   unread: boolean;
+}
+
+/** What a run of POST /quotes/people/normalize did to the company's live sales quotes. */
+export interface QuotePeopleNormalizeResult {
+  /** Quotes that name an owner (a user or a typed text). */
+  checked: number;
+  /** Quotes whose owner is now recorded by the owner user's e-mail (and linked to that user). */
+  changed: number;
+  /** Owner texts left as they are, with how many quotes have each: they name no single user of the company. */
+  unmatched: { field: string; value: string; count: number }[];
 }

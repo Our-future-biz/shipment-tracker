@@ -501,6 +501,7 @@ export namespace customers {
             this.customerList = this.customerList.bind(this)
             this.customerListPrefGet = this.customerListPrefGet.bind(this)
             this.customerListPrefSet = this.customerListPrefSet.bind(this)
+            this.customerPeopleNormalize = this.customerPeopleNormalize.bind(this)
             this.customerRestore = this.customerRestore.bind(this)
             this.customerShipmentFinancials = this.customerShipmentFinancials.bind(this)
             this.customerSiteCreate = this.customerSiteCreate.bind(this)
@@ -664,6 +665,17 @@ export namespace customers {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PUT", `/customer-list-prefs/${encodeURIComponent(prefKey)}`, JSON.stringify(params))
             return await resp.json() as controllers.CustomerListPrefSetResponse
+        }
+
+        /**
+         * Records the sales owner of every live customer and the author of every Communication note of the
+         * caller's company by the user's e-mail, linking an old typed name to the one user it names.
+         * Values that name no single user stay and are listed. Can be run again at any time. Superadmins only.
+         */
+        public async customerPeopleNormalize(): Promise<interfaces.CustomerPeopleNormalizeResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/customers/people/normalize`)
+            return await resp.json() as interfaces.CustomerPeopleNormalizeResult
         }
 
         /**
@@ -1350,6 +1362,7 @@ export namespace quotes {
             this.quoteCommentMarkRead = this.quoteCommentMarkRead.bind(this)
             this.quoteCommentMentions = this.quoteCommentMentions.bind(this)
             this.quoteCommentUnread = this.quoteCommentUnread.bind(this)
+            this.quotePeopleNormalize = this.quotePeopleNormalize.bind(this)
             this.salesQuoteCreate = this.salesQuoteCreate.bind(this)
             this.salesQuoteDelete = this.salesQuoteDelete.bind(this)
             this.salesQuoteDuplicate = this.salesQuoteDuplicate.bind(this)
@@ -1447,6 +1460,17 @@ export namespace quotes {
             return await resp.json() as {
     unread: interfaces.QuoteCommentUnreadItem[]
 }
+        }
+
+        /**
+         * Records the owner of every live sales quote of the caller's company by the owner user's e-mail,
+         * linking an old typed name to the one user it names. Values that name no single user stay and
+         * are listed. Can be run again at any time. Superadmins only.
+         */
+        public async quotePeopleNormalize(): Promise<interfaces.QuotePeopleNormalizeResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/quotes/people/normalize`)
+            return await resp.json() as interfaces.QuotePeopleNormalizeResult
         }
 
         public async salesQuoteCreate(params: controllers.SalesQuoteCreateRequest): Promise<controllers.SalesQuoteCreateResponse> {
@@ -1884,6 +1908,7 @@ export namespace shipments {
             this.shipmentList = this.shipmentList.bind(this)
             this.shipmentNeedsAttention = this.shipmentNeedsAttention.bind(this)
             this.shipmentNextJobNumber = this.shipmentNextJobNumber.bind(this)
+            this.shipmentPeopleNormalize = this.shipmentPeopleNormalize.bind(this)
             this.shipmentQuoteLink = this.shipmentQuoteLink.bind(this)
             this.shipmentQuoteLinksSync = this.shipmentQuoteLinksSync.bind(this)
             this.shipmentReleaseHouseBol = this.shipmentReleaseHouseBol.bind(this)
@@ -2191,6 +2216,17 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/shipments/next-job-number`)
             return await resp.json() as controllers.NextJobNumberResponse
+        }
+
+        /**
+         * The one-off conversion after people became users picked by e-mail (owner decision, 26 Oct
+         * 2026): names typed into the company's shipments become the matching user's e-mail. Safe to run
+         * again. Superadmins only.
+         */
+        public async shipmentPeopleNormalize(): Promise<interfaces.PeopleNormalizeResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/people/normalize`)
+            return await resp.json() as interfaces.PeopleNormalizeResult
         }
 
         /**
@@ -3523,6 +3559,7 @@ export namespace warehouseConcept {
             this.gateMovementUseRemeasured = this.gateMovementUseRemeasured.bind(this)
             this.gateMovementVerifyPin = this.gateMovementVerifyPin.bind(this)
             this.gateMovementVoidStamp = this.gateMovementVoidStamp.bind(this)
+            this.gatePeopleNormalize = this.gatePeopleNormalize.bind(this)
             this.pickupPinGenerate = this.pickupPinGenerate.bind(this)
             this.warehouseBondedCreate = this.warehouseBondedCreate.bind(this)
             this.warehouseBondedDelete = this.warehouseBondedDelete.bind(this)
@@ -3926,6 +3963,18 @@ export namespace warehouseConcept {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/gate/${encodeURIComponent(id)}/void-stamp`, JSON.stringify(params))
             return await resp.json() as controllers.GateVoidStampResponse
+        }
+
+        /**
+         * Backfill for the owner decision of 26 Oct 2026 (a picked person is a user, stored by e-mail):
+         * the gate records' Shipment Owner and the warehouse positions' assignee of the caller's company
+         * become the e-mail of the one user an old value names; the old walk-in placeholder
+         * "— notify ops" becomes empty. Superadmin only; safe to run again.
+         */
+        public async gatePeopleNormalize(): Promise<interfaces.PeopleNormalizeResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/people/normalize`)
+            return await resp.json() as interfaces.PeopleNormalizeResult
         }
 
         /**
@@ -5877,7 +5926,11 @@ export namespace controllers {
         customer?: string
         customerRef?: string
         customerContact?: string
+        /**
+         * E-mail of a user of the company, "" for nobody; the record's current value is also accepted.
+         */
         shipmentOwner?: string
+
         colli?: number
         packing?: string
         weightKg?: number
@@ -5965,7 +6018,11 @@ export namespace controllers {
         customer?: string
         customerRef?: string
         customerContact?: string
+        /**
+         * E-mail of a user of the company, "" for nobody; the record's current value is also accepted.
+         */
         shipmentOwner?: string
+
         colli?: number
         packing?: string
         weightKg?: number
@@ -6908,7 +6965,7 @@ export namespace controllers {
         /**
          * createdAt (the default) | updatedAt | quoteNumber | customer | status | owner | sentAt |
          * validUntil | decidedAt | lastContactAt. Anything else sorts by createdAt. Quotes without a
-         * value come last in both directions.
+         * value come last in both directions. Status and owner sort as shown (the owner by e-mail).
          */
         sortBy?: string
 
@@ -6919,8 +6976,9 @@ export namespace controllers {
 
         /**
          * Words that all have to occur in the quote: in its reference, customer, service type,
-         * direction, origin, destination, commodity, incoterm, owner, job number or status. Case and
-         * diacritics do not matter; at most five words are looked for.
+         * direction, origin, destination, commodity, incoterm, owner (the owner user's e-mail or name,
+         * or the owner text of an old quote), job number or status. Case and diacritics do not matter;
+         * at most five words are looked for.
          */
         search?: string
 
@@ -8968,7 +9026,11 @@ export namespace controllers {
         type?: string
         priority?: string
         status?: string
+        /**
+         * E-mail of a user of the company, "" for nobody; the task's current value is also accepted.
+         */
         assignee?: string
+
         /**
          * yyyy-mm-dd; "" clears it
          */
@@ -9070,7 +9132,11 @@ export namespace controllers {
         customer?: string
         customerRef?: string
         customerContact?: string
+        /**
+         * E-mail of a user of the company.
+         */
         shipmentOwner?: string
+
         customsStatus?: interfaces.GateCustomsStatus
         handling?: interfaces.GateHandling
         freightMode?: string
@@ -9310,12 +9376,12 @@ export namespace interfaces {
         customsNote: string
         customsReviewedAt: string | null
         /**
-         * Display name of the uploader; "Unknown" when it cannot be resolved.
+         * The uploader's e-mail; "Unknown" when it cannot be resolved.
          */
         uploadedByName: string
 
         /**
-         * Display name of the customs reviewer; "" while the document is unreviewed.
+         * The customs reviewer's e-mail; "" while the document is unreviewed.
          */
         customsReviewedByName: string
     }
@@ -9745,7 +9811,7 @@ export namespace interfaces {
         shipmentId: string
         authorId: string
         /**
-         * Who wrote it (display name, e-mail when they have none).
+         * Who wrote it: the user's e-mail, as every person is shown; "" when the user is unknown.
          */
         authorName: string
 
@@ -9769,7 +9835,11 @@ export namespace interfaces {
 
         shipmentId: string
         jobNumber: string
+        /**
+         * Who wrote it: the user's e-mail; "" when the user is unknown.
+         */
         authorName: string
+
         message: string
         createdAt: string
         /**
@@ -10307,7 +10377,7 @@ export namespace interfaces {
         lastRegistryUpdate: string
         status: CustomerStatus
         /**
-         * The owner's name; without salesOwnerUserId a name typed before owners were users, or "".
+         * The owner user's e-mail; without salesOwnerUserId a name typed before owners were users, or "".
          */
         salesOwner: string
 
@@ -10344,6 +10414,30 @@ export namespace interfaces {
     }
 
     export type CustomerLabel = "KEY ACCOUNT" | "STANDARD" | "TARGET CUSTOMER" | "RISK"
+
+    /**
+     * What a run of POST /customers/people/normalize did to the company's live customers and notes.
+     */
+    export interface CustomerPeopleNormalizeResult {
+        /**
+         * Customers with a sales owner and notes with an author that were looked at.
+         */
+        checked: number
+
+        /**
+         * Rows whose person is now recorded by a user's e-mail (a customer's owner also linked to that user).
+         */
+        changed: number
+
+        /**
+         * Values left as they are, with how many rows have each: they name no single user of the company.
+         */
+        unmatched: {
+            field: string
+            value: string
+            count: number
+        }[]
+    }
 
     /**
      * What a company is to us. A customer buys our services; a haulier is a trucking subcontractor. One company can be both.
@@ -10750,7 +10844,7 @@ export namespace interfaces {
         dueDate: string | null
         assigneeUserId: string | null
         /**
-         * The assignee's current display name; "" for a task assigned to nobody, or to a user that cannot be resolved.
+         * The assignee's current e-mail; "" for a task assigned to nobody, or to a user that cannot be resolved.
          */
         assigneeName: string
 
@@ -11039,7 +11133,11 @@ export namespace interfaces {
         customer: string
         customerRef: string
         customerContact: string
+        /**
+         * E-mail of a user of the company ("" for nobody); an older record may still hold a name.
+         */
         shipmentOwner: string
+
         colli: number
         packing: string
         weightKg: number
@@ -12691,7 +12789,11 @@ export namespace interfaces {
         customerId: string
         type: NoteType
         content: string
+        /**
+         * Who wrote it: the signed-in user's e-mail (older notes may hold a name).
+         */
         author: string
+
         createdAt: string
         updatedAt: string
     }
@@ -12699,6 +12801,47 @@ export namespace interfaces {
     export type NoteType = "Note" | "Email" | "Call" | "Follow-up" | "Visit"
 
     export type PalletType = "EUR" | "INDUSTRIAL" | "HALF" | "QUARTER" | "OTHER"
+
+    /**
+     * What the people backfill did: values looked at, records changed, values left as they are.
+     */
+    export interface PeopleNormalizeResult {
+        checked: number
+        changed: number
+        unmatched: PeopleNormalizeUnmatched[]
+    }
+
+    /**
+     * What the people backfill did to the company's live shipments.
+     */
+    export interface PeopleNormalizeResult {
+        /**
+         * Values that name a person (one field of one shipment each), looked at.
+         */
+        checked: number
+
+        /**
+         * Values rewritten to the user's e-mail.
+         */
+        changed: number
+
+        /**
+         * The names left as they are, most frequent first: to be fixed by hand.
+         */
+        unmatched: UnmatchedPerson[]
+    }
+
+    /**
+     * A stored person value the backfill could not tie to exactly one user of the company.
+     */
+    export interface PeopleNormalizeUnmatched {
+        field: string
+        value: string
+        /**
+         * Records holding it.
+         */
+        count: number
+    }
 
     export interface PeriodAverage {
         type: "month" | "quarter" | "year"
@@ -12766,7 +12909,7 @@ export namespace interfaces {
         companyName: string
         label: string
         /**
-         * The customer's sales owner, as set on the customer.
+         * The customer's sales owner as set on the customer: the owner user's e-mail (an old typed name until it is matched).
          */
         salesOwner: string
 
@@ -13281,7 +13424,7 @@ export namespace interfaces {
 
         authorId: string
         /**
-         * Who wrote it (display name, e-mail when they have none).
+         * Who wrote it, by e-mail.
          */
         authorName: string
 
@@ -13301,7 +13444,11 @@ export namespace interfaces {
         id: string
         quoteNumber: string
         threadRef: string
+        /**
+         * Who wrote it, by e-mail.
+         */
         authorName: string
+
         message: string
         createdAt: string
         /**
@@ -13362,7 +13509,11 @@ export namespace interfaces {
      */
     export interface QuoteMarginApproval {
         byUserId: string
+        /**
+         * Who approved, by e-mail (older approvals recorded the display name).
+         */
         byName: string
+
         at: string
         reason: string
         /**
@@ -13371,6 +13522,30 @@ export namespace interfaces {
         marginCzk: number
 
         marginPercent: number | null
+    }
+
+    /**
+     * What a run of POST /quotes/people/normalize did to the company's live sales quotes.
+     */
+    export interface QuotePeopleNormalizeResult {
+        /**
+         * Quotes that name an owner (a user or a typed text).
+         */
+        checked: number
+
+        /**
+         * Quotes whose owner is now recorded by the owner user's e-mail (and linked to that user).
+         */
+        changed: number
+
+        /**
+         * Owner texts left as they are, with how many quotes have each: they name no single user of the company.
+         */
+        unmatched: {
+            field: string
+            value: string
+            count: number
+        }[]
     }
 
     /**
@@ -13486,14 +13661,22 @@ export namespace interfaces {
         note: string
 
         requestedById: string
+        /**
+         * Who asked, by e-mail (older inquiries recorded the display name).
+         */
         requestedByName: string
+
         /**
          * ISO
          */
         requestedAt: string
 
         decidedById: string | null
+        /**
+         * Who answered, by e-mail (older answers recorded the display name).
+         */
         decidedByName: string | null
+
         decidedAt: string | null
         /**
          * Approved: the extra handling per piece, EUR.
@@ -13529,7 +13712,11 @@ export namespace interfaces {
         from: string
 
         to: string
+        /**
+         * The quote owner's e-mail, as SalesQuoteItem.ownerName.
+         */
         ownerName: string
+
         inquiry: QuoteWarehouseInquiry
     }
 
@@ -13839,12 +14026,12 @@ export namespace interfaces {
         followUpDue: boolean
         ownerUserId: string | null
         /**
-         * The owner's current display name; the stored label when the owner is not linked to a user.
+         * The owner user's current e-mail; the stored label when the owner is not linked to a user.
          */
         ownerName: string
 
         /**
-         * The owner as text, as stored: what old quotes had instead of a user.
+         * The owner as text, as stored: the owner user's e-mail, or what old quotes had instead of a user.
          */
         ownerLabel: string
 
@@ -15191,6 +15378,26 @@ export namespace interfaces {
         since: string
     }
 
+    /**
+     * A name the people backfill could not turn into a user's e-mail: it fits no user, or more than one.
+     */
+    export interface UnmatchedPerson {
+        /**
+         * The shipment field it is in ("personInCharge", "createdBy", …).
+         */
+        field: string
+
+        /**
+         * The name as stored (of a stamp, the name part).
+         */
+        value: string
+
+        /**
+         * How many shipments hold it there.
+         */
+        count: number
+    }
+
     export interface Unpriced {
         /**
          * e.g. "No zone for postcode 790 01 in Standard sell list"
@@ -15387,7 +15594,11 @@ export namespace interfaces {
         type: string
         priority: string
         status: string
+        /**
+         * E-mail of a user of the company ("" for nobody); an older task may still hold a name.
+         */
         assignee: string
+
         /**
          * yyyy-mm-dd, or null when not set
          */

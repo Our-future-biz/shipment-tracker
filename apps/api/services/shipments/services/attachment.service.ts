@@ -4,15 +4,15 @@ import { APIError } from "encore.dev/api";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
 import type { ShipmentAttachmentRecord } from "../schemas/shipmentAttachment.schema";
 import { attachmentBucket } from "../storage/attachmentBucket";
-import { userNames } from "../../../lib/userNames";
+import { userEmails } from "../lib/userEmails";
 import { attachmentContentUrl, companyOfContentToken } from "../lib/contentToken";
 import { iso, isoOrNull } from "../../../lib/db/serialize";
 import type { FileContent } from "../../../lib/fileContent";
 import type { AttachmentCustomsStatus, AttachmentItem } from "../interfaces/interfaces";
 import { shipmentService } from "./shipment.service";
 
-/** An attachment row as the API shows it: display names and a download link, no storage key. */
-function toItem(row: ShipmentAttachmentRecord, names: Map<string, string>): AttachmentItem {
+/** An attachment row as the API shows it: who uploaded and reviewed it by e-mail, a download link, no storage key. */
+function toItem(row: ShipmentAttachmentRecord, emails: Map<string, string>): AttachmentItem {
   return {
     id: row.id,
     shipmentId: row.shipmentId,
@@ -25,8 +25,8 @@ function toItem(row: ShipmentAttachmentRecord, names: Map<string, string>): Atta
     customsStatus: row.customsStatus,
     customsNote: row.customsNote,
     customsReviewedAt: isoOrNull(row.customsReviewedAt),
-    uploadedByName: row.uploadedById ? names.get(row.uploadedById) || "Unknown" : "Unknown",
-    customsReviewedByName: row.customsReviewedById ? names.get(row.customsReviewedById) || "Unknown" : "",
+    uploadedByName: row.uploadedById ? emails.get(row.uploadedById) || "Unknown" : "Unknown",
+    customsReviewedByName: row.customsReviewedById ? emails.get(row.customsReviewedById) || "Unknown" : "",
   };
 }
 
@@ -41,11 +41,11 @@ export interface NewAttachment {
 class AttachmentService {
   async list(shipmentId: string, companyId: string): Promise<AttachmentItem[]> {
     await shipmentService.requireLive(shipmentId, companyId);
-    const [rows, names] = await Promise.all([
+    const [rows, emails] = await Promise.all([
       shipmentAttachmentRepository.listByShipmentId(shipmentId, companyId),
-      userNames(),
+      userEmails(),
     ]);
-    return rows.map((r) => toItem(r, names));
+    return rows.map((r) => toItem(r, emails));
   }
 
   async create(shipmentId: string, companyId: string, file: NewAttachment, uploadedById: string): Promise<AttachmentItem> {
@@ -66,7 +66,7 @@ class AttachmentService {
       documentType: file.documentType,
       uploadedById,
     });
-    return toItem(row, await userNames());
+    return toItem(row, await userEmails());
   }
 
   /**
@@ -91,7 +91,7 @@ class AttachmentService {
   async classify(shipmentId: string, id: string, companyId: string, documentType: string): Promise<AttachmentItem> {
     const row = await shipmentAttachmentRepository.updateReview(id, shipmentId, companyId, { documentType });
     if (!row) throw APIError.notFound("Attachment not found");
-    return toItem(row, await userNames());
+    return toItem(row, await userEmails());
   }
 
   /**
@@ -114,7 +114,7 @@ class AttachmentService {
       customsReviewedById: clear ? null : userId,
     });
     if (!row) throw APIError.notFound("Attachment not found");
-    return toItem(row, await userNames());
+    return toItem(row, await userEmails());
   }
 
   async delete(shipmentId: string, id: string, companyId: string): Promise<void> {

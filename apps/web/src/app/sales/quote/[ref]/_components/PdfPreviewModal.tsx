@@ -8,6 +8,7 @@ import { PillTabs } from "@/components/SectionCard";
 import { useCurrentExchangeRates } from "@/hooks/useExchangeRates";
 import { useSalesPermissions } from "@/hooks/useSalesPermissions";
 import { useCompanyDetails } from "@/hooks/useSalesPrefs";
+import { useUsers } from "@/hooks/useUsers";
 import { useToast } from "@/lib/toast";
 import type { SalesQuoteData } from "@/app/sales/_lib/types";
 import type { SalesQuote } from "@/app/sales/_lib/salesQuote";
@@ -44,6 +45,8 @@ export function PdfPreviewModal({
 }: PdfPreviewModalProps) {
   const exchange = useCurrentExchangeRates();
   const company = useCompanyDetails();
+  // The company's users: the quotation names its sales owner for the customer.
+  const people = useUsers();
   const permissions = useSalesPermissions();
   const toast = useToast();
   const [activeRef, setActiveRef] = useState(quoteNumber);
@@ -58,7 +61,7 @@ export function PdfPreviewModal({
   // The preview is not a second layout: it shows the very document Export PDF prints. A quote
   // that has no document - an incomplete total, company details or exchange rates that did not
   // load - shows the reason instead.
-  const doc = quoteDocument(shownRef, shown, exchange, company);
+  const doc = quoteDocument(shownRef, shown, exchange, company, people);
   // What did not load can be asked for again right here.
   const retry = company.status === "error" ? company.reload : exchange.isError ? exchange.reload : null;
 
@@ -73,7 +76,7 @@ export function PdfPreviewModal({
       onExport();
       return;
     }
-    const blocked = printQuote(shownRef, shown, exchange, company);
+    const blocked = printQuote(shownRef, shown, exchange, company, people);
     if (blocked) toast.error(blocked);
   };
 

@@ -109,8 +109,8 @@ export function EmailQuoteModal({
 
   // Each time the dialog opens it starts from the quote's current values (and only then: what is
   // typed while it is open stays). The values are read through a ref for that reason.
-  const prefill = useRef({ to: data.customerEmail ?? "", values: quoteValues(quoteNumber, data, validUntil), all });
-  prefill.current = { to: data.customerEmail ?? "", values: quoteValues(quoteNumber, data, validUntil), all };
+  const prefill = useRef({ to: data.customerEmail ?? "", values: quoteValues(quoteNumber, data, validUntil, users), all });
+  prefill.current = { to: data.customerEmail ?? "", values: quoteValues(quoteNumber, data, validUntil, users), all };
   const applyTemplate = (id: string) => {
     const template = prefill.current.all.find((t) => t.id === id) ?? STANDARD_TEMPLATE;
     setTemplateId(template.id);

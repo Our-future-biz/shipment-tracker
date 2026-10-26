@@ -23,6 +23,8 @@ import { CUSTOMS_CLEARED, CUSTOMS_STATUSES, customsLine, setCustomsLineSql } fro
 import { deliverDue, shipmentUpdateState } from "./shipmentOutbox.service";
 import { FOLLOW_LIST_LIMIT, FOLLOW_ON_GET_MS, FOLLOW_ON_LIST_MS, followCustoms } from "./shipmentFollow.service";
 import { userName } from "./users";
+import { ownerFromRequest } from "./shipmentOwner";
+import { companyUsers } from "../../../lib/companyUsers";
 import { serviceActor } from "../../../lib/outbox/serviceIdentity";
 import { pickupPinKey } from "./pinKey";
 import { inputMessage } from "./inputError";
@@ -615,10 +617,14 @@ class GateMovementService {
     return userName(userId);
   }
 
-  private async fields(input: GateMovementInput, companyId: string): Promise<Partial<NewGateMovementRecord>> {
+  // `current`: the stored record of an update (null for a new one).
+  private async fields(input: GateMovementInput, companyId: string, current: Pick<GateMovementRecord, "shipmentOwner"> | null = null): Promise<Partial<NewGateMovementRecord>> {
     const { pin, warehouseTaskId, transportLegs, subPositions, ...rest } = input;
     const out: Partial<NewGateMovementRecord> = { ...rest };
     for (const key of NOT_EDITABLE) delete (out as Record<string, unknown>)[key];
+    // The Shipment Owner is picked from the company's users (stored by e-mail); the stored value
+    // may be sent back unchanged.
+    if (out.shipmentOwner !== undefined) out.shipmentOwner = await ownerFromRequest(out.shipmentOwner, current?.shipmentOwner ?? null, companyUsers);
     // Only a Trucking trip marks a leg (expect-arrival / expect-departure); a client's marker is dropped.
     if (transportLegs !== undefined) out.transportLegs = normalizeLegs(transportLegs).map(({ source: _source, figures: _figures, ...leg }) => leg);
     if (subPositions !== undefined) {
@@ -690,7 +696,6 @@ class GateMovementService {
         ? {
             status: "Expected",
             customer: data.customer || "(unknown — no pre-advice)",
-            shipmentOwner: data.shipmentOwner || "— notify ops",
             customsDocs: data.customsDocs || "None",
             gateIn: now,
           }
@@ -715,7 +720,7 @@ class GateMovementService {
   // shipment (before its release) must give one; it is logged.
   async update(id: string, companyId: string, userId: string, input: GateMovementInput, role = "user", linkChangeReason = "") {
     const m = await this.load(id, companyId);
-    const patch = await this.fields(input, companyId);
+    const patch = await this.fields(input, companyId, m);
     // A leg filled by a Trucking trip is read-only here: it stays as the trip set it.
     if (patch.transportLegs) patch.transportLegs = protectTripLegs(m.transportLegs, patch.transportLegs);
 

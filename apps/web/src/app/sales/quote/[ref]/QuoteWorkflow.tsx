@@ -54,6 +54,7 @@ import { PRINT_WINDOW_BLOCKED, exportClosesQuote } from "../../_lib/exportClose"
 import { ExportCloseDialog } from "../../_components/ExportCloseDialog";
 import { NO_CUSTOMER, changesCustomer, customerLinkFields, withCustomerUnit } from "../../_lib/quoteCustomer";
 import { useQuoteCustomerFields } from "@/hooks/useQuoteCustomerFields";
+import { useUsers } from "@/hooks/useUsers";
 import { useQuoteListHref } from "../../_lib/quoteListHref";
 import { useQuoteOrigin } from "../../_lib/useQuoteOrigin";
 import { printQuote } from "../../_lib/printQuote";
@@ -167,6 +168,8 @@ export function QuoteWorkflow() {
   const { deleteQuote } = useSalesQuotes();
   const exchange = useCurrentExchangeRates();
   const company = useCompanyDetails();
+  // The company's users: the quotation names its sales owner for the customer.
+  const people = useUsers();
   // Only the variants of this quote are asked for - the page never loads the list of all quotes.
   const variants = useQuoteFamily(ref);
   // The Quotes list as it was left: with its search, filters, sort and page.
@@ -438,7 +441,7 @@ export function QuoteWorkflow() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!quote]);
   const printNow = () => {
-    const blocked = printQuote(ref, draft, exchange, company);
+    const blocked = printQuote(ref, draft, exchange, company, people);
     if (blocked) toast.error(blocked);
   };
   // Export PDF closes a quote that has not gone out yet: it is sent as it stands (Quoted), which
@@ -473,7 +476,7 @@ export function QuoteWorkflow() {
     }
     setModal(null);
     toast.success(`${ref} closed and marked as sent`);
-    const blocked = printQuote(ref, sent ?? draft, exchange, company, target);
+    const blocked = printQuote(ref, sent ?? draft, exchange, company, people, target);
     if (blocked) toast.error(blocked);
   };
   const openEmail = () => {

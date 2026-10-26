@@ -156,7 +156,7 @@ describe("list", () => {
     expect(repository.list).toHaveBeenCalledWith(martin.companyID, { assigneeUserId: undefined, done: false }, { limit: 50, offset: 0, afterId: undefined });
   });
 
-  it("hands out the tasks with the assignee's name, today's overdue flag and the real total", async () => {
+  it("hands out the tasks with the assignee's e-mail, today's overdue flag and the real total", async () => {
     repository.list.mockResolvedValue({
       rows: [task({ dueDate: "2026-10-11" }), task({ id: randomUUID(), assigneeUserId: U_JANA, dueDate: "2026-10-12" }), task({ id: randomUUID(), assigneeUserId: null, dueDate: null })],
       total: 63,
@@ -164,9 +164,9 @@ describe("list", () => {
     const result = await followupTaskService.list(martin, { limit: 3, offset: 6 });
     expect(result.pagination).toEqual({ total: 63, offset: 6, limit: 3 });
     expect(result.data.map((t) => [t.assigneeName, t.overdue])).toEqual([
-      // Due yesterday: overdue without anyone having set it.
-      ["Martin Koubek", true],
-      // Due today; a user without a display name goes by the e-mail.
+      // Due yesterday: overdue without anyone having set it. The assignee shown by e-mail.
+      ["martin@forwarder.cz", true],
+      // Due today.
       ["jana@forwarder.cz", false],
       ["", false],
     ]);
@@ -182,7 +182,7 @@ describe("list", () => {
     expect((await followupTaskService.list(martin, {})).data[0]!.overdue).toBe(true);
   });
 
-  it("still lists when the users cannot be read: the tasks come without names", async () => {
+  it("still lists when the users cannot be read: the tasks come without assignee e-mails", async () => {
     usersList.mockRejectedValue(new Error("auth is unreachable"));
     repository.list.mockResolvedValue({ rows: [task()], total: 1 });
     const result = await followupTaskService.list(martin, {});
@@ -252,7 +252,7 @@ describe("create", () => {
       quoteNumber: null,
       createdBy: U_MARTIN,
     });
-    expect(created).toMatchObject({ type: "Email", assigneeUserId: U_MARTIN, assigneeName: "Martin Koubek", done: false });
+    expect(created).toMatchObject({ type: "Email", assigneeUserId: U_MARTIN, assigneeName: "martin@forwarder.cz", done: false });
     expect(salesQuoteGet).not.toHaveBeenCalled();
   });
 
@@ -356,7 +356,7 @@ describe("update", () => {
     expect(repository.getByIdForCompany).toHaveBeenCalledWith(ID, martin.companyID);
     expect(repository.updateForCompany).toHaveBeenCalledTimes(1);
     expect(repository.updateForCompany).toHaveBeenCalledWith(ID, martin.companyID, { note: "Call again on Friday", dueDate: "2026-10-23" });
-    expect(changed).toMatchObject({ id: ID, note: "Call again on Friday", dueDate: "2026-10-23", assigneeName: "Martin Koubek" });
+    expect(changed).toMatchObject({ id: ID, note: "Call again on Friday", dueDate: "2026-10-23", assigneeName: "martin@forwarder.cz" });
   });
 
   it("answers not found for a task that does not exist, is deleted or belongs to another company - and for an id that is no id", async () => {

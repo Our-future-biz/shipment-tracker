@@ -1,4 +1,6 @@
 import { formatDate } from "@/lib/date";
+import type { PickableUser } from "@/lib/people";
+import { ownerNameForCustomer } from "./ownerName";
 import type { SalesQuoteData } from "./types";
 
 // The Email dialog's templates: each user keeps their own (the server's /sales-email-templates),
@@ -31,8 +33,13 @@ export const STANDARD_TEMPLATE: EmailTemplateText & { id: string; name: string }
   message: "Dear {contact},\n\nPlease find our quotation {reference} for your shipment {route}.\n\nBest regards,\n{sender}",
 };
 
-/** What each placeholder stands for on this quote. */
-export function quoteValues(quoteNumber: string, data: SalesQuoteData, validUntil: string | null): Record<PlaceholderKey, string> {
+/** What each placeholder stands for on this quote. `users`: the company's, to name the sales owner. */
+export function quoteValues(
+  quoteNumber: string,
+  data: SalesQuoteData,
+  validUntil: string | null,
+  users: readonly PickableUser[],
+): Record<PlaceholderKey, string> {
   const origin = data.origin?.trim() ?? "";
   const destination = data.destination?.trim() ?? "";
   return {
@@ -43,7 +50,8 @@ export function quoteValues(quoteNumber: string, data: SalesQuoteData, validUnti
     origin,
     destination,
     validUntil: formatDate(validUntil),
-    sender: data.salesOwner?.trim() || "Sales",
+    // The customer reads the owner's name, not the e-mail the quote records them by.
+    sender: ownerNameForCustomer(data.salesOwner, users) || "Sales",
   };
 }
 

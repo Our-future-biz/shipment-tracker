@@ -44,9 +44,9 @@ export function CustomerNoteDialog({ open, saving, onCancel, onSubmit }: Custome
         <Form.Item name="type" label="Type">
           <Select options={TYPE_OPTIONS} />
         </Form.Item>
-        {/* Always the signed-in user: the API records the author from the login, so it is not editable. */}
+        {/* Always the signed-in user, by e-mail as a person is recorded: the API takes the author from the login, so it is not editable. */}
         <Form.Item label="Author">
-          <Input value={user?.displayName || user?.email || ""} disabled aria-label="Author" />
+          <Input value={user?.email ?? ""} disabled aria-label="Author" />
         </Form.Item>
         <Form.Item name="content" label="Content" rules={[{ required: true, whitespace: true, message: "Content is required" }]}>
           <Input.TextArea rows={4} />
