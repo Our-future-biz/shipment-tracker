@@ -18,6 +18,7 @@ import { useCostsData } from "@/app/shipments/[jobNumber]/tabs/useCostsData";
 import { InvoicePanel } from "./InvoicePanel";
 import { BillingQueue } from "./BillingQueue";
 import { invoicedLineCount } from "../_lib/lineCounts";
+import { jobDuzp } from "../_lib/openInvoices";
 
 /** Tabs of a job, as on the shipment detail page; the default one is left out of the URL. */
 const TABS = [
@@ -67,7 +68,6 @@ function ShipmentSummary({ shipment, nextDuzp }: ShipmentProps & { nextDuzp: str
   const { updateShipment } = useShipmentMutations();
   const [saving, setSaving] = useState(false);
   const { data } = useInvoiceDocList(shipment.id);
-  const open = (data?.invoices ?? []).filter((d) => d.kind === "invoice" && d.status === "issued");
   // the shared invoicing query (selling rows), already loaded for the Invoice tab
   const { data: costs } = useInvoicing(shipment.id);
   // counted once both have loaded, so a fully invoiced job never flashes a red 0/N first
@@ -108,7 +108,7 @@ function ShipmentSummary({ shipment, nextDuzp }: ShipmentProps & { nextDuzp: str
         </span>
       </SummaryItem>
       {/* The tax date: of the newest open invoice once issued, else the one the Invoice tab would use */}
-      <SummaryItem label="DUZP">{formatDate(open.length ? open[open.length - 1]!.duzp : nextDuzp) || "—"}</SummaryItem>
+      <SummaryItem label="DUZP">{formatDate(jobDuzp(data?.invoices ?? [], nextDuzp)) || "—"}</SummaryItem>
       <SummaryItem label="Shipment Status">
         {status ? <Tag color={statusTagColor(status)} title={statusLabel(status)} className="!m-0 !text-[11px] max-w-full truncate">{statusLabel(status)}</Tag> : "—"}
       </SummaryItem>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { invoicedLineCount } from "./lineCounts";
+import { hasLineValue, invoicedLineCount } from "./lineCounts";
 
 const row = (id: string, amount: string | null = "100.00", qty: string | null = "1.00") => ({ id, amount, qty });
 const doc = (kind: "invoice" | "credit_note", status: "issued" | "credited", ids: (string | null)[]) => ({
@@ -22,5 +22,17 @@ describe("invoicedLineCount", () => {
 
   it("is 0 of 0 for a job without lines", () => {
     expect(invoicedLineCount([], [])).toEqual({ invoiced: 0, total: 0 });
+  });
+});
+
+describe("hasLineValue", () => {
+  it("is false for a line the invoice leaves out: amount 0 or empty, or quantity 0", () => {
+    expect(hasLineValue({ amount: "100.00", qty: "2" })).toBe(true);
+    expect(hasLineValue({ amount: "100.00", qty: null })).toBe(true);
+    expect(hasLineValue({ amount: "100.00", qty: "" })).toBe(true);
+    expect(hasLineValue({ amount: "-50.00", qty: "1" })).toBe(true);
+    expect(hasLineValue({ amount: "100.00", qty: "0" })).toBe(false);
+    expect(hasLineValue({ amount: "0.00", qty: "1" })).toBe(false);
+    expect(hasLineValue({ amount: null, qty: "1" })).toBe(false);
   });
 });

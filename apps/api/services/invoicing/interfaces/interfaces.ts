@@ -190,7 +190,7 @@ export type InvoiceDocKind = "invoice" | "credit_note";
 /** issued; an invoice reversed by a credit note becomes credited */
 export type InvoiceDocStatus = "issued" | "credited";
 
-/** Views of the Invoicing queue: all (every shipment except cancelled ones) | to_bill (Shipment Status Billing) | not_invoiced | invoiced (Invoicing Status) */
+/** Views of the Invoicing queue: all (released for billing or invoiced, not cancelled) | to_bill (Shipment Status Billing, not invoiced yet) | not_invoiced | invoiced (Invoicing Status) */
 export type QueueView = "all" | "to_bill" | "not_invoiced" | "invoiced";
 
 /** Where a shipment stands with its ticked selling rows */

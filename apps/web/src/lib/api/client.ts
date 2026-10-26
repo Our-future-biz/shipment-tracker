@@ -1162,7 +1162,7 @@ export namespace invoicing {
         }
 
         /**
-         * The Invoicing queue: shipments by Shipment Status Billing / Invoicing Status / all shipments, with the amounts to bill.
+         * The Invoicing queue: shipments by Shipment Status Billing / Invoicing Status, or both together, with the amounts to bill.
          */
         public async invoiceQueue(params: controllers.QueueRequest): Promise<controllers.QueueResponse> {
             // Convert our params into the objects we need for the request
@@ -6641,7 +6641,7 @@ export namespace controllers {
 
     export interface QueueRequest {
         /**
-         * Default to_bill; all = every shipment except cancelled ones
+         * Default to_bill; all = released for billing (Shipment Status Billing) or invoiced, not cancelled
          */
         view?: interfaces.QueueView
 
@@ -9356,7 +9356,6 @@ export namespace interfaces {
             currency: string
             gross: number
         }[]
-
         /**
          * Selling lines of the job (with a value), and how many of them are on an open invoice
          */
@@ -13080,7 +13079,7 @@ export namespace interfaces {
     }
 
     /**
-     * Views of the Invoicing queue: all (every shipment except cancelled ones) | to_bill (Shipment Status Billing) | not_invoiced | invoiced (Invoicing Status)
+     * Views of the Invoicing queue: all (released for billing or invoiced, not cancelled) | to_bill (Shipment Status Billing, not invoiced yet) | not_invoiced | invoiced (Invoicing Status)
      */
     export type QueueView = "all" | "to_bill" | "not_invoiced" | "invoiced"
 

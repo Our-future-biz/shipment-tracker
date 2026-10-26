@@ -35,6 +35,7 @@ import { chargeLabel } from "@/lib/chargeCodes";
 import { statusLabel } from "@/lib/shipmentStatus";
 import { SectionCard } from "@/components/SectionCard";
 import { useCostsData } from "@/app/shipments/[jobNumber]/tabs/useCostsData";
+import { lineTableRows, type LineTableRow as TableRow } from "../_lib/lineTable";
 
 /** Billing currencies offered: the ones the company invoices in, out of the app's currencies. */
 const BILLING_CURRENCIES = CURRENCIES.filter((c) => c === "CZK" || c === "EUR" || c === "USD");
@@ -62,17 +63,6 @@ const MAX_DAYS_AFTER_DUZP = 15;
 const TH = "text-[11.5px] font-bold tracking-[.04em] uppercase text-slate-500 px-2 py-2 border-b border-slate-200";
 const TD = "px-2 py-2 border-b border-slate-100 text-[13px] text-slate-700";
 
-/**
- * A row of the lines table: an invoice line (ticked), a selling row left off the invoice, or a row
- * just ticked whose line the preview does not have yet (ticked, no line).
- */
-interface TableRow {
-  key: string;
-  sellingId: string | null;
-  ticked: boolean;
-  line?: interfaces.InvoiceDocLineItem;
-  row?: interfaces.SellingCostItem;
-}
 const czDate = (iso: string) => formatDate(iso) || "—";
 
 /** The two views of the lines card: what goes on the next invoice, and what was invoiced already. */
@@ -275,36 +265,9 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
   const customerOptions = customers.map((c) => ({ value: c.id, label: `${c.companyName}${c.ico ? ` · ${c.ico}` : ""}` }));
   const hasLines = !!p && p.lines.length > 0;
   // The table: the invoice's lines (ticked selling rows) and, greyed, the selling rows left unticked,
-  // so a line can be put back. Kept in the Costs Breakdown order.
+  // so a line can be put back. Kept in the Costs Breakdown order (see lineTableRows).
   const sellingRows = data?.sellingCosts ?? [];
-  const orderOf = (id: string | null) => sellingRows.find((r) => r.id === id)?.sortOrder ?? Number.MAX_SAFE_INTEGER;
-  // Built from the selling rows, so each row shows once even while the preview is a step behind
-  // a tick (it is refetched after the rows): a ticked row shows its preview line, an unticked one
-  // its own values. Preview lines of no current row (e.g. just deleted) follow at the end.
-  const tableRows: TableRow[] = (() => {
-    if (!p) return [];
-    const lineOf = new Map(p.lines.filter((l) => l.sourceSellingCostId).map((l) => [l.sourceSellingCostId!, l]));
-    // rows on an open invoice are billed already: ticked, but not on the next invoice
-    const billed = new Set(
-      docs
-        .filter((d) => d.kind === "invoice" && d.status === "issued")
-        .flatMap((d) => d.lines.map((l) => l.sourceSellingCostId))
-        .filter((id): id is string => !!id),
-    );
-    const rows: TableRow[] = [];
-    for (const r of [...sellingRows].sort((a, b) => orderOf(a.id) - orderOf(b.id))) {
-      const line = lineOf.get(r.id);
-      lineOf.delete(r.id);
-      const hasValue = Number(r.amount ?? 0) !== 0;
-      if (r.invoice && line) rows.push({ key: r.id, sellingId: r.id, ticked: true, line });
-      else if (r.invoice && hasValue && !billed.has(r.id)) rows.push({ key: r.id, sellingId: r.id, ticked: true, row: r });
-      else if (!r.invoice && hasValue) rows.push({ key: r.id, sellingId: r.id, ticked: false, row: r });
-    }
-    p.lines.forEach((l, i) => {
-      if (!l.sourceSellingCostId || lineOf.has(l.sourceSellingCostId)) rows.push({ key: `line-${i}`, sellingId: null, ticked: true, line: l });
-    });
-    return rows;
-  })();
+  const tableRows: TableRow[] = p ? lineTableRows(sellingRows, p.lines, docs) : [];
   const rowDescription = (t: TableRow) => (t.line ? t.line.description : t.row!.customer.trim() || chargeLabel(t.row!.category) || "Service");
   const rowCurrency = (t: TableRow) => (t.line ? t.line.unitCurrency : t.row!.currency);
   const words = lineQuery.trim().toLowerCase().split(/\s+/).filter(Boolean);

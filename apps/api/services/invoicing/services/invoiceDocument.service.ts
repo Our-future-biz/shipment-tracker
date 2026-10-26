@@ -615,9 +615,10 @@ class InvoiceDocumentService {
 
   /**
    * The Invoicing queue. Which shipments are listed comes from the shipment itself
-   * (owner's decision): "All shipments" = every shipment except cancelled ones; "To bill" =
-   * Shipment Status Billing; "Not invoiced" / "Invoiced" = Invoicing Status. The selling lines
-   * add the amount still to bill and the invoices issued.
+   * (owner's decision): "All shipments" = the jobs released for billing (Shipment Status Billing)
+   * or invoiced, cancelled ones left out; "To bill" = Shipment Status Billing, not invoiced yet;
+   * "Not invoiced" / "Invoiced" = Invoicing Status. The selling lines add the amount still to bill
+   * and the invoices issued.
    */
   async queue(
     companyId: string,
