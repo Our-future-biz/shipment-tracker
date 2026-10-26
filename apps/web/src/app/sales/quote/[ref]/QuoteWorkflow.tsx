@@ -44,7 +44,7 @@ import { CustomerAccountTypeBadge } from "@/app/customers/_components/CustomerAc
 import { GeoFlag, GeoSelect } from "@/components/GeoSelect";
 import type { SalesQuoteData, PackageLine, QuoteContainerLine, CostLine } from "../../_lib/types";
 import type { QuoteProblem } from "../../_lib/quoteProblem";
-import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, PACKING_TYPES } from "../../_lib/types";
+import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, PACKING_TYPES, serviceTypeLabel } from "../../_lib/types";
 import { notWonQuoteText } from "../../_lib/shipmentLink";
 import { CURRENCIES } from "@/lib/enums";
 import { CONTAINER_KINDS, CONTAINER_KINDS_BY_SIZE, CONTAINER_SIZES, containerType, teuForType } from "@/lib/cargo";
@@ -795,7 +795,7 @@ export function QuoteWorkflow() {
                 aria-label="Freight Mode"
                 value={draft.serviceType}
                 onChange={(v) => set({ serviceType: v })}
-                options={SERVICE_TYPES.map((d) => ({ value: d, label: d }))}
+                options={SERVICE_TYPES.map((d) => ({ value: d, label: serviceTypeLabel(d) }))}
               />
             </InfoRow>
           </div>
