@@ -13,6 +13,7 @@ import { formatDate, formatDateTime } from "@/lib/date";
 import { normaliseAmount } from "@/lib/money";
 import { asData, computeTotals, isSalesQuoteRef, quoteProfitIn } from "@/app/sales/_lib/salesQuote";
 import { useSalesQuoteByRef } from "@/hooks/useSalesQuote";
+import { INVOICE_KEYS } from "@/hooks/useInvoiceQueue";
 import { chargeLabel, chargeOptions } from "@/lib/chargeCodes";
 import { money, signed, num, type BuyingRow, type SellingRow } from "./costsCalc";
 import { useCostsData } from "./useCostsData";
@@ -220,6 +221,8 @@ export function CostsTab({ shipment }: CostsTabProps) {
   // Costs feed the shipment's totals (list rows, the customer's rollups), so those refresh too.
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["shipments"] });
+    // …and the Invoicing queue's counts (to bill, lines invoiced)
+    queryClient.invalidateQueries({ queryKey: INVOICE_KEYS.queueAll });
     return queryClient.invalidateQueries({ queryKey: ["invoicing", shipment.id] });
   };
 

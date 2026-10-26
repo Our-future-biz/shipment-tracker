@@ -226,7 +226,7 @@ export interface ShipmentListFilters {
   warehouse?: string;
   /** Customs page: urgent */
   customs?: string;
-  /** Invoicing page: billing (Shipment Status Billing) | not-invoiced | invoiced (Invoicing Status) */
+  /** Invoicing page: all (released for billing or invoiced) | billing (Billing, not invoiced yet) | not-invoiced | invoiced (Invoicing Status) */
   invoicing?: string;
   search?: string;
   /** The grid columns (their keys) the search looks in; without them, SEARCHED_TEXT. */
@@ -238,11 +238,15 @@ export interface ShipmentListFilters {
 
 // Invoicing page queue. "Billing" is the Shipment Status operations set when a job is ready to
 // be invoiced (stored with its direction); Invoicing Status is Invoiced / Not Invoiced.
-type InvoicingFilterId = "billing" | "not-invoiced" | "invoiced";
+// A job reaches the Invoicing page only once operations release it (Billing) or once it is invoiced.
+type InvoicingFilterId = "all" | "billing" | "not-invoiced" | "invoiced";
+const BILLING_STATUS = sql`${shipmentTable.status} IN ('Billing [IMP]', 'Billing [EXP]', 'Billing [DOM]')`;
+const INVOICED = sql`${shipmentTable.invoicingStatus} = 'Invoiced'`;
 const INVOICING_PREDICATES: Record<InvoicingFilterId, ReturnType<typeof sql>> = {
-  billing: sql`${shipmentTable.status} IN ('Billing [IMP]', 'Billing [EXP]', 'Billing [DOM]')`,
+  all: sql`(${BILLING_STATUS} OR ${INVOICED}) AND ${NOT_CANCELLED}`,
+  billing: sql`${BILLING_STATUS} AND ${shipmentTable.invoicingStatus} IS DISTINCT FROM 'Invoiced'`,
   "not-invoiced": sql`${shipmentTable.invoicingStatus} IS DISTINCT FROM 'Invoiced' AND ${NOT_CANCELLED}`,
-  invoiced: sql`${shipmentTable.invoicingStatus} = 'Invoiced'`,
+  invoiced: INVOICED,
 };
 
 // The status column holds long free-text labels ("Booked For Further Transport [IMP]", …).

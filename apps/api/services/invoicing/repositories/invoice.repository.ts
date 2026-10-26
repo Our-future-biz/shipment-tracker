@@ -23,6 +23,7 @@ export interface OpenInvoiceWithSources {
   number: string;
   currency: string;
   gross: string;
+  duzp: string;
   sourceSellingCostIds: (string | null)[];
 }
 
@@ -69,7 +70,7 @@ class InvoiceRepository extends TenantRepository<typeof t> {
    */
   async listOpenInvoicesWithSources(companyId: string): Promise<OpenInvoiceWithSources[]> {
     const invoices = await this.db
-      .select({ id: t.id, shipmentId: t.shipmentId, number: t.number, currency: t.currency, gross: t.gross })
+      .select({ id: t.id, shipmentId: t.shipmentId, number: t.number, currency: t.currency, gross: t.gross, duzp: t.duzp })
       .from(t)
       .where(openInvoice(companyId));
     if (!invoices.length) return [];

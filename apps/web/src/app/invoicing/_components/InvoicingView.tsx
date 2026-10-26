@@ -1,15 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Select, Tag } from "antd";
-import { DownOutlined, RightOutlined } from "@ant-design/icons";
-import { useShipmentMutations, useShipments, type ShipmentItem } from "@/hooks/useShipments";
+import { useShipmentMutations, type ShipmentItem } from "@/hooks/useShipments";
 import { useShipment } from "@/hooks/useShipment";
-import { useDebounced } from "@/hooks/useDebounced";
 import { useInvoiceDocList } from "@/hooks/useInvoiceDocs";
-import { PageHeader } from "@/components/PageHeader";
+import { useInvoicing } from "@/hooks/useInvoicing";
 import { AppCard } from "@/components/AppCard";
 import { formatDate } from "@/lib/date";
 import { statusLabel, statusTagColor } from "@/lib/shipmentStatus";
@@ -18,20 +16,29 @@ import { useToast } from "@/lib/toast";
 import { CostsTab } from "@/app/shipments/[jobNumber]/tabs/CostsTab";
 import { useCostsData } from "@/app/shipments/[jobNumber]/tabs/useCostsData";
 import { InvoicePanel } from "./InvoicePanel";
-import { BillingQueue, InvoicingStatusTag } from "./BillingQueue";
+import { BillingQueue } from "./BillingQueue";
+import { invoicedLineCount } from "../_lib/lineCounts";
+import { jobDuzp } from "../_lib/openInvoices";
 
-/** Remembered per browser: whether the Costs section is collapsed. */
-const COSTS_COLLAPSED_KEY = "invoicing.costsCollapsed";
-
-const readCollapsed = () => {
-  try {
-    return localStorage.getItem(COSTS_COLLAPSED_KEY) === "1";
-  } catch {
-    return false;
-  }
-};
+/** Tabs of a job, as on the shipment detail page; the default one is left out of the URL. */
+const TABS = [
+  { key: "invoice", label: "Invoice" },
+  { key: "costs", label: "Costs Breakdown" },
+  { key: "documents", label: "Invoices & Credit Notes" },
+] as const;
+type TabKey = (typeof TABS)[number]["key"];
+const DEFAULT_TAB: TabKey = "invoice";
+const isTabKey = (v: string | null): v is TabKey => TABS.some((t) => t.key === v);
 
 const INVOICING_STATUSES = ["Not Invoiced", "Invoiced"];
+
+function InvoicingStatusTag({ value }: { value: string }) {
+  return value === "Invoiced" ? (
+    <Tag color="green" bordered={false} className="!m-0">Invoiced</Tag>
+  ) : (
+    <Tag color="red" bordered={false} className="!m-0">{value || "Not Invoiced"}</Tag>
+  );
+}
 
 interface SummaryItemProps {
   label: string;
@@ -41,8 +48,8 @@ interface SummaryItemProps {
 function SummaryItem({ label, children }: SummaryItemProps) {
   return (
     <div className="min-w-0">
-      <div className="text-[11px] font-bold uppercase tracking-[.04em] text-slate-500">{label}</div>
-      <div className="text-[13px] text-slate-900 flex items-center flex-wrap gap-x-2 gap-y-1 break-words">{children}</div>
+      <div className="text-[11px] font-bold uppercase tracking-[.04em] text-slate-500 whitespace-nowrap">{label}</div>
+      <div className="mt-1 min-h-7 text-[13px] text-slate-900 flex items-center flex-wrap gap-x-2 gap-y-1 break-words">{children}</div>
     </div>
   );
 }
@@ -56,13 +63,15 @@ interface ShipmentProps {
  * queue) and Invoicing Status, which issuing sets automatically and which can also be changed
  * here by hand (e.g. for a job invoiced outside the app).
  */
-function ShipmentSummary({ shipment }: ShipmentProps) {
+function ShipmentSummary({ shipment, nextDuzp }: ShipmentProps & { nextDuzp: string | null }) {
   const toast = useToast();
   const { updateShipment } = useShipmentMutations();
   const [saving, setSaving] = useState(false);
   const { data } = useInvoiceDocList(shipment.id);
-  const open = (data?.invoices ?? []).filter((d) => d.kind === "invoice" && d.status === "issued");
-  const route = [shipment.pol, shipment.pod, shipment.destination].filter(Boolean).join(" → ");
+  // the shared invoicing query (selling rows), already loaded for the Invoice tab
+  const { data: costs } = useInvoicing(shipment.id);
+  // counted once both have loaded, so a fully invoiced job never flashes a red 0/N first
+  const lines = costs && data ? invoicedLineCount(costs.sellingCosts, data.invoices) : null;
   const status = shipment.status ?? "";
 
   const handleInvoicingStatus = async (value: string) => {
@@ -78,20 +87,30 @@ function ShipmentSummary({ shipment }: ShipmentProps) {
   };
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-x-6 gap-y-3 mt-4 pt-4 border-t border-slate-100">
+    // 9 facts in one row on a wide screen: the text facts share the width, the last three take
+    // the width of their label (labels do not wrap); a long Shipment Status is cut, not widened
+    <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,1.3fr)_minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,0.9fr)_fit-content(120px)_max-content_max-content] gap-x-4 gap-y-3">
       <SummaryItem label="Job">
         <Link href={`/shipments/${shipment.id}`} className="font-semibold text-indigo-600 hover:underline">
           {shipment.jobNumber}
         </Link>
-        <span className="text-slate-500">{shipment.tradeDirection}</span>
       </SummaryItem>
+      <SummaryItem label="Direction">{shipment.tradeDirection || "—"}</SummaryItem>
       <SummaryItem label="Customer">{shipment.customer || <span className="text-slate-500">Not linked</span>}</SummaryItem>
-      <SummaryItem label="Route">{route || "—"}</SummaryItem>
-      <SummaryItem label="ETD / ETA">
-        {formatDate(shipment.estimatedDeparture) || "—"} / {formatDate(shipment.estimatedArrival) || "—"}
+      <SummaryItem label="POL">{shipment.pol || "—"}</SummaryItem>
+      <SummaryItem label="POD">
+        <span className="min-w-0">
+          {shipment.pod || "—"}
+          {/* the final destination, which the old Route column also showed */}
+          {shipment.destination && shipment.destination !== shipment.pod && (
+            <span className="block text-[12px] text-slate-500">Destination: {shipment.destination}</span>
+          )}
+        </span>
       </SummaryItem>
+      {/* The tax date: of the newest open invoice once issued, else the one the Invoice tab would use */}
+      <SummaryItem label="DUZP">{formatDate(jobDuzp(data?.invoices ?? [], nextDuzp)) || "—"}</SummaryItem>
       <SummaryItem label="Shipment Status">
-        {status ? <Tag color={statusTagColor(status)} className="!m-0 !text-[11px]">{statusLabel(status)}</Tag> : "—"}
+        {status ? <Tag color={statusTagColor(status)} title={statusLabel(status)} className="!m-0 !text-[11px] max-w-full truncate">{statusLabel(status)}</Tag> : "—"}
       </SummaryItem>
       <SummaryItem label="Invoicing Status">
         <Select
@@ -100,72 +119,91 @@ function ShipmentSummary({ shipment }: ShipmentProps) {
           onChange={(v) => void handleInvoicingStatus(v)}
           loading={saving}
           options={INVOICING_STATUSES.map((v) => ({ value: v, label: <InvoicingStatusTag value={v} /> }))}
-          className="w-[140px]"
+          className="w-full max-w-[140px]"
           aria-label="Invoicing Status"
         />
-        {open.length > 0 && (
-          <span className="text-[12px] text-slate-500 tabular-nums">
-            {open.length === 1 ? `${open[0]!.number} · ${moneyCz(Number(open[0]!.gross))} ${open[0]!.currency}` : `${open.length} open invoices`}
+      </SummaryItem>
+      {/* as the queue's column: selling lines on an open invoice, of all; green once all are */}
+      <SummaryItem label="Lines Invoiced">
+        {lines?.total ? (
+          <span
+            className={`tabular-nums font-semibold ${lines.invoiced === lines.total ? "text-emerald-600" : "text-red-600"}`}
+            title={`${lines.invoiced} of ${lines.total} selling lines invoiced`}
+          >
+            {lines.invoiced}/{lines.total}
           </span>
+        ) : (
+          "—"
         )}
       </SummaryItem>
     </div>
   );
 }
 
-/** The Costs section (the shipment's own Costs tab), collapsible to a one-line summary. */
-function CostsSection({ shipment }: ShipmentProps) {
-  // null until read after mount (localStorage does not exist during server rendering), so the
-  // heavy Costs editor is not mounted and then collapsed again on every visit
-  const [collapsed, setCollapsed] = useState<boolean | null>(null);
+/** The job's Buying / Selling / Profit (the Costs Breakdown totals), shown on every tab. */
+function CostsTotals({ shipment }: ShipmentProps) {
   const { billingCur, totals: t } = useCostsData(shipment);
+  return (
+    // one block that does not squeeze; its parts wrap only if it is wider than the whole row
+    <div className="ml-auto shrink-0 max-w-full whitespace-nowrap flex flex-wrap items-center gap-x-4 gap-y-1 px-2 py-2.5 text-[12.5px] text-slate-600 tabular-nums">
+      <span>Buying <strong className="text-slate-900">{moneyCz(t.buyTotal)}</strong></span>
+      <span>Selling <strong className="text-slate-900">{moneyCz(t.sellTotal)}</strong></span>
+      <span>
+        Profit{" "}
+        <strong className={t.sellTotal - t.buyTotal >= 0 ? "text-ok" : "text-danger"}>
+          {moneyCz(t.sellTotal - t.buyTotal)}
+        </strong>
+      </span>
+      <span className="text-slate-500">{billingCur}</span>
+    </div>
+  );
+}
 
-  useEffect(() => setCollapsed(readCollapsed()), []);
+interface JobTabsProps extends ShipmentProps {
+  active: TabKey;
+  onChange: (key: TabKey) => void;
+}
 
-  const handleToggle = () => {
-    setCollapsed((c) => {
-      try {
-        localStorage.setItem(COSTS_COLLAPSED_KEY, c ? "0" : "1");
-      } catch {
-        // private mode: the choice just isn't remembered
-      }
-      return !c;
-    });
-  };
+/** The tab bar under the job summary, with the costs totals at its right end. */
+function JobTabs({ shipment, active, onChange }: JobTabsProps) {
+  const { data } = useInvoiceDocList(shipment.id);
+  const docCount = data?.invoices.length;
 
   return (
-    <section className="mb-4">
-      <button
-        type="button"
-        onClick={handleToggle}
-        aria-expanded={collapsed === false}
-        className="w-full flex items-center gap-3 px-4 h-10 mb-2 bg-white border border-slate-200 rounded-xl cursor-pointer text-left hover:bg-slate-50"
-      >
-        {collapsed ? <RightOutlined className="text-slate-500 text-[11px]" /> : <DownOutlined className="text-slate-500 text-[11px]" />}
-        <span className="text-[12.5px] font-bold uppercase tracking-[.05em] text-slate-700">Costs</span>
-        <span className="ml-auto flex items-center gap-4 text-[12.5px] text-slate-600 tabular-nums">
-          <span>Buying <strong className="text-slate-900">{moneyCz(t.buyTotal)}</strong></span>
-          <span>Selling <strong className="text-slate-900">{moneyCz(t.sellTotal)}</strong></span>
-          <span>
-            Profit{" "}
-            <strong className={t.sellTotal - t.buyTotal >= 0 ? "text-ok" : "text-danger"}>
-              {moneyCz(t.sellTotal - t.buyTotal)}
-            </strong>
-          </span>
-          <span className="text-slate-500">{billingCur}</span>
-        </span>
-      </button>
-      {/* key: a fresh Costs editor per shipment, so no row state carries over between shipments */}
-      {collapsed === false && <CostsTab key={shipment.id} shipment={shipment} />}
-    </section>
+    // wrap-reverse: on a narrow screen the totals go above the tabs, so the tabs stay the card's bottom edge
+    // (in wrap-reverse items-start is the bottom, as items-end was before)
+    <div className="flex items-start justify-between gap-x-4 flex-wrap-reverse px-2 border-t border-slate-100">
+      <div role="tablist" aria-label="Invoicing of the job" className="flex flex-wrap shrink-0 max-w-full">
+        {TABS.map((tab) => (
+          <button
+            key={tab.key}
+            id={`invoicing-tab-${tab.key}`}
+            type="button"
+            role="tab"
+            aria-selected={active === tab.key}
+            aria-controls="invoicing-tab-panel"
+            onClick={() => onChange(tab.key)}
+            className={`px-4 py-2.5 text-sm cursor-pointer transition-all duration-150 border-b-2 bg-transparent ${
+              active === tab.key
+                ? "font-semibold text-indigo-500 border-indigo-500"
+                : "font-normal text-slate-400 border-transparent hover:text-slate-600"
+            }`}
+          >
+            {tab.label}
+            {tab.key === "documents" && !!docCount && <span className="tabular-nums"> ({docCount})</span>}
+          </button>
+        ))}
+      </div>
+      <CostsTotals shipment={shipment} />
+    </div>
   );
 }
 
 /**
  * Invoicing works on the same buying / selling rows as the shipment's Costs tab:
- * the Costs section here IS that tab, and the invoice is built from the selling rows
- * ticked for Invoice. The chosen shipment is kept in the URL (?shipment=…), so the
- * page can be linked to and survives a reload.
+ * the Costs Breakdown tab here IS that tab, and the invoice is built from the selling rows
+ * ticked for Invoice. The chosen shipment and tab are kept in the URL (?shipment=…&tab=…),
+ * so the page can be linked to and survives a reload.
  */
 export const InvoicingView = () => {
   const router = useRouter();
@@ -173,61 +211,106 @@ export const InvoicingView = () => {
   const searchParams = useSearchParams();
   const selectedShipmentId = searchParams.get("shipment");
   // By id from the API: the shipments list only holds the newest rows, the queue spans all.
-  const { shipment: selectedShipment, isLoading: shipmentLoading, isError: shipmentError } = useShipment(
-    selectedShipmentId ?? undefined,
+  const {
+    shipment: selectedShipment,
+    isLoading: shipmentLoading,
+    notFound,
+  } = useShipment(selectedShipmentId ?? undefined);
+
+  const rawTab = searchParams.get("tab");
+  const activeTab: TabKey = isTabKey(rawTab) ? rawTab : DEFAULT_TAB;
+  // The Costs editor is mounted the first time its tab opens for a job and then kept (hidden on
+  // other tabs), so its Undo and unlocked rows survive a look at the Invoice tab, as before.
+  const [costsMountedFor, setCostsMountedFor] = useState<string | null>(null);
+  // The DUZP the Invoice tab would use, shown on the job card (kept with the job it belongs to)
+  const [nextDuzp, setNextDuzp] = useState<{ id: string; iso: string } | null>(null);
+  const handleDuzp = useCallback(
+    (iso: string) => selectedShipmentId && setNextDuzp({ id: selectedShipmentId, iso }),
+    [selectedShipmentId],
   );
-  // The picker searches on the server too, so any job can be found, not just the newest.
-  const [pickerSearch, setPickerSearch] = useState("");
-  const debouncedSearch = useDebounced(pickerSearch.trim(), 300);
-  const { shipments: found } = useShipments({ search: debouncedSearch });
-  const pickerShipments =
-    selectedShipment && !found.some((s) => s.id === selectedShipment.id) ? [selectedShipment, ...found] : found;
+  if (activeTab === "costs" && selectedShipmentId && costsMountedFor !== selectedShipmentId) {
+    setCostsMountedFor(selectedShipmentId);
+  }
 
   const handleSelect = (id: string | null) => {
     const params = new URLSearchParams(searchParams.toString());
     if (id) params.set("shipment", id);
-    else params.delete("shipment");
+    else {
+      params.delete("shipment");
+      // the job's tab means nothing on the queue
+      params.delete("tab");
+    }
     const qs = params.toString();
-    // push, not replace: Back returns from a job to the "Ready to bill" queue
+    // push, not replace: Back returns from a job to the queue on the same tab and filters
     router.push(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
 
+  const handleTab = (key: TabKey) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (key === DEFAULT_TAB) params.delete("tab");
+    else params.set("tab", key);
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
+
+  if (!selectedShipmentId) return <BillingQueue onOpen={handleSelect} />;
+
   return (
-    <div className="bg-slate-50 min-h-full p-6">
-      <div className="max-w-[1400px] mx-auto">
-        <PageHeader title="Invoicing" />
+    <div className="bg-slate-50 min-h-full px-8 py-6">
+      <div className="max-w-[1400px] mx-auto flex flex-col gap-5">
+        {/* Title row: back to the queue and the job; jobs are opened from the queue, not switched here */}
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div className="min-w-0">
+            <button
+              type="button"
+              onClick={() => handleSelect(null)}
+              className="p-0 border-0 bg-transparent cursor-pointer text-[13px] text-slate-500 hover:text-indigo-600"
+            >
+              ← Invoicing queue
+            </button>
+            <h1 className="text-2xl font-bold text-slate-900 m-0">
+              Invoicing{selectedShipment ? <span className="text-slate-400 font-semibold"> · {selectedShipment.jobNumber}</span> : null}
+            </h1>
+          </div>
+        </div>
 
-        <AppCard className="mb-5">
-          <Select
-            placeholder="Select a shipment..."
-            value={selectedShipmentId}
-            onChange={handleSelect}
-            allowClear
-            className="w-full max-w-xl"
-            showSearch
-            filterOption={false}
-            onSearch={setPickerSearch}
-            options={pickerShipments.map((s) => ({ value: s.id, label: `${s.jobNumber} — ${s.shipper} → ${s.consignee}` }))}
-            aria-label="Shipment to invoice"
-          />
-          {selectedShipment && <ShipmentSummary shipment={selectedShipment} />}
-        </AppCard>
-
-        {!selectedShipment ? (
-          selectedShipmentId && (shipmentLoading || shipmentError) ? (
-            <AppCard>
-              <div className="flex items-center justify-center h-[120px] text-slate-500 text-sm">
-                {shipmentLoading ? "Loading the shipment…" : "Shipment not found"}
-              </div>
-            </AppCard>
-          ) : (
-            <BillingQueue onOpen={handleSelect} />
-          )
-        ) : (
+        {selectedShipment ? (
           <>
-            <CostsSection key={`costs-${selectedShipment.id}`} shipment={selectedShipment} />
-            <InvoicePanel key={`inv-${selectedShipment.id}`} shipment={selectedShipment} />
+            {/* The job at a glance, with the tab bar along its bottom edge as on the shipment detail */}
+            <section className="bg-white border border-slate-200 rounded-xl shadow-sm min-w-0">
+              <div className="px-4 pt-4 pb-3">
+                <ShipmentSummary shipment={selectedShipment} nextDuzp={nextDuzp?.id === selectedShipment.id ? nextDuzp.iso : null} />
+              </div>
+              <JobTabs shipment={selectedShipment} active={activeTab} onChange={handleTab} />
+            </section>
+
+            <div role="tabpanel" id="invoicing-tab-panel" aria-labelledby={`invoicing-tab-${activeTab}`} className="min-w-0">
+              {/* key: a fresh Costs editor per shipment */}
+              {costsMountedFor === selectedShipment.id && (
+                <div hidden={activeTab !== "costs"}>
+                  <CostsTab key={selectedShipment.id} shipment={selectedShipment} />
+                </div>
+              )}
+              {/* Mounted on every tab, so the DUZP, customer and note picked on the Invoice tab stay */}
+              <InvoicePanel
+                key={`inv-${selectedShipment.id}`}
+                shipment={selectedShipment}
+                section={activeTab === "costs" ? null : activeTab}
+                onDuzpChange={handleDuzp}
+                onOpenCosts={() => handleTab("costs")}
+              />
+            </div>
           </>
+        ) : (
+          <AppCard>
+            <div className="flex items-center justify-center h-[120px] text-slate-500 text-sm">
+              {shipmentLoading
+                ? "Loading the shipment…"
+                : notFound
+                  ? "Shipment not found — go back to the Invoicing queue and open another job."
+                  : "Could not load the shipment."}
+            </div>
+          </AppCard>
         )}
       </div>
     </div>

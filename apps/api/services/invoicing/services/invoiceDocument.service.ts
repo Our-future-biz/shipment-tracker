@@ -32,7 +32,7 @@ import type {
 } from "../interfaces/interfaces";
 import { renderInvoicePdf, type InvoiceForPdf } from "../lib/invoicePdf";
 import { loadPdfFonts } from "../lib/pdfFonts";
-import { buildBillingQueue, type QueueEntry } from "../lib/billingQueue";
+import { buildBillingQueue, countInvoicedLines, type QueueEntry } from "../lib/billingQueue";
 import { statusesAfterCredit, statusesAfterIssue, type StatusPatch } from "../lib/shipmentStatus";
 import { invoiceBucket } from "../storage/invoiceBucket";
 import { isUniqueViolation } from "../../../lib/db/errors";
@@ -399,7 +399,7 @@ async function applyStatusPatch(shipmentId: string, patch: StatusPatch, number: 
 }
 
 /** Queue views and the shipments-list filter behind each. */
-export const QUEUE_VIEWS: Record<QueueView, string> = { to_bill: "billing", not_invoiced: "not-invoiced", invoiced: "invoiced" };
+export const QUEUE_VIEWS: Record<QueueView, string> = { all: "all", to_bill: "billing", not_invoiced: "not-invoiced", invoiced: "invoiced" };
 
 /** How many shipments one queue view shows at most (shipments are fetched 200 per page). */
 const QUEUE_MAX = 1000;
@@ -615,8 +615,10 @@ class InvoiceDocumentService {
 
   /**
    * The Invoicing queue. Which shipments are listed comes from the shipment itself
-   * (owner's decision): "To bill" = Shipment Status Billing; "Not invoiced" / "Invoiced" =
-   * Invoicing Status. The selling lines add the amount still to bill and the invoices issued.
+   * (owner's decision): "All shipments" = the jobs released for billing (Shipment Status Billing)
+   * or invoiced, cancelled ones left out; "To bill" = Shipment Status Billing, not invoiced yet;
+   * "Not invoiced" / "Invoiced" = Invoicing Status. The selling lines add the amount still to bill
+   * and the invoices issued.
    */
   async queue(
     companyId: string,
@@ -639,18 +641,27 @@ class InvoiceDocumentService {
     // Shown oldest first, as before.
     listed.reverse();
 
-    const [rows, openInvoices, settings, today, toBill, notInvoiced, invoiced] = await Promise.all([
-      sellingCostRepository.listTickedByCompany(companyId),
+    const [rows, openInvoices, settings, today, all, toBill, notInvoiced, invoiced] = await Promise.all([
+      sellingCostRepository.listLiveByCompany(companyId),
       invoiceRepository.listOpenInvoicesWithSources(companyId),
       billingSettingsRepository.listByCompany(companyId),
       ratesForDuzp(pragueToday(), pragueToday()),
+      countOf(QUEUE_VIEWS.all),
       countOf(QUEUE_VIEWS.to_bill),
       countOf(QUEUE_VIEWS.not_invoiced),
       countOf(QUEUE_VIEWS.invoiced),
     ]);
     const settingsById = new Map(settings.map((x) => [x.shipmentId, x.billingCurrency]));
+    // The DUZP of each job's newest open invoice (the highest number).
+    const invoiceDuzp = new Map<string, { number: string; duzp: string }>();
+    for (const i of openInvoices) {
+      const seen = invoiceDuzp.get(i.shipmentId);
+      if (!seen || i.number > seen.number) invoiceDuzp.set(i.shipmentId, { number: i.number, duzp: i.duzp });
+    }
+    const todayIso = pragueToday();
+    const lineCounts = countInvoicedLines(rows, openInvoices);
     const billing = new Map<string, QueueEntry>(
-      buildBillingQueue({ rows, openInvoices, billingCurrencies: settingsById, rates: today.rates, roePct: today.roePct }).map((e) => [e.shipmentId, e]),
+      buildBillingQueue({ rows: rows.filter((r) => r.invoice), openInvoices, billingCurrencies: settingsById, rates: today.rates, roePct: today.roePct }).map((e) => [e.shipmentId, e]),
     );
 
     const queue: BillingQueueItem[] = listed.map((s) => {
@@ -661,9 +672,14 @@ class InvoiceDocumentService {
         customer: s.customer,
         shipper: s.shipper,
         consignee: s.consignee,
+        customerId: s.customerId ?? null,
+        department: s.department ?? "",
+        houseBolType: s.houseBolType ?? "",
+        masterBolType: s.masterBolType ?? "",
         tradeDirection: s.tradeDirection,
         estimatedDeparture: s.estimatedDeparture,
         estimatedArrival: s.estimatedArrival,
+        duzp: invoiceDuzp.get(s.id)?.duzp ?? defaultDuzp(s, todayIso),
         shipmentStatus: s.status ?? "",
         invoicingStatus: s.invoicingStatus,
         billingState: b?.status ?? "none",
@@ -673,9 +689,11 @@ class InvoiceDocumentService {
         missingCurrencies: b?.missingCurrencies ?? [],
         invoiceNumbers: b?.invoiceNumbers ?? [],
         invoiced: b?.invoiced ?? [],
+        sellingLines: lineCounts.get(s.id)?.total ?? 0,
+        invoicedLines: lineCounts.get(s.id)?.invoiced ?? 0,
       };
     });
-    return { queue, counts: { toBill, notInvoiced, invoiced }, truncated: total > listed.length };
+    return { queue, counts: { all, toBill, notInvoiced, invoiced }, truncated: total > listed.length };
   }
 
   async list(shipmentId: string, companyId: string): Promise<InvoiceDocItem[]> {

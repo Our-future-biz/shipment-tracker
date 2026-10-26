@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PDFDocument } from "pdf-lib";
 import { PDFParse } from "pdf-parse";
-import { czDate, czMoney, czRate, renderInvoicePdf, variableSymbol, type InvoiceForPdf } from "../lib/invoicePdf";
+import { czDate, czIbanFromAccount, czMoney, czRate, renderInvoicePdf, spdPayment, variableSymbol, type InvoiceForPdf } from "../lib/invoicePdf";
 import { loadPdfFonts } from "../lib/pdfFonts";
 
 async function textOf(bytes: Uint8Array): Promise<string> {
@@ -87,13 +87,35 @@ describe("formatting", () => {
     expect(czMoney("0")).toBe("0,00");
     expect(czMoney("-0.001")).toBe("0,00");
     expect(czRate("25.123400")).toBe("25,123");
-    expect(czDate("2026-10-03")).toBe("3.10.2026");
+    expect(czDate("2026-10-03")).toBe("03.10.2026");
   });
 
-  it("builds a 10-digit variable symbol from the number", () => {
-    expect(variableSymbol("INV2026CZ00000028-001")).toBe("2600028001");
-    expect(variableSymbol("CN2026CZ00000028-002")).toBe("2600028002");
-    expect(variableSymbol("INV2026CZ00123456-012")).toBe("2623456012");
+  it("builds the variable symbol from the job number", () => {
+    // the job number's digits: every invoice and credit note of a job shares the symbol
+    expect(variableSymbol("CZ00000028")).toBe("00000028");
+    expect(variableSymbol("CZ00123456")).toBe("00123456");
+    expect(variableSymbol("RD-2026-0042")).toBe("20260042");
+  });
+});
+
+describe("QR Platba", () => {
+  it("turns a Czech account number into its IBAN", () => {
+    expect(czIbanFromAccount("19-2000145399/0800")).toBe("CZ6508000000192000145399");
+    expect(czIbanFromAccount("2000145399/0800")).toBe("CZ7908000000002000145399");
+    expect(czIbanFromAccount("not an account")).toBeNull();
+  });
+
+  it("builds the payment string banking apps read", () => {
+    expect(spdPayment({ iban: "CZ65 0800 0000 1920 0014 5399", swift: "GIBACZPX", amount: 2200, currency: "CZK", vs: "00000009", message: "INV2026CZ00000009-001" })).toBe(
+      "SPD*1.0*ACC:CZ6508000000192000145399+GIBACZPX*AM:2200.00*CC:CZK*X-VS:00000009*MSG:INV2026CZ00000009-001",
+    );
+    // no IBAN or nothing to pay: no QR
+    expect(spdPayment({ iban: "", amount: 100, currency: "CZK", vs: "1", message: "x" })).toBeNull();
+    expect(spdPayment({ iban: "CZ6508000000192000145399", amount: 0, currency: "CZK", vs: "1", message: "x" })).toBeNull();
+    // "*" separates fields and accents are dropped from the message
+    expect(spdPayment({ iban: "CZ6508000000192000145399", amount: 1, currency: "eur", vs: "", message: "Faktura *č.* 1" })).toBe(
+      "SPD*1.0*ACC:CZ6508000000192000145399*AM:1.00*CC:EUR*MSG:Faktura c. 1",
+    );
   });
 });
 
@@ -113,7 +135,7 @@ describe("renderInvoicePdf", () => {
       "13.10.2026", // issue date
       "14.10.2026", // DUZP
       "12.11.2026", // due date
-      "2600028001", // variable symbol
+      "00000028", // variable symbol = the job number's digits
       "CZ65 0800 0000 1920 0014 5399",
       "GIBACZPX",
       "MSCU1234567",

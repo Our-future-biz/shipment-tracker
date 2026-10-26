@@ -35,14 +35,14 @@ class SellingCostRepository extends TenantRepository<typeof t> {
       .orderBy(asc(t.sortOrder), asc(t.createdAt));
   }
 
-  /** Every live row ticked for Invoice in the company (for the "Ready to bill" queue). */
-  async listTickedByCompany(
+  /** Every live selling row in the company, ticked for Invoice or not (for the Invoicing queue). */
+  async listLiveByCompany(
     companyId: string,
-  ): Promise<Pick<InvoiceSellingCostRecord, "id" | "shipmentId" | "qty" | "amount" | "currency">[]> {
+  ): Promise<Pick<InvoiceSellingCostRecord, "id" | "shipmentId" | "qty" | "amount" | "currency" | "invoice">[]> {
     return this.db
-      .select({ id: t.id, shipmentId: t.shipmentId, qty: t.qty, amount: t.amount, currency: t.currency })
+      .select({ id: t.id, shipmentId: t.shipmentId, qty: t.qty, amount: t.amount, currency: t.currency, invoice: t.invoice })
       .from(t)
-      .where(and(eq(t.companyId, companyId), eq(t.invoice, true), isNull(t.deletedAt)));
+      .where(and(eq(t.companyId, companyId), isNull(t.deletedAt)));
   }
 
   async updateLine(

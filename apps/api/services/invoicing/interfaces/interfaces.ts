@@ -190,8 +190,8 @@ export type InvoiceDocKind = "invoice" | "credit_note";
 /** issued; an invoice reversed by a credit note becomes credited */
 export type InvoiceDocStatus = "issued" | "credited";
 
-/** Views of the Invoicing queue: to_bill (Shipment Status Billing) | not_invoiced | invoiced (Invoicing Status) */
-export type QueueView = "to_bill" | "not_invoiced" | "invoiced";
+/** Views of the Invoicing queue: all (released for billing or invoiced, not cancelled) | to_bill (Shipment Status Billing, not invoiced yet) | not_invoiced | invoiced (Invoicing Status) */
+export type QueueView = "all" | "to_bill" | "not_invoiced" | "invoiced";
 
 /** Where a shipment stands with its ticked selling rows */
 export type BillingState = "to_bill" | "partly_invoiced" | "invoiced" | "none";
@@ -401,9 +401,21 @@ export interface BillingQueueItem {
   customer: string;
   shipper: string;
   consignee: string;
+  /** The customer's record in the Customer Database; null when the name was only typed */
+  customerId: string | null;
+  /** Owning department ("Operation Department", …): colours the Internal Reference as on Shipments */
+  department: string;
+  /** House / Master BoL type: an OBL shows the whole row in red, as on Shipments */
+  houseBolType: string;
+  masterBolType: string;
   tradeDirection: string;
   estimatedDeparture: string | null;
   estimatedArrival: string | null;
+  /**
+   * DUZP as the job detail shows it: that of the newest open invoice, else the default the next
+   * invoice would get (ATA / ETA for imports, ATD / ETD for exports, delivery for road jobs, else today).
+   */
+  duzp: string;
   /** Shipment Status, e.g. "Billing [IMP]" (set by operations) */
   shipmentStatus: string;
   /** Invoiced | Not Invoiced */
@@ -417,10 +429,14 @@ export interface BillingQueueItem {
   missingCurrencies: string[];
   invoiceNumbers: string[];
   invoiced: { currency: string; gross: number }[];
+  /** Selling lines of the job (with a value), and how many of them are on an open invoice */
+  sellingLines: number;
+  invoicedLines: number;
 }
 
 /** Number of shipments in each queue view */
 export interface BillingQueueCounts {
+  all: number;
   toBill: number;
   notInvoiced: number;
   invoiced: number;

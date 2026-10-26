@@ -1,5 +1,6 @@
 import { PDFDocument, rgb, type PDFFont, type PDFImage, type PDFPage } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
+import QRCode from "qrcode";
 import type { CustomerSnapshot, ShipmentSnapshot, SupplierSnapshot, VatSummarySnapshot } from "../schemas/invoice.schema";
 import { VAT_CODE_INFO, isVatCode } from "./invoiceCalc";
 
@@ -11,7 +12,7 @@ import { VAT_CODE_INFO, isVatCode } from "./invoiceCalc";
  */
 
 /** Bump when the layout changes; stored with every PDF. */
-export const PDF_TEMPLATE_VERSION = "1";
+export const PDF_TEMPLATE_VERSION = "2";
 
 export interface InvoicePdfLine {
   description: string;
@@ -75,21 +76,54 @@ export function czRate(v: string | number): string {
   return (Number.isFinite(n) ? n : 0).toFixed(3).replace(".", ",");
 }
 
-/** "2026-10-13" -> "13.10.2026" */
+/** "2026-11-07" -> "07.11.2026" (DD.MM.YYYY, as everywhere else in the app) */
 export function czDate(iso: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
-  return m ? `${Number(m[3])}.${Number(m[2])}.${m[1]}` : iso;
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : iso;
 }
 
 /**
- * Variabilní symbol (max. 10 digits) for the bank transfer: last two digits of the job
- * year + last 5 digits of the job number + 3-digit sequence, e.g. INV2026CZ00000028-001
- * -> 2600028001. Credit notes get the same symbol as invoices of that job and sequence.
+ * Variabilní symbol (max. 10 digits) for the bank transfer: the job number's digits
+ * (owner's decision, 2026-10-24), e.g. CZ00000028 -> 00000028. Every invoice and credit note
+ * of a job carries the same symbol.
  */
-export function variableSymbol(number: string): string {
-  const m = /^(?:INV|CN)(\d{4})\D*(\d+)-(\d+)$/.exec(number);
-  if (!m) return number.replace(/\D/g, "").slice(-10);
-  return `${m[1]!.slice(2)}${m[2]!.slice(-5).padStart(5, "0")}${m[3]!.slice(-3).padStart(3, "0")}`;
+export function variableSymbol(jobNumber: string): string {
+  return jobNumber.replace(/\D/g, "").slice(-10);
+}
+
+/**
+ * Czech IBAN from a domestic account number "[prefix-]number/bank", e.g. 19-2000145399/0800
+ * -> CZ6508000000192000145399; null when it is not one.
+ */
+export function czIbanFromAccount(account: string): string | null {
+  const m = /^\s*(?:(\d{1,6})-)?(\d{2,10})\s*\/\s*(\d{4})\s*$/.exec(account);
+  if (!m) return null;
+  const bban = `${m[3]}${(m[1] ?? "").padStart(6, "0")}${m[2]!.padStart(10, "0")}`;
+  // ISO 13616 check digits: BBAN + "CZ00" with letters as numbers (C=12, Z=35), mod 97
+  const digits = `${bban}123500`;
+  let rest = 0;
+  for (const ch of digits) rest = (rest * 10 + Number(ch)) % 97;
+  return `CZ${String(98 - rest).padStart(2, "0")}${bban}`;
+}
+
+/**
+ * The Czech "QR Platba" payment string (Short Payment Descriptor, as banking apps read it),
+ * or null when the account has no IBAN to pay to.
+ */
+export function spdPayment(p: { iban: string; swift?: string; amount: number; currency: string; vs: string; message: string }): string | null {
+  const iban = p.iban.replace(/\s+/g, "").toUpperCase();
+  if (!/^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/.test(iban) || !(p.amount > 0)) return null;
+  // "*" separates the fields, so it may not appear inside one; keep the message plain ASCII
+  const clean = (t: string) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\x20-\x7E]/g, "").replace(/\*/g, "").trim();
+  const parts = [
+    "SPD*1.0",
+    `ACC:${iban}${p.swift ? `+${clean(p.swift).toUpperCase()}` : ""}`,
+    `AM:${p.amount.toFixed(2)}`,
+    `CC:${p.currency.toUpperCase()}`,
+    p.vs ? `X-VS:${p.vs}` : "",
+    `MSG:${clean(p.message).slice(0, 60)}`,
+  ].filter(Boolean);
+  return parts.join("*");
 }
 
 const DARK = rgb(0.11, 0.13, 0.2);
@@ -212,17 +246,31 @@ export async function renderInvoicePdf(inv: InvoiceForPdf, fonts: PdfFonts): Pro
   const foreign = inv.currency !== "CZK";
 
   // ── Header: logo + document title + number ──
+  const title = isCredit ? "OPRAVNÝ DAŇOVÝ DOKLAD" : "FAKTURA – DAŇOVÝ DOKLAD";
+  const subtitle = isCredit ? "Credit note" : "Invoice – tax document";
+  // the title block on the right; the company name on the left keeps clear of it
+  const titleW = Math.max(bold.widthOfTextAtSize(title, 13), regular.widthOfTextAtSize(subtitle, 9), bold.widthOfTextAtSize(inv.number, 15));
+  const nameMax = right - M - titleW - 24;
+  let headerH = 62;
   const logo = await embedLogo(doc, s.logoData);
   if (logo) {
-    const scale = Math.min(150 / logo.width, 48 / logo.height, 1);
+    const scale = Math.min(150 / logo.width, 48 / logo.height, nameMax / logo.width, 1);
     w.page.drawImage(logo, { x: M, y: w.y - logo.height * scale, width: logo.width * scale, height: logo.height * scale });
   } else {
-    w.text(s.companyName, M, w.y - 16, 14, { bold: true });
+    // a long name wraps; past two lines it gets smaller
+    let size = 14;
+    let nameLines = w.wrap(s.companyName, size, nameMax, true);
+    if (nameLines.length > 2) {
+      size = 11;
+      nameLines = w.wrap(s.companyName, size, nameMax, true);
+    }
+    nameLines.forEach((l, i) => w.text(l, M, w.y - 16 - i * (size + 3), size, { bold: true }));
+    headerH = Math.max(headerH, 16 + (nameLines.length - 1) * (size + 3) + 14);
   }
-  w.text(isCredit ? "OPRAVNÝ DAŇOVÝ DOKLAD" : "FAKTURA – DAŇOVÝ DOKLAD", right, w.y - 12, 13, { bold: true, align: "right" });
-  w.text(isCredit ? "Credit note" : "Invoice – tax document", right, w.y - 26, 9, { color: MUTED, align: "right" });
+  w.text(title, right, w.y - 12, 13, { bold: true, align: "right" });
+  w.text(subtitle, right, w.y - 26, 9, { color: MUTED, align: "right" });
   w.text(inv.number, right, w.y - 44, 15, { bold: true, color: ACCENT, align: "right" });
-  w.y -= 62;
+  w.y -= headerH;
   w.hline(M, right, w.y, ACCENT, 1.2);
   w.y -= 16;
 
@@ -263,7 +311,7 @@ export async function renderInvoicePdf(inv: InvoiceForPdf, fonts: PdfFonts): Pro
     ["DUZP / Tax point date", czDate(inv.duzp)],
     ["Datum splatnosti / Due date", czDate(inv.dueDate)],
     ["Forma úhrady / Payment", "Převodem / Bank transfer"],
-    ["Variabilní symbol / Payment ref.", variableSymbol(inv.number)],
+    ["Variabilní symbol / Payment ref.", variableSymbol(inv.shipment.jobNumber)],
   ];
   const rightCol: [string, string][] = [];
   if (bank?.bankName) rightCol.push(["Banka / Bank", bank.bankName]);
@@ -281,8 +329,19 @@ export async function renderInvoicePdf(inv: InvoiceForPdf, fonts: PdfFonts): Pro
     let y = infoTop;
     for (const [k, v] of rows) {
       w.text(k, x, y, 7.5, { color: MUTED });
-      w.text(v, x + colW - 4, y, 9, { bold: true, align: "right" });
-      y -= 14;
+      const avail = colW - 4;
+      if (regular.widthOfTextAtSize(k, 7.5) + 10 + bold.widthOfTextAtSize(v, 9) <= avail) {
+        w.text(v, x + avail, y, 9, { bold: true, align: "right" });
+        y -= 14;
+      } else {
+        // too long to share the line with its label: under it, right-aligned
+        y -= 11;
+        for (const part of w.wrap(v, 9, avail, true)) {
+          w.text(part, x + avail, y, 9, { bold: true, align: "right" });
+          y -= 12;
+        }
+        y -= 2;
+      }
     }
     return infoTop - y;
   };
@@ -310,19 +369,24 @@ export async function renderInvoicePdf(inv: InvoiceForPdf, fonts: PdfFonts): Pro
     w.y -= 22;
   };
   tableHeader();
+  // the VAT label has the room between the price and the Net header; longer ones wrap
+  const vatMax = cols.vat - cols.unit - 8;
+  const priceMax = cols.unit - cols.qty - 8;
   inv.lines.forEach((l, i) => {
     const descLines = w.wrap(l.description, 9, cols.qty - cols.desc - 70);
-    const rowH = 8 + descLines.length * 12;
+    const vatLabel = isVatCode(l.vatCode) ? VAT_CODE_INFO[l.vatCode].label : l.vatCode;
+    const vatLines = w.wrap(vatLabel, 8, vatMax);
+    const rowH = 8 + Math.max(descLines.length, vatLines.length) * 12;
     if (w.y - rowH < M + 60) {
       w.newPage();
       tableHeader();
     }
     if (i % 2 === 1) w.rect(M, w.y - rowH, right - M, rowH, ZEBRA);
     descLines.forEach((d, j) => w.text(d, cols.desc, w.y - 13 - j * 12, 9));
-    const vatLabel = isVatCode(l.vatCode) ? VAT_CODE_INFO[l.vatCode].label : l.vatCode;
     w.text(czMoney(l.qty).replace(/,00$/, ""), cols.qty, w.y - 13, 9, { align: "right" });
-    w.text(`${czMoney(l.unitPrice)} ${l.unitCurrency}`, cols.unit, w.y - 13, 9, { align: "right" });
-    w.text(vatLabel, cols.vat, w.y - 13, 8, { align: "right", color: MUTED });
+    const price = `${czMoney(l.unitPrice)} ${l.unitCurrency}`;
+    w.text(price, cols.unit, w.y - 13, regular.widthOfTextAtSize(price, 9) <= priceMax ? 9 : 7.5, { align: "right" });
+    vatLines.forEach((v, j) => w.text(v, cols.vat, w.y - 13 - j * 12, 8, { align: "right", color: MUTED }));
     w.text(czMoney(l.net), cols.net, w.y - 13, 9, { align: "right" });
     w.y -= rowH;
   });
@@ -331,7 +395,7 @@ export async function renderInvoicePdf(inv: InvoiceForPdf, fonts: PdfFonts): Pro
 
   // ── VAT recap + totals ──
   const recapRows = inv.vatSummary.length + 1;
-  w.ensure(recapRows * 13 + 120);
+  w.ensure(recapRows * 13 + 120 + (isCredit ? 0 : 96));
   const recapTop = w.y;
   w.text("Rekapitulace DPH / VAT summary", M, w.y, 8, { bold: true, color: MUTED });
   w.y -= 14;
@@ -358,41 +422,41 @@ export async function renderInvoicePdf(inv: InvoiceForPdf, fonts: PdfFonts): Pro
       w.text(czMoney(v.vatCzk), rc.vatCzk, w.y, 8.5, { align: "right" });
     }
   }
+  // the notes under the recap stay left of the totals box
+  const tx = M + (foreign ? 330 : 300);
+  const noteMax = tx - 16 - M;
+  const note = (t: string) => {
+    for (const l of w.wrap(t, 8, noteMax)) {
+      w.y -= 11;
+      w.text(l, M, w.y, 8, { color: MUTED });
+    }
+  };
   if (foreign) {
-    w.y -= 16;
+    w.y -= 5;
     // ČNB rate valid on the DUZP (§4 odst. 8 ZDPH); older invoices carry their weekly-sheet label.
     const rateNote = inv.fxFixingDate
       ? `Kurz ČNB k DUZP / CNB rate at tax date: 1 ${inv.currency} = ${czRate(inv.fxRate)} CZK (fixing ${czDate(inv.fxFixingDate)})`
       : `Kurz / Exchange rate: 1 ${inv.currency} = ${czRate(inv.fxRate)} CZK${inv.fxWeek ? ` (${inv.fxWeek})` : ""}`;
-    w.text(
-      rateNote,
-      M,
-      w.y,
-      8,
-      { color: MUTED },
-    );
+    note(rateNote);
   }
   // Lines priced in another currency were converted at the ČNB rate (+ the company ROE %).
   if (inv.fxFixingDate && inv.lines.some((l) => l.unitCurrency !== inv.currency)) {
     const pct = Number(inv.roePct ?? 100);
     const buffer = pct !== 100 ? ` + ${String(Math.round((pct - 100) * 1000) / 1000).replace(".", ",")} %` : "";
-    w.y -= 12;
-    w.text(
-      `Položky v jiné měně přepočteny kurzem ČNB k DUZP${buffer} / Items in other currencies converted at the CNB rate on the tax date${buffer}`,
-      M,
-      w.y,
-      8,
-      { color: MUTED },
-    );
+    w.y -= 1;
+    note(`Položky v jiné měně přepočteny kurzem ČNB k DUZP${buffer} / Items in other currencies converted at the CNB rate on the tax date${buffer}`);
   }
   const recapBottom = w.y;
 
   // totals box on the right, level with the recap
-  const tx = M + (foreign ? 330 : 300);
   let ty = recapTop;
   const totalRow = (label: string, value: string, strong = false) => {
-    w.text(label, tx, ty, strong ? 9.5 : 8.5, { bold: strong, color: strong ? DARK : MUTED });
-    w.text(value, right, ty, strong ? 9.5 : 8.5, { bold: strong, align: "right" });
+    const size = strong ? 9.5 : 8.5;
+    const font = strong ? bold : regular;
+    w.text(label, tx, ty, size, { bold: strong, color: strong ? DARK : MUTED });
+    // a value too wide to share the line with its label goes under it
+    if (regular.widthOfTextAtSize(label, size) + 10 + font.widthOfTextAtSize(value, size) > right - tx) ty -= 12;
+    w.text(value, right, ty, size, { bold: strong, align: "right" });
     ty -= 14;
   };
   totalRow("Celkem bez DPH / Net", `${czMoney(inv.net)} ${inv.currency}`);
@@ -405,6 +469,27 @@ export async function renderInvoicePdf(inv: InvoiceForPdf, fonts: PdfFonts): Pro
   if (foreign) {
     totalRow("Celkem CZK / Total CZK", `${czMoney(inv.grossCzk)} CZK`);
     totalRow("DPH CZK / VAT CZK", `${czMoney(inv.vatCzk)} CZK`);
+  }
+
+  // QR Platba under the totals: account, amount, currency and variable symbol for banking apps
+  const iban = bank?.iban || (bank?.accountNumber ? czIbanFromAccount(bank.accountNumber) ?? "" : "");
+  const spd = isCredit
+    ? null
+    : spdPayment({ iban, swift: bank?.swift, amount: Number(inv.gross), currency: inv.currency, vs: variableSymbol(inv.shipment.jobNumber), message: inv.number });
+  if (spd) {
+    const qr = QRCode.create(spd, { errorCorrectionLevel: "M" });
+    const size = 84;
+    const cell = size / qr.modules.size;
+    const qx = right - size;
+    const qy = ty - 4; // top edge
+    for (let r = 0; r < qr.modules.size; r++) {
+      for (let c = 0; c < qr.modules.size; c++) {
+        if (qr.modules.get(r, c)) w.page.drawRectangle({ x: qx + c * cell, y: qy - (r + 1) * cell, width: cell + 0.05, height: cell + 0.05, color: DARK });
+      }
+    }
+    w.text("QR Platba", qx - 8, qy - 12, 8.5, { bold: true, align: "right" });
+    w.text("Pay by QR in your banking app", qx - 8, qy - 24, 7.5, { color: MUTED, align: "right" });
+    ty = qy - size - 6;
   }
   w.y = Math.min(recapBottom, ty) - 14;
 
@@ -428,11 +513,16 @@ export async function renderInvoicePdf(inv: InvoiceForPdf, fonts: PdfFonts): Pro
 
   // ── Footer on every page ──
   const contact = [s.email, s.phone, s.web].filter(Boolean).join("  ·  ");
+  // at most three lines, kept clear of the page number on the right
+  const footerMax = right - M - 80;
   const footer = [
     [s.companyName, s.ico && `IČO ${s.ico}`, s.dic && `DIČ ${s.dic}`].filter(Boolean).join("  ·  "),
     contact,
     s.footerNote,
-  ].filter(Boolean);
+  ]
+    .filter(Boolean)
+    .flatMap((f) => w.wrap(f, 7, footerMax))
+    .slice(0, 3);
   w.pages.forEach((p, i) => {
     w.page = p;
     w.hline(M, right, M + 26);
