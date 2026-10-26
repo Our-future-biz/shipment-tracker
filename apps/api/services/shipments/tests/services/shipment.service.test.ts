@@ -370,22 +370,22 @@ describe("create without a quote", () => {
 });
 
 describe("Created by", () => {
-  it("is stamped with the e-mail of the signed-in user who creates the shipment, whatever the request says", async () => {
+  it("is the e-mail of the signed-in user who creates the shipment, whatever the request says (when is createdAt)", async () => {
     await shipmentService.create(COMPANY, { createdBy: "someone else" } as never, USER);
     await shipmentService.create(COMPANY, { fromQuoteNumber: REF, createdBy: "someone else" } as never, USER);
     const createdBy = [repository.createWithJobNumber.mock.calls[0]![1].createdBy, repository.createFromQuote.mock.calls[0]![2].createdBy];
-    for (const stamp of createdBy) expect(stamp).toMatch(/^\S.* — jan@firma\.cz$/);
+    for (const stamp of createdBy) expect(stamp).toBe("jan@firma.cz");
     expect(auth.userLookup).toHaveBeenCalledWith({ ids: [USER] });
   });
 
   it("takes the e-mail from the users list when the lookup fails, and never writes a display name", async () => {
     vi.mocked(auth.userLookup).mockRejectedValue(new Error("auth is unreachable"));
     await shipmentService.create(COMPANY, {} as never, USER);
-    expect(repository.createWithJobNumber.mock.calls[0]![1].createdBy).toMatch(/^\S.* — jan@firma\.cz$/);
-    // Nobody can tell who: the stamp keeps just the time.
+    expect(repository.createWithJobNumber.mock.calls[0]![1].createdBy).toBe("jan@firma.cz");
+    // Nobody can tell who: it stays empty.
     vi.mocked(auth.usersList).mockRejectedValue(new Error("auth is unreachable"));
     await shipmentService.create(COMPANY, {} as never, USER);
-    expect(repository.createWithJobNumber.mock.calls[1]![1].createdBy).toMatch(/^\d{1,2}\. \d{1,2}\. \d{4} \d{1,2}:\d{2}:\d{2}$/);
+    expect(repository.createWithJobNumber.mock.calls[1]![1].createdBy).toBe("");
   });
 
   it("keeps the stamp a caller inside the backend passes when no user creates it (Trucking's road jobs)", async () => {

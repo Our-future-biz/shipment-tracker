@@ -25,6 +25,16 @@ export interface ColumnViewScope {
   defaults: string[];
 }
 
+/**
+ * "Created by" used to hold the time as well; since it was split, a saved list that shows it
+ * gets "Created on" right after it — once (a flag is then set), so it can be removed again.
+ */
+export function withCreatedOn(keys: string[]): string[] {
+  const at = keys.indexOf("createdBy");
+  if (at < 0 || keys.includes("createdOn")) return keys;
+  return [...keys.slice(0, at + 1), "createdOn", ...keys.slice(at + 1)];
+}
+
 export function useColumnPrefs(userId: string | undefined, view?: ColumnViewScope) {
   const storageKey = userId ? (view ? `${view.scope}:columns:${userId}` : `shipmentColumns:${userId}`) : null;
   const defaults = view?.defaults ?? DEFAULT_SHIPMENT_COLUMNS;
@@ -35,7 +45,15 @@ export function useColumnPrefs(userId: string | undefined, view?: ColumnViewScop
     try {
       const raw = localStorage.getItem(storageKey);
       const parsed = raw ? JSON.parse(raw) : null;
-      setVisible(Array.isArray(parsed) && parsed.length > 0 ? parsed : defaults);
+      let keys: string[] = Array.isArray(parsed) && parsed.length > 0 ? parsed : defaults;
+      const addedKey = `${storageKey}:createdOnAdded`;
+      if (!localStorage.getItem(addedKey)) {
+        const next = withCreatedOn(keys);
+        if (next !== keys) localStorage.setItem(storageKey, JSON.stringify(next));
+        localStorage.setItem(addedKey, "1");
+        keys = next;
+      }
+      setVisible(keys);
     } catch {
       setVisible(defaults);
     }

@@ -14,7 +14,7 @@ import { cargoItemRepository } from "../repositories/cargoItem.repository";
 import { cargoDimensionRepository } from "../repositories/cargoDimension.repository";
 import { commercialInvoiceRepository } from "../repositories/commercialInvoice.repository";
 import { invoiceValueByCurrency, isValidContainerNumber, normalizeContainerNumber, projectCargo } from "../lib/cargoProjection";
-import { actionStamp, cfsDefault, creationStamp, exportBolDefaults, isCreditApproval, startingStateDefaults, statusForDirection } from "../lib/fieldDefaults";
+import { actionStamp, cfsDefault, exportBolDefaults, isCreditApproval, startingStateDefaults, statusForDirection } from "../lib/fieldDefaults";
 import { quoteLinksService } from "./quoteLinks.service";
 import type { ShipmentListFilters } from "../repositories/shipment.repository";
 import type { NewShipmentRecord, ShipmentRecord } from "../schemas/shipment.schema";
@@ -799,7 +799,8 @@ class ShipmentService {
     const users = usersOnce();
     await checkPeople(shipmentData, users);
     await checkCustomerPic(shipmentData, undefined, { strict: false });
-    if (creatorUserId) shipmentData.createdBy = creationStamp(await this.actorOf(creatorUserId), new Date());
+    // Who created it, by e-mail ("" when nobody can tell); when is the row's createdAt ("Created on").
+    if (creatorUserId) shipmentData.createdBy = (await this.actorOf(creatorUserId)).trim();
     Object.assign(shipmentData, normalizeStops(shipmentData));
     // A new shipment has no paperwork yet, so its customs status starts where the paperwork does.
     delete shipmentData.customsStatus;

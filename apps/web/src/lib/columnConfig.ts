@@ -1,6 +1,7 @@
 import type { GeoKind } from "./places";
 import { CANCELLED_STATUS, LOAD_TYPES, STATUS_COLORS } from "./enums";
 import { INCOTERMS } from "./incoterms";
+import { formatDateTime } from "./date";
 
 // "place" / "country" / "countryCode" are picked from the location database (see lib/places.ts).
 // "user" is a person: one of the company's users, picked with the UserPicker and kept by e-mail.
@@ -101,7 +102,7 @@ export const DATE_COLUMNS = new Set([
 export const COMPUTED_COLUMNS = new Set([
   "totalWeightTons", "totalVolumeCbm", "freightTon", "surface", "profit",
   "estimatedDepartureWeek", "estimatedArrivalWeek", "actualDepartureWeek", "actualArrivalWeek",
-  "shipmentsDate", "shipmentsYear", "dimensionsSummary",
+  "shipmentsDate", "shipmentsYear", "dimensionsSummary", "createdOn",
 ]);
 
 // ─── Column Definitions (Full Sheet) ──────────────────────────────────
@@ -268,7 +269,9 @@ export const COLUMNS: ColumnDef[] = [
   // Misc
   // Read-only: the backend sets it from the Claim tab (Yes while a claim is filled in).
   { key: "claim", title: "Claim", width: 100, type: "dropdown", options: DROPDOWN_OPTIONS["Claim"], apiField: "claim", readonly: true },
+  // Who created the shipment (their e-mail) and when (the record's creation time).
   { key: "createdBy", title: "Created by", width: 210, type: "text", readonly: true, apiField: "createdBy" },
+  { key: "createdOn", title: "Created on", width: 150, type: "computed", readonly: true, apiField: "createdAt" },
 ];
 
 // Column key lookup for quick access
@@ -620,6 +623,9 @@ export function getComputedValue(key: string, rowData: Record<string, string>): 
     }
     case "dimensionsSummary":
       return summarizeDimensions(rowData["dimensions"] || "");
+    case "createdOn":
+      // The creation time (ISO) as DD.MM.YYYY HH:mm, local time.
+      return formatDateTime(rowData["createdOn"] || "");
     case "profit": {
       const selling = rowData["selling"] || "";
       const buying = rowData["buying"] || "";
