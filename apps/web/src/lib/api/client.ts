@@ -783,6 +783,9 @@ export namespace customers {
             return await resp.json() as controllers.LogoUploadResponse
         }
 
+        /**
+         * The author is always the signed-in user (from the login, never from the request).
+         */
         public async noteCreate(customerId: string, params: controllers.NoteCreateRequest): Promise<controllers.NoteCreateResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/customers/${encodeURIComponent(customerId)}/notes`, JSON.stringify(params))
@@ -6471,7 +6474,6 @@ export namespace controllers {
     export interface NoteCreateRequest {
         type?: interfaces.NoteType
         content: string
-        author?: string
     }
 
     export interface NoteCreateResponse {

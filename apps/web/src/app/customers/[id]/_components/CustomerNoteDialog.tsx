@@ -7,7 +7,6 @@ import { NOTE_TYPES } from "../../_lib/constants";
 
 export interface CustomerNoteFormValues {
   type: interfaces.NoteType;
-  author: string;
   content: string;
 }
 
@@ -29,7 +28,7 @@ export function CustomerNoteDialog({ open, saving, onCancel, onSubmit }: Custome
 
   const handleFinish = (values: CustomerNoteFormValues) => {
     if (saving) return;
-    onSubmit({ ...values, author: values.author.trim(), content: values.content.trim() });
+    onSubmit({ type: values.type, content: values.content.trim() });
   };
 
   return (
@@ -39,15 +38,15 @@ export function CustomerNoteDialog({ open, saving, onCancel, onSubmit }: Custome
         layout="vertical"
         className="pt-2"
         preserve={false}
-        // The entry is normally written by whoever is signed in; the name stays editable for logging on someone's behalf.
-        initialValues={{ type: "Note", author: user?.displayName ?? "", content: "" }}
+        initialValues={{ type: "Note", content: "" }}
         onFinish={handleFinish}
       >
         <Form.Item name="type" label="Type">
           <Select options={TYPE_OPTIONS} />
         </Form.Item>
-        <Form.Item name="author" label="Author">
-          <Input />
+        {/* Always the signed-in user: the API records the author from the login, so it is not editable. */}
+        <Form.Item label="Author">
+          <Input value={user?.displayName || user?.email || ""} disabled aria-label="Author" />
         </Form.Item>
         <Form.Item name="content" label="Content" rules={[{ required: true, whitespace: true, message: "Content is required" }]}>
           <Input.TextArea rows={4} />

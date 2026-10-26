@@ -8,16 +8,17 @@ interface NoteCreateRequest {
   customerId: string;
   type?: NoteType;
   content: string & MinLen<1> & MaxLen<20000>;
-  author?: string & MaxLen<200>;
 }
 
 interface NoteCreateResponse {
   note: NoteItem;
 }
 
+// The author is always the signed-in user (from the login, never from the request).
 export const noteCreate = api(
   { expose: true, auth: true, method: "POST", path: "/customers/:customerId/notes" },
   async ({ customerId, ...input }: NoteCreateRequest): Promise<NoteCreateResponse> => {
-    return { note: await noteService.create(getAuthData()!.companyID, customerId, input) };
+    const auth = getAuthData()!;
+    return { note: await noteService.create(auth.companyID, customerId, auth.userID, input) };
   },
 );

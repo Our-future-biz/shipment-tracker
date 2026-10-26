@@ -4,11 +4,11 @@ import type { NewCustomerNoteRecord } from "../schemas/customerNote.schema";
 import type { NoteItem, NoteType } from "../interfaces/interfaces";
 import { toNoteItem } from "../lib/mappers";
 import { customerService } from "./customer.service";
+import { userRefs } from "../../../lib/userNames";
 
 export interface NoteInput {
   type?: NoteType;
   content: string;
-  author?: string;
 }
 
 class NoteService {
@@ -16,13 +16,15 @@ class NoteService {
     return (await customerNoteRepository.findByCustomer(customerId, companyId)).map(toNoteItem);
   }
 
-  async create(companyId: string, customerId: string, input: NoteInput): Promise<NoteItem> {
+  /** The author is the user `userId` (the signed-in one): their name as the users list has it. */
+  async create(companyId: string, customerId: string, userId: string, input: NoteInput): Promise<NoteItem> {
     await customerService.requireLive(customerId, companyId);
+    const author = (await userRefs([userId])).get(userId)?.name ?? "";
     const values: Omit<NewCustomerNoteRecord, "companyId"> = {
       customerId,
       type: input.type ?? "Note",
       content: input.content,
-      author: input.author ?? "",
+      author,
     };
     const row = await customerNoteRepository.createForCompany(companyId, values);
     return toNoteItem(row);
