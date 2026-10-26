@@ -49,7 +49,8 @@ export function CustomerContactPicker({ customerId, value, onChange, "aria-label
   // Main contact first, then the rest in the order the Customer Database returns them.
   const options = [...contacts]
     .sort((a, b) => Number(b.isMain) - Number(a.isMain))
-    .map((c) => ({ value: c.name, label: c.name, role: c.role, reach: c.email || c.phone }));
+    // An empty title: antd would otherwise give every row the browser's own tooltip of its name.
+    .map((c) => ({ value: c.name, label: c.name, title: "", role: c.role, reach: c.email || c.phone }));
 
   const openAdd = () => {
     setAdding((prev) => ({ key: prev.key + 1, open: true, typed: search }));
@@ -79,7 +80,9 @@ export function CustomerContactPicker({ customerId, value, onChange, "aria-label
     }
   };
 
-  const addLabel = search.trim() ? `Add “${search.trim()}” as a contact` : "Add a new contact";
+  const typed = search.trim();
+  // Offered unless what was typed already is one of the contacts.
+  const canAdd = !!customerId && !contacts.some((c) => c.name.trim().toLowerCase() === typed.toLowerCase());
 
   return (
     <>
@@ -89,6 +92,8 @@ export function CustomerContactPicker({ customerId, value, onChange, "aria-label
       showSearch
       allowClear
       loading={isLoading}
+      // The field keeps its own colours inside a grid row coloured by a rule (e.g. red for overdue).
+      className={`${rest.className ?? ""} [&_.ant-select-selection-search-input]:!text-slate-800 [&_.ant-select-selection-item]:!text-slate-800`}
       disabled={!customerId && !current}
       placeholder={customerId ? "Pick a contact" : "Link the customer first"}
       value={known ? known.name : current || undefined}
@@ -97,10 +102,10 @@ export function CustomerContactPicker({ customerId, value, onChange, "aria-label
       options={options}
       filterOption={(input, option) => fold(`${option?.label ?? ""} ${option?.reach ?? ""}`).includes(fold(input.trim()))}
       optionRender={(option) => (
-        <span className="flex items-baseline gap-2">
-          <span className="font-medium text-slate-800">{option.data.label}</span>
-          {option.data.role && <span className="text-[11px] text-slate-400">{option.data.role}</span>}
-          {option.data.reach && <span className="ml-auto text-[11px] text-slate-400 truncate">{option.data.reach}</span>}
+        <span className="flex flex-col leading-tight py-0.5 min-w-0">
+          <span className="text-[13px] font-medium text-slate-800 truncate">{option.data.label}</span>
+          {/* The position only; the e-mail still finds the contact when typed. */}
+          {option.data.role && <span className="text-[11px] text-slate-500 truncate">{option.data.role}</span>}
         </span>
       )}
       notFoundContent={
@@ -115,17 +120,26 @@ export function CustomerContactPicker({ customerId, value, onChange, "aria-label
       popupRender={(menu) => (
         <>
           {menu}
-          {customerId && (
-            <button
-              type="button"
-              // Keeps the focus in the field, so the click is not taken for leaving it.
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={openAdd}
-              className="mt-1 flex w-full items-center gap-2 rounded-md border-t border-slate-100 px-3 py-2 text-left text-[13px] font-medium text-indigo-600 hover:bg-indigo-50 cursor-pointer"
-            >
-              <PlusOutlined className="text-[12px]" />
-              <span className="truncate">{addLabel}</span>
-            </button>
+          {canAdd && (
+            <>
+              <div className="-mx-1 my-1 h-px bg-slate-100" />
+              <button
+                type="button"
+                // Keeps the focus in the field, so the click is not taken for leaving it.
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={openAdd}
+                className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-[13px] text-indigo-600 hover:bg-indigo-50 cursor-pointer"
+              >
+                <PlusOutlined className="text-[11px] shrink-0" />
+                {typed ? (
+                  <span className="min-w-0 truncate">
+                    Add <span className="font-medium">{typed}</span> as a new contact
+                  </span>
+                ) : (
+                  <span>Add a new contact</span>
+                )}
+              </button>
+            </>
           )}
         </>
       )}

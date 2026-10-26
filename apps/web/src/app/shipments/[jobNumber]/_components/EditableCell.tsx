@@ -9,6 +9,7 @@ import { GeoFlag, GeoSelect } from "@/components/GeoSelect";
 import { FadeText } from "@/components/FadeText";
 import { UserPicker } from "@/components/UserPicker";
 import { CustomerContactPicker } from "@/components/CustomerContactPicker";
+import { ContactHoverCard } from "@/components/ContactHoverCard";
 import { UnlinkedPersonMark } from "@/app/shipments/_components/UnlinkedPersonMark";
 import { formatDate } from "@/lib/date";
 import { statusLabel } from "@/lib/shipmentStatus";
@@ -140,9 +141,18 @@ export function EditableCell({
           </span>
         ) : (
           // One line that stops at the field's edge; the whole value shows after a 1 s hover.
-          <FadeText className={textClass} style={textStyle} title="Double-click to edit">
-            {shown}
-          </FadeText>
+          // A customer's contact shows its card on hover instead (no tooltip over it).
+          isContact && hasValue && customerId ? (
+            <ContactHoverCard name={original} customerId={customerId}>
+              <FadeText className={textClass} style={textStyle}>
+                {shown}
+              </FadeText>
+            </ContactHoverCard>
+          ) : (
+            <FadeText className={textClass} style={textStyle} title="Double-click to edit">
+              {shown}
+            </FadeText>
+          )
         )}
         {geoKind && <GeoFlag kind={geoKind} value={original} />}
         {isUser && hasValue && <UnlinkedPersonMark value={original} hint="double-click to pick one" />}
