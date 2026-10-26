@@ -21,7 +21,7 @@ import {
   SplitCellsOutlined,
   PaperClipOutlined,
   FileTextOutlined,
-  EditOutlined,
+  ControlOutlined,
   DollarOutlined,
   WarningOutlined,
 } from "@ant-design/icons";
@@ -235,7 +235,7 @@ function SectionHeader({
                     : "border-line-soft bg-white text-slate-600 hover:bg-surface-2 hover:text-indigo-500 hover:border-line-dim"
                 }`}
               >
-                <EditOutlined className="text-[12px]" />
+                <ControlOutlined className="text-[12px]" />
               </button>
             </Tooltip>
           </span>
@@ -1273,7 +1273,7 @@ export function ShipmentDetailContent() {
               <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
                 {/* Column order mirrors the agreed overview mockup 1:1 — left is
                     "who and what", right is "where, when and in which state".
-                    Fields are declared as a list so the pencil can filter them. */}
+                    Fields are declared as a list so the field chooser can filter them. */}
                 {(() => {
                   const left: FieldDef[] = [
                     { key: "jobNumber", label: "Internal Reference", ro: true },

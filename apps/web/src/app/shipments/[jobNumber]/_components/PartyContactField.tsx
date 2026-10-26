@@ -3,7 +3,6 @@
 import { useRef, useState } from "react";
 import { AutoComplete } from "antd";
 import { PartyContactLink } from "./PartyContactLink";
-import { EditOutlined } from "@ant-design/icons";
 import { useCustomerContacts } from "@/hooks/useCustomerContacts";
 import { FadeText } from "@/components/FadeText";
 
@@ -95,27 +94,22 @@ export function PartyContactField({ label, fieldKey, value, customerId, onCommit
             }}
           />
         ) : value && customerId ? (
-          // A contact of a linked party opens the whole contact (role, e-mail, phone);
-          // the pencil changes it, like on the party's own row.
-          <div className="group flex items-center gap-1.5">
-            <PartyContactLink name={value} customerId={customerId} />
-            <button
-              type="button"
-              onClick={startEdit}
-              aria-label={`Edit ${label}`}
-              className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100 text-slate-400 hover:text-indigo-500 transition-opacity shrink-0"
-            >
-              <EditOutlined className="text-[11px]" />
-            </button>
+          // A contact of a linked party: a click opens the whole contact (role, e-mail, phone),
+          // a double click anywhere on the row changes it, like on the party's own row.
+          <div
+            className="flex items-center gap-1.5 cursor-pointer rounded px-1 -mx-1 hover:bg-slate-100 transition-colors"
+            onDoubleClick={startEdit}
+          >
+            <PartyContactLink name={value} customerId={customerId} onEdit={startEdit} />
           </div>
         ) : (
           <span
             className="cursor-pointer rounded px-1 -mx-1 hover:bg-slate-100 transition-colors block"
-            title={value ? undefined : "Click to pick a saved contact"}
-            onClick={startEdit}
+            title={value ? undefined : "Double-click to pick a saved contact"}
+            onDoubleClick={startEdit}
           >
             {value ? (
-              <FadeText className="text-slate-900 font-medium" title="Click to pick a saved contact">
+              <FadeText className="text-slate-900 font-medium" title="Double-click to pick a saved contact">
                 {value}
               </FadeText>
             ) : (

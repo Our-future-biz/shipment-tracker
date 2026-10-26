@@ -2,10 +2,10 @@
 
 import { useRef, useState } from "react";
 import { AutoComplete } from "antd";
-import Link from "next/link";
-import { EditOutlined } from "@ant-design/icons";
 import { useCustomers } from "@/hooks/useCustomers";
 import { FadeText } from "@/components/FadeText";
+import { CustomerHoverCard } from "@/components/CustomerHoverCard";
+import { EditableLink } from "@/components/EditableLink";
 
 interface CustomerLinkFieldProps {
   label: string;
@@ -73,26 +73,29 @@ export function CustomerLinkField({ label, name, customerId, onChange }: Custome
             }}
           />
         ) : (
-          <div className="group flex items-center gap-1.5">
+          // A linked customer: click opens it, double click changes it. Otherwise double click edits.
+          <div
+            className="flex items-center gap-1.5 cursor-pointer rounded px-1 -mx-1 hover:bg-slate-100 transition-colors"
+            title={name && customerId ? undefined : "Double-click to edit"}
+            onDoubleClick={startEdit}
+          >
             {name ? (
               customerId ? (
-                <Link href={`/customers/${customerId}`} className="min-w-0 text-indigo-600 hover:underline font-medium">
-                  <FadeText>{name}</FadeText>
-                </Link>
+                <CustomerHoverCard customerId={customerId}>
+                  <EditableLink
+                    href={`/customers/${customerId}`}
+                    onEdit={startEdit}
+                    className="block min-w-0 text-indigo-600 hover:underline font-medium"
+                  >
+                    <FadeText>{name}</FadeText>
+                  </EditableLink>
+                </CustomerHoverCard>
               ) : (
                 <FadeText className="text-slate-900 font-medium">{name}</FadeText>
               )
             ) : (
               <span className="text-slate-400">—</span>
             )}
-            <button
-              type="button"
-              onClick={startEdit}
-              aria-label={`Edit ${label}`}
-              className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-indigo-500 transition-opacity shrink-0"
-            >
-              <EditOutlined className="text-[11px]" />
-            </button>
           </div>
         )}
       </div>

@@ -3,7 +3,8 @@
 import { useRef, useState } from "react";
 import { useDebounced } from "@/hooks/useDebounced";
 import { AutoComplete } from "antd";
-import Link from "next/link";
+import { EditableLink } from "@/components/EditableLink";
+import { CustomerHoverCard } from "@/components/CustomerHoverCard";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 
@@ -97,19 +98,23 @@ export function CustomerCell({ name, customerId, textStyle, onChange }: Customer
   return (
     <span
       className="cursor-pointer rounded px-1 -mx-1 hover:bg-slate-100 transition-colors block truncate"
-      title="Double-click to edit"
+      // A linked customer shows its card on hover instead of this tooltip.
+      title={name && customerId ? undefined : "Double-click to edit"}
       onDoubleClick={startEdit}
     >
       {name ? (
         customerId ? (
-          <Link
-            href={`/customers/${customerId}`}
-            className="text-indigo-500 hover:underline font-medium"
-            style={textStyle}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {name}
-          </Link>
+          // Click opens the customer, double click changes it (like every other cell).
+          <CustomerHoverCard customerId={customerId}>
+            <EditableLink
+              href={`/customers/${customerId}`}
+              onEdit={startEdit}
+              className="text-indigo-500 hover:underline font-medium"
+              style={textStyle}
+            >
+              {name}
+            </EditableLink>
+          </CustomerHoverCard>
         ) : (
           <span className="text-slate-600" style={textStyle}>{name}</span>
         )

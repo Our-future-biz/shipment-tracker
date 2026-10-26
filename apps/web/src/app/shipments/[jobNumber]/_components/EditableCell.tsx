@@ -1,8 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, useRef } from "react";
-import Link from "next/link";
-import { EditOutlined } from "@ant-design/icons";
+import { EditableLink } from "@/components/EditableLink";
 import { Input, Select, DatePicker } from "antd";
 import type { InputRef } from "antd";
 import dayjs from "dayjs";
@@ -148,33 +147,20 @@ export function EditableCell({
         ) : (
           // One line that stops at the field's edge; the whole value shows after a 1 s hover.
           // A customer's contact shows its card on hover instead (no tooltip over it).
-          // It is also a link to the contact in the Customer Database; the pencil changes it.
+          // It is also a link to the contact in the Customer Database: a click opens it, a
+          // double click changes the contact (as on every other cell).
           isContact && hasValue && customerId ? (
-            <span className="group flex items-center gap-1.5 min-w-0">
-              <ContactHoverCard name={original} customerId={customerId}>
-                <Link
-                  href={customerContactHref(customerId, original)}
-                  onClick={(e) => e.stopPropagation()}
-                  onDoubleClick={(e) => e.stopPropagation()}
-                  // The same look as the Customer link beside it (CustomerCell).
-                  className="block min-w-0 text-indigo-500 hover:underline font-medium"
-                  style={textStyle}
-                >
-                  <FadeText>{shown}</FadeText>
-                </Link>
-              </ContactHoverCard>
-              <button
-                type="button"
-                aria-label={`Change ${col?.title ?? "contact"}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  startEditing();
-                }}
-                className="shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100 text-slate-400 hover:text-indigo-500 transition-opacity bg-transparent border-0 p-0 cursor-pointer"
+            <ContactHoverCard name={original} customerId={customerId}>
+              <EditableLink
+                href={customerContactHref(customerId, original)}
+                onEdit={startEditing}
+                // The same look as the Customer link beside it (CustomerCell).
+                className="block min-w-0 text-indigo-500 hover:underline font-medium"
+                style={textStyle}
               >
-                <EditOutlined className="text-[11px]" />
-              </button>
-            </span>
+                <FadeText>{shown}</FadeText>
+              </EditableLink>
+            </ContactHoverCard>
           ) : (
             <FadeText className={textClass} style={textStyle} title="Double-click to edit">
               {shown}

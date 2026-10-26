@@ -43,7 +43,13 @@ export function ContactHoverCard({ name, customerId, children }: ContactHoverCar
 
   return (
     <Popover
-      content={content}
+      // Clicks in the card (selecting text to copy, an e-mail link) stay in it: the card is a portal,
+      // so they would otherwise reach the cell around the name and start editing or open the link.
+      content={
+        <div onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+          {content}
+        </div>
+      }
       trigger="hover"
       mouseEnterDelay={0.6}
       placement="bottomLeft"
