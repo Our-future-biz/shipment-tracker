@@ -834,13 +834,13 @@ export function QuoteWorkflow() {
           <div className="min-w-0">
             <InfoRow label="Origin">
               <span className="flex items-center">
-                <GeoSelect kind="place" size="small" className="w-full" value={draft.origin} onChange={(v) => set({ origin: v })} />
+                <GeoSelect kind="place" airports={airFreight} size="small" className="w-full" value={draft.origin} onChange={(v) => set({ origin: v })} />
                 <GeoFlag kind="place" value={draft.origin} />
               </span>
             </InfoRow>
             <InfoRow label="POL">
               <span className="flex items-center">
-                <GeoSelect kind="place" size="small" className="w-full" placeholder="Port of loading" value={draft.pol} onChange={(v) => set({ pol: v })} />
+                <GeoSelect kind="place" airports={airFreight} size="small" className="w-full" placeholder={airFreight ? "Airport of departure" : "Port of loading"} value={draft.pol} onChange={(v) => set({ pol: v })} />
                 <GeoFlag kind="place" value={draft.pol} />
               </span>
             </InfoRow>
@@ -852,13 +852,13 @@ export function QuoteWorkflow() {
           <div className="min-w-0">
             <InfoRow label="Destination">
               <span className="flex items-center">
-                <GeoSelect kind="place" size="small" className="w-full" value={draft.destination} onChange={(v) => set({ destination: v })} />
+                <GeoSelect kind="place" airports={airFreight} size="small" className="w-full" value={draft.destination} onChange={(v) => set({ destination: v })} />
                 <GeoFlag kind="place" value={draft.destination} />
               </span>
             </InfoRow>
             <InfoRow label="POD">
               <span className="flex items-center">
-                <GeoSelect kind="place" size="small" className="w-full" placeholder="Port of discharge" value={draft.pod} onChange={(v) => set({ pod: v })} />
+                <GeoSelect kind="place" airports={airFreight} size="small" className="w-full" placeholder={airFreight ? "Airport of destination" : "Port of discharge"} value={draft.pod} onChange={(v) => set({ pod: v })} />
                 <GeoFlag kind="place" value={draft.pod} />
               </span>
             </InfoRow>

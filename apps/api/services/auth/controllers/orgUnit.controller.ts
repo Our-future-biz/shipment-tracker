@@ -2,6 +2,7 @@ import { api } from "encore.dev/api";
 import type { MaxLen, MinLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { requireRole } from "../../../lib/rbac";
+import { searchAirports, type Airport } from "../../../lib/geo/airports";
 import { orgUnitService } from "../services/orgUnit.service";
 import type { DepartmentInfo, BranchInfo, CountryInfo, LocationInfo, PlaceInfo, PlaceCandidateQuery } from "../services/orgUnit.service";
 
@@ -193,6 +194,21 @@ export const placeSearch = api(
   { expose: true, auth: true, method: "GET", path: "/auth/places" },
   async (req: PlaceSearchRequest): Promise<PlaceListResponse> => {
     return { places: await orgUnitService.searchPlaces(req.q, req.countryCode) };
+  },
+);
+
+interface AirportSearchRequest {
+  q: string;
+}
+interface AirportListResponse {
+  airports: Airport[];
+}
+
+// IATA-coded airports matching typed text, offered beside the places when a quote goes by air.
+export const airportSearch = api(
+  { expose: true, auth: true, method: "GET", path: "/auth/airports" },
+  async (req: AirportSearchRequest): Promise<AirportListResponse> => {
+    return { airports: searchAirports(req.q) };
   },
 );
 

@@ -4,7 +4,7 @@ import { useMemo, useRef, useState, type ReactNode } from "react";
 import { Select, Tooltip } from "antd";
 import { ExclamationCircleOutlined } from "@ant-design/icons";
 import { useDebounced } from "@/hooks/useDebounced";
-import { usePlaceSearch } from "@/hooks/usePlaceSearch";
+import { useAirportSearch, usePlaceSearch } from "@/hooks/usePlaceSearch";
 import { COUNTRIES } from "@/lib/countries";
 import { countryCodeOf, countryLabel, countryMatches, countryValue, isUnmatched, UNMATCHED_HINT, type GeoKind } from "@/lib/places";
 
@@ -22,12 +22,17 @@ interface GeoSelectProps {
   className?: string;
   placeholder?: string;
   allowClear?: boolean;
+  /** Also offer IATA airports beside the places (a quote going by air). */
+  airports?: boolean;
 }
 
+type Option = { value: string; label: ReactNode; code?: string };
+
 /**
- * Picks a place (UN/LOCODE, searched worldwide) or a country from the database. A value not in
- * the database's form (older data, or what the AI could not match) is kept and offered as the
- * search text, so the matching places show up straight away.
+ * Picks a place (UN/LOCODE, searched worldwide; with `airports`, also an IATA airport) or a
+ * country from the database. A value not in the database's form (older data, or what the AI
+ * could not match) is kept and offered as the search text, so the matching places show up
+ * straight away.
  */
 export function GeoSelect({
   kind,
@@ -40,6 +45,7 @@ export function GeoSelect({
   className,
   placeholder,
   allowClear = true,
+  airports = false,
 }: GeoSelectProps) {
   const current = (value ?? "").trim();
   const unmatched = isUnmatched(kind, current);
@@ -54,12 +60,13 @@ export function GeoSelect({
   };
   const debounced = useDebounced(search.trim(), 250);
   const places = usePlaceSearch(debounced, kind === "place");
+  const airportList = useAirportSearch(debounced, kind === "place" && airports);
 
-  const options = useMemo((): { value: string; label: ReactNode; code?: string }[] => {
+  const options = useMemo((): (Option | { label: ReactNode; options: Option[] })[] => {
     if (kind !== "place") {
       return COUNTRY_OPTIONS.map((c) => ({ value: countryValue(c.code, kind), label: c.label, code: c.code }));
     }
-    const found = (places.data?.places ?? []).map((p) => ({
+    const found: Option[] = (places.data?.places ?? []).map((p) => ({
       value: `${p.name} (${p.code})`,
       label: (
         <span className="flex items-baseline justify-between gap-2">
@@ -72,10 +79,30 @@ export function GeoSelect({
         </span>
       ),
     }));
+    const airportOptions: Option[] = (airportList.data?.airports ?? []).map((a) => ({
+      value: `${a.name} (${a.code})`,
+      label: (
+        <span className="flex items-baseline justify-between gap-2">
+          <span className="truncate">
+            <span className="font-medium">{a.code}</span> <span className="text-slate-400">-</span> {a.name}
+          </span>
+          <span className="shrink-0 text-xs text-slate-400 truncate max-w-[40%]">
+            {[a.city, a.countryCode].filter(Boolean).join(", ")}
+          </span>
+        </span>
+      ),
+    }));
     // Keep the current place listed so the box shows it before anything is searched.
-    if (!debounced && current && !unmatched && !found.some((o) => o.value === current)) found.unshift({ value: current, label: <>{current}</> });
-    return found;
-  }, [kind, places.data, current, unmatched, debounced]);
+    const listed = [...airportOptions, ...found].some((o) => o.value === current);
+    const pinned: Option[] = !debounced && current && !unmatched && !listed ? [{ value: current, label: <>{current}</> }] : [];
+    if (!airports) return [...pinned, ...found];
+    // By air, airports and places in two groups, so either kind of code can be picked.
+    const groups = [
+      { label: "Airports (IATA)", options: airportOptions },
+      { label: "Places (UN/LOCODE)", options: found },
+    ].filter((g) => g.options.length > 0);
+    return [...pinned, ...groups];
+  }, [kind, places.data, airportList.data, airports, current, unmatched, debounced]);
 
   const selected = current && !unmatched ? (kind === "place" ? current : countryValue(countryCodeOf(current, kind)!, kind)) : undefined;
 
@@ -87,7 +114,7 @@ export function GeoSelect({
       defaultOpen={defaultOpen}
       allowClear={allowClear}
       className={className}
-      placeholder={unmatched ? current : (placeholder ?? (kind === "place" ? "Type a city, port or code" : "Choose a country"))}
+      placeholder={unmatched ? current : (placeholder ?? (kind === "place" ? (airports ? "Type a city, airport or code" : "Type a city, port or code") : "Choose a country"))}
       value={selected}
       searchValue={search}
       onSearch={onSearch}
@@ -100,16 +127,18 @@ export function GeoSelect({
       }
       notFoundContent={
         kind === "place"
-          ? places.isFetching
+          ? places.isFetching || airportList.isFetching
             ? "Searching…"
             : debounced.length < 2
               ? "Type at least 2 letters"
-              : "No place found"
+              : airports
+                ? "No airport or place found"
+                : "No place found"
           : "No country found"
       }
       onChange={(v) => onChange(v ?? "")}
       onBlur={onBlur}
-      popupMatchSelectWidth={kind === "place" ? 340 : true}
+      popupMatchSelectWidth={kind === "place" ? (airports ? 420 : 340) : true}
     />
   );
 }

@@ -122,6 +122,7 @@ export namespace auth {
 
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
+            this.airportSearch = this.airportSearch.bind(this)
             this.announcementAttachmentContent = this.announcementAttachmentContent.bind(this)
             this.announcementAttachmentCreate = this.announcementAttachmentCreate.bind(this)
             this.announcementAttachmentDelete = this.announcementAttachmentDelete.bind(this)
@@ -160,6 +161,20 @@ export namespace auth {
             this.userDelete = this.userDelete.bind(this)
             this.userUpdate = this.userUpdate.bind(this)
             this.usersList = this.usersList.bind(this)
+        }
+
+        /**
+         * IATA-coded airports matching typed text, offered beside the places when a quote goes by air.
+         */
+        public async airportSearch(params: controllers.AirportSearchRequest): Promise<controllers.AirportListResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                q: params.q,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/auth/airports`, undefined, {query})
+            return await resp.json() as controllers.AirportListResponse
         }
 
         public async announcementAttachmentContent(id: string): Promise<services.AnnouncementAttachmentContent> {
@@ -4692,6 +4707,14 @@ export namespace controllers {
         address: interfaces.AddressItem
     }
 
+    export interface AirportListResponse {
+        airports: geo.Airport[]
+    }
+
+    export interface AirportSearchRequest {
+        q: string
+    }
+
     export interface AlertReadResponse {
         /**
          * When this user last opened the shipment's Alerts; null when never - every alert is new then.
@@ -9143,6 +9166,17 @@ export namespace controllers {
 }
 
 export namespace geo {
+    /**
+     * An IATA-coded airport, offered beside the UN/LOCODE places when a quote goes by air. Written
+     * into quotes as "Name (CODE)" like a place: "Shanghai Pudong International Airport (PVG)".
+     */
+    export interface Airport {
+        code: string
+        name: string
+        city: string | null
+        countryCode: string
+    }
+
     export type GeoKind = "place" | "country" | "countryCode"
 
     /**
