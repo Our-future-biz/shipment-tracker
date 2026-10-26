@@ -77,6 +77,8 @@ export function EditableCell({
   customerId: customerIdProp,
 }: EditableCellProps) {
   const [editing, setEditing] = useState(false);
+  // A contact cell stays open while its Add contact dialog is (the dialog takes the focus).
+  const [addingContact, setAddingContact] = useState(false);
   const [draft, setDraft] = useState("");
   const cancelledRef = useRef(false);
   const inputRef = useRef<InputRef>(null);
@@ -196,7 +198,13 @@ export function EditableCell({
           customerId={customerId}
           value={original}
           onChange={(name) => commit(name)}
-          onBlur={() => setEditing(false)}
+          onAddingChange={(adding) => {
+            setAddingContact(adding);
+            if (!adding) setEditing(false);
+          }}
+          onBlur={() => {
+            if (!addingContact) setEditing(false);
+          }}
         />
       </div>
     );
