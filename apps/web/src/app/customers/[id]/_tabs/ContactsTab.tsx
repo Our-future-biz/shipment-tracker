@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Button, Dropdown, Table, Tag } from "antd";
 import { DeleteOutlined, EditOutlined, EllipsisOutlined, PlusOutlined, StarFilled } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
@@ -37,6 +38,13 @@ export function ContactsTab({ customerId, country }: { customerId: string; count
 
   // Main contact first, as in the contact pickers on shipments and quotes; the rest stay in the order they were added.
   const rows = useMemo(() => [...contacts].sort((a, b) => Number(b.isMain) - Number(a.isMain)), [contacts]);
+
+  // A link from a shipment's Customer's PIC (?contact=<name>) picks that contact out of the list.
+  const linkedName = (useSearchParams().get("contact") ?? "").trim().toLowerCase();
+  const linkedId = linkedName ? rows.find((c) => c.name.trim().toLowerCase() === linkedName)?.id : undefined;
+  useEffect(() => {
+    if (linkedId) document.querySelector(`[data-row-key="${linkedId}"]`)?.scrollIntoView({ block: "center" });
+  }, [linkedId]);
 
   const handleOpenDialog = (contact: ContactItem | null) => setDialog((prev) => ({ key: prev.key + 1, open: true, contact }));
 
@@ -170,6 +178,7 @@ export function ContactsTab({ customerId, country }: { customerId: string; count
           loading={isLoading}
           dataSource={rows}
           columns={columns}
+          rowClassName={(r) => (r.id === linkedId ? "[&>td]:!bg-indigo-50" : "")}
           scroll={{ x: "max-content" }}
           pagination={TABLE_PAGINATION}
           locale={{ emptyText: isError ? "Could not load the contacts." : "No contacts yet" }}

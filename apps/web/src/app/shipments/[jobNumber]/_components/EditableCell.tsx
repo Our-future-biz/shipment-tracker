@@ -1,6 +1,8 @@
 "use client";
 
 import { createContext, useContext, useState, useRef } from "react";
+import Link from "next/link";
+import { EditOutlined } from "@ant-design/icons";
 import { Input, Select, DatePicker } from "antd";
 import type { InputRef } from "antd";
 import dayjs from "dayjs";
@@ -34,6 +36,10 @@ function toInputISO(s: string): string {
  * only that direction's statuses (see getFilteredStatusOptions); without it, all of them.
  */
 export const TradeDirectionContext = createContext<string | undefined>(undefined);
+
+/** The customer's Contacts tab with this contact picked out (?contact= is its name). */
+export const customerContactHref = (customerId: string, name: string) =>
+  `/customers/${customerId}?tab=contacts&contact=${encodeURIComponent(name.trim())}`;
 
 /**
  * The Customer Database id of the customer of the shipment a page shows: a contact cell
@@ -142,12 +148,33 @@ export function EditableCell({
         ) : (
           // One line that stops at the field's edge; the whole value shows after a 1 s hover.
           // A customer's contact shows its card on hover instead (no tooltip over it).
+          // It is also a link to the contact in the Customer Database; the pencil changes it.
           isContact && hasValue && customerId ? (
-            <ContactHoverCard name={original} customerId={customerId}>
-              <FadeText className={textClass} style={textStyle}>
-                {shown}
-              </FadeText>
-            </ContactHoverCard>
+            <span className="group flex items-center gap-1.5 min-w-0">
+              <ContactHoverCard name={original} customerId={customerId}>
+                <Link
+                  href={customerContactHref(customerId, original)}
+                  onClick={(e) => e.stopPropagation()}
+                  onDoubleClick={(e) => e.stopPropagation()}
+                  // The same look as the Customer link beside it (CustomerCell).
+                  className="block min-w-0 text-indigo-500 hover:underline font-medium"
+                  style={textStyle}
+                >
+                  <FadeText>{shown}</FadeText>
+                </Link>
+              </ContactHoverCard>
+              <button
+                type="button"
+                aria-label={`Change ${col?.title ?? "contact"}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  startEditing();
+                }}
+                className="shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100 text-slate-400 hover:text-indigo-500 transition-opacity bg-transparent border-0 p-0 cursor-pointer"
+              >
+                <EditOutlined className="text-[11px]" />
+              </button>
+            </span>
           ) : (
             <FadeText className={textClass} style={textStyle} title="Double-click to edit">
               {shown}

@@ -366,7 +366,8 @@ function FieldRow({
         onCommit={onCommit}
         placeholder="—"
         displayClassName="text-slate-900 font-medium"
-        displayStyle={styleFor?.(fieldKey, value)}
+        // Customer's PIC is a link like the Customer row's, which takes no rule colour here either.
+        displayStyle={fieldKey === "customerPic" ? undefined : styleFor?.(fieldKey, value)}
       />
     </div>
   );
