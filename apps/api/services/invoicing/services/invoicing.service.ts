@@ -3,6 +3,7 @@ import { quotes } from "~encore/clients";
 import { iso } from "../../../lib/db/serialize";
 import { assertShipmentExists } from "../../../lib/shipmentRefs";
 import { toChargeCode } from "../../../lib/chargeCodes";
+import { quoteCostCopyRefusal } from "../../../lib/salesPolicy";
 import { isUuid } from "../../../lib/uuid";
 import { definedOnly, toDecimal } from "../lib/amounts";
 import { splitAmount } from "../lib/costSplit";
@@ -359,6 +360,9 @@ class InvoicingService {
       if (err instanceof APIError && err.code === ErrCode.NotFound) throw APIError.notFound(`quote ${quoteNumber} not found`);
       throw err;
     }
+    // Only a Won quote's costs. A quote a shipment is created from is Won by now: it is told first.
+    const refusal = quoteCostCopyRefusal(quote.effectiveStatus);
+    if (refusal) throw APIError.failedPrecondition(`${quote.quoteNumber} - ${refusal}`);
     // A job with a Trucking consignment gets its road freight from Trucking: the quote's trucking lines are left out.
     const skipTrucking = await truckingLinesRepository.hasConsignmentRows(companyId, shipmentId);
     const rows = quoteLinesToCostRows(quote.data, { skipTrucking });
@@ -369,7 +373,8 @@ class InvoicingService {
       { buying: target === "sell" ? undefined : rows.buying, selling: target === "buy" ? undefined : rows.selling },
       force,
     );
-    if (!copied) throw APIError.failedPrecondition(`costs from ${quote.quoteNumber} were already copied to this shipment`);
+    // The details tell this refusal from the one above: copying again can be asked for.
+    if (!copied) throw APIError.failedPrecondition(`costs from ${quote.quoteNumber} were already copied to this shipment`).withDetails({ alreadyCopied: true });
     return copied;
   }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SALES_MANAGE_ROLES, canApproveMargin, canEditSalesSettings, canManageSales, canSetOwner, ownerChangeRight, quoteDeletePermission, shipmentLinkRefusal } from "../salesPolicy";
+import { SALES_MANAGE_ROLES, canApproveMargin, canEditSalesSettings, canManageSales, canSetOwner, ownerChangeRight, quoteCostCopyRefusal, quoteDeletePermission, shipmentFromQuoteRefusal, shipmentLinkRefusal } from "../salesPolicy";
 
 const ME = "user-me";
 const COLLEAGUE = "user-colleague";
@@ -259,5 +259,24 @@ describe("shipmentLinkRefusal", () => {
   it("refuses a status it does not know, a name of Object.prototype too", () => {
     expect(shipmentLinkRefusal("on_hold")).toBe('the quote is "on_hold" - only a Won quote can be linked to a shipment');
     expect(shipmentLinkRefusal("toString")).toBe('the quote is "toString" - only a Won quote can be linked to a shipment');
+  });
+});
+
+describe("shipmentFromQuoteRefusal", () => {
+  it("lets a shipment be created from an open, expired or Won quote", () => {
+    for (const status of ["draft", "ready_to_send", "quoted", "feedback", "revised", "expired", "won"]) expect(shipmentFromQuoteRefusal(status)).toBeNull();
+  });
+
+  it("refuses a Lost or Replaced quote, named as the screens name it", () => {
+    expect(shipmentFromQuoteRefusal("lost")).toBe("the quote is Lost - no shipment can be created from it");
+    expect(shipmentFromQuoteRefusal("replaced")).toBe("the quote is Replaced - no shipment can be created from it");
+  });
+});
+
+describe("quoteCostCopyRefusal", () => {
+  it("lets only a Won quote's costs be copied", () => {
+    expect(quoteCostCopyRefusal("won")).toBeNull();
+    expect(quoteCostCopyRefusal("draft")).toBe("the quote is Draft - only a Won quote's costs can be copied to a shipment");
+    expect(quoteCostCopyRefusal("expired")).toBe("the quote is Expired - only a Won quote's costs can be copied to a shipment");
   });
 });

@@ -45,7 +45,7 @@ const SELLING = [{ category: "ocean_freight", description: "All-in", customer: "
 
 beforeEach(() => {
   vi.resetAllMocks();
-  salesQuoteGet.mockResolvedValue({ quote: { quoteNumber: REF, data: DATA } } as Awaited<ReturnType<typeof quotes.salesQuoteGet>>);
+  salesQuoteGet.mockResolvedValue({ quote: { quoteNumber: REF, effectiveStatus: "won", data: DATA } } as Awaited<ReturnType<typeof quotes.salesQuoteGet>>);
   copy.mockImplementation(async (_companyId, _shipmentId, _quoteNumber, rows) => ({ buying: rows.buying?.length ?? 0, selling: rows.selling?.length ?? 0 }));
 });
 
@@ -65,7 +65,7 @@ describe("importQuote", () => {
   });
 
   it("marks the rows with the reference the quote is stored under", async () => {
-    salesQuoteGet.mockResolvedValue({ quote: { quoteNumber: "QCZ20261010001", data: DATA } } as Awaited<ReturnType<typeof quotes.salesQuoteGet>>);
+    salesQuoteGet.mockResolvedValue({ quote: { quoteNumber: "QCZ20261010001", effectiveStatus: "won", data: DATA } } as Awaited<ReturnType<typeof quotes.salesQuoteGet>>);
     await invoicingService.importQuote(SHIPMENT, COMPANY, "QCZ20261010001", "both", false);
     expect(copy.mock.calls[0]![2]).toBe("QCZ20261010001");
   });
@@ -75,9 +75,21 @@ describe("importQuote", () => {
     await expect(invoicingService.importQuote(SHIPMENT, COMPANY, REF, "both", false)).rejects.toMatchObject({
       code: "failed_precondition",
       message: "costs from QCZ20261010001-2 were already copied to this shipment",
+      details: { alreadyCopied: true },
     });
     await expect(invoicingService.importQuote(SHIPMENT, COMPANY, REF, "both", true)).resolves.toEqual({ buying: 2, selling: 1 });
     expect(copy).toHaveBeenLastCalledWith(COMPANY, SHIPMENT, REF, { buying: BUYING, selling: SELLING }, true);
+  });
+
+  it("refuses a quote that is not Won, by the status it is shown with, and writes nothing", async () => {
+    for (const status of ["draft", "quoted", "expired", "lost"]) {
+      salesQuoteGet.mockResolvedValueOnce({ quote: { quoteNumber: REF, effectiveStatus: status, data: DATA } } as Awaited<ReturnType<typeof quotes.salesQuoteGet>>);
+      const refused = await invoicingService.importQuote(SHIPMENT, COMPANY, REF, "both", true).catch((err: unknown) => err);
+      expect(refused).toMatchObject({ code: "failed_precondition", message: expect.stringMatching(/ - the quote is \w+ - only a Won quote's costs can be copied to a shipment$/) });
+      // Not the refusal that can be asked to copy again.
+      expect((refused as { details?: unknown }).details).toBeUndefined();
+    }
+    expect(copy).not.toHaveBeenCalled();
   });
 
   it("answers an unknown reference with a sentence that names it, and writes nothing", async () => {
@@ -96,7 +108,7 @@ describe("importQuote", () => {
   });
 
   it("copies nothing from a quote without lines, and still records the quote on the shipment", async () => {
-    salesQuoteGet.mockResolvedValue({ quote: { quoteNumber: REF, data: { customerName: "ITTEC s.r.o." } } } as Awaited<ReturnType<typeof quotes.salesQuoteGet>>);
+    salesQuoteGet.mockResolvedValue({ quote: { quoteNumber: REF, effectiveStatus: "won", data: { customerName: "ITTEC s.r.o." } } } as Awaited<ReturnType<typeof quotes.salesQuoteGet>>);
     await expect(invoicingService.importQuote(SHIPMENT, COMPANY, REF, "both", false)).resolves.toEqual({ buying: 0, selling: 0 });
     expect(copy).toHaveBeenCalledWith(COMPANY, SHIPMENT, REF, { buying: [], selling: [] }, false);
   });
@@ -107,7 +119,7 @@ describe("importQuote", () => {
       buyingLines: [...DATA.buyingLines, { type: "Road freight", chargeCode: "road_freight", supplier: "Bravo", currency: "CZK", amount: 9000, tariffRef: "trucking:v1:D1" }],
       sellingLines: [...DATA.sellingLines, { type: "Road freight", chargeCode: "road_freight", currency: "CZK", amount: 12000, tariffRef: "trucking:v1:D1" }],
     };
-    salesQuoteGet.mockResolvedValue({ quote: { quoteNumber: REF, data: withRoad } } as Awaited<ReturnType<typeof quotes.salesQuoteGet>>);
+    salesQuoteGet.mockResolvedValue({ quote: { quoteNumber: REF, effectiveStatus: "won", data: withRoad } } as Awaited<ReturnType<typeof quotes.salesQuoteGet>>);
     vi.mocked(truckingLinesRepository.hasConsignmentRows).mockResolvedValueOnce(true);
     await expect(invoicingService.importQuote(SHIPMENT, COMPANY, REF, "both", false)).resolves.toEqual({ buying: 2, selling: 1 });
     expect(copy).toHaveBeenLastCalledWith(COMPANY, SHIPMENT, REF, { buying: BUYING, selling: SELLING }, false);

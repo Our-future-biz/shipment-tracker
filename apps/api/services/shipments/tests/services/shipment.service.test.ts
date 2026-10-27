@@ -183,19 +183,23 @@ describe("create from a quote", () => {
     expect(repository.createFromQuote).not.toHaveBeenCalled();
   });
 
-  it("refuses a quote that is not Won, before anything is written - also one whose number is no QCZ reference", async () => {
-    for (const over of [{ status: "quoted" }, { status: "lost" }, { quoteNumber: "TEST-FX-Q1", status: "revised" }]) {
+  it("creates the shipment from an open or expired quote, and tells the quote it was created from it, which makes it Won", async () => {
+    for (const over of [{ status: "draft" }, { status: "quoted" }, { status: "revised" }, { status: "quoted", effectiveStatus: "expired" }]) {
       salesQuoteGet.mockResolvedValueOnce(quote(over));
-      await expect(fromQuote()).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringMatching(/ - the quote is (Quoted|Lost|Revised) - only a Won quote can be linked to a shipment$/) });
+      await fromQuote();
+    }
+    expect(repository.createFromQuote).toHaveBeenCalledTimes(4);
+    expect(links.syncReference).toHaveBeenCalledTimes(4);
+    expect(links.syncReference.mock.calls.every((call) => call[2]?.wonByShipmentId)).toBe(true);
+  });
+
+  it("refuses a Lost or Replaced quote, by the status it is shown with, before anything is written - also one whose number is no QCZ reference", async () => {
+    for (const over of [{ status: "lost" }, { status: "replaced" }, { quoteNumber: "TEST-FX-Q1", status: "lost" }]) {
+      salesQuoteGet.mockResolvedValueOnce(quote(over));
+      await expect(fromQuote()).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringMatching(/ - the quote is (Lost|Replaced) - no shipment can be created from it$/) });
     }
     expect(repository.createFromQuote).not.toHaveBeenCalled();
     expect(links.syncReference).not.toHaveBeenCalled();
-  });
-
-  it("names the status as it is shown: an expired quote is refused as Expired, not as the stored Quoted", async () => {
-    salesQuoteGet.mockResolvedValueOnce(quote({ status: "quoted", effectiveStatus: "expired" }));
-    await expect(fromQuote()).rejects.toMatchObject({ code: "failed_precondition", message: `${REF} - the quote is Expired - only a Won quote can be linked to a shipment` });
-    expect(repository.createFromQuote).not.toHaveBeenCalled();
   });
 
   it("refuses a second shipment from the same quote with a conflict that names the first - and does nothing else", async () => {

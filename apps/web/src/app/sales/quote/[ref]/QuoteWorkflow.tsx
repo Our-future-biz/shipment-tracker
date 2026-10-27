@@ -45,7 +45,7 @@ import { GeoFlag, GeoSelect } from "@/components/GeoSelect";
 import type { SalesQuoteData, PackageLine, QuoteContainerLine, CostLine } from "../../_lib/types";
 import type { QuoteProblem } from "../../_lib/quoteProblem";
 import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, PACKING_TYPES, serviceTypeLabel } from "../../_lib/types";
-import { notWonQuoteText } from "../../_lib/shipmentLink";
+import { createShipmentHint, shipmentFromQuoteBlockedText } from "../../_lib/shipmentLink";
 import { CURRENCIES } from "@/lib/enums";
 import { CONTAINER_KINDS, CONTAINER_KINDS_BY_SIZE, CONTAINER_SIZES, containerType, teuForType } from "@/lib/cargo";
 import { useListKeys } from "@/hooks/useListKeys";
@@ -1445,10 +1445,11 @@ export function QuoteWorkflow() {
                   {quoteShipments && quoteShipments.length > 1 && <span className="text-slate-400"> +{quoteShipments.length - 1}</span>}
                 </ToolbarButton>
               ) : (
-                // Only a Won quote can be made into a shipment - said by the status the pill shows.
-                <Tooltip title={notWonQuoteText(quote.effectiveStatus)}>
+                // A shipment is made from an open, expired or Won quote, and makes it Won; not from a
+                // Lost or Replaced one - said by the status the pill shows.
+                <Tooltip title={createShipmentHint(quote.effectiveStatus)}>
                   <span>
-                    <ToolbarButton icon={<ContainerOutlined />} onClick={() => createShipment()} disabled={!!notWonQuoteText(quote.effectiveStatus)}>
+                    <ToolbarButton icon={<ContainerOutlined />} onClick={() => createShipment()} disabled={!!shipmentFromQuoteBlockedText(quote.effectiveStatus)}>
                       Create shipment
                     </ToolbarButton>
                   </span>
@@ -1782,7 +1783,7 @@ export function QuoteWorkflow() {
         <QuoteShipmentsDialog
           quoteNumber={ref}
           shipments={quoteShipments}
-          createBlocked={notWonQuoteText(quote.effectiveStatus)}
+          createBlocked={shipmentFromQuoteBlockedText(quote.effectiveStatus)}
           onCreateAnother={() => createShipment(true)}
           onClose={() => setModal(null)}
         />

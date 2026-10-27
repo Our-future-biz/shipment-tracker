@@ -28,6 +28,31 @@ export function shipmentLinkRefusal(status: string): string | null {
 }
 
 /**
+ * The statuses (as shown) a shipment may be created from: an open or expired quote, which the
+ * order makes Won as the shipment is created, and a Won one. A Lost or Replaced quote would stay
+ * as it is, so no shipment is made from it.
+ */
+export const SHIPMENT_SOURCE_STATUSES: readonly string[] = ["draft", "ready_to_send", "quoted", "feedback", "revised", "expired", "won"];
+
+/**
+ * Why no shipment may be created from a quote in this status - the one it is shown with -
+ * finishing the sentence "QCZ… - …"; null when one may ("Create shipment", which makes it Won).
+ */
+export function shipmentFromQuoteRefusal(status: string): string | null {
+  if (SHIPMENT_SOURCE_STATUSES.includes(status)) return null;
+  return `the quote is ${quoteStatusLabel(status)} - no shipment can be created from it`;
+}
+
+/**
+ * Why a quote's costs may not be copied into a shipment's Costs Breakdown ("Copy from quote"),
+ * finishing the sentence "QCZ… - …"; null when they may: only a Won quote's costs are.
+ */
+export function quoteCostCopyRefusal(status: string): string | null {
+  if (status === "won") return null;
+  return `the quote is ${quoteStatusLabel(status)} - only a Won quote's costs can be copied to a shipment`;
+}
+
+/**
  * Whether the user may change what all of Sales shares: the Terms & Conditions templates and the
  * company details printed on quotations. Reading them is open to everybody - no quotation prints
  * without them - but a change shows on everybody's documents.

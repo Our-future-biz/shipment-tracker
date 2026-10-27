@@ -1,6 +1,6 @@
 import { APIError, ErrCode } from "encore.dev/api";
 import type { Actor } from "../../../lib/rbac";
-import { canManageSales, shipmentLinkRefusal } from "../../../lib/salesPolicy";
+import { canManageSales, shipmentFromQuoteRefusal, shipmentLinkRefusal } from "../../../lib/salesPolicy";
 import { isSalesReference } from "../../../lib/salesReference";
 import log from "encore.dev/log";
 import { auth, customers, invoicing, quotes } from "~encore/clients";
@@ -655,7 +655,10 @@ class ShipmentService {
       if (err instanceof APIError && err.code === ErrCode.NotFound) throw APIError.invalidArgument(`quote ${quoteNumber} not found`);
       throw err;
     }
-    assertLinkable(quote);
+    // An open or expired quote is made Won by the shipment created from it (below); a Lost or
+    // Replaced one would stay as it is, so none is made from it.
+    const refusal = shipmentFromQuoteRefusal(quote.effectiveStatus);
+    if (refusal) throw APIError.failedPrecondition(`${quote.quoteNumber} - ${refusal}`);
     const reference = quote.quoteNumber;
     // Whoever owns the quote sold the shipment - unless the request names somebody itself.
     if (!(shipmentData.salesPerson ?? "").trim() && quote.ownerName) shipmentData.salesPerson = quote.ownerName;

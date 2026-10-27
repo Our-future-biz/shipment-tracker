@@ -483,8 +483,8 @@ export function CostsTab({ shipment }: CostsTabProps) {
       setQuoteModal(null);
     } catch (err) {
       // A quote is copied to a side once. Copying it again has to be asked for: the dialog stays,
-      // says so, and its next try is that request.
-      if (isAPIError(err) && err.code === ErrCode.FailedPrecondition) setQuoteAgain(true);
+      // says so, and its next try is that request. (A quote not Won is refused for good.)
+      if (isAPIError(err) && err.code === ErrCode.FailedPrecondition && err.details?.alreadyCopied === true) setQuoteAgain(true);
       // The server's own sentence: it names the reference that was not found or already copied.
       const reason = apiErrorMessage(err);
       setQuoteErr(`${reason.charAt(0).toUpperCase()}${reason.slice(1)}.`);
@@ -1212,8 +1212,8 @@ export function CostsTab({ shipment }: CostsTabProps) {
       >
         <p className="text-[13px] text-slate-600 mb-3.5">
           {quoteModal === "sell"
-            ? "Enter the quotation reference. All selling costs will be imported from the quote."
-            : "Enter the quotation reference. All buying costs will be imported from the quote."}
+            ? "Enter the reference of a Won quotation. All selling costs will be imported from the quote."
+            : "Enter the reference of a Won quotation. All buying costs will be imported from the quote."}
         </p>
         <Input
           autoFocus
