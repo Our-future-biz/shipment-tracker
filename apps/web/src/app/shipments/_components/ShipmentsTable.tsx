@@ -39,7 +39,7 @@ import { DocumentsPanel } from "./DocumentsPanel";
 import { DimensionsModal } from "./DimensionsModal";
 import { CommercialInvoicesModal } from "./CommercialInvoicesModal";
 import { ChatPanel } from "./ChatPanel";
-import { EditableCell } from "@/app/shipments/[jobNumber]/_components/EditableCell";
+import { EditableCell, FreightModeContext } from "@/app/shipments/[jobNumber]/_components/EditableCell";
 import { CustomerCell } from "./CustomerCell";
 import { statusLabel } from "@/lib/shipmentStatus";
 import { downloadCsv } from "@/lib/csv";
@@ -556,17 +556,20 @@ export const ShipmentsTable = ({
           return val ? <span className="text-slate-600" style={textStyle}>{val}</span> : <span className="text-slate-300">{"\u2014"}</span>;
         }
         // Everything else \u2014 inline editable (double-click). Text/dropdown/date per column config.
+        // The row's Freight Mode lets an air shipment's POL and POD offer airports.
         return (
-          <EditableCell
-            fieldKey={col.key}
-            value={val}
-            options={col.key === "status" ? getFilteredStatusOptions(record.tradeDirection) : undefined}
-            onCommit={(fieldKey, value) => updateField(record.id, fieldKey, value, record)}
-            placeholder={"\u2014"}
-            displayClassName="text-slate-600"
-            emptyClassName="text-slate-300"
-            displayStyle={textStyle}
-          />
+          <FreightModeContext.Provider value={record.freightMode ?? undefined}>
+            <EditableCell
+              fieldKey={col.key}
+              value={val}
+              options={col.key === "status" ? getFilteredStatusOptions(record.tradeDirection) : undefined}
+              onCommit={(fieldKey, value) => updateField(record.id, fieldKey, value, record)}
+              placeholder={"\u2014"}
+              displayClassName="text-slate-600"
+              emptyClassName="text-slate-300"
+              displayStyle={textStyle}
+            />
+          </FreightModeContext.Provider>
         );
       },
     }));

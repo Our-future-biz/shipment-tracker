@@ -53,7 +53,7 @@ import { NotificationsTab } from "./tabs/NotificationsTab";
 import { useShipmentAlerts } from "@/hooks/useShipmentAlerts";
 import { WarehouseTab } from "./tabs/WarehouseTab";
 import { CustomsTab } from "./tabs/CustomsTab";
-import { EditableCell, TradeDirectionContext } from "./_components/EditableCell";
+import { EditableCell, FreightModeContext, TradeDirectionContext } from "./_components/EditableCell";
 import { FadeText } from "@/components/FadeText";
 import { CustomerLinkField } from "./_components/CustomerLinkField";
 import { PartyContactField } from "./_components/PartyContactField";
@@ -1784,5 +1784,9 @@ export function ShipmentDetailContent() {
       </Modal>
     </div>
   );
-  return <TradeDirectionContext.Provider value={shipment.tradeDirection ?? undefined}>{page}</TradeDirectionContext.Provider>;
+  return (
+    <TradeDirectionContext.Provider value={shipment.tradeDirection ?? undefined}>
+      <FreightModeContext.Provider value={shipment.freightMode ?? undefined}>{page}</FreightModeContext.Provider>
+    </TradeDirectionContext.Provider>
+  );
 }

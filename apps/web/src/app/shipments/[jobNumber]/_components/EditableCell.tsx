@@ -30,6 +30,13 @@ function toInputISO(s: string): string {
  */
 export const TradeDirectionContext = createContext<string | undefined>(undefined);
 
+/**
+ * The Freight Mode of the shipment a cell belongs to. By air, its POL and POD also offer IATA
+ * airports beside the UN/LOCODE places.
+ */
+export const FreightModeContext = createContext<string | undefined>(undefined);
+const AIRPORT_FIELDS = new Set(["pol", "pod"]);
+
 interface EditableCellProps {
   /** columnConfig key (e.g. "shippingLine") — decides text vs dropdown. */
   fieldKey: string;
@@ -77,6 +84,8 @@ export function EditableCell({
   // Places and countries are picked from the location database.
   const geoKind = geoKindOf(col);
   const tradeDirection = useContext(TradeDirectionContext);
+  const freightMode = useContext(FreightModeContext);
+  const airports = AIRPORT_FIELDS.has(fieldKey) && /^air/i.test(freightMode ?? "");
   const options = allowedOptions ?? (fieldKey === "status" ? getFilteredStatusOptions(tradeDirection) : col?.options) ?? [];
   const original = value ?? "";
   // Statuses read without [IMP]/[EXP]/[DOM] once the list holds one direction only; with several
@@ -133,6 +142,7 @@ export function EditableCell({
       <div className={className}>
         <GeoSelect
           kind={geoKind}
+          airports={airports}
           size="small"
           autoFocus
           defaultOpen
