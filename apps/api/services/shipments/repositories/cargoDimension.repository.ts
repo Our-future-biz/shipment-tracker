@@ -62,6 +62,7 @@ class CargoDimensionRepository extends TenantRepository<typeof cargoDimensionTab
         lengthCm: l.lengthCm,
         widthCm: l.widthCm,
         heightCm: l.heightCm,
+        dimensionUnit: l.dimensionUnit === "in" ? "in" : "cm",
         weightPerPcKg: l.weightPerPcKg,
         packageType: l.packageType,
         stackable: l.stackable,

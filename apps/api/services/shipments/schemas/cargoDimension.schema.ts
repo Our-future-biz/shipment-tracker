@@ -19,6 +19,10 @@ export const cargoDimensionTable = pgTable(
     lengthCm: text("length_cm").notNull().default(""),
     widthCm: text("width_cm").notNull().default(""),
     heightCm: text("height_cm").notNull().default(""),
+    // The unit the line was typed in ("cm" or "in"). The three sizes above are always stored
+    // in cm (an inch value converted exactly, 1 in = 2.54 cm), so every volume sum stays
+    // right; the unit only says how to show and edit them.
+    dimensionUnit: text("dimension_unit").notNull().default("cm"),
     weightPerPcKg: text("weight_per_pc_kg").notNull().default(""),
     packageType: text("package_type").notNull().default(""),
     stackable: text("stackable").notNull().default(""),
@@ -37,6 +41,7 @@ export const cargoDimensionTable = pgTable(
     check("cargo_dimension_pallet_type_check", sql`${table.palletType} IN ('EUR', 'INDUSTRIAL', 'HALF', 'QUARTER', 'OTHER')`),
     check("cargo_dimension_adr_un_check", sql`${table.adrUn} ~ '^[0-9]{4}$'`),
     check("cargo_dimension_adr_packing_group_check", sql`${table.adrPackingGroup} IN ('I', 'II', 'III')`),
+    check("cargo_dimension_dimension_unit_check", sql`${table.dimensionUnit} IN ('cm', 'in')`),
   ],
 );
 

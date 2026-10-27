@@ -12,6 +12,10 @@ import {
   checkConsistency,
   dimensionTotals,
   dimensionVolumePerPiece,
+  lineInCm,
+  lineInUnit,
+  DIMENSION_UNITS,
+  type DimensionUnit,
   dimensionLineIsEmpty,
   fmtFixed,
   numberInput,
@@ -81,12 +85,13 @@ export function DimensionsModal({
   const containerIds = containers.map((c) => c.id);
   const only = containers.length === 1 ? containers[0]!.id : null;
 
-  const emptyLine = (containerId: string | null): CargoDimensionLine => ({
+  const emptyLine = (containerId: string | null, dimensionUnit: DimensionUnit = "cm"): CargoDimensionLine => ({
     containerId,
     pieces: "",
     lengthCm: "",
     widthCm: "",
     heightCm: "",
+    dimensionUnit,
     weightPerPcKg: "",
     packageType: "",
     stackable: "",
@@ -95,11 +100,12 @@ export function DimensionsModal({
   const shipmentId = shipment?.id;
   useEffect(() => {
     if (!shipment) return;
-    const saved = (shipment.cargoDimensions ?? []).map((l) => (only && l.containerId !== only ? { ...l, containerId: only } : l));
+    // Each line in its own unit (cm or inches); sent back in cm (lineInCm on save).
+    const saved = (shipment.cargoDimensions ?? []).map((l) => lineInUnit(only && l.containerId !== only ? { ...l, containerId: only } : l));
     // Every container gets a line to type into (an untouched one is never saved).
     const targets: (string | null)[] = containerIds.length ? containerIds : [null];
     const missing = targets.filter((id) => !saved.some((l) => (l.containerId ?? null) === id));
-    setLines([...saved, ...missing.map(emptyLine)]);
+    setLines([...saved, ...missing.map((id) => emptyLine(id))]);
     // Only when another shipment is opened: a refetch must not wipe what is being typed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shipmentId]);
@@ -116,20 +122,21 @@ export function DimensionsModal({
   const [activeKey, setActiveKey] = useState<string | null>(null);
   useEffect(() => setActiveKey(null), [shipmentId]);
   const active = tabs.find((t) => t.key === activeKey) ?? tabs[0]!;
-  const filledOf = (t: (typeof tabs)[number]) => t.rows.map(({ l }) => l).filter((l) => !isEmpty(l));
+  // A tab's filled lines in cm, for its totals and the check against the container.
+  const filledOf = (t: (typeof tabs)[number]) => t.rows.map(({ l }) => l).filter((l) => !isEmpty(l)).map(lineInCm);
 
   const patch = (idx: number, p: Partial<CargoDimensionLine>) =>
     setLines((r) => r.map((l, j) => (j === idx ? { ...l, ...p } : l)));
   // The last line of a tab is cleared rather than removed, so the tab keeps a line.
   const remove = (idx: number, tabSize: number) =>
-    setLines((r) => (tabSize > 1 ? r.filter((_, j) => j !== idx) : r.map((l, j) => (j === idx ? emptyLine(l.containerId ?? null) : l))));
-  const totals = dimensionTotals(lines.filter((l) => !isEmpty(l)));
+    setLines((r) => (tabSize > 1 ? r.filter((_, j) => j !== idx) : r.map((l, j) => (j === idx ? emptyLine(l.containerId ?? null, l.dimensionUnit === "in" ? "in" : "cm") : l))));
+  const totals = dimensionTotals(lines.filter((l) => !isEmpty(l)).map(lineInCm));
 
   const save = async () => {
     if (!shipment || saving) return;
     setSaving(true);
     try {
-      await onSave(shipment, lines.filter((l) => !isEmpty(l)));
+      await onSave(shipment, lines.filter((l) => !isEmpty(l)).map(lineInCm));
       onClose();
     } finally {
       setSaving(false);
@@ -174,7 +181,7 @@ export function DimensionsModal({
           Dimensions · <span className="font-mono text-slate-500">{shipment?.jobNumber ?? ""}</span>
         </span>
       }
-      width={1016}
+      width={1108}
       centered
       destroyOnHidden
       onCancel={onClose}
@@ -231,13 +238,14 @@ export function DimensionsModal({
           )}
           <div className="overflow-x-auto max-h-[55vh] overflow-y-auto">
             {/* Every column just fits its content: at 1016px Stackability gets about 258px, enough for "Not stackable / Not overstowable". */}
-            <table className="w-full min-w-[966px] table-fixed border-collapse [&_tbody>tr:last-child>td]:border-b-0">
+            <table className="w-full min-w-[1058px] table-fixed border-collapse [&_tbody>tr:last-child>td]:border-b-0">
               <colgroup>
                 <col className="w-[72px]" />
                 <col className="w-[144px]" />
                 <col className="w-[76px]" />
                 <col className="w-[76px]" />
                 <col className="w-[76px]" />
+                <col className="w-[92px]" />
                 <col className="w-[112px]" />
                 <col className="w-[112px]" />
                 <col />
@@ -252,16 +260,16 @@ export function DimensionsModal({
                     Packages
                   </th>
                   <th scope="col" className={TH_NUM}>
-                    Length <br />
-                    (cm)
+                    Length
                   </th>
                   <th scope="col" className={TH_NUM}>
-                    Width <br />
-                    (cm)
+                    Width
                   </th>
                   <th scope="col" className={TH_NUM}>
-                    Height <br />
-                    (cm)
+                    Height
+                  </th>
+                  <th scope="col" className={TH_NUM}>
+                    Unit
                   </th>
                   <th scope="col" className={TH_NUM}>
                     Weight / pc <br />
@@ -279,7 +287,7 @@ export function DimensionsModal({
               </thead>
               <tbody>
                 {active.rows.map(({ l, idx }) => {
-                  const vpc = dimensionVolumePerPiece(l);
+                  const vpc = dimensionVolumePerPiece(lineInCm(l));
                   return (
                     <tr key={rowKey(l)} className="hover:bg-slate-50/60">
                       <td className={TD_NUM}>{field(idx, "pieces")}</td>
@@ -296,6 +304,16 @@ export function DimensionsModal({
                       <td className={TD_NUM}>{field(idx, "lengthCm")}</td>
                       <td className={TD_NUM}>{field(idx, "widthCm")}</td>
                       <td className={TD_NUM}>{field(idx, "heightCm")}</td>
+                      <td className={TD}>
+                        {/* The unit of the three sizes: the numbers stay as typed, only their unit changes. */}
+                        <Select
+                          className="w-full"
+                          aria-label="Size unit"
+                          value={l.dimensionUnit === "in" ? "in" : "cm"}
+                          options={DIMENSION_UNITS}
+                          onChange={(v: DimensionUnit) => patch(idx, { dimensionUnit: v })}
+                        />
+                      </td>
                       <td className={TD_NUM}>{field(idx, "weightPerPcKg")}</td>
                       <td className={TD_NUM}>
                         {/* Computed, so shown as text rather than a read-only field. */}
@@ -335,7 +353,10 @@ export function DimensionsModal({
                       type="link"
                       size="small"
                       icon={<PlusOutlined />}
-                      onClick={() => setLines((r) => [...r, emptyLine(active.container?.id ?? null)])}
+                      onClick={() =>
+                        // A new line takes the unit of the tab's last line.
+                        setLines((r) => [...r, emptyLine(active.container?.id ?? null, active.rows[active.rows.length - 1]?.l.dimensionUnit === "in" ? "in" : "cm")])
+                      }
                     >
                       Add row
                     </Button>
@@ -346,6 +367,7 @@ export function DimensionsModal({
               <tfoot>
                 <tr className="bg-slate-50 [&>td]:border-t [&>td]:border-slate-200">
                   {total(activeSum.pcs, 0, "PCS")}
+                  <td />
                   <td />
                   <td />
                   <td />
@@ -364,7 +386,6 @@ export function DimensionsModal({
           <div className="mt-3 flex items-center justify-between gap-4 flex-wrap">
             {activeCheck ? (
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs text-slate-500">Declared for {active.label}</span>
                 <CheckPill label="Pcs" m={activeCheck.pcs} decimals={0} />
                 <CheckPill label="Weight" m={activeCheck.kg} decimals={2} unit="kg" />
                 <CheckPill label="Volume" m={activeCheck.m3} decimals={3} unit="m³" />

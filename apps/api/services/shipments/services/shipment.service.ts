@@ -163,6 +163,7 @@ function toCargoDimensionLine(row: CargoDimensionRecord): CargoDimensionLine {
     lengthCm: row.lengthCm,
     widthCm: row.widthCm,
     heightCm: row.heightCm,
+    dimensionUnit: row.dimensionUnit === "in" ? "in" : "cm",
     weightPerPcKg: row.weightPerPcKg,
     packageType: row.packageType,
     stackable: row.stackable,

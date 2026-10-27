@@ -2,10 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { rowKey } from "@/app/shipments/_lib/rowKey";
-import { Input, Button, AutoComplete, Select, Checkbox } from "antd";
+import { Input, Button, AutoComplete, Select, Checkbox, Tooltip } from "antd";
 import { CargoDimensionAdrFields } from "./CargoDimensionAdrFields";
 import { CheckPill } from "@/app/shipments/_components/CargoCheck";
-import { PlusOutlined, DeleteOutlined } from "@ant-design/icons";
+import { PlusOutlined } from "@ant-design/icons";
+import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
+import { ConfirmModal } from "@/components/ConfirmModal";
 import { SHIPMENT_WRITE_KEY, type ShipmentItem } from "@/hooks/useShipments";
 import { useIsMutating } from "@tanstack/react-query";
 import {
@@ -19,6 +21,10 @@ import {
   fmtFixed,
   numberInput,
   dimensionVolumePerPiece,
+  lineInCm,
+  lineInUnit,
+  DIMENSION_UNITS,
+  type DimensionUnit,
   dimensionLineIsEmpty,
   checkConsistency,
   compareFigure,
@@ -44,12 +50,13 @@ const emptyItem = (containerId: string | null): CargoItemLine => ({
   currency: "USD",
 });
 
-const emptyDim = (containerId: string | null): CargoDimensionLine => ({
+const emptyDim = (containerId: string | null, dimensionUnit: DimensionUnit = "cm"): CargoDimensionLine => ({
   containerId,
   pieces: "",
   lengthCm: "",
   widthCm: "",
   heightCm: "",
+  dimensionUnit,
   weightPerPcKg: "",
   packageType: "",
   stackable: "",
@@ -69,7 +76,7 @@ const itemsKey = (ls: CargoItemLine[]) => JSON.stringify(ls.filter((l) => !itemI
 // so a saved line compares equal to what was sent.
 const blankToNull = (v: string | null | undefined) => (v == null || !String(v).trim() ? null : String(v).trim());
 const dimLineKey = (l: CargoDimensionLine) => [
-  l.containerId ?? null, l.pieces, l.lengthCm, l.widthCm, l.heightCm, l.weightPerPcKg, l.packageType, l.stackable,
+  l.containerId ?? null, l.pieces, l.lengthCm, l.widthCm, l.heightCm, l.dimensionUnit === "in" ? "in" : "cm", l.weightPerPcKg, l.packageType, l.stackable,
   blankToNull(l.palletType)?.toUpperCase() ?? null,
   blankToNull(l.adrUn)?.replace(/^UN\s*/i, "") ?? null,
   blankToNull(l.adrClass),
@@ -110,13 +117,33 @@ const currencyOptions = (query: string) => {
 // Words read better than codes in the summary line.
 const UNIT_LABEL: Record<string, string> = { PCS: "pieces", KG: "kg", "M³": "m³" };
 
-// minmax(0, …): every row keeps the same column widths, whatever a cell holds.
-const DIM_COLS =
-  // ADR gets room for its whole summary ("UN 2382 · 3 · PG II · LQ"); the number columns stay narrow.
-  "grid grid-cols-[minmax(0,0.55fr)_minmax(0,1fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,1.9fr)_minmax(0,1.6fr)_32px] gap-2 items-center";
+// minmax(0, …): every row keeps the same column widths, whatever a cell holds. The space
+// between columns is inside each cell (not a grid gap), so the column bands below meet
+// edge to edge.
+const DIM_GRID =
+  // ADR gets room for its whole summary ("UN 2382 / Cls: 3 / PG II / LQ"); the number columns stay narrow.
+  "grid grid-cols-[minmax(0,0.55fr)_minmax(0,1fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_minmax(0,0.75fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,1.9fr)_minmax(0,1.6fr)_32px] gap-x-0";
+// Same room either way: padding inside a banded cell, margin around a field being edited
+// (padding would squeeze the field's own padding).
+const DIM_COLS = `${DIM_GRID} items-center [&>*]:mx-1 [&>*:last-child]:!mx-0`;
+// Header and read rows group related columns on soft bands: Length / Width / Height
+// with their Unit ("Size") and Weight / Volume ("Per piece"), split by a white gap. The cells stretch
+// to the row's height and carry the row's padding, so the bands run unbroken down the table.
+const DIM_BANDS =
+  `${DIM_GRID} [&>*]:px-1 [&>*]:py-1.5 [&>*]:self-stretch [&>*]:content-center [&>*:last-child]:!px-0 ` +
+  "[&>*:nth-child(n+3):nth-child(-n+8)]:bg-slate-100/70 [&>*:nth-child(7)]:border-l-4 [&>*:nth-child(7)]:border-white";
+// The line of group labels ("Size", "Per piece") over the Dimensions bands; Description
+// keeps an empty line of the same height.
+const GROUP_ROW = "text-[10px] font-bold uppercase tracking-wider text-slate-500";
+// A field in an edited row: centred value, white on the column band.
+const EDIT_FIELD = "text-center tabular-nums !bg-white";
 const CENTERED_SELECT = "w-full [&_.ant-select-selection-item]:!text-center [&_.ant-select-selection-placeholder]:!text-center";
 // Wider gaps and roomier number columns so the header labels no longer collide.
-const DESC_COLS = "grid grid-cols-[2fr_1fr_0.7fr_1.1fr_1.1fr_1.2fr_0.8fr_32px] gap-3 items-center";
+const DESC_GRID = "grid grid-cols-[2fr_1fr_0.7fr_1.1fr_1.1fr_1.2fr_0.8fr_32px] gap-x-0";
+const DESC_COLS = `${DESC_GRID} items-center [&>*]:mx-1.5 [&>*:last-child]:!mx-0`;
+// Read rows built like the Dimensions read rows (cells carry the padding and stretch to the
+// row), so a row is as tall in both tables and switching tables does not shift anything.
+const DESC_CELLS = `${DESC_GRID} [&>*]:px-1.5 [&>*]:py-1.5 [&>*]:self-stretch [&>*]:content-center [&>*:last-child]:!px-0`;
 
 /**
  * Which rows of a table are open for editing. A row closes when focus leaves it or on
@@ -175,7 +202,8 @@ export function CargoDetailsTab({
   );
 
   const [items, setItems] = useState<CargoItemLine[]>(() => shipment.cargoItems ?? []);
-  const [dims, setDims] = useState<CargoDimensionLine[]>(() => shipment.cargoDimensions ?? []);
+  // Dimension lines are held in their own unit (cm or inches) and sent in cm (lineInCm).
+  const [dims, setDims] = useState<CargoDimensionLine[]>(() => (shipment.cargoDimensions ?? []).map(lineInUnit));
   // The container shown (its tab) and which of its tables: one at a time keeps the page short.
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [view, setView] = useState<"dims" | "desc">("dims");
@@ -187,12 +215,30 @@ export function CargoDetailsTab({
   dimsRef.current = dims;
   const openItems = useOpenRows();
   const openDims = useOpenRows();
+  // A click outside every row being edited ends the editing. Focus leaving a row closes it
+  // too, but a row opened by double-click may never have had focus, so the click itself is
+  // watched. Clicks in a row's own popups (pickers, the "⋯" menu, the delete confirmation,
+  // tooltips) do not count: those render outside the row.
+  const anyOpen = openDims.count > 0 || openItems.count > 0;
+  useEffect(() => {
+    if (!anyOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Element | null;
+      if (!t?.closest) return;
+      if (t.closest("[data-edit-row], .ant-select-dropdown, .ant-dropdown, .ant-modal-root, .ant-tooltip, .ant-picker-dropdown")) return;
+      openDims.reset();
+      openItems.reset();
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anyOpen]);
 
 
   // Reset local edit state when navigating to a different shipment.
   useEffect(() => {
     setItems(shipment.cargoItems ?? []);
-    setDims(shipment.cargoDimensions ?? []);
+    setDims((shipment.cargoDimensions ?? []).map(lineInUnit));
     setActiveKey(null);
     openItems.reset();
     openDims.reset();
@@ -237,7 +283,7 @@ export function CargoDetailsTab({
     if (dKey !== sentDims.current && (forceDims || openRef.current.dims.size === 0)) {
       sentDims.current = dKey;
       const kept = keepOpen(dimsRef.current, openRef.current.dims, dimIsEmpty, forceDims);
-      setDims(withPanelRows([...serverDims, ...kept], keys, (l) => keyOf(l.containerId), emptyDim));
+      setDims(withPanelRows([...serverDims.map(lineInUnit), ...kept], keys, (l) => keyOf(l.containerId), (c) => emptyDim(c)));
       openDims.set(kept.map((_, j) => serverDims.length + j));
     }
   };
@@ -272,7 +318,7 @@ export function CargoDetailsTab({
     onChange({ cargoItems: payload }).catch(() => setTimeout(() => resync(refused), 50));
   };
   const sendDims = (list: CargoDimensionLine[]) => {
-    const payload = list.filter((l) => !dimIsEmpty(l));
+    const payload = list.filter((l) => !dimIsEmpty(l)).map(lineInCm);
     const key = dimsKey(payload);
     if (key === sentDims.current) return;
     sentDims.current = key;
@@ -314,8 +360,12 @@ export function CargoDetailsTab({
 
   const addItem = (panelKey: string) =>
     setItems((r) => [...r, emptyItem(panelKey === NONE ? null : panelKey)]);
+  // A new line takes the unit of the last line of its panel (cm when there is none).
   const addDim = (panelKey: string) =>
-    setDims((r) => [...r, emptyDim(panelKey === NONE ? null : panelKey)]);
+    setDims((r) => {
+      const last = [...r].reverse().find((l) => keyOf(l.containerId) === panelKey);
+      return [...r, emptyDim(panelKey === NONE ? null : panelKey, last?.dimensionUnit === "in" ? "in" : "cm")];
+    });
 
   // Removing a panel's last line just clears it (reference-UI behavior). Open rows are
   // tracked by index, which shifts on removal, so every row goes back to read mode.
@@ -328,11 +378,30 @@ export function CargoDetailsTab({
     openItems.reset();
     sendItems(next);
   };
+  // Copy from a row's "⋯": the same line again, right under it, and saved. A JSON copy, so
+  // it gets a row key of its own (rowKey lives on a Symbol, which JSON drops). Open rows
+  // are tracked by index, which shifts, so every row goes back to read mode.
+  const copyItem = (idx: number) => {
+    const src = itemsRef.current[idx];
+    if (!src) return;
+    const next = [...itemsRef.current.slice(0, idx + 1), JSON.parse(JSON.stringify(src)) as CargoItemLine, ...itemsRef.current.slice(idx + 1)];
+    setItems(next);
+    openItems.reset();
+    sendItems(next);
+  };
+  const copyDim = (idx: number) => {
+    const src = dimsRef.current[idx];
+    if (!src) return;
+    const next = [...dimsRef.current.slice(0, idx + 1), JSON.parse(JSON.stringify(src)) as CargoDimensionLine, ...dimsRef.current.slice(idx + 1)];
+    setDims(next);
+    openDims.reset();
+    sendDims(next);
+  };
   const removeDim = (idx: number, panelSize: number) => {
     const next =
       panelSize > 1
         ? dimsRef.current.filter((_, j) => j !== idx)
-        : dimsRef.current.map((l, j) => (j === idx ? emptyDim(l.containerId ?? null) : l));
+        : dimsRef.current.map((l, j) => (j === idx ? emptyDim(l.containerId ?? null, l.dimensionUnit === "in" ? "in" : "cm") : l));
     setDims(next);
     openDims.reset();
     sendDims(next);
@@ -347,7 +416,7 @@ export function CargoDetailsTab({
     const panelDims = dims.map((l, idx) => ({ l, idx })).filter(({ l }) => keyOf(l.containerId) === key);
     const filledDims = panelDims.filter(({ l }) => !dimIsEmpty(l)).length;
     const filledItems = panelItems.filter(({ l }) => !itemIsEmpty(l)).length;
-    const check = container ? checkConsistency(container, panelDims.map(({ l }) => l)) : null;
+    const check = container ? checkConsistency(container, panelDims.map(({ l }) => lineInCm(l))) : null;
     const descPcs = panelItems.reduce((s, { l }) => s + num(l.pieces), 0);
     const descKg = panelItems.reduce((s, { l }) => s + num(l.grossWeight), 0);
     const descCheck = container
@@ -375,7 +444,7 @@ export function CargoDetailsTab({
   const dimTotals = {
     pcs: panelDims.reduce((s, { l }) => s + num(l.pieces), 0),
     kg: panelDims.reduce((s, { l }) => s + num(l.pieces) * num(l.weightPerPcKg), 0),
-    m3: panelDims.reduce((s, { l }) => s + num(l.pieces) * dimensionVolumePerPiece(l), 0),
+    m3: panelDims.reduce((s, { l }) => s + num(l.pieces) * dimensionVolumePerPiece(lineInCm(l)), 0),
   };
   const descCiv = civByCurrency(panelItems.map(({ l }) => l));
 
@@ -383,21 +452,71 @@ export function CargoDetailsTab({
   const checkStrip = (pills: React.ReactNode) =>
     container ? (
       <div className="flex items-center gap-2 flex-wrap mt-3 pt-3 px-1 border-t border-slate-100">
-        <span className="text-xs text-slate-500 mr-1">Declared for {active.label}</span>
         {pills}
       </div>
     ) : null;
 
+  // Delete from a row's "⋯": a line with anything in it asks first; an empty line just goes.
+  const [confirmDelete, setConfirmDelete] = useState<{ table: "dims" | "items"; idx: number; size: number } | null>(null);
+  const askDelete = (table: "dims" | "items", idx: number, size: number) => {
+    const empty = table === "dims" ? dimIsEmpty(dims[idx] ?? emptyDim(null)) : itemIsEmpty(items[idx] ?? emptyItem(null));
+    if (!empty) return setConfirmDelete({ table, idx, size });
+    if (table === "dims") removeDim(idx, size);
+    else removeItem(idx, size);
+  };
+  // What the confirmation names: the line's pieces and size, or its description.
+  const deleteDescription = (() => {
+    if (!confirmDelete) return "";
+    if (confirmDelete.table === "dims") {
+      const l = dims[confirmDelete.idx];
+      const size = l && [l.lengthCm, l.widthCm, l.heightCm].every(Boolean) ? `${l.lengthCm} × ${l.widthCm} × ${l.heightCm} cm` : "";
+      const what = [l?.pieces && `${l.pieces} pcs`, size].filter(Boolean).join(", ");
+      return `The dimension line${what ? ` (${what})` : ""} will be deleted.`;
+    }
+    const l = items[confirmDelete.idx];
+    return `The description line${l?.cargoDescription ? ` "${l.cargoDescription}"` : ""} will be deleted.`;
+  })();
+
   const addLine = () => (view === "dims" ? addDim(active.key) : addItem(active.key));
+  // Add: a small filled "+" laid over the table header's right end, above the rows' "⋯" -
+  // as in Container Details. Outside the scroll box so nothing clips it; the header keeps
+  // its height.
+  const addButton = (
+    <Tooltip title={view === "dims" ? "Add dimension" : "Add description"}>
+      <Button
+        size="small"
+        type="primary"
+        icon={<PlusOutlined className="text-[11px]" />}
+        aria-label={view === "dims" ? "Add dimension" : "Add description"}
+        onClick={addLine}
+        // On the column titles' line (under the group labels), the same place in both tables.
+        className="!absolute top-[19px] right-[9px] z-10 !w-[22px] !h-[22px] !min-w-0 !p-0"
+      />
+    </Tooltip>
+  );
 
   return (
     // One card: the containers as tabs, then which table (pill tabs, as on the list pages)
     // with Add, and the table straight in the card. The page's own tab already says
     // "Cargo Details", so the card has no title bar.
     <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-      {containers.length > 0 && (
-        // The containers as tabs (as in the grid's Dimensions dialog); the dot says whether
-        // a container's lines add up to what it declares.
+      <ConfirmModal
+        open={!!confirmDelete}
+        danger
+        title="Delete line?"
+        description={deleteDescription}
+        confirmLabel="Delete"
+        onClose={() => setConfirmDelete(null)}
+        onConfirm={() => {
+          if (confirmDelete?.table === "dims") removeDim(confirmDelete.idx, confirmDelete.size);
+          else if (confirmDelete) removeItem(confirmDelete.idx, confirmDelete.size);
+          setConfirmDelete(null);
+        }}
+      />
+      {panels.length > 1 && (
+        // The containers as tabs (as in the grid's Dimensions dialog) - only when there is
+        // more than one to choose from; a single container is named in the pills below.
+        // The dot says whether a container's lines add up to what it declares.
         <div role="tablist" aria-label="Containers" className="flex items-end gap-1 px-3 pt-2 bg-white border-b border-slate-200 overflow-x-auto">
           {panels.map((p) => {
             const on = p.key === active.key;
@@ -460,34 +579,40 @@ export function CargoDetailsTab({
               );
             })}
           </div>
-          <Button size="small" type="primary" ghost icon={<PlusOutlined />} className="ml-auto" onClick={addLine}>
-            {view === "dims" ? "Add dimension" : "Add description"}
-          </Button>
         </div>
         {view === "dims" ? (
-          <div>
+          <div className="relative">
+            {addButton}
             <div className="overflow-x-auto">
               <div className="min-w-[1000px]">
-                <div className={`${DIM_COLS} px-1 pb-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wide border-b border-slate-200`}>
+                {/* The group labels over the banded columns, each the top of its band. */}
+                <div className={`${DIM_GRID} px-1 ${GROUP_ROW}`}>
+                  <span className="col-span-2" />
+                  <span className="col-span-4 text-center bg-slate-100/70 rounded-t-lg pt-1.5 pb-0.5">Size</span>
+                  <span className="col-span-2 text-center bg-slate-100/70 rounded-t-lg pt-1.5 pb-0.5 border-l-4 border-white">Per piece</span>
+                  <span className="col-span-3" />
+                </div>
+                <div className={`${DIM_BANDS} px-1 text-[10px] font-bold text-slate-500 uppercase tracking-wide border-b border-slate-200 [&>*]:!pt-0 [&>*]:!pb-1.5`}>
                   <span className="text-center truncate">Pcs</span>
                   <span className="text-center truncate">Packages</span>
-                  <span className="text-center truncate">Length (cm)</span>
-                  <span className="text-center truncate">Width (cm)</span>
-                  <span className="text-center truncate">Height (cm)</span>
-                  <span className="text-center truncate">Weight / pc (kg)</span>
-                  <span className="text-center truncate">Volume / pc (m³)</span>
+                  <span className="text-center truncate">Length</span>
+                  <span className="text-center truncate">Width</span>
+                  <span className="text-center truncate">Height</span>
+                  <span className="text-center truncate">Unit</span>
+                  <span className="text-center truncate">Weight (kg)</span>
+                  <span className="text-center truncate">Volume (m³)</span>
                   <span className="text-center truncate">Stackability</span>
                   <span className="text-center truncate">ADR</span>
                   <span />
                 </div>
 
                 {panelDims.map(({ l, idx }) => {
-                  const vpc = dimensionVolumePerPiece(l);
+                  const vpc = dimensionVolumePerPiece(lineInCm(l));
                   if (!dimIsOpen(idx)) {
                     return (
                       <div
                         key={rowKey(l)}
-                        className={`${DIM_COLS} px-1 py-1.5 border-b border-slate-100 text-[13px] text-slate-700 cursor-pointer hover:bg-slate-50/60`}
+                        className={`${DIM_BANDS} px-1 border-b border-slate-100 text-[13px] text-slate-700 cursor-pointer hover:bg-slate-50/60`}
                         onDoubleClick={() => openDims.open(idx)}
                         title="Double-click to edit"
                       >
@@ -496,6 +621,7 @@ export function CargoDetailsTab({
                         <span className="text-center tabular-nums">{l.lengthCm || "—"}</span>
                         <span className="text-center tabular-nums">{l.widthCm || "—"}</span>
                         <span className="text-center tabular-nums">{l.heightCm || "—"}</span>
+                        <span className="text-center text-xs font-semibold uppercase text-slate-500">{l.dimensionUnit === "in" ? "inch" : "cm"}</span>
                         <span className="text-center tabular-nums">{l.weightPerPcKg || "—"}</span>
                         <span className="text-center tabular-nums text-slate-500">{vpc ? vpc.toFixed(3) : "—"}</span>
                         <span className="text-center leading-snug break-words" title={l.stackable || undefined}>{l.stackable || "—"}</span>
@@ -503,7 +629,7 @@ export function CargoDetailsTab({
                         <span className="text-center text-orange-600 font-medium leading-snug break-words" title={adrSummary(l)}>
                           {hasAdr(l) ? adrSummary(l) : <span className="text-slate-700 font-normal">—</span>}
                         </span>
-                        <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => removeDim(idx, panelDims.length)} />
+                        <RowActionsMenu label="Dimension line actions" onCopy={() => copyDim(idx)} onDelete={() => askDelete("dims", idx, panelDims.length)} />
                       </div>
                     );
                   }
@@ -512,49 +638,79 @@ export function CargoDetailsTab({
                     <div
                       key={rowKey(l)}
                       className="border-b border-slate-100"
+                      data-edit-row
                       onBlur={openDims.onRowBlur(idx)}
                       onKeyDown={openDims.onRowKeyDown(idx)}
                     >
-                      <div className={`${DIM_COLS} px-1 py-1`}>
+                      {/* Built like the read row (same banded cells, each control inside its
+                          cell), so double-clicking a line only turns its values into fields -
+                          nothing in the table moves or loses its band. */}
+                      <div className={`${DIM_BANDS} px-1 [&>*]:!py-1`}>
                         {/* Numbers only, like the Dimensions modal: Pcs whole, the rest may take a decimal point; at most 4 digits (weight 5). */}
-                        <Input size="small" className="text-center" inputMode="numeric" value={l.pieces} onChange={(e) => patchDim(idx, { pieces: numberInput(e.target.value, false, 4) })} onBlur={persistDims} />
-                        <Select
-                          size="small"
-                          className={CENTERED_SELECT}
-                          value={l.packageType || undefined}
-                          allowClear
-                          placeholder="—"
-                          options={PACK_TYPES.map((p) => ({ value: p }))}
-                          onChange={(v) => {
-                            patchDim(idx, { packageType: v ?? "" });
-                            setTimeout(persistDims, 0);
-                          }}
-                        />
-                        <Input size="small" className="text-center" inputMode="decimal" value={l.lengthCm} onChange={(e) => patchDim(idx, { lengthCm: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
-                        <Input size="small" className="text-center" inputMode="decimal" value={l.widthCm} onChange={(e) => patchDim(idx, { widthCm: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
-                        <Input size="small" className="text-center" inputMode="decimal" value={l.heightCm} onChange={(e) => patchDim(idx, { heightCm: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
-                        <Input size="small" className="text-center" inputMode="decimal" value={l.weightPerPcKg} onChange={(e) => patchDim(idx, { weightPerPcKg: numberInput(e.target.value, true, 5) })} onBlur={persistDims} />
-                        <Input size="small" className="text-center !bg-slate-50 !text-slate-500" readOnly tabIndex={-1} value={vpc ? vpc.toFixed(3) : ""} />
-                        <Select
-                          size="small"
-                          className={CENTERED_SELECT}
-                          value={l.stackable || undefined}
-                          allowClear
-                          placeholder="—"
-                          popupMatchSelectWidth={false}
-                          options={STACKABLE_OPTIONS.map((s) => ({ value: s }))}
-                          onChange={(v) => {
-                            patchDim(idx, { stackable: v ?? "" });
-                            setTimeout(persistDims, 0);
-                          }}
-                        />
-                        <Checkbox
-                          className="justify-self-center"
-                          aria-label="Dangerous goods (ADR)"
-                          checked={adrShown}
-                          onChange={(e) => handleAdrToggle(idx, l, e.target.checked)}
-                        />
-                        <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => removeDim(idx, panelDims.length)} />
+                        <div>
+                          <Input size="small" className={EDIT_FIELD} inputMode="numeric" value={l.pieces} onChange={(e) => patchDim(idx, { pieces: numberInput(e.target.value, false, 4) })} onBlur={persistDims} />
+                        </div>
+                        <div>
+                          <Select
+                            size="small"
+                            className={CENTERED_SELECT}
+                            value={l.packageType || undefined}
+                            allowClear
+                            placeholder="—"
+                            options={PACK_TYPES.map((p) => ({ value: p }))}
+                            onChange={(v) => {
+                              patchDim(idx, { packageType: v ?? "" });
+                              setTimeout(persistDims, 0);
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <Input size="small" className={EDIT_FIELD} inputMode="decimal" value={l.lengthCm} onChange={(e) => patchDim(idx, { lengthCm: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
+                        </div>
+                        <div>
+                          <Input size="small" className={EDIT_FIELD} inputMode="decimal" value={l.widthCm} onChange={(e) => patchDim(idx, { widthCm: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
+                        </div>
+                        <div>
+                          <Input size="small" className={EDIT_FIELD} inputMode="decimal" value={l.heightCm} onChange={(e) => patchDim(idx, { heightCm: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
+                        </div>
+                        <div>
+                          {/* The unit of the three sizes: the numbers stay as typed, only their unit changes. */}
+                          <Select
+                            size="small"
+                            className={CENTERED_SELECT}
+                            aria-label="Size unit"
+                            value={l.dimensionUnit === "in" ? "in" : "cm"}
+                            options={DIMENSION_UNITS}
+                            onChange={(v: DimensionUnit) => {
+                              patchDim(idx, { dimensionUnit: v });
+                              setTimeout(persistDims, 0);
+                            }}
+                          />
+                        </div>
+                        <div>
+                          <Input size="small" className={EDIT_FIELD} inputMode="decimal" value={l.weightPerPcKg} onChange={(e) => patchDim(idx, { weightPerPcKg: numberInput(e.target.value, true, 5) })} onBlur={persistDims} />
+                        </div>
+                        {/* Computed, so plain text as in the read row. */}
+                        <span className="text-center text-[13px] tabular-nums text-slate-500">{vpc ? vpc.toFixed(3) : "—"}</span>
+                        <div>
+                          <Select
+                            size="small"
+                            className={CENTERED_SELECT}
+                            value={l.stackable || undefined}
+                            allowClear
+                            placeholder="—"
+                            popupMatchSelectWidth={false}
+                            options={STACKABLE_OPTIONS.map((s) => ({ value: s }))}
+                            onChange={(v) => {
+                              patchDim(idx, { stackable: v ?? "" });
+                              setTimeout(persistDims, 0);
+                            }}
+                          />
+                        </div>
+                        <div className="flex justify-center">
+                          <Checkbox aria-label="Dangerous goods (ADR)" checked={adrShown} onChange={(e) => handleAdrToggle(idx, l, e.target.checked)} />
+                        </div>
+                        <RowActionsMenu label="Dimension line actions" onCopy={() => copyDim(idx)} onDelete={() => askDelete("dims", idx, panelDims.length)} />
                       </div>
                       {adrShown && <CargoDimensionAdrFields line={l} onPatch={(p) => patchDim(idx, p)} onCommit={persistDims} />}
                     </div>
@@ -566,6 +722,7 @@ export function CargoDetailsTab({
                 {!check && (
                   <div className={`${DIM_COLS} px-1 pt-2.5 pb-1 mt-1 border-t border-slate-200`}>
                     {totalCell(dimTotals.pcs, "PCS", 0)}
+                    <span />
                     <span />
                     <span />
                     <span />
@@ -587,9 +744,15 @@ export function CargoDetailsTab({
             </div>
           </div>
         ) : (
-          <div>
+          <div className="relative">
+            {addButton}
             <div className="overflow-x-auto">
               <div className="min-w-[860px]">
+                {/* As tall as the Dimensions group labels, so both headers sit on the same line and
+                    switching tables does not shift anything. */}
+                <div aria-hidden className={`${GROUP_ROW} pt-1.5 pb-0.5 invisible`}>
+                  Size
+                </div>
                 <div className={`${DESC_COLS} px-1 pb-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wide border-b border-slate-200`}>
                   <span className="truncate">Cargo Description</span>
                   <span className="text-center truncate">HS Code</span>
@@ -605,7 +768,7 @@ export function CargoDetailsTab({
                   !itemIsOpen(idx) ? (
                     <div
                       key={rowKey(l)}
-                      className={`${DESC_COLS} px-1 py-1.5 border-b border-slate-100 text-[13px] text-slate-700 cursor-pointer hover:bg-slate-50/60`}
+                      className={`${DESC_CELLS} px-1 border-b border-slate-100 text-[13px] text-slate-700 cursor-pointer hover:bg-slate-50/60`}
                       onDoubleClick={() => openItems.open(idx)}
                       title="Double-click to edit"
                     >
@@ -616,12 +779,13 @@ export function CargoDetailsTab({
                       <span className="text-center tabular-nums">{l.grossWeight || "—"}</span>
                       <span className="text-center tabular-nums">{l.commercialInvoiceValue || "—"}</span>
                       <span className="text-center truncate">{l.currency || "—"}</span>
-                      <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => removeItem(idx, panelItems.length)} />
+                      <RowActionsMenu label="Description line actions" onCopy={() => copyItem(idx)} onDelete={() => askDelete("items", idx, panelItems.length)} />
                     </div>
                   ) : (
                     <div
                       key={rowKey(l)}
                       className={`${DESC_COLS} px-1 py-1 border-b border-slate-100`}
+                      data-edit-row
                       onBlur={openItems.onRowBlur(idx)}
                       onKeyDown={openItems.onRowKeyDown(idx)}
                     >
@@ -664,7 +828,7 @@ export function CargoDetailsTab({
                         onChange={(v) => patchItem(idx, { currency: (v ?? "").toUpperCase() })}
                         onBlur={persistItems}
                       />
-                      <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => removeItem(idx, panelItems.length)} />
+                      <RowActionsMenu label="Description line actions" onCopy={() => copyItem(idx)} onDelete={() => askDelete("items", idx, panelItems.length)} />
                     </div>
                   ),
                 )}
@@ -692,10 +856,12 @@ export function CargoDetailsTab({
                     <CheckPill label="Weight" m={descCheck.kg} decimals={2} unit="kg" />
                     {/* The invoice value total, which nothing declares: a plain pill. */}
                     {descCiv && (
-                      <span className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs ring-1 ring-inset ring-slate-200 bg-slate-50 text-slate-700 tabular-nums whitespace-nowrap">
+                      <Tooltip title={`Lines: ${descCiv} · the container declares no invoice value`}>
+                      <span className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs ring-1 ring-inset ring-slate-200 bg-slate-50 text-slate-700 tabular-nums whitespace-nowrap cursor-default">
                         <span className="font-semibold uppercase tracking-wide text-[10px] text-slate-500">Invoice value</span>
                         <span className="font-semibold">{descCiv}</span>
                       </span>
+                      </Tooltip>
                     )}
                   </>,
                 )}

@@ -74,12 +74,12 @@ export const ADR_PACKING_GROUPS: interfaces.AdrPackingGroup[] = ["I", "II", "III
 export const hasAdr = (l: interfaces.CargoDimensionLine): boolean =>
   !!(l.adrUn || l.adrClass || l.adrPackingGroup || l.adrLimitedQuantity);
 
-/** The ADR details of a line in one short text, e.g. "UN 1203 · 3 · PG II · LQ". */
+/** The ADR details of a line in one short text, e.g. "UN 1203 / Cls: 3 / PG II / LQ". */
 // A UN number typed with its prefix ("UN2382", "un 2382") shows the prefix once: "UN 2382".
 export const adrSummary = (l: interfaces.CargoDimensionLine): string =>
-  [l.adrUn?.trim() && `UN ${l.adrUn.trim().replace(/^UN\s*/i, "")}`, l.adrClass, l.adrPackingGroup && `PG ${l.adrPackingGroup}`, l.adrLimitedQuantity && "LQ"]
+  [l.adrUn?.trim() && `UN ${l.adrUn.trim().replace(/^UN\s*/i, "")}`, l.adrClass?.trim() && `Cls: ${l.adrClass.trim()}`, l.adrPackingGroup && `PG ${l.adrPackingGroup}`, l.adrLimitedQuantity && "LQ"]
     .filter(Boolean)
-    .join(" · ");
+    .join(" / ");
 
 export const CURRENCIES: { code: string; name: string }[] = [
   { code: "USD", name: "US Dollar" },
@@ -166,6 +166,36 @@ export interface DimensionTotals {
   kg: number;
   m3: number;
 }
+
+// ── Dimension units ──
+// The server stores the sizes of a dimension line in cm; dimensionUnit says whether the line
+// was typed in cm or inches. The editors (Cargo Details, the Dimensions dialog) hold a line in
+// its own unit and convert at the edges: lineInUnit when it comes from the server,
+// lineInCm when it is sent or measured. 1 in = 2.54 cm exactly, rounded to 4 decimals, so an
+// inch value with up to 2 decimals goes there and back unchanged (44 in -> 111.76 cm -> 44 in).
+export const INCH_CM = 2.54;
+export type DimensionUnit = interfaces.DimensionUnit;
+export const DIMENSION_UNITS: { value: DimensionUnit; label: string }[] = [
+  { value: "cm", label: "CM" },
+  { value: "in", label: "INCH" },
+];
+const SIZE_KEYS = ["lengthCm", "widthCm", "heightCm"] as const;
+const round4 = (n: number) => String(Math.round(n * 1e4) / 1e4);
+const convertSizes = (l: CargoDimensionLine, f: (n: number) => number): CargoDimensionLine => {
+  const next = { ...l };
+  for (const k of SIZE_KEYS) {
+    const v = (l[k] ?? "").trim();
+    next[k] = v === "" || Number.isNaN(Number(v)) ? l[k] : round4(f(Number(v)));
+  }
+  return next;
+};
+/** A line from the server (sizes in cm) shown in its own unit. */
+export const lineInUnit = (l: CargoDimensionLine): CargoDimensionLine =>
+  l.dimensionUnit === "in" ? convertSizes(l, (cm) => cm / INCH_CM) : l;
+/** A line held in its own unit, with its sizes in cm (to send, or to measure volume). */
+export const lineInCm = (l: CargoDimensionLine): CargoDimensionLine =>
+  l.dimensionUnit === "in" ? convertSizes(l, (inch) => inch * INCH_CM) : l;
+export const unitLabel = (u?: DimensionUnit | null) => (u === "in" ? "in" : "cm");
 
 // A dimension line with nothing in it: never saved. The pallet type and ADR count, so
 // a line holding only those (typed in Cargo Details) survives a save from the grid's

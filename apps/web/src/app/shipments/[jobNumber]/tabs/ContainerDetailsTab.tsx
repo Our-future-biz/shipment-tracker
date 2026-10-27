@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { rowKey } from "@/app/shipments/_lib/rowKey";
-import { Input, Button, AutoComplete, Dropdown, Select, Tooltip, message } from "antd";
-import { PlusOutlined, DeleteOutlined, MoreOutlined } from "@ant-design/icons";
+import { Input, Button, AutoComplete, Select, Tooltip, message } from "antd";
+import { PlusOutlined } from "@ant-design/icons";
+import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
 import { SHIPMENT_WRITE_KEY, type ShipmentItem } from "@/hooks/useShipments";
 import { useIsMutating } from "@tanstack/react-query";
 import { ConfirmModal } from "@/components/ConfirmModal";
@@ -301,21 +302,11 @@ export function ContainerDetailsTab({
   // A row's actions behind "⋯" (centred under the "+" in the header): Delete, one click
   // further away so a container (and its cargo) is not removed by a stray click.
   const rowMenu = (i: number) => (
-    <Dropdown
-      trigger={["click"]}
-      placement="bottomRight"
-      menu={{
-        items: [{ key: "delete", label: "Delete", icon: <DeleteOutlined />, danger: true }],
-        // A row with anything in it asks first; an empty row just goes.
-        onClick: ({ key }) => {
-          if (key !== "delete") return;
-          if (isBlankContainer(rows[i] ?? emptyContainer())) remove(i);
-          else setConfirmDelete(i);
-        },
-      }}
-    >
-      <Button type="text" size="small" icon={<MoreOutlined />} aria-label="Container actions" className="justify-self-center !text-slate-500" />
-    </Dropdown>
+    <RowActionsMenu
+      label="Container actions"
+      // A row with anything in it asks first; an empty row just goes.
+      onDelete={() => (isBlankContainer(rows[i] ?? emptyContainer()) ? remove(i) : setConfirmDelete(i))}
+    />
   );
 
   return (
@@ -488,7 +479,7 @@ export function ContainerDetailsTab({
 
             <div className={`${COLS} px-2 pt-3 mt-1 text-xs font-bold text-slate-800 border-t-2 border-slate-200`}>
               <span className="uppercase tracking-wide text-[11px]">
-                Total · {rows.length} container{rows.length === 1 ? "" : "s"}
+                {rows.length} container{rows.length === 1 ? "" : "s"}
               </span>
               <span />
               <span />

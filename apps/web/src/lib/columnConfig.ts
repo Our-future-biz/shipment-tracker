@@ -542,6 +542,8 @@ export interface DimensionRow {
   lengthCm: string;
   widthCm: string;
   heightCm: string;
+  // The unit the sizes were typed in; the sizes above are always cm.
+  dimensionUnit?: "cm" | "in";
   weightPerPcKg: string;
 }
 
@@ -570,15 +572,21 @@ export function computeDimensionTotals(dimensions: unknown): {
   }
 }
 
-/** The dimension lines as text: pieces × L×W×H in cm, lines separated by commas. */
+/** The dimension lines as text: pieces × L×W×H in each line's unit (cm or in), lines separated by commas. */
 export function summarizeDimensions(dimensions: unknown): string {
   if (!dimensions) return "";
   try {
     const rows: DimensionRow[] = Array.isArray(dimensions) ? dimensions : JSON.parse(String(dimensions));
     const num = (v: string) => String(parseFloat(v || "0") || 0);
+    // A line typed in inches shows in inches (stored cm / 2.54, as typed).
+    const size = (r: DimensionRow, v: string) =>
+      r.dimensionUnit === "in" ? String(Math.round(((parseFloat(v || "0") || 0) / 2.54) * 1e4) / 1e4) : num(v);
     return rows
       .filter((r) => [r.lengthCm, r.widthCm, r.heightCm].some((v) => parseFloat(v || "0") > 0))
-      .map((r) => `${num(r.pieces) === "0" ? "1" : num(r.pieces)}\u00d7 ${num(r.lengthCm)}\u00d7${num(r.widthCm)}\u00d7${num(r.heightCm)} cm`)
+      .map(
+        (r) =>
+          `${num(r.pieces) === "0" ? "1" : num(r.pieces)}\u00d7 ${size(r, r.lengthCm)}\u00d7${size(r, r.widthCm)}\u00d7${size(r, r.heightCm)} ${r.dimensionUnit === "in" ? "in" : "cm"}`,
+      )
       .join(", ");
   } catch {
     return "";

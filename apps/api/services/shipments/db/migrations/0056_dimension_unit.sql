@@ -1,0 +1,2 @@
+ALTER TABLE "cargo_dimension" ADD COLUMN "dimension_unit" text DEFAULT 'cm' NOT NULL;--> statement-breakpoint
+ALTER TABLE "cargo_dimension" ADD CONSTRAINT "cargo_dimension_dimension_unit_check" CHECK ("cargo_dimension"."dimension_unit" IN ('cm', 'in'));

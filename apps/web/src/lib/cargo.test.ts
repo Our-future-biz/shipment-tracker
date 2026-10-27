@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkConsistency, compareFigure, dimensionLineIsEmpty, CONTAINER_TYPES, containerType, NOT_STACKABLE, numberInput, STACKABLE, shipmentStackability, withShipmentStackability } from "./cargo";
+import { checkConsistency, compareFigure, dimensionLineIsEmpty, lineInCm, lineInUnit, CONTAINER_TYPES, containerType, NOT_STACKABLE, numberInput, STACKABLE, shipmentStackability, withShipmentStackability } from "./cargo";
 import { containerTypeFrom } from "@/app/documents/_lib/extraction";
 
 describe("CONTAINER_TYPES", () => {
@@ -115,5 +115,19 @@ describe("dimensionLineIsEmpty", () => {
     expect(dimensionLineIsEmpty(blank)).toBe(true);
     expect(dimensionLineIsEmpty({ ...blank, palletType: "EUR" })).toBe(false);
     expect(dimensionLineIsEmpty({ ...blank, adrUn: "1203" })).toBe(false);
+  });
+});
+
+describe("dimension units", () => {
+  const line = { pieces: "2", lengthCm: "44", widthCm: "40.5", heightCm: "", weightPerPcKg: "", packageType: "", stackable: "", dimensionUnit: "in" as const };
+  it("sends inches as exact cm and shows them back as typed", () => {
+    const cm = lineInCm(line);
+    expect([cm.lengthCm, cm.widthCm, cm.heightCm]).toEqual(["111.76", "102.87", ""]);
+    expect(lineInUnit(cm)).toMatchObject({ lengthCm: "44", widthCm: "40.5", heightCm: "" });
+  });
+  it("leaves a cm line as it is", () => {
+    const cmLine = { ...line, dimensionUnit: "cm" as const };
+    expect(lineInCm(cmLine)).toBe(cmLine);
+    expect(lineInUnit(cmLine)).toBe(cmLine);
   });
 });

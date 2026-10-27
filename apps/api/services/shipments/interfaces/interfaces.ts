@@ -41,6 +41,9 @@ export interface CargoDimensionLine {
   lengthCm: string;
   widthCm: string;
   heightCm: string;
+  /** The unit the sizes were typed in. lengthCm / widthCm / heightCm are always cm; this
+   * only says how to show and edit them. Absent means "cm". */
+  dimensionUnit?: DimensionUnit;
   weightPerPcKg: string;
   packageType: string;
   stackable: string;
@@ -53,6 +56,8 @@ export interface CargoDimensionLine {
   adrPackingGroup?: AdrPackingGroup | null;
   adrLimitedQuantity?: boolean;
 }
+
+export type DimensionUnit = "cm" | "in";
 
 export type PalletType = "EUR" | "INDUSTRIAL" | "HALF" | "QUARTER" | "OTHER";
 export type AdrPackingGroup = "I" | "II" | "III";

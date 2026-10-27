@@ -1,3 +1,4 @@
+import { Tooltip } from "antd";
 import { fmtFixed } from "@/lib/cargo";
 
 // The check of cargo lines against what their container declares, the same in Cargo Details
@@ -6,7 +7,8 @@ import { fmtFixed } from "@/lib/cargo";
 type Figure = { sum: number; declared: number; empty: boolean; ok: boolean };
 
 /** One figure: what the lines add up to / what the container declares - green when they
- * agree, red when not, grey when the container declares nothing. */
+ * agree, red when not, grey when the container declares nothing. Hovering says which number
+ * is which ("Lines: 11 · Container: 11"). */
 export function CheckPill({ label, m, decimals, unit = "" }: { label: string; m: Figure; decimals: number; unit?: string }) {
   const declared = !!m.declared;
   const tone = !declared
@@ -14,8 +16,11 @@ export function CheckPill({ label, m, decimals, unit = "" }: { label: string; m:
     : m.ok
       ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
       : "bg-red-50 text-red-700 ring-red-200";
+  const u = unit ? ` ${unit}` : "";
+  const explain = `Lines: ${fmtFixed(m.sum, decimals)}${u} · Container: ${declared ? `${fmtFixed(m.declared, decimals)}${u}` : "not declared"}`;
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs ring-1 ring-inset tabular-nums whitespace-nowrap ${tone}`}>
+    <Tooltip title={explain}>
+    <span className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs ring-1 ring-inset tabular-nums whitespace-nowrap cursor-default ${tone}`}>
       <span className="font-semibold uppercase tracking-wide text-[10px] opacity-80">{label}</span>
       <span className="font-semibold">{fmtFixed(m.sum, decimals)}</span>
       <span className="opacity-70">
@@ -23,6 +28,7 @@ export function CheckPill({ label, m, decimals, unit = "" }: { label: string; m:
         {unit ? ` ${unit}` : ""}
       </span>
     </span>
+    </Tooltip>
   );
 }
 
