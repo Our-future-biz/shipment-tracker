@@ -244,7 +244,8 @@ export function CostLinesEditor({
                       // Per W/M: the cargo's weight / measure, 3 decimals as Cargo details shows it;
                       // per container: the number of containers.
                       precision={l.basis === "wm" ? 3 : 2}
-                      disabled={perUnitBasis(l.basis)}
+                      // `undefined`, not `false`, when open: antd's own `false` overrides the lock of a closed quote.
+                      disabled={perUnitBasis(l.basis) || undefined}
                       title={l.basis === "wm" ? "Weight / measure from Cargo details" : l.basis === "container" ? "Number of containers from Cargo details" : undefined}
                       parser={moneyInputParser}
                       placeholder="=amt"
@@ -257,7 +258,8 @@ export function CostLinesEditor({
                       size="small"
                       className="w-full"
                       aria-label="Basis"
-                      disabled={basisOf?.(l) !== undefined}
+                      // As Quantity: `undefined` when open, so a closed quote's lock still applies.
+                      disabled={basisOf?.(l) !== undefined || undefined}
                       title={basisOf?.(l) !== undefined ? "The same as its buying line" : undefined}
                       value={basisOf?.(l) ?? l.basis ?? "lumpsum"}
                       // Per container only on a quote with containers (or a line that has it already).
