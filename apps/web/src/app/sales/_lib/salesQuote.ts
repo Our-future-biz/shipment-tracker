@@ -2,7 +2,7 @@ import type { interfaces } from "@/lib/api/client";
 import { downloadCsv } from "@/lib/csv";
 import type { ExchangeRates } from "@/lib/exchangeRates";
 import { fmtMoney, roundCents } from "@/lib/money";
-import type { SalesQuoteData, CostLine, PackageLine, QuoteContainerLine, TimelineEntry } from "./types";
+import type { ChargeBasis, SalesQuoteData, CostLine, PackageLine, QuoteContainerLine, TimelineEntry } from "./types";
 import { teuForType } from "@/lib/cargo";
 import { withBuyingBasis } from "./costPairs";
 import { businessDay, businessToday, formatDate } from "@/lib/date";
@@ -275,23 +275,37 @@ export function computeCargo(data: SalesQuoteData) {
 
 /** The unit of a line charged per W/M: its quantity is the cargo's weight / measure. */
 export const WM_UNIT = "W/M";
+/** The unit of a line charged per container: its quantity is the quote's number of containers. */
+export const CONTAINER_UNIT = "container";
 
-/** What a line's Amount column holds: per W/M the rate per W/M, otherwise the whole line. */
+/** Whether a line of this basis is priced per unit (W/M, container) rather than as a lump sum. */
+export const perUnitBasis = (basis: ChargeBasis | undefined): basis is "wm" | "container" => basis === "wm" || basis === "container";
+
+/** The units a line of this basis is counted in on this quote: its weight / measure, or its containers. */
+export function basisUnits(data: SalesQuoteData, basis: ChargeBasis | undefined): number {
+  const cargo = computeCargo(data);
+  return basis === "container" ? cargo.totalContainers : cargo.weightMeasure;
+}
+
+/** What a line's Amount column holds: per W/M or container the rate per unit, otherwise the whole line. */
 export function lineRate(line: CostLine): number {
-  return Number(line.basis === "wm" ? (line.unitPrice ?? line.amount) : line.amount) || 0;
+  return Number(perUnitBasis(line.basis) ? (line.unitPrice ?? line.amount) : line.amount) || 0;
 }
 
 /**
- * The line with this in its Amount column. Per W/M it is the rate: the line is priced like a
- * tariff line, the weight / measure as its quantity and the rate as its unit price, and its amount -
- * what the totals, the margin and Costs Breakdown count - is their product.
+ * The line with this in its Amount column. Per W/M or per container it is the rate: the line is
+ * priced like a tariff line, the units (weight / measure, or containers) as its quantity and the
+ * rate as its unit price, and its amount - what the totals, the margin and Costs Breakdown
+ * count - is their product.
  */
-export function withRate(line: CostLine, rate: number, wm: number): CostLine {
-  if (line.basis !== "wm") return { ...line, amount: rate };
-  return { ...line, value: wm, qty: wm, unit: WM_UNIT, unitPrice: rate, amount: roundCents(rate * wm) };
+export function withRate(line: CostLine, rate: number, units: number): CostLine {
+  if (!perUnitBasis(line.basis)) return { ...line, amount: rate };
+  const unit = line.basis === "container" ? CONTAINER_UNIT : WM_UNIT;
+  return { ...line, value: units, qty: units, unit, unitPrice: rate, amount: roundCents(rate * units) };
 }
 
-// A line back from W/M to a lump sum: its rate is the amount again, and nothing is priced per unit.
+// A line back from W/M or per container to a lump sum: its rate is the amount again, and nothing
+// is priced per unit.
 function asLumpsum(line: CostLine): CostLine {
   const lumpsum: CostLine = { ...line, amount: Number(line.unitPrice ?? line.amount) || 0 };
   delete lumpsum.qty;
@@ -302,15 +316,20 @@ function asLumpsum(line: CostLine): CostLine {
 
 /**
  * The quote's lines as their basis has them: a selling line is charged by its buying line's basis;
- * a line charged per W/M has the cargo's weight / measure as its quantity and costs its rate times
- * that - taken as it is set to W/M, and followed while the cargo changes; a line set back to a
- * lump sum costs its rate again. Null when every line has them already.
+ * a line charged per W/M has the cargo's weight / measure as its quantity, one charged per
+ * container the quote's number of containers, and costs its rate times that - taken as it is set
+ * to the basis, and followed while the cargo changes; a line set back to a lump sum costs its rate
+ * again. Null when every line has them already.
  */
 export function withLineBasis(data: SalesQuoteData): Pick<SalesQuoteData, "buyingLines" | "sellingLines"> | null {
   const basisCopied = withBuyingBasis(data.buyingLines, data.sellingLines);
   const sellingLines = basisCopied ?? data.sellingLines;
-  const wm = computeCargo(data).weightMeasure;
-  const asBasis = (l: CostLine): CostLine => (l.basis === "wm" ? withRate(l, lineRate(l), wm) : l.unit === WM_UNIT ? asLumpsum(l) : l);
+  const cargo = computeCargo(data);
+  const asBasis = (l: CostLine): CostLine => {
+    if (l.basis === "wm") return withRate(l, lineRate(l), cargo.weightMeasure);
+    if (l.basis === "container") return withRate(l, lineRate(l), cargo.totalContainers);
+    return l.unit === WM_UNIT || l.unit === CONTAINER_UNIT ? asLumpsum(l) : l;
+  };
   const same = (a: CostLine, b: CostLine) => a.value === b.value && a.qty === b.qty && a.unit === b.unit && a.unitPrice === b.unitPrice && a.amount === b.amount;
   let changed = !!basisCopied;
   const counted = (side: CostLine[] | undefined) =>

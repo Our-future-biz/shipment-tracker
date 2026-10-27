@@ -63,7 +63,7 @@ export interface QuoteOog {
   height?: number;
 }
 
-export type ChargeBasis = "lumpsum" | "wm";
+export type ChargeBasis = "lumpsum" | "wm" | "container";
 
 export interface CostLine {
   // The label of the charge ("Road freight"); quotes saved before the catalogue hold only this.
@@ -78,7 +78,8 @@ export interface CostLine {
   // The whole line; with qty and unitPrice it is their product.
   amount: number;
   value?: number;
-  // What the line is charged by: a lump sum (also when absent) or per W/M (weight or measure).
+  // What the line is charged by: a lump sum (also when absent), per W/M (weight or measure) or per
+  // container (the quote's containers).
   basis?: ChargeBasis;
   // A line priced per unit (e.g. by a tariff): copied to Costs Breakdown as qty × unit price.
   qty?: number;

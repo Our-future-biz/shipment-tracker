@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CostLine, SalesQuoteData } from "./types";
 import type { QuoteTotals } from "./salesQuote";
-import { baseRef, computeCargo, fxNote, hasReefer, isReeferType, reeferMissing, followStored, followUpLines, quoteProfitIn, quoteFamily, lineRate, revisionRoot, withoutPricing, withLineBasis, withRate, WM_UNIT, type SalesQuote } from "./salesQuote";
+import { baseRef, computeCargo, fxNote, hasReefer, isReeferType, reeferMissing, followStored, followUpLines, quoteProfitIn, quoteFamily, lineRate, revisionRoot, withoutPricing, withLineBasis, withRate, CONTAINER_UNIT, WM_UNIT, type SalesQuote } from "./salesQuote";
 
 const quote = (quoteNumber: string): SalesQuote => ({ quoteNumber }) as SalesQuote;
 
@@ -201,6 +201,15 @@ describe("withLineBasis", () => {
 
   it("costs the rate again once set back to a lump sum", () => {
     expect(withLineBasis({ ...cargo, buyingLines: [perWm(40, { basis: "lumpsum" })] })?.buyingLines).toEqual([line({ basis: "lumpsum", value: 7.551 })]);
+  });
+
+  it("prices a line charged per container at its amount per container, the number of containers as its quantity", () => {
+    const boxes = { containers: [{ qty: 2, type: "40' HC" }, { qty: 1, type: "20' GP" }] };
+    const perBox = (rate: number, n: number) => line({ basis: "container", value: n, qty: n, unit: CONTAINER_UNIT, unitPrice: rate, amount: rate * n });
+    expect(withLineBasis({ ...boxes, buyingLines: [line({ basis: "container", amount: 1750 })] })?.buyingLines).toEqual([perBox(1750, 3)]);
+    // It follows the containers, and costs its rate again once set back to a lump sum.
+    expect(withLineBasis({ containers: [{ qty: 5, type: "40' HC" }], buyingLines: [perBox(1750, 3)] })?.buyingLines).toEqual([perBox(1750, 5)]);
+    expect(withLineBasis({ ...boxes, buyingLines: [{ ...perBox(1750, 3), basis: "lumpsum" }] })?.buyingLines).toEqual([line({ basis: "lumpsum", value: 3, amount: 1750 })]);
   });
 
   it("gives a selling line its buying line's basis, and prices it by that", () => {

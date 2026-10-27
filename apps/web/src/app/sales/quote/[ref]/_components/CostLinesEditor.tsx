@@ -10,7 +10,7 @@ import { chargeLabel, chargeOptions, toChargeCode } from "@/lib/chargeCodes";
 import { CURRENCIES } from "@/lib/enums";
 import { useListKeys } from "@/hooks/useListKeys";
 import { ConfirmModal } from "@/components/ConfirmModal";
-import { computeCargo, convertLine, lineRate, quoteCurrency, withRate, type LivePricing } from "@/app/sales/_lib/salesQuote";
+import { basisUnits, computeCargo, convertLine, lineRate, perUnitBasis, quoteCurrency, withRate, type LivePricing } from "@/app/sales/_lib/salesQuote";
 import { LockedAmountInput } from "./LockedAmountInput";
 import { MiniButton, RemoveLineButton } from "./QuoteButtons";
 import { LINE_TD_CLASS, LINE_TH_CLASS, LINE_TH_RIGHT_CLASS, LineBlock, LineBlockEmpty, LineTable } from "./LineBlock";
@@ -35,6 +35,7 @@ const describedAs = (code: string): string => (code === "other" ? "" : chargeLab
 const BASIS_OPTIONS: { value: ChargeBasis; label: string }[] = [
   { value: "lumpsum", label: "Lumpsum" },
   { value: "wm", label: "W/M" },
+  { value: "container", label: "Per container" },
 ];
 
 /** A line's amount as a number: a quote's JSON may hold it as text, or not at all (priced by qty × unit price). */
@@ -56,18 +57,21 @@ export function serviceChange(line: CostLine, code: string): { line: CostLine; a
 }
 
 // A new cost line is in the quote's currency, so adding one never mixes currencies by accident.
+// On a quote with containers it is charged per container, their number its quantity; otherwise
+// it is a lump sum of quantity 1 unless the user sets another.
 const newCostLine = (quote: SalesQuoteData): CostLine => {
   const code = FREIGHT_LINE_CODE[quote.serviceType ?? ""] ?? "other";
-  return {
+  const containers = computeCargo(quote).totalContainers;
+  const line: CostLine = {
     ...chargeOf(code),
     description: describedAs(code),
     supplier: "",
     currency: quoteCurrency(quote),
     amount: 0,
-    // 1 unless the user sets another.
     value: 1,
-    basis: "lumpsum",
+    basis: containers > 0 ? "container" : "lumpsum",
   };
+  return withRate(line, 0, containers);
 };
 
 interface CostLinesEditorProps {
@@ -118,9 +122,10 @@ export function CostLinesEditor({
   const buying = kind === "buying";
   const currency = quoteCurrency(quote);
   const patch = (i: number, p: Partial<CostLine>) => onChange(lines.map((x, j) => (j === i ? { ...x, ...p } : x)));
-  // A line's Amount column: per W/M the rate, which the cargo's weight / measure multiplies.
-  const wm = computeCargo(quote).weightMeasure;
-  const priced = (line: CostLine, rate: number) => withRate(line, rate, wm);
+  // A line's Amount column: per W/M or container the rate, which the cargo's weight / measure or
+  // the number of containers multiplies.
+  const priced = (line: CostLine, rate: number) => withRate(line, rate, basisUnits(quote, line.basis));
+  const containers = computeCargo(quote).totalContainers;
   // The line whose service was changed while its description held text of its own: whether that
   // text gives way to the service's name is asked.
   const [asked, setAsked] = useState<{ index: number; description: string; service: string } | null>(null);
@@ -236,10 +241,11 @@ export function CostLinesEditor({
                       className="!w-full"
                       aria-label="Quantity"
                       min={0}
-                      // Per W/M: the cargo's weight / measure, 3 decimals as Cargo details shows it.
+                      // Per W/M: the cargo's weight / measure, 3 decimals as Cargo details shows it;
+                      // per container: the number of containers.
                       precision={l.basis === "wm" ? 3 : 2}
-                      disabled={l.basis === "wm"}
-                      title={l.basis === "wm" ? "Weight / measure from Cargo details" : undefined}
+                      disabled={perUnitBasis(l.basis)}
+                      title={l.basis === "wm" ? "Weight / measure from Cargo details" : l.basis === "container" ? "Number of containers from Cargo details" : undefined}
                       parser={moneyInputParser}
                       placeholder="=amt"
                       value={l.value}
@@ -254,7 +260,9 @@ export function CostLinesEditor({
                       disabled={basisOf?.(l) !== undefined}
                       title={basisOf?.(l) !== undefined ? "The same as its buying line" : undefined}
                       value={basisOf?.(l) ?? l.basis ?? "lumpsum"}
-                      options={BASIS_OPTIONS}
+                      // Per container only on a quote with containers (or a line that has it already).
+                      options={BASIS_OPTIONS.filter((o) => o.value !== "container" || containers > 0 || l.basis === "container")}
+                      popupMatchSelectWidth={false}
                       onChange={(basis: ChargeBasis) => patch(i, { basis })}
                     />
                   </td>

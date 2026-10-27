@@ -11,7 +11,7 @@ export function sellingFromBuying(line: CostLine, markupPct: number): CostLine {
   return sellingAt(line, round2(lineRate(line) * (1 + markupPct / 100)));
 }
 
-// The selling line of a buying line at this rate (per W/M, or the whole line).
+// The selling line of a buying line at this rate (per W/M or container, or the whole line).
 function sellingAt(line: CostLine, rate: number): CostLine {
   const selling: CostLine = {
     type: line.type,
@@ -34,10 +34,10 @@ interface AddToSellingDialogProps {
 
 // Asked when a buying line gets its amount: whether the charge goes to selling as well, and with
 // what markup - in %, or as a lump sum on top. The selling amount can be typed instead; each of
-// the three follows the one typed. A line charged per W/M is marked up per W/M.
+// the three follows the one typed. A line charged per W/M or per container is marked up per unit.
 export function AddToSellingDialog({ line, onAdd, onClose }: AddToSellingDialogProps) {
   const buying = lineRate(line);
-  const per = line.basis === "wm" ? " per W/M" : "";
+  const per = line.basis === "wm" ? " per W/M" : line.basis === "container" ? " per container" : "";
   const [markup, setMarkup] = useState<number | null>(null);
   const [lump, setLump] = useState<number | null>(null);
   const [selling, setSelling] = useState<number | null>(null);
