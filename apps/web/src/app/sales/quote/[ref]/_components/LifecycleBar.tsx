@@ -262,14 +262,7 @@ export function LifecycleBar({ quote, sendBlocked, onChange, hrefOf, changingOwn
           label="Win probability"
           size="text"
           centered
-          value={
-            // The figure rides along the bar below: at the start for 0%, at its end for 100%.
-            <span className="w-full">
-              <span className={`inline-block transition-all ${FIGURE_CLASS}`} style={{ marginLeft: `${winProb}%`, transform: `translateX(-${winProb}%)` }}>
-                {winProb}%
-              </span>
-            </span>
-          }
+          value={<span className={FIGURE_CLASS}>{winProb}%</span>}
           hint={
             <div className="h-4 flex items-center">
               <div
