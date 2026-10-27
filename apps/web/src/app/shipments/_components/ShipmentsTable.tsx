@@ -28,6 +28,7 @@ import { COLUMNS, COLUMN_MAP, getCellConditionalStyle, getFilteredStatusOptions,
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useColumnView } from "@/hooks/useColumnView";
 import { DEFAULT_SHIPMENT_COLUMNS } from "@/hooks/useColumnPrefs";
+import { clampColumnWidth, useColumnWidths } from "@/hooks/useColumnWidths";
 import { useFilterTemplates } from "@/hooks/useFilterTemplates";
 import { useToast } from "@/lib/toast";
 import { RECEIVED_TICKS, isReceivedTick, receivedFollowsDocuments, receivedValue, toggledReceivedOverride } from "@/lib/customsReceived";
@@ -155,6 +156,12 @@ export const ShipmentsTable = ({
   );
   const { visible: chosen, setVisible, templates, activeTemplateId, isDirty, applyTemplate, deactivate, saveAsTemplate, deleteTemplate } =
     useColumnView(user?.id, token, columnScope);
+  // Column widths the user dragged, kept per user in this browser; only the Shipments grid has
+  // them for now, not the views of it on other pages.
+  const resizable = !view;
+  const { widths, setWidth, resetWidth, resetAll: resetWidths } = useColumnWidths(user?.id);
+  // The column whose edge is being dragged, at the width it has so far (saved once let go).
+  const [dragWidth, setDragWidth] = useState<{ key: string; width: number } | null>(null);
   // The view's lead column goes in front of whatever the user chose and cannot be dropped.
   const leadColumn = view?.leadColumn;
   const viewReadonly = view?.readonlyColumns;
@@ -426,24 +433,46 @@ export const ShipmentsTable = ({
 
   // Columns \u2014 driven by the user's selection, in the saved (draggable) order.
   const columns: ColumnsType<ShipmentItem> = useMemo(() => {
+    // The width the user gave a column (while dragging, the width so far); none, it keeps its own.
+    const widthOf = (key: string): number | undefined =>
+      resizable ? (dragWidth?.key === key ? dragWidth.width : widths[key]) : undefined;
+    // The table is as wide as its content, so a column is never narrower than its text; one the
+    // user sized is held at that width on every cell (the rest of its text then ends in "...").
+    const heldAt = (key: string): React.CSSProperties | undefined => {
+      const width = widthOf(key);
+      return width === undefined ? undefined : { width, minWidth: width, maxWidth: width };
+    };
     const cols: ColumnsType<ShipmentItem> = visible
       .map((key) => COLUMN_MAP.get(key))
       .filter((col): col is NonNullable<typeof col> => !!col && col.type !== "popup")
       .map((col) => ({
       key: col.key,
       title: col.title,
-      width: col.width,
+      width: widthOf(col.key) ?? col.width,
       // The job number shows its own card on hover, so no native title tooltip under it.
       ellipsis: col.key === "jobNumber" ? { showTitle: false } : true,
       align: isReceivedTick(col.key) ? ("center" as const) : undefined,
       // Internal Reference + Master job stay frozen on the left while the rest scrolls.
       fixed: isFixedColumn(col.key) || col.key === leadColumn ? ("left" as const) : undefined,
-      onHeaderCell: () => ({ id: col.key }) as React.HTMLAttributes<HTMLTableCellElement>,
+      onHeaderCell: () =>
+        ({
+          id: col.key,
+          style: heldAt(col.key),
+          ...(resizable && {
+            onResizeWidth: (width: number, done: boolean) => {
+              if (!done) return setDragWidth({ key: col.key, width: clampColumnWidth(width) });
+              setDragWidth(null);
+              setWidth(col.key, width);
+            },
+            onResetWidth: () => resetWidth(col.key),
+          }),
+        }) as React.HTMLAttributes<HTMLTableCellElement>,
       // Per-column conditional background tint (applies on every row).
       onCell: (record: ShipmentItem) => {
         const info = rowInfo.get(record.id);
         const cellBg = getCellConditionalStyle(col.key, getFieldValue(record, col.key), info?.rowData ?? {})?.backgroundColor;
-        return cellBg ? { style: { backgroundImage: `linear-gradient(${cellBg}, ${cellBg})` } } : {};
+        const held = heldAt(col.key);
+        return cellBg || held ? { style: { ...held, ...(cellBg && { backgroundImage: `linear-gradient(${cellBg}, ${cellBg})` }) } } : {};
       },
       render: (_: unknown, record: ShipmentItem) => {
         const info = rowInfo.get(record.id);
@@ -650,7 +679,7 @@ export const ShipmentsTable = ({
     });
 
     return cols;
-  }, [visible, leadColumn, viewReadonly, rowInfo, router, updateField, updateShipment, unreadBy, detailHref]);
+  }, [visible, leadColumn, viewReadonly, rowInfo, router, updateField, updateShipment, unreadBy, detailHref, resizable, widths, dragWidth, setWidth, resetWidth]);
 
   // Client-side pagination (custom bottom bar so the size selector sits on the left).
   const totalRows = filtered.length;
@@ -900,6 +929,7 @@ export const ShipmentsTable = ({
             onDeactivate={deactivate}
             onSaveTemplate={saveAsTemplate}
             onDeleteTemplate={deleteTemplate}
+            onResetWidths={resizable && Object.keys(widths).length > 0 ? resetWidths : undefined}
           />
           <button
             onClick={() => exportShipmentsCsv(filtered, visible)}

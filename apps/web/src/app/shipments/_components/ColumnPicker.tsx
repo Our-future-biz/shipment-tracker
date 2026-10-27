@@ -21,6 +21,7 @@ export function ColumnPicker({
   onDeactivate,
   onSaveTemplate,
   onDeleteTemplate,
+  onResetWidths,
 }: {
   visible: string[];
   onChange: (keys: string[]) => void;
@@ -32,6 +33,8 @@ export function ColumnPicker({
   /** Saves the current columns under a name; an existing template of that name is overwritten. */
   onSaveTemplate: (name: string) => Promise<void>;
   onDeleteTemplate: (id: string) => void;
+  /** Set while the user has columns at a width of their own: puts them all back to their own widths. */
+  onResetWidths?: () => void;
 }) {
   const [search, setSearch] = useState("");
   const [templateName, setTemplateName] = useState("");
@@ -167,6 +170,15 @@ export function ColumnPicker({
         >
           Clear
         </button>
+        {onResetWidths && (
+          <button
+            onClick={onResetWidths}
+            title="Put every column back to its default width"
+            className="text-[11px] text-slate-400 hover:underline bg-transparent border-none p-0 cursor-pointer"
+          >
+            Reset widths
+          </button>
+        )}
         <span className="ml-auto text-[11px] text-slate-400">{visible.length} shown</span>
       </div>
     </div>
