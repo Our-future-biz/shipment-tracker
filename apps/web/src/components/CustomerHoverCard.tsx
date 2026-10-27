@@ -5,7 +5,6 @@ import type { ReactNode } from "react";
 import { Popover, Spin } from "antd";
 import { useCustomer } from "@/hooks/useCustomers";
 import { flagOf } from "@/lib/countries";
-import { CustomerStatusDot } from "@/app/customers/_components/CustomerStatusDot";
 import { CustomerAccountTypeBadge } from "@/app/customers/_components/CustomerAccountTypeBadge";
 
 interface CustomerHoverCardProps {
@@ -14,8 +13,8 @@ interface CustomerHoverCardProps {
   children: ReactNode;
 }
 
-// A small card of a customer for a quick look while working on a job (name, status, address,
-// sales owner, payment terms) that appears when the pointer
+// A small card of a customer for a quick look while working on a job (name, account type,
+// address, sales owner, payment terms) that appears when the pointer
 // rests on its name for a moment, like the contact card of Customer's PIC. Loaded only then.
 export function CustomerHoverCard({ customerId, children }: CustomerHoverCardProps) {
   const [opened, setOpened] = useState(false);
@@ -25,7 +24,8 @@ export function CustomerHoverCard({ customerId, children }: CustomerHoverCardPro
     isLoading || !customer ? (
       <div className="flex justify-center px-6 py-3">{isLoading ? <Spin size="small" /> : <span className="text-xs text-slate-400">Not found</span>}</div>
     ) : (
-      <div className="w-[280px]">
+      // As wide as its content (a long address stays on one line), between 280 and 480px.
+      <div className="w-max min-w-[280px] max-w-[480px]">
         {/* The country sits in the top right corner, beside the name. */}
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 text-[13px] font-semibold text-slate-800">{customer.companyName}</div>
@@ -35,11 +35,12 @@ export function CustomerHoverCard({ customerId, children }: CustomerHoverCardPro
             </span>
           )}
         </div>
-        {/* Who they are to us at a glance: CRM status and account type, as in the Customer Database. */}
-        <div className="mt-1.5 flex flex-wrap items-center gap-2 [&>span:first-child]:text-xs">
-          <CustomerStatusDot status={customer.status} />
-          <CustomerAccountTypeBadge label={customer.label} />
-        </div>
+        {/* Who they are to us at a glance: the account type, as in the Customer Database. */}
+        {customer.label && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            <CustomerAccountTypeBadge label={customer.label} />
+          </div>
+        )}
         <dl className="mt-2.5 mb-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 border-t border-slate-100 pt-2.5 text-xs">
           <dt className="text-slate-500">Address</dt>
           <dd className="m-0 text-slate-800">
@@ -64,7 +65,9 @@ export function CustomerHoverCard({ customerId, children }: CustomerHoverCardPro
       }
       trigger="hover"
       mouseEnterDelay={0.6}
-      placement="bottomLeft"
+      // Always above the name, never flipped below it (antd would flip it near the top edge).
+      placement="topLeft"
+      autoAdjustOverflow={false}
       arrow={false}
       onOpenChange={(open) => open && setOpened(true)}
     >

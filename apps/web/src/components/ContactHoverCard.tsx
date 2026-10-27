@@ -54,7 +54,9 @@ export function ContactHoverCard({ name, contactId, customerId, children }: Cont
       }
       trigger="hover"
       mouseEnterDelay={0.6}
-      placement="bottomLeft"
+      // Always above the name, never flipped below it (antd would flip it near the top edge).
+      placement="topLeft"
+      autoAdjustOverflow={false}
       arrow={false}
       onOpenChange={(open) => open && setOpened(true)}
     >
