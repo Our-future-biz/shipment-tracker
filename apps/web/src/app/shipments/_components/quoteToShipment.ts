@@ -24,7 +24,7 @@ const FREIGHT_MODE: Record<string, string> = {
   Air: "Air Freight",
   "Sea FCL": "Sea Freight",
   "Sea LCL": "Sea Freight",
-  "Sea Break Bulk": "Sea Freight",
+  "Sea Break Bulk": "Sea Break Bulk",
   Rail: "Rail Freight",
   Road: "Road Freight",
 };
@@ -176,9 +176,9 @@ const word = (v: string | null | undefined): string => (v ?? "").trim().toLowerC
 // A freight mode by its one word: "Sea Freight", "SEA" and "sea" are all sea.
 const modeWord = (mode: string | null | undefined): string => word(mode).replace(/\s*freight$/, "");
 
-// FREIGHT_MODE and LOAD_TYPE read backwards. Sea is several freight modes of a quote, told apart
-// by the shipment's load type: a consolidation is LCL, and any other sea shipment the first of
-// them in FREIGHT_MODE, a full container. Break Bulk has no load type, so it is never read back.
+// FREIGHT_MODE and LOAD_TYPE read backwards. Sea Freight is two freight modes of a quote, told
+// apart by the shipment's load type: a consolidation is LCL, and any other sea shipment the first
+// of the two in FREIGHT_MODE, a full container. Sea Break Bulk is its own on both.
 function serviceTypeOf(freightMode: string, loadType: string): string | undefined {
   const mode = modeWord(freightMode);
   if (!mode) return undefined;

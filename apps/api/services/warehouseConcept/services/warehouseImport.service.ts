@@ -73,7 +73,9 @@ export function gateFieldsFromShipment(s: ShipmentMappingInput): {
   }
   const handling: GateHandling = /export/i.test(direction) ? "Export" : "Import";
   const load = (s.loadType ?? "").trim();
-  const box = /sea|rail/i.test(s.freightMode ?? "") || !!(s.containerNumber ?? "").trim();
+  // Sea and rail go in containers - except break bulk, which is loose.
+  const mode = s.freightMode ?? "";
+  const box = (/sea|rail/i.test(mode) && !/break\s*bulk/i.test(mode)) || !!(s.containerNumber ?? "").trim();
   let operationType: GateOperationType = "LCL consolidation";
   if (/^full/i.test(load) && box) operationType = handling === "Export" ? "FCL stuffing" : "FCL stripping";
   else if (/consol/i.test(load)) operationType = "LCL consolidation";

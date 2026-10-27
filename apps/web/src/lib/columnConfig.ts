@@ -60,7 +60,7 @@ export const DROPDOWN_OPTIONS: Record<string, string[]> = {
   ],
   "Load Type": [...LOAD_TYPES],
   "Trade Direction": ["Import", "Export", "Domestic"],
-  "Freight Mode": ["Air Freight", "Sea Freight", "Rail Freight", "Road Freight"],
+  "Freight Mode": ["Air Freight", "Sea Freight", "Sea Break Bulk", "Rail Freight", "Road Freight"],
   "Service Type": ["Direct", "In-Direct/Nominated"],
   "Incoterm Origin": INCOTERMS,
   "Incoterm Destination": INCOTERMS,

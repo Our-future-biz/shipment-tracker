@@ -37,6 +37,8 @@ describe("chargeOptions by freight mode", () => {
     expect(sea).toEqual(expect.arrayContaining(["fcl_baf", "lcl_fuel", "bb_bunker"]));
     expect(sea).not.toContain("air_freight");
     expect(offered("Road Freight")).toContain("road_toll");
+    expect(offered("Sea Break Bulk")).toContain("wharfage");
+    expect(offered("Sea Break Bulk")).not.toContain("fcl_baf");
   });
 
   it("offers everything for no mode or one not known", () => {

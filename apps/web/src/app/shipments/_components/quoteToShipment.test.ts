@@ -23,10 +23,11 @@ describe("quote → shipment ports", () => {
 });
 
 describe("quote ↔ shipment freight mode", () => {
-  it("makes a Sea Break Bulk quote a sea shipment with no load type", () => {
+  it("makes a Sea Break Bulk quote a Sea Break Bulk shipment with no load type, and back", () => {
     const req = quoteToCreateRequest("QCZ1", { serviceType: "Sea Break Bulk" }, NO_RATES);
-    expect(req.freightMode).toBe("Sea Freight");
+    expect(req.freightMode).toBe("Sea Break Bulk");
     expect(req.loadType).toBeUndefined();
+    expect(shipmentToQuoteData({ freightMode: "Sea Break Bulk", loadType: "" } as interfaces.ShipmentItem).serviceType).toBe("Sea Break Bulk");
   });
 
   it("reads a sea shipment back as FCL, or LCL when it is a consolidation, never as Break Bulk", () => {

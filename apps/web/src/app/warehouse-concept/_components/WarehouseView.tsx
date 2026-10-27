@@ -702,7 +702,7 @@ type NewPositionValues = controllers.WarehousePositionCreateRequest;
 type Source = "job" | "quote" | "blank" | ImportMode;
 
 // Quote → warehouse value mappings (the same values a job would carry).
-const FREIGHT_MODE: Record<string, string> = { Air: "Air Freight", "Sea FCL": "Sea Freight", "Sea LCL": "Sea Freight", "Sea Break Bulk": "Sea Freight", Rail: "Rail Freight", Road: "Road Freight" };
+const FREIGHT_MODE: Record<string, string> = { Air: "Air Freight", "Sea FCL": "Sea Freight", "Sea LCL": "Sea Freight", "Sea Break Bulk": "Sea Break Bulk", Rail: "Rail Freight", Road: "Road Freight" };
 const LOAD_TYPE: Record<string, string> = { "Sea FCL": "Full Load", "Sea LCL": "Consolidation" };
 const packageType = (t: string | undefined): string => (t === "Pallets" ? "Pallet(s)" : (t ?? ""));
 

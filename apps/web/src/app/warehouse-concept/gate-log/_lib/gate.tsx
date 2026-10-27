@@ -31,7 +31,7 @@ export const CUSTOMS_CLEARED = "Customs Cleared/Released";
 export const asGateCustomsStatus = (v: string | null | undefined): interfaces.GateCustomsStatus | undefined =>
   (CUSTOMS_STATUSES as readonly string[]).includes(v ?? "") ? (v as interfaces.GateCustomsStatus) : undefined;
 export const PACKINGS = ["Pallet(s)", "Cartons", "Colli", "Boxes", "Wooden boxes", "Drums"];
-export const FREIGHT_MODES = ["Air Freight", "Sea Freight", "Rail Freight", "Road Freight"];
+export const FREIGHT_MODES = ["Air Freight", "Sea Freight", "Sea Break Bulk", "Rail Freight", "Road Freight"];
 export const LOAD_TYPES = ["Full Load", "Consolidation", "Project Shipment"];
 // Each container is surveyed once on receipt and once on release; the two passes are kept apart.
 // Surveys stored with the old "Both" phase count as the receipt pass (same rule as the server).
