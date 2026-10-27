@@ -37,6 +37,7 @@ import { NeedsAttentionTable } from "./NeedsAttentionTable";
 import { MasterJobDetailModal } from "./MasterJobDetailModal";
 import { DocumentsPanel } from "./DocumentsPanel";
 import { DimensionsModal } from "./DimensionsModal";
+import { ShipmentHoverCard } from "@/components/ShipmentHoverCard";
 import { CommercialInvoicesModal } from "./CommercialInvoicesModal";
 import { ChatPanel } from "./ChatPanel";
 import { EditableCell } from "@/app/shipments/[jobNumber]/_components/EditableCell";
@@ -432,7 +433,8 @@ export const ShipmentsTable = ({
       key: col.key,
       title: col.title,
       width: col.width,
-      ellipsis: true,
+      // The job number shows its own card on hover, so no native title tooltip under it.
+      ellipsis: col.key === "jobNumber" ? { showTitle: false } : true,
       align: isReceivedTick(col.key) ? ("center" as const) : undefined,
       // Internal Reference + Master job stay frozen on the left while the rest scrolls.
       fixed: isFixedColumn(col.key) || col.key === leadColumn ? ("left" as const) : undefined,
@@ -451,17 +453,20 @@ export const ShipmentsTable = ({
           ? { color: cellStyle.color, fontWeight: cellStyle.fontWeight }
           : undefined;
 
-        // Internal Reference \u2192 opens the detail.
+        // Internal Reference \u2192 opens the detail; resting the pointer on it shows a small
+        // summary card (customer, mode and direction, cargo).
         if (col.key === "jobNumber") {
           return (
-            <span
-              onClick={() => router.push(detailHref.replace(":id", record.id))}
-              className={`font-mono hover:underline cursor-pointer ${cellStyle?.color ? "" : "text-indigo-500"} ${cellStyle?.fontWeight ? "" : "font-bold"}`}
-              // Conditional formatting rules set these per row; without one the classes apply.
-              style={{ color: cellStyle?.color, fontWeight: cellStyle?.fontWeight }}
-            >
-              {record.jobNumber || "\u2014"}
-            </span>
+            <ShipmentHoverCard shipment={record} jobNumberColor={cellStyle?.color}>
+              <span
+                onClick={() => router.push(detailHref.replace(":id", record.id))}
+                className={`font-mono hover:underline cursor-pointer ${cellStyle?.color ? "" : "text-indigo-500"} ${cellStyle?.fontWeight ? "" : "font-bold"}`}
+                // Conditional formatting rules set these per row; without one the classes apply.
+                style={{ color: cellStyle?.color, fontWeight: cellStyle?.fontWeight }}
+              >
+                {record.jobNumber || "\u2014"}
+              </span>
+            </ShipmentHoverCard>
           );
         }
         // Master job \u2192 opens the master-job modal.
