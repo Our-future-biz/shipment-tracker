@@ -469,7 +469,7 @@ export const ShipmentsTable = ({
           return val ? (
             <button
               onClick={(e) => { e.stopPropagation(); setMczModal(val); }}
-              className="text-indigo-500 hover:underline font-medium bg-transparent border-none p-0 cursor-pointer"
+              className="text-[#3b82f6] hover:underline font-medium bg-transparent border-none p-0 cursor-pointer"
               style={textStyle}
             >
               {val}
@@ -483,7 +483,7 @@ export const ShipmentsTable = ({
           return val ? (
             <button
               onClick={(e) => { e.stopPropagation(); router.push(`/shipments/${record.id}?tab=container`); }}
-              className="text-indigo-500 hover:underline font-medium bg-transparent border-none p-0 cursor-pointer text-left"
+              className="text-[#3b82f6] hover:underline font-medium bg-transparent border-none p-0 cursor-pointer text-left"
               style={textStyle}
             >
               {val}
@@ -497,7 +497,7 @@ export const ShipmentsTable = ({
           return (
             <button
               onClick={(e) => { e.stopPropagation(); setDimsShipmentId(record.id); }}
-              className="text-indigo-500 hover:underline font-medium bg-transparent border-none p-0 cursor-pointer"
+              className="text-[#3b82f6] hover:underline font-medium bg-transparent border-none p-0 cursor-pointer"
               style={textStyle}
             >
               Click for Preview

@@ -133,6 +133,17 @@ export function num(v: string | null | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+// What a number field accepts while typing: digits only, plus — when decimals are allowed —
+// one decimal point (a typed comma becomes a point). Letters and other characters are dropped,
+// and the whole-number part keeps at most maxDigits digits (extra ones are cut off).
+export function numberInput(v: string, decimals = true, maxDigits = Infinity): string {
+  const s = v.replace(",", ".");
+  if (!decimals) return s.replace(/\D/g, "").slice(0, maxDigits);
+  const [whole = "", ...rest] = s.replace(/[^\d.]/g, "").split(".");
+  const w = whole.slice(0, maxDigits);
+  return rest.length ? `${w}.${rest.join("")}` : w;
+}
+
 // en-US thousands separators; integers plain, otherwise at most 2 decimals.
 export function fmtNum(n: number): string {
   return n % 1 === 0

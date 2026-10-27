@@ -113,7 +113,7 @@ export const COLUMNS: ColumnDef[] = [
   { key: "masterJob", title: "Master job", width: 140, type: "text", readonly: true, apiField: "masterJobMczNumber" },
 
   // Meta
-  { key: "shipmentsDate", title: "Shipments Date", width: 120, type: "computed", readonly: true },
+  { key: "shipmentsDate", title: "Shipments Month", width: 120, type: "computed", readonly: true },
   { key: "shipmentsYear", title: "Year", width: 80, type: "computed", readonly: true },
   { key: "department", title: "Department", width: 170, type: "dropdown", options: DROPDOWN_OPTIONS["Department"], apiField: "department" },
   { key: "personInCharge", title: "Person In Charge", width: 180, type: "user", apiField: "personInCharge" },

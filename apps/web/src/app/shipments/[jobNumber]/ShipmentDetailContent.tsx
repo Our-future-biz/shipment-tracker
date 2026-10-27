@@ -1308,7 +1308,7 @@ export function ShipmentDetailContent() {
                     { key: "pod", label: "POD" },
                     { key: "estimatedArrival", label: "ETA Estimated" },
                     { key: "estimatedArrivalWeek", label: "Est. Arrival Week", ro: true },
-                    { key: "shipmentsDate", label: "Shipments Date", ro: true },
+                    { key: "shipmentsDate", label: "Shipments Month", ro: true },
                     { key: "shipmentsYear", label: "Year", ro: true },
                     { key: "shippingLine", label: "Shipping line / Coloader" },
                     { key: "containerNumber", label: "Container Number", ro: true },
