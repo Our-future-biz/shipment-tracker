@@ -96,6 +96,8 @@ import { QuoteRoadCard } from "./_components/QuoteRoadCard";
 import { QuoteRoadPriceDrawer } from "./_components/QuoteRoadPriceDrawer";
 import { QuoteMarginPanel } from "./_components/QuoteMarginPanel";
 import { QuoteMarginApproveDialog } from "./_components/QuoteMarginApproveDialog";
+import { QuoteShipmentsDialog } from "./_components/QuoteShipmentsDialog";
+import { useQuoteShipments } from "@/hooks/useQuoteShipments";
 import { useCanSeeConcepts } from "@/lib/auth/AuthContext";
 
 // A new package has no dimensions and no weight: made-up ones would print as real cargo and drive
@@ -190,7 +192,7 @@ export function QuoteWorkflow() {
   const [overweightAsk, setOverweightAsk] = useState<{ to?: SectionKey; save?: boolean; removing?: number } | null>(null);
   const [feeChange, setFeeChange] = useState<{ index: number; amount: number; before: number; currency: string; reason?: string; removing?: LineSide } | null>(null);
   const [modal, setModal] = useState<
-    null | "import" | "copyQuote" | "copyShipment" | "duplicate" | "preview" | "email" | "delete" | "replaceSelling" | "allIn" | "closeQuote" | "revise" | "roadPrice" | "approveMargin"
+    null | "import" | "copyQuote" | "copyShipment" | "duplicate" | "preview" | "email" | "delete" | "replaceSelling" | "allIn" | "closeQuote" | "revise" | "roadPrice" | "approveMargin" | "shipments"
   >(null);
   // The template chosen under Shipping terms while the user is asked whether its text may replace
   // what the quote says; null when no question is open.
@@ -342,9 +344,13 @@ export function QuoteWorkflow() {
 
   // New Shipment opens for this quote. What was typed is saved first: the shipment is made from
   // the quote as it is stored, and a save that is refused - the hook says why - stops here.
-  const createShipment = async () => {
+  // Every shipment booked under this quote, the oldest first: the quote itself keeps only the first.
+  const quoteShipments = useQuoteShipments([ref]).byReference?.get(ref);
+
+  // `another`: one more shipment under a quote that has one already - the wizard starts with that ticked.
+  const createShipment = async (another = false) => {
     const result = await saveNow();
-    if (!result.problem) router.push(`/shipments?fromQuote=${encodeURIComponent(ref)}`);
+    if (!result.problem) router.push(`/shipments?fromQuote=${encodeURIComponent(ref)}${another ? "&another=1" : ""}`);
   };
 
   // Deletes the quote, once that was confirmed. What was typed and not saved yet is given up, not
@@ -1430,17 +1436,18 @@ export function QuoteWorkflow() {
                   Revise
                 </ToolbarButton>
               )}
-              {/* The shipment that carries this quote as its Sales Number - the oldest when there are
-                  several, the others are in the history - or the way to make one. */}
+              {/* The first shipment booked under this quote (its Sales Number names the quote); a click
+                  lists all of them and books another - or the way to make the first one. */}
               {quote.shipmentId ? (
-                <ToolbarButton icon={<ContainerOutlined />} onClick={() => router.push(`/shipments/${quote.shipmentId}`)}>
+                <ToolbarButton icon={<ContainerOutlined />} onClick={() => setModal("shipments")}>
                   Shipment {quote.shipmentJobNumber}
+                  {quoteShipments && quoteShipments.length > 1 && <span className="text-slate-400"> +{quoteShipments.length - 1}</span>}
                 </ToolbarButton>
               ) : (
                 // Only a Won quote can be made into a shipment - said by the status the pill shows.
                 <Tooltip title={notWonQuoteText(quote.effectiveStatus)}>
                   <span>
-                    <ToolbarButton icon={<ContainerOutlined />} onClick={createShipment} disabled={!!notWonQuoteText(quote.effectiveStatus)}>
+                    <ToolbarButton icon={<ContainerOutlined />} onClick={() => createShipment()} disabled={!!notWonQuoteText(quote.effectiveStatus)}>
                       Create shipment
                     </ToolbarButton>
                   </span>
@@ -1767,6 +1774,15 @@ export function QuoteWorkflow() {
           description={`Replace the ${sellingLines.length} selling ${sellingLines.length === 1 ? "line" : "lines"} with copies of the buying lines?`}
           confirmLabel="Replace"
           danger
+        />
+      )}
+      {modal === "shipments" && (
+        <QuoteShipmentsDialog
+          quoteNumber={ref}
+          shipments={quoteShipments}
+          createBlocked={notWonQuoteText(quote.effectiveStatus)}
+          onCreateAnother={() => createShipment(true)}
+          onClose={() => setModal(null)}
         />
       )}
       {modal === "revise" && (

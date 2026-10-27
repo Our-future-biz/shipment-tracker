@@ -35,6 +35,8 @@ interface CreateShipmentWizardProps {
   existingShipments: ShipmentItem[];
   /** The reference of the sales quote the wizard is opened for ("Create shipment" on the quote page). */
   fromQuote?: string | null;
+  /** Opened to book another shipment under that quote: "Create another shipment" starts ticked. */
+  anotherFromQuote?: boolean;
 }
 
 // "created": a shipment was made from a quote, but a step after it did not work - the wizard
@@ -81,6 +83,7 @@ export const CreateShipmentWizard = ({
   isCreating,
   existingShipments,
   fromQuote = null,
+  anotherFromQuote = false,
 }: CreateShipmentWizardProps) => {
   const queryClient = useQueryClient();
   const { user } = useAuth();
@@ -120,7 +123,8 @@ export const CreateShipmentWizard = ({
     if (!open || !fromQuote) return;
     setCopyMode("quote");
     if (presetQuote) setSelectedQuote(toSalesQuote(presetQuote));
-  }, [open, fromQuote, presetQuote]);
+    if (anotherFromQuote) setAnother(true);
+  }, [open, fromQuote, presetQuote, anotherFromQuote]);
 
   // Another quote is another question: what was answered or ticked for the last one goes.
   const pickQuote = (quote: SalesQuote | null) => {

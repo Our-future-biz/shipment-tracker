@@ -19,8 +19,10 @@ export const ShipmentsView = () => {
   const search = useDebounced(searchParams.get("q") ?? "", 300);
   const statusBucket = searchParams.get("status") ?? "all";
   const tile = searchParams.get("tile") ?? "all";
-  // "Create shipment" on a quote's page leads here with ?fromQuote=QCZ...
+  // "Create shipment" on a quote's page leads here with ?fromQuote=QCZ..., and "Create another
+  // shipment" in its list of shipments with &another=1 as well.
   const fromQuote = searchParams.get("fromQuote");
+  const anotherFromQuote = !!fromQuote && searchParams.get("another") === "1";
 
   // The search looks only in the columns the table shows.
   const [searchColumns, setSearchColumns] = useState<string[]>();
@@ -96,6 +98,7 @@ export const ShipmentsView = () => {
         isCreating={isCreating}
         existingShipments={shipments}
         fromQuote={fromQuote}
+        anotherFromQuote={anotherFromQuote}
       />
       </div>
     </div>
