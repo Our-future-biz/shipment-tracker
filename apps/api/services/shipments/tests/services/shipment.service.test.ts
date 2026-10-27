@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 vi.mock("~encore/clients", () => ({
-  auth: { usersList: vi.fn() },
+  auth: { usersList: vi.fn(), userLookup: vi.fn() },
   customers: { customerUpdate: vi.fn(), customerGet: vi.fn(), addressList: vi.fn(), contactList: vi.fn() },
   invoicing: { invoicingImportQuote: vi.fn(), openInvoiceCount: vi.fn() },
   quotes: { salesQuoteGet: vi.fn() },
@@ -24,6 +24,8 @@ vi.mock("../../repositories/shipment.repository", () => ({
     truckPlate: vi.fn(),
     liveBySalesNumbers: vi.fn(),
     liveBySalesNumber: vi.fn(),
+    peopleOf: vi.fn(),
+    rewritePeople: vi.fn(),
   },
 }));
 vi.mock("../../repositories/shipmentAttachment.repository", () => ({ shipmentAttachmentRepository: { documentTypesByShipmentIds: vi.fn() } }));
@@ -34,7 +36,7 @@ vi.mock("../../repositories/container.repository", () => ({ containerRepository:
 vi.mock("../../repositories/cargoItem.repository", () => ({ cargoItemRepository: { replaceForShipment: vi.fn(), listByShipmentId: vi.fn() } }));
 vi.mock("../../repositories/cargoDimension.repository", () => ({ cargoDimensionRepository: { replaceForShipment: vi.fn(), listByShipmentId: vi.fn() } }));
 vi.mock("../../repositories/commercialInvoice.repository", () => ({ commercialInvoiceRepository: { listByShipmentId: vi.fn(async () => []), syncForShipment: vi.fn() } }));
-vi.mock("../../topics", () => ({ shipmentDeleted: { publish: vi.fn() } }));
+vi.mock("../../topics", () => ({ shipmentDeleted: { publish: vi.fn() }, shipmentPartiesChanged: { publish: vi.fn() } }));
 vi.mock("../../services/quoteLinks.service", () => ({ quoteLinksService: { syncReference: vi.fn(), markDirty: vi.fn() } }));
 
 import log from "encore.dev/log";
@@ -50,6 +52,7 @@ import type { ShipmentRecord } from "../../schemas/shipment.schema";
 import { shipmentAuditRepository } from "../../repositories/shipmentAudit.repository";
 import { quoteLinksService } from "../../services/quoteLinks.service";
 import { shipmentService } from "../../services/shipment.service";
+import { shipmentPartiesChanged } from "../../topics";
 
 const repository = vi.mocked(shipmentRepository);
 const links = vi.mocked(quoteLinksService);
@@ -61,6 +64,11 @@ const USER = "0d5f0a43-52a1-4d0e-9a39-0c6f3b1f6a02";
 const SHIPMENT = "7b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c01";
 const REF = "QCZ20261010001";
 const OTHER_REF = "QCZ20261010002";
+// The users of the company: the signed-in one (Jan) and two colleagues.
+const JAN = { id: USER, email: "jan@firma.cz", displayName: "Jan Novák" };
+const MARTIN = { id: "5a7c9e11-3b2d-4f6a-8c0e-1d2f3a4b5c01", email: "martin@firma.cz", displayName: "Martin Koubek" };
+const JANA = { id: "5a7c9e11-3b2d-4f6a-8c0e-1d2f3a4b5c02", email: "jana@firma.cz", displayName: "Jana Nováková" };
+const MEMBERS = [JAN, MARTIN, JANA];
 
 /** The shipments the repository holds, by id. */
 let stored: Map<string, ShipmentRecord>;
@@ -97,7 +105,7 @@ const DATABASE_FAILURE = new Error('Failed query: insert into "container" ("id",
 // A quote as the quotes service answers it: Won unless said otherwise, shown as it is stored
 // unless an `effectiveStatus` is given (an expired quote is stored Quoted and shown Expired).
 const quote = (over: Record<string, unknown> = {}) =>
-  ({ quote: { quoteNumber: REF, ownerName: "Martin Koubek", status: "won", effectiveStatus: over.status ?? "won", data: {}, ...over } }) as Awaited<
+  ({ quote: { quoteNumber: REF, ownerUserId: MARTIN.id, ownerName: "Martin Koubek", status: "won", effectiveStatus: over.status ?? "won", data: {}, ...over } }) as Awaited<
     ReturnType<typeof quotes.salesQuoteGet>
   >;
 
@@ -124,6 +132,10 @@ beforeEach(() => {
   vi.mocked(cargoItemRepository.listByShipmentId).mockResolvedValue([]);
   vi.mocked(cargoDimensionRepository.listByShipmentId).mockResolvedValue([]);
   salesQuoteGet.mockResolvedValue(quote());
+  vi.mocked(auth.usersList).mockResolvedValue({ users: MEMBERS } as never);
+  vi.mocked(auth.userLookup).mockImplementation(
+    async ({ ids }) => ({ users: MEMBERS.filter((m) => ids.includes(m.id)).map((m) => ({ id: m.id, name: m.displayName, email: m.email, role: "user" })) }) as never,
+  );
   links.syncReference.mockResolvedValue(synced({ status: "won", becameWon: true }));
   importQuote.mockResolvedValue({ buying: 3, selling: 2 });
 });
@@ -137,7 +149,7 @@ describe("create from a quote", () => {
     expect(salesQuoteGet).toHaveBeenCalledWith({ quoteNumber: REF });
     const [companyId, reference, data, allowSecond] = repository.createFromQuote.mock.calls[0]!;
     expect([companyId, reference, allowSecond]).toEqual([COMPANY, REF, false]);
-    expect(data).toMatchObject({ pol: "Shanghai", salesPerson: "Martin Koubek" });
+    expect(data).toMatchObject({ pol: "Shanghai", salesPerson: "martin@firma.cz" });
     // What says how to create is not a field of the shipment.
     expect(data).not.toHaveProperty("fromQuoteNumber");
     expect(data).not.toHaveProperty("allowSecondShipment");
@@ -145,7 +157,7 @@ describe("create from a quote", () => {
     expect(links.syncReference).toHaveBeenCalledWith(COMPANY, REF, { wonByShipmentId: SHIPMENT });
     expect(importQuote).toHaveBeenCalledWith({ shipmentId: SHIPMENT, quoteNumber: REF, target: "both" });
     expect(result).toMatchObject({
-      shipment: { id: SHIPMENT, salesNumber: REF, salesPerson: "Martin Koubek" },
+      shipment: { id: SHIPMENT, salesNumber: REF, salesPerson: "martin@firma.cz" },
       quoteLink: { linked: true, becameWon: true, quoteStatus: "won" },
       costImport: { buying: 3, selling: 2 },
     });
@@ -163,9 +175,9 @@ describe("create from a quote", () => {
   });
 
   it("keeps a Sales Person the request names itself, and leaves it empty for a quote nobody owns", async () => {
-    await fromQuote({ salesPerson: "Jana Nováková" });
-    expect(repository.createFromQuote.mock.calls[0]![2]).toMatchObject({ salesPerson: "Jana Nováková" });
-    salesQuoteGet.mockResolvedValue(quote({ ownerName: "" }));
+    await fromQuote({ salesPerson: "jana@firma.cz" });
+    expect(repository.createFromQuote.mock.calls[0]![2]).toMatchObject({ salesPerson: "jana@firma.cz" });
+    salesQuoteGet.mockResolvedValue(quote({ ownerUserId: null, ownerName: "" }));
     await fromQuote();
     expect(repository.createFromQuote.mock.calls[1]![2]).not.toHaveProperty("salesPerson");
   });
@@ -301,20 +313,20 @@ describe("create without a quote", () => {
   it("makes the owner of the sales quote typed as Sales Number the Sales Person", async () => {
     const result = await create({ salesNumber: ` ${REF} ` });
     expect(salesQuoteGet).toHaveBeenCalledWith({ quoteNumber: REF });
-    expect(repository.createWithJobNumber.mock.calls[0]![1]).toMatchObject({ salesNumber: REF, salesPerson: "Martin Koubek" });
-    expect(result).toMatchObject({ shipment: { salesPerson: "Martin Koubek" } });
+    expect(repository.createWithJobNumber.mock.calls[0]![1]).toMatchObject({ salesNumber: REF, salesPerson: "martin@firma.cz" });
+    expect(result).toMatchObject({ shipment: { salesPerson: "martin@firma.cz" } });
   });
 
   it("keeps a Sales Person the request names itself - the quote is still checked", async () => {
-    await create({ salesNumber: REF, salesPerson: "Jana Nováková" });
+    await create({ salesNumber: REF, salesPerson: "jana@firma.cz" });
     expect(salesQuoteGet).toHaveBeenCalledWith({ quoteNumber: REF });
-    expect(repository.createWithJobNumber.mock.calls[0]![1]).toMatchObject({ salesPerson: "Jana Nováková" });
+    expect(repository.createWithJobNumber.mock.calls[0]![1]).toMatchObject({ salesPerson: "jana@firma.cz" });
   });
 
   it("leaves the Sales Person empty for a Sales Number that is no sales quote and a quote nobody owns", async () => {
     salesQuoteGet.mockRejectedValueOnce(APIError.notFound("Quote not found"));
     await create({ salesNumber: "PO 4411" });
-    salesQuoteGet.mockResolvedValueOnce(quote({ ownerName: "" }));
+    salesQuoteGet.mockResolvedValueOnce(quote({ ownerUserId: null, ownerName: "" }));
     await create({ salesNumber: REF });
     expect(repository.createWithJobNumber).toHaveBeenCalledTimes(2);
     for (const [, data] of repository.createWithJobNumber.mock.calls) expect(data).not.toHaveProperty("salesPerson");
@@ -363,14 +375,22 @@ describe("create without a quote", () => {
 });
 
 describe("Created by", () => {
-  const members = { users: [{ id: USER, displayName: "Jan Novák", email: "jan@example.com" }] };
-
-  it("is stamped with the signed-in user who creates the shipment, whatever the request says", async () => {
-    vi.mocked(auth.usersList).mockResolvedValue(members as never);
+  it("is the e-mail of the signed-in user who creates the shipment, whatever the request says (when is createdAt)", async () => {
     await shipmentService.create(COMPANY, { createdBy: "someone else" } as never, USER);
     await shipmentService.create(COMPANY, { fromQuoteNumber: REF, createdBy: "someone else" } as never, USER);
     const createdBy = [repository.createWithJobNumber.mock.calls[0]![1].createdBy, repository.createFromQuote.mock.calls[0]![2].createdBy];
-    for (const stamp of createdBy) expect(stamp).toMatch(/^\S.* — Jan Novák$/);
+    for (const stamp of createdBy) expect(stamp).toBe("jan@firma.cz");
+    expect(auth.userLookup).toHaveBeenCalledWith({ ids: [USER] });
+  });
+
+  it("takes the e-mail from the users list when the lookup fails, and never writes a display name", async () => {
+    vi.mocked(auth.userLookup).mockRejectedValue(new Error("auth is unreachable"));
+    await shipmentService.create(COMPANY, {} as never, USER);
+    expect(repository.createWithJobNumber.mock.calls[0]![1].createdBy).toBe("jan@firma.cz");
+    // Nobody can tell who: it stays empty.
+    vi.mocked(auth.usersList).mockRejectedValue(new Error("auth is unreachable"));
+    await shipmentService.create(COMPANY, {} as never, USER);
+    expect(repository.createWithJobNumber.mock.calls[1]![1].createdBy).toBe("");
   });
 
   it("keeps the stamp a caller inside the backend passes when no user creates it (Trucking's road jobs)", async () => {
@@ -384,7 +404,7 @@ describe("update", () => {
   const update = (data: Record<string, unknown>) => shipmentService.update(SHIPMENT, COMPANY, data as never, USER);
 
   it("tells the new quote and the old one when the Sales Number changes, after the shipment is written", async () => {
-    stored.set(SHIPMENT, row({ salesNumber: REF, salesPerson: "Martin Koubek" }));
+    stored.set(SHIPMENT, row({ salesNumber: REF, salesPerson: "martin@firma.cz" }));
     await update({ salesNumber: ` ${OTHER_REF} ` });
     expect(repository.updateForCompany.mock.calls[0]![2]).toMatchObject({ salesNumber: OTHER_REF });
     expect(links.syncReference.mock.calls).toEqual([
@@ -404,17 +424,17 @@ describe("update", () => {
   });
 
   it("hands the shipment to the owner of the sales quote its Sales Number now names", async () => {
-    stored.set(SHIPMENT, row({ salesNumber: REF, salesPerson: "Martin Koubek" }));
-    salesQuoteGet.mockResolvedValue(quote({ quoteNumber: OTHER_REF, ownerName: "Jana Nováková" }));
+    stored.set(SHIPMENT, row({ salesNumber: REF, salesPerson: "martin@firma.cz" }));
+    salesQuoteGet.mockResolvedValue(quote({ quoteNumber: OTHER_REF, ownerUserId: JANA.id, ownerName: "Jana Nováková" }));
     await update({ salesNumber: OTHER_REF });
     expect(salesQuoteGet).toHaveBeenCalledWith({ quoteNumber: OTHER_REF });
-    expect(repository.updateForCompany.mock.calls[0]![2]).toMatchObject({ salesNumber: OTHER_REF, salesPerson: "Jana Nováková" });
+    expect(repository.updateForCompany.mock.calls[0]![2]).toMatchObject({ salesNumber: OTHER_REF, salesPerson: "jana@firma.cz" });
   });
 
   it("keeps the Sales Person when the request names one, when the new Sales Number is no sales quote, and when the number is cleared or the same", async () => {
-    stored.set(SHIPMENT, row({ salesNumber: REF, salesPerson: "Martin Koubek" }));
-    await update({ salesNumber: OTHER_REF, salesPerson: "Jana Nováková" });
-    expect(repository.updateForCompany.mock.calls[0]![2]).toMatchObject({ salesPerson: "Jana Nováková" });
+    stored.set(SHIPMENT, row({ salesNumber: REF, salesPerson: "martin@firma.cz" }));
+    await update({ salesNumber: OTHER_REF, salesPerson: "jana@firma.cz" });
+    expect(repository.updateForCompany.mock.calls[0]![2]).toMatchObject({ salesPerson: "jana@firma.cz" });
     expect(salesQuoteGet).toHaveBeenCalledWith({ quoteNumber: OTHER_REF });
 
     salesQuoteGet.mockRejectedValueOnce(APIError.notFound("Quote not found"));
@@ -479,20 +499,20 @@ describe("a shipper or consignee picked from the Customer Database", () => {
     } as never);
     vi.mocked(customers.contactList).mockResolvedValue({
       data: [
-        { name: "Eva Prodej", role: "Sales", isMain: true },
-        { name: "Jana Servis", role: "Customer Service", isMain: false },
+        { id: "c-eva", name: "Eva Prodej", role: "Sales", isMain: true },
+        { id: "c-jana", name: "Jana Servis", role: "Customer Service", isMain: false },
       ],
     } as never);
   });
 
-  it("fills the Contact with the Customer Service contact, unless the write sends one", async () => {
+  it("fills the Contact with the Customer Service contact, by name and id, unless the write sends one", async () => {
     stored.set(SHIPMENT, row({ consigneeId: null, consigneeContact: "Old Person" }));
     await update({ consigneeId: PARTY });
-    expect(written()).toMatchObject({ consigneeContact: "Jana Servis", deliveryAddress: "Dopravní, Praha 11" });
+    expect(written()).toMatchObject({ consigneeContact: "Jana Servis", consigneeContactId: "c-jana", deliveryAddress: "Dopravní, Praha 11" });
 
     stored.set(SHIPMENT, row({ consigneeId: null }));
     await update({ consigneeId: PARTY, consigneeContact: "Typed Person" });
-    expect(repository.updateForCompany.mock.calls[1]![2]).toMatchObject({ consigneeContact: "Typed Person", deliveryAddress: "Dopravní, Praha 11" });
+    expect(repository.updateForCompany.mock.calls[1]![2]).toMatchObject({ consigneeContact: "Typed Person", consigneeContactId: null, deliveryAddress: "Dopravní, Praha 11" });
 
     vi.mocked(customers.contactList).mockResolvedValue({ data: [] } as never);
     stored.set(SHIPMENT, row({ consigneeId: null }));
@@ -545,6 +565,143 @@ describe("a shipper or consignee picked from the Customer Database", () => {
     await update({ consigneeId: "8d2e1f0a-5b6d-4e7f-8a9b-0c1d2e3f4a5d" });
     for (const [, , data] of repository.updateForCompany.mock.calls) expect(data).not.toHaveProperty("deliverySiteId");
     expect(repository.updateForCompany.mock.calls[2]![2]).toMatchObject({ deliveryAddress: "typed by hand" });
+  });
+});
+
+describe("people are users of the company, stored by e-mail", () => {
+  const create = (over: Record<string, unknown> = {}) => shipmentService.create(COMPANY, { ...over } as never);
+  const update = (data: Record<string, unknown>) => shipmentService.update(SHIPMENT, COMPANY, data as never, USER);
+  const written = (call = 0) => repository.updateForCompany.mock.calls[call]![2] as Record<string, unknown>;
+  const PICK = (label: string) => ({ code: "invalid_argument", message: `${label}: pick a user of the company (by e-mail)` });
+
+  it("stores each person picked as the user's e-mail in lower case, nobody as empty - reading the users once", async () => {
+    await create({ personInCharge: " Jan@Firma.cz ", holidayCover: "jana@firma.cz", salesPerson: "", switchBolApprovedBy: "MARTIN@firma.cz", approvedBy: "jan@firma.cz" });
+    expect(repository.createWithJobNumber.mock.calls[0]![1]).toMatchObject({
+      personInCharge: "jan@firma.cz",
+      holidayCover: "jana@firma.cz",
+      salesPerson: "",
+      switchBolApprovedBy: "martin@firma.cz",
+      approvedBy: "jan@firma.cz",
+    });
+    expect(auth.usersList).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a name or an e-mail of nobody in the company, naming the field, before anything is written", async () => {
+    for (const [field, label] of [
+      ["personInCharge", "Person In Charge"],
+      ["holidayCover", "Holiday Cover"],
+      ["salesPerson", "Sales Person"],
+      ["switchBolApprovedBy", "Switch BoL Approved By"],
+    ]) {
+      await expect(create({ [field]: "Jan Novák" })).rejects.toMatchObject(PICK(label!));
+      await expect(create({ [field]: "petr@jinde.cz" })).rejects.toMatchObject(PICK(label!));
+    }
+    await expect(create({ approvedBy: "Jan Novák" })).rejects.toMatchObject(PICK("Approved By"));
+    expect(repository.createWithJobNumber).not.toHaveBeenCalled();
+  });
+
+  it("does not read the users for a write that names nobody", async () => {
+    await create({ pol: "Shanghai" });
+    stored.set(SHIPMENT, row({ personInCharge: "Lukáš" }));
+    await update({ pol: "Hamburg", personInCharge: "Lukáš", holidayCover: "" });
+    expect(auth.usersList).not.toHaveBeenCalled();
+  });
+
+  it("keeps a value the shipment already holds - an old name too - so the record can still be saved", async () => {
+    stored.set(SHIPMENT, row({ personInCharge: "Lukáš", approvedBy: "Lukáš — 1. 10. 2026 8:00:00" }));
+    await update({ personInCharge: " Lukáš ", approvedBy: "Lukáš — 1. 10. 2026 8:00:00", pol: "Hamburg" });
+    expect(written()).toMatchObject({ personInCharge: "Lukáš", approvedBy: "Lukáš — 1. 10. 2026 8:00:00" });
+    // Unchanged values are no change in the history.
+    const audited = vi.mocked(shipmentAuditRepository.create).mock.calls.map(([entry]) => entry.field);
+    expect(audited).not.toContain("personInCharge");
+    expect(audited).not.toContain("approvedBy");
+  });
+
+  it("refuses a new name in place of an old one, and lets the old one be replaced by a user or cleared", async () => {
+    stored.set(SHIPMENT, row({ personInCharge: "Lukáš" }));
+    await expect(update({ personInCharge: "Petr" })).rejects.toMatchObject(PICK("Person In Charge"));
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
+    await update({ personInCharge: "Jana@firma.cz" });
+    expect(written(0)).toMatchObject({ personInCharge: "jana@firma.cz" });
+    stored.set(SHIPMENT, row({ personInCharge: "Lukáš" }));
+    await update({ personInCharge: "" });
+    expect(written(1)).toMatchObject({ personInCharge: "" });
+  });
+
+  it("takes Approved By as a user's e-mail or as the stamp a credit approval leaves, with a user's e-mail", async () => {
+    stored.set(SHIPMENT, row());
+    await update({ approvedBy: "JANA@firma.cz — 26. 10. 2026 9:15:00" });
+    expect(written()).toMatchObject({ approvedBy: "jana@firma.cz — 26. 10. 2026 9:15:00" });
+    await expect(update({ approvedBy: "Petr — 26. 10. 2026 9:15:00" })).rejects.toMatchObject(PICK("Approved By"));
+    // After the e-mail only the time: a name can't ride along.
+    await expect(update({ approvedBy: "jana@firma.cz — Petr Novák" })).rejects.toMatchObject(PICK("Approved By"));
+  });
+
+  it("stamps a credit approval and a House BoL release with the e-mail of the user who did it", async () => {
+    stored.set(SHIPMENT, row({ creditCheck: "Red", houseBolRelease: "" }));
+    await update({ creditCheck: "Green" });
+    expect(written(0).approvedBy).toMatch(/^jan@firma\.cz — \S/);
+    await shipmentService.releaseHouseBol(SHIPMENT, COMPANY, USER);
+    expect(written(1).houseBolRelease).toMatch(/^jan@firma\.cz — \S/);
+    // The stamps are the server's own: no users list is read to check them.
+    expect(auth.usersList).not.toHaveBeenCalled();
+  });
+
+  describe("the Sales Person a shipment takes from its quote", () => {
+    const takenFrom = async (over: Record<string, unknown>) => {
+      salesQuoteGet.mockResolvedValue(quote(over));
+      await create({ salesNumber: REF });
+      return repository.createWithJobNumber.mock.calls.at(-1)![1].salesPerson;
+    };
+
+    it("is the e-mail of the user who owns the quote", async () => {
+      await expect(takenFrom({ ownerUserId: JANA.id, ownerName: "Jana Nováková" })).resolves.toBe("jana@firma.cz");
+      expect(auth.userLookup).toHaveBeenCalledWith({ ids: [JANA.id] });
+    });
+
+    it("is the one user the owner's name fits, for a quote owned by a typed name", async () => {
+      await expect(takenFrom({ ownerUserId: null, ownerName: "martin koubek" })).resolves.toBe("martin@firma.cz");
+    });
+
+    it("is left empty when the owner is no user: a name is never copied", async () => {
+      await expect(takenFrom({ ownerUserId: null, ownerName: "Petr Neznámý" })).resolves.toBeUndefined();
+      // An owner who is no user of the company any more is not guessed from the name either.
+      await expect(takenFrom({ ownerUserId: "5a7c9e11-3b2d-4f6a-8c0e-1d2f3a4b5c99", ownerName: "Martin Koubek" })).resolves.toBeUndefined();
+    });
+
+    it("is left empty, and the shipment created, when the users can't be read", async () => {
+      vi.mocked(auth.usersList).mockRejectedValue(new Error("auth is unreachable"));
+      await expect(takenFrom({ ownerUserId: null, ownerName: "Martin Koubek" })).resolves.toBeUndefined();
+      expect(repository.createWithJobNumber).toHaveBeenCalledTimes(1);
+    });
+  });
+});
+
+describe("normalizePeople", () => {
+  it("turns the names in the company's live shipments into the users' e-mails and reports what it did", async () => {
+    repository.peopleOf.mockResolvedValue([
+      { id: "s-1", personInCharge: "Jan Novák", holidayCover: "", salesPerson: "Petr", switchBolApprovedBy: "", createdBy: "1. 10. 2026 8:00:00 — Martin Koubek", approvedBy: "", houseBolRelease: "" },
+      { id: "s-2", personInCharge: "Jan Novák", holidayCover: "jana@firma.cz", salesPerson: "", switchBolApprovedBy: "", createdBy: "", approvedBy: "", houseBolRelease: "" },
+    ]);
+    repository.rewritePeople.mockResolvedValue(3);
+    await expect(shipmentService.normalizePeople(COMPANY)).resolves.toEqual({
+      checked: 5,
+      changed: 3,
+      unmatched: [{ field: "salesPerson", value: "Petr", count: 1 }],
+    });
+    expect(repository.peopleOf).toHaveBeenCalledWith(COMPANY);
+    expect(repository.rewritePeople).toHaveBeenCalledWith(COMPANY, [
+      { field: "personInCharge", from: "Jan Novák", to: "jan@firma.cz" },
+      { field: "createdBy", from: "1. 10. 2026 8:00:00 — Martin Koubek", to: "1. 10. 2026 8:00:00 — martin@firma.cz" },
+    ]);
+    // A backfill, not an edit: no history lines.
+    expect(shipmentAuditRepository.create).not.toHaveBeenCalled();
+  });
+
+  it("changes nothing when the users can't be read", async () => {
+    vi.mocked(auth.usersList).mockRejectedValue(new Error("auth is unreachable"));
+    await expect(shipmentService.normalizePeople(COMPANY)).rejects.toThrow("auth is unreachable");
+    expect(repository.rewritePeople).not.toHaveBeenCalled();
   });
 });
 
@@ -693,5 +850,235 @@ describe("shipmentsNamingQuotes", () => {
   it("counts the references as sent: 201 copies of one quote are over the limit as well", async () => {
     await expect(shipmentService.shipmentsNamingQuotes(COMPANY, Array.from({ length: 201 }, () => REF))).rejects.toMatchObject({ code: "invalid_argument" });
     expect(repository.liveBySalesNumbers).not.toHaveBeenCalled();
+  });
+});
+
+describe("Customer's PIC is a contact of the shipment's customer", () => {
+  const CUSTOMER = "00000000-0000-0000-0000-00000000c0c0";
+  const create = (over: Record<string, unknown> = {}) => shipmentService.create(COMPANY, { ...over } as never);
+  const update = (data: Record<string, unknown>) => shipmentService.update(SHIPMENT, COMPANY, data as never, USER);
+  const written = () => repository.updateForCompany.mock.calls[0]![2] as Record<string, unknown>;
+  const contacts = (...names: string[]) =>
+    vi.mocked(customers.contactList).mockResolvedValue({ data: names.map((name, i) => ({ id: `k${i}`, name })) } as never);
+  beforeEach(() => {
+    vi.mocked(customers.customerGet).mockResolvedValue({ customer: { id: CUSTOMER, companyName: "Alfa", registeredAddress: "", country: "CZ" } } as never);
+    vi.mocked(customers.addressList).mockResolvedValue({ data: [] } as never);
+  });
+
+  it("stores the picked contact by its saved name, nobody as empty", async () => {
+    stored.set(SHIPMENT, row({ customerId: CUSTOMER, customerPic: "" }));
+    contacts("Petr Pádlo", "Jana Malá");
+    await update({ customerPic: " petr pádlo " });
+    expect(customers.contactList).toHaveBeenCalledWith({ customerId: CUSTOMER });
+    expect(written()).toMatchObject({ customerPic: "Petr Pádlo" });
+  });
+
+  it("refuses a name that is no contact of the customer, and any name without a customer", async () => {
+    stored.set(SHIPMENT, row({ customerId: CUSTOMER, customerPic: "" }));
+    contacts("Petr Pádlo");
+    await expect(update({ customerPic: "Petr" })).rejects.toMatchObject({
+      code: "invalid_argument",
+      message: "Customer's PIC: pick a contact saved for this customer in the Customer Database",
+    });
+    stored.set(SHIPMENT, row({ customerId: null, customerPic: "" }));
+    await expect(update({ customerPic: "Petr Pádlo" })).rejects.toMatchObject({ code: "invalid_argument", message: expect.stringContaining("link the shipment to a customer first") });
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
+  });
+
+  it("checks against the customer picked in the same write", async () => {
+    stored.set(SHIPMENT, row({ customerId: null, customerPic: "" }));
+    contacts("Jana Malá");
+    await update({ customerId: CUSTOMER, customer: "Alfa", customerPic: "Jana Malá" });
+    expect(customers.contactList).toHaveBeenCalledWith({ customerId: CUSTOMER });
+    expect(written()).toMatchObject({ customerPic: "Jana Malá" });
+  });
+
+  it("keeps an old free-text value the shipment holds, without asking for the contacts", async () => {
+    stored.set(SHIPMENT, row({ customerId: CUSTOMER, customerPic: "Petr" }));
+    await update({ customerPic: "Petr", pol: "Hamburg" });
+    expect(customers.contactList).not.toHaveBeenCalled();
+    expect(written()).toMatchObject({ customerPic: "Petr" });
+  });
+
+  it("leaves a name that is no contact out of a new shipment instead of failing it", async () => {
+    contacts("Petr Pádlo");
+    await create({ customerId: CUSTOMER, customer: "Alfa", customerPic: "Somebody" });
+    expect(repository.createWithJobNumber.mock.calls[0]![1]).toMatchObject({ customerPic: "", customerPicContactId: null });
+  });
+
+  it("stores the contact's id with its name, so a rename in the Customer Database reaches the shipment", async () => {
+    stored.set(SHIPMENT, row({ customerId: CUSTOMER, customerPic: "", customerPicContactId: null }));
+    contacts("Petr Pádlo", "Jana Malá");
+    await update({ customerPic: "jana malá" });
+    expect(written()).toMatchObject({ customerPic: "Jana Malá", customerPicContactId: "k1" });
+  });
+
+  it("takes a contact sent by its id, with the name it has now", async () => {
+    stored.set(SHIPMENT, row({ customerId: CUSTOMER, customerPic: "", customerPicContactId: null }));
+    contacts("Petr Masák");
+    await update({ customerPicContactId: "k0", customerPic: "Petr" });
+    expect(written()).toMatchObject({ customerPic: "Petr Masák", customerPicContactId: "k0" });
+  });
+
+  it("refuses an id that is no contact of the customer, and clears name and id together", async () => {
+    stored.set(SHIPMENT, row({ customerId: CUSTOMER, customerPic: "Petr Masák", customerPicContactId: "k0" }));
+    contacts("Petr Masák");
+    await expect(update({ customerPicContactId: "k9" })).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
+    await update({ customerPicContactId: null });
+    expect(written()).toMatchObject({ customerPic: "", customerPicContactId: null });
+  });
+
+  it("clears the PIC when the shipment moves to a customer it is no contact of, and keeps it on one it is", async () => {
+    const OTHER = "00000000-0000-0000-0000-00000000c0c1";
+    vi.mocked(customers.contactList).mockImplementation(async ({ customerId }) =>
+      ({ data: customerId === CUSTOMER ? [{ id: "k0", name: "Petr Masák" }] : [{ id: "k7", name: "Eva Nová" }] }) as never,
+    );
+    stored.set(SHIPMENT, row({ customerId: CUSTOMER, customerPic: "Petr Masák", customerPicContactId: "k0" }));
+    await update({ customerId: OTHER, customer: "Beta" });
+    expect(written()).toMatchObject({ customerId: OTHER, customerPic: "", customerPicContactId: null });
+
+    stored.set(SHIPMENT, row({ customerId: OTHER, customerPic: "Petr Masák", customerPicContactId: "k0" }));
+    await update({ customerId: CUSTOMER });
+    expect(repository.updateForCompany.mock.calls[1]![2]).toMatchObject({ customerId: CUSTOMER, customerPic: "Petr Masák", customerPicContactId: "k0" });
+  });
+
+  it("reads each customer's contacts once per write", async () => {
+    stored.set(SHIPMENT, row({ customerId: null, customerPic: "", shipperId: null, shipperContact: "" }));
+    contacts("Jana Malá");
+    await update({ customerId: CUSTOMER, customerPic: "Jana Malá", shipperId: CUSTOMER, shipperContact: "jana malá", pickupAddress: "typed" });
+    expect(customers.contactList).toHaveBeenCalledTimes(1);
+    expect(written()).toMatchObject({ customerPicContactId: "k0", shipperContact: "Jana Malá", shipperContactId: "k0" });
+  });
+});
+
+describe("a party linked to a customer carries the customer's current name", () => {
+  const CUSTOMER = "00000000-0000-0000-0000-00000000c0c0";
+  const update = (data: Record<string, unknown>) => shipmentService.update(SHIPMENT, COMPANY, data as never, USER);
+  const written = () => repository.updateForCompany.mock.calls[0]![2] as Record<string, unknown>;
+  beforeEach(() => {
+    vi.mocked(customers.customerGet).mockResolvedValue({ customer: { id: CUSTOMER, companyName: "Alfa s.r.o.", registeredAddress: "", country: "CZ" } } as never);
+    vi.mocked(customers.addressList).mockResolvedValue({ data: [] } as never);
+    vi.mocked(customers.contactList).mockResolvedValue({ data: [] } as never);
+  });
+
+  it("stores the Customer Database's name with the id, whatever text the write sends", async () => {
+    stored.set(SHIPMENT, row({ customerId: null, customer: "" }));
+    await update({ customerId: CUSTOMER, customer: "alfa sro", shipperId: CUSTOMER, consigneeId: CUSTOMER, principalPartyId: CUSTOMER });
+    expect(written()).toMatchObject({ customer: "Alfa s.r.o.", shipper: "Alfa s.r.o.", consignee: "Alfa s.r.o.", principalParty: "Alfa s.r.o." });
+  });
+
+  it("does so on create too (Trucking's road jobs send the name they have)", async () => {
+    await shipmentService.create(COMPANY, { customerId: CUSTOMER, customer: "ALFA" } as never);
+    expect(repository.createWithJobNumber.mock.calls[0]![1]).toMatchObject({ customerId: CUSTOMER, customer: "Alfa s.r.o." });
+  });
+
+  it("keeps the text of a party that is unlinked", async () => {
+    stored.set(SHIPMENT, row({ customerId: CUSTOMER, customer: "Alfa s.r.o." }));
+    await update({ customerId: null, customer: "Walk-in customer" });
+    expect(written()).toMatchObject({ customerId: null, customer: "Walk-in customer" });
+  });
+});
+
+describe("a shipper's or consignee's Contact", () => {
+  const PARTY = "3c1e2f0a-5b6d-4e7f-8a9b-0c1d2e3f4a5b";
+  const OTHER = "7d2e1f0a-5b6d-4e7f-8a9b-0c1d2e3f4a5c";
+  const update = (data: Record<string, unknown>) => shipmentService.update(SHIPMENT, COMPANY, data as never, USER);
+  const written = () => repository.updateForCompany.mock.calls[0]![2] as Record<string, unknown>;
+  beforeEach(() => {
+    vi.mocked(customers.customerGet).mockResolvedValue({ customer: { companyName: "Alza.cz a.s.", registeredAddress: "", country: "CZ" } } as never);
+    vi.mocked(customers.addressList).mockResolvedValue({ data: [] } as never);
+    vi.mocked(customers.contactList).mockImplementation(async ({ customerId }) =>
+      ({ data: customerId === PARTY ? [{ id: "c-jana", name: "Jana Servis", role: "Customer Service", isMain: false }] : [] }) as never,
+    );
+  });
+
+  it("links a name of one of the party's contacts, and keeps somebody else's name as typed", async () => {
+    stored.set(SHIPMENT, row({ shipperId: PARTY, shipperContact: "", shipperContactId: null }));
+    await update({ shipperContact: "jana servis" });
+    expect(written()).toMatchObject({ shipperContact: "Jana Servis", shipperContactId: "c-jana" });
+    await update({ shipperContact: "Driver Karel" });
+    expect(repository.updateForCompany.mock.calls[1]![2]).toMatchObject({ shipperContact: "Driver Karel", shipperContactId: null });
+  });
+
+  it("clears a linked Contact when the party changes to one it is no contact of; a typed one stays", async () => {
+    stored.set(SHIPMENT, row({ consigneeId: PARTY, consigneeContact: "Jana Servis", consigneeContactId: "c-jana" }));
+    await update({ consigneeId: OTHER });
+    expect(written()).toMatchObject({ consigneeId: OTHER, consigneeContact: "", consigneeContactId: null });
+
+    stored.set(SHIPMENT, row({ consigneeId: PARTY, consigneeContact: "Driver Karel", consigneeContactId: null }));
+    await update({ consigneeId: OTHER });
+    expect(repository.updateForCompany.mock.calls[1]![2]).not.toHaveProperty("consigneeContact");
+  });
+});
+
+describe("other services are told when the Customer or the Customer's PIC changes", () => {
+  const CUSTOMER = "00000000-0000-0000-0000-00000000c0c0";
+  const update = (data: Record<string, unknown>) => shipmentService.update(SHIPMENT, COMPANY, data as never, USER);
+  const publish = vi.mocked(shipmentPartiesChanged.publish);
+  beforeEach(() => {
+    vi.mocked(customers.customerGet).mockResolvedValue({ customer: { id: CUSTOMER, companyName: "Alfa s.r.o.", registeredAddress: "", country: "CZ" } } as never);
+    vi.mocked(customers.addressList).mockResolvedValue({ data: [] } as never);
+    vi.mocked(customers.contactList).mockResolvedValue({ data: [{ id: "k0", name: "Petr Masák" }] } as never);
+  });
+
+  it("publishes the shipment's Customer and Customer's PIC as they now read", async () => {
+    stored.set(SHIPMENT, row({ customerId: CUSTOMER, customer: "Alfa s.r.o.", customerPic: "", customerPicContactId: null }));
+    await update({ customerPic: "Petr Masák" });
+    expect(publish).toHaveBeenCalledWith({ companyId: COMPANY, shipmentId: SHIPMENT, customer: "Alfa s.r.o.", customerPic: "Petr Masák" });
+
+    stored.set(SHIPMENT, row({ customerId: null, customer: "Old name", customerPic: "" }));
+    await update({ customerId: CUSTOMER });
+    expect(publish).toHaveBeenLastCalledWith({ companyId: COMPANY, shipmentId: SHIPMENT, customer: "Alfa s.r.o.", customerPic: "" });
+  });
+
+  it("publishes nothing when neither changes", async () => {
+    stored.set(SHIPMENT, row({ customerId: CUSTOMER, customer: "Alfa s.r.o.", customerPic: "Petr Masák", customerPicContactId: "k0" }));
+    await update({ pol: "Hamburg", customerPic: "Petr Masák" });
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it("saves the shipment also when the news can't be published: logged", async () => {
+    publish.mockRejectedValue(new Error("pubsub is down"));
+    stored.set(SHIPMENT, row({ customerId: CUSTOMER, customer: "Alfa s.r.o.", customerPic: "" }));
+    await expect(update({ customerPic: "Petr Masák" })).resolves.toMatchObject({ customerPic: "Petr Masák" });
+    expect(log.warn).toHaveBeenCalledWith(expect.any(Error), "shipment parties change not published", expect.objectContaining({ shipmentId: SHIPMENT }));
+  });
+});
+
+describe("the Customer's PIC of a shipment made from a quote", () => {
+  const CUSTOMER = "00000000-0000-0000-0000-00000000c0c0";
+  const fromQuote = (data: Record<string, unknown>, over: Record<string, unknown> = {}) => {
+    salesQuoteGet.mockResolvedValue(quote({ data }));
+    return shipmentService.create(COMPANY, { fromQuoteNumber: REF, customerId: CUSTOMER, customer: "Alfa", ...over } as never);
+  };
+  const created = () => repository.createFromQuote.mock.calls[0]![2] as Record<string, unknown>;
+  beforeEach(() => {
+    vi.mocked(customers.customerGet).mockResolvedValue({ customer: { id: CUSTOMER, companyName: "Alfa", registeredAddress: "", country: "CZ" } } as never);
+    vi.mocked(customers.contactList).mockResolvedValue({ data: [{ id: "k0", name: "Petr Masák" }, { id: "k1", name: "Jana Malá" }] } as never);
+  });
+
+  it("is the contact the quote keeps by id, with the name it has now", async () => {
+    await fromQuote({ customerContact: "Petr", customerContactId: "k0" }, { customerPic: "Petr" });
+    expect(created()).toMatchObject({ customerPic: "Petr Masák", customerPicContactId: "k0" });
+  });
+
+  it("is taken from the quote when the request names nobody", async () => {
+    await fromQuote({ customerContact: "Petr", customerContactId: "k0" });
+    expect(created()).toMatchObject({ customerPic: "Petr Masák", customerPicContactId: "k0" });
+  });
+
+  it("is matched by name for a quote that keeps no id, and left out when it is no contact", async () => {
+    await fromQuote({ customerContact: "jana malá" }, { customerPic: "jana malá" });
+    expect(created()).toMatchObject({ customerPic: "Jana Malá", customerPicContactId: "k1" });
+    await fromQuote({ customerContact: "Petr", customerContactId: "gone" }, { customerPic: "Petr" });
+    expect(repository.createFromQuote.mock.calls[1]![2]).toMatchObject({ customerPic: "", customerPicContactId: null });
+  });
+
+  it("is whom the request names instead, or nobody", async () => {
+    await fromQuote({ customerContact: "Petr", customerContactId: "k0" }, { customerPic: "Jana Malá" });
+    expect(created()).toMatchObject({ customerPic: "Jana Malá", customerPicContactId: "k1" });
+    await fromQuote({ customerContact: "Petr", customerContactId: "k0" }, { customerPic: "" });
+    expect(repository.createFromQuote.mock.calls[1]![2]).toMatchObject({ customerPic: "", customerPicContactId: null });
   });
 });

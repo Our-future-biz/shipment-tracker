@@ -14,6 +14,7 @@ import { userName } from "../lib/users";
 import { haulierService } from "./haulier.service";
 import { appUrl } from "../../../lib/appUrl";
 import { isUniqueViolation } from "../../../lib/db/errors";
+import { assertCzechPhone } from "../../../lib/phone";
 
 // The app's side of the haulier portal: a haulier's portal users. Any user sees them; a manager
 // adds one, resets a password, disables or enables. E-mail sending is off, so an invitation or a
@@ -64,6 +65,7 @@ class PortalUserService {
     if (!email) throw APIError.invalidArgument("Give a valid e-mail");
     const name = cleanText(input.name, "Give the name", 2, 100);
     const phone = cleanText(input.phone ?? "", "The phone", 0, 50);
+    assertCzechPhone(phone);
     await haulierService.get(actor.companyID, customerId);
     if (await portalRepository.userByEmail(actor.companyID, email)) throw APIError.alreadyExists(EMAIL_TAKEN);
     const by = await userName(actor.userID);

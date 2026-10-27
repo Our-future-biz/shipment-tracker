@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // repository, for the users of the auth service and for the quotes service.
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { info: vi.fn(), warn: vi.fn() } }));
-vi.mock("~encore/clients", () => ({ auth: { usersList: vi.fn() }, quotes: { salesQuoteGet: vi.fn() } }));
+vi.mock("~encore/clients", () => ({ auth: { usersList: vi.fn() }, quotes: { salesQuoteGet: vi.fn() }, customers: { _internalCustomerRefs: vi.fn() } }));
 vi.mock("../../repositories/followupTask.repository", () => ({
   followupTaskRepository: {
     importLegacy: vi.fn(),
@@ -18,7 +18,7 @@ vi.mock("../../repositories/followupTask.repository", () => ({
 }));
 
 import log from "encore.dev/log";
-import { auth, quotes } from "~encore/clients";
+import { auth, customers, quotes } from "~encore/clients";
 import type { Actor } from "../../../../lib/rbac";
 import { APIError } from "../../../../lib/tests/encoreApi.stub";
 import { followupTaskRepository } from "../../repositories/followupTask.repository";
@@ -28,6 +28,7 @@ import { followupTaskService } from "../../services/followupTask.service";
 const repository = vi.mocked(followupTaskRepository);
 const usersList = vi.mocked(auth.usersList);
 const salesQuoteGet = vi.mocked(quotes.salesQuoteGet);
+const customerRefs = vi.mocked(customers._internalCustomerRefs);
 
 // 12 October 2026, noon in Prague.
 const NOW = new Date("2026-10-12T10:00:00.000Z");
@@ -81,6 +82,8 @@ beforeEach(() => {
   salesQuoteGet.mockResolvedValue({ quote: { quoteNumber: REF } } as Awaited<ReturnType<typeof quotes.salesQuoteGet>>);
   repository.importLegacy.mockResolvedValue(0);
   repository.list.mockResolvedValue({ rows: [], total: 0 });
+  // No live customer by default: the name sent stays.
+  customerRefs.mockResolvedValue({ customers: [], contacts: [] });
   // What is written is what comes back.
   repository.createForCompany.mockImplementation(async (companyId, data) => ({ ...task(), ...data, companyId }) as FollowupTaskRecord);
   repository.updateForCompany.mockImplementation(async (id, companyId, data) => {
@@ -156,7 +159,7 @@ describe("list", () => {
     expect(repository.list).toHaveBeenCalledWith(martin.companyID, { assigneeUserId: undefined, done: false }, { limit: 50, offset: 0, afterId: undefined });
   });
 
-  it("hands out the tasks with the assignee's name, today's overdue flag and the real total", async () => {
+  it("hands out the tasks with the assignee's e-mail, today's overdue flag and the real total", async () => {
     repository.list.mockResolvedValue({
       rows: [task({ dueDate: "2026-10-11" }), task({ id: randomUUID(), assigneeUserId: U_JANA, dueDate: "2026-10-12" }), task({ id: randomUUID(), assigneeUserId: null, dueDate: null })],
       total: 63,
@@ -164,9 +167,9 @@ describe("list", () => {
     const result = await followupTaskService.list(martin, { limit: 3, offset: 6 });
     expect(result.pagination).toEqual({ total: 63, offset: 6, limit: 3 });
     expect(result.data.map((t) => [t.assigneeName, t.overdue])).toEqual([
-      // Due yesterday: overdue without anyone having set it.
-      ["Martin Koubek", true],
-      // Due today; a user without a display name goes by the e-mail.
+      // Due yesterday: overdue without anyone having set it. The assignee shown by e-mail.
+      ["martin@forwarder.cz", true],
+      // Due today.
       ["jana@forwarder.cz", false],
       ["", false],
     ]);
@@ -182,7 +185,7 @@ describe("list", () => {
     expect((await followupTaskService.list(martin, {})).data[0]!.overdue).toBe(true);
   });
 
-  it("still lists when the users cannot be read: the tasks come without names", async () => {
+  it("still lists when the users cannot be read: the tasks come without assignee e-mails", async () => {
     usersList.mockRejectedValue(new Error("auth is unreachable"));
     repository.list.mockResolvedValue({ rows: [task()], total: 1 });
     const result = await followupTaskService.list(martin, {});
@@ -252,7 +255,7 @@ describe("create", () => {
       quoteNumber: null,
       createdBy: U_MARTIN,
     });
-    expect(created).toMatchObject({ type: "Email", assigneeUserId: U_MARTIN, assigneeName: "Martin Koubek", done: false });
+    expect(created).toMatchObject({ type: "Email", assigneeUserId: U_MARTIN, assigneeName: "martin@forwarder.cz", done: false });
     expect(salesQuoteGet).not.toHaveBeenCalled();
   });
 
@@ -356,7 +359,7 @@ describe("update", () => {
     expect(repository.getByIdForCompany).toHaveBeenCalledWith(ID, martin.companyID);
     expect(repository.updateForCompany).toHaveBeenCalledTimes(1);
     expect(repository.updateForCompany).toHaveBeenCalledWith(ID, martin.companyID, { note: "Call again on Friday", dueDate: "2026-10-23" });
-    expect(changed).toMatchObject({ id: ID, note: "Call again on Friday", dueDate: "2026-10-23", assigneeName: "Martin Koubek" });
+    expect(changed).toMatchObject({ id: ID, note: "Call again on Friday", dueDate: "2026-10-23", assigneeName: "martin@forwarder.cz" });
   });
 
   it("answers not found for a task that does not exist, is deleted or belongs to another company - and for an id that is no id", async () => {
@@ -483,6 +486,47 @@ describe("update", () => {
     // A change of something else names neither and leaves both as they are.
     await followupTaskService.update(ID, martin, { note: "x" });
     expect(repository.updateForCompany).toHaveBeenLastCalledWith(ID, martin.companyID, { note: "x" });
+  });
+});
+
+describe("the customer's name (Customer Database)", () => {
+  const ITTEC = { id: CUSTOMER, companyName: "ITTEC Logistics, s.r.o.", label: "STANDARD" as const };
+
+  it("stores the name the Customer Database has for a new task's customer, not the one sent", async () => {
+    customerRefs.mockResolvedValue({ customers: [ITTEC], contacts: [] });
+    await expect(followupTaskService.create(martin, { type: "Call", customerId: CUSTOMER, customerLabel: "ITTEC, s.r.o." })).resolves.toMatchObject({
+      customerLabel: "ITTEC Logistics, s.r.o.",
+    });
+    expect(customerRefs).toHaveBeenCalledWith({ customerIds: [CUSTOMER] });
+    expect(handedOver()[0]).toMatchObject({ customerId: CUSTOMER, customerLabel: "ITTEC Logistics, s.r.o." });
+  });
+
+  it("does not let a change that sends back an older name undo a rename", async () => {
+    // The dialog loaded the task before the customer was renamed and sends its name with every save.
+    repository.getByIdForCompany.mockResolvedValue(task({ customerId: CUSTOMER, customerLabel: "ITTEC Logistics, s.r.o." }));
+    customerRefs.mockResolvedValue({ customers: [ITTEC], contacts: [] });
+    await followupTaskService.update(ID, martin, { note: "Call back", customerId: CUSTOMER, customerLabel: "ITTEC, s.r.o." });
+    expect(repository.updateForCompany).toHaveBeenLastCalledWith(ID, martin.companyID, { note: "Call back", customerId: CUSTOMER, customerLabel: "ITTEC Logistics, s.r.o." });
+  });
+
+  it("keeps the stored name of the same customer when the Customer Database cannot be read - or the customer is deleted", async () => {
+    repository.getByIdForCompany.mockResolvedValue(task({ customerId: CUSTOMER, customerLabel: "ITTEC Logistics, s.r.o." }));
+    customerRefs.mockRejectedValueOnce(new Error("customers is unreachable"));
+    await followupTaskService.update(ID, martin, { note: "x", customerId: CUSTOMER.toUpperCase(), customerLabel: "ITTEC, s.r.o." });
+    expect(repository.updateForCompany).toHaveBeenLastCalledWith(ID, martin.companyID, { note: "x", customerId: CUSTOMER.toUpperCase(), customerLabel: "ITTEC Logistics, s.r.o." });
+    expect(log.warn).toHaveBeenCalled();
+    await followupTaskService.update(ID, martin, { note: "y", customerId: CUSTOMER, customerLabel: "ITTEC, s.r.o." });
+    expect(repository.updateForCompany).toHaveBeenLastCalledWith(ID, martin.companyID, { note: "y", customerId: CUSTOMER, customerLabel: "ITTEC Logistics, s.r.o." });
+  });
+
+  it("stores the name sent for another customer it cannot look up, and asks nothing for a typed name", async () => {
+    customerRefs.mockRejectedValueOnce(new Error("customers is unreachable"));
+    await followupTaskService.create(martin, { type: "Call", customerId: CUSTOMER, customerLabel: " ITTEC, s.r.o. " });
+    expect(handedOver()[0]).toMatchObject({ customerId: CUSTOMER, customerLabel: "ITTEC, s.r.o." });
+    customerRefs.mockClear();
+    await followupTaskService.create(martin, { type: "Call", customerId: null, customerLabel: "Typed Co" });
+    expect(handedOver()[1]).toMatchObject({ customerId: null, customerLabel: "Typed Co" });
+    expect(customerRefs).not.toHaveBeenCalled();
   });
 });
 

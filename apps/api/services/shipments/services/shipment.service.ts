@@ -3,7 +3,7 @@ import type { Actor } from "../../../lib/rbac";
 import { canManageSales, shipmentFromQuoteRefusal, shipmentLinkRefusal } from "../../../lib/salesPolicy";
 import { isSalesReference } from "../../../lib/salesReference";
 import log from "encore.dev/log";
-import { auth, customers, invoicing, quotes } from "~encore/clients";
+import { customers, invoicing, quotes } from "~encore/clients";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
 import { shipmentRepository, OVERDUE_DEADLINE_FIELDS, type NewShipmentData } from "../repositories/shipment.repository";
 import { shipmentAuditRepository } from "../repositories/shipmentAudit.repository";
@@ -14,7 +14,7 @@ import { cargoItemRepository } from "../repositories/cargoItem.repository";
 import { cargoDimensionRepository } from "../repositories/cargoDimension.repository";
 import { commercialInvoiceRepository } from "../repositories/commercialInvoice.repository";
 import { invoiceValueByCurrency, isValidContainerNumber, normalizeContainerNumber, projectCargo } from "../lib/cargoProjection";
-import { actionStamp, cfsDefault, creationStamp, exportBolDefaults, isCreditApproval, startingStateDefaults, statusForDirection } from "../lib/fieldDefaults";
+import { actionStamp, cfsDefault, exportBolDefaults, isCreditApproval, startingStateDefaults, statusForDirection } from "../lib/fieldDefaults";
 import { quoteLinksService } from "./quoteLinks.service";
 import type { ShipmentListFilters } from "../repositories/shipment.repository";
 import type { NewShipmentRecord, ShipmentRecord } from "../schemas/shipment.schema";
@@ -29,6 +29,7 @@ import type {
   CommercialInvoiceLine,
   CostImportOutcome,
   CustomerShipmentFacts,
+  PeopleNormalizeResult,
   QuoteLinkOutcome,
   QuoteShipments,
   QuoteSyncResult,
@@ -45,12 +46,47 @@ import { publicFields } from "../lib/rows";
 import { changesTaxDate } from "../lib/taxDate";
 import { normalizeCargoDimensions, normalizeStops } from "../lib/roadFreight";
 import { partyContact, partyStop, stopKeys, type Party } from "../lib/partyAddress";
-import { shipmentDeleted } from "../topics";
+import { CONSIGNEE_CONTACT, CUSTOMER_PIC, SHIPPER_CONTACT, linkContact, type ContactMode } from "../lib/contactLinks";
+import { shipmentDeleted, shipmentPartiesChanged } from "../topics";
+import { companyUsers, matchUser, requireUserEmail, userEmailOf, type CompanyUser } from "../../../lib/companyUsers";
+import { PERSON_FIELDS, planPeopleNormalize, requireApprovedBy } from "../lib/people";
 
 // The customers a write links to, by the field holding the link: read once, for the link check
 // and for the party fill after it.
 type LinkedCustomer = Awaited<ReturnType<typeof customers.customerGet>>["customer"];
 type LinkedCustomers = Partial<Record<"customerId" | "shipperId" | "consigneeId" | "principalPartyId", LinkedCustomer>>;
+
+// The contacts of the customers a write names, read at most once each per request: the party
+// fill and the contact links share them.
+type CustomerContacts = Awaited<ReturnType<typeof customers.contactList>>["data"];
+type ContactsOnce = (customerId: string) => Promise<CustomerContacts>;
+function contactsOnce(): ContactsOnce {
+  const read = new Map<string, Promise<CustomerContacts>>();
+  return (customerId) => {
+    let contacts = read.get(customerId);
+    if (!contacts) {
+      contacts = customers.contactList({ customerId }).then((r) => r.data);
+      read.set(customerId, contacts);
+    }
+    return contacts;
+  };
+}
+
+/**
+ * Links the contacts a write names to the Customer Database (lib/contactLinks linkContact): the
+ * Customer's PIC (`picMode`: refused or left out when it is no contact of the customer) and the
+ * Shipper / Consignee Contact (free text allowed). `pic: false` leaves the PIC for later.
+ */
+async function linkContacts(
+  data: Record<string, unknown>,
+  existing: ShipmentRecord | undefined,
+  contactsOf: ContactsOnce,
+  { picMode, pic = true }: { picMode: ContactMode; pic?: boolean },
+): Promise<void> {
+  await linkContact(data, existing, SHIPPER_CONTACT, contactsOf, "free");
+  await linkContact(data, existing, CONSIGNEE_CONTACT, contactsOf, "free");
+  if (pic) await linkContact(data, existing, CUSTOMER_PIC, contactsOf, picMode);
+}
 
 // Extra detail rows accepted alongside the shipment's own fields on create/update.
 export interface DetailRows {
@@ -351,6 +387,53 @@ function assertLinkable(quote: { quoteNumber: string; effectiveStatus: string })
   if (refusal) throw APIError.failedPrecondition(`${quote.quoteNumber} - ${refusal}`);
 }
 
+// The company's users, read at most once per request and only when something needs them.
+type UsersOnce = () => Promise<CompanyUser[]>;
+function usersOnce(): UsersOnce {
+  let users: Promise<CompanyUser[]> | undefined;
+  return () => (users ??= companyUsers());
+}
+
+// What a sales quote says about its owner.
+type QuoteOwner = { ownerUserId?: string | null; ownerName: string };
+
+/**
+ * A person a write names is a user of the company, stored by their lower-cased e-mail, or nobody
+ * (""); anything else is refused, naming the field. A value the shipment already holds passes as
+ * it is, so an old record whose person is no user yet can still be saved. Approved By may also be
+ * the stamp a credit approval leaves ("<e-mail> — <when>").
+ */
+async function checkPeople(data: Record<string, unknown>, users: UsersOnce, existing?: ShipmentRecord): Promise<void> {
+  const stored: Record<string, unknown> | undefined = existing;
+  const fields: [string, string | null][] = [...Object.entries(PERSON_FIELDS), ["approvedBy", null]];
+  for (const [key, label] of fields) {
+    const value = data[key];
+    if (typeof value !== "string") continue;
+    const current = stored ? String(stored[key] ?? "") : null;
+    if (current !== null && value.trim() === current.trim()) data[key] = current;
+    else if (!value.trim()) data[key] = "";
+    else data[key] = label ? requireUserEmail(value, label, await users()) : requireApprovedBy(value, await users());
+  }
+}
+
+/**
+ * The contact person a quote names becomes the Customer's PIC of the shipment made from it - by
+ * the contact's id when the quote keeps it - unless the request names another (or nobody).
+ */
+function customerPicFromQuote(data: Record<string, unknown>, quoteData: unknown): void {
+  const quote = (quoteData && typeof quoteData === "object" ? quoteData : {}) as Record<string, unknown>;
+  const quoteName = typeof quote.customerContact === "string" ? quote.customerContact : "";
+  const quoteId = typeof quote.customerContactId === "string" ? quote.customerContactId : "";
+  if ("customerPicContactId" in data) return;
+  const sent = data.customerPic;
+  if (sent === undefined) {
+    if (quoteName) data.customerPic = quoteName;
+  } else if (typeof sent !== "string" || sent.trim().toLowerCase() !== quoteName.trim().toLowerCase()) {
+    return;
+  }
+  if (quoteId) data.customerPicContactId = quoteId;
+}
+
 class ShipmentService {
   // The customer's stored rollups (totalRevenue/totalProfit/totalShipments/
   // lastActivityDate) live in the customers service, which cannot query this
@@ -368,39 +451,52 @@ class ShipmentService {
     }
   }
 
-  // Display name of the acting user, for stamps written into shipment fields.
-  // Users live in the auth service, which this database cannot join against.
-  // An unresolvable user must not fail the write — the stamp just loses the name.
-  private async resolveUserName(userId: string): Promise<string> {
+  // Who did something, as a stamp records it: the user's e-mail - people are recorded by it,
+  // never by a display name. Looked up by id, else found in the company's users list. Users live
+  // in the auth service, which this database cannot join against; an unresolvable user must not
+  // fail the write - the stamp just records the time without who.
+  private async actorOf(userId: string): Promise<string> {
+    const email = await userEmailOf(userId);
+    if (email) return email;
     try {
-      const { users } = await auth.usersList();
-      const me = users.find((u) => u.id === userId);
-      return me?.displayName || me?.email || "";
+      return (await companyUsers()).find((u) => u.id === userId)?.email ?? "";
     } catch (err) {
-      log.warn(err, "acting user name not resolved", { userId });
+      log.warn(err, "acting user not resolved", { userId });
       return "";
     }
   }
 
-  // The sales person of the quote a shipment was sold from: whoever owns the
-  // sales quote its Sales Number names, by the name they have now - as a
-  // shipment created from a quote gets it. Empty when the number is no sales quote.
-  // The quote a Sales Number names, checked before a shipment is linked to it: its sales owner,
-  // "" when the number names no quote - free-text sales numbers are allowed. A quote that is not
+  // The sales person a shipment takes from its quote: the e-mail of the user who owns the quote.
+  // A quote whose owner is no user record (an old one, owned by a typed name) gives the one user
+  // that name fits. Empty when the owner is nobody, no user of the company now, or can't be told:
+  // a name that is no user is never copied.
+  private async quoteOwnerEmail(quote: QuoteOwner, users: UsersOnce): Promise<string> {
+    if (quote.ownerUserId) return userEmailOf(quote.ownerUserId);
+    if (!quote.ownerName.trim()) return "";
+    try {
+      return matchUser(quote.ownerName, await users())?.email ?? "";
+    } catch (err) {
+      log.warn(err, "quote owner not matched to a user");
+      return "";
+    }
+  }
+
+  // The quote a Sales Number names, checked before a shipment is linked to it: its owner, null
+  // when the number names no quote - free-text sales numbers are allowed. A quote that is not
   // Won is refused. A quote reference that could not be checked refuses the
   // write as well: it would link the quote unchecked.
-  private async linkableQuoteOwner(quoteNumber: string, allowUnfinished = false): Promise<string> {
+  private async linkableQuoteOwner(quoteNumber: string, allowUnfinished = false): Promise<QuoteOwner | null> {
     let quote;
     try {
       ({ quote } = await quotes.salesQuoteGet({ quoteNumber }));
     } catch (err) {
-      if (err instanceof APIError && err.code === ErrCode.NotFound) return "";
+      if (err instanceof APIError && err.code === ErrCode.NotFound) return null;
       if (isSalesReference(quoteNumber) && !allowUnfinished) throw err;
       log.warn(err, "quote sales owner not resolved", { quoteNumber });
-      return "";
+      return null;
     }
     if (!allowUnfinished) assertLinkable(quote);
-    return quote.ownerName.trim();
+    return quote;
   }
 
   // Persist the shipment's detail rows. Containers first — cargo lines are
@@ -549,19 +645,20 @@ class ShipmentService {
 
   /**
    * Customer links (customer, shipper, consignee, principal party) point at customers of the
-   * caller's company: an unknown id is refused and a blank one unlinks. The Principal Party
-   * also stores the customer's own name.
+   * caller's company: an unknown id is refused and a blank one unlinks (the name stays as free
+   * text). A linked party stores the customer's current name, whatever text came with the id, so
+   * name and id never disagree; later renames reach it through the customer-changed event.
    */
   private async resolveCustomerLinks(data: Partial<NewShipmentRecord>): Promise<LinkedCustomers> {
     const links = [
-      ["customerId", "customer"],
-      ["shipperId", "shipper"],
-      ["consigneeId", "consignee"],
-      ["principalPartyId", "principal party"],
+      ["customerId", "customer", "customer"],
+      ["shipperId", "shipper", "shipper"],
+      ["consigneeId", "consignee", "consignee"],
+      ["principalPartyId", "principalParty", "principal party"],
     ] as const;
     const linked: LinkedCustomers = {};
     await Promise.all(
-      links.map(async ([key, label]) => {
+      links.map(async ([key, nameKey, label]) => {
         if (!(key in data)) return;
         const id = data[key];
         if (!id) {
@@ -571,7 +668,7 @@ class ShipmentService {
         try {
           const { customer } = await customers.customerGet({ id });
           linked[key] = customer;
-          if (key === "principalPartyId") data.principalParty = customer.companyName;
+          data[nameKey] = customer.companyName;
         } catch (err) {
           if (err instanceof APIError && err.code === ErrCode.NotFound) {
             throw APIError.invalidArgument(`Unknown ${label}`);
@@ -587,35 +684,49 @@ class ShipmentService {
    * A shipper or consignee newly picked from the Customer Database fills its stop - the
    * shipper's pick-up, the consignee's delivery - from that customer's Pickup / Delivery
    * address, else its registered one, and its Contact (Customer Service, else Logistics
-   * Manager, else anyone). A write that sends the stop or the contact itself keeps that part,
-   * as does a customer with no address or no contact.
+   * Manager, else anyone) by name and id. A write that sends the stop or the contact itself keeps
+   * that part, as does a customer with no address or no contact.
    */
-  private async fillPartyStops(data: Partial<NewShipmentRecord>, linked: LinkedCustomers, existing?: ShipmentRecord): Promise<void> {
+  private async fillPartyStops(data: Partial<NewShipmentRecord>, linked: LinkedCustomers, contactsOf: ContactsOnce, existing?: ShipmentRecord): Promise<void> {
     const parties = [
-      ["shipper", "shipperId", "shipperContact"],
-      ["consignee", "consigneeId", "consigneeContact"],
-    ] as const satisfies readonly (readonly [Party, keyof ShipmentRecord, keyof ShipmentRecord])[];
+      ["shipper", "shipperId", "shipperContact", "shipperContactId"],
+      ["consignee", "consigneeId", "consigneeContact", "consigneeContactId"],
+    ] as const satisfies readonly (readonly [Party, keyof ShipmentRecord, keyof ShipmentRecord, keyof ShipmentRecord])[];
     const written: Record<string, unknown> = data;
     const sent = (key: string) => !!String(written[key] ?? "").trim();
     await Promise.all(
-      parties.map(async ([party, idKey, contactKey]) => {
+      parties.map(async ([party, idKey, contactKey, contactIdKey]) => {
         const id = data[idKey];
         const customer = linked[idKey];
         if (!id || !customer || id === existing?.[idKey]) return;
         const keys = stopKeys(party);
         const fillStop = !Object.values(keys).some(sent);
-        const fillContact = !sent(contactKey);
+        const fillContact = !sent(contactKey) && !sent(contactIdKey);
         if (!fillStop && !fillContact) return;
-        const [{ data: addresses }, { data: contacts }] = await Promise.all([
+        const [{ data: addresses }, contacts] = await Promise.all([
           fillStop ? customers.addressList({ customerId: id }) : { data: [] },
-          fillContact ? customers.contactList({ customerId: id }) : { data: [] },
+          fillContact ? contactsOf(id) : [],
         ]);
         const stop = fillStop ? partyStop(party, customer, addresses) : null;
         if (stop) for (const field of Object.keys(keys) as (keyof typeof keys)[]) written[keys[field]] = stop[field];
         const contact = partyContact(contacts);
-        if (contact) written[contactKey] = contact;
+        if (contact) {
+          written[contactKey] = contact.name.trim();
+          written[contactIdKey] = contact.id;
+        }
       }),
     );
+  }
+
+  // Tells the services that copied the shipment's Customer / Customer's PIC (the warehouse gate
+  // record, …) that either changed. The shipment is saved by then, so a failure is logged and the
+  // copy stays as it was until the next change.
+  private async tellParties(companyId: string, shipment: ShipmentRecord): Promise<void> {
+    try {
+      await shipmentPartiesChanged.publish({ companyId, shipmentId: shipment.id, customer: shipment.customer, customerPic: shipment.customerPic });
+    } catch (err) {
+      log.warn(err, "shipment parties change not published", { companyId, shipmentId: shipment.id });
+    }
   }
 
   /** The classified documents uploaded to one shipment, with their customs review. */
@@ -647,6 +758,8 @@ class ShipmentService {
     allowSecond: boolean,
     shipmentData: NewShipmentData,
     rows: DetailRows,
+    users: UsersOnce,
+    contactsOf: ContactsOnce,
   ): Promise<CreatedShipment> {
     let quote;
     try {
@@ -659,9 +772,14 @@ class ShipmentService {
     // Replaced one would stay as it is, so none is made from it.
     const refusal = shipmentFromQuoteRefusal(quote.effectiveStatus);
     if (refusal) throw APIError.failedPrecondition(`${quote.quoteNumber} - ${refusal}`);
+    customerPicFromQuote(shipmentData, quote.data);
+    await linkContact(shipmentData, undefined, CUSTOMER_PIC, contactsOf, "lenient");
     const reference = quote.quoteNumber;
     // Whoever owns the quote sold the shipment - unless the request names somebody itself.
-    if (!(shipmentData.salesPerson ?? "").trim() && quote.ownerName) shipmentData.salesPerson = quote.ownerName;
+    if (!(shipmentData.salesPerson ?? "").trim()) {
+      const owner = await this.quoteOwnerEmail(quote, users);
+      if (owner) shipmentData.salesPerson = owner;
+    }
 
     const made = await shipmentRepository.createFromQuote(companyId, reference, shipmentData, allowSecond);
     if ("existing" in made) {
@@ -713,7 +831,10 @@ class ShipmentService {
     assertValidContainerNumbers(containers);
     const cargoDimensions = normalizeCargoDimensions(sentDimensions);
     const shipmentData = sanitizeTypedFields({ ...rest, ...legacyInvoiceFields(commercialInvoices) });
-    if (creatorUserId) shipmentData.createdBy = creationStamp(await this.resolveUserName(creatorUserId), new Date());
+    const users = usersOnce();
+    await checkPeople(shipmentData, users);
+    // Who created it, by e-mail ("" when nobody can tell); when is the row's createdAt ("Created on").
+    if (creatorUserId) shipmentData.createdBy = (await this.actorOf(creatorUserId)).trim();
     Object.assign(shipmentData, normalizeStops(shipmentData));
     // A new shipment has no paperwork yet, so its customs status starts where the paperwork does.
     delete shipmentData.customsStatus;
@@ -723,7 +844,12 @@ class ShipmentService {
     const stored: Record<string, unknown> = shipmentData;
     normalizeCustomsPriority(stored, (key) => stored[key] as string);
     const linked = await this.resolveCustomerLinks(shipmentData);
-    await this.fillPartyStops(shipmentData, linked);
+    const contactsOf = contactsOnce();
+    await this.fillPartyStops(shipmentData, linked, contactsOf);
+    const fromQuote = fromQuoteNumber?.trim();
+    // On create a Customer's PIC that is no contact of the customer is left out, not refused. One
+    // made from a quote is settled once the quote is read (it may name the contact).
+    await linkContacts(shipmentData, undefined, contactsOf, { picMode: "lenient", pic: !fromQuote });
     Object.assign(
       shipmentData,
       exportBolDefaults(shipmentData.tradeDirection ?? "", {
@@ -739,9 +865,8 @@ class ShipmentService {
       cfsDefault(shipmentData.hub, shipmentData.cfs),
     );
 
-    const fromQuote = fromQuoteNumber?.trim();
     if (fromQuote) {
-      return this.createFromQuote(companyId, fromQuote, allowSecondShipment === true, shipmentData, { containers, cargoItems, cargoDimensions, commercialInvoices });
+      return this.createFromQuote(companyId, fromQuote, allowSecondShipment === true, shipmentData, { containers, cargoItems, cargoDimensions, commercialInvoices }, users, contactsOf);
     }
 
     // The Sales Number is stored trimmed: it is what a quote finds its shipments by.
@@ -749,8 +874,9 @@ class ShipmentService {
     if ("salesNumber" in shipmentData) shipmentData.salesNumber = salesNumber;
     // A shipment created against a quote inherits that quote's sales owner.
     if (salesNumber) {
-      const owner = await this.linkableQuoteOwner(salesNumber, allowUnfinishedQuote);
-      if (owner && !(shipmentData.salesPerson ?? "").trim()) shipmentData.salesPerson = owner;
+      const quote = await this.linkableQuoteOwner(salesNumber, allowUnfinishedQuote);
+      const owner = quote && !(shipmentData.salesPerson ?? "").trim() ? await this.quoteOwnerEmail(quote, users) : "";
+      if (owner) shipmentData.salesPerson = owner;
     }
     const shipment = await shipmentRepository.createWithJobNumber(companyId, shipmentData);
     await this.syncDetailRows(shipment.id, companyId, { containers, cargoItems, cargoDimensions, commercialInvoices });
@@ -775,6 +901,8 @@ class ShipmentService {
     assertValidContainerNumbers(containers);
     const cargoDimensions = normalizeCargoDimensions(sentDimensions);
     const shipmentData: Partial<NewShipmentRecord> = sanitizeTypedFields({ ...rest, ...legacyInvoiceFields(commercialInvoices) });
+    const users = usersOnce();
+    await checkPeople(shipmentData, users, existing);
     Object.assign(shipmentData, normalizeStops(shipmentData, existing));
 
     // Up to "Paperwork Verified" the customs status follows the paperwork; only the steps
@@ -793,7 +921,10 @@ class ShipmentService {
       }
     }
     const linked = await this.resolveCustomerLinks(shipmentData);
-    await this.fillPartyStops(shipmentData, linked, existing);
+    const contactsOf = contactsOnce();
+    await this.fillPartyStops(shipmentData, linked, contactsOf, existing);
+    // An edit naming a Customer's PIC that is no contact of the customer is refused.
+    await linkContacts(shipmentData, existing, contactsOf, { picMode: "strict" });
 
     // ATA / ATD is the tax date; once the job is invoiced it is final (owner decision,
     // 14 Oct 2026) — correct it by crediting the invoice first. A trade-direction switch
@@ -844,7 +975,7 @@ class ShipmentService {
     // approvedBy in the same request wins — the stamp only fills the field the
     // approval itself would leave untouched.
     if (isCreditApproval(shipmentData.creditCheck, existing.creditCheck) && !("approvedBy" in shipmentData)) {
-      shipmentData.approvedBy = actionStamp(await this.resolveUserName(userId), new Date());
+      shipmentData.approvedBy = actionStamp(await this.actorOf(userId), new Date());
     }
 
     // Assigning a quote number hands the shipment to whoever sold it: the
@@ -856,8 +987,9 @@ class ShipmentService {
     const nextSalesNumber = shipmentData.salesNumber;
     const salesNumberChanged = nextSalesNumber !== undefined && nextSalesNumber !== previousSalesNumber;
     if (salesNumberChanged && nextSalesNumber) {
-      const owner = await this.linkableQuoteOwner(nextSalesNumber);
-      if (owner && !("salesPerson" in shipmentData)) shipmentData.salesPerson = owner;
+      const quote = await this.linkableQuoteOwner(nextSalesNumber);
+      const owner = quote && !("salesPerson" in shipmentData) ? await this.quoteOwnerEmail(quote, users) : "";
+      if (owner) shipmentData.salesPerson = owner;
     }
 
     // Write audit entries for changed shipment fields
@@ -877,9 +1009,7 @@ class ShipmentService {
 
     await this.syncDetailRows(id, companyId, { containers, cargoItems, cargoDimensions, commercialInvoices });
 
-    if (Object.keys(shipmentData).length > 0) {
-      await shipmentRepository.updateForCompany(id, companyId, shipmentData);
-    }
+    const updated = Object.keys(shipmentData).length > 0 ? await shipmentRepository.updateForCompany(id, companyId, shipmentData) : null;
     if (truck && plateTyped) {
       await shipmentRepository.setTruckPlate(companyId, truck, shipmentData.plateNumber ?? "");
     }
@@ -889,6 +1019,9 @@ class ShipmentService {
     await this.recalcCustomerRollups(newCustomerId, companyId);
     if (existing.customerId && existing.customerId !== newCustomerId) {
       await this.recalcCustomerRollups(existing.customerId, companyId);
+    }
+    if (updated && (updated.customer !== existing.customer || updated.customerPic !== existing.customerPic)) {
+      await this.tellParties(companyId, updated);
     }
 
     // A changed Sales Number takes the shipment from one quote and gives it to another: both
@@ -1030,8 +1163,22 @@ class ShipmentService {
     if (!existing) throw APIError.notFound("Shipment not found");
     if (existing.houseBolRelease.trim()) return (await this.getById(id, companyId))!;
 
-    const stamp = actionStamp(await this.resolveUserName(userId), new Date());
+    const stamp = actionStamp(await this.actorOf(userId), new Date());
     return this.update(id, companyId, { houseBolRelease: stamp }, userId);
+  }
+
+  /**
+   * The backfill after people became users picked by e-mail (owner decision, 26 Oct 2026): a name
+   * typed into the company's live shipments before - in a person field or in the Created By,
+   * Approved By or House BoL Release stamp - becomes the e-mail of the one user it fits. A name
+   * that fits nobody or more than one user stays and is reported. Running it again changes
+   * nothing more. No history lines: the values mean the same person as before.
+   */
+  async normalizePeople(companyId: string): Promise<PeopleNormalizeResult> {
+    const users = await companyUsers();
+    const plan = planPeopleNormalize(await shipmentRepository.peopleOf(companyId), users);
+    const changed = await shipmentRepository.rewritePeople(companyId, plan.rewrites);
+    return { checked: plan.checked, changed, unmatched: plan.unmatched };
   }
 
   async linkMasterJob(shipmentId: string, companyId: string, mczNumber: string): Promise<ShipmentRecord | null> {

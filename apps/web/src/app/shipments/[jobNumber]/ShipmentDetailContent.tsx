@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { partyUpdate, type PartyField } from "@/app/shipments/_lib/parties";
+import { contactUpdate, partyUpdate, type ContactField, type ContactLinks, type PartyField } from "@/app/shipments/_lib/parties";
 import { useQueryClient } from "@tanstack/react-query";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Badge, Spin, Dropdown, Modal, Tag, Drawer, Tooltip, Select, TimePicker, Button } from "antd";
@@ -21,7 +21,7 @@ import {
   SplitCellsOutlined,
   PaperClipOutlined,
   FileTextOutlined,
-  EditOutlined,
+  ControlOutlined,
   DollarOutlined,
   WarningOutlined,
 } from "@ant-design/icons";
@@ -35,7 +35,9 @@ import { businessToday, formatDate } from "@/lib/date";
 import { statusLabel, statusTagColor } from "@/lib/shipmentStatus";
 import { useShipmentTasks } from "@/hooks/useShipmentTasks";
 import { useCardFields } from "./useCardFields";
-import { useUsers } from "@/hooks/useUsers";
+import { UserPicker } from "@/components/UserPicker";
+import { UnlinkedPersonMark } from "@/app/shipments/_components/UnlinkedPersonMark";
+import { isPersonField, personChange, splitPersonStamp } from "@/app/shipments/_lib/personFields";
 import { isSalesQuoteRef } from "@/app/sales/_lib/salesQuote";
 import { quoteHref } from "@/app/sales/_lib/quoteHref";
 import { getTasksForDirection, getActiveStageFromTasks } from "./_components/taskDefinitions";
@@ -52,7 +54,7 @@ import { NotificationsTab } from "./tabs/NotificationsTab";
 import { useShipmentAlerts } from "@/hooks/useShipmentAlerts";
 import { WarehouseTab } from "./tabs/WarehouseTab";
 import { CustomsTab } from "./tabs/CustomsTab";
-import { EditableCell, FreightModeContext, TradeDirectionContext } from "./_components/EditableCell";
+import { EditableCell, FreightModeContext, ShipmentCustomerContext, ShipmentCustomerPicContext, TradeDirectionContext } from "./_components/EditableCell";
 import { FadeText } from "@/components/FadeText";
 import { CustomerLinkField } from "./_components/CustomerLinkField";
 import { PartyContactField } from "./_components/PartyContactField";
@@ -66,7 +68,8 @@ import { AttachmentsPanel } from "../_components/AttachmentsPanel";
 import { NotesDrawer } from "../_components/NotesDrawer";
 import { CommercialInvoicesModal } from "../_components/CommercialInvoicesModal";
 
-export type CommitFn = (fieldKey: string, value: string) => void;
+/** `links` go with a value that names a record: a picked contact's id. */
+export type CommitFn = (fieldKey: string, value: string, links?: ContactLinks) => void;
 
 /* ── Tabs ── */
 const TABS = [
@@ -233,7 +236,7 @@ function SectionHeader({
                     : "border-line-soft bg-white text-slate-600 hover:bg-surface-2 hover:text-indigo-500 hover:border-line-dim"
                 }`}
               >
-                <EditOutlined className="text-[12px]" />
+                <ControlOutlined className="text-[12px]" />
               </button>
             </Tooltip>
           </span>
@@ -350,6 +353,10 @@ function FieldRow({
   styleFor,
   labelW = "w-[140px]",
 }: FieldRowProps) {
+  // A person is never typed in: every card and modal row of one is the user picker.
+  if (isPersonField(fieldKey)) {
+    return <MemberRow label={label} fieldKey={fieldKey} value={value} onCommit={onCommit} labelW={labelW} />;
+  }
   return (
     <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
       <span className={`${labelW} shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide`}>{label}</span>
@@ -360,7 +367,8 @@ function FieldRow({
         onCommit={onCommit}
         placeholder="—"
         displayClassName="text-slate-900 font-medium"
-        displayStyle={styleFor?.(fieldKey, value)}
+        // Customer's PIC is a link like the Customer row's, which takes no rule colour here either.
+        displayStyle={fieldKey === "customerPic" ? undefined : styleFor?.(fieldKey, value)}
       />
     </div>
   );
@@ -418,7 +426,9 @@ function StackabilityRow({ value, onPick }: StackabilityRowProps) {
   );
 }
 
-// Row whose value is picked from the company's members (same list as the sales person).
+// Row whose value is one of the company's users: found by name or e-mail, kept and shown by
+// e-mail. Approved By may hold the server's stamp "<e-mail> — <date>": the picker shows who and
+// the date stands beside it; picking someone else replaces the stamp.
 function MemberRow({
   label,
   value,
@@ -426,22 +436,24 @@ function MemberRow({
   onCommit,
   labelW = "w-[140px]",
 }: MemberRowProps) {
-  const { users } = useUsers();
+  const { person, when } = splitPersonStamp(value);
   return (
     <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0 items-center">
       <span className={`${labelW} shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide`}>{label}</span>
-      <Select
-        showSearch
-        allowClear
+      <UserPicker
         variant="borderless"
         size="small"
         placeholder="—"
         className="flex-1 min-w-0 -ml-2 text-xs"
-        value={value || undefined}
-        optionFilterProp="label"
-        onChange={(v) => onCommit(fieldKey, v ?? "")}
-        options={users.map((u) => ({ label: u.displayName, value: u.displayName }))}
+        popupMatchSelectWidth={false}
+        aria-label={label}
+        value={person}
+        onChange={(email) => {
+          const next = personChange(value, email);
+          if (next !== null) onCommit(fieldKey, next);
+        }}
       />
+      {when && <span className="shrink-0 text-[11px] text-slate-400 whitespace-nowrap">{when}</span>}
     </div>
   );
 }
@@ -505,10 +517,12 @@ interface RoRowProps {
   labelW?: string;
   /** Wrap a long value onto more lines instead of fading it out. */
   wrap?: boolean;
+  /** Shown after the value, e.g. the mark of a person who is no user. */
+  mark?: React.ReactNode;
 }
 
 // Read-only horizontal row (label | value), matching FieldRow's look.
-function RoRow({ label, value, labelW = "w-[140px]", wrap = false }: RoRowProps) {
+function RoRow({ label, value, labelW = "w-[140px]", wrap = false, mark }: RoRowProps) {
   return (
     <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
       <span className={`${labelW} shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide`}>{label}</span>
@@ -519,6 +533,7 @@ function RoRow({ label, value, labelW = "w-[140px]", wrap = false }: RoRowProps)
       ) : (
         <span className="flex-1 min-w-0 text-slate-300 font-medium">—</span>
       )}
+      {value && mark}
     </div>
   );
 }
@@ -839,8 +854,8 @@ function CargoRow({
     return <InvoiceRow label={field.label} fieldKey={field.key} shipment={shipment} styleFor={styleFor} labelW="w-[180px]" />;
   }
   const value = getFieldValue(shipment, field.key);
-  // Approved by is a person, picked from the company's members.
-  if (field.key === "approvedBy") {
+  // Approved by is a person, picked from the company's users.
+  if (isPersonField(field.key)) {
     return <MemberRow label={field.label} fieldKey={field.key} value={value} onCommit={onCommit} labelW="w-[180px]" />;
   }
   if (field.ro) {
@@ -1042,16 +1057,16 @@ export function ShipmentDetailContent() {
   }
 
   // The shipment goes along: it need not be among the rows the list hook knows.
-  const handleCommit: CommitFn = (fieldKey, value) => updateField(shipment.id, fieldKey, value, shipment);
+  const handleCommit: CommitFn = (fieldKey, value, links) => updateField(shipment.id, fieldKey, value, shipment, links);
 
   // Update a party's name + its CRM customer link together.
   const linkParty = (party: PartyField, name: string, customerId: string | null) => {
     updateShipment({ id: shipment.id, data: partyUpdate(party, name, customerId) });
   };
 
-  // Persist a field that isn't part of the shipments table's column config.
-  const commitDirect: CommitFn = (fieldKey, value) =>
-    updateShipment({ id: shipment.id, data: { [fieldKey]: value } as controllers.ShipmentUpdateRequest });
+  // A shipper's or consignee's Contact: its name with the contact's id (null for one typed by hand).
+  const commitContact = (field: ContactField, name: string, contactId: string | null) =>
+    updateShipment({ id: shipment.id, data: contactUpdate(field, name, contactId) });
 
   const styleFor = makeStyleFor(shipment);
   const status = shipment.status ?? "";
@@ -1263,7 +1278,7 @@ export function ShipmentDetailContent() {
               <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
                 {/* Column order mirrors the agreed overview mockup 1:1 — left is
                     "who and what", right is "where, when and in which state".
-                    Fields are declared as a list so the pencil can filter them. */}
+                    Fields are declared as a list so the field chooser can filter them. */}
                 {(() => {
                   const left: FieldDef[] = [
                     { key: "jobNumber", label: "Internal Reference", ro: true },
@@ -1276,6 +1291,8 @@ export function ShipmentDetailContent() {
                     { key: "salesNumber", label: "Sales Reference" },
                     { key: "serviceName", label: "Service Name" },
                     { key: "customer", label: "Customer", ro: true },
+                    // Picked from the customer's contacts (the contact cell), with its card on hover.
+                    { key: "customerPic", label: "Customer's PIC" },
                     { key: "shipper", label: "Shipper", ro: true },
                     { key: "consignee", label: "Consignee", ro: true },
                     { key: "personInCharge", label: "Handled By" },
@@ -1295,7 +1312,7 @@ export function ShipmentDetailContent() {
                     { key: "pod", label: "POD" },
                     { key: "estimatedArrival", label: "ETA Estimated" },
                     { key: "estimatedArrivalWeek", label: "Est. Arrival Week", ro: true },
-                    { key: "shipmentsDate", label: "Shipments Date", ro: true },
+                    { key: "shipmentsDate", label: "Shipments Month", ro: true },
                     { key: "shipmentsYear", label: "Year", ro: true },
                     { key: "shippingLine", label: "Shipping line / Coloader" },
                     { key: "containerNumber", label: "Container Number", ro: true },
@@ -1310,9 +1327,10 @@ export function ShipmentDetailContent() {
                       <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100">
                         <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Master Job</span>
                         <div className="flex-1 min-w-0 flex items-center gap-2">
+                          {/* The app's link colour (antd's link), like Customer below. */}
                           {shipment.masterJobMczNumber ? (
                             <>
-                              <button onClick={() => setMasterJobOpen(true)} className="text-indigo-500 hover:underline cursor-pointer bg-transparent border-none p-0 font-medium">
+                              <button onClick={() => setMasterJobOpen(true)} className="text-link hover:underline cursor-pointer bg-transparent border-none p-0 font-medium">
                                 #{shipment.masterJobMczNumber}
                               </button>
                               <button onClick={handleUnlinkMasterJob} className="text-[10px] text-slate-400 hover:text-red-500 cursor-pointer bg-transparent border-none p-0">
@@ -1320,7 +1338,7 @@ export function ShipmentDetailContent() {
                               </button>
                             </>
                           ) : (
-                            <button onClick={() => setAssignOpen(true)} className="text-indigo-500 hover:underline cursor-pointer bg-transparent border-none p-0 font-medium">
+                            <button onClick={() => setAssignOpen(true)} className="text-link hover:underline cursor-pointer bg-transparent border-none p-0 font-medium">
                               + Assign to master job
                             </button>
                           )}
@@ -1337,8 +1355,15 @@ export function ShipmentDetailContent() {
                       <CustomerLinkField label="Consignee" name={shipment.consignee} customerId={shipment.consigneeId} onChange={(n, id) => linkParty("consignee", n, id)} />
                     ),
                     // Not a column of the Shipments grid, so getFieldValue knows no such key: read
-                    // from the shipment itself. It is changed in the Quote card below.
-                    salesPerson: <RoRow label="Sales Person" value={shipment.salesPerson} />,
+                    // from the shipment itself. It is changed in the Quote card below, so an old
+                    // name here is only marked.
+                    salesPerson: (
+                      <RoRow
+                        label="Sales Person"
+                        value={shipment.salesPerson}
+                        mark={<UnlinkedPersonMark value={shipment.salesPerson} hint="pick one in the Quote card" />}
+                      />
+                    ),
                     incoterm: (
                       <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100">
                         <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Incoterm Origin/Destination</span>
@@ -1425,7 +1450,7 @@ export function ShipmentDetailContent() {
                       <CustomerLinkField label="Shipper" name={shipment.shipper} customerId={shipment.shipperId} onChange={(n, id) => linkParty("shipper", n, id)} />
                     ),
                     shipperContact: (
-                      <PartyContactField label="Contact" fieldKey="shipperContact" value={shipment.shipperContact} customerId={shipment.shipperId} onCommit={commitDirect} />
+                      <PartyContactField label="Contact" value={shipment.shipperContact} contactId={shipment.shipperContactId} customerId={shipment.shipperId} onChange={(n, id) => commitContact("shipperContact", n, id)} />
                     ),
                     shipperOpening: (
                       <OpeningHoursRow
@@ -1438,7 +1463,7 @@ export function ShipmentDetailContent() {
                       <CustomerLinkField label="Consignee" name={shipment.consignee} customerId={shipment.consigneeId} onChange={(n, id) => linkParty("consignee", n, id)} />
                     ),
                     consigneeContact: (
-                      <PartyContactField label="Contact" fieldKey="consigneeContact" value={shipment.consigneeContact} customerId={shipment.consigneeId} onCommit={commitDirect} />
+                      <PartyContactField label="Contact" value={shipment.consigneeContact} contactId={shipment.consigneeContactId} customerId={shipment.consigneeId} onChange={(n, id) => commitContact("consigneeContact", n, id)} />
                     ),
                     consigneeOpening: (
                       <OpeningHoursRow
@@ -1594,6 +1619,7 @@ export function ShipmentDetailContent() {
                     { key: "personInCharge", label: "Person In Charge" },
                     { key: "holidayCover", label: "Holiday Cover" },
                     { key: "createdBy", label: "Created By", ro: true },
+                    { key: "createdOn", label: "Created On", ro: true },
                   ];
                   const allKeys = [...left, ...right].map((f) => f.key);
                   const shown = new Set(visibleCardKeys("basic", allKeys));
@@ -1601,8 +1627,6 @@ export function ShipmentDetailContent() {
                     col.filter((f) => shown.has(f.key)).map((f) =>
                       f.ro ? (
                         <RoRow key={f.key} label={f.label} value={getFieldValue(shipment, f.key)} />
-                      ) : f.key === "personInCharge" || f.key === "holidayCover" ? (
-                        <MemberRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={handleCommit} />
                       ) : (
                         <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={handleCommit} styleFor={styleFor} />
                       ),
@@ -1785,7 +1809,11 @@ export function ShipmentDetailContent() {
   );
   return (
     <TradeDirectionContext.Provider value={shipment.tradeDirection ?? undefined}>
-      <FreightModeContext.Provider value={shipment.freightMode ?? undefined}>{page}</FreightModeContext.Provider>
+      <FreightModeContext.Provider value={shipment.freightMode ?? undefined}>
+        <ShipmentCustomerContext.Provider value={shipment.customerId ?? null}>
+          <ShipmentCustomerPicContext.Provider value={shipment.customerPicContactId ?? null}>{page}</ShipmentCustomerPicContext.Provider>
+        </ShipmentCustomerContext.Provider>
+      </FreightModeContext.Provider>
     </TradeDirectionContext.Provider>
   );
 }

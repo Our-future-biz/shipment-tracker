@@ -78,6 +78,13 @@
       "when": 1792419816323,
       "tag": "0010_index_cleanup",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1793054426874,
+      "tag": "0011_customer_name_links",
+      "breakpoints": true
     }
   ]
 }

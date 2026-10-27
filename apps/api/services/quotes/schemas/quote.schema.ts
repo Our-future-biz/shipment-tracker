@@ -24,7 +24,8 @@ export const quoteTable = pgTable(
     decidedAt: timestamp("decided_at", { withTimezone: true }),
     validUntil: date("valid_until", { mode: "string" }),
     lastContactAt: timestamp("last_contact_at", { withTimezone: true }),
-    // The owner is an auth user (another database, so no FK) plus the text old readers see.
+    // The owner is an auth user (another database, so no FK) plus the text old readers see: the
+    // user's e-mail, or a name typed before owners were users.
     // owner_match_checked_at is set once the label was compared with the company's users,
     // matched or not, so a user created later never claims old labels.
     ownerUserId: uuid("owner_user_id"),

@@ -511,10 +511,14 @@ export namespace customers {
             this.customerCreate = this.customerCreate.bind(this)
             this.customerCreateManual = this.customerCreateManual.bind(this)
             this.customerDelete = this.customerDelete.bind(this)
+            this.customerDeletedList = this.customerDeletedList.bind(this)
             this.customerGet = this.customerGet.bind(this)
             this.customerList = this.customerList.bind(this)
             this.customerListPrefGet = this.customerListPrefGet.bind(this)
             this.customerListPrefSet = this.customerListPrefSet.bind(this)
+            this.customerPeopleNormalize = this.customerPeopleNormalize.bind(this)
+            this.customerRestore = this.customerRestore.bind(this)
+            this.customerSeatNormalize = this.customerSeatNormalize.bind(this)
             this.customerShipmentFinancials = this.customerShipmentFinancials.bind(this)
             this.customerSiteCreate = this.customerSiteCreate.bind(this)
             this.customerSiteDelete = this.customerSiteDelete.bind(this)
@@ -543,6 +547,9 @@ export namespace customers {
             return await resp.json() as controllers.AddressCreateResponse
         }
 
+        /**
+         * Hides the address (soft delete: the row stays in the database and can be restored). Superadmins only.
+         */
         public async addressDelete(id: string): Promise<controllers.AddressDeleteResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("DELETE", `/customer-addresses/${encodeURIComponent(id)}`)
@@ -587,6 +594,9 @@ export namespace customers {
             return await resp.json() as controllers.ContactCreateResponse
         }
 
+        /**
+         * Hides the contact (soft delete: the row stays in the database and can be restored). Superadmins only.
+         */
         public async contactDelete(id: string): Promise<controllers.ContactDeleteResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("DELETE", `/customer-contacts/${encodeURIComponent(id)}`)
@@ -621,12 +631,23 @@ export namespace customers {
         }
 
         /**
-         * Removes the customer with its contacts, notes, documents and invoices: managers and up only.
+         * Hides the customer with its contacts, addresses, notes, documents and invoices (soft delete:
+         * the rows stay in the database and can be restored). Superadmins only.
          */
         public async customerDelete(id: string): Promise<controllers.CustomerDeleteResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("DELETE", `/customers/${encodeURIComponent(id)}`)
             return await resp.json() as controllers.CustomerDeleteResponse
+        }
+
+        /**
+         * The deleted (hidden) customers of the company, for the Deleted view of the Customer
+         * Database. Superadmins only: they are the ones who delete and restore customers.
+         */
+        public async customerDeletedList(): Promise<controllers.CustomerDeletedListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/deleted-customers`)
+            return await resp.json() as controllers.CustomerDeletedListResponse
         }
 
         public async customerGet(id: string): Promise<controllers.CustomerGetResponse> {
@@ -660,6 +681,38 @@ export namespace customers {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PUT", `/customer-list-prefs/${encodeURIComponent(prefKey)}`, JSON.stringify(params))
             return await resp.json() as controllers.CustomerListPrefSetResponse
+        }
+
+        /**
+         * Records the sales owner of every live customer and the author of every Communication note of the
+         * caller's company by the user's e-mail, linking an old typed name to the one user it names.
+         * Values that name no single user stay and are listed. Can be run again at any time. Superadmins only.
+         */
+        public async customerPeopleNormalize(): Promise<interfaces.CustomerPeopleNormalizeResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/customers/people/normalize`)
+            return await resp.json() as interfaces.CustomerPeopleNormalizeResult
+        }
+
+        /**
+         * Brings a deleted customer back for everyone, with the contacts, addresses, notes, documents,
+         * invoices and sites deleted together with it. Superadmins only.
+         */
+        public async customerRestore(id: string): Promise<controllers.CustomerRestoreResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/customers/${encodeURIComponent(id)}/restore`)
+            return await resp.json() as controllers.CustomerRestoreResponse
+        }
+
+        /**
+         * Copies each live customer's Registered address into its registered address, city and country
+         * where an edit made since the customer was created never reached them. Customers without a
+         * Registered address are left and listed. Can be run again at any time. Superadmins only.
+         */
+        public async customerSeatNormalize(): Promise<interfaces.CustomerSeatNormalizeResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/customers/seats/normalize`)
+            return await resp.json() as interfaces.CustomerSeatNormalizeResult
         }
 
         /**
@@ -769,6 +822,9 @@ export namespace customers {
             return await resp.json() as controllers.LogoUploadResponse
         }
 
+        /**
+         * The author is always the signed-in user (from the login, never from the request).
+         */
         public async noteCreate(customerId: string, params: controllers.NoteCreateRequest): Promise<controllers.NoteCreateResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/customers/${encodeURIComponent(customerId)}/notes`, JSON.stringify(params))
@@ -1333,6 +1389,8 @@ export namespace quotes {
             this.quoteCommentMarkRead = this.quoteCommentMarkRead.bind(this)
             this.quoteCommentMentions = this.quoteCommentMentions.bind(this)
             this.quoteCommentUnread = this.quoteCommentUnread.bind(this)
+            this.quoteLinksNormalize = this.quoteLinksNormalize.bind(this)
+            this.quotePeopleNormalize = this.quotePeopleNormalize.bind(this)
             this.salesQuoteCreate = this.salesQuoteCreate.bind(this)
             this.salesQuoteDelete = this.salesQuoteDelete.bind(this)
             this.salesQuoteDuplicate = this.salesQuoteDuplicate.bind(this)
@@ -1430,6 +1488,28 @@ export namespace quotes {
             return await resp.json() as {
     unread: interfaces.QuoteCommentUnreadItem[]
 }
+        }
+
+        /**
+         * Brings the customer and contact copies of every open sales quote of the caller's company up to
+         * date with the Customer Database, linking an old contact name to the one contact it names. Values
+         * that cannot be linked stay and are listed. Can be run again at any time. Superadmins only.
+         */
+        public async quoteLinksNormalize(): Promise<interfaces.QuoteLinksNormalizeResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/quotes/links/normalize`)
+            return await resp.json() as interfaces.QuoteLinksNormalizeResult
+        }
+
+        /**
+         * Records the owner of every live sales quote of the caller's company by the owner user's e-mail,
+         * linking an old typed name to the one user it names. Values that name no single user stay and
+         * are listed. Can be run again at any time. Superadmins only.
+         */
+        public async quotePeopleNormalize(): Promise<interfaces.QuotePeopleNormalizeResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/quotes/people/normalize`)
+            return await resp.json() as interfaces.QuotePeopleNormalizeResult
         }
 
         public async salesQuoteCreate(params: controllers.SalesQuoteCreateRequest): Promise<controllers.SalesQuoteCreateResponse> {
@@ -1638,6 +1718,7 @@ export namespace sales {
             this.followupTaskUpdate = this.followupTaskUpdate.bind(this)
             this.prefGet = this.prefGet.bind(this)
             this.prefSet = this.prefSet.bind(this)
+            this.salesLinksNormalize = this.salesLinksNormalize.bind(this)
             this.salesPermissions = this.salesPermissions.bind(this)
             this.salesPipeline = this.salesPipeline.bind(this)
             this.termsCreate = this.termsCreate.bind(this)
@@ -1765,6 +1846,17 @@ export namespace sales {
         }
 
         /**
+         * Brings the customer name of every follow-up task of the caller's company that is linked to a
+         * customer record up to date with the Customer Database. Tasks linked to a deleted customer keep
+         * their name and are listed. Can be run again at any time. Superadmins only.
+         */
+        public async salesLinksNormalize(): Promise<interfaces.SalesLinksNormalizeResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/sales/links/normalize`)
+            return await resp.json() as interfaces.SalesLinksNormalizeResult
+        }
+
+        /**
          * What the signed-in user may do in Sales beyond a single quote: the screens show, hide and lock
          * their controls by these flags and hold no rule about roles themselves. The endpoints refuse by
          * the same policy, whatever a screen shows.
@@ -1864,9 +1956,11 @@ export namespace shipments {
             this.shipmentDelete = this.shipmentDelete.bind(this)
             this.shipmentGet = this.shipmentGet.bind(this)
             this.shipmentLinkMasterJob = this.shipmentLinkMasterJob.bind(this)
+            this.shipmentLinksNormalize = this.shipmentLinksNormalize.bind(this)
             this.shipmentList = this.shipmentList.bind(this)
             this.shipmentNeedsAttention = this.shipmentNeedsAttention.bind(this)
             this.shipmentNextJobNumber = this.shipmentNextJobNumber.bind(this)
+            this.shipmentPeopleNormalize = this.shipmentPeopleNormalize.bind(this)
             this.shipmentQuoteLink = this.shipmentQuoteLink.bind(this)
             this.shipmentQuoteLinksSync = this.shipmentQuoteLinksSync.bind(this)
             this.shipmentReleaseHouseBol = this.shipmentReleaseHouseBol.bind(this)
@@ -2134,6 +2228,18 @@ export namespace shipments {
             return await resp.json() as controllers.LinkMasterJobResponse
         }
 
+        /**
+         * The one-off backfill after shipments started keeping the Customer Database ids of their
+         * contacts (owner decision, 26 Oct 2026): the company's shipments and master jobs take the current
+         * names of the customers they link to, and a Customer's PIC or Shipper / Consignee Contact stored
+         * by name is linked to that contact. Safe to run again. Superadmins only.
+         */
+        public async shipmentLinksNormalize(): Promise<interfaces.LinksNormalizeResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/links/normalize`)
+            return await resp.json() as interfaces.LinksNormalizeResult
+        }
+
         public async shipmentList(params: controllers.ShipmentListRequest): Promise<controllers.ShipmentListResponse> {
             // Convert our params into the objects we need for the request
             const query = makeRecord<string, string | string[]>({
@@ -2174,6 +2280,17 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/shipments/next-job-number`)
             return await resp.json() as controllers.NextJobNumberResponse
+        }
+
+        /**
+         * The one-off conversion after people became users picked by e-mail (owner decision, 26 Oct
+         * 2026): names typed into the company's shipments become the matching user's e-mail. Safe to run
+         * again. Superadmins only.
+         */
+        public async shipmentPeopleNormalize(): Promise<interfaces.PeopleNormalizeResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/people/normalize`)
+            return await resp.json() as interfaces.PeopleNormalizeResult
         }
 
         /**
@@ -2333,6 +2450,7 @@ export namespace trucking {
             this.truckingInternalStatementPdf = this.truckingInternalStatementPdf.bind(this)
             this.truckingLabelsPdf = this.truckingLabelsPdf.bind(this)
             this.truckingLegPartner = this.truckingLegPartner.bind(this)
+            this.truckingLinksNormalize = this.truckingLinksNormalize.bind(this)
             this.truckingManifestPdf = this.truckingManifestPdf.bind(this)
             this.truckingOutboxFailed = this.truckingOutboxFailed.bind(this)
             this.truckingPlanningBoard = this.truckingPlanningBoard.bind(this)
@@ -2979,6 +3097,17 @@ export namespace trucking {
         }
 
         /**
+         * The one-off backfill after copies became linked (owner, 26 Oct 2026): the customer names of the
+         * company's consignments and the haulier names of its trips are refreshed from the Customer
+         * Database by their ids. Safe to run again. Superadmins only.
+         */
+        public async truckingLinksNormalize(): Promise<interfaces.TruckingLinksNormalizeResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/links/normalize`)
+            return await resp.json() as interfaces.TruckingLinksNormalizeResult
+        }
+
+        /**
          * The manifest (nakládací list) of a run or line haul.
          */
         public async truckingManifestPdf(id: string, params: controllers.TruckingManifestPdfRequest): Promise<controllers.TruckingFileResponse> {
@@ -3478,6 +3607,7 @@ export namespace warehouseConcept {
             this.gateFileDelete = this.gateFileDelete.bind(this)
             this.gateFileList = this.gateFileList.bind(this)
             this.gateFileUpload = this.gateFileUpload.bind(this)
+            this.gateLinksNormalize = this.gateLinksNormalize.bind(this)
             this.gateMovementArchive = this.gateMovementArchive.bind(this)
             this.gateMovementCorrectionDismiss = this.gateMovementCorrectionDismiss.bind(this)
             this.gateMovementCreate = this.gateMovementCreate.bind(this)
@@ -3506,6 +3636,7 @@ export namespace warehouseConcept {
             this.gateMovementUseRemeasured = this.gateMovementUseRemeasured.bind(this)
             this.gateMovementVerifyPin = this.gateMovementVerifyPin.bind(this)
             this.gateMovementVoidStamp = this.gateMovementVoidStamp.bind(this)
+            this.gatePeopleNormalize = this.gatePeopleNormalize.bind(this)
             this.pickupPinGenerate = this.pickupPinGenerate.bind(this)
             this.warehouseBondedCreate = this.warehouseBondedCreate.bind(this)
             this.warehouseBondedDelete = this.warehouseBondedDelete.bind(this)
@@ -3631,6 +3762,17 @@ export namespace warehouseConcept {
             return await resp.json() as {
     file: interfaces.GateFileItem
 }
+        }
+
+        /**
+         * One-time backfill (superadmin, own company): gate records take their shipment's current Customer
+         * and Customer's PIC. Afterwards the shipment-parties-changed event keeps them current, and the
+         * customs follow's regular read of open records catches what an event missed. Safe to run again.
+         */
+        public async gateLinksNormalize(): Promise<controllers.GateLinksNormalizeResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/links/normalize`)
+            return await resp.json() as controllers.GateLinksNormalizeResponse
         }
 
         /**
@@ -3909,6 +4051,18 @@ export namespace warehouseConcept {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/gate/${encodeURIComponent(id)}/void-stamp`, JSON.stringify(params))
             return await resp.json() as controllers.GateVoidStampResponse
+        }
+
+        /**
+         * Backfill for the owner decision of 26 Oct 2026 (a picked person is a user, stored by e-mail):
+         * the gate records' Shipment Owner and the warehouse positions' assignee of the caller's company
+         * become the e-mail of the one user an old value names; the old walk-in placeholder
+         * "— notify ops" becomes empty. Superadmin only; safe to run again.
+         */
+        public async gatePeopleNormalize(): Promise<interfaces.PeopleNormalizeResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/people/normalize`)
+            return await resp.json() as interfaces.PeopleNormalizeResult
         }
 
         /**
@@ -5309,6 +5463,13 @@ export namespace controllers {
         ok: boolean
     }
 
+    export interface CustomerDeletedListResponse {
+        /**
+         * The most recently deleted first, at most 1000.
+         */
+        data: interfaces.DeletedCustomerItem[]
+    }
+
     export interface CustomerGetResponse {
         customer: interfaces.CustomerItem
     }
@@ -5356,6 +5517,10 @@ export namespace controllers {
          * How many customers match in all (more than `data` holds when it is cut).
          */
         total: number
+    }
+
+    export interface CustomerRestoreResponse {
+        customer: interfaces.CustomerItem
     }
 
     export interface CustomerShipmentFinancialsRequest {
@@ -5452,7 +5617,7 @@ export namespace controllers {
      * The rollups (totalRevenue, totalProfit, totalShipments, lastActivityDate) are not here:
      * they are computed from shipments and written only through customerRollupsUpdate.
      * Nor is the registered address: it lives in the customer's Registered address (the
-     * addresses endpoints); the copy on the customer comes from the registry when it is created.
+     * addresses endpoints), and the copy on the customer follows it (lib/seat.ts).
      */
     export interface CustomerUpdateRequest {
         companyName?: string
@@ -5842,6 +6007,27 @@ export namespace controllers {
         clientRequestId?: string
     }
 
+    export interface GateLinksNormalizeResponse {
+        /**
+         * Live gate records linked to a shipment that were looked at.
+         */
+        checked: number
+
+        /**
+         * Records whose Customer or Customer contact was brought up to date.
+         */
+        changed: number
+
+        /**
+         * Shipments not brought up to date: "shipment deleted" / "shipment could not be read", by job number and position.
+         */
+        unmatched: {
+            field: string
+            value: string
+            count: number
+        }[]
+    }
+
     export interface GateMovementCreateRequest {
         /**
          * Truck at the fence with no pre-advice: creates an unlinked row.
@@ -5857,7 +6043,11 @@ export namespace controllers {
         customer?: string
         customerRef?: string
         customerContact?: string
+        /**
+         * E-mail of a user of the company, "" for nobody; the record's current value is also accepted.
+         */
         shipmentOwner?: string
+
         colli?: number
         packing?: string
         weightKg?: number
@@ -5945,7 +6135,11 @@ export namespace controllers {
         customer?: string
         customerRef?: string
         customerContact?: string
+        /**
+         * E-mail of a user of the company, "" for nobody; the record's current value is also accepted.
+         */
         shipmentOwner?: string
+
         colli?: number
         packing?: string
         weightKg?: number
@@ -6454,7 +6648,6 @@ export namespace controllers {
     export interface NoteCreateRequest {
         type?: interfaces.NoteType
         content: string
-        author?: string
     }
 
     export interface NoteCreateResponse {
@@ -6889,7 +7082,7 @@ export namespace controllers {
         /**
          * createdAt (the default) | updatedAt | quoteNumber | customer | status | owner | sentAt |
          * validUntil | decidedAt | lastContactAt. Anything else sorts by createdAt. Quotes without a
-         * value come last in both directions.
+         * value come last in both directions. Status and owner sort as shown (the owner by e-mail).
          */
         sortBy?: string
 
@@ -6900,8 +7093,9 @@ export namespace controllers {
 
         /**
          * Words that all have to occur in the quote: in its reference, customer, service type,
-         * direction, origin, destination, commodity, incoterm, owner, job number or status. Case and
-         * diacritics do not matter; at most five words are looked for.
+         * direction, origin, destination, commodity, incoterm, owner (the owner user's e-mail or name,
+         * or the owner text of an old quote), job number or status. Case and diacritics do not matter;
+         * at most five words are looked for.
          */
         search?: string
 
@@ -7268,6 +7462,13 @@ export namespace controllers {
         principalParty?: string
         customer?: string
         customerPic?: string
+        /**
+         * The Customer Database contact the Customer's PIC is (one of the customer's live contacts): its
+         * current name is stored as customerPic. Without it a customerPic name is matched to a contact.
+         * null clears the Customer's PIC.
+         */
+        customerPicContactId?: string | null
+
         customerReference?: string
         /**
          * Commercial parties
@@ -7287,6 +7488,14 @@ export namespace controllers {
         deliveryCountry?: string | null
         shipperContact?: string
         consigneeContact?: string
+        /**
+         * The contact of the shipper's / consignee's customer the Contact is: its current name is stored
+         * as the Contact. Without it a Contact naming one of the party's contacts is linked to it; any
+         * other name stays as typed, with no id.
+         */
+        shipperContactId?: string | null
+
+        consigneeContactId?: string | null
         shipperOpeningFrom?: string
         shipperOpeningTo?: string
         consigneeOpeningFrom?: string
@@ -7614,6 +7823,13 @@ export namespace controllers {
         principalParty?: string
         customer?: string
         customerPic?: string
+        /**
+         * The Customer Database contact the Customer's PIC is (one of the customer's live contacts): its
+         * current name is stored as customerPic. Without it a customerPic name is matched to a contact.
+         * null clears the Customer's PIC.
+         */
+        customerPicContactId?: string | null
+
         customerReference?: string
         /**
          * Commercial parties
@@ -7634,6 +7850,14 @@ export namespace controllers {
         deliveryCountry?: string | null
         shipperContact?: string
         consigneeContact?: string
+        /**
+         * The contact of the shipper's / consignee's customer the Contact is: its current name is stored
+         * as the Contact. Without it a Contact naming one of the party's contacts is linked to it; any
+         * other name stays as typed, with no id.
+         */
+        shipperContactId?: string | null
+
+        consigneeContactId?: string | null
         shipperOpeningFrom?: string
         shipperOpeningTo?: string
         consigneeOpeningFrom?: string
@@ -8949,7 +9173,11 @@ export namespace controllers {
         type?: string
         priority?: string
         status?: string
+        /**
+         * E-mail of a user of the company, "" for nobody; the task's current value is also accepted.
+         */
         assignee?: string
+
         /**
          * yyyy-mm-dd; "" clears it
          */
@@ -9051,7 +9279,11 @@ export namespace controllers {
         customer?: string
         customerRef?: string
         customerContact?: string
+        /**
+         * E-mail of a user of the company.
+         */
         shipmentOwner?: string
+
         customsStatus?: interfaces.GateCustomsStatus
         handling?: interfaces.GateHandling
         freightMode?: string
@@ -9302,12 +9534,12 @@ export namespace interfaces {
         customsNote: string
         customsReviewedAt: string | null
         /**
-         * Display name of the uploader; "Unknown" when it cannot be resolved.
+         * The uploader's e-mail; "Unknown" when it cannot be resolved.
          */
         uploadedByName: string
 
         /**
-         * Display name of the customs reviewer; "" while the document is unreviewed.
+         * The customs reviewer's e-mail; "" while the document is unreviewed.
          */
         customsReviewedByName: string
     }
@@ -9737,7 +9969,7 @@ export namespace interfaces {
         shipmentId: string
         authorId: string
         /**
-         * Who wrote it (display name, e-mail when they have none).
+         * Who wrote it: the user's e-mail, as every person is shown; "" when the user is unknown.
          */
         authorName: string
 
@@ -9761,7 +9993,11 @@ export namespace interfaces {
 
         shipmentId: string
         jobNumber: string
+        /**
+         * Who wrote it: the user's e-mail; "" when the user is unknown.
+         */
         authorName: string
+
         message: string
         createdAt: string
         /**
@@ -10244,7 +10480,7 @@ export namespace interfaces {
         quoteNumber: string
         validUntil: string | null
         /**
-         * The quote's owner: who sold the shipment.
+         * The quote's owner, who sold the shipment: their e-mail (as SalesQuoteItem.ownerName).
          */
         ownerName: string
     }
@@ -10311,7 +10547,7 @@ export namespace interfaces {
         lastRegistryUpdate: string
         status: CustomerStatus
         /**
-         * The owner's name; without salesOwnerUserId a name typed before owners were users, or "".
+         * The owner user's e-mail; without salesOwnerUserId a name typed before owners were users, or "".
          */
         salesOwner: string
 
@@ -10350,9 +10586,57 @@ export namespace interfaces {
     export type CustomerLabel = "KEY ACCOUNT" | "STANDARD" | "TARGET CUSTOMER" | "RISK"
 
     /**
+     * What a run of POST /customers/people/normalize did to the company's live customers and notes.
+     */
+    export interface CustomerPeopleNormalizeResult {
+        /**
+         * Customers with a sales owner and notes with an author that were looked at.
+         */
+        checked: number
+
+        /**
+         * Rows whose person is now recorded by a user's e-mail (a customer's owner also linked to that user).
+         */
+        changed: number
+
+        /**
+         * Values left as they are, with how many rows have each: they name no single user of the company.
+         */
+        unmatched: {
+            field: string
+            value: string
+            count: number
+        }[]
+    }
+
+    /**
      * What a company is to us. A customer buys our services; a haulier is a trucking subcontractor. One company can be both.
      */
     export type CustomerRole = "customer" | "haulier"
+
+    /**
+     * What a run of POST /customers/seats/normalize did to the company's live customers.
+     */
+    export interface CustomerSeatNormalizeResult {
+        /**
+         * Live customers looked at.
+         */
+        checked: number
+
+        /**
+         * Customers whose registered address, city or country now match their Registered address.
+         */
+        changed: number
+
+        /**
+         * Customers without a Registered address (field "registeredAddress", value the company name): left as they are.
+         */
+        unmatched: {
+            field: string
+            value: string
+            count: number
+        }[]
+    }
 
     /**
      * A loading or delivery address of a customer, structured for zone pricing.
@@ -10491,6 +10775,30 @@ export namespace interfaces {
     }
 
     export type DeadlinePeriod = "OVERDUE" | "TODAY" | "THIS_WEEK" | "NEXT_WEEK" | "LATER"
+
+    /**
+     * A deleted (hidden) customer as the Deleted view of the Customer Database shows it.
+     */
+    export interface DeletedCustomerItem {
+        id: string
+        companyName: string
+        ico: string
+        city: string
+        country: string
+        label: CustomerLabel
+        status: CustomerStatus
+        /**
+         * When it was deleted (ISO).
+         */
+        deletedAt: string
+
+        /**
+         * Contacts and addresses hidden together with it: a restore brings them back.
+         */
+        contactCount: number
+
+        addressCount: number
+    }
 
     export interface DeliveryException {
         id: string
@@ -10730,7 +11038,7 @@ export namespace interfaces {
         dueDate: string | null
         assigneeUserId: string | null
         /**
-         * The assignee's current display name; "" for a task assigned to nobody, or to a user that cannot be resolved.
+         * The assignee's current e-mail; "" for a task assigned to nobody, or to a user that cannot be resolved.
          */
         assigneeName: string
 
@@ -11019,7 +11327,11 @@ export namespace interfaces {
         customer: string
         customerRef: string
         customerContact: string
+        /**
+         * E-mail of a user of the company ("" for nobody); an older record may still hold a name.
+         */
         shipmentOwner: string
+
         colli: number
         packing: string
         weightKg: number
@@ -12459,6 +12771,26 @@ export namespace interfaces {
 
     export type LegStatus = "OPEN" | "PLANNED" | "DONE"
 
+    /**
+     * What the links backfill did to the company's live shipments and master jobs.
+     */
+    export interface LinksNormalizeResult {
+        /**
+         * Values looked at: party names with a customer id, and contact names or ids.
+         */
+        checked: number
+
+        /**
+         * Values changed: names brought up to date and contacts linked.
+         */
+        changed: number
+
+        /**
+         * The names left as they are, most frequent first: to be linked by hand.
+         */
+        unmatched: UnmatchedLink[]
+    }
+
     export interface LoadInput {
         pieces: number
         palletPlaces: number
@@ -12675,7 +13007,11 @@ export namespace interfaces {
         customerId: string
         type: NoteType
         content: string
+        /**
+         * Who wrote it: the signed-in user's e-mail (older notes may hold a name).
+         */
         author: string
+
         createdAt: string
         updatedAt: string
     }
@@ -12683,6 +13019,47 @@ export namespace interfaces {
     export type NoteType = "Note" | "Email" | "Call" | "Follow-up" | "Visit"
 
     export type PalletType = "EUR" | "INDUSTRIAL" | "HALF" | "QUARTER" | "OTHER"
+
+    /**
+     * What the people backfill did to the company's live shipments.
+     */
+    export interface PeopleNormalizeResult {
+        /**
+         * Values that name a person (one field of one shipment each), looked at.
+         */
+        checked: number
+
+        /**
+         * Values rewritten to the user's e-mail.
+         */
+        changed: number
+
+        /**
+         * The names left as they are, most frequent first: to be fixed by hand.
+         */
+        unmatched: UnmatchedPerson[]
+    }
+
+    /**
+     * What the people backfill did: values looked at, records changed, values left as they are.
+     */
+    export interface PeopleNormalizeResult {
+        checked: number
+        changed: number
+        unmatched: PeopleNormalizeUnmatched[]
+    }
+
+    /**
+     * A stored person value the backfill could not tie to exactly one user of the company.
+     */
+    export interface PeopleNormalizeUnmatched {
+        field: string
+        value: string
+        /**
+         * Records holding it.
+         */
+        count: number
+    }
 
     export interface PeriodAverage {
         type: "month" | "quarter" | "year"
@@ -12750,7 +13127,7 @@ export namespace interfaces {
         companyName: string
         label: string
         /**
-         * The customer's sales owner, as set on the customer.
+         * The customer's sales owner as set on the customer: the owner user's e-mail (an old typed name until it is matched).
          */
         salesOwner: string
 
@@ -13265,7 +13642,7 @@ export namespace interfaces {
 
         authorId: string
         /**
-         * Who wrote it (display name, e-mail when they have none).
+         * Who wrote it, by e-mail.
          */
         authorName: string
 
@@ -13285,7 +13662,11 @@ export namespace interfaces {
         id: string
         quoteNumber: string
         threadRef: string
+        /**
+         * Who wrote it, by e-mail.
+         */
         authorName: string
+
         message: string
         createdAt: string
         /**
@@ -13342,11 +13723,41 @@ export namespace interfaces {
     }
 
     /**
+     * What a run of POST /quotes/links/normalize did to the company's open sales quotes.
+     */
+    export interface QuoteLinksNormalizeResult {
+        /**
+         * Open quotes that name a customer record.
+         */
+        checked: number
+
+        /**
+         * Quotes whose customer or contact copies were brought up to date, or whose contact got linked.
+         */
+        changed: number
+
+        /**
+         * What could not be linked, with how many quotes have each: "customer" = the record the quote
+         * names is deleted (the name stays); "customerContact" = a contact name that is no single contact
+         * of the customer, as "name (customer)".
+         */
+        unmatched: {
+            field: string
+            value: string
+            count: number
+        }[]
+    }
+
+    /**
      * A manager's approval of a margin below the floor (data.marginApproval; the server's key).
      */
     export interface QuoteMarginApproval {
         byUserId: string
+        /**
+         * Who approved, by e-mail (older approvals recorded the display name).
+         */
         byName: string
+
         at: string
         reason: string
         /**
@@ -13355,6 +13766,30 @@ export namespace interfaces {
         marginCzk: number
 
         marginPercent: number | null
+    }
+
+    /**
+     * What a run of POST /quotes/people/normalize did to the company's live sales quotes.
+     */
+    export interface QuotePeopleNormalizeResult {
+        /**
+         * Quotes that name an owner (a user or a typed text).
+         */
+        checked: number
+
+        /**
+         * Quotes whose owner is now recorded by the owner user's e-mail (and linked to that user).
+         */
+        changed: number
+
+        /**
+         * Owner texts left as they are, with how many quotes have each: they name no single user of the company.
+         */
+        unmatched: {
+            field: string
+            value: string
+            count: number
+        }[]
     }
 
     /**
@@ -13470,14 +13905,22 @@ export namespace interfaces {
         note: string
 
         requestedById: string
+        /**
+         * Who asked, by e-mail (older inquiries recorded the display name).
+         */
         requestedByName: string
+
         /**
          * ISO
          */
         requestedAt: string
 
         decidedById: string | null
+        /**
+         * Who answered, by e-mail (older answers recorded the display name).
+         */
         decidedByName: string | null
+
         decidedAt: string | null
         /**
          * Approved: the extra handling per piece, EUR.
@@ -13513,7 +13956,11 @@ export namespace interfaces {
         from: string
 
         to: string
+        /**
+         * The quote owner's e-mail, as SalesQuoteItem.ownerName.
+         */
         ownerName: string
+
         inquiry: QuoteWarehouseInquiry
     }
 
@@ -13747,6 +14194,30 @@ export namespace interfaces {
     }
 
     /**
+     * What a run of POST /sales/links/normalize did to the company's follow-up tasks.
+     */
+    export interface SalesLinksNormalizeResult {
+        /**
+         * Live tasks linked to a customer record.
+         */
+        checked: number
+
+        /**
+         * Tasks whose customer name was brought up to date.
+         */
+        changed: number
+
+        /**
+         * "customer": the name of a linked customer record that is deleted (the name stays), with how many tasks have it.
+         */
+        unmatched: {
+            field: string
+            value: string
+            count: number
+        }[]
+    }
+
+    /**
      * What the signed-in user may do in Sales beyond a single quote, which carries its own permissions.
      */
     export interface SalesPermissions {
@@ -13823,12 +14294,12 @@ export namespace interfaces {
         followUpDue: boolean
         ownerUserId: string | null
         /**
-         * The owner's current display name; the stored label when the owner is not linked to a user.
+         * The owner user's current e-mail; the stored label when the owner is not linked to a user.
          */
         ownerName: string
 
         /**
-         * The owner as text, as stored: what old quotes had instead of a user.
+         * The owner as text, as stored: the owner user's e-mail, or what old quotes had instead of a user.
          */
         ownerLabel: string
 
@@ -14081,6 +14552,11 @@ export namespace interfaces {
         principalParty: string
         customer: string
         customerPic: string
+        /**
+         * The Customer Database contact the Customer's PIC is; null for none (or an old name not linked yet).
+         */
+        customerPicContactId: string | null
+
         customerReference: string
         /**
          * Commercial parties
@@ -14112,6 +14588,16 @@ export namespace interfaces {
         deliveryCountry: string | null
         shipperContact: string
         consigneeContact: string
+        /**
+         * The contact of the shipper's customer the Contact is; null for a typed name of somebody else.
+         */
+        shipperContactId: string | null
+
+        /**
+         * The contact of the consignee's customer the Contact is; null for a typed name of somebody else.
+         */
+        consigneeContactId: string | null
+
         shipperOpeningFrom: string
         shipperOpeningTo: string
         consigneeOpeningFrom: string
@@ -15108,6 +15594,26 @@ export namespace interfaces {
         n: number
     }
 
+    /**
+     * What the backfill did to the company's live consignments and trips.
+     */
+    export interface TruckingLinksNormalizeResult {
+        /**
+         * Copied names looked at (one per consignment and one per trip).
+         */
+        checked: number
+
+        /**
+         * Names rewritten to the Customer Database's current name.
+         */
+        changed: number
+
+        /**
+         * The names left as they are, most frequent first.
+         */
+        unmatched: TruckingUnmatchedName[]
+    }
+
     export interface TruckingReport {
         /**
          * YYYY-MM-DD (Prague), both days included
@@ -15145,6 +15651,26 @@ export namespace interfaces {
     }
 
     /**
+     * A copied name the backfill left as it is: its customer is deleted or unknown in the Customer Database.
+     */
+    export interface TruckingUnmatchedName {
+        /**
+         * Where it is kept: "consignment.customerName" or "trip.haulierName".
+         */
+        field: string
+
+        /**
+         * The name as stored.
+         */
+        value: string
+
+        /**
+         * How many consignments / trips hold it there.
+         */
+        count: number
+    }
+
+    /**
      * A job update Trucking owes and has not delivered: failed for good, or still being retried.
      */
     export interface TruckingUnsentUpdate {
@@ -15173,6 +15699,46 @@ export namespace interfaces {
          * When the update was written (ISO)
          */
         since: string
+    }
+
+    /**
+     * A copied name the links backfill could not link to the Customer Database.
+     */
+    export interface UnmatchedLink {
+        /**
+         * Where it is: "customerPic", "shipperContact", "consigneeContact", or a party ("customer", "masterJob.shipper", …) whose customer is gone.
+         */
+        field: string
+
+        /**
+         * The name as stored.
+         */
+        value: string
+
+        /**
+         * How many shipments (or master jobs) hold it there.
+         */
+        count: number
+    }
+
+    /**
+     * A name the people backfill could not turn into a user's e-mail: it fits no user, or more than one.
+     */
+    export interface UnmatchedPerson {
+        /**
+         * The shipment field it is in ("personInCharge", "createdBy", …).
+         */
+        field: string
+
+        /**
+         * The name as stored (of a stamp, the name part).
+         */
+        value: string
+
+        /**
+         * How many shipments hold it there.
+         */
+        count: number
     }
 
     export interface Unpriced {
@@ -15371,7 +15937,11 @@ export namespace interfaces {
         type: string
         priority: string
         status: string
+        /**
+         * E-mail of a user of the company ("" for nobody); an older task may still hold a name.
+         */
         assignee: string
+
         /**
          * yyyy-mm-dd, or null when not set
          */

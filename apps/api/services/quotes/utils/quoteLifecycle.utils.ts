@@ -89,7 +89,10 @@ export function columnsOf(state: LifecycleState): Omit<LifecycleState, "createdA
 export interface TimelineEntry {
   kind?: "status" | "validity" | "owner" | "follow_up" | "shipment" | "deleted" | "road_price" | "margin_approval" | "warehouse_inquiry";
   at: string;
-  /** Display name of who did it; absent when it could not be resolved. */
+  /**
+   * Who did it, by e-mail (a person is recorded by e-mail); older lines hold the display name.
+   * Absent when it could not be resolved.
+   */
   user?: string;
   userId?: string;
   status?: string;
@@ -111,7 +114,12 @@ export interface LifecycleContext {
   at: Date;
   today: string;
   userId: string;
-  userName: string;
+  /**
+   * Who acts, as the quote records them - in its history, as the owner of a quote they create, on
+   * a margin approval or a warehouse question: their e-mail, as every person is recorded. "" when
+   * it could not be resolved.
+   */
+  userEmail: string;
 }
 
 /** What the user chose when changing a quote's status. */
@@ -243,9 +251,17 @@ function clip(text: string | undefined, max: number): string | null {
   return cut || null;
 }
 
+/**
+ * The owner label stored for a user: their e-mail, the way the database reads it back from the
+ * document's mirror (trimmed, at most 200 characters) - so the column and the mirror never differ.
+ */
+export function ownerLabelOf(email: string | undefined): string {
+  return clip(email, MAX_OWNER_LABEL) ?? "";
+}
+
 function entryBy(kind: NonNullable<TimelineEntry["kind"]>, ctx: LifecycleContext): TimelineEntry {
   const entry: TimelineEntry = { kind, at: ctx.at.toISOString(), userId: ctx.userId };
-  if (ctx.userName) entry.user = ctx.userName;
+  if (ctx.userEmail) entry.user = ctx.userEmail;
   return entry;
 }
 
@@ -270,7 +286,7 @@ export function newQuote(ctx: LifecycleContext): { state: LifecycleState; entry:
     validUntil: null,
     lastContactAt: null,
     ownerUserId: ctx.userId,
-    ownerLabel: clip(ctx.userName, MAX_OWNER_LABEL) ?? "",
+    ownerLabel: ownerLabelOf(ctx.userEmail),
     shipmentId: null,
     shipmentJobNumber: null,
     createdAt: ctx.at,
@@ -446,16 +462,17 @@ export function applyValidity(
 }
 
 /**
- * A new owner, or nobody. The owner is a user; the label old readers see is that user's display
- * name, so one person is spelled one way. Naming the owner the quote already has is no change.
+ * A new owner, or nobody. The owner is a user; the label old readers see is that user's e-mail -
+ * a person is recorded by e-mail everywhere - so one person is spelled one way. Naming the owner
+ * the quote already has is no change.
  */
 export function applyOwner(
   state: LifecycleState,
-  owner: { userId: string; name: string } | null,
+  owner: { userId: string; email: string } | null,
   ctx: LifecycleContext,
 ): LifecycleChange {
   const ownerUserId = owner?.userId ?? null;
-  const ownerLabel = clip(owner?.name, MAX_OWNER_LABEL) ?? "";
+  const ownerLabel = ownerLabelOf(owner?.email);
   if (ownerUserId === state.ownerUserId && ownerLabel === state.ownerLabel) return { changed: false };
 
   const was = state.ownerLabel ? ` (was ${state.ownerLabel})` : "";
@@ -694,6 +711,7 @@ export function mirrorOf(state: LifecycleState): { set: Record<string, unknown>;
     sentAt: state.sentAt?.toISOString() ?? null,
     decidedAt: state.decidedAt?.toISOString() ?? null,
     validUntil: state.validUntil,
+    // The owner's e-mail for a quote owned by a user; an old typed name for one nobody is linked to.
     salesOwner: state.ownerLabel || null,
   };
   for (const [key, value] of Object.entries(values)) {

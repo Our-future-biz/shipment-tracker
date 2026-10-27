@@ -18,6 +18,8 @@ import {
   type QuoteHeavyPieces,
 } from "@/app/sales/_lib/heavyPieces";
 import type { QuoteWarehouseInquiry } from "@/app/sales/_lib/types";
+import { whoDid } from "@/app/sales/_lib/whoDid";
+import { useUsers } from "@/hooks/useUsers";
 import { formatDateTime } from "@/lib/date";
 import { fmtQuantity } from "../_lib/fmtQuantity";
 
@@ -39,8 +41,10 @@ interface QuoteHeavyPiecesDialogsProps {
 }
 
 // The 12.5 t+ band has no rate: the warehouse is asked ("Inquire Warehouse") and answers on the
-// Warehouse Concept Managers page. The cell says where the question stands.
+// Warehouse Concept Managers page. The cell says where the question stands, and who asked or
+// answered - by e-mail, as every person is shown.
 function InquiryCell({ pieces, inquiry, onAsk }: { pieces: number; inquiry?: QuoteWarehouseInquiry | null; onAsk?: () => void }) {
+  const { users } = useUsers();
   const ask = (label: string) =>
     onAsk ? (
       <Button size="small" className="!border-amber-400 !text-amber-700 hover:!bg-amber-50" onClick={onAsk}>
@@ -51,16 +55,16 @@ function InquiryCell({ pieces, inquiry, onAsk }: { pieces: number; inquiry?: Quo
     );
   if (pieces <= 0 && inquiry?.status !== "pending") return <span className="font-semibold text-amber-600">Inquire Warehouse</span>;
   if (!inquiry) return ask("Inquire Warehouse");
-  const who = (name: string | null, at: string | null) => (
+  const who = (userId: string | null, recorded: string | null, at: string | null) => (
     <span className="block text-[11px] text-slate-400">
-      {name || "—"} · {formatDateTime(at)}
+      {whoDid(userId, recorded, users) || "—"} · {formatDateTime(at)}
     </span>
   );
   if (inquiry.status === "pending") {
     return (
       <span className="inline-block text-right">
         <span className="font-semibold text-amber-600">Waiting for the warehouse</span>
-        {who(inquiry.requestedByName, inquiry.requestedAt)}
+        {who(inquiry.requestedById, inquiry.requestedByName, inquiry.requestedAt)}
         {inquiry.pieces !== pieces && <span className="block text-[11px] text-amber-600">asked about {inquiry.pieces} piece{inquiry.pieces === 1 ? "" : "s"}</span>}
       </span>
     );
@@ -80,7 +84,7 @@ function InquiryCell({ pieces, inquiry, onAsk }: { pieces: number; inquiry?: Quo
     return (
       <span className="inline-block text-right">
         <span className="font-semibold text-emerald-700">Approved: EUR {inquiry.priceEurPerPiece} per piece</span>
-        {who(inquiry.decidedByName, inquiry.decidedAt)}
+        {who(inquiry.decidedById, inquiry.decidedByName, inquiry.decidedAt)}
       </span>
     );
   }
@@ -88,7 +92,7 @@ function InquiryCell({ pieces, inquiry, onAsk }: { pieces: number; inquiry?: Quo
     <span className="inline-flex flex-col items-end gap-1 text-right">
       <span className="font-semibold text-red-600">Rejected by the warehouse</span>
       {inquiry.comment && <span className="block max-w-[220px] text-[11px] text-slate-600">{inquiry.comment}</span>}
-      {who(inquiry.decidedByName, inquiry.decidedAt)}
+      {who(inquiry.decidedById, inquiry.decidedByName, inquiry.decidedAt)}
       {ask("Ask again")}
     </span>
   );

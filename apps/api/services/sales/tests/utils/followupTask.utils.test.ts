@@ -26,7 +26,8 @@ const row = (over: Partial<FollowupTaskRecord> = {}): FollowupTaskRecord => ({
   ...over,
 });
 
-const names = new Map([["user-1", "Martin Koubek"]]);
+// The users' e-mails by id: a person is shown by e-mail.
+const emails = new Map([["user-1", "martin@forwarder.cz"]]);
 
 describe("isOverdue", () => {
   it("is true from the day after the due day - nobody has to set it", () => {
@@ -63,13 +64,13 @@ describe("toTaskItem", () => {
       quoteNumber: "QCZ20261010001",
       createdBy: "user-1",
     });
-    expect(toTaskItem(task, names, TODAY)).toEqual({
+    expect(toTaskItem(task, emails, TODAY)).toEqual({
       id: "0b8d5a0e-6a43-4f4a-9a53-5d0d3a2b6c11",
       type: "Visit",
       note: "Bring the new rates",
       dueDate: "2026-10-20",
       assigneeUserId: "user-1",
-      assigneeName: "Martin Koubek",
+      assigneeName: "martin@forwarder.cz",
       customerId: "946e01e8-a4ed-4aa7-932b-2c5d5e991c30",
       customerLabel: "ITTEC, s.r.o.",
       contact: "Jan Novák",
@@ -84,7 +85,7 @@ describe("toTaskItem", () => {
   });
 
   it("says a task is done, and when, from its stamp", () => {
-    expect(toTaskItem(row({ doneAt: DONE, doneBy: "user-1", dueDate: "2026-10-01" }), names, TODAY)).toMatchObject({
+    expect(toTaskItem(row({ doneAt: DONE, doneBy: "user-1", dueDate: "2026-10-01" }), emails, TODAY)).toMatchObject({
       done: true,
       doneAt: "2026-10-11T09:00:00.000Z",
       overdue: false,
@@ -93,18 +94,18 @@ describe("toTaskItem", () => {
 
   it("works out overdue on the day the task is read", () => {
     const task = row({ dueDate: "2026-10-12" });
-    expect(toTaskItem(task, names, "2026-10-12").overdue).toBe(false);
-    expect(toTaskItem(task, names, "2026-10-13").overdue).toBe(true);
+    expect(toTaskItem(task, emails, "2026-10-12").overdue).toBe(false);
+    expect(toTaskItem(task, emails, "2026-10-13").overdue).toBe(true);
   });
 
   it("names nobody for a task without an assignee, or with one that cannot be resolved", () => {
-    expect(toTaskItem(row(), names, TODAY)).toMatchObject({ assigneeUserId: null, assigneeName: "" });
-    expect(toTaskItem(row({ assigneeUserId: "user-gone" }), names, TODAY)).toMatchObject({ assigneeUserId: "user-gone", assigneeName: "" });
+    expect(toTaskItem(row(), emails, TODAY)).toMatchObject({ assigneeUserId: null, assigneeName: "" });
+    expect(toTaskItem(row({ assigneeUserId: "user-gone" }), emails, TODAY)).toMatchObject({ assigneeUserId: "user-gone", assigneeName: "" });
     expect(toTaskItem(row({ assigneeUserId: "user-1" }), new Map(), TODAY).assigneeName).toBe("");
   });
 
   it("keeps the position a copied task had in the old list", () => {
-    expect(toTaskItem(row({ legacyIndex: 0 }), names, TODAY).legacyIndex).toBe(0);
-    expect(toTaskItem(row({ legacyIndex: 14 }), names, TODAY).legacyIndex).toBe(14);
+    expect(toTaskItem(row({ legacyIndex: 0 }), emails, TODAY).legacyIndex).toBe(0);
+    expect(toTaskItem(row({ legacyIndex: 14 }), emails, TODAY).legacyIndex).toBe(14);
   });
 });

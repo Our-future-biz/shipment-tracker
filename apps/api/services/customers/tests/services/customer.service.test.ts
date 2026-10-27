@@ -19,6 +19,8 @@ vi.mock("../../repositories/customer.repository", () => ({
   },
 }));
 vi.mock("../../services/ares.service", () => ({ aresService: { lookup: vi.fn() } }));
+// The change events need the Encore runtime; what is published is checked in ../customer.service.test.ts.
+vi.mock("../../topics", () => ({ customerChanged: { publish: vi.fn() }, contactChanged: { publish: vi.fn() } }));
 
 import { customerRepository } from "../../repositories/customer.repository";
 import { aresService } from "../../services/ares.service";

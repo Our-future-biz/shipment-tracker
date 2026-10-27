@@ -19,6 +19,8 @@ import { PrintLabelsModal } from "./PrintLabelsModal";
 import { ExpectedTodayPanel } from "./ExpectedTodayPanel";
 import { ScanBox } from "./ScanBox";
 import { gateSteps } from "../_lib/steps";
+import { shipmentOwnerOf } from "../_lib/owner";
+import { OwnerCell } from "./OwnerCell";
 
 type BubbleId = "attention" | "lcl" | "fcl";
 
@@ -100,7 +102,7 @@ const COLUMNS: AppGridColumn<GateMovement>[] = [
   { key: "measureCbm", title: TERMS.volumeCbm, width: 120, align: "right", text: (r) => String(r.measureCbm), render: (_, r) => num(nf(r.measureCbm, 1)) },
   { key: "customer", title: "Customer", width: 180, text: (r) => r.customer, render: (_, r) => dim(r.customer) },
   { key: "customerContact", title: "Customer contact", width: 170, text: (r) => r.customerContact, render: (_, r) => dim(r.customerContact) },
-  { key: "shipmentOwner", title: "Shipment owner", width: 160, text: (r) => r.shipmentOwner, render: (_, r) => dim(r.shipmentOwner) },
+  { key: "shipmentOwner", title: "Shipment owner", width: 160, text: (r) => shipmentOwnerOf(r.shipmentOwner), render: (_, r) => <OwnerCell value={r.shipmentOwner} /> },
   { key: "customsDocs", title: "Customs docs", width: 180, text: (r) => r.customsDocs, render: (_, r) => dim(r.customsDocs) },
   {
     key: "mrn",

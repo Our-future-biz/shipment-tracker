@@ -27,6 +27,7 @@ import {
   legacyUnreadable,
   mirrorOf,
   newQuote,
+  ownerLabelOf,
   revisionOf,
   stateOf,
   wasEverSent,
@@ -43,7 +44,8 @@ const AT = new Date("2026-10-10T10:00:00.000Z");
 const SENT = new Date("2026-10-01T08:00:00.000Z");
 const FIRST_SENT = new Date("2026-09-20T08:00:00.000Z");
 
-const ctx: LifecycleContext = { at: AT, today: TODAY, userId: "user-1", userName: "Martin" };
+// Who acts is recorded by e-mail - in the history as on a quote they own.
+const ctx: LifecycleContext = { at: AT, today: TODAY, userId: "user-1", userEmail: "martin@forwarder.cz" };
 
 const state = (over: Partial<LifecycleState> = {}): LifecycleState => ({
   status: "draft",
@@ -545,11 +547,11 @@ describe("applyTransition", () => {
   describe("the history line", () => {
     it("says what happened, when, and who did it", () => {
       const { entry } = changed(state(), { to: "ready_to_send" });
-      expect(entry).toEqual({ kind: "status", status: "ready_to_send", at: "2026-10-10T10:00:00.000Z", user: "Martin", userId: "user-1" });
+      expect(entry).toEqual({ kind: "status", status: "ready_to_send", at: "2026-10-10T10:00:00.000Z", user: "martin@forwarder.cz", userId: "user-1" });
     });
 
-    it("still records the user id when the name could not be resolved", () => {
-      const { entry } = changed(state(), { to: "ready_to_send" }, { ...ctx, userName: "" });
+    it("still records the user id when the e-mail could not be resolved", () => {
+      const { entry } = changed(state(), { to: "ready_to_send" }, { ...ctx, userEmail: "" });
       expect(entry).toEqual({ kind: "status", status: "ready_to_send", at: "2026-10-10T10:00:00.000Z", userId: "user-1" });
     });
 
@@ -578,7 +580,7 @@ describe("applyTransition", () => {
           status: to,
           from,
           at: "2026-10-10T10:00:00.000Z",
-          user: "Martin",
+          user: "martin@forwarder.cz",
           userId: "user-1",
         });
       }
@@ -605,20 +607,20 @@ describe("applyTransition", () => {
 });
 
 describe("newQuote", () => {
-  it("starts as a Draft owned by whoever created it", () => {
-    expect(newQuote(ctx).state).toEqual(state({ status: "draft", ownerUserId: "user-1", ownerLabel: "Martin", createdAt: AT }));
+  it("starts as a Draft owned by whoever created it, recorded by their e-mail", () => {
+    expect(newQuote(ctx).state).toEqual(state({ status: "draft", ownerUserId: "user-1", ownerLabel: "martin@forwarder.cz", createdAt: AT }));
   });
 
-  it("starts its history with 'Draft created' and the creator's name", () => {
-    expect(newQuote(ctx).entry).toEqual({ kind: "status", status: "draft", at: "2026-10-10T10:00:00.000Z", user: "Martin", userId: "user-1" });
+  it("starts its history with 'Draft created' and the creator's e-mail", () => {
+    expect(newQuote(ctx).entry).toEqual({ kind: "status", status: "draft", at: "2026-10-10T10:00:00.000Z", user: "martin@forwarder.cz", userId: "user-1" });
   });
 
   it("mirrors into the keys the document of a new quote always had", () => {
-    expect(mirrorOf(newQuote(ctx).state).set).toEqual({ quoteStatus: "draft", winProbability: 10, salesOwner: "Martin" });
+    expect(mirrorOf(newQuote(ctx).state).set).toEqual({ quoteStatus: "draft", winProbability: 10, salesOwner: "martin@forwarder.cz" });
   });
 
-  it("has an owner user but no label when the name could not be resolved", () => {
-    const { state: created, entry } = newQuote({ ...ctx, userName: "" });
+  it("has an owner user but no label when the e-mail could not be resolved", () => {
+    const { state: created, entry } = newQuote({ ...ctx, userEmail: "" });
     expect(created.ownerUserId).toBe("user-1");
     expect(created.ownerLabel).toBe("");
     expect(mirrorOf(created).set).not.toHaveProperty("salesOwner");
@@ -626,8 +628,17 @@ describe("newQuote", () => {
   });
 
   it("stores the label the way the database reads it back: trimmed, at most 200 characters", () => {
-    expect(newQuote({ ...ctx, userName: "  Martin Koubek " }).state.ownerLabel).toBe("Martin Koubek");
-    expect(newQuote({ ...ctx, userName: "x".repeat(300) }).state.ownerLabel).toHaveLength(200);
+    expect(newQuote({ ...ctx, userEmail: "  martin@forwarder.cz " }).state.ownerLabel).toBe("martin@forwarder.cz");
+    expect(newQuote({ ...ctx, userEmail: "x".repeat(300) }).state.ownerLabel).toHaveLength(200);
+  });
+});
+
+describe("ownerLabelOf", () => {
+  it("is the e-mail as the database reads it back from the document: trimmed, at most 200 characters", () => {
+    expect(ownerLabelOf(" jana@forwarder.cz ")).toBe("jana@forwarder.cz");
+    expect(ownerLabelOf("x".repeat(300))).toHaveLength(200);
+    expect(ownerLabelOf("")).toBe("");
+    expect(ownerLabelOf(undefined)).toBe("");
   });
 });
 
@@ -645,7 +656,7 @@ describe("applyValidity", () => {
     expect(result).toEqual({
       changed: true,
       state: { ...quoted, validUntil: "2026-11-01" },
-      entry: { kind: "validity", at: "2026-10-10T10:00:00.000Z", user: "Martin", userId: "user-1", comment: "Valid until 2026-11-01 (was 2026-10-25)" },
+      entry: { kind: "validity", at: "2026-10-10T10:00:00.000Z", user: "martin@forwarder.cz", userId: "user-1", comment: "Valid until 2026-11-01 (was 2026-10-25)" },
     });
   });
 
@@ -701,14 +712,14 @@ describe("applyValidity", () => {
 });
 
 describe("applyOwner", () => {
-  const jana = { userId: "user-2", name: "Jana Nováková" };
-  const martins = state({ status: "quoted", sentAt: SENT, firstSentAt: SENT, ownerUserId: "user-1", ownerLabel: "Martin" });
+  const jana = { userId: "user-2", email: "jana@forwarder.cz" };
+  const martins = state({ status: "quoted", sentAt: SENT, firstSentAt: SENT, ownerUserId: "user-1", ownerLabel: "martin@forwarder.cz" });
 
-  it("hands the quote to a user under that user's display name, with a history line", () => {
+  it("hands the quote to a user under that user's e-mail, with a history line", () => {
     expect(applyOwner(martins, jana, ctx)).toEqual({
       changed: true,
-      state: { ...martins, ownerUserId: "user-2", ownerLabel: "Jana Nováková" },
-      entry: { kind: "owner", at: "2026-10-10T10:00:00.000Z", user: "Martin", userId: "user-1", comment: "Owner: Jana Nováková (was Martin)" },
+      state: { ...martins, ownerUserId: "user-2", ownerLabel: "jana@forwarder.cz" },
+      entry: { kind: "owner", at: "2026-10-10T10:00:00.000Z", user: "martin@forwarder.cz", userId: "user-1", comment: "Owner: jana@forwarder.cz (was martin@forwarder.cz)" },
     });
   });
 
@@ -720,24 +731,25 @@ describe("applyOwner", () => {
   it("can leave the quote with nobody", () => {
     const result = applyOwner(martins, null, ctx);
     expect(result.changed && result.state).toMatchObject({ ownerUserId: null, ownerLabel: "" });
-    expect(result.changed && result.entry.comment).toBe("No owner (was Martin)");
+    expect(result.changed && result.entry.comment).toBe("No owner (was martin@forwarder.cz)");
   });
 
-  it("is no change when the quote already has that owner under that name", () => {
-    expect(applyOwner(martins, { userId: "user-1", name: "Martin" }, ctx)).toEqual({ changed: false });
+  it("is no change when the quote already has that owner under that e-mail", () => {
+    expect(applyOwner(martins, { userId: "user-1", email: "martin@forwarder.cz" }, ctx)).toEqual({ changed: false });
     expect(applyOwner(state(), null, ctx)).toEqual({ changed: false });
   });
 
-  it("links a quote that only had a typed name to the user, and takes that user's spelling", () => {
+  it("links a quote that only had a typed name to the user, and records the user's e-mail", () => {
     const typed = state({ ownerLabel: "martin k." });
-    const result = applyOwner(typed, { userId: "user-1", name: "Martin Koubek" }, ctx);
-    expect(result.changed && result.state).toMatchObject({ ownerUserId: "user-1", ownerLabel: "Martin Koubek" });
-    expect(result.changed && result.entry.comment).toBe("Owner: Martin Koubek (was martin k.)");
+    const result = applyOwner(typed, { userId: "user-1", email: "martin@forwarder.cz" }, ctx);
+    expect(result.changed && result.state).toMatchObject({ ownerUserId: "user-1", ownerLabel: "martin@forwarder.cz" });
+    expect(result.changed && result.entry.comment).toBe("Owner: martin@forwarder.cz (was martin k.)");
   });
 
-  it("renames the label when the owner's display name has changed since", () => {
-    const result = applyOwner(martins, { userId: "user-1", name: "Martin Koubek" }, ctx);
-    expect(result.changed && result.state.ownerLabel).toBe("Martin Koubek");
+  it("turns the owner's display name of an older quote into their e-mail", () => {
+    const named = state({ ownerUserId: "user-1", ownerLabel: "Martin Koubek" });
+    const result = applyOwner(named, { userId: "user-1", email: "martin@forwarder.cz" }, ctx);
+    expect(result.changed && result.state.ownerLabel).toBe("martin@forwarder.cz");
   });
 
   it("clears a typed name nobody is linked to", () => {
@@ -747,16 +759,16 @@ describe("applyOwner", () => {
   });
 
   it("stores the label the way the database reads it back: trimmed, at most 200 characters", () => {
-    const padded = applyOwner(state(), { userId: "user-2", name: "  Jana  " }, ctx);
-    expect(padded.changed && padded.state.ownerLabel).toBe("Jana");
-    const long = applyOwner(state(), { userId: "user-2", name: "x".repeat(300) }, ctx);
+    const padded = applyOwner(state(), { userId: "user-2", email: "  jana@forwarder.cz  " }, ctx);
+    expect(padded.changed && padded.state.ownerLabel).toBe("jana@forwarder.cz");
+    const long = applyOwner(state(), { userId: "user-2", email: "x".repeat(300) }, ctx);
     expect(long.changed && long.state.ownerLabel).toHaveLength(200);
   });
 
   it("works on a decided quote too, and mirrors into the key old readers know", () => {
-    const lost = state({ status: "lost", lostReason: "Pricing: Price too high", lostComment: "too late", decidedAt: SENT, ownerUserId: "user-1", ownerLabel: "Martin" });
+    const lost = state({ status: "lost", lostReason: "Pricing: Price too high", lostComment: "too late", decidedAt: SENT, ownerUserId: "user-1", ownerLabel: "martin@forwarder.cz" });
     const result = applyOwner(lost, jana, ctx);
-    expect(result.changed && mirrorOf(result.state).set).toMatchObject({ salesOwner: "Jana Nováková", lostComment: "too late", lostReason: "Pricing: Price too high" });
+    expect(result.changed && mirrorOf(result.state).set).toMatchObject({ salesOwner: "jana@forwarder.cz", lostComment: "too late", lostReason: "Pricing: Price too high" });
   });
 });
 
@@ -784,7 +796,7 @@ describe("applyFollowUp", () => {
       const before = state({ status, sentAt: SENT, firstSentAt: SENT, lastContactAt: SENT });
       const { state: next, entry } = applyFollowUp(before, " called, decision next week ", ctx);
       expect(next).toEqual({ ...before, lastContactAt: AT });
-      expect(entry).toEqual({ kind: "follow_up", at: "2026-10-10T10:00:00.000Z", user: "Martin", userId: "user-1", comment: "called, decision next week" });
+      expect(entry).toEqual({ kind: "follow_up", at: "2026-10-10T10:00:00.000Z", user: "martin@forwarder.cz", userId: "user-1", comment: "called, decision next week" });
     }
   });
 
@@ -817,7 +829,7 @@ describe("applyShipmentLinks", () => {
   const FIRST: LinkedShipment = { id: "shipment-1", jobNumber: "CZ00000101" };
   const SECOND: LinkedShipment = { id: "shipment-2", jobNumber: "CZ00000102" };
   const LATER = new Date("2026-10-12T09:00:00.000Z");
-  const later: LifecycleContext = { at: LATER, today: "2026-10-12", userId: "user-2", userName: "Jana" };
+  const later: LifecycleContext = { at: LATER, today: "2026-10-12", userId: "user-2", userEmail: "jana@forwarder.cz" };
 
   /** A quote as stored: its facts and its history. */
   interface Stored {
@@ -851,7 +863,7 @@ describe("applyShipmentLinks", () => {
           jobNumber: "CZ00000101",
           comment: "Shipment CZ00000101 linked",
           at: "2026-10-10T10:00:00.000Z",
-          user: "Martin",
+          user: "martin@forwarder.cz",
           userId: "user-1",
         },
       ],
@@ -874,7 +886,7 @@ describe("applyShipmentLinks", () => {
         jobNumber: "CZ00000102",
         comment: "Shipment CZ00000102 linked",
         at: LATER.toISOString(),
-        user: "Jana",
+        user: "jana@forwarder.cz",
         userId: "user-2",
       },
     ]);
@@ -907,7 +919,7 @@ describe("applyShipmentLinks", () => {
         jobNumber: "CZ00000101",
         comment: "Shipment CZ00000101 removed",
         at: LATER.toISOString(),
-        user: "Jana",
+        user: "jana@forwarder.cz",
         userId: "user-2",
       },
     ]);
@@ -966,7 +978,7 @@ describe("applyShipmentLinks", () => {
           jobNumber: "CZ00000101",
           comment: "Shipment CZ00000101 was created from this quote",
           at: "2026-10-10T10:00:00.000Z",
-          user: "Martin",
+          user: "martin@forwarder.cz",
           userId: "user-1",
         },
       ]);
@@ -1061,7 +1073,7 @@ describe("applyShipmentLinks", () => {
           jobNumber: "CZ00000101",
           comment: "Shipment CZ00000101 removed - status back to Quoted",
           at: LATER.toISOString(),
-          user: "Jana",
+          user: "jana@forwarder.cz",
           userId: "user-2",
         },
       ]);
@@ -1082,7 +1094,7 @@ describe("applyShipmentLinks", () => {
         jobNumber: "CZ00000101",
         comment: "Shipment CZ00000101 removed - status back to Feedback",
         at: LATER.toISOString(),
-        user: "Jana",
+        user: "jana@forwarder.cz",
         userId: "user-2",
       });
       // A Won line written while the sub-status before was still kept on it brings none back.
@@ -1232,11 +1244,11 @@ describe("applyShipmentLinks", () => {
 
 describe("deletionEntry", () => {
   it("is the line of who deleted the quote and when - of its own kind", () => {
-    expect(deletionEntry(ctx)).toEqual({ kind: "deleted", at: AT.toISOString(), userId: "user-1", user: "Martin" });
+    expect(deletionEntry(ctx)).toEqual({ kind: "deleted", at: AT.toISOString(), userId: "user-1", user: "martin@forwarder.cz" });
   });
 
-  it("records the user id alone when the name cannot be resolved", () => {
-    expect(deletionEntry({ ...ctx, userName: "" })).toEqual({ kind: "deleted", at: AT.toISOString(), userId: "user-1" });
+  it("records the user id alone when the e-mail cannot be resolved", () => {
+    expect(deletionEntry({ ...ctx, userEmail: "" })).toEqual({ kind: "deleted", at: AT.toISOString(), userId: "user-1" });
   });
 
   it("carries no status: a history read again (quote_lifecycle_of) must not take it for a sending, a contact or a decision", () => {
@@ -1564,7 +1576,7 @@ describe("applyRevision", () => {
   it("replaces a sent quote, keeping what it was sent with, and names its revision", () => {
     const { state: next, entry } = applyRevision(sent, "QCZ20261010001-R1", ctx);
     expect(next).toEqual({ ...sent, status: "replaced", substatus: null });
-    expect(entry).toEqual({ kind: "status", at: AT.toISOString(), userId: "user-1", user: "Martin", status: "replaced", comment: "Replaced by QCZ20261010001-R1" });
+    expect(entry).toEqual({ kind: "status", at: AT.toISOString(), userId: "user-1", user: "martin@forwarder.cz", status: "replaced", comment: "Replaced by QCZ20261010001-R1" });
   });
 
   it("revises Quoted, Feedback, Expired and Won quotes only", () => {
@@ -1594,7 +1606,7 @@ describe("revisionOf", () => {
     const source = state({ status: "quoted", sentAt: SENT, firstSentAt: FIRST_SENT, lastContactAt: SENT, validUntil: "2026-10-25", ownerUserId: "user-2", ownerLabel: "Jana", shipmentId: "s-1", shipmentJobNumber: "CZ1" });
     const { state: next, entry } = revisionOf(source, "QCZ20261010001", ctx);
     expect(next).toEqual(state({ status: "revised", validUntil: "2026-10-25", ownerUserId: "user-2", ownerLabel: "Jana", createdAt: AT }));
-    expect(entry).toEqual({ kind: "status", at: AT.toISOString(), userId: "user-1", user: "Martin", status: "revised", comment: "Revision of QCZ20261010001" });
+    expect(entry).toEqual({ kind: "status", at: AT.toISOString(), userId: "user-1", user: "martin@forwarder.cz", status: "revised", comment: "Revision of QCZ20261010001" });
   });
 
   it("can be priced: Revised is not among the closed statuses", () => {

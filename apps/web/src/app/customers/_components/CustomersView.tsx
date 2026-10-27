@@ -43,13 +43,19 @@ import { CustomerColumnPicker, type ColumnTemplate } from "./CustomerColumnPicke
 import { CustomerFiltersPopover, type FilterTemplate, type StoredFilter } from "./CustomerFiltersPopover";
 import { TOOLBAR_BUTTON_CLASS, matchesGridFilters, storedGridFilters, withFilterId, type GridFilter } from "@/components/gridFilters";
 import { filtersFromSearchParams, writeFiltersToSearchParams } from "../_lib/customerListFilters";
-import { useCanSeeConcepts } from "@/lib/auth/AuthContext";
+import { useAuth, useCanSeeConcepts } from "@/lib/auth/AuthContext";
+import { canDeleteCustomerRecords } from "../_lib/customerPermissions";
+import { DeletedCustomersPanel } from "./DeletedCustomersPanel";
 import { apiFileUrl } from "@/lib/api";
 
 const STATUS_PILLS = [
   { key: "all", label: "All" },
   ...CUSTOMER_STATUSES.map((status) => ({ key: status, label: status })),
 ];
+
+// Superadmins also get the deleted customers, to restore one (?view=deleted).
+const DELETED_PILL = { key: "deleted", label: "Deleted" };
+const PILLS_WITH_DELETED = [...STATUS_PILLS, DELETED_PILL];
 
 const ACCOUNT_TYPE_OPTIONS = CUSTOMER_LABELS.map((label) => ({ value: label, label }));
 
@@ -62,7 +68,7 @@ const LEGACY_TAB_FILTERS: Record<string, { status?: string; type?: string }> = {
   risk: { type: "RISK" },
 };
 
-type ListParam = "q" | "status" | "type" | "role" | "sort";
+type ListParam = "q" | "status" | "type" | "role" | "sort" | "view";
 
 type SortDirection = "ascend" | "descend";
 
@@ -115,6 +121,7 @@ function upsertByName<T extends { id: string; name: string }>(list: T[], item: O
 
 export function CustomersView() {
   const canSeeConcepts = useCanSeeConcepts();
+  const canSeeDeleted = canDeleteCustomerRecords(useAuth().user);
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -133,6 +140,7 @@ export function CustomersView() {
   const accountType = CUSTOMER_LABELS.find((l) => l === (rawType ?? legacy?.type)) ?? "";
   const role = CUSTOMER_ROLES.find((r) => r === searchParams.get("role")) ?? "";
   const rawSort = searchParams.get("sort") ?? "";
+  const showDeleted = canSeeDeleted && searchParams.get("view") === DELETED_PILL.key;
   const sortKey = SORT_KEYS.find((key) => key === rawSort.replace(/^-/, ""));
   const sortDirection: SortDirection = rawSort.startsWith("-") ? "descend" : "ascend";
 
@@ -154,12 +162,16 @@ export function CustomersView() {
   const debouncedSearch = useDebounced(urlQuery, 300).trim();
 
   const { customers, total, isFetching, isError, createCustomer, createManualCustomer, isCreating } =
-    useCustomers({
-      search: debouncedSearch,
-      status: status || undefined,
-      label: accountType || undefined,
-      role: role || undefined,
-    });
+    useCustomers(
+      {
+        search: debouncedSearch,
+        status: status || undefined,
+        label: accountType || undefined,
+        role: role || undefined,
+      },
+      // The Deleted view lists other rows; the live ones are read again when it is left.
+      { enabled: !showDeleted },
+    );
 
   // "Filter by column" filters. The rows live here as typed (so a space between two words survives the typing)
   // and are copied to the URL as ?f.<column>=<value>, like the rest of the list's state, so they are still there
@@ -229,6 +241,7 @@ export function CustomersView() {
       type: accountType,
       role,
       sort: sortKey ? rawSort : "",
+      view: showDeleted ? DELETED_PILL.key : "",
       ...patch,
     };
     const params = new URLSearchParams(searchParams.toString());
@@ -248,7 +261,10 @@ export function CustomersView() {
     replaceParams({ q: e.target.value });
   };
 
-  const handleStatusChange = (key: string) => replaceParams({ status: key === "all" ? "" : key });
+  const handleStatusChange = (key: string) =>
+    key === DELETED_PILL.key
+      ? replaceParams({ status: "", view: DELETED_PILL.key })
+      : replaceParams({ status: key === "all" ? "" : key, view: "" });
 
   const handleAccountTypeChange = (value?: string) => replaceParams({ type: value ?? "" });
 
@@ -384,119 +400,129 @@ export function CustomersView() {
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <h1 className="text-2xl font-bold text-slate-900">Customer Database</h1>
           <div role="group" aria-label="Filter by status">
-            <PillTabs tabs={STATUS_PILLS} active={status || "all"} onChange={handleStatusChange} />
+            <PillTabs
+              tabs={canSeeDeleted ? PILLS_WITH_DELETED : STATUS_PILLS}
+              active={showDeleted ? DELETED_PILL.key : status || "all"}
+              onChange={handleStatusChange}
+            />
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <button
-              type="button"
-              onClick={handleAddOpen}
-              className="flex items-center gap-1.5 shrink-0 rounded-lg bg-indigo-600 px-3 h-8 text-[13px] font-semibold text-white hover:bg-indigo-700 transition-colors cursor-pointer"
-            >
-              <PlusOutlined />
-              Add Customer
-            </button>
-          </div>
-          <div className="flex items-center gap-3 shrink-0 ml-auto">
-            {/* antd gives the input width: 100% outside Tailwind's cascade layers, where a plain
-                w-60 cannot override it — hence the important flag. */}
-            <Input
-              placeholder="Search customers..."
-              aria-label="Search customers"
-              prefix={<SearchOutlined className="text-slate-400" />}
-              value={search}
-              onChange={handleSearchChange}
-              allowClear
-              className="!w-60"
-            />
-            <div className="w-px h-6 bg-slate-200 shrink-0" />
-            <Select
-              value={accountType || undefined}
-              onChange={handleAccountTypeChange}
-              options={ACCOUNT_TYPE_OPTIONS}
-              placeholder="All account types"
-              aria-label="Account type"
-              allowClear
-              className="w-44"
-            />
-            {canSeeConcepts && (
-              <Select
-                value={role || undefined}
-                onChange={handleRoleChange}
-                options={CUSTOMER_ROLE_OPTIONS}
-                placeholder="All roles"
-                aria-label="Role"
-                allowClear
-                className="w-32"
-              />
+        {showDeleted ? (
+          <DeletedCustomersPanel />
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <button
+                  type="button"
+                  onClick={handleAddOpen}
+                  className="flex items-center gap-1.5 shrink-0 rounded-lg bg-indigo-600 px-3 h-8 text-[13px] font-semibold text-white hover:bg-indigo-700 transition-colors cursor-pointer"
+                >
+                  <PlusOutlined />
+                  Add Customer
+                </button>
+              </div>
+              <div className="flex items-center gap-3 shrink-0 ml-auto">
+                {/* antd gives the input width: 100% outside Tailwind's cascade layers, where a plain
+                    w-60 cannot override it — hence the important flag. */}
+                <Input
+                  placeholder="Search customers..."
+                  aria-label="Search customers"
+                  prefix={<SearchOutlined className="text-slate-400" />}
+                  value={search}
+                  onChange={handleSearchChange}
+                  allowClear
+                  className="!w-60"
+                />
+                <div className="w-px h-6 bg-slate-200 shrink-0" />
+                <Select
+                  value={accountType || undefined}
+                  onChange={handleAccountTypeChange}
+                  options={ACCOUNT_TYPE_OPTIONS}
+                  placeholder="All account types"
+                  aria-label="Account type"
+                  allowClear
+                  className="w-44"
+                />
+                {canSeeConcepts && (
+                  <Select
+                    value={role || undefined}
+                    onChange={handleRoleChange}
+                    options={CUSTOMER_ROLE_OPTIONS}
+                    placeholder="All roles"
+                    aria-label="Role"
+                    allowClear
+                    className="w-32"
+                  />
+                )}
+                <CustomerFiltersPopover
+                  filters={shownFilters}
+                  onChange={handleFiltersChange}
+                  columns={FILTER_COLUMNS}
+                  templates={knownFilterTemplates}
+                  onSaveTemplate={handleSaveFilterTemplate}
+                  onDeleteTemplate={handleDeleteFilterTemplate}
+                  isSaving={filterTemplates.isSaving}
+                  defaultColumn={NAME_COLUMN_KEY}
+                />
+                <CustomerColumnPicker
+                  visible={visibleColumns}
+                  onChange={handleColumnsChange}
+                  templates={columnTemplates.value}
+                  onSaveTemplate={handleSaveColumnTemplate}
+                  onDeleteTemplate={handleDeleteColumnTemplate}
+                  ready={columnPref.loaded}
+                />
+                <Tooltip title={reordering ? "Done reordering" : "Reorder columns"}>
+                  <button
+                    type="button"
+                    aria-label="Reorder columns"
+                    aria-pressed={reordering}
+                    disabled={!columnPref.loaded}
+                    onClick={() => setReordering((on) => !on)}
+                    className={
+                      reordering
+                        ? "flex items-center justify-center shrink-0 rounded-lg border w-8 h-8 p-0 transition-colors cursor-pointer border-indigo-500 bg-indigo-50 text-indigo-600"
+                        : `${TOOLBAR_BUTTON_CLASS} cursor-pointer disabled:cursor-not-allowed disabled:opacity-50`
+                    }
+                  >
+                    <EditOutlined />
+                  </button>
+                </Tooltip>
+              </div>
+            </div>
+
+            {reordering && (
+              <div className="-mt-2 rounded-lg bg-indigo-50 px-4 py-2 text-[13px] text-indigo-700">
+                Drag the column headers to change their order. Customer stays first. Click the pencil
+                again when you are done.
+              </div>
             )}
-            <CustomerFiltersPopover
-              filters={shownFilters}
-              onChange={handleFiltersChange}
-              columns={FILTER_COLUMNS}
-              templates={knownFilterTemplates}
-              onSaveTemplate={handleSaveFilterTemplate}
-              onDeleteTemplate={handleDeleteFilterTemplate}
-              isSaving={filterTemplates.isSaving}
-              defaultColumn={NAME_COLUMN_KEY}
-            />
-            <CustomerColumnPicker
-              visible={visibleColumns}
-              onChange={handleColumnsChange}
-              templates={columnTemplates.value}
-              onSaveTemplate={handleSaveColumnTemplate}
-              onDeleteTemplate={handleDeleteColumnTemplate}
-              ready={columnPref.loaded}
-            />
-            <Tooltip title={reordering ? "Done reordering" : "Reorder columns"}>
-              <button
-                type="button"
-                aria-label="Reorder columns"
-                aria-pressed={reordering}
-                disabled={!columnPref.loaded}
-                onClick={() => setReordering((on) => !on)}
-                className={
-                  reordering
-                    ? "flex items-center justify-center shrink-0 rounded-lg border w-8 h-8 p-0 transition-colors cursor-pointer border-indigo-500 bg-indigo-50 text-indigo-600"
-                    : `${TOOLBAR_BUTTON_CLASS} cursor-pointer disabled:cursor-not-allowed disabled:opacity-50`
-                }
-              >
-                <EditOutlined />
-              </button>
-            </Tooltip>
-          </div>
-        </div>
 
-        {reordering && (
-          <div className="-mt-2 rounded-lg bg-indigo-50 px-4 py-2 text-[13px] text-indigo-700">
-            Drag the column headers to change their order. Customer stays first. Click the pencil
-            again when you are done.
-          </div>
+            <ListCapNotice shown={customers.length} total={total} noun="customers" />
+
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={visibleColumns} strategy={horizontalListSortingStrategy}>
+                <DataTable<CustomerItem>
+                  components={reordering ? { header: { cell: DraggableHeaderCell } } : undefined}
+                  dataSource={rows}
+                  columns={columns}
+                  rowKey="id"
+                  loading={isFetching}
+                  scroll={{ x: "max-content" }}
+                  resetKey={`${debouncedSearch}|${status}|${accountType}|${role}|${sortKey ?? ""}|${sortDirection}|${JSON.stringify(activeFilters)}`}
+                  locale={{ emptyText }}
+                  onChange={handleTableChange}
+                  onRow={(record) => ({
+                    onClick: () => router.push(`/customers/${record.id}`),
+                    className: "cursor-pointer",
+                  })}
+                />
+              </SortableContext>
+            </DndContext>
+          </>
         )}
-
-        <ListCapNotice shown={customers.length} total={total} noun="customers" />
-
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-          <SortableContext items={visibleColumns} strategy={horizontalListSortingStrategy}>
-            <DataTable<CustomerItem>
-              components={reordering ? { header: { cell: DraggableHeaderCell } } : undefined}
-              dataSource={rows}
-              columns={columns}
-              rowKey="id"
-              loading={isFetching}
-              scroll={{ x: "max-content" }}
-              resetKey={`${debouncedSearch}|${status}|${accountType}|${role}|${sortKey ?? ""}|${sortDirection}|${JSON.stringify(activeFilters)}`}
-              locale={{ emptyText }}
-              onChange={handleTableChange}
-              onRow={(record) => ({
-                onClick: () => router.push(`/customers/${record.id}`),
-                className: "cursor-pointer",
-              })}
-            />
-          </SortableContext>
-        </DndContext>
 
         <AddCustomerModal
           open={addOpen}

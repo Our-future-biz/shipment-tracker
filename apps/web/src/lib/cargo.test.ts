@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CONTAINER_TYPES, containerType, NOT_STACKABLE, STACKABLE, shipmentStackability, withShipmentStackability } from "./cargo";
+import { CONTAINER_TYPES, containerType, NOT_STACKABLE, numberInput, STACKABLE, shipmentStackability, withShipmentStackability } from "./cargo";
 import { containerTypeFrom } from "@/app/documents/_lib/extraction";
 
 describe("CONTAINER_TYPES", () => {
@@ -70,5 +70,28 @@ describe("withShipmentStackability", () => {
 
   it("adds no row when clearing a shipment without rows", () => {
     expect(withShipmentStackability([], "")).toEqual([]);
+  });
+});
+
+describe("numberInput", () => {
+  it("drops letters and other characters", () => {
+    expect(numberInput("E")).toBe("");
+    expect(numberInput("12a3 kg")).toBe("123");
+    expect(numberInput("R", false)).toBe("");
+  });
+  it("keeps one decimal point and turns a comma into a point", () => {
+    expect(numberInput("350.5")).toBe("350.5");
+    expect(numberInput("350,5")).toBe("350.5");
+    expect(numberInput("1.2.3")).toBe("1.23");
+    expect(numberInput(".5")).toBe(".5");
+  });
+  it("takes whole numbers only when decimals are off", () => {
+    expect(numberInput("12.5", false)).toBe("125");
+    expect(numberInput("-4", false)).toBe("4");
+  });
+  it("keeps at most maxDigits digits in the whole-number part", () => {
+    expect(numberInput("12345", false, 4)).toBe("1234");
+    expect(numberInput("99999.5", true, 4)).toBe("9999.5");
+    expect(numberInput("1234", true, 4)).toBe("1234");
   });
 });

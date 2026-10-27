@@ -19,15 +19,16 @@ interface SalesQuoteListRequest {
   /**
    * createdAt (the default) | updatedAt | quoteNumber | customer | status | owner | sentAt |
    * validUntil | decidedAt | lastContactAt. Anything else sorts by createdAt. Quotes without a
-   * value come last in both directions.
+   * value come last in both directions. Status and owner sort as shown (the owner by e-mail).
    */
   sortBy?: string & MaxLen<40>;
   /** desc when left out. */
   sortDirection?: "asc" | "desc";
   /**
    * Words that all have to occur in the quote: in its reference, customer, service type,
-   * direction, origin, destination, commodity, incoterm, owner, job number or status. Case and
-   * diacritics do not matter; at most five words are looked for.
+   * direction, origin, destination, commodity, incoterm, owner (the owner user's e-mail or name,
+   * or the owner text of an old quote), job number or status. Case and diacritics do not matter;
+   * at most five words are looked for.
    */
   search?: string & MaxLen<200>;
   /**

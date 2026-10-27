@@ -47,7 +47,7 @@ export interface CustomerItem {
   dataSource: string;
   lastRegistryUpdate: string;
   status: CustomerStatus;
-  /** The owner's name; without salesOwnerUserId a name typed before owners were users, or "". */
+  /** The owner user's e-mail; without salesOwnerUserId a name typed before owners were users, or "". */
   salesOwner: string;
   salesOwnerUserId: string | null;
   label: CustomerLabel;
@@ -83,6 +83,22 @@ export interface CustomerPipelineItem {
   createdAt: string;
 }
 
+/** A deleted (hidden) customer as the Deleted view of the Customer Database shows it. */
+export interface DeletedCustomerItem {
+  id: string;
+  companyName: string;
+  ico: string;
+  city: string;
+  country: string;
+  label: CustomerLabel;
+  status: CustomerStatus;
+  /** When it was deleted (ISO). */
+  deletedAt: string;
+  /** Contacts and addresses hidden together with it: a restore brings them back. */
+  contactCount: number;
+  addressCount: number;
+}
+
 /** A haulier company as the trucking service needs it. */
 export interface HaulierCompanyItem {
   id: string;
@@ -92,6 +108,24 @@ export interface HaulierCompanyItem {
   city: string;
   /** ISO 3166-1 alpha-2 as stored ("CZ" for most); "" when unknown */
   country: string;
+}
+
+/** A customer as another service links to it: id, current name and account type. */
+export interface CustomerRef {
+  id: string;
+  companyName: string;
+  label: CustomerLabel;
+}
+
+/** A contact person as another service links to it. */
+export interface CustomerContactRef {
+  id: string;
+  customerId: string;
+  /** "First Last". */
+  name: string;
+  email: string;
+  phone: string;
+  isMain: boolean;
 }
 
 export interface ContactItem {
@@ -141,6 +175,7 @@ export interface NoteItem {
   customerId: string;
   type: NoteType;
   content: string;
+  /** Who wrote it: the signed-in user's e-mail (older notes may hold a name). */
   author: string;
   createdAt: string;
   updatedAt: string;
@@ -250,4 +285,24 @@ export interface ShipmentFinancials {
   profit: number | null;
   /** Currencies without a rate that made the totals unknown. */
   missingCurrencies: string[];
+}
+
+/** What a run of POST /customers/people/normalize did to the company's live customers and notes. */
+export interface CustomerPeopleNormalizeResult {
+  /** Customers with a sales owner and notes with an author that were looked at. */
+  checked: number;
+  /** Rows whose person is now recorded by a user's e-mail (a customer's owner also linked to that user). */
+  changed: number;
+  /** Values left as they are, with how many rows have each: they name no single user of the company. */
+  unmatched: { field: string; value: string; count: number }[];
+}
+
+/** What a run of POST /customers/seats/normalize did to the company's live customers. */
+export interface CustomerSeatNormalizeResult {
+  /** Live customers looked at. */
+  checked: number;
+  /** Customers whose registered address, city or country now match their Registered address. */
+  changed: number;
+  /** Customers without a Registered address (field "registeredAddress", value the company name): left as they are. */
+  unmatched: { field: string; value: string; count: number }[];
 }

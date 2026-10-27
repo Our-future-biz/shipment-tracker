@@ -4,6 +4,7 @@ import { Button, Form, Input, Modal, Select, Switch } from "antd";
 import type { ContactItem } from "@/hooks/useCustomerContacts";
 import type { interfaces } from "@/lib/api/client";
 import { CONTACT_ROLES } from "../../_lib/constants";
+import { czechPhoneRule } from "@/lib/phone";
 import { ContactPhoneInput, isPossiblePhone } from "./ContactPhoneInput";
 
 export interface CustomerContactFormValues {
@@ -24,6 +25,8 @@ interface CustomerContactDialogProps {
   onSubmit: (values: CustomerContactFormValues) => void;
   // The customer's country, which a new phone number starts in.
   country?: string | null;
+  // Values a new contact starts with (e.g. the name typed in a contact picker).
+  initial?: Partial<CustomerContactFormValues>;
 }
 
 const NEW_CONTACT: CustomerContactFormValues = { firstName: "", lastName: "", email: "", phone: "", role: "Logistics Manager", isMain: false };
@@ -37,7 +40,7 @@ const requiredName = (message: string) => [{ required: true, whitespace: true, m
 
 // Add / edit dialog of a customer contact. The form takes `contact` only when its instance is created, so the owner
 // must mount the dialog anew (a new React key) for every opening.
-export function CustomerContactDialog({ open, contact, saving, onCancel, onSubmit, country }: CustomerContactDialogProps) {
+export function CustomerContactDialog({ open, contact, saving, onCancel, onSubmit, country, initial }: CustomerContactDialogProps) {
   const [form] = Form.useForm<CustomerContactFormValues>();
 
   // `normalize` runs only on typed input, so the stored texts are trimmed here: contacts saved before the dialog trimmed
@@ -51,7 +54,7 @@ export function CustomerContactDialog({ open, contact, saving, onCancel, onSubmi
         role: contact.role,
         isMain: contact.isMain,
       }
-    : NEW_CONTACT;
+    : { ...NEW_CONTACT, ...initial };
 
   const handleSubmit = () => form.submit();
 
@@ -112,7 +115,7 @@ export function CustomerContactDialog({ open, contact, saving, onCancel, onSubmi
         <Form.Item
           name="phone"
           label="Phone"
-          rules={[{ validator: (_, value?: string) => (!value || isPossiblePhone(value) ? Promise.resolve() : Promise.reject(new Error("Enter a valid phone number"))) }]}
+          rules={[czechPhoneRule, { validator: (_, value?: string) => (!value || isPossiblePhone(value) ? Promise.resolve() : Promise.reject(new Error("Enter a valid phone number"))) }]}
         >
           <ContactPhoneInput onPressEnter={handleSubmit} defaultCountry={country} />
         </Form.Item>

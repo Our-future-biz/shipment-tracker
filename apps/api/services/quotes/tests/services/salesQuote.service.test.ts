@@ -8,7 +8,7 @@ vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 vi.mock("~encore/clients", () => ({
   auth: { usersList: vi.fn() },
-  customers: { customerActivate: vi.fn() },
+  customers: { customerActivate: vi.fn(), _internalCustomerRefs: vi.fn() },
   fx: { fxRatesOn: vi.fn(), fxResolve: vi.fn() },
   shipments: { _internalShipmentsNamingQuote: vi.fn(), _internalShipmentsMoveQuote: vi.fn() },
   trucking: { truckingRate: vi.fn(), _internalTruckingMarginFloor: vi.fn() },
@@ -59,6 +59,7 @@ const fxResolve = vi.mocked(fx.fxResolve);
 const truckingRate = vi.mocked(trucking.truckingRate);
 const marginFloor = vi.mocked(trucking._internalTruckingMarginFloor);
 const customerActivate = vi.mocked(customers.customerActivate);
+const customerRefs = vi.mocked(customers._internalCustomerRefs);
 
 // 10 October 2026, noon in Prague.
 const NOW = new Date("2026-10-10T10:00:00.000Z");
@@ -95,12 +96,12 @@ let jana: Actor;
 /** The quote the repository holds; null = there is no such sales quote. */
 let stored: SalesQuoteRecord | null;
 
-/** A Draft of Martin's whose owner text was compared with the users long ago. */
+/** A Draft of Martin's whose owner text was compared with the users long ago: recorded by his e-mail. */
 const quote = (over: Partial<SalesQuoteRecord> = {}): SalesQuoteRecord => ({
   id: "0b8d5a0e-6a43-4f4a-9a53-5d0d3a2b6c11",
   companyId: martin.companyID,
   quoteNumber: REF,
-  data: { reference: REF, quoteStatus: "draft", salesOwner: "Martin Koubek", timeline: [], origin: "Praha" },
+  data: { reference: REF, quoteStatus: "draft", salesOwner: "martin@forwarder.cz", timeline: [], origin: "Praha" },
   terms: "",
   createdAt: new Date("2026-09-15T08:00:00.000Z"),
   updatedAt: new Date("2026-10-02T09:30:00.456Z"),
@@ -115,7 +116,7 @@ const quote = (over: Partial<SalesQuoteRecord> = {}): SalesQuoteRecord => ({
   validUntil: null,
   lastContactAt: null,
   ownerUserId: U_MARTIN,
-  ownerLabel: "Martin Koubek",
+  ownerLabel: "martin@forwarder.cz",
   ownerMatchCheckedAt: EXAMINED,
   shipmentId: null,
   shipmentJobNumber: null,
@@ -175,7 +176,7 @@ describe("get", () => {
 
   it("hands out the quote with what the asking user may do with its owner", async () => {
     await expect(salesQuoteService.get(manager, REF)).resolves.toMatchObject({ quoteNumber: REF, permissions: { canChangeOwner: "any" } });
-    await expect(salesQuoteService.get(martin, REF)).resolves.toMatchObject({ ownerName: "Martin Koubek", permissions: { canChangeOwner: "own" } });
+    await expect(salesQuoteService.get(martin, REF)).resolves.toMatchObject({ ownerName: "martin@forwarder.cz", permissions: { canChangeOwner: "own" } });
     await expect(salesQuoteService.get(jana, REF)).resolves.toMatchObject({ permissions: { canChangeOwner: "none" } });
   });
 
@@ -200,15 +201,17 @@ describe("get", () => {
     stored = adopted;
     // Nothing waits when the read starts; the text is there once the quote was loaded.
     repository.unexaminedOwnerLabels.mockResolvedValueOnce([]).mockResolvedValue(["Jana Nováková"]);
-    repository.recordOwnerMatch.mockImplementation(async (_companyId, _label, ownerUserId) => {
-      stored = { ...adopted, ownerUserId, ownerMatchCheckedAt: NOW };
+    repository.recordOwnerMatch.mockImplementation(async (_companyId, _label, owner) => {
+      stored = { ...adopted, ownerUserId: owner?.userId ?? null, ownerLabel: owner?.label ?? adopted.ownerLabel, ownerMatchCheckedAt: NOW };
+      return owner ? [adopted.id] : [];
     });
 
     const item = await salesQuoteService.get(martin, REF);
 
-    expect(repository.recordOwnerMatch).toHaveBeenCalledWith(martin.companyID, "Jana Nováková", U_JANA);
+    // Linked to Jana, and from now on owned under her e-mail.
+    expect(repository.recordOwnerMatch).toHaveBeenCalledWith(martin.companyID, "Jana Nováková", { userId: U_JANA, label: "jana@forwarder.cz" });
     // Not "claim": Martin is not offered a quote the server would refuse him.
-    expect(item).toMatchObject({ ownerUserId: U_JANA, ownerName: "Jana Nováková", ownerLabel: "Jana Nováková", permissions: { canChangeOwner: "none" } });
+    expect(item).toMatchObject({ ownerUserId: U_JANA, ownerName: "jana@forwarder.cz", ownerLabel: "jana@forwarder.cz", permissions: { canChangeOwner: "none" } });
   });
 
   it("does not look again for a quote whose owner text was examined and fits nobody", async () => {
@@ -360,8 +363,8 @@ describe("list", () => {
     expect(page.pagination).toEqual({ total: 137, offset: 6, limit: 3 });
     expect(page.data).toMatchObject([
       { quoteNumber: REF, status: "draft", effectiveStatus: "draft", followUpDue: false, permissions: { canChangeOwner: "own", canDelete: true } },
-      // The owner under the user's current name, not the stored label.
-      { quoteNumber: `${REF}-2`, status: "quoted", effectiveStatus: "expired", followUpDue: false, ownerName: "Jana Nováková", permissions: { canChangeOwner: "none", canDelete: false } },
+      // The owner under the user's current e-mail, not the stored label.
+      { quoteNumber: `${REF}-2`, status: "quoted", effectiveStatus: "expired", followUpDue: false, ownerName: "jana@forwarder.cz", permissions: { canChangeOwner: "none", canDelete: false } },
       { quoteNumber: `${REF}-3`, effectiveStatus: "feedback", followUpDue: true, lastContactAt: SENT.toISOString() },
     ]);
     // The whole document comes along.
@@ -400,7 +403,7 @@ describe("list", () => {
 
   it("still lists when the users cannot be read: owners show under their stored labels", async () => {
     usersList.mockRejectedValue(new Error("auth is unreachable"));
-    repository.list.mockResolvedValue({ rows: [quote()], total: 1 });
+    repository.list.mockResolvedValue({ rows: [quote({ ownerLabel: "Martin Koubek" })], total: 1 });
     await expect(salesQuoteService.list(jana, {})).resolves.toMatchObject({ data: [{ ownerName: "Martin Koubek", ownerUserId: U_MARTIN }] });
   });
 });
@@ -413,11 +416,12 @@ describe("create and duplicate", () => {
     });
   });
 
-  it("creates a Draft of whoever creates it, under today's prefix, already examined", async () => {
+  it("creates a Draft of whoever creates it - recorded by their e-mail - under today's prefix, already examined", async () => {
+    usersList.mockResolvedValue({ users: [user(U_MARTIN, "Martin Koubek", "Martin@Forwarder.cz", "user")] });
     const item = await salesQuoteService.create(martin, { origin: "Brno", quoteStatus: "won" });
     expect(repository.createWithReference.mock.calls[0]!.slice(0, 2)).toEqual([martin.companyID, "QCZ20261010"]);
-    expect(item).toMatchObject({ quoteNumber: REF, status: "draft", ownerUserId: U_MARTIN, ownerLabel: "Martin Koubek", permissions: { canChangeOwner: "own" } });
-    expect(item.data).toMatchObject({ reference: REF, origin: "Brno", quoteStatus: "draft", salesOwner: "Martin Koubek" });
+    expect(item).toMatchObject({ quoteNumber: REF, status: "draft", ownerUserId: U_MARTIN, ownerLabel: "martin@forwarder.cz", ownerName: "martin@forwarder.cz", permissions: { canChangeOwner: "own" } });
+    expect(item.data).toMatchObject({ reference: REF, origin: "Brno", quoteStatus: "draft", salesOwner: "martin@forwarder.cz" });
     const [, , , build] = repository.createWithReference.mock.calls[0]!;
     expect(build(REF)).toMatchObject({ status: "draft", ownerUserId: U_MARTIN, ownerMatchCheckedAt: NOW });
   });
@@ -521,7 +525,7 @@ describe("revise", () => {
     expect(result.quote).toMatchObject({ quoteNumber: REF, status: "replaced" });
     expect(result.revision).toMatchObject({ quoteNumber: `${REF}-R2`, status: "revised" });
     expect(planned!.write.entries).toEqual([
-      { kind: "status", status: "replaced", at: NOW.toISOString(), user: "Martin Koubek", userId: U_MARTIN, comment: `Replaced by ${REF}-R2` },
+      { kind: "status", status: "replaced", at: NOW.toISOString(), user: "martin@forwarder.cz", userId: U_MARTIN, comment: `Replaced by ${REF}-R2` },
     ]);
     // The quote names its revision, for the screens that lead to it.
     expect(planned!.write.document).toEqual({ replacedBy: `${REF}-R2` });
@@ -540,7 +544,7 @@ describe("revise", () => {
     expect(data).not.toHaveProperty("fx");
     expect(data).not.toHaveProperty("replacedBy");
     expect((data as { timeline: unknown[] }).timeline).toEqual([
-      { kind: "status", status: "revised", at: NOW.toISOString(), user: "Martin Koubek", userId: U_MARTIN, comment: `Revision of ${REF}` },
+      { kind: "status", status: "revised", at: NOW.toISOString(), user: "martin@forwarder.cz", userId: U_MARTIN, comment: `Revision of ${REF}` },
     ]);
   });
 
@@ -594,13 +598,13 @@ describe("revise", () => {
 });
 
 describe("transition", () => {
-  it("writes the new status with its history line under the acting user's name and id", async () => {
+  it("writes the new status with its history line under the acting user's e-mail and id", async () => {
     const result = await salesQuoteService.transition(martin, REF, { to: "ready_to_send", comment: "checked" });
     expect(result).toMatchObject({ changed: true, quote: { status: "ready_to_send" } });
     const write = written();
     expect(write.state).toMatchObject({ status: "ready_to_send", ownerUserId: U_MARTIN });
     expect(write.entries).toEqual([
-      { kind: "status", status: "ready_to_send", at: NOW.toISOString(), user: "Martin Koubek", userId: U_MARTIN, comment: "checked" },
+      { kind: "status", status: "ready_to_send", at: NOW.toISOString(), user: "martin@forwarder.cz", userId: U_MARTIN, comment: "checked" },
     ]);
     expect(write.document).toBeUndefined();
     expect(repository.writeLifecycle.mock.calls[0]!.slice(0, 2)).toEqual([TX, stored]);
@@ -771,11 +775,11 @@ describe("setValidity", () => {
     expect(written()).toMatchObject({ state: { validUntil: "2026-11-30" }, entries: [] });
   });
 
-  it("leaves a history line under the acting user's name once the quote was sent", async () => {
+  it("leaves a history line under the acting user's e-mail once the quote was sent", async () => {
     stored = quote({ status: "quoted", sentAt: SENT, firstSentAt: SENT, validUntil: "2026-10-20" });
     await salesQuoteService.setValidity(jana, REF, "2026-11-30");
     expect(written().entries).toEqual([
-      { kind: "validity", at: NOW.toISOString(), user: "Jana Nováková", userId: U_JANA, comment: "Valid until 2026-11-30 (was 2026-10-20)" },
+      { kind: "validity", at: NOW.toISOString(), user: "jana@forwarder.cz", userId: U_JANA, comment: "Valid until 2026-11-30 (was 2026-10-20)" },
     ]);
   });
 
@@ -815,7 +819,7 @@ describe("followUp", () => {
     expect(item).toMatchObject({ status: "quoted", followUpDue: false, lastContactAt: NOW.toISOString(), sentAt: SENT.toISOString() });
     const write = written();
     expect(write.state).toEqual({ ...columnsOf(stored), createdAt: stored.createdAt, lastContactAt: NOW });
-    expect(write.entries).toEqual([{ kind: "follow_up", at: NOW.toISOString(), user: "Jana Nováková", userId: U_JANA, comment: "called, decision next week" }]);
+    expect(write.entries).toEqual([{ kind: "follow_up", at: NOW.toISOString(), user: "jana@forwarder.cz", userId: U_JANA, comment: "called, decision next week" }]);
     // No document key: the document keeps its version, an open editor is not disturbed.
     expect(write.document).toBeUndefined();
     expect(repository.writeLifecycle.mock.calls[0]!.slice(0, 2)).toEqual([TX, stored]);
@@ -825,7 +829,7 @@ describe("followUp", () => {
     stored = quoted();
     await expect(salesQuoteService.get(martin, REF)).resolves.toMatchObject({ followUpDue: true });
     await expect(salesQuoteService.followUp(martin, REF)).resolves.toMatchObject({ followUpDue: false });
-    expect(written().entries).toEqual([{ kind: "follow_up", at: NOW.toISOString(), user: "Martin Koubek", userId: U_MARTIN }]);
+    expect(written().entries).toEqual([{ kind: "follow_up", at: NOW.toISOString(), user: "martin@forwarder.cz", userId: U_MARTIN }]);
   });
 
   it("works on a Feedback quote too", async () => {
@@ -922,8 +926,8 @@ describe("syncShipments", () => {
     expect(written()).toMatchObject({
       state: { status: "quoted", shipmentId: FIRST.id, shipmentJobNumber: "CZ00000101" },
       entries: [
-        { ...linkedLine(FIRST), at: NOW.toISOString(), user: "Martin Koubek", userId: U_MARTIN },
-        { ...linkedLine(SECOND), user: "Martin Koubek", userId: U_MARTIN },
+        { ...linkedLine(FIRST), at: NOW.toISOString(), user: "martin@forwarder.cz", userId: U_MARTIN },
+        { ...linkedLine(SECOND), user: "martin@forwarder.cz", userId: U_MARTIN },
       ],
     });
     // A lifecycle write like the others: the document keeps its version.
@@ -938,7 +942,7 @@ describe("syncShipments", () => {
     expect(customerActivate).not.toHaveBeenCalled();
     expect(written()).toMatchObject({
       state: { status: "won", decidedAt: NOW, sentAt: null, firstSentAt: null },
-      entries: [linkedLine(FIRST), { kind: "status", status: "won", from: "draft", shipmentId: FIRST.id, jobNumber: "CZ00000101", user: "Martin Koubek" }],
+      entries: [linkedLine(FIRST), { kind: "status", status: "won", from: "draft", shipmentId: FIRST.id, jobNumber: "CZ00000101", user: "martin@forwarder.cz" }],
     });
   });
 
@@ -1141,15 +1145,16 @@ describe("setOwner", () => {
 
   it("lets a manager give any quote to anybody, with a history line - and to nobody", async () => {
     const result = await salesQuoteService.setOwner(manager, REF, U_JANA);
-    expect(result).toMatchObject({ changed: true, quote: { ownerUserId: U_JANA, ownerName: "Jana Nováková", ownerLabel: "Jana Nováková" } });
+    expect(result).toMatchObject({ changed: true, quote: { ownerUserId: U_JANA, ownerName: "jana@forwarder.cz", ownerLabel: "jana@forwarder.cz" } });
+    // Recorded by her e-mail; the history still says who did it by name.
     expect(written()).toMatchObject({
-      state: { ownerUserId: U_JANA, ownerLabel: "Jana Nováková", status: "draft" },
-      entries: [{ kind: "owner", user: "Marie Manager", userId: U_MANAGER, comment: "Owner: Jana Nováková (was Martin Koubek)" }],
+      state: { ownerUserId: U_JANA, ownerLabel: "jana@forwarder.cz", status: "draft" },
+      entries: [{ kind: "owner", user: "marie@forwarder.cz", userId: U_MANAGER, comment: "Owner: jana@forwarder.cz (was martin@forwarder.cz)" }],
     });
 
     repository.writeLifecycle.mockClear();
     await expect(salesQuoteService.setOwner(manager, REF, null)).resolves.toMatchObject({ changed: true, quote: { ownerUserId: null, ownerLabel: "" } });
-    expect(written().entries).toMatchObject([{ kind: "owner", comment: "No owner (was Martin Koubek)" }]);
+    expect(written().entries).toMatchObject([{ kind: "owner", comment: "No owner (was martin@forwarder.cz)" }]);
   });
 
   it("says so, and writes nothing, when the quote already has that owner", async () => {
@@ -1221,7 +1226,7 @@ describe("delete", () => {
     const write = written();
     // Every lifecycle fact stays what it was: a deleted quote is still the Draft it was.
     expect(write.state).toEqual({ ...columnsOf(stored!), createdAt: stored!.createdAt });
-    expect(write.entries).toEqual([{ kind: "deleted", at: NOW.toISOString(), user: "Martin Koubek", userId: U_MARTIN }]);
+    expect(write.entries).toEqual([{ kind: "deleted", at: NOW.toISOString(), user: "martin@forwarder.cz", userId: U_MARTIN }]);
     expect(write.deleted).toEqual({ by: U_MARTIN, at: NOW });
     // No document key: nothing of the document is rewritten by its deletion.
     expect(write.document).toBeUndefined();
@@ -1236,7 +1241,7 @@ describe("delete", () => {
       stored = row;
       await salesQuoteService.delete(manager, REF);
       expect(written().deleted).toEqual({ by: U_MANAGER, at: NOW });
-      expect(written().entries).toMatchObject([{ kind: "deleted", user: "Marie Manager", userId: U_MANAGER }]);
+      expect(written().entries).toMatchObject([{ kind: "deleted", user: "marie@forwarder.cz", userId: U_MANAGER }]);
     }
   });
 
@@ -1259,7 +1264,7 @@ describe("delete", () => {
 
   it("refuses a plain user their own Draft that was Quoted without a sent date and reopened through Lost", async () => {
     // Set to Quoted in bulk before sendings were dated: no sent date, no history line.
-    stored = quote({ status: "quoted", data: { reference: REF, quoteStatus: "quoted", salesOwner: "Martin Koubek" } });
+    stored = quote({ status: "quoted", data: { reference: REF, quoteStatus: "quoted", salesOwner: "martin@forwarder.cz" } });
     // The row after a lifecycle write, with the lines the write adds to its history.
     repository.writeLifecycle.mockImplementation(async (_tx, row, write) => {
       const data = row.data as Record<string, unknown>;
@@ -1283,7 +1288,7 @@ describe("delete", () => {
   it("answers the flag a screen gets and the delete from the same history", async () => {
     // A Draft of Martin's whose history says it left Quoted without a sent date.
     const left = [{ kind: "status", status: "lost", from: "quoted", at: SENT.toISOString(), userId: U_MARTIN }];
-    stored = quote({ data: { reference: REF, quoteStatus: "draft", salesOwner: "Martin Koubek", timeline: left } });
+    stored = quote({ data: { reference: REF, quoteStatus: "draft", salesOwner: "martin@forwarder.cz", timeline: left } });
     await expect(salesQuoteService.get(martin, REF)).resolves.toMatchObject({ permissions: { canDelete: false } });
     await expect(salesQuoteService.delete(martin, REF)).rejects.toMatchObject(managersOnly);
     nothingDeleted();
@@ -1302,7 +1307,7 @@ describe("delete", () => {
     await salesQuoteService.setOwner(jana, REF, U_JANA);
     await expect(salesQuoteService.delete(jana, REF)).resolves.toBeUndefined();
     const [taken, deleted] = repository.writeLifecycle.mock.calls.map((call) => call[2]);
-    expect(taken!.entries).toMatchObject([{ kind: "owner", userId: U_JANA, comment: "Owner: Jana Nováková (was Petr)" }]);
+    expect(taken!.entries).toMatchObject([{ kind: "owner", userId: U_JANA, comment: "Owner: jana@forwarder.cz (was Petr)" }]);
     expect(deleted!.entries).toMatchObject([{ kind: "deleted", userId: U_JANA }]);
     expect(deleted!.deleted).toEqual({ by: U_JANA, at: NOW });
   });
@@ -1444,7 +1449,7 @@ const oldTrucking = (amount: number) => ({ type: "Road freight", description: "o
 const roadQuote = (selling: unknown[], buying: unknown[], over: Record<string, unknown> = {}, row: Partial<SalesQuoteRecord> = {}) =>
   quote({
     customerId: CUSTOMER,
-    data: { reference: REF, quoteStatus: "draft", salesOwner: "Martin Koubek", timeline: [], serviceType: "Road", sellingLines: selling, buyingLines: buying, ...over },
+    data: { reference: REF, quoteStatus: "draft", salesOwner: "martin@forwarder.cz", timeline: [], serviceType: "Road", sellingLines: selling, buyingLines: buying, ...over },
     ...row,
   });
 
@@ -1549,7 +1554,7 @@ describe("road transport", () => {
       });
       expect((document!.sellingLines as unknown[]).at(-1)).toEqual(manual(500));
       expect(entries).toEqual([
-        { kind: "road_price", at: NOW.toISOString(), user: "Martin Koubek", userId: U_MARTIN, comment: "Priced from tariff: Standard v3, +1 day, 4 250 CZK" },
+        { kind: "road_price", at: NOW.toISOString(), user: "martin@forwarder.cz", userId: U_MARTIN, comment: "Priced from tariff: Standard v3, +1 day, 4 250 CZK" },
       ]);
     });
 
@@ -1679,11 +1684,11 @@ describe("road transport", () => {
       const item = await salesQuoteService.approveMargin(manager, REF, "  Key account  ", 3);
       const { document, entries, state } = written();
       expect(document).toEqual({
-        marginApproval: { byUserId: U_MANAGER, byName: "Marie Manager", at: NOW.toISOString(), reason: "Key account", marginCzk: 400, marginPercent: 4 },
+        marginApproval: { byUserId: U_MANAGER, byName: "marie@forwarder.cz", at: NOW.toISOString(), reason: "Key account", marginCzk: 400, marginPercent: 4 },
       });
       expect(state).toEqual(stateOf(stored!));
       expect(entries).toEqual([
-        { kind: "margin_approval", at: NOW.toISOString(), user: "Marie Manager", userId: U_MANAGER, comment: "Margin approved: 400 CZK (4 %) - Key account" },
+        { kind: "margin_approval", at: NOW.toISOString(), user: "marie@forwarder.cz", userId: U_MANAGER, comment: "Margin approved: 400 CZK (4 %) - Key account" },
       ]);
       expect(item.roadMargin).toMatchObject({ belowFloor: true, approvalValid: true, needsApproval: false });
     });
@@ -1727,6 +1732,11 @@ describe("road transport", () => {
     it("lets the quote go while an approval covers the margin", async () => {
       stored = roadQuote([manual(10000)], [manual(9600)], { marginApproval: APPROVAL });
       await expect(salesQuoteService.transition(martin, REF, { to: "ready_to_send" })).resolves.toMatchObject({ changed: true });
+    });
+
+    it("names who approved by e-mail, also on an approval recorded by name", async () => {
+      stored = roadQuote([manual(10000)], [manual(9600)], { marginApproval: APPROVAL });
+      expect((await salesQuoteService.get(martin, REF)).roadMargin?.approval).toMatchObject({ byUserId: U_MANAGER, byName: "marie@forwarder.cz" });
     });
 
     it("blocks again when the margin got worse after it was approved", async () => {
@@ -1783,12 +1793,12 @@ describe("the warehouse inquiry of pieces of 12.5 t or more", () => {
       grossWeightKg: 26000,
       note: "two press frames",
       requestedById: U_MARTIN,
-      requestedByName: "Martin Koubek",
+      requestedByName: "martin@forwarder.cz",
       requestedAt: NOW.toISOString(),
       priceEurPerPiece: null,
     });
     expect(write.entries).toEqual([
-      { kind: "warehouse_inquiry", at: NOW.toISOString(), user: "Martin Koubek", userId: U_MARTIN, comment: "Warehouse asked about 2 pieces of 12.5 t or more - two press frames" },
+      { kind: "warehouse_inquiry", at: NOW.toISOString(), user: "martin@forwarder.cz", userId: U_MARTIN, comment: "Warehouse asked about 2 pieces of 12.5 t or more - two press frames" },
     ]);
     // The question is in the quote's chat too, from the one who asked.
     expect(chat.createForCompany).toHaveBeenCalledWith(martin.companyID, {
@@ -1839,7 +1849,7 @@ describe("the warehouse inquiry of pieces of 12.5 t or more", () => {
       sellingLines: [{ ...fee, amount: 850 }],
     });
     expect(write.drop).toEqual(["marginApproval"]);
-    expect(write.serverKeys?.warehouseInquiry).toMatchObject({ status: "approved", priceEurPerPiece: 400, comment: "crane booked", decidedById: U_MANAGER, decidedByName: "Marie Manager", answerSeenAt: null });
+    expect(write.serverKeys?.warehouseInquiry).toMatchObject({ status: "approved", priceEurPerPiece: 400, comment: "crane booked", decidedById: U_MANAGER, decidedByName: "marie@forwarder.cz", answerSeenAt: null });
     expect(write.entries[0]).toMatchObject({ kind: "warehouse_inquiry", comment: "Warehouse approved 2 pieces of 12.5 t or more: EUR 400 per piece - crane booked" });
     expect(item).toMatchObject({ quoteNumber: REF, quoteStatus: "draft", inquiry: { status: "pending" } });
     // The answer is in the quote's chat too, from the manager; refused answers posted nothing.
@@ -1930,7 +1940,120 @@ describe("the warehouse inquiry of pieces of 12.5 t or more", () => {
     expect(repository.listInquiryAnswersFor).toHaveBeenCalledWith(martin.companyID, U_MARTIN, new Date(NOW.getTime() - 7 * 86_400_000).toISOString());
   });
 
+  it("names who asked and who answered by e-mail, also on an inquiry recorded by name - unless they are no longer users", async () => {
+    const answered = { ...pending, status: "approved", priceEurPerPiece: 400, decidedById: U_MANAGER, decidedByName: "Marie Manager", decidedAt: NOW.toISOString() };
+    repository.listInquiryAnswersFor.mockResolvedValue([withData({ warehouseInquiry: answered })]);
+    const [item] = await salesQuoteService.myInquiryAnswers(martin);
+    expect(item!.inquiry).toMatchObject({ requestedByName: "martin@forwarder.cz", decidedByName: "marie@forwarder.cz" });
+    // Somebody who left keeps what was recorded.
+    const gone = randomUUID();
+    repository.listInquiryAnswersFor.mockResolvedValue([withData({ warehouseInquiry: { ...answered, requestedById: gone, decidedById: gone } })]);
+    const [old] = await salesQuoteService.myInquiryAnswers(martin);
+    expect(old!.inquiry).toMatchObject({ requestedByName: "Martin Koubek", decidedByName: "Marie Manager" });
+  });
+
+  it("says who answered already by e-mail", async () => {
+    stored = withData({ warehouseInquiry: { ...pending, status: "rejected", decidedById: U_MANAGER, decidedByName: "Marie Manager" } });
+    await expect(salesQuoteService.decideWarehouseInquiry(manager, REF, { inquiryId: INQ, approve: true, priceEurPerPiece: 1 })).rejects.toMatchObject({
+      message: "This inquiry was already rejected by marie@forwarder.cz",
+    });
+  });
+
   it("is a key only the server writes", () => {
     expect(PROTECTED_KEYS).toContain("warehouseInquiry");
+  });
+});
+
+describe("who a quote is for (the Customer Database)", () => {
+  const ACME = "6d1c3f0e-1a2b-4c3d-8e9f-000000000001";
+  const PETR = "7a000000-0000-4000-8000-000000000001";
+  const KAREL = "7a000000-0000-4000-8000-000000000003";
+  const PETR_NOW = { customerContactId: PETR, customerContact: "Petr Masák", customerEmail: "petr@acme.cz", customerPhone: "+420 601 000 001" };
+
+  beforeEach(() => {
+    customerRefs.mockResolvedValue({
+      customers: [{ id: ACME, companyName: "ACME Logistics s.r.o.", label: "KEY ACCOUNT" }],
+      contacts: [{ id: PETR, customerId: ACME, name: "Petr Masák", email: "petr@acme.cz", phone: "+420 601 000 001", isMain: true }],
+    });
+    repository.saveDocument.mockImplementation(async () => quote({ dataVersion: 4 }));
+    repository.createWithReference.mockImplementation(async (companyId, _prefix, pick, build) => {
+      const quoteNumber = pick([]);
+      return { ...quote(), ...build(quoteNumber), companyId, quoteNumber };
+    });
+  });
+
+  it("saves an open quote with the customer's current name and the picked contact's current details", async () => {
+    await salesQuoteService.save(martin, REF, { customerId: ACME, customerName: "ACME", customerContactId: PETR, customerContact: "Petr" }, 3);
+    expect(customerRefs).toHaveBeenCalledWith({ customerIds: [ACME] });
+    expect(repository.saveDocument.mock.calls[0]![2].data).toEqual({ customerId: ACME, customerName: "ACME Logistics s.r.o.", customerLabel: "KEY ACCOUNT", ...PETR_NOW });
+  });
+
+  it("refuses a contact that is not one of the quote's customer, and writes nothing", async () => {
+    await expect(salesQuoteService.save(martin, REF, { customerId: ACME, customerContactId: KAREL }, 3)).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(repository.saveDocument).not.toHaveBeenCalled();
+  });
+
+  it("saves as sent when the Customer Database cannot be read, but cannot accept a newly picked contact then", async () => {
+    customerRefs.mockRejectedValue(new Error("down"));
+    await salesQuoteService.save(martin, REF, { customerId: ACME, customerName: "ACME" }, 3);
+    expect(repository.saveDocument.mock.calls[0]![2].data).toEqual({ customerId: ACME, customerName: "ACME" });
+    await expect(salesQuoteService.save(martin, REF, { customerId: ACME, customerContactId: PETR }, 3)).rejects.toMatchObject({ code: "unavailable" });
+  });
+
+  it("asks nothing for a quote that names no customer record, or one that went out (kept as stored)", async () => {
+    await salesQuoteService.save(martin, REF, { customerName: "Typed s.r.o." }, 3);
+    stored = quote({ status: "quoted" });
+    await salesQuoteService.save(martin, REF, { customerId: ACME, customerContactId: KAREL }, 3);
+    expect(customerRefs).not.toHaveBeenCalled();
+    expect(repository.saveDocument).toHaveBeenCalledTimes(2);
+  });
+
+  it("creates a quote with the customer and the contact as the Customer Database has them", async () => {
+    const item = await salesQuoteService.create(martin, { customerId: ACME, customerName: "ACME", customerContactId: PETR });
+    expect(item.data).toMatchObject({ customerName: "ACME Logistics s.r.o.", customerLabel: "KEY ACCOUNT", ...PETR_NOW });
+    await expect(salesQuoteService.create(martin, { customerId: ACME, customerContactId: KAREL })).rejects.toMatchObject({ code: "invalid_argument" });
+  });
+
+  it("duplicates with the contact link of the quote it is copied from, even when the caller leaves it out", async () => {
+    stored = quote({ data: { reference: REF, customerId: ACME, customerContactId: PETR, customerContact: "Petr Masák" } });
+    const item = await salesQuoteService.duplicate(martin, REF, { customerId: ACME, customerContact: "Petr Masák" });
+    expect(item.data).toMatchObject(PETR_NOW);
+  });
+
+  // A sent quote revised with the document `data`: what the revision's document and the sent quote's write are.
+  async function revised(data: Record<string, unknown>) {
+    stored = quote({ status: "quoted", sentAt: SENT, firstSentAt: SENT, customerId: ACME, data: { reference: REF, quoteStatus: "quoted", ...data } });
+    let planned: ReturnType<Parameters<typeof salesQuoteRepository.revise>[3]> | undefined;
+    repository.revise.mockImplementation(async (_companyId, _quoteNumber, _prefix, plan) => {
+      planned = plan(stored!, [REF]);
+      return { quote: { ...stored!, ...columnsOf(planned.write.state) }, revision: { ...stored!, ...planned.row, quoteNumber: planned.reference } as SalesQuoteRecord };
+    });
+    await salesQuoteService.revise(martin, REF);
+    return planned!;
+  }
+
+  it("revises a sent quote into a revision that names the customer and the linked contact as they are now", async () => {
+    const planned = await revised({ customerId: ACME, customerName: "ACME", customerContactId: PETR, customerContact: "Petr", customerEmail: "old@acme.cz" });
+    expect(planned.row.data).toMatchObject({ customerName: "ACME Logistics s.r.o.", customerLabel: "KEY ACCOUNT", ...PETR_NOW });
+    // The quote that went out keeps what it was sent with.
+    expect(planned.write.document).toEqual({ replacedBy: `${REF}-R1` });
+  });
+
+  it("keeps a contact typed by hand - or never linked - through a revision: no name is guessed", async () => {
+    for (const link of [{ customerContactId: "" }, {}]) {
+      const planned = await revised({ customerId: ACME, customerName: "ACME", ...link, customerContact: "Petr", customerEmail: "old@acme.cz" });
+      expect(planned.row.data).toMatchObject({ customerName: "ACME Logistics s.r.o.", ...link, customerContact: "Petr", customerEmail: "old@acme.cz" });
+      if (!("customerContactId" in link)) expect(planned.row.data).not.toHaveProperty("customerContactId");
+    }
+  });
+
+  it("stores a contact the editor unlinked as typed by hand, and a later save that leaves the key out keeps it so", async () => {
+    stored = quote({ data: { reference: REF, customerId: ACME, customerContactId: PETR, customerContact: "Petr Masák", customerEmail: "petr@acme.cz" } });
+    await salesQuoteService.save(martin, REF, { customerId: ACME, customerContactId: null, customerContact: "Petr", customerEmail: "private@mail.cz" }, 3);
+    const unlinked = repository.saveDocument.mock.calls[0]![2].data;
+    expect(unlinked).toMatchObject({ customerContactId: "", customerContact: "Petr", customerEmail: "private@mail.cz" });
+    stored = quote({ data: { reference: REF, ...unlinked } });
+    await salesQuoteService.save(martin, REF, { customerId: ACME, customerContact: "Petr", customerEmail: "private@mail.cz" }, 3);
+    expect(repository.saveDocument.mock.calls[1]![2].data).toMatchObject({ customerContactId: "", customerContact: "Petr", customerEmail: "private@mail.cz" });
   });
 });

@@ -1,6 +1,6 @@
 import { APIError, ErrCode } from "encore.dev/api";
 import log from "encore.dev/log";
-import { auth, quotes } from "~encore/clients";
+import { customers, quotes } from "~encore/clients";
 import { businessDay, isRealYmd } from "../../../lib/businessDate";
 import type { PaginatedResponse } from "../../../lib/db/interface";
 import type { Actor } from "../../../lib/rbac";
@@ -9,7 +9,7 @@ import type { FollowupTaskItem } from "../interfaces/interfaces";
 import { followupTaskRepository, type FollowupTaskFilter, type FollowupTaskPage } from "../repositories/followupTask.repository";
 import type { FollowupTaskRecord, NewFollowupTaskRecord } from "../schemas/followupTask.schema";
 import { isTaskType, toTaskItem } from "../utils/followupTask.utils";
-import { nameOf, userNames } from "../../../lib/userNames";
+import { companyUsers } from "../../../lib/companyUsers";
 
 /** What a request says about a task. A field that is left out takes its default in a new task and stays as it is in a change. */
 export interface FollowupTaskFields {
@@ -21,6 +21,7 @@ export interface FollowupTaskFields {
   /** A user of the company; null = nobody. */
   assigneeUserId?: string | null;
   customerId?: string | null;
+  /** The customer's name. With a customerId the server stores the name the Customer Database has. */
   customerLabel?: string;
   contact?: string;
   /** The reference of a sales quote; null = none. */
@@ -48,6 +49,17 @@ const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 
 const notFound = () => APIError.notFound("Task not found");
+
+// The e-mails of the company's users by id. Users that cannot be read must not fail a list: the
+// failure is logged and nobody is named.
+async function userEmails(): Promise<Map<string, string>> {
+  try {
+    return new Map((await companyUsers()).map((u) => [u.id, u.email]));
+  } catch (err) {
+    log.warn(err, "users could not be loaded");
+    return new Map();
+  }
+}
 
 // The filter a request asks for. "me" is whoever asks.
 function filterOf(actor: Actor, request: FollowupTaskListRequest): FollowupTaskFilter {
@@ -121,14 +133,15 @@ class FollowupTaskService {
     this.imported.add(companyId);
   }
 
-  // The display names of the company's users, for the assignee a task is handed out with.
-  // `assignee`, when a request names one, has to be among them - and then the users are read
-  // for real: an assignee can only be chosen from users that were.
-  private async namesWith(assignee: string | null | undefined): Promise<Map<string, string>> {
-    if (assignee === null || assignee === undefined) return userNames();
-    const { users } = await auth.usersList();
+  // The e-mails of the company's users, for the assignee a task is handed out with: a person is
+  // shown by e-mail. `assignee`, when a request names one, has to be among them - and then the
+  // users are read for real: an assignee can only be chosen from users that were. Otherwise
+  // users that cannot be read leave the assignee unnamed rather than fail the request.
+  private async emailsWith(assignee: string | null | undefined): Promise<Map<string, string>> {
+    if (assignee === null || assignee === undefined) return userEmails();
+    const users = await companyUsers();
     if (!users.some((u) => u.id === assignee)) throw APIError.invalidArgument("the assignee is not a user of this company");
-    return new Map(users.map((u) => [u.id, nameOf(u)]));
+    return new Map(users.map((u) => [u.id, u.email]));
   }
 
   // The reference of the sales quote a task is linked to, as that quote is stored. Quotes live
@@ -140,6 +153,20 @@ class FollowupTaskService {
     } catch (err) {
       if (err instanceof APIError && err.code === ErrCode.NotFound) throw APIError.invalidArgument(`quote ${quoteNumber} not found`);
       throw err;
+    }
+  }
+
+  // The name of a customer record as the Customer Database has it now. A task linked to it stores
+  // that, not the name the screen sending the request loaded, which may be older: "everything must
+  // be linked" (owner, 26 Oct 2026). Null when the customer is deleted (or not of the company) or
+  // the Customer Database cannot be read - logged; the task is written all the same.
+  private async customerName(customerId: string): Promise<string | null> {
+    try {
+      const { customers: found } = await customers._internalCustomerRefs({ customerIds: [customerId] });
+      return found.find((c) => c.id === customerId.toLowerCase())?.companyName ?? null;
+    } catch (err) {
+      log.warn(err, "the Customer Database could not be read for a task's customer");
+      return null;
     }
   }
 
@@ -157,11 +184,11 @@ class FollowupTaskService {
     await this.ensureLegacyImported(actor.companyID);
     const page = pageOf(request);
     const { rows, total } = await followupTaskRepository.list(actor.companyID, filterOf(actor, request), page);
-    const names = await userNames();
+    const emails = await userEmails();
     const today = businessDay(new Date());
     return {
       pagination: { total, offset: page.offset, limit: page.limit },
-      data: rows.map((row) => toTaskItem(row, names, today)),
+      data: rows.map((row) => toTaskItem(row, emails, today)),
     };
   }
 
@@ -169,7 +196,12 @@ class FollowupTaskService {
   async create(actor: Actor, fields: FollowupTaskFields & { type: string }): Promise<FollowupTaskItem> {
     await this.ensureLegacyImported(actor.companyID);
     const values = plainValues(fields);
-    const names = await this.namesWith(fields.assigneeUserId);
+    if (values.customerId) {
+      // Without the Customer Database the name sent stays.
+      const name = await this.customerName(values.customerId);
+      if (name !== null) values.customerLabel = name;
+    }
+    const emails = await this.emailsWith(fields.assigneeUserId);
     const asked = fields.quoteNumber?.trim() || null;
     const quoteNumber = asked && (await this.quoteReference(asked));
     const task = await followupTaskRepository.createForCompany(actor.companyID, {
@@ -178,7 +210,7 @@ class FollowupTaskService {
       quoteNumber,
       createdBy: actor.userID,
     });
-    return toTaskItem(task, names, businessDay(new Date()));
+    return toTaskItem(task, emails, businessDay(new Date()));
   }
 
   // A change of one task: the fields that were sent, and `done`, which ticks the task off - with
@@ -195,9 +227,16 @@ class FollowupTaskService {
       throw APIError.invalidArgument("customerId and customerLabel are changed together");
     }
     const values = plainValues(changes);
+    if (values.customerId) {
+      const name = await this.customerName(values.customerId);
+      if (name !== null) values.customerLabel = name;
+      // The same customer as stored: the stored name is the one the Customer Database's events
+      // keep current, so an older copy sent back does not replace it.
+      else if (values.customerId.toLowerCase() === stored.customerId?.toLowerCase()) values.customerLabel = stored.customerLabel;
+    }
 
     const reassigned = changes.assigneeUserId !== undefined && changes.assigneeUserId !== stored.assigneeUserId;
-    const names = await this.namesWith(reassigned ? changes.assigneeUserId : null);
+    const emails = await this.emailsWith(reassigned ? changes.assigneeUserId : null);
     if (reassigned) values.assigneeUserId = changes.assigneeUserId;
 
     if (changes.quoteNumber !== undefined) {
@@ -212,11 +251,11 @@ class FollowupTaskService {
     }
 
     const today = businessDay(new Date());
-    if (!Object.keys(values).length) return toTaskItem(stored, names, today);
+    if (!Object.keys(values).length) return toTaskItem(stored, emails, today);
     const task = await followupTaskRepository.updateForCompany(id, actor.companyID, values);
     // Deleted in this very moment.
     if (!task) throw notFound();
-    return toTaskItem(task, names, today);
+    return toTaskItem(task, emails, today);
   }
 
   // Deletes a task: it is gone from the lists, its row is kept.

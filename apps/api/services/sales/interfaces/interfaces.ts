@@ -19,7 +19,7 @@ export interface FollowupTaskItem {
   note: string;
   dueDate: string | null;
   assigneeUserId: string | null;
-  /** The assignee's current display name; "" for a task assigned to nobody, or to a user that cannot be resolved. */
+  /** The assignee's current e-mail; "" for a task assigned to nobody, or to a user that cannot be resolved. */
   assigneeName: string;
   customerId: string | null;
   /** The company as typed, or the customer's name at the time the task was linked to the customer. */
@@ -65,7 +65,7 @@ export interface PipelineCard {
   customerId: string;
   companyName: string;
   label: string;
-  /** The customer's sales owner, as set on the customer. */
+  /** The customer's sales owner as set on the customer: the owner user's e-mail (an old typed name until it is matched). */
   salesOwner: string;
   stage: PipelineStage;
   /** When the first quote for the customer went out; null when none did. */
@@ -132,4 +132,14 @@ export interface EmailTemplatesResponse {
 /** The addresses a user emailed quotations to, the latest first: their own list to pick To, CC and BCC from. */
 export interface EmailAddressesResponse {
   data: string[];
+}
+
+/** What a run of POST /sales/links/normalize did to the company's follow-up tasks. */
+export interface SalesLinksNormalizeResult {
+  /** Live tasks linked to a customer record. */
+  checked: number;
+  /** Tasks whose customer name was brought up to date. */
+  changed: number;
+  /** "customer": the name of a linked customer record that is deleted (the name stays), with how many tasks have it. */
+  unmatched: { field: string; value: string; count: number }[];
 }

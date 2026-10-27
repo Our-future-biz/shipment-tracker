@@ -194,6 +194,19 @@ class WarehouseDockSlotRepository extends TenantRepository<typeof warehouseDockS
     return row ?? null;
   }
 
+  // The position's customer changed (from the shipment, a refresh or an edit at the gate): its
+  // slots that showed the old customer show the new one; a party typed on the slot stays. The one
+  // place this rule lives — call it in the transaction that changes the record.
+  async followCustomer(tx: Tx, companyId: string, movementId: string, from: string, to: string): Promise<number> {
+    if (from === to) return 0;
+    const rows = await tx
+      .update(ds)
+      .set({ party: to, updatedAt: new Date() })
+      .where(and(eq(ds.companyId, companyId), eq(ds.movementId, movementId), isNull(ds.deletedAt), eq(ds.party, from)))
+      .returning({ id: ds.id });
+    return rows.length;
+  }
+
   // The live slots (not cancelled or completed) a Trucking trip booked for a movement, earliest first.
   async liveTripSlots(tx: Tx, companyId: string, movementId: string, tripRef: string, direction?: "IN" | "OUT") {
     return tx

@@ -47,6 +47,12 @@ const needsAdoption = sql<boolean>`(SELECT d.status IS NOT NULL AND (
 // per item.
 const textArray = (keys: string[]) => sql`ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(keys)}::jsonb))`;
 
+// The document with its owner mirror (data.salesOwner, a key only the server writes) set to
+// `label`; a document that is no object is left as it is.
+const documentIsObject = sql`jsonb_typeof(${quoteTable.data}) = 'object'`;
+const withSalesOwner = (label: string) =>
+  sql`CASE WHEN ${documentIsObject} THEN ${quoteTable.data} || jsonb_build_object('salesOwner', ${label}::text) ELSE ${quoteTable.data} END`;
+
 // THE FRAGMENTS OF THE LIST QUERIES, each written once. They restate rules of
 // quoteLifecycle.utils in SQL; "today" (the business day) and the moment a follow-up is due
 // before are worked out in TypeScript and passed in, so SQL has no clock and no time zone of its
@@ -93,30 +99,56 @@ const onBusinessDays = (moment: PgColumn, from?: string, to?: string) =>
     to ? sql`${moment} < (${to}::date + 1)::timestamp AT TIME ZONE ${BUSINESS_TZ}::text` : undefined,
   );
 
+/** A user of the company as a list shows and finds the owner of a quote: by e-mail, and by name too in a search. */
+export interface ListOwner {
+  id: string;
+  email: string;
+  displayName: string;
+}
+
+// A text for each owner user, by user id, as ONE JSON parameter: the users live in another
+// database, so they come along with the query.
+const byOwnerUser = (owners: ListOwner[], text: (owner: ListOwner) => string) =>
+  sql`${JSON.stringify(Object.fromEntries(owners.map((owner) => [owner.id, text(owner)])))}::jsonb`;
+
+// The owner a list shows (SalesQuoteItem.ownerName): the owner user's e-mail as the users have it
+// now, else the stored label - a text nobody is linked to, or the label of somebody no longer
+// among the users. Empty counts as missing. Without the users only the label is known.
+const shownOwner = (owners: ListOwner[]) =>
+  owners.length
+    ? sql`coalesce(nullif(${byOwnerUser(owners, (owner) => owner.email)} ->> ${quoteTable.ownerUserId}::text, ''), nullif(${quoteTable.ownerLabel}, ''))`
+    : sql`nullif(${quoteTable.ownerLabel}, '')`;
+
 // The text of a quote a search looks through, folded the way foldDiacritics folds the words
 // looked for (quoteSearch.utils: the same steps, the same constants). One sub-select per row:
 // the document is unpacked once for all its fields and the text is built once however many words
 // are looked for. A document that is no object has no fields instead of failing the whole list.
-// The columns are written out with their table, as in needsAdoption.
-const searchedText = (today: string) => sql<string>`(SELECT replace(lower(translate(regexp_replace(normalize(concat_ws(' ',
+// The owner is found by the stored label and - for a quote of a user - by that user's name and
+// e-mail as the users have them now: a person is shown by e-mail, and typing their name still
+// finds them. The columns are written out with their table, as in needsAdoption.
+const searchedText = (today: string, owners: ListOwner[]) => {
+  const ownerUser = owners.length
+    ? sql`, ${byOwnerUser(owners, (owner) => `${owner.displayName} ${owner.email}`)} ->> quote.owner_user_id::text`
+    : sql``;
+  return sql<string>`(SELECT replace(lower(translate(regexp_replace(normalize(concat_ws(' ',
       quote.quote_number, d."customerName", d."serviceType", d.direction, d.origin, d.destination, d.commodity, d.incoterm,
-      quote.owner_label, quote.shipment_job_number, ${shownStatus(today)}), NFD), ${COMBINING_MARKS}, '', 'g'), ${FOLD_FROM}, ${FOLD_TO})), ${FINAL_SIGMA}, ${SIGMA})
+      quote.owner_label${ownerUser}, quote.shipment_job_number, ${shownStatus(today)}), NFD), ${COMBINING_MARKS}, '', 'g'), ${FOLD_FROM}, ${FOLD_TO})), ${FINAL_SIGMA}, ${SIGMA})
     FROM jsonb_to_record(CASE WHEN jsonb_typeof(quote.data) = 'object' THEN quote.data ELSE '{}'::jsonb END)
       AS d("customerName" text, "serviceType" text, direction text, origin text, destination text, commodity text, incoterm text))`;
+};
 
 // What a list can be sorted by, and what each sort orders by: the whole of it - nothing a caller
 // sends ever becomes SQL, and a sort that is not listed here means the newest first. A text that
-// is empty counts as missing, and what is missing comes last in both directions. Status is the
-// one shown; the owner is the stored label, since the users' current names live in another
-// database.
-const sortKey = (sortBy: string, today: string): SQL | PgColumn => {
+// is empty counts as missing, and what is missing comes last in both directions. Status and owner
+// are the ones shown.
+const sortKey = (sortBy: string, today: string, owners: ListOwner[]): SQL | PgColumn => {
   const keys: Record<string, SQL | PgColumn> = {
     createdAt: quoteTable.createdAt,
     updatedAt: quoteTable.updatedAt,
     quoteNumber: quoteTable.quoteNumber,
     customer: sql`nullif(btrim(${quoteTable.data}->>'customerName'), '')`,
     status: shownStatus(today),
-    owner: sql`nullif(${quoteTable.ownerLabel}, '')`,
+    owner: shownOwner(owners),
     sentAt: quoteTable.sentAt,
     validUntil: quoteTable.validUntil,
     decidedAt: quoteTable.decidedAt,
@@ -448,15 +480,17 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
   /**
    * A part of the company's live sales quotes that match a filter, and how many match in all.
    * The count is of the filter alone - not of what is left after `afterId` - so it stays the
-   * same while a caller walks through the list.
+   * same while a caller walks through the list. `owners`: the company's users, whom the owner of
+   * a quote is shown, sorted and searched by; none when they could not be read.
    */
   async list(
     companyId: string,
     filter: SalesQuoteFilter,
     page: SalesQuotePage,
     moment: ListMoment,
+    owners: ListOwner[] = [],
   ): Promise<{ rows: SalesQuoteRecord[]; total: number }> {
-    const where = this.matching(companyId, filter, moment);
+    const where = this.matching(companyId, filter, moment, owners);
     const order = page.sortDirection === "asc" ? asc : desc;
     const rows = page.afterId
       ? db
@@ -470,7 +504,7 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
           .from(quoteTable)
           .where(where)
           // The id settles the order of quotes that are equal in what they are sorted by: pages do not overlap.
-          .orderBy(sql`${order(sortKey(page.sortBy, moment.today))} nulls last`, order(quoteTable.id))
+          .orderBy(sql`${order(sortKey(page.sortBy, moment.today, owners))} nulls last`, order(quoteTable.id))
           .limit(page.limit)
           .offset(page.offset);
     const [found, [{ value: total }]] = await Promise.all([rows, db.select({ value: count() }).from(quoteTable).where(where)]);
@@ -588,14 +622,71 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
 
   /**
    * Records that an owner text was compared with the users: the quotes that carry it get the
-   * user it names - nobody when it fits none or several - and are never examined again. Only
-   * the owner user and the stamp are written; label, document, updatedAt and version stay.
+   * user it names - nobody when it fits none or several - and are never examined again. A quote
+   * that gets a user has its owner restated as that user's e-mail (`owner.label`), the column
+   * and its mirror in the document together, as relabelOwner does; a text that fits nobody stays
+   * as it is. Nothing else is written - not updatedAt, not the version - so a page that has such
+   * a quote open keeps saving. Returns the ids of the quotes that got a user.
    */
-  async recordOwnerMatch(companyId: string, ownerLabel: string, ownerUserId: string | null): Promise<void> {
-    await db
+  async recordOwnerMatch(companyId: string, ownerLabel: string, owner: { userId: string; label: string } | null): Promise<string[]> {
+    const rows = await db
       .update(quoteTable)
-      .set({ ownerUserId, ownerMatchCheckedAt: new Date() })
-      .where(and(this.unexaminedOwner(companyId), eq(quoteTable.ownerLabel, ownerLabel)));
+      .set({
+        ownerUserId: owner?.userId ?? null,
+        ownerMatchCheckedAt: new Date(),
+        ...(owner?.label ? { ownerLabel: owner.label, data: withSalesOwner(owner.label) } : {}),
+      })
+      .where(and(this.unexaminedOwner(companyId), eq(quoteTable.ownerLabel, ownerLabel)))
+      .returning({ id: quoteTable.id });
+    return owner ? rows.map((r) => r.id) : [];
+  }
+
+  /**
+   * Restates the owner of the company's live sales quotes that belong to `ownerUserId` as
+   * `label` (that user's e-mail): the column and its mirror in the document (data.salesOwner)
+   * in one statement, so the two never disagree and the quote is not taken for one to adopt
+   * again. As with recordOwnerMatch nothing else is written - not updatedAt, not the version -
+   * so a page that has such a quote open keeps saving (the mirror is a key only the server
+   * writes). Returns the ids of the quotes changed.
+   */
+  async relabelOwner(companyId: string, ownerUserId: string, label: string): Promise<string[]> {
+    const rows = await db
+      .update(quoteTable)
+      .set({ ownerLabel: label, data: withSalesOwner(label) })
+      .where(
+        and(
+          eq(quoteTable.companyId, companyId),
+          isNull(quoteTable.deletedAt),
+          isSalesQuote,
+          eq(quoteTable.ownerUserId, ownerUserId),
+          or(
+            sql`${quoteTable.ownerLabel} IS DISTINCT FROM ${label}`,
+            sql`(${documentIsObject} AND ${quoteTable.data}->>'salesOwner' IS DISTINCT FROM ${label})`,
+          ),
+        ),
+      )
+      .returning({ id: quoteTable.id });
+    return rows.map((r) => r.id);
+  }
+
+  /**
+   * The owners of the company's live sales quotes: for each owner user (null = none) and label,
+   * how many quotes have it. Quotes without either are left out.
+   */
+  async ownerCounts(companyId: string): Promise<{ ownerUserId: string | null; ownerLabel: string; count: number }[]> {
+    const rows = await db
+      .select({ ownerUserId: quoteTable.ownerUserId, ownerLabel: quoteTable.ownerLabel, count: count() })
+      .from(quoteTable)
+      .where(
+        and(
+          eq(quoteTable.companyId, companyId),
+          isNull(quoteTable.deletedAt),
+          isSalesQuote,
+          or(isNotNull(quoteTable.ownerUserId), sql`${quoteTable.ownerLabel} <> ''`),
+        ),
+      )
+      .groupBy(quoteTable.ownerUserId, quoteTable.ownerLabel);
+    return rows.map((r) => ({ ...r, count: Number(r.count) }));
   }
 
   /**
@@ -681,7 +772,7 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
   }
 
   // The live sales quotes of a company that a filter keeps.
-  private matching(companyId: string, filter: SalesQuoteFilter, moment: ListMoment) {
+  private matching(companyId: string, filter: SalesQuoteFilter, moment: ListMoment, owners: ListOwner[]) {
     const { today } = moment;
     return and(
       eq(quoteTable.companyId, companyId),
@@ -705,7 +796,7 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
       filter.hasShipment === undefined ? undefined : filter.hasShipment ? isNotNull(quoteTable.shipmentId) : isNull(quoteTable.shipmentId),
       // LIKE ALL: the searched text of a row is built once, then every word is looked for in it.
       filter.search?.length
-        ? sql`${searchedText(today)} LIKE ALL (${textArray(filter.search.map((word) => `%${word}%`))})`
+        ? sql`${searchedText(today, owners)} LIKE ALL (${textArray(filter.search.map((word) => `%${word}%`))})`
         : undefined,
     );
   }

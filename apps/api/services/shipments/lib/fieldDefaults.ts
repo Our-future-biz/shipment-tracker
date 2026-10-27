@@ -70,12 +70,6 @@ export function actionStamp(actor: string, at: Date): string {
   return actor.trim() ? `${actor.trim()} — ${when}` : when;
 }
 
-// The Created By of a shipment a user creates: time first, then who, as every stored one reads.
-export function creationStamp(actor: string, at: Date): string {
-  const when = at.toLocaleString("cs-CZ", { timeZone: "Europe/Prague" });
-  return actor.trim() ? `${when} — ${actor.trim()}` : when;
-}
-
 // A cancelled shipment stays in the grid but drops out of every count, deadline and warning.
 export const CANCELLED_STATUS = "Cancelled Shipment";
 

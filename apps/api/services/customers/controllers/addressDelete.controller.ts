@@ -1,5 +1,5 @@
 import { api } from "encore.dev/api";
-import { getAuthData } from "~encore/auth";
+import { requireRole } from "../../../lib/rbac";
 import { customerAddressService } from "../services/customerAddress.service";
 
 interface AddressDeleteRequest {
@@ -10,10 +10,12 @@ interface AddressDeleteResponse {
   ok: boolean;
 }
 
+// Hides the address (soft delete: the row stays in the database and can be restored). Superadmins only.
 export const addressDelete = api(
   { expose: true, auth: true, method: "DELETE", path: "/customer-addresses/:id" },
   async (req: AddressDeleteRequest): Promise<AddressDeleteResponse> => {
-    await customerAddressService.softDelete(req.id, getAuthData()!.companyID);
+    const actor = requireRole("superadmin");
+    await customerAddressService.softDelete(req.id, actor.companyID);
     return { ok: true };
   },
 );

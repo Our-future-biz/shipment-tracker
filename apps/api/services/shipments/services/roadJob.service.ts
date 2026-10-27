@@ -1,7 +1,10 @@
 import { APIError } from "encore.dev/api";
+import log from "encore.dev/log";
+import { companyUsers } from "../../../lib/companyUsers";
 import { isUuid } from "../../../lib/uuid";
 import { shipmentRepository } from "../repositories/shipment.repository";
 import { billingStatusFor } from "../lib/roadBilling";
+import { personIn, TRUCKING_PREFIX } from "../lib/people";
 import { shipmentService } from "./shipment.service";
 import type { RoadJobBasics, RoadJobInput } from "../interfaces/interfaces";
 
@@ -12,9 +15,32 @@ import type { RoadJobBasics, RoadJobInput } from "../interfaces/interfaces";
 const MAX_IDS = 500;
 
 class RoadJobService {
-  /** A new Road Freight job (Full Load, or Consolidation for LTL) for a domestic order; the job number is the next CZ one. */
-  async create(companyId: string, input: RoadJobInput): Promise<{ shipmentId: string; jobNumber: string }> {
+  /**
+   * Who made the job, as its Created By says: "Trucking · <e-mail>" for the user of the company
+   * Trucking acts for - people are recorded by e-mail. Without such a user (Trucking's service
+   * identity, or the users could not be read) what Trucking sent stays only when it names nobody
+   * ("Trucking", "Trucking · Trucking (system)"); a name it sends is never stored, just "Trucking".
+   */
+  private async createdBy(sent: string, userId?: string): Promise<string> {
+    let email = "";
+    if (userId) {
+      try {
+        email = (await companyUsers()).find((u) => u.id === userId)?.email ?? "";
+      } catch (err) {
+        log.warn(err, "road job creator not looked up");
+      }
+    }
+    if (email) return TRUCKING_PREFIX + email;
+    return personIn("createdBy", sent) ? "Trucking" : sent;
+  }
+
+  /**
+   * A new Road Freight job (Full Load, or Consolidation for LTL) for a domestic order; the job
+   * number is the next CZ one. `userId`: the user Trucking acts for.
+   */
+  async create(companyId: string, input: RoadJobInput, userId?: string): Promise<{ shipmentId: string; jobNumber: string }> {
     if (!isUuid(input.customerId)) throw APIError.invalidArgument("Unknown customer");
+    const createdBy = await this.createdBy(input.createdBy, userId);
     const { shipment } = await shipmentService.create(companyId, {
       customerId: input.customerId,
       customer: input.customerName,
@@ -41,7 +67,7 @@ class RoadJobService {
       customerReference: input.customerReference,
       // A quote named here is linked to the job (not marked Won, its costs not copied: Trucking pushes its own).
       salesNumber: input.quoteNumber ?? "",
-      createdBy: input.createdBy,
+      createdBy,
     }, undefined, { allowUnfinishedQuote: true });
     return { shipmentId: shipment.id, jobNumber: shipment.jobNumber };
   }

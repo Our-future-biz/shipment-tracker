@@ -5,6 +5,8 @@ import { DatePicker, Input, InputNumber, Select, TimePicker } from "antd";
 import dayjs from "dayjs";
 import customParseFormat from "dayjs/plugin/customParseFormat";
 import { formatDateTime } from "@/lib/date";
+import { czechPhoneProblem, limitCzechPhone } from "@/lib/phone";
+import { UserPicker } from "@/components/UserPicker";
 
 dayjs.extend(customParseFormat);
 
@@ -62,24 +64,30 @@ export function InlineText({
   onSave,
   placeholder = "—",
   mono,
+  phone,
   className = "",
 }: {
   value: string;
   onSave: (v: string) => void;
   placeholder?: string;
   mono?: boolean;
+  /** A phone number: a +420 one takes at most 9 digits and is saved only with exactly 9. */
+  phone?: boolean;
   className?: string;
 }) {
   const [draft, setDraft] = useDraft(value);
+  const problem = phone ? czechPhoneProblem(draft) : "";
   return (
     <Input
       size="small"
       variant="borderless"
       value={draft}
       placeholder={placeholder}
+      status={problem ? "error" : undefined}
+      title={problem || undefined}
       className={`${inlineClass} font-medium text-slate-900 ${mono ? "font-mono" : ""} ${className}`}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={() => draft !== value && onSave(draft.trim())}
+      onChange={(e) => setDraft(phone ? limitCzechPhone(e.target.value) : e.target.value)}
+      onBlur={() => !problem && draft !== value && onSave(draft.trim())}
       onPressEnter={(e) => e.currentTarget.blur()}
     />
   );
@@ -191,6 +199,36 @@ export function InlineSelect<T extends string>({ value, options, onSave, width =
       className={`${inlineClass} [&_.ant-select-selection-item]:!font-medium`}
       options={all.map((o) => ({ value: o, label: labels ? labels(o) : o }))}
       onChange={(v) => onSave(v ?? "")}
+    />
+  );
+}
+
+// A person: one of the company's users, found by name or e-mail, saved by e-mail ("" when cleared).
+// An older value that is no user stays shown (marked) until a user is picked.
+export function InlineUser({
+  value,
+  onSave,
+  label,
+  placeholder = "—",
+  width = 260,
+}: {
+  value: string;
+  onSave: (email: string) => void;
+  label: string;
+  placeholder?: string;
+  width?: number;
+}) {
+  return (
+    <UserPicker
+      size="small"
+      variant="borderless"
+      aria-label={label}
+      value={value}
+      placeholder={placeholder}
+      popupMatchSelectWidth={false}
+      style={{ width }}
+      className={`${inlineClass} [&_.ant-select-selection-item]:!font-medium`}
+      onChange={(email) => email !== value && onSave(email)}
     />
   );
 }

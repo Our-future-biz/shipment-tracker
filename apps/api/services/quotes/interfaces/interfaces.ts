@@ -39,9 +39,9 @@ export interface SalesQuoteItem {
   lastContactAt: string | null;
   followUpDue: boolean;
   ownerUserId: string | null;
-  /** The owner's current display name; the stored label when the owner is not linked to a user. */
+  /** The owner user's current e-mail; the stored label when the owner is not linked to a user. */
   ownerName: string;
-  /** The owner as text, as stored: what old quotes had instead of a user. */
+  /** The owner as text, as stored: the owner user's e-mail, or what old quotes had instead of a user. */
   ownerLabel: string;
   shipmentId: string | null;
   shipmentJobNumber: string | null;
@@ -119,6 +119,7 @@ export interface QuoteRoadPricing {
 /** A manager's approval of a margin below the floor (data.marginApproval; the server's key). */
 export interface QuoteMarginApproval {
   byUserId: string;
+  /** Who approved, by e-mail (older approvals recorded the display name). */
   byName: string;
   at: string;
   reason: string;
@@ -143,10 +144,12 @@ export interface QuoteWarehouseInquiry {
   /** What Sales wrote with the question. */
   note: string;
   requestedById: string;
+  /** Who asked, by e-mail (older inquiries recorded the display name). */
   requestedByName: string;
   /** ISO */
   requestedAt: string;
   decidedById: string | null;
+  /** Who answered, by e-mail (older answers recorded the display name). */
   decidedByName: string | null;
   decidedAt: string | null;
   /** Approved: the extra handling per piece, EUR. */
@@ -167,6 +170,7 @@ export interface QuoteWarehouseInquiryItem {
   /** Where from and to, as the quote names them (POL / origin, POD / destination). */
   from: string;
   to: string;
+  /** The quote owner's e-mail, as SalesQuoteItem.ownerName. */
   ownerName: string;
   inquiry: QuoteWarehouseInquiry;
 }
@@ -280,7 +284,7 @@ export interface QuoteCommentItem {
   /** The thread: the original Sales Reference every revision shares. */
   threadRef: string;
   authorId: string;
-  /** Who wrote it (display name, e-mail when they have none). */
+  /** Who wrote it, by e-mail. */
   authorName: string;
   message: string;
   createdAt: string;
@@ -300,9 +304,60 @@ export interface QuoteCommentMentionItem {
   id: string;
   quoteNumber: string;
   threadRef: string;
+  /** Who wrote it, by e-mail. */
   authorName: string;
   message: string;
   createdAt: string;
   /** Not read yet (the thread not opened since); read ones stay 7 days from when they were written. */
   unread: boolean;
+}
+
+/** What a run of POST /quotes/people/normalize did to the company's live sales quotes. */
+export interface QuotePeopleNormalizeResult {
+  /** Quotes that name an owner (a user or a typed text). */
+  checked: number;
+  /** Quotes whose owner is now recorded by the owner user's e-mail (and linked to that user). */
+  changed: number;
+  /** Owner texts left as they are, with how many quotes have each: they name no single user of the company. */
+  unmatched: { field: string; value: string; count: number }[];
+}
+
+/**
+ * Who a sales quote is for: these keys of its document (SalesQuoteItem.data). While the quote is
+ * open (Draft, Ready to Send, Revised, or the revision of a Won quote) the texts follow the
+ * Customer Database by the ids; once it went out they stay as they were sent.
+ */
+export interface QuoteCustomerFields {
+  /** The customer record (Customer Database). */
+  customerId?: string;
+  /** Its company name: set by the server from the record when customerId names one. */
+  customerName?: string;
+  /** Its account type (KEY ACCOUNT, STANDARD, …): set by the server like customerName. */
+  customerLabel?: string;
+  /**
+   * The contact person picked from the customer's contacts. A save checks that it is a contact of
+   * the quote's customer and stores the contact's current name, e-mail and phone with it. Null or
+   * "" = the contact was typed by hand (or there is none): stored as "", and then never linked by
+   * name. Left out, the stored link is kept while the customer and the contact name stay the same;
+   * a changed contact name counts as typed by hand. Absent in a stored quote = from before contacts
+   * were linked (only POST /quotes/links/normalize links those by name).
+   */
+  customerContactId?: string | null;
+  customerContact?: string;
+  customerEmail?: string;
+  customerPhone?: string;
+}
+
+/** What a run of POST /quotes/links/normalize did to the company's open sales quotes. */
+export interface QuoteLinksNormalizeResult {
+  /** Open quotes that name a customer record. */
+  checked: number;
+  /** Quotes whose customer or contact copies were brought up to date, or whose contact got linked. */
+  changed: number;
+  /**
+   * What could not be linked, with how many quotes have each: "customer" = the record the quote
+   * names is deleted (the name stays); "customerContact" = a contact name that is no single contact
+   * of the customer, as "name (customer)".
+   */
+  unmatched: { field: string; value: string; count: number }[];
 }

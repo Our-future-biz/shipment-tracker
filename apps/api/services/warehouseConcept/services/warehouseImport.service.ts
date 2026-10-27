@@ -5,6 +5,7 @@ import { shipments } from "~encore/clients";
 import { db } from "../db/db";
 import { gateMovementRepository, hasStamp } from "../repositories/gateMovement.repository";
 import { warehouseTaskRepository } from "../repositories/warehouseTask.repository";
+import { dockSlotRepository } from "../repositories/warehouseRecords.repository";
 import { gateMovementTable, type GateEvent, type GateReleaseLine, type NewGateMovementRecord } from "../schemas/gateMovement.schema";
 import type { WarehouseTaskRecord } from "../schemas/warehouseTask.schema";
 import type {
@@ -27,8 +28,8 @@ import { isUniqueViolation } from "../../../lib/db/errors";
 // Bringing shipments into the warehouse. Each shipment becomes a position (WCZ reference) and
 // its gate record in ONE transaction, so there is never a position without its gate record or
 // a reference used for nothing. The gate record copies the shipment's data once; "Refresh from
-// shipment" copies it again on request, and the customs status follows the shipment on its own
-// (shipmentFollow.service).
+// shipment" copies it again on request; the customs status, Customer and Customer's PIC follow the
+// shipment on their own (shipmentFollow.service, gateParties.service).
 
 export type Shipment = Awaited<ReturnType<typeof shipments.shipmentGet>>["shipment"];
 
@@ -92,6 +93,7 @@ export function copiedFields(s: Partial<Shipment>) {
     customer: s.customer ?? "",
     customerRef: s.customerReference ?? "",
     customerContact: s.customerPic ?? "",
+    // As the shipment holds it (a user's e-mail there too); not checked against the users here.
     shipmentOwner: s.personInCharge ?? "",
     colli: parseInt(s.pcs ?? "", 10) || 0,
     packing: s.typeOfPackages ?? "",
@@ -378,7 +380,11 @@ class WarehouseImportService {
         sql`date_trunc('milliseconds', ${t.updatedAt}) = ${m.updatedAt.toISOString()}::timestamptz`,
         tx,
       );
-      if (updated) await syncStockForMovement(tx, companyId, id, { by, why: "refreshed from shipment" });
+      if (updated) {
+        // The update matched the record as read, so m.customer is the customer it replaced.
+        if (changes.customer !== undefined) await dockSlotRepository.followCustomer(tx, companyId, id, m.customer, changes.customer);
+        await syncStockForMovement(tx, companyId, id, { by, why: "refreshed from shipment" });
+      }
       return updated;
     });
     if (!row) throw APIError.aborted("The record changed meanwhile — refresh again");

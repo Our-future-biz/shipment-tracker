@@ -197,7 +197,7 @@ export function FollowUpTasksCard() {
       key: "assignee",
       width: 128,
       ellipsis: true,
-      // A name is missing for a user who is no longer in the company.
+      // The assignee by e-mail; it is missing for a user who is no longer in the company.
       render: (_: unknown, r) => (r.assigneeUserId ? r.assigneeName || "Unknown user" : <span className="text-slate-500">Unassigned</span>),
     },
     {

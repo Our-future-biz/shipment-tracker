@@ -16,6 +16,8 @@ import { CustomerHaulierBadge } from "../../_components/CustomerHaulierBadge";
 import { statusDotClass } from "../../_lib/constants";
 import { CustomerSalesOwnerSelect } from "./CustomerSalesOwnerSelect";
 import { useCustomerListHref } from "../../_lib/customerListHref";
+import { canDeleteCustomerRecords } from "../../_lib/customerPermissions";
+import { useAuth } from "@/lib/auth/AuthContext";
 import { apiFileUrl } from "@/lib/api";
 
 const MAX_LOGO_BYTES = 2 * 1024 * 1024;
@@ -30,6 +32,8 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
   const toast = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
   const listHref = useCustomerListHref();
+  const { user } = useAuth();
+  const canDelete = canDeleteCustomerRecords(user);
   const { deleteCustomer, uploadLogo, deleteLogo } = useCustomer(customer.id);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -71,8 +75,10 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
   const actionItems: MenuProps["items"] = [
     { key: "upload-logo", label: "Upload logo", onClick: () => fileRef.current?.click() },
     ...(customer.logoUrl ? [{ key: "remove-logo", label: "Remove logo", onClick: handleRemoveLogo }] : []),
-    { type: "divider" },
-    { key: "delete", label: "Delete customer", danger: true, onClick: () => setDeleteOpen(true) },
+    // Superadmins only (the API refuses everyone else).
+    ...(canDelete
+      ? [{ type: "divider" as const }, { key: "delete", label: "Delete customer", danger: true, onClick: () => setDeleteOpen(true) }]
+      : []),
   ];
 
   return (
@@ -132,7 +138,7 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
         onClose={() => setDeleteOpen(false)}
         onConfirm={handleDelete}
         title="Delete customer"
-        description={`Delete ${customer.companyName} and all its contacts, sites, invoices, documents and notes? Its shipments and quotes are kept. This cannot be undone.`}
+        description={`Delete ${customer.companyName}? It is hidden from everyone together with its contacts, addresses, sites, invoices, documents and notes. Its shipments and quotes are kept, and the record stays in the database: restore it under Customer Database → Deleted.`}
         confirmLabel="Delete"
         danger
         loading={deleting}

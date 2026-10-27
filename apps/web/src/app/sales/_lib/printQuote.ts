@@ -5,6 +5,8 @@ import { UNSENT_QUOTE_STATUSES } from "./types";
 import { hasCompanyDetails, type StoredCompanyDetails } from "./companyDetails";
 import { escapeHtml } from "@/lib/html";
 import { unpricedOverweight } from "./overweight";
+import type { PickableUser } from "@/lib/people";
+import { ownerNameForCustomer, ownerNameLoading } from "./ownerName";
 import { businessDay, businessToday, cargoReadyDay, computeTotals, computeCargo, convertLine, documentBlock, fmtDimensions, fxClause, quoteValidUntil, ratesNeeded } from "./salesQuote";
 
 // Whatever a user typed is text on the document, never markup.
@@ -23,20 +25,32 @@ function senderBlock(company: StoredCompanyDetails): string | null {
 /** The quotation as an HTML document, or why the customer must not get one. */
 type QuoteDocument = { html: string; blocked: null } | { html: null; blocked: string };
 
+/** The company's users (useUsers), to name the sales owner for the customer, and whether they are still loading. */
+export interface QuoteDocumentUsers {
+  users: readonly PickableUser[];
+  isLoading: boolean;
+}
+
 // The one definition of the client-facing quotation: the preview shows this HTML and Export PDF
 // prints it, so what is checked on screen is what the customer receives. Never shows
 // buying/cost/margin. A total that cannot be worked out must not reach the customer, so such a
 // quote has no document. `exchange` is today's ČNB fixing and ROE % (useCurrentExchangeRates); a
-// sent quote is priced at the rates stored on it.
+// sent quote is priced at the rates stored on it. `people` are the company's users, to name the
+// sales owner for the customer.
 export function quoteDocument(
   quoteNumber: string,
   data: SalesQuoteData,
   exchange: Pick<CurrentExchangeRates, "rates" | "isError" | "isLoading" | "roePct" | "fixingDate">,
   company: StoredCompanyDetails,
+  people: QuoteDocumentUsers,
 ): QuoteDocument {
   // A draft with lines in other currencies is priced at today's rates: not before they are in.
   if (!data.fx && exchange.isLoading && ratesNeeded(data).length) {
     return { html: null, blocked: "Today's ČNB rates are still loading. Try again in a moment." };
+  }
+  // The owner is recorded by e-mail and the customer reads a name: not before the users are in.
+  if (ownerNameLoading(data.salesOwner, people.isLoading)) {
+    return { html: null, blocked: "The company's users are still loading. Try again in a moment." };
   }
   const sheet = exchange.rates;
   const totals = computeTotals(data, sheet, exchange);
@@ -176,7 +190,10 @@ export function quoteDocument(
       </table>${clause ? `<p class="fx-clause">${esc(clause)}</p>` : ""}`
     : "";
 
-  const signature = [data.salesOwner, from.name].filter(Boolean).join(" · ");
+  // "Prepared by" and the signature name the owner for the customer: by name, not by the e-mail
+  // the quote records them by (ownerNameForCustomer).
+  const preparedBy = ownerNameForCustomer(data.salesOwner, people.users);
+  const signature = [preparedBy, from.name].filter(Boolean).join(" · ");
 
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(quoteNumber)}</title>
   <style>
@@ -226,7 +243,7 @@ export function quoteDocument(
       <div class="right">
         <div class="svc">Issued ${esc(issueDate)}</div>
         ${validUntil ? `<div class="meta">Valid until ${esc(validUntil)}</div>` : ""}
-        ${data.salesOwner ? `<div class="meta">Prepared by: ${esc(data.salesOwner)}</div>` : ""}
+        ${preparedBy ? `<div class="meta">Prepared by: ${esc(preparedBy)}</div>` : ""}
       </div>
     </div>
 
@@ -294,9 +311,10 @@ export function printQuote(
   data: SalesQuoteData,
   exchange: Pick<CurrentExchangeRates, "rates" | "isError" | "isLoading" | "roePct" | "fixingDate">,
   company: StoredCompanyDetails,
+  people: QuoteDocumentUsers,
   target?: Window | null,
 ): string | null {
-  const doc = quoteDocument(quoteNumber, data, exchange, company);
+  const doc = quoteDocument(quoteNumber, data, exchange, company, people);
   if (doc.blocked !== null) {
     target?.close();
     return doc.blocked;

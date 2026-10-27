@@ -5,6 +5,7 @@ import { Button, Form, Input, InputNumber, Spin, Switch, Select, Tag } from "ant
 import { PlusOutlined, DeleteOutlined, UploadOutlined, SearchOutlined } from "@ant-design/icons";
 import { api } from "@/lib/api";
 import { useToast } from "@/lib/toast";
+import { czechPhoneRule, limitCzechPhone } from "@/lib/phone";
 import { useInvoiceProfile, type InvoiceProfile, type InvoiceProfileInput } from "@/hooks/useInvoiceProfile";
 
 const CURRENCIES = ["CZK", "EUR", "USD", "GBP", "CHF", "PLN"];
@@ -186,7 +187,7 @@ function InvoiceProfileForm({ profile }: InvoiceProfileFormProps) {
         <Group title="Contact">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-3">
             <Form.Item name="email" label="E-mail" className="mb-3"><Input /></Form.Item>
-            <Form.Item name="phone" label="Phone" className="mb-3"><Input /></Form.Item>
+            <Form.Item name="phone" label="Phone" className="mb-3" normalize={(v?: string) => limitCzechPhone(v ?? "")} rules={[czechPhoneRule]}><Input /></Form.Item>
             <Form.Item name="web" label="Web" className="mb-3"><Input /></Form.Item>
           </div>
         </Group>

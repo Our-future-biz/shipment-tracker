@@ -111,14 +111,16 @@ export interface PartyContact {
 // Who a shipment's Contact is, by role: Customer Service, else the Logistics Manager, else anyone.
 const CONTACT_ROLES = ["Customer Service", "Logistics Manager"];
 
-/** The name of the contact a party's Contact is filled with; the main one first within a role. Null with none. */
-export function partyContact(contacts: readonly PartyContact[]): string | null {
+/**
+ * The contact a party's Contact is filled with (the shipment stores its name and id); the main one
+ * first within a role. Null with none.
+ */
+export function partyContact<T extends PartyContact>(contacts: readonly T[]): T | null {
   const named = contacts.filter((c) => c.name.trim());
   const rank = (c: PartyContact) => {
     const role = CONTACT_ROLES.indexOf(c.role);
     return (role < 0 ? CONTACT_ROLES.length : role) * 2 + (c.isMain ? 0 : 1);
   };
   // A stable sort keeps the order the Customer Database gives within one rank.
-  const best = [...named].sort((a, b) => rank(a) - rank(b))[0];
-  return best ? best.name.trim() : null;
+  return [...named].sort((a, b) => rank(a) - rank(b))[0] ?? null;
 }

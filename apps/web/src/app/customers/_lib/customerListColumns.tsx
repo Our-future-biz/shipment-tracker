@@ -3,6 +3,7 @@ import type { CustomerItem } from "@/hooks/useCustomers";
 import { businessDayOf, formatDate } from "@/lib/date";
 import { CustomerAccountTypeBadge } from "../_components/CustomerAccountTypeBadge";
 import { CustomerStatusDot } from "../_components/CustomerStatusDot";
+import { SalesOwnerText } from "../_components/SalesOwnerText";
 import { CUSTOMER_LABELS, CUSTOMER_STATUSES, PAYMENT_TERMS } from "./constants";
 import { fmtMoney, marginPct } from "./customerMoney";
 import { EMPTY_CELL } from "./customerTable";
@@ -71,7 +72,8 @@ export const CUSTOMER_LIST_COLUMNS: CustomerListColumn[] = [
     key: "salesOwner",
     title: "Sales Owner",
     width: 130,
-    render: (c) => plain(c.salesOwner),
+    // The owner user's e-mail; a typed name no user was matched to is marked, so it is picked again.
+    render: (c) => (c.salesOwner.trim() ? <SalesOwnerText owner={c.salesOwner} linked={!!c.salesOwnerUserId} /> : EMPTY_CELL),
     text: (c) => c.salesOwner,
   },
   {

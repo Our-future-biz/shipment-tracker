@@ -98,6 +98,23 @@ export function invalidateShipmentCustomerViews(queryClient: QueryClient) {
   queryClient.invalidateQueries({ queryKey: ["customers"], refetchType: "none" });
 }
 
+/** How long after a customer or contact is saved the server has rewritten the shipments' copies of it. */
+const COPIES_SETTLE_MS = 1500;
+
+/**
+ * Shipments keep copies of their customer's, parties' and contacts' names, which the server
+ * rewrites when the Customer Database announces a change - a moment after the save, not with it.
+ * So they are marked stale now (read again when next shown) and read again shortly after (what is
+ * on screen then shows the new name without a reload).
+ */
+export function refreshShipmentCopies(queryClient: QueryClient, settleMs = COPIES_SETTLE_MS) {
+  const keys = [["shipments"], ["customer-shipments"], NEEDS_ATTENTION_KEY];
+  for (const queryKey of keys) queryClient.invalidateQueries({ queryKey, refetchType: "none" });
+  setTimeout(() => {
+    for (const queryKey of keys) queryClient.invalidateQueries({ queryKey });
+  }, settleMs);
+}
+
 /** A shipment as some cached shipments query holds it: a list page or a shipment read on its own. */
 function cachedShipment(queryClient: QueryClient, id: string): ShipmentItem | undefined {
   for (const [, cached] of queryClient.getQueriesData<CachedShipments>({ queryKey: ["shipments"] })) {
@@ -200,8 +217,9 @@ export const useShipmentMutations = () => {
   // Update a single field (handles API field vs extra field routing). `loaded` is the shipment as
   // the caller shows it; without it the shipment is looked up in whatever shipments are cached
   // (the list on screen, a shipment page), so an edit of any shown row knows its old value.
+  // `links` go with the value: the id of the record it names (a picked contact's id).
   const updateField = useCallback(
-    (shipmentId: string, fieldKey: string, value: string, loaded?: ShipmentItem) => {
+    (shipmentId: string, fieldKey: string, value: string, loaded?: ShipmentItem, links?: controllers.ShipmentUpdateRequest) => {
       const col = COLUMN_MAP.get(fieldKey);
       if (!col) return;
 
@@ -211,7 +229,7 @@ export const useShipmentMutations = () => {
 
       if (col.apiField) {
         updateMutation.mutate(
-          { id: shipmentId, data: { [col.apiField]: value } as controllers.ShipmentUpdateRequest },
+          { id: shipmentId, data: { [col.apiField]: value, ...links } as controllers.ShipmentUpdateRequest },
           // The edit is rolled back on failure; say why (e.g. a customs status the paperwork does not allow yet).
           { onError: (err) => message.error(err instanceof Error && err.message ? err.message : `Could not save ${col.title}`) },
         );

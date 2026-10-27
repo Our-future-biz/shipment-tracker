@@ -95,7 +95,7 @@ export interface ExchangeRateItem {
 export interface CostsQuoteItem {
   quoteNumber: string;
   validUntil: string | null;
-  /** The quote's owner: who sold the shipment. */
+  /** The quote's owner, who sold the shipment: their e-mail (as SalesQuoteItem.ownerName). */
   ownerName: string;
 }
 

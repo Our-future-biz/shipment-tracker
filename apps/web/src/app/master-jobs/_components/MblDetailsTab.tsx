@@ -197,7 +197,7 @@ export function MblDetailsTab({
             <FieldRow label="Supplier's PIC" fieldKey="supplierPic" value={mj.supplierPic} onCommit={handleCommit} synced />
           </div>
           <div>
-            <ReadOnlyRow label="Shipment Date" value={getComputedValue("shipmentsDate", data)} />
+            <ReadOnlyRow label="Shipments Month" value={getComputedValue("shipmentsDate", data)} />
             <ReadOnlyRow label="Year" value={getComputedValue("shipmentsYear", data)} />
             <ReadOnlyRow label="ETD Week" value={getComputedValue("estimatedDepartureWeek", data)} />
             <ReadOnlyRow label="ETA Week" value={getComputedValue("estimatedArrivalWeek", data)} />

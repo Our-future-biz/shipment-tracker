@@ -128,6 +128,8 @@ export interface ShipmentItem {
   principalParty: string;
   customer: string;
   customerPic: string;
+  /** The Customer Database contact the Customer's PIC is; null for none (or an old name not linked yet). */
+  customerPicContactId: string | null;
   customerReference: string;
 
   // Commercial parties
@@ -145,6 +147,10 @@ export interface ShipmentItem {
   deliveryCountry: string | null;
   shipperContact: string;
   consigneeContact: string;
+  /** The contact of the shipper's customer the Contact is; null for a typed name of somebody else. */
+  shipperContactId: string | null;
+  /** The contact of the consignee's customer the Contact is; null for a typed name of somebody else. */
+  consigneeContactId: string | null;
   shipperOpeningFrom: string;
   shipperOpeningTo: string;
   consigneeOpeningFrom: string;
@@ -356,6 +362,7 @@ export interface CommentMentionItem {
   id: string;
   shipmentId: string;
   jobNumber: string;
+  /** Who wrote it: the user's e-mail; "" when the user is unknown. */
   authorName: string;
   message: string;
   createdAt: string;
@@ -377,7 +384,7 @@ export interface CommentItem {
   id: string;
   shipmentId: string;
   authorId: string;
-  /** Who wrote it (display name, e-mail when they have none). */
+  /** Who wrote it: the user's e-mail, as every person is shown; "" when the user is unknown. */
   authorName: string;
   message: string;
   createdAt: string;
@@ -443,9 +450,9 @@ export interface AttachmentItem {
   customsStatus: AttachmentCustomsStatus;
   customsNote: string;
   customsReviewedAt: string | null;
-  /** Display name of the uploader; "Unknown" when it cannot be resolved. */
+  /** The uploader's e-mail; "Unknown" when it cannot be resolved. */
   uploadedByName: string;
-  /** Display name of the customs reviewer; "" while the document is unreviewed. */
+  /** The customs reviewer's e-mail; "" while the document is unreviewed. */
   customsReviewedByName: string;
 }
 
@@ -611,7 +618,7 @@ export interface RoadJobInput {
   customerReference: string;
   /** A sales quote the order comes from: linked as the job's Sales Number */
   quoteNumber: string | null;
-  /** Who created it, as text ("Trucking · Jana Nováková") */
+  /** Who created it, as Trucking writes it ("Trucking · Jana Nováková"). Stored is "Trucking · <e-mail>" of the user the call acts for; without one, this text only when it names no person ("Trucking", its service identity), else "Trucking" */
   createdBy: string;
   /** "Consolidation" for an LTL consignment (our warehouse consolidates it); default "Full Load" */
   loadType?: "Full Load" | "Consolidation";
@@ -630,4 +637,44 @@ export interface RoadJobBasics {
   plannedDeliveryDate: string | null;
   /** The owning department ("Road Department", …); Trucking bills other departments internally */
   department: string;
+}
+
+/** A name the people backfill could not turn into a user's e-mail: it fits no user, or more than one. */
+export interface UnmatchedPerson {
+  /** The shipment field it is in ("personInCharge", "createdBy", …). */
+  field: string;
+  /** The name as stored (of a stamp, the name part). */
+  value: string;
+  /** How many shipments hold it there. */
+  count: number;
+}
+
+/** What the people backfill did to the company's live shipments. */
+export interface PeopleNormalizeResult {
+  /** Values that name a person (one field of one shipment each), looked at. */
+  checked: number;
+  /** Values rewritten to the user's e-mail. */
+  changed: number;
+  /** The names left as they are, most frequent first: to be fixed by hand. */
+  unmatched: UnmatchedPerson[];
+}
+
+/** A copied name the links backfill could not link to the Customer Database. */
+export interface UnmatchedLink {
+  /** Where it is: "customerPic", "shipperContact", "consigneeContact", or a party ("customer", "masterJob.shipper", …) whose customer is gone. */
+  field: string;
+  /** The name as stored. */
+  value: string;
+  /** How many shipments (or master jobs) hold it there. */
+  count: number;
+}
+
+/** What the links backfill did to the company's live shipments and master jobs. */
+export interface LinksNormalizeResult {
+  /** Values looked at: party names with a customer id, and contact names or ids. */
+  checked: number;
+  /** Values changed: names brought up to date and contacts linked. */
+  changed: number;
+  /** The names left as they are, most frequent first: to be linked by hand. */
+  unmatched: UnmatchedLink[];
 }

@@ -9,6 +9,7 @@ import { SECTIONS, pickSections, type SectionKey } from "@/app/sales/_lib/quoteS
 import { QuotePicker } from "@/app/sales/_components/QuotePicker";
 import { SalesDialog } from "@/app/sales/_components/SalesDialog";
 import { useSalesQuotes } from "@/hooks/useSalesQuotes";
+import { useQuoteCustomerFields } from "@/hooks/useQuoteCustomerFields";
 import { useToast } from "@/lib/toast";
 
 interface DuplicateWizardModalProps {
@@ -27,6 +28,7 @@ export function DuplicateWizardModal({
   onDone,
 }: DuplicateWizardModalProps) {
   const { duplicateQuote } = useSalesQuotes();
+  const { withLiveContact } = useQuoteCustomerFields();
   const toast = useToast();
 
   const [checked, setChecked] = useState<SectionKey[]>(
@@ -56,8 +58,10 @@ export function DuplicateWizardModal({
     setCreating(true);
     try {
       // Only the content is sent. The server starts the duplicate as a new Draft with a history
-      // of its own, whatever status the copied quote has.
-      const newRef = await duplicateQuote({ baseRef, data: pickSections(sourceData, checked) });
+      // of its own, whatever status the copied quote has. A contact person linked on the source
+      // goes with it while it is still a contact of that customer.
+      const content = await withLiveContact(pickSections(sourceData, checked));
+      const newRef = await duplicateQuote({ baseRef, data: content });
       toast.success("Quote duplicated");
       reset();
       onDone(newRef);

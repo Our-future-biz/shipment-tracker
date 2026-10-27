@@ -197,7 +197,7 @@ export function CustomsShipmentInfo({ shipment }: { shipment: ShipmentItem }) {
             </InfoRow>
             <InfoRow label="Contact">
               {shipment.shipperContact && shipment.shipperId ? (
-                <PartyContactLink name={shipment.shipperContact} customerId={shipment.shipperId} />
+                <PartyContactLink name={shipment.shipperContact} contactId={shipment.shipperContactId} customerId={shipment.shipperId} />
               ) : (
                 shipment.shipperContact
               )}
@@ -210,7 +210,7 @@ export function CustomsShipmentInfo({ shipment }: { shipment: ShipmentItem }) {
             </InfoRow>
             <InfoRow label="Contact">
               {shipment.consigneeContact && shipment.consigneeId ? (
-                <PartyContactLink name={shipment.consigneeContact} customerId={shipment.consigneeId} />
+                <PartyContactLink name={shipment.consigneeContact} contactId={shipment.consigneeContactId} customerId={shipment.consigneeId} />
               ) : (
                 shipment.consigneeContact
               )}

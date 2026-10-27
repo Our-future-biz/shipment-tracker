@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const addresses = vi.hoisted(() => ({
-  createForCompany: vi.fn(),
-  updateForCompany: vi.fn(),
-  softDeleteForCompany: vi.fn(),
+  createWithSeat: vi.fn(),
+  updateWithSeat: vi.fn(),
+  softDeleteWithSeat: vi.fn(),
 }));
 const requireLive = vi.hoisted(() => vi.fn());
 // Logo links are signed with a secret, which needs the Encore runtime.
@@ -33,12 +33,12 @@ beforeEach(() => vi.clearAllMocks());
 describe("customer addresses", () => {
   it("are added under a live customer of the company, trimmed, the country in capitals", async () => {
     requireLive.mockResolvedValue({ id: "c1" });
-    addresses.createForCompany.mockResolvedValue(row());
+    addresses.createWithSeat.mockResolvedValue(row());
     const item = await customerAddressService.create(COMPANY, "c1", {
       type: "Pickup", label: " Plant ", street: " Průmyslová 5 ", city: "Kolín", postalCode: "280 02", country: "cz",
     });
     expect(requireLive).toHaveBeenCalledWith("c1", COMPANY);
-    expect(addresses.createForCompany).toHaveBeenCalledWith(COMPANY, {
+    expect(addresses.createWithSeat).toHaveBeenCalledWith(COMPANY, {
       customerId: "c1", type: "Pickup", label: "Plant", street: "Průmyslová 5", city: "Kolín", postalCode: "280 02", country: "CZ",
     });
     expect(item).not.toHaveProperty("companyId");
@@ -50,24 +50,31 @@ describe("customer addresses", () => {
     await expect(
       customerAddressService.create(COMPANY, "x", { type: "Billing", street: "a", city: "b", postalCode: "c", country: "CZ" }),
     ).rejects.toThrow("Customer not found");
-    expect(addresses.createForCompany).not.toHaveBeenCalled();
+    expect(addresses.createWithSeat).not.toHaveBeenCalled();
   });
 
   it("change only what is sent, and report one that is gone", async () => {
-    addresses.updateForCompany.mockResolvedValueOnce(row({ city: "Praha" })).mockResolvedValueOnce(null);
+    addresses.updateWithSeat.mockResolvedValueOnce(row({ city: "Praha" })).mockResolvedValueOnce(null);
     await customerAddressService.update("a1", COMPANY, { city: " Praha " });
-    expect(addresses.updateForCompany).toHaveBeenCalledWith("a1", COMPANY, { city: "Praha" });
+    expect(addresses.updateWithSeat).toHaveBeenCalledWith("a1", COMPANY, { city: "Praha" });
     await expect(customerAddressService.update("a1", COMPANY, { city: "Brno" })).rejects.toThrow("Address not found");
   });
 
   it("refuses a field of only spaces instead of storing it empty", async () => {
     await expect(customerAddressService.update("a1", COMPANY, { street: "   " })).rejects.toThrow("street is required");
-    expect(addresses.updateForCompany).not.toHaveBeenCalled();
+    expect(addresses.updateWithSeat).not.toHaveBeenCalled();
+  });
+
+  it("are deleted through the write that also keeps the customer's seat columns in step, and report one that is gone", async () => {
+    addresses.softDeleteWithSeat.mockResolvedValueOnce(row({ type: "Registered" })).mockResolvedValueOnce(null);
+    await customerAddressService.softDelete("a1", COMPANY);
+    expect(addresses.softDeleteWithSeat).toHaveBeenCalledWith("a1", COMPANY);
+    await expect(customerAddressService.softDelete("a1", COMPANY)).rejects.toThrow("Address not found");
   });
 
   it("answers a second registered address plainly instead of with a 500", async () => {
     requireLive.mockResolvedValue({ id: "c1" });
-    addresses.createForCompany.mockRejectedValueOnce(Object.assign(new Error("Failed query"), { cause: { code: "23505" } }));
+    addresses.createWithSeat.mockRejectedValueOnce(Object.assign(new Error("Failed query"), { cause: { code: "23505" } }));
     await expect(
       customerAddressService.create(COMPANY, "c1", { type: "Registered", street: "A 1", city: "Praha", postalCode: "110 00", country: "CZ" }),
     ).rejects.toThrow("already has a registered address");

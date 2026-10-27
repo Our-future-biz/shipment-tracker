@@ -1,9 +1,11 @@
 import type { GeoKind } from "./places";
 import { CANCELLED_STATUS, LOAD_TYPES, STATUS_COLORS } from "./enums";
 import { INCOTERMS } from "./incoterms";
+import { formatDateTime } from "./date";
 
 // "place" / "country" / "countryCode" are picked from the location database (see lib/places.ts).
-export type ColumnType = "text" | "dropdown" | "date" | "checkbox" | "computed" | "popup" | GeoKind;
+// "user" is a person: one of the company's users, picked with the UserPicker and kept by e-mail.
+export type ColumnType = "text" | "dropdown" | "date" | "checkbox" | "computed" | "popup" | "user" | "contact" | GeoKind;
 
 const GEO_TYPES: ReadonlySet<string> = new Set<GeoKind>(["place", "country", "countryCode"]);
 
@@ -100,7 +102,7 @@ export const DATE_COLUMNS = new Set([
 export const COMPUTED_COLUMNS = new Set([
   "totalWeightTons", "totalVolumeCbm", "freightTon", "surface", "profit",
   "estimatedDepartureWeek", "estimatedArrivalWeek", "actualDepartureWeek", "actualArrivalWeek",
-  "shipmentsDate", "shipmentsYear", "dimensionsSummary",
+  "shipmentsDate", "shipmentsYear", "dimensionsSummary", "createdOn",
 ]);
 
 // ─── Column Definitions (Full Sheet) ──────────────────────────────────
@@ -111,17 +113,17 @@ export const COLUMNS: ColumnDef[] = [
   { key: "masterJob", title: "Master job", width: 140, type: "text", readonly: true, apiField: "masterJobMczNumber" },
 
   // Meta
-  { key: "shipmentsDate", title: "Shipments Date", width: 120, type: "computed", readonly: true },
+  { key: "shipmentsDate", title: "Shipments Month", width: 120, type: "computed", readonly: true },
   { key: "shipmentsYear", title: "Year", width: 80, type: "computed", readonly: true },
   { key: "department", title: "Department", width: 170, type: "dropdown", options: DROPDOWN_OPTIONS["Department"], apiField: "department" },
-  { key: "personInCharge", title: "Person In Charge", width: 180, type: "text", apiField: "personInCharge" },
-  { key: "holidayCover", title: "Holiday Cover", width: 140, type: "text", apiField: "holidayCover" },
+  { key: "personInCharge", title: "Person In Charge", width: 180, type: "user", apiField: "personInCharge" },
+  { key: "holidayCover", title: "Holiday Cover", width: 140, type: "user", apiField: "holidayCover" },
 
   // Customer block
   { key: "customer", title: "Customer", width: 180, type: "text", apiField: "customer" },
   // Chosen in the Customs detail (a company from the customer database).
   { key: "principalParty", title: "Principal Party", width: 180, type: "text", readonly: true, apiField: "principalParty" },
-  { key: "customerPic", title: "Customer's PIC", width: 170, type: "text", apiField: "customerPic" },
+  { key: "customerPic", title: "Customer's PIC", width: 170, type: "contact", apiField: "customerPic" },
   { key: "customerReference", title: "Customer Reference", width: 170, type: "text", apiField: "customerReference" },
 
   // Pickup + POL
@@ -206,7 +208,8 @@ export const COLUMNS: ColumnDef[] = [
   { key: "temperatureControlled", title: "Temperature Controlled", width: 170, type: "dropdown", options: DROPDOWN_OPTIONS["Temperature Controlled"], apiField: "temperatureControlled" },
   { key: "pcs", title: "COLLI", width: 100, type: "text", readonly: true, apiField: "pcs" },
   { key: "creditCheck", title: "Credit Check", width: 110, type: "dropdown", options: DROPDOWN_OPTIONS["Credit Check"], apiField: "creditCheck" },
-  { key: "approvedBy", title: "Approved By", width: 150, type: "text", apiField: "approvedBy" },
+  // A user, or the server's stamp "<e-mail> — <date>" when the credit check turns Green.
+  { key: "approvedBy", title: "Approved By", width: 150, type: "user", apiField: "approvedBy" },
   { key: "bookingConfirmation", title: "Booking Confirmation", width: 180, type: "dropdown", options: DROPDOWN_OPTIONS["Booking Confirmation"], apiField: "bookingConfirmation" },
   // Written by the release action on the detail page, never edited by hand.
   { key: "houseBolRelease", title: "House BoL Release", width: 200, type: "text", readonly: true, apiField: "houseBolRelease" },
@@ -231,7 +234,7 @@ export const COLUMNS: ColumnDef[] = [
 
   // Switch BoL
   { key: "switchBol", title: "Switch BoL", width: 100, type: "dropdown", options: DROPDOWN_OPTIONS["Switch BoL"], apiField: "switchBol" },
-  { key: "switchBolApprovedBy", title: "Switch BoL Approved By", width: 200, type: "text", apiField: "switchBolApprovedBy" },
+  { key: "switchBolApprovedBy", title: "Switch BoL Approved By", width: 200, type: "user", apiField: "switchBolApprovedBy" },
   { key: "switchBolNumber", title: "Switch BoL Number", width: 150, type: "text", apiField: "switchBolNumber" },
   { key: "houseBolNumber", title: "House BoL Number", width: 140, type: "text", apiField: "houseBolNumber" },
   { key: "houseBolType", title: "House BoL Type", width: 120, type: "dropdown", options: DROPDOWN_OPTIONS["House BoL Type"], apiField: "houseBolType" },
@@ -266,7 +269,9 @@ export const COLUMNS: ColumnDef[] = [
   // Misc
   // Read-only: the backend sets it from the Claim tab (Yes while a claim is filled in).
   { key: "claim", title: "Claim", width: 100, type: "dropdown", options: DROPDOWN_OPTIONS["Claim"], apiField: "claim", readonly: true },
+  // Who created the shipment (their e-mail) and when (the record's creation time).
   { key: "createdBy", title: "Created by", width: 210, type: "text", readonly: true, apiField: "createdBy" },
+  { key: "createdOn", title: "Created on", width: 150, type: "computed", readonly: true, apiField: "createdAt" },
 ];
 
 // Column key lookup for quick access
@@ -618,6 +623,9 @@ export function getComputedValue(key: string, rowData: Record<string, string>): 
     }
     case "dimensionsSummary":
       return summarizeDimensions(rowData["dimensions"] || "");
+    case "createdOn":
+      // The creation time (ISO) as DD.MM.YYYY HH:mm, local time.
+      return formatDateTime(rowData["createdOn"] || "");
     case "profit": {
       const selling = rowData["selling"] || "";
       const buying = rowData["buying"] || "";

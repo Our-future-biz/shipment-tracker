@@ -2,6 +2,7 @@ import { APIError } from "encore.dev/api";
 import { invoiceProfileRepository } from "../repositories/invoiceProfile.repository";
 import { missingForIssue, normaliseProfile, validateProfile, type InvoiceProfileInput } from "../lib/invoiceProfile";
 import type { InvoiceProfileItem } from "../interfaces/interfaces";
+import { assertCzechPhone } from "../../../lib/phone";
 
 /** What a company that has not filled in its issuer details yet sees. */
 const EMPTY: InvoiceProfileInput = normaliseProfile({
@@ -21,6 +22,7 @@ class InvoiceProfileService {
   /** Saves the issuer details; IČO / DIČ / IBAN checks and the rest are in lib/invoiceProfile. */
   async save(companyId: string, input: InvoiceProfileInput): Promise<InvoiceProfileItem> {
     const profile = normaliseProfile(input);
+    assertCzechPhone(profile.phone);
     const errors = validateProfile(profile);
     if (errors.length) throw APIError.invalidArgument(errors.join("; "));
     return toItem(normaliseProfile(await invoiceProfileRepository.upsert(companyId, profile)));

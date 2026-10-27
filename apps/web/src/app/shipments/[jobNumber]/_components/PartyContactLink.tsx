@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import { Modal, Spin } from "antd";
-import { useQueryClient } from "@tanstack/react-query";
-import { useCustomerContacts } from "@/hooks/useCustomerContacts";
+import { findContact, useCustomerContacts } from "@/hooks/useCustomerContacts";
 import { FadeText } from "@/components/FadeText";
+import { useSingleOrDouble } from "@/components/EditableLink";
 
 const TH = "text-left text-[11px] font-bold text-slate-500 uppercase tracking-wide px-2 py-1.5 border-b border-slate-200 whitespace-nowrap";
 const TD = "px-2 py-2 text-xs text-slate-900 font-medium whitespace-nowrap";
@@ -13,21 +13,34 @@ const DASH = <span className="text-slate-300">—</span>;
 // The contact person of a shipment party (Shipper / Consignee), shown as a link. Clicking it
 // opens the whole contact as saved on that party's customer record: role, e-mail, phone.
 // It is only a preview: nothing leads away to the customer database.
-// The shipment keeps only the name, so the contact is found by it among the customer's contacts.
-export function PartyContactLink({ name, customerId }: { name: string; customerId: string }) {
+// The contact is found among the customer's contacts by the id the shipment keeps, else (a contact
+// typed or stored before ids were kept) by its name; the preview shows its current name.
+// With `onEdit`, a double click changes the contact instead (a click still opens the preview).
+export function PartyContactLink({
+  name,
+  contactId,
+  customerId,
+  onEdit,
+}: {
+  name: string;
+  contactId?: string | null;
+  customerId: string;
+  onEdit?: () => void;
+}) {
   const [open, setOpen] = useState(false);
+  const clicks = useSingleOrDouble({ onSingle: () => setOpen(true), onDouble: () => onEdit?.() });
 
   // Loaded only once the preview opens ("" keeps the query off).
-  const { contacts, isLoading } = useCustomerContacts(open ? customerId : "");
-  // The hook has no error flag; its query state tells whether loading failed.
-  const isError = useQueryClient().getQueryState(["customer-contacts", customerId])?.status === "error";
-  const contact = contacts.find((c) => c.name.trim().toLowerCase() === name.trim().toLowerCase());
+  const { contacts, isLoading, isError } = useCustomerContacts(open ? customerId : "");
+  const contact = findContact(contacts, contactId, name);
 
   return (
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={onEdit ? clicks.onClick : () => setOpen(true)}
+        onDoubleClick={onEdit ? clicks.onDoubleClick : undefined}
+        onKeyDown={onEdit ? clicks.onKeyDown : undefined}
         className="min-w-0 max-w-full text-indigo-600 hover:underline font-medium bg-transparent border-0 p-0 cursor-pointer text-left"
       >
         <FadeText>{name}</FadeText>
@@ -52,7 +65,7 @@ export function PartyContactLink({ name, customerId }: { name: string; customerI
                 </thead>
                 <tbody>
                   <tr>
-                    <td className={TD}>{name}</td>
+                    <td className={TD}>{contact?.name || name}</td>
                     <td className={TD}>{contact?.role || DASH}</td>
                     <td className={TD}>
                       {contact?.email ? (

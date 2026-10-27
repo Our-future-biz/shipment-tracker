@@ -1,14 +1,17 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Button, Dropdown, Table, Tag } from "antd";
 import { DeleteOutlined, EditOutlined, EllipsisOutlined, PlusOutlined, StarFilled } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { SectionCard } from "@/components/SectionCard";
-import { useCustomerContacts } from "@/hooks/useCustomerContacts";
+import { findContact, useCustomerContacts } from "@/hooks/useCustomerContacts";
 import type { ContactItem } from "@/hooks/useCustomerContacts";
 import { useToast } from "@/lib/toast";
+import { useAuth } from "@/lib/auth/AuthContext";
+import { canDeleteCustomerRecords } from "../../_lib/customerPermissions";
 import { contactRoleColor } from "../../_lib/constants";
 import { CustomerContactDialog } from "../_components/CustomerContactDialog";
 import type { CustomerContactFormValues } from "../_components/CustomerContactDialog";
@@ -27,6 +30,7 @@ interface ContactDialogState {
 export function ContactsTab({ customerId, country }: { customerId: string; country?: string | null }) {
   const { contacts, isLoading, isError, createContact, updateContact, deleteContact } = useCustomerContacts(customerId);
   const toast = useToast();
+  const canDelete = canDeleteCustomerRecords(useAuth().user);
   const [dialog, setDialog] = useState<ContactDialogState>({ key: 0, open: false, contact: null });
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ContactItem | null>(null);
@@ -34,6 +38,14 @@ export function ContactsTab({ customerId, country }: { customerId: string; count
 
   // Main contact first, as in the contact pickers on shipments and quotes; the rest stay in the order they were added.
   const rows = useMemo(() => [...contacts].sort((a, b) => Number(b.isMain) - Number(a.isMain)), [contacts]);
+
+  // A link from a shipment's Customer's PIC picks that contact out of the list: by its id
+  // (?contactId=), or by its name (?contact=) in a link made before ids were kept.
+  const params = useSearchParams();
+  const linkedId = findContact(rows, params.get("contactId"), params.get("contact"))?.id;
+  useEffect(() => {
+    if (linkedId) document.querySelector(`[data-row-key="${linkedId}"]`)?.scrollIntoView({ block: "center" });
+  }, [linkedId]);
 
   const handleOpenDialog = (contact: ContactItem | null) => setDialog((prev) => ({ key: prev.key + 1, open: true, contact }));
 
@@ -123,7 +135,10 @@ export function ContactsTab({ customerId, country }: { customerId: string; count
             menu={{
               items: [
                 { key: "edit", label: "Edit", icon: <EditOutlined />, onClick: () => handleOpenDialog(r) },
-                { key: "delete", label: "Delete", icon: <DeleteOutlined />, danger: true, onClick: () => setDeleteTarget(r) },
+                // Superadmins only (the API refuses everyone else).
+                ...(canDelete
+                  ? [{ key: "delete", label: "Delete", icon: <DeleteOutlined />, danger: true, onClick: () => setDeleteTarget(r) }]
+                  : []),
               ],
             }}
           >
@@ -141,8 +156,8 @@ export function ContactsTab({ customerId, country }: { customerId: string; count
   ];
 
   const deleteDescription = deleteTarget?.isMain
-    ? `Delete ${deleteTarget.name}? This is the main contact used on shipments and quotes; mark another one as main afterwards.`
-    : `Delete ${deleteTarget?.name ?? "this contact"}?`;
+    ? `Delete ${deleteTarget.name}? This is the main contact used on shipments and quotes; mark another one as main afterwards. The contact is hidden from everyone but kept in the database, so it can be restored.`
+    : `Delete ${deleteTarget?.name ?? "this contact"}? It is hidden from everyone but kept in the database, so it can be restored.`;
 
   return (
     <div className="space-y-5">
@@ -164,6 +179,7 @@ export function ContactsTab({ customerId, country }: { customerId: string; count
           loading={isLoading}
           dataSource={rows}
           columns={columns}
+          rowClassName={(r) => (r.id === linkedId ? "[&>td]:!bg-indigo-50" : "")}
           scroll={{ x: "max-content" }}
           pagination={TABLE_PAGINATION}
           locale={{ emptyText: isError ? "Could not load the contacts." : "No contacts yet" }}

@@ -10,6 +10,7 @@ interface WarehousePositionCreateRequest {
   customer?: string;
   customerRef?: string;
   customerContact?: string;
+  /** E-mail of a user of the company. */
   shipmentOwner?: string;
   customsStatus?: GateCustomsStatus;
   handling?: GateHandling;

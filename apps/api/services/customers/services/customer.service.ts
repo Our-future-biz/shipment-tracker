@@ -1,4 +1,5 @@
 import { APIError } from "encore.dev/api";
+import log from "encore.dev/log";
 import { auth } from "~encore/clients";
 import { customerRepository } from "../repositories/customer.repository";
 import type { CustomerListFilters } from "../repositories/customer.repository";
@@ -11,6 +12,7 @@ import type {
   CustomerRole,
   CustomerRollups,
   CustomerStatus,
+  DeletedCustomerItem,
   NewCustomerContact,
   RiskLevelOverride,
 } from "../interfaces/interfaces";
@@ -19,11 +21,16 @@ import { iso } from "../../../lib/db/serialize";
 import { canManageSales } from "../../../lib/salesPolicy";
 import { isUniqueViolation } from "../../../lib/db/errors";
 import { isUuid } from "../../../lib/uuid";
+import { storedEmail } from "../../../lib/personPick";
 import { dateInput } from "../lib/dates";
 import { toCustomerItem } from "../lib/mappers";
 import { companyOfLogoToken } from "../lib/logoUrl";
 import { aresService } from "./ares.service";
-import { fullName } from "./contact.service";
+import { contactNames } from "./contact.service";
+import { assertCzechPhone } from "../../../lib/phone";
+import { contactChanged, customerChanged } from "../topics";
+import { contactRepository } from "../repositories/contact.repository";
+import { seatText } from "../lib/seat";
 
 /** A company outside the Czech Republic, typed in by hand: there is no registry to read it from. */
 export interface ManualCustomerInput {
@@ -42,13 +49,30 @@ export interface ManualCustomerInput {
 
 // The first contact of a new customer: its main one. Somebody must be reachable, so an email or a phone is needed.
 function firstContact(contact: NewCustomerContact): Omit<NewContactRecord, "companyId" | "customerId"> {
-  const firstName = contact.firstName.trim();
-  const lastName = contact.lastName.trim();
+  const names = contactNames(contact.firstName, contact.lastName);
   const email = (contact.email ?? "").trim();
   const phone = (contact.phone ?? "").trim();
-  if (!firstName || !lastName) throw APIError.invalidArgument("The contact person needs a first and a last name");
   if (!email && !phone) throw APIError.invalidArgument("The contact person needs an email or a phone number");
-  return { name: fullName(firstName, lastName), firstName, lastName, email, phone, role: contact.role ?? "Logistics Manager", isMain: true };
+  assertCzechPhone(phone);
+  return { ...names, email, phone, role: contact.role ?? "Logistics Manager", isMain: true };
+}
+
+// Tells the services that copy the customer's name and account type (shipments, quotes, follow-ups,
+// trucking). After the write and outside its transaction; for an edit a publish that fails fails the
+// request, so the user sees it and can save again. Subscribers are idempotent, so every edit is sent.
+// Lost events are repaired by the superadmin …/links/normalize backfills (shipments, quotes, sales,
+// trucking, warehouse-concept).
+async function announce(companyId: string, row: CustomerRecord, deleted: boolean): Promise<void> {
+  await customerChanged.publish({ companyId, customerId: row.id, companyName: row.companyName, label: row.label, deleted });
+}
+
+// A delete or restore can't be done again (a second try gets 404), so a failed publish after it is only logged.
+async function announceLogged(companyId: string, row: CustomerRecord, deleted: boolean): Promise<void> {
+  try {
+    await announce(companyId, row, deleted);
+  } catch (err) {
+    log.error(err, "customer change not published", { companyId, customerId: row.id, deleted });
+  }
 }
 
 /** What a user may change on a customer (the rollups belong to the shipments service). */
@@ -120,7 +144,7 @@ export function managerFieldsIn(patch: CustomerPatch): string[] {
   return MANAGER_FIELDS.filter((key) => patch[key] !== undefined);
 }
 
-// The owner columns for a picked user (its id and name), or for nobody.
+// The owner columns for a picked user (its id and e-mail - a person is recorded by e-mail), or for nobody.
 async function salesOwnerOf(userId: string | null): Promise<Pick<NewCustomerRecord, "salesOwner" | "salesOwnerUserId">> {
   if (userId === null) return { salesOwner: "", salesOwnerUserId: null };
   if (!isUuid(userId)) throw APIError.invalidArgument("salesOwnerUserId must be the id of a user");
@@ -128,7 +152,7 @@ async function salesOwnerOf(userId: string | null): Promise<Pick<NewCustomerReco
   const { users } = await auth.userLookup({ ids: [userId] });
   const user = users.find((u) => u.id === userId);
   if (!user) throw APIError.invalidArgument("salesOwnerUserId must be a user of the company");
-  return { salesOwner: user.name, salesOwnerUserId: user.id };
+  return { salesOwner: storedEmail(user.email), salesOwnerUserId: user.id };
 }
 
 /**
@@ -221,6 +245,8 @@ class CustomerService {
     const mainContact = firstContact(input.contact);
     const checkedRoles = requireRoles(input.roles ?? ["customer"]);
     const country = input.country.trim().toUpperCase();
+    const companyName = input.companyName.trim();
+    if (!companyName) throw APIError.invalidArgument("The company name can't be empty");
     if (country === "CZ") throw APIError.invalidArgument("A Czech company is added from ARES by its IČO");
     const registrationNumber = (input.registrationNumber ?? "").trim();
     if (registrationNumber && (await customerRepository.findByIco(registrationNumber, companyId))) {
@@ -233,8 +259,8 @@ class CustomerService {
       // The column holds the IČO of a Czech customer and the registration number of a foreign one.
       ico: registrationNumber,
       dic: (input.vatId ?? "").trim(),
-      companyName: input.companyName.trim(),
-      registeredAddress: [street, [postalCode, city].filter(Boolean).join(" ")].filter(Boolean).join(", "),
+      companyName,
+      registeredAddress: seatText(street, postalCode, city),
       city,
       country,
       dataSource: "Manual",
@@ -257,6 +283,11 @@ class CustomerService {
     }
     const { salesOwnerUserId, registrationDate, ...fields } = patch;
     const values: Partial<NewCustomerRecord> = definedOnly(fields);
+    // Other services copy the name as sent in the event: a padded or blank one is refused here.
+    if (values.companyName !== undefined) {
+      values.companyName = values.companyName.trim();
+      if (!values.companyName) throw APIError.invalidArgument("The company name can't be empty");
+    }
     if (values.roles) values.roles = requireRoles(values.roles);
     // A date column: "" clears it, anything but a date is refused.
     const regDate = dateInput(registrationDate, "registrationDate");
@@ -267,6 +298,7 @@ class CustomerService {
     if (salesOwnerUserId !== undefined) Object.assign(values, await salesOwnerOf(salesOwnerUserId));
     const row = await customerRepository.updateForCompany(id, companyId, values);
     if (!row) throw APIError.notFound("Customer not found");
+    await announce(companyId, row, false);
     return toCustomerItem(row);
   }
 
@@ -289,10 +321,56 @@ class CustomerService {
     return customerRepository.activate(id, companyId);
   }
 
+  // Its contacts go with it; the one customer event tells the copies of both.
   async softDelete(id: string, companyId: string): Promise<void> {
-    if (!(await customerRepository.softDeleteWithChildren(id, companyId))) {
-      throw APIError.notFound("Customer not found");
+    const row = await customerRepository.softDeleteWithChildren(id, companyId);
+    if (!row) throw APIError.notFound("Customer not found");
+    await announceLogged(companyId, row, true);
+    // Its contacts were hidden with it: each gets its own delete event with its last name, so a
+    // rename of one whose event is handled after this delete still reaches the copies.
+    if (row.deletedAt) {
+      for (const contact of await contactRepository.hiddenWithCustomer(companyId, id, row.deletedAt)) {
+        try {
+          await contactChanged.publish({
+            companyId, customerId: id, contactId: contact.id, name: contact.name, email: contact.email, phone: contact.phone, deleted: true,
+          });
+        } catch (err) {
+          log.error(err, "contact delete not published", { companyId, customerId: id, contactId: contact.id });
+        }
+      }
     }
+  }
+
+  /** The company's deleted customers, the most recently deleted first. */
+  async listDeleted(companyId: string): Promise<DeletedCustomerItem[]> {
+    const rows = await customerRepository.listDeleted(companyId);
+    return rows.map((r) => ({ ...r, deletedAt: iso(r.deletedAt) }));
+  }
+
+  /**
+   * Brings a deleted customer back with the contacts, addresses, notes, documents, invoices and
+   * sites deleted together with it. Refused while a live customer has the same registration number.
+   */
+  async restore(id: string, companyId: string): Promise<CustomerItem> {
+    const deleted = await customerRepository.getDeletedForCompany(id, companyId);
+    if (!deleted) throw APIError.notFound("Deleted customer not found");
+    const clash = deleted.ico ? await customerRepository.findByIco(deleted.ico, companyId) : null;
+    if (clash) {
+      throw APIError.alreadyExists(
+        `${clash.companyName} already has the registration number ${deleted.ico}, so ${deleted.companyName} can't be restored`,
+      );
+    }
+    let row: CustomerRecord | null;
+    try {
+      row = await customerRepository.restoreWithChildren(id, companyId);
+    } catch (err) {
+      // Another customer with the same registration number was added in the meantime.
+      if (isUniqueViolation(err)) throw APIError.alreadyExists("A customer with this registration number already exists");
+      throw err;
+    }
+    if (!row) throw APIError.notFound("Deleted customer not found");
+    await announceLogged(companyId, row, false);
+    return toCustomerItem(row);
   }
 
   async uploadLogo(id: string, companyId: string, dataUrl: string): Promise<CustomerItem> {

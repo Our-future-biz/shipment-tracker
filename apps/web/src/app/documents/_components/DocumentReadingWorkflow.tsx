@@ -42,6 +42,8 @@ import {
   buildFields,
   withBookingEquipment,
   containerRowsFromNumbers,
+  customerNamed,
+  type CustomerRef,
   type Destination,
   type ExtractedField,
   type InputMode,
@@ -53,9 +55,13 @@ import {
   MBL_CONTAINERS_LABEL,
   MBL_TO_MASTER_JOB,
   isMblContainerDetail,
+  keepsPartyLink,
   mblContainers,
   mblDefaultTicks,
   mblToMasterJobUpdate,
+  keptPartyDetails,
+  partyLinks,
+  type PartyLinksHolder,
   SHIPMENT_FIELD_MAP,
   type Step,
   type TargetMode,
@@ -110,6 +116,35 @@ function recordToFields(record: Record<string, string>): ExtractedField[] {
     hasConflict: false,
     approved: true,
   }));
+}
+
+// The customer a shipper or consignee read off a document is in the Customer Database: the one
+// whose company name it is exactly. Not asked for the name of the customer the party is linked to
+// already; a lookup that fails links nothing.
+async function customerOf(party: "shipper" | "consignee", name: string | undefined, current: PartyLinksHolder | undefined): Promise<CustomerRef | null> {
+  if (!name?.trim() || keepsPartyLink(party, name, current)) return null;
+  try {
+    const { data } = await api.customers.customerList({ search: name.trim() });
+    return customerNamed(name, data);
+  } catch {
+    return null;
+  }
+}
+
+// Shipper and consignee names written with their Customer Database links (see partyLinks): a
+// linked party is never left showing another company's name. `stored` reads the record written
+// to (only when a party name is written); `kept` adds what a link change must carry so the record
+// keeps the rest of the party (a shipment: keptPartyDetails). What the document writes wins.
+async function withPartyLinks<T extends { shipper?: string; consignee?: string; shipperId?: string | null; consigneeId?: string | null }, C extends PartyLinksHolder>(
+  data: T,
+  stored: () => Promise<C | undefined>,
+  kept: (links: ReturnType<typeof partyLinks>, current: C | undefined) => Partial<T> = () => ({}),
+): Promise<T> {
+  if (!data.shipper && !data.consignee) return data;
+  const current = await stored();
+  const [shipper, consignee] = await Promise.all([customerOf("shipper", data.shipper, current), customerOf("consignee", data.consignee, current)]);
+  const links = partyLinks(data, current, { shipper, consignee });
+  return { ...kept(links, current), ...data, ...links };
 }
 
 export function DocumentReadingWorkflow() {
@@ -554,6 +589,7 @@ export function DocumentReadingWorkflow() {
       if (shipmentMode === "existing") {
         const target = shipments.find((s) => s.id === targetShipmentId);
         let data = toShipmentUpdate(approved);
+        data = await withPartyLinks(data, async () => target ?? (await api.shipments.shipmentGet(targetShipmentId)).shipment, keptPartyDetails);
         // Append extracted containers to the shipment's existing rows (never replace).
         if (newContainers.length > 0) data.containers = [...(target?.containers ?? []), ...newContainers];
         // An approved package type goes onto all of the shipment's containers and cargo lines.
@@ -568,7 +604,7 @@ export function DocumentReadingWorkflow() {
       } else {
         const created = await createShipment(baseCreatePayload());
         shipmentId = created.shipment.id;
-        let data = toShipmentUpdate(approved);
+        let data = await withPartyLinks(toShipmentUpdate(approved), async () => created.shipment, keptPartyDetails);
         if (newContainers.length > 0) data.containers = newContainers;
         data = withContainerType(data, approved);
         data = withCargoLine(data, approved);
@@ -690,7 +726,11 @@ export function DocumentReadingWorkflow() {
     if (Object.keys(approved).length === 0) return toast.warning("No fields approved.");
     try {
       const target = shipments.find((s) => s.id === customsShipmentId);
-      const data = toShipmentUpdate(approved);
+      const data = await withPartyLinks(
+        toShipmentUpdate(approved),
+        async () => target ?? (await api.shipments.shipmentGet(customsShipmentId)).shipment,
+        keptPartyDetails,
+      );
       if (approved["MRN Number"]) data.mrn = approved["MRN Number"];
       // Add only the containers the shipment doesn't have yet (never replace).
       const existing = target?.containers ?? [];
@@ -833,8 +873,9 @@ export function DocumentReadingWorkflow() {
   const fileMblToMasterJob = async (masterJobId: string) => {
     if (!mblInfo) return;
     try {
-      const data = mblToMasterJobUpdate(mblInfo, mblTicked);
+      let data = mblToMasterJobUpdate(mblInfo, mblTicked);
       if (mblLoadTypeLocked) delete data.loadType;
+      data = await withPartyLinks(data, async () => (await api.shipments.masterJobGet(masterJobId)).masterJob);
       if (Object.keys(data).length > 0) await api.shipments.masterJobUpdate(masterJobId, data);
 
       const added = mblTicked[MBL_CONTAINERS_LABEL] ? mblContainers(mblInfo) : [];
@@ -864,7 +905,7 @@ export function DocumentReadingWorkflow() {
     if (docNameMissing) return toast.warning("Enter a file name for the document, or untick saving it.");
     try {
       const created = await createShipment(baseCreatePayload());
-      let data = toShipmentUpdate(approved);
+      let data = await withPartyLinks(toShipmentUpdate(approved), async () => created.shipment, keptPartyDetails);
       const newContainers = containerRowsFromNumbers(parseContainerNumbers(approved["Container Number"]));
       if (newContainers.length > 0) data.containers = newContainers;
       data = withContainerType(data, approved);

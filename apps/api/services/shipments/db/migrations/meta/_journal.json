@@ -379,6 +379,20 @@
       "when": 1792784146129,
       "tag": "0053_temperature_controlled",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1793046958282,
+      "tag": "0054_created_by_email_only",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1793054310959,
+      "tag": "0055_party_contact_links",
+      "breakpoints": true
     }
   ]
 }

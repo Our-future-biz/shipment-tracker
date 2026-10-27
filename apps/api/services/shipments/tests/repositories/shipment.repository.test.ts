@@ -21,6 +21,9 @@ const fake = vi.hoisted(() => {
     counts: [] as unknown[],
     /** Company and sequence of every job number taken. */
     allocations: [] as [string, string][],
+    /** Every update, and how many rows each one changes. */
+    updates: [] as { values: Record<string, unknown>; where: unknown }[],
+    updatedRows: 0,
   };
   const run = (name: string) => ({
     execute: async (query: unknown) => {
@@ -51,6 +54,17 @@ const fake = vi.hoisted(() => {
             state.steps.push(`${name} read per customer`);
             state.perCustomerReads.push({ on, fields, where, orderBy });
             return state.perCustomer;
+          },
+        }),
+      }),
+    }),
+    update: () => ({
+      set: (values: Record<string, unknown>) => ({
+        where: (where: unknown) => ({
+          returning: async () => {
+            state.steps.push(`${name} update`);
+            state.updates.push({ values, where });
+            return Array.from({ length: state.updatedRows }, (_, i) => ({ id: `shipment-${i}` }));
           },
         }),
       }),
@@ -120,6 +134,8 @@ beforeEach(() => {
   fake.state.total = 0;
   fake.state.counts = [];
   fake.state.allocations = [];
+  fake.state.updates = [];
+  fake.state.updatedRows = 0;
 });
 
 describe("salesReferenceShipments", () => {
@@ -260,5 +276,25 @@ describe("searchedColumns", () => {
   it("leaves out what the browser works out and keys it doesn't know, an object's own names among them", () => {
     expect(searched(["freightTon", "estimatedDepartureWeek", "profit", "nonsense"])).toBe('"shipment"."job_number"');
     expect(searched(["constructor", "toString", "__proto__", "hasOwnProperty"])).toBe('"shipment"."job_number"');
+  });
+});
+
+describe("rewritePeople", () => {
+  it("replaces each value in the company's live shipments that still hold it, in one transaction, without touching updatedAt", async () => {
+    fake.state.updatedRows = 2;
+    const changed = await shipmentRepository.rewritePeople(COMPANY, [
+      { field: "personInCharge", from: "Jan Novák", to: "jan@firma.cz" },
+      { field: "createdBy", from: "1. 10. 2026 8:00:00 — Jan Novák", to: "1. 10. 2026 8:00:00 — jan@firma.cz" },
+    ]);
+    expect(changed).toBe(4);
+    expect(fake.state.steps).toEqual(["begin", "tx update", "tx update", "commit"]);
+    expect(fake.state.updates.map((u) => u.values)).toEqual([{ personInCharge: "jan@firma.cz" }, { createdBy: "1. 10. 2026 8:00:00 — jan@firma.cz" }]);
+    expect(sent(fake.state.updates[0]!.where)).toEqual({ sql: `(${LIVE} and "shipment"."person_in_charge" = $2)`, params: [COMPANY, "Jan Novák"] });
+    expect(sent(fake.state.updates[1]!.where)).toEqual({ sql: `(${LIVE} and "shipment"."created_by" = $2)`, params: [COMPANY, "1. 10. 2026 8:00:00 — Jan Novák"] });
+  });
+
+  it("opens no transaction when there is nothing to change", async () => {
+    await expect(shipmentRepository.rewritePeople(COMPANY, [])).resolves.toBe(0);
+    expect(fake.state.steps).toEqual([]);
   });
 });

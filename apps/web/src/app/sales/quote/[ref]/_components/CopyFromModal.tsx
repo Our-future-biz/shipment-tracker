@@ -15,6 +15,16 @@ import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
 // Sections that can be sourced from a shipment (shipments carry no pricing/terms).
 const SHIPMENT_SECTIONS = SECTIONS.filter((s) => s.key !== "pricing" && s.key !== "terms");
 
+// A shipment as the fields of a quote: only what it carries, its Customer's PIC also by the id of
+// the contact it names (so the quote keeps the same person, not one of the same name).
+function shipmentCarried(shipment: ShipmentItem): SalesQuoteData {
+  const carried = shipmentToQuoteData(shipment);
+  const contactId = shipment.customerPicContactId;
+  return carried.customerId && carried.customerContact && contactId && carried.customerContactId === undefined
+    ? { ...carried, customerContactId: contactId }
+    : carried;
+}
+
 // A shipment in one line of plain text: what a row of the list says in full when it is too long
 // to fit, as its tooltip.
 const shipmentText = (shipment: ShipmentItem) => `${shipment.jobNumber} — ${shipment.customer}`;
@@ -86,8 +96,9 @@ interface CopyFromModalProps {
 }
 
 export function CopyFromModal({ open, mode, currentRef, onClose, onApply }: CopyFromModalProps) {
-  // What a shipment carries of its customer, completed from the Customer Database where linked.
-  const { withCustomerRecord } = useQuoteCustomerFields();
+  // What a shipment carries of its customer, completed from the Customer Database where linked;
+  // a contact person copied from another quote, checked against the customer's contacts.
+  const { withCustomerRecord, withLiveContact } = useQuoteCustomerFields();
   // What is copied from: the quote or the shipment picked, whole, as the picker found it.
   const [sourceQuote, setSourceQuote] = useState<SalesQuote | null>(null);
   const [sourceShipment, setSourceShipment] = useState<ShipmentItem | null>(null);
@@ -100,7 +111,7 @@ export function CopyFromModal({ open, mode, currentRef, onClose, onApply }: Copy
   const sections = fromShipment ? SHIPMENT_SECTIONS : SECTIONS;
 
   // The picked shipment as the fields of a quote: only what it carries.
-  const carried = useMemo(() => (sourceShipment ? shipmentToQuoteData(sourceShipment) : null), [sourceShipment]);
+  const carried = useMemo(() => (sourceShipment ? shipmentCarried(sourceShipment) : null), [sourceShipment]);
 
   // A section the picked shipment has nothing for is not on offer. A quote is copied section by
   // section as it is, so all of its sections are.
@@ -134,7 +145,10 @@ export function CopyFromModal({ open, mode, currentRef, onClose, onApply }: Copy
       onApply(pickCarried(source, ticked));
     } else {
       if (!sourceQuote) return;
-      onApply(pickSections(sourceQuote.data, ticked));
+      const patch = pickSections(sourceQuote.data, ticked);
+      // The contact's link is checked with the Customer Database first, and the dialog waits for it.
+      setCopying(true);
+      onApply(ticked.includes("customer") ? await withLiveContact(patch) : patch);
     }
     reset();
     onClose();

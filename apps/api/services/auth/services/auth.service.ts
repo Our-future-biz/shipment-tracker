@@ -371,7 +371,7 @@ class AuthService {
   /** Live users of the company among `ids` (deactivated or unknown ids are left out); the service identity is named "Trucking (system)". */
   async userRefs(companyId: string, ids: string[]): Promise<UserRef[]> {
     const rows = await userRepository.listByIdsInCompany([...new Set(ids)], companyId);
-    return rows.map((u) => ({ id: u.id, name: u.displayName || u.email || "", role: u.role }));
+    return rows.map((u) => ({ id: u.id, name: u.displayName || u.email || "", email: u.email, role: u.role }));
   }
 }
 

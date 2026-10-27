@@ -64,15 +64,20 @@ describe("partyContact", () => {
 
   it("takes Customer Service, else the Logistics Manager, else anyone", () => {
     const all = [contact("Eva Sales", "Sales", true), contact("Petr Logistika", "Logistics Manager"), contact("Jana Servis", "Customer Service")];
-    expect(partyContact(all)).toBe("Jana Servis");
-    expect(partyContact(all.slice(0, 2))).toBe("Petr Logistika");
-    expect(partyContact(all.slice(0, 1))).toBe("Eva Sales");
+    expect(partyContact(all)?.name).toBe("Jana Servis");
+    expect(partyContact(all.slice(0, 2))?.name).toBe("Petr Logistika");
+    expect(partyContact(all.slice(0, 1))?.name).toBe("Eva Sales");
   });
 
   it("prefers the main contact within a role, else keeps the order given", () => {
-    expect(partyContact([contact("První", "Customer Service"), contact("Hlavní", "Customer Service", true)])).toBe("Hlavní");
-    expect(partyContact([contact("První", "Customer Service"), contact("Druhý", "Customer Service")])).toBe("První");
-    expect(partyContact([contact("Účetní", "Finance / Accounting"), contact("Hlavní", "Owner", true)])).toBe("Hlavní");
+    expect(partyContact([contact("První", "Customer Service"), contact("Hlavní", "Customer Service", true)])?.name).toBe("Hlavní");
+    expect(partyContact([contact("První", "Customer Service"), contact("Druhý", "Customer Service")])?.name).toBe("První");
+    expect(partyContact([contact("Účetní", "Finance / Accounting"), contact("Hlavní", "Owner", true)])?.name).toBe("Hlavní");
+  });
+
+  it("hands over the contact itself, so its id is stored with its name", () => {
+    const picked = { id: "c-2", name: "Jana Servis", role: "Customer Service", isMain: false };
+    expect(partyContact([{ id: "c-1", name: "Eva Sales", role: "Sales", isMain: true }, picked])).toBe(picked);
   });
 
   it("gives nothing with no named contact", () => {

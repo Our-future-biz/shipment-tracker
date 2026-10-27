@@ -120,7 +120,8 @@ export interface TimelineEntry {
   kind?: "status" | "validity" | "owner" | "follow_up" | "shipment" | "deleted" | "road_price" | "margin_approval";
   status?: QuoteStatus;
   at: string;
-  // Display name of who made the change. Entries written before names were recorded say "You".
+  // Who made the change, by e-mail; older entries hold the display name, and entries written
+  // before anyone was recorded say "You". Shown by the user's e-mail now (whoDid).
   user?: string;
   userId?: string;
   // On a validity or owner line the whole sentence: "Valid until 2026-10-25 (was 2026-10-20)".
@@ -190,6 +191,10 @@ export interface SalesQuoteData {
   customerEmail?: string;
   customerPhone?: string;
   customerContact?: string;
+  // The contact person picked from the customer's contacts (Customer Database). While it is set,
+  // the server takes customerContact, customerEmail and customerPhone from that contact on every
+  // save of an open quote. Null: typed by hand or cleared; the server stores no null (no key).
+  customerContactId?: string | null;
   customerLabel?: string;
   salesOwner?: string;
   // Shipment details

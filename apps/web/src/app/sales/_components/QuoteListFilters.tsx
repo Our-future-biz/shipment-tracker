@@ -7,14 +7,15 @@ import dayjs from "dayjs";
 import { NO_OWNER, type Filters } from "../_lib/quoteListState";
 import { DIRECTIONS, QUOTE_STATUSES, SERVICE_TYPES } from "../_lib/types";
 import { toolbarButtonClass } from "./ToolbarButton";
+import { matchesUserOption, UserOptionLabel, type UserIdOption } from "../_lib/userOptions";
 
 interface QuoteListFiltersProps {
   filters: Filters;
   onChange: (patch: Partial<Filters>) => void;
   // Takes every filter off.
   onClear: () => void;
-  // The company's users, for the Sales owner filter.
-  userOptions: { value: string; label: string }[];
+  // The company's users, for the Sales owner filter: by e-mail (userIdOptions).
+  userOptions: UserIdOption[];
 }
 
 const DAY = "YYYY-MM-DD";
@@ -49,7 +50,7 @@ function Field({ label, children }: FieldProps) {
 // keeps its room and the button says how many filters are on. Every control shows the filter
 // that is on, wherever it came from - the control itself, a view, the address.
 export function QuoteListFilters({ filters, onChange, onClear, userOptions }: QuoteListFiltersProps) {
-  const ownerOptions = [{ value: "me", label: "Me" }, { value: NO_OWNER, label: "No owner" }, ...userOptions];
+  const ownerOptions: UserIdOption[] = [{ value: "me", label: "Me" }, { value: NO_OWNER, label: "No owner" }, ...userOptions];
   // An owner the users do not name - they are still loading, or the user is gone - reads "…",
   // not as the id the address carries.
   if (filters.owner && !ownerOptions.some((option) => option.value === filters.owner)) ownerOptions.push({ value: filters.owner, label: "…" });
@@ -84,7 +85,8 @@ export function QuoteListFilters({ filters, onChange, onClear, userOptions }: Qu
             showSearch
             allowClear
             placeholder="All sales owners"
-            optionFilterProp="label"
+            filterOption={matchesUserOption}
+            optionRender={(option) => <UserOptionLabel label={option.label} name={option.data.name} />}
             value={filters.mineOnly ? "me" : filters.owner}
             // "Me" is kept as such, not as the user's id: a view saved with it then means "mine" for whoever opens it.
             onChange={(v?: string) => onChange({ mineOnly: v === "me" || undefined, owner: v && v !== "me" ? v : undefined })}

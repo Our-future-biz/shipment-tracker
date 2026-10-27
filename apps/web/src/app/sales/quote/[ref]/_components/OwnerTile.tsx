@@ -5,6 +5,7 @@ import { KpiTile } from "@/components/KpiTile";
 import { useUsers } from "@/hooks/useUsers";
 import type { interfaces } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { matchesUserOption, userIdOptions, UserOptionLabel, type UserIdOption } from "../../../_lib/userOptions";
 
 interface OwnerTileProps {
   quote: interfaces.SalesQuoteItem;
@@ -13,7 +14,8 @@ interface OwnerTileProps {
   onChange: (ownerUserId: string | null) => void;
 }
 
-// Who owns the quote: one of the company's users. How far the signed-in user may change that is
+// Who owns the quote: one of the company's users, shown by e-mail (typing a name or an e-mail finds
+// them; the quote stores the user). How far the signed-in user may change that is
 // the server's answer (permissions.canChangeOwner) - a manager reassigns freely, the owner may
 // hand the quote over or give it up, anybody may take a quote that belongs to no user, and a
 // colleague's quote can only be looked at. A change is asked of the server at once; the tile
@@ -30,9 +32,9 @@ export function OwnerTile({
   const unlinked = !quote.ownerUserId && quote.ownerLabel ? `${quote.ownerLabel} (not linked to a user)` : "";
 
   if (right === "any" || right === "own") {
-    // Named as Sales names a user everywhere (apps/api/services/quotes/services/userNames.ts).
-    const options = users.map((u) => ({ value: u.id, label: u.displayName || u.email }));
-    // The owner stays selectable by name while the users load, and when they are no longer among them.
+    const options: UserIdOption[] = userIdOptions(users);
+    // The owner stays selectable as the server names them (ownerName) while the users load, and when
+    // they are no longer among them.
     if (quote.ownerUserId && !users.some((u) => u.id === quote.ownerUserId)) {
       options.unshift({ value: quote.ownerUserId, label: quote.ownerName });
     }
@@ -48,7 +50,9 @@ export function OwnerTile({
             className="flex-1 min-w-0"
             aria-label="Sales owner"
             placeholder="Select a user"
-            optionFilterProp="label"
+            filterOption={matchesUserOption}
+            optionRender={(option) => <UserOptionLabel label={option.label} name={option.data.name} />}
+            popupMatchSelectWidth={260}
             loading={changing}
             disabled={changing}
             value={quote.ownerUserId ?? undefined}

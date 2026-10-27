@@ -46,6 +46,7 @@ import type { SettableQuoteStatus } from "../_lib/types";
 import type { StoredCompanyDetails } from "../_lib/companyDetails";
 import { QUOTE_STATUS_MAP, SETTABLE_QUOTE_STATUSES } from "../_lib/types";
 import { printQuote } from "../_lib/printQuote";
+import { matchesUserOption, userIdOptions, UserOptionLabel } from "../_lib/userOptions";
 import { PRINT_WINDOW_BLOCKED, exportClosesQuote } from "../_lib/exportClose";
 import { ExportCloseDialog } from "./ExportCloseDialog";
 import { quoteHref } from "../_lib/quoteHref";
@@ -203,7 +204,8 @@ export function QuotesList() {
   const savedViews = views.value;
   const exchange = useCurrentExchangeRates();
   const company = useCompanyDetails();
-  const { users } = useUsers();
+  const people = useUsers();
+  const { users } = people;
   const toast = useToast();
 
   const visibleKeys = columnSet.keys;
@@ -474,7 +476,7 @@ export function QuotesList() {
   // Export PDF: a quote that went out is printed as it is; one that has not is closed first -
   // marked as sent (Quoted) through the same request as on its page, after the user confirms.
   const printNow = (quote: SalesQuote, target?: Window | null) => {
-    const blocked = printQuote(quote.quoteNumber, quote.data, exchange, company, target);
+    const blocked = printQuote(quote.quoteNumber, quote.data, exchange, company, people, target);
     if (blocked) toast.error(`${quote.quoteNumber}: ${blocked}`);
   };
   const exportQuote = (quote: SalesQuote) => {
@@ -574,8 +576,8 @@ export function QuotesList() {
   if (isLoading) emptyText = "Loading quotes…";
   if (isError) emptyText = "Could not load quotes.";
 
-  // Named as Sales names a user everywhere (apps/api/services/quotes/services/userNames.ts).
-  const userOptions = users.map((u) => ({ value: u.id, label: u.displayName || u.email }));
+  // The company's users by e-mail, as a person is shown everywhere; found by name or e-mail.
+  const userOptions = userIdOptions(users);
 
   // The views the company saved, each with the cross that deletes it, and the way to save the
   // list as it is now. The built-in views are the pills beside the title. While the saved views
@@ -819,7 +821,8 @@ export function QuotesList() {
               className="w-full"
               placeholder="Select a user"
               aria-label="Sales owner"
-              optionFilterProp="label"
+              filterOption={matchesUserOption}
+              optionRender={(option) => <UserOptionLabel label={option.label} name={option.data.name} />}
               value={assignee}
               onChange={setAssignee}
               options={userOptions}
