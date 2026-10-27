@@ -176,6 +176,7 @@ export function ShipmentReportsTab() {
       )}
 
       <DataTable<Row>
+        resizeKey="sales:shipment-reports"
         dataSource={rows}
         columns={columns}
         rowKey="shipmentId"

@@ -375,6 +375,7 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={visibleColumns} strategy={horizontalListSortingStrategy}>
             <DataTable<QueueRow>
+              resizeKey="invoicing:billing-queue"
               components={reordering ? { header: { cell: DraggableHeaderCell } } : undefined}
               // no rows yet or a failed request: the footer then states no count
               dataSource={hasData && !isError ? shown : undefined}

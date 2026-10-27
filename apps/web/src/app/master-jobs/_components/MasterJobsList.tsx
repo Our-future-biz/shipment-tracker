@@ -197,6 +197,7 @@ export function MasterJobsList({ masterJobs, isLoading, creating, onCreate }: Ma
       </div>
 
       <DataTable<MasterJobItem>
+        resizeKey="master-jobs"
         rowKey="id"
         loading={isLoading}
         columns={columns}

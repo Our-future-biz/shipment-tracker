@@ -7,9 +7,14 @@ import { Tooltip } from "antd";
 const FADE = "[mask-image:linear-gradient(to_right,#000_calc(100%-5ch),transparent)]";
 
 interface FadeTextProps {
-  children: ReactNode;
+  children?: ReactNode;
   /** The whole value, shown after hovering 1 s; defaults to the children. */
   full?: ReactNode;
+  /**
+   * Show the whole value as its plain text: for children with a look of their own (a link, a
+   * coloured value), which would not read on the dark popup.
+   */
+  plainFull?: boolean;
   className?: string;
   style?: CSSProperties;
   /** Browser hint shown while the text fits (it would cover the full-text popup otherwise). */
@@ -20,22 +25,26 @@ interface FadeTextProps {
  * One line of text that stops at the edge of its field instead of running into the next one.
  * When it does not fit, its end fades out, and keeping the cursor on it for 1 s shows it all.
  */
-export function FadeText({ children, full, className, style, title }: FadeTextProps) {
+export function FadeText({ children, full, plainFull, className, style, title }: FadeTextProps) {
   const ref = useRef<HTMLSpanElement>(null);
   const [overflows, setOverflows] = useState(false);
+  const [text, setText] = useState("");
 
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const check = () => setOverflows(el.scrollWidth > el.clientWidth + 1);
+    const check = () => {
+      setOverflows(el.scrollWidth > el.clientWidth + 1);
+      if (plainFull) setText(el.textContent ?? "");
+    };
     check();
     const observer = new ResizeObserver(check);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [children]);
+  }, [children, plainFull]);
 
   return (
-    <Tooltip title={overflows ? (full ?? children) : null} mouseEnterDelay={1} placement="topLeft">
+    <Tooltip title={overflows ? (full ?? (plainFull ? text : children)) : null} mouseEnterDelay={1} placement="topLeft">
       <span
         ref={ref}
         className={`block min-w-0 overflow-hidden whitespace-nowrap ${overflows ? FADE : ""} ${className ?? ""}`}

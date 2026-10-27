@@ -749,6 +749,7 @@ export function QuotesList() {
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
             <SortableContext items={visibleKeys} strategy={horizontalListSortingStrategy}>
               <DataTable<SalesQuote>
+                resizeKey="sales:quotes"
                 dataSource={quotes}
                 columns={columns}
                 rowKey="quoteNumber"

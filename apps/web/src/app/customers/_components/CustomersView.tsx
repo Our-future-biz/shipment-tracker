@@ -505,6 +505,7 @@ export function CustomersView() {
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
               <SortableContext items={visibleColumns} strategy={horizontalListSortingStrategy}>
                 <DataTable<CustomerItem>
+                  resizeKey="customers"
                   components={reordering ? { header: { cell: DraggableHeaderCell } } : undefined}
                   dataSource={rows}
                   columns={columns}

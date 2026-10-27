@@ -14,6 +14,8 @@ import { TOOLBAR_BUTTON_CLASS, activeGridFilters, matchesGridFilters, type GridF
 import { downloadCsv } from "@/lib/csv";
 import { businessToday } from "@/lib/date";
 import { foldIncludes } from "@/lib/fold";
+import { useAuth } from "@/lib/auth/AuthContext";
+import { resizableColumns, useColumnWidths } from "@/hooks/useColumnWidths";
 
 // The app's grid, with the same structure as the Shipments grid: title row, toolbar
 // (actions left; search, filters, column filters, columns and export right), bulk bar
@@ -72,7 +74,7 @@ interface AppGridProps<T> {
   bulkActions?: (selected: T[], clearSelection: () => void) => ReactNode;
   /** Called with the selected rows, for actions that live outside the bulk bar. */
   onSelectionChange?: (selected: T[], clearSelection: () => void) => void;
-  /** localStorage namespace for column order / visibility. */
+  /** localStorage namespace for column order / visibility, and (per user) the column widths. */
   storageKey: string;
   exportFilePrefix: string;
   /** Hide the CSV export (toolbar + bulk bar). */
@@ -123,6 +125,10 @@ export function AppGrid<T extends object>({
       // Storage unavailable — the choice lasts until reload.
     }
   };
+
+  // Column widths the user dragged, kept per user in this browser.
+  const { user } = useAuth();
+  const { widthOf, resizeProps, resetAll: resetWidths, hasWidths } = useColumnWidths(user?.id, storageKey);
 
   const [search, setSearch] = useState("");
   const searchRef = useRef<InputRef>(null);
@@ -195,14 +201,17 @@ export function AppGrid<T extends object>({
   const visibleColumns = useMemo(() => visible.map((k) => columnMap.get(k)).filter((c): c is AppGridColumn<T> => !!c), [visible, columnMap]);
   const tableColumns = useMemo(
     () =>
-      visibleColumns.map(({ text: _text, defaultVisible: _dv, filterOptions: _fo, ...col }) => ({
-        ellipsis: true,
-        ...col,
-        // Sorting is done above on the whole list; the table only shows the arrow.
-        ...(compareOf(col as AppGridColumn<T>) ? { sorter: true, sortOrder: sort?.key === col.key ? sort.order : null } : {}),
-        onHeaderCell: () => ({ id: col.key }) as React.HTMLAttributes<HTMLTableCellElement>,
-      })),
-    [visibleColumns, sort],
+      resizableColumns(
+        visibleColumns.map(({ text: _text, defaultVisible: _dv, filterOptions: _fo, ...col }) => ({
+          ellipsis: true,
+          ...col,
+          // Sorting is done above on the whole list; the table only shows the arrow.
+          ...(compareOf(col as AppGridColumn<T>) ? { sorter: true, sortOrder: sort?.key === col.key ? sort.order : null } : {}),
+          onHeaderCell: () => ({ id: col.key }) as React.HTMLAttributes<HTMLTableCellElement>,
+        })),
+        { widthOf, resizeProps },
+      ),
+    [visibleColumns, sort, widthOf, resizeProps],
   );
 
   const totalRows = filtered.length;
@@ -300,7 +309,12 @@ export function AppGrid<T extends object>({
             content={
               <div className="w-[300px]">
                 <ColumnChecklist columns={columns} visible={visible} onChange={setVisible} />
-                <div className="flex justify-end">
+                <div className="flex justify-end gap-3">
+                  {hasWidths && (
+                    <Button size="small" type="link" onClick={resetWidths} title="Put every column back to its default width" className="px-0">
+                      Reset widths
+                    </Button>
+                  )}
                   <Button size="small" type="link" onClick={() => setVisible(defaultVisible)} className="px-0">
                     Reset to default
                   </Button>

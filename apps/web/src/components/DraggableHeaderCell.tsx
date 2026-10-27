@@ -6,7 +6,7 @@ import { CSS } from "@dnd-kit/utilities";
 
 // A table header cell the user can drag to reorder columns (antd Table `components.header.cell`);
 // the column's id comes from its onHeaderCell(). Cells without an id are plain headers.
-// A column that also gets `onResizeWidth` has a handle on its right edge: dragged, it sets the
+// A column that also gets `onResizeWidth` (with an id or without) has a handle on its right edge: dragged, it sets the
 // column's width; double-clicked, `onResetWidth` gives the column its own width back.
 type DraggableHeaderCellProps = ThHTMLAttributes<HTMLTableCellElement> & {
   id?: string;
@@ -18,7 +18,15 @@ type DraggableHeaderCellProps = ThHTMLAttributes<HTMLTableCellElement> & {
 export function DraggableHeaderCell({ id, style, className, onResizeWidth, onResetWidth, children, ...rest }: DraggableHeaderCellProps) {
   const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: id ?? "" });
 
-  if (!id) return <th style={style} className={className} {...rest}>{children}</th>;
+  const handle = onResizeWidth && <ResizeHandle onResize={onResizeWidth} onReset={onResetWidth} />;
+
+  if (!id)
+    return (
+      <th style={style} className={className} {...rest}>
+        {children}
+        {handle}
+      </th>
+    );
 
   return (
     <th
@@ -31,7 +39,7 @@ export function DraggableHeaderCell({ id, style, className, onResizeWidth, onRes
       {...listeners}
     >
       {children}
-      {onResizeWidth && <ResizeHandle onResize={onResizeWidth} onReset={onResetWidth} />}
+      {handle}
     </th>
   );
 }

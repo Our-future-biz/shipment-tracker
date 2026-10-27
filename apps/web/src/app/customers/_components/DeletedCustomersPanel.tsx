@@ -128,6 +128,7 @@ export function DeletedCustomersPanel() {
       </div>
 
       <DataTable<DeletedCustomerItem>
+        resizeKey="customers:deleted"
         dataSource={rows}
         columns={columns}
         rowKey="id"

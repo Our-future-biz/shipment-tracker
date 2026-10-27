@@ -4,6 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import { Table, Select, Pagination } from "antd";
 import type { TableProps } from "antd";
 import type { SorterResult } from "antd/es/table/interface";
+import { DraggableHeaderCell } from "@/components/DraggableHeaderCell";
+import { useAuth } from "@/lib/auth/AuthContext";
+import { resizableColumns, useColumnWidths } from "@/hooks/useColumnWidths";
 
 // A column's own compare function, as antd's `sorter` may carry it.
 type Compare<T> = (a: T, b: T) => number;
@@ -35,6 +38,9 @@ type DataTableProps<T> = TableProps<T> & {
   // Without it the table pages the rows it is given by itself. No `dataSource` then means that
   // the rows are not known - still on their way, or their request failed - and no count is shown.
   server?: ServerPaging;
+  // Set, the user can drag each titled column's width, kept per user in this browser under this
+  // key. For a table as wide as its content (scroll x "max-content").
+  resizeKey?: string;
 };
 
 interface DataTableFooterProps {
@@ -82,7 +88,15 @@ export function DataTableFooter({ page, pageSize, total, counted = true, onChang
 // Shared table style used across the app: rounded card, compact rows, and a
 // bottom bar with the rows-per-page selector on the left and pagination on the
 // right — matching the shipments table.
-export function DataTable<T extends object>({ dataSource, resetKey, server, onChange, ...tableProps }: DataTableProps<T>) {
+export function DataTable<T extends object>({ dataSource, resetKey, server, onChange, resizeKey, columns, components, ...tableProps }: DataTableProps<T>) {
+  const { user } = useAuth();
+  const { widthOf, resizeProps } = useColumnWidths(user?.id, resizeKey);
+  const sizedColumns = useMemo(
+    () => (resizeKey && columns ? resizableColumns(columns, { widthOf, resizeProps }) : columns),
+    [resizeKey, columns, widthOf, resizeProps],
+  );
+  // The resize handle lives in DraggableHeaderCell; a page that has its own header cell keeps it.
+  const sizedComponents = resizeKey && !components?.header?.cell ? { ...components, header: { ...components?.header, cell: DraggableHeaderCell } } : components;
   const [ownPageSize, setOwnPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [ownPage, setOwnPage] = useState(1);
   // The column sort the user chose, applied here to ALL the rows before they are cut into pages:
@@ -121,7 +135,15 @@ export function DataTable<T extends object>({ dataSource, resetKey, server, onCh
 
   return (
     <div className="data-table bg-white border border-slate-200 rounded-2xl overflow-hidden">
-      <Table<T> {...tableProps} onChange={handleChange} size="small" dataSource={paged} pagination={false} />
+      <Table<T>
+        {...tableProps}
+        columns={sizedColumns}
+        components={sizedComponents}
+        onChange={handleChange}
+        size="small"
+        dataSource={paged}
+        pagination={false}
+      />
       <DataTableFooter
         className="px-4 py-3 border-t border-slate-100"
         page={safePage}
