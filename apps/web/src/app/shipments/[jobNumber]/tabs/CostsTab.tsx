@@ -161,9 +161,9 @@ export function CostsTab({ shipment }: CostsTabProps) {
   const [quoteInput, setQuoteInput] = useState("");
   const [quoteLoading, setQuoteLoading] = useState(false);
   // the Copy from quote dialog
-  const [quoteModal, setQuoteModal] = useState<null | "buy" | "sell">(null);
+  const [quoteModal, setQuoteModal] = useState(false);
   const [quoteErr, setQuoteErr] = useState("");
-  // The server refused because this quote's lines are on that side already: the next try says to copy them again.
+  // The server refused because this quote's lines are on both sides already: the next try says to copy them again.
   const [quoteAgain, setQuoteAgain] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   /* Row locking: a filled row turns read-only once left, a double-click opens it again.
@@ -454,19 +454,18 @@ export function CostsTab({ shipment }: CostsTabProps) {
   /* ── Copy from quote (mockup: openQuoteModal / doQuoteImport) ──
      The reference is typed in a dialog. The quote a shipment was sold from is the one in its
      Sales Number, so the dialog starts with that. */
-  const openQuoteModal = (target: "buy" | "sell") => {
+  const openQuoteModal = () => {
     const salesNumber = (shipment.salesNumber ?? "").trim();
     if (isSalesQuoteRef(salesNumber)) setQuoteInput(salesNumber);
     setQuoteErr("");
     setQuoteAgain(false);
-    setQuoteModal(target);
+    setQuoteModal(true);
   };
 
   // The server copies the lines of the quote as it is stored - one row per line, each in its own
-  // currency - to the side of the card the dialog was opened from.
+  // currency - to both sides: its buying lines to buying, its selling lines to selling. A side
+  // that holds the quote's lines already is left as it is.
   const importQuoteCosts = async () => {
-    const target = quoteModal;
-    if (!target) return;
     // The whole reference, variant suffix included: QCZ...-2 is another quote than QCZ...
     const quoteNumber = quoteInput.trim();
     if (!quoteNumber) { setQuoteErr("Enter the quotation reference."); return; }
@@ -474,16 +473,21 @@ export function CostsTab({ shipment }: CostsTabProps) {
     setQuoteLoading(true);
     setQuoteErr("");
     try {
-      const copied = await api.invoicing.invoicingImportQuote(shipment.id, { quoteNumber, target, force: quoteAgain || undefined });
-      const rows = target === "buy" ? copied.buying : copied.selling;
-      const side = target === "buy" ? "buying" : "selling";
+      const copied = await api.invoicing.invoicingImportQuote(shipment.id, { quoteNumber, target: "both", force: quoteAgain || undefined });
       invalidate();
-      if (rows) message.success(`Copied ${rows} ${side} cost line${rows === 1 ? "" : "s"} from ${quoteNumber}`);
-      else message.info(`${quoteNumber} has no ${side} cost lines`);
-      setQuoteModal(null);
+      const counts = [
+        copied.buying ? `${copied.buying} buying` : "",
+        copied.selling ? `${copied.selling} selling` : "",
+      ].filter(Boolean);
+      const kept = copied.alreadyCopied?.length ? ` - its ${copied.alreadyCopied.join(" and ")} costs were here already` : "";
+      const lines = copied.buying + copied.selling;
+      if (lines) message.success(`Copied ${counts.join(" and ")} cost line${lines === 1 ? "" : "s"} from ${quoteNumber}${kept}`);
+      else message.info(`${quoteNumber} has no cost lines`);
+      setQuoteModal(false);
     } catch (err) {
-      // A quote is copied to a side once. Copying it again has to be asked for: the dialog stays,
-      // says so, and its next try is that request. (A quote not Won is refused for good.)
+      // A quote is copied to a side once; with both sides holding it, copying it again has to be
+      // asked for: the dialog stays, says so, and its next try is that request. (A quote not Won
+      // is refused for good.)
       if (isAPIError(err) && err.code === ErrCode.FailedPrecondition && err.details?.alreadyCopied === true) setQuoteAgain(true);
       // The server's own sentence: it names the reference that was not found or already copied.
       const reason = apiErrorMessage(err);
@@ -523,7 +527,8 @@ export function CostsTab({ shipment }: CostsTabProps) {
             <HeadBtn onClick={guarded("Could not restore the row", undoBuy)} disabled={!undoBuyCount} title="Undo the last deleted cost" ariaLabel="Undo the last deleted buying cost">
               <UndoOutlined />
             </HeadBtn>
-            <HeadBtn onClick={() => openQuoteModal("buy")}>
+            {/* Copies the quote's buying and selling costs both. */}
+            <HeadBtn onClick={openQuoteModal}>
               Copy from quote
             </HeadBtn>
             <HeadBtn onClick={() => addBuy.mutate()}>Add buying cost</HeadBtn>
@@ -789,9 +794,6 @@ export function CostsTab({ shipment }: CostsTabProps) {
           <>
             <HeadBtn onClick={guarded("Could not restore the row", undoSell)} disabled={!undoSellCount} title="Undo the last deleted cost" ariaLabel="Undo the last deleted selling cost">
               <UndoOutlined />
-            </HeadBtn>
-            <HeadBtn onClick={() => openQuoteModal("sell")}>
-              Copy from quote
             </HeadBtn>
             <HeadBtn onClick={guarded("Could not copy from buying", copyFromBuying)}>Copy from buying</HeadBtn>
             <HeadBtn onClick={() => addSell.mutate({})}>Add selling cost</HeadBtn>
@@ -1201,8 +1203,8 @@ export function CostsTab({ shipment }: CostsTabProps) {
 
       {/* the Copy from quote dialog */}
       <Modal
-        open={quoteModal !== null}
-        onCancel={() => { setQuoteModal(null); setQuoteErr(""); }}
+        open={quoteModal}
+        onCancel={() => { setQuoteModal(false); setQuoteErr(""); }}
         onOk={importQuoteCosts}
         okText={quoteAgain ? "Copy again" : "Import"}
         cancelText="Cancel"
@@ -1211,9 +1213,8 @@ export function CostsTab({ shipment }: CostsTabProps) {
         width={430}
       >
         <p className="text-[13px] text-slate-600 mb-3.5">
-          {quoteModal === "sell"
-            ? "Enter the reference of a Won quotation. All selling costs will be imported from the quote."
-            : "Enter the reference of a Won quotation. All buying costs will be imported from the quote."}
+          Enter the reference of a Won quotation. Its buying and selling costs will be imported to the
+          buying and selling costs here.
         </p>
         <Input
           autoFocus

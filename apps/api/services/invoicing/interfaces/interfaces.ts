@@ -500,6 +500,8 @@ export type QuoteImportTarget = "buy" | "sell" | "both";
 export interface QuoteImportResult {
   buying: number;
   selling: number;
+  /** The sides left as they were because they hold rows of the quote already (not copied again). */
+  alreadyCopied?: ("buying" | "selling")[];
 }
 
 /** A cost line pushed by Trucking (a price line of a consignment or a trip). */

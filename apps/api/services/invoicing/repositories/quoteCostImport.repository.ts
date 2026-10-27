@@ -18,9 +18,10 @@ class QuoteCostImportRepository {
    * transaction: the rows are added after the ones the shipment has, each marked with the quote
    * it came from, and the shipment's quote reference is set.
    *
-   * Null, with nothing written, when a side that is asked for already holds rows of that quote
-   * and `again` is not set. An advisory lock on the shipment makes that check hold for two
-   * copies started at the same moment: the second waits and then finds the rows of the first.
+   * Without `again`, a side that already holds rows of that quote is left as it is - named in
+   * `alreadyCopied` - and the other side is still copied; null, with nothing written, when that
+   * leaves nothing to copy. An advisory lock on the shipment makes that check hold for two copies
+   * started at the same moment: the second waits and then finds the rows of the first.
    */
   async copy(
     companyId: string,
@@ -28,14 +29,20 @@ class QuoteCostImportRepository {
     quoteNumber: string,
     rows: { buying?: QuoteBuyingRow[]; selling?: QuoteSellingRow[] },
     again: boolean,
-  ): Promise<{ buying: number; selling: number } | null> {
+  ): Promise<{ buying: number; selling: number; alreadyCopied?: ("buying" | "selling")[] } | null> {
     return db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`import-quote:${shipmentId}`}))`);
 
       const side = (table: CostTable) => this.sideOf(tx, table, companyId, shipmentId, quoteNumber);
-      const buying = rows.buying && { rows: rows.buying, ...(await side(invoiceCostTable)) };
-      const selling = rows.selling && { rows: rows.selling, ...(await side(invoiceSellingCostTable)) };
-      if (!again && (buying?.copied || selling?.copied)) return null;
+      const asked = {
+        buying: rows.buying && { rows: rows.buying, ...(await side(invoiceCostTable)) },
+        selling: rows.selling && { rows: rows.selling, ...(await side(invoiceSellingCostTable)) },
+      };
+      // The sides that hold rows of the quote already, which are copied again only when told to.
+      const alreadyCopied: ("buying" | "selling")[] = again ? [] : (["buying", "selling"] as const).filter((s) => asked[s]?.copied);
+      const buying = alreadyCopied.includes("buying") ? undefined : asked.buying;
+      const selling = alreadyCopied.includes("selling") ? undefined : asked.selling;
+      if (alreadyCopied.length && !buying?.rows.length && !selling?.rows.length) return null;
 
       const from = { companyId, shipmentId, sourceQuoteNumber: quoteNumber };
       if (buying?.rows.length) {
@@ -58,7 +65,7 @@ class QuoteCostImportRepository {
           target: [billingSettingsTable.companyId, billingSettingsTable.shipmentId],
           set: { quoteRef: quoteNumber, updatedAt: new Date(), deletedAt: null },
         });
-      return { buying: buying?.rows.length ?? 0, selling: selling?.rows.length ?? 0 };
+      return { buying: buying?.rows.length ?? 0, selling: selling?.rows.length ?? 0, ...(alreadyCopied.length > 0 && { alreadyCopied }) };
     });
   }
 

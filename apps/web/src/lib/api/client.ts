@@ -13689,6 +13689,10 @@ export namespace interfaces {
     export interface QuoteImportResult {
         buying: number
         selling: number
+        /**
+         * The sides left as they were because they hold rows of the quote already (not copied again).
+         */
+        alreadyCopied?: ("buying" | "selling")[]
     }
 
     /**

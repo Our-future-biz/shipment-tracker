@@ -160,13 +160,31 @@ describe("copy", () => {
     ]);
   });
 
-  it("is null, and writes nothing at all, when a side that is asked for already holds rows of the quote", async () => {
-    // Postgres reports a count as text. The buying side is clean, the selling side is not.
+  it("leaves a side that already holds rows of the quote as it is, names it, and still copies the other side", async () => {
+    // Postgres reports a count as text. The buying side holds the quote's rows, the selling side does not.
+    fake.state.sides = [
+      { copied: "2", last: 1 },
+      { copied: "0", last: null },
+    ];
+    await expect(copy({ buying: BUYING, selling: SELLING })).resolves.toEqual({ buying: 0, selling: 1, alreadyCopied: ["buying"] });
+    expect(steps()).toEqual(["begin", "lock", "read invoice_cost", "read invoice_selling_cost", "insert invoice_selling_cost", "upsert billing_settings", "commit"]);
+  });
+
+  it("is null, and writes nothing at all, when every side that is asked for already holds rows of the quote", async () => {
+    fake.state.sides = [
+      { copied: "2", last: 1 },
+      { copied: "1", last: 0 },
+    ];
+    await expect(copy({ buying: BUYING, selling: SELLING })).resolves.toBeNull();
+    expect(steps()).toEqual(["begin", "lock", "read invoice_cost", "read invoice_selling_cost", "commit"]);
+  });
+
+  it("is null too when the side left to copy has no lines in the quote", async () => {
     fake.state.sides = [
       { copied: "0", last: 1 },
       { copied: "2", last: 1 },
     ];
-    await expect(copy({ buying: BUYING, selling: SELLING })).resolves.toBeNull();
+    await expect(copy({ buying: [], selling: SELLING })).resolves.toBeNull();
     expect(steps()).toEqual(["begin", "lock", "read invoice_cost", "read invoice_selling_cost", "commit"]);
   });
 
