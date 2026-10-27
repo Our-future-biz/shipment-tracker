@@ -42,6 +42,8 @@ interface Props {
   changingOwner: boolean;
   // Asks the server for another owner, or for none.
   onChangeOwner: (ownerUserId: string | null) => void;
+  // The quote is closed: it keeps its owner (the server refuses another), so the tile only shows them.
+  ownerLocked: boolean;
   // The quote's price tile, shown first in the row of tiles.
   price: ReactNode;
 }
@@ -72,7 +74,7 @@ function validityNote(validUntil: string | null, today: string): string {
 // The moves the margin floor stops until a manager approves the margin.
 const SENDING_STATUSES: readonly string[] = ["ready_to_send", "quoted"];
 
-export function LifecycleBar({ quote, sendBlocked, onChange, hrefOf, changingOwner, onChangeOwner, price }: Props) {
+export function LifecycleBar({ quote, sendBlocked, onChange, hrefOf, changingOwner, onChangeOwner, ownerLocked, price }: Props) {
   const data = asData(quote.data);
   // The status that counts: Expired for a Quoted or Feedback quote whose validity has passed.
   const current = quote.effectiveStatus;
@@ -205,8 +207,7 @@ export function LifecycleBar({ quote, sendBlocked, onChange, hrefOf, changingOwn
               <span className="text-slate-500">
                 — {expiredByDate && `its validity ended on ${formatDate(quote.validUntil)}. `}
                 Change its status to {anyOf.format(targetLabels)}
-                {revisable && ", revise it with Revise above"}
-                {expiredByDate && ", or set a later Valid until under Shipping terms"}.
+                {revisable && ", or revise it with Revise above - a later Valid until is set on the revision"}.
               </span>
             ) : (
               <span className="text-slate-500">— quote is closed</span>
@@ -278,7 +279,7 @@ export function LifecycleBar({ quote, sendBlocked, onChange, hrefOf, changingOwn
             </div>
           }
         />
-        <OwnerTile quote={quote} changing={changingOwner} onChange={onChangeOwner} />
+        <OwnerTile quote={quote} changing={changingOwner} locked={ownerLocked} onChange={onChangeOwner} />
       </div>
 
       {/* The dialog of a status change, in the frame of every Sales dialog. While the request is on

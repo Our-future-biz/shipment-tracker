@@ -433,9 +433,10 @@ export function revisionOf(source: LifecycleState, sourceReference: string, ctx:
 }
 
 /**
- * A new "Valid until" date, or none. A decided quote keeps the validity it was decided with.
- * The history gets a line only once the customer has the quote: before the first sending the
- * date is part of preparing it.
+ * A new "Valid until" date, or none. A closed quote (PRICING_CLOSED - sent, expired or decided)
+ * keeps the validity the customer was given: a new date is a revision of it. The history gets a
+ * line only once the customer has the quote: before the first sending the date is part of
+ * preparing it.
  */
 export function applyValidity(
   state: LifecycleState,
@@ -444,8 +445,8 @@ export function applyValidity(
   { wonRevision = false }: { wonRevision?: boolean } = {},
 ): LifecycleChange<TimelineEntry | null> {
   // The revision of a Won quote is made to get a new validity: it may.
-  if ((state.status === "won" && !wonRevision) || state.status === "lost") {
-    throw new LifecycleError("not_allowed", `the validity of a ${label(state.status)} quote cannot be changed`);
+  if (PRICING_CLOSED.includes(state.status) && !(state.status === "won" && wonRevision)) {
+    throw new LifecycleError("not_allowed", `the validity of a ${label(state.status)} quote cannot be changed - revise it`);
   }
   // Only what quote_lifecycle_of reads back as the same date.
   if (validUntil !== null && (!isRealYmd(validUntil) || validUntil < "2000-01-01" || validUntil > "2099-12-31")) {
@@ -463,17 +464,23 @@ export function applyValidity(
 
 /**
  * A new owner, or nobody. The owner is a user; the label old readers see is that user's e-mail -
- * a person is recorded by e-mail everywhere - so one person is spelled one way. Naming the owner
- * the quote already has is no change.
+ * a person is recorded by e-mail everywhere - so one person is spelled one way. A closed quote
+ * (PRICING_CLOSED) keeps its owner, as it keeps its validity: another owner is a revision of it.
+ * Naming the owner the quote already has is no change.
  */
 export function applyOwner(
   state: LifecycleState,
   owner: { userId: string; email: string } | null,
   ctx: LifecycleContext,
+  { wonRevision = false }: { wonRevision?: boolean } = {},
 ): LifecycleChange {
   const ownerUserId = owner?.userId ?? null;
   const ownerLabel = ownerLabelOf(owner?.email);
+  // Before the refusal: a bulk assign over quotes that already have that owner tells them apart.
   if (ownerUserId === state.ownerUserId && ownerLabel === state.ownerLabel) return { changed: false };
+  if (PRICING_CLOSED.includes(state.status) && !(state.status === "won" && wonRevision)) {
+    throw new LifecycleError("not_allowed", `the owner of a ${label(state.status)} quote cannot be changed - revise it`);
+  }
 
   const was = state.ownerLabel ? ` (was ${state.ownerLabel})` : "";
   const entry = { ...entryBy("owner", ctx), comment: owner ? `Owner: ${ownerLabel}${was}` : `No owner${was}` };

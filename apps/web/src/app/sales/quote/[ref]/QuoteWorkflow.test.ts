@@ -14,14 +14,14 @@ describe("Export PDF on the quote page", () => {
   });
 });
 
-// A quote that went out is locked whole (every step inside a disabled fieldset), but its validity
-// is the server's, not the document's: a Quoted, Feedback or Expired quote takes a new Valid until
-// (applyValidity refuses won and lost only), and the lifecycle band sends people to Shipping terms
-// for it. So the Valid until row is the step's open part, rendered after the lock.
+// A quote that went out is locked whole (every step inside a disabled fieldset), its validity too:
+// a closed quote keeps the Valid until the customer was given (applyValidity refuses another) and a
+// new date is a revision. So the Valid until row is part of the Shipping terms step's content, and
+// its picker names no `disabled` of its own - antd's own `false` would override the lock.
 describe("Valid until on a closed quote", () => {
-  it("stays usable: the row is the Shipping terms step's open part, outside the locked fieldset", () => {
+  it("is locked with the rest of the step: no part of a step is rendered outside the locked fieldset", () => {
     const source = readFileSync(join(__dirname, "QuoteWorkflow.tsx"), "utf8");
-    expect(source).toMatch(/open: \(\s*<InfoRow label="Valid until">/);
-    expect(source).toMatch(/<\/ConfigProvider>\s*\{shown\.open\}/);
+    expect(source).toMatch(/<InfoRow label="Valid until">\s*<DatePicker(?![^>]*disabled=)[^>]*aria-label="Valid until"/);
+    expect(source).not.toMatch(/shown\.open/);
   });
 });

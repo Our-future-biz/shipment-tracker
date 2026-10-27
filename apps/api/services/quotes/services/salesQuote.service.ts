@@ -955,7 +955,7 @@ class SalesQuoteService {
         throw APIError.permissionDenied("only a manager can reassign this quote");
       }
       // The owner is recorded by e-mail, as a person picked anywhere is.
-      const change = applyOwner(state, owner && { userId: owner.id, email: owner.email }, ctx);
+      const change = ruled(() => applyOwner(state, owner && { userId: owner.id, email: owner.email }, ctx, { wonRevision: isWonRevision(quote.status, quote.data) }));
       if (!change.changed) return { quote, changed: false };
       const written = await salesQuoteRepository.writeLifecycle(tx, quote, { state: change.state, entries: [change.entry] });
       return { quote: written, changed: true };

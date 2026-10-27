@@ -11,6 +11,8 @@ interface OwnerTileProps {
   quote: interfaces.SalesQuoteItem;
   // The change is on its way: the control waits for the server's answer.
   changing: boolean;
+  // A closed quote keeps its owner, whoever looks: another owner is a revision of it.
+  locked: boolean;
   onChange: (ownerUserId: string | null) => void;
 }
 
@@ -18,11 +20,12 @@ interface OwnerTileProps {
 // them; the quote stores the user). How far the signed-in user may change that is
 // the server's answer (permissions.canChangeOwner) - a manager reassigns freely, the owner may
 // hand the quote over or give it up, anybody may take a quote that belongs to no user, and a
-// colleague's quote can only be looked at. A change is asked of the server at once; the tile
-// shows what the server stored.
+// colleague's quote can only be looked at. A closed quote's owner can only be looked at too. A
+// change is asked of the server at once; the tile shows what the server stored.
 export function OwnerTile({
   quote,
   changing,
+  locked,
   onChange,
 }: OwnerTileProps) {
   const { users } = useUsers();
@@ -31,7 +34,7 @@ export function OwnerTile({
   // A name from before owners were users, which fitted none of them.
   const unlinked = !quote.ownerUserId && quote.ownerLabel ? `${quote.ownerLabel} (not linked to a user)` : "";
 
-  if (right === "any" || right === "own") {
+  if (!locked && (right === "any" || right === "own")) {
     const options: UserIdOption[] = userIdOptions(users);
     // The owner stays selectable as the server names them (ownerName) while the users load, and when
     // they are no longer among them.
@@ -74,7 +77,7 @@ export function OwnerTile({
     <span className="font-normal text-slate-400">No owner</span>
   );
 
-  if (right === "claim") {
+  if (!locked && right === "claim") {
     return (
       <KpiTile
         label="Sales owner"
@@ -89,6 +92,6 @@ export function OwnerTile({
     );
   }
 
-  const managersOnly = "Only a manager can reassign this quote";
-  return <KpiTile label="Sales owner" size="text" value={name} hint={<span title={managersOnly}>{managersOnly}</span>} />;
+  const why = locked ? "A closed quote keeps its owner - revise it" : "Only a manager can reassign this quote";
+  return <KpiTile label="Sales owner" size="text" value={name} hint={<span title={why}>{why}</span>} />;
 }

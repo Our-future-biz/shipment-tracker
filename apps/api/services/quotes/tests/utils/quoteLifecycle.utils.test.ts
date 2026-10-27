@@ -651,11 +651,11 @@ describe("applyValidity", () => {
   });
 
   it("writes a history line once the customer has the quote", () => {
-    const quoted = state({ status: "quoted", sentAt: SENT, firstSentAt: SENT, validUntil: "2026-10-25" });
-    const result = applyValidity(quoted, "2026-11-01", ctx);
+    const revised = state({ status: "revised", sentAt: SENT, firstSentAt: SENT, validUntil: "2026-10-25" });
+    const result = applyValidity(revised, "2026-11-01", ctx);
     expect(result).toEqual({
       changed: true,
-      state: { ...quoted, validUntil: "2026-11-01" },
+      state: { ...revised, validUntil: "2026-11-01" },
       entry: { kind: "validity", at: "2026-10-10T10:00:00.000Z", user: "martin@forwarder.cz", userId: "user-1", comment: "Valid until 2026-11-01 (was 2026-10-25)" },
     });
   });
@@ -675,26 +675,26 @@ describe("applyValidity", () => {
   });
 
   it("can take the date away", () => {
-    const quoted = state({ status: "quoted", sentAt: SENT, firstSentAt: SENT, validUntil: "2026-10-25" });
-    const result = applyValidity(quoted, null, ctx);
+    const revised = state({ status: "revised", sentAt: SENT, firstSentAt: SENT, validUntil: "2026-10-25" });
+    const result = applyValidity(revised, null, ctx);
     expect(result.changed && result.state.validUntil).toBeNull();
     expect(result.changed && result.entry?.comment).toBe("No validity date (was 2026-10-25)");
   });
 
   it("is no change when the date is the one the quote has", () => {
-    expect(applyValidity(state({ status: "quoted", firstSentAt: SENT, validUntil: "2026-10-25" }), "2026-10-25", ctx)).toEqual({ changed: false });
+    expect(applyValidity(state({ status: "revised", firstSentAt: SENT, validUntil: "2026-10-25" }), "2026-10-25", ctx)).toEqual({ changed: false });
     expect(applyValidity(state(), null, ctx)).toEqual({ changed: false });
   });
 
-  it("brings an expired quote back by extending it", () => {
-    const expired = state({ status: "quoted", sentAt: SENT, firstSentAt: SENT, validUntil: YESTERDAY });
-    const result = applyValidity(expired, "2026-11-10", ctx);
-    expect(result.changed && effectiveStatus(result.state.status, result.state.validUntil, TODAY)).toBe("quoted");
-  });
-
-  it("is refused on a decided quote", () => {
-    expect(() => applyValidity(state({ status: "won" }), "2026-11-01", ctx)).toThrow("the validity of a Won quote cannot be changed");
-    expect(refusal(() => applyValidity(state({ status: "lost" }), null, ctx))).toBe("not_allowed");
+  it("is refused on a closed quote, sent, expired or decided: a new date is a revision", () => {
+    expect(() => applyValidity(state({ status: "quoted", firstSentAt: SENT }), "2026-11-01", ctx)).toThrow("the validity of a Quoted quote cannot be changed - revise it");
+    expect(() => applyValidity(state({ status: "won" }), "2026-11-01", ctx)).toThrow("the validity of a Won quote cannot be changed - revise it");
+    for (const status of ["quoted", "feedback", "won", "lost", "expired", "replaced"]) {
+      expect(refusal(() => applyValidity(state({ status, firstSentAt: SENT }), "2026-11-01", ctx)), status).toBe("not_allowed");
+      expect(refusal(() => applyValidity(state({ status, firstSentAt: SENT }), null, ctx)), status).toBe("not_allowed");
+    }
+    // Expired by its date, still stored as Quoted: it is not brought back by a later date.
+    expect(refusal(() => applyValidity(state({ status: "quoted", firstSentAt: SENT, validUntil: YESTERDAY }), "2026-11-10", ctx))).toBe("not_allowed");
   });
 
   it("accepts the first and the last day the database reads back", () => {
@@ -713,7 +713,7 @@ describe("applyValidity", () => {
 
 describe("applyOwner", () => {
   const jana = { userId: "user-2", email: "jana@forwarder.cz" };
-  const martins = state({ status: "quoted", sentAt: SENT, firstSentAt: SENT, ownerUserId: "user-1", ownerLabel: "martin@forwarder.cz" });
+  const martins = state({ status: "revised", sentAt: SENT, firstSentAt: SENT, ownerUserId: "user-1", ownerLabel: "martin@forwarder.cz" });
 
   it("hands the quote to a user under that user's e-mail, with a history line", () => {
     expect(applyOwner(martins, jana, ctx)).toEqual({
@@ -765,10 +765,28 @@ describe("applyOwner", () => {
     expect(long.changed && long.state.ownerLabel).toHaveLength(200);
   });
 
-  it("works on a decided quote too, and mirrors into the key old readers know", () => {
-    const lost = state({ status: "lost", lostReason: "Pricing: Price too high", lostComment: "too late", decidedAt: SENT, ownerUserId: "user-1", ownerLabel: "martin@forwarder.cz" });
-    const result = applyOwner(lost, jana, ctx);
-    expect(result.changed && mirrorOf(result.state).set).toMatchObject({ salesOwner: "jana@forwarder.cz", lostComment: "too late", lostReason: "Pricing: Price too high" });
+  it("mirrors into the key old readers know", () => {
+    const result = applyOwner(martins, jana, ctx);
+    expect(result.changed && mirrorOf(result.state).set).toMatchObject({ salesOwner: "jana@forwarder.cz" });
+  });
+
+  it("is refused on a closed quote, sent, expired or decided: another owner is a revision", () => {
+    for (const status of ["quoted", "feedback", "won", "lost", "expired", "replaced"]) {
+      const closed = { ...martins, status };
+      expect(refusal(() => applyOwner(closed, jana, ctx)), status).toBe("not_allowed");
+      expect(refusal(() => applyOwner(closed, null, ctx)), status).toBe("not_allowed");
+    }
+    expect(() => applyOwner({ ...martins, status: "quoted" }, jana, ctx)).toThrow("the owner of a Quoted quote cannot be changed - revise it");
+  });
+
+  it("is still no change on a closed quote that already has that owner", () => {
+    expect(applyOwner({ ...martins, status: "quoted" }, { userId: "user-1", email: "martin@forwarder.cz" }, ctx)).toEqual({ changed: false });
+  });
+
+  it("may be changed on the revision of a Won quote; another Won quote may not", () => {
+    const won = { ...martins, status: "won", decidedAt: SENT };
+    expect(applyOwner(won, jana, ctx, { wonRevision: true })).toMatchObject({ changed: true, state: { ownerUserId: "user-2" } });
+    expect(refusal(() => applyOwner(won, jana, ctx))).toBe("not_allowed");
   });
 });
 

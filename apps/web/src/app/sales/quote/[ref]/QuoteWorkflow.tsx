@@ -611,9 +611,6 @@ export function QuoteWorkflow() {
   const sectionStatus = (key: SectionKey): SectionStatus => (done[key] ? "completed" : partial[key] ? "in-progress" : "empty");
 
   const shownValidity = pendingValidity === undefined ? quote.validUntil : pendingValidity;
-  // The server refuses another validity for a quote that is decided, whoever asks - except the
-  // revision of a Won quote, which is made to get a new one.
-  const decided = (quote.status === "won" && !wonRevision) || quote.status === "lost";
 
   const airFreight = draft.serviceType === "Air";
 
@@ -802,9 +799,8 @@ export function QuoteWorkflow() {
   }
 
   // `note` stands at the foot of a step, left of its "Save & continue".
-  // A step's `content` is locked whole on a closed quote; its `open` part stays usable there (the
-  // validity, which is the server's, not the document's).
-  const sections: { key: SectionKey; title: string; subtitle: string; content: ReactNode; open?: ReactNode; note?: ReactNode }[] = [
+  // A step's `content` is locked whole on a closed quote.
+  const sections: { key: SectionKey; title: string; subtitle: string; content: ReactNode; note?: ReactNode }[] = [
     {
       key: "customer",
       title: "Customer details",
@@ -1430,32 +1426,26 @@ export function QuoteWorkflow() {
           <InfoRow label="Subject to">
             <Input.TextArea size="small" aria-label="Subject to" rows={3} value={draft.shippingSubjectTo ?? ""} onChange={(e) => set({ shippingSubjectTo: e.target.value })} />
           </InfoRow>
-        </div>
-      ),
-      // The quote's one validity date, as the lifecycle band and the document show it. It decides
-      // when the quote expires, so the server keeps it: picking or clearing it here changes it at
-      // once, and on a quote the customer already has that goes into its history. It is no part
-      // of the document, so it stays open on a closed quote - the lifecycle band sends people here
-      // to move the date of an expired one. A won or lost quote keeps the validity it was decided
-      // with: the picker is locked and says why, instead of offering a change the server refuses.
-      open: (
-        <InfoRow label="Valid until">
-          <span className="inline-block" title={decided ? "The validity of a won or lost quote cannot be changed" : undefined}>
+          {/* The quote's one validity date, as the lifecycle band and the document show it. It decides
+              when the quote expires, so the server keeps it: picking or clearing it here changes it at
+              once, and on a quote the customer already has that goes into its history. A closed quote
+              keeps the validity it was given (the server refuses another): it is locked with the rest
+              of the step, and a new date is a revision. */}
+          <InfoRow label="Valid until">
             <DatePicker
               size="small"
               className="w-44"
               aria-label="Valid until"
               format={DATE_FORMATS}
               placeholder="Select expiry date"
-              disabled={decided}
               value={shownValidity ? dayjs(shownValidity) : null}
               onChange={(date) => {
                 const picked = date ? date.format(STORED_DATE) : null;
                 if (picked !== shownValidity) changeValidity(picked);
               }}
             />
-          </span>
-        </InfoRow>
+          </InfoRow>
+        </div>
       ),
     },
   ];
@@ -1665,6 +1655,7 @@ export function QuoteWorkflow() {
         hrefOf={hrefOf}
         changingOwner={changingOwner}
         onChangeOwner={changeOwner}
+        ownerLocked={quoteClosed}
         price={<QuotePriceTile totals={totals} profitTone={marginTone(totals)} />}
       />
 
@@ -1697,13 +1688,12 @@ export function QuoteWorkflow() {
                   />
                 )}
                 {/* Locked as a whole while closed: every control of every step, antd's and plain buttons
-                    alike - but for the step's open part, which stays usable (the validity). */}
+                    alike, the validity too. */}
                 <ConfigProvider componentDisabled={quoteClosed}>
                   <fieldset disabled={quoteClosed} className="contents">
                     {shown.content}
                   </fieldset>
                 </ConfigProvider>
-                {shown.open}
                 {(shown.note || nextSection) && (
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
                     <div className="min-w-0">{shown.note}</div>

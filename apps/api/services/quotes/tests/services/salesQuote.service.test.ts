@@ -776,7 +776,7 @@ describe("setValidity", () => {
   });
 
   it("leaves a history line under the acting user's e-mail once the quote was sent", async () => {
-    stored = quote({ status: "quoted", sentAt: SENT, firstSentAt: SENT, validUntil: "2026-10-20" });
+    stored = quote({ status: "revised", sentAt: SENT, firstSentAt: SENT, validUntil: "2026-10-20" });
     await salesQuoteService.setValidity(jana, REF, "2026-11-30");
     expect(written().entries).toEqual([
       { kind: "validity", at: NOW.toISOString(), user: "jana@forwarder.cz", userId: U_JANA, comment: "Valid until 2026-11-30 (was 2026-10-20)" },
@@ -789,7 +789,7 @@ describe("setValidity", () => {
     expect(repository.writeLifecycle).not.toHaveBeenCalled();
   });
 
-  it("refuses on a decided quote, and a date that is none as an invalid argument", async () => {
+  it("refuses on a closed quote, and a date that is none as an invalid argument", async () => {
     await expect(salesQuoteService.setValidity(martin, REF, "2026-02-31")).rejects.toMatchObject({
       code: "invalid_argument",
       message: "the validity must be a real date (YYYY-MM-DD)",
@@ -797,7 +797,12 @@ describe("setValidity", () => {
     stored = quote({ status: "won", decidedAt: SENT });
     await expect(salesQuoteService.setValidity(martin, REF, "2026-11-30")).rejects.toMatchObject({
       code: "failed_precondition",
-      message: "the validity of a Won quote cannot be changed",
+      message: "the validity of a Won quote cannot be changed - revise it",
+    });
+    stored = quote({ status: "quoted", sentAt: SENT, firstSentAt: SENT, validUntil: "2026-10-20" });
+    await expect(salesQuoteService.setValidity(martin, REF, "2026-11-30")).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: "the validity of a Quoted quote cannot be changed - revise it",
     });
     expect(repository.writeLifecycle).not.toHaveBeenCalled();
   });
@@ -1128,6 +1133,15 @@ describe("customerFacts", () => {
 
 describe("setOwner", () => {
   const denied = { code: "permission_denied", message: "only a manager can reassign this quote" };
+
+  it("refuses on a closed quote, even a manager, and writes nothing", async () => {
+    stored = quote({ status: "quoted", sentAt: SENT, firstSentAt: SENT });
+    await expect(salesQuoteService.setOwner(manager, REF, U_JANA)).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: "the owner of a Quoted quote cannot be changed - revise it",
+    });
+    expect(repository.writeLifecycle).not.toHaveBeenCalled();
+  });
 
   it("refuses somebody who is not a user of the company, before the quote is touched", async () => {
     await expect(salesQuoteService.setOwner(manager, REF, randomUUID())).rejects.toMatchObject({
