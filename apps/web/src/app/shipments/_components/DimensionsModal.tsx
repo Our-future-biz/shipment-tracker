@@ -5,6 +5,7 @@ import { rowKey } from "@/app/shipments/_lib/rowKey";
 import { Button, Input, Modal, Select, Tooltip } from "antd";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import type { ShipmentItem } from "@/hooks/useShipments";
+import { CheckPill } from "./CargoCheck";
 import {
   PACK_TYPES,
   STACKABLE_OPTIONS,
@@ -161,19 +162,6 @@ export function DimensionsModal({
       <span className={UNIT}>{unit}</span>
     </td>
   );
-  // One figure of the check against the container: what the lines add up to and what the
-  // container declares, green when they agree, red when not, grey when it declares nothing.
-  const checkPill = (label: string, m: { sum: number; declared: number; empty: boolean; ok: boolean }, decimals: number, unit: string) => {
-    const declared = !!m.declared;
-    const tone = !declared ? "bg-slate-50 text-slate-500 ring-slate-200" : m.ok ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-red-50 text-red-700 ring-red-200";
-    return (
-      <span key={label} className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs ring-1 ring-inset tabular-nums whitespace-nowrap ${tone}`}>
-        <span className="font-semibold uppercase tracking-wide text-[10px] opacity-80">{label}</span>
-        <span className="font-semibold">{fmtFixed(m.sum, decimals)}</span>
-        <span className="opacity-70">/ {declared ? fmtFixed(m.declared, decimals) : "—"} {unit}</span>
-      </span>
-    );
-  };
   const activeFilled = filledOf(active);
   const activeCheck = active.container ? checkConsistency(active.container, activeFilled) : null;
   const activeSum = dimensionTotals(activeFilled);
@@ -246,12 +234,12 @@ export function DimensionsModal({
             <table className="w-full min-w-[966px] table-fixed border-collapse [&_tbody>tr:last-child>td]:border-b-0">
               <colgroup>
                 <col className="w-[72px]" />
-                <col className="w-[76px]" />
-                <col className="w-[76px]" />
-                <col className="w-[76px]" />
-                <col className="w-[112px]" />
-                <col className="w-[112px]" />
                 <col className="w-[144px]" />
+                <col className="w-[76px]" />
+                <col className="w-[76px]" />
+                <col className="w-[76px]" />
+                <col className="w-[112px]" />
+                <col className="w-[112px]" />
                 <col />
                 <col className="w-[40px]" />
               </colgroup>
@@ -259,6 +247,9 @@ export function DimensionsModal({
                 <tr className="bg-slate-50">
                   <th scope="col" className={TH_NUM}>
                     Pcs
+                  </th>
+                  <th scope="col" className={TH_TXT}>
+                    Packages
                   </th>
                   <th scope="col" className={TH_NUM}>
                     Length <br />
@@ -281,9 +272,6 @@ export function DimensionsModal({
                     (m³)
                   </th>
                   <th scope="col" className={TH_TXT}>
-                    Packages
-                  </th>
-                  <th scope="col" className={TH_TXT}>
                     Stackability
                   </th>
                   <th scope="col" className={TH} aria-label="Actions" />
@@ -295,16 +283,6 @@ export function DimensionsModal({
                   return (
                     <tr key={rowKey(l)} className="hover:bg-slate-50/60">
                       <td className={TD_NUM}>{field(idx, "pieces")}</td>
-                      <td className={TD_NUM}>{field(idx, "lengthCm")}</td>
-                      <td className={TD_NUM}>{field(idx, "widthCm")}</td>
-                      <td className={TD_NUM}>{field(idx, "heightCm")}</td>
-                      <td className={TD_NUM}>{field(idx, "weightPerPcKg")}</td>
-                      <td className={TD_NUM}>
-                        {/* Computed, so shown as text rather than a read-only field. */}
-                        <span className={READ_NUM}>
-                          {vpc ? vpc.toFixed(3) : <span className="text-slate-300">—</span>}
-                        </span>
-                      </td>
                       <td className={TD}>
                         <Select
                           className="w-full"
@@ -314,6 +292,16 @@ export function DimensionsModal({
                           options={PACK_TYPES.map((p) => ({ value: p }))}
                           onChange={(v) => patch(idx, { packageType: v ?? "" })}
                         />
+                      </td>
+                      <td className={TD_NUM}>{field(idx, "lengthCm")}</td>
+                      <td className={TD_NUM}>{field(idx, "widthCm")}</td>
+                      <td className={TD_NUM}>{field(idx, "heightCm")}</td>
+                      <td className={TD_NUM}>{field(idx, "weightPerPcKg")}</td>
+                      <td className={TD_NUM}>
+                        {/* Computed, so shown as text rather than a read-only field. */}
+                        <span className={READ_NUM}>
+                          {vpc ? vpc.toFixed(3) : <span className="text-slate-300">—</span>}
+                        </span>
                       </td>
                       <td className={TD}>
                         <Select
@@ -361,9 +349,10 @@ export function DimensionsModal({
                   <td />
                   <td />
                   <td />
+                  <td />
                   {total(activeSum.kg, 2, "KG")}
                   {total(activeSum.m3, 3, "M³")}
-                  <td colSpan={3} />
+                  <td colSpan={2} />
                 </tr>
               </tfoot>
             </table>
@@ -376,9 +365,9 @@ export function DimensionsModal({
             {activeCheck ? (
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xs text-slate-500">Declared for {active.label}</span>
-                {checkPill("Pcs", activeCheck.pcs, 0, "")}
-                {checkPill("Weight", activeCheck.kg, 2, "kg")}
-                {checkPill("Volume", activeCheck.m3, 3, "m³")}
+                <CheckPill label="Pcs" m={activeCheck.pcs} decimals={0} />
+                <CheckPill label="Weight" m={activeCheck.kg} decimals={2} unit="kg" />
+                <CheckPill label="Volume" m={activeCheck.m3} decimals={3} unit="m³" />
               </div>
             ) : (
               <span />

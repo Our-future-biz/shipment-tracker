@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { rowKey } from "@/app/shipments/_lib/rowKey";
-import { Input, Button, AutoComplete, Select, Tag, Checkbox } from "antd";
+import { Input, Button, AutoComplete, Select, Checkbox } from "antd";
 import { CargoDimensionAdrFields } from "./CargoDimensionAdrFields";
+import { CheckPill, MatchBadge } from "@/app/shipments/_components/CargoCheck";
 import {
   PlusOutlined,
   DeleteOutlined,
@@ -120,7 +121,7 @@ const UNIT_LABEL: Record<string, string> = { PCS: "pieces", KG: "kg", "M³": "m�
 
 // minmax(0, …): every row keeps the same column widths, whatever a cell holds.
 const DIM_COLS =
-  "grid grid-cols-[minmax(0,0.7fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,2fr)_minmax(0,1fr)_minmax(0,0.9fr)_32px] gap-3 items-center";
+  "grid grid-cols-[minmax(0,0.7fr)_minmax(0,1.1fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)_minmax(0,0.9fr)_32px] gap-3 items-center";
 const CENTERED_SELECT = "w-full [&_.ant-select-selection-item]:!text-center [&_.ant-select-selection-placeholder]:!text-center";
 const palletLabel = (value: CargoDimensionLine["palletType"]) => PALLET_TYPES.find((p) => p.value === value)?.label ?? "";
 // Wider gaps and roomier number columns so the header labels no longer collide.
@@ -392,20 +393,22 @@ export function CargoDetailsTab({
         const hasDesc = panelItems.some(({ l }) => !itemIsEmpty(l));
         const matched = !!check && check.matched && (!hasDesc || (!!descCheck && descCheck.pcs.ok && descCheck.kg.ok));
 
-        // "TOTAL: sum / declared" cells — green when the declaration matches the
-        // dimension sums, red when it doesn't, plain when both sides are empty.
-        // One compact figure per measure: "sum / declared" when the container declares a value.
-        const totalCell = (m: { sum: number; declared: number; empty: boolean; ok: boolean } | null, sum: number, unit: string, decimals: number) => {
-          const f = (v: number) => (decimals === 0 ? fmtNum(v) : fmtFixed(v, decimals));
-          const body = !m || m.empty ? f(m ? 0 : sum) : `${f(m.sum)} / ${f(m.declared)}`;
-          const tone = !m || m.empty ? "text-slate-500" : m.ok ? "text-emerald-600" : "text-red-600";
-          // The column header already says the unit, so the cell carries the figure alone.
-          return (
-            <span key={unit} className={`text-center tabular-nums whitespace-nowrap ${tone}`} title={`${body} ${UNIT_LABEL[unit] ?? unit}`}>
-              {body}
-            </span>
-          );
-        };
+        // A total under the column it sums, its unit beneath - plain figures; how they
+        // compare with the container shows in the pills under the table (checkStrip).
+        const totalCell = (sum: number, unit: string, decimals: number) => (
+          <span key={unit} className="flex flex-col items-center tabular-nums whitespace-nowrap" title={`${fmtFixed(sum, decimals)} ${UNIT_LABEL[unit] ?? unit}`}>
+            <span className="text-[13px] font-bold text-slate-900">{decimals === 0 ? fmtNum(sum) : fmtFixed(sum, decimals)}</span>
+            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">{unit}</span>
+          </span>
+        );
+        // Under a table of a container: its lines against what the container declares.
+        const checkStrip = (pills: React.ReactNode) =>
+          container ? (
+            <div className="flex items-center gap-2 flex-wrap mt-3 pt-3 px-1 border-t border-slate-100">
+              <span className="text-xs text-slate-500 mr-1">Declared for {container.containerNumber || title}</span>
+              {pills}
+            </div>
+          ) : null;
         const dimTotals = {
           pcs: panelDims.reduce((s, { l }) => s + num(l.pieces), 0),
           kg: panelDims.reduce((s, { l }) => s + num(l.pieces) * num(l.weightPerPcKg), 0),
@@ -431,9 +434,9 @@ export function CargoDetailsTab({
               <ContainerOutlined className="text-indigo-500 text-base" />
               <h3 className="text-[13px] font-bold text-slate-800 uppercase tracking-wider m-0">{title}</h3>
               {check && (
-                <Tag color={matched ? "green" : "red"} className="!ml-2 font-semibold">
-                  {matched ? "✓ Matched" : "⚠ Mismatch"}
-                </Tag>
+                <span className="ml-2">
+                  <MatchBadge matched={matched} />
+                </span>
               )}
               <span className="ml-auto text-slate-400 text-xs">{isCollapsed ? <RightOutlined /> : <DownOutlined />}</span>
             </div>
@@ -454,12 +457,12 @@ export function CargoDetailsTab({
                       <div className="min-w-[1000px]">
                         <div className={`${DIM_COLS} px-1 pb-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wide border-b border-slate-200`}>
                           <span className="text-center truncate">Pcs</span>
+                          <span className="text-center truncate">Packages</span>
                           <span className="text-center truncate">Length (cm)</span>
                           <span className="text-center truncate">Width (cm)</span>
                           <span className="text-center truncate">Height (cm)</span>
                           <span className="text-center truncate">Weight / pc (kg)</span>
                           <span className="text-center truncate">Volume / pc (m³)</span>
-                          <span className="text-center truncate">Packages</span>
                           <span className="text-center truncate">Stackability</span>
                           <span className="text-center truncate">Pallet</span>
                           <span className="text-center truncate">ADR</span>
@@ -477,12 +480,12 @@ export function CargoDetailsTab({
                                 title="Double-click to edit"
                               >
                                 <span className="text-center tabular-nums font-medium text-slate-900">{l.pieces || "—"}</span>
+                                <span className="text-center truncate">{l.packageType || "—"}</span>
                                 <span className="text-center tabular-nums">{l.lengthCm || "—"}</span>
                                 <span className="text-center tabular-nums">{l.widthCm || "—"}</span>
                                 <span className="text-center tabular-nums">{l.heightCm || "—"}</span>
                                 <span className="text-center tabular-nums">{l.weightPerPcKg || "—"}</span>
                                 <span className="text-center tabular-nums text-slate-500">{vpc ? vpc.toFixed(3) : "—"}</span>
-                                <span className="text-center truncate">{l.packageType || "—"}</span>
                                 <span className="text-center truncate" title={l.stackable || undefined}>{l.stackable || "—"}</span>
                                 <span className="text-center truncate">{palletLabel(l.palletType) || "—"}</span>
                                 <span className="text-center truncate text-orange-600 font-medium" title={adrSummary(l)}>
@@ -503,11 +506,6 @@ export function CargoDetailsTab({
                               <div className={`${DIM_COLS} px-1 py-1`}>
                                 {/* Numbers only, like the Dimensions modal: Pcs whole, the rest may take a decimal point; at most 4 digits (weight 5). */}
                                 <Input size="small" className="text-center" inputMode="numeric" value={l.pieces} onChange={(e) => patchDim(idx, { pieces: numberInput(e.target.value, false, 4) })} onBlur={persistDims} />
-                                <Input size="small" className="text-center" inputMode="decimal" value={l.lengthCm} onChange={(e) => patchDim(idx, { lengthCm: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
-                                <Input size="small" className="text-center" inputMode="decimal" value={l.widthCm} onChange={(e) => patchDim(idx, { widthCm: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
-                                <Input size="small" className="text-center" inputMode="decimal" value={l.heightCm} onChange={(e) => patchDim(idx, { heightCm: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
-                                <Input size="small" className="text-center" inputMode="decimal" value={l.weightPerPcKg} onChange={(e) => patchDim(idx, { weightPerPcKg: numberInput(e.target.value, true, 5) })} onBlur={persistDims} />
-                                <Input size="small" className="text-center !bg-slate-50 !text-slate-500" readOnly tabIndex={-1} value={vpc ? vpc.toFixed(3) : ""} />
                                 <Select
                                   size="small"
                                   className={CENTERED_SELECT}
@@ -520,6 +518,11 @@ export function CargoDetailsTab({
                                     setTimeout(persistDims, 0);
                                   }}
                                 />
+                                <Input size="small" className="text-center" inputMode="decimal" value={l.lengthCm} onChange={(e) => patchDim(idx, { lengthCm: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
+                                <Input size="small" className="text-center" inputMode="decimal" value={l.widthCm} onChange={(e) => patchDim(idx, { widthCm: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
+                                <Input size="small" className="text-center" inputMode="decimal" value={l.heightCm} onChange={(e) => patchDim(idx, { heightCm: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
+                                <Input size="small" className="text-center" inputMode="decimal" value={l.weightPerPcKg} onChange={(e) => patchDim(idx, { weightPerPcKg: numberInput(e.target.value, true, 5) })} onBlur={persistDims} />
+                                <Input size="small" className="text-center !bg-slate-50 !text-slate-500" readOnly tabIndex={-1} value={vpc ? vpc.toFixed(3) : ""} />
                                 <Select
                                   size="small"
                                   className={CENTERED_SELECT}
@@ -560,17 +563,26 @@ export function CargoDetailsTab({
                         })}
 
                         {/* Each figure sits under the column it sums. */}
-                        <div className={`${DIM_COLS} px-1 pt-2.5 mt-1 border-t border-slate-200 text-[11px] font-bold`}>
-                          {totalCell(check?.pcs ?? null, dimTotals.pcs, "PCS", 0)}
+                        <div className={`${DIM_COLS} px-1 pt-2.5 pb-1 mt-1 border-t border-slate-200`}>
+                          {totalCell(dimTotals.pcs, "PCS", 0)}
                           <span />
                           <span />
                           <span />
-                          {totalCell(check?.kg ?? null, dimTotals.kg, "KG", 2)}
-                          {totalCell(check?.m3 ?? null, dimTotals.m3, "M³", 3)}
-                          <span className="col-span-5" />
+                          <span />
+                          {totalCell(dimTotals.kg, "KG", 2)}
+                          {totalCell(dimTotals.m3, "M³", 3)}
+                          <span className="col-span-4" />
                         </div>
                       </div>
                     </div>
+                    {check &&
+                      checkStrip(
+                        <>
+                          <CheckPill label="Pcs" m={check.pcs} decimals={0} />
+                          <CheckPill label="Weight" m={check.kg} decimals={2} unit="kg" />
+                          <CheckPill label="Volume" m={check.m3} decimals={3} unit="m³" />
+                        </>,
+                      )}
                   </div>
                 </div>
 
@@ -665,18 +677,27 @@ export function CargoDetailsTab({
                           ),
                         )}
 
-                        {/* Informative totals — no comparison, no status color */}
-                        <div className={`${DESC_COLS} px-1 pt-2.5 mt-1 border-t border-slate-200 text-[11px] font-bold`}>
+                        {/* Each figure sits under the column it sums. */}
+                        <div className={`${DESC_COLS} px-1 pt-2.5 pb-1 mt-1 border-t border-slate-200`}>
                           <span />
                           <span />
-                          {totalCell(descCheck?.pcs ?? null, descTotalPcs, "PCS", 0)}
+                          {totalCell(descTotalPcs, "PCS", 0)}
                           <span />
-                          {totalCell(descCheck?.kg ?? null, descTotalGw, "KG", 2)}
-                          <span className={`text-center tabular-nums whitespace-nowrap ${descCiv ? "text-slate-700" : "text-slate-300"}`}>{descCiv || "—"}</span>
+                          {totalCell(descTotalGw, "KG", 2)}
+                          <span className={`text-center text-[13px] font-bold tabular-nums whitespace-nowrap ${descCiv ? "text-slate-900" : "text-slate-300"}`}>{descCiv || "—"}</span>
                           <span className="col-span-2" />
                         </div>
                       </div>
                     </div>
+                    {/* Compared once the panel has description lines (the badge counts them then too). */}
+                    {descCheck &&
+                      hasDesc &&
+                      checkStrip(
+                        <>
+                          <CheckPill label="Pcs" m={descCheck.pcs} decimals={0} />
+                          <CheckPill label="Weight" m={descCheck.kg} decimals={2} unit="kg" />
+                        </>,
+                      )}
                   </div>
                 </div>
               </div>
