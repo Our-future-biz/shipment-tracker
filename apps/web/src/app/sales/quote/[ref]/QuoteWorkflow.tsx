@@ -97,6 +97,7 @@ import { QuoteRoadPriceDrawer } from "./_components/QuoteRoadPriceDrawer";
 import { QuoteMarginPanel } from "./_components/QuoteMarginPanel";
 import { QuoteMarginApproveDialog } from "./_components/QuoteMarginApproveDialog";
 import { QuoteShipmentsDialog } from "./_components/QuoteShipmentsDialog";
+import { QuotePriceTile } from "./_components/QuotePriceTile";
 import { useQuoteShipments } from "@/hooks/useQuoteShipments";
 import { useCanSeeConcepts } from "@/lib/auth/AuthContext";
 
@@ -1576,6 +1577,7 @@ export function QuoteWorkflow() {
         hrefOf={hrefOf}
         changingOwner={changingOwner}
         onChangeOwner={changeOwner}
+        price={<QuotePriceTile totals={totals} profitTone={marginTone(totals)} />}
       />
 
       {/* ── Form and summary ── */}

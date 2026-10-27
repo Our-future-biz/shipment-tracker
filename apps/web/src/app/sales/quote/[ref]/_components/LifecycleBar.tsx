@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Alert, Button, Dropdown, Form, Input, Select, Tooltip } from "antd";
 import { CheckOutlined, DownOutlined, LockOutlined } from "@ant-design/icons";
@@ -42,7 +42,12 @@ interface Props {
   changingOwner: boolean;
   // Asks the server for another owner, or for none.
   onChangeOwner: (ownerUserId: string | null) => void;
+  // The quote's price tile, shown first in the row of tiles.
+  price: ReactNode;
 }
+
+// The date and the probability, drawn as large as the price tile beside them is tall.
+const FIGURE_CLASS = "text-2xl font-bold leading-tight tabular-nums";
 
 // The main forward flow shown as a chain of steps.
 const FLOW: readonly QuoteStatus[] = ["draft", "ready_to_send", "quoted", "feedback", "revised", "won"];
@@ -67,7 +72,7 @@ function validityNote(validUntil: string | null, today: string): string {
 // The moves the margin floor stops until a manager approves the margin.
 const SENDING_STATUSES: readonly string[] = ["ready_to_send", "quoted"];
 
-export function LifecycleBar({ quote, sendBlocked, onChange, hrefOf, changingOwner, onChangeOwner }: Props) {
+export function LifecycleBar({ quote, sendBlocked, onChange, hrefOf, changingOwner, onChangeOwner, price }: Props) {
   const data = asData(quote.data);
   // The status that counts: Expired for a Quoted or Feedback quote whose validity has passed.
   const current = quote.effectiveStatus;
@@ -239,21 +244,32 @@ export function LifecycleBar({ quote, sendBlocked, onChange, hrefOf, changingOwn
         </Dropdown>
       </div>
 
-      <div className="mt-3.5 grid grid-cols-1 sm:grid-cols-3 gap-3">
+      {/* The price first, then the three facts about the quote. */}
+      <div className="mt-3.5 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,0.5fr)_minmax(0,0.5fr)_minmax(0,1fr)] gap-3">
+        {price}
         {/* Red only on a quote that is Expired: the date of a quote that was won, lost or is
             being reworked is a fact about it, not an alarm. */}
         <KpiTile
           label="Valid until"
           size="text"
+          centered
           tone={expired ? "red" : undefined}
-          value={quote.validUntil ? <span className="tabular-nums">{formatDate(quote.validUntil)}</span> : EMPTY_CELL}
+          value={quote.validUntil ? <span className={FIGURE_CLASS}>{formatDate(quote.validUntil)}</span> : EMPTY_CELL}
           hint={expired ? "Expired" : OPEN_QUOTE_STATUSES.includes(current) ? validityNote(quote.validUntil, today) : undefined}
           hintTone={expired ? "red" : undefined}
         />
         <KpiTile
           label="Win probability"
           size="text"
-          value={<span className="tabular-nums">{winProb}%</span>}
+          centered
+          value={
+            // The figure rides along the bar below: at the start for 0%, at its end for 100%.
+            <span className="w-full">
+              <span className={`inline-block transition-all ${FIGURE_CLASS}`} style={{ marginLeft: `${winProb}%`, transform: `translateX(-${winProb}%)` }}>
+                {winProb}%
+              </span>
+            </span>
+          }
           hint={
             <div className="h-4 flex items-center">
               <div

@@ -25,16 +25,21 @@ interface KpiTileProps {
   // A small control at the tile's right end that acts on what the tile says, e.g. "Followed up"
   // beside the last contact. Such a tile is not a button itself: a button cannot hold another.
   action?: ReactNode;
+  // Everything centred across, and the value in the middle of the space under the label: for a
+  // tile beside a taller one, so its figure does not sit in a corner.
+  centered?: boolean;
 }
 
 // The app's one KPI tile. Lay tiles out with KPI_GRID_CLASS so every row wraps the same way.
-export function KpiTile({ label, value, tone, hint, hintTone, size = "figure", onClick, action }: KpiTileProps) {
-  const valueClass = size === "figure" ? "text-lg font-bold truncate" : "flex items-center gap-1.5 min-h-6 text-sm font-semibold";
+export function KpiTile({ label, value, tone, hint, hintTone, size = "figure", onClick, action, centered = false }: KpiTileProps) {
+  const valueClass =
+    (size === "figure" ? "text-lg font-bold truncate" : "flex items-center gap-1.5 min-h-6 text-sm font-semibold") +
+    (centered ? " flex-1 flex items-center justify-center text-center" : "");
   const content = (
     <>
-      <div className="text-[11px] text-slate-400 uppercase tracking-wide truncate">{label}</div>
+      <div className={`text-[11px] text-slate-400 uppercase tracking-wide truncate${centered ? " text-center" : ""}`}>{label}</div>
       <div className={`mt-0.5 ${valueClass} ${tone ? TONE_CLASS[tone] : "text-slate-800"}`}>{value}</div>
-      {hint && <div className={`text-[11px] truncate ${hintTone ? TONE_CLASS[hintTone] : "text-slate-400"}`}>{hint}</div>}
+      {hint && <div className={`text-[11px] truncate${centered ? " text-center" : ""} ${hintTone ? TONE_CLASS[hintTone] : "text-slate-400"}`}>{hint}</div>}
     </>
   );
 
@@ -48,7 +53,7 @@ export function KpiTile({ label, value, tone, hint, hintTone, size = "figure", o
     );
   }
 
-  if (!onClick) return <div className={TILE_CLASS}>{content}</div>;
+  if (!onClick) return <div className={centered ? `${TILE_CLASS} flex flex-col` : TILE_CLASS}>{content}</div>;
 
   return (
     <button
