@@ -31,12 +31,13 @@ import { useInvoicing } from "@/hooks/useInvoicing";
 import { useCanDeleteShipments } from "@/lib/auth/AuthContext";
 import { useShipmentMutations, getFieldValue, buildRowData, type ShipmentItem } from "@/hooks/useShipments";
 import { getCellConditionalStyle, getRowConditionalStyle } from "@/lib/columnConfig";
-import { formatDate } from "@/lib/date";
+import { businessToday, formatDate } from "@/lib/date";
 import { statusLabel, statusTagColor } from "@/lib/shipmentStatus";
 import { useShipmentTasks } from "@/hooks/useShipmentTasks";
 import { useCardFields } from "./useCardFields";
 import { useUsers } from "@/hooks/useUsers";
-import { isSalesQuoteRef } from "@/app/sales/_lib/salesQuote";
+import { asData, isSalesQuoteRef, quoteValidUntil } from "@/app/sales/_lib/salesQuote";
+import { useSalesQuoteByRef } from "@/hooks/useSalesQuote";
 import { quoteHref } from "@/app/sales/_lib/quoteHref";
 import { getTasksForDirection, getActiveStageFromTasks } from "./_components/taskDefinitions";
 import Link from "next/link";
@@ -760,16 +761,18 @@ const PARTIES_AGENTS: FieldDef[] = [
   { key: "bookingConfirmation", label: "Booking Confirmation" },
   { key: "customsProcedure", label: "Customs Procedure" },
 ];
-// Selling, buying and profit are read-only here: they are the totals of the Costs Breakdown tab.
+// The Quote card is read-only: it shows the quote uploaded in the Costs Breakdown tab, and its
+// selling, buying and profit are that tab's totals.
 const QUOTE_L: FieldDef[] = [
-  { key: "salesNumber", label: "Sales Reference" },
+  { key: "salesNumber", label: "Sales Reference", ro: true },
   { key: "selling", label: "Total Selling Costs", ro: true },
   { key: "buying", label: "Total Buying Costs", ro: true },
   { key: "profit", label: "Profit", ro: true },
 ];
 const QUOTE_R: FieldDef[] = [
-  { key: "quoteValidity", label: "Quote Validity" },
-  { key: "validityStatus", label: "Validity Status" },
+  { key: "quoteValidity", label: "Quote Validity", ro: true },
+  { key: "validityStatus", label: "Validity Status", ro: true },
+  { key: "salesPerson", label: "Sales Person", ro: true },
 ];
 const COMPLIANCE_FIELDS: FieldDef[] = [
   { key: "vgm", label: "VGM" },
@@ -984,6 +987,8 @@ export function ShipmentDetailContent() {
 
   // Totals of the Costs Breakdown tab, shown on the Quote card.
   const costs = useCostsData(shipment);
+  // The quote uploaded there, whose details the Quote card shows.
+  const costsQuote = useSalesQuoteByRef(isSalesQuoteRef(costsQuoteRef) ? costsQuoteRef : null).data?.quote;
 
 
   const visibleTabs = TABS;
@@ -1535,35 +1540,25 @@ export function ShipmentDetailContent() {
               {/* QUOTE */}
               <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
                 {(() => {
-                  const right: FieldDef[] = [...QUOTE_R, { key: "salesPerson", label: "Sales Person" }];
                   // The money comes straight from the Costs Breakdown tab, in the billing currency.
                   const amount = (v: number) => (costs.totals.hasAny ? `${money(v)} ${costs.billingCur}` : "—");
+                  // The rest is the quote uploaded there; nothing on this card is typed in. Ok while
+                  // the quote is valid, Check once its date has passed (as Create shipment sets it).
+                  const validUntil = costsQuote ? (costsQuote.validUntil ?? quoteValidUntil(asData(costsQuote.data))) : null;
+                  const validity = validUntil ? (validUntil >= businessToday() ? "Ok" : "Check") : null;
                   const custom: Record<string, React.ReactNode> = {
+                    salesNumber: <RoRow key="salesNumber" label="Sales Reference" value={costsQuoteRef} />,
                     selling: <RoRow key="selling" label="Total Selling Costs" value={amount(costs.totals.sellTotal)} />,
                     buying: <RoRow key="buying" label="Total Buying Costs" value={amount(costs.totals.buyTotal)} />,
                     profit: <RoRow key="profit" label="Profit" value={amount(costs.totals.sellTotal - costs.totals.buyTotal)} />,
-                    salesPerson: (
-                      <MemberRow
-                        key="salesPerson"
-                        label="Sales Person"
-                        fieldKey="salesPerson"
-                        value={shipment.salesPerson}
-                        onCommit={(_k, v) => updateShipment({ id: shipment.id, data: { salesPerson: v } })}
-                      />
-                    ),
+                    quoteValidity: <RoRow key="quoteValidity" label="Quote Validity" value={validUntil && formatDate(validUntil)} />,
+                    validityStatus: <RoRow key="validityStatus" label="Validity Status" value={validity} />,
+                    salesPerson: <RoRow key="salesPerson" label="Sales Person" value={costsQuote?.ownerName} />,
                   };
-                  const allKeys = [...QUOTE_L, ...right].map((f) => f.key);
+                  const allKeys = [...QUOTE_L, ...QUOTE_R].map((f) => f.key);
                   const shown = new Set(visibleCardKeys("quote", allKeys));
                   const renderCol = (col: FieldDef[]) =>
-                    col.filter((f) => shown.has(f.key)).map((f) =>
-                      custom[f.key] ? (
-                        <React.Fragment key={f.key}>{custom[f.key]}</React.Fragment>
-                      ) : f.ro ? (
-                        <RoRow key={f.key} label={f.label} value={getFieldValue(shipment, f.key)} />
-                      ) : (
-                        <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={handleCommit} styleFor={styleFor} />
-                      ),
-                    );
+                    col.filter((f) => shown.has(f.key)).map((f) => <React.Fragment key={f.key}>{custom[f.key]}</React.Fragment>);
 
                   return (
                     <>
@@ -1571,7 +1566,7 @@ export function ShipmentDetailContent() {
                         icon={<FileTextOutlined />}
                         title="Quote"
                         cardId="quote"
-                        allFields={[...QUOTE_L, ...right]}
+                        allFields={[...QUOTE_L, ...QUOTE_R]}
                         shipment={shipment}
                         onCommit={handleCommit}
                         styleFor={styleFor}
@@ -1579,7 +1574,7 @@ export function ShipmentDetailContent() {
                       />
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
                         <div>{renderCol(QUOTE_L)}</div>
-                        <div>{renderCol(right)}</div>
+                        <div>{renderCol(QUOTE_R)}</div>
                       </div>
                     </>
                   );
