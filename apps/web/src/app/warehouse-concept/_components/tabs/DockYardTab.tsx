@@ -388,7 +388,7 @@ function YardPark() {
   const rows = onYard.filter((c) => (filter === "risk" ? atRisk(c) : filter === "empties" ? isEmpty(c) : true));
 
   const fields: FieldDef[] = [
-    ...(editing?.container ? [] : [{ name: "number", label: "Container number", required: true, placeholder: "TGHU 220 553-9" } as FieldDef]),
+    ...(editing?.container ? [] : [{ name: "number", label: "Container number", type: "container", required: true, placeholder: "TGHU2205539" } as FieldDef]),
     { name: "carrier", label: "Carrier" },
     { name: "equipment", label: "Type", type: "select", options: CONTAINER_TYPES },
     { name: "yardState", label: "State", placeholder: "Full — devanning / Empty …" },

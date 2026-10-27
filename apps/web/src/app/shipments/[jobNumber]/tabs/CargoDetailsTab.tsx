@@ -24,13 +24,13 @@ import {
   num,
   fmtNum,
   fmtFixed,
+  numberInput,
   dimensionVolumePerPiece,
   checkConsistency,
   civByCurrency,
   type CargoItemLine,
   type CargoDimensionLine,
   type ContainerLine,
-  packTypeOptions,
 } from "@/lib/cargo";
 
 // Panel key: the container row id, or "none" for cargo that belongs to the
@@ -406,11 +406,12 @@ export function CargoDetailsTab({
                               onKeyDown={openDims.onRowKeyDown(idx)}
                             >
                               <div className={`${DIM_COLS} px-1 py-1`}>
-                                <Input size="small" className="text-center" value={l.pieces} onChange={(e) => patchDim(idx, { pieces: e.target.value })} onBlur={persistDims} />
-                                <Input size="small" className="text-center" value={l.lengthCm} onChange={(e) => patchDim(idx, { lengthCm: e.target.value })} onBlur={persistDims} />
-                                <Input size="small" className="text-center" value={l.widthCm} onChange={(e) => patchDim(idx, { widthCm: e.target.value })} onBlur={persistDims} />
-                                <Input size="small" className="text-center" value={l.heightCm} onChange={(e) => patchDim(idx, { heightCm: e.target.value })} onBlur={persistDims} />
-                                <Input size="small" className="text-center" value={l.weightPerPcKg} onChange={(e) => patchDim(idx, { weightPerPcKg: e.target.value })} onBlur={persistDims} />
+                                {/* Numbers only, like the Dimensions modal: Pcs whole, the rest may take a decimal point; at most 4 digits (weight 5). */}
+                                <Input size="small" className="text-center" inputMode="numeric" value={l.pieces} onChange={(e) => patchDim(idx, { pieces: numberInput(e.target.value, false, 4) })} onBlur={persistDims} />
+                                <Input size="small" className="text-center" inputMode="decimal" value={l.lengthCm} onChange={(e) => patchDim(idx, { lengthCm: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
+                                <Input size="small" className="text-center" inputMode="decimal" value={l.widthCm} onChange={(e) => patchDim(idx, { widthCm: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
+                                <Input size="small" className="text-center" inputMode="decimal" value={l.heightCm} onChange={(e) => patchDim(idx, { heightCm: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
+                                <Input size="small" className="text-center" inputMode="decimal" value={l.weightPerPcKg} onChange={(e) => patchDim(idx, { weightPerPcKg: numberInput(e.target.value, true, 5) })} onBlur={persistDims} />
                                 <Input size="small" className="text-center !bg-slate-50 !text-slate-500" readOnly tabIndex={-1} value={vpc ? vpc.toFixed(3) : ""} />
                                 <Select
                                   size="small"
@@ -536,18 +537,25 @@ export function CargoDetailsTab({
                               onChange={(e) => patchItem(idx, { hsCode: e.target.value.replace(/\D/g, "") })}
                               onBlur={persistItems}
                             />
-                            <Input size="small" className="text-center" value={l.pieces} onChange={(e) => patchItem(idx, { pieces: e.target.value })} onBlur={persistItems} />
-                            <AutoComplete
+                            <Input size="small" className="text-center" value={l.pieces} inputMode="numeric" onChange={(e) => patchItem(idx, { pieces: numberInput(e.target.value, false) })} onBlur={persistItems} />
+                            {/* Picked from the list only (typing filters it); free text is not taken. */}
+                            <Select
                               size="small"
-                              className="w-full [&_input]:!text-center"
-                              value={l.packageType}
+                              className={CENTERED_SELECT}
+                              value={l.packageType || undefined}
                               placeholder="Pallet(s)"
-                              options={packTypeOptions(l.packageType)}
-                              onChange={(v) => patchItem(idx, { packageType: v })}
+                              showSearch
+                              allowClear
+                              options={PACK_TYPES.map((p) => ({ value: p }))}
+                              onChange={(v?: string) => {
+                                patchItem(idx, { packageType: v ?? "" });
+                                setTimeout(persistItems, 0);
+                              }}
                               onBlur={persistItems}
                             />
-                            <Input size="small" className="text-center" value={l.grossWeight} onChange={(e) => patchItem(idx, { grossWeight: e.target.value })} onBlur={persistItems} />
-                            <Input size="small" className="text-center" value={l.commercialInvoiceValue} placeholder="12 500" onChange={(e) => patchItem(idx, { commercialInvoiceValue: e.target.value })} onBlur={persistItems} />
+                            {/* Numbers only: digits and one decimal point. */}
+                            <Input size="small" className="text-center" value={l.grossWeight} inputMode="decimal" onChange={(e) => patchItem(idx, { grossWeight: numberInput(e.target.value) })} onBlur={persistItems} />
+                            <Input size="small" className="text-center" value={l.commercialInvoiceValue} placeholder="12 500" inputMode="decimal" onChange={(e) => patchItem(idx, { commercialInvoiceValue: numberInput(e.target.value) })} onBlur={persistItems} />
                             <AutoComplete
                               size="small"
                               className="w-full [&_input]:!text-center"

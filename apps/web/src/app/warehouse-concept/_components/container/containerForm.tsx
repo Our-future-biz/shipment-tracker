@@ -55,7 +55,7 @@ export function ContainerFormModal({
 
   const stamped = !!container?.gateInAt;
   const identity: FieldDef[] = [
-    { name: "number", label: "Container number", required: true, placeholder: "MSCU 611 902-7" },
+    { name: "number", label: "Container number", type: "container", required: true, placeholder: "MSCU6119027" },
     ...(container ? [] : [{ name: "movementId", label: "First house (position)", type: "select" as const, options: positionOptions }]),
   ];
   const registerFields: FieldDef[] = [

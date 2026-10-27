@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { rowKey } from "@/app/shipments/_lib/rowKey";
-import { Input, Button, AutoComplete, Tooltip, message } from "antd";
+import { Input, Button, AutoComplete, Select, Tooltip, message } from "antd";
 import { PlusOutlined, DeleteOutlined, ContainerOutlined } from "@ant-design/icons";
 import type { ShipmentItem } from "@/hooks/useShipments";
-import { isValidContainerNumber, normalizeContainerNumber } from "@/lib/container";
+import { containerNumberInput, isValidContainerNumber, normalizeContainerNumber } from "@/lib/container";
 import {
   CONTAINER_SIZES,
   CONTAINER_KINDS,
@@ -14,7 +14,8 @@ import {
   num,
   fmtNum,
   type ContainerLine,
-  packTypeOptions,
+  PACK_TYPES,
+  numberInput,
 } from "@/lib/cargo";
 
 const emptyContainer = (): ContainerLine => ({
@@ -132,10 +133,10 @@ export function ContainerDetailsTab({
   };
   // A complete number (4 letters + 7 digits) is saved straight away, so leaving the tab
   // is not needed for it to stick.
+  // Typing keeps only 4 letters then 7 digits (containerNumberInput).
   const setContainerNumber = (i: number, raw: string) => {
-    const canonical = normalizeContainerNumber(raw);
-    const complete = canonical !== "" && isValidContainerNumber(canonical);
-    const value = complete ? canonical : raw;
+    const value = containerNumberInput(raw);
+    const complete = value !== "" && isValidContainerNumber(value);
     patch(i, { containerNumber: value });
     if (!complete) return;
     const next = rowsRef.current.map((r, j) => (j === i ? { ...r, containerNumber: value } : r));
@@ -277,25 +278,33 @@ export function ContainerDetailsTab({
                     size="small"
                     className="text-center"
                     value={c.packages}
-                    onChange={(e) => patch(i, { packages: e.target.value })}
+                    inputMode="numeric"
+                    onChange={(e) => patch(i, { packages: numberInput(e.target.value, false) })}
                     onBlur={persist}
                   />
-                  <AutoComplete
+                  {/* Picked from the list only (typing filters it); free text is not taken. */}
+                  <Select
                     ref={setInputRef(`${i}:packageType`)}
                     size="small"
-                    value={c.packageType}
+                    value={c.packageType || undefined}
                     placeholder="Pallet(s)"
-                    options={packTypeOptions(c.packageType)}
-                    onChange={(v) => patch(i, { packageType: v })}
+                    showSearch
+                    allowClear
+                    options={PACK_TYPES.map((p) => ({ value: p }))}
+                    onChange={(v?: string) => {
+                      patch(i, { packageType: v ?? "" });
+                      setTimeout(persist, 0);
+                    }}
                     onBlur={persist}
-                    className="w-full [&_input]:!text-center"
+                    className="w-full [&_.ant-select-selection-item]:!text-center [&_.ant-select-selection-placeholder]:!text-center"
                   />
                   <Input
                     ref={setInputRef(`${i}:grossWeight`)}
                     size="small"
                     className="text-center"
                     value={c.grossWeight}
-                    onChange={(e) => patch(i, { grossWeight: e.target.value })}
+                    inputMode="decimal"
+                    onChange={(e) => patch(i, { grossWeight: numberInput(e.target.value) })}
                     onBlur={persist}
                   />
                   <Input
@@ -303,7 +312,8 @@ export function ContainerDetailsTab({
                     size="small"
                     className="text-center"
                     value={c.volume}
-                    onChange={(e) => patch(i, { volume: e.target.value })}
+                    inputMode="decimal"
+                    onChange={(e) => patch(i, { volume: numberInput(e.target.value) })}
                     onBlur={persist}
                   />
                   <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => remove(i)} />

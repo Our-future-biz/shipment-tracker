@@ -9,7 +9,7 @@ import { api } from "@/lib/api";
 import { buildRowData, getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
 import type { interfaces } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/date";
-import { NOT_STACKABLE, STACKABLE, shipmentStackability } from "@/lib/cargo";
+import { NOT_STACKABLE, STACKABLE, numberInput, shipmentStackability } from "@/lib/cargo";
 import { useWarehouseSection } from "@/hooks/useWarehouseSection";
 import { SectionCard as Card, PillTabs } from "@/components/SectionCard";
 import { PickupSection } from "./warehouse/PickupSection";
@@ -226,7 +226,15 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
             <tr key={idx} className="border-b border-slate-100">
               {(["pieces", "lengthCm", "widthCm", "heightCm", "weightPerPcKg"] as const).map((field) => (
                 <td key={field} className="p-0.5 px-1">
-                  <Input size="small" value={row[field]} placeholder="0" onChange={(e) => updateRow(idx, field, e.target.value)} className="w-full" />
+                  {/* Numbers only, like Cargo Details: Qty whole, the rest may take a decimal point; at most 4 digits (weight 5). */}
+                  <Input
+                    size="small"
+                    value={row[field]}
+                    placeholder="0"
+                    inputMode={field === "pieces" ? "numeric" : "decimal"}
+                    onChange={(e) => updateRow(idx, field, numberInput(e.target.value, field !== "pieces", field === "weightPerPcKg" ? 5 : 4))}
+                    className="w-full"
+                  />
                 </td>
               ))}
               <td className="p-0.5 px-1 text-right text-[11px] text-slate-500">

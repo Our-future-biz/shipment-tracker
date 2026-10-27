@@ -1,5 +1,6 @@
 "use client";
 
+import { containerNumberInput, isValidContainerNumber } from "@/lib/container";
 import { useEffect, useRef, useState } from "react";
 import { Button, Input, InputNumber, Modal, Segmented, Select, Tag } from "antd";
 import { CameraOutlined, DeleteOutlined, FileSearchOutlined, PlusOutlined, PrinterOutlined } from "@ant-design/icons";
@@ -624,8 +625,9 @@ function ContainerDialog({
   }, [open, current]);
 
   const add = () => {
-    const n = number.trim().toUpperCase();
-    if (!n || containers.some((c) => c.number === n)) return;
+    const n = number;
+    // Only a complete number (4 letters + 7 digits) can be added.
+    if (!isValidContainerNumber(n) || !n || containers.some((c) => c.number === n)) return;
     onAdd({ number: n, type });
     setPicked(n);
     setNumber("");
@@ -661,9 +663,9 @@ function ContainerDialog({
         ))}
       </div>
       <div className="flex gap-2 pt-3 mt-2 border-t border-slate-100">
-        <Input size="small" placeholder="MSKU 123456-7" value={number} onChange={(e) => setNumber(e.target.value)} onPressEnter={add} />
+        <Input size="small" placeholder="MSKU1234567" value={number} onChange={(e) => setNumber(containerNumberInput(e.target.value))} onPressEnter={add} />
         <Select size="small" className="w-[110px] shrink-0" value={type} onChange={setType} options={CONTAINER_TYPES.map((t) => ({ value: t, label: t }))} />
-        <Button size="small" onClick={add} disabled={!number.trim()}>
+        <Button size="small" onClick={add} disabled={!number || !isValidContainerNumber(number)}>
           Add
         </Button>
       </div>
