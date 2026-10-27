@@ -26,9 +26,9 @@ import { ToolbarButton } from "./ToolbarButton";
 // The columns of the board: the three stages a customer can stand on. Where a customer stands is
 // the server's answer; this is only how its column is titled and what the page says the stage means.
 const COLUMNS: { stage: PipelineStage; name: string; meaning: string }[] = [
-  { stage: "prospect", name: "Prospect", meaning: "interested - no quote sent yet" },
-  { stage: "proposal", name: "Proposal", meaning: "a quote was sent" },
-  { stage: "won", name: "Won", meaning: "ordered a first shipment" },
+  { stage: "prospect", name: "Prospect", meaning: "Interested, but no quotation has been sent yet." },
+  { stage: "proposal", name: "Proposal", meaning: "A quotation has been sent." },
+  { stage: "won", name: "Won", meaning: "The customer has placed their first shipment order." },
 ];
 
 // The line under the page's title: what each stage means.
