@@ -281,10 +281,17 @@ export const CONTAINER_UNIT = "container";
 /** Whether a line of this basis is priced per unit (W/M, container) rather than as a lump sum. */
 export const perUnitBasis = (basis: ChargeBasis | undefined): basis is "wm" | "container" => basis === "wm" || basis === "container";
 
+/**
+ * The containers a line charged per container is counted by: those of a full-container quote. A
+ * quote of another mode has none, even with the container lines it kept from an earlier mode.
+ */
+export function quoteContainerCount(data: SalesQuoteData): number {
+  return isContainerQuote(data) ? computeCargo(data).totalContainers : 0;
+}
+
 /** The units a line of this basis is counted in on this quote: its weight / measure, or its containers. */
 export function basisUnits(data: SalesQuoteData, basis: ChargeBasis | undefined): number {
-  const cargo = computeCargo(data);
-  return basis === "container" ? cargo.totalContainers : cargo.weightMeasure;
+  return basis === "container" ? quoteContainerCount(data) : computeCargo(data).weightMeasure;
 }
 
 /** What a line's Amount column holds: per W/M or container the rate per unit, otherwise the whole line. */
@@ -317,17 +324,18 @@ function asLumpsum(line: CostLine): CostLine {
 /**
  * The quote's lines as their basis has them: a selling line is charged by its buying line's basis;
  * a line charged per W/M has the cargo's weight / measure as its quantity, one charged per
- * container the quote's number of containers, and costs its rate times that - taken as it is set
+ * container the quote's number of containers (quoteContainerCount), and costs its rate times that - taken as it is set
  * to the basis, and followed while the cargo changes; a line set back to a lump sum costs its rate
  * again. Null when every line has them already.
  */
 export function withLineBasis(data: SalesQuoteData): Pick<SalesQuoteData, "buyingLines" | "sellingLines"> | null {
   const basisCopied = withBuyingBasis(data.buyingLines, data.sellingLines);
   const sellingLines = basisCopied ?? data.sellingLines;
-  const cargo = computeCargo(data);
+  const wm = computeCargo(data).weightMeasure;
+  const containers = quoteContainerCount(data);
   const asBasis = (l: CostLine): CostLine => {
-    if (l.basis === "wm") return withRate(l, lineRate(l), cargo.weightMeasure);
-    if (l.basis === "container") return withRate(l, lineRate(l), cargo.totalContainers);
+    if (l.basis === "wm") return withRate(l, lineRate(l), wm);
+    if (l.basis === "container") return withRate(l, lineRate(l), containers);
     return l.unit === WM_UNIT || l.unit === CONTAINER_UNIT ? asLumpsum(l) : l;
   };
   const same = (a: CostLine, b: CostLine) => a.value === b.value && a.qty === b.qty && a.unit === b.unit && a.unitPrice === b.unitPrice && a.amount === b.amount;

@@ -10238,6 +10238,18 @@ export namespace interfaces {
     }
 
     /**
+     * The sales quote the costs were copied from (the billing settings' quoteRef), as the Quote card of Shipment Details shows it.
+     */
+    export interface CostsQuoteItem {
+        quoteNumber: string
+        validUntil: string | null
+        /**
+         * The quote's owner: who sold the shipment.
+         */
+        ownerName: string
+    }
+
+    /**
      * A lane asked for (rate calculator / quotes / consignments) that a tariff could not price.
      */
     export interface CoverageGap {
@@ -12279,6 +12291,10 @@ export namespace interfaces {
         billingSettings: BillingSettingsItem | null
         billingOverrides: BillingOverrideItem[]
         generatedInvoices: GeneratedInvoiceItem[]
+        /**
+         * Null when the costs were copied from no sales quote, or it could not be read.
+         */
+        costsQuote: CostsQuoteItem | null
     }
 
     /**

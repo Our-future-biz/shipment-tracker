@@ -204,12 +204,18 @@ describe("withLineBasis", () => {
   });
 
   it("prices a line charged per container at its amount per container, the number of containers as its quantity", () => {
-    const boxes = { containers: [{ qty: 2, type: "40' HC" }, { qty: 1, type: "20' GP" }] };
+    const boxes = { serviceType: "Sea FCL", containers: [{ qty: 2, type: "40' HC" }, { qty: 1, type: "20' GP" }] };
     const perBox = (rate: number, n: number) => line({ basis: "container", value: n, qty: n, unit: CONTAINER_UNIT, unitPrice: rate, amount: rate * n });
     expect(withLineBasis({ ...boxes, buyingLines: [line({ basis: "container", amount: 1750 })] })?.buyingLines).toEqual([perBox(1750, 3)]);
     // It follows the containers, and costs its rate again once set back to a lump sum.
-    expect(withLineBasis({ containers: [{ qty: 5, type: "40' HC" }], buyingLines: [perBox(1750, 3)] })?.buyingLines).toEqual([perBox(1750, 5)]);
+    expect(withLineBasis({ ...boxes, containers: [{ qty: 5, type: "40' HC" }], buyingLines: [perBox(1750, 3)] })?.buyingLines).toEqual([perBox(1750, 5)]);
     expect(withLineBasis({ ...boxes, buyingLines: [{ ...perBox(1750, 3), basis: "lumpsum" }] })?.buyingLines).toEqual([line({ basis: "lumpsum", value: 3, amount: 1750 })]);
+  });
+
+  it("counts only a full-container quote's containers: those another mode kept from an earlier one are not shown, and not charged", () => {
+    const perBox = (rate: number, n: number) => line({ basis: "container", value: n, qty: n, unit: CONTAINER_UNIT, unitPrice: rate, amount: rate * n });
+    const kept = { serviceType: "Sea LCL", containers: [{ qty: 3, type: "40' HC" }] };
+    expect(withLineBasis({ ...kept, buyingLines: [perBox(1750, 3)] })?.buyingLines).toEqual([perBox(1750, 0)]);
   });
 
   it("gives a selling line its buying line's basis, and prices it by that", () => {

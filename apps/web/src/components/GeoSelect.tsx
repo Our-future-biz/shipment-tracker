@@ -26,7 +26,11 @@ interface GeoSelectProps {
   airports?: boolean;
 }
 
-type Option = { value: string; label: ReactNode; code?: string };
+interface GeoOption {
+  value: string;
+  label: ReactNode;
+  code?: string;
+}
 
 /**
  * Picks a place (UN/LOCODE, searched worldwide; with `airports`, also an IATA airport) or a
@@ -62,11 +66,11 @@ export function GeoSelect({
   const places = usePlaceSearch(debounced, kind === "place");
   const airportList = useAirportSearch(debounced, kind === "place" && airports);
 
-  const options = useMemo((): (Option | { label: ReactNode; options: Option[] })[] => {
+  const options = useMemo((): (GeoOption | { label: ReactNode; options: GeoOption[] })[] => {
     if (kind !== "place") {
       return COUNTRY_OPTIONS.map((c) => ({ value: countryValue(c.code, kind), label: c.label, code: c.code }));
     }
-    const found: Option[] = (places.data?.places ?? []).map((p) => ({
+    const found: GeoOption[] = (places.data?.places ?? []).map((p) => ({
       value: `${p.name} (${p.code})`,
       label: (
         <span className="flex items-baseline justify-between gap-2">
@@ -79,7 +83,7 @@ export function GeoSelect({
         </span>
       ),
     }));
-    const airportOptions: Option[] = (airportList.data?.airports ?? []).map((a) => ({
+    const airportOptions: GeoOption[] = (airportList.data?.airports ?? []).map((a) => ({
       value: `${a.name} (${a.code})`,
       label: (
         <span className="flex items-baseline justify-between gap-2">
@@ -94,7 +98,7 @@ export function GeoSelect({
     }));
     // Keep the current place listed so the box shows it before anything is searched.
     const listed = [...airportOptions, ...found].some((o) => o.value === current);
-    const pinned: Option[] = !debounced && current && !unmatched && !listed ? [{ value: current, label: <>{current}</> }] : [];
+    const pinned: GeoOption[] = !debounced && current && !unmatched && !listed ? [{ value: current, label: <>{current}</> }] : [];
     if (!airports) return [...pinned, ...found];
     // By air, airports and places in two groups, so either kind of code can be picked.
     const groups = [

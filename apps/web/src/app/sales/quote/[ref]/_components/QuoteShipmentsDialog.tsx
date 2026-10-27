@@ -12,7 +12,7 @@ interface QuoteShipmentsDialogProps {
   quoteNumber: string;
   // The live shipments booked under the quote, the oldest first; undefined while they are read.
   shipments: QuoteShipment[] | undefined;
-  // Why no other shipment can be made from the quote (it is not Won), else null.
+  // Why no other shipment can be made from the quote (it is Lost or Replaced), else null.
   createBlocked: string | null;
   onCreateAnother: () => void;
   onClose: () => void;

@@ -19,8 +19,8 @@ export function canManageSales(role: string): boolean {
 /**
  * Why no shipment may be linked to a quote in this status - the one it is shown with, so an
  * expired quote is refused as Expired - finishing the sentence "QCZ… - …"; null when one may.
- * Only a Won quote is linked to a shipment - neither made from it nor given its number as Sales
- * Reference before it is Won. A link made before this rule stays.
+ * Only a Won quote's number is given to a shipment as its Sales Reference; a shipment created
+ * from a quote is asked of shipmentFromQuoteRefusal instead. A link made before this rule stays.
  */
 export function shipmentLinkRefusal(status: string): string | null {
   if (status === "won") return null;

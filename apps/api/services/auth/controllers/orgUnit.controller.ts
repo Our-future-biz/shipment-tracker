@@ -2,7 +2,7 @@ import { api } from "encore.dev/api";
 import type { MaxLen, MinLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { requireRole } from "../../../lib/rbac";
-import { searchAirports, type Airport } from "../../../lib/geo/airports";
+import type { Airport } from "../../../lib/geo/airports";
 import { orgUnitService } from "../services/orgUnit.service";
 import type { DepartmentInfo, BranchInfo, CountryInfo, LocationInfo, PlaceInfo, PlaceCandidateQuery } from "../services/orgUnit.service";
 
@@ -208,7 +208,7 @@ interface AirportListResponse {
 export const airportSearch = api(
   { expose: true, auth: true, method: "GET", path: "/auth/airports" },
   async (req: AirportSearchRequest): Promise<AirportListResponse> => {
-    return { airports: searchAirports(req.q) };
+    return { airports: orgUnitService.searchAirports(req.q) };
   },
 );
 

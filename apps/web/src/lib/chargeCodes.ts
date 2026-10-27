@@ -158,6 +158,7 @@ export function chargeLabel(value: string): string {
 }
 
 const SEA_MODES: readonly ChargeMode[] = ["Sea FCL", "Sea LCL", "Sea Break Bulk"];
+const CHARGE_MODES: readonly ChargeMode[] = ["Air", ...SEA_MODES, "Rail", "Road"];
 
 /**
  * The quote freight modes a freight mode stands for: a quote's own ("Sea LCL", or a shipment's
@@ -167,7 +168,7 @@ const SEA_MODES: readonly ChargeMode[] = ["Sea FCL", "Sea LCL", "Sea Break Bulk"
 export function chargeModesOf(freightMode: string | null | undefined): readonly ChargeMode[] {
   const mode = (freightMode ?? "").trim().toLowerCase();
   if (!mode) return [];
-  const own = ["Air", ...SEA_MODES, "Rail", "Road"].find((m) => m.toLowerCase() === mode) as ChargeMode | undefined;
+  const own = CHARGE_MODES.find((m) => m.toLowerCase() === mode);
   if (own) return [own];
   if (mode === "sea freight") return SEA_MODES;
   if (mode === "air freight") return ["Air"];

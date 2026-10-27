@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // Buying costs posted by charge code (master jobs, document reading) and the split of one
 // invoice over shipments, run for real against an in-memory stand-in for the cost lines.
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
+vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 vi.mock("~encore/clients", () => ({ quotes: { salesQuoteGet: vi.fn() } }));
 vi.mock("../../repositories/customsInvoice.repository", () => ({ customsInvoiceLineRepository: {}, customsInvoiceRepository: {} }));
 vi.mock("../../../../lib/shipmentRefs", () => ({ assertShipmentExists: vi.fn(async () => ({ jobNumber: "CZ00000001" })) }));

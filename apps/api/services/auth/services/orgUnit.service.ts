@@ -3,6 +3,7 @@ import { isUniqueViolation } from "../../../lib/db/errors";
 import { countryName } from "../../../lib/geo/format";
 import { departmentRepository, branchRepository, countryRepository, locationRepository } from "../repositories/orgUnit.repository";
 import type { Place } from "../../../lib/geo/place";
+import { searchAirports, type Airport } from "../../../lib/geo/airports";
 import { userRepository } from "../repositories/user.repository";
 
 export interface DepartmentInfo {
@@ -159,6 +160,12 @@ class OrgUnitService {
     const q = likeSafe(asciiFold(query ?? ""));
     if (q.length < 2) return [];
     return locationRepository.search(q, countryCode ? countryCode.toUpperCase() : null, 30);
+  }
+
+  // IATA airports, offered beside the places when a quote or shipment goes by air. Searched in
+  // memory: the snapshot ships with the code, not in the database.
+  searchAirports(query: string): Airport[] {
+    return searchAirports(query);
   }
 
   async placesByCodes(codes: string[]): Promise<PlaceInfo[]> {

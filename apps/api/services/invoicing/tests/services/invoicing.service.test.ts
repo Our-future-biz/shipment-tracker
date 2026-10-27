@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // The import of a quote's costs is run for real - with the mapping of its lines - against a
 // stand-in for the quotes service and for the repository that writes the rows.
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
+vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 vi.mock("~encore/clients", () => ({ quotes: { salesQuoteGet: vi.fn() } }));
 vi.mock("../../repositories/customsInvoice.repository", () => ({ customsInvoiceLineRepository: {}, customsInvoiceRepository: {} }));
 vi.mock("../../../../lib/shipmentRefs", () => ({ assertShipmentExists: vi.fn(async () => ({ jobNumber: "CZ00000001" })) }));
@@ -15,9 +16,16 @@ vi.mock("../../repositories/sellingCost.repository", () => ({ sellingCostReposit
 vi.mock("../../repositories/quoteCostImport.repository", () => ({ quoteCostImportRepository: { copy: vi.fn() } }));
 vi.mock("../../repositories/truckingLines.repository", () => ({ truckingLinesRepository: { hasConsignmentRows: vi.fn() } }));
 
+import log from "encore.dev/log";
 import { quotes } from "~encore/clients";
 import { APIError } from "../../../../lib/tests/encoreApi.stub";
+import { additionalChargeRepository } from "../../repositories/additionalCharge.repository";
+import { billingOverrideRepository } from "../../repositories/billingOverride.repository";
+import { billingSettingsRepository } from "../../repositories/billingSettings.repository";
+import { generatedInvoiceRepository } from "../../repositories/generatedInvoice.repository";
+import { invoiceCostRepository } from "../../repositories/invoiceCost.repository";
 import { quoteCostImportRepository } from "../../repositories/quoteCostImport.repository";
+import { sellingCostRepository } from "../../repositories/sellingCost.repository";
 import { truckingLinesRepository } from "../../repositories/truckingLines.repository";
 import { invoicingService } from "../../services/invoicing.service";
 
@@ -126,5 +134,44 @@ describe("importQuote", () => {
     // Without a consignment the trucking lines are copied as any other.
     vi.mocked(truckingLinesRepository.hasConsignmentRows).mockResolvedValueOnce(false);
     await expect(invoicingService.importQuote(SHIPMENT, COMPANY, REF, "both", true)).resolves.toEqual({ buying: 3, selling: 2 });
+  });
+});
+
+describe("getInvoicingData", () => {
+  // A shipment without cost rows whose billing settings remember the quote its costs came from.
+  const settingsWith = (quoteRef: string) =>
+    Object.assign(billingSettingsRepository, {
+      getByShipmentId: vi.fn(async () => ({ id: "settings-1", shipmentId: SHIPMENT, billingCurrency: "CZK", roe: "1", quoteRef })),
+    });
+
+  beforeEach(() => {
+    const none = { listByShipmentId: vi.fn(async () => []) };
+    for (const repository of [invoiceCostRepository, sellingCostRepository, additionalChargeRepository, billingOverrideRepository, generatedInvoiceRepository]) {
+      Object.assign(repository, none);
+    }
+  });
+
+  it("brings the quote the costs were copied from: its validity and who owns it", async () => {
+    settingsWith(REF);
+    salesQuoteGet.mockResolvedValueOnce({ quote: { quoteNumber: REF, validUntil: "2026-11-30", ownerName: "Jana Nováková" } } as Awaited<ReturnType<typeof quotes.salesQuoteGet>>);
+    const data = await invoicingService.getInvoicingData(SHIPMENT, COMPANY);
+    expect(data.costsQuote).toEqual({ quoteNumber: REF, validUntil: "2026-11-30", ownerName: "Jana Nováková" });
+    expect(salesQuoteGet).toHaveBeenCalledWith({ quoteNumber: REF });
+  });
+
+  it("asks nothing for a reference that names no sales quote", async () => {
+    settingsWith("ACME-PO-17");
+    await expect(invoicingService.getInvoicingData(SHIPMENT, COMPANY)).resolves.toMatchObject({ costsQuote: null });
+    expect(salesQuoteGet).not.toHaveBeenCalled();
+  });
+
+  it("loads the costs all the same when the quote is gone or cannot be read", async () => {
+    settingsWith(REF);
+    salesQuoteGet.mockRejectedValueOnce(APIError.notFound("Quote not found"));
+    await expect(invoicingService.getInvoicingData(SHIPMENT, COMPANY)).resolves.toMatchObject({ costsQuote: null, costs: [] });
+    expect(log.warn).not.toHaveBeenCalled();
+    salesQuoteGet.mockRejectedValueOnce(new Error("quotes is down"));
+    await expect(invoicingService.getInvoicingData(SHIPMENT, COMPANY)).resolves.toMatchObject({ costsQuote: null });
+    expect(log.warn).toHaveBeenCalledTimes(1);
   });
 });

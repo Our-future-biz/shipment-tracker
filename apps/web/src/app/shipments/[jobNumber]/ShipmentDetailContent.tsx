@@ -36,8 +36,7 @@ import { statusLabel, statusTagColor } from "@/lib/shipmentStatus";
 import { useShipmentTasks } from "@/hooks/useShipmentTasks";
 import { useCardFields } from "./useCardFields";
 import { useUsers } from "@/hooks/useUsers";
-import { asData, isSalesQuoteRef, quoteValidUntil } from "@/app/sales/_lib/salesQuote";
-import { useSalesQuoteByRef } from "@/hooks/useSalesQuote";
+import { isSalesQuoteRef } from "@/app/sales/_lib/salesQuote";
 import { quoteHref } from "@/app/sales/_lib/quoteHref";
 import { getTasksForDirection, getActiveStageFromTasks } from "./_components/taskDefinitions";
 import Link from "next/link";
@@ -987,8 +986,8 @@ export function ShipmentDetailContent() {
 
   // Totals of the Costs Breakdown tab, shown on the Quote card.
   const costs = useCostsData(shipment);
-  // The quote uploaded there, whose details the Quote card shows.
-  const costsQuote = useSalesQuoteByRef(isSalesQuoteRef(costsQuoteRef) ? costsQuoteRef : null).data?.quote;
+  // The quote uploaded there, whose details the Quote card shows: the invoicing data brings it.
+  const costsQuote = invoicingData?.costsQuote ?? null;
 
 
   const visibleTabs = TABS;
@@ -1544,7 +1543,7 @@ export function ShipmentDetailContent() {
                   const amount = (v: number) => (costs.totals.hasAny ? `${money(v)} ${costs.billingCur}` : "—");
                   // The rest is the quote uploaded there; nothing on this card is typed in. Ok while
                   // the quote is valid, Check once its date has passed (as Create shipment sets it).
-                  const validUntil = costsQuote ? (costsQuote.validUntil ?? quoteValidUntil(asData(costsQuote.data))) : null;
+                  const validUntil = costsQuote?.validUntil ?? null;
                   const validity = validUntil ? (validUntil >= businessToday() ? "Ok" : "Check") : null;
                   const custom: Record<string, React.ReactNode> = {
                     salesNumber: <RoRow key="salesNumber" label="Sales Reference" value={costsQuoteRef} />,

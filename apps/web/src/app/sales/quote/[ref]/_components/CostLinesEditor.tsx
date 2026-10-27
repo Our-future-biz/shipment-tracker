@@ -10,7 +10,7 @@ import { chargeLabel, chargeOptions, toChargeCode } from "@/lib/chargeCodes";
 import { CURRENCIES } from "@/lib/enums";
 import { useListKeys } from "@/hooks/useListKeys";
 import { ConfirmModal } from "@/components/ConfirmModal";
-import { basisUnits, computeCargo, convertLine, lineRate, perUnitBasis, quoteCurrency, withRate, type LivePricing } from "@/app/sales/_lib/salesQuote";
+import { basisUnits, convertLine, lineRate, perUnitBasis, quoteContainerCount, quoteCurrency, withRate, type LivePricing } from "@/app/sales/_lib/salesQuote";
 import { LockedAmountInput } from "./LockedAmountInput";
 import { MiniButton, RemoveLineButton } from "./QuoteButtons";
 import { LINE_TD_CLASS, LINE_TH_CLASS, LINE_TH_RIGHT_CLASS, LineBlock, LineBlockEmpty, LineTable } from "./LineBlock";
@@ -61,7 +61,7 @@ export function serviceChange(line: CostLine, code: string): { line: CostLine; a
 // it is a lump sum of quantity 1 unless the user sets another.
 const newCostLine = (quote: SalesQuoteData): CostLine => {
   const code = FREIGHT_LINE_CODE[quote.serviceType ?? ""] ?? "other";
-  const containers = computeCargo(quote).totalContainers;
+  const containers = quoteContainerCount(quote);
   const line: CostLine = {
     ...chargeOf(code),
     description: describedAs(code),
@@ -125,7 +125,7 @@ export function CostLinesEditor({
   // A line's Amount column: per W/M or container the rate, which the cargo's weight / measure or
   // the number of containers multiplies.
   const priced = (line: CostLine, rate: number) => withRate(line, rate, basisUnits(quote, line.basis));
-  const containers = computeCargo(quote).totalContainers;
+  const containers = quoteContainerCount(quote);
   // The line whose service was changed while its description held text of its own: whether that
   // text gives way to the service's name is asked.
   const [asked, setAsked] = useState<{ index: number; description: string; service: string } | null>(null);

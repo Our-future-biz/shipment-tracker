@@ -2,13 +2,14 @@ import type { ReactNode } from "react";
 
 export type KpiTone = "red" | "green" | "amber";
 
-const TONE_CLASS: Record<KpiTone, string> = {
+// The colour of a tone, and the frame of a tile - also for a tile of its own beside these.
+export const KPI_TONE_CLASS: Record<KpiTone, string> = {
   red: "text-red-600",
   green: "text-green-600",
   amber: "text-amber-600",
 };
 
-const TILE_CLASS = "bg-white border border-slate-200 rounded-xl px-3 py-2.5 min-w-0";
+export const KPI_TILE_CLASS = "bg-white border border-slate-200 rounded-xl px-3 py-2.5 min-w-0";
 
 interface KpiTileProps {
   label: string;
@@ -38,28 +39,28 @@ export function KpiTile({ label, value, tone, hint, hintTone, size = "figure", o
   const content = (
     <>
       <div className={`text-[11px] text-slate-400 uppercase tracking-wide truncate${centered ? " text-center" : ""}`}>{label}</div>
-      <div className={`mt-0.5 ${valueClass} ${tone ? TONE_CLASS[tone] : "text-slate-800"}`}>{value}</div>
-      {hint && <div className={`text-[11px] truncate${centered ? " text-center" : ""} ${hintTone ? TONE_CLASS[hintTone] : "text-slate-400"}`}>{hint}</div>}
+      <div className={`mt-0.5 ${valueClass} ${tone ? KPI_TONE_CLASS[tone] : "text-slate-800"}`}>{value}</div>
+      {hint && <div className={`text-[11px] truncate${centered ? " text-center" : ""} ${hintTone ? KPI_TONE_CLASS[hintTone] : "text-slate-400"}`}>{hint}</div>}
     </>
   );
 
   if (action) {
     // The content keeps to the top, so its label stays in line with the labels of the tiles beside it.
     return (
-      <div className={`${TILE_CLASS} flex gap-3`}>
+      <div className={`${KPI_TILE_CLASS} flex gap-3`}>
         <div className="flex-1 min-w-0">{content}</div>
         <div className="shrink-0 self-center">{action}</div>
       </div>
     );
   }
 
-  if (!onClick) return <div className={centered ? `${TILE_CLASS} flex flex-col` : TILE_CLASS}>{content}</div>;
+  if (!onClick) return <div className={centered ? `${KPI_TILE_CLASS} flex flex-col` : KPI_TILE_CLASS}>{content}</div>;
 
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`${TILE_CLASS} block w-full text-left cursor-pointer transition-colors hover:border-indigo-300 hover:bg-indigo-50/40`}
+      className={`${KPI_TILE_CLASS} block w-full text-left cursor-pointer transition-colors hover:border-indigo-300 hover:bg-indigo-50/40`}
     >
       {content}
     </button>

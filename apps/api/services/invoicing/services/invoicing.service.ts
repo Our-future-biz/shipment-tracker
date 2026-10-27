@@ -1,9 +1,11 @@
 import { APIError, ErrCode } from "encore.dev/api";
+import log from "encore.dev/log";
 import { quotes } from "~encore/clients";
 import { iso } from "../../../lib/db/serialize";
 import { assertShipmentExists } from "../../../lib/shipmentRefs";
 import { toChargeCode } from "../../../lib/chargeCodes";
 import { quoteCostCopyRefusal } from "../../../lib/salesPolicy";
+import { isSalesReference } from "../../../lib/salesReference";
 import { isUuid } from "../../../lib/uuid";
 import { definedOnly, toDecimal } from "../lib/amounts";
 import { splitAmount } from "../lib/costSplit";
@@ -38,6 +40,7 @@ import type {
   CategoryCostInput,
   CostSplitInput,
   CostSplitResultLine,
+  CostsQuoteItem,
   GeneratedInvoiceItem,
   InvoiceCostItem,
   InvoicingData,
@@ -196,6 +199,20 @@ async function assertNotKeptByTrucking(companyId: string, shipmentIds: string[],
   }
 }
 
+// The sales quote the costs were copied from, read from the quotes service. A reference that
+// names no sales quote, or one that cannot be read, gives null: the costs load all the same.
+async function costsQuoteOf(quoteRef: string | undefined): Promise<CostsQuoteItem | null> {
+  const quoteNumber = (quoteRef ?? "").trim();
+  if (!isSalesReference(quoteNumber)) return null;
+  try {
+    const { quote } = await quotes.salesQuoteGet({ quoteNumber });
+    return { quoteNumber: quote.quoteNumber, validUntil: quote.validUntil, ownerName: quote.ownerName };
+  } catch (err) {
+    if (!(err instanceof APIError && err.code === ErrCode.NotFound)) log.warn(err, "the quote of a shipment's costs was not read", { quoteNumber });
+    return null;
+  }
+}
+
 class InvoicingService {
   async getInvoicingData(shipmentId: string, companyId: string): Promise<InvoicingData> {
     const [costs, sellingCosts, additionalCharges, billingSettings, billingOverrides, generatedInvoices] = await Promise.all([
@@ -213,6 +230,7 @@ class InvoicingService {
       billingSettings: billingSettings ? toBillingSettingsItem(billingSettings) : null,
       billingOverrides: billingOverrides.map(toOverrideItem),
       generatedInvoices: generatedInvoices.map(toInvoiceItem),
+      costsQuote: await costsQuoteOf(billingSettings?.quoteRef),
     };
   }
 

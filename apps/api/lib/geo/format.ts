@@ -3,6 +3,8 @@ import { COUNTRIES } from "./countries";
 // How places and countries are written into shipments and quotes, so every screen and the AI
 // readers agree. Mirrored in apps/web/src/lib/places.ts.
 //   place:        "Hamburg (DEHAM)"  — UN/LOCODE name + code from the location table
+//                 "Shanghai Pudong International Airport (PVG)" — or, by air, an IATA airport
+//                 (lib/geo/airports.ts), which placeCodeOf does not read: it is no UN/LOCODE
 //   country:      "Germany (DE)"     — ISO name + code
 //   country code: "DE"
 

@@ -265,8 +265,9 @@ export function QuoteWorkflow() {
     if (!Object.keys(own).length) return;
     // Rates are not copied onto the quote here: a draft is priced at today's ČNB fixing and the
     // server stores the rates when the quote is sent.
-    // A selling line has its buying line's basis, and a line charged per W/M the cargo's weight /
-    // measure as its quantity, in the same change - while the pricing is open.
+    // A selling line has its buying line's basis, and a line charged per W/M or per container the
+    // cargo's weight / measure or its containers as its quantity, in the same change - while the
+    // pricing is open.
     change({ ...own, ...derived({ ...draft, ...own }) });
   };
 
@@ -343,11 +344,12 @@ export function QuoteWorkflow() {
     if (!result.problem && result.status === "saved") toast.success("Saved");
   };
 
+  // Every shipment booked under this quote, the oldest first: the quote itself keeps only the
+  // first. Asked only once it has one.
+  const quoteShipments = useQuoteShipments(quote?.shipmentId ? [ref] : []).byReference?.get(ref);
+
   // New Shipment opens for this quote. What was typed is saved first: the shipment is made from
   // the quote as it is stored, and a save that is refused - the hook says why - stops here.
-  // Every shipment booked under this quote, the oldest first: the quote itself keeps only the first.
-  const quoteShipments = useQuoteShipments([ref]).byReference?.get(ref);
-
   // `another`: one more shipment under a quote that has one already - the wizard starts with that ticked.
   const createShipment = async (another = false) => {
     const result = await saveNow();

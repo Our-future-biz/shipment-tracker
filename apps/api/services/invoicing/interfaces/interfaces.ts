@@ -91,6 +91,14 @@ export interface ExchangeRateItem {
   note: string;
 }
 
+/** The sales quote the costs were copied from (the billing settings' quoteRef), as the Quote card of Shipment Details shows it. */
+export interface CostsQuoteItem {
+  quoteNumber: string;
+  validUntil: string | null;
+  /** The quote's owner: who sold the shipment. */
+  ownerName: string;
+}
+
 /** Everything the Costs / Invoicing views of one shipment show */
 export interface InvoicingData {
   costs: InvoiceCostItem[];
@@ -99,6 +107,8 @@ export interface InvoicingData {
   billingSettings: BillingSettingsItem | null;
   billingOverrides: BillingOverrideItem[];
   generatedInvoices: GeneratedInvoiceItem[];
+  /** Null when the costs were copied from no sales quote, or it could not be read. */
+  costsQuote: CostsQuoteItem | null;
 }
 
 /** A generated invoice lists the cost lines ("breakdown") or only the total ("total"). */
