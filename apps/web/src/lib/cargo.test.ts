@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CONTAINER_TYPES, containerType, NOT_STACKABLE, numberInput, STACKABLE, shipmentStackability, withShipmentStackability } from "./cargo";
+import { checkConsistency, compareFigure, dimensionLineIsEmpty, CONTAINER_TYPES, containerType, NOT_STACKABLE, numberInput, STACKABLE, shipmentStackability, withShipmentStackability } from "./cargo";
 import { containerTypeFrom } from "@/app/documents/_lib/extraction";
 
 describe("CONTAINER_TYPES", () => {
@@ -93,5 +93,27 @@ describe("numberInput", () => {
     expect(numberInput("12345", false, 4)).toBe("1234");
     expect(numberInput("99999.5", true, 4)).toBe("9999.5");
     expect(numberInput("1234", true, 4)).toBe("1234");
+  });
+});
+
+describe("compareFigure / checkConsistency", () => {
+  it("agrees with the figures shown: equal at the shown decimals is a match", () => {
+    expect(compareFigure(99.999, 100, 2).ok).toBe(true);
+    expect(compareFigure(1.2346, 1.2355, 3).ok).toBe(false);
+    expect(compareFigure(0, 0, 0)).toMatchObject({ empty: true, ok: true });
+  });
+  it("matches a container whose dimension rows add up to what it declares", () => {
+    const line = { pieces: "3", lengthCm: "100", widthCm: "100", heightCm: "100", weightPerPcKg: "33.333", packageType: "", stackable: "" };
+    const c = { containerNumber: "", sealNumber: "", type: "", teu: "", packages: "3", packageType: "", grossWeight: "100", volume: "3" };
+    expect(checkConsistency(c, [line]).matched).toBe(true);
+  });
+});
+
+describe("dimensionLineIsEmpty", () => {
+  const blank = { pieces: "", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "", packageType: "", stackable: "" };
+  it("keeps a line holding only a pallet type or ADR data", () => {
+    expect(dimensionLineIsEmpty(blank)).toBe(true);
+    expect(dimensionLineIsEmpty({ ...blank, palletType: "EUR" })).toBe(false);
+    expect(dimensionLineIsEmpty({ ...blank, adrUn: "1203" })).toBe(false);
   });
 });

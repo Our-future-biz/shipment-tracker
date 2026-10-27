@@ -173,6 +173,16 @@ export interface DimensionTotals {
   m3: number;
 }
 
+// A dimension line with nothing in it: never saved. The pallet type and ADR count, so
+// a line holding only those (typed in Cargo Details) survives a save from the grid's
+// Dimensions dialog, which does not show them.
+export function dimensionLineIsEmpty(l: CargoDimensionLine): boolean {
+  return (
+    !l.pieces && !l.lengthCm && !l.widthCm && !l.heightCm && !l.weightPerPcKg && !l.packageType && !l.stackable &&
+    !l.palletType?.trim() && !l.adrUn?.trim() && !l.adrClass?.trim() && !l.adrPackingGroup?.trim() && !l.adrLimitedQuantity
+  );
+}
+
 export function dimensionTotals(dims: CargoDimensionLine[]): DimensionTotals {
   return dims.reduce(
     (t, d) => {
@@ -187,7 +197,8 @@ export function dimensionTotals(dims: CargoDimensionLine[]): DimensionTotals {
 }
 
 // Compare a container's declared Pieces/Gross Weight/Volume against the sums of
-// its dimension lines. Tolerance 0.001 absorbs floating point noise. A metric
+// its dimension lines, at the precision the totals are shown in (pcs 0, kg 2, m³ 3
+// decimals), so the colour always agrees with the figures on screen. A metric
 // where both sides are empty doesn't participate (ok stays true).
 export interface ConsistencyCheck {
   matched: boolean;
@@ -196,15 +207,16 @@ export interface ConsistencyCheck {
   m3: { sum: number; declared: number; empty: boolean; ok: boolean };
 }
 
+export function compareFigure(sum: number, declared: number, decimals: number) {
+  const empty = !sum && !declared;
+  return { sum, declared, empty, ok: empty || fmtFixed(sum, decimals) === fmtFixed(declared, decimals) };
+}
+
 export function checkConsistency(container: ContainerLine, dims: CargoDimensionLine[]): ConsistencyCheck {
   const t = dimensionTotals(dims);
-  const compare = (sum: number, declared: number) => {
-    const empty = !sum && !declared;
-    return { sum, declared, empty, ok: empty || Math.abs(sum - declared) < 0.001 };
-  };
-  const pcs = compare(t.pcs, num(container.packages));
-  const kg = compare(t.kg, num(container.grossWeight));
-  const m3 = compare(t.m3, num(container.volume));
+  const pcs = compareFigure(t.pcs, num(container.packages), 0);
+  const kg = compareFigure(t.kg, num(container.grossWeight), 2);
+  const m3 = compareFigure(t.m3, num(container.volume), 3);
   return { matched: pcs.ok && kg.ok && m3.ok, pcs, kg, m3 };
 }
 

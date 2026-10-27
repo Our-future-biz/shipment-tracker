@@ -4,7 +4,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { rowKey } from "@/app/shipments/_lib/rowKey";
 import { Input, Button, AutoComplete, Select, Tooltip, message } from "antd";
 import { PlusOutlined, DeleteOutlined, ContainerOutlined } from "@ant-design/icons";
-import type { ShipmentItem } from "@/hooks/useShipments";
+import { SHIPMENT_WRITE_KEY, type ShipmentItem } from "@/hooks/useShipments";
+import { useIsMutating } from "@tanstack/react-query";
+import { uuid } from "@/lib/uuid";
 import { containerNumberInput, isValidContainerNumber, normalizeContainerNumber } from "@/lib/container";
 import {
   CONTAINER_SIZES,
@@ -18,7 +20,10 @@ import {
   numberInput,
 } from "@/lib/cargo";
 
+// A new row gets its id here, so every save names it and the server keeps that id
+// (cargo lines can point at it) — rows are never matched by position.
 const emptyContainer = (): ContainerLine => ({
+  id: uuid(),
   containerNumber: "",
   sealNumber: "",
   type: "",
@@ -28,6 +33,17 @@ const emptyContainer = (): ContainerLine => ({
   grossWeight: "",
   volume: "",
 });
+
+// A row nobody has typed into is never sent (it would become an empty container
+// and an empty panel in Cargo Details).
+const isBlankContainer = (c: ContainerLine) =>
+  !c.containerNumber.trim() &&
+  !c.sealNumber.trim() &&
+  !c.type.trim() &&
+  !c.packages.trim() &&
+  !c.packageType.trim() &&
+  !c.grossWeight.trim() &&
+  !c.volume.trim();
 
 // Show one empty row from the start so a new shipment has a ready-to-fill form
 // (no "Add container" click needed for the first). It stays local until edited,
@@ -65,7 +81,8 @@ export function ContainerDetailsTab({
   onOpenCargo,
 }: {
   shipment: ShipmentItem;
-  onChange: (containers: ContainerLine[]) => void;
+  /** Saves the list; rejects when the server refuses it (the caller says why). */
+  onChange: (containers: ContainerLine[]) => Promise<unknown>;
   onOpenCargo?: (containerId: string) => void;
 }) {
   const [rows, setRows] = useState<ContainerLine[]>(() => withFirstRow(shipment.containers));
@@ -75,6 +92,11 @@ export function ContainerDetailsTab({
   const [editing, setEditing] = useState<Set<number>>(() => new Set());
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
+  const editingRef = useRef(editing);
+  editingRef.current = editing;
+  // The list last sent, so the same list is not sent twice (a blur right after the
+  // number was completed, Enter then blur).
+  const lastSent = useRef<string | null>(null);
   // antd Input and AutoComplete expose different ref classes; all we need from
   // either is focus().
   const inputRefs = useRef(new Map<string, { focus: () => void }>());
@@ -87,16 +109,41 @@ export function ContainerDetailsTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shipment.id]);
 
-  // After a save round-trips, the server response carries the container row ids.
-  // Merge them into rows that don't have one yet (same order as we sent), so the
-  // next save updates rows in place instead of recreating them — cargo lines
-  // reference these ids.
+  // When the saved list changes (a save came back, a refused save was rolled back, another
+  // screen changed it), show what is saved - once no save is pending and nothing is being
+  // typed here (always after a refused save). A row unchanged keeps its object, so its
+  // fields are not rebuilt; rows added here and not typed into yet stay.
+  const shipmentRef = useRef(shipment);
+  shipmentRef.current = shipment;
+  const pendingWrites = useIsMutating({ mutationKey: SHIPMENT_WRITE_KEY });
+  // force: after a refused save - its rows go back to what is saved, but a row added
+  // here that was not part of that save keeps what was typed into it.
+  const resync = (force: boolean, refusedIds?: Set<string | undefined>) => {
+    const local = rowsRef.current;
+    const typing = editingRef.current.size > 0 || local.some((r) => !isValidContainerNumber(r.containerNumber));
+    if (!force && typing) return;
+    const saved = shipmentRef.current.containers ?? [];
+    const savedById = new Map(saved.map((c) => [c.id, c]));
+    const same = (a: ContainerLine, b: ContainerLine) =>
+      (["containerNumber", "sealNumber", "type", "packages", "packageType", "grossWeight", "volume"] as const).every((k) => a[k] === b[k]);
+    // In the order shown here: a saved row takes its saved values (keeping its object when
+    // unchanged), a row deleted elsewhere goes, an unsaved row stays where it is; rows
+    // added elsewhere come last.
+    const next: ContainerLine[] = [];
+    for (const r of local) {
+      const s = savedById.get(r.id);
+      if (s) next.push(same(r, s) ? r : s);
+      else if (!(force && refusedIds?.has(r.id) && !isBlankContainer(r)) && (isBlankContainer(r) || force)) next.push(r);
+    }
+    const shown = new Set(local.map((r) => r.id));
+    next.push(...saved.filter((c) => !shown.has(c.id)));
+    lastSent.current = JSON.stringify(saved);
+    setRows(next.length > 0 ? next : [emptyContainer()]);
+    if (force) setEditing(new Set(next.flatMap((r, i) => (savedById.has(r.id) ? [] : [i]))));
+  };
   useEffect(() => {
-    const server = shipment.containers ?? [];
-    setRows((local) =>
-      local.map((r, i) => (r.id || !server[i]?.id ? r : { ...r, id: server[i].id })),
-    );
-  }, [shipment.containers]);
+    if (pendingWrites === 0) resync(false);
+  }, [shipment.containers, pendingWrites]);
 
   useEffect(() => {
     if (focusAfterRender.current) {
@@ -107,10 +154,24 @@ export function ContainerDetailsTab({
   });
 
   // Nothing is saved while any row holds a container number of the wrong shape.
-  const canPersist = () => rowsRef.current.every((r) => isValidContainerNumber(r.containerNumber));
-  const persist = () => {
-    if (canPersist()) onChange(rowsRef.current);
+  // Sends the non-blank rows unless that exact list was just sent. A refused save is
+  // reported by the caller; the saved list then shows again (effect above).
+  const save = (list: ContainerLine[]) => {
+    if (!list.every((r) => isValidContainerNumber(r.containerNumber))) return;
+    // A saved row stays in the list even when emptied, so clearing a number never deletes
+    // the container (and its cargo); only a row never saved and never typed into is left out.
+    const savedNow = new Set((shipmentRef.current.containers ?? []).map((c) => c.id));
+    const payload = list.filter((r) => !isBlankContainer(r) || savedNow.has(r.id));
+    const key = JSON.stringify(payload);
+    if (key === lastSent.current) return;
+    lastSent.current = key;
+    const refusedIds = new Set(payload.map((r) => r.id));
+    onChange(payload).catch(() => {
+      // The cache is rolled back by then; show the saved list again, also in an open row.
+      setTimeout(() => resync(true, refusedIds), 50);
+    });
   };
+  const persist = () => save(rowsRef.current);
   const patch = (i: number, p: Partial<ContainerLine>) => {
     // Typing keeps the row open: without this the row with a freshly typed container
     // number would no longer count as "being edited" and would collapse mid-word.
@@ -129,7 +190,7 @@ export function ContainerDetailsTab({
       messageApi.error(`Container number "${typed}" is not valid — it must be 4 letters and 7 digits, e.g. MSKU1234567`);
       return;
     }
-    if (next.every((r) => isValidContainerNumber(r.containerNumber))) onChange(next);
+    save(next);
   };
   // A complete number (4 letters + 7 digits) is saved straight away, so leaving the tab
   // is not needed for it to stick.
@@ -141,7 +202,7 @@ export function ContainerDetailsTab({
     if (!complete) return;
     const next = rowsRef.current.map((r, j) => (j === i ? { ...r, containerNumber: value } : r));
     rowsRef.current = next;
-    if (next.every((r) => isValidContainerNumber(r.containerNumber))) onChange(next);
+    save(next);
   };
 
   const add = () => {
@@ -149,16 +210,23 @@ export function ContainerDetailsTab({
     setRows(next);
     setEditing((e) => new Set(e).add(next.length - 1));
     focusAfterRender.current = `${next.length - 1}:containerNumber`;
-    if (canPersist()) onChange(next);
+    // The new row is blank, so nothing is sent until something is typed into it.
   };
   // Deleting the last remaining row just clears it (reference-UI behavior); the
   // backend cascades the removed container's cargo lines.
+  // While another row holds an unfinished number nothing can be saved, so the delete
+  // waits too rather than vanishing here but staying on the server.
   const remove = (i: number) => {
     const filtered = rowsRef.current.filter((_, j) => j !== i);
+    const bad = filtered.find((r) => !isValidContainerNumber(r.containerNumber));
+    if (bad) {
+      messageApi.error(`Finish or clear container number "${bad.containerNumber}" first — it must be 4 letters and 7 digits`);
+      return;
+    }
     const next = filtered.length > 0 ? filtered : [emptyContainer()];
     setRows(next);
     setEditing(new Set());
-    onChange(filtered);
+    save(filtered);
   };
 
   const isEditing = (i: number) =>
@@ -203,6 +271,8 @@ export function ContainerDetailsTab({
   const totalVolume = rows.reduce((s, c) => s + num(c.volume), 0);
 
   const [messageApi, contextHolder] = message.useMessage();
+  // Only a saved container has a panel in Cargo Details to jump to.
+  const savedIds = new Set((shipment.containers ?? []).map((c) => c.id ?? ""));
   const [typeQuery, setTypeQuery] = useState("");
   const typeOptions = useMemo(() => containerTypeOptions(typeQuery), [typeQuery]);
 
@@ -335,10 +405,10 @@ export function ContainerDetailsTab({
                     <button
                       type="button"
                       className={`font-mono font-bold text-[13px] tracking-wide px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-600 ${
-                        c.id && onOpenCargo ? "hover:bg-indigo-100 hover:text-indigo-700 cursor-pointer" : "cursor-default"
+                        savedIds.has(c.id ?? "") && onOpenCargo ? "hover:bg-indigo-100 hover:text-indigo-700 cursor-pointer" : "cursor-default"
                       }`}
                       title="Open Cargo Details"
-                      onClick={() => c.id && onOpenCargo?.(c.id)}
+                      onClick={() => c.id && savedIds.has(c.id) && onOpenCargo?.(c.id)}
                     >
                       {c.containerNumber}
                     </button>

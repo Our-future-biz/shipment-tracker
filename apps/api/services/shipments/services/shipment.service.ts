@@ -208,6 +208,9 @@ function enrich(
   cargoDimensions: CargoDimensionLine[],
   commercialInvoices: CommercialInvoiceLine[],
 ) {
+  const ids = containers.map((c) => c.id);
+  cargoItems = withOnlyContainer(cargoItems, ids);
+  cargoDimensions = withOnlyContainer(cargoDimensions, ids);
   const hasDetailRows = containers.length > 0 || cargoItems.length > 0 || cargoDimensions.length > 0;
   const p = projectCargo(containers, cargoItems, cargoDimensions);
   return {
@@ -255,14 +258,27 @@ function assertValidContainerNumbers(containers: ContainerLine[] | undefined) {
   }
 }
 
-// Cargo lines may only point at containers of their own shipment; anything else
-// (stale id after a container was deleted, foreign id) becomes a shipment-level
-// line rather than an error.
+// Cargo lines may only point at containers of their own shipment. With exactly one
+// container every line belongs to it (see withOnlyContainer), also one naming an id that
+// is gone - e.g. sent from a screen opened before the only container was replaced, whose
+// cargo moved to the new one. Otherwise a line naming another id (a container deleted
+// meanwhile, whose cargo went with it; a foreign id) is dropped rather than coming back
+// as shipment-level cargo.
 function sanitizeContainerLinks<T extends { containerId?: string | null }>(lines: T[], validIds: Set<string>): T[] {
-  return lines.map((l) => ({
-    ...l,
-    containerId: l.containerId && validIds.has(l.containerId) ? l.containerId : null,
-  }));
+  if (validIds.size === 1) {
+    const [only] = validIds;
+    return lines.map((l) => (l.containerId === only ? l : { ...l, containerId: only! }));
+  }
+  return lines.filter((l) => !l.containerId || validIds.has(l.containerId));
+}
+
+// The one-container rule: when a shipment has exactly one container, every cargo line
+// (dimensions and descriptions) belongs to it, also a line typed or imported before the
+// container existed. Applied on every write and when a shipment is read, so Cargo
+// Details, the grid's Dimensions dialog and the Matched check all see the same thing.
+function withOnlyContainer<T extends { containerId?: string | null }>(lines: T[], containerIds: (string | undefined)[]): T[] {
+  const only = containerIds.length === 1 ? containerIds[0] : undefined;
+  return only ? lines.map((l) => (l.containerId ? l : { ...l, containerId: only })) : lines;
 }
 
 // Real `date` columns reject "" — the UI sends an empty string when a date cell is
@@ -503,15 +519,35 @@ class ShipmentService {
   // validated against the resulting container ids.
   private async syncDetailRows(shipmentId: string, companyId: string, rows: DetailRows): Promise<void> {
     if (rows.containers !== undefined) {
+      // With one container all cargo belongs to it, so it is the shipment's cargo: removing
+      // or replacing that only container keeps the lines (they move to the new container, or
+      // become shipment-level with none left). With two or more, a removed container's own
+      // cargo goes with it (ON DELETE CASCADE).
+      const before = await containerRepository.listByShipmentId(shipmentId, companyId);
+      if (before.length === 1) {
+        const lines = rows.containers;
+        const keeps = lines.some((l) => l.id === before[0]!.id) || (lines.length > 0 && lines.every((l) => !l.id));
+        if (!keeps) {
+          await cargoItemRepository.detachFromContainers(shipmentId, companyId, [before[0]!.id]);
+          await cargoDimensionRepository.detachFromContainers(shipmentId, companyId, [before[0]!.id]);
+        }
+      }
       await containerRepository.syncForShipment(shipmentId, companyId, rows.containers);
     }
-    if (rows.cargoItems !== undefined || rows.cargoDimensions !== undefined) {
+    if (rows.containers !== undefined || rows.cargoItems !== undefined || rows.cargoDimensions !== undefined) {
       const containerIds = new Set((await containerRepository.listByShipmentId(shipmentId, companyId)).map((c) => c.id));
       if (rows.cargoItems !== undefined) {
         await cargoItemRepository.replaceForShipment(shipmentId, companyId, sanitizeContainerLinks(rows.cargoItems, containerIds));
       }
       if (rows.cargoDimensions !== undefined) {
         await cargoDimensionRepository.replaceForShipment(shipmentId, companyId, sanitizeContainerLinks(rows.cargoDimensions, containerIds));
+      }
+      // Lines that stayed without a container (e.g. the first container was just added)
+      // move to it when it is the only one.
+      if (containerIds.size === 1) {
+        const [only] = containerIds;
+        await cargoItemRepository.assignLooseToContainer(shipmentId, companyId, only!);
+        await cargoDimensionRepository.assignLooseToContainer(shipmentId, companyId, only!);
       }
     }
     if (rows.commercialInvoices !== undefined) {

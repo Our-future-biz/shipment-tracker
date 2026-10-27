@@ -5,6 +5,8 @@ import { containerTable, type ContainerRecord } from "../schemas/container.schem
 import { normalizeContainerNumber, teuForType } from "../lib/cargoProjection";
 import type { ContainerLine } from "../interfaces/interfaces";
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 class ContainerRepository extends TenantRepository<typeof containerTable> {
   constructor() {
     super(db, containerTable, "container");
@@ -31,24 +33,33 @@ class ContainerRepository extends TenantRepository<typeof containerTable> {
 
   // Sync the shipment's containers to the provided list while keeping row ids
   // stable — cargo_item/cargo_dimension rows point at container ids, so rows must
-  // be updated in place, not replaced. Lines are matched to existing rows by id;
-  // id-less lines adopt the unclaimed existing row at the same position (clients
-  // like the create wizard or document extraction don't echo ids). Existing rows
-  // no line claims are deleted; their cargo lines go with them (ON DELETE CASCADE).
+  // be updated in place, not replaced. Lines are matched to existing rows by id.
+  // A new line from Container Details brings its own id (a UUID made when the row was
+  // added), which the inserted row keeps, so that screen never depends on position.
+  // Lines without an id come only from callers that do not echo ids (the create wizard,
+  // document extraction, a master job renaming a house container); those adopt the
+  // unclaimed existing row at the same position, which keeps a renamed container's
+  // cargo. Existing rows no line claims are deleted; their cargo lines go with them
+  // (ON DELETE CASCADE).
   async syncForShipment(shipmentId: string, companyId: string, lines: ContainerLine[]): Promise<void> {
     const existing = await this.listByShipmentId(shipmentId, companyId);
     const existingIds = new Set(existing.map((r) => r.id));
     const claimed = new Set<string>();
 
-    const resolved: { line: ContainerLine; id: string | null }[] = lines.map((line) => {
+    const resolved: { line: ContainerLine; id: string | null; insertId?: string }[] = lines.map((line) => {
       if (line.id && existingIds.has(line.id) && !claimed.has(line.id)) {
         claimed.add(line.id);
         return { line, id: line.id };
       }
+      // A client-made id for a new row (never one already used in this list).
+      if (line.id && UUID.test(line.id) && !existingIds.has(line.id) && !claimed.has(line.id)) {
+        claimed.add(line.id);
+        return { line, id: null, insertId: line.id };
+      }
       return { line, id: null };
     });
     resolved.forEach((r, i) => {
-      if (r.id) return;
+      if (r.id || r.insertId) return;
       const candidate = existing[i];
       if (candidate && !claimed.has(candidate.id)) {
         claimed.add(candidate.id);
@@ -64,7 +75,7 @@ class ContainerRepository extends TenantRepository<typeof containerTable> {
     }
 
     for (let i = 0; i < resolved.length; i++) {
-      const { line, id } = resolved[i]!;
+      const { line, id, insertId } = resolved[i]!;
       const values = {
         companyId,
         shipmentId,
@@ -84,7 +95,7 @@ class ContainerRepository extends TenantRepository<typeof containerTable> {
           .set({ ...values, updatedAt: new Date() })
           .where(and(eq(containerTable.companyId, companyId), eq(containerTable.id, id)));
       } else {
-        await this.db.insert(containerTable).values(values);
+        await this.db.insert(containerTable).values(insertId ? { ...values, id: insertId } : values);
       }
     }
   }

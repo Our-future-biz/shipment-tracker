@@ -13,7 +13,8 @@ import {
   ColumnHeightOutlined,
   FileTextOutlined,
 } from "@ant-design/icons";
-import type { ShipmentItem } from "@/hooks/useShipments";
+import { SHIPMENT_WRITE_KEY, type ShipmentItem } from "@/hooks/useShipments";
+import { useIsMutating } from "@tanstack/react-query";
 import {
   PACK_TYPES,
   STACKABLE_OPTIONS,
@@ -26,7 +27,9 @@ import {
   fmtFixed,
   numberInput,
   dimensionVolumePerPiece,
+  dimensionLineIsEmpty,
   checkConsistency,
+  compareFigure,
   civByCurrency,
   type CargoItemLine,
   type CargoDimensionLine,
@@ -62,8 +65,35 @@ const emptyDim = (containerId: string | null): CargoDimensionLine => ({
 
 const itemIsEmpty = (l: CargoItemLine) =>
   !l.cargoDescription && !l.hsCode && !l.pieces && !l.packageType && !l.grossWeight && !l.commercialInvoiceValue;
-const dimIsEmpty = (l: CargoDimensionLine) =>
-  !l.pieces && !l.lengthCm && !l.widthCm && !l.heightCm && !l.weightPerPcKg && !l.packageType && !l.stackable && !l.palletType && !hasAdr(l);
+const dimIsEmpty = dimensionLineIsEmpty;
+
+// What a table holds, for telling a save's own echo from a real change (another screen,
+// a rolled-back save): the non-empty lines with every saved field, defaults filled in.
+const itemLineKey = (l: CargoItemLine) => [
+  l.containerId ?? null, l.cargoDescription, l.hsCode, l.pieces, l.packageType, l.grossWeight, l.commercialInvoiceValue, l.currency,
+];
+const itemsKey = (ls: CargoItemLine[]) => JSON.stringify(ls.filter((l) => !itemIsEmpty(l)).map(itemLineKey));
+// The pallet and ADR fields as the server stores them ("UN 1203" -> "1203", blanks -> null),
+// so a saved line compares equal to what was sent.
+const blankToNull = (v: string | null | undefined) => (v == null || !String(v).trim() ? null : String(v).trim());
+const dimLineKey = (l: CargoDimensionLine) => [
+  l.containerId ?? null, l.pieces, l.lengthCm, l.widthCm, l.heightCm, l.weightPerPcKg, l.packageType, l.stackable,
+  blankToNull(l.palletType)?.toUpperCase() ?? null,
+  blankToNull(l.adrUn)?.replace(/^UN\s*/i, "") ?? null,
+  blankToNull(l.adrClass),
+  blankToNull(l.adrPackingGroup)?.toUpperCase() ?? null,
+  l.adrLimitedQuantity === true,
+];
+const dimsKey = (ls: CargoDimensionLine[]) => JSON.stringify(ls.filter((l) => !dimIsEmpty(l)).map(dimLineKey));
+
+// One panel per saved container; the shipment-level panel shows when there are no
+// containers, or when containerless lines exist (e.g. LCL cargo).
+function panelKeysFor(containerIds: string[], items: CargoItemLine[], dims: CargoDimensionLine[]): string[] {
+  const keys = [...containerIds];
+  const hasLoose = items.some((l) => !l.containerId) || dims.some((l) => !l.containerId);
+  if (keys.length === 0 || hasLoose) keys.push(NONE);
+  return keys;
+}
 
 // Ensure every panel has at least one (local-only) row ready to type into.
 function withPanelRows<T>(rows: T[], panelKeys: string[], keyFn: (r: T) => string, mk: (containerId: string | null) => T): T[] {
@@ -112,8 +142,11 @@ function useOpenRows() {
     });
   return {
     isOpen: (idx: number) => rows.has(idx),
+    count: rows.size,
+    indexes: rows,
     open,
     reset: () => setRows(new Set()),
+    set: (idxs: number[]) => setRows(new Set(idxs)),
     // Clicking plain background gives no relatedTarget, so check where focus really went.
     onRowBlur: (idx: number) => (e: React.FocusEvent<HTMLDivElement>) => {
       if (e.relatedTarget && e.currentTarget.contains(e.relatedTarget as Node)) return;
@@ -137,7 +170,8 @@ export function CargoDetailsTab({
   focusContainerId,
 }: {
   shipment: ShipmentItem;
-  onChange: (data: { cargoItems?: CargoItemLine[]; cargoDimensions?: CargoDimensionLine[] }) => void;
+  /** Saves a table; rejects when the server refuses it (the caller says why). */
+  onChange: (data: { cargoItems?: CargoItemLine[]; cargoDimensions?: CargoDimensionLine[] }) => Promise<unknown>;
   focusContainerId?: string | null;
 }) {
   // Containers that made it to the server (they have ids cargo lines can point
@@ -162,6 +196,7 @@ export function CargoDetailsTab({
   const openItems = useOpenRows();
   const openDims = useOpenRows();
 
+
   // Reset local edit state when navigating to a different shipment.
   useEffect(() => {
     setItems(shipment.cargoItems ?? []);
@@ -172,14 +207,54 @@ export function CargoDetailsTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shipment.id]);
 
-  // One panel per container; the shipment-level panel shows when there are no
-  // containers, or when containerless lines exist (e.g. LCL cargo).
-  const panelKeys = useMemo(() => {
-    const keys = containers.map((c) => c.id);
-    const hasLoose = items.some((l) => !l.containerId) || dims.some((l) => !l.containerId);
-    if (keys.length === 0 || hasLoose) keys.push(NONE);
-    return keys;
-  }, [containers, items, dims]);
+  const panelKeys = useMemo(() => panelKeysFor(containers.map((c) => c.id), items, dims), [containers, items, dims]);
+
+  // What each table last saved (or loaded). The saved data coming back equal to it is
+  // the save's own echo; anything else (another screen changed it, a refused save was
+  // rolled back) is shown here — at once when no row is being edited, and always after
+  // a refused save, so a refused line never stays on screen or in later saves.
+  const shipmentRef = useRef(shipment);
+  shipmentRef.current = shipment;
+  const sentItems = useRef(itemsKey(shipment.cargoItems ?? []));
+  const sentDims = useRef(dimsKey(shipment.cargoDimensions ?? []));
+  // Kept in refs so resync, called from effects and timers, sees the current values.
+  const openRef = useRef({ items: openItems.indexes, dims: openDims.indexes });
+  openRef.current = { items: openItems.indexes, dims: openDims.indexes };
+  const pendingWrites = useIsMutating({ mutationKey: SHIPMENT_WRITE_KEY });
+  // refused: after a refused save of one table (the row keys it carried). That table goes
+  // back to what is saved even while a row is open, except a row being typed that was not
+  // part of the refused save: it keeps its text and stays open. The other table follows
+  // the normal rule.
+  const resync = (refused?: { table: "items" | "dims"; rows: Set<string> }) => {
+    const s = shipmentRef.current;
+    const serverItems = s.cargoItems ?? [];
+    const serverDims = s.cargoDimensions ?? [];
+    const keys = panelKeysFor((s.containers ?? []).flatMap((c) => (c.id ? [c.id] : [])), serverItems, serverDims);
+    const keepOpen = <T extends object>(local: T[], open: Set<number>, isEmpty: (l: T) => boolean, force: boolean) =>
+      force ? local.filter((l, i) => open.has(i) && !isEmpty(l) && !refused!.rows.has(rowKey(l))) : [];
+    const forceItems = refused?.table === "items";
+    const iKey = itemsKey(serverItems);
+    if (iKey !== sentItems.current && (forceItems || openRef.current.items.size === 0)) {
+      sentItems.current = iKey;
+      const kept = keepOpen(itemsRef.current, openRef.current.items, itemIsEmpty, forceItems);
+      setItems(withPanelRows([...serverItems, ...kept], keys, (l) => keyOf(l.containerId), emptyItem));
+      openItems.set(kept.map((_, j) => serverItems.length + j));
+    }
+    const forceDims = refused?.table === "dims";
+    const dKey = dimsKey(serverDims);
+    if (dKey !== sentDims.current && (forceDims || openRef.current.dims.size === 0)) {
+      sentDims.current = dKey;
+      const kept = keepOpen(dimsRef.current, openRef.current.dims, dimIsEmpty, forceDims);
+      setDims(withPanelRows([...serverDims, ...kept], keys, (l) => keyOf(l.containerId), emptyDim));
+      openDims.set(kept.map((_, j) => serverDims.length + j));
+    }
+  };
+  // Not while a save is pending: a refetch between two queued saves would show the first
+  // one's data over the second's edit.
+  useEffect(() => {
+    if (pendingWrites === 0) resync();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shipment.cargoItems, shipment.cargoDimensions, shipment.containers, pendingWrites]);
 
   // Seed each panel with an empty line to type into (kept local until edited —
   // empty lines are filtered out of every save).
@@ -189,11 +264,13 @@ export function CargoDetailsTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [panelKeys.join("|")]);
 
-  // Jumping in from the Container tab: expand that panel, collapse the rest,
-  // scroll to it and flash it briefly.
+  // Jumping in from the Container tab: expand that panel and collapse the rest. Only a
+  // panel further down is scrolled to and flashed; the first one is already at the top,
+  // so the page stays put like the other tabs.
   useEffect(() => {
     if (!focusContainerId) return;
     setCollapsed(new Set(panelKeys.filter((k) => k !== focusContainerId)));
+    if (panelKeys.indexOf(focusContainerId) <= 0) return;
     setFlash(focusContainerId);
     panelRefs.current.get(focusContainerId)?.scrollIntoView({ behavior: "smooth", block: "start" });
     const t = setTimeout(() => setFlash(null), 1400);
@@ -201,8 +278,26 @@ export function CargoDetailsTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusContainerId]);
 
-  const persistItems = () => onChange({ cargoItems: itemsRef.current.filter((l) => !itemIsEmpty(l)) });
-  const persistDims = () => onChange({ cargoDimensions: dimsRef.current.filter((l) => !dimIsEmpty(l)) });
+  // Saves a table unless it holds what was last saved. A refused save shows the saved
+  // lines again once the cache is rolled back.
+  const sendItems = (list: CargoItemLine[]) => {
+    const payload = list.filter((l) => !itemIsEmpty(l));
+    const key = itemsKey(payload);
+    if (key === sentItems.current) return;
+    sentItems.current = key;
+    const refused = { table: "items" as const, rows: new Set(payload.map(rowKey)) };
+    onChange({ cargoItems: payload }).catch(() => setTimeout(() => resync(refused), 50));
+  };
+  const sendDims = (list: CargoDimensionLine[]) => {
+    const payload = list.filter((l) => !dimIsEmpty(l));
+    const key = dimsKey(payload);
+    if (key === sentDims.current) return;
+    sentDims.current = key;
+    const refused = { table: "dims" as const, rows: new Set(payload.map(rowKey)) };
+    onChange({ cargoDimensions: payload }).catch(() => setTimeout(() => resync(refused), 50));
+  };
+  const persistItems = () => sendItems(itemsRef.current);
+  const persistDims = () => sendDims(dimsRef.current);
 
   // Both tables behave like the container rows: a filled row collapses to a read-only
   // line when focus leaves it, and a double-click opens it again. An empty row stays open.
@@ -248,7 +343,7 @@ export function CargoDetailsTab({
         : itemsRef.current.map((l, j) => (j === idx ? emptyItem(l.containerId ?? null) : l));
     setItems(next);
     openItems.reset();
-    onChange({ cargoItems: next.filter((l) => !itemIsEmpty(l)) });
+    sendItems(next);
   };
   const removeDim = (idx: number, panelSize: number) => {
     const next =
@@ -257,7 +352,7 @@ export function CargoDetailsTab({
         : dimsRef.current.map((l, j) => (j === idx ? emptyDim(l.containerId ?? null) : l));
     setDims(next);
     openDims.reset();
-    onChange({ cargoDimensions: next.filter((l) => !dimIsEmpty(l)) });
+    sendDims(next);
   };
 
   const toggle = (key: string) =>
@@ -288,14 +383,14 @@ export function CargoDetailsTab({
         const descTotalGw = panelItems.reduce((s, { l }) => s + num(l.grossWeight), 0);
         const descCiv = civByCurrency(panelItems.map(({ l }) => l));
         // Same comparison as the dimensions table: described pieces and weight against
-        // what the container declares.
-        const compare = (sum: number, declared: number) => {
-          const empty = !sum && !declared;
-          return { sum, declared, empty, ok: empty || Math.abs(sum - declared) < 0.001 };
-        };
+        // what the container declares, at the precision shown.
         const descCheck = container
-          ? { pcs: compare(descTotalPcs, num(container.packages)), kg: compare(descTotalGw, num(container.grossWeight)) }
+          ? { pcs: compareFigure(descTotalPcs, num(container.packages), 0), kg: compareFigure(descTotalGw, num(container.grossWeight), 2) }
           : null;
+        // The badge counts both tables: the dimensions always, the descriptions once the
+        // panel has any (a container without description lines yet is not a mismatch).
+        const hasDesc = panelItems.some(({ l }) => !itemIsEmpty(l));
+        const matched = !!check && check.matched && (!hasDesc || (!!descCheck && descCheck.pcs.ok && descCheck.kg.ok));
 
         // "TOTAL: sum / declared" cells — green when the declaration matches the
         // dimension sums, red when it doesn't, plain when both sides are empty.
@@ -336,8 +431,8 @@ export function CargoDetailsTab({
               <ContainerOutlined className="text-indigo-500 text-base" />
               <h3 className="text-[13px] font-bold text-slate-800 uppercase tracking-wider m-0">{title}</h3>
               {check && (
-                <Tag color={check.matched ? "green" : "red"} className="!ml-2 font-semibold">
-                  {check.matched ? "✓ Matched" : "⚠ Mismatch"}
+                <Tag color={matched ? "green" : "red"} className="!ml-2 font-semibold">
+                  {matched ? "✓ Matched" : "⚠ Mismatch"}
                 </Tag>
               )}
               <span className="ml-auto text-slate-400 text-xs">{isCollapsed ? <RightOutlined /> : <DownOutlined />}</span>
