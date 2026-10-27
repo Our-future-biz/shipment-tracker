@@ -16,9 +16,10 @@ interface LockedAmountInputProps {
 }
 
 // An amount that a stray click and typing cannot change. Locked, it is shown, not an input; a
-// double-click (or Enter) puts a fresh input there, focused with the amount selected, which goes
-// back to the locked view once it is left or Enter pressed; Esc puts the old amount back. An
-// amount already there is changed only after the user confirms it.
+// double-click (or Enter, Tab to a 0.00, or a figure typed after Tab) puts a fresh input there,
+// focused with the amount selected, which goes back to the locked view once it is left or Enter
+// pressed; Esc puts the old amount back. An amount already there is changed only after the user
+// confirms it.
 // The locked view is no read-only input on purpose: switching an input that has the caret between
 // read-only and editable was unreliable (antd sometimes rebuilt it, which reads as leaving it).
 export function LockedAmountInput({ value, onChange, "aria-label": label, currency, onCommit }: LockedAmountInputProps) {
@@ -35,12 +36,20 @@ export function LockedAmountInput({ value, onChange, "aria-label": label, curren
   const cancelled = useRef(false);
   // The amount last typed, read when the edit is done (the prop may not have caught up yet).
   const typed = useRef(value);
+  // Set while the locked view takes the focus back after Enter / Esc, which must not open it again.
+  const returning = useRef(false);
+  // Set while the locked view has the focus from a click: a stray click and typing must not open it.
+  const clicked = useRef(false);
 
   useEffect(() => {
     if (editing || !refocus.current) return;
     refocus.current = false;
     // Only where nothing else took it meanwhile (e.g. a dialog the edit opened).
-    if (!document.activeElement || document.activeElement === document.body) box.current?.focus();
+    if (!document.activeElement || document.activeElement === document.body) {
+      returning.current = true;
+      box.current?.focus();
+      returning.current = false;
+    }
   }, [editing]);
 
   const startEditing = () => {
@@ -106,8 +115,21 @@ export function LockedAmountInput({ value, onChange, "aria-label": label, curren
           disabled ? "bg-slate-50 text-slate-400" : "bg-white hover:border-slate-300"
         }`}
         onDoubleClick={requestEdit}
+        // Tabbed to (a keyboard focus, not a click), a 0.00 opens at once with the amount selected,
+        // so it is typed over like the fields beside it.
+        onPointerDown={() => {
+          clicked.current = true;
+        }}
+        onFocus={() => {
+          if (!value && !returning.current && !clicked.current) requestEdit();
+        }}
+        onBlur={() => {
+          clicked.current = false;
+        }}
         onKeyDown={(e) => {
-          if (e.key === "Enter") requestEdit();
+          if (e.key === "Enter") return requestEdit();
+          // An amount already there: typing a figure over it asks first, as a double-click does.
+          if (!clicked.current && /^[0-9.,]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) requestEdit();
         }}
       >
         {value.toFixed(2)}
