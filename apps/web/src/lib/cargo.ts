@@ -67,14 +67,7 @@ export function withShipmentStackability(
   return [{ containerId, pieces: "", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "", packageType: "", stackable }];
 }
 
-// Road freight: the pallet a dimension line stands on, and its ADR (dangerous goods) details.
-export const PALLET_TYPES: { value: interfaces.PalletType; label: string }[] = [
-  { value: "EUR", label: "EUR 120×80" },
-  { value: "INDUSTRIAL", label: "Industrial 120×100" },
-  { value: "HALF", label: "Half 80×60" },
-  { value: "QUARTER", label: "Quarter 60×40" },
-  { value: "OTHER", label: "Other" },
-];
+// Road freight: the ADR (dangerous goods) details of a dimension line.
 export const ADR_PACKING_GROUPS: interfaces.AdrPackingGroup[] = ["I", "II", "III"];
 
 /** Whether a dimension line carries any ADR detail. */

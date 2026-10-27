@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { rowKey } from "@/app/shipments/_lib/rowKey";
 import { Input, Button, AutoComplete, Select, Tooltip, message } from "antd";
-import { PlusOutlined, DeleteOutlined, ContainerOutlined } from "@ant-design/icons";
+import { PlusOutlined, DeleteOutlined } from "@ant-design/icons";
 import { SHIPMENT_WRITE_KEY, type ShipmentItem } from "@/hooks/useShipments";
 import { useIsMutating } from "@tanstack/react-query";
 import { uuid } from "@/lib/uuid";
@@ -279,14 +279,7 @@ export function ContainerDetailsTab({
   return (
     <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
       {contextHolder}
-      <div className="flex items-center gap-2.5 bg-indigo-50 border-b border-indigo-100 px-5 py-3">
-        <ContainerOutlined className="text-indigo-500 text-base" />
-        <h3 className="text-[13px] font-bold text-slate-800 uppercase tracking-wider m-0 flex-1">Container Details</h3>
-        <Button size="small" type="primary" ghost icon={<PlusOutlined />} onClick={add}>
-          Add container
-        </Button>
-      </div>
-
+      {/* No title bar: the page's own tab already says "Container Details". */}
       <div className="p-4">
         <div className="overflow-x-auto">
           <div className="min-w-[880px]">
@@ -424,7 +417,19 @@ export function ContainerDetailsTab({
               ),
             )}
 
-            <div className={`${COLS} px-2 pt-3 mt-1 text-xs font-bold text-slate-800 border-t-2 border-slate-200`}>
+            {/* Add container: its own button, the width of the table, right under the last
+                container - where the new one appears. */}
+            <Button
+              block
+              type="dashed"
+              icon={<PlusOutlined />}
+              onClick={add}
+              className="!mt-2 !h-9 !text-indigo-600 !border-indigo-200 hover:!border-indigo-400 hover:!bg-indigo-50/50"
+            >
+              Add container
+            </Button>
+
+            <div className={`${COLS} px-2 pt-3 mt-2 text-xs font-bold text-slate-800 border-t-2 border-slate-200`}>
               <span className="uppercase tracking-wide text-[11px]">
                 Total · {rows.length} container{rows.length === 1 ? "" : "s"}
               </span>

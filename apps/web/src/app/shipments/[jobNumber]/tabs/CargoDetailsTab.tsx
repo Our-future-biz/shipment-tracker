@@ -4,22 +4,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { rowKey } from "@/app/shipments/_lib/rowKey";
 import { Input, Button, AutoComplete, Select, Checkbox } from "antd";
 import { CargoDimensionAdrFields } from "./CargoDimensionAdrFields";
-import { CheckPill, MatchBadge } from "@/app/shipments/_components/CargoCheck";
-import {
-  PlusOutlined,
-  DeleteOutlined,
-  DownOutlined,
-  RightOutlined,
-  ContainerOutlined,
-  ColumnHeightOutlined,
-  FileTextOutlined,
-} from "@ant-design/icons";
+import { CheckPill } from "@/app/shipments/_components/CargoCheck";
+import { PlusOutlined, DeleteOutlined } from "@ant-design/icons";
 import { SHIPMENT_WRITE_KEY, type ShipmentItem } from "@/hooks/useShipments";
 import { useIsMutating } from "@tanstack/react-query";
 import {
   PACK_TYPES,
   STACKABLE_OPTIONS,
-  PALLET_TYPES,
   hasAdr,
   adrSummary,
   CURRENCIES,
@@ -121,9 +112,8 @@ const UNIT_LABEL: Record<string, string> = { PCS: "pieces", KG: "kg", "M³": "m�
 
 // minmax(0, …): every row keeps the same column widths, whatever a cell holds.
 const DIM_COLS =
-  "grid grid-cols-[minmax(0,0.7fr)_minmax(0,1.1fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)_minmax(0,0.9fr)_32px] gap-3 items-center";
+  "grid grid-cols-[minmax(0,0.7fr)_minmax(0,1.1fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,2fr)_minmax(0,0.9fr)_32px] gap-3 items-center";
 const CENTERED_SELECT = "w-full [&_.ant-select-selection-item]:!text-center [&_.ant-select-selection-placeholder]:!text-center";
-const palletLabel = (value: CargoDimensionLine["palletType"]) => PALLET_TYPES.find((p) => p.value === value)?.label ?? "";
 // Wider gaps and roomier number columns so the header labels no longer collide.
 const DESC_COLS = "grid grid-cols-[2fr_1fr_0.7fr_1.1fr_1.1fr_1.2fr_0.8fr_32px] gap-3 items-center";
 
@@ -185,15 +175,15 @@ export function CargoDetailsTab({
 
   const [items, setItems] = useState<CargoItemLine[]>(() => shipment.cargoItems ?? []);
   const [dims, setDims] = useState<CargoDimensionLine[]>(() => shipment.cargoDimensions ?? []);
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  // The container shown (its tab) and which of its tables: one at a time keeps the page short.
+  const [activeKey, setActiveKey] = useState<string | null>(null);
+  const [view, setView] = useState<"dims" | "desc">("dims");
   // Dimension lines (by row key) whose ADR box was ticked before any ADR detail was typed.
   const [adrOn, setAdrOn] = useState<Set<string>>(() => new Set());
-  const [flash, setFlash] = useState<string | null>(null);
   const itemsRef = useRef(items);
   const dimsRef = useRef(dims);
   itemsRef.current = items;
   dimsRef.current = dims;
-  const panelRefs = useRef(new Map<string, HTMLDivElement>());
   const openItems = useOpenRows();
   const openDims = useOpenRows();
 
@@ -202,7 +192,7 @@ export function CargoDetailsTab({
   useEffect(() => {
     setItems(shipment.cargoItems ?? []);
     setDims(shipment.cargoDimensions ?? []);
-    setCollapsed(new Set());
+    setActiveKey(null);
     openItems.reset();
     openDims.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -265,18 +255,9 @@ export function CargoDetailsTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [panelKeys.join("|")]);
 
-  // Jumping in from the Container tab: expand that panel and collapse the rest. Only a
-  // panel further down is scrolled to and flashed; the first one is already at the top,
-  // so the page stays put like the other tabs.
+  // Jumping in from the Container tab (a container number was clicked): open its tab.
   useEffect(() => {
-    if (!focusContainerId) return;
-    setCollapsed(new Set(panelKeys.filter((k) => k !== focusContainerId)));
-    if (panelKeys.indexOf(focusContainerId) <= 0) return;
-    setFlash(focusContainerId);
-    panelRefs.current.get(focusContainerId)?.scrollIntoView({ behavior: "smooth", block: "start" });
-    const t = setTimeout(() => setFlash(null), 1400);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (focusContainerId) setActiveKey(focusContainerId);
   }, [focusContainerId]);
 
   // Saves a table unless it holds what was last saved. A refused save shows the saved
@@ -356,355 +337,357 @@ export function CargoDetailsTab({
     sendDims(next);
   };
 
-  const toggle = (key: string) =>
-    setCollapsed((c) => {
-      const next = new Set(c);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
+
+  // Everything one tab shows: its lines, their totals and how they compare with what the
+  // container declares (dimensions always; descriptions once there are any).
+  const panelOf = (key: string) => {
+    const container = containers.find((c) => c.id === key) ?? null;
+    const panelItems = items.map((l, idx) => ({ l, idx })).filter(({ l }) => keyOf(l.containerId) === key);
+    const panelDims = dims.map((l, idx) => ({ l, idx })).filter(({ l }) => keyOf(l.containerId) === key);
+    const filledDims = panelDims.filter(({ l }) => !dimIsEmpty(l)).length;
+    const filledItems = panelItems.filter(({ l }) => !itemIsEmpty(l)).length;
+    const check = container ? checkConsistency(container, panelDims.map(({ l }) => l)) : null;
+    const descPcs = panelItems.reduce((s, { l }) => s + num(l.pieces), 0);
+    const descKg = panelItems.reduce((s, { l }) => s + num(l.grossWeight), 0);
+    const descCheck = container
+      ? { pcs: compareFigure(descPcs, num(container.packages), 0), kg: compareFigure(descKg, num(container.grossWeight), 2) }
+      : null;
+    const hasDesc = filledItems > 0;
+    const hasLines = filledDims > 0 || hasDesc;
+    const matched = !!check && check.matched && (!hasDesc || (!!descCheck && descCheck.pcs.ok && descCheck.kg.ok));
+    const index = container ? containers.indexOf(container) : -1;
+    const label = container ? container.containerNumber || `Container #${index + 1}` : "No container";
+    return { key, container, label, panelItems, panelDims, filledDims, filledItems, check, descPcs, descKg, descCheck, hasDesc, hasLines, matched };
+  };
+
+  const panels = panelKeys.map(panelOf);
+  const active = panels.find((p) => p.key === activeKey) ?? panels[0]!;
+  const { container, panelItems, panelDims, check, descCheck, hasDesc } = active;
+
+  // A total under the column it sums, its unit beneath.
+  const totalCell = (sum: number, unit: string, decimals: number) => (
+    <span key={unit} className="flex flex-col items-center tabular-nums whitespace-nowrap" title={`${fmtFixed(sum, decimals)} ${UNIT_LABEL[unit] ?? unit}`}>
+      <span className="text-[13px] font-bold text-slate-900">{decimals === 0 ? fmtNum(sum) : fmtFixed(sum, decimals)}</span>
+      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">{unit}</span>
+    </span>
+  );
+  const dimTotals = {
+    pcs: panelDims.reduce((s, { l }) => s + num(l.pieces), 0),
+    kg: panelDims.reduce((s, { l }) => s + num(l.pieces) * num(l.weightPerPcKg), 0),
+    m3: panelDims.reduce((s, { l }) => s + num(l.pieces) * dimensionVolumePerPiece(l), 0),
+  };
+  const descCiv = civByCurrency(panelItems.map(({ l }) => l));
+
+  // Under the table of a container: its lines against what the container declares.
+  const checkStrip = (pills: React.ReactNode) =>
+    container ? (
+      <div className="flex items-center gap-2 flex-wrap mt-3 pt-3 px-1 border-t border-slate-100">
+        <span className="text-xs text-slate-500 mr-1">Declared for {active.label}</span>
+        {pills}
+      </div>
+    ) : null;
+
+  const addLine = () => (view === "dims" ? addDim(active.key) : addItem(active.key));
 
   return (
-    <div>
-      {panelKeys.map((key) => {
-        const container = containers.find((c) => c.id === key) ?? null;
-        const panelItems = items.map((l, idx) => ({ l, idx })).filter(({ l }) => keyOf(l.containerId) === key);
-        const panelDims = dims.map((l, idx) => ({ l, idx })).filter(({ l }) => keyOf(l.containerId) === key);
-        const check = container ? checkConsistency(container, panelDims.map(({ l }) => l)) : null;
-        const isCollapsed = collapsed.has(key);
+    // One card: the containers as tabs, then which table (pill tabs, as on the list pages)
+    // with Add, and the table straight in the card. The page's own tab already says
+    // "Cargo Details", so the card has no title bar.
+    <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+      {containers.length > 0 && (
+        // The containers as tabs (as in the grid's Dimensions dialog); the dot says whether
+        // a container's lines add up to what it declares.
+        <div role="tablist" aria-label="Containers" className="flex items-end gap-1 px-3 pt-2 bg-white border-b border-slate-200 overflow-x-auto">
+          {panels.map((p) => {
+            const on = p.key === active.key;
+            return (
+              <button
+                key={p.key}
+                type="button"
+                role="tab"
+                aria-selected={on}
+                onClick={() => setActiveKey(p.key)}
+                className={[
+                  "relative flex items-center gap-2 px-4 py-2.5 rounded-t-lg border-0 text-[13px] whitespace-nowrap cursor-pointer transition-colors",
+                  "outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-inset",
+                  on ? "bg-indigo-50 text-indigo-700" : "bg-transparent text-slate-500 hover:bg-slate-50 hover:text-slate-800",
+                ].join(" ")}
+              >
+                {on && <span aria-hidden className="absolute inset-x-0 bottom-0 h-[3px] rounded-t bg-indigo-500" />}
+                {p.container && p.hasLines && (
+                  <span
+                    className={`w-2 h-2 rounded-full ${p.matched ? "bg-emerald-500" : "bg-red-500"}`}
+                    title={p.matched ? "Matched" : "Mismatch"}
+                    aria-label={p.matched ? "Matched" : "Mismatch"}
+                  />
+                )}
+                <span className={`${p.container ? "font-mono tracking-wide" : ""} ${on ? "font-bold" : "font-semibold"}`}>{p.label}</span>
+                {p.container?.type && <span className={`text-xs ${on ? "text-indigo-500" : "text-slate-400"}`}>{p.container.type}</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
-        const containerIndex = container ? containers.indexOf(container) : -1;
-        const title = container
-          ? container.containerNumber
-            ? `Container number: ${container.containerNumber}`
-            : `Container #${containerIndex + 1}`
-          : "Shipment cargo (no container)";
-
-        const descTotalPcs = panelItems.reduce((s, { l }) => s + num(l.pieces), 0);
-        const descTotalGw = panelItems.reduce((s, { l }) => s + num(l.grossWeight), 0);
-        const descCiv = civByCurrency(panelItems.map(({ l }) => l));
-        // Same comparison as the dimensions table: described pieces and weight against
-        // what the container declares, at the precision shown.
-        const descCheck = container
-          ? { pcs: compareFigure(descTotalPcs, num(container.packages), 0), kg: compareFigure(descTotalGw, num(container.grossWeight), 2) }
-          : null;
-        // The badge counts both tables: the dimensions always, the descriptions once the
-        // panel has any (a container without description lines yet is not a mismatch).
-        const hasDesc = panelItems.some(({ l }) => !itemIsEmpty(l));
-        const matched = !!check && check.matched && (!hasDesc || (!!descCheck && descCheck.pcs.ok && descCheck.kg.ok));
-
-        // A total under the column it sums, its unit beneath - plain figures; how they
-        // compare with the container shows in the pills under the table (checkStrip).
-        const totalCell = (sum: number, unit: string, decimals: number) => (
-          <span key={unit} className="flex flex-col items-center tabular-nums whitespace-nowrap" title={`${fmtFixed(sum, decimals)} ${UNIT_LABEL[unit] ?? unit}`}>
-            <span className="text-[13px] font-bold text-slate-900">{decimals === 0 ? fmtNum(sum) : fmtFixed(sum, decimals)}</span>
-            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">{unit}</span>
-          </span>
-        );
-        // Under a table of a container: its lines against what the container declares.
-        const checkStrip = (pills: React.ReactNode) =>
-          container ? (
-            <div className="flex items-center gap-2 flex-wrap mt-3 pt-3 px-1 border-t border-slate-100">
-              <span className="text-xs text-slate-500 mr-1">Declared for {container.containerNumber || title}</span>
-              {pills}
-            </div>
-          ) : null;
-        const dimTotals = {
-          pcs: panelDims.reduce((s, { l }) => s + num(l.pieces), 0),
-          kg: panelDims.reduce((s, { l }) => s + num(l.pieces) * num(l.weightPerPcKg), 0),
-          m3: panelDims.reduce((s, { l }) => s + num(l.pieces) * dimensionVolumePerPiece(l), 0),
-        };
-
-        return (
-          <div
-            key={key}
-            ref={(el) => {
-              if (el) panelRefs.current.set(key, el);
-              else panelRefs.current.delete(key);
-            }}
-            className={`bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden mb-6 transition-shadow ${
-              flash === key ? "ring-[3px] ring-indigo-300" : ""
-            }`}
-          >
-            {/* Panel header: title + Matched/Mismatch badge; click collapses/expands */}
-            <div
-              className="flex items-center gap-2.5 bg-indigo-50 border-b border-indigo-100 px-5 py-3 cursor-pointer select-none"
-              onClick={() => toggle(key)}
-            >
-              <ContainerOutlined className="text-indigo-500 text-base" />
-              <h3 className="text-[13px] font-bold text-slate-800 uppercase tracking-wider m-0">{title}</h3>
-              {check && (
-                <span className="ml-2">
-                  <MatchBadge matched={matched} />
-                </span>
-              )}
-              <span className="ml-auto text-slate-400 text-xs">{isCollapsed ? <RightOutlined /> : <DownOutlined />}</span>
-            </div>
-
-            {!isCollapsed && (
-              <div className="p-4 flex flex-col gap-4">
-                {/* ── Cargo Dimensions ── */}
-                <div className="border border-slate-200 rounded-xl overflow-hidden">
-                  <div className="flex items-center gap-2.5 bg-indigo-50/60 border-b border-slate-200 px-4 py-2">
-                    <ColumnHeightOutlined className="text-indigo-500 text-sm" />
-                    <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider m-0 flex-1">Cargo Dimensions</h4>
-                    <Button size="small" type="primary" ghost icon={<PlusOutlined />} onClick={() => addDim(key)}>
-                      Add
-                    </Button>
-                  </div>
-                  <div className="p-3">
-                    <div className="overflow-x-auto">
-                      <div className="min-w-[1000px]">
-                        <div className={`${DIM_COLS} px-1 pb-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wide border-b border-slate-200`}>
-                          <span className="text-center truncate">Pcs</span>
-                          <span className="text-center truncate">Packages</span>
-                          <span className="text-center truncate">Length (cm)</span>
-                          <span className="text-center truncate">Width (cm)</span>
-                          <span className="text-center truncate">Height (cm)</span>
-                          <span className="text-center truncate">Weight / pc (kg)</span>
-                          <span className="text-center truncate">Volume / pc (m³)</span>
-                          <span className="text-center truncate">Stackability</span>
-                          <span className="text-center truncate">Pallet</span>
-                          <span className="text-center truncate">ADR</span>
-                          <span />
-                        </div>
-
-                        {panelDims.map(({ l, idx }) => {
-                          const vpc = dimensionVolumePerPiece(l);
-                          if (!dimIsOpen(idx)) {
-                            return (
-                              <div
-                                key={rowKey(l)}
-                                className={`${DIM_COLS} px-1 py-1.5 border-b border-slate-100 text-[13px] text-slate-700 cursor-pointer hover:bg-slate-50/60`}
-                                onDoubleClick={() => openDims.open(idx)}
-                                title="Double-click to edit"
-                              >
-                                <span className="text-center tabular-nums font-medium text-slate-900">{l.pieces || "—"}</span>
-                                <span className="text-center truncate">{l.packageType || "—"}</span>
-                                <span className="text-center tabular-nums">{l.lengthCm || "—"}</span>
-                                <span className="text-center tabular-nums">{l.widthCm || "—"}</span>
-                                <span className="text-center tabular-nums">{l.heightCm || "—"}</span>
-                                <span className="text-center tabular-nums">{l.weightPerPcKg || "—"}</span>
-                                <span className="text-center tabular-nums text-slate-500">{vpc ? vpc.toFixed(3) : "—"}</span>
-                                <span className="text-center truncate" title={l.stackable || undefined}>{l.stackable || "—"}</span>
-                                <span className="text-center truncate">{palletLabel(l.palletType) || "—"}</span>
-                                <span className="text-center truncate text-orange-600 font-medium" title={adrSummary(l)}>
-                                  {hasAdr(l) ? adrSummary(l) : <span className="text-slate-700 font-normal">—</span>}
-                                </span>
-                                <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => removeDim(idx, panelDims.length)} />
-                              </div>
-                            );
-                          }
-                          const adrShown = hasAdr(l) || adrOn.has(rowKey(l));
-                          return (
-                            <div
-                              key={rowKey(l)}
-                              className="border-b border-slate-100"
-                              onBlur={openDims.onRowBlur(idx)}
-                              onKeyDown={openDims.onRowKeyDown(idx)}
-                            >
-                              <div className={`${DIM_COLS} px-1 py-1`}>
-                                {/* Numbers only, like the Dimensions modal: Pcs whole, the rest may take a decimal point; at most 4 digits (weight 5). */}
-                                <Input size="small" className="text-center" inputMode="numeric" value={l.pieces} onChange={(e) => patchDim(idx, { pieces: numberInput(e.target.value, false, 4) })} onBlur={persistDims} />
-                                <Select
-                                  size="small"
-                                  className={CENTERED_SELECT}
-                                  value={l.packageType || undefined}
-                                  allowClear
-                                  placeholder="—"
-                                  options={PACK_TYPES.map((p) => ({ value: p }))}
-                                  onChange={(v) => {
-                                    patchDim(idx, { packageType: v ?? "" });
-                                    setTimeout(persistDims, 0);
-                                  }}
-                                />
-                                <Input size="small" className="text-center" inputMode="decimal" value={l.lengthCm} onChange={(e) => patchDim(idx, { lengthCm: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
-                                <Input size="small" className="text-center" inputMode="decimal" value={l.widthCm} onChange={(e) => patchDim(idx, { widthCm: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
-                                <Input size="small" className="text-center" inputMode="decimal" value={l.heightCm} onChange={(e) => patchDim(idx, { heightCm: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
-                                <Input size="small" className="text-center" inputMode="decimal" value={l.weightPerPcKg} onChange={(e) => patchDim(idx, { weightPerPcKg: numberInput(e.target.value, true, 5) })} onBlur={persistDims} />
-                                <Input size="small" className="text-center !bg-slate-50 !text-slate-500" readOnly tabIndex={-1} value={vpc ? vpc.toFixed(3) : ""} />
-                                <Select
-                                  size="small"
-                                  className={CENTERED_SELECT}
-                                  value={l.stackable || undefined}
-                                  allowClear
-                                  placeholder="—"
-                                  popupMatchSelectWidth={false}
-                                  options={STACKABLE_OPTIONS.map((s) => ({ value: s }))}
-                                  onChange={(v) => {
-                                    patchDim(idx, { stackable: v ?? "" });
-                                    setTimeout(persistDims, 0);
-                                  }}
-                                />
-                                <Select
-                                  size="small"
-                                  className={CENTERED_SELECT}
-                                  value={l.palletType ?? undefined}
-                                  allowClear
-                                  placeholder="—"
-                                  popupMatchSelectWidth={false}
-                                  options={PALLET_TYPES}
-                                  onChange={(v) => {
-                                    patchDim(idx, { palletType: v ?? null });
-                                    setTimeout(persistDims, 0);
-                                  }}
-                                />
-                                <Checkbox
-                                  className="justify-self-center"
-                                  aria-label="Dangerous goods (ADR)"
-                                  checked={adrShown}
-                                  onChange={(e) => handleAdrToggle(idx, l, e.target.checked)}
-                                />
-                                <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => removeDim(idx, panelDims.length)} />
-                              </div>
-                              {adrShown && <CargoDimensionAdrFields line={l} onPatch={(p) => patchDim(idx, p)} onCommit={persistDims} />}
-                            </div>
-                          );
-                        })}
-
-                        {/* Each figure sits under the column it sums. */}
-                        <div className={`${DIM_COLS} px-1 pt-2.5 pb-1 mt-1 border-t border-slate-200`}>
-                          {totalCell(dimTotals.pcs, "PCS", 0)}
-                          <span />
-                          <span />
-                          <span />
-                          <span />
-                          {totalCell(dimTotals.kg, "KG", 2)}
-                          {totalCell(dimTotals.m3, "M³", 3)}
-                          <span className="col-span-4" />
-                        </div>
-                      </div>
-                    </div>
-                    {check &&
-                      checkStrip(
-                        <>
-                          <CheckPill label="Pcs" m={check.pcs} decimals={0} />
-                          <CheckPill label="Weight" m={check.kg} decimals={2} unit="kg" />
-                          <CheckPill label="Volume" m={check.m3} decimals={3} unit="m³" />
-                        </>,
-                      )}
-                  </div>
+      <div className="p-4">
+        {/* Which table of this container: dimensions or descriptions, then Add for it. */}
+        <div className="flex items-center gap-2 mb-3">
+          <div role="tablist" aria-label="Cargo tables" className="flex items-center gap-2">
+            {(
+              [
+                ["dims", "Dimensions"],
+                ["desc", "Description"],
+              ] as const
+            ).map(([k, text]) => {
+              const on = view === k;
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  role="tab"
+                  aria-selected={on}
+                  onClick={() => setView(k)}
+                  className={[
+                    "flex items-center gap-1.5 h-8 px-3 rounded-lg border text-[13px] font-medium transition-colors cursor-pointer",
+                    "outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-1",
+                    // The open table is filled indigo, so it is clear at a glance which one is shown.
+                    on ? "border-indigo-600 bg-indigo-600 text-white shadow-sm" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
+                  ].join(" ")}
+                >
+                  {text}
+                </button>
+              );
+            })}
+          </div>
+          <Button size="small" type="primary" ghost icon={<PlusOutlined />} className="ml-auto" onClick={addLine}>
+            {view === "dims" ? "Add dimension" : "Add description"}
+          </Button>
+        </div>
+        {view === "dims" ? (
+          <div>
+            <div className="overflow-x-auto">
+              <div className="min-w-[1000px]">
+                <div className={`${DIM_COLS} px-1 pb-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wide border-b border-slate-200`}>
+                  <span className="text-center truncate">Pcs</span>
+                  <span className="text-center truncate">Packages</span>
+                  <span className="text-center truncate">Length (cm)</span>
+                  <span className="text-center truncate">Width (cm)</span>
+                  <span className="text-center truncate">Height (cm)</span>
+                  <span className="text-center truncate">Weight / pc (kg)</span>
+                  <span className="text-center truncate">Volume / pc (m³)</span>
+                  <span className="text-center truncate">Stackability</span>
+                  <span className="text-center truncate">ADR</span>
+                  <span />
                 </div>
 
-                {/* ── Cargo Description ── */}
-                <div className="border border-slate-200 rounded-xl overflow-hidden">
-                  <div className="flex items-center gap-2.5 bg-indigo-50/60 border-b border-slate-200 px-4 py-2">
-                    <FileTextOutlined className="text-indigo-500 text-sm" />
-                    <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider m-0 flex-1">Cargo Description</h4>
-                    <Button size="small" type="primary" ghost icon={<PlusOutlined />} onClick={() => addItem(key)}>
-                      Add
-                    </Button>
-                  </div>
-                  <div className="p-3">
-                    <div className="overflow-x-auto">
-                      <div className="min-w-[860px]">
-                        <div className={`${DESC_COLS} px-1 pb-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wide border-b border-slate-200`}>
-                          <span className="truncate">Cargo Description</span>
-                          <span className="text-center truncate">HS Code</span>
-                          <span className="text-center truncate">Pcs</span>
-                          <span className="text-center truncate">Packages</span>
-                          <span className="text-center truncate">Gross Weight (kg)</span>
-                          <span className="text-center truncate">Invoice Value</span>
-                          <span className="text-center truncate">Currency</span>
-                          <span />
-                        </div>
-
-                        {panelItems.map(({ l, idx }) =>
-                          !itemIsOpen(idx) ? (
-                            <div
-                              key={rowKey(l)}
-                              className={`${DESC_COLS} px-1 py-1.5 border-b border-slate-100 text-[13px] text-slate-700 cursor-pointer hover:bg-slate-50/60`}
-                              onDoubleClick={() => openItems.open(idx)}
-                              title="Double-click to edit"
-                            >
-                              <span className="font-medium text-slate-900 truncate">{l.cargoDescription || "—"}</span>
-                              <span className="font-mono text-center truncate">{l.hsCode || "—"}</span>
-                              <span className="text-center tabular-nums">{l.pieces || "—"}</span>
-                              <span className="text-center truncate">{l.packageType || "—"}</span>
-                              <span className="text-center tabular-nums">{l.grossWeight || "—"}</span>
-                              <span className="text-center tabular-nums">{l.commercialInvoiceValue || "—"}</span>
-                              <span className="text-center truncate">{l.currency || "—"}</span>
-                              <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => removeItem(idx, panelItems.length)} />
-                            </div>
-                          ) : (
-                          <div
-                            key={rowKey(l)}
-                            className={`${DESC_COLS} px-1 py-1 border-b border-slate-100`}
-                            onBlur={openItems.onRowBlur(idx)}
-                            onKeyDown={openItems.onRowKeyDown(idx)}
-                          >
-                            <Input size="small" value={l.cargoDescription} placeholder="PLASTIC PARTS OF SPEAKER" onChange={(e) => patchItem(idx, { cargoDescription: e.target.value })} onBlur={persistItems} />
-                            {/* HS code is a tariff number — digits only (separators are dropped). */}
-                            <Input
-                              size="small"
-                              className="text-center"
-                              inputMode="numeric"
-                              value={l.hsCode}
-                              placeholder="85319000"
-                              onChange={(e) => patchItem(idx, { hsCode: e.target.value.replace(/\D/g, "") })}
-                              onBlur={persistItems}
-                            />
-                            <Input size="small" className="text-center" value={l.pieces} inputMode="numeric" onChange={(e) => patchItem(idx, { pieces: numberInput(e.target.value, false) })} onBlur={persistItems} />
-                            {/* Picked from the list only (typing filters it); free text is not taken. */}
-                            <Select
-                              size="small"
-                              className={CENTERED_SELECT}
-                              value={l.packageType || undefined}
-                              placeholder="Pallet(s)"
-                              showSearch
-                              allowClear
-                              options={PACK_TYPES.map((p) => ({ value: p }))}
-                              onChange={(v?: string) => {
-                                patchItem(idx, { packageType: v ?? "" });
-                                setTimeout(persistItems, 0);
-                              }}
-                              onBlur={persistItems}
-                            />
-                            {/* Numbers only: digits and one decimal point. */}
-                            <Input size="small" className="text-center" value={l.grossWeight} inputMode="decimal" onChange={(e) => patchItem(idx, { grossWeight: numberInput(e.target.value) })} onBlur={persistItems} />
-                            <Input size="small" className="text-center" value={l.commercialInvoiceValue} placeholder="12 500" inputMode="decimal" onChange={(e) => patchItem(idx, { commercialInvoiceValue: numberInput(e.target.value) })} onBlur={persistItems} />
-                            <AutoComplete
-                              size="small"
-                              className="w-full [&_input]:!text-center"
-                              value={l.currency}
-                              placeholder="USD"
-                              options={currencyOptions(l.currency)}
-                              onChange={(v) => patchItem(idx, { currency: (v ?? "").toUpperCase() })}
-                              onBlur={persistItems}
-                            />
-                            <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => removeItem(idx, panelItems.length)} />
-                          </div>
-                          ),
-                        )}
-
-                        {/* Each figure sits under the column it sums. */}
-                        <div className={`${DESC_COLS} px-1 pt-2.5 pb-1 mt-1 border-t border-slate-200`}>
-                          <span />
-                          <span />
-                          {totalCell(descTotalPcs, "PCS", 0)}
-                          <span />
-                          {totalCell(descTotalGw, "KG", 2)}
-                          <span className={`text-center text-[13px] font-bold tabular-nums whitespace-nowrap ${descCiv ? "text-slate-900" : "text-slate-300"}`}>{descCiv || "—"}</span>
-                          <span className="col-span-2" />
-                        </div>
+                {panelDims.map(({ l, idx }) => {
+                  const vpc = dimensionVolumePerPiece(l);
+                  if (!dimIsOpen(idx)) {
+                    return (
+                      <div
+                        key={rowKey(l)}
+                        className={`${DIM_COLS} px-1 py-1.5 border-b border-slate-100 text-[13px] text-slate-700 cursor-pointer hover:bg-slate-50/60`}
+                        onDoubleClick={() => openDims.open(idx)}
+                        title="Double-click to edit"
+                      >
+                        <span className="text-center tabular-nums font-medium text-slate-900">{l.pieces || "—"}</span>
+                        <span className="text-center truncate">{l.packageType || "—"}</span>
+                        <span className="text-center tabular-nums">{l.lengthCm || "—"}</span>
+                        <span className="text-center tabular-nums">{l.widthCm || "—"}</span>
+                        <span className="text-center tabular-nums">{l.heightCm || "—"}</span>
+                        <span className="text-center tabular-nums">{l.weightPerPcKg || "—"}</span>
+                        <span className="text-center tabular-nums text-slate-500">{vpc ? vpc.toFixed(3) : "—"}</span>
+                        <span className="text-center truncate" title={l.stackable || undefined}>{l.stackable || "—"}</span>
+                        <span className="text-center truncate text-orange-600 font-medium" title={adrSummary(l)}>
+                          {hasAdr(l) ? adrSummary(l) : <span className="text-slate-700 font-normal">—</span>}
+                        </span>
+                        <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => removeDim(idx, panelDims.length)} />
                       </div>
+                    );
+                  }
+                  const adrShown = hasAdr(l) || adrOn.has(rowKey(l));
+                  return (
+                    <div
+                      key={rowKey(l)}
+                      className="border-b border-slate-100"
+                      onBlur={openDims.onRowBlur(idx)}
+                      onKeyDown={openDims.onRowKeyDown(idx)}
+                    >
+                      <div className={`${DIM_COLS} px-1 py-1`}>
+                        {/* Numbers only, like the Dimensions modal: Pcs whole, the rest may take a decimal point; at most 4 digits (weight 5). */}
+                        <Input size="small" className="text-center" inputMode="numeric" value={l.pieces} onChange={(e) => patchDim(idx, { pieces: numberInput(e.target.value, false, 4) })} onBlur={persistDims} />
+                        <Select
+                          size="small"
+                          className={CENTERED_SELECT}
+                          value={l.packageType || undefined}
+                          allowClear
+                          placeholder="—"
+                          options={PACK_TYPES.map((p) => ({ value: p }))}
+                          onChange={(v) => {
+                            patchDim(idx, { packageType: v ?? "" });
+                            setTimeout(persistDims, 0);
+                          }}
+                        />
+                        <Input size="small" className="text-center" inputMode="decimal" value={l.lengthCm} onChange={(e) => patchDim(idx, { lengthCm: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
+                        <Input size="small" className="text-center" inputMode="decimal" value={l.widthCm} onChange={(e) => patchDim(idx, { widthCm: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
+                        <Input size="small" className="text-center" inputMode="decimal" value={l.heightCm} onChange={(e) => patchDim(idx, { heightCm: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
+                        <Input size="small" className="text-center" inputMode="decimal" value={l.weightPerPcKg} onChange={(e) => patchDim(idx, { weightPerPcKg: numberInput(e.target.value, true, 5) })} onBlur={persistDims} />
+                        <Input size="small" className="text-center !bg-slate-50 !text-slate-500" readOnly tabIndex={-1} value={vpc ? vpc.toFixed(3) : ""} />
+                        <Select
+                          size="small"
+                          className={CENTERED_SELECT}
+                          value={l.stackable || undefined}
+                          allowClear
+                          placeholder="—"
+                          popupMatchSelectWidth={false}
+                          options={STACKABLE_OPTIONS.map((s) => ({ value: s }))}
+                          onChange={(v) => {
+                            patchDim(idx, { stackable: v ?? "" });
+                            setTimeout(persistDims, 0);
+                          }}
+                        />
+                        <Checkbox
+                          className="justify-self-center"
+                          aria-label="Dangerous goods (ADR)"
+                          checked={adrShown}
+                          onChange={(e) => handleAdrToggle(idx, l, e.target.checked)}
+                        />
+                        <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => removeDim(idx, panelDims.length)} />
+                      </div>
+                      {adrShown && <CargoDimensionAdrFields line={l} onPatch={(p) => patchDim(idx, p)} onCommit={persistDims} />}
                     </div>
-                    {/* Compared once the panel has description lines (the badge counts them then too). */}
-                    {descCheck &&
-                      hasDesc &&
-                      checkStrip(
-                        <>
-                          <CheckPill label="Pcs" m={descCheck.pcs} decimals={0} />
-                          <CheckPill label="Weight" m={descCheck.kg} decimals={2} unit="kg" />
-                        </>,
-                      )}
-                  </div>
+                  );
+                })}
+
+                {/* Each figure sits under the column it sums. */}
+                <div className={`${DIM_COLS} px-1 pt-2.5 pb-1 mt-1 border-t border-slate-200`}>
+                  {totalCell(dimTotals.pcs, "PCS", 0)}
+                  <span />
+                  <span />
+                  <span />
+                  <span />
+                  {totalCell(dimTotals.kg, "KG", 2)}
+                  {totalCell(dimTotals.m3, "M³", 3)}
+                  <span className="col-span-3" />
                 </div>
               </div>
-            )}
+              {check &&
+                checkStrip(
+                  <>
+                    <CheckPill label="Pcs" m={check.pcs} decimals={0} />
+                    <CheckPill label="Weight" m={check.kg} decimals={2} unit="kg" />
+                    <CheckPill label="Volume" m={check.m3} decimals={3} unit="m³" />
+                  </>,
+                )}
+            </div>
           </div>
-        );
-      })}
+        ) : (
+          <div>
+            <div className="overflow-x-auto">
+              <div className="min-w-[860px]">
+                <div className={`${DESC_COLS} px-1 pb-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wide border-b border-slate-200`}>
+                  <span className="truncate">Cargo Description</span>
+                  <span className="text-center truncate">HS Code</span>
+                  <span className="text-center truncate">Pcs</span>
+                  <span className="text-center truncate">Packages</span>
+                  <span className="text-center truncate">Gross Weight (kg)</span>
+                  <span className="text-center truncate">Invoice Value</span>
+                  <span className="text-center truncate">Currency</span>
+                  <span />
+                </div>
+
+                {panelItems.map(({ l, idx }) =>
+                  !itemIsOpen(idx) ? (
+                    <div
+                      key={rowKey(l)}
+                      className={`${DESC_COLS} px-1 py-1.5 border-b border-slate-100 text-[13px] text-slate-700 cursor-pointer hover:bg-slate-50/60`}
+                      onDoubleClick={() => openItems.open(idx)}
+                      title="Double-click to edit"
+                    >
+                      <span className="font-medium text-slate-900 truncate">{l.cargoDescription || "—"}</span>
+                      <span className="font-mono text-center truncate">{l.hsCode || "—"}</span>
+                      <span className="text-center tabular-nums">{l.pieces || "—"}</span>
+                      <span className="text-center truncate">{l.packageType || "—"}</span>
+                      <span className="text-center tabular-nums">{l.grossWeight || "—"}</span>
+                      <span className="text-center tabular-nums">{l.commercialInvoiceValue || "—"}</span>
+                      <span className="text-center truncate">{l.currency || "—"}</span>
+                      <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => removeItem(idx, panelItems.length)} />
+                    </div>
+                  ) : (
+                    <div
+                      key={rowKey(l)}
+                      className={`${DESC_COLS} px-1 py-1 border-b border-slate-100`}
+                      onBlur={openItems.onRowBlur(idx)}
+                      onKeyDown={openItems.onRowKeyDown(idx)}
+                    >
+                      <Input size="small" value={l.cargoDescription} placeholder="PLASTIC PARTS OF SPEAKER" onChange={(e) => patchItem(idx, { cargoDescription: e.target.value })} onBlur={persistItems} />
+                      {/* HS code is a tariff number — digits only (separators are dropped). */}
+                      <Input
+                        size="small"
+                        className="text-center"
+                        inputMode="numeric"
+                        value={l.hsCode}
+                        placeholder="85319000"
+                        onChange={(e) => patchItem(idx, { hsCode: e.target.value.replace(/\D/g, "") })}
+                        onBlur={persistItems}
+                      />
+                      <Input size="small" className="text-center" value={l.pieces} inputMode="numeric" onChange={(e) => patchItem(idx, { pieces: numberInput(e.target.value, false) })} onBlur={persistItems} />
+                      {/* Picked from the list only (typing filters it); free text is not taken. */}
+                      <Select
+                        size="small"
+                        className={CENTERED_SELECT}
+                        value={l.packageType || undefined}
+                        placeholder="Pallet(s)"
+                        showSearch
+                        allowClear
+                        options={PACK_TYPES.map((p) => ({ value: p }))}
+                        onChange={(v?: string) => {
+                          patchItem(idx, { packageType: v ?? "" });
+                          setTimeout(persistItems, 0);
+                        }}
+                        onBlur={persistItems}
+                      />
+                      {/* Numbers only: digits and one decimal point. */}
+                      <Input size="small" className="text-center" value={l.grossWeight} inputMode="decimal" onChange={(e) => patchItem(idx, { grossWeight: numberInput(e.target.value) })} onBlur={persistItems} />
+                      <Input size="small" className="text-center" value={l.commercialInvoiceValue} placeholder="12 500" inputMode="decimal" onChange={(e) => patchItem(idx, { commercialInvoiceValue: numberInput(e.target.value) })} onBlur={persistItems} />
+                      <AutoComplete
+                        size="small"
+                        className="w-full [&_input]:!text-center"
+                        value={l.currency}
+                        placeholder="USD"
+                        options={currencyOptions(l.currency)}
+                        onChange={(v) => patchItem(idx, { currency: (v ?? "").toUpperCase() })}
+                        onBlur={persistItems}
+                      />
+                      <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => removeItem(idx, panelItems.length)} />
+                    </div>
+                  ),
+                )}
+
+                {/* Each figure sits under the column it sums. */}
+                <div className={`${DESC_COLS} px-1 pt-2.5 pb-1 mt-1 border-t border-slate-200`}>
+                  <span />
+                  <span />
+                  {totalCell(active.descPcs, "PCS", 0)}
+                  <span />
+                  {totalCell(active.descKg, "KG", 2)}
+                  <span className={`text-center text-[13px] font-bold tabular-nums whitespace-nowrap ${descCiv ? "text-slate-900" : "text-slate-300"}`}>{descCiv || "—"}</span>
+                  <span className="col-span-2" />
+                </div>
+              </div>
+              {/* Compared once the container has description lines (the tab's dot counts them then too). */}
+              {descCheck &&
+                hasDesc &&
+                checkStrip(
+                  <>
+                    <CheckPill label="Pcs" m={descCheck.pcs} decimals={0} />
+                    <CheckPill label="Weight" m={descCheck.kg} decimals={2} unit="kg" />
+                  </>,
+                )}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
