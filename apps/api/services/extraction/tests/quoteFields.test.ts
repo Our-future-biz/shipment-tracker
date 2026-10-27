@@ -69,6 +69,8 @@ describe("normalizeQuoteFields", () => {
     ["airfreight", "Air"],
     ["by truck", "Road"],
     ["FTL", "Road"],
+    ["break bulk", "Sea Break Bulk"],
+    ["Breakbulk", "Sea Break Bulk"],
     ["railway", "Rail"],
     ["sea", undefined],
     ["ocean", undefined],

@@ -22,6 +22,21 @@ describe("quote → shipment ports", () => {
   });
 });
 
+describe("quote ↔ shipment freight mode", () => {
+  it("makes a Sea Break Bulk quote a sea shipment with no load type", () => {
+    const req = quoteToCreateRequest("QCZ1", { serviceType: "Sea Break Bulk" }, NO_RATES);
+    expect(req.freightMode).toBe("Sea Freight");
+    expect(req.loadType).toBeUndefined();
+  });
+
+  it("reads a sea shipment back as FCL, or LCL when it is a consolidation, never as Break Bulk", () => {
+    const quoteOf = (loadType: string) => shipmentToQuoteData({ freightMode: "Sea Freight", loadType } as interfaces.ShipmentItem).serviceType;
+    expect(quoteOf("")).toBe("Sea FCL");
+    expect(quoteOf("Consolidation")).toBe("Sea LCL");
+    expect(quoteOf("Project Shipment")).toBe("Sea FCL");
+  });
+});
+
 describe("quote ↔ shipment addresses", () => {
   it("gives the shipment the quote's Pickup and Delivery Address", () => {
     const req = quoteToCreateRequest("QCZ1", { pickup: "V jame, Praha 6", delivery: "Dopravni, Praha 11" }, NO_RATES);

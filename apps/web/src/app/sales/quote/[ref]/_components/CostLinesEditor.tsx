@@ -20,6 +20,7 @@ const FREIGHT_LINE_CODE: Record<string, string> = {
   Air: "air_freight",
   "Sea FCL": "ocean_freight",
   "Sea LCL": "ocean_freight",
+  "Sea Break Bulk": "ocean_freight",
   Rail: "rail_freight",
   Road: "road_freight",
 };
@@ -186,9 +187,11 @@ export function CostLinesEditor({
                       // Typing narrows the list ("oce" → Ocean freight), so nobody has to scroll for it.
                       showSearch
                       optionFilterProp="label"
+                      // The charges of the quote's freight mode, whose names are longer than the column.
+                      popupMatchSelectWidth={380}
                       value={l.chargeCode || toChargeCode(l.type)}
                       onChange={(v) => chooseService(i, v)}
-                      options={chargeOptions(l.chargeCode || toChargeCode(l.type))}
+                      options={chargeOptions(l.chargeCode || toChargeCode(l.type), quote.serviceType)}
                     />
                   </td>
                   <td className={LINE_TD_CLASS}>

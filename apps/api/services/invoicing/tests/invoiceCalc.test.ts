@@ -144,7 +144,7 @@ describe("calculateInvoice", () => {
       vatPayer: true,
     });
     expect(c.lines.map((l) => [l.description, l.net, l.vatCode])).toEqual([
-      ["Ocean freight", 25000, "Z69"],
+      ["Ocean freight (OF / BAS)", 25000, "Z69"],
       ["THC Destination", 4999.5, "Z69"],
     ]);
     expect(c).toMatchObject({ net: 29999.5, vat: 0, gross: 29999.5, grossCzk: 29999.5, fxRate: 1, missingCurrencies: [] });

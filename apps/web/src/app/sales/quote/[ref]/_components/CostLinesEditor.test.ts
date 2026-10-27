@@ -20,7 +20,7 @@ describe("serviceChange", () => {
 
   it("follows the service while the description is still the pre-typed one", () => {
     const air = serviceChange(line({ type: "Other", chargeCode: "other", description: "" }), "air_freight").line;
-    expect(serviceChange(air, "rail_freight")).toMatchObject({ line: { chargeCode: "rail_freight", description: "Rail freight" }, ask: false });
+    expect(serviceChange(air, "rail_freight")).toMatchObject({ line: { chargeCode: "rail_freight", description: "Rail freight / linehaul" }, ask: false });
   });
 
   it("keeps a description written by hand, and asks whether it gives way", () => {

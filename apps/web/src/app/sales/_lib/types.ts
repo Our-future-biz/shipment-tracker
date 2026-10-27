@@ -365,9 +365,10 @@ export const LOST_REASONS: Record<string, string[]> = {
 
 export const PACKING_TYPES = ["Pallets", "Colli", "Cartons", "Boxes", "Wooden boxes", "Crates", "Drums"] as const;
 export { INCOTERMS } from "@/lib/incoterms";
-export const SERVICE_TYPES = ["Air", "Sea FCL", "Sea LCL", "Rail", "Road"] as const;
-// How a freight mode reads on screen: Air is saved as "Air" but shown as Shipments name it.
-export const serviceTypeLabel = (s: string) => (s === "Air" ? "Air Freight" : s);
+export const SERVICE_TYPES = ["Air", "Sea FCL", "Sea LCL", "Sea Break Bulk", "Rail", "Road"] as const;
+// How a freight mode reads on screen: Air, Rail and Road are saved short but shown as Shipments name them.
+const SERVICE_TYPE_LABELS: Record<string, string> = { Air: "Air Freight", Rail: "Rail Freight", Road: "Road Freight" };
+export const serviceTypeLabel = (s: string) => SERVICE_TYPE_LABELS[s] ?? s;
 export const DIRECTIONS = ["Export", "Import"] as const;
 export const VALIDITY_OPTIONS = [7, 10, 15, 21, 30] as const;
 

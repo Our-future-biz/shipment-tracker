@@ -354,7 +354,7 @@ function MachineProcessingTab({
 
         <div className="mb-5">
           <Field label="Service / category (from Invoicing)">
-            <Select className="w-full" placeholder="Select category…" value={category} onChange={setCategory} options={chargeOptions()} />
+            <Select className="w-full" placeholder="Select category…" showSearch optionFilterProp="label" value={category} onChange={setCategory} options={chargeOptions()} />
           </Field>
         </div>
 

@@ -1364,6 +1364,9 @@ export function DocumentReadingWorkflow() {
             <Select
               className="w-72"
               placeholder="Select category…"
+              // Every mode's charges: typing finds one.
+              showSearch
+              optionFilterProp="label"
               value={invoiceCategory || undefined}
               onChange={setInvoiceCategory}
               options={chargeOptions().map((c) => ({
@@ -1446,6 +1449,9 @@ export function DocumentReadingWorkflow() {
             <Select
               className="w-72"
               placeholder="Select category…"
+              // Every mode's charges: typing finds one.
+              showSearch
+              optionFilterProp="label"
               value={invoiceCategory || undefined}
               onChange={setInvoiceCategory}
               options={chargeOptions().map((c) => ({

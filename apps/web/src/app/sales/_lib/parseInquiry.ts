@@ -178,14 +178,17 @@ export function parseInquiry(text: string): InquiryData {
   // The mode named first is the one asked for: "by sea, not by air" is sea.
   const mentioned = [
     { mode: "Air", at: firstAt(body, /\bair\b/i) },
-    { mode: "Sea", at: firstAt(body, /\b(?:sea|fcl|lcl|container)\b/i) },
+    { mode: "Sea", at: firstAt(body, /\b(?:sea|fcl|lcl|container|break[\s-]?bulk)\b/i) },
     { mode: "Rail", at: firstAt(body, /\brail\b/i) },
     { mode: "Road", at: firstAt(body, /\b(?:road|truck)\b/i) },
   ].reduce((first, next) => (next.at < first.at ? next : first));
   if (mentioned.at < Infinity) {
-    // Sea is a full container unless LCL is said, and said before any container.
-    const lcl = firstAt(body, /\blcl\b/i) < firstAt(body, /\b(?:fcl|container)\b/i);
-    result.serviceType = mentioned.mode === "Sea" ? (lcl ? "Sea LCL" : "Sea FCL") : mentioned.mode;
+    // Sea is a full container unless LCL is said, and said before any container; break bulk said
+    // before any container is Break Bulk.
+    const container = firstAt(body, /\b(?:fcl|container)\b/i);
+    const lcl = firstAt(body, /\blcl\b/i) < container;
+    const breakBulk = firstAt(body, /\bbreak[\s-]?bulk\b/i) < container;
+    result.serviceType = mentioned.mode === "Sea" ? (breakBulk ? "Sea Break Bulk" : lcl ? "Sea LCL" : "Sea FCL") : mentioned.mode;
   }
 
   // --- Incoterm -------------------------------------------------------------

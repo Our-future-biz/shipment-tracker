@@ -113,7 +113,7 @@ describe("preview", () => {
     expect(p).toMatchObject({ duzp: "2026-10-14", currency: "CZK", fxFixingDate: "2026-10-13", roePct: 100, gross: 29999.5, grossCzk: 29999.5, customerId: CUSTOMER });
     expect(fxClient.fxRatesOn).toHaveBeenCalledWith({ date: "2026-10-14" });
     expect(p.lines.map((l) => [l.description, l.net, l.vatCode])).toEqual([
-      ["Ocean freight", "25000.00", "Z69"],
+      ["Ocean freight (OF / BAS)", "25000.00", "Z69"],
       ["THC Destination", "4999.50", "Z69"],
     ]);
     // due date from the customer's "30 days"

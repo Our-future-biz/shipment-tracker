@@ -7,7 +7,7 @@ import { QUOTE_FIELDS } from "./fields";
 
 // Twins of DIRECTIONS, SERVICE_TYPES and INCOTERMS in the web's Sales types; a test compares them.
 export const QUOTE_DIRECTIONS = ["Export", "Import"] as const;
-export const QUOTE_FREIGHT_MODES = ["Air", "Sea FCL", "Sea LCL", "Rail", "Road"] as const;
+export const QUOTE_FREIGHT_MODES = ["Air", "Sea FCL", "Sea LCL", "Sea Break Bulk", "Rail", "Road"] as const;
 // The order of the rules (E, F, C, D groups), as the web's one list in lib/incoterms.ts.
 export const QUOTE_INCOTERMS = ["EXW", "FCA", "FAS", "FOB", "CFR", "CIF", "CPT", "CIP", "DPU", "DAP", "DDP"] as const;
 
@@ -39,12 +39,13 @@ function direction(text: string): string | undefined {
 const MODE_WORDS: [RegExp, (typeof QUOTE_FREIGHT_MODES)[number]][] = [
   [/\blcl\b/i, "Sea LCL"],
   [/\bfcl\b/i, "Sea FCL"],
+  [/\bbreak[\s-]?bulk\b/i, "Sea Break Bulk"],
   [/\bair/i, "Air"],
   [/\brail/i, "Rail"],
   [/\b(road|truck|ftl|ltl)/i, "Road"],
 ];
 
-// "Sea" alone is neither of the quote's two sea modes and is left out; named beside another mode
+// "Sea" alone is none of the quote's sea modes and is left out; named beside another mode
 // ("air or sea", "Sea-Air") it is a second mode, so nothing comes out.
 const PLAIN_SEA = /\b(?:sea|ocean)(?:freight)?\b/i;
 

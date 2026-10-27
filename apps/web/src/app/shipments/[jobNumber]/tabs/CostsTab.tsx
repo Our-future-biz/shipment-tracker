@@ -615,7 +615,10 @@ export function CostsTab({ shipment }: CostsTabProps) {
                                  [&_.ant-select-selection-item]:!text-[13px]${
                         locked || fromQuote ? " [&_.ant-select-selector]:!border-transparent [&_.ant-select-arrow]:!hidden pointer-events-none" : ""
                       }`}
-                      options={chargeOptions(r.category)}
+                      options={chargeOptions(r.category, shipment.freightMode)}
+                      showSearch
+                      optionFilterProp="label"
+                      popupMatchSelectWidth={380}
                       open={fromQuote ? false : undefined}
                       tabIndex={fromQuote ? -1 : undefined}
                       onChange={(v) => updateBuy.mutate({ id: r.id, category: v })}
@@ -853,7 +856,10 @@ export function CostsTab({ shipment }: CostsTabProps) {
                                  [&_.ant-select-selection-item]:!text-[13px]${
                         locked ? " [&_.ant-select-selector]:!border-transparent [&_.ant-select-arrow]:!hidden pointer-events-none" : ""
                       }`}
-                      options={chargeOptions(r.category)}
+                      options={chargeOptions(r.category, shipment.freightMode)}
+                      showSearch
+                      optionFilterProp="label"
+                      popupMatchSelectWidth={380}
                       onChange={(v) => updateSell.mutate({ id: r.id, category: v })}
                     />
                   </td>
