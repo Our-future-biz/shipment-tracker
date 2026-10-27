@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { rowKey } from "@/app/shipments/_lib/rowKey";
-import { Input, Button, AutoComplete, Select, Tooltip, message } from "antd";
-import { PlusOutlined, DeleteOutlined } from "@ant-design/icons";
+import { Input, Button, AutoComplete, Dropdown, Select, Tooltip, message } from "antd";
+import { PlusOutlined, DeleteOutlined, MoreOutlined } from "@ant-design/icons";
 import { SHIPMENT_WRITE_KEY, type ShipmentItem } from "@/hooks/useShipments";
 import { useIsMutating } from "@tanstack/react-query";
+import { ConfirmModal } from "@/components/ConfirmModal";
 import { uuid } from "@/lib/uuid";
 import { containerNumberInput, isValidContainerNumber, normalizeContainerNumber } from "@/lib/container";
 import {
@@ -73,7 +74,7 @@ function containerTypeOptions(query: string) {
 type Field = "containerNumber" | "sealNumber" | "type" | "packages" | "packageType" | "grossWeight" | "volume";
 
 // Centred columns with room between them, like the cargo tables.
-const COLS = "grid grid-cols-[1.5fr_1.1fr_1fr_0.7fr_1.1fr_1.1fr_1fr_36px] gap-3 items-center";
+const COLS = "grid grid-cols-[1.1fr_1.1fr_1fr_0.7fr_1.1fr_1.1fr_1fr_36px] gap-3 items-center";
 
 export function ContainerDetailsTab({
   shipment,
@@ -276,11 +277,77 @@ export function ContainerDetailsTab({
   const [typeQuery, setTypeQuery] = useState("");
   const typeOptions = useMemo(() => containerTypeOptions(typeQuery), [typeQuery]);
 
+  // The row whose Delete waits for a yes, and what deleting it does to its cargo: with
+  // other containers left its cargo lines go with it; the only container's cargo stays
+  // on the shipment (server rule).
+  const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
+  const toDelete = confirmDelete !== null ? rows[confirmDelete] : undefined;
+  const cargoLines = toDelete?.id
+    ? (shipment.cargoDimensions ?? []).filter((l) => l.containerId === toDelete.id).length +
+      (shipment.cargoItems ?? []).filter((l) => l.containerId === toDelete.id).length
+    : 0;
+  const othersLeft = rows.filter((r, j) => j !== confirmDelete && !isBlankContainer(r)).length > 0;
+  const deleteDescription = [
+    `Container ${toDelete?.containerNumber || `#${(confirmDelete ?? 0) + 1}`} will be removed from this shipment.`,
+    cargoLines > 0
+      ? othersLeft
+        ? `Its ${cargoLines} cargo line${cargoLines === 1 ? "" : "s"} in Cargo Details will be deleted too.`
+        : `Its cargo lines stay on the shipment as cargo without a container.`
+      : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  // A row's actions behind "⋯" (centred under the "+" in the header): Delete, one click
+  // further away so a container (and its cargo) is not removed by a stray click.
+  const rowMenu = (i: number) => (
+    <Dropdown
+      trigger={["click"]}
+      placement="bottomRight"
+      menu={{
+        items: [{ key: "delete", label: "Delete", icon: <DeleteOutlined />, danger: true }],
+        // A row with anything in it asks first; an empty row just goes.
+        onClick: ({ key }) => {
+          if (key !== "delete") return;
+          if (isBlankContainer(rows[i] ?? emptyContainer())) remove(i);
+          else setConfirmDelete(i);
+        },
+      }}
+    >
+      <Button type="text" size="small" icon={<MoreOutlined />} aria-label="Container actions" className="justify-self-center !text-slate-500" />
+    </Dropdown>
+  );
+
   return (
     <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
       {contextHolder}
+      <ConfirmModal
+        open={confirmDelete !== null}
+        danger
+        title="Delete container?"
+        description={deleteDescription}
+        confirmLabel="Delete"
+        onClose={() => setConfirmDelete(null)}
+        onConfirm={() => {
+          if (confirmDelete !== null) remove(confirmDelete);
+          setConfirmDelete(null);
+        }}
+      />
       {/* No title bar: the page's own tab already says "Container Details". */}
-      <div className="p-4">
+      <div className="p-4 relative">
+        {/* Add container: a small "+" laid over the header row's right end, above the delete
+            icons. Outside the scroll box so nothing clips it, and no taller than the column
+            titles' line, so it neither grows the header nor touches its rule. */}
+        <Tooltip title="Add container">
+          <Button
+            size="small"
+            type="primary"
+            icon={<PlusOutlined className="text-[11px]" />}
+            aria-label="Add container"
+            onClick={add}
+            className="!absolute top-3 right-[31px] z-10 !w-[22px] !h-[22px] !min-w-0 !p-0"
+          />
+        </Tooltip>
         <div className="overflow-x-auto">
           <div className="min-w-[880px]">
             <div className={`${COLS} px-2 pb-2 text-[10px] font-bold text-slate-500 uppercase tracking-wide border-b border-slate-200`}>
@@ -291,6 +358,8 @@ export function ContainerDetailsTab({
               <span className="text-center truncate">Packages</span>
               <span className="text-center truncate">Gross Weight (kg)</span>
               <span className="text-center truncate">Volume (m³)</span>
+              {/* Add container: "+" in the header's action column, above the delete icons -
+                  top right, without making the table taller. */}
               <span />
             </div>
 
@@ -379,7 +448,7 @@ export function ContainerDetailsTab({
                     onChange={(e) => patch(i, { volume: numberInput(e.target.value) })}
                     onBlur={persist}
                   />
-                  <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => remove(i)} />
+                  {rowMenu(i)}
                 </div>
               ) : (
                 // Read mode: double-click anywhere re-opens editing focused on the
@@ -412,24 +481,12 @@ export function ContainerDetailsTab({
                   <span data-field="packageType" className="text-sm text-slate-700 px-2 text-center truncate">{c.packageType}</span>
                   <span data-field="grossWeight" className="text-sm text-slate-700 px-2 text-center tabular-nums">{c.grossWeight}</span>
                   <span data-field="volume" className="text-sm text-slate-700 px-2 text-center tabular-nums">{c.volume}</span>
-                  <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => remove(i)} />
+                  {rowMenu(i)}
                 </div>
               ),
             )}
 
-            {/* Add container: its own button, the width of the table, right under the last
-                container - where the new one appears. */}
-            <Button
-              block
-              type="dashed"
-              icon={<PlusOutlined />}
-              onClick={add}
-              className="!mt-2 !h-9 !text-indigo-600 !border-indigo-200 hover:!border-indigo-400 hover:!bg-indigo-50/50"
-            >
-              Add container
-            </Button>
-
-            <div className={`${COLS} px-2 pt-3 mt-2 text-xs font-bold text-slate-800 border-t-2 border-slate-200`}>
+            <div className={`${COLS} px-2 pt-3 mt-1 text-xs font-bold text-slate-800 border-t-2 border-slate-200`}>
               <span className="uppercase tracking-wide text-[11px]">
                 Total · {rows.length} container{rows.length === 1 ? "" : "s"}
               </span>

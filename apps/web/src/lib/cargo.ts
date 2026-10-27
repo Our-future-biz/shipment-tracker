@@ -75,8 +75,9 @@ export const hasAdr = (l: interfaces.CargoDimensionLine): boolean =>
   !!(l.adrUn || l.adrClass || l.adrPackingGroup || l.adrLimitedQuantity);
 
 /** The ADR details of a line in one short text, e.g. "UN 1203 · 3 · PG II · LQ". */
+// A UN number typed with its prefix ("UN2382", "un 2382") shows the prefix once: "UN 2382".
 export const adrSummary = (l: interfaces.CargoDimensionLine): string =>
-  [l.adrUn && `UN ${l.adrUn}`, l.adrClass, l.adrPackingGroup && `PG ${l.adrPackingGroup}`, l.adrLimitedQuantity && "LQ"]
+  [l.adrUn?.trim() && `UN ${l.adrUn.trim().replace(/^UN\s*/i, "")}`, l.adrClass, l.adrPackingGroup && `PG ${l.adrPackingGroup}`, l.adrLimitedQuantity && "LQ"]
     .filter(Boolean)
     .join(" · ");
 

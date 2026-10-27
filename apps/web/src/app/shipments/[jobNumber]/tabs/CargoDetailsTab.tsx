@@ -112,7 +112,8 @@ const UNIT_LABEL: Record<string, string> = { PCS: "pieces", KG: "kg", "M³": "m�
 
 // minmax(0, …): every row keeps the same column widths, whatever a cell holds.
 const DIM_COLS =
-  "grid grid-cols-[minmax(0,0.7fr)_minmax(0,1.1fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,2fr)_minmax(0,0.9fr)_32px] gap-3 items-center";
+  // ADR gets room for its whole summary ("UN 2382 · 3 · PG II · LQ"); the number columns stay narrow.
+  "grid grid-cols-[minmax(0,0.55fr)_minmax(0,1fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,1.9fr)_minmax(0,1.6fr)_32px] gap-2 items-center";
 const CENTERED_SELECT = "w-full [&_.ant-select-selection-item]:!text-center [&_.ant-select-selection-placeholder]:!text-center";
 // Wider gaps and roomier number columns so the header labels no longer collide.
 const DESC_COLS = "grid grid-cols-[2fr_1fr_0.7fr_1.1fr_1.1fr_1.2fr_0.8fr_32px] gap-3 items-center";
@@ -497,8 +498,9 @@ export function CargoDetailsTab({
                         <span className="text-center tabular-nums">{l.heightCm || "—"}</span>
                         <span className="text-center tabular-nums">{l.weightPerPcKg || "—"}</span>
                         <span className="text-center tabular-nums text-slate-500">{vpc ? vpc.toFixed(3) : "—"}</span>
-                        <span className="text-center truncate" title={l.stackable || undefined}>{l.stackable || "—"}</span>
-                        <span className="text-center truncate text-orange-600 font-medium" title={adrSummary(l)}>
+                        <span className="text-center leading-snug break-words" title={l.stackable || undefined}>{l.stackable || "—"}</span>
+                        {/* The whole ADR summary, wrapping onto a second line rather than being cut. */}
+                        <span className="text-center text-orange-600 font-medium leading-snug break-words" title={adrSummary(l)}>
                           {hasAdr(l) ? adrSummary(l) : <span className="text-slate-700 font-normal">—</span>}
                         </span>
                         <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => removeDim(idx, panelDims.length)} />
@@ -559,17 +561,20 @@ export function CargoDetailsTab({
                   );
                 })}
 
-                {/* Each figure sits under the column it sums. */}
-                <div className={`${DIM_COLS} px-1 pt-2.5 pb-1 mt-1 border-t border-slate-200`}>
-                  {totalCell(dimTotals.pcs, "PCS", 0)}
-                  <span />
-                  <span />
-                  <span />
-                  <span />
-                  {totalCell(dimTotals.kg, "KG", 2)}
-                  {totalCell(dimTotals.m3, "M³", 3)}
-                  <span className="col-span-3" />
-                </div>
+                {/* Each figure sits under the column it sums - only without a container: with
+                    one, the pills under the table already show these sums. */}
+                {!check && (
+                  <div className={`${DIM_COLS} px-1 pt-2.5 pb-1 mt-1 border-t border-slate-200`}>
+                    {totalCell(dimTotals.pcs, "PCS", 0)}
+                    <span />
+                    <span />
+                    <span />
+                    <span />
+                    {totalCell(dimTotals.kg, "KG", 2)}
+                    {totalCell(dimTotals.m3, "M³", 3)}
+                    <span className="col-span-3" />
+                  </div>
+                )}
               </div>
               {check &&
                 checkStrip(
@@ -664,16 +669,19 @@ export function CargoDetailsTab({
                   ),
                 )}
 
-                {/* Each figure sits under the column it sums. */}
-                <div className={`${DESC_COLS} px-1 pt-2.5 pb-1 mt-1 border-t border-slate-200`}>
-                  <span />
-                  <span />
-                  {totalCell(active.descPcs, "PCS", 0)}
-                  <span />
-                  {totalCell(active.descKg, "KG", 2)}
-                  <span className={`text-center text-[13px] font-bold tabular-nums whitespace-nowrap ${descCiv ? "text-slate-900" : "text-slate-300"}`}>{descCiv || "—"}</span>
-                  <span className="col-span-2" />
-                </div>
+                {/* Each figure sits under the column it sums - only when no pills follow (no
+                    container, or no description lines yet): the pills show these sums then. */}
+                {!(descCheck && hasDesc) && (
+                  <div className={`${DESC_COLS} px-1 pt-2.5 pb-1 mt-1 border-t border-slate-200`}>
+                    <span />
+                    <span />
+                    {totalCell(active.descPcs, "PCS", 0)}
+                    <span />
+                    {totalCell(active.descKg, "KG", 2)}
+                    <span className={`text-center text-[13px] font-bold tabular-nums whitespace-nowrap ${descCiv ? "text-slate-900" : "text-slate-300"}`}>{descCiv || "—"}</span>
+                    <span className="col-span-2" />
+                  </div>
+                )}
               </div>
               {/* Compared once the container has description lines (the tab's dot counts them then too). */}
               {descCheck &&
@@ -682,6 +690,13 @@ export function CargoDetailsTab({
                   <>
                     <CheckPill label="Pcs" m={descCheck.pcs} decimals={0} />
                     <CheckPill label="Weight" m={descCheck.kg} decimals={2} unit="kg" />
+                    {/* The invoice value total, which nothing declares: a plain pill. */}
+                    {descCiv && (
+                      <span className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs ring-1 ring-inset ring-slate-200 bg-slate-50 text-slate-700 tabular-nums whitespace-nowrap">
+                        <span className="font-semibold uppercase tracking-wide text-[10px] text-slate-500">Invoice value</span>
+                        <span className="font-semibold">{descCiv}</span>
+                      </span>
+                    )}
                   </>,
                 )}
             </div>
