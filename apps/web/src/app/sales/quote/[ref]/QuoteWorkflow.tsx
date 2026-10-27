@@ -1491,6 +1491,21 @@ export function QuoteWorkflow() {
           <div className="flex-[1_1_300px] min-w-0">
             <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
               <h1 className="text-[22px] font-bold font-mono text-slate-800 m-0">{ref}</h1>
+              {/* Copies the reference, as on a shipment's page. */}
+              <button
+                type="button"
+                aria-label={`Copy ${ref}`}
+                title="Copy the reference"
+                onClick={() =>
+                  navigator.clipboard.writeText(ref).then(
+                    () => toast.success("Copied to clipboard"),
+                    () => toast.error("Could not copy the reference"),
+                  )
+                }
+                className="text-slate-400 hover:text-indigo-500 cursor-pointer bg-transparent border-none p-1"
+              >
+                <CopyOutlined />
+              </button>
               <QuoteStatusPill status={quote.effectiveStatus} />
             </div>
             <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[15px] font-bold text-slate-500">
