@@ -55,7 +55,7 @@ function columnsFor(section: WarehouseSection, chosen: string[], openDimensions:
             return (
               <button
                 onClick={() => openDimensions(s.id)}
-                className="text-[#3b82f6] hover:underline font-medium bg-transparent border-none p-0 cursor-pointer"
+                className="text-link hover:underline font-medium bg-transparent border-none p-0 cursor-pointer"
               >
                 Click for Preview
               </button>

@@ -1,4 +1,4 @@
-import { and, eq, isNull, ne, sql, type SQL } from "drizzle-orm";
+import { and, eq, getTableColumns, isNull, ne, sql, type SQL } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import { db } from "../db/db";
 import { shipmentTable } from "../schemas/shipment.schema";
@@ -186,8 +186,8 @@ class PartyLinksRepository {
     rewrites: { shipments: LinkRewrite<ShipmentLinks>[]; masterJobs: LinkRewrite<MasterJobLinks>[] },
   ): Promise<PartyWrites> {
     if (!rewrites.shipments.length && !rewrites.masterJobs.length) return NOTHING;
-    const shipmentColumns: Record<string, PgColumn> = shipmentTable as unknown as Record<string, PgColumn>;
-    const masterJobColumns: Record<string, PgColumn> = masterJobTable as unknown as Record<string, PgColumn>;
+    const shipmentColumns = getTableColumns(shipmentTable);
+    const masterJobColumns = getTableColumns(masterJobTable);
     return db.transaction(async (tx: Tx) => {
       let changed = 0;
       const parties: ShipmentParties[] = [];

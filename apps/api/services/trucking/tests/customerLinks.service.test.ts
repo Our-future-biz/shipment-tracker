@@ -113,7 +113,7 @@ async function announcedTrip(kind: "PICKUP_RUN" | "LINEHAUL" | "DELIVERY_RUN", o
 // What the Customer Database holds now (live customers only), by id: what a change event reads.
 const directory = new Map<string, string>();
 
-const changed = (customerId: string, companyName: string, over: { companyId?: string; deleted?: boolean } = {}) =>
+const changed = (customerId: string, companyName: string, over: { companyId?: string; deleted?: boolean; label?: string } = {}) =>
   customerLinksService.customerChanged({ companyId: COMPANY, customerId, companyName, label: "STANDARD", deleted: false, ...over });
 
 /** A rename in the Customer Database: it holds the name, and the event says it. */
@@ -163,6 +163,13 @@ describe("a company renamed in the Customer Database", () => {
     expect(vi.mocked(customerLinksRepository.renameCustomer)).toHaveBeenCalledWith(COMPANY, CUSTOMER, expect.any(Function));
   });
 
+  it("ignores an event that names no customer (a retry would fail the same way)", async () => {
+    await consignment();
+    expect(await changed("not-an-id", "Gone", { deleted: true })).toEqual({ consignments: 0, trips: 0 });
+    expect(refs).not.toHaveBeenCalled();
+    expect(customerLinksRepository.renameCustomer).not.toHaveBeenCalled();
+  });
+
   it("writes the name the Customer Database holds now, not an older one an event delivered late carries", async () => {
     await consignment();
     await trip({ haulierCustomerId: CUSTOMER });
@@ -182,7 +189,7 @@ describe("a company renamed in the Customer Database", () => {
     await trip({ haulierCustomerId: CUSTOMER });
     expect(await renamed(CUSTOMER, "Alfa Logistics")).toEqual({ consignments: 1, trips: 1 });
     expect(await renamed(CUSTOMER, "Alfa Logistics")).toEqual({ consignments: 0, trips: 0 });
-    expect(await customerLinksService.applyName(COMPANY, CUSTOMER, "Alfa Logistics")).toEqual({ consignments: 0, trips: 0 });
+    expect(await changed(CUSTOMER, "Alfa Logistics", { label: "KEY" })).toEqual({ consignments: 0, trips: 0 });
   });
 
   it("never blanks a name out", async () => {
@@ -192,7 +199,6 @@ describe("a company renamed in the Customer Database", () => {
     // Gone, with a blank name in its delete event: still kept.
     directory.delete(CUSTOMER);
     expect(await changed(CUSTOMER, "", { deleted: true })).toEqual({ consignments: 0, trips: 0 });
-    expect(await customerLinksService.applyName(COMPANY, CUSTOMER, " ")).toEqual({ consignments: 0, trips: 0 });
     expect(store.consignments[0]!.customerName).toBe("Alfa");
     expect(customerLinksRepository.renameConsignmentCustomer).not.toHaveBeenCalled();
   });
@@ -249,12 +255,12 @@ describe("a renamed haulier of a trip our warehouse expects", () => {
     const { t } = await announcedTrip("PICKUP_RUN");
     await announcedTrip("LINEHAUL", { ref: "LCZ2026000002" }, SHIPMENT2);
 
-    expect(await customerLinksService.applyName(COMPANY, HAULIER, "Bravo Trans a.s.")).toEqual({ consignments: 0, trips: 2 });
+    expect(await renamed(HAULIER, "Bravo Trans a.s.")).toEqual({ consignments: 0, trips: 2 });
 
     expect(store.trips.every((x) => x.haulierName === "Bravo Trans a.s.")).toBe(true);
-    const renamed = store.trips.find((x) => x.id === t.id)!;
-    expect(renamed.version).toBe(t.version);
-    expect(renamed.warehouseJobs).toEqual(t.warehouseJobs);
+    const after = store.trips.find((x) => x.id === t.id)!;
+    expect(after.version).toBe(t.version);
+    expect(after.warehouseJobs).toEqual(t.warehouseJobs);
     expect(store.outbox).toHaveLength(0);
   });
 });
@@ -278,8 +284,10 @@ describe("the backfill (POST /trucking/links/normalize)", () => {
 
     const result = await customerLinksService.normalize(COMPANY);
 
-    expect(refs).toHaveBeenCalledTimes(1);
     expect(new Set(refs.mock.calls[0]![0].customerIds)).toEqual(new Set([CUSTOMER, CUSTOMER2, HAULIER, HAULIER2]));
+    // Each customer whose copies differ is renamed under its turn, its name read again there.
+    expect(refs.mock.calls.slice(1).map((c) => c[0].customerIds)).toEqual([[CUSTOMER], [HAULIER]]);
+    expect(vi.mocked(customerLinksRepository.renameCustomer).mock.calls.map((c) => c[1])).toEqual([CUSTOMER, HAULIER]);
     expect(result).toEqual({
       checked: 7,
       changed: 3,
@@ -291,8 +299,26 @@ describe("the backfill (POST /trucking/links/normalize)", () => {
     expect(store.consignments.filter((c) => c.customerId === CUSTOMER).every((c) => c.customerName === "Alfa Logistics s.r.o.")).toBe(true);
     expect(store.trips.find((t) => t.haulierCustomerId === HAULIER)!.haulierName).toBe("Bravo Trans a.s.");
 
-    // Safe to run again.
+    // Safe to run again: nothing differs, so nothing more is asked or written.
+    vi.clearAllMocks();
     expect(await customerLinksService.normalize(COMPANY)).toMatchObject({ checked: 7, changed: 0 });
+    expect(refs).toHaveBeenCalledTimes(1);
+    expect(customerLinksRepository.renameCustomer).not.toHaveBeenCalled();
+  });
+
+  it("writes the name the Customer Database holds when it writes: a rename arriving meanwhile is kept", async () => {
+    await consignment();
+    directory.set(CUSTOMER, "Alfa Logistics");
+    const read = refs.getMockImplementation()!;
+    refs.mockImplementationOnce(async (...args) => {
+      const answer = await read(...args);
+      // Renamed right after the run read the names.
+      directory.set(CUSTOMER, "Alfa Group");
+      return answer;
+    });
+
+    expect(await customerLinksService.normalize(COMPANY)).toMatchObject({ changed: 1 });
+    expect(store.consignments[0]!.customerName).toBe("Alfa Group");
   });
 
   it("asks the Customer Database in batches of at most 500 ids", async () => {

@@ -1,16 +1,13 @@
 import log from "encore.dev/log";
 import { customers } from "~encore/clients";
 import { isUuid } from "../../../lib/uuid";
+import { asCompany } from "../../../lib/internalCall";
 import type { CustomerChangedEvent } from "../../customers/topics";
 import type { SalesLinksNormalizeResult } from "../interfaces/interfaces";
 import { followupTaskRepository } from "../repositories/followupTask.repository";
 
 // How many customers one call to the Customer Database asks about (it takes at most 2000).
 const REFS_CHUNK = 500;
-
-// A Pub/Sub handler has no login. The customers service reads only the company of an internal
-// call, so the handler calls for the event's company with no user (as shipments does).
-const asCompany = (companyId: string) => ({ authData: { userID: "", companyID: companyId, role: "user" } });
 
 // A follow-up task linked to a customer record (customer_id) shows the customer's name as the
 // Customer Database has it now: "everything must be linked" (owner, 26 Oct 2026). The name is kept
@@ -47,17 +44,21 @@ class FollowupLinksService {
   // customer keeps its name and is listed.
   async normalize(companyId: string): Promise<SalesLinksNormalizeResult> {
     const links = await followupTaskRepository.customerLinks(companyId);
-    const ids = [...new Set(links.map((link) => link.customerId))];
     // Without the Customer Database nothing can be decided: the run fails instead of guessing.
-    const names = new Map<string, string>();
-    for (let i = 0; i < ids.length; i += REFS_CHUNK) {
-      const { customers: found } = await customers._internalCustomerRefs({ customerIds: ids.slice(i, i + REFS_CHUNK) });
-      for (const customer of found) names.set(customer.id, customer.companyName);
-    }
+    const names = await this.namesOf([...new Set(links.map((link) => link.customerId))]);
+    // Only a customer whose name differs is written, under its turn with the name read again (as
+    // an event's rename is), so a rename arriving meanwhile never loses to the name read above.
+    const stale = new Set(
+      links
+        .filter((link) => {
+          const name = names.get(link.customerId)?.trim();
+          return !!name && name !== link.customerLabel;
+        })
+        .map((link) => link.customerId),
+    );
     let changed = 0;
-    for (const id of ids) {
-      const name = names.get(id);
-      if (name !== undefined) changed += await followupTaskRepository.relabelCustomer(companyId, id, name);
+    for (const id of stale) {
+      changed += await followupTaskRepository.followCustomer(companyId, id, async () => (await this.namesOf([id])).get(id) ?? null);
     }
     const unmatched = new Map<string, number>();
     for (const link of links) {
@@ -70,6 +71,16 @@ class FollowupLinksService {
         .map(([value, count]) => ({ field: "customer", value, count }))
         .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value)),
     };
+  }
+
+  /** The Customer Database's names of the live customers among `ids`, by id. */
+  private async namesOf(ids: string[]): Promise<Map<string, string>> {
+    const names = new Map<string, string>();
+    for (let i = 0; i < ids.length; i += REFS_CHUNK) {
+      const { customers: found } = await customers._internalCustomerRefs({ customerIds: ids.slice(i, i + REFS_CHUNK) });
+      for (const customer of found) names.set(customer.id, customer.companyName);
+    }
+    return names;
   }
 }
 

@@ -2,9 +2,9 @@
 
 import { Fragment } from "react";
 import type { ReactNode } from "react";
-import { Popover } from "antd";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { dimensionTotals, num } from "@/lib/cargo";
+import { HoverCard } from "./HoverCard";
 
 // ── Pure summary helpers (unit-tested in ShipmentHoverCard.test.ts) ──
 
@@ -112,23 +112,5 @@ export function ShipmentHoverCard({ shipment, jobNumberColor, children }: Shipme
     </div>
   );
 
-  return (
-    <Popover
-      // Clicks in the card (selecting text to copy) stay in it: the card is a portal, so they
-      // would otherwise reach the cell around the job number and open the shipment.
-      content={
-        <div onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-          {content}
-        </div>
-      }
-      trigger="hover"
-      mouseEnterDelay={0.6}
-      // Always above the job number, never flipped below it (antd would flip it near the top edge).
-      placement="topLeft"
-      autoAdjustOverflow={false}
-      arrow={false}
-    >
-      <span className="min-w-0 max-w-full">{children}</span>
-    </Popover>
-  );
+  return <HoverCard content={content}>{children}</HoverCard>;
 }

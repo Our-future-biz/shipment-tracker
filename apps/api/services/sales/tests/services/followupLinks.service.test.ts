@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), info: vi.fn() } }));
 vi.mock("~encore/clients", () => ({ customers: { _internalCustomerRefs: vi.fn() } }));
 vi.mock("../../repositories/followupTask.repository", () => ({
-  followupTaskRepository: { followCustomer: vi.fn(), relabelCustomer: vi.fn(), customerLinks: vi.fn() },
+  followupTaskRepository: { followCustomer: vi.fn(), customerLinks: vi.fn() },
 }));
 
 import { customers } from "~encore/clients";
@@ -33,7 +33,6 @@ beforeEach(() => {
     written.push(name);
     return name ? 2 : 0;
   });
-  tasks.relabelCustomer.mockResolvedValue(0);
   tasks.customerLinks.mockResolvedValue([]);
   refs.mockResolvedValue({ customers: [], contacts: [] });
 });
@@ -88,21 +87,40 @@ describe("normalize", () => {
       { customerId: GONE, customerLabel: "Gone s.r.o.", count: 4 },
     ]);
     refs.mockResolvedValue({ customers: [{ id: ACME, companyName: "ACME Logistics s.r.o.", label: "STANDARD" }], contacts: [] });
-    tasks.relabelCustomer.mockResolvedValue(2);
     await expect(followupLinksService.normalize(COMPANY)).resolves.toEqual({
       checked: 7,
       changed: 2,
       unmatched: [{ field: "customer", value: "Gone s.r.o.", count: 4 }],
     });
-    expect(refs).toHaveBeenCalledWith({ customerIds: [ACME, GONE] });
-    expect(tasks.relabelCustomer.mock.calls).toEqual([[COMPANY, ACME, "ACME Logistics s.r.o."]]);
+    expect(refs).toHaveBeenNthCalledWith(1, { customerIds: [ACME, GONE] });
+    // Under the customer's turn, its name read again there.
+    expect(tasks.followCustomer).toHaveBeenCalledWith(COMPANY, ACME, expect.any(Function));
+    expect(refs).toHaveBeenNthCalledWith(2, { customerIds: [ACME] });
+    expect(written).toEqual(["ACME Logistics s.r.o."]);
+  });
+
+  it("writes nothing for a customer whose tasks all have its name", async () => {
+    tasks.customerLinks.mockResolvedValue([{ customerId: ACME, customerLabel: "ACME Logistics s.r.o.", count: 3 }]);
+    refs.mockResolvedValue({ customers: [{ id: ACME, companyName: "ACME Logistics s.r.o.", label: "STANDARD" }], contacts: [] });
+    await expect(followupLinksService.normalize(COMPANY)).resolves.toEqual({ checked: 3, changed: 0, unmatched: [] });
+    expect(tasks.followCustomer).not.toHaveBeenCalled();
+    expect(refs).toHaveBeenCalledTimes(1);
+  });
+
+  it("writes the name the Customer Database holds when it writes: a rename arriving meanwhile is kept", async () => {
+    tasks.customerLinks.mockResolvedValue([{ customerId: ACME, customerLabel: "ACME", count: 1 }]);
+    refs
+      .mockResolvedValueOnce({ customers: [{ id: ACME, companyName: "ACME Logistics s.r.o.", label: "STANDARD" }], contacts: [] })
+      .mockResolvedValueOnce({ customers: [{ id: ACME, companyName: "ACME Group", label: "STANDARD" }], contacts: [] });
+    await followupLinksService.normalize(COMPANY);
+    expect(written).toEqual(["ACME Group"]);
   });
 
   it("fails instead of guessing when the Customer Database cannot be read", async () => {
     tasks.customerLinks.mockResolvedValue([{ customerId: ACME, customerLabel: "ACME", count: 1 }]);
     refs.mockRejectedValue(new Error("down"));
     await expect(followupLinksService.normalize(COMPANY)).rejects.toThrow("down");
-    expect(tasks.relabelCustomer).not.toHaveBeenCalled();
+    expect(tasks.followCustomer).not.toHaveBeenCalled();
   });
 
   it("asks nothing when no task is linked to a customer", async () => {

@@ -394,11 +394,6 @@ function usersOnce(): UsersOnce {
   return () => (users ??= companyUsers());
 }
 
-// The e-mail of a user as people are recorded by it; "" when the user can't be looked up.
-async function emailOf(userId: string): Promise<string> {
-  return (await userEmailOf(userId)).trim().toLowerCase();
-}
-
 // What a sales quote says about its owner.
 type QuoteOwner = { ownerUserId?: string | null; ownerName: string };
 
@@ -461,7 +456,7 @@ class ShipmentService {
   // in the auth service, which this database cannot join against; an unresolvable user must not
   // fail the write - the stamp just records the time without who.
   private async actorOf(userId: string): Promise<string> {
-    const email = await emailOf(userId);
+    const email = await userEmailOf(userId);
     if (email) return email;
     try {
       return (await companyUsers()).find((u) => u.id === userId)?.email ?? "";
@@ -476,7 +471,7 @@ class ShipmentService {
   // that name fits. Empty when the owner is nobody, no user of the company now, or can't be told:
   // a name that is no user is never copied.
   private async quoteOwnerEmail(quote: QuoteOwner, users: UsersOnce): Promise<string> {
-    if (quote.ownerUserId) return emailOf(quote.ownerUserId);
+    if (quote.ownerUserId) return userEmailOf(quote.ownerUserId);
     if (!quote.ownerName.trim()) return "";
     try {
       return matchUser(quote.ownerName, await users())?.email ?? "";

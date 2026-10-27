@@ -1,7 +1,9 @@
+import log from "encore.dev/log";
 import { customers } from "~encore/clients";
-import { db } from "../db/db";
 import { customerLinksRepository, type RenameCounts, type StoredName } from "../repositories/customerLinks.repository";
 import type { CustomerChangedEvent } from "../../customers/topics";
+import { asCompany } from "../../../lib/internalCall";
+import { isUuid } from "../../../lib/uuid";
 import type { TruckingLinksNormalizeResult, TruckingUnmatchedName } from "../interfaces/interfaces";
 
 // "Everything must be linked" (owner, 26 Oct 2026): the customer of a consignment and the haulier
@@ -13,26 +15,12 @@ import type { TruckingLinksNormalizeResult, TruckingUnmatchedName } from "../int
 // books dock slots and fills cargo figures, so it would undo what the gate staff changed. The
 // gate's copy of the haulier name needs a name-only refresh in Warehouse (not built yet).
 
-// A change event has no signed-in user. The customers service reads only the company of an
-// internal call, so the call is made for the event's company with no user (as shipments does).
-const asCompany = (companyId: string) => ({ authData: { userID: "", companyID: companyId, role: "user" } });
-
 /** How many customer ids one call of the Customer Database takes. */
 const REFS_BATCH = 500;
 
 const chunks = <T>(list: T[], size: number): T[][] => Array.from({ length: Math.ceil(list.length / size) }, (_, i) => list.slice(i * size, (i + 1) * size));
 
 class CustomerLinksService {
-  /** Writes a company's current name wherever Trucking keeps it by id; answers how many rows changed. */
-  async applyName(companyId: string, customerId: string, companyName: string): Promise<RenameCounts> {
-    const name = companyName.trim();
-    // A copy is never blanked out.
-    if (!name) return { consignments: 0, trips: 0 };
-    const consignments = await customerLinksRepository.renameConsignmentCustomer(db, companyId, customerId, name);
-    const trips = await customerLinksRepository.renameTripHaulier(db, companyId, customerId, name);
-    return { consignments, trips };
-  }
-
   /**
    * Topic customer-changed: an edit, a delete or a restore. The event is only a signal: the name
    * written is the one the Customer Database holds now, read under the customer's lock, so an older
@@ -42,7 +30,13 @@ class CustomerLinksService {
    * event does). A failure is thrown, so the event is delivered again.
    */
   async customerChanged(event: CustomerChangedEvent): Promise<RenameCounts> {
-    const { companyId, customerId } = event;
+    // Retrying an event that names no customer would fail the same way every time.
+    if (!isUuid(event.companyId) || !isUuid(event.customerId)) {
+      log.warn("a customer change names no customer; ignored", { companyId: event.companyId, customerId: event.customerId });
+      return { consignments: 0, trips: 0 };
+    }
+    const { companyId } = event;
+    const customerId = event.customerId.toLowerCase();
     return customerLinksRepository.renameCustomer(companyId, customerId, async () => {
       const { customers: found } = await customers._internalCustomerRefs({ customerIds: [customerId] }, asCompany(companyId));
       const current = found.find((c) => c.id === customerId);
@@ -58,15 +52,20 @@ class CustomerLinksService {
    */
   async normalize(companyId: string): Promise<TruckingLinksNormalizeResult> {
     const stored = await customerLinksRepository.storedNames(companyId);
-    const ids = [...new Set(stored.map((s) => s.id))];
-    const names = new Map<string, string>();
-    for (const batch of chunks(ids, REFS_BATCH)) {
-      const { customers: found } = await customers._internalCustomerRefs({ customerIds: batch });
-      for (const c of found) names.set(c.id, c.companyName);
-    }
+    const names = await this.namesOf([...new Set(stored.map((s) => s.id))]);
+    // Only a customer whose name differs is written, under its turn with the name read again (as
+    // an event's rename is), so a rename arriving meanwhile never loses to the name read above.
+    const stale = new Set(
+      stored
+        .filter((s) => {
+          const name = names.get(s.id)?.trim();
+          return !!name && name !== s.name;
+        })
+        .map((s) => s.id),
+    );
     let changed = 0;
-    for (const [id, name] of names) {
-      const done = await this.applyName(companyId, id, name);
+    for (const id of stale) {
+      const done = await customerLinksRepository.renameCustomer(companyId, id, async () => (await this.namesOf([id])).get(id) ?? null);
       changed += done.consignments + done.trips;
     }
     return {
@@ -74,6 +73,16 @@ class CustomerLinksService {
       changed,
       unmatched: unmatchedOf(stored.filter((s) => !names.get(s.id)?.trim())),
     };
+  }
+
+  /** The Customer Database's names of the live customers among `ids`, by id. */
+  private async namesOf(ids: string[]): Promise<Map<string, string>> {
+    const names = new Map<string, string>();
+    for (const batch of chunks(ids, REFS_BATCH)) {
+      const { customers: found } = await customers._internalCustomerRefs({ customerIds: batch });
+      for (const c of found) names.set(c.id, c.companyName);
+    }
+    return names;
   }
 }
 

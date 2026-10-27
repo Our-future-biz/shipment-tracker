@@ -1323,10 +1323,10 @@ export function ShipmentDetailContent() {
                       <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100">
                         <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Master Job</span>
                         <div className="flex-1 min-w-0 flex items-center gap-2">
-                          {/* The link colour of the app (antd's link, from colorInfo #3b82f6), like Customer below. */}
+                          {/* The app's link colour (antd's link), like Customer below. */}
                           {shipment.masterJobMczNumber ? (
                             <>
-                              <button onClick={() => setMasterJobOpen(true)} className="text-[#3b82f6] hover:underline cursor-pointer bg-transparent border-none p-0 font-medium">
+                              <button onClick={() => setMasterJobOpen(true)} className="text-link hover:underline cursor-pointer bg-transparent border-none p-0 font-medium">
                                 #{shipment.masterJobMczNumber}
                               </button>
                               <button onClick={handleUnlinkMasterJob} className="text-[10px] text-slate-400 hover:text-red-500 cursor-pointer bg-transparent border-none p-0">
@@ -1334,7 +1334,7 @@ export function ShipmentDetailContent() {
                               </button>
                             </>
                           ) : (
-                            <button onClick={() => setAssignOpen(true)} className="text-[#3b82f6] hover:underline cursor-pointer bg-transparent border-none p-0 font-medium">
+                            <button onClick={() => setAssignOpen(true)} className="text-link hover:underline cursor-pointer bg-transparent border-none p-0 font-medium">
                               + Assign to master job
                             </button>
                           )}

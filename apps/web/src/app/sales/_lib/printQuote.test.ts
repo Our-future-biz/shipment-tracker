@@ -3,7 +3,7 @@ import { asCompanyDetails } from "./companyDetails";
 import { quoteDocument } from "./printQuote";
 
 // Only what decides whether the quotation waits for the users: nothing else is looked at here.
-const exchange = { rates: null, isError: false, isLoading: false, roePct: null, fixingDate: null } as unknown as Parameters<typeof quoteDocument>[2];
+const exchange: Parameters<typeof quoteDocument>[2] = { rates: { CZK: 1 }, isError: false, isLoading: false, roePct: 100, fixingDate: "" };
 const company = { status: "ready" as const, details: asCompanyDetails({}) };
 const LOADING = "The company's users are still loading. Try again in a moment.";
 

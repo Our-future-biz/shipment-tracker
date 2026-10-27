@@ -52,6 +52,8 @@
   --color-warn-faint: #fbf6ef;
   --color-danger: #c3392b;
   --color-danger-soft: #fbe6e4;
+  /* The app's link colour: antd's link (colorInfo in lib/theme/themeConfig.ts). */
+  --color-link: #3b82f6;
 }
 
 /* Ant Design Table fixed columns need opaque background */

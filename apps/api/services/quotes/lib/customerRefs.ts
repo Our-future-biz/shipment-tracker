@@ -1,13 +1,10 @@
 import log from "encore.dev/log";
 import { customers } from "~encore/clients";
+import { asCompany } from "../../../lib/internalCall";
 import type { CustomerRefs } from "../utils/customerLinks.utils";
 
 // How many customers one call to the Customer Database asks about (it takes at most 2000).
 const REFS_CHUNK = 500;
-
-// A Pub/Sub handler has no login. The customers service reads only the company of an internal
-// call, so the handler calls for the event's company with no user (as shipments does).
-const asCompany = (companyId: string) => ({ authData: { userID: "", companyID: companyId, role: "user" } });
 
 /**
  * The customers of the caller's company among `customerIds` and their live contacts, as the

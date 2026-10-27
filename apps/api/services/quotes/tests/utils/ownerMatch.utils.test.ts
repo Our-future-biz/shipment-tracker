@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
-import { matchOwnerLabel, normaliseName } from "../../utils/ownerMatch.utils";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
+
+import { normaliseName } from "../../../../lib/personName";
+import { matchOwnerLabel } from "../../utils/ownerMatch.utils";
 
 const user = (id: string, displayName: string, email: string) => ({ id, displayName, email });
 

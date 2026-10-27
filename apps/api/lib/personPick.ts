@@ -13,9 +13,12 @@ export interface CompanyUser {
   displayName: string;
 }
 
+/** A user's e-mail as a picked person is stored: trimmed, lower case. */
+export const storedEmail = (email: string): string => email.trim().toLowerCase();
+
 /** The user `value` names by e-mail (any case); null when it is not a user's e-mail. */
 export function userByEmail(value: string, users: CompanyUser[]): CompanyUser | null {
-  const wanted = value.trim().toLowerCase();
+  const wanted = storedEmail(value);
   return (wanted && users.find((u) => u.email === wanted)) || null;
 }
 

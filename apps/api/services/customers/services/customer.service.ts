@@ -21,6 +21,7 @@ import { iso } from "../../../lib/db/serialize";
 import { canManageSales } from "../../../lib/salesPolicy";
 import { isUniqueViolation } from "../../../lib/db/errors";
 import { isUuid } from "../../../lib/uuid";
+import { storedEmail } from "../../../lib/personPick";
 import { dateInput } from "../lib/dates";
 import { toCustomerItem } from "../lib/mappers";
 import { companyOfLogoToken } from "../lib/logoUrl";
@@ -151,7 +152,7 @@ async function salesOwnerOf(userId: string | null): Promise<Pick<NewCustomerReco
   const { users } = await auth.userLookup({ ids: [userId] });
   const user = users.find((u) => u.id === userId);
   if (!user) throw APIError.invalidArgument("salesOwnerUserId must be a user of the company");
-  return { salesOwner: user.email.trim().toLowerCase(), salesOwnerUserId: user.id };
+  return { salesOwner: storedEmail(user.email), salesOwnerUserId: user.id };
 }
 
 /**

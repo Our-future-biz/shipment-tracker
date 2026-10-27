@@ -1,5 +1,6 @@
 import log from "encore.dev/log";
 import { customers } from "~encore/clients";
+import { asCompany } from "../../../lib/internalCall";
 import type { ContactChangedEvent, CustomerChangedEvent } from "../../customers/topics";
 import { partyLinksRepository, type ShipmentParties } from "../repositories/partyLinks.repository";
 import { linkedCustomerIds, planLinksNormalize, type LinkRefs, type LinksPlan } from "../lib/contactLinks";
@@ -18,10 +19,6 @@ export interface Delivery {
   /** Delivered before: that attempt may have renamed and then failed to tell. */
   redelivered: boolean;
 }
-
-// A change event has no signed-in user. The customers service reads only the company of an
-// internal call, so the call is made for the event's company with no user (as lib/outbox does).
-const asCompany = (companyId: string) => ({ authData: { userID: "", companyID: companyId, role: "user" } });
 
 // Keeps the names a shipment and a master job copy from the Customer Database current: the
 // customers service's change events rename the copies that hold the id, and a one-off backfill

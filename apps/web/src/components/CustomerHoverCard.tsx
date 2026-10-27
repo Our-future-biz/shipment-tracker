@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import type { ReactNode } from "react";
-import { Popover, Spin } from "antd";
+import { Spin } from "antd";
 import { useCustomer } from "@/hooks/useCustomers";
 import { flagOf } from "@/lib/countries";
 import { CustomerAccountTypeBadge } from "@/app/customers/_components/CustomerAccountTypeBadge";
+import { HoverCard } from "./HoverCard";
 
 interface CustomerHoverCardProps {
   /** The customer (Customer Database id). */
@@ -55,23 +56,8 @@ export function CustomerHoverCard({ customerId, children }: CustomerHoverCardPro
     );
 
   return (
-    <Popover
-      // Clicks in the card (selecting text to copy, an e-mail link) stay in it: the card is a portal,
-      // so they would otherwise reach the cell around the name and start editing or open the link.
-      content={
-        <div onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-          {content}
-        </div>
-      }
-      trigger="hover"
-      mouseEnterDelay={0.6}
-      // Always above the name, never flipped below it (antd would flip it near the top edge).
-      placement="topLeft"
-      autoAdjustOverflow={false}
-      arrow={false}
-      onOpenChange={(open) => open && setOpened(true)}
-    >
-      <span className="min-w-0 max-w-full">{children}</span>
-    </Popover>
+    <HoverCard content={content} onOpen={() => setOpened(true)}>
+      {children}
+    </HoverCard>
   );
 }

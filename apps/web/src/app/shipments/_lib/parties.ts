@@ -36,6 +36,7 @@ export function partyUpdate(party: PartyField, name: string, customerId: string 
   }
 }
 
+const isPartyField = (field: string): field is PartyField => field in PARTY_ID_FIELD;
 const isContactField = (field: string): field is ContactField => field in CONTACT_ID_FIELD;
 
 /** The contact id that goes with a name written to `field`; nothing for a field that names no contact. */
@@ -56,7 +57,7 @@ export function contactUpdate(field: ContactField, name: string, contactId: stri
 export function copiedLinks(source: interfaces.ShipmentItem, copiedFields: Iterable<string>): Partial<controllers.ShipmentCreateRequest> {
   const out: Record<string, string> = {};
   for (const field of copiedFields) {
-    const idField = field in PARTY_ID_FIELD ? PARTY_ID_FIELD[field as PartyField] : isContactField(field) ? CONTACT_ID_FIELD[field] : null;
+    const idField = isPartyField(field) ? PARTY_ID_FIELD[field] : isContactField(field) ? CONTACT_ID_FIELD[field] : null;
     const id = idField ? source[idField] : null;
     if (idField && id) out[idField] = id;
   }

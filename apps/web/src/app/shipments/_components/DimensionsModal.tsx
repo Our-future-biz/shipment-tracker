@@ -43,6 +43,9 @@ const DELETE_BTN =
 
 // The most digits a number field takes before the decimal point: 9999 pcs or cm, 99999 kg.
 const maxDigits = (key: string) => (key === "weightPerPcKg" ? 5 : 4);
+// A number field as wide as its most digits plus antd's 11px padding and border on each side
+// (important: antd sets width: 100% outside Tailwind's cascade layers).
+const fieldWidth = (key: string) => (maxDigits(key) === 5 ? "!w-[calc(5ch+26px)]" : "!w-[calc(4ch+26px)]");
 
 const isEmpty = (l: CargoDimensionLine) =>
   !l.pieces &&
@@ -115,12 +118,10 @@ export function DimensionsModal({
   ) => (
     // Numbers only, at most 4 digits (the weight 5): Pcs takes whole numbers, the measures and
     // the weight a decimal point too.
-    // As wide as its most digits (plus antd's 11px padding and border on each side), centred
-    // in its column under the header.
+    // As wide as its most digits (fieldWidth), centred in its column under the header.
     <div className="flex justify-center">
       <Input
-        className="text-center tabular-nums"
-        style={{ width: `calc(${maxDigits(key)}ch + 26px)` }}
+        className={`text-center tabular-nums ${fieldWidth(key)}`}
         inputMode={key === "pieces" ? "numeric" : "decimal"}
         value={lines[idx]![key]}
         onChange={(e) =>

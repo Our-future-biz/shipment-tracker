@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { Modal, Spin } from "antd";
-import { useQueryClient } from "@tanstack/react-query";
 import { findContact, useCustomerContacts } from "@/hooks/useCustomerContacts";
 import { FadeText } from "@/components/FadeText";
 import { useSingleOrDouble } from "@/components/EditableLink";
@@ -32,9 +31,7 @@ export function PartyContactLink({
   const clicks = useSingleOrDouble({ onSingle: () => setOpen(true), onDouble: () => onEdit?.() });
 
   // Loaded only once the preview opens ("" keeps the query off).
-  const { contacts, isLoading } = useCustomerContacts(open ? customerId : "");
-  // The hook has no error flag; its query state tells whether loading failed.
-  const isError = useQueryClient().getQueryState(["customer-contacts", customerId])?.status === "error";
+  const { contacts, isLoading, isError } = useCustomerContacts(open ? customerId : "");
   const contact = findContact(contacts, contactId, name);
 
   return (
