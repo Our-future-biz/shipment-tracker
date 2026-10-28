@@ -19,6 +19,14 @@ describe("the menu", () => {
     expect(concept?.children).toEqual([{ path: "/warehouse-concept/managers", label: "Managers" }]);
   });
 
+  it("shows Tariffs to everyone with its three sections, opening the first", () => {
+    for (const role of ["user", "manager", "admin", "superadmin"]) {
+      const tariffs = visibleNavItems({ role }).find((i) => i.label === "Tariffs");
+      expect(tariffs?.home).toBe("/tariffs/rail-operators");
+      expect(tariffs?.children?.map((c) => c.label)).toEqual(["Rail Operators", "Last / First Mile Collections", "Shipping Lines"]);
+    }
+  });
+
   it("keeps role rules", () => {
     expect(navItemVisible({ roles: ["admin"] }, { role: "user" })).toBe(false);
     expect(navItemVisible({}, { role: "user" })).toBe(true);

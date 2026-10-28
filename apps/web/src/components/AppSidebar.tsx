@@ -23,6 +23,7 @@ import {
   BankOutlined,
   CalendarOutlined,
   CarOutlined,
+  TagsOutlined,
 } from "@ant-design/icons";
 import { useSalesPermissions } from "@/hooks/useSalesPermissions";
 import { useSidebarState } from "@/hooks/useSidebarState";
@@ -52,6 +53,18 @@ const NAV_ITEMS: NavItem[] = [
   // The Quotes list is where work in Sales starts, so that is what "Sales" opens. /sales itself
   // only redirects there: going straight saves the detour.
   { path: "/sales", label: "Sales", icon: <LineChartOutlined />, home: SALES_PAGES.quotes.path, children: SALES_NAV },
+  // Tariffs has no page of its own yet: it opens its first section, as Sales opens Quotes.
+  {
+    path: "/tariffs",
+    label: "Tariffs",
+    icon: <TagsOutlined />,
+    home: "/tariffs/rail-operators",
+    children: [
+      { path: "/tariffs/rail-operators", label: "Rail Operators" },
+      { path: "/tariffs/collections", label: "Last / First Mile Collections" },
+      { path: "/tariffs/shipping-lines", label: "Shipping Lines" },
+    ],
+  },
   { path: "/documents", label: "Document / Text Reading", icon: <FileTextOutlined /> },
   { path: "/invoicing", label: "Invoicing", icon: <DollarOutlined /> },
   { path: "/exchange", label: "Exchange", icon: <SwapOutlined /> },
