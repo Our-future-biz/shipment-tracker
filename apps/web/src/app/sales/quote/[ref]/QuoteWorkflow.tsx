@@ -101,6 +101,20 @@ import { RailTariffsDrawer } from "./_components/RailTariffsDrawer";
 import { useRailOffers } from "@/hooks/useRailTariffs";
 import { railVersionHref } from "@/app/tariffs/_lib/railTariffs";
 import { isInlandHaulageLine, isRailLine, railOffersRequest, railRouteOf, railVersionId, withRailOffer, type RailOffer, type RailRoute } from "../../_lib/railQuote";
+import { CollectionTariffsDrawer } from "./_components/CollectionTariffsDrawer";
+import { useCollectionHubs, useCollectionOffers } from "@/hooks/useCollectionTariffs";
+import { collectionVersionHref } from "@/app/tariffs/_lib/collectionTariffs";
+import {
+  collectionFreightOf,
+  collectionOffersRequest,
+  collectionRouteOf,
+  collectionVersionId,
+  isCollectionLine,
+  isInlandCollectionLine,
+  withCollectionOffer,
+  type CollectionOffer,
+  type CollectionRoute,
+} from "../../_lib/collectionQuote";
 import { QuoteMarginPanel } from "./_components/QuoteMarginPanel";
 import { QuoteMarginApproveDialog } from "./_components/QuoteMarginApproveDialog";
 import { QuoteShipmentsDialog } from "./_components/QuoteShipmentsDialog";
@@ -216,8 +230,9 @@ export function QuoteWorkflow() {
   const [templateAsked, setTemplateAsked] = useState<string | null>(null);
   // A buying line that just got its amount (and its place), offered to selling as well with a markup.
   const [toSelling, setToSelling] = useState<{ line: CostLine; index: number } | null>(null);
-  // The buying line "Tariffs available" was opened from.
+  // The buying line "Tariffs available" was opened from: for rail, or for collections.
   const [railLine, setRailLine] = useState<number | null>(null);
+  const [collectionLine, setCollectionLine] = useState<number | null>(null);
   // A line being removed that has a counterpart on the other side: asked whether both go.
   const [removing, setRemoving] = useState<{ side: LineSide; index: number; other: number } | null>(null);
   // The customer picked last in the Customer box, while its contact person is still being read.
@@ -482,6 +497,14 @@ export function QuoteWorkflow() {
   // How many rail tariff offers the quote's route has, for the "Tariffs available" button of its
   // inland container haulage lines; asked only while there is such a line to price.
   const railCount = useRailOffers(!quoteClosed && (draft.buyingLines ?? []).some(isInlandHaulageLine) ? railOffersRequest(railRouteOf(draft, businessToday())) : null);
+  // The same for the collections tariffs, on an inland collection / delivery line of a Sea LCL or
+  // air quote; our hubs give the route its other end.
+  const collectionHubs = useCollectionHubs().hubs;
+  const collectionCount = useCollectionOffers(
+    !quoteClosed && collectionFreightOf(draft.serviceType) && (draft.buyingLines ?? []).some(isInlandCollectionLine)
+      ? collectionOffersRequest(collectionRouteOf(draft, collectionHubs, businessToday()))
+      : null,
+  );
   const printNow = () => {
     const blocked = printQuote(ref, draft, exchange, company, people);
     if (blocked) toast.error(blocked);
@@ -638,6 +661,7 @@ export function QuoteWorkflow() {
   // "Tariff vN" on a line priced from a tariff, and "Override" when it was changed by hand since.
   const buyingTag = (line: CostLine) => {
     if (isRailLine(line)) return <RailTariffTag line={line} />;
+    if (isCollectionLine(line)) return <CollectionTariffTag line={line} />;
     const tag = lineTariffTag(line, draft.roadPricing, "buying");
     return tag && <TariffTag tag={tag} />;
   };
@@ -669,15 +693,18 @@ export function QuoteWorkflow() {
     set({ buyingLines: buying, sellingLines: selling });
   };
 
-  // "Tariffs available" under an inland container haulage buying line, with how many rail tariff
+  // "Tariffs available" under an inland container haulage buying line (rail tariffs), and under an
+  // inland collection / delivery line of a Sea LCL or air quote (collections tariffs), with how many
   // offers the quote's route has once that is known.
   const buyingAction = (line: CostLine, index: number) => {
-    if (quoteClosed || !isInlandHaulageLine(line)) return null;
-    const count = railCount.result?.offers.length;
+    if (quoteClosed) return null;
+    const rail = isInlandHaulageLine(line);
+    if (!rail && !(isInlandCollectionLine(line) && collectionFreightOf(draft.serviceType))) return null;
+    const count = (rail ? railCount : collectionCount).result?.offers.length;
     return (
       <button
         type="button"
-        onClick={() => setRailLine(index)}
+        onClick={() => (rail ? setRailLine(index) : setCollectionLine(index))}
         className="inline-flex items-center gap-1 text-[11.5px] font-medium text-indigo-600 hover:text-indigo-700 hover:underline cursor-pointer"
       >
         <TagsOutlined aria-hidden />
@@ -699,6 +726,18 @@ export function QuoteWorkflow() {
     toast.success(`Priced from ${offer.supplierName}: ${fmtMoney(offer.total, offer.currency)}`);
     const first = pick.lines[pick.at];
     if (pick.count === 1 && first && !(Number(before?.amount) > 0) && offerToSelling(first, sellingLines)) setToSelling({ line: first, index: pick.at });
+  };
+  // A collections offer replaces the line it was opened from with one lump sum (see
+  // withCollectionOffer), so every row keeps its key; selling is offered it as for rail.
+  const pickCollectionOffer = (offer: CollectionOffer, route: CollectionRoute) => {
+    if (collectionLine === null) return;
+    const before = buyingLines[collectionLine];
+    const lines = withCollectionOffer(buyingLines, collectionLine, offer, route);
+    updateLines("buyingLines", lines);
+    setCollectionLine(null);
+    toast.success(`Priced from ${offer.supplierName}: ${fmtMoney(offer.total, offer.currency)}`);
+    const priced = lines[collectionLine];
+    if (priced && !(Number(before?.amount) > 0) && offerToSelling(priced, sellingLines)) setToSelling({ line: priced, index: collectionLine });
   };
 
   const linesOf = (side: LineSide) => (side === "buying" ? buyingLines : sellingLines);
@@ -1875,6 +1914,15 @@ export function QuoteWorkflow() {
         onPick={pickRailOffer}
         onClose={() => setRailLine(null)}
       />
+      <CollectionTariffsDrawer
+        open={collectionLine !== null}
+        quote={draft}
+        hubs={collectionHubs}
+        quoteCurrency={totals.currency}
+        toQuoteCurrency={(amount, currency) => convertLine({ type: "", description: "", currency, amount }, draft, exchange.rates, { live: exchange })}
+        onPick={pickCollectionOffer}
+        onClose={() => setCollectionLine(null)}
+      />
       {modal === "approveMargin" && roadMargin && (
         <QuoteMarginApproveDialog quoteNumber={ref} margin={roadMargin} onApprove={approveMargin} onClose={() => setModal(null)} />
       )}
@@ -2135,6 +2183,20 @@ function RailTariffTag({ line }: { line: CostLine }) {
     <a href={railVersionHref(line.supplierCustomerId, versionId)} target="_blank" rel="noreferrer" title="Open the rail tariff this line was priced from">
       <Pill tone="slate" className="hover:bg-slate-200">
         Rail tariff ↗
+      </Pill>
+    </a>
+  );
+}
+
+// "Collection tariff" on a buying line priced from a first / last mile haulier's tariff; it opens
+// the tariff version it came from.
+function CollectionTariffTag({ line }: { line: CostLine }) {
+  const versionId = collectionVersionId(line);
+  if (!versionId || !line.supplierCustomerId) return <Pill tone="slate">Collection tariff</Pill>;
+  return (
+    <a href={collectionVersionHref(line.supplierCustomerId, versionId)} target="_blank" rel="noreferrer" title="Open the collections tariff this line was priced from">
+      <Pill tone="slate" className="hover:bg-slate-200">
+        Collection tariff ↗
       </Pill>
     </a>
   );

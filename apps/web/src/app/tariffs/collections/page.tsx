@@ -1,5 +1,5 @@
-import { TariffSectionPage } from "../_components/TariffSectionPage";
+import { CollectionHauliersView } from "./_components/CollectionHauliersView";
 
 export default function CollectionsPage() {
-  return <TariffSectionPage title="Last / First Mile Collections" />;
+  return <CollectionHauliersView />;
 }

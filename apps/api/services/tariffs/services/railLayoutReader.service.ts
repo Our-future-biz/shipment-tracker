@@ -93,7 +93,7 @@ function client(): Anthropic {
 
 /** The text the AI is given: each sheet's excerpt, and the supplier's previous layout when there is one. */
 export function layoutRequestText(sheets: Sheet[], previous: RailLayout | null): string {
-  const parts = sheets.slice(0, MAX_SHEETS).map(sheetExcerpt);
+  const parts = sheets.slice(0, MAX_SHEETS).map((sheet) => sheetExcerpt(sheet));
   if (previous) parts.push(`The supplier's previous tariff was read with this layout:\n${JSON.stringify(previous)}`);
   return parts.join("\n\n");
 }

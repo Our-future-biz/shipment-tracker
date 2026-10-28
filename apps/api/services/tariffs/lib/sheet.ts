@@ -14,6 +14,15 @@ export interface Sheet {
   rowCount: number;
   rows: Map<number, Record<ColumnLetter, CellValue>>;
   links: { address: string; text: string; url: string }[];
+  /** A sheet Excel does not show; read only when asked for (readSheets' hidden option) */
+  hidden?: boolean;
+  /** The formulas of cells that have one, as Excel writes them ("=IF(B6>350,…)"), for the AI to see the tariff's rules */
+  formulas?: Map<number, Record<ColumnLetter, string>>;
+}
+
+export interface ReadOptions {
+  /** Hidden sheets too: a tariff may keep its postcode or distance lists there. */
+  hidden?: boolean;
 }
 
 /** 1 → "A", 27 → "AA". */
@@ -49,18 +58,30 @@ function cellValue(v: ExcelJS.CellValue): CellValue | undefined {
   return undefined;
 }
 
-async function readWorkbook(buffer: Buffer): Promise<Sheet[]> {
+// A cell's formula as Excel writes it; a shared one as its master cell's.
+function cellFormula(v: ExcelJS.CellValue): string | undefined {
+  if (v && typeof v === "object" && !(v instanceof Date)) {
+    if ("formula" in v && v.formula) return `=${v.formula}`;
+    if ("sharedFormula" in v && v.sharedFormula) return `=(as ${v.sharedFormula})`;
+  }
+  return undefined;
+}
+
+async function readWorkbook(buffer: Buffer, options: ReadOptions): Promise<Sheet[]> {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buffer as never);
   return wb.worksheets
-    .filter((ws) => ws.state === "visible")
+    .filter((ws) => ws.state === "visible" || options.hidden)
     .map((ws) => {
-      const sheet: Sheet = { name: ws.name, rowCount: 0, rows: new Map(), links: [] };
+      const sheet: Sheet = { name: ws.name, rowCount: 0, rows: new Map(), links: [], ...(ws.state !== "visible" ? { hidden: true } : {}) };
+      const formulas = new Map<number, Record<ColumnLetter, string>>();
       ws.eachRow({ includeEmpty: false }, (row, rowNo) => {
         const cells: Record<ColumnLetter, CellValue> = {};
         row.eachCell({ includeEmpty: false }, (cell, colNo) => {
           const copy = cell.isMerged && cell.master.address !== cell.address;
           if (copy && cell.master.col !== cell.col) return;
+          const formula = copy ? undefined : cellFormula(cell.value);
+          if (formula) formulas.set(rowNo, { ...formulas.get(rowNo), [columnLetter(colNo)]: formula });
           const value = cellValue(copy ? cell.master.value : cell.value);
           if (value === undefined) return;
           cells[columnLetter(colNo)] = value;
@@ -71,6 +92,7 @@ async function readWorkbook(buffer: Buffer): Promise<Sheet[]> {
           sheet.rowCount = rowNo;
         }
       });
+      if (formulas.size) sheet.formulas = formulas;
       return sheet;
     })
     .filter((sheet) => sheet.rows.size > 0);
@@ -134,10 +156,10 @@ function csvSheet(name: string, table: string[][]): Sheet {
   return sheet;
 }
 
-/** The visible, non-empty sheets of an uploaded .xlsx/.xlsm or .csv file. */
-export async function readSheets(buffer: Buffer, fileName: string): Promise<Sheet[]> {
+/** The visible (with `hidden`, all), non-empty sheets of an uploaded .xlsx/.xlsm or .csv file. */
+export async function readSheets(buffer: Buffer, fileName: string, options: ReadOptions = {}): Promise<Sheet[]> {
   const ext = fileName.toLowerCase().split(".").pop() ?? "";
-  if (ext === "xlsx" || ext === "xlsm") return readWorkbook(buffer);
+  if (ext === "xlsx" || ext === "xlsm") return readWorkbook(buffer, options);
   if (ext === "csv" || ext === "txt") {
     const sheet = csvSheet(fileName.replace(/\.[^.]+$/, ""), parseCsv(csvText(buffer)));
     return sheet.rows.size ? [sheet] : [];
@@ -171,19 +193,24 @@ const HEAD_ROWS = 40;
 const SAMPLED_ROWS = 15;
 const RARE_ROWS = 10;
 const MAX_CELL_CHARS = 200;
+const MAX_FORMULA_CHARS = 120;
 
-const rowLine = (rowNo: number, cells: Record<ColumnLetter, CellValue>) =>
+const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)}…` : text);
+
+// A row as the AI reads it; with `formulas`, a computed cell also shows its formula: {=…}.
+const rowLine = (rowNo: number, cells: Record<ColumnLetter, CellValue>, formulas?: Record<ColumnLetter, string>) =>
   `R${rowNo}: ` +
   Object.entries(rowTexts(cells))
-    .map(([col, text]) => `${col}=${text.length > MAX_CELL_CHARS ? `${text.slice(0, MAX_CELL_CHARS)}…` : text}`)
+    .map(([col, text]) => `${col}=${clip(text, MAX_CELL_CHARS)}${formulas?.[col] ? ` {${clip(formulas[col]!, MAX_FORMULA_CHARS)}}` : ""}`)
     .join(" | ");
 
 /**
  * What the AI reads to work out a sheet's layout: its size, the first rows (title, terms, headings,
  * the first prices), rows sampled from the rest, rows using a column that is nearly always empty
- * (notes), and the links. Short, as it is sent to the model.
+ * (notes), and the links. Short, as it is sent to the model. With `formulas`, the first rows' computed
+ * cells show their formulas too: a calculator sheet keeps the tariff's rules in them.
  */
-export function sheetExcerpt(sheet: Sheet): string {
+export function sheetExcerpt(sheet: Sheet, options: { formulas?: boolean } = {}): string {
   const rowNos = sortedRowNos(sheet);
   const head = rowNos.slice(0, HEAD_ROWS);
   const rest = rowNos.slice(HEAD_ROWS);
@@ -198,8 +225,8 @@ export function sheetExcerpt(sheet: Sheet): string {
   const rare = new Set([...filled].filter(([, n]) => n < rowNos.length * 0.1).map(([col]) => col));
   const rareRows = rest.filter((r) => !sampled.has(r) && Object.keys(sheet.rows.get(r)!).some((col) => rare.has(col))).slice(0, RARE_ROWS);
 
-  const lines = [`Sheet "${sheet.name}": ${sheet.rowCount} rows, columns A–${columnLetter(lastColumn)}`];
-  lines.push(...head.map((r) => rowLine(r, sheet.rows.get(r)!)));
+  const lines = [`Sheet "${sheet.name}"${sheet.hidden ? " (hidden)" : ""}: ${sheet.rowCount} rows, columns A–${columnLetter(lastColumn)}`];
+  lines.push(...head.map((r) => rowLine(r, sheet.rows.get(r)!, options.formulas ? sheet.formulas?.get(r) : undefined)));
   if (rest.length) {
     lines.push(`… rows ${rest[0]}–${rest[rest.length - 1]}: a sample, and the rows using rarely filled columns:`);
     const more = [...new Set([...sampled, ...rareRows])].sort((a, b) => a - b);

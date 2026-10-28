@@ -1,12 +1,27 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, integer, date, jsonb, uuid, timestamp, index, uniqueIndex, check, foreignKey } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, date, jsonb, uuid, timestamp, index, uniqueIndex, check, foreignKey, doublePrecision } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
-import type { LayoutSource, RailDirection, RailLayout, SheetPreview, TariffFinding, TariffPortCode, SupplierTariffMode, SupplierTariffStatus } from "../interfaces/interfaces";
+import type {
+  CollectionFreightMode,
+  CollectionLayout,
+  LayoutSource,
+  RailDirection,
+  RailLayout,
+  SheetPreview,
+  TariffFinding,
+  TariffPortCode,
+  SupplierTariffMode,
+  SupplierTariffStatus,
+} from "../interfaces/interfaces";
+
+/** How a version's file is read: a rail layout on a rail tariff, a collection layout on a collections tariff. */
+export type TariffLayout = RailLayout | CollectionLayout;
 
 // A supplier's price list (e.g. Metrans' rail prices from Hamburg / Bremerhaven / Wilhelmshaven to
 // Czechia). The supplier is a Customer Database company (another database, so no foreign key).
-// The user ticks the ports it is for and whether it is import, export or both; an operator can
-// have several tariffs, e.g. one for Hamburg / Bremerhaven and one for Koper.
+// A rail tariff ticks the ports it is for and whether it is import, export or both (an operator can
+// have several, e.g. one for Hamburg / Bremerhaven and one for Koper); a collections tariff ticks
+// the freight it collects and delivers (Sea LCL, Air) and has no ports.
 // `layout` is how the last approved version's file was read: the AI is shown it when the next
 // year's file is uploaded, so the supplier's format is learned once.
 export const tariffTable = pgTable(
@@ -17,18 +32,27 @@ export const tariffTable = pgTable(
     supplierCustomerId: uuid("supplier_customer_id").notNull(),
     mode: text("mode").$type<SupplierTariffMode>().notNull(),
     name: text("name").notNull(),
-    /** UN/LOCODEs; which ones can be chosen is checked by the API, so a port is added without a migration */
+    /** Rail: UN/LOCODEs; which ones can be chosen is checked by the API, so a port is added without a migration */
     ports: text("ports").array().$type<TariffPortCode[]>().notNull(),
     directions: text("directions").array().$type<RailDirection[]>().notNull(),
-    layout: jsonb("layout").$type<RailLayout>(),
+    /** Collections: what it collects and delivers */
+    freightModes: text("freight_modes").array().$type<CollectionFreightMode[]>().notNull().default(sql`'{}'::text[]`),
+    layout: jsonb("layout").$type<TariffLayout>(),
   },
   (table) => [
     ...defaultTableIndexes("tariff", table),
     tenantIndex("tariff", table),
     index("tariff_supplier_idx").on(table.companyId, table.supplierCustomerId),
-    check("tariff_mode_check", sql`${table.mode} IN ('rail')`),
-    check("tariff_ports_check", sql`cardinality(${table.ports}) > 0`),
-    check("tariff_directions_check", sql`cardinality(${table.directions}) > 0 AND ${table.directions} <@ ARRAY['import', 'export']::text[]`),
+    check("tariff_mode_check", sql`${table.mode} IN ('rail', 'collection')`),
+    check("tariff_ports_check", sql`${table.mode} <> 'rail' OR cardinality(${table.ports}) > 0`),
+    check(
+      "tariff_directions_check",
+      sql`${table.directions} <@ ARRAY['import', 'export']::text[] AND (${table.mode} <> 'rail' OR cardinality(${table.directions}) > 0)`,
+    ),
+    check(
+      "tariff_freight_modes_check",
+      sql`${table.freightModes} <@ ARRAY['sea_lcl', 'air']::text[] AND (${table.mode} <> 'collection' OR cardinality(${table.freightModes}) > 0)`,
+    ),
   ],
 );
 
@@ -47,7 +71,7 @@ export const tariffVersionTable = pgTable(
     validFrom: date("valid_from", { mode: "string" }),
     validTo: date("valid_to", { mode: "string" }),
     currency: text("currency").notNull(),
-    layout: jsonb("layout").$type<RailLayout>().notNull(),
+    layout: jsonb("layout").$type<TariffLayout>().notNull(),
     layoutSource: text("layout_source").$type<LayoutSource>().notNull(),
     findings: jsonb("findings").$type<TariffFinding[]>().notNull().default([]),
     preview: jsonb("preview").$type<SheetPreview[]>().notNull().default([]),
@@ -109,8 +133,112 @@ export const railRateTable = pgTable(
   ],
 );
 
+// A collections version's price rows: one per weight row of each of its tables, the prices by zone
+// in the layout's order. Derived from the file, like rail rows; they go with their version.
+export const collectionRateTable = pgTable(
+  "collection_rate",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ...tenantColumns,
+    versionId: uuid("version_id").notNull(),
+    matrix: integer("matrix").notNull(),
+    rowNo: integer("row_no").notNull(),
+    weightToKg: doublePrecision("weight_to_kg").notNull(),
+    volumeToCbm: doublePrecision("volume_to_cbm"),
+    prices: jsonb("prices").$type<(number | null)[]>().notNull(),
+  },
+  (table) => [
+    tenantIndex("collection_rate", table),
+    index("collection_rate_version_idx").on(table.versionId, table.matrix, table.weightToKg),
+    foreignKey({ name: "collection_rate_version_fk", columns: [table.versionId], foreignColumns: [tariffVersionTable.id] }).onDelete("cascade"),
+  ],
+);
+
+// A collections version's own postcode → region list (zones by distance), e.g. TOPTRANS' 11,000
+// postcodes in 156 regions. A postcode may be in several regions; the first row counts.
+export const collectionRegionTable = pgTable(
+  "collection_region",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ...tenantColumns,
+    versionId: uuid("version_id").notNull(),
+    rowNo: integer("row_no").notNull(),
+    postcode: text("postcode").notNull(),
+    region: text("region").notNull(),
+    country: text("country").notNull(),
+    place: text("place").notNull().default(""),
+  },
+  (table) => [
+    tenantIndex("collection_region", table),
+    index("collection_region_version_postcode_idx").on(table.versionId, table.postcode, table.rowNo),
+    foreignKey({ name: "collection_region_version_fk", columns: [table.versionId], foreignColumns: [tariffVersionTable.id] }).onDelete("cascade"),
+  ],
+);
+
+// A collections version's own distances between its regions, in km.
+export const collectionDistanceTable = pgTable(
+  "collection_distance",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ...tenantColumns,
+    versionId: uuid("version_id").notNull(),
+    fromRegion: text("from_region").notNull(),
+    toRegion: text("to_region").notNull(),
+    km: integer("km").notNull(),
+  },
+  (table) => [
+    tenantIndex("collection_distance", table),
+    index("collection_distance_version_regions_idx").on(table.versionId, table.fromRegion, table.toRegion),
+    foreignKey({ name: "collection_distance_version_fk", columns: [table.versionId], foreignColumns: [tariffVersionTable.id] }).onDelete("cascade"),
+  ],
+);
+
+// A collections version's postcode areas and their zones (zones by postcode), 5-digit ranges.
+export const collectionAreaTable = pgTable(
+  "collection_area",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ...tenantColumns,
+    versionId: uuid("version_id").notNull(),
+    rowNo: integer("row_no").notNull(),
+    postcodeFrom: text("postcode_from").notNull(),
+    postcodeTo: text("postcode_to").notNull(),
+    zone: text("zone").notNull(),
+    country: text("country").notNull(),
+  },
+  (table) => [
+    tenantIndex("collection_area", table),
+    index("collection_area_version_postcode_idx").on(table.versionId, table.postcodeFrom),
+    foreignKey({ name: "collection_area_version_fk", columns: [table.versionId], foreignColumns: [tariffVersionTable.id] }).onDelete("cascade"),
+  ],
+);
+
+// Our end of collections and deliveries, per freight mode: the postcode a haulier collects to and
+// delivers from (Sea LCL: our CFS; Air: the airport's cargo terminal). Set by a manager.
+export const collectionHubTable = pgTable(
+  "collection_hub",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ...tenantColumns,
+    freightMode: text("freight_mode").$type<CollectionFreightMode>().notNull(),
+    postcode: text("postcode").notNull(),
+    country: text("country").notNull(),
+    label: text("label").notNull().default(""),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Display name */
+    updatedBy: text("updated_by"),
+  },
+  (table) => [
+    uniqueIndex("collection_hub_mode_unique").on(table.companyId, table.freightMode),
+    check("collection_hub_mode_check", sql`${table.freightMode} IN ('sea_lcl', 'air')`),
+  ],
+);
+
 export type TariffRecord = typeof tariffTable.$inferSelect;
 export type TariffVersionRecord = typeof tariffVersionTable.$inferSelect;
 export type NewTariffVersionRecord = typeof tariffVersionTable.$inferInsert;
 export type RailRateRecord = typeof railRateTable.$inferSelect;
 export type NewRailRateRecord = typeof railRateTable.$inferInsert;
+export type CollectionRateRecord = typeof collectionRateTable.$inferSelect;
+export type CollectionRegionRecord = typeof collectionRegionTable.$inferSelect;
+export type CollectionHubRecord = typeof collectionHubTable.$inferSelect;

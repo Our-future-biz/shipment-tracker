@@ -5,13 +5,13 @@ import type { RailLayout } from "../interfaces/interfaces";
 // The layout of a rail tariff's sheet, checked the same way whether the AI proposed it or a user
 // corrected it: letters upper case, dates real, lengths and weights sensible. Pure.
 
-const letter = z
+export const letter = z
   .string()
   .trim()
   .toUpperCase()
   .regex(/^[A-Z]{1,3}$/, "must be a column letter, e.g. C");
 
-const isoDate = z
+export const isoDate = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "must be a date YYYY-MM-DD")
   .refine((d) => !Number.isNaN(Date.parse(`${d}T00:00:00Z`)) && new Date(`${d}T00:00:00Z`).toISOString().startsWith(d), "is not a real date");
@@ -27,6 +27,20 @@ const band = z
   .refine((b) => b.minLengthFt <= b.maxLengthFt, "the shortest length is longer than the longest");
 
 const optionalLetter = letter.nullable();
+
+/** The web links of a tariff, with a label each. */
+export const linkList = z
+  .array(
+    z.object({
+      label: z.string().trim().min(1).max(200),
+      url: z
+        .string()
+        .trim()
+        .url()
+        .refine((u) => /^https?:\/\//i.test(u), "must be a web link"),
+    }),
+  )
+  .max(10);
 
 const layoutSchema = z
   .object({
@@ -59,18 +73,7 @@ const layoutSchema = z
       .toUpperCase()
       .regex(/^[A-Z]{2}$/, "must be a country code, e.g. CZ"),
     conditions: z.array(z.string().trim().min(1).max(500)).max(30),
-    links: z
-      .array(
-        z.object({
-          label: z.string().trim().min(1).max(200),
-          url: z
-            .string()
-            .trim()
-            .url()
-            .refine((u) => /^https?:\/\//i.test(u), "must be a web link"),
-        }),
-      )
-      .max(10),
+    links: linkList,
     name: z.string().trim().min(1).max(200),
   })
   .refine((l) => l.firstDataRow > l.headerRow, { message: "the first price row must come after the headings row", path: ["firstDataRow"] })
@@ -78,8 +81,27 @@ const layoutSchema = z
   .refine((l) => !l.validFrom || !l.validTo || l.validTo >= l.validFrom, { message: "the validity ends before it starts", path: ["validTo"] })
   .refine((l) => new Set(l.bands.map((b) => b.column)).size === l.bands.length, { message: "a price column is listed twice", path: ["bands"] });
 
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
-const asArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+export const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+export const asArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+
+/** An AI's links made fit for checking: mail links dropped, "www." ones given https://, at most 10. */
+export function tidyLinks(input: unknown): { label: string; url: string }[] {
+  return asArray(input)
+    .filter(isRecord)
+    .map((l) => ({ label: String(l.label ?? "").trim() || "Link", url: String(l.url ?? "").trim() }))
+    .map((l) => (/^www\./i.test(l.url) ? { ...l, url: `https://${l.url}` } : l))
+    .filter((l) => /^https?:\/\/[^\s]+$/i.test(l.url))
+    .slice(0, 10);
+}
+
+/** An AI's terms made fit for checking: empty lines dropped, at most 30 of at most 500 characters. */
+export function tidyConditions(input: unknown): string[] {
+  return asArray(input)
+    .map((c) => String(c ?? "").trim())
+    .filter(Boolean)
+    .map((c) => c.slice(0, 500))
+    .slice(0, 30);
+}
 
 /**
  * The AI's answer made fit for checking where it only falls short in small things, so a mail link
@@ -89,17 +111,8 @@ const asArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
  */
 export function tidyAiLayout(input: unknown): unknown {
   if (!isRecord(input)) return input;
-  const links = asArray(input.links)
-    .filter(isRecord)
-    .map((l) => ({ label: String(l.label ?? "").trim() || "Link", url: String(l.url ?? "").trim() }))
-    .map((l) => (/^www\./i.test(l.url) ? { ...l, url: `https://${l.url}` } : l))
-    .filter((l) => /^https?:\/\/[^\s]+$/i.test(l.url))
-    .slice(0, 10);
-  const conditions = asArray(input.conditions)
-    .map((c) => String(c ?? "").trim())
-    .filter(Boolean)
-    .map((c) => c.slice(0, 500))
-    .slice(0, 30);
+  const links = tidyLinks(input.links);
+  const conditions = tidyConditions(input.conditions);
   const country = String(input.defaultCountry ?? "").trim();
   const name = String(input.name ?? "").trim();
   return {

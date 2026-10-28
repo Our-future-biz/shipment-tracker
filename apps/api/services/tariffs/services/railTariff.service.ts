@@ -1,11 +1,7 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { APIError } from "encore.dev/api";
-import log from "encore.dev/log";
 import { customers } from "~encore/clients";
-import { businessDay } from "../../../lib/businessDate";
-import { iso, isoOrNull } from "../../../lib/db/serialize";
 import type { Actor } from "../../../lib/rbac";
-import { userRefs } from "../../../lib/userNames";
 import { isUuid } from "../../../lib/uuid";
 import type {
   TariffFile,
@@ -24,39 +20,40 @@ import type {
   TariffPortCode,
   TariffRef,
   SupplierTariffVersionDetail,
-  SupplierTariffVersion,
 } from "../interfaces/interfaces";
 import { bandCode, convertRail, findingTotals } from "../lib/railConvert";
 import { layoutProblem, parseRailLayout } from "../lib/railLayout";
 import { placeQuery, pricedContainers, rowOffer, type BandRefusal } from "../lib/railOffers";
 import { TARIFF_PORT_CODES, chosenPortsAndDirections, portsAndDirectionsOf } from "../lib/tariffPorts";
-import { readSheets, sheetPreview, type Sheet } from "../lib/sheet";
+import { sheetPreview, type Sheet } from "../lib/sheet";
 import { tariffRepository, type DraftFields, type RateFilter } from "../repositories/tariff.repository";
-import type { RailRateRecord, TariffRecord, TariffVersionRecord } from "../schemas/tariff.schema";
+import type { RailRateRecord, TariffRecord } from "../schemas/tariff.schema";
 import { tariffFileBucket } from "../storage/tariffFileBucket";
 import { readRailLayout } from "./railLayoutReader.service";
+import {
+  businessToday,
+  dropSource,
+  isRealDay,
+  pricesOn,
+  requireId,
+  sheetsOf,
+  sourceFile,
+  storeSource,
+  summaryOf,
+  tariffOfMode,
+  uploadedFile,
+  userName,
+  versionOfMode,
+} from "./tariffFiles";
 
 // Rail operators' tariffs: a manager uploads the operator's own Excel file, the AI reads its
 // layout, the code reads every row with it into a draft, and the draft prices nothing until a
 // manager has checked and approved it. Which ports a tariff is for and whether it is import or
 // export the manager ticks; the file does not decide it. Everyone may look.
 
-const MAX_FILE_BYTES = 10 * 1024 * 1024;
 // How many first rows of each sheet are kept for correcting the layout by hand: at least 30, and
 // always a few price rows below the headings, however long the terms above them are.
 const previewRows = (layout: RailLayout) => Math.min(Math.max(30, layout.firstDataRow + 5), 200);
-
-const CONTENT_TYPES: Record<string, string> = {
-  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  xlsm: "application/vnd.ms-excel.sheet.macroEnabled.12",
-  csv: "text/csv",
-  txt: "text/plain",
-};
-const contentTypeOf = (fileName: string) => CONTENT_TYPES[fileName.toLowerCase().split(".").pop() ?? ""] ?? "application/octet-stream";
-
-const businessToday = () => businessDay(new Date());
-
-const isRealDay = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d) && new Date(`${d}T00:00:00Z`).toISOString().startsWith(d);
 
 const tonnes = (kg: number) => `${(Math.round(kg / 100) / 10).toLocaleString("en-US")} t`;
 
@@ -72,12 +69,6 @@ function refusalNote(c: RailPricedContainer, reason: BandRefusal, rows: number):
   const which = rows === 1 ? "1 tariff row" : `${rows} tariff rows`;
   if (reason === "heavy") return `${which}: ${c.type} at ${tonnes(c.grossKg ?? 0)} gross is heavier than their weight bands - the operator prices it individually`;
   return `${which} have no price for ${c.type}`;
-}
-
-// A version or tariff id from a URL; one that cannot be an id is simply not found.
-function requireId(id: string, what: string): string {
-  if (!isUuid(id)) throw APIError.notFound(`${what} not found`);
-  return id;
 }
 
 export interface RailUpload {
@@ -136,25 +127,6 @@ export interface RailRatePage {
   vias: string[];
 }
 
-const summaryOf = (v: TariffVersionRecord): SupplierTariffVersion => ({
-  id: v.id,
-  tariffId: v.tariffId,
-  versionNo: v.versionNo,
-  status: v.status,
-  validFrom: v.validFrom,
-  validTo: v.validTo,
-  currency: v.currency,
-  rowCount: v.rowCount,
-  warningCount: v.warningCount,
-  errorCount: v.errorCount,
-  layoutSource: v.layoutSource,
-  sourceFileName: v.sourceFileName,
-  createdAt: iso(v.createdAt),
-  createdBy: v.createdBy,
-  activatedAt: isoOrNull(v.activatedAt),
-  activatedBy: v.activatedBy,
-});
-
 const rateOf = (r: RailRateRecord): RailRate => ({
   id: r.id,
   rowNo: r.rowNo,
@@ -171,9 +143,6 @@ const rateOf = (r: RailRateRecord): RailRate => ({
   validTo: r.validTo,
   prices: r.prices,
 });
-
-// Whether a version prices on `day`.
-const pricesOn = (v: TariffVersionRecord, day: string) => v.status === "active" && (v.validFrom ?? "") <= day && (v.validTo === null || v.validTo >= day);
 
 // The rail operators of the caller's company (Customer Database companies with the role), or those of `ids`.
 async function railOperators(ids?: string[]) {
@@ -202,20 +171,6 @@ function convertDraft(sheets: Sheet[], layout: RailLayout): { rows: RailRateRow[
       errorCount: totals.errors,
     },
   };
-}
-
-// The sheets of a file; a file that is no readable spreadsheet is refused as such.
-async function sheetsOf(bytes: Buffer, fileName: string): Promise<Sheet[]> {
-  let sheets: Sheet[];
-  try {
-    sheets = await readSheets(bytes, fileName);
-  } catch (err) {
-    if (err instanceof APIError) throw err;
-    log.warn(err, "rail tariff: file not readable", { fileName });
-    throw APIError.invalidArgument("The file could not be read as a spreadsheet. Save it as .xlsx in Excel and upload it again.");
-  }
-  if (!sheets.length) throw APIError.invalidArgument("The file has no rows");
-  return sheets;
 }
 
 class RailTariffService {
@@ -270,30 +225,25 @@ class RailTariffService {
   /** Reads an uploaded tariff file into a new draft: the AI reads its layout, the code every row. */
   async upload(actor: Actor, req: RailUpload): Promise<SupplierTariffVersionDetail> {
     const { companyID: companyId, userID: userId } = actor;
-    const fileName = req.fileName.trim().slice(0, 200);
-    if (!fileName) throw APIError.invalidArgument("The file name is missing");
-    const bytes = Buffer.from(req.fileBase64, "base64");
-    if (!bytes.length) throw APIError.invalidArgument("The file is empty");
-    if (bytes.length > MAX_FILE_BYTES) throw APIError.invalidArgument("The file is larger than 10 MB");
+    const { fileName, bytes } = uploadedFile(req);
 
     const [supplier] = await railOperators([req.supplierCustomerId]);
     if (!supplier) throw APIError.notFound("This company is not a rail operator in the Customer Database");
     let tariff: TariffRecord | null = null;
     if (req.tariffId) {
       tariff = isUuid(req.tariffId) ? await tariffRepository.get(companyId, req.tariffId) : null;
-      if (!tariff || tariff.supplierCustomerId !== supplier.id) throw APIError.notFound("This tariff is not one of the rail operator's");
+      if (!tariff || tariff.mode !== "rail" || tariff.supplierCustomerId !== supplier.id) throw APIError.notFound("This tariff is not one of the rail operator's");
     }
     // Checked before the AI is asked: a new tariff cannot be saved without them.
     const newTariff = tariff ? null : chosenPortsAndDirections(req.ports, req.directions);
 
     const sheets = await sheetsOf(bytes, fileName);
-    const previous = tariff?.layout ?? null;
+    const previous = (tariff?.layout ?? null) as RailLayout | null;
     const layout = await readRailLayout(sheets, previous);
     const { rows, fields } = convertDraft(sheets, layout);
 
-    const key = `${companyId}/${randomUUID()}/${fileName.replace(/[^\w.-]+/g, "_")}`;
-    await tariffFileBucket.upload(key, bytes, { contentType: contentTypeOf(fileName) });
-    const by = (await userRefs([userId])).get(userId)?.name ?? null;
+    const key = await storeSource(companyId, fileName, bytes);
+    const by = await userName(userId);
     try {
       const version = await tariffRepository.createDraft(
         companyId,
@@ -311,17 +261,15 @@ class RailTariffService {
       );
       return this.version(companyId, version.id);
     } catch (err) {
-      await tariffFileBucket.remove(key).catch((e) => log.warn("could not remove the file of a tariff upload that failed", { key, error: String(e) }));
+      await dropSource(key);
       throw err;
     }
   }
 
   /** A version with its layout, findings and the first rows of the file. */
   async version(companyId: string, versionId: string): Promise<SupplierTariffVersionDetail> {
-    const v = await tariffRepository.getVersion(companyId, requireId(versionId, "Tariff version"));
-    if (!v) throw APIError.notFound("Tariff version not found");
-    const t = await tariffRepository.get(companyId, v.tariffId);
-    if (!t) throw APIError.notFound("Tariff not found");
+    const { v, t } = await versionOfMode(companyId, versionId, "rail");
+    const layout = v.layout as RailLayout;
     const [supplier] = await railOperators([t.supplierCustomerId]);
     const tariff: TariffRef = {
       id: t.id,
@@ -332,14 +280,13 @@ class RailTariffService {
       ports: t.ports,
       directions: t.directions,
     };
-    return { ...summaryOf(v), tariff, layout: v.layout, bandCodes: v.layout.bands.map(bandCode), findings: v.findings, preview: v.preview };
+    return { ...summaryOf(v), tariff, layout, bandCodes: layout.bands.map(bandCode), findings: v.findings, preview: v.preview };
   }
 
   /** Reads a draft's file again with a corrected layout; its rows and findings are replaced. */
   async relayout(companyId: string, versionId: string, input: RailLayout): Promise<SupplierTariffVersionDetail> {
     const layout = parseRailLayout(input);
-    const v = await tariffRepository.getVersion(companyId, requireId(versionId, "Tariff version"));
-    if (!v) throw APIError.notFound("Tariff version not found");
+    const { v } = await versionOfMode(companyId, versionId, "rail");
     if (v.status !== "draft") throw APIError.failedPrecondition("Only a draft's layout can be changed");
     if (!v.sourceKey) throw APIError.failedPrecondition("This version has no file to read again");
     const sheets = await sheetsOf(await tariffFileBucket.download(v.sourceKey), v.sourceFileName ?? "tariff.xlsx");
@@ -351,7 +298,8 @@ class RailTariffService {
 
   /** Approves a draft without errors: it prices from its start date, earlier versions give way. */
   async approve(actor: Actor, versionId: string): Promise<SupplierTariffVersionDetail> {
-    const by = (await userRefs([actor.userID])).get(actor.userID)?.name ?? "";
+    await versionOfMode(actor.companyID, versionId, "rail");
+    const by = (await userName(actor.userID)) ?? "";
     const result = await tariffRepository.approve(actor.companyID, requireId(versionId, "Tariff version"), by);
     if (!result.ok) {
       if (result.reason === "not_found") throw APIError.notFound("Tariff version not found");
@@ -362,12 +310,13 @@ class RailTariffService {
 
   /** Throws a draft away; the file stays in storage with the soft-deleted version. */
   async discard(companyId: string, versionId: string): Promise<void> {
+    await versionOfMode(companyId, versionId, "rail");
     if (!(await tariffRepository.discard(companyId, requireId(versionId, "Tariff version")))) throw APIError.failedPrecondition("Only a draft can be discarded");
   }
 
   /** A page of a version's rows, searched and filtered by terminal. */
   async rates(companyId: string, versionId: string, filter: RateFilter): Promise<RailRatePage> {
-    if (!(await tariffRepository.getVersion(companyId, requireId(versionId, "Tariff version")))) throw APIError.notFound("Tariff version not found");
+    await versionOfMode(companyId, versionId, "rail");
     const [{ rows, total }, vias] = await Promise.all([tariffRepository.rates(companyId, versionId, filter), tariffRepository.vias(companyId, versionId)]);
     return { rates: rows.map(rateOf), total, vias };
   }
@@ -442,12 +391,7 @@ class RailTariffService {
 
   /** The file a version was read from. */
   async source(companyId: string, versionId: string): Promise<TariffFile> {
-    const v = await tariffRepository.getVersion(companyId, requireId(versionId, "Tariff version"));
-    if (!v) throw APIError.notFound("Tariff version not found");
-    if (!v.sourceKey) throw APIError.notFound("This version has no file");
-    const fileName = v.sourceFileName ?? `tariff-v${v.versionNo}.xlsx`;
-    const bytes = await tariffFileBucket.download(v.sourceKey);
-    return { fileName, fileBase64: bytes.toString("base64"), contentType: contentTypeOf(fileName) };
+    return sourceFile((await versionOfMode(companyId, versionId, "rail")).v);
   }
 
   /** Changes a tariff's name, ports and directions; its versions and prices stay as they are. */
@@ -455,7 +399,8 @@ class RailTariffService {
     const name = req.name.trim();
     if (!name) throw APIError.invalidArgument("The tariff needs a name");
     const chosen = chosenPortsAndDirections(req.ports, req.directions);
-    const row = await tariffRepository.update(companyId, requireId(tariffId, "Tariff"), { name: name.slice(0, 200), ...chosen });
+    await tariffOfMode(companyId, tariffId, "rail");
+    const row = await tariffRepository.update(companyId, tariffId, { name: name.slice(0, 200), ...chosen });
     if (!row) throw APIError.notFound("Tariff not found");
     return { id: row.id, name: row.name, ports: row.ports, directions: row.directions };
   }

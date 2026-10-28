@@ -2393,6 +2393,19 @@ export namespace tariffs {
 
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
+            this.collectionHaulierGet = this.collectionHaulierGet.bind(this)
+            this.collectionHaulierList = this.collectionHaulierList.bind(this)
+            this.collectionHubList = this.collectionHubList.bind(this)
+            this.collectionHubSet = this.collectionHubSet.bind(this)
+            this.collectionOffers = this.collectionOffers.bind(this)
+            this.collectionTariffUpdate = this.collectionTariffUpdate.bind(this)
+            this.collectionUpload = this.collectionUpload.bind(this)
+            this.collectionVersionApprove = this.collectionVersionApprove.bind(this)
+            this.collectionVersionDiscard = this.collectionVersionDiscard.bind(this)
+            this.collectionVersionGet = this.collectionVersionGet.bind(this)
+            this.collectionVersionLayout = this.collectionVersionLayout.bind(this)
+            this.collectionVersionSource = this.collectionVersionSource.bind(this)
+            this.collectionVersionTry = this.collectionVersionTry.bind(this)
             this.railOffers = this.railOffers.bind(this)
             this.railOperatorGet = this.railOperatorGet.bind(this)
             this.railOperatorList = this.railOperatorList.bind(this)
@@ -2404,6 +2417,108 @@ export namespace tariffs {
             this.railTariffUpdate = this.railTariffUpdate.bind(this)
             this.railTariffUpload = this.railTariffUpload.bind(this)
             this.railTariffVersionGet = this.railTariffVersionGet.bind(this)
+        }
+
+        public async collectionHaulierGet(customerId: string): Promise<services.CollectionHaulierDetail> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/collections/hauliers/${encodeURIComponent(customerId)}`)
+            return await resp.json() as services.CollectionHaulierDetail
+        }
+
+        public async collectionHaulierList(): Promise<controllers.CollectionHaulierListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/collections/hauliers`)
+            return await resp.json() as controllers.CollectionHaulierListResponse
+        }
+
+        public async collectionHubList(): Promise<controllers.CollectionHubsResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/collections/hubs`)
+            return await resp.json() as controllers.CollectionHubsResponse
+        }
+
+        /**
+         * Sets our hub for a freight mode (manager): where its collections end and deliveries start.
+         */
+        public async collectionHubSet(params: controllers.CollectionHubSetRequest): Promise<interfaces.CollectionHub> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/tariffs/collections/hubs`, JSON.stringify(params))
+            return await resp.json() as interfaces.CollectionHub
+        }
+
+        /**
+         * Every first / last mile haulier's price for a consignment between our hub and the customer,
+         * cheapest first (Sales → Pricing → Tariffs available on an LCL or air quote). Nothing is written.
+         */
+        public async collectionOffers(params: controllers.CollectionOffersRequest): Promise<services.CollectionOffersResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/collections/offers`, JSON.stringify(params))
+            return await resp.json() as services.CollectionOffersResult
+        }
+
+        /**
+         * Changes a tariff's name and what it collects and delivers (manager).
+         */
+        public async collectionTariffUpdate(id: string, params: controllers.CollectionTariffUpdateRequest): Promise<services.CollectionTariffFields> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/tariffs/collections/tariffs/${encodeURIComponent(id)}`, JSON.stringify(params))
+            return await resp.json() as services.CollectionTariffFields
+        }
+
+        /**
+         * Reads a haulier's tariff file into a new draft (manager): the AI reads where each part is, the
+         * code every figure, the checks list what looks wrong. Nothing prices with it until it is approved.
+         */
+        public async collectionUpload(params: controllers.CollectionUploadRequest): Promise<controllers.CollectionVersionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/collections/upload`, JSON.stringify(params))
+            return await resp.json() as controllers.CollectionVersionResponse
+        }
+
+        /**
+         * Approves a draft without errors (manager): it prices from its start date.
+         */
+        public async collectionVersionApprove(id: string): Promise<controllers.CollectionVersionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/collections/versions/${encodeURIComponent(id)}/approve`)
+            return await resp.json() as controllers.CollectionVersionResponse
+        }
+
+        /**
+         * Throws a draft away (manager).
+         */
+        public async collectionVersionDiscard(id: string): Promise<void> {
+            await this.baseClient.callTypedAPI("POST", `/tariffs/collections/versions/${encodeURIComponent(id)}/discard`)
+        }
+
+        public async collectionVersionGet(id: string): Promise<controllers.CollectionVersionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/collections/versions/${encodeURIComponent(id)}`)
+            return await resp.json() as controllers.CollectionVersionResponse
+        }
+
+        /**
+         * Reads a draft's file again with a corrected layout (manager).
+         */
+        public async collectionVersionLayout(id: string, params: controllers.CollectionLayoutRequest): Promise<controllers.CollectionVersionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/collections/versions/${encodeURIComponent(id)}/layout`, JSON.stringify(params))
+            return await resp.json() as controllers.CollectionVersionResponse
+        }
+
+        public async collectionVersionSource(id: string): Promise<controllers.CollectionSourceResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/collections/versions/${encodeURIComponent(id)}/source`)
+            return await resp.json() as controllers.CollectionSourceResponse
+        }
+
+        /**
+         * What one version (a draft too) asks between two postcodes: for checking it before approving.
+         */
+        public async collectionVersionTry(id: string, params: controllers.CollectionTryRequest): Promise<interfaces.CollectionTry> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/collections/versions/${encodeURIComponent(id)}/try`, JSON.stringify(params))
+            return await resp.json() as interfaces.CollectionTry
         }
 
         /**
@@ -5262,6 +5377,127 @@ export namespace controllers {
         invoiceNumber?: string
         reason?: string
         amount?: string
+    }
+
+    export interface CollectionHaulierListResponse {
+        /**
+         * Customer Database companies with the First / last mile haulier role, by name
+         */
+        hauliers: interfaces.CollectionHaulierItem[]
+    }
+
+    export interface CollectionHubSetRequest {
+        freightMode: interfaces.CollectionFreightMode
+        /**
+         * 5 digits, e.g. "25261" or "252 61"
+         */
+        postcode: string
+
+        /**
+         * ISO 3166-1 alpha-2
+         */
+        country: string
+
+        label: string
+    }
+
+    export interface CollectionHubsResponse {
+        /**
+         * One per freight mode that has one
+         */
+        hubs: interfaces.CollectionHub[]
+    }
+
+    export interface CollectionLayoutRequest {
+        layout: interfaces.CollectionLayout
+    }
+
+    export interface CollectionOffersRequest {
+        freightMode: interfaces.CollectionFreightMode
+        /**
+         * Our hub's postcode; the hub set for the freight mode when left out
+         */
+        hubPostcode?: string
+
+        /**
+         * The customer's postcode
+         */
+        customerPostcode: string
+
+        /**
+         * YYYY-MM-DD the prices must be valid on
+         */
+        date: string
+
+        /**
+         * Real weight in kg; null when not known
+         */
+        weightKg: number | null
+
+        /**
+         * m³; null when not known
+         */
+        cbm: number | null
+
+        /**
+         * The longest side of the longest piece, cm; null when not known
+         */
+        longestCm: number | null
+    }
+
+    export interface CollectionSourceResponse {
+        file: interfaces.TariffFile
+    }
+
+    export interface CollectionTariffUpdateRequest {
+        name: string
+        /**
+         * At least one
+         */
+        freightModes: interfaces.CollectionFreightMode[]
+    }
+
+    export interface CollectionTryRequest {
+        /**
+         * Our hub's postcode, 5 digits
+         */
+        hubPostcode: string
+
+        /**
+         * The customer's postcode, 5 digits
+         */
+        customerPostcode: string
+
+        weightKg: number | null
+        cbm: number | null
+        longestCm: number | null
+    }
+
+    export interface CollectionUploadRequest {
+        /**
+         * The haulier's Customer Database id
+         */
+        supplierCustomerId: string
+
+        /**
+         * The tariff the file is a new version of; a new tariff of the haulier when left out
+         */
+        tariffId?: string
+
+        /**
+         * A new tariff's freight, at least one; ignored for a new version
+         */
+        freightModes?: interfaces.CollectionFreightMode[]
+
+        fileName: string
+        /**
+         * The .xlsx or .csv file, base64; at most 10 MB
+         */
+        fileBase64: string
+    }
+
+    export interface CollectionVersionResponse {
+        version: interfaces.CollectionTariffVersionDetail
     }
 
     export interface CommentCreateRequest {
@@ -10191,6 +10427,416 @@ export namespace interfaces {
     }
 
     /**
+     * Where the tariff's postcode areas are (zones by postcode).
+     */
+    export interface CollectionAreaTable {
+        sheet: string
+        firstDataRow: number
+        lastDataRow: number | null
+        postcodeFrom: ColumnLetter
+        /**
+         * null: each row is one postcode, or a prefix such as "1xxxx"
+         */
+        postcodeTo: ColumnLetter | null
+
+        zone: ColumnLetter
+        country: ColumnLetter | null
+        defaultCountry: string
+    }
+
+    /**
+     * Where the tariff's own region → region distances are (zones by distance).
+     */
+    export interface CollectionDistanceTable {
+        sheet: string
+        firstDataRow: number
+        lastDataRow: number | null
+        fromRegion: ColumnLetter
+        toRegion: ColumnLetter
+        km: ColumnLetter
+    }
+
+    /**
+     * The freight a collections tariff collects and delivers.
+     */
+    export type CollectionFreightMode = "sea_lcl" | "air"
+
+    /**
+     * A first / last mile haulier (a Customer Database company with the role) with its tariffs at a glance.
+     */
+    export interface CollectionHaulierItem {
+        customerId: string
+        companyName: string
+        ico: string
+        city: string
+        country: string
+        tariffCount: number
+        /**
+         * What its tariffs collect and deliver, all together
+         */
+        freightModes: CollectionFreightMode[]
+
+        /**
+         * Versions that price today
+         */
+        activeCount: number
+
+        draftCount: number
+        /**
+         * The soonest end of an active version, YYYY-MM-DD; null when none ends
+         */
+        activeUntil: string | null
+    }
+
+    /**
+     * Our end of a collection or delivery for one freight mode: the hub the haulier collects to or delivers from.
+     */
+    export interface CollectionHub {
+        freightMode: CollectionFreightMode
+        /**
+         * 5 digits
+         */
+        postcode: string
+
+        country: string
+        /**
+         * e.g. "CFS Jeneč"
+         */
+        label: string
+    }
+
+    /**
+     * How a collections tariff's file is read: proposed by the AI (or remembered), corrected by the user.
+     */
+    export interface CollectionLayout {
+        /**
+         * A name for the tariff, e.g. "TOPTRANS – CZ / SK"
+         */
+        name: string
+
+        /**
+         * ISO 4217, e.g. "CZK"
+         */
+        currency: string
+
+        validFrom: string | null
+        validTo: string | null
+        zoneBy: CollectionZoneBy
+        matrices: CollectionMatrix[]
+        /**
+         * kg one m³ counts as, when the tariff converts volume by a factor rather than by a volume column; null when it does neither
+         */
+        kgPerCbm: number | null
+
+        regions: CollectionRegionTable | null
+        distances: CollectionDistanceTable | null
+        /**
+         * By distance: km between two places of one region when the distance list has no such row
+         */
+        sameRegionKm: number | null
+
+        areas: CollectionAreaTable | null
+        surcharges: CollectionSurcharge[]
+        /**
+         * What the prices include and the tariff's terms, one line each
+         */
+        conditions: string[]
+
+        links: TariffLink[]
+    }
+
+    /**
+     * A price table: weight rows × zone columns, for consignments whose customer is in one country.
+     */
+    export interface CollectionMatrix {
+        /**
+         * e.g. "CZ → SK"
+         */
+        label: string
+
+        /**
+         * ISO 3166-1 alpha-2 of the customer's end
+         */
+        country: string
+
+        sheet: string
+        /**
+         * 1-based row of the zone headings
+         */
+        headerRow: number
+
+        firstDataRow: number
+        /**
+         * null reads to the end; empty rows are skipped
+         */
+        lastDataRow: number | null
+
+        /**
+         * The column with the heaviest weight (kg) a row is for
+         */
+        weightTo: ColumnLetter
+
+        /**
+         * The column with the largest volume (m³) a row is for, when the tariff counts a volume as that row's weight
+         */
+        volumeTo: ColumnLetter | null
+
+        zones: CollectionZone[]
+    }
+
+    /**
+     * One haulier's price for a consignment between our hub and the customer.
+     */
+    export interface CollectionOffer {
+        versionId: string
+        versionNo: number
+        tariffId: string
+        tariffName: string
+        supplierCustomerId: string
+        supplierName: string
+        /**
+         * The version's last day; null when open
+         */
+        validTo: string | null
+
+        /**
+         * The places the tariff's own list names for our hub and the customer's postcode; empty by postcode area
+         */
+        hubPlace: string
+
+        customerPlace: string
+        /**
+         * The table used, e.g. "CZ → SK"
+         */
+        matrixLabel: string
+
+        /**
+         * By distance: km between the two regions; null by postcode area
+         */
+        distanceKm: number | null
+
+        /**
+         * The zone column, e.g. "300 km", "Zone 2"
+         */
+        zoneLabel: string
+
+        /**
+         * What the weight band is for: the real weight, or the volume counted as weight
+         */
+        chargeableKg: number
+
+        chargeableBy: "weight" | "volume"
+        /**
+         * e.g. "up to 150 kg"
+         */
+        bandLabel: string
+
+        price: number
+        surcharges: CollectionSurchargeLine[]
+        total: number
+        currency: string
+    }
+
+    /**
+     * What one collections tariff asks for a consignment between two postcodes, and how it got there.
+     */
+    export interface CollectionPrice {
+        /**
+         * The table used, e.g. "CZ → SK"
+         */
+        matrixLabel: string
+
+        /**
+         * By distance: km between the two regions; null by postcode area
+         */
+        distanceKm: number | null
+
+        /**
+         * The zone column, e.g. "300 km", "Zone 2"
+         */
+        zoneLabel: string
+
+        /**
+         * What the weight band is for: the real weight, or the volume counted as weight
+         */
+        chargeableKg: number
+
+        chargeableBy: "weight" | "volume"
+        /**
+         * e.g. "up to 150 kg"
+         */
+        bandLabel: string
+
+        price: number
+        surcharges: CollectionSurchargeLine[]
+        total: number
+        currency: string
+    }
+
+    /**
+     * Where the tariff's own postcode → region list is (zones by distance).
+     */
+    export interface CollectionRegionTable {
+        sheet: string
+        firstDataRow: number
+        lastDataRow: number | null
+        postcode: ColumnLetter
+        region: ColumnLetter
+        country: ColumnLetter | null
+        place: ColumnLetter | null
+        /**
+         * What the country column holds, as ISO codes, e.g. {"1": "CZ", "2": "SK"}; empty when it holds ISO codes
+         */
+        countryCodes: { [key: string]: string }
+
+        /**
+         * The country of the rows without one
+         */
+        defaultCountry: string
+    }
+
+    /**
+     * How many rows of each kind a collections version holds.
+     */
+    export interface CollectionRowCounts {
+        rates: number
+        regions: number
+        distances: number
+        areas: number
+    }
+
+    export interface CollectionSurcharge {
+        kind: CollectionSurchargeKind
+        label: string
+        /**
+         * oversize: added when the longest piece is longer than this, in cm
+         */
+        overLengthCm: number | null
+
+        /**
+         * oversize and percent: % of the table price
+         */
+        percent: number | null
+
+        /**
+         * flat: per consignment, in the tariff's currency
+         */
+        amount: number | null
+    }
+
+    /**
+     * oversize: for a piece longer than overLengthCm; percent: a % of the price; flat: an amount per consignment.
+     */
+    export type CollectionSurchargeKind = "oversize" | "percent" | "flat"
+
+    /**
+     * An amount added to a table price.
+     */
+    export interface CollectionSurchargeLine {
+        label: string
+        amount: number
+    }
+
+    /**
+     * A price table as read, for showing it: its zones and weight rows.
+     */
+    export interface CollectionTableView {
+        label: string
+        country: string
+        zones: string[]
+        rows: {
+            rowNo: number
+            weightToKg: number
+            volumeToCbm: number | null
+            prices: (number | null)[]
+        }[]
+    }
+
+    export interface CollectionTariffItem {
+        id: string
+        name: string
+        supplierCustomerId: string
+        freightModes: CollectionFreightMode[]
+        /**
+         * Newest first
+         */
+        versions: SupplierTariffVersion[]
+    }
+
+    export interface CollectionTariffRef {
+        id: string
+        name: string
+        supplierCustomerId: string
+        supplierName: string
+        freightModes: CollectionFreightMode[]
+    }
+
+    export interface CollectionTariffVersionDetail {
+        tariff: CollectionTariffRef
+        layout: CollectionLayout
+        findings: TariffFinding[]
+        preview: SheetPreview[]
+        counts: CollectionRowCounts
+        tables: CollectionTableView[]
+        id: string
+        tariffId: string
+        versionNo: number
+        status: SupplierTariffStatus
+        validFrom: string | null
+        validTo: string | null
+        currency: string
+        rowCount: number
+        warningCount: number
+        errorCount: number
+        layoutSource: LayoutSource
+        sourceFileName: string | null
+        createdAt: string
+        createdBy: string | null
+        activatedAt: string | null
+        activatedBy: string | null
+    }
+
+    /**
+     * What one version asks between two postcodes, or why it cannot price the consignment.
+     */
+    export interface CollectionTry {
+        price: CollectionPrice | null
+        /**
+         * Why there is no price, in words; null when there is one
+         */
+        problem: string | null
+
+        hubPlace: string
+        customerPlace: string
+    }
+
+    /**
+     * A price column of a collections price table.
+     */
+    export interface CollectionZone {
+        column: ColumnLetter
+        /**
+         * As the tariff names it, e.g. "100 km", "Zone 3"
+         */
+        label: string
+
+        /**
+         * By distance: the longest distance in km the column is for
+         */
+        kmTo: number | null
+
+        /**
+         * By postcode area: the zone the areas name, e.g. "3"
+         */
+        zone: string | null
+    }
+
+    /**
+     * How a collections tariff finds a consignment's price column: the distance between our hub and the customer, or the customer's postcode area.
+     */
+    export type CollectionZoneBy = "distance" | "postcode"
+
+    /**
      * A column of the sheet, by its letter ("A", "AB").
      */
     export type ColumnLetter = string
@@ -13285,6 +13931,15 @@ export namespace interfaces {
     export type PalletType = "EUR" | "INDUSTRIAL" | "HALF" | "QUARTER" | "OTHER"
 
     /**
+     * What the people backfill did: values looked at, records changed, values left as they are.
+     */
+    export interface PeopleNormalizeResult {
+        checked: number
+        changed: number
+        unmatched: PeopleNormalizeUnmatched[]
+    }
+
+    /**
      * What the people backfill did to the company's live shipments.
      */
     export interface PeopleNormalizeResult {
@@ -13302,15 +13957,6 @@ export namespace interfaces {
          * The names left as they are, most frequent first: to be fixed by hand.
          */
         unmatched: UnmatchedPerson[]
-    }
-
-    /**
-     * What the people backfill did: values looked at, records changed, values left as they are.
-     */
-    export interface PeopleNormalizeResult {
-        checked: number
-        changed: number
-        unmatched: PeopleNormalizeUnmatched[]
     }
 
     /**
@@ -15546,9 +16192,9 @@ export namespace interfaces {
     }
 
     /**
-     * What a tariff prices; rail first, more modes later.
+     * What a tariff prices: rail container transport, or first / last mile collection and delivery.
      */
-    export type SupplierTariffMode = "rail"
+    export type SupplierTariffMode = "rail" | "collection"
 
     /**
      * draft: uploaded, being checked; active: prices with; superseded: replaced by a later version.
@@ -17654,6 +18300,34 @@ export namespace services {
         countryCode: string | null
         locationId: number | null
         city: string | null
+    }
+
+    export interface CollectionHaulierDetail {
+        haulier: interfaces.CollectionHaulierItem
+        tariffs: interfaces.CollectionTariffItem[]
+    }
+
+    export interface CollectionOffersResult {
+        /**
+         * Every haulier's price for the consignment, cheapest first
+         */
+        offers: interfaces.CollectionOffer[]
+
+        /**
+         * The hub postcode used; null when none is set or typed
+         */
+        hubPostcode: string | null
+
+        /**
+         * Why some tariffs have no price, and what is missing
+         */
+        notes: string[]
+    }
+
+    export interface CollectionTariffFields {
+        id: string
+        name: string
+        freightModes: interfaces.CollectionFreightMode[]
     }
 
     export interface CompanyInfo {

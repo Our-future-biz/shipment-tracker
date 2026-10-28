@@ -21,7 +21,7 @@ vi.mock("../repositories/tariff.repository", () => ({
 }));
 
 import { customers } from "~encore/clients";
-import type { RailLayout } from "../interfaces/interfaces";
+import type { RailLayout, RailRateRow } from "../interfaces/interfaces";
 import type { RouteRate } from "../repositories/tariff.repository";
 import { tariffRepository } from "../repositories/tariff.repository";
 import type { TariffRecord, TariffVersionRecord } from "../schemas/tariff.schema";
@@ -141,7 +141,7 @@ describe("upload", () => {
     expect(company).toBe(COMPANY);
     expect(target).toEqual({ supplierCustomerId: METRANS.id, mode: "rail", name: "Hamburg – Czechia", ports: ["DEHAM", "DEBRV"], directions: ["import", "export"] });
     expect(fields).toMatchObject({ layoutSource: "ai", rowCount: 2, errorCount: 0, validFrom: "2026-01-01", sourceFileName: "26 Rail.csv", createdBy: "Jana Nová" });
-    expect(rows.map((r) => [r.place, r.via, r.emptyDepot, r.prices])).toEqual([
+    expect((rows as RailRateRow[]).map((r) => [r.place, r.via, r.emptyDepot, r.prices])).toEqual([
       ["Abertamy", "Usti", "Usti", { "20ft-14t": 746 }],
       ["Adamov", "Cetr", "Cetr", { "20ft-14t": 774 }],
     ]);

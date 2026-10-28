@@ -31,10 +31,10 @@ export function postcodeRange(postcode: string, note: string): { from: string; t
 
 const NO_PRICE = new Set(["", "-", "–", "—", "n/a", "na", "on request", "upon request"]);
 
-type PriceCell = { kind: "price"; amount: number } | { kind: "none" } | { kind: "text" };
+export type PriceCell = { kind: "price"; amount: number } | { kind: "none" } | { kind: "text" };
 
 // A price as the tariff writes it: a number, or text such as "1 046", "1.046,50", "1,046.50", "1046 EUR", "1.046,-".
-function parsePrice(v: CellValue | undefined): PriceCell {
+export function parsePrice(v: CellValue | undefined): PriceCell {
   if (v === undefined) return { kind: "none" };
   if (typeof v === "number") return Number.isFinite(v) ? { kind: "price", amount: round2(v) } : { kind: "text" };
   if (typeof v !== "string") return { kind: "text" };
@@ -83,7 +83,7 @@ const median = (values: number[]) => {
 const MAX_FINDING_ROWS = 20;
 
 // Problems collected one per kind (and column), each with how many rows have it and the first few.
-class Findings {
+export class Findings {
   private readonly byKey = new Map<string, TariffFinding>();
 
   add(level: FindingLevel, code: string, message: string, row?: number, column?: ColumnLetter) {

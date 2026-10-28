@@ -35,6 +35,19 @@ describe("readSheets", () => {
     expect(sheet.links).toEqual([{ address: "A3", text: "Surcharges are here", url: "https://example.com/surcharges" }]);
   });
 
+  it("reads hidden sheets too when asked, marked as hidden, with the formulas of computed cells", async () => {
+    const sheets = await readSheets(await workbookBuffer(), "tariff.xlsx", { hidden: true });
+    expect(sheets.map((s) => [s.name, !!s.hidden])).toEqual([
+      ["26Road", false],
+      ["Hidden", true],
+    ]);
+    expect(sheets[0]!.formulas?.get(5)).toEqual({ E: "=1+1" });
+    const excerpt = sheetExcerpt(sheets[1]!);
+    expect(excerpt).toContain('Sheet "Hidden" (hidden)');
+    expect(sheetExcerpt(sheets[0]!, { formulas: true })).toContain("E=2 {=1+1}");
+    expect(sheetExcerpt(sheets[0]!)).not.toContain("{=1+1}");
+  });
+
   it("gives a cell merged down over several rows to each of them, a merge across only to its first cell", async () => {
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet("Prices");

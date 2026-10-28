@@ -1,8 +1,9 @@
 // Tariffs: suppliers' price lists, uploaded as their own Excel files and turned into data the app can
-// price with. Rail first: a rail operator's container prices from sea ports to inland places.
+// price with. Rail: a rail operator's container prices from sea ports to inland places. Collection:
+// a first / last mile haulier's prices for collecting and delivering LCL and air consignments.
 
-/** What a tariff prices; rail first, more modes later. */
-export type SupplierTariffMode = "rail";
+/** What a tariff prices: rail container transport, or first / last mile collection and delivery. */
+export type SupplierTariffMode = "rail" | "collection";
 
 /** draft: uploaded, being checked; active: prices with; superseded: replaced by a later version. */
 export type SupplierTariffStatus = "draft" | "active" | "superseded";
@@ -257,3 +258,289 @@ export interface RailOffer {
 
 /** How the place was looked for: by a postcode in it, or by its name. */
 export type RailOfferMatch = "postcode" | "place";
+
+// ── Collections: first / last mile hauliers' tariffs (Tariffs → Last / First Mile Collections) ──
+
+/** The freight a collections tariff collects and delivers. */
+export type CollectionFreightMode = "sea_lcl" | "air";
+
+/** How a collections tariff finds a consignment's price column: the distance between our hub and the customer, or the customer's postcode area. */
+export type CollectionZoneBy = "distance" | "postcode";
+
+/** A price column of a collections price table. */
+export interface CollectionZone {
+  column: ColumnLetter;
+  /** As the tariff names it, e.g. "100 km", "Zone 3" */
+  label: string;
+  /** By distance: the longest distance in km the column is for */
+  kmTo: number | null;
+  /** By postcode area: the zone the areas name, e.g. "3" */
+  zone: string | null;
+}
+
+/** A price table: weight rows × zone columns, for consignments whose customer is in one country. */
+export interface CollectionMatrix {
+  /** e.g. "CZ → SK" */
+  label: string;
+  /** ISO 3166-1 alpha-2 of the customer's end */
+  country: string;
+  sheet: string;
+  /** 1-based row of the zone headings */
+  headerRow: number;
+  firstDataRow: number;
+  /** null reads to the end; empty rows are skipped */
+  lastDataRow: number | null;
+  /** The column with the heaviest weight (kg) a row is for */
+  weightTo: ColumnLetter;
+  /** The column with the largest volume (m³) a row is for, when the tariff counts a volume as that row's weight */
+  volumeTo: ColumnLetter | null;
+  zones: CollectionZone[];
+}
+
+/** Where the tariff's own postcode → region list is (zones by distance). */
+export interface CollectionRegionTable {
+  sheet: string;
+  firstDataRow: number;
+  lastDataRow: number | null;
+  postcode: ColumnLetter;
+  region: ColumnLetter;
+  country: ColumnLetter | null;
+  place: ColumnLetter | null;
+  /** What the country column holds, as ISO codes, e.g. {"1": "CZ", "2": "SK"}; empty when it holds ISO codes */
+  countryCodes: Record<string, string>;
+  /** The country of the rows without one */
+  defaultCountry: string;
+}
+
+/** Where the tariff's own region → region distances are (zones by distance). */
+export interface CollectionDistanceTable {
+  sheet: string;
+  firstDataRow: number;
+  lastDataRow: number | null;
+  fromRegion: ColumnLetter;
+  toRegion: ColumnLetter;
+  km: ColumnLetter;
+}
+
+/** Where the tariff's postcode areas are (zones by postcode). */
+export interface CollectionAreaTable {
+  sheet: string;
+  firstDataRow: number;
+  lastDataRow: number | null;
+  postcodeFrom: ColumnLetter;
+  /** null: each row is one postcode, or a prefix such as "1xxxx" */
+  postcodeTo: ColumnLetter | null;
+  zone: ColumnLetter;
+  country: ColumnLetter | null;
+  defaultCountry: string;
+}
+
+/** oversize: for a piece longer than overLengthCm; percent: a % of the price; flat: an amount per consignment. */
+export type CollectionSurchargeKind = "oversize" | "percent" | "flat";
+
+export interface CollectionSurcharge {
+  kind: CollectionSurchargeKind;
+  label: string;
+  /** oversize: added when the longest piece is longer than this, in cm */
+  overLengthCm: number | null;
+  /** oversize and percent: % of the table price */
+  percent: number | null;
+  /** flat: per consignment, in the tariff's currency */
+  amount: number | null;
+}
+
+/** How a collections tariff's file is read: proposed by the AI (or remembered), corrected by the user. */
+export interface CollectionLayout {
+  /** A name for the tariff, e.g. "TOPTRANS – CZ / SK" */
+  name: string;
+  /** ISO 4217, e.g. "CZK" */
+  currency: string;
+  validFrom: string | null;
+  validTo: string | null;
+  zoneBy: CollectionZoneBy;
+  matrices: CollectionMatrix[];
+  /** kg one m³ counts as, when the tariff converts volume by a factor rather than by a volume column; null when it does neither */
+  kgPerCbm: number | null;
+  regions: CollectionRegionTable | null;
+  distances: CollectionDistanceTable | null;
+  /** By distance: km between two places of one region when the distance list has no such row */
+  sameRegionKm: number | null;
+  areas: CollectionAreaTable | null;
+  surcharges: CollectionSurcharge[];
+  /** What the prices include and the tariff's terms, one line each */
+  conditions: string[];
+  links: TariffLink[];
+}
+
+/** One weight row of a price table, as read from the sheet. */
+export interface CollectionRateRow {
+  /** Index of the table in layout.matrices */
+  matrix: number;
+  rowNo: number;
+  weightToKg: number;
+  volumeToCbm: number | null;
+  /** By zone, in layout order; null where the row has no price */
+  prices: (number | null)[];
+}
+
+/** A postcode of the tariff's region list. */
+export interface CollectionRegionRow {
+  rowNo: number;
+  /** 5 digits */
+  postcode: string;
+  region: string;
+  /** ISO 3166-1 alpha-2 */
+  country: string;
+  place: string;
+}
+
+export interface CollectionDistanceRow {
+  fromRegion: string;
+  toRegion: string;
+  km: number;
+}
+
+/** A postcode area of the tariff and its zone. */
+export interface CollectionAreaRow {
+  rowNo: number;
+  postcodeFrom: string;
+  postcodeTo: string;
+  zone: string;
+  country: string;
+}
+
+/** Everything a collections tariff file holds, read by the layout. */
+export interface CollectionData {
+  rates: CollectionRateRow[];
+  regions: CollectionRegionRow[];
+  distances: CollectionDistanceRow[];
+  areas: CollectionAreaRow[];
+}
+
+/** Our end of a collection or delivery for one freight mode: the hub the haulier collects to or delivers from. */
+export interface CollectionHub {
+  freightMode: CollectionFreightMode;
+  /** 5 digits */
+  postcode: string;
+  country: string;
+  /** e.g. "CFS Jeneč" */
+  label: string;
+}
+
+/** A consignment as a collections tariff prices it. */
+export interface CollectionConsignment {
+  /** Real weight in kg; null when not known */
+  weightKg: number | null;
+  /** m³; null when not known */
+  cbm: number | null;
+  /** The longest side of the longest piece, in cm; null when not known */
+  longestCm: number | null;
+}
+
+/** An amount added to a table price. */
+export interface CollectionSurchargeLine {
+  label: string;
+  amount: number;
+}
+
+/** What one collections tariff asks for a consignment between two postcodes, and how it got there. */
+export interface CollectionPrice {
+  /** The table used, e.g. "CZ → SK" */
+  matrixLabel: string;
+  /** By distance: km between the two regions; null by postcode area */
+  distanceKm: number | null;
+  /** The zone column, e.g. "300 km", "Zone 2" */
+  zoneLabel: string;
+  /** What the weight band is for: the real weight, or the volume counted as weight */
+  chargeableKg: number;
+  chargeableBy: "weight" | "volume";
+  /** e.g. "up to 150 kg" */
+  bandLabel: string;
+  price: number;
+  surcharges: CollectionSurchargeLine[];
+  total: number;
+  currency: string;
+}
+
+/** A first / last mile haulier (a Customer Database company with the role) with its tariffs at a glance. */
+export interface CollectionHaulierItem {
+  customerId: string;
+  companyName: string;
+  ico: string;
+  city: string;
+  country: string;
+  tariffCount: number;
+  /** What its tariffs collect and deliver, all together */
+  freightModes: CollectionFreightMode[];
+  /** Versions that price today */
+  activeCount: number;
+  draftCount: number;
+  /** The soonest end of an active version, YYYY-MM-DD; null when none ends */
+  activeUntil: string | null;
+}
+
+export interface CollectionTariffItem {
+  id: string;
+  name: string;
+  supplierCustomerId: string;
+  freightModes: CollectionFreightMode[];
+  /** Newest first */
+  versions: SupplierTariffVersion[];
+}
+
+export interface CollectionTariffRef {
+  id: string;
+  name: string;
+  supplierCustomerId: string;
+  supplierName: string;
+  freightModes: CollectionFreightMode[];
+}
+
+/** A price table as read, for showing it: its zones and weight rows. */
+export interface CollectionTableView {
+  label: string;
+  country: string;
+  zones: string[];
+  rows: { rowNo: number; weightToKg: number; volumeToCbm: number | null; prices: (number | null)[] }[];
+}
+
+/** How many rows of each kind a collections version holds. */
+export interface CollectionRowCounts {
+  rates: number;
+  regions: number;
+  distances: number;
+  areas: number;
+}
+
+export interface CollectionTariffVersionDetail extends SupplierTariffVersion {
+  tariff: CollectionTariffRef;
+  layout: CollectionLayout;
+  findings: TariffFinding[];
+  preview: SheetPreview[];
+  counts: CollectionRowCounts;
+  tables: CollectionTableView[];
+}
+
+/** One haulier's price for a consignment between our hub and the customer. */
+export interface CollectionOffer extends CollectionPrice {
+  versionId: string;
+  versionNo: number;
+  tariffId: string;
+  tariffName: string;
+  supplierCustomerId: string;
+  supplierName: string;
+  /** The version's last day; null when open */
+  validTo: string | null;
+  /** The places the tariff's own list names for our hub and the customer's postcode; empty by postcode area */
+  hubPlace: string;
+  customerPlace: string;
+}
+
+/** What one version asks between two postcodes, or why it cannot price the consignment. */
+export interface CollectionTry {
+  price: CollectionPrice | null;
+  /** Why there is no price, in words; null when there is one */
+  problem: string | null;
+  hubPlace: string;
+  customerPlace: string;
+}
