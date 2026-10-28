@@ -102,6 +102,8 @@ describe("roles", () => {
     expect(() => assertMayGiveRoles("user", ["customer"])).not.toThrow();
     expect(() => assertMayGiveRoles("user", undefined)).not.toThrow();
     expect(() => assertMayGiveRoles("manager", ["rail_operator"])).not.toThrow();
+    expect(() => assertMayGiveRoles("user", ["first_last_mile_haulier"])).toThrow(expect.objectContaining({ code: "permission_denied" }));
+    expect(() => assertMayGiveRoles("manager", ["customer", "first_last_mile_haulier"])).not.toThrow();
   });
 
   it("list the companies with a role, asking only for ids that can be customers", async () => {

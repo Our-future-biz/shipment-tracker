@@ -452,7 +452,9 @@ export function CustomersView() {
                   placeholder="All roles"
                   aria-label="Role"
                   allowClear
-                  className="w-36"
+                  // "First / last mile haulier" is longer than the box: the list shows it whole.
+                  popupMatchSelectWidth={false}
+                  className="w-44"
                 />
                 <CustomerFiltersPopover
                   filters={shownFilters}

@@ -80,7 +80,8 @@ export function AddCustomerModal({
   const [manualForm] = Form.useForm<ManualCustomerValues>();
   const [contactForm] = Form.useForm<ContactValues>();
   const [country, setCountry] = useState(REGISTRY_COUNTRY);
-  // A company is a customer, a supplier (a haulier we subcontract trucking to, a rail operator), or several of these.
+  // A company is a customer, a supplier (a haulier we subcontract trucking to, a rail operator, a first / last mile
+  // haulier), or several of these.
   const [roles, setRoles] = useState<interfaces.CustomerRole[]>(defaultRoles);
   // What is typed: an IČO (digits only) or part of the company name.
   const [query, setQuery] = useState("");
@@ -300,7 +301,7 @@ export function AddCustomerModal({
         {canGiveRoles && (
           <Form.Item
             label="Roles"
-            extra={`${canSeeConcepts ? "A haulier is a company we subcontract trucking to. " : ""}A rail operator's rail tariffs are kept under Tariffs. A company can have several roles.`}
+            extra={`${canSeeConcepts ? "A haulier is a company we subcontract trucking to. " : ""}A rail operator and a first / last mile haulier (container trucking to and from ports and terminals) are suppliers whose tariffs are kept under Tariffs. A company can have several roles.`}
             validateStatus={roles.length === 0 ? "error" : undefined}
             help={roles.length === 0 ? "Choose at least one role" : undefined}
             className="!mb-3"

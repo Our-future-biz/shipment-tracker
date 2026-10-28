@@ -10866,9 +10866,10 @@ export namespace interfaces {
 
     /**
      * What a company is to us. A customer buys our services; a haulier is a trucking subcontractor; a rail operator sells us rail
-     * transport, its tariffs kept under Tariffs. One company can have several roles.
+     * transport, its tariffs kept under Tariffs; a first / last mile haulier trucks containers between a port or terminal and the
+     * customer (pre- and on-carriage). One company can have several roles.
      */
-    export type CustomerRole = "customer" | "haulier" | "rail_operator"
+    export type CustomerRole = "customer" | "haulier" | "rail_operator" | "first_last_mile_haulier"
 
     /**
      * What a run of POST /customers/seats/normalize did to the company's live customers.
