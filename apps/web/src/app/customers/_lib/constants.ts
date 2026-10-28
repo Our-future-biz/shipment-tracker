@@ -26,14 +26,15 @@ export const NOTE_TYPES = ["Note", "Email", "Call", "Follow-up", "Visit"] as con
 
 // What a company is to us; one company can have several roles. A haulier is a trucking subcontractor, a rail
 // operator a supplier whose rail tariffs are kept under Tariffs, a first / last mile haulier a supplier that trucks
-// containers between a port or terminal and the customer.
-export const CUSTOMER_ROLES = ["customer", "haulier", "rail_operator", "first_last_mile_haulier"] as const satisfies readonly interfaces.CustomerRole[];
+// containers between a port or terminal and the customer, a shipping line a supplier of ocean freight.
+export const CUSTOMER_ROLES = ["customer", "haulier", "rail_operator", "first_last_mile_haulier", "shipping_line"] as const satisfies readonly interfaces.CustomerRole[];
 
 export const CUSTOMER_ROLE_LABELS: Record<interfaces.CustomerRole, string> = {
   customer: "Customer",
   haulier: "Haulier",
   rail_operator: "Rail operator",
   first_last_mile_haulier: "First / last mile haulier",
+  shipping_line: "Shipping line",
 };
 
 export const CUSTOMER_ROLE_OPTIONS = CUSTOMER_ROLES.map((role) => ({ value: role, label: CUSTOMER_ROLE_LABELS[role] }));

@@ -18,6 +18,8 @@ export interface Sheet {
   hidden?: boolean;
   /** The formulas of cells that have one, as Excel writes them ("=IF(B6>350,…)"), for the AI to see the tariff's rules */
   formulas?: Map<number, Record<ColumnLetter, string>>;
+  /** The currency a number cell's format shows ("$"#,##0 → USD, #,##0 [$€-407] → EUR): a tariff may say it nowhere else */
+  currencies?: Map<number, Record<ColumnLetter, string>>;
 }
 
 export interface ReadOptions {
@@ -58,6 +60,16 @@ function cellValue(v: ExcelJS.CellValue): CellValue | undefined {
   return undefined;
 }
 
+// The currency a number format shows, as an ISO code; undefined when it shows none.
+export function formatCurrency(numFmt: string | undefined): string | undefined {
+  if (!numFmt) return undefined;
+  if (/€|\[\$EUR/i.test(numFmt)) return "EUR";
+  if (/K[čc]|\[\$CZK/i.test(numFmt)) return "CZK";
+  if (/£|\[\$GBP/i.test(numFmt)) return "GBP";
+  if (/\$|\[\$USD/i.test(numFmt)) return "USD";
+  return undefined;
+}
+
 // A cell's formula as Excel writes it; a shared one as its master cell's.
 function cellFormula(v: ExcelJS.CellValue): string | undefined {
   if (v && typeof v === "object" && !(v instanceof Date)) {
@@ -75,6 +87,7 @@ async function readWorkbook(buffer: Buffer, options: ReadOptions): Promise<Sheet
     .map((ws) => {
       const sheet: Sheet = { name: ws.name, rowCount: 0, rows: new Map(), links: [], ...(ws.state !== "visible" ? { hidden: true } : {}) };
       const formulas = new Map<number, Record<ColumnLetter, string>>();
+      const currencies = new Map<number, Record<ColumnLetter, string>>();
       ws.eachRow({ includeEmpty: false }, (row, rowNo) => {
         const cells: Record<ColumnLetter, CellValue> = {};
         row.eachCell({ includeEmpty: false }, (cell, colNo) => {
@@ -85,6 +98,8 @@ async function readWorkbook(buffer: Buffer, options: ReadOptions): Promise<Sheet
           const value = cellValue(copy ? cell.master.value : cell.value);
           if (value === undefined) return;
           cells[columnLetter(colNo)] = value;
+          const currency = typeof value === "number" ? formatCurrency(cell.numFmt) : undefined;
+          if (currency) currencies.set(rowNo, { ...currencies.get(rowNo), [columnLetter(colNo)]: currency });
           if (cell.hyperlink && !copy) sheet.links.push({ address: cell.address, text: cellText(value), url: cell.hyperlink });
         });
         if (Object.keys(cells).length) {
@@ -93,6 +108,7 @@ async function readWorkbook(buffer: Buffer, options: ReadOptions): Promise<Sheet
         }
       });
       if (formulas.size) sheet.formulas = formulas;
+      if (currencies.size) sheet.currencies = currencies;
       return sheet;
     })
     .filter((sheet) => sheet.rows.size > 0);
@@ -197,11 +213,15 @@ const MAX_FORMULA_CHARS = 120;
 
 const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)}…` : text);
 
-// A row as the AI reads it; with `formulas`, a computed cell also shows its formula: {=…}.
-const rowLine = (rowNo: number, cells: Record<ColumnLetter, CellValue>, formulas?: Record<ColumnLetter, string>) =>
+// A row as the AI reads it; with `formulas`, a computed cell also shows its formula: {=…}; a
+// number formatted as money shows its currency: [USD].
+const rowLine = (rowNo: number, cells: Record<ColumnLetter, CellValue>, formulas?: Record<ColumnLetter, string>, currencies?: Record<ColumnLetter, string>) =>
   `R${rowNo}: ` +
   Object.entries(rowTexts(cells))
-    .map(([col, text]) => `${col}=${clip(text, MAX_CELL_CHARS)}${formulas?.[col] ? ` {${clip(formulas[col]!, MAX_FORMULA_CHARS)}}` : ""}`)
+    .map(
+      ([col, text]) =>
+        `${col}=${clip(text, MAX_CELL_CHARS)}${currencies?.[col] ? ` [${currencies[col]}]` : ""}${formulas?.[col] ? ` {${clip(formulas[col]!, MAX_FORMULA_CHARS)}}` : ""}`,
+    )
     .join(" | ");
 
 /**
@@ -226,11 +246,11 @@ export function sheetExcerpt(sheet: Sheet, options: { formulas?: boolean } = {})
   const rareRows = rest.filter((r) => !sampled.has(r) && Object.keys(sheet.rows.get(r)!).some((col) => rare.has(col))).slice(0, RARE_ROWS);
 
   const lines = [`Sheet "${sheet.name}"${sheet.hidden ? " (hidden)" : ""}: ${sheet.rowCount} rows, columns A–${columnLetter(lastColumn)}`];
-  lines.push(...head.map((r) => rowLine(r, sheet.rows.get(r)!, options.formulas ? sheet.formulas?.get(r) : undefined)));
+  lines.push(...head.map((r) => rowLine(r, sheet.rows.get(r)!, options.formulas ? sheet.formulas?.get(r) : undefined, sheet.currencies?.get(r))));
   if (rest.length) {
     lines.push(`… rows ${rest[0]}–${rest[rest.length - 1]}: a sample, and the rows using rarely filled columns:`);
     const more = [...new Set([...sampled, ...rareRows])].sort((a, b) => a - b);
-    lines.push(...more.map((r) => rowLine(r, sheet.rows.get(r)!)));
+    lines.push(...more.map((r) => rowLine(r, sheet.rows.get(r)!, undefined, sheet.currencies?.get(r))));
   }
   if (sheet.links.length) {
     lines.push("Links:");

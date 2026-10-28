@@ -2,8 +2,8 @@
 // price with. Rail: a rail operator's container prices from sea ports to inland places. Collection:
 // a first / last mile haulier's prices for collecting and delivering LCL and air consignments.
 
-/** What a tariff prices: rail container transport, or first / last mile collection and delivery. */
-export type SupplierTariffMode = "rail" | "collection";
+/** What a tariff prices: rail container transport, first / last mile collection and delivery, or ocean freight. */
+export type SupplierTariffMode = "rail" | "collection" | "ocean";
 
 /** draft: uploaded, being checked; active: prices with; superseded: replaced by a later version. */
 export type SupplierTariffStatus = "draft" | "active" | "superseded";
@@ -543,4 +543,186 @@ export interface CollectionTry {
   problem: string | null;
   hubPlace: string;
   customerPlace: string;
+}
+
+// ── Ocean: shipping lines' tariffs (Tariffs → Shipping Lines) ──
+
+/** The containers an ocean tariff prices: dry 20', 40' and 40' high cube; reefer 20' and 40' high cube. */
+export type OceanEquipment = "20DC" | "40DC" | "40HC" | "20RF" | "40RF";
+
+/** A price column of a rate table and the container it is for. */
+export interface OceanPriceColumn {
+  column: ColumnLetter;
+  equipment: OceanEquipment;
+  /** As the tariff heads it, e.g. "20' Box", "40' HQ", "Rate 40RQ" */
+  label: string;
+}
+
+/** A table of rates: rows of port of loading → port of discharge (via a transshipment port) with a price per container. */
+export interface OceanTable {
+  /** e.g. "Far East direct calls", "Far East wing ports", "Reefer Far East" */
+  label: string;
+  sheet: string;
+  headerRow: number;
+  firstDataRow: number;
+  lastDataRow: number | null;
+  /** The column with the port(s) of loading; null when every row has the same ones (polFixed) */
+  pol: ColumnLetter | null;
+  /** The ports of loading of every row when there is no column, as written, e.g. "Koper; Trieste" */
+  polFixed: string | null;
+  pod: ColumnLetter;
+  /** The column with the transshipment port(s) */
+  via: ColumnLetter | null;
+  /** The column with each row's currency; null when every row has the same (currencyFixed) */
+  currency: ColumnLetter | null;
+  currencyFixed: string | null;
+  prices: OceanPriceColumn[];
+  /** A column with remarks, e.g. "No DG acceptance" */
+  note: ColumnLetter | null;
+  /** ISO codes of the countries the table's ports of discharge are in, to tell ports of one name apart; empty when any */
+  podCountries: string[];
+}
+
+/** per TEU (a 40' counts 2), per container, per bill of lading, per booking. */
+export type OceanSurchargeBasis = "teu" | "container" | "bl" | "booking";
+
+/** always; only for dangerous goods; only for a booking or B/L made by hand (not electronically). */
+export type OceanSurchargeCondition = "always" | "dangerous" | "manual_booking";
+
+/** The quote charge a surcharge goes on: BAF, AMS, B/L fee, or another named after it. */
+export type OceanSurchargeCharge = "fcl_baf" | "ams_ens" | "fcl_documentation" | "other";
+
+/** A surcharge rule of the tariff, as the AI reads it from the text under a rate sheet. */
+export interface OceanSurcharge {
+  /** As the tariff names it, e.g. "EBS Emergency Bunker Surcharge" */
+  name: string;
+  /** Its short code, e.g. "EBS" */
+  code: string;
+  amount: number;
+  currency: string;
+  basis: OceanSurchargeBasis;
+  /** Only for dry or reefer containers; empty for both */
+  equipment: ("dry" | "reefer")[];
+  /** The tables (by index) it is added to; empty for all */
+  tables: number[];
+  /** Only to / from ports of discharge in these countries (ISO); empty for any */
+  countries: string[];
+  exceptCountries: string[];
+  /** Only for these ports of discharge (UN/LOCODE); empty for any */
+  ports: string[];
+  exceptPorts: string[];
+  condition: OceanSurchargeCondition;
+  charge: OceanSurchargeCharge;
+}
+
+/** How a shipping line's tariff file is read: proposed by the AI (or remembered), corrected by the user. */
+export interface OceanLayout {
+  /** A name for the tariff, e.g. "OOCL Export FAK – Far East, India, Australia, Intra Europe, Africa" */
+  name: string;
+  validFrom: string | null;
+  validTo: string | null;
+  tables: OceanTable[];
+  /** What short codes and names of ports in the file stand for, as UN/LOCODEs, e.g. {"HAM": "DEHAM", "Koper": "SIKOP"} */
+  portCodes: Record<string, string>;
+  surcharges: OceanSurcharge[];
+  /** What the rates include and the tariff's terms, one line each */
+  conditions: string[];
+  links: TariffLink[];
+}
+
+/** One port of loading → port of discharge of a rate row, its ports as the tariff writes them. */
+export interface OceanRateRow {
+  /** Index of its table in layout.tables */
+  table: number;
+  rowNo: number;
+  polName: string;
+  podName: string;
+  /** Transshipment port(s), as written */
+  via: string;
+  currency: string;
+  /** Per container, by equipment; a container without a price is left out */
+  prices: Partial<Record<OceanEquipment, number>>;
+  note: string;
+}
+
+/** matched by code: by the tariff's port codes or the place list; manual: picked by a user; skipped: left out by a user; pending: not matched yet. */
+export type OceanPortStatus = "matched" | "manual" | "skipped" | "pending";
+
+export interface OceanPlace {
+  code: string;
+  name: string;
+  countryCode: string;
+  subdivisionName: string | null;
+}
+
+/** A port name of the tariff and the UN/LOCODE it means. */
+export interface OceanPort {
+  side: "pol" | "pod";
+  /** As the tariff writes it, cleaned of remarks */
+  name: string;
+  /** The country the tariff names with it, ISO; null when none */
+  countryHint: string | null;
+  code: string | null;
+  status: OceanPortStatus;
+  /** The places it could be, when it is not matched */
+  candidates: OceanPlace[];
+}
+
+/** Everything a shipping line's tariff file holds, read by the layout. */
+export interface OceanData {
+  rates: OceanRateRow[];
+  ports: OceanPort[];
+}
+
+/** One container line of an offer. */
+export interface OceanOfferLine {
+  /** As the quote names it, e.g. "40' HC" */
+  type: string;
+  qty: number;
+  equipment: OceanEquipment;
+  /** Per container */
+  price: number;
+  amount: number;
+}
+
+/** A surcharge of an offer, worked out for the quote's containers. */
+export interface OceanOfferSurcharge {
+  name: string;
+  code: string;
+  charge: OceanSurchargeCharge;
+  basis: OceanSurchargeBasis;
+  /** How many of the basis: TEU, containers, or 1 per B/L or booking */
+  units: number;
+  /** Per unit */
+  rate: number;
+  total: number;
+  currency: string;
+}
+
+/** One way a shipping line takes the quote's containers from port to port, with its freight and surcharges. */
+export interface OceanOffer {
+  rateId: string;
+  versionId: string;
+  versionNo: number;
+  tariffId: string;
+  tariffName: string;
+  supplierCustomerId: string;
+  supplierName: string;
+  /** The version's last day; null when open */
+  validTo: string | null;
+  tableLabel: string;
+  polCode: string;
+  polName: string;
+  podCode: string;
+  podName: string;
+  /** Transshipment port(s); empty for a direct call */
+  via: string;
+  note: string;
+  /** The freight's currency */
+  currency: string;
+  lines: OceanOfferLine[];
+  freight: number;
+  surcharges: OceanOfferSurcharge[];
+  /** Freight and surcharges added up per currency */
+  totals: { currency: string; amount: number }[];
 }

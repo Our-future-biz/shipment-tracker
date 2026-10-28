@@ -162,6 +162,13 @@
       "when": 1793185501165,
       "tag": "0022_customer_role_first_last_mile_haulier",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1793194525094,
+      "tag": "0023_customer_role_shipping_line",
+      "breakpoints": true
     }
   ]
 }

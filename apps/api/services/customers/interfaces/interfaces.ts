@@ -25,9 +25,10 @@ export type InvoiceStatus = "Open" | "Overdue" | "Paid" | "Credited";
 /**
  * What a company is to us. A customer buys our services; a haulier is a trucking subcontractor; a rail operator sells us rail
  * transport, its tariffs kept under Tariffs; a first / last mile haulier trucks containers between a port or terminal and the
- * customer (pre- and on-carriage). One company can have several roles.
+ * customer (pre- and on-carriage); a shipping line sells us ocean freight, its tariffs kept under Tariffs. One company can have
+ * several roles.
  */
-export type CustomerRole = "customer" | "haulier" | "rail_operator" | "first_last_mile_haulier";
+export type CustomerRole = "customer" | "haulier" | "rail_operator" | "first_last_mile_haulier" | "shipping_line";
 /** What happens at a site: goods are picked up (loading), dropped off (delivery), or both. */
 export type CustomerSiteKind = "loading" | "delivery" | "both";
 

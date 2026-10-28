@@ -301,7 +301,7 @@ export function AddCustomerModal({
         {canGiveRoles && (
           <Form.Item
             label="Roles"
-            extra={`${canSeeConcepts ? "A haulier is a company we subcontract trucking to. " : ""}A rail operator and a first / last mile haulier (container trucking to and from ports and terminals) are suppliers whose tariffs are kept under Tariffs. A company can have several roles.`}
+            extra={`${canSeeConcepts ? "A haulier is a company we subcontract trucking to. " : ""}A rail operator, a first / last mile haulier (container trucking to and from ports and terminals) and a shipping line are suppliers whose tariffs are kept under Tariffs. A company can have several roles.`}
             validateStatus={roles.length === 0 ? "error" : undefined}
             help={roles.length === 0 ? "Choose at least one role" : undefined}
             className="!mb-3"

@@ -1,14 +1,18 @@
 import { and, asc, count, desc, eq, getTableColumns, gte, inArray, isNull, lte, max, ne, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { containsAllWords, foldDiacritics, foldSql } from "../../../lib/db/textSearch";
 import { db } from "../db/db";
 import type {
   CollectionData,
   CollectionFreightMode,
   CollectionHub,
+  OceanData,
+  OceanPort,
   RailBand,
   RailDirection,
   RailRateRow,
   SupplierTariffMode,
+  TariffFinding,
   TariffPortCode,
 } from "../interfaces/interfaces";
 import {
@@ -17,12 +21,16 @@ import {
   collectionHubTable,
   collectionRateTable,
   collectionRegionTable,
+  oceanPortTable,
+  oceanRateTable,
   railRateTable,
   tariffTable,
   tariffVersionTable,
   type CollectionRateRecord,
   type CollectionRegionRecord,
   type NewTariffVersionRecord,
+  type OceanPortRecord,
+  type OceanRateRecord,
   type RailRateRecord,
   type TariffRecord,
   type TariffVersionRecord,
@@ -44,8 +52,22 @@ export interface TariffFields {
 /** The tariff a new draft belongs to: an existing one, or a new one of the supplier. */
 export type DraftTariff = { tariffId: string } | ({ supplierCustomerId: string; mode: SupplierTariffMode } & TariffFields);
 
-/** A draft's rows: a rail tariff's place rows, or everything a collections tariff file holds. */
-export type DraftRows = RailRateRow[] | CollectionData;
+/** A draft's rows: a rail tariff's place rows, or everything a collections or an ocean tariff file holds. */
+export type DraftRows = RailRateRow[] | CollectionData | OceanData;
+
+/** An ocean rate with the UN/LOCODEs its port names mean. */
+export interface OceanRateWithPorts extends OceanRateRecord {
+  polCode: string | null;
+  podCode: string | null;
+}
+
+/** What a page of an ocean version's rates is searched by. */
+export interface OceanRateFilter {
+  search?: string;
+  table?: number;
+  offset: number;
+  limit: number;
+}
 
 /** A collections version that prices on a day, with its tariff, for offers. */
 export interface CollectionCandidate {
@@ -122,9 +144,16 @@ async function insertCollection(tx: Tx, companyId: string, versionId: string, da
   await insertBatched(data.areas, (b) => tx.insert(collectionAreaTable).values(b.map((r) => ({ ...r, ...own }))));
 }
 
+async function insertOcean(tx: Tx, companyId: string, versionId: string, data: OceanData): Promise<void> {
+  const own = { companyId, versionId };
+  await insertBatched(data.rates, (b) => tx.insert(oceanRateTable).values(b.map(({ table, ...r }) => ({ ...r, tableNo: table, ...own }))));
+  await insertBatched(data.ports, (b) => tx.insert(oceanPortTable).values(b.map((p) => ({ ...p, ...own }))));
+}
+
 async function insertRows(tx: Tx, companyId: string, versionId: string, rows: DraftRows): Promise<void> {
   if (Array.isArray(rows)) await insertRates(tx, companyId, versionId, rows);
-  else await insertCollection(tx, companyId, versionId, rows);
+  else if ("regions" in rows) await insertCollection(tx, companyId, versionId, rows);
+  else await insertOcean(tx, companyId, versionId, rows);
 }
 
 // A version's rows of every kind, removed when its draft is read again or thrown away.
@@ -134,7 +163,20 @@ async function deleteRows(tx: Tx, versionId: string): Promise<void> {
   await tx.delete(collectionRegionTable).where(eq(collectionRegionTable.versionId, versionId));
   await tx.delete(collectionDistanceTable).where(eq(collectionDistanceTable.versionId, versionId));
   await tx.delete(collectionAreaTable).where(eq(collectionAreaTable.versionId, versionId));
+  await tx.delete(oceanRateTable).where(eq(oceanRateTable.versionId, versionId));
+  await tx.delete(oceanPortTable).where(eq(oceanPortTable.versionId, versionId));
 }
+
+const polPort = alias(oceanPortTable, "pol_port");
+const podPort = alias(oceanPortTable, "pod_port");
+
+// Ocean rates with the codes their port names mean (a name without a match gives null).
+const oceanRatesWithPorts = () =>
+  db
+    .select({ ...getTableColumns(oceanRateTable), polCode: polPort.code, podCode: podPort.code })
+    .from(oceanRateTable)
+    .leftJoin(polPort, and(eq(polPort.versionId, oceanRateTable.versionId), eq(polPort.side, "pol"), eq(polPort.name, oceanRateTable.polName)))
+    .leftJoin(podPort, and(eq(podPort.versionId, oceanRateTable.versionId), eq(podPort.side, "pod"), eq(podPort.name, oceanRateTable.podName)));
 
 class TariffRepository {
   /** The company's live tariffs of a mode, of the given suppliers when named, by name. */
@@ -420,6 +462,108 @@ class TariffRepository {
         ),
       )
       .orderBy(asc(tariffTable.name));
+  }
+
+  // ── Ocean ──
+
+  /** An ocean version's port names and what they mean: those still to match first, then by side and name. */
+  async oceanPorts(versionId: string): Promise<OceanPortRecord[]> {
+    return db
+      .select()
+      .from(oceanPortTable)
+      .where(eq(oceanPortTable.versionId, versionId))
+      .orderBy(sql`${oceanPortTable.status} <> 'pending'`, asc(oceanPortTable.side), asc(oceanPortTable.name));
+  }
+
+  /** How many of an ocean version's port names are still to match. */
+  async pendingOceanPorts(versionId: string): Promise<number> {
+    const [{ n }] = await db
+      .select({ n: count() })
+      .from(oceanPortTable)
+      .where(and(eq(oceanPortTable.versionId, versionId), eq(oceanPortTable.status, "pending")));
+    return n;
+  }
+
+  /** Sets what a port name of a draft means: a place a user picked, or none (left out). Null when there is no such name. */
+  async setOceanPort(versionId: string, side: "pol" | "pod", name: string, code: string | null): Promise<OceanPortRecord | null> {
+    const [row] = await db
+      .update(oceanPortTable)
+      .set({ code, status: code ? "manual" : "skipped" })
+      .where(and(eq(oceanPortTable.versionId, versionId), eq(oceanPortTable.side, side), eq(oceanPortTable.name, name)))
+      .returning();
+    return row ?? null;
+  }
+
+  /** The port names users picked or left out on the tariff's versions, newest first: the next upload takes them over. */
+  async oceanPicks(tariffId: string): Promise<Pick<OceanPort, "side" | "name" | "code" | "status">[]> {
+    return db
+      .select({ side: oceanPortTable.side, name: oceanPortTable.name, code: oceanPortTable.code, status: oceanPortTable.status })
+      .from(oceanPortTable)
+      .innerJoin(tariffVersionTable, eq(tariffVersionTable.id, oceanPortTable.versionId))
+      .where(and(eq(tariffVersionTable.tariffId, tariffId), inArray(oceanPortTable.status, ["manual", "skipped"])))
+      .orderBy(desc(tariffVersionTable.versionNo));
+  }
+
+  /** Replaces a draft's findings and their counts (a port picked changes what is left to pick). */
+  async replaceFindings(companyId: string, versionId: string, findings: TariffFinding[], totals: { errors: number; warnings: number }): Promise<void> {
+    await db
+      .update(tariffVersionTable)
+      .set({ findings, errorCount: totals.errors, warningCount: totals.warnings, updatedAt: new Date() })
+      .where(and(eq(tariffVersionTable.id, versionId), live(companyId), eq(tariffVersionTable.status, "draft")));
+  }
+
+  /** How many rates an ocean version has. */
+  async oceanRateCount(versionId: string): Promise<number> {
+    const [{ n }] = await db.select({ n: count() }).from(oceanRateTable).where(eq(oceanRateTable.versionId, versionId));
+    return n;
+  }
+
+  /** A page of an ocean version's rates in table and sheet order, searched by port names and transshipment port. */
+  async oceanRates(versionId: string, filter: OceanRateFilter): Promise<{ rows: OceanRateWithPorts[]; total: number }> {
+    const clauses = [eq(oceanRateTable.versionId, versionId)];
+    if (filter.table !== undefined) clauses.push(eq(oceanRateTable.tableNo, filter.table));
+    const match = filter.search ? containsAllWords([oceanRateTable.polName, oceanRateTable.podName, oceanRateTable.via, sql`coalesce(${podPort.code}, '')`], filter.search) : undefined;
+    if (match) clauses.push(match);
+    const where = and(...clauses);
+    const [rows, [{ total }]] = await Promise.all([
+      oceanRatesWithPorts().where(where).orderBy(asc(oceanRateTable.tableNo), asc(oceanRateTable.rowNo), asc(oceanRateTable.polName)).offset(filter.offset).limit(filter.limit),
+      db
+        .select({ total: count() })
+        .from(oceanRateTable)
+        .leftJoin(podPort, and(eq(podPort.versionId, oceanRateTable.versionId), eq(podPort.side, "pod"), eq(podPort.name, oceanRateTable.podName)))
+        .where(where),
+    ]);
+    return { rows, total };
+  }
+
+  /** The ocean versions that price on the day, of tariffs for the direction, with their tariffs. */
+  async oceanCandidates(companyId: string, direction: RailDirection, date: string): Promise<CollectionCandidate[]> {
+    return db
+      .select({ version: tariffVersionTable, tariff: tariffTable })
+      .from(tariffVersionTable)
+      .innerJoin(tariffTable, eq(tariffTable.id, tariffVersionTable.tariffId))
+      .where(
+        and(
+          eq(tariffTable.companyId, companyId),
+          isNull(tariffTable.deletedAt),
+          eq(tariffTable.mode, "ocean"),
+          sql`${direction} = ANY(${tariffTable.directions})`,
+          live(companyId),
+          eq(tariffVersionTable.status, "active"),
+          lte(tariffVersionTable.validFrom, date),
+          or(isNull(tariffVersionTable.validTo), gte(tariffVersionTable.validTo, date)),
+        ),
+      )
+      .orderBy(asc(tariffTable.name));
+  }
+
+  /** The rates of the versions to a port of discharge, from one port of loading or (null) any. */
+  async oceanRoute(versionIds: string[], podCode: string, polCode: string | null): Promise<OceanRateWithPorts[]> {
+    if (!versionIds.length) return [];
+    return oceanRatesWithPorts()
+      .where(and(inArray(oceanRateTable.versionId, versionIds), eq(podPort.code, podCode), polCode ? eq(polPort.code, polCode) : sql`${polPort.code} IS NOT NULL`))
+      .orderBy(asc(oceanRateTable.versionId), asc(oceanRateTable.tableNo), asc(oceanRateTable.rowNo))
+      .limit(2000);
   }
 
   /** Our hubs, one per freight mode that has one. */

@@ -1,5 +1,5 @@
-import { TariffSectionPage } from "../_components/TariffSectionPage";
+import { ShippingLinesView } from "./_components/ShippingLinesView";
 
 export default function ShippingLinesPage() {
-  return <TariffSectionPage title="Shipping Lines" />;
+  return <ShippingLinesView />;
 }

@@ -5,6 +5,10 @@ import type {
   CollectionFreightMode,
   CollectionLayout,
   LayoutSource,
+  OceanEquipment,
+  OceanLayout,
+  OceanPlace,
+  OceanPortStatus,
   RailDirection,
   RailLayout,
   SheetPreview,
@@ -14,14 +18,15 @@ import type {
   SupplierTariffStatus,
 } from "../interfaces/interfaces";
 
-/** How a version's file is read: a rail layout on a rail tariff, a collection layout on a collections tariff. */
-export type TariffLayout = RailLayout | CollectionLayout;
+/** How a version's file is read: a rail, collection or ocean layout, by its tariff's mode. */
+export type TariffLayout = RailLayout | CollectionLayout | OceanLayout;
 
 // A supplier's price list (e.g. Metrans' rail prices from Hamburg / Bremerhaven / Wilhelmshaven to
 // Czechia). The supplier is a Customer Database company (another database, so no foreign key).
 // A rail tariff ticks the ports it is for and whether it is import, export or both (an operator can
 // have several, e.g. one for Hamburg / Bremerhaven and one for Koper); a collections tariff ticks
-// the freight it collects and delivers (Sea LCL, Air) and has no ports.
+// the freight it collects and delivers (Sea LCL, Air) and has no ports; a shipping line's (ocean)
+// tariff ticks import / export, its ports being in its rates.
 // `layout` is how the last approved version's file was read: the AI is shown it when the next
 // year's file is uploaded, so the supplier's format is learned once.
 export const tariffTable = pgTable(
@@ -43,11 +48,11 @@ export const tariffTable = pgTable(
     ...defaultTableIndexes("tariff", table),
     tenantIndex("tariff", table),
     index("tariff_supplier_idx").on(table.companyId, table.supplierCustomerId),
-    check("tariff_mode_check", sql`${table.mode} IN ('rail', 'collection')`),
+    check("tariff_mode_check", sql`${table.mode} IN ('rail', 'collection', 'ocean')`),
     check("tariff_ports_check", sql`${table.mode} <> 'rail' OR cardinality(${table.ports}) > 0`),
     check(
       "tariff_directions_check",
-      sql`${table.directions} <@ ARRAY['import', 'export']::text[] AND (${table.mode} <> 'rail' OR cardinality(${table.directions}) > 0)`,
+      sql`${table.directions} <@ ARRAY['import', 'export']::text[] AND (${table.mode} NOT IN ('rail', 'ocean') OR cardinality(${table.directions}) > 0)`,
     ),
     check(
       "tariff_freight_modes_check",
@@ -234,6 +239,58 @@ export const collectionHubTable = pgTable(
   ],
 );
 
+// An ocean version's rates: one row per port of loading → port of discharge of a sheet row (a row
+// naming "HAM / RTM / ANR" gives three), the ports as the tariff writes them, the prices by
+// container. Which UN/LOCODE a port name means is in ocean_port.
+export const oceanRateTable = pgTable(
+  "ocean_rate",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ...tenantColumns,
+    versionId: uuid("version_id").notNull(),
+    tableNo: integer("table_no").notNull(),
+    rowNo: integer("row_no").notNull(),
+    polName: text("pol_name").notNull(),
+    podName: text("pod_name").notNull(),
+    via: text("via").notNull().default(""),
+    currency: text("currency").notNull(),
+    prices: jsonb("prices").$type<Partial<Record<OceanEquipment, number>>>().notNull(),
+    note: text("note").notNull().default(""),
+  },
+  (table) => [
+    tenantIndex("ocean_rate", table),
+    index("ocean_rate_version_pod_idx").on(table.versionId, table.podName),
+    index("ocean_rate_version_row_idx").on(table.versionId, table.tableNo, table.rowNo),
+    foreignKey({ name: "ocean_rate_version_fk", columns: [table.versionId], foreignColumns: [tariffVersionTable.id] }).onDelete("cascade"),
+  ],
+);
+
+// The port names of an ocean version and the UN/LOCODE each means: matched by code (the tariff's
+// own port codes, or the place list by name and country), picked or left out by a user, or still
+// pending - which stops the version from being approved.
+export const oceanPortTable = pgTable(
+  "ocean_port",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ...tenantColumns,
+    versionId: uuid("version_id").notNull(),
+    side: text("side").$type<"pol" | "pod">().notNull(),
+    name: text("name").notNull(),
+    countryHint: text("country_hint"),
+    code: text("code"),
+    status: text("status").$type<OceanPortStatus>().notNull(),
+    candidates: jsonb("candidates").$type<OceanPlace[]>().notNull().default([]),
+  },
+  (table) => [
+    tenantIndex("ocean_port", table),
+    uniqueIndex("ocean_port_version_name_unique").on(table.versionId, table.side, table.name),
+    index("ocean_port_version_code_idx").on(table.versionId, table.side, table.code),
+    foreignKey({ name: "ocean_port_version_fk", columns: [table.versionId], foreignColumns: [tariffVersionTable.id] }).onDelete("cascade"),
+    check("ocean_port_side_check", sql`${table.side} IN ('pol', 'pod')`),
+    check("ocean_port_status_check", sql`${table.status} IN ('matched', 'manual', 'skipped', 'pending')`),
+  ],
+);
+
 export type TariffRecord = typeof tariffTable.$inferSelect;
 export type TariffVersionRecord = typeof tariffVersionTable.$inferSelect;
 export type NewTariffVersionRecord = typeof tariffVersionTable.$inferInsert;
@@ -242,3 +299,5 @@ export type NewRailRateRecord = typeof railRateTable.$inferInsert;
 export type CollectionRateRecord = typeof collectionRateTable.$inferSelect;
 export type CollectionRegionRecord = typeof collectionRegionTable.$inferSelect;
 export type CollectionHubRecord = typeof collectionHubTable.$inferSelect;
+export type OceanRateRecord = typeof oceanRateTable.$inferSelect;
+export type OceanPortRecord = typeof oceanPortTable.$inferSelect;

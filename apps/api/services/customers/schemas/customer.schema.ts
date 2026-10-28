@@ -79,7 +79,7 @@ export const customerTable = pgTable(
     // At least one role, and only known ones.
     check(
       "customer_roles_check",
-      sql`cardinality(${table.roles}) > 0 AND ${table.roles} <@ ARRAY['customer', 'haulier', 'rail_operator', 'first_last_mile_haulier']::text[]`,
+      sql`cardinality(${table.roles}) > 0 AND ${table.roles} <@ ARRAY['customer', 'haulier', 'rail_operator', 'first_last_mile_haulier', 'shipping_line']::text[]`,
     ),
   ],
 );
