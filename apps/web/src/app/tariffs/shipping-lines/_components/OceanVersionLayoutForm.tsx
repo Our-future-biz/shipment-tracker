@@ -1,12 +1,11 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
-import { Button, Checkbox, DatePicker, Input, InputNumber, Select, Tooltip } from "antd";
+import { Button, Checkbox, Input, InputNumber, Select, Tooltip } from "antd";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
-import dayjs from "dayjs";
 import type { OceanLayout } from "@/hooks/useOceanTariffs";
 import type { interfaces } from "@/lib/api/client";
-import { columnHeadings, columnLabel, letterIndex, previewSheet } from "../../_lib/railLayoutForm";
+import { sheetColumnOptions } from "../../_lib/railLayoutForm";
+import { ConditionsField, DayField, Field, SubTitle, TypedList } from "../../_components/TariffFormParts";
 import {
   BASIS_OPTIONS,
   CHARGE_OPTIONS,
@@ -30,57 +29,6 @@ type Surcharge = interfaces.OceanSurcharge;
 
 const NONE = "";
 const EQUIPMENT_OPTIONS = OCEAN_EQUIPMENT.map((e) => ({ value: e.value, label: e.label }));
-
-const Field = ({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) => (
-  <label className="flex flex-col gap-1 text-[12px] font-semibold text-slate-600 min-w-0">
-    {label}
-    {children}
-    {hint && <span className="text-[11px] font-normal text-slate-400">{hint}</span>}
-  </label>
-);
-
-const SubTitle = ({ children }: { children: ReactNode }) => <div className="text-[12px] font-bold uppercase tracking-wider text-slate-500 mt-1">{children}</div>;
-
-const toDay = (value: string | null) => (value ? dayjs(value) : null);
-const fromDay = (d: dayjs.Dayjs | null) => (d ? d.format("YYYY-MM-DD") : null);
-
-// The columns of a sheet to choose from, named after its headings row, plus any letter the layout
-// names that the first rows lack.
-function letterOptions(preview: readonly interfaces.SheetPreview[], sheet: string, headingRow: number, named: (string | null)[]) {
-  const headings = columnHeadings(previewSheet(preview, sheet), headingRow);
-  const letters = [...new Set([...headings.keys(), ...named.filter((l): l is string => !!l)])].sort((a, b) => letterIndex(a) - letterIndex(b));
-  return letters.map((l) => ({ value: l, label: columnLabel(l, headings.get(l)) }));
-}
-
-interface TypedListProps<T> {
-  value: T;
-  format: (value: T) => string;
-  parse: (text: string) => T;
-  onChange: (value: T) => void;
-  label: string;
-  placeholder?: string;
-  disabled: boolean;
-  /** Several lines, e.g. the port codes */
-  multiline?: boolean;
-  size?: "small" | "middle";
-}
-
-// A list typed as text ("CN, HK", or "HAM = DEHAM" lines): kept as typed while typed, read into the
-// list when left.
-function TypedList<T>({ value, format, parse, onChange, label, placeholder, disabled, multiline, size }: TypedListProps<T>) {
-  const [text, setText] = useState(() => format(value));
-  const [seen, setSeen] = useState(value);
-  if (value !== seen) {
-    setSeen(value);
-    setText(format(value));
-  }
-  const common = { "aria-label": label, placeholder, value: text, disabled, onBlur: () => onChange(parse(text)) };
-  return multiline ? (
-    <Input.TextArea {...common} autoSize={{ minRows: 3, maxRows: 12 }} onChange={(e) => setText(e.target.value)} />
-  ) : (
-    <Input {...common} size={size} onChange={(e) => setText(e.target.value)} />
-  );
-}
 
 interface OceanVersionLayoutFormProps {
   form: OceanLayout;
@@ -109,17 +57,13 @@ export const OceanVersionLayoutForm = ({ form, onChange, preview, disabled }: Oc
         <Field label="Name">
           <Input aria-label="Name" value={form.name} maxLength={200} disabled={disabled} onChange={(e) => set("name", e.target.value)} />
         </Field>
-        <Field label="Valid from">
-          <DatePicker aria-label="Valid from" value={toDay(form.validFrom)} format="DD.MM.YYYY" disabled={disabled} onChange={(d) => set("validFrom", fromDay(d))} className="!w-full" />
-        </Field>
-        <Field label="Valid to">
-          <DatePicker aria-label="Valid to" value={toDay(form.validTo)} format="DD.MM.YYYY" disabled={disabled} onChange={(d) => set("validTo", fromDay(d))} className="!w-full" />
-        </Field>
+        <DayField label="Valid from" value={form.validFrom} disabled={disabled} onChange={(v) => set("validFrom", v)} />
+        <DayField label="Valid to" value={form.validTo} disabled={disabled} onChange={(v) => set("validTo", v)} />
       </div>
 
       <SubTitle>Rate tables</SubTitle>
       {form.tables.map((t, i) => {
-        const columns = letterOptions(preview, t.sheet, t.headerRow, [t.pol, t.pod, t.via, t.currency, t.note, ...t.prices.map((p) => p.column)]);
+        const columns = sheetColumnOptions(preview, t.sheet, t.headerRow, [t.pol, t.pod, t.via, t.currency, t.note, ...t.prices.map((p) => p.column)]);
         const optional = [{ value: NONE, label: "None" }, ...columns];
         const name = `Table ${i + 1}`;
         return (
@@ -312,16 +256,7 @@ export const OceanVersionLayoutForm = ({ form, onChange, preview, disabled }: Oc
         </div>
       </div>
 
-      <Field label="Conditions" hint="One per line: what the rates include and the tariff's terms.">
-        <Input.TextArea
-          aria-label="Conditions"
-          autoSize={{ minRows: 3, maxRows: 10 }}
-          value={form.conditions.join("\n")}
-          disabled={disabled}
-          // Lines are kept as typed (an empty one too, so Enter starts a new line); empty ones are dropped when sent.
-          onChange={(e) => set("conditions", e.target.value.split("\n"))}
-        />
-      </Field>
+      <ConditionsField value={form.conditions} onChange={(v) => set("conditions", v)} hint="One per line: what the rates include and the tariff's terms." disabled={disabled} />
     </div>
   );
 };

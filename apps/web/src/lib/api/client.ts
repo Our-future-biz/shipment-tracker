@@ -2431,18 +2431,27 @@ export namespace tariffs {
             this.shippingLineList = this.shippingLineList.bind(this)
         }
 
+        /**
+         * One first / last mile haulier with its tariffs and their versions, newest first.
+         */
         public async collectionHaulierGet(customerId: string): Promise<services.CollectionHaulierDetail> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/collections/hauliers/${encodeURIComponent(customerId)}`)
             return await resp.json() as services.CollectionHaulierDetail
         }
 
+        /**
+         * The first / last mile hauliers with their tariffs at a glance (Tariffs → Last / First Mile Collections).
+         */
         public async collectionHaulierList(): Promise<controllers.CollectionHaulierListResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/collections/hauliers`)
             return await resp.json() as controllers.CollectionHaulierListResponse
         }
 
+        /**
+         * Our hubs: where a freight mode's collections end and deliveries start.
+         */
         public async collectionHubList(): Promise<controllers.CollectionHubsResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/collections/hubs`)
@@ -2460,7 +2469,8 @@ export namespace tariffs {
 
         /**
          * Every first / last mile haulier's price for a consignment between our hub and the customer,
-         * cheapest first (Sales → Pricing → Tariffs available on an LCL or air quote). Nothing is written.
+         * cheapest first (Sales → Pricing → Tariffs available on an LCL or air quote). Anyone signed in
+         * may ask; nothing is written.
          */
         public async collectionOffers(params: controllers.CollectionOffersRequest): Promise<services.CollectionOffersResult> {
             // Now make the actual call to the API
@@ -2471,9 +2481,9 @@ export namespace tariffs {
         /**
          * Changes a tariff's name and what it collects and delivers (manager).
          */
-        public async collectionTariffUpdate(id: string, params: controllers.CollectionTariffUpdateRequest): Promise<services.CollectionTariffFields> {
+        public async collectionTariffUpdate(tariffId: string, params: controllers.CollectionTariffUpdateRequest): Promise<services.CollectionTariffFields> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("PATCH", `/tariffs/collections/tariffs/${encodeURIComponent(id)}`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/tariffs/collections/tariffs/${encodeURIComponent(tariffId)}`, JSON.stringify(params))
             return await resp.json() as services.CollectionTariffFields
         }
 
@@ -2481,61 +2491,68 @@ export namespace tariffs {
          * Reads a haulier's tariff file into a new draft (manager): the AI reads where each part is, the
          * code every figure, the checks list what looks wrong. Nothing prices with it until it is approved.
          */
-        public async collectionUpload(params: controllers.CollectionUploadRequest): Promise<controllers.CollectionVersionResponse> {
+        public async collectionUpload(params: controllers.CollectionUploadRequest): Promise<controllers.CollectionUploadResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/collections/upload`, JSON.stringify(params))
-            return await resp.json() as controllers.CollectionVersionResponse
+            return await resp.json() as controllers.CollectionUploadResponse
         }
 
         /**
          * Approves a draft without errors (manager): it prices from its start date.
          */
-        public async collectionVersionApprove(id: string): Promise<controllers.CollectionVersionResponse> {
+        public async collectionVersionApprove(versionId: string): Promise<controllers.CollectionVersionResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/collections/versions/${encodeURIComponent(id)}/approve`)
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/collections/versions/${encodeURIComponent(versionId)}/approve`)
             return await resp.json() as controllers.CollectionVersionResponse
         }
 
         /**
          * Throws a draft away (manager).
          */
-        public async collectionVersionDiscard(id: string): Promise<void> {
-            await this.baseClient.callTypedAPI("POST", `/tariffs/collections/versions/${encodeURIComponent(id)}/discard`)
+        public async collectionVersionDiscard(versionId: string): Promise<void> {
+            await this.baseClient.callTypedAPI("POST", `/tariffs/collections/versions/${encodeURIComponent(versionId)}/discard`)
         }
 
-        public async collectionVersionGet(id: string): Promise<controllers.CollectionVersionResponse> {
+        /**
+         * One version with its layout, findings, the first rows of its file and its price tables.
+         */
+        public async collectionVersionGet(versionId: string): Promise<controllers.CollectionVersionResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/collections/versions/${encodeURIComponent(id)}`)
+            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/collections/versions/${encodeURIComponent(versionId)}`)
             return await resp.json() as controllers.CollectionVersionResponse
         }
 
         /**
          * Reads a draft's file again with a corrected layout (manager).
          */
-        public async collectionVersionLayout(id: string, params: controllers.CollectionLayoutRequest): Promise<controllers.CollectionVersionResponse> {
+        public async collectionVersionLayout(versionId: string, params: controllers.CollectionLayoutRequest): Promise<controllers.CollectionVersionResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/collections/versions/${encodeURIComponent(id)}/layout`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/collections/versions/${encodeURIComponent(versionId)}/layout`, JSON.stringify(params))
             return await resp.json() as controllers.CollectionVersionResponse
         }
 
-        public async collectionVersionSource(id: string): Promise<controllers.CollectionSourceResponse> {
+        /**
+         * The file a version was read from, as uploaded.
+         */
+        public async collectionVersionSource(versionId: string): Promise<controllers.CollectionSourceResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/collections/versions/${encodeURIComponent(id)}/source`)
+            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/collections/versions/${encodeURIComponent(versionId)}/source`)
             return await resp.json() as controllers.CollectionSourceResponse
         }
 
         /**
          * What one version (a draft too) asks between two postcodes: for checking it before approving.
          */
-        public async collectionVersionTry(id: string, params: controllers.CollectionTryRequest): Promise<interfaces.CollectionTry> {
+        public async collectionVersionTry(versionId: string, params: controllers.CollectionTryRequest): Promise<interfaces.CollectionTry> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/collections/versions/${encodeURIComponent(id)}/try`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/collections/versions/${encodeURIComponent(versionId)}/try`, JSON.stringify(params))
             return await resp.json() as interfaces.CollectionTry
         }
 
         /**
          * Every shipping line's way to take a Sea FCL quote's containers from port to port, with freight and
-         * surcharges (Sales → Pricing → Tariffs available on the Ocean freight line). Nothing is written.
+         * surcharges (Sales → Pricing → Tariffs available on the Ocean freight line). Anyone signed in may
+         * ask; nothing is written.
          */
         public async oceanOffers(params: controllers.OceanOffersRequest): Promise<services.OceanOffersResult> {
             // Now make the actual call to the API
@@ -2546,63 +2563,69 @@ export namespace tariffs {
         /**
          * Changes a tariff's name and import / export (manager).
          */
-        public async oceanTariffUpdate(id: string, params: controllers.OceanTariffUpdateRequest): Promise<controllers.OceanTariffUpdateResponse> {
+        public async oceanTariffUpdate(tariffId: string, params: controllers.OceanTariffUpdateRequest): Promise<services.OceanTariffFields> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("PATCH", `/tariffs/ocean/tariffs/${encodeURIComponent(id)}`, JSON.stringify(params))
-            return await resp.json() as controllers.OceanTariffUpdateResponse
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/tariffs/ocean/tariffs/${encodeURIComponent(tariffId)}`, JSON.stringify(params))
+            return await resp.json() as services.OceanTariffFields
         }
 
         /**
          * Reads a shipping line's rate document into a new draft (manager): the AI reads where each part
          * is, the code every rate and port. Nothing prices with it until it is approved.
          */
-        public async oceanUpload(params: controllers.OceanUploadRequest): Promise<controllers.OceanVersionResponse> {
+        public async oceanUpload(params: controllers.OceanUploadRequest): Promise<controllers.OceanUploadResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/ocean/upload`, JSON.stringify(params))
-            return await resp.json() as controllers.OceanVersionResponse
+            return await resp.json() as controllers.OceanUploadResponse
         }
 
         /**
          * Approves a draft without errors and with every port matched (manager).
          */
-        public async oceanVersionApprove(id: string): Promise<controllers.OceanVersionResponse> {
+        public async oceanVersionApprove(versionId: string): Promise<controllers.OceanVersionResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/ocean/versions/${encodeURIComponent(id)}/approve`)
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/ocean/versions/${encodeURIComponent(versionId)}/approve`)
             return await resp.json() as controllers.OceanVersionResponse
         }
 
         /**
          * Throws a draft away (manager).
          */
-        public async oceanVersionDiscard(id: string): Promise<void> {
-            await this.baseClient.callTypedAPI("POST", `/tariffs/ocean/versions/${encodeURIComponent(id)}/discard`)
+        public async oceanVersionDiscard(versionId: string): Promise<void> {
+            await this.baseClient.callTypedAPI("POST", `/tariffs/ocean/versions/${encodeURIComponent(versionId)}/discard`)
         }
 
-        public async oceanVersionGet(id: string): Promise<controllers.OceanVersionResponse> {
+        /**
+         * One version with its layout, findings, the first rows of its file and its port names.
+         */
+        public async oceanVersionGet(versionId: string): Promise<controllers.OceanVersionResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/ocean/versions/${encodeURIComponent(id)}`)
+            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/ocean/versions/${encodeURIComponent(versionId)}`)
             return await resp.json() as controllers.OceanVersionResponse
         }
 
         /**
          * Reads a draft's file again with a corrected layout (manager).
          */
-        public async oceanVersionLayout(id: string, params: controllers.OceanLayoutRequest): Promise<controllers.OceanVersionResponse> {
+        public async oceanVersionLayout(versionId: string, params: controllers.OceanLayoutRequest): Promise<controllers.OceanVersionResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/ocean/versions/${encodeURIComponent(id)}/layout`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/ocean/versions/${encodeURIComponent(versionId)}/layout`, JSON.stringify(params))
             return await resp.json() as controllers.OceanVersionResponse
         }
 
         /**
          * Sets what a port name of a draft means (manager): a place picked, or none.
          */
-        public async oceanVersionPort(id: string, params: controllers.OceanPortSetRequest): Promise<controllers.OceanVersionResponse> {
+        public async oceanVersionPort(versionId: string, params: controllers.OceanPortSetRequest): Promise<controllers.OceanVersionResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/ocean/versions/${encodeURIComponent(id)}/ports`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/ocean/versions/${encodeURIComponent(versionId)}/ports`, JSON.stringify(params))
             return await resp.json() as controllers.OceanVersionResponse
         }
 
-        public async oceanVersionRates(id: string, params: controllers.OceanRatesRequest): Promise<services.OceanRatePage> {
+        /**
+         * A page of a version's rates in table and sheet order.
+         */
+        public async oceanVersionRates(versionId: string, params: controllers.OceanRatesRequest): Promise<services.OceanRatePage> {
             // Convert our params into the objects we need for the request
             const query = makeRecord<string, string | string[]>({
                 limit:  params.limit === undefined ? undefined : String(params.limit),
@@ -2612,13 +2635,16 @@ export namespace tariffs {
             })
 
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/ocean/versions/${encodeURIComponent(id)}/rates`, undefined, {query})
+            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/ocean/versions/${encodeURIComponent(versionId)}/rates`, undefined, {query})
             return await resp.json() as services.OceanRatePage
         }
 
-        public async oceanVersionSource(id: string): Promise<controllers.OceanSourceResponse> {
+        /**
+         * The file a version was read from, as uploaded.
+         */
+        public async oceanVersionSource(versionId: string): Promise<controllers.OceanSourceResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/ocean/versions/${encodeURIComponent(id)}/source`)
+            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/ocean/versions/${encodeURIComponent(versionId)}/source`)
             return await resp.json() as controllers.OceanSourceResponse
         }
 
@@ -2654,34 +2680,34 @@ export namespace tariffs {
          * Approves a draft without errors (manager): it prices from its start date; active versions whose
          * dates it covers give way.
          */
-        public async railTariffApprove(id: string): Promise<controllers.RailTariffVersionResponse> {
+        public async railTariffApprove(versionId: string): Promise<controllers.RailTariffVersionResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/rail/versions/${encodeURIComponent(id)}/approve`)
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/rail/versions/${encodeURIComponent(versionId)}/approve`)
             return await resp.json() as controllers.RailTariffVersionResponse
         }
 
         /**
          * Throws a draft away (manager).
          */
-        public async railTariffDiscard(id: string): Promise<controllers.OkResponse> {
+        public async railTariffDiscard(versionId: string): Promise<controllers.OkResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/rail/versions/${encodeURIComponent(id)}/discard`)
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/rail/versions/${encodeURIComponent(versionId)}/discard`)
             return await resp.json() as controllers.OkResponse
         }
 
         /**
          * Reads a draft's file again with a corrected layout (manager); its rows and findings are replaced.
          */
-        public async railTariffLayout(id: string, params: controllers.RailTariffLayoutRequest): Promise<controllers.RailTariffVersionResponse> {
+        public async railTariffLayout(versionId: string, params: controllers.RailTariffLayoutRequest): Promise<controllers.RailTariffVersionResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/rail/versions/${encodeURIComponent(id)}/layout`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/rail/versions/${encodeURIComponent(versionId)}/layout`, JSON.stringify(params))
             return await resp.json() as controllers.RailTariffVersionResponse
         }
 
         /**
          * A page of a version's rows in sheet order.
          */
-        public async railTariffRates(id: string, params: controllers.RailTariffRatesRequest): Promise<services.RailRatePage> {
+        public async railTariffRates(versionId: string, params: controllers.RailTariffRatesRequest): Promise<services.RailRatePage> {
             // Convert our params into the objects we need for the request
             const query = makeRecord<string, string | string[]>({
                 limit:  params.limit === undefined ? undefined : String(params.limit),
@@ -2691,16 +2717,16 @@ export namespace tariffs {
             })
 
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/rail/versions/${encodeURIComponent(id)}/rates`, undefined, {query})
+            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/rail/versions/${encodeURIComponent(versionId)}/rates`, undefined, {query})
             return await resp.json() as services.RailRatePage
         }
 
         /**
          * The file a version was read from, as uploaded.
          */
-        public async railTariffSource(id: string): Promise<controllers.FileResponse> {
+        public async railTariffSource(versionId: string): Promise<controllers.FileResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/rail/versions/${encodeURIComponent(id)}/source`)
+            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/rail/versions/${encodeURIComponent(versionId)}/source`)
             return await resp.json() as controllers.FileResponse
         }
 
@@ -2708,9 +2734,9 @@ export namespace tariffs {
          * Changes a tariff (manager): its name, e.g. the one the AI suggested, the ports it is for and
          * whether it is import, export or both.
          */
-        public async railTariffUpdate(id: string, params: controllers.RailTariffUpdateRequest): Promise<controllers.RailTariffUpdateResponse> {
+        public async railTariffUpdate(tariffId: string, params: controllers.RailTariffUpdateRequest): Promise<controllers.RailTariffUpdateResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("PATCH", `/tariffs/rail/tariffs/${encodeURIComponent(id)}`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/tariffs/rail/tariffs/${encodeURIComponent(tariffId)}`, JSON.stringify(params))
             return await resp.json() as controllers.RailTariffUpdateResponse
         }
 
@@ -2727,18 +2753,24 @@ export namespace tariffs {
         /**
          * One version with its layout, findings and the first rows of its file.
          */
-        public async railTariffVersionGet(id: string): Promise<controllers.RailTariffVersionResponse> {
+        public async railTariffVersionGet(versionId: string): Promise<controllers.RailTariffVersionResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/rail/versions/${encodeURIComponent(id)}`)
+            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/rail/versions/${encodeURIComponent(versionId)}`)
             return await resp.json() as controllers.RailTariffVersionResponse
         }
 
+        /**
+         * One shipping line with its tariffs and their versions, newest first.
+         */
         public async shippingLineGet(customerId: string): Promise<services.ShippingLineDetail> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/ocean/lines/${encodeURIComponent(customerId)}`)
             return await resp.json() as services.ShippingLineDetail
         }
 
+        /**
+         * The shipping lines with their tariffs at a glance (Tariffs → Shipping Lines).
+         */
         public async shippingLineList(): Promise<controllers.ShippingLineListResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/ocean/lines`)
@@ -5609,6 +5641,10 @@ export namespace controllers {
         fileBase64: string
     }
 
+    export interface CollectionUploadResponse {
+        version: interfaces.CollectionTariffVersionDetail
+    }
+
     export interface CollectionVersionResponse {
         version: interfaces.CollectionTariffVersionDetail
     }
@@ -7177,12 +7213,9 @@ export namespace controllers {
         date: string
 
         /**
-         * The quote's container lines
+         * The quote's container lines, at most 20
          */
-        containers: {
-            type: string
-            qty: number
-        }[]
+        containers: interfaces.OceanOfferContainer[]
 
         /**
          * Dangerous goods: IMO surcharges apply
@@ -7230,12 +7263,6 @@ export namespace controllers {
         directions: interfaces.RailDirection[]
     }
 
-    export interface OceanTariffUpdateResponse {
-        id: string
-        name: string
-        directions: interfaces.RailDirection[]
-    }
-
     export interface OceanUploadRequest {
         /**
          * The line's Customer Database id
@@ -7257,6 +7284,10 @@ export namespace controllers {
          * The .xlsx or .csv file, base64; at most 10 MB
          */
         fileBase64: string
+    }
+
+    export interface OceanUploadResponse {
+        version: services.OceanTariffVersionDetail
     }
 
     export interface OceanVersionResponse {
@@ -7583,6 +7614,9 @@ export namespace controllers {
          */
         date: string
 
+        /**
+         * At most 20 lines
+         */
         containers: interfaces.RailOfferContainer[]
     }
 
@@ -14238,6 +14272,18 @@ export namespace interfaces {
     }
 
     /**
+     * A quote's containers of one type, as ocean offers are asked for.
+     */
+    export interface OceanOfferContainer {
+        /**
+         * As quotes name it, e.g. "40' HC"
+         */
+        type: string
+
+        qty: number
+    }
+
+    /**
      * One container line of an offer.
      */
     export interface OceanOfferLine {
@@ -14433,6 +14479,15 @@ export namespace interfaces {
     export type PalletType = "EUR" | "INDUSTRIAL" | "HALF" | "QUARTER" | "OTHER"
 
     /**
+     * What the people backfill did: values looked at, records changed, values left as they are.
+     */
+    export interface PeopleNormalizeResult {
+        checked: number
+        changed: number
+        unmatched: PeopleNormalizeUnmatched[]
+    }
+
+    /**
      * What the people backfill did to the company's live shipments.
      */
     export interface PeopleNormalizeResult {
@@ -14450,15 +14505,6 @@ export namespace interfaces {
          * The names left as they are, most frequent first: to be fixed by hand.
          */
         unmatched: UnmatchedPerson[]
-    }
-
-    /**
-     * What the people backfill did: values looked at, records changed, values left as they are.
-     */
-    export interface PeopleNormalizeResult {
-        checked: number
-        changed: number
-        unmatched: PeopleNormalizeUnmatched[]
     }
 
     /**
@@ -18937,6 +18983,12 @@ export namespace services {
         currency: string
         prices: { [key: string]: number }
         note: string
+    }
+
+    export interface OceanTariffFields {
+        id: string
+        name: string
+        directions: interfaces.RailDirection[]
     }
 
     export interface OceanTariffItem {

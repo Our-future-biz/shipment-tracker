@@ -4,7 +4,7 @@ import { Checkbox } from "antd";
 import type { CollectionFreightMode } from "@/hooks/useCollectionTariffs";
 import { COLLECTION_FREIGHT_MODES } from "../../_lib/collectionTariffs";
 
-export const FREIGHT_CHIP = "inline-block rounded-full border px-2 py-0.5 text-[11.5px] font-medium bg-indigo-50 text-indigo-700 border-indigo-200";
+const FREIGHT_CHIP = "inline-block rounded-full border px-2 py-0.5 text-[11.5px] font-medium bg-indigo-50 text-indigo-700 border-indigo-200";
 
 interface CollectionFreightFieldsProps {
   value: CollectionFreightMode[];

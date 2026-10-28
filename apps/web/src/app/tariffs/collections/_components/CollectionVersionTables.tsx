@@ -2,6 +2,7 @@
 
 import { Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
+import { EMPTY_CELL } from "@/components/EmptyCell";
 import { SectionCard } from "@/components/SectionCard";
 import type { CollectionTariffVersionDetail } from "@/hooks/useCollectionTariffs";
 import type { interfaces } from "@/lib/api/client";
@@ -10,20 +11,18 @@ import { volumeToText, weightToText } from "../../_lib/collectionTariffs";
 
 type Row = interfaces.CollectionTableView["rows"][number];
 
-const muted = (text: string) => <span className="text-slate-300">{text}</span>;
-
 function tableColumns(table: interfaces.CollectionTableView): ColumnsType<Row> {
   const hasVolume = table.rows.some((r) => r.volumeToCbm !== null);
   return [
     { key: "weight", title: "Weight", fixed: "left", width: 120, render: (_, r) => <span className="font-medium whitespace-nowrap">{weightToText(r.weightToKg)}</span> },
     ...(hasVolume
-      ? [{ key: "volume", title: "or volume", width: 90, render: (_: unknown, r: Row) => (r.volumeToCbm === null ? muted("—") : <span className="whitespace-nowrap text-slate-500">{volumeToText(r.volumeToCbm)}</span>) }]
+      ? [{ key: "volume", title: "or volume", width: 90, render: (_: unknown, r: Row) => (r.volumeToCbm === null ? EMPTY_CELL : <span className="whitespace-nowrap text-slate-500">{volumeToText(r.volumeToCbm)}</span>) }]
       : []),
     ...table.zones.map((label, i) => ({
       key: `z${i}`,
       title: label,
       align: "right" as const,
-      render: (_: unknown, r: Row) => (r.prices[i] == null ? muted("—") : <span className="tabular-nums">{formatQty(r.prices[i]!)}</span>),
+      render: (_: unknown, r: Row) => (r.prices[i] == null ? EMPTY_CELL : <span className="tabular-nums">{formatQty(r.prices[i]!)}</span>),
     })),
   ];
 }

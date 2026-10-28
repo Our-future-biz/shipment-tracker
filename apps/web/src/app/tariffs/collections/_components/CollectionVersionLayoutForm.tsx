@@ -1,12 +1,11 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
-import { Button, DatePicker, Input, InputNumber, Select, Tooltip } from "antd";
+import { Button, Input, InputNumber, Select, Tooltip } from "antd";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
-import dayjs from "dayjs";
 import type { CollectionLayout } from "@/hooks/useCollectionTariffs";
 import type { interfaces } from "@/lib/api/client";
-import { columnHeadings, columnLabel, letterIndex, previewSheet } from "../../_lib/railLayoutForm";
+import { sheetColumnOptions } from "../../_lib/railLayoutForm";
+import { ConditionsField, DayField, Field, SubTitle, TypedList } from "../../_components/TariffFormParts";
 import { SURCHARGE_KIND_OPTIONS, ZONE_BY_OPTIONS, countryCodesText, newMatrix, newSurcharge, newZone, parseCountryCodes, withZoneBy } from "../../_lib/collectionLayoutForm";
 
 type Matrix = interfaces.CollectionMatrix;
@@ -15,36 +14,120 @@ type Surcharge = interfaces.CollectionSurcharge;
 
 const NONE = "";
 
-const Field = ({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) => (
-  <label className="flex flex-col gap-1 text-[12px] font-semibold text-slate-600 min-w-0">
-    {label}
-    {children}
-    {hint && <span className="text-[11px] font-normal text-slate-400">{hint}</span>}
-  </label>
-);
-
-const SubTitle = ({ children }: { children: ReactNode }) => <div className="text-[12px] font-bold uppercase tracking-wider text-slate-500 mt-1">{children}</div>;
-
-const toDay = (value: string | null) => (value ? dayjs(value) : null);
-const fromDay = (d: dayjs.Dayjs | null) => (d ? d.format("YYYY-MM-DD") : null);
-
-// The columns of a sheet to choose from, named after the row above its first data row (its
-// headings), plus any letter the layout names that the first rows lack.
-function letterOptions(preview: readonly interfaces.SheetPreview[], sheet: string, headingRow: number, named: (string | null)[]) {
-  const headings = columnHeadings(previewSheet(preview, sheet), headingRow);
-  const letters = [...new Set([...headings.keys(), ...named.filter((l): l is string => !!l)])].sort((a, b) => letterIndex(a) - letterIndex(b));
-  return letters.map((l) => ({ value: l, label: columnLabel(l, headings.get(l)) }));
+interface ListFieldsProps<T> {
+  value: T;
+  onChange: (value: T) => void;
+  /** The first rows of every sheet of the file */
+  preview: interfaces.SheetPreview[];
+  sheetOptions: { value: string; label: string }[];
+  disabled: boolean;
 }
 
-// The country codes as typed ("1=CZ, 2=SK"): kept as text while typed, read into codes when left.
-const CountryCodesInput = ({ value, onChange, disabled }: { value: Record<string, string>; onChange: (codes: Record<string, string>) => void; disabled: boolean }) => {
-  const [text, setText] = useState(() => countryCodesText(value));
-  const [seen, setSeen] = useState(value);
-  if (value !== seen) {
-    setSeen(value);
-    setText(countryCodesText(value));
-  }
-  return <Input aria-label="Country codes" placeholder="1=CZ, 2=SK" value={text} disabled={disabled} onChange={(e) => setText(e.target.value)} onBlur={() => onChange(parseCountryCodes(text))} />;
+// The postcode → region list: the sheet and rows, and the columns of the postcode, region, country and place.
+const RegionListFields = ({ value: regions, onChange, preview, sheetOptions, disabled }: ListFieldsProps<interfaces.CollectionRegionTable>) => {
+  const columns = sheetColumnOptions(preview, regions.sheet, Math.max(1, regions.firstDataRow - 1), [regions.postcode, regions.region, regions.country, regions.place]);
+  const setRegions = (patch: Partial<interfaces.CollectionRegionTable>) => onChange({ ...regions, ...patch });
+  return (
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <Field label="Sheet">
+        <Select aria-label="Region list sheet" value={regions.sheet} disabled={disabled} options={sheetOptions} onChange={(v: string) => setRegions({ sheet: v })} />
+      </Field>
+      <Field label="First row">
+        <InputNumber aria-label="Region list first row" min={1} precision={0} value={regions.firstDataRow} disabled={disabled} onChange={(v) => v != null && setRegions({ firstDataRow: v })} className="!w-full" />
+      </Field>
+      <Field label="Last row">
+        <InputNumber aria-label="Region list last row" min={1} precision={0} placeholder="to the end" value={regions.lastDataRow} disabled={disabled} onChange={(v) => setRegions({ lastDataRow: v ?? null })} className="!w-full" />
+      </Field>
+      <Field label="Default country">
+        <Input aria-label="Region list default country" value={regions.defaultCountry} maxLength={2} disabled={disabled} onChange={(e) => setRegions({ defaultCountry: e.target.value.toUpperCase() })} />
+      </Field>
+      <Field label="Postcode column">
+        <Select aria-label="Postcode column" value={regions.postcode || undefined} placeholder="Column" disabled={disabled} options={columns} onChange={(v: string) => setRegions({ postcode: v })} />
+      </Field>
+      <Field label="Region column">
+        <Select aria-label="Region column" value={regions.region || undefined} placeholder="Column" disabled={disabled} options={columns} onChange={(v: string) => setRegions({ region: v })} />
+      </Field>
+      <Field label="Country column">
+        <Select aria-label="Country column" value={regions.country ?? NONE} disabled={disabled} options={[{ value: NONE, label: "None" }, ...columns]} onChange={(v: string) => setRegions({ country: v || null })} />
+      </Field>
+      <Field label="Place column">
+        <Select aria-label="Place column" value={regions.place ?? NONE} disabled={disabled} options={[{ value: NONE, label: "None" }, ...columns]} onChange={(v: string) => setRegions({ place: v || null })} />
+      </Field>
+      <Field label="Country codes" hint="What the country column holds, e.g. 1=CZ, 2=SK; empty when it holds country codes">
+        <TypedList
+          value={regions.countryCodes}
+          format={countryCodesText}
+          parse={parseCountryCodes}
+          onChange={(countryCodes) => setRegions({ countryCodes })}
+          label="Country codes"
+          placeholder="1=CZ, 2=SK"
+          disabled={disabled}
+        />
+      </Field>
+    </div>
+  );
+};
+
+// The distance list: the sheet and rows, and the columns of both regions and the km.
+const DistanceListFields = ({ value: distances, onChange, preview, sheetOptions, disabled }: ListFieldsProps<interfaces.CollectionDistanceTable>) => {
+  const columns = sheetColumnOptions(preview, distances.sheet, Math.max(1, distances.firstDataRow - 1), [distances.fromRegion, distances.toRegion, distances.km]);
+  const setDistances = (patch: Partial<interfaces.CollectionDistanceTable>) => onChange({ ...distances, ...patch });
+  return (
+    <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+      <Field label="Sheet">
+        <Select aria-label="Distance list sheet" value={distances.sheet} disabled={disabled} options={sheetOptions} onChange={(v: string) => setDistances({ sheet: v })} />
+      </Field>
+      <Field label="First row">
+        <InputNumber aria-label="Distance list first row" min={1} precision={0} value={distances.firstDataRow} disabled={disabled} onChange={(v) => v != null && setDistances({ firstDataRow: v })} className="!w-full" />
+      </Field>
+      <Field label="Last row">
+        <InputNumber aria-label="Distance list last row" min={1} precision={0} placeholder="to the end" value={distances.lastDataRow} disabled={disabled} onChange={(v) => setDistances({ lastDataRow: v ?? null })} className="!w-full" />
+      </Field>
+      <Field label="From region column">
+        <Select aria-label="From region column" value={distances.fromRegion || undefined} placeholder="Column" disabled={disabled} options={columns} onChange={(v: string) => setDistances({ fromRegion: v })} />
+      </Field>
+      <Field label="To region column">
+        <Select aria-label="To region column" value={distances.toRegion || undefined} placeholder="Column" disabled={disabled} options={columns} onChange={(v: string) => setDistances({ toRegion: v })} />
+      </Field>
+      <Field label="km column">
+        <Select aria-label="km column" value={distances.km || undefined} placeholder="Column" disabled={disabled} options={columns} onChange={(v: string) => setDistances({ km: v })} />
+      </Field>
+    </div>
+  );
+};
+
+// The postcode areas: the sheet and rows, and the columns of the postcodes, zone and country.
+const AreaListFields = ({ value: areas, onChange, preview, sheetOptions, disabled }: ListFieldsProps<interfaces.CollectionAreaTable>) => {
+  const columns = sheetColumnOptions(preview, areas.sheet, Math.max(1, areas.firstDataRow - 1), [areas.postcodeFrom, areas.postcodeTo, areas.zone, areas.country]);
+  const setAreas = (patch: Partial<interfaces.CollectionAreaTable>) => onChange({ ...areas, ...patch });
+  return (
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <Field label="Sheet">
+        <Select aria-label="Areas sheet" value={areas.sheet} disabled={disabled} options={sheetOptions} onChange={(v: string) => setAreas({ sheet: v })} />
+      </Field>
+      <Field label="First row">
+        <InputNumber aria-label="Areas first row" min={1} precision={0} value={areas.firstDataRow} disabled={disabled} onChange={(v) => v != null && setAreas({ firstDataRow: v })} className="!w-full" />
+      </Field>
+      <Field label="Last row">
+        <InputNumber aria-label="Areas last row" min={1} precision={0} placeholder="to the end" value={areas.lastDataRow} disabled={disabled} onChange={(v) => setAreas({ lastDataRow: v ?? null })} className="!w-full" />
+      </Field>
+      <Field label="Default country">
+        <Input aria-label="Areas default country" value={areas.defaultCountry} maxLength={2} disabled={disabled} onChange={(e) => setAreas({ defaultCountry: e.target.value.toUpperCase() })} />
+      </Field>
+      <Field label="Postcode (from) column" hint={'A postcode, or a prefix such as "1xxxx"'}>
+        <Select aria-label="Postcode from column" value={areas.postcodeFrom || undefined} placeholder="Column" disabled={disabled} options={columns} onChange={(v: string) => setAreas({ postcodeFrom: v })} />
+      </Field>
+      <Field label="Postcode to column">
+        <Select aria-label="Postcode to column" value={areas.postcodeTo ?? NONE} disabled={disabled} options={[{ value: NONE, label: "None" }, ...columns]} onChange={(v: string) => setAreas({ postcodeTo: v || null })} />
+      </Field>
+      <Field label="Zone column">
+        <Select aria-label="Zone column" value={areas.zone || undefined} placeholder="Column" disabled={disabled} options={columns} onChange={(v: string) => setAreas({ zone: v })} />
+      </Field>
+      <Field label="Country column">
+        <Select aria-label="Areas country column" value={areas.country ?? NONE} disabled={disabled} options={[{ value: NONE, label: "None" }, ...columns]} onChange={(v: string) => setAreas({ country: v || null })} />
+      </Field>
+    </div>
+  );
 };
 
 interface CollectionVersionLayoutFormProps {
@@ -80,12 +163,8 @@ export const CollectionVersionLayoutForm = ({ form, onChange, preview, disabled 
         <Field label="Currency">
           <Input aria-label="Currency" value={form.currency} maxLength={3} disabled={disabled} onChange={(e) => set("currency", e.target.value.toUpperCase())} />
         </Field>
-        <Field label="Valid from">
-          <DatePicker aria-label="Valid from" value={toDay(form.validFrom)} format="DD.MM.YYYY" disabled={disabled} onChange={(d) => set("validFrom", fromDay(d))} className="!w-full" />
-        </Field>
-        <Field label="Valid to">
-          <DatePicker aria-label="Valid to" value={toDay(form.validTo)} format="DD.MM.YYYY" disabled={disabled} onChange={(d) => set("validTo", fromDay(d))} className="!w-full" />
-        </Field>
+        <DayField label="Valid from" value={form.validFrom} disabled={disabled} onChange={(v) => set("validFrom", v)} />
+        <DayField label="Valid to" value={form.validTo} disabled={disabled} onChange={(v) => set("validTo", v)} />
         <Field label="Price column found">
           <Select
             aria-label="Price column found"
@@ -108,7 +187,7 @@ export const CollectionVersionLayoutForm = ({ form, onChange, preview, disabled 
 
       <SubTitle>Price tables</SubTitle>
       {form.matrices.map((m, i) => {
-        const columns = letterOptions(preview, m.sheet, m.headerRow, [m.weightTo, m.volumeTo, ...m.zones.map((z) => z.column)]);
+        const columns = sheetColumnOptions(preview, m.sheet, m.headerRow, [m.weightTo, m.volumeTo, ...m.zones.map((z) => z.column)]);
         return (
           <div key={i} className="rounded-lg border border-slate-200 p-3 flex flex-col gap-3">
             <div className="grid grid-cols-2 lg:grid-cols-[1.4fr_80px_1.4fr_repeat(3,110px)_32px] gap-3 items-end">
@@ -208,111 +287,21 @@ export const CollectionVersionLayoutForm = ({ form, onChange, preview, disabled 
       {byDistance && regions && (
         <>
           <SubTitle>Postcode → region list</SubTitle>
-          {(() => {
-            const columns = letterOptions(preview, regions.sheet, Math.max(1, regions.firstDataRow - 1), [regions.postcode, regions.region, regions.country, regions.place]);
-            const setRegions = (patch: Partial<interfaces.CollectionRegionTable>) => set("regions", { ...regions, ...patch });
-            return (
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                <Field label="Sheet">
-                  <Select aria-label="Region list sheet" value={regions.sheet} disabled={disabled} options={sheetOptions} onChange={(v: string) => setRegions({ sheet: v })} />
-                </Field>
-                <Field label="First row">
-                  <InputNumber aria-label="Region list first row" min={1} precision={0} value={regions.firstDataRow} disabled={disabled} onChange={(v) => v != null && setRegions({ firstDataRow: v })} className="!w-full" />
-                </Field>
-                <Field label="Last row">
-                  <InputNumber aria-label="Region list last row" min={1} precision={0} placeholder="to the end" value={regions.lastDataRow} disabled={disabled} onChange={(v) => setRegions({ lastDataRow: v ?? null })} className="!w-full" />
-                </Field>
-                <Field label="Default country">
-                  <Input aria-label="Region list default country" value={regions.defaultCountry} maxLength={2} disabled={disabled} onChange={(e) => setRegions({ defaultCountry: e.target.value.toUpperCase() })} />
-                </Field>
-                <Field label="Postcode column">
-                  <Select aria-label="Postcode column" value={regions.postcode || undefined} placeholder="Column" disabled={disabled} options={columns} onChange={(v: string) => setRegions({ postcode: v })} />
-                </Field>
-                <Field label="Region column">
-                  <Select aria-label="Region column" value={regions.region || undefined} placeholder="Column" disabled={disabled} options={columns} onChange={(v: string) => setRegions({ region: v })} />
-                </Field>
-                <Field label="Country column">
-                  <Select aria-label="Country column" value={regions.country ?? NONE} disabled={disabled} options={[{ value: NONE, label: "None" }, ...columns]} onChange={(v: string) => setRegions({ country: v || null })} />
-                </Field>
-                <Field label="Place column">
-                  <Select aria-label="Place column" value={regions.place ?? NONE} disabled={disabled} options={[{ value: NONE, label: "None" }, ...columns]} onChange={(v: string) => setRegions({ place: v || null })} />
-                </Field>
-                <Field label="Country codes" hint="What the country column holds, e.g. 1=CZ, 2=SK; empty when it holds country codes">
-                  <CountryCodesInput value={regions.countryCodes} disabled={disabled} onChange={(countryCodes) => setRegions({ countryCodes })} />
-                </Field>
-              </div>
-            );
-          })()}
+          <RegionListFields value={regions} onChange={(value) => set("regions", value)} preview={preview} sheetOptions={sheetOptions} disabled={disabled} />
         </>
       )}
 
       {byDistance && distances && (
         <>
           <SubTitle>Distance list</SubTitle>
-          {(() => {
-            const columns = letterOptions(preview, distances.sheet, Math.max(1, distances.firstDataRow - 1), [distances.fromRegion, distances.toRegion, distances.km]);
-            const setDistances = (patch: Partial<interfaces.CollectionDistanceTable>) => set("distances", { ...distances, ...patch });
-            return (
-              <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-                <Field label="Sheet">
-                  <Select aria-label="Distance list sheet" value={distances.sheet} disabled={disabled} options={sheetOptions} onChange={(v: string) => setDistances({ sheet: v })} />
-                </Field>
-                <Field label="First row">
-                  <InputNumber aria-label="Distance list first row" min={1} precision={0} value={distances.firstDataRow} disabled={disabled} onChange={(v) => v != null && setDistances({ firstDataRow: v })} className="!w-full" />
-                </Field>
-                <Field label="Last row">
-                  <InputNumber aria-label="Distance list last row" min={1} precision={0} placeholder="to the end" value={distances.lastDataRow} disabled={disabled} onChange={(v) => setDistances({ lastDataRow: v ?? null })} className="!w-full" />
-                </Field>
-                <Field label="From region column">
-                  <Select aria-label="From region column" value={distances.fromRegion || undefined} placeholder="Column" disabled={disabled} options={columns} onChange={(v: string) => setDistances({ fromRegion: v })} />
-                </Field>
-                <Field label="To region column">
-                  <Select aria-label="To region column" value={distances.toRegion || undefined} placeholder="Column" disabled={disabled} options={columns} onChange={(v: string) => setDistances({ toRegion: v })} />
-                </Field>
-                <Field label="km column">
-                  <Select aria-label="km column" value={distances.km || undefined} placeholder="Column" disabled={disabled} options={columns} onChange={(v: string) => setDistances({ km: v })} />
-                </Field>
-              </div>
-            );
-          })()}
+          <DistanceListFields value={distances} onChange={(value) => set("distances", value)} preview={preview} sheetOptions={sheetOptions} disabled={disabled} />
         </>
       )}
 
       {!byDistance && areas && (
         <>
           <SubTitle>Postcode areas</SubTitle>
-          {(() => {
-            const columns = letterOptions(preview, areas.sheet, Math.max(1, areas.firstDataRow - 1), [areas.postcodeFrom, areas.postcodeTo, areas.zone, areas.country]);
-            const setAreas = (patch: Partial<interfaces.CollectionAreaTable>) => set("areas", { ...areas, ...patch });
-            return (
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                <Field label="Sheet">
-                  <Select aria-label="Areas sheet" value={areas.sheet} disabled={disabled} options={sheetOptions} onChange={(v: string) => setAreas({ sheet: v })} />
-                </Field>
-                <Field label="First row">
-                  <InputNumber aria-label="Areas first row" min={1} precision={0} value={areas.firstDataRow} disabled={disabled} onChange={(v) => v != null && setAreas({ firstDataRow: v })} className="!w-full" />
-                </Field>
-                <Field label="Last row">
-                  <InputNumber aria-label="Areas last row" min={1} precision={0} placeholder="to the end" value={areas.lastDataRow} disabled={disabled} onChange={(v) => setAreas({ lastDataRow: v ?? null })} className="!w-full" />
-                </Field>
-                <Field label="Default country">
-                  <Input aria-label="Areas default country" value={areas.defaultCountry} maxLength={2} disabled={disabled} onChange={(e) => setAreas({ defaultCountry: e.target.value.toUpperCase() })} />
-                </Field>
-                <Field label="Postcode (from) column" hint={'A postcode, or a prefix such as "1xxxx"'}>
-                  <Select aria-label="Postcode from column" value={areas.postcodeFrom || undefined} placeholder="Column" disabled={disabled} options={columns} onChange={(v: string) => setAreas({ postcodeFrom: v })} />
-                </Field>
-                <Field label="Postcode to column">
-                  <Select aria-label="Postcode to column" value={areas.postcodeTo ?? NONE} disabled={disabled} options={[{ value: NONE, label: "None" }, ...columns]} onChange={(v: string) => setAreas({ postcodeTo: v || null })} />
-                </Field>
-                <Field label="Zone column">
-                  <Select aria-label="Zone column" value={areas.zone || undefined} placeholder="Column" disabled={disabled} options={columns} onChange={(v: string) => setAreas({ zone: v })} />
-                </Field>
-                <Field label="Country column">
-                  <Select aria-label="Areas country column" value={areas.country ?? NONE} disabled={disabled} options={[{ value: NONE, label: "None" }, ...columns]} onChange={(v: string) => setAreas({ country: v || null })} />
-                </Field>
-              </div>
-            );
-          })()}
+          <AreaListFields value={areas} onChange={(value) => set("areas", value)} preview={preview} sheetOptions={sheetOptions} disabled={disabled} />
         </>
       )}
 
@@ -347,16 +336,7 @@ export const CollectionVersionLayoutForm = ({ form, onChange, preview, disabled 
         </div>
       </div>
 
-      <Field label="Conditions" hint="One per line: what the prices include, delivery times and the tariff's terms.">
-        <Input.TextArea
-          aria-label="Conditions"
-          autoSize={{ minRows: 3, maxRows: 10 }}
-          value={form.conditions.join("\n")}
-          disabled={disabled}
-          // Lines are kept as typed (an empty one too, so Enter starts a new line); empty ones are dropped when sent.
-          onChange={(e) => set("conditions", e.target.value.split("\n"))}
-        />
-      </Field>
+      <ConditionsField value={form.conditions} onChange={(v) => set("conditions", v)} hint="One per line: what the prices include, delivery times and the tariff's terms." disabled={disabled} />
     </div>
   );
 };

@@ -1,6 +1,7 @@
 import { containerLengthFt, containerTareKg } from "../../../lib/containerTares";
 import type { RailBand, RailOfferContainer, RailOfferLine, RailPricedContainer } from "../interfaces/interfaces";
 import { bandCode } from "./railConvert";
+import { roundCents } from "./money";
 
 // What a rail tariff row asks for a quote's containers: each container line is priced by the
 // lightest weight band of its length that its gross weight (cargo + tare) fits and the row has a
@@ -11,7 +12,7 @@ import { bandCode } from "./railConvert";
  * high cubes and 45' boxes go for the 40' price). Open tops and flat racks need nothing: they go
  * for the price of their length (3.17).
  */
-export const tariffLengthFt = (lengthFt: number | null): number | null => (lengthFt === 45 ? 40 : lengthFt);
+const tariffLengthFt = (lengthFt: number | null): number | null => (lengthFt === 45 ? 40 : lengthFt);
 
 /** The containers as the tariffs count them: tare added to the cargo, length as priced. */
 export function pricedContainers(containers: RailOfferContainer[]): RailPricedContainer[] {
@@ -65,8 +66,6 @@ export function rowOffer(bands: RailBand[], prices: Record<string, number>, cont
   }
   return { ok: true, lines, total: roundCents(lines.reduce((sum, l) => sum + l.amount, 0)) };
 }
-
-const roundCents = (n: number) => Math.round(n * 100) / 100;
 
 /** What a typed place is looked for by: a 5-digit postcode in it ("602 00", "Brno 60200"), else its name. */
 export function placeQuery(text: string): { postcode: string } | { name: string } | null {

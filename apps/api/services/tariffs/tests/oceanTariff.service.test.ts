@@ -28,7 +28,7 @@ vi.mock("../repositories/tariff.repository", () => ({
 import { auth, customers } from "~encore/clients";
 import type { OceanData, OceanLayout, OceanPlace } from "../interfaces/interfaces";
 import { tariffRepository, type OceanRateWithPorts } from "../repositories/tariff.repository";
-import type { TariffRecord, TariffVersionRecord } from "../schemas/tariff.schema";
+import type { OceanPortRecord, TariffRecord, TariffVersionRecord } from "../schemas/tariff.schema";
 import { readOceanLayout } from "../services/oceanLayoutReader.service";
 import { oceanTariffService } from "../services/oceanTariff.service";
 
@@ -83,6 +83,18 @@ const upload = (extra: Partial<Parameters<typeof oceanTariffService.upload>[1]> 
 
 const version = (over: Partial<TariffVersionRecord> = {}): TariffVersionRecord =>
   ({ id: VERSION_ID, tariffId: TARIFF_ID, versionNo: 1, status: "draft", validFrom: "2026-05-01", validTo: "2026-05-31", currency: "USD", layout: LAYOUT, findings: [], preview: [], createdAt: new Date(), ...over }) as TariffVersionRecord;
+const port = (over: Partial<OceanPortRecord> = {}): OceanPortRecord => ({
+  id: "77777777-7777-4777-8777-777777777777",
+  companyId: COMPANY,
+  versionId: VERSION_ID,
+  side: "pod",
+  name: "Fuzhou",
+  countryHint: null,
+  code: "CNFOC",
+  status: "manual",
+  candidates: [],
+  ...over,
+});
 const tariff = (over: Partial<TariffRecord> = {}): TariffRecord =>
   ({ id: TARIFF_ID, companyId: COMPANY, supplierCustomerId: OOCL.id, mode: "ocean", name: "OOCL Export FAK", ports: [], directions: ["export"], freightModes: [], layout: null, ...over }) as TariffRecord;
 
@@ -127,6 +139,7 @@ describe("upload", () => {
     repo.get.mockResolvedValue(tariff());
     repo.oceanPicks.mockResolvedValue([{ side: "pod", name: "Fuzhou", code: "CNFOC", status: "manual" }]);
     await upload({ tariffId: TARIFF_ID });
+    expect(repo.oceanPicks).toHaveBeenCalledWith(COMPANY, TARIFF_ID);
     const { ports } = repo.createDraft.mock.calls[0]![3] as OceanData;
     expect(ports.find((p) => p.name === "Fuzhou")).toMatchObject({ code: "CNFOC", status: "manual" });
   });
@@ -141,20 +154,43 @@ describe("upload", () => {
 
 describe("ports and approval", () => {
   it("sets a port a user picked, when the place list has it, and recounts what is left", async () => {
-    repo.setOceanPort.mockResolvedValue({ side: "pod", name: "Fuzhou", code: "CNFOC", status: "manual" } as never);
+    repo.setOceanPort.mockResolvedValue({ ok: true, port: port() });
     repo.getVersion.mockResolvedValue(version({ findings: [{ level: "warning", code: "ports_pending", message: "1", count: 1, rows: [] }] }));
     await oceanTariffService.setPort(COMPANY, VERSION_ID, { side: "pod", name: "Fuzhou", code: "cnfoc" });
-    expect(repo.setOceanPort).toHaveBeenCalledWith(VERSION_ID, "pod", "Fuzhou", "CNFOC");
+    expect(repo.setOceanPort).toHaveBeenCalledWith(COMPANY, VERSION_ID, "pod", "Fuzhou", "CNFOC");
+    expect(repo.pendingOceanPorts).toHaveBeenCalledWith(COMPANY, VERSION_ID);
+    expect(repo.oceanPorts).toHaveBeenCalledWith(COMPANY, VERSION_ID);
     expect(repo.replaceFindings).toHaveBeenCalledWith(COMPANY, VERSION_ID, [], { errors: 0, warnings: 0 });
     await expect(oceanTariffService.setPort(COMPANY, VERSION_ID, { side: "pod", name: "Fuzhou", code: "XXXXX" })).rejects.toMatchObject({ code: "invalid_argument" });
   });
 
+  it("refuses a code that is no UN/LOCODE without asking the place list", async () => {
+    placeLookup.mockClear();
+    await expect(oceanTariffService.setPort(COMPANY, VERSION_ID, { side: "pod", name: "Fuzhou", code: "Fuzhou" })).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(placeLookup).not.toHaveBeenCalled();
+    expect(repo.setOceanPort).not.toHaveBeenCalled();
+  });
+
   it("leaves a port out with no code, but only on a draft", async () => {
-    repo.setOceanPort.mockResolvedValue({} as never);
+    repo.setOceanPort.mockResolvedValue({ ok: true, port: port({ code: null, status: "skipped" }) });
     await oceanTariffService.setPort(COMPANY, VERSION_ID, { side: "pod", name: "Fuzhou", code: null });
-    expect(repo.setOceanPort).toHaveBeenCalledWith(VERSION_ID, "pod", "Fuzhou", null);
+    expect(repo.setOceanPort).toHaveBeenCalledWith(COMPANY, VERSION_ID, "pod", "Fuzhou", null);
     repo.getVersion.mockResolvedValue(version({ status: "active" }));
     await expect(oceanTariffService.setPort(COMPANY, VERSION_ID, { side: "pod", name: "Fuzhou", code: null })).rejects.toMatchObject({ code: "failed_precondition" });
+  });
+
+  it("says whether the draft was approved or thrown away meanwhile, or has no such port name", async () => {
+    repo.setOceanPort.mockResolvedValue({ ok: false, reason: "not_draft" });
+    await expect(oceanTariffService.setPort(COMPANY, VERSION_ID, { side: "pod", name: "Fuzhou", code: null })).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: "Only a draft's ports can be changed",
+    });
+    repo.setOceanPort.mockResolvedValue({ ok: false, reason: "no_such_name" });
+    await expect(oceanTariffService.setPort(COMPANY, VERSION_ID, { side: "pod", name: "Nowhere", code: null })).rejects.toMatchObject({
+      code: "not_found",
+      message: "This version has no such port name",
+    });
+    expect(repo.replaceFindings).not.toHaveBeenCalled();
   });
 
   it("waits with approval while a port is still to pick", async () => {
@@ -183,7 +219,7 @@ describe("offers", () => {
   it("prices every rate on the route with its surcharges, cheapest first", async () => {
     const result = await ask();
     expect(repo.oceanCandidates).toHaveBeenCalledWith(COMPANY, "export", "2026-05-15");
-    expect(repo.oceanRoute).toHaveBeenCalledWith([VERSION_ID], "CNSHA", "DEHAM");
+    expect(repo.oceanRoute).toHaveBeenCalledWith(COMPANY, [VERSION_ID], "CNSHA", "DEHAM");
     expect(result.offers.map((o) => [o.rateId, o.freight, o.surcharges.map((s) => [s.code, s.total]), o.totals])).toEqual([
       ["cheap", 50, [["EBS", 280]], [{ currency: "USD", amount: 330 }]],
       ["dear", 800, [["EBS", 280]], [{ currency: "USD", amount: 1080 }]],
@@ -197,7 +233,7 @@ describe("offers", () => {
 
   it("asks every port of loading when compared, and names the containers the tariffs do not price", async () => {
     const result = await ask({ comparePols: true, containers: [{ type: "40' DC", qty: 1 }, { type: "40' FR", qty: 1 }] });
-    expect(repo.oceanRoute).toHaveBeenCalledWith([VERSION_ID], "CNSHA", null);
+    expect(repo.oceanRoute).toHaveBeenCalledWith(COMPANY, [VERSION_ID], "CNSHA", null);
     expect(result.notes[0]).toContain("40' FR is not in the shipping lines' tariffs");
   });
 
@@ -205,5 +241,6 @@ describe("offers", () => {
     await expect(ask({ podCode: "Shanghai" })).rejects.toMatchObject({ code: "invalid_argument" });
     await expect(ask({ date: "2026-02-30" })).rejects.toMatchObject({ code: "invalid_argument" });
     await expect(ask({ containers: [] })).rejects.toMatchObject({ code: "invalid_argument" });
+    await expect(ask({ containers: Array.from({ length: 21 }, () => ({ type: "40' DC", qty: 1 })) })).rejects.toMatchObject({ code: "invalid_argument", message: expect.stringContaining("20") });
   });
 });

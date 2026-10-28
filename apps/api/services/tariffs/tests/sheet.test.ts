@@ -3,7 +3,8 @@ import ExcelJS from "exceljs";
 
 vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
 
-import { cellText, columnIndex, columnLetter, readSheets, sheetExcerpt, sheetPreview, type Sheet } from "../lib/sheet";
+import { MAX_UNPACKED_BYTES, cellText, columnIndex, columnLetter, readSheets, sheetExcerpt, sheetPreview, type Sheet } from "../lib/sheet";
+import { zipUnpackedBytes } from "../../../lib/zipSize";
 
 async function workbookBuffer(): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
@@ -80,6 +81,23 @@ describe("readSheets", () => {
     expect(comma!.rows.get(2)).toEqual({ A: 'Brno "CFS"', B: "781" });
   });
 
+  it("refuses an old .xls saved as .xlsx and a file that is no workbook, saying what to do", async () => {
+    const xls = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1, 0, 0, 0, 0]);
+    await expect(readSheets(xls, "tariff.xlsx")).rejects.toMatchObject({ code: "invalid_argument", message: expect.stringContaining("97–2003") });
+    await expect(readSheets(Buffer.from("not a zip at all"), "tariff.xlsx")).rejects.toMatchObject({ code: "invalid_argument", message: expect.stringContaining(".xlsx") });
+  });
+
+  it("refuses a workbook whose zip directory declares far more than a tariff unpacks to, before unpacking it", async () => {
+    const buffer = await workbookBuffer();
+    expect(zipUnpackedBytes(buffer, 5000)).toBeGreaterThan(0);
+    expect(zipUnpackedBytes(buffer, 5000)).toBeLessThan(MAX_UNPACKED_BYTES);
+    // Declare one part's unpacked size as 2 GB in the central directory, as a zip bomb does.
+    const bomb = Buffer.from(buffer);
+    const eocd = bomb.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+    bomb.writeUInt32LE(0x80000000, bomb.readUInt32LE(eocd + 16) + 24);
+    await expect(readSheets(bomb, "tariff.xlsx")).rejects.toMatchObject({ code: "invalid_argument", message: expect.stringContaining("100 MB") });
+  });
+
   it("refuses other files, naming what to upload instead", async () => {
     await expect(readSheets(Buffer.from(""), "tariff.xls")).rejects.toMatchObject({ code: "invalid_argument", message: expect.stringContaining(".xlsx") });
     await expect(readSheets(Buffer.from(""), "tariff.pdf")).rejects.toMatchObject({ code: "invalid_argument" });
@@ -141,5 +159,14 @@ describe("sheetExcerpt", () => {
   it("cuts very long cells", () => {
     const sheet: Sheet = { name: "S", rowCount: 1, rows: new Map([[1, { A: "x".repeat(300) }]]), links: [] };
     expect(sheetExcerpt(sheet).split("\n")[1]).toBe(`R1: A=${"x".repeat(200)}…`);
+  });
+
+  it("shows the AI at most 60 cells of a row, and the preview at most 100, each cut short", () => {
+    const wide = Object.fromEntries(Array.from({ length: 150 }, (_, i) => [columnLetter(i + 1), "y".repeat(600)]));
+    const sheet: Sheet = { name: "Wide", rowCount: 1, rows: new Map([[1, wide]]), links: [] };
+    expect(sheetExcerpt(sheet).split("\n")[1]!.split(" | ")).toHaveLength(60);
+    const cells = sheetPreview(sheet).rows[0]!.cells;
+    expect(Object.keys(cells)).toHaveLength(100);
+    expect(cells.A).toBe(`${"y".repeat(500)}…`);
   });
 });

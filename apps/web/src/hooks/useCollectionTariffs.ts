@@ -1,15 +1,15 @@
 "use client";
 
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { controllers, interfaces, services } from "@/lib/api/client";
+import type { controllers, interfaces } from "@/lib/api/client";
+import { useSupplierTariffCache, useSupplierTariffOffers } from "./useSupplierTariffs";
 
 // First / last mile hauliers' tariffs (Tariffs → Last / First Mile Collections): the hauliers, their
 // tariffs and versions, one version's layout, findings and tables, our hubs, a manager's actions on
 // a draft, and the offers Sales asks for on an LCL or air quote.
 
 export type CollectionHaulierItem = interfaces.CollectionHaulierItem;
-export type CollectionHaulierDetail = services.CollectionHaulierDetail;
 export type CollectionTariffItem = interfaces.CollectionTariffItem;
 export type CollectionTariffVersionDetail = interfaces.CollectionTariffVersionDetail;
 export type CollectionLayout = interfaces.CollectionLayout;
@@ -17,7 +17,6 @@ export type CollectionHub = interfaces.CollectionHub;
 export type CollectionFreightMode = interfaces.CollectionFreightMode;
 export type CollectionTry = interfaces.CollectionTry;
 export type CollectionOffer = interfaces.CollectionOffer;
-export type CollectionOffersResult = services.CollectionOffersResult;
 export type CollectionUpload = controllers.CollectionUploadRequest;
 export type CollectionOffersRequest = controllers.CollectionOffersRequest;
 /** A version tried between two postcodes, with the version's id */
@@ -31,7 +30,7 @@ export const collectionTariffKeys = {
   haulier: (customerId: string) => [...collectionTariffKeys.all, "haulier", customerId] as const,
   version: (id: string) => [...collectionTariffKeys.all, "version", id] as const,
   hubs: () => [...collectionTariffKeys.all, "hubs"] as const,
-  offers: (req: CollectionOffersRequest) => [...collectionTariffKeys.all, "offers", req] as const,
+  offers: (req: CollectionOffersRequest | null) => [...collectionTariffKeys.all, "offers", req] as const,
 };
 
 export const useCollectionHauliers = () => {
@@ -49,37 +48,22 @@ export const useCollectionTariffVersion = (id: string) => {
   return { version: query.data ?? null, isLoading: query.isLoading, error: query.error };
 };
 
-/** Our hubs, one per freight mode that has one. */
-export const useCollectionHubs = () => {
-  const query = useQuery({ queryKey: collectionTariffKeys.hubs(), queryFn: () => api.tariffs.collectionHubList().then((r) => r.hubs) });
+/** Our hubs, one per freight mode that has one. With `enabled: false` nothing is asked (a quote that has no collection to price). */
+export const useCollectionHubs = ({ enabled = true } = {}) => {
+  const query = useQuery({ queryKey: collectionTariffKeys.hubs(), queryFn: () => api.tariffs.collectionHubList().then((r) => r.hubs), enabled });
   return { hubs: query.data ?? [], isLoading: query.isLoading, error: query.error };
 };
 
 // Every haulier's price for a consignment (Sales → Pricing): nothing is asked while `req` is null.
-// The last answer stays shown while a changed consignment is asked again.
-export const useCollectionOffers = (req: CollectionOffersRequest | null) => {
-  const query = useQuery({
-    queryKey: collectionTariffKeys.offers(req!),
-    queryFn: () => api.tariffs.collectionOffers(req!),
-    enabled: req !== null,
-    placeholderData: keepPreviousData,
-  });
-  return { result: req ? (query.data ?? null) : null, isLoading: query.isLoading, isFetching: query.isFetching, error: query.error };
-};
+export const useCollectionOffers = (req: CollectionOffersRequest | null) =>
+  useSupplierTariffOffers(collectionTariffKeys.offers(req), api.tariffs.collectionOffers, req);
 
 /** The file a version was read from. */
 export const fetchCollectionTariffSource = (id: string) => api.tariffs.collectionVersionSource(id).then((r) => r.file);
 
-// The manager's actions. Each one refreshes every collections query: a version's change shows on
-// its haulier's page and in the hauliers list too.
+// The manager's actions. Each one refreshes every collections query (useSupplierTariffCache).
 export const useCollectionTariffActions = () => {
-  const queryClient = useQueryClient();
-  const refresh = () => queryClient.invalidateQueries({ queryKey: collectionTariffKeys.all });
-  const keep = (version: CollectionTariffVersionDetail) => {
-    queryClient.setQueryData(collectionTariffKeys.version(version.id), version);
-    void refresh();
-    return version;
-  };
+  const { refresh, keep } = useSupplierTariffCache<CollectionTariffVersionDetail>(collectionTariffKeys.all, collectionTariffKeys.version);
 
   const upload = useMutation({ mutationFn: (req: CollectionUpload) => api.tariffs.collectionUpload(req).then((r) => keep(r.version)) });
   const relayout = useMutation({

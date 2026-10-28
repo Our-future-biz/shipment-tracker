@@ -11,10 +11,11 @@ interface RailOffersRequest {
   /** The inland place: a text with a postcode in it ("602 00", an address), or a town's name */
   place: string & MaxLen<300>;
   /** ISO 3166-1 alpha-2 of the inland place; CZ when left out */
-  country?: string;
+  country?: string & MaxLen<10>;
   /** YYYY-MM-DD the prices must be valid on */
-  date: string;
-  containers: RailOfferContainer[];
+  date: string & MaxLen<10>;
+  /** At most 20 lines */
+  containers: RailOfferContainer[] & MaxLen<20>;
 }
 
 // What the rail tariffs ask for a quote's containers on its route, cheapest first (Sales →

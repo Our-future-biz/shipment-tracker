@@ -72,10 +72,10 @@ describe("roles", () => {
     repository.findByIco.mockResolvedValue(null);
     ares.lookup.mockResolvedValue({ ico: "12345678", registrationDate: "" } as never);
     repository.createWithContact.mockResolvedValue(customerRow());
-    await customerService.createFromAres(COMPANY, "12345678", CONTACT);
+    await customerService.createFromAres(COMPANY, "user", "12345678", CONTACT);
     expect(repository.createWithContact).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ roles: ["customer"] }), expect.anything(), expect.anything());
 
-    await customerService.createFromAres(COMPANY, "12345678", CONTACT, ["haulier"]);
+    await customerService.createFromAres(COMPANY, "manager", "12345678", CONTACT, ["haulier"]);
     expect(repository.createWithContact).toHaveBeenLastCalledWith(COMPANY, expect.objectContaining({ roles: ["haulier"] }), expect.anything(), expect.anything());
   });
 
@@ -85,9 +85,9 @@ describe("roles", () => {
     expect(repository.updateForCompany).toHaveBeenCalledWith("customer-1", COMPANY, { roles: ["haulier", "customer"] });
   });
 
-  it("can't be emptied: a company is always at least a customer or a haulier", async () => {
+  it("can't be emptied: a company always has at least one role", async () => {
     await expect(customerService.update("customer-1", COMPANY, "manager", { roles: [] })).rejects.toMatchObject({ code: "invalid_argument" });
-    await expect(customerService.createFromAres(COMPANY, "12345678", CONTACT, [])).rejects.toMatchObject({ code: "invalid_argument" });
+    await expect(customerService.createFromAres(COMPANY, "manager", "12345678", CONTACT, [])).rejects.toMatchObject({ code: "invalid_argument" });
     expect(repository.updateForCompany).not.toHaveBeenCalled();
     expect(repository.createWithContact).not.toHaveBeenCalled();
   });
@@ -105,6 +105,20 @@ describe("roles", () => {
     expect(() => assertMayGiveRoles("user", ["first_last_mile_haulier"])).toThrow(expect.objectContaining({ code: "permission_denied" }));
     expect(() => assertMayGiveRoles("manager", ["customer", "first_last_mile_haulier"])).not.toThrow();
     expect(() => assertMayGiveRoles("user", ["shipping_line"])).toThrow(expect.objectContaining({ code: "permission_denied" }));
+    expect(() => assertMayGiveRoles("user", ["haulier"])).toThrow(expect.objectContaining({ code: "permission_denied" }));
+  });
+
+  it("with a supplier role are refused to a plain user on either create, before the registry or the database is asked", async () => {
+    await expect(customerService.createFromAres(COMPANY, "user", "12345678", CONTACT, ["customer", "rail_operator"])).rejects.toMatchObject({ code: "permission_denied" });
+    const manual = { country: "DE", companyName: "Hapag-Lloyd AG", street: "Ballindamm 25", city: "Hamburg", postalCode: "20095", contact: CONTACT };
+    await expect(customerService.createManual(COMPANY, "user", { ...manual, roles: ["shipping_line"] })).rejects.toMatchObject({ code: "permission_denied" });
+    expect(ares.lookup).not.toHaveBeenCalled();
+    expect(repository.findByIco).not.toHaveBeenCalled();
+    expect(repository.createWithContact).not.toHaveBeenCalled();
+
+    repository.createWithContact.mockResolvedValue(customerRow({ roles: ["shipping_line"] }));
+    await customerService.createManual(COMPANY, "manager", { ...manual, roles: ["shipping_line"] });
+    expect(repository.createWithContact).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ roles: ["shipping_line"] }), expect.anything(), expect.anything());
   });
 
   it("list the companies with a role, asking only for ids that can be customers", async () => {
@@ -115,6 +129,7 @@ describe("roles", () => {
     expect(repository.listWithRole).toHaveBeenLastCalledWith(COMPANY, "rail_operator", ["6f1c2b9e-1d3a-4c5b-8e7f-0a1b2c3d4e5f"]);
     repository.listWithRole.mockClear();
     await expect(customerService.listWithRole(COMPANY, "rail_operator", ["not-a-uuid"])).resolves.toEqual([]);
+    await expect(customerService.listWithRole(COMPANY, "haulier", [])).resolves.toEqual([]);
     expect(repository.listWithRole).not.toHaveBeenCalled();
   });
 

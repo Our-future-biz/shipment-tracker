@@ -1,7 +1,8 @@
-import type { controllers, interfaces, services } from "@/lib/api/client";
+import type { controllers, interfaces } from "@/lib/api/client";
 import { containerType } from "@/lib/cargo";
-import { chargeLabel, toChargeCode } from "@/lib/chargeCodes";
-import { cargoReadyDay, isContainerQuote, quoteContainerCount, withRate } from "./salesQuote";
+import { chargeLabel } from "@/lib/chargeCodes";
+import { cargoReadyDay, isContainerQuote } from "./salesQuote";
+import { containerFreightLines, hasTariffRef, isChargeLine, tariffRefVersionId, withTariffLines, type ToQuoteCurrency, type TariffPick } from "./tariffQuote";
 import type { CostLine, SalesQuoteData } from "./types";
 
 // Pure helpers of shipping lines' ocean tariffs on a quote (Pricing → "Tariffs available" on the
@@ -10,24 +11,20 @@ import type { CostLine, SalesQuoteData } from "./types";
 // becomes - the freight, and a line per surcharge.
 
 export type OceanOffer = interfaces.OceanOffer;
-export type OceanOffersResult = services.OceanOffersResult;
 
 /** The charge a line has to be for the ocean tariffs to be offered on it. */
-export const OCEAN_FREIGHT = "ocean_freight";
+const OCEAN_FREIGHT = "ocean_freight";
 
 /** The prefix of the tariffRef of every line priced from an ocean tariff: "ocean:<versionId>:<rateId>". */
-export const OCEAN_REF_PREFIX = "ocean:";
+const OCEAN_REF_PREFIX = "ocean:";
 
-export const isOceanLine = (line: Pick<CostLine, "tariffRef">) => !!line.tariffRef?.startsWith(OCEAN_REF_PREFIX);
+export const isOceanLine = (line: Pick<CostLine, "tariffRef">) => hasTariffRef(line, OCEAN_REF_PREFIX);
 
 /** The tariff version an ocean line was priced from, or null for any other line. */
-export function oceanVersionId(line: Pick<CostLine, "tariffRef">): string | null {
-  if (!isOceanLine(line)) return null;
-  return line.tariffRef!.slice(OCEAN_REF_PREFIX.length).split(":")[0] || null;
-}
+export const oceanVersionId = (line: Pick<CostLine, "tariffRef">) => tariffRefVersionId(line, OCEAN_REF_PREFIX);
 
 /** Whether a line is ocean freight, which the shipping lines' tariffs can price. */
-export const isOceanFreightLine = (line: Pick<CostLine, "chargeCode" | "type">) => (line.chargeCode || toChargeCode(line.type)) === OCEAN_FREIGHT;
+export const isOceanFreightLine = (line: Pick<CostLine, "chargeCode" | "type">) => isChargeLine(line, OCEAN_FREIGHT);
 
 /** What the ocean tariffs are asked for: the direction, the two ports, the day, the containers. */
 export interface OceanRoute {
@@ -125,7 +122,7 @@ const SURCHARGE_UNIT: Record<interfaces.OceanSurchargeBasis, string> = { teu: "T
 const MAPPED_CHARGES = new Set<string>(["fcl_baf", "ams_ens", "fcl_documentation"]);
 
 /** The buying line a surcharge of an offer becomes: a lump sum of units × rate, on its own charge where the quote has one. */
-export function oceanSurchargeLine(s: interfaces.OceanOfferSurcharge, offer: OceanOffer, tariffRef: string): CostLine {
+function oceanSurchargeLine(s: interfaces.OceanOfferSurcharge, offer: OceanOffer, tariffRef: string): CostLine {
   const code = MAPPED_CHARGES.has(s.charge) ? s.charge : "other";
   return {
     type: chargeLabel(code),
@@ -145,45 +142,20 @@ export function oceanSurchargeLine(s: interfaces.OceanOfferSurcharge, offer: Oce
 
 /**
  * The buying lines a picked offer makes of the line it was picked on: the freight - one line per
- * container when every container costs the same and the offer prices all of them, otherwise one
- * lump-sum line per container type - and then a line per surcharge. The shipping line is the
- * supplier of each, and each is tagged with the tariff row.
+ * container or one per container type (containerFreightLines) - and then a line per surcharge. The
+ * shipping line is the supplier of each, and each is tagged with the tariff row.
  */
-export function oceanOfferLines(line: CostLine, offer: OceanOffer, route: Pick<OceanRoute, "pol" | "pod">, quote: SalesQuoteData): CostLine[] {
-  const description = oceanDescription(offer, route);
+function oceanOfferLines(line: CostLine, offer: OceanOffer, route: Pick<OceanRoute, "pol" | "pod">, quote: SalesQuoteData): CostLine[] {
   const tariffRef = `${OCEAN_REF_PREFIX}${offer.versionId}:${offer.rateId}`;
   const base: CostLine = {
     ...line,
-    description,
     supplier: offer.supplierName,
     supplierCustomerId: offer.supplierCustomerId,
     currency: offer.currency,
     tariffRef,
   };
-  const prices = new Set(offer.lines.map((l) => l.price));
-  const counted = offer.lines.reduce((sum, l) => sum + l.qty, 0);
-  const containers = quoteContainerCount(quote);
-  const freight: CostLine[] =
-    prices.size === 1 && counted === containers
-      ? [withRate({ ...base, basis: "container" }, offer.lines[0]!.price, containers)]
-      : offer.lines.map((l, i) => {
-          const sized: CostLine = { ...base, description: `${description} - ${l.qty} × ${l.type}`, basis: "lumpsum", amount: l.amount, qty: l.qty, unit: l.type, unitPrice: l.price };
-          delete sized.value;
-          // Only the first keeps the pairing with a selling line the picked line had.
-          if (i > 0) delete sized.pairId;
-          return sized;
-        });
+  const freight = containerFreightLines(base, oceanDescription(offer, route), offer.lines, quote);
   return [...freight, ...offer.surcharges.map((s) => oceanSurchargeLine(s, offer, tariffRef))];
-}
-
-/** The buying lines after a pick, and where they changed, so the rows' React keys can follow. */
-export interface OceanPick {
-  lines: CostLine[];
-  /** Indexes (in the lines before) of the lines an earlier pick on the line made, now gone */
-  removed: number[];
-  /** Where the offer's lines start in the new lines, and how many there are */
-  at: number;
-  count: number;
 }
 
 /**
@@ -191,20 +163,12 @@ export interface OceanPick {
  * lines an earlier pick on it made (the same tariffRef: its freight and surcharges) go, so picking
  * again replaces them.
  */
-export function withOceanOffer(lines: CostLine[], index: number, offer: OceanOffer, route: Pick<OceanRoute, "pol" | "pod">, quote: SalesQuoteData): OceanPick {
-  const picked = lines[index];
-  if (!picked) return { lines, removed: [], at: index, count: 0 };
-  const earlier = isOceanLine(picked) ? picked.tariffRef : null;
-  const removed = earlier ? lines.flatMap((l, i) => (i !== index && l.tariffRef === earlier ? [i] : [])) : [];
-  const priced = oceanOfferLines(picked, offer, route, quote);
-  const kept = (l: CostLine, i: number) => !removed.includes(i);
-  const before = lines.slice(0, index).filter(kept);
-  const after = lines.slice(index + 1).filter((l, i) => kept(l, index + 1 + i));
-  return { lines: [...before, ...priced, ...after], removed, at: before.length, count: priced.length };
+export function withOceanOffer(lines: CostLine[], index: number, offer: OceanOffer, route: Pick<OceanRoute, "pol" | "pod">, quote: SalesQuoteData): TariffPick {
+  return withTariffLines(lines, index, OCEAN_REF_PREFIX, (picked) => oceanOfferLines(picked, offer, route, quote));
 }
 
 /** An offer's all-in total in the quote's currency: every currency's total converted; null when one has no rate. */
-export function oceanAllIn(offer: Pick<OceanOffer, "totals">, quoteCurrency: string, toQuoteCurrency: (amount: number, currency: string) => number | null): number | null {
+export function oceanAllIn(offer: Pick<OceanOffer, "totals">, quoteCurrency: string, toQuoteCurrency: ToQuoteCurrency): number | null {
   let sum = 0;
   for (const t of offer.totals) {
     const converted = t.currency === quoteCurrency ? t.amount : toQuoteCurrency(t.amount, t.currency);

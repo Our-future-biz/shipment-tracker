@@ -1,3 +1,4 @@
+import { APIError } from "encore.dev/api";
 import { and, asc, count, desc, eq, getTableColumns, gte, inArray, isNull, lte, max, ne, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { containsAllWords, foldDiacritics, foldSql } from "../../../lib/db/textSearch";
@@ -39,7 +40,7 @@ import {
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /** What a draft is saved with besides its rows; the tariff, number and company are set here. */
-export type DraftFields = Omit<NewTariffVersionRecord, "id" | "companyId" | "tariffId" | "versionNo" | "status">;
+export interface DraftFields extends Omit<NewTariffVersionRecord, "id" | "companyId" | "tariffId" | "versionNo" | "status"> {}
 
 /** What the user sets on a tariff: its name; a rail tariff's ports and import / export; a collections tariff's freight. */
 export interface TariffFields {
@@ -49,8 +50,19 @@ export interface TariffFields {
   freightModes?: CollectionFreightMode[];
 }
 
+/** A new draft of an existing tariff. */
+export interface ExistingDraftTariff {
+  tariffId: string;
+}
+
+/** A new draft that starts a new tariff of the supplier. */
+export interface NewDraftTariff extends TariffFields {
+  supplierCustomerId: string;
+  mode: SupplierTariffMode;
+}
+
 /** The tariff a new draft belongs to: an existing one, or a new one of the supplier. */
-export type DraftTariff = { tariffId: string } | ({ supplierCustomerId: string; mode: SupplierTariffMode } & TariffFields);
+export type DraftTariff = ExistingDraftTariff | NewDraftTariff;
 
 /** A draft's rows: a rail tariff's place rows, or everything a collections or an ocean tariff file holds. */
 export type DraftRows = RailRateRow[] | CollectionData | OceanData;
@@ -83,7 +95,59 @@ export interface CollectionCounts {
   areas: number;
 }
 
-export type ApproveResult = { ok: true; version: TariffVersionRecord } | { ok: false; reason: string };
+/** The draft approved, as it now is. */
+export interface ApproveSuccess {
+  ok: true;
+  version: TariffVersionRecord;
+}
+
+/** Why a draft is not approved: "not_found", or a sentence for the user. */
+export interface ApproveRefusal {
+  ok: false;
+  reason: string;
+}
+
+export type ApproveResult = ApproveSuccess | ApproveRefusal;
+
+/** The port name as the pick left it. */
+export interface OceanPortPicked {
+  ok: true;
+  port: OceanPortRecord;
+}
+
+/** Why a port was not picked. */
+export interface OceanPortRefusal {
+  ok: false;
+  /** not_draft: the version was approved or thrown away meanwhile; no_such_name: it has no such port name */
+  reason: "not_draft" | "no_such_name";
+}
+
+export type SetOceanPortResult = OceanPortPicked | OceanPortRefusal;
+
+/** A page of rows with how many match in all. */
+export interface RowPage<T> {
+  rows: T[];
+  total: number;
+}
+
+/** What a collections postcode area gives: its zone and the country of its prices. */
+export interface AreaZone {
+  zone: string;
+  country: string;
+}
+
+/** A port name a user picked or left out on a version, as the next upload takes it over. */
+export interface OceanPick extends Pick<OceanPort, "side" | "name" | "code" | "status"> {}
+
+/** An inland place found by its postcode. */
+export interface PostcodePlace {
+  postcode: string;
+}
+
+/** An inland place found by its name. */
+export interface NamedPlace {
+  name: string;
+}
 
 /** Where a route's rows are looked for: the port, direction and day, and the inland place by postcode or name. */
 export interface RouteQuery {
@@ -93,7 +157,7 @@ export interface RouteQuery {
   date: string;
   /** ISO 3166-1 alpha-2 of the inland place */
   country: string;
-  place: { postcode: string } | { name: string };
+  place: PostcodePlace | NamedPlace;
 }
 
 /** A row on a route with what pricing it needs from its version and tariff. */
@@ -117,7 +181,7 @@ export interface RateFilter {
   limit: number;
 }
 
-// Postgres takes at most 65535 parameters a statement; a rate row has 16 columns.
+// Postgres takes at most 65535 parameters a statement; the widest row (rail_rate) has 16 columns.
 const RATE_BATCH = 1000;
 
 const live = (companyId: string) => and(eq(tariffVersionTable.companyId, companyId), isNull(tariffVersionTable.deletedAt));
@@ -125,15 +189,13 @@ const live = (companyId: string) => and(eq(tariffVersionTable.companyId, company
 // The day before a YYYY-MM-DD date.
 const dayBefore = (date: string) => new Date(Date.parse(`${date}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
 
-async function insertRates(tx: Tx, companyId: string, versionId: string, rows: RailRateRow[]): Promise<void> {
-  for (let i = 0; i < rows.length; i += RATE_BATCH) {
-    await tx.insert(railRateTable).values(rows.slice(i, i + RATE_BATCH).map((r) => ({ ...r, companyId, versionId })));
-  }
-}
-
-// Inserts in batches of 1000: each table has at most 9 columns, well inside Postgres' limit.
+// Inserts in batches of RATE_BATCH rows, well inside Postgres' parameter limit.
 async function insertBatched<T>(rows: T[], insert: (batch: T[]) => Promise<unknown>): Promise<void> {
   for (let i = 0; i < rows.length; i += RATE_BATCH) await insert(rows.slice(i, i + RATE_BATCH));
+}
+
+async function insertRates(tx: Tx, companyId: string, versionId: string, rows: RailRateRow[]): Promise<void> {
+  await insertBatched(rows, (b) => tx.insert(railRateTable).values(b.map((r) => ({ ...r, companyId, versionId }))));
 }
 
 async function insertCollection(tx: Tx, companyId: string, versionId: string, data: CollectionData): Promise<void> {
@@ -156,27 +218,28 @@ async function insertRows(tx: Tx, companyId: string, versionId: string, rows: Dr
   else await insertOcean(tx, companyId, versionId, rows);
 }
 
+// Every table of a version's rows: each has the version and the company.
+const ROW_TABLES = [railRateTable, collectionRateTable, collectionRegionTable, collectionDistanceTable, collectionAreaTable, oceanRateTable, oceanPortTable] as const;
+
 // A version's rows of every kind, removed when its draft is read again or thrown away.
-async function deleteRows(tx: Tx, versionId: string): Promise<void> {
-  await tx.delete(railRateTable).where(eq(railRateTable.versionId, versionId));
-  await tx.delete(collectionRateTable).where(eq(collectionRateTable.versionId, versionId));
-  await tx.delete(collectionRegionTable).where(eq(collectionRegionTable.versionId, versionId));
-  await tx.delete(collectionDistanceTable).where(eq(collectionDistanceTable.versionId, versionId));
-  await tx.delete(collectionAreaTable).where(eq(collectionAreaTable.versionId, versionId));
-  await tx.delete(oceanRateTable).where(eq(oceanRateTable.versionId, versionId));
-  await tx.delete(oceanPortTable).where(eq(oceanPortTable.versionId, versionId));
+async function deleteRows(tx: Tx, companyId: string, versionId: string): Promise<void> {
+  for (const table of ROW_TABLES) await tx.delete(table).where(and(eq(table.companyId, companyId), eq(table.versionId, versionId)));
 }
 
 const polPort = alias(oceanPortTable, "pol_port");
 const podPort = alias(oceanPortTable, "pod_port");
+
+// The port name of a rate on one side, in the rate's own version and company.
+const portOfRate = (port: typeof polPort | typeof podPort, side: "pol" | "pod", name: typeof oceanRateTable.polName | typeof oceanRateTable.podName) =>
+  and(eq(port.companyId, oceanRateTable.companyId), eq(port.versionId, oceanRateTable.versionId), eq(port.side, side), eq(port.name, name));
 
 // Ocean rates with the codes their port names mean (a name without a match gives null).
 const oceanRatesWithPorts = () =>
   db
     .select({ ...getTableColumns(oceanRateTable), polCode: polPort.code, podCode: podPort.code })
     .from(oceanRateTable)
-    .leftJoin(polPort, and(eq(polPort.versionId, oceanRateTable.versionId), eq(polPort.side, "pol"), eq(polPort.name, oceanRateTable.polName)))
-    .leftJoin(podPort, and(eq(podPort.versionId, oceanRateTable.versionId), eq(podPort.side, "pod"), eq(podPort.name, oceanRateTable.podName)));
+    .leftJoin(polPort, portOfRate(polPort, "pol", oceanRateTable.polName))
+    .leftJoin(podPort, portOfRate(podPort, "pod", oceanRateTable.podName));
 
 class TariffRepository {
   /** The company's live tariffs of a mode, of the given suppliers when named, by name. */
@@ -220,20 +283,29 @@ class TariffRepository {
 
   /**
    * Saves a new draft with its rows, in one transaction: a new tariff first when there is none, or
-   * the tariff's row locked so two uploads cannot take the same version number.
+   * the company's live tariff row locked so two uploads cannot take the same version number (the
+   * unique index is the backstop) and a draft is never put under another company's tariff.
    */
   async createDraft(companyId: string, tariff: DraftTariff, fields: DraftFields, rows: DraftRows): Promise<TariffVersionRecord> {
     return db.transaction(async (tx) => {
       let tariffId: string;
       if ("tariffId" in tariff) {
         tariffId = tariff.tariffId;
-        await tx.select({ id: tariffTable.id }).from(tariffTable).where(eq(tariffTable.id, tariffId)).for("update");
+        const [locked] = await tx
+          .select({ id: tariffTable.id })
+          .from(tariffTable)
+          .where(and(eq(tariffTable.id, tariffId), eq(tariffTable.companyId, companyId), isNull(tariffTable.deletedAt)))
+          .for("update");
+        if (!locked) throw APIError.notFound("Tariff not found");
       } else {
         const [created] = await tx.insert(tariffTable).values({ companyId, ...tariff }).returning({ id: tariffTable.id });
         tariffId = created!.id;
       }
       // Discarded drafts keep their numbers, so a number is never reused.
-      const [{ last }] = await tx.select({ last: max(tariffVersionTable.versionNo) }).from(tariffVersionTable).where(eq(tariffVersionTable.tariffId, tariffId));
+      const [{ last }] = await tx
+        .select({ last: max(tariffVersionTable.versionNo) })
+        .from(tariffVersionTable)
+        .where(and(eq(tariffVersionTable.companyId, companyId), eq(tariffVersionTable.tariffId, tariffId)));
       const [version] = await tx
         .insert(tariffVersionTable)
         .values({ ...fields, companyId, tariffId, versionNo: (last ?? 0) + 1, status: "draft" })
@@ -252,7 +324,7 @@ class TariffRepository {
         .where(and(eq(tariffVersionTable.id, versionId), live(companyId), eq(tariffVersionTable.status, "draft")))
         .returning();
       if (!version) return null;
-      await deleteRows(tx, versionId);
+      await deleteRows(tx, companyId, versionId);
       await insertRows(tx, companyId, versionId, rows);
       return version;
     });
@@ -262,25 +334,41 @@ class TariffRepository {
    * Approves a draft without errors, in one transaction with the tariff's row locked. Active
    * versions its dates overlap give way: one that started earlier now ends the day before it
    * starts, one that starts on or after that day is superseded. A draft that would end inside an
-   * earlier version is refused: the dates after it would be left without prices. The tariff
-   * remembers the draft's layout for the next upload.
+   * earlier version is refused: the dates after it would be left without prices. So is an ocean
+   * draft with a port name still to match, counted under the version's lock so a layout read again
+   * meanwhile cannot slip pending ports through. The tariff remembers the draft's layout for the
+   * next upload.
    */
   async approve(companyId: string, versionId: string, by: string): Promise<ApproveResult> {
     return db.transaction(async (tx): Promise<ApproveResult> => {
       const [draft] = await tx.select().from(tariffVersionTable).where(and(eq(tariffVersionTable.id, versionId), live(companyId)));
       if (!draft) return { ok: false, reason: "not_found" };
-      await tx.select({ id: tariffTable.id }).from(tariffTable).where(eq(tariffTable.id, draft.tariffId)).for("update");
-      const [version] = await tx.select().from(tariffVersionTable).where(eq(tariffVersionTable.id, versionId)).for("update");
+      await tx
+        .select({ id: tariffTable.id })
+        .from(tariffTable)
+        .where(and(eq(tariffTable.id, draft.tariffId), eq(tariffTable.companyId, companyId)))
+        .for("update");
+      const [version] = await tx
+        .select()
+        .from(tariffVersionTable)
+        .where(and(eq(tariffVersionTable.id, versionId), eq(tariffVersionTable.companyId, companyId)))
+        .for("update");
       if (!version || version.deletedAt || version.status !== "draft") return { ok: false, reason: "This version is not a draft any more" };
       if (version.errorCount > 0) return { ok: false, reason: "The draft still has errors; correct the layout or the file first" };
+      const [{ pending }] = await tx
+        .select({ pending: count() })
+        .from(oceanPortTable)
+        .where(and(eq(oceanPortTable.companyId, companyId), eq(oceanPortTable.versionId, versionId), eq(oceanPortTable.status, "pending")));
+      if (pending > 0) return { ok: false, reason: `${pending} port names are not matched to a place yet: pick each one, or leave it out, first` };
       const from = version.validFrom;
       if (!from) return { ok: false, reason: "The draft has no start of validity" };
 
       const active = await tx
         .select()
         .from(tariffVersionTable)
-        .where(and(eq(tariffVersionTable.tariffId, version.tariffId), isNull(tariffVersionTable.deletedAt), eq(tariffVersionTable.status, "active"), ne(tariffVersionTable.id, versionId)));
+        .where(and(live(companyId), eq(tariffVersionTable.tariffId, version.tariffId), eq(tariffVersionTable.status, "active"), ne(tariffVersionTable.id, versionId)));
       const now = new Date();
+      const versionById = (id: string) => and(eq(tariffVersionTable.companyId, companyId), eq(tariffVersionTable.id, id));
       for (const other of active) {
         const overlaps = (other.validTo === null || other.validTo >= from) && (version.validTo === null || other.validFrom === null || other.validFrom <= version.validTo);
         if (!overlaps) continue;
@@ -288,17 +376,20 @@ class TariffRepository {
           return { ok: false, reason: `This version ends on ${version.validTo}, inside version ${other.versionNo}; approving it would leave the days after it without prices. Give it the same end date or none.` };
         }
         if (other.validFrom !== null && other.validFrom < from) {
-          await tx.update(tariffVersionTable).set({ validTo: dayBefore(from), updatedAt: now }).where(eq(tariffVersionTable.id, other.id));
+          await tx.update(tariffVersionTable).set({ validTo: dayBefore(from), updatedAt: now }).where(versionById(other.id));
         } else {
-          await tx.update(tariffVersionTable).set({ status: "superseded", supersededAt: now, updatedAt: now }).where(eq(tariffVersionTable.id, other.id));
+          await tx.update(tariffVersionTable).set({ status: "superseded", supersededAt: now, updatedAt: now }).where(versionById(other.id));
         }
       }
       const [approved] = await tx
         .update(tariffVersionTable)
         .set({ status: "active", activatedAt: now, activatedBy: by, updatedAt: now })
-        .where(eq(tariffVersionTable.id, versionId))
+        .where(versionById(versionId))
         .returning();
-      await tx.update(tariffTable).set({ layout: version.layout, updatedAt: now }).where(eq(tariffTable.id, version.tariffId));
+      await tx
+        .update(tariffTable)
+        .set({ layout: version.layout, updatedAt: now })
+        .where(and(eq(tariffTable.companyId, companyId), eq(tariffTable.id, version.tariffId)));
       return { ok: true, version: approved! };
     });
   }
@@ -306,19 +397,20 @@ class TariffRepository {
   /** Throws a draft away: the version is soft-deleted, its rows (read from the kept file) removed. False when it is no draft. */
   async discard(companyId: string, versionId: string): Promise<boolean> {
     return db.transaction(async (tx) => {
+      const now = new Date();
       const [version] = await tx
         .update(tariffVersionTable)
-        .set({ deletedAt: new Date() })
+        .set({ deletedAt: now, updatedAt: now })
         .where(and(eq(tariffVersionTable.id, versionId), live(companyId), eq(tariffVersionTable.status, "draft")))
         .returning({ id: tariffVersionTable.id });
       if (!version) return false;
-      await deleteRows(tx, versionId);
+      await deleteRows(tx, companyId, versionId);
       return true;
     });
   }
 
   /** A version's rows in sheet order, a page of them, with how many match. */
-  async rates(companyId: string, versionId: string, filter: RateFilter): Promise<{ rows: RailRateRecord[]; total: number }> {
+  async rates(companyId: string, versionId: string, filter: RateFilter): Promise<RowPage<RailRateRecord>> {
     const clauses = [eq(railRateTable.companyId, companyId), eq(railRateTable.versionId, versionId)];
     const match = filter.search ? containsAllWords([railRateTable.place, railRateTable.postcode, railRateTable.region, railRateTable.note], filter.search) : undefined;
     if (match) clauses.push(match);
@@ -362,7 +454,7 @@ class TariffRepository {
           eq(tariffTable.mode, "rail"),
           sql`${q.port} = ANY(${tariffTable.ports})`,
           sql`${q.direction} = ANY(${tariffTable.directions})`,
-          isNull(tariffVersionTable.deletedAt),
+          live(companyId),
           eq(tariffVersionTable.status, "active"),
           lte(tariffVersionTable.validFrom, q.date),
           or(isNull(tariffVersionTable.validTo), gte(tariffVersionTable.validTo, q.date)),
@@ -380,32 +472,33 @@ class TariffRepository {
   // ── Collections ──
 
   /** A collections version's price rows, table by table, lightest first. */
-  async collectionRates(versionId: string): Promise<CollectionRateRecord[]> {
+  async collectionRates(companyId: string, versionId: string): Promise<CollectionRateRecord[]> {
     return db
       .select()
       .from(collectionRateTable)
-      .where(eq(collectionRateTable.versionId, versionId))
+      .where(and(eq(collectionRateTable.companyId, companyId), eq(collectionRateTable.versionId, versionId)))
       .orderBy(asc(collectionRateTable.matrix), asc(collectionRateTable.weightToKg), asc(collectionRateTable.rowNo));
   }
 
   /** The region of a postcode in a version's list: its first row, as the tariff's own calculator takes it. */
-  async regionOf(versionId: string, postcode: string): Promise<CollectionRegionRecord | null> {
+  async regionOf(companyId: string, versionId: string, postcode: string): Promise<CollectionRegionRecord | null> {
     const [row] = await db
       .select()
       .from(collectionRegionTable)
-      .where(and(eq(collectionRegionTable.versionId, versionId), eq(collectionRegionTable.postcode, postcode)))
+      .where(and(eq(collectionRegionTable.companyId, companyId), eq(collectionRegionTable.versionId, versionId), eq(collectionRegionTable.postcode, postcode)))
       .orderBy(asc(collectionRegionTable.rowNo))
       .limit(1);
     return row ?? null;
   }
 
   /** The km between two regions of a version, whichever way round the list has them; null when it has neither. */
-  async distanceBetween(versionId: string, a: string, b: string): Promise<number | null> {
+  async distanceBetween(companyId: string, versionId: string, a: string, b: string): Promise<number | null> {
     const rows = await db
       .select({ fromRegion: collectionDistanceTable.fromRegion, km: collectionDistanceTable.km })
       .from(collectionDistanceTable)
       .where(
         and(
+          eq(collectionDistanceTable.companyId, companyId),
           eq(collectionDistanceTable.versionId, versionId),
           or(
             and(eq(collectionDistanceTable.fromRegion, a), eq(collectionDistanceTable.toRegion, b)),
@@ -419,19 +512,29 @@ class TariffRepository {
   }
 
   /** The zone of a postcode in a version's areas: the narrowest area that holds it. */
-  async areaOf(versionId: string, postcode: string): Promise<{ zone: string; country: string } | null> {
+  async areaOf(companyId: string, versionId: string, postcode: string): Promise<AreaZone | null> {
     const [row] = await db
       .select({ zone: collectionAreaTable.zone, country: collectionAreaTable.country })
       .from(collectionAreaTable)
-      .where(and(eq(collectionAreaTable.versionId, versionId), lte(collectionAreaTable.postcodeFrom, postcode), gte(collectionAreaTable.postcodeTo, postcode)))
+      .where(
+        and(
+          eq(collectionAreaTable.companyId, companyId),
+          eq(collectionAreaTable.versionId, versionId),
+          lte(collectionAreaTable.postcodeFrom, postcode),
+          gte(collectionAreaTable.postcodeTo, postcode),
+        ),
+      )
       .orderBy(sql`(${collectionAreaTable.postcodeTo}::int - ${collectionAreaTable.postcodeFrom}::int)`, asc(collectionAreaTable.rowNo))
       .limit(1);
     return row ?? null;
   }
 
-  async collectionCounts(versionId: string): Promise<CollectionCounts> {
+  async collectionCounts(companyId: string, versionId: string): Promise<CollectionCounts> {
     const countOf = async (table: typeof collectionRateTable | typeof collectionRegionTable | typeof collectionDistanceTable | typeof collectionAreaTable) => {
-      const [{ n }] = await db.select({ n: count() }).from(table).where(eq(table.versionId, versionId));
+      const [{ n }] = await db
+        .select({ n: count() })
+        .from(table)
+        .where(and(eq(table.companyId, companyId), eq(table.versionId, versionId)));
       return n;
     };
     const [rates, regions, distances, areas] = await Promise.all([
@@ -467,40 +570,59 @@ class TariffRepository {
   // ── Ocean ──
 
   /** An ocean version's port names and what they mean: those still to match first, then by side and name. */
-  async oceanPorts(versionId: string): Promise<OceanPortRecord[]> {
+  async oceanPorts(companyId: string, versionId: string): Promise<OceanPortRecord[]> {
     return db
       .select()
       .from(oceanPortTable)
-      .where(eq(oceanPortTable.versionId, versionId))
+      .where(and(eq(oceanPortTable.companyId, companyId), eq(oceanPortTable.versionId, versionId)))
       .orderBy(sql`${oceanPortTable.status} <> 'pending'`, asc(oceanPortTable.side), asc(oceanPortTable.name));
   }
 
   /** How many of an ocean version's port names are still to match. */
-  async pendingOceanPorts(versionId: string): Promise<number> {
+  async pendingOceanPorts(companyId: string, versionId: string): Promise<number> {
     const [{ n }] = await db
       .select({ n: count() })
       .from(oceanPortTable)
-      .where(and(eq(oceanPortTable.versionId, versionId), eq(oceanPortTable.status, "pending")));
+      .where(and(eq(oceanPortTable.companyId, companyId), eq(oceanPortTable.versionId, versionId), eq(oceanPortTable.status, "pending")));
     return n;
   }
 
-  /** Sets what a port name of a draft means: a place a user picked, or none (left out). Null when there is no such name. */
-  async setOceanPort(versionId: string, side: "pol" | "pod", name: string, code: string | null): Promise<OceanPortRecord | null> {
-    const [row] = await db
-      .update(oceanPortTable)
-      .set({ code, status: code ? "manual" : "skipped" })
-      .where(and(eq(oceanPortTable.versionId, versionId), eq(oceanPortTable.side, side), eq(oceanPortTable.name, name)))
-      .returning();
-    return row ?? null;
+  /**
+   * Sets what a port name of the company's draft means: a place a user picked, or none (left out).
+   * The version is locked as a live draft first, so a pick cannot land on a version approved or
+   * discarded meanwhile; the refusal says which of the two went wrong.
+   */
+  async setOceanPort(companyId: string, versionId: string, side: "pol" | "pod", name: string, code: string | null): Promise<SetOceanPortResult> {
+    return db.transaction(async (tx): Promise<SetOceanPortResult> => {
+      const [draft] = await tx
+        .select({ id: tariffVersionTable.id })
+        .from(tariffVersionTable)
+        .where(and(eq(tariffVersionTable.id, versionId), live(companyId), eq(tariffVersionTable.status, "draft")))
+        .for("share");
+      if (!draft) return { ok: false, reason: "not_draft" };
+      const [port] = await tx
+        .update(oceanPortTable)
+        .set({ code, status: code ? "manual" : "skipped" })
+        .where(and(eq(oceanPortTable.companyId, companyId), eq(oceanPortTable.versionId, versionId), eq(oceanPortTable.side, side), eq(oceanPortTable.name, name)))
+        .returning();
+      return port ? { ok: true, port } : { ok: false, reason: "no_such_name" };
+    });
   }
 
   /** The port names users picked or left out on the tariff's versions, newest first: the next upload takes them over. */
-  async oceanPicks(tariffId: string): Promise<Pick<OceanPort, "side" | "name" | "code" | "status">[]> {
+  async oceanPicks(companyId: string, tariffId: string): Promise<OceanPick[]> {
     return db
       .select({ side: oceanPortTable.side, name: oceanPortTable.name, code: oceanPortTable.code, status: oceanPortTable.status })
       .from(oceanPortTable)
       .innerJoin(tariffVersionTable, eq(tariffVersionTable.id, oceanPortTable.versionId))
-      .where(and(eq(tariffVersionTable.tariffId, tariffId), inArray(oceanPortTable.status, ["manual", "skipped"])))
+      .where(
+        and(
+          eq(oceanPortTable.companyId, companyId),
+          live(companyId),
+          eq(tariffVersionTable.tariffId, tariffId),
+          inArray(oceanPortTable.status, ["manual", "skipped"]),
+        ),
+      )
       .orderBy(desc(tariffVersionTable.versionNo));
   }
 
@@ -512,15 +634,9 @@ class TariffRepository {
       .where(and(eq(tariffVersionTable.id, versionId), live(companyId), eq(tariffVersionTable.status, "draft")));
   }
 
-  /** How many rates an ocean version has. */
-  async oceanRateCount(versionId: string): Promise<number> {
-    const [{ n }] = await db.select({ n: count() }).from(oceanRateTable).where(eq(oceanRateTable.versionId, versionId));
-    return n;
-  }
-
   /** A page of an ocean version's rates in table and sheet order, searched by port names and transshipment port. */
-  async oceanRates(versionId: string, filter: OceanRateFilter): Promise<{ rows: OceanRateWithPorts[]; total: number }> {
-    const clauses = [eq(oceanRateTable.versionId, versionId)];
+  async oceanRates(companyId: string, versionId: string, filter: OceanRateFilter): Promise<RowPage<OceanRateWithPorts>> {
+    const clauses = [eq(oceanRateTable.companyId, companyId), eq(oceanRateTable.versionId, versionId)];
     if (filter.table !== undefined) clauses.push(eq(oceanRateTable.tableNo, filter.table));
     const match = filter.search ? containsAllWords([oceanRateTable.polName, oceanRateTable.podName, oceanRateTable.via, sql`coalesce(${podPort.code}, '')`], filter.search) : undefined;
     if (match) clauses.push(match);
@@ -530,7 +646,7 @@ class TariffRepository {
       db
         .select({ total: count() })
         .from(oceanRateTable)
-        .leftJoin(podPort, and(eq(podPort.versionId, oceanRateTable.versionId), eq(podPort.side, "pod"), eq(podPort.name, oceanRateTable.podName)))
+        .leftJoin(podPort, portOfRate(podPort, "pod", oceanRateTable.podName))
         .where(where),
     ]);
     return { rows, total };
@@ -557,11 +673,18 @@ class TariffRepository {
       .orderBy(asc(tariffTable.name));
   }
 
-  /** The rates of the versions to a port of discharge, from one port of loading or (null) any. */
-  async oceanRoute(versionIds: string[], podCode: string, polCode: string | null): Promise<OceanRateWithPorts[]> {
+  /** The rates of the company's versions to a port of discharge, from one port of loading or (null) any. */
+  async oceanRoute(companyId: string, versionIds: string[], podCode: string, polCode: string | null): Promise<OceanRateWithPorts[]> {
     if (!versionIds.length) return [];
     return oceanRatesWithPorts()
-      .where(and(inArray(oceanRateTable.versionId, versionIds), eq(podPort.code, podCode), polCode ? eq(polPort.code, polCode) : sql`${polPort.code} IS NOT NULL`))
+      .where(
+        and(
+          eq(oceanRateTable.companyId, companyId),
+          inArray(oceanRateTable.versionId, versionIds),
+          eq(podPort.code, podCode),
+          polCode ? eq(polPort.code, polCode) : sql`${polPort.code} IS NOT NULL`,
+        ),
+      )
       .orderBy(asc(oceanRateTable.versionId), asc(oceanRateTable.tableNo), asc(oceanRateTable.rowNo))
       .limit(2000);
   }

@@ -1,11 +1,10 @@
 import { isRealYmd } from "../../../lib/businessDate";
 import type { ColumnLetter, FindingLevel, RailBand, RailLayout, RailRateRow, TariffFinding } from "../interfaces/interfaces";
 import { type CellValue, type Sheet, cellText } from "./sheet";
+import { roundCents } from "./money";
 
 // A rail tariff's sheet turned into rows of prices by its layout, and checked. Every row is
 // converted by code, never retyped by the AI, so a figure can only be what the sheet says.
-
-const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /** A band's code, the key of its prices: "20ft-14t", "21-29ft-32t", "40ft-any". */
 export function bandCode(b: RailBand): string {
@@ -36,7 +35,7 @@ export type PriceCell = { kind: "price"; amount: number } | { kind: "none" } | {
 // A price as the tariff writes it: a number, or text such as "1 046", "1.046,50", "1,046.50", "1046 EUR", "1.046,-".
 export function parsePrice(v: CellValue | undefined): PriceCell {
   if (v === undefined) return { kind: "none" };
-  if (typeof v === "number") return Number.isFinite(v) ? { kind: "price", amount: round2(v) } : { kind: "text" };
+  if (typeof v === "number") return Number.isFinite(v) ? { kind: "price", amount: roundCents(v) } : { kind: "text" };
   if (typeof v !== "string") return { kind: "text" };
   const text = v.trim().toLowerCase();
   if (NO_PRICE.has(text)) return { kind: "none" };
@@ -51,7 +50,7 @@ export function parsePrice(v: CellValue | undefined): PriceCell {
     s = s.replace(/\./g, "");
   }
   if (!/^-?\d+(\.\d+)?$/.test(s)) return { kind: "text" };
-  return { kind: "price", amount: round2(Number(s)) };
+  return { kind: "price", amount: roundCents(Number(s)) };
 }
 
 const pad2 = (n: number) => String(n).padStart(2, "0");

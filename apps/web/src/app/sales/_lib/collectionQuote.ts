@@ -1,7 +1,7 @@
-import type { controllers, interfaces, services } from "@/lib/api/client";
-import { toChargeCode } from "@/lib/chargeCodes";
+import type { controllers, interfaces } from "@/lib/api/client";
 import { postcodeText } from "@/app/tariffs/_lib/collectionTariffs";
 import { cargoReadyDay, computeCargo } from "./salesQuote";
+import { ADDRESS_POSTCODE, hasTariffRef, isChargeLine, tariffRefVersionId } from "./tariffQuote";
 import type { CostLine, SalesQuoteData } from "./types";
 
 // Pure helpers of first / last mile collections tariffs on a quote (Pricing → "Tariffs available"
@@ -10,25 +10,21 @@ import type { CostLine, SalesQuoteData } from "./types";
 // buying line an offer the user picked becomes.
 
 export type CollectionOffer = interfaces.CollectionOffer;
-export type CollectionOffersResult = services.CollectionOffersResult;
 type FreightMode = interfaces.CollectionFreightMode;
 
 /** The charge a line has to be for the collections tariffs to be offered on it. */
-export const INLAND_COLLECTION = "inland_collection";
+const INLAND_COLLECTION = "inland_collection";
 
 /** The prefix of the tariffRef of every line priced from a collections tariff: "collection:<versionId>". */
-export const COLLECTION_REF_PREFIX = "collection:";
+const COLLECTION_REF_PREFIX = "collection:";
 
-export const isCollectionLine = (line: Pick<CostLine, "tariffRef">) => !!line.tariffRef?.startsWith(COLLECTION_REF_PREFIX);
+export const isCollectionLine = (line: Pick<CostLine, "tariffRef">) => hasTariffRef(line, COLLECTION_REF_PREFIX);
 
 /** The tariff version a collection line was priced from, or null for any other line. */
-export function collectionVersionId(line: Pick<CostLine, "tariffRef">): string | null {
-  if (!isCollectionLine(line)) return null;
-  return line.tariffRef!.slice(COLLECTION_REF_PREFIX.length).split(":")[0] || null;
-}
+export const collectionVersionId = (line: Pick<CostLine, "tariffRef">) => tariffRefVersionId(line, COLLECTION_REF_PREFIX);
 
 /** Whether a line is an inland collection / delivery, which the collections tariffs can price. */
-export const isInlandCollectionLine = (line: Pick<CostLine, "chargeCode" | "type">) => (line.chargeCode || toChargeCode(line.type)) === INLAND_COLLECTION;
+export const isInlandCollectionLine = (line: Pick<CostLine, "chargeCode" | "type">) => isChargeLine(line, INLAND_COLLECTION);
 
 /** The freight a quote's mode is to the collections tariffs; null for a mode they do not serve. */
 export function collectionFreightOf(serviceType: string | undefined): FreightMode | null {
@@ -55,18 +51,15 @@ export interface CollectionRoute {
   longestCm: number | null;
 }
 
-// A postcode written in an address: three and two digits, with or without a space between.
-const POSTCODE = /(?:^|\D)(\d{3}) ?(\d{2})(?!\d)/;
-
 /** The 5 digits of a postcode as typed ("252 61", "25261"); null when it is none. */
-export const postcodeDigits = (text: string): string | null => {
+const postcodeDigits = (text: string): string | null => {
   const digits = text.replace(/\s/g, "");
   return /^\d{5}$/.test(digits) ? digits : null;
 };
 
 /** The postcode in an address, shown the Czech way ("602 00"); "" when it has none. */
 export function addressPostcode(address: string | undefined): string {
-  const match = POSTCODE.exec(address ?? "");
+  const match = ADDRESS_POSTCODE.exec(address ?? "");
   return match ? postcodeText(`${match[1]}${match[2]}`) : "";
 }
 
@@ -74,7 +67,7 @@ export function addressPostcode(address: string | undefined): string {
 export const customerPostcodeOf = (data: SalesQuoteData, leg: CollectionLeg) => addressPostcode(leg === "collection" ? data.pickup : data.delivery);
 
 /** Our hub's postcode for the freight, as the hubs set on Tariffs give it; "" when none is set. */
-export function hubPostcodeOf(hubs: readonly interfaces.CollectionHub[], freightMode: FreightMode | null): string {
+function hubPostcodeOf(hubs: readonly interfaces.CollectionHub[], freightMode: FreightMode | null): string {
   const hub = hubs.find((h) => h.freightMode === freightMode);
   return hub ? postcodeText(hub.postcode) : "";
 }
@@ -152,7 +145,7 @@ export function collectionDescription(offer: CollectionOffer, route: Pick<Collec
  * consignment in the tariff's currency, the haulier as the supplier, tagged with the tariff version.
  * A pairing with a selling line stays; whatever an earlier pick or a basis made of it goes.
  */
-export function collectionOfferLine(line: CostLine, offer: CollectionOffer, route: Pick<CollectionRoute, "leg" | "hubPostcode" | "customerPostcode">): CostLine {
+function collectionOfferLine(line: CostLine, offer: CollectionOffer, route: Pick<CollectionRoute, "leg" | "hubPostcode" | "customerPostcode">): CostLine {
   const priced: CostLine = {
     ...line,
     description: collectionDescription(offer, route),
@@ -172,7 +165,5 @@ export function collectionOfferLine(line: CostLine, offer: CollectionOffer, rout
 
 /** The buying lines with an offer put on line `index`: its line takes that line's place, so picking again replaces it. */
 export function withCollectionOffer(lines: CostLine[], index: number, offer: CollectionOffer, route: Pick<CollectionRoute, "leg" | "hubPostcode" | "customerPostcode">): CostLine[] {
-  const picked = lines[index];
-  if (!picked) return lines;
   return lines.map((l, i) => (i === index ? collectionOfferLine(l, offer, route) : l));
 }

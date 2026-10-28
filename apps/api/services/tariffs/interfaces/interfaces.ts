@@ -1,6 +1,7 @@
 // Tariffs: suppliers' price lists, uploaded as their own Excel files and turned into data the app can
 // price with. Rail: a rail operator's container prices from sea ports to inland places. Collection:
 // a first / last mile haulier's prices for collecting and delivering LCL and air consignments.
+// Ocean: a shipping line's freight per container from port to port, with its surcharges.
 
 /** What a tariff prices: rail container transport, first / last mile collection and delivery, or ocean freight. */
 export type SupplierTariffMode = "rail" | "collection" | "ocean";
@@ -672,6 +673,13 @@ export interface OceanPort {
 export interface OceanData {
   rates: OceanRateRow[];
   ports: OceanPort[];
+}
+
+/** A quote's containers of one type, as ocean offers are asked for. */
+export interface OceanOfferContainer {
+  /** As quotes name it, e.g. "40' HC" */
+  type: string;
+  qty: number;
 }
 
 /** One container line of an offer. */

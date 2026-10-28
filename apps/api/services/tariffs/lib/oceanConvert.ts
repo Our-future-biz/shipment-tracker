@@ -24,6 +24,10 @@ export interface OceanConversion {
 
 const portKey = (side: string, name: string) => `${side}|${name}`;
 
+// A row gives a rate per port of loading × port of discharge it names: a few of each in a real
+// tariff ("HAM / WVN / RTM / ANR / ZEE" to "Kobe / Nagoya / Tokyo"), never hundreds.
+const MAX_PORT_PAIRS = 100;
+
 /** Every rate row of the file by the layout, the port names it uses, and what the checks found. */
 export function convertOcean(sheets: Sheet[], layout: OceanLayout): OceanConversion {
   const found = new Findings();
@@ -44,7 +48,7 @@ export function convertOcean(sheets: Sheet[], layout: OceanLayout): OceanConvers
     for (const [rowNo, cells] of [...sheet.rows.entries()].filter(([r]) => r >= table.firstDataRow && r <= last).sort(([a], [b]) => a - b)) {
       const podText = cellText(cells[table.pod]);
       const priced = table.prices.map((p) => ({ ...p, cell: parsePrice(cells[p.column]) }));
-      const numbers = priced.filter((p) => p.cell.kind === "price");
+      const numbers = priced.flatMap((p) => (p.cell.kind === "price" ? [{ ...p, amount: p.cell.amount }] : []));
       // A blank row, a heading or a remark between the rates: nothing to read.
       if (!numbers.length && (!podText || priced.every((p) => p.cell.kind !== "text"))) continue;
       if (!podText) {
@@ -56,8 +60,7 @@ export function convertOcean(sheets: Sheet[], layout: OceanLayout): OceanConvers
         continue;
       }
       const prices: Partial<Record<OceanEquipment, number>> = {};
-      for (const p of numbers) {
-        const amount = (p.cell as { amount: number }).amount;
+      for (const { amount, ...p } of numbers) {
         if (amount <= 0) found.add("error", "price_not_positive", `${table.label}: a price in column ${p.column} (${p.label}) is 0 or less`, rowNo, p.column);
         else prices[p.equipment] = amount;
       }
@@ -75,6 +78,10 @@ export function convertOcean(sheets: Sheet[], layout: OceanLayout): OceanConvers
       const pods = splitPorts(podText);
       if (!pols.length) {
         found.add("error", "no_pol", `${table.label}: a row names no port of loading`, rowNo, table.pol ?? undefined);
+        continue;
+      }
+      if (pols.length * pods.length > MAX_PORT_PAIRS) {
+        found.add("error", "too_many_ports", `${table.label}: a row names more than ${MAX_PORT_PAIRS} port of loading × port of discharge pairs; check its port columns`, rowNo);
         continue;
       }
       const via = table.via ? cellText(cells[table.via]) : "";

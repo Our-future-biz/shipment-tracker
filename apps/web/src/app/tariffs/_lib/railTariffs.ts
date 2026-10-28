@@ -1,12 +1,13 @@
 import { formatDate } from "@/lib/date";
 import { formatFileSize } from "@/lib/files";
 import type { interfaces } from "@/lib/api/client";
+import { TARIFF_PAGES } from "./tariffPages";
 
 // Pure helpers of the rail tariff pages: how a version, its status and its validity read, the ports
 // and directions a tariff can be for, and the check of a chosen file before it is uploaded.
 
-export const railOperatorHref = (customerId: string) => `/tariffs/rail-operators/${customerId}`;
-export const railVersionHref = (customerId: string, versionId: string) => `/tariffs/rail-operators/${customerId}/versions/${versionId}`;
+export const railOperatorHref = (customerId: string) => `${TARIFF_PAGES.railOperators.path}/${customerId}`;
+export const railVersionHref = (customerId: string, versionId: string) => `${railOperatorHref(customerId)}/versions/${versionId}`;
 
 export const TARIFF_FILE_ACCEPT = ".xlsx,.xlsm,.csv";
 export const TARIFF_FILE_MAX_BYTES = 10 * 1024 * 1024;

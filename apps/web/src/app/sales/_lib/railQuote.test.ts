@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isInlandHaulageLine, offerTerminals, railContainersOf, railDescription, railOffersRequest, railRouteOf, railRouteProblem, railVersionId, viaTerminals, withRailOffer, type RailOffer } from "./railQuote";
+import { isInlandHaulageLine, railContainersOf, railDescription, railOffersRequest, railRouteOf, railRouteProblem, railVersionId, withRailOffer, type RailOffer } from "./railQuote";
 import type { CostLine, SalesQuoteData } from "./types";
 
 const TODAY = "2026-10-28";
@@ -131,6 +131,12 @@ describe("withRailOffer", () => {
     ]);
   });
 
+  it("makes a lump-sum line when the offer does not price every container of the quote", () => {
+    const quote = { ...QUOTE, containers: [...QUOTE.containers!, { qty: 1, type: "" }] };
+    const pick = withRailOffer([haulage], 0, offer(), "DEHAM", "import", quote);
+    expect(pick.lines.map((l) => [l.basis, l.qty, l.unitPrice, l.amount])).toEqual([["lumpsum", 2, 905, 1810]]);
+  });
+
   it("replaces the lines an earlier pick on the line made", () => {
     const earlier = { ...haulage, tariffRef: "rail:version-1:old" };
     const lines = [earlier, { ...haulage, chargeCode: "other" }, { ...earlier, description: "second size" }];
@@ -146,26 +152,5 @@ describe("isInlandHaulageLine", () => {
     expect(isInlandHaulageLine(haulage)).toBe(true);
     expect(isInlandHaulageLine({ type: "Inland container haulage" })).toBe(true);
     expect(isInlandHaulageLine({ type: "Ocean freight", chargeCode: "ocean_freight" })).toBe(false);
-  });
-});
-
-describe("terminals", () => {
-  const offers = [offer({ rateId: "a", via: "Cetr" }), offer({ rateId: "b", via: "Zlin" }), offer({ rateId: "c", via: "Praha" }), offer({ rateId: "d", via: "Cetr" })];
-
-  it("lists the terminals of the offers by name, with how many run via each", () => {
-    expect(offerTerminals(offers)).toEqual([
-      { via: "Cetr", count: 2 },
-      { via: "Praha", count: 1 },
-      { via: "Zlin", count: 1 },
-    ]);
-  });
-
-  it("keeps the offers via the chosen terminals, in their order", () => {
-    expect(viaTerminals(offers, ["Praha", "Cetr"]).map((o) => o.rateId)).toEqual(["a", "c", "d"]);
-  });
-
-  it("shows them all while none of the chosen terminals is among them", () => {
-    expect(viaTerminals(offers, [])).toHaveLength(4);
-    expect(viaTerminals(offers, ["Usti"])).toHaveLength(4);
   });
 });

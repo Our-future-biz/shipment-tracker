@@ -104,18 +104,7 @@ export interface DeletedCustomerItem {
   addressCount: number;
 }
 
-/** A haulier company as the trucking service needs it. */
-export interface HaulierCompanyItem {
-  id: string;
-  companyName: string;
-  ico: string;
-  dic: string;
-  city: string;
-  /** ISO 3166-1 alpha-2 as stored ("CZ" for most); "" when unknown */
-  country: string;
-}
-
-/** A company with a supplier role (e.g. a rail operator) as another service lists it. */
+/** A company with a supplier role as another service lists it: a haulier for trucking, a rail operator, first / last mile haulier or shipping line for tariffs. */
 export interface RoleCompanyItem {
   id: string;
   companyName: string;

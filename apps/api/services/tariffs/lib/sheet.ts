@@ -1,10 +1,13 @@
 import ExcelJS from "exceljs";
 import { APIError } from "encore.dev/api";
+import { zipUnpackedBytes } from "../../../lib/zipSize";
 import type { ColumnLetter, SheetPreview } from "../interfaces/interfaces";
 
 // An uploaded tariff file as sheets of cells by row number and column letter, the way the layout
 // names them. Empty cells are left out. A merged range keeps its value in its first cell, and down
 // its first column: a place or terminal merged over several price rows belongs to each of them.
+// A workbook is opened only when what it unpacks to is of a tariff's size, and read only up to a
+// tariff's number of cells: a zip bomb or a sheet of a million rows is refused, not read.
 
 export type CellValue = string | number | boolean | Date;
 
@@ -61,7 +64,7 @@ function cellValue(v: ExcelJS.CellValue): CellValue | undefined {
 }
 
 // The currency a number format shows, as an ISO code; undefined when it shows none.
-export function formatCurrency(numFmt: string | undefined): string | undefined {
+function formatCurrency(numFmt: string | undefined): string | undefined {
   if (!numFmt) return undefined;
   if (/€|\[\$EUR/i.test(numFmt)) return "EUR";
   if (/K[čc]|\[\$CZK/i.test(numFmt)) return "CZK";
@@ -79,9 +82,36 @@ function cellFormula(v: ExcelJS.CellValue): string | undefined {
   return undefined;
 }
 
+/** What a workbook may unpack to, as its zip directory declares it: a tariff is a few MB unpacked. */
+export const MAX_UNPACKED_BYTES = 100 * 1024 * 1024;
+const MAX_ZIP_ENTRIES = 5000;
+/** The most cells a file is read into: many times any tariff's, few enough to keep the server well. */
+const MAX_CELLS = 2_000_000;
+/** The most links kept of a sheet; the AI is shown them, and a tariff has a handful. */
+const MAX_LINKS = 50;
+
+const OLD_XLS = "This is an old Excel 97–2003 (.xls) file. Open it in Excel, save it as Excel Workbook (.xlsx) and upload that.";
+const NOT_A_WORKBOOK = "The file could not be read as a spreadsheet. Save it as .xlsx in Excel and upload it again.";
+
+/** Refuses a file that is no .xlsx, or one that would unpack to far more than a tariff does. */
+function checkWorkbookSize(buffer: Buffer): void {
+  if (buffer.length >= 4 && buffer.readUInt32BE(0) === 0xd0cf11e0) throw APIError.invalidArgument(OLD_XLS);
+  const unpacked = buffer.length >= 4 && buffer.readUInt32BE(0) === 0x504b0304 ? zipUnpackedBytes(buffer, MAX_ZIP_ENTRIES) : null;
+  if (unpacked === null) throw APIError.invalidArgument(NOT_A_WORKBOOK);
+  if (unpacked > MAX_UNPACKED_BYTES) {
+    throw APIError.invalidArgument("The workbook unpacks to more than 100 MB. Remove pictures and the sheets the tariff does not need, save it again and upload it.");
+  }
+}
+
+const tooManyCells = () =>
+  APIError.invalidArgument(`The file has more than ${MAX_CELLS.toLocaleString("en-US")} filled cells. Remove the sheets the tariff does not need and upload it again.`);
+
 async function readWorkbook(buffer: Buffer, options: ReadOptions): Promise<Sheet[]> {
+  checkWorkbookSize(buffer);
   const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(buffer as never);
+  // ExcelJS types load() with its own Buffer; a fresh ArrayBuffer copy fits it without a cast.
+  await wb.xlsx.load(new Uint8Array(buffer).buffer);
+  let cellCount = 0;
   return wb.worksheets
     .filter((ws) => ws.state === "visible" || options.hidden)
     .map((ws) => {
@@ -91,6 +121,7 @@ async function readWorkbook(buffer: Buffer, options: ReadOptions): Promise<Sheet
       ws.eachRow({ includeEmpty: false }, (row, rowNo) => {
         const cells: Record<ColumnLetter, CellValue> = {};
         row.eachCell({ includeEmpty: false }, (cell, colNo) => {
+          if (++cellCount > MAX_CELLS) throw tooManyCells();
           const copy = cell.isMerged && cell.master.address !== cell.address;
           if (copy && cell.master.col !== cell.col) return;
           const formula = copy ? undefined : cellFormula(cell.value);
@@ -100,7 +131,7 @@ async function readWorkbook(buffer: Buffer, options: ReadOptions): Promise<Sheet
           cells[columnLetter(colNo)] = value;
           const currency = typeof value === "number" ? formatCurrency(cell.numFmt) : undefined;
           if (currency) currencies.set(rowNo, { ...currencies.get(rowNo), [columnLetter(colNo)]: currency });
-          if (cell.hyperlink && !copy) sheet.links.push({ address: cell.address, text: cellText(value), url: cell.hyperlink });
+          if (cell.hyperlink && !copy && sheet.links.length < MAX_LINKS) sheet.links.push({ address: cell.address, text: cellText(value), url: cell.hyperlink });
         });
         if (Object.keys(cells).length) {
           sheet.rows.set(rowNo, cells);
@@ -159,10 +190,13 @@ function csvText(buffer: Buffer): string {
 
 function csvSheet(name: string, table: string[][]): Sheet {
   const sheet: Sheet = { name, rowCount: 0, rows: new Map(), links: [] };
+  let cellCount = 0;
   table.forEach((values, i) => {
     const cells: Record<ColumnLetter, CellValue> = {};
     values.forEach((v, c) => {
-      if (v.trim()) cells[columnLetter(c + 1)] = v.trim();
+      if (!v.trim()) return;
+      if (++cellCount > MAX_CELLS) throw tooManyCells();
+      cells[columnLetter(c + 1)] = v.trim();
     });
     if (Object.keys(cells).length) {
       sheet.rows.set(i + 1, cells);
@@ -185,14 +219,22 @@ export async function readSheets(buffer: Buffer, fileName: string, options: Read
 
 const sortedRowNos = (sheet: Sheet) => [...sheet.rows.keys()].sort((a, b) => a - b);
 
-const rowTexts = (cells: Record<ColumnLetter, CellValue>): Record<ColumnLetter, string> => {
+const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)}…` : text);
+
+// A row's cells as text, left to right: at most `maxCells` of them, each of at most `maxChars`.
+const rowTexts = (cells: Record<ColumnLetter, CellValue>, maxCells: number, maxChars: number): Record<ColumnLetter, string> => {
   const out: Record<ColumnLetter, string> = {};
-  for (const col of Object.keys(cells).sort((a, b) => columnIndex(a) - columnIndex(b))) {
+  const columns = Object.keys(cells).sort((a, b) => columnIndex(a) - columnIndex(b));
+  for (const col of columns.slice(0, maxCells)) {
     const text = cellText(cells[col]);
-    if (text) out[col] = text;
+    if (text) out[col] = clip(text, maxChars);
   }
   return out;
 };
+
+// A preview row: a price table's columns are well within these; a sheet far wider is cut.
+const PREVIEW_CELLS = 100;
+const PREVIEW_CELL_CHARS = 500;
 
 /** The first rows as text, for setting up the layout by hand. */
 export function sheetPreview(sheet: Sheet, maxRows = 30): SheetPreview {
@@ -201,26 +243,26 @@ export function sheetPreview(sheet: Sheet, maxRows = 30): SheetPreview {
     rowCount: sheet.rowCount,
     rows: sortedRowNos(sheet)
       .slice(0, maxRows)
-      .map((rowNo) => ({ rowNo, cells: rowTexts(sheet.rows.get(rowNo)!) })),
+      .map((rowNo) => ({ rowNo, cells: rowTexts(sheet.rows.get(rowNo)!, PREVIEW_CELLS, PREVIEW_CELL_CHARS) })),
   };
 }
 
 const HEAD_ROWS = 40;
 const SAMPLED_ROWS = 15;
 const RARE_ROWS = 10;
+// What one row shows the AI: the cells of a tariff's widest table, each cut short.
+const EXCERPT_CELLS = 60;
 const MAX_CELL_CHARS = 200;
 const MAX_FORMULA_CHARS = 120;
-
-const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)}…` : text);
 
 // A row as the AI reads it; with `formulas`, a computed cell also shows its formula: {=…}; a
 // number formatted as money shows its currency: [USD].
 const rowLine = (rowNo: number, cells: Record<ColumnLetter, CellValue>, formulas?: Record<ColumnLetter, string>, currencies?: Record<ColumnLetter, string>) =>
   `R${rowNo}: ` +
-  Object.entries(rowTexts(cells))
+  Object.entries(rowTexts(cells, EXCERPT_CELLS, MAX_CELL_CHARS))
     .map(
       ([col, text]) =>
-        `${col}=${clip(text, MAX_CELL_CHARS)}${currencies?.[col] ? ` [${currencies[col]}]` : ""}${formulas?.[col] ? ` {${clip(formulas[col]!, MAX_FORMULA_CHARS)}}` : ""}`,
+        `${col}=${text}${currencies?.[col] ? ` [${currencies[col]}]` : ""}${formulas?.[col] ? ` {${clip(formulas[col]!, MAX_FORMULA_CHARS)}}` : ""}`,
     )
     .join(" | ");
 
@@ -254,7 +296,7 @@ export function sheetExcerpt(sheet: Sheet, options: { formulas?: boolean } = {})
   }
   if (sheet.links.length) {
     lines.push("Links:");
-    lines.push(...sheet.links.map((l) => `${l.address}: ${l.text} → ${l.url}`));
+    lines.push(...sheet.links.map((l) => `${l.address}: ${clip(l.text, MAX_CELL_CHARS)} → ${clip(l.url, MAX_CELL_CHARS)}`));
   }
   return lines.join("\n");
 }

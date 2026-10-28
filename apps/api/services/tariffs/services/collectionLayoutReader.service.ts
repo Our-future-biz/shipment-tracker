@@ -1,8 +1,6 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { secret } from "encore.dev/config";
-import { APIError } from "encore.dev/api";
-import log from "encore.dev/log";
+import type Anthropic from "@anthropic-ai/sdk";
 import type { CollectionLayout } from "../interfaces/interfaces";
+import { askLayout } from "../lib/anthropic";
 import { parseCollectionLayout, tidyCollectionLayout } from "../lib/collectionLayout";
 import { sheetExcerpt, type Sheet } from "../lib/sheet";
 
@@ -11,9 +9,6 @@ import { sheetExcerpt, type Sheet } from "../lib/sheet";
 // ends from the tariff's own postcode → region and region → km lists, or the customer's postcode
 // area), how volume counts as weight, the surcharges and terms - from every sheet, hidden ones and
 // a calculator's formulas included. It never copies prices: the code reads every figure.
-
-const anthropicApiKey = secret("ANTHROPIC_API_KEY");
-const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
 
 // The most sheets shown to the AI; a calculator workbook has around ten.
 const MAX_SHEETS = 15;
@@ -123,39 +118,21 @@ const LAYOUT_TOOL: Anthropic.Tool = {
   },
 };
 
-function client(): Anthropic {
-  return new Anthropic({ apiKey: anthropicApiKey() || process.env.ANTHROPIC_API_KEY });
-}
-
 /** The text the AI is given: each sheet's excerpt with its formulas, and the haulier's previous layout when there is one. */
-export function collectionRequestText(sheets: Sheet[], previous: CollectionLayout | null): string {
+function collectionRequestText(sheets: Sheet[], previous: CollectionLayout | null): string {
   const parts = sheets.slice(0, MAX_SHEETS).map((sheet) => sheetExcerpt(sheet, { formulas: true }));
   if (previous) parts.push(`The haulier's previous tariff was read with this layout:\n${JSON.stringify(previous)}`);
   return parts.join("\n\n");
 }
 
-/** How the AI reads the collections tariff file's layout; refused when the AI is unreachable or answers something unusable. */
+/** How the AI reads the tariff file's layout; refused when the AI is unreachable or answers something unusable. */
 export async function readCollectionLayout(sheets: Sheet[], previous: CollectionLayout | null): Promise<CollectionLayout> {
-  let message: Anthropic.Message;
-  try {
-    message = await client().messages.create({
-      model: MODEL,
-      max_tokens: 6000,
-      system: PROMPT,
-      tools: [LAYOUT_TOOL],
-      tool_choice: { type: "tool", name: LAYOUT_TOOL.name },
-      messages: [{ role: "user", content: collectionRequestText(sheets, previous) }],
-    });
-  } catch (err) {
-    log.error(err, "collections tariff: AI layout read failed", { model: MODEL });
-    throw APIError.unavailable("The AI could not read the tariff file just now. Try the upload again in a moment.");
-  }
-  const call = message.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
-  if (!call) throw APIError.unavailable("The AI did not describe the tariff file. Try the upload again.");
-  try {
-    return parseCollectionLayout(tidyCollectionLayout(call.input));
-  } catch (err) {
-    log.warn(err, "collections tariff: AI layout not usable", { input: JSON.stringify(call.input).slice(0, 3000) });
-    throw APIError.unavailable(`The AI's reading of the file was not usable (${err instanceof Error ? err.message : "unknown problem"}). Try the upload again.`);
-  }
+  return askLayout({
+    kind: "collections tariff",
+    system: PROMPT,
+    tool: LAYOUT_TOOL,
+    text: collectionRequestText(sheets, previous),
+    maxTokens: 6000,
+    parse: (input) => parseCollectionLayout(tidyCollectionLayout(input)),
+  });
 }

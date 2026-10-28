@@ -1,19 +1,19 @@
 import { api } from "encore.dev/api";
-import type { MinLen } from "encore.dev/validate";
+import type { MaxLen, MinLen } from "encore.dev/validate";
 import { requireRole } from "../../../lib/rbac";
 import { railTariffService } from "../services/railTariff.service";
 import type { RailDirection, SupplierTariffVersionDetail, TariffPortCode } from "../interfaces/interfaces";
 
 interface RailTariffUploadRequest {
   /** The rail operator's Customer Database id */
-  supplierCustomerId: string;
+  supplierCustomerId: string & MaxLen<36>;
   /** The tariff the file is a new version of; a new tariff of the operator when left out */
-  tariffId?: string;
+  tariffId?: string & MaxLen<36>;
   /** A new tariff's ports, at least one; ignored for a new version */
-  ports?: TariffPortCode[];
+  ports?: TariffPortCode[] & MaxLen<10>;
   /** A new tariff's import, export or both; ignored for a new version */
-  directions?: RailDirection[];
-  fileName: string & MinLen<1>;
+  directions?: RailDirection[] & MaxLen<2>;
+  fileName: string & MinLen<1> & MaxLen<255>;
   /** The .xlsx or .csv file, base64; at most 10 MB */
   fileBase64: string & MinLen<1>;
 }

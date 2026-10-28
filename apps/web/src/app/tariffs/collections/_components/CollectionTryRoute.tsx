@@ -41,6 +41,13 @@ export const CollectionTryRoute = ({ version }: { version: CollectionTariffVersi
   const [longestCm, setLongestCm] = useState<number | null>(null);
   const [result, setResult] = useState<CollectionTry | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
+  // A price worked out with the version as it was: once the version is read again it is gone.
+  const [pricedWith, setPricedWith] = useState(version);
+  if (version !== pricedWith) {
+    setPricedWith(version);
+    setResult(null);
+    setFailed(null);
+  }
 
   const from = hubPostcode ?? (hub ? postcodeText(hub.postcode) : "");
   const ready = /^\d{5}$/.test(digits(customerPostcode)) && (version.layout.zoneBy === "postcode" || /^\d{5}$/.test(digits(from))) && ((weightKg ?? 0) > 0 || (cbm ?? 0) > 0);

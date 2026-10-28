@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Input, Select, Table, type TableColumnsType } from "antd";
 import { SearchOutlined } from "@ant-design/icons";
+import { EMPTY_CELL } from "@/components/EmptyCell";
 import { CountChip, SectionCard } from "@/components/SectionCard";
 import { useDebounced } from "@/hooks/useDebounced";
 import { useRailRates, type RailRate, type RailTariffVersionDetail } from "@/hooks/useRailTariffs";
@@ -14,8 +15,7 @@ import { bandText } from "../../_lib/railTariffs";
 const PAGE_SIZE = 50;
 const SEARCH_DELAY_MS = 300;
 
-const dash = <span className="text-slate-400">—</span>;
-const textOr = (value: string) => value || dash;
+const textOr = (value: string) => value || EMPTY_CELL;
 
 interface RailVersionRatesProps {
   version: Pick<RailTariffVersionDetail, "id" | "currency" | "layout" | "bandCodes" | "rowCount">;
@@ -45,7 +45,7 @@ export const RailVersionRates = ({ version }: RailVersionRatesProps) => {
           </div>
         ),
         align: "right",
-        render: (_, r) => (r.prices[code] != null ? <span className="tabular-nums">{formatQty(r.prices[code]!)}</span> : dash),
+        render: (_, r) => (r.prices[code] != null ? <span className="tabular-nums">{formatQty(r.prices[code]!)}</span> : EMPTY_CELL),
       };
     });
     return [
@@ -69,11 +69,11 @@ export const RailVersionRates = ({ version }: RailVersionRatesProps) => {
       { key: "via", title: "Via", render: (_, r) => textOr(r.via) },
       { key: "depot", title: "Empty depot", render: (_, r) => textOr(r.emptyDepot) },
       ...bands,
-      { key: "note", title: "Note", render: (_, r) => (r.note ? <span className="text-xs text-slate-600">{r.note}</span> : dash) },
+      { key: "note", title: "Note", render: (_, r) => (r.note ? <span className="text-xs text-slate-600">{r.note}</span> : EMPTY_CELL) },
       ...(hasDates
         ? ([
-            { key: "from", title: "Valid from", render: (_, r) => (r.validFrom ? formatDate(r.validFrom) : dash) },
-            { key: "to", title: "Valid to", render: (_, r) => (r.validTo ? formatDate(r.validTo) : dash) },
+            { key: "from", title: "Valid from", render: (_, r) => (r.validFrom ? formatDate(r.validFrom) : EMPTY_CELL) },
+            { key: "to", title: "Valid to", render: (_, r) => (r.validTo ? formatDate(r.validTo) : EMPTY_CELL) },
           ] satisfies TableColumnsType<RailRate>)
         : []),
     ];

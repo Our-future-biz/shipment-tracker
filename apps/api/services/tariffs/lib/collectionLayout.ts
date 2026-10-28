@@ -1,20 +1,15 @@
 import { z } from "zod";
-import { APIError } from "encore.dev/api";
 import type { CollectionLayout } from "../interfaces/interfaces";
-import { asArray, isRecord, isoDate, letter, linkList, tidyConditions, tidyLinks } from "./railLayout";
+import { asArray, conditionList, countryCode, currencyCode, isRecord, isoDate, letter, linkList, parseLayout, rowNumber, sheetName, tidyConditions, tidyLinks } from "./layoutSchema";
 
 // The layout of a collections tariff's file, checked the same way whether the AI proposed it or a
 // user corrected it: letters upper case, dates real, the tables a zone needs there, the bands in
 // order. Pure.
 
-const country = z
-  .string()
-  .trim()
-  .toUpperCase()
-  .regex(/^[A-Z]{2}$/, "must be a country code, e.g. CZ");
+const country = countryCode("CZ");
 
-const firstRow = z.number().int().min(1);
-const lastRow = z.number().int().min(1).nullable();
+const firstRow = rowNumber;
+const lastRow = rowNumber.nullable();
 
 const zone = z.object({
   column: letter,
@@ -27,7 +22,7 @@ const matrix = z
   .object({
     label: z.string().trim().min(1).max(100),
     country,
-    sheet: z.string().min(1),
+    sheet: sheetName,
     headerRow: firstRow,
     firstDataRow: firstRow,
     lastDataRow: lastRow,
@@ -40,19 +35,21 @@ const matrix = z
   .refine((m) => new Set(m.zones.map((z) => z.column)).size === m.zones.length, { message: "a zone column is listed twice", path: ["zones"] });
 
 const regions = z.object({
-  sheet: z.string().min(1),
+  sheet: sheetName,
   firstDataRow: firstRow,
   lastDataRow: lastRow,
   postcode: letter,
   region: letter,
   country: letter.nullable(),
   place: letter.nullable(),
-  countryCodes: z.record(z.string().trim().min(1), country),
+  countryCodes: z
+    .record(z.string().trim().min(1).max(50), country)
+    .refine((codes) => Object.keys(codes).length <= 50, "lists more than 50 country codes"),
   defaultCountry: country,
 });
 
 const distances = z.object({
-  sheet: z.string().min(1),
+  sheet: sheetName,
   firstDataRow: firstRow,
   lastDataRow: lastRow,
   fromRegion: letter,
@@ -61,7 +58,7 @@ const distances = z.object({
 });
 
 const areas = z.object({
-  sheet: z.string().min(1),
+  sheet: sheetName,
   firstDataRow: firstRow,
   lastDataRow: lastRow,
   postcodeFrom: letter,
@@ -88,11 +85,7 @@ const increasing = (values: number[]) => values.every((v, i) => i === 0 || v > v
 const layoutSchema = z
   .object({
     name: z.string().trim().min(1).max(200),
-    currency: z
-      .string()
-      .trim()
-      .toUpperCase()
-      .regex(/^[A-Z]{3}$/, "must be a currency code, e.g. CZK"),
+    currency: currencyCode("CZK"),
     validFrom: isoDate.nullable(),
     validTo: isoDate.nullable(),
     zoneBy: z.enum(["distance", "postcode"]),
@@ -103,7 +96,7 @@ const layoutSchema = z
     sameRegionKm: z.number().min(0).max(1000).nullable(),
     areas: areas.nullable(),
     surcharges: z.array(surcharge).max(20),
-    conditions: z.array(z.string().trim().min(1).max(500)).max(30),
+    conditions: conditionList(30),
     links: linkList,
   })
   .refine((l) => !l.validFrom || !l.validTo || l.validTo >= l.validFrom, { message: "the validity ends before it starts", path: ["validTo"] })
@@ -162,11 +155,7 @@ export function tidyCollectionLayout(input: unknown): unknown {
 
 /** A layout as checked and tidied; one that does not hold is refused with the first problem found. */
 export function parseCollectionLayout(input: unknown): CollectionLayout {
-  const parsed = layoutSchema.safeParse(input);
-  if (parsed.success) return parsed.data;
-  const issue = parsed.error.issues[0]!;
-  const where = issue.path.join(".");
-  throw APIError.invalidArgument(`The tariff layout is not usable: ${where ? `${where} ` : ""}${issue.message}`);
+  return parseLayout(layoutSchema, input);
 }
 
 /** Whether the layout can be read from the file at all: every sheet it names is there and long enough. */

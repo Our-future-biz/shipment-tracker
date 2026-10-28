@@ -1,10 +1,11 @@
 import type { interfaces } from "@/lib/api/client";
+import { TARIFF_PAGES } from "./tariffPages";
 
 // Pure helpers of the shipping lines' ocean tariffs: where a line and a version live, and how
 // containers, surcharge bases and port matches read.
 
-export const shippingLineHref = (customerId: string) => `/tariffs/shipping-lines/${customerId}`;
-export const oceanVersionHref = (customerId: string, versionId: string) => `/tariffs/shipping-lines/${customerId}/versions/${versionId}`;
+export const shippingLineHref = (customerId: string) => `${TARIFF_PAGES.shippingLines.path}/${customerId}`;
+export const oceanVersionHref = (customerId: string, versionId: string) => `${shippingLineHref(customerId)}/versions/${versionId}`;
 
 /** The containers an ocean tariff prices, in the order they are shown. */
 export const OCEAN_EQUIPMENT: { value: interfaces.OceanEquipment; label: string }[] = [

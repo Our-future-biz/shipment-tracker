@@ -1,27 +1,13 @@
 "use client";
 
-import type { ReactNode } from "react";
-import { Button, DatePicker, Input, InputNumber, Select, Tooltip } from "antd";
+import { Button, Input, InputNumber, Select, Tooltip } from "antd";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
-import dayjs from "dayjs";
 import type { RailBand, RailLayout } from "@/hooks/useRailTariffs";
 import { COLUMN_FIELDS, columnOptions, newBand } from "../../_lib/railLayoutForm";
 import { bandText } from "../../_lib/railTariffs";
+import { ConditionsField, DayField, Field, SubTitle } from "../../_components/TariffFormParts";
 
 const NONE = "";
-
-const Field = ({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) => (
-  <label className="flex flex-col gap-1 text-[12px] font-semibold text-slate-600 min-w-0">
-    {label}
-    {children}
-    {hint && <span className="text-[11px] font-normal text-slate-400">{hint}</span>}
-  </label>
-);
-
-const SubTitle = ({ children }: { children: ReactNode }) => <div className="text-[12px] font-bold uppercase tracking-wider text-slate-500 mt-1">{children}</div>;
-
-const toDay = (value: string | null) => (value ? dayjs(value) : null);
-const fromDay = (d: dayjs.Dayjs | null) => (d ? d.format("YYYY-MM-DD") : null);
 
 interface RailVersionLayoutFormProps {
   form: RailLayout;
@@ -166,12 +152,8 @@ export const RailVersionLayoutForm = ({ form, onChange, sheetNames, headings, di
         <Field label="Currency">
           <Input aria-label="Currency" value={form.currency} maxLength={3} disabled={disabled} onChange={(e) => set("currency", e.target.value.toUpperCase())} />
         </Field>
-        <Field label="Valid from">
-          <DatePicker aria-label="Valid from" value={toDay(form.validFrom)} format="DD.MM.YYYY" disabled={disabled} onChange={(d) => set("validFrom", fromDay(d))} className="!w-full" />
-        </Field>
-        <Field label="Valid to">
-          <DatePicker aria-label="Valid to" value={toDay(form.validTo)} format="DD.MM.YYYY" disabled={disabled} onChange={(d) => set("validTo", fromDay(d))} className="!w-full" />
-        </Field>
+        <DayField label="Valid from" value={form.validFrom} disabled={disabled} onChange={(v) => set("validFrom", v)} />
+        <DayField label="Valid to" value={form.validTo} disabled={disabled} onChange={(v) => set("validTo", v)} />
         <Field label="Country of the places" hint="When the sheet has no country column">
           <Input aria-label="Country of the places" value={form.defaultCountry} maxLength={2} disabled={disabled} onChange={(e) => set("defaultCountry", e.target.value.toUpperCase())} />
         </Field>
@@ -208,16 +190,7 @@ export const RailVersionLayoutForm = ({ form, onChange, sheetNames, headings, di
         </div>
       </div>
 
-      <Field label="Conditions" hint="One per line: what the prices include and the tariff's terms.">
-        <Input.TextArea
-          aria-label="Conditions"
-          autoSize={{ minRows: 3, maxRows: 10 }}
-          value={form.conditions.join("\n")}
-          disabled={disabled}
-          // Lines are kept as typed (an empty one too, so Enter starts a new line); empty ones are dropped when sent.
-          onChange={(e) => set("conditions", e.target.value.split("\n"))}
-        />
-      </Field>
+      <ConditionsField value={form.conditions} onChange={(v) => set("conditions", v)} hint="One per line: what the prices include and the tariff's terms." disabled={disabled} />
     </div>
   );
 };

@@ -1,21 +1,19 @@
 "use client";
 
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { controllers, interfaces, services } from "@/lib/api/client";
+import type { controllers, interfaces } from "@/lib/api/client";
+import { useSupplierTariffCache, useSupplierTariffOffers } from "./useSupplierTariffs";
 
 // Rail operators' tariffs (Tariffs → Rail Operators): the operators, their tariffs and versions,
 // one version's layout, findings and rows, and the manager's actions on a draft.
 
 export type RailOperatorItem = interfaces.RailOperatorItem;
-export type RailOperatorDetail = services.RailOperatorDetail;
 export type RailTariffItem = interfaces.RailTariffItem;
-export type RailTariffVersion = interfaces.SupplierTariffVersion;
 export type RailTariffVersionDetail = interfaces.SupplierTariffVersionDetail;
 export type RailLayout = interfaces.RailLayout;
 export type RailBand = interfaces.RailBand;
 export type RailRate = interfaces.RailRate;
-export type TariffFinding = interfaces.TariffFinding;
 export type RailTariffUpload = controllers.RailTariffUploadRequest;
 export type RailOffersRequest = controllers.RailOffersRequest;
 /** A tariff's name, ports and directions, with the tariff's id */
@@ -34,7 +32,7 @@ export const railTariffKeys = {
   operator: (customerId: string) => [...railTariffKeys.all, "operator", customerId] as const,
   version: (id: string) => [...railTariffKeys.all, "version", id] as const,
   rates: (id: string, filter: RailRateFilter) => [...railTariffKeys.all, "rates", id, filter] as const,
-  offers: (req: RailOffersRequest) => [...railTariffKeys.all, "offers", req] as const,
+  offers: (req: RailOffersRequest | null) => [...railTariffKeys.all, "offers", req] as const,
 };
 
 export const useRailOperators = () => {
@@ -70,30 +68,14 @@ export const useRailRates = (id: string, filter: RailRateFilter) => {
 };
 
 // What the rail tariffs ask for a route (Sales → Pricing): nothing is asked while `req` is null.
-// The last answer stays shown while a changed route is asked again.
-export const useRailOffers = (req: RailOffersRequest | null) => {
-  const query = useQuery({
-    queryKey: railTariffKeys.offers(req!),
-    queryFn: () => api.tariffs.railOffers(req!),
-    enabled: req !== null,
-    placeholderData: keepPreviousData,
-  });
-  return { result: req ? (query.data ?? null) : null, isLoading: query.isLoading, isFetching: query.isFetching, error: query.error };
-};
+export const useRailOffers = (req: RailOffersRequest | null) => useSupplierTariffOffers(railTariffKeys.offers(req), api.tariffs.railOffers, req);
 
 /** The file a version was read from. */
 export const fetchRailTariffSource = (id: string) => api.tariffs.railTariffSource(id).then((r) => r.file);
 
-// The manager's actions. Each one refreshes every rail tariff query: a version's change shows on
-// its operator's page and in the operators list too.
+// The manager's actions. Each one refreshes every rail tariff query (useSupplierTariffCache).
 export const useRailTariffActions = () => {
-  const queryClient = useQueryClient();
-  const refresh = () => queryClient.invalidateQueries({ queryKey: railTariffKeys.all });
-  const keep = (version: RailTariffVersionDetail) => {
-    queryClient.setQueryData(railTariffKeys.version(version.id), version);
-    void refresh();
-    return version;
-  };
+  const { refresh, keep } = useSupplierTariffCache<RailTariffVersionDetail>(railTariffKeys.all, railTariffKeys.version);
 
   const upload = useMutation({ mutationFn: (req: RailTariffUpload) => api.tariffs.railTariffUpload(req).then((r) => keep(r.version)) });
   const relayout = useMutation({

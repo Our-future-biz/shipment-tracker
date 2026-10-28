@@ -1,17 +1,12 @@
 import { z } from "zod";
-import { APIError } from "encore.dev/api";
 import type { OceanLayout } from "../interfaces/interfaces";
-import { asArray, isRecord, isoDate, letter, linkList, tidyConditions, tidyLinks } from "./railLayout";
+import { asArray, conditionList, countryCode, currencyCode, isRecord, isoDate, letter, linkList, parseLayout, rowNumber, sheetName, tidyConditions, tidyLinks } from "./layoutSchema";
 
 // The layout of a shipping line's tariff file, checked the same way whether the AI proposed it or a
 // user corrected it: letters and codes upper case, dates real, every table with its ports and a
 // currency, each surcharge with its basis and the tables it belongs to. Pure.
 
-const country = z
-  .string()
-  .trim()
-  .toUpperCase()
-  .regex(/^[A-Z]{2}$/, "must be a country code, e.g. CN");
+const country = countryCode("CN");
 
 const locode = z
   .string()
@@ -19,21 +14,20 @@ const locode = z
   .toUpperCase()
   .regex(/^[A-Z]{2}[A-Z0-9]{3}$/, "must be a UN/LOCODE, e.g. DEHAM");
 
-const currency = z
-  .string()
-  .trim()
-  .toUpperCase()
-  .regex(/^[A-Z]{3}$/, "must be a currency code, e.g. USD");
+const currency = currencyCode("USD");
+
+// The most port codes and names a tariff's own key can list.
+const MAX_PORT_CODES = 300;
 
 const equipment = z.enum(["20DC", "40DC", "40HC", "20RF", "40RF"]);
 
 const table = z
   .object({
     label: z.string().trim().min(1).max(100),
-    sheet: z.string().min(1),
-    headerRow: z.number().int().min(1),
-    firstDataRow: z.number().int().min(1),
-    lastDataRow: z.number().int().min(1).nullable(),
+    sheet: sheetName,
+    headerRow: rowNumber,
+    firstDataRow: rowNumber,
+    lastDataRow: rowNumber.nullable(),
     pol: letter.nullable(),
     polFixed: z.string().trim().min(1).max(500).nullable(),
     pod: letter,
@@ -73,9 +67,11 @@ const layoutSchema = z
     validFrom: isoDate.nullable(),
     validTo: isoDate.nullable(),
     tables: z.array(table).min(1).max(40),
-    portCodes: z.record(z.string().trim().min(1).max(100), locode),
+    portCodes: z
+      .record(z.string().trim().min(1).max(100), locode)
+      .refine((codes) => Object.keys(codes).length <= MAX_PORT_CODES, `lists more than ${MAX_PORT_CODES} port codes`),
     surcharges: z.array(surcharge).max(60),
-    conditions: z.array(z.string().trim().min(1).max(500)).max(40),
+    conditions: conditionList(40),
     links: linkList,
   })
   .refine((l) => !l.validFrom || !l.validTo || l.validTo >= l.validFrom, { message: "the validity ends before it starts", path: ["validTo"] })
@@ -93,7 +89,12 @@ export function tidyOceanLayout(input: unknown): unknown {
   const codes = (v: unknown) => asArray(v).map((c) => String(c ?? "").trim()).filter((c) => /^[A-Z]{2}[A-Z0-9]{3}$/.test(c));
   const name = String(input.name ?? "").trim();
   const portCodes = isRecord(input.portCodes)
-    ? Object.fromEntries(Object.entries(input.portCodes).map(([k, v]) => [k.trim(), String(v ?? "").trim().toUpperCase()]).filter(([k, v]) => k && /^[A-Z]{2}[A-Z0-9]{3}$/.test(v!)))
+    ? Object.fromEntries(
+        Object.entries(input.portCodes)
+          .map(([k, v]) => [k.trim(), String(v ?? "").trim().toUpperCase()] as const)
+          .filter(([k, v]) => k && k.length <= 100 && /^[A-Z]{2}[A-Z0-9]{3}$/.test(v))
+          .slice(0, MAX_PORT_CODES),
+      )
     : {};
   return {
     ...input,
@@ -116,18 +117,14 @@ export function tidyOceanLayout(input: unknown): unknown {
         exceptPorts: codes(s.exceptPorts),
       }))
       .slice(0, 60),
-    conditions: tidyConditions(input.conditions).slice(0, 40),
+    conditions: tidyConditions(input.conditions, 40),
     links: tidyLinks(input.links),
   };
 }
 
 /** A layout as checked and tidied; one that does not hold is refused with the first problem found. */
 export function parseOceanLayout(input: unknown): OceanLayout {
-  const parsed = layoutSchema.safeParse(input);
-  if (parsed.success) return parsed.data;
-  const issue = parsed.error.issues[0]!;
-  const where = issue.path.join(".");
-  throw APIError.invalidArgument(`The tariff layout is not usable: ${where ? `${where} ` : ""}${issue.message}`);
+  return parseLayout(layoutSchema, input);
 }
 
 /** Whether the layout can be read from the file at all: every sheet it names is there and long enough. */

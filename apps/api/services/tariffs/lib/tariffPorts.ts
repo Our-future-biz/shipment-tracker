@@ -13,6 +13,15 @@ const inOrder = <T extends string>(all: readonly T[], chosen: Iterable<string>):
   return all.filter((x) => set.has(x));
 };
 
+/** The directions chosen for a tariff, each once and in list order; refused when none or one unknown. */
+export function chosenDirections(directions: readonly string[] | undefined): RailDirection[] {
+  const unknown = (directions ?? []).find((d) => !RAIL_DIRECTIONS.includes(d as RailDirection));
+  if (unknown) throw APIError.invalidArgument(`"${unknown}" is neither import nor export`);
+  const chosen = inOrder(RAIL_DIRECTIONS, directions ?? []);
+  if (!chosen.length) throw APIError.invalidArgument("Choose whether the tariff is for import, export or both");
+  return chosen;
+}
+
 /** The ports and directions chosen for a tariff, each once and in list order; refused when either is missing or unknown. */
 export function chosenPortsAndDirections(ports: readonly string[] | undefined, directions: readonly string[] | undefined): { ports: TariffPortCode[]; directions: RailDirection[] } {
   const unknownPort = (ports ?? []).find((p) => !TARIFF_PORT_CODES.includes(p as TariffPortCode));

@@ -99,6 +99,14 @@ describe("convertOcean", () => {
       ["warning", "price_text", [49]],
     ]);
   });
+
+  it("refuses a row naming more port pairs than any tariff does, instead of multiplying them out", () => {
+    const many = Array.from({ length: 11 }, (_, i) => `Port ${i}`).join(" / ");
+    const wide = sheet("Far East", { 10: { B: "POL", C: "POD", D: "20' Box" }, 11: { B: many, C: many, D: 25 }, 12: { B: "HAM", C: "Shanghai", D: 30 } });
+    const read = convertOcean([wide], { ...LAYOUT, tables: [LAYOUT.tables[0]!] });
+    expect(read.rates.map((r) => r.rowNo)).toEqual([12]);
+    expect(read.findings).toEqual([expect.objectContaining({ level: "error", code: "too_many_ports", rows: [11] })]);
+  });
 });
 
 describe("tidyOceanLayout", () => {
@@ -124,6 +132,14 @@ describe("tidyOceanLayout", () => {
     expect(bad({ tables: [{ ...LAYOUT.tables[0], currencyFixed: null }] })).toThrow(expect.objectContaining({ message: expect.stringContaining("tables.0.currency") }));
     const ebs = { name: "EBS", code: "EBS", amount: 70, currency: "USD", basis: "teu", equipment: [], tables: [9], countries: [], exceptCountries: [], ports: [], exceptPorts: [], condition: "always", charge: "fcl_baf" };
     expect(bad({ surcharges: [ebs] })).toThrow(expect.objectContaining({ message: expect.stringContaining("surcharges") }));
+  });
+
+  it("refuses rows past the end of any sheet and a port key longer than any tariff's", () => {
+    const bad = (change: object) => () => parseOceanLayout({ ...LAYOUT, ...change });
+    expect(bad({ tables: [{ ...LAYOUT.tables[0], lastDataRow: 2_000_000 }] })).toThrow(expect.objectContaining({ message: expect.stringContaining("tables.0.lastDataRow") }));
+    const portCodes = Object.fromEntries(Array.from({ length: 301 }, (_, i) => [`P${i}`, "DEHAM"]));
+    expect(bad({ portCodes })).toThrow(expect.objectContaining({ message: expect.stringContaining("portCodes") }));
+    expect(Object.keys(parseOceanLayout(tidyOceanLayout({ ...LAYOUT, portCodes })).portCodes)).toHaveLength(300);
   });
 });
 

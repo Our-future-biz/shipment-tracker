@@ -81,7 +81,7 @@ export function AddCustomerModal({
   const [contactForm] = Form.useForm<ContactValues>();
   const [country, setCountry] = useState(REGISTRY_COUNTRY);
   // A company is a customer, a supplier (a haulier we subcontract trucking to, a rail operator, a first / last mile
-  // haulier), or several of these.
+  // haulier, a shipping line), or several of these.
   const [roles, setRoles] = useState<interfaces.CustomerRole[]>(defaultRoles);
   // What is typed: an IČO (digits only) or part of the company name.
   const [query, setQuery] = useState("");

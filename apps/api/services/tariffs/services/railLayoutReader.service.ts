@@ -1,8 +1,6 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { secret } from "encore.dev/config";
-import { APIError } from "encore.dev/api";
-import log from "encore.dev/log";
+import type Anthropic from "@anthropic-ai/sdk";
 import type { RailLayout } from "../interfaces/interfaces";
+import { askLayout } from "../lib/anthropic";
 import { parseRailLayout, tidyAiLayout } from "../lib/railLayout";
 import { sheetExcerpt, type Sheet } from "../lib/sheet";
 
@@ -10,9 +8,6 @@ import { sheetExcerpt, type Sheet } from "../lib/sheet";
 // column means, the price columns' container lengths and weights, validity and terms - from
 // the top rows and a sample of the rest. It never copies prices: the code reads every row with the
 // layout, so no figure can be retyped wrongly.
-
-const anthropicApiKey = secret("ANTHROPIC_API_KEY");
-const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
 
 // The most sheets shown to the AI; a tariff file rarely has more than one or two.
 const MAX_SHEETS = 5;
@@ -87,12 +82,8 @@ const LAYOUT_TOOL: Anthropic.Tool = {
   },
 };
 
-function client(): Anthropic {
-  return new Anthropic({ apiKey: anthropicApiKey() || process.env.ANTHROPIC_API_KEY });
-}
-
 /** The text the AI is given: each sheet's excerpt, and the supplier's previous layout when there is one. */
-export function layoutRequestText(sheets: Sheet[], previous: RailLayout | null): string {
+function layoutRequestText(sheets: Sheet[], previous: RailLayout | null): string {
   const parts = sheets.slice(0, MAX_SHEETS).map((sheet) => sheetExcerpt(sheet));
   if (previous) parts.push(`The supplier's previous tariff was read with this layout:\n${JSON.stringify(previous)}`);
   return parts.join("\n\n");
@@ -100,26 +91,12 @@ export function layoutRequestText(sheets: Sheet[], previous: RailLayout | null):
 
 /** How the AI reads the tariff file's layout; refused when the AI is unreachable or answers something unusable. */
 export async function readRailLayout(sheets: Sheet[], previous: RailLayout | null): Promise<RailLayout> {
-  let message: Anthropic.Message;
-  try {
-    message = await client().messages.create({
-      model: MODEL,
-      max_tokens: 4000,
-      system: PROMPT,
-      tools: [LAYOUT_TOOL],
-      tool_choice: { type: "tool", name: LAYOUT_TOOL.name },
-      messages: [{ role: "user", content: layoutRequestText(sheets, previous) }],
-    });
-  } catch (err) {
-    log.error(err, "rail tariff: AI layout read failed", { model: MODEL });
-    throw APIError.unavailable("The AI could not read the tariff file just now. Try the upload again in a moment.");
-  }
-  const call = message.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
-  if (!call) throw APIError.unavailable("The AI did not describe the tariff file. Try the upload again.");
-  try {
-    return parseRailLayout(tidyAiLayout(call.input));
-  } catch (err) {
-    log.warn(err, "rail tariff: AI layout not usable", { input: JSON.stringify(call.input).slice(0, 2000) });
-    throw APIError.unavailable(`The AI's reading of the file was not usable (${err instanceof Error ? err.message : "unknown problem"}). Try the upload again.`);
-  }
+  return askLayout({
+    kind: "rail tariff",
+    system: PROMPT,
+    tool: LAYOUT_TOOL,
+    text: layoutRequestText(sheets, previous),
+    maxTokens: 4000,
+    parse: (input) => parseRailLayout(tidyAiLayout(input)),
+  });
 }

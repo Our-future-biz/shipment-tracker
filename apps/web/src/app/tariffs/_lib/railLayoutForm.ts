@@ -51,6 +51,16 @@ export function columnOptions(headings: Map<string, string>, layout: Layout): { 
   return letters.map((letter) => ({ value: letter, label: columnLabel(letter, headings.get(letter)) }));
 }
 
+/**
+ * The columns of a sheet to choose from, named after the sheet's headings row, plus any letter the
+ * layout names (`named`) that the first rows lack. For a layout of several tables on any sheet.
+ */
+export function sheetColumnOptions(preview: readonly interfaces.SheetPreview[], sheet: string, headingRow: number, named: (string | null)[]): { value: string; label: string }[] {
+  const headings = columnHeadings(previewSheet(preview, sheet), headingRow);
+  const letters = [...new Set([...headings.keys(), ...named.filter((l): l is string => !!l)])].sort((x, y) => letterIndex(x) - letterIndex(y));
+  return letters.map((l) => ({ value: l, label: columnLabel(l, headings.get(l)) }));
+}
+
 /** A new price column: the first column right of the last band, with the preview's heading as label. */
 export function newBand(layout: Layout, headings: Map<string, string>): interfaces.RailBand {
   const last = layout.bands.reduce((max, b) => Math.max(max, letterIndex(b.column)), 0);

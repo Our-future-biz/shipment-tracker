@@ -146,16 +146,16 @@ describe("offers", () => {
       { version: version({ id: VERSION_ID, layout: DISTANCE_LAYOUT }), tariff: tariff({ supplierCustomerId: TOPTRANS.id, name: "TOPTRANS" }) },
       { version: version({ id: VERSION_2, layout: LAYOUT }), tariff: tariff() },
     ]);
-    repo.regionOf.mockImplementation(async (_, postcode) => ({ postcode, region: postcode === "25261" ? "15" : "58", country: "CZ", place: postcode === "25261" ? "Dobrovíz" : "Brno" }) as never);
+    repo.regionOf.mockImplementation(async (_company, _version, postcode) => ({ postcode, region: postcode === "25261" ? "15" : "58", country: "CZ", place: postcode === "25261" ? "Dobrovíz" : "Brno" }) as never);
     repo.distanceBetween.mockResolvedValue(206);
     repo.areaOf.mockResolvedValue({ zone: "2", country: "CZ" });
-    repo.collectionRates.mockImplementation(async (versionId) => (versionId === VERSION_ID ? [rate(0, 150, [900, 1435])] : [rate(0, 150, [1000, 1200])]));
+    repo.collectionRates.mockImplementation(async (_company, versionId) => (versionId === VERSION_ID ? [rate(0, 150, [900, 1435])] : [rate(0, 150, [1000, 1200])]));
   });
 
   it("asks every approved tariff for the freight and lists their prices cheapest first, from our hub for the freight", async () => {
     const result = await ask();
     expect(repo.collectionCandidates).toHaveBeenCalledWith(COMPANY, "sea_lcl", "2026-11-15");
-    expect(repo.regionOf).toHaveBeenCalledWith(VERSION_ID, "25261");
+    expect(repo.regionOf).toHaveBeenCalledWith(COMPANY, VERSION_ID, "25261");
     expect(result.hubPostcode).toBe("25261");
     expect(result.offers.map((o) => [o.supplierName, o.zoneLabel, o.distanceKm, o.total, o.hubPlace, o.customerPlace])).toEqual([
       ["Rychlá doprava s.r.o.", "Zone 2", null, 1200, "", ""],
@@ -194,8 +194,18 @@ describe("try a route", () => {
     repo.areaOf.mockResolvedValue({ zone: "1", country: "CZ" });
     repo.collectionRates.mockResolvedValue([rate(0, 5, [100, 150]), rate(0, 30, [200, 250])]);
     const tried = await collectionTariffService.tryRoute(COMPANY, VERSION_ID, { hubPostcode: "25261", customerPostcode: "11000", weightKg: 4, cbm: 0.1, longestCm: null });
+    // Read from the company's own rows of the version.
+    expect(repo.areaOf).toHaveBeenCalledWith(COMPANY, VERSION_ID, "11000");
+    expect(repo.collectionRates).toHaveBeenCalledWith(COMPANY, VERSION_ID);
     // 0.1 m³ × 250 kg/m³ = 25 kg counts more than the 4 kg it weighs.
     expect(tried).toMatchObject({ problem: null, price: { zoneLabel: "Zone 1", chargeableKg: 25, chargeableBy: "volume", bandLabel: "up to 30 kg", total: 200 } });
+  });
+
+  it("refuses a weight, volume or piece out of range, as the offers do", async () => {
+    const route = { hubPostcode: "25261", customerPostcode: "11000", weightKg: 4, cbm: 0.1, longestCm: null };
+    await expect(collectionTariffService.tryRoute(COMPANY, VERSION_ID, { ...route, weightKg: -1 })).rejects.toMatchObject({ code: "invalid_argument", message: expect.stringContaining("weight") });
+    await expect(collectionTariffService.tryRoute(COMPANY, VERSION_ID, { ...route, cbm: Number.NaN })).rejects.toMatchObject({ code: "invalid_argument", message: expect.stringContaining("volume") });
+    expect(repo.getVersion).not.toHaveBeenCalled();
   });
 });
 

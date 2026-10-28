@@ -29,6 +29,7 @@ import { useSalesPermissions } from "@/hooks/useSalesPermissions";
 import { useSidebarState } from "@/hooks/useSidebarState";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { SALES_NAV, SALES_PAGES, type SalesNavItem } from "@/app/sales/_lib/tabs";
+import { TARIFF_NAV, TARIFF_PAGES } from "@/app/tariffs/_lib/tariffPages";
 import type { ReactNode } from "react";
 
 // An item of a submenu. Its shape is defined with the Sales menu, the one that uses all of it.
@@ -58,12 +59,8 @@ const NAV_ITEMS: NavItem[] = [
     path: "/tariffs",
     label: "Tariffs",
     icon: <TagsOutlined />,
-    home: "/tariffs/rail-operators",
-    children: [
-      { path: "/tariffs/rail-operators", label: "Rail Operators" },
-      { path: "/tariffs/collections", label: "Last / First Mile Collections" },
-      { path: "/tariffs/shipping-lines", label: "Shipping Lines" },
-    ],
+    home: TARIFF_PAGES.railOperators.path,
+    children: TARIFF_NAV,
   },
   { path: "/documents", label: "Document / Text Reading", icon: <FileTextOutlined /> },
   { path: "/invoicing", label: "Invoicing", icon: <DollarOutlined /> },

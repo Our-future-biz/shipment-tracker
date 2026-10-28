@@ -22,8 +22,8 @@ interface CustomerCrmCardProps {
   customer: CustomerItem;
 }
 
-// The CRM fields of a customer: roles (customer / haulier / rail operator), status, account type and website (currency and payment terms are
-// on the Finance tab). Every change saves itself.
+// The CRM fields of a customer: roles (customer / haulier / rail operator / first / last mile haulier / shipping line), status, account type
+// and website (currency and payment terms are on the Finance tab). Every change saves itself.
 export function CustomerCrmCard({ customer }: CustomerCrmCardProps) {
   const canSeeConcepts = useCanSeeConcepts();
   const { shown, save } = useCustomerEdits(customer);
@@ -49,7 +49,7 @@ export function CustomerCrmCard({ customer }: CustomerCrmCardProps) {
   return (
     <SectionCard title="CRM">
       <div>
-        {/* Roles say who is a supplier (rail operator, and haulier with the Trucking Concept); a manager's decision, like the account type. */}
+        {/* Roles say who is a supplier (rail operator, first / last mile haulier, shipping line, and haulier with the Trucking Concept); a manager's decision, like the account type. */}
         <CustomerInfoRow label="Roles" narrow>
           <div className={SELECT_WRAPPER_CLASS}>
             <Select

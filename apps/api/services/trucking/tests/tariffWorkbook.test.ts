@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import ExcelJS from "exceljs";
 import { describe, expect, it, vi } from "vitest";
+import { zipUnpackedBytes } from "../../../lib/zipSize";
 
 // The workbook library is pure apart from exceljs; the settings rules it uses load encore.dev/api.
 vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
@@ -19,7 +20,6 @@ import {
   readTariffWorkbook,
   UnreadableFileError,
   writeTariffWorkbook,
-  zipUnpackedBytes,
   type WorkbookTariffInfo,
 } from "../lib/tariffWorkbook";
 import { validateVersion } from "../lib/tariffValidation";
@@ -453,14 +453,14 @@ describe("reading filled files", () => {
 
   it("refuses a workbook that unpacks to more than 50 MB before opening it (its zip directory read)", async () => {
     const buffer = await writeTariffWorkbook({ tariff: TARIFF, input: emptyTemplateInput(DEFAULTS.factors, "2026-10-15"), levelLabels: LABELS });
-    const declared = zipUnpackedBytes(buffer)!;
+    const declared = zipUnpackedBytes(buffer, 2000)!;
     expect(declared).toBeGreaterThan(buffer.length);
     expect(declared).toBeLessThan(MAX_UNPACKED_BYTES);
     // The first central directory entry claims 60 MB unpacked.
     const bomb = Buffer.from(buffer);
     const cen = bomb.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
     bomb.writeUInt32LE(60 * 1024 * 1024, cen + 24);
-    expect(zipUnpackedBytes(bomb)).toBeGreaterThan(MAX_UNPACKED_BYTES);
+    expect(zipUnpackedBytes(bomb, 2000)).toBeGreaterThan(MAX_UNPACKED_BYTES);
     const load = vi.spyOn(ExcelJS.Workbook.prototype, "xlsx", "get");
     await expect(loadWorkbookTables(bomb)).rejects.toThrow("The workbook unpacks to more than 50 MB");
     expect(load).not.toHaveBeenCalled();

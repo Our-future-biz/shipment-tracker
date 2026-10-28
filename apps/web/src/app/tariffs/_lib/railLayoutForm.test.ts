@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { interfaces } from "@/lib/api/client";
-import { cleanLayout, columnHeadings, columnOptions, findingRowsText, layoutProblems, letterIndex, newBand } from "./railLayoutForm";
+import { cleanLayout, columnHeadings, columnOptions, findingRowsText, layoutProblems, letterIndex, newBand, sheetColumnOptions } from "./railLayoutForm";
 
 const PREVIEW: interfaces.SheetPreview = {
   name: "26Road",
@@ -57,6 +57,18 @@ describe("columnOptions", () => {
     expect(options.find((o) => o.value === "D")?.label).toBe("D — Via/Depot");
     expect(options.find((o) => o.value === "M")?.label).toBe("M");
     expect(options.at(-1)).toEqual({ value: "O", label: "O" });
+  });
+});
+
+describe("sheetColumnOptions", () => {
+  it("names a sheet's columns after its headings row and keeps letters the layout names", () => {
+    const options = sheetColumnOptions([PREVIEW], "26Road", 18, ["E", null, "AB"]);
+    expect(options.find((o) => o.value === "C")?.label).toBe("C — Destination");
+    expect(options.at(-1)).toEqual({ value: "AB", label: "AB" });
+  });
+
+  it("offers only the named letters for a sheet the file lacks", () => {
+    expect(sheetColumnOptions([PREVIEW], "Other", 1, ["B"])).toEqual([{ value: "B", label: "B" }]);
   });
 });
 

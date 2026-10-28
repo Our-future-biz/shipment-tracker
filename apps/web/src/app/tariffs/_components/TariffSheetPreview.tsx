@@ -1,9 +1,9 @@
 "use client";
 
 import type { interfaces } from "@/lib/api/client";
-import { columnHeadings } from "../../_lib/railLayoutForm";
+import { columnHeadings } from "../_lib/railLayoutForm";
 
-interface RailVersionSheetPreviewProps {
+interface TariffSheetPreviewProps {
   preview: interfaces.SheetPreview | null;
   headerRow: number;
   firstDataRow: number;
@@ -13,7 +13,7 @@ interface RailVersionSheetPreviewProps {
 
 // The first rows of the sheet as uploaded, with row numbers and column letters, so the layout's
 // letters and rows can be checked against the file: the headings row and the first price row are marked.
-export const RailVersionSheetPreview = ({ preview, headerRow, firstDataRow, priceColumns }: RailVersionSheetPreviewProps) => {
+export const TariffSheetPreview = ({ preview, headerRow, firstDataRow, priceColumns }: TariffSheetPreviewProps) => {
   if (!preview) return <p className="m-0 text-[13px] text-slate-500">The file has no sheet of this name.</p>;
   const letters = [...columnHeadings(preview, headerRow).keys()];
   const prices = new Set(priceColumns);

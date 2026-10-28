@@ -1,12 +1,13 @@
 import type { interfaces } from "@/lib/api/client";
 import { fmtMoney } from "@/lib/money";
 import { formatQty } from "@/lib/number";
+import { TARIFF_PAGES } from "./tariffPages";
 
 // Pure helpers of the first / last mile collections tariffs: where a haulier and a version live,
 // and how the freight a tariff serves, its weight rows and its surcharges read.
 
-export const collectionHaulierHref = (customerId: string) => `/tariffs/collections/${customerId}`;
-export const collectionVersionHref = (customerId: string, versionId: string) => `/tariffs/collections/${customerId}/versions/${versionId}`;
+export const collectionHaulierHref = (customerId: string) => `${TARIFF_PAGES.collections.path}/${customerId}`;
+export const collectionVersionHref = (customerId: string, versionId: string) => `${collectionHaulierHref(customerId)}/versions/${versionId}`;
 
 /** What a collections tariff can collect and deliver, in the order they are offered (the API keeps the same list). */
 export const COLLECTION_FREIGHT_MODES: { value: interfaces.CollectionFreightMode; label: string }[] = [

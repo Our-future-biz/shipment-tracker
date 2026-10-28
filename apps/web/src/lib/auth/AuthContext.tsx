@@ -155,7 +155,7 @@ export const useCanDeleteShipments = (): boolean => {
   return !!user && (SHIPMENT_DELETE_ROLES as readonly string[]).includes(user.role);
 };
 
-/** Roles that may add rail operators and upload, correct, approve or discard their tariffs; the server enforces the same. */
+/** Roles that may add the suppliers under Tariffs (rail operators, first / last mile hauliers, shipping lines), set our hubs, and upload, correct, approve or discard tariffs; the server enforces the same. */
 export const TARIFF_MANAGER_ROLES = ["superadmin", "admin", "manager"] as const;
 
 /** Whether the signed-in user may manage tariffs (everyone may look at them). */

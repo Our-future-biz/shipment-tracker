@@ -1,8 +1,6 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { secret } from "encore.dev/config";
-import { APIError } from "encore.dev/api";
-import log from "encore.dev/log";
+import type Anthropic from "@anthropic-ai/sdk";
 import type { OceanLayout } from "../interfaces/interfaces";
+import { askLayout } from "../lib/anthropic";
 import { parseOceanLayout, tidyOceanLayout } from "../lib/oceanLayout";
 import { sheetExcerpt, type Sheet } from "../lib/sheet";
 
@@ -10,9 +8,6 @@ import { sheetExcerpt, type Sheet } from "../lib/sheet";
 // discharge, the transshipment port, the price per container, the currency - what the short port
 // codes stand for, and every surcharge rule written under the tables. It never copies rates: the
 // code reads every row, and matches the port names to the UN/LOCODE place list itself.
-
-const anthropicApiKey = secret("ANTHROPIC_API_KEY");
-const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
 
 // The most sheets shown to the AI; a carrier's rate document has around fifteen.
 const MAX_SHEETS = 20;
@@ -107,12 +102,8 @@ const LAYOUT_TOOL: Anthropic.Tool = {
   },
 };
 
-function client(): Anthropic {
-  return new Anthropic({ apiKey: anthropicApiKey() || process.env.ANTHROPIC_API_KEY });
-}
-
 /** The text the AI is given: each sheet's excerpt (with currencies and formulas), and the line's previous layout when there is one. */
-export function oceanRequestText(sheets: Sheet[], previous: OceanLayout | null): string {
+function oceanRequestText(sheets: Sheet[], previous: OceanLayout | null): string {
   const parts = sheets.slice(0, MAX_SHEETS).map((sheet) => sheetExcerpt(sheet, { formulas: !sheet.hidden }));
   if (previous) parts.push(`The shipping line's previous tariff was read with this layout:\n${JSON.stringify(previous)}`);
   return parts.join("\n\n");
@@ -120,26 +111,12 @@ export function oceanRequestText(sheets: Sheet[], previous: OceanLayout | null):
 
 /** How the AI reads the tariff file's layout; refused when the AI is unreachable or answers something unusable. */
 export async function readOceanLayout(sheets: Sheet[], previous: OceanLayout | null): Promise<OceanLayout> {
-  let message: Anthropic.Message;
-  try {
-    message = await client().messages.create({
-      model: MODEL,
-      max_tokens: 16000,
-      system: PROMPT,
-      tools: [LAYOUT_TOOL],
-      tool_choice: { type: "tool", name: LAYOUT_TOOL.name },
-      messages: [{ role: "user", content: oceanRequestText(sheets, previous) }],
-    });
-  } catch (err) {
-    log.error(err, "ocean tariff: AI layout read failed", { model: MODEL });
-    throw APIError.unavailable("The AI could not read the tariff file just now. Try the upload again in a moment.");
-  }
-  const call = message.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
-  if (!call) throw APIError.unavailable("The AI did not describe the tariff file. Try the upload again.");
-  try {
-    return parseOceanLayout(tidyOceanLayout(call.input));
-  } catch (err) {
-    log.warn(err, "ocean tariff: AI layout not usable", { input: JSON.stringify(call.input).slice(0, 3000) });
-    throw APIError.unavailable(`The AI's reading of the file was not usable (${err instanceof Error ? err.message : "unknown problem"}). Try the upload again.`);
-  }
+  return askLayout({
+    kind: "ocean tariff",
+    system: PROMPT,
+    tool: LAYOUT_TOOL,
+    text: oceanRequestText(sheets, previous),
+    maxTokens: 16000,
+    parse: (input) => parseOceanLayout(tidyOceanLayout(input)),
+  });
 }

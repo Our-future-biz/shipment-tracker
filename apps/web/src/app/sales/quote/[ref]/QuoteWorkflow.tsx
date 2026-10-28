@@ -101,6 +101,7 @@ import { RailTariffsDrawer } from "./_components/RailTariffsDrawer";
 import { useRailOffers } from "@/hooks/useRailTariffs";
 import { railVersionHref } from "@/app/tariffs/_lib/railTariffs";
 import { isInlandHaulageLine, isRailLine, railOffersRequest, railRouteOf, railVersionId, withRailOffer, type RailOffer, type RailRoute } from "../../_lib/railQuote";
+import type { TariffPick } from "../../_lib/tariffQuote";
 import { CollectionTariffsDrawer } from "./_components/CollectionTariffsDrawer";
 import { useCollectionHubs, useCollectionOffers } from "@/hooks/useCollectionTariffs";
 import { collectionVersionHref } from "@/app/tariffs/_lib/collectionTariffs";
@@ -512,8 +513,8 @@ export function QuoteWorkflow() {
   // inland container haulage lines; asked only while there is such a line to price.
   const railCount = useRailOffers(!quoteClosed && (draft.buyingLines ?? []).some(isInlandHaulageLine) ? railOffersRequest(railRouteOf(draft, businessToday())) : null);
   // The same for the collections tariffs, on an inland collection / delivery line of a Sea LCL or
-  // air quote; our hubs give the route its other end.
-  const collectionHubs = useCollectionHubs().hubs;
+  // air quote; our hubs give the route its other end (asked only on such a quote).
+  const collectionHubs = useCollectionHubs({ enabled: !!collectionFreightOf(draft.serviceType) }).hubs;
   const collectionCount = useCollectionOffers(
     !quoteClosed && collectionFreightOf(draft.serviceType) && (draft.buyingLines ?? []).some(isInlandCollectionLine)
       ? collectionOffersRequest(collectionRouteOf(draft, collectionHubs, businessToday()))
@@ -678,9 +679,9 @@ export function QuoteWorkflow() {
   const sendBlocked = sendBlockedText(roadMargin);
   // "Tariff vN" on a line priced from a tariff, and "Override" when it was changed by hand since.
   const buyingTag = (line: CostLine) => {
-    if (isRailLine(line)) return <RailTariffTag line={line} />;
-    if (isCollectionLine(line)) return <CollectionTariffTag line={line} />;
-    if (isOceanLine(line)) return <OceanTariffTag line={line} />;
+    if (isRailLine(line)) return <SupplierTariffTag line={line} label="Rail tariff" versionId={railVersionId(line)} versionHref={railVersionHref} />;
+    if (isCollectionLine(line)) return <SupplierTariffTag line={line} label="Collection tariff" versionId={collectionVersionId(line)} versionHref={collectionVersionHref} />;
+    if (isOceanLine(line)) return <SupplierTariffTag line={line} label="Ocean tariff" versionId={oceanVersionId(line)} versionHref={oceanVersionHref} />;
     const tag = lineTariffTag(line, draft.roadPricing, "buying");
     return tag && <TariffTag tag={tag} />;
   };
@@ -739,16 +740,23 @@ export function QuoteWorkflow() {
       </button>
     );
   };
-  // An offer picked under "Tariffs available" goes on the line it was opened from (see
-  // withRailOffer); the rows keep their React keys. As when an amount is typed on a line that had
-  // none, selling is then offered the line.
-  const pickRailOffer = (offer: RailOffer, route: RailRoute) => {
-    if (railLine === null || !route.port) return;
-    const before = buyingLines[railLine];
-    const pick = withRailOffer(buyingLines, railLine, offer, route.port, route.direction, draft);
+  // An offer's amount in the quote's currency, as the buying lines are totalled.
+  const toQuoteCurrency = (amount: number, currency: string) => convertLine({ type: "", description: "", currency, amount }, draft, exchange.rates, { live: exchange });
+  // The buying lines after a pick, with the rows' React keys following them: the keys of the lines
+  // an earlier pick made go, and the offer's further lines get new ones.
+  const putPick = (pick: TariffPick) => {
     for (const i of [...pick.removed].sort((a, b) => b - a)) buyingKeys.remove(i);
     for (let k = 1; k < pick.count; k++) buyingKeys.insert(pick.at + k);
     updateLines("buyingLines", pick.lines);
+  };
+  // An offer picked under "Tariffs available" goes on the line it was opened from (see
+  // withRailOffer); the rows keep their React keys. As when an amount is typed on a line that had
+  // none, selling is then offered the line. Nothing is put on a quote closed meanwhile.
+  const pickRailOffer = (offer: RailOffer, route: RailRoute) => {
+    if (quoteClosed || railLine === null || !route.port) return;
+    const before = buyingLines[railLine];
+    const pick = withRailOffer(buyingLines, railLine, offer, route.port, route.direction, draft);
+    putPick(pick);
     setRailLine(null);
     toast.success(`Priced from ${offer.supplierName}: ${fmtMoney(offer.total, offer.currency)}`);
     const first = pick.lines[pick.at];
@@ -757,7 +765,7 @@ export function QuoteWorkflow() {
   // A collections offer replaces the line it was opened from with one lump sum (see
   // withCollectionOffer), so every row keeps its key; selling is offered it as for rail.
   const pickCollectionOffer = (offer: CollectionOffer, route: CollectionRoute) => {
-    if (collectionLine === null) return;
+    if (quoteClosed || collectionLine === null) return;
     const before = buyingLines[collectionLine];
     const lines = withCollectionOffer(buyingLines, collectionLine, offer, route);
     updateLines("buyingLines", lines);
@@ -769,12 +777,10 @@ export function QuoteWorkflow() {
   // An ocean offer puts its freight and a line per surcharge in the place of the line it was opened
   // from (see withOceanOffer); the rows keep their React keys, and selling is offered the freight.
   const pickOceanOffer = (offer: OceanOffer, route: OceanRoute) => {
-    if (oceanLine === null) return;
+    if (quoteClosed || oceanLine === null) return;
     const before = buyingLines[oceanLine];
     const pick = withOceanOffer(buyingLines, oceanLine, offer, route, draft);
-    for (const i of [...pick.removed].sort((a, b) => b - a)) buyingKeys.remove(i);
-    for (let k = 1; k < pick.count; k++) buyingKeys.insert(pick.at + k);
-    updateLines("buyingLines", pick.lines);
+    putPick(pick);
     setOceanLine(null);
     const surcharges = offer.surcharges.length ? ` and ${offer.surcharges.length} ${offer.surcharges.length === 1 ? "surcharge" : "surcharges"}` : "";
     toast.success(`Priced from ${offer.supplierName}: ${fmtMoney(offer.freight, offer.currency)} freight${surcharges}`);
@@ -1952,7 +1958,7 @@ export function QuoteWorkflow() {
         open={railLine !== null}
         quote={draft}
         quoteCurrency={totals.currency}
-        toQuoteCurrency={(amount, currency) => convertLine({ type: "", description: "", currency, amount }, draft, exchange.rates, { live: exchange })}
+        toQuoteCurrency={toQuoteCurrency}
         onPick={pickRailOffer}
         onClose={() => setRailLine(null)}
       />
@@ -1961,7 +1967,7 @@ export function QuoteWorkflow() {
         quote={draft}
         hubs={collectionHubs}
         quoteCurrency={totals.currency}
-        toQuoteCurrency={(amount, currency) => convertLine({ type: "", description: "", currency, amount }, draft, exchange.rates, { live: exchange })}
+        toQuoteCurrency={toQuoteCurrency}
         onPick={pickCollectionOffer}
         onClose={() => setCollectionLine(null)}
       />
@@ -1969,7 +1975,7 @@ export function QuoteWorkflow() {
         open={oceanLine !== null}
         quote={draft}
         quoteCurrency={totals.currency}
-        toQuoteCurrency={(amount, currency) => convertLine({ type: "", description: "", currency, amount }, draft, exchange.rates, { live: exchange })}
+        toQuoteCurrency={toQuoteCurrency}
         onPick={pickOceanOffer}
         onClose={() => setOceanLine(null)}
       />
@@ -2224,48 +2230,29 @@ function SaveProblemBanner({ problem, onRetry, onLoadLatest }: SaveProblemBanner
   );
 }
 
+interface SupplierTariffTagProps {
+  line: CostLine;
+  /** "Rail tariff", "Collection tariff", "Ocean tariff" */
+  label: string;
+  /** The tariff version the line was priced from */
+  versionId: string | null;
+  versionHref: (customerId: string, versionId: string) => string;
+}
+
+// The mark of a buying line priced from a supplier's tariff on Tariffs (rail, collections, ocean);
+// it opens the tariff version the line came from, in a new tab.
+function SupplierTariffTag({ line, label, versionId, versionHref }: SupplierTariffTagProps) {
+  if (!versionId || !line.supplierCustomerId) return <Pill tone="slate">{label}</Pill>;
+  return (
+    <a href={versionHref(line.supplierCustomerId, versionId)} target="_blank" rel="noreferrer" title={`Open the ${label.toLowerCase()} this line was priced from`}>
+      <Pill tone="slate" className="hover:bg-slate-200">
+        {label} ↗
+      </Pill>
+    </a>
+  );
+}
+
 // The marks of a cost line priced from a tariff: its version, and "Override" once it was changed by hand.
-// "Rail tariff" on a buying line priced from a rail tariff; it opens the tariff version it came from.
-function RailTariffTag({ line }: { line: CostLine }) {
-  const versionId = railVersionId(line);
-  if (!versionId || !line.supplierCustomerId) return <Pill tone="slate">Rail tariff</Pill>;
-  return (
-    <a href={railVersionHref(line.supplierCustomerId, versionId)} target="_blank" rel="noreferrer" title="Open the rail tariff this line was priced from">
-      <Pill tone="slate" className="hover:bg-slate-200">
-        Rail tariff ↗
-      </Pill>
-    </a>
-  );
-}
-
-// "Collection tariff" on a buying line priced from a first / last mile haulier's tariff; it opens
-// the tariff version it came from.
-function CollectionTariffTag({ line }: { line: CostLine }) {
-  const versionId = collectionVersionId(line);
-  if (!versionId || !line.supplierCustomerId) return <Pill tone="slate">Collection tariff</Pill>;
-  return (
-    <a href={collectionVersionHref(line.supplierCustomerId, versionId)} target="_blank" rel="noreferrer" title="Open the collections tariff this line was priced from">
-      <Pill tone="slate" className="hover:bg-slate-200">
-        Collection tariff ↗
-      </Pill>
-    </a>
-  );
-}
-
-// "Ocean tariff" on a buying line priced from a shipping line's tariff (its freight and
-// surcharges); it opens the tariff version it came from.
-function OceanTariffTag({ line }: { line: CostLine }) {
-  const versionId = oceanVersionId(line);
-  if (!versionId || !line.supplierCustomerId) return <Pill tone="slate">Ocean tariff</Pill>;
-  return (
-    <a href={oceanVersionHref(line.supplierCustomerId, versionId)} target="_blank" rel="noreferrer" title="Open the ocean tariff this line was priced from">
-      <Pill tone="slate" className="hover:bg-slate-200">
-        Ocean tariff ↗
-      </Pill>
-    </a>
-  );
-}
-
 function TariffTag({ tag }: { tag: LineTariffTag }) {
   return (
     <>

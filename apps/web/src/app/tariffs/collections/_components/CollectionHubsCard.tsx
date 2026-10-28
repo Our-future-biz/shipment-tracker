@@ -10,8 +10,7 @@ import { apiErrorMessage } from "@/lib/api";
 import { useCanManageTariffs } from "@/lib/auth/AuthContext";
 import { useToast } from "@/lib/toast";
 import { COLLECTION_FREIGHT_MODES, postcodeText } from "../../_lib/collectionTariffs";
-
-const muted = (text: string) => <span className="text-slate-400">{text}</span>;
+import { muted } from "../../_components/TariffText";
 
 // What keeps a hub from being saved, in words; null when it can be.
 function hubProblem(hub: CollectionHub): string | null {
@@ -25,7 +24,7 @@ function hubProblem(hub: CollectionHub): string | null {
 export const CollectionHubsCard = () => {
   const toast = useToast();
   const canManage = useCanManageTariffs();
-  const { hubs } = useCollectionHubs();
+  const { hubs, isLoading, error } = useCollectionHubs();
   const { setHub, isSettingHub } = useCollectionTariffActions();
   const [editing, setEditing] = useState<CollectionHub | null>(null);
   const problem = editing && hubProblem(editing);
@@ -58,12 +57,16 @@ export const CollectionHubsCard = () => {
                     <>
                       {hub.label || muted("No name")} · {postcodeText(hub.postcode)} {hub.country}
                     </>
+                  ) : isLoading ? (
+                    muted("Loading…")
+                  ) : error ? (
+                    <span className="text-red-600">Could not load the hubs: {apiErrorMessage(error)}</span>
                   ) : (
                     muted("Not set: quotes cannot be priced until it is")
                   )}
                 </div>
               </div>
-              {canManage && (
+              {canManage && !isLoading && (
                 <Tooltip title={`Set the ${label} hub`}>
                   <Button
                     size="small"
@@ -99,16 +102,16 @@ export const CollectionHubsCard = () => {
           <div className="flex flex-col gap-3">
             <label className="flex flex-col gap-1 text-[12px] font-semibold text-slate-600">
               Name
-              <Input aria-label="Hub name" placeholder="CFS Jeneč" value={editing.label} maxLength={100} onChange={(e) => setEditing({ ...editing, label: e.target.value })} />
+              <Input aria-label="Hub name" placeholder="CFS Jeneč" value={editing.label} maxLength={100} disabled={isSettingHub} onChange={(e) => setEditing({ ...editing, label: e.target.value })} />
             </label>
             <div className="grid grid-cols-[1fr_80px] gap-3">
               <label className="flex flex-col gap-1 text-[12px] font-semibold text-slate-600">
                 Postcode
-                <Input aria-label="Hub postcode" placeholder="252 61" value={editing.postcode} maxLength={6} onChange={(e) => setEditing({ ...editing, postcode: e.target.value })} />
+                <Input aria-label="Hub postcode" placeholder="252 61" value={editing.postcode} maxLength={6} disabled={isSettingHub} onChange={(e) => setEditing({ ...editing, postcode: e.target.value })} />
               </label>
               <label className="flex flex-col gap-1 text-[12px] font-semibold text-slate-600">
                 Country
-                <Input aria-label="Hub country" value={editing.country} maxLength={2} onChange={(e) => setEditing({ ...editing, country: e.target.value.toUpperCase() })} />
+                <Input aria-label="Hub country" value={editing.country} maxLength={2} disabled={isSettingHub} onChange={(e) => setEditing({ ...editing, country: e.target.value.toUpperCase() })} />
               </label>
             </div>
           </div>

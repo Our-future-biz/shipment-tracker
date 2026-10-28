@@ -1,4 +1,5 @@
 import type { CollectionConsignment, CollectionLayout, CollectionPrice, CollectionSurchargeLine } from "../interfaces/interfaces";
+import { roundCents } from "./money";
 
 // What a collections tariff asks for a consignment, once its table and zone are known: the
 // chargeable weight (the real weight, or the volume counted as weight by the tariff's own rule,
@@ -15,14 +16,12 @@ export interface PricingRow {
 
 /** Why a tariff cannot price a consignment. */
 export type PricingRefusal =
-  | "no_weight" // neither the weight nor the volume is known
+  | "no_weight" // no weight is known, and no volume the tariff counts as weight
   | "too_heavy" // heavier than the table's last row
   | "too_big" // more volume than the table's volume column goes to
   | "no_price"; // the row has no price in the zone
 
 export type Pricing = ({ ok: true } & CollectionPrice) | { ok: false; reason: PricingRefusal; chargeableKg?: number; maxKg?: number };
-
-const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /** "up to 150 kg", "up to 0.5 kg" */
 export const bandLabel = (kg: number) => `up to ${kg.toLocaleString("en-US")} kg`;
@@ -36,7 +35,7 @@ export function volumeKg(rows: PricingRow[], kgPerCbm: number | null, cbm: numbe
   if (cbm <= 0) return 0;
   const withVolume = rows.filter((r) => r.volumeToCbm !== null);
   if (withVolume.length) return withVolume.find((r) => cbm <= r.volumeToCbm!)?.weightToKg ?? Number.POSITIVE_INFINITY;
-  return kgPerCbm ? round2(cbm * kgPerCbm) : 0;
+  return kgPerCbm ? roundCents(cbm * kgPerCbm) : 0;
 }
 
 /** The price table for the customer's country; -1 when the tariff has none. */
@@ -64,6 +63,8 @@ export function priceIn(
   const byVolume = volumeKg(rows, layout.kgPerCbm, consignment.cbm ?? 0);
   if (byVolume === Number.POSITIVE_INFINITY) return { ok: false, reason: "too_big" };
   const chargeableKg = Math.max(real, byVolume);
+  // A volume alone prices nothing on a tariff that does not count volume as weight: not the lightest row.
+  if (chargeableKg <= 0) return { ok: false, reason: "no_weight" };
   const row = rows.find((r) => chargeableKg <= r.weightToKg);
   if (!row) return { ok: false, reason: "too_heavy", chargeableKg, maxKg: rows[rows.length - 1]?.weightToKg };
   const price = row.prices[zone];
@@ -72,7 +73,7 @@ export function priceIn(
   // A % of a table priced in whole units (TOPTRANS: whole CZK) is rounded the same way, as the
   // tariff's own calculator does; otherwise to cents.
   const whole = rows.every((r) => r.prices.every((p) => p === null || Number.isInteger(p)));
-  const share = (percent: number | null) => (whole ? Math.round : round2)((price * (percent ?? 0)) / 100);
+  const share = (percent: number | null) => (whole ? Math.round : roundCents)((price * (percent ?? 0)) / 100);
   const surcharges: CollectionSurchargeLine[] = [];
   for (const s of layout.surcharges) {
     if (s.kind === "oversize" && consignment.longestCm !== null && s.overLengthCm !== null && consignment.longestCm > s.overLengthCm) {
@@ -80,7 +81,7 @@ export function priceIn(
     } else if (s.kind === "percent") {
       surcharges.push({ label: s.label, amount: share(s.percent) });
     } else if (s.kind === "flat") {
-      surcharges.push({ label: s.label, amount: round2(s.amount ?? 0) });
+      surcharges.push({ label: s.label, amount: roundCents(s.amount ?? 0) });
     }
   }
   const m = layout.matrices[matrix]!;
@@ -94,7 +95,7 @@ export function priceIn(
     bandLabel: bandLabel(row.weightToKg),
     price,
     surcharges,
-    total: round2(price + surcharges.reduce((sum, s) => sum + s.amount, 0)),
+    total: roundCents(price + surcharges.reduce((sum, s) => sum + s.amount, 0)),
     currency: layout.currency,
   };
 }

@@ -1,22 +1,21 @@
 "use client";
 
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { controllers, interfaces, services } from "@/lib/api/client";
+import { useSupplierTariffCache, useSupplierTariffOffers } from "./useSupplierTariffs";
 
 // Shipping lines' ocean tariffs (Tariffs → Shipping Lines): the lines, their tariffs and versions,
 // one version's layout, findings, ports and rates, a manager's actions on a draft, and the offers
 // Sales asks for on a Sea FCL quote.
 
 export type ShippingLineItem = services.ShippingLineItem;
-export type ShippingLineDetail = services.ShippingLineDetail;
 export type OceanTariffItem = services.OceanTariffItem;
 export type OceanTariffVersionDetail = services.OceanTariffVersionDetail;
 export type OceanLayout = interfaces.OceanLayout;
 export type OceanPort = interfaces.OceanPort;
 export type OceanRateView = services.OceanRateView;
 export type OceanOffer = interfaces.OceanOffer;
-export type OceanOffersResult = services.OceanOffersResult;
 export type OceanUpload = controllers.OceanUploadRequest;
 export type OceanOffersRequest = controllers.OceanOffersRequest;
 /** A port name of a draft and what it means, with the version's id */
@@ -38,7 +37,7 @@ export const oceanTariffKeys = {
   line: (customerId: string) => [...oceanTariffKeys.all, "line", customerId] as const,
   version: (id: string) => [...oceanTariffKeys.all, "version", id] as const,
   rates: (id: string, filter: OceanRateFilter) => [...oceanTariffKeys.all, "rates", id, filter] as const,
-  offers: (req: OceanOffersRequest) => [...oceanTariffKeys.all, "offers", req] as const,
+  offers: (req: OceanOffersRequest | null) => [...oceanTariffKeys.all, "offers", req] as const,
 };
 
 export const useShippingLines = () => {
@@ -73,31 +72,15 @@ export const useOceanRates = (id: string, filter: OceanRateFilter) => {
   return { page: query.data ?? null, isLoading: query.isLoading, isFetching: query.isFetching, error: query.error };
 };
 
-// Every shipping line's offer for a Sea FCL quote (Sales → Pricing): nothing is asked while `req` is
-// null. The last answer stays shown while a changed route is asked again.
-export const useOceanOffers = (req: OceanOffersRequest | null) => {
-  const query = useQuery({
-    queryKey: oceanTariffKeys.offers(req!),
-    queryFn: () => api.tariffs.oceanOffers(req!),
-    enabled: req !== null,
-    placeholderData: keepPreviousData,
-  });
-  return { result: req ? (query.data ?? null) : null, isLoading: query.isLoading, isFetching: query.isFetching, error: query.error };
-};
+// Every shipping line's offer for a Sea FCL quote (Sales → Pricing): nothing is asked while `req` is null.
+export const useOceanOffers = (req: OceanOffersRequest | null) => useSupplierTariffOffers(oceanTariffKeys.offers(req), api.tariffs.oceanOffers, req);
 
 /** The file a version was read from. */
 export const fetchOceanTariffSource = (id: string) => api.tariffs.oceanVersionSource(id).then((r) => r.file);
 
-// The manager's actions. Each one refreshes every ocean query: a version's change shows on its
-// line's page and in the lines list too.
+// The manager's actions. Each one refreshes every ocean query (useSupplierTariffCache).
 export const useOceanTariffActions = () => {
-  const queryClient = useQueryClient();
-  const refresh = () => queryClient.invalidateQueries({ queryKey: oceanTariffKeys.all });
-  const keep = (version: OceanTariffVersionDetail) => {
-    queryClient.setQueryData(oceanTariffKeys.version(version.id), version);
-    void refresh();
-    return version;
-  };
+  const { refresh, keep } = useSupplierTariffCache<OceanTariffVersionDetail>(oceanTariffKeys.all, oceanTariffKeys.version);
 
   const upload = useMutation({ mutationFn: (req: OceanUpload) => api.tariffs.oceanUpload(req).then((r) => keep(r.version)) });
   const relayout = useMutation({

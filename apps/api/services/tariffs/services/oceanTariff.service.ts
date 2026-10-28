@@ -1,12 +1,12 @@
-import { createHash } from "node:crypto";
 import { APIError } from "encore.dev/api";
-import { auth, customers } from "~encore/clients";
+import { auth } from "~encore/clients";
+import { isRealYmd } from "../../../lib/businessDate";
 import type { Actor } from "../../../lib/rbac";
-import { isUuid } from "../../../lib/uuid";
 import type {
   OceanData,
   OceanLayout,
   OceanOffer,
+  OceanOfferContainer,
   OceanPlace,
   OceanPort,
   RailDirection,
@@ -15,29 +15,38 @@ import type {
   TariffFile,
   TariffFinding,
 } from "../interfaces/interfaces";
+import { findingTotals } from "../lib/railConvert";
 import { convertOcean, type PortNeed } from "../lib/oceanConvert";
 import { oceanLayoutProblem, parseOceanLayout } from "../lib/oceanLayout";
 import { countriesFor, nameVariants, placeFor, portCodeFor } from "../lib/oceanPorts";
 import { oceanEquipmentOf, rateOffer, type OceanContainer } from "../lib/oceanPricing";
-import { findingTotals } from "../lib/railConvert";
+import { RAIL_DIRECTIONS, chosenDirections } from "../lib/tariffPorts";
 import { sheetPreview, type Sheet } from "../lib/sheet";
-import { tariffRepository, type DraftFields } from "../repositories/tariff.repository";
-import type { OceanPortRecord, TariffRecord, TariffVersionRecord } from "../schemas/tariff.schema";
-import { tariffFileBucket } from "../storage/tariffFileBucket";
+import { tariffRepository } from "../repositories/tariff.repository";
+import type { OceanPortRecord, TariffVersionRecord } from "../schemas/tariff.schema";
 import { readOceanLayout } from "./oceanLayoutReader.service";
 import {
+  approveVersion,
   businessToday,
-  dropSource,
-  isRealDay,
-  pricesOn,
+  discardVersion,
+  draftSheets,
+  readFields,
+  replaceDraft,
+  saveDraft,
   sheetsOf,
   sourceFile,
-  storeSource,
+  supplierGlance,
+  supplierTariffs,
+  suppliersOf,
   summaryOf,
-  tariffOfMode,
+  tariffName,
+  unusableLayout,
+  updateTariff,
+  uploadTarget,
   uploadedFile,
-  userName,
   versionOfMode,
+  type ReadFields,
+  type SupplierTariffs,
 } from "./tariffFiles";
 
 // Shipping lines' tariffs (Tariffs → Shipping Lines): a manager uploads the line's own Excel rate
@@ -45,10 +54,18 @@ import {
 // matches the port names to the UN/LOCODE place list, a manager picks the ports it could not match
 // and approves. Approved versions price a Sea FCL quote's ocean freight (Sales → Pricing).
 
-const DIRECTIONS: readonly RailDirection[] = ["import", "export"];
 const PREVIEW_ROWS = 40;
+
+// Why a port is not picked on a version that is no draft (any more).
+const PORTS_OF_DRAFT_ONLY = "Only a draft's ports can be changed";
+
 // The most candidates kept for a port name a user has to pick.
 const MAX_CANDIDATES = 8;
+// The most place-list lookups asked of the auth service at once: a rate document names a few
+// hundred ports, each in up to three ways of writing.
+const LOOKUP_BATCH = 200;
+// The most container lines priced at once, as for rail.
+const MAX_CONTAINER_LINES = 20;
 
 /** A shipping line (a Customer Database company with the role) with its tariffs at a glance. */
 export interface ShippingLineItem {
@@ -78,6 +95,12 @@ export interface OceanTariffItem {
 export interface ShippingLineDetail {
   line: ShippingLineItem;
   tariffs: OceanTariffItem[];
+}
+
+export interface OceanTariffFields {
+  id: string;
+  name: string;
+  directions: RailDirection[];
 }
 
 export interface OceanTariffRef {
@@ -141,7 +164,7 @@ export interface OceanOffersQuery {
   /** YYYY-MM-DD the rates must be valid on */
   date: string;
   /** The quote's container lines */
-  containers: { type: string; qty: number }[];
+  containers: OceanOfferContainer[];
   /** The cargo is dangerous goods: IMO surcharges apply */
   dangerous: boolean;
 }
@@ -153,25 +176,22 @@ export interface OceanOffersResult {
   notes: string[];
 }
 
-/** The directions chosen for a tariff, each once and in list order; refused when none or one unknown. */
-export function chosenDirections(directions: readonly string[] | undefined): RailDirection[] {
-  const unknown = (directions ?? []).find((d) => !DIRECTIONS.includes(d as RailDirection));
-  if (unknown) throw APIError.invalidArgument(`"${unknown}" is neither import nor export`);
-  const chosen = DIRECTIONS.filter((d) => directions?.includes(d));
-  if (!chosen.length) throw APIError.invalidArgument("Choose whether the tariff is for import, export or both");
-  return chosen;
-}
-
-// The shipping lines of the caller's company (Customer Database companies with the role), or those of `ids`.
-async function linesWithRole(ids?: string[]) {
-  const { companies } = await customers._internalCompaniesWithRole({ role: "shipping_line", ids });
-  return companies;
-}
-
 const layoutOf = (v: TariffVersionRecord) => v.layout as OceanLayout;
 const portKey = (side: string, name: string) => `${side}|${name}`;
 
 const portOf = (p: OceanPortRecord): OceanPort => ({ side: p.side, name: p.name, countryHint: p.countryHint, code: p.code, status: p.status, candidates: p.candidates });
+
+/** The places of the codes, and the candidates of each name, asked of the place list a batch at a time. */
+async function placeLookup(codes: string[], names: { name: string; countryCode?: string }[]): Promise<{ byCode: OceanPlace[]; candidates: OceanPlace[][] }> {
+  const byCode: OceanPlace[] = [];
+  const candidates: OceanPlace[][] = [];
+  for (let i = 0; i < Math.max(codes.length, names.length); i += LOOKUP_BATCH) {
+    const answer = await auth.placeLookup({ codes: codes.slice(i, i + LOOKUP_BATCH), names: names.slice(i, i + LOOKUP_BATCH) });
+    byCode.push(...answer.byCode);
+    candidates.push(...answer.candidates);
+  }
+  return { byCode, candidates };
+}
 
 /**
  * What every port name of the file means. A name a user picked or left out on this tariff before
@@ -197,7 +217,7 @@ async function matchPorts(needs: PortNeed[], layout: OceanLayout, picks: Map<str
     const queries = nameVariants(need.name).flatMap((name) => (countries.length ? countries.map((countryCode) => ({ name, countryCode })) : [{ name }]));
     lookups.push({ need, queries });
   }
-  const { byCode, candidates } = await auth.placeLookup({ codes: [...byCodeAsked], names: lookups.flatMap((l) => l.queries) });
+  const { byCode, candidates } = await placeLookup([...byCodeAsked], lookups.flatMap((l) => l.queries));
   const known = new Set(byCode.map((p) => p.code));
 
   const answers = new Map<string, OceanPlace[]>();
@@ -225,37 +245,38 @@ async function matchPorts(needs: PortNeed[], layout: OceanLayout, picks: Map<str
   });
 }
 
+// The finding of the port names still to match: approval waits for them.
+const portsPending = (pending: number): TariffFinding => ({
+  level: "warning",
+  code: "ports_pending",
+  message: `${pending} port names are not matched to a place yet: pick each one (or leave it out) before approving`,
+  count: pending,
+  rows: [],
+});
+
 // What a layout reads from the file, with its ports matched, and what a draft is saved with besides it.
-async function convertDraft(sheets: Sheet[], layout: OceanLayout, picks: Map<string, { code: string | null; status: OceanPort["status"] }>) {
+async function convertDraft(sheets: Sheet[], layout: OceanLayout, picks: Map<string, { code: string | null; status: OceanPort["status"] }>): Promise<{ data: OceanData; fields: ReadFields }> {
   const problem = oceanLayoutProblem(layout, sheets);
-  const unusable: TariffFinding = { level: "error", code: "layout_unusable", message: problem ?? "", count: 1, rows: [] };
-  const read = problem ? { rates: [], ports: [], findings: [unusable] } : convertOcean(sheets, layout);
+  const read = problem ? { rates: [], ports: [], findings: [unusableLayout(problem)] } : convertOcean(sheets, layout);
   const ports = await matchPorts(read.ports, layout, picks);
   const pending = ports.filter((p) => p.status === "pending").length;
-  const findings: TariffFinding[] = pending
-    ? [...read.findings, { level: "warning", code: "ports_pending", message: `${pending} port names are not matched to a place yet: pick each one (or leave it out) before approving`, count: pending, rows: [] }]
-    : read.findings;
-  const totals = findingTotals(findings);
-  const data: OceanData = { rates: read.rates, ports };
-  const fields: Omit<DraftFields, "layoutSource" | "preview"> & { preview: SheetPreview[] } = {
-    validFrom: layout.validFrom,
-    validTo: layout.validTo,
-    currency: [...new Set(read.rates.map((r) => r.currency))].join("/") || "USD",
-    layout,
-    findings,
-    preview: sheets.map((s) => sheetPreview(s, PREVIEW_ROWS)),
-    rowCount: read.rates.length,
-    warningCount: totals.warnings,
-    errorCount: totals.errors,
-  };
-  return { data, fields };
+  const findings = pending ? [...read.findings, portsPending(pending)] : read.findings;
+  // A version's currency as listed: its rates' currencies together.
+  const currency = [...new Set(read.rates.map((r) => r.currency))].join("/") || "USD";
+  const preview: SheetPreview[] = sheets.map((s) => sheetPreview(s, PREVIEW_ROWS));
+  return { data: { rates: read.rates, ports }, fields: readFields({ layout, currency, findings, rowCount: read.rates.length }, preview) };
 }
 
+const lineOf = (s: SupplierTariffs, day: string): ShippingLineItem => ({
+  ...supplierGlance(s, day),
+  directions: RAIL_DIRECTIONS.filter((d) => s.tariffs.some((t) => t.directions.includes(d))),
+});
+
 // The picks of a tariff's versions, newest first, as the next reading takes them over.
-async function picksOf(tariffId: string | null) {
+async function picksOf(companyId: string, tariffId: string | null) {
   const picks = new Map<string, { code: string | null; status: OceanPort["status"] }>();
   if (!tariffId) return picks;
-  for (const p of await tariffRepository.oceanPicks(tariffId)) {
+  for (const p of await tariffRepository.oceanPicks(companyId, tariffId)) {
     const key = portKey(p.side, p.name);
     if (!picks.has(key)) picks.set(key, { code: p.code, status: p.status });
   }
@@ -265,91 +286,51 @@ async function picksOf(tariffId: string | null) {
 class OceanTariffService {
   /** The shipping lines with their tariffs at a glance, by company name. */
   async lines(companyId: string): Promise<ShippingLineItem[]> {
-    const companies = await linesWithRole();
-    if (!companies.length) return [];
-    const tariffs = await tariffRepository.list(companyId, "ocean", companies.map((c) => c.id));
-    const versions = await tariffRepository.versionsOf(companyId, tariffs.map((t) => t.id));
     const today = businessToday();
-    return companies.map((c) => {
-      const ownTariffs = tariffs.filter((t) => t.supplierCustomerId === c.id);
-      const own = new Set(ownTariffs.map((t) => t.id));
-      const mine = versions.filter((v) => own.has(v.tariffId));
-      const pricing = mine.filter((v) => pricesOn(v, today));
-      const ends = pricing.map((v) => v.validTo).filter((d): d is string => d !== null);
-      return {
-        customerId: c.id,
-        companyName: c.companyName,
-        ico: c.ico,
-        city: c.city,
-        country: c.country,
-        tariffCount: own.size,
-        directions: DIRECTIONS.filter((d) => ownTariffs.some((t) => t.directions.includes(d))),
-        activeCount: pricing.length,
-        draftCount: mine.filter((v) => v.status === "draft").length,
-        activeUntil: ends.length ? ends.sort()[0]! : null,
-      };
-    });
+    return (await supplierTariffs(companyId, "ocean")).map((s) => lineOf(s, today));
   }
 
   /** One shipping line with all its tariffs and their versions. */
   async line(companyId: string, customerId: string): Promise<ShippingLineDetail> {
-    const line = (await this.lines(companyId)).find((l) => l.customerId === customerId);
-    if (!line) throw APIError.notFound("This company is not a shipping line in the Customer Database");
-    const tariffs = await tariffRepository.list(companyId, "ocean", [customerId]);
-    const versions = await tariffRepository.versionsOf(companyId, tariffs.map((t) => t.id));
+    const [found] = await supplierTariffs(companyId, "ocean", [customerId]);
+    if (!found) throw APIError.notFound("This company is not a shipping line in the Customer Database");
     return {
-      line,
-      tariffs: tariffs.map((t) => ({ id: t.id, name: t.name, supplierCustomerId: t.supplierCustomerId, directions: t.directions, versions: versions.filter((v) => v.tariffId === t.id).map(summaryOf) })),
+      line: lineOf(found, businessToday()),
+      tariffs: found.tariffs.map((t) => ({
+        id: t.id,
+        name: t.name,
+        supplierCustomerId: t.supplierCustomerId,
+        directions: t.directions,
+        versions: found.versions.filter((v) => v.tariffId === t.id).map(summaryOf),
+      })),
     };
   }
 
   /** Reads an uploaded rate document into a new draft: the AI reads where each part is, the code every rate and port. */
   async upload(actor: Actor, req: OceanUpload): Promise<OceanTariffVersionDetail> {
-    const { companyID: companyId, userID: userId } = actor;
-    const { fileName, bytes } = uploadedFile(req);
-    const [supplier] = await linesWithRole([req.supplierCustomerId]);
-    if (!supplier) throw APIError.notFound("This company is not a shipping line in the Customer Database");
-    let tariff: TariffRecord | null = null;
-    if (req.tariffId) {
-      tariff = isUuid(req.tariffId) ? await tariffRepository.get(companyId, req.tariffId) : null;
-      if (!tariff || tariff.mode !== "ocean" || tariff.supplierCustomerId !== supplier.id) throw APIError.notFound("This tariff is not one of the shipping line's");
-    }
+    const file = uploadedFile(req);
+    const { supplier, tariff } = await uploadTarget(actor.companyID, "ocean", req.supplierCustomerId, req.tariffId);
     // Checked before the AI is asked: a new tariff cannot be saved without them.
     const directions = tariff ? null : chosenDirections(req.directions);
 
-    const sheets = await sheetsOf(bytes, fileName, { hidden: true });
+    const sheets = await sheetsOf(file.bytes, file.fileName, { hidden: true });
     const previous = (tariff?.layout ?? null) as OceanLayout | null;
     const layout = await readOceanLayout(sheets, previous);
-    const { data, fields } = await convertDraft(sheets, layout, await picksOf(tariff?.id ?? null));
-
-    const key = await storeSource(companyId, fileName, bytes);
-    const by = await userName(userId);
-    try {
-      const version = await tariffRepository.createDraft(
-        companyId,
-        tariff ? { tariffId: tariff.id } : { supplierCustomerId: supplier.id, mode: "ocean", name: layout.name, ports: [], directions: directions! },
-        {
-          ...fields,
-          layoutSource: previous ? "remembered" : "ai",
-          sourceFileName: fileName,
-          sourceSha256: createHash("sha256").update(bytes).digest("hex"),
-          sourceKey: key,
-          createdByUserId: userId,
-          createdBy: by,
-        },
-        data,
-      );
-      return this.version(companyId, version.id);
-    } catch (err) {
-      await dropSource(key);
-      throw err;
-    }
+    const { data, fields } = await convertDraft(sheets, layout, await picksOf(actor.companyID, tariff?.id ?? null));
+    const versionId = await saveDraft(
+      actor,
+      file,
+      tariff ? { tariffId: tariff.id } : { supplierCustomerId: supplier.id, mode: "ocean", name: layout.name, ports: [], directions: directions! },
+      { ...fields, layoutSource: previous ? "remembered" : "ai" },
+      data,
+    );
+    return this.version(actor.companyID, versionId);
   }
 
   /** A version with its layout, findings, the first rows of the file, and its port names. */
   async version(companyId: string, versionId: string): Promise<OceanTariffVersionDetail> {
     const { v, t } = await versionOfMode(companyId, versionId, "ocean");
-    const [[supplier], ports] = await Promise.all([linesWithRole([t.supplierCustomerId]), tariffRepository.oceanPorts(v.id)]);
+    const [[supplier], ports] = await Promise.all([suppliersOf("ocean", [t.supplierCustomerId]), tariffRepository.oceanPorts(companyId, v.id)]);
     return {
       ...summaryOf(v),
       tariff: { id: t.id, name: t.name, supplierCustomerId: t.supplierCustomerId, supplierName: supplier?.companyName ?? "", directions: t.directions },
@@ -364,7 +345,7 @@ class OceanTariffService {
   /** A page of a version's rates, searched by port and transshipment port, of one table when named. */
   async rates(companyId: string, versionId: string, filter: { search?: string; table?: number; offset: number; limit: number }): Promise<OceanRatePage> {
     const { v } = await versionOfMode(companyId, versionId, "ocean");
-    const { rows, total } = await tariffRepository.oceanRates(v.id, filter);
+    const { rows, total } = await tariffRepository.oceanRates(companyId, v.id, filter);
     return {
       rates: rows.map((r) => ({
         id: r.id,
@@ -376,7 +357,7 @@ class OceanTariffService {
         podCode: r.podCode,
         via: r.via,
         currency: r.currency,
-        prices: r.prices as Record<string, number>,
+        prices: Object.fromEntries(Object.entries(r.prices).filter((e): e is [string, number] => e[1] !== undefined)),
         note: r.note,
       })),
       total,
@@ -387,12 +368,8 @@ class OceanTariffService {
   async relayout(companyId: string, versionId: string, input: OceanLayout): Promise<OceanTariffVersionDetail> {
     const layout = parseOceanLayout(input);
     const { v, t } = await versionOfMode(companyId, versionId, "ocean");
-    if (v.status !== "draft") throw APIError.failedPrecondition("Only a draft's layout can be changed");
-    if (!v.sourceKey) throw APIError.failedPrecondition("This version has no file to read again");
-    const sheets = await sheetsOf(await tariffFileBucket.download(v.sourceKey), v.sourceFileName ?? "tariff.xlsx", { hidden: true });
-    const { data, fields } = await convertDraft(sheets, layout, await picksOf(t.id));
-    const updated = await tariffRepository.replaceDraft(companyId, versionId, { ...fields, layoutSource: "edited" }, data);
-    if (!updated) throw APIError.failedPrecondition("This version is not a draft any more");
+    const { data, fields } = await convertDraft(await draftSheets(v, { hidden: true }), layout, await picksOf(companyId, t.id));
+    await replaceDraft(companyId, versionId, fields, data);
     return this.version(companyId, versionId);
   }
 
@@ -402,19 +379,23 @@ class OceanTariffService {
    */
   async setPort(companyId: string, versionId: string, req: { side: "pol" | "pod"; name: string; code: string | null }): Promise<OceanTariffVersionDetail> {
     const { v } = await versionOfMode(companyId, versionId, "ocean");
-    if (v.status !== "draft") throw APIError.failedPrecondition("Only a draft's ports can be changed");
+    if (v.status !== "draft") throw APIError.failedPrecondition(PORTS_OF_DRAFT_ONLY);
     const code = req.code?.trim().toUpperCase() || null;
     if (code) {
+      if (!/^[A-Z]{2}[A-Z0-9]{3}$/.test(code)) throw APIError.invalidArgument(`${code} is not a UN/LOCODE, e.g. DEHAM`);
       const { byCode } = await auth.placeLookup({ codes: [code], names: [] });
       if (!byCode.length) throw APIError.invalidArgument(`${code} is not a place of the UN/LOCODE list`);
     }
-    if (!(await tariffRepository.setOceanPort(v.id, req.side, req.name, code))) throw APIError.notFound("This version has no such port name");
+    const picked = await tariffRepository.setOceanPort(companyId, v.id, req.side, req.name, code);
+    if (!picked.ok) {
+      // A version approved or thrown away since it was read above.
+      if (picked.reason === "not_draft") throw APIError.failedPrecondition(PORTS_OF_DRAFT_ONLY);
+      throw APIError.notFound("This version has no such port name");
+    }
     // The "ports pending" finding follows what is left to pick.
-    const pending = await tariffRepository.pendingOceanPorts(v.id);
+    const pending = await tariffRepository.pendingOceanPorts(companyId, v.id);
     const others = v.findings.filter((f) => f.code !== "ports_pending");
-    const findings: TariffFinding[] = pending
-      ? [...others, { level: "warning", code: "ports_pending", message: `${pending} port names are not matched to a place yet: pick each one (or leave it out) before approving`, count: pending, rows: [] }]
-      : others;
+    const findings = pending ? [...others, portsPending(pending)] : others;
     const totals = findingTotals(findings);
     await tariffRepository.replaceFindings(companyId, v.id, findings, totals);
     return this.version(companyId, versionId);
@@ -423,34 +404,27 @@ class OceanTariffService {
   /** Approves a draft without errors and with every port matched: it prices from its start date, earlier versions give way. */
   async approve(actor: Actor, versionId: string): Promise<OceanTariffVersionDetail> {
     const { v } = await versionOfMode(actor.companyID, versionId, "ocean");
-    const pending = await tariffRepository.pendingOceanPorts(v.id);
+    const pending = await tariffRepository.pendingOceanPorts(actor.companyID, v.id);
     if (pending) throw APIError.failedPrecondition(`${pending} port names are not matched to a place yet: pick each one, or leave it out, first`);
-    const result = await tariffRepository.approve(actor.companyID, versionId, (await userName(actor.userID)) ?? "");
-    if (!result.ok) {
-      if (result.reason === "not_found") throw APIError.notFound("Tariff version not found");
-      throw APIError.failedPrecondition(result.reason);
-    }
+    await approveVersion(actor, versionId);
     return this.version(actor.companyID, versionId);
   }
 
   /** Throws a draft away; the file stays in storage with the soft-deleted version. */
   async discard(companyId: string, versionId: string): Promise<void> {
-    await versionOfMode(companyId, versionId, "ocean");
-    if (!(await tariffRepository.discard(companyId, versionId))) throw APIError.failedPrecondition("Only a draft can be discarded");
+    await discardVersion(companyId, versionId, "ocean");
   }
 
+  /** The file a version was read from. */
   async source(companyId: string, versionId: string): Promise<TariffFile> {
-    return sourceFile((await versionOfMode(companyId, versionId, "ocean")).v);
+    return sourceFile(companyId, versionId, "ocean");
   }
 
   /** Changes a tariff's name and directions; its versions and rates stay as they are. */
-  async update(companyId: string, tariffId: string, req: { name: string; directions: RailDirection[] }): Promise<{ id: string; name: string; directions: RailDirection[] }> {
-    const name = req.name.trim();
-    if (!name) throw APIError.invalidArgument("The tariff needs a name");
+  async update(companyId: string, tariffId: string, req: { name: string; directions: RailDirection[] }): Promise<OceanTariffFields> {
+    const name = tariffName(req.name);
     const directions = chosenDirections(req.directions);
-    await tariffOfMode(companyId, tariffId, "ocean");
-    const row = await tariffRepository.update(companyId, tariffId, { name: name.slice(0, 200), directions });
-    if (!row) throw APIError.notFound("Tariff not found");
+    const row = await updateTariff(companyId, tariffId, "ocean", { name, directions });
     return { id: row.id, name: row.name, directions: row.directions };
   }
 
@@ -461,14 +435,15 @@ class OceanTariffService {
    * containers is left out; the notes say why and name the fees only charged on a manual booking.
    */
   async offers(companyId: string, req: OceanOffersQuery): Promise<OceanOffersResult> {
-    if (!DIRECTIONS.includes(req.direction)) throw APIError.invalidArgument("The direction is import or export");
-    if (!isRealDay(req.date)) throw APIError.invalidArgument("The date must be a day YYYY-MM-DD");
+    if (!RAIL_DIRECTIONS.includes(req.direction)) throw APIError.invalidArgument("The direction is import or export");
+    if (!isRealYmd(req.date)) throw APIError.invalidArgument("The date must be a day YYYY-MM-DD");
     const polCode = req.polCode.trim().toUpperCase();
     const podCode = req.podCode.trim().toUpperCase();
     if (!/^[A-Z]{2}[A-Z0-9]{3}$/.test(podCode) || (!req.comparePols && !/^[A-Z]{2}[A-Z0-9]{3}$/.test(polCode))) {
       throw APIError.invalidArgument("Choose the ports of loading and discharge (UN/LOCODE places)");
     }
     if (!req.containers.length) throw APIError.invalidArgument("Add the containers in Cargo details first");
+    if (req.containers.length > MAX_CONTAINER_LINES) throw APIError.invalidArgument(`At most ${MAX_CONTAINER_LINES} container lines are priced at once`);
     if (req.containers.some((c) => !Number.isInteger(c.qty) || c.qty < 1 || c.qty > 999)) throw APIError.invalidArgument("A number of containers must be 1 to 999");
 
     const notes: string[] = [];
@@ -482,8 +457,8 @@ class OceanTariffService {
 
     const candidates = await tariffRepository.oceanCandidates(companyId, req.direction, req.date);
     const versions = new Map(candidates.map((c) => [c.version.id, c]));
-    const rates = await tariffRepository.oceanRoute([...versions.keys()], podCode, req.comparePols ? null : polCode);
-    const names = new Map((await linesWithRole([...new Set(candidates.map((c) => c.tariff.supplierCustomerId))])).map((l) => [l.id, l.companyName]));
+    const rates = await tariffRepository.oceanRoute(companyId, [...versions.keys()], podCode, req.comparePols ? null : polCode);
+    const names = new Map((await suppliersOf("ocean", [...new Set(candidates.map((c) => c.tariff.supplierCustomerId))])).map((l) => [l.id, l.companyName]));
 
     const offers: OceanOffer[] = [];
     const manual = new Set<string>();

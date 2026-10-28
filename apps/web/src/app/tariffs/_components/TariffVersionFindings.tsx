@@ -2,11 +2,11 @@
 
 import { CheckCircleOutlined, CloseCircleOutlined, WarningOutlined } from "@ant-design/icons";
 import { CountChip, SectionCard } from "@/components/SectionCard";
-import type { TariffFinding } from "@/hooks/useRailTariffs";
-import { findingRowsText } from "../../_lib/railLayoutForm";
+import type { interfaces } from "@/lib/api/client";
+import { findingRowsText } from "../_lib/railLayoutForm";
 
-interface RailVersionFindingsProps {
-  findings: TariffFinding[];
+interface TariffVersionFindingsProps {
+  findings: interfaces.TariffFinding[];
   /** A draft: errors stop its approval, which the card says. */
   isDraft: boolean;
 }
@@ -18,7 +18,7 @@ const LEVEL = {
 
 // What the checks found reading the file: errors first, then warnings, each with how many rows and
 // the first of them. A draft with errors cannot be approved.
-export const RailVersionFindings = ({ findings, isDraft }: RailVersionFindingsProps) => {
+export const TariffVersionFindings = ({ findings, isDraft }: TariffVersionFindingsProps) => {
   const sorted = [...findings].sort((a, b) => (a.level === b.level ? 0 : a.level === "error" ? -1 : 1));
   const hasErrors = findings.some((f) => f.level === "error");
 

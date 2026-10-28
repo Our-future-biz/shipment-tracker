@@ -1,5 +1,6 @@
 import { containerType } from "../../../lib/containerTares";
 import type { OceanEquipment, OceanOfferLine, OceanOfferSurcharge, OceanSurcharge } from "../interfaces/interfaces";
+import { roundCents } from "./money";
 
 // What a shipping line's rate row asks for a quote's containers: each container type at the row's
 // price for its equipment, and the tariff's surcharges that apply to the row's table, the port of
@@ -19,11 +20,9 @@ const EQUIPMENT_OF: Record<string, OceanEquipment> = {
 /** The equipment an ocean tariff prices a quote's container type by; null for one it does not (special equipment, 45'). */
 export const oceanEquipmentOf = (type: string): OceanEquipment | null => EQUIPMENT_OF[containerType(type)] ?? null;
 
-export const teuOf = (equipment: OceanEquipment) => (equipment.startsWith("20") ? 1 : 2);
+const teuOf = (equipment: OceanEquipment) => (equipment.startsWith("20") ? 1 : 2);
 
-export const equipmentKind = (equipment: OceanEquipment): "dry" | "reefer" => (equipment.endsWith("RF") ? "reefer" : "dry");
-
-const round2 = (n: number) => Math.round(n * 100) / 100;
+const equipmentKind = (equipment: OceanEquipment): "dry" | "reefer" => (equipment.endsWith("RF") ? "reefer" : "dry");
 
 /** A quote's container line as an ocean tariff prices it. */
 export interface OceanContainer {
@@ -80,9 +79,9 @@ export function rateOffer(
   for (const c of containers) {
     const price = rate.prices[c.equipment];
     if (price === undefined) return { ok: false, missing: c.type };
-    lines.push({ type: c.type, qty: c.qty, equipment: c.equipment, price, amount: round2(price * c.qty) });
+    lines.push({ type: c.type, qty: c.qty, equipment: c.equipment, price, amount: roundCents(price * c.qty) });
   }
-  const freight = round2(lines.reduce((sum, l) => sum + l.amount, 0));
+  const freight = roundCents(lines.reduce((sum, l) => sum + l.amount, 0));
   const added: OceanOfferSurcharge[] = [];
   const manual: string[] = [];
   for (const s of surcharges) {
@@ -94,9 +93,9 @@ export function rateOffer(
       manual.push(s.name);
       continue;
     }
-    added.push({ name: s.name, code: s.code, charge: s.charge, basis: s.basis, units, rate: s.amount, total: round2(s.amount * units), currency: s.currency });
+    added.push({ name: s.name, code: s.code, charge: s.charge, basis: s.basis, units, rate: s.amount, total: roundCents(s.amount * units), currency: s.currency });
   }
   const byCurrency = new Map<string, number>([[rate.currency, freight]]);
-  for (const s of added) byCurrency.set(s.currency, round2((byCurrency.get(s.currency) ?? 0) + s.total));
+  for (const s of added) byCurrency.set(s.currency, roundCents((byCurrency.get(s.currency) ?? 0) + s.total));
   return { ok: true, lines, freight, surcharges: added, manual, totals: [...byCurrency].map(([currency, amount]) => ({ currency, amount })) };
 }

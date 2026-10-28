@@ -1,7 +1,7 @@
 import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import { customerService } from "../services/customer.service";
-import type { HaulierCompanyItem } from "../interfaces/interfaces";
+import type { RoleCompanyItem } from "../interfaces/interfaces";
 
 interface HaulierListRequest {
   /** Only these customers (those of them that are live hauliers); every haulier when left out. */
@@ -10,7 +10,7 @@ interface HaulierListRequest {
 
 interface HaulierListResponse {
   /** Live companies with the role "haulier", by company name. */
-  hauliers: HaulierCompanyItem[];
+  hauliers: RoleCompanyItem[];
 }
 
 /**
@@ -21,6 +21,6 @@ interface HaulierListResponse {
 export const _internalHaulierList = api(
   { expose: false, auth: true, method: "GET", path: "/internal/customers/hauliers" },
   async ({ ids }: HaulierListRequest): Promise<HaulierListResponse> => {
-    return { hauliers: await customerService.haulierList(getAuthData()!.companyID, ids) };
+    return { hauliers: await customerService.listWithRole(getAuthData()!.companyID, "haulier", ids) };
   },
 );

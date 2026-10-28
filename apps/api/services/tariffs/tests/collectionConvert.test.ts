@@ -159,6 +159,12 @@ describe("pricing", () => {
     expect(at({ weightKg: null, cbm: null, longestCm: null })).toEqual({ ok: false, reason: "no_weight" });
   });
 
+  it("does not price a volume alone at the lightest row when the tariff counts no volume as weight", () => {
+    const byWeightOnly = [{ matrix: 0, weightToKg: 50, volumeToCbm: null, prices: [100] }];
+    expect(priceIn({ ...LAYOUT, kgPerCbm: null }, byWeightOnly, 0, 0, { weightKg: null, cbm: 2, longestCm: null }, 50)).toEqual({ ok: false, reason: "no_weight" });
+    expect(priceIn({ ...LAYOUT, kgPerCbm: 250 }, byWeightOnly, 0, 0, { weightKg: null, cbm: 0.1, longestCm: null }, 50)).toMatchObject({ ok: true, chargeableKg: 25, chargeableBy: "volume" });
+  });
+
   it("finds the table by country and the zone by km or code", () => {
     expect([matrixFor(LAYOUT, "CZ"), matrixFor(LAYOUT, "SK")]).toEqual([0, -1]);
     expect([zoneFor(LAYOUT, 0, { km: 100 }), zoneFor(LAYOUT, 0, { km: 101 }), zoneFor(LAYOUT, 0, { km: 301 })]).toEqual([0, 1, -1]);

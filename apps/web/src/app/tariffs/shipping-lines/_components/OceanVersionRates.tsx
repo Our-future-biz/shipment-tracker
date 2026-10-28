@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Input, Select, Table, type TableColumnsType } from "antd";
 import { SearchOutlined } from "@ant-design/icons";
+import { EMPTY_CELL } from "@/components/EmptyCell";
 import { CountChip, SectionCard } from "@/components/SectionCard";
 import { useDebounced } from "@/hooks/useDebounced";
 import { useOceanRates, type OceanRateView, type OceanTariffVersionDetail } from "@/hooks/useOceanTariffs";
@@ -12,8 +13,6 @@ import { equipmentLabel, equipmentOf } from "../../_lib/oceanTariffs";
 
 const PAGE_SIZE = 100;
 const SEARCH_DELAY_MS = 300;
-
-const dash = <span className="text-slate-400">—</span>;
 
 const Port = ({ name, code }: { name: string; code: string | null }) => (
   <span className="whitespace-nowrap">
@@ -45,7 +44,7 @@ export const OceanVersionRates = ({ version }: OceanVersionRatesProps) => {
       key: `price-${e}`,
       title: equipmentLabel(e),
       align: "right",
-      render: (_, r) => (r.prices[e] != null ? <span className="tabular-nums">{formatQty(r.prices[e]!)}</span> : dash),
+      render: (_, r) => (r.prices[e] != null ? <span className="tabular-nums">{formatQty(r.prices[e]!)}</span> : EMPTY_CELL),
     }));
     return [
       { key: "row", title: "Row", width: 64, render: (_, r) => <span className="text-slate-400 tabular-nums">{r.rowNo}</span> },
@@ -54,10 +53,10 @@ export const OceanVersionRates = ({ version }: OceanVersionRatesProps) => {
         : []),
       { key: "pol", title: "POL", render: (_, r) => <Port name={r.polName} code={r.polCode} /> },
       { key: "pod", title: "POD", render: (_, r) => <Port name={r.podName} code={r.podCode} /> },
-      { key: "via", title: "Via", render: (_, r) => r.via || dash },
+      { key: "via", title: "Via", render: (_, r) => r.via || EMPTY_CELL },
       ...prices,
       { key: "currency", title: "Currency", render: (_, r) => r.currency },
-      { key: "note", title: "Note", render: (_, r) => (r.note ? <span className="text-xs text-slate-600">{r.note}</span> : dash) },
+      { key: "note", title: "Note", render: (_, r) => (r.note ? <span className="text-xs text-slate-600">{r.note}</span> : EMPTY_CELL) },
     ];
   }, [tables]);
 
