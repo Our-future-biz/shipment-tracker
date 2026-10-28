@@ -89,8 +89,9 @@ describe("readSheets", () => {
 
   it("refuses a workbook whose zip directory declares far more than a tariff unpacks to, before unpacking it", async () => {
     const buffer = await workbookBuffer();
-    expect(zipUnpackedBytes(buffer, 5000)).toBeGreaterThan(0);
-    expect(zipUnpackedBytes(buffer, 5000)).toBeLessThan(MAX_UNPACKED_BYTES);
+    const limits = { maxEntries: 5000, maxBytes: MAX_UNPACKED_BYTES };
+    expect(zipUnpackedBytes(buffer, limits)).toBeGreaterThan(0);
+    expect(zipUnpackedBytes(buffer, limits)).toBeLessThan(MAX_UNPACKED_BYTES);
     // Declare one part's unpacked size as 2 GB in the central directory, as a zip bomb does.
     const bomb = Buffer.from(buffer);
     const eocd = bomb.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));

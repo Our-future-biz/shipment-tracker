@@ -326,7 +326,7 @@ export async function loadWorkbookTables(buffer: Buffer): Promise<SheetTable[]> 
   if (buffer.length < 4 || buffer.readUInt32BE(0) !== 0x504b0304) {
     throw new UnreadableFileError("This is not an Excel .xlsx file. Use the tariff template (Download template) and upload it as .xlsx.");
   }
-  const unpacked = zipUnpackedBytes(buffer, MAX_ZIP_ENTRIES);
+  const unpacked = zipUnpackedBytes(buffer, { maxEntries: MAX_ZIP_ENTRIES, maxBytes: MAX_UNPACKED_BYTES });
   if (unpacked === null) throw new UnreadableFileError("The file could not be opened as an Excel workbook. Open it in Excel, save it as .xlsx and try again.");
   if (unpacked > MAX_UNPACKED_BYTES) {
     throw new UnreadableFileError("The workbook unpacks to more than 50 MB. A tariff file is normally well under 1 MB: remove pictures or extra sheets and save it again.");

@@ -96,7 +96,7 @@ const NOT_A_WORKBOOK = "The file could not be read as a spreadsheet. Save it as 
 /** Refuses a file that is no .xlsx, or one that would unpack to far more than a tariff does. */
 function checkWorkbookSize(buffer: Buffer): void {
   if (buffer.length >= 4 && buffer.readUInt32BE(0) === 0xd0cf11e0) throw APIError.invalidArgument(OLD_XLS);
-  const unpacked = buffer.length >= 4 && buffer.readUInt32BE(0) === 0x504b0304 ? zipUnpackedBytes(buffer, MAX_ZIP_ENTRIES) : null;
+  const unpacked = buffer.length >= 4 && buffer.readUInt32BE(0) === 0x504b0304 ? zipUnpackedBytes(buffer, { maxEntries: MAX_ZIP_ENTRIES, maxBytes: MAX_UNPACKED_BYTES }) : null;
   if (unpacked === null) throw APIError.invalidArgument(NOT_A_WORKBOOK);
   if (unpacked > MAX_UNPACKED_BYTES) {
     throw APIError.invalidArgument("The workbook unpacks to more than 100 MB. Remove pictures and the sheets the tariff does not need, save it again and upload it.");
