@@ -55,6 +55,8 @@ export interface SalesQuoteItem {
   permissions: {
     /** any: reassign freely. own: hand over or give up. claim: take for themselves. none: nothing. */
     canChangeOwner: "any" | "own" | "claim" | "none";
+    /** Why not, when canChangeOwner is none - the sentence to show: the quote is closed, or the user would have to be a manager. */
+    ownerChangeBlockedReason?: string;
     /** Whether the user may delete the quote as it stands. */
     canDelete: boolean;
     /**

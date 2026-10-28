@@ -4,6 +4,7 @@ import { db } from "../db/db";
 import { billingSettingsTable } from "../schemas/billingSettings.schema";
 import { invoiceCostTable, type NewInvoiceCostRecord } from "../schemas/invoiceCost.schema";
 import { invoiceSellingCostTable, type NewInvoiceSellingCostRecord } from "../schemas/invoiceSellingCost.schema";
+import type { CostSide, QuoteImportResult } from "../interfaces/interfaces";
 import type { QuoteBuyingRow, QuoteSellingRow } from "../utils/quoteCostImport.utils";
 
 type ImportTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -29,7 +30,7 @@ class QuoteCostImportRepository {
     quoteNumber: string,
     rows: { buying?: QuoteBuyingRow[]; selling?: QuoteSellingRow[] },
     again: boolean,
-  ): Promise<{ buying: number; selling: number; alreadyCopied?: ("buying" | "selling")[] } | null> {
+  ): Promise<QuoteImportResult | null> {
     return db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`import-quote:${shipmentId}`}))`);
 
@@ -39,7 +40,7 @@ class QuoteCostImportRepository {
         selling: rows.selling && { rows: rows.selling, ...(await side(invoiceSellingCostTable)) },
       };
       // The sides that hold rows of the quote already, which are copied again only when told to.
-      const alreadyCopied: ("buying" | "selling")[] = again ? [] : (["buying", "selling"] as const).filter((s) => asked[s]?.copied);
+      const alreadyCopied: CostSide[] = again ? [] : (["buying", "selling"] as const).filter((s) => asked[s]?.copied);
       const buying = alreadyCopied.includes("buying") ? undefined : asked.buying;
       const selling = alreadyCopied.includes("selling") ? undefined : asked.selling;
       if (alreadyCopied.length && !buying?.rows.length && !selling?.rows.length) return null;

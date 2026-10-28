@@ -6,10 +6,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Badge, Spin, Dropdown, Modal, Tag, Drawer, Tooltip, Select, TimePicker, Button } from "antd";
 import { useToast } from "@/lib/toast";
+import { CopyButton } from "@/components/CopyButton";
 import dayjs from "dayjs";
 import { api, apiErrorMessage } from "@/lib/api";
 import {
-  CopyOutlined,
   ArrowLeftOutlined,
   DownOutlined,
   EnvironmentOutlined,
@@ -1076,11 +1076,6 @@ export function ShipmentDetailContent() {
   const salesQuoteRef = isSalesQuoteRef(salesNumber) ? salesNumber : null;
   const routeSegments = [shipment.pol, shipment.pod, shipment.destination].filter(Boolean);
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(shipment.jobNumber ?? shipment.id);
-    toast.success("Copied to clipboard");
-  };
-
   const handleAssignMasterJob = async (ids: string[], mczNumber: string) => {
     try {
       await Promise.all(ids.map((id) => linkMasterJob({ shipmentId: id, mczNumber })));
@@ -1162,12 +1157,7 @@ export function ShipmentDetailContent() {
             <h1 className="text-[22px] font-bold text-slate-800 m-0">
               {shipment.jobNumber ?? shipment.id}
             </h1>
-            <button
-              onClick={handleCopy}
-              className="text-slate-400 hover:text-indigo-500 cursor-pointer bg-transparent border-none p-1"
-            >
-              <CopyOutlined />
-            </button>
+            <CopyButton text={shipment.jobNumber ?? shipment.id} what="job number" />
           </div>
 
           <div className="flex items-center gap-3">

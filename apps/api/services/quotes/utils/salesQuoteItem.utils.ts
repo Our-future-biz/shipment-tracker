@@ -1,10 +1,10 @@
 import { businessDay } from "../../../lib/businessDate";
-import { canApproveMargin, ownerChangeRight, quoteDeletePermission } from "../../../lib/salesPolicy";
+import { canApproveMargin, ownerChangeRight, quoteDeletePermission, type OwnerChangeRight } from "../../../lib/salesPolicy";
 import { roadMargin, type MarginContext } from "../lib/roadMargin";
 import type { RoadMargin, SalesQuoteItem } from "../interfaces/interfaces";
 import type { SalesQuoteRecord } from "../schemas/quote.schema";
-import { isPlainObject } from "./quoteDocument.utils";
-import { allowedTransitions, effectiveStatus, isFollowUpDue, lastContact, stateOf, wasEverSent } from "./quoteLifecycle.utils";
+import { isPlainObject, isWonRevision } from "./quoteDocument.utils";
+import { allowedTransitions, effectiveStatus, isFollowUpDue, keepsGivenTerms, lastContact, stateOf, wasEverSent, type LifecycleState } from "./quoteLifecycle.utils";
 
 const iso = (at: Date | null) => at?.toISOString() ?? null;
 
@@ -14,6 +14,20 @@ function shownMargin(margin: RoadMargin | null, userEmails: Map<string, string>)
   if (!margin?.approval) return margin;
   const byName = userEmails.get(margin.approval.byUserId) || margin.approval.byName;
   return { ...margin, approval: { ...margin.approval, byName } };
+}
+
+// How far the user may change the owner, and why not when they may not. A closed quote keeps its
+// owner whoever asks (applyOwner refuses another); otherwise it is the user's right (salesPolicy).
+function ownerPermission(
+  actor: { userID: string; role: string },
+  state: LifecycleState,
+  data: unknown,
+): { canChangeOwner: OwnerChangeRight; ownerChangeBlockedReason?: string } {
+  if (keepsGivenTerms(state.status, isWonRevision(state.status, data))) {
+    return { canChangeOwner: "none", ownerChangeBlockedReason: "A closed quote keeps its owner - revise it" };
+  }
+  const right = ownerChangeRight(actor, state);
+  return right === "none" ? { canChangeOwner: right, ownerChangeBlockedReason: "Only a manager can reassign this quote" } : { canChangeOwner: right };
 }
 
 /**
@@ -64,7 +78,7 @@ export function toItem(
     shipmentJobNumber: state.shipmentJobNumber,
     roadMargin: margins ? shownMargin(roadMargin(row.data, margins), userEmails) : null,
     permissions: {
-      canChangeOwner: ownerChangeRight(actor, state),
+      ...ownerPermission(actor, state, row.data),
       canDelete: deletion.allowed,
       ...(deletion.allowed ? {} : { deleteBlockedReason: deletion.reason }),
       canApproveMargin: canApproveMargin(actor.role),

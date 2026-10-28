@@ -176,13 +176,14 @@ describe("toItem", () => {
 
   describe("permissions", () => {
     const MANAGERS_ONLY = "only a manager can delete this quote";
+    const REASSIGN_MANAGERS_ONLY = "Only a manager can reassign this quote";
     const SHIPMENT = { shipmentId: "5f0c1c5e-3a0d-4d0e-9a39-7c2a4b1d9e10", shipmentJobNumber: "CZ2610001" };
     const BLOCKED_BY_SHIPMENT = "shipment CZ2610001 was created from this quote - remove the Sales Reference from the shipment first";
     const permissions = (over: Partial<SalesQuoteRecord>, actor: { userID: string; role: string }) => toItem(row(over), emails, actor, NOW).permissions;
 
-    it("lets a manager reassign and delete any quote", () => {
+    it("lets a manager reassign and delete any quote that is open", () => {
       for (const role of ["superadmin", "admin", "manager"]) {
-        expect(permissions({ ownerUserId: "user-2", status: "quoted", sentAt: SENT, firstSentAt: SENT }, { userID: "user-9", role })).toEqual({
+        expect(permissions({ ownerUserId: "user-2", status: "revised", sentAt: SENT, firstSentAt: SENT }, { userID: "user-9", role })).toEqual({
           canChangeOwner: "any",
           canDelete: true,
           canApproveMargin: true,
@@ -193,13 +194,30 @@ describe("toItem", () => {
     it("tells a plain user what they may do with the owner: hand over their own, take an unowned one, nothing else", () => {
       expect(permissions({ ownerUserId: "user-1" }, martin).canChangeOwner).toBe("own");
       expect(permissions({ ownerLabel: "Petr" }, martin).canChangeOwner).toBe("claim");
-      expect(permissions({ ownerUserId: "user-2" }, martin).canChangeOwner).toBe("none");
+      expect(permissions({ ownerUserId: "user-2" }, martin)).toMatchObject({ canChangeOwner: "none", ownerChangeBlockedReason: REASSIGN_MANAGERS_ONLY });
+    });
+
+    it("lets nobody change the owner of a closed quote, and says why; the revision of a Won quote may", () => {
+      const CLOSED = "A closed quote keeps its owner - revise it";
+      for (const status of ["quoted", "feedback", "won", "lost", "expired", "replaced"]) {
+        expect(permissions({ ownerUserId: "user-1", status, sentAt: SENT, firstSentAt: SENT }, manager), status).toMatchObject({ canChangeOwner: "none", ownerChangeBlockedReason: CLOSED });
+        expect(permissions({ ownerUserId: "user-1", status, sentAt: SENT, firstSentAt: SENT }, martin), status).toMatchObject({ canChangeOwner: "none", ownerChangeBlockedReason: CLOSED });
+      }
+      const wonRevision = { ownerUserId: "user-1", status: "won", data: { reference: "QCZ20261010001-2", quoteStatus: "won", wonRevisionOf: "QCZ20261010001" } };
+      expect(permissions(wonRevision, manager).canChangeOwner).toBe("any");
+      expect(permissions(wonRevision, manager)).not.toHaveProperty("ownerChangeBlockedReason");
     });
 
     it("lets a plain user delete their own Draft that was never sent - and says why not for anything else", () => {
       expect(permissions({ ownerUserId: "user-1" }, martin)).toEqual({ canChangeOwner: "own", canDelete: true, canApproveMargin: false });
       // A colleague's Draft, and one that belongs to no user until it is taken.
-      expect(permissions({ ownerUserId: "user-2" }, martin)).toEqual({ canChangeOwner: "none", canDelete: false, deleteBlockedReason: MANAGERS_ONLY, canApproveMargin: false });
+      expect(permissions({ ownerUserId: "user-2" }, martin)).toEqual({
+        canChangeOwner: "none",
+        ownerChangeBlockedReason: REASSIGN_MANAGERS_ONLY,
+        canDelete: false,
+        deleteBlockedReason: MANAGERS_ONLY,
+        canApproveMargin: false,
+      });
       expect(permissions({ ownerLabel: "Petr" }, martin)).toEqual({ canChangeOwner: "claim", canDelete: false, deleteBlockedReason: MANAGERS_ONLY, canApproveMargin: false });
       // Their own quote that is with the customer, and one that was and is a Draft again.
       expect(permissions({ ownerUserId: "user-1", status: "quoted", sentAt: SENT, firstSentAt: SENT }, martin)).toMatchObject({

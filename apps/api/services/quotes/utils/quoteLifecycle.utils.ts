@@ -433,6 +433,15 @@ export function revisionOf(source: LifecycleState, sourceReference: string, ctx:
 }
 
 /**
+ * Whether a quote keeps what the customer was given - its validity and its owner: it is closed
+ * (PRICING_CLOSED - sent, expired or decided), but for the revision of a Won quote, which is made
+ * to get a new validity and may change both.
+ */
+export function keepsGivenTerms(status: string, wonRevision: boolean): boolean {
+  return PRICING_CLOSED.includes(status) && !(status === "won" && wonRevision);
+}
+
+/**
  * A new "Valid until" date, or none. A closed quote (PRICING_CLOSED - sent, expired or decided)
  * keeps the validity the customer was given: a new date is a revision of it. The history gets a
  * line only once the customer has the quote: before the first sending the date is part of
@@ -444,8 +453,7 @@ export function applyValidity(
   ctx: LifecycleContext,
   { wonRevision = false }: { wonRevision?: boolean } = {},
 ): LifecycleChange<TimelineEntry | null> {
-  // The revision of a Won quote is made to get a new validity: it may.
-  if (PRICING_CLOSED.includes(state.status) && !(state.status === "won" && wonRevision)) {
+  if (keepsGivenTerms(state.status, wonRevision)) {
     throw new LifecycleError("not_allowed", `the validity of a ${label(state.status)} quote cannot be changed - revise it`);
   }
   // Only what quote_lifecycle_of reads back as the same date.
@@ -478,7 +486,7 @@ export function applyOwner(
   const ownerLabel = ownerLabelOf(owner?.email);
   // Before the refusal: a bulk assign over quotes that already have that owner tells them apart.
   if (ownerUserId === state.ownerUserId && ownerLabel === state.ownerLabel) return { changed: false };
-  if (PRICING_CLOSED.includes(state.status) && !(state.status === "won" && wonRevision)) {
+  if (keepsGivenTerms(state.status, wonRevision)) {
     throw new LifecycleError("not_allowed", `the owner of a ${label(state.status)} quote cannot be changed - revise it`);
   }
 

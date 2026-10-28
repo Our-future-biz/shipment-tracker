@@ -496,12 +496,15 @@ export interface JobProfitReport {
 /** Which side of the Costs Breakdown gets a quote's lines. */
 export type QuoteImportTarget = "buy" | "sell" | "both";
 
+/** A side of Costs Breakdown. */
+export type CostSide = "buying" | "selling";
+
 /** How many rows a copy from a quote added to each side. */
 export interface QuoteImportResult {
   buying: number;
   selling: number;
   /** The sides left as they were because they hold rows of the quote already (not copied again). */
-  alreadyCopied?: ("buying" | "selling")[];
+  alreadyCopied?: CostSide[];
 }
 
 /** A cost line pushed by Trucking (a price line of a consignment or a trip). */

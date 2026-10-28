@@ -1,6 +1,6 @@
 "use client";
 
-import { createElement, useCallback, useEffect, useState, type CSSProperties, type HTMLAttributes, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type CSSProperties, type HTMLAttributes, type ReactNode } from "react";
 import type { ColumnsType } from "antd/es/table";
 import { FadeText } from "@/components/FadeText";
 
@@ -119,7 +119,7 @@ export function resizableColumns<T>(columns: ColumnsType<T>, sizing: ColumnSizin
     const ownHeader = col.onHeaderCell;
     const ownCell = col.onCell;
     const ownRender = col.render;
-    const fade = (content: ReactNode) => createElement(FadeText, { plainFull: true }, content);
+    const fade = (content: ReactNode) => <FadeText plainFull>{content}</FadeText>;
     return {
       ...col,
       width: width ?? col.width,

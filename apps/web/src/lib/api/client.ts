@@ -10433,6 +10433,11 @@ export namespace interfaces {
         error?: string
     }
 
+    /**
+     * A side of Costs Breakdown.
+     */
+    export type CostSide = "buying" | "selling"
+
     export type CostSplitBasis = "chargeable_weight" | "ldm" | "pallet_places"
 
     /**
@@ -13692,7 +13697,7 @@ export namespace interfaces {
         /**
          * The sides left as they were because they hold rows of the quote already (not copied again).
          */
-        alreadyCopied?: ("buying" | "selling")[]
+        alreadyCopied?: CostSide[]
     }
 
     /**
@@ -14324,6 +14329,11 @@ export namespace interfaces {
              * any: reassign freely. own: hand over or give up. claim: take for themselves. none: nothing.
              */
             canChangeOwner: "any" | "own" | "claim" | "none"
+
+            /**
+             * Why not, when canChangeOwner is none - the sentence to show: the quote is closed, or the user would have to be a manager.
+             */
+            ownerChangeBlockedReason?: string
 
             /**
              * Whether the user may delete the quote as it stands.

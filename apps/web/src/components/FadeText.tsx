@@ -7,7 +7,7 @@ import { Tooltip } from "antd";
 const FADE = "[mask-image:linear-gradient(to_right,#000_calc(100%-5ch),transparent)]";
 
 interface FadeTextProps {
-  children?: ReactNode;
+  children: ReactNode;
   /** The whole value, shown after hovering 1 s; defaults to the children. */
   full?: ReactNode;
   /**

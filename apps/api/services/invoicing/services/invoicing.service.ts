@@ -361,7 +361,9 @@ class InvoicingService {
   // Copies the cost lines of a sales quote into a shipment's Costs Breakdown, one row per line.
   // The lines are read from the quote as it is stored - under the whole reference, variant
   // suffix included: QCZ...-2 is another quote than QCZ... - and never from what a browser holds.
-  // A quote is copied to a side once; `force` copies it again. Copied selling rows are new rows,
+  // A quote is copied to a side once: a side holding its rows already is left (named in
+  // alreadyCopied) while the other is still copied, and with nothing left to copy the copy is
+  // refused; `force` copies it again. Copied selling rows are new rows,
   // so the invoice guard (rows already on an issued invoice) applies to them as to any other.
   async importQuote(
     shipmentId: string,
