@@ -16,11 +16,13 @@ vi.mock("../repositories/tariff.repository", () => ({
     replaceDraft: vi.fn(),
     approve: vi.fn(),
     update: vi.fn(),
+    ratesOnRoute: vi.fn(),
   },
 }));
 
 import { customers } from "~encore/clients";
 import type { RailLayout } from "../interfaces/interfaces";
+import type { RouteRate } from "../repositories/tariff.repository";
 import { tariffRepository } from "../repositories/tariff.repository";
 import type { TariffRecord, TariffVersionRecord } from "../schemas/tariff.schema";
 import { readRailLayout } from "../services/railLayoutReader.service";
@@ -232,5 +234,95 @@ describe("update", () => {
   it("answers not found for a tariff that is not there", async () => {
     repo.update.mockResolvedValue(null);
     await expect(railTariffService.update(COMPANY, TARIFF_ID, { name: "x", ports: ["DEHAM"], directions: ["import"] })).rejects.toMatchObject({ code: "not_found" });
+  });
+});
+
+describe("offers", () => {
+  const BANDS = [
+    { column: "D", label: "20'<14 t", minLengthFt: 20, maxLengthFt: 20, maxGrossTonnes: 14 },
+    { column: "E", label: "20'<25 t", minLengthFt: 20, maxLengthFt: 20, maxGrossTonnes: 25 },
+  ];
+  const rate = (over: Partial<RouteRate>): RouteRate =>
+    ({
+      id: "rate-1",
+      companyId: COMPANY,
+      versionId: VERSION_ID,
+      rowNo: 10,
+      country: "CZ",
+      postcode: "60200",
+      postcodeFrom: "60200",
+      postcodeTo: "60200",
+      place: "Brno",
+      region: "",
+      via: "Praha",
+      emptyDepot: "Praha",
+      note: "",
+      validFrom: null,
+      validTo: null,
+      prices: { "20ft-14t": 1020, "20ft-25t": 1139 },
+      versionNo: 1,
+      currency: "EUR",
+      versionValidTo: "2026-12-31",
+      bands: BANDS,
+      tariffId: TARIFF_ID,
+      tariffName: "Hamburg – Czechia",
+      supplierCustomerId: METRANS.id,
+      ...over,
+    }) as RouteRate;
+  const ask = (over: Partial<Parameters<typeof railTariffService.offers>[1]> = {}) =>
+    railTariffService.offers(COMPANY, { port: "DEHAM", direction: "import", place: "602 00", date: "2026-11-15", containers: [{ type: "20' DC", qty: 2, cargoKg: 12_000 }], ...over });
+
+  it("lists every row that prices the containers, cheapest first, each at its weight band", async () => {
+    repo.ratesOnRoute.mockResolvedValue([
+      rate({ id: "praha", via: "Praha" }),
+      rate({ id: "cetr", via: "Cetr", postcodeFrom: "60000", postcodeTo: "64400", prices: { "20ft-14t": 781, "20ft-25t": 905 } }),
+    ]);
+    const result = await ask();
+    expect(repo.ratesOnRoute).toHaveBeenCalledWith(COMPANY, { port: "DEHAM", direction: "import", date: "2026-11-15", country: "CZ", place: { postcode: "60200" } });
+    expect(result.matchedBy).toBe("postcode");
+    expect(result.containers[0]).toMatchObject({ tareKg: 2300, grossKg: 14_300 });
+    expect(result.offers.map((o) => [o.via, o.lines[0]!.bandLabel, o.lines[0]!.price, o.total, o.supplierName])).toEqual([
+      ["Cetr", "20'<25 t", 905, 1810, "METRANS a.s."],
+      ["Praha", "20'<25 t", 1139, 2278, "METRANS a.s."],
+    ]);
+    expect(result.notes).toEqual([]);
+  });
+
+  it("shows rows asking the same of the same tariff via the same terminal once", async () => {
+    repo.ratesOnRoute.mockResolvedValue([rate({ id: "a", place: "Brno" }), rate({ id: "b", place: "Brno-Slatina" })]);
+    expect((await ask({ place: "Brno" })).offers.map((o) => o.rateId)).toEqual(["a"]);
+  });
+
+  it("says which rows could not price a container and which weight is missing", async () => {
+    repo.ratesOnRoute.mockResolvedValue([rate({})]);
+    const heavy = await ask({ containers: [{ type: "20' DC", qty: 1, cargoKg: 24_000 }] }); // 26.3 t
+    expect(heavy.offers).toEqual([]);
+    expect(heavy.notes).toEqual(["1 tariff row: 20' DC at 26.3 t gross is heavier than their weight bands - the operator prices it individually"]);
+    const unweighed = await ask({ containers: [{ type: "20' DC", qty: 1, cargoKg: null }] });
+    expect(unweighed.offers[0]!.lines[0]!.bandLabel).toBe("20'<14 t");
+    expect(unweighed.notes[0]).toContain("no cargo weight");
+  });
+
+  it("leaves out the tariffs of a company that is no rail operator any more", async () => {
+    repo.ratesOnRoute.mockResolvedValue([rate({ supplierCustomerId: "someone-else" })]);
+    companiesWithRole.mockResolvedValue({ companies: [] });
+    expect((await ask()).offers).toEqual([]);
+  });
+
+  it("asks nothing without a place, and looks a place without a postcode up by name", async () => {
+    expect(await ask({ place: " " })).toMatchObject({ offers: [], matchedBy: null });
+    expect(repo.ratesOnRoute).not.toHaveBeenCalled();
+    repo.ratesOnRoute.mockResolvedValue([]);
+    await ask({ place: "Ústí nad Labem", country: "cz" });
+    expect(repo.ratesOnRoute).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ country: "CZ", place: { name: "Ústí nad Labem" } }));
+  });
+
+  it.each([
+    ["a day that does not exist", { date: "2026-02-30" }],
+    ["no containers", { containers: [] }],
+    ["a number of containers that is no whole number", { containers: [{ type: "20' DC", qty: 1.5, cargoKg: null }] }],
+    ["a country that is no code", { country: "Czechia" }],
+  ])("refuses %s", async (_, over) => {
+    await expect(ask(over)).rejects.toMatchObject({ code: "invalid_argument" });
   });
 });

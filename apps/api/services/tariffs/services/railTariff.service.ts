@@ -11,7 +11,11 @@ import type {
   TariffFile,
   RailDirection,
   RailLayout,
+  RailOffer,
+  RailOfferContainer,
+  RailOfferMatch,
   RailOperatorItem,
+  RailPricedContainer,
   RailRate,
   RailRateRow,
   RailTariffItem,
@@ -24,7 +28,8 @@ import type {
 } from "../interfaces/interfaces";
 import { bandCode, convertRail, findingTotals } from "../lib/railConvert";
 import { layoutProblem, parseRailLayout } from "../lib/railLayout";
-import { chosenPortsAndDirections, portsAndDirectionsOf } from "../lib/tariffPorts";
+import { placeQuery, pricedContainers, rowOffer, type BandRefusal } from "../lib/railOffers";
+import { TARIFF_PORT_CODES, chosenPortsAndDirections, portsAndDirectionsOf } from "../lib/tariffPorts";
 import { readSheets, sheetPreview, type Sheet } from "../lib/sheet";
 import { tariffRepository, type DraftFields, type RateFilter } from "../repositories/tariff.repository";
 import type { RailRateRecord, TariffRecord, TariffVersionRecord } from "../schemas/tariff.schema";
@@ -50,6 +55,24 @@ const CONTENT_TYPES: Record<string, string> = {
 const contentTypeOf = (fileName: string) => CONTENT_TYPES[fileName.toLowerCase().split(".").pop() ?? ""] ?? "application/octet-stream";
 
 const businessToday = () => businessDay(new Date());
+
+const isRealDay = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d) && new Date(`${d}T00:00:00Z`).toISOString().startsWith(d);
+
+const tonnes = (kg: number) => `${(Math.round(kg / 100) / 10).toLocaleString("en-US")} t`;
+
+// Why a container line is not priced by its own weight, in words; null when it is.
+function weightNote(c: RailPricedContainer): string | null {
+  if (c.tareKg === null) return `${c.type}: not in the container tare list, so its gross weight is unknown - the lightest weight band of its length is used`;
+  if (c.cargoKg === null) return `${c.type}: no cargo weight in Cargo details - the lightest weight band of its length is used; enter the weight for the right price`;
+  return null;
+}
+
+// Why rows of the route could not price a container, in words.
+function refusalNote(c: RailPricedContainer, reason: BandRefusal, rows: number): string {
+  const which = rows === 1 ? "1 tariff row" : `${rows} tariff rows`;
+  if (reason === "heavy") return `${which}: ${c.type} at ${tonnes(c.grossKg ?? 0)} gross is heavier than their weight bands - the operator prices it individually`;
+  return `${which} have no price for ${c.type}`;
+}
 
 // A version or tariff id from a URL; one that cannot be an id is simply not found.
 function requireId(id: string, what: string): string {
@@ -78,6 +101,31 @@ export interface RailTariffFields {
   name: string;
   ports: TariffPortCode[];
   directions: RailDirection[];
+}
+
+/** A quote's route and containers, as Sales asks the rail tariffs for offers. */
+export interface RailOffersQuery {
+  /** The sea port: the quote's port of discharge on an import, of loading on an export */
+  port: TariffPortCode;
+  direction: RailDirection;
+  /** The inland place: a text with a postcode in it ("602 00", an address), or a town's name */
+  place: string;
+  /** ISO 3166-1 alpha-2 of the inland place; CZ when left out */
+  country?: string;
+  /** YYYY-MM-DD the prices must be valid on */
+  date: string;
+  containers: RailOfferContainer[];
+}
+
+export interface RailOffersResult {
+  /** Every tariff row on the route that prices all the containers, cheapest first */
+  offers: RailOffer[];
+  /** The containers as the tariffs count them */
+  containers: RailPricedContainer[];
+  /** How the place was looked for; null when no place was given */
+  matchedBy: RailOfferMatch | null;
+  /** What to know about the offers: a weight that is missing, rows that could not price a container */
+  notes: string[];
 }
 
 export interface RailRatePage {
@@ -322,6 +370,74 @@ class RailTariffService {
     if (!(await tariffRepository.getVersion(companyId, requireId(versionId, "Tariff version")))) throw APIError.notFound("Tariff version not found");
     const [{ rows, total }, vias] = await Promise.all([tariffRepository.rates(companyId, versionId, filter), tariffRepository.vias(companyId, versionId)]);
     return { rates: rows.map(rateOf), total, vias };
+  }
+
+  /**
+   * The offers of the rail tariffs for a route: every row of an approved version valid on the day,
+   * of a tariff for the port and direction, at the inland place, that prices all the containers -
+   * each container by the lightest weight band its gross weight (cargo + tare) fits. Cheapest first;
+   * rows that ask the same of the same operator's tariff via the same terminal are shown once.
+   */
+  async offers(companyId: string, req: RailOffersQuery): Promise<RailOffersResult> {
+    if (!TARIFF_PORT_CODES.includes(req.port)) throw APIError.invalidArgument("This port has no rail tariffs");
+    if (req.direction !== "import" && req.direction !== "export") throw APIError.invalidArgument("The direction is import or export");
+    if (!isRealDay(req.date)) throw APIError.invalidArgument("The date must be a day YYYY-MM-DD");
+    const country = (req.country ?? "CZ").trim().toUpperCase();
+    if (!/^[A-Z]{2}$/.test(country)) throw APIError.invalidArgument("The country is a 2-letter code, e.g. CZ");
+    if (!req.containers.length) throw APIError.invalidArgument("Add the containers in Cargo details first");
+    if (req.containers.length > 20) throw APIError.invalidArgument("At most 20 container lines are priced at once");
+    for (const c of req.containers) {
+      if (!Number.isInteger(c.qty) || c.qty < 1 || c.qty > 999) throw APIError.invalidArgument(`${c.type}: the number of containers must be 1 to 999`);
+      if (c.cargoKg !== null && !(c.cargoKg >= 0 && c.cargoKg <= 100_000)) throw APIError.invalidArgument(`${c.type}: the cargo weight must be 0 to 100,000 kg`);
+    }
+
+    const containers = pricedContainers(req.containers);
+    const notes = containers.map(weightNote).filter((n): n is string => n !== null);
+    const place = placeQuery(req.place);
+    if (!place) return { offers: [], containers, matchedBy: null, notes };
+
+    const rows = await tariffRepository.ratesOnRoute(companyId, { port: req.port, direction: req.direction, date: req.date, country, place });
+    const operators = new Map((await railOperators([...new Set(rows.map((r) => r.supplierCustomerId))])).map((o) => [o.id, o.companyName]));
+    const refused = new Map<string, { container: number; reason: BandRefusal; rows: number }>();
+    const seen = new Set<string>();
+    const offers: RailOffer[] = [];
+    for (const row of rows) {
+      // A company that is no rail operator any more has no tariffs to offer, as on the Tariffs pages.
+      const supplierName = operators.get(row.supplierCustomerId);
+      if (supplierName === undefined) continue;
+      const offer = rowOffer(row.bands, row.prices, containers);
+      if (!offer.ok) {
+        const key = `${offer.container}:${offer.reason}`;
+        const entry = refused.get(key) ?? { container: offer.container, reason: offer.reason, rows: 0 };
+        refused.set(key, { ...entry, rows: entry.rows + 1 });
+        continue;
+      }
+      const same = `${row.versionId}|${row.via}|${row.emptyDepot}|${offer.lines.map((l) => `${l.bandCode}:${l.price}`).join(",")}`;
+      if (seen.has(same)) continue;
+      seen.add(same);
+      offers.push({
+        rateId: row.id,
+        versionId: row.versionId,
+        versionNo: row.versionNo,
+        tariffId: row.tariffId,
+        tariffName: row.tariffName,
+        supplierCustomerId: row.supplierCustomerId,
+        supplierName,
+        currency: row.currency,
+        place: row.place,
+        postcode: row.postcode,
+        region: row.region,
+        via: row.via,
+        emptyDepot: row.emptyDepot,
+        note: row.note,
+        validTo: row.versionValidTo,
+        lines: offer.lines,
+        total: offer.total,
+      });
+    }
+    offers.sort((a, b) => a.total - b.total || a.supplierName.localeCompare(b.supplierName) || a.via.localeCompare(b.via));
+    for (const r of refused.values()) notes.push(refusalNote(containers[r.container]!, r.reason, r.rows));
+    return { offers, containers, matchedBy: "postcode" in place ? "postcode" : "place", notes };
   }
 
   /** The file a version was read from. */

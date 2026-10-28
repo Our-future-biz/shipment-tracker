@@ -17,6 +17,7 @@ export type RailBand = interfaces.RailBand;
 export type RailRate = interfaces.RailRate;
 export type TariffFinding = interfaces.TariffFinding;
 export type RailTariffUpload = controllers.RailTariffUploadRequest;
+export type RailOffersRequest = controllers.RailOffersRequest;
 /** A tariff's name, ports and directions, with the tariff's id */
 export type RailTariffUpdate = controllers.RailTariffUpdateRequest & { id: string };
 
@@ -33,6 +34,7 @@ export const railTariffKeys = {
   operator: (customerId: string) => [...railTariffKeys.all, "operator", customerId] as const,
   version: (id: string) => [...railTariffKeys.all, "version", id] as const,
   rates: (id: string, filter: RailRateFilter) => [...railTariffKeys.all, "rates", id, filter] as const,
+  offers: (req: RailOffersRequest) => [...railTariffKeys.all, "offers", req] as const,
 };
 
 export const useRailOperators = () => {
@@ -65,6 +67,18 @@ export const useRailRates = (id: string, filter: RailRateFilter) => {
     placeholderData: keepPreviousData,
   });
   return { page: query.data ?? null, isLoading: query.isLoading, isFetching: query.isFetching, error: query.error };
+};
+
+// What the rail tariffs ask for a route (Sales → Pricing): nothing is asked while `req` is null.
+// The last answer stays shown while a changed route is asked again.
+export const useRailOffers = (req: RailOffersRequest | null) => {
+  const query = useQuery({
+    queryKey: railTariffKeys.offers(req!),
+    queryFn: () => api.tariffs.railOffers(req!),
+    enabled: req !== null,
+    placeholderData: keepPreviousData,
+  });
+  return { result: req ? (query.data ?? null) : null, isLoading: query.isLoading, isFetching: query.isFetching, error: query.error };
 };
 
 /** The file a version was read from. */

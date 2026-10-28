@@ -2393,6 +2393,7 @@ export namespace tariffs {
 
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
+            this.railOffers = this.railOffers.bind(this)
             this.railOperatorGet = this.railOperatorGet.bind(this)
             this.railOperatorList = this.railOperatorList.bind(this)
             this.railTariffApprove = this.railTariffApprove.bind(this)
@@ -2403,6 +2404,16 @@ export namespace tariffs {
             this.railTariffUpdate = this.railTariffUpdate.bind(this)
             this.railTariffUpload = this.railTariffUpload.bind(this)
             this.railTariffVersionGet = this.railTariffVersionGet.bind(this)
+        }
+
+        /**
+         * What the rail tariffs ask for a quote's containers on its route, cheapest first (Sales →
+         * Pricing → Tariffs available). Anyone signed in may ask; nothing is written.
+         */
+        public async railOffers(params: controllers.RailOffersRequest): Promise<services.RailOffersResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/rail/offers`, JSON.stringify(params))
+            return await resp.json() as services.RailOffersResult
         }
 
         /**
@@ -7086,6 +7097,31 @@ export namespace controllers {
          * Colleagues tagged with @.
          */
         mentionedUserIds: string[]
+    }
+
+    export interface RailOffersRequest {
+        /**
+         * The sea port: the quote's port of discharge on an import, of loading on an export
+         */
+        port: interfaces.TariffPortCode
+
+        direction: interfaces.RailDirection
+        /**
+         * The inland place: a text with a postcode in it ("602 00", an address), or a town's name
+         */
+        place: string
+
+        /**
+         * ISO 3166-1 alpha-2 of the inland place; CZ when left out
+         */
+        country?: string
+
+        /**
+         * YYYY-MM-DD the prices must be valid on
+         */
+        date: string
+
+        containers: interfaces.RailOfferContainer[]
     }
 
     export interface RailOperatorListResponse {
@@ -14288,6 +14324,81 @@ export namespace interfaces {
     }
 
     /**
+     * One tariff row that prices every container of the route: its operator, terminal and total.
+     */
+    export interface RailOffer {
+        rateId: string
+        versionId: string
+        versionNo: number
+        tariffId: string
+        tariffName: string
+        supplierCustomerId: string
+        supplierName: string
+        currency: string
+        place: string
+        postcode: string
+        region: string
+        /**
+         * The terminal the train runs via
+         */
+        via: string
+
+        emptyDepot: string
+        note: string
+        /**
+         * The version's last day; null when open
+         */
+        validTo: string | null
+
+        lines: RailOfferLine[]
+        total: number
+    }
+
+    /**
+     * A quote's containers of one type, as rail offers are asked for.
+     */
+    export interface RailOfferContainer {
+        /**
+         * As quotes name it, e.g. "40' HC"
+         */
+        type: string
+
+        qty: number
+        /**
+         * Cargo weight per container in kg, without the box; null when not entered
+         */
+        cargoKg: number | null
+    }
+
+    /**
+     * One container line of an offer: the band its gross weight falls in and that band's price.
+     */
+    export interface RailOfferLine {
+        type: string
+        qty: number
+        bandCode: string
+        /**
+         * As the tariff names it, e.g. "20'<25 t"
+         */
+        bandLabel: string
+
+        /**
+         * Per container
+         */
+        price: number
+
+        /**
+         * price × qty
+         */
+        amount: number
+    }
+
+    /**
+     * How the place was looked for: by a postcode in it, or by its name.
+     */
+    export type RailOfferMatch = "postcode" | "place"
+
+    /**
      * A rail operator (a Customer Database company with the role) with its tariffs at a glance.
      */
     export interface RailOperatorItem {
@@ -14313,6 +14424,37 @@ export namespace interfaces {
          * The soonest end of an active version, YYYY-MM-DD; null when none ends
          */
         activeUntil: string | null
+    }
+
+    /**
+     * A container line as the tariffs count it.
+     */
+    export interface RailPricedContainer {
+        /**
+         * From the container tare list; null for a type it does not have
+         */
+        tareKg: number | null
+
+        /**
+         * Cargo + tare, what the weight bands are by; null when either is unknown
+         */
+        grossKg: number | null
+
+        /**
+         * The length the tariffs price it by: a 45' as a 40'
+         */
+        lengthFt: number | null
+
+        /**
+         * As quotes name it, e.g. "40' HC"
+         */
+        type: string
+
+        qty: number
+        /**
+         * Cargo weight per container in kg, without the box; null when not entered
+         */
+        cargoKg: number | null
     }
 
     export interface RailRate {
@@ -17587,6 +17729,28 @@ export namespace services {
      * A UN/LOCODE place as shipments and quotes use it, written "Name (CODE)".
      */
     export type PlaceInfo = geo.Place
+
+    export interface RailOffersResult {
+        /**
+         * Every tariff row on the route that prices all the containers, cheapest first
+         */
+        offers: interfaces.RailOffer[]
+
+        /**
+         * The containers as the tariffs count them
+         */
+        containers: interfaces.RailPricedContainer[]
+
+        /**
+         * How the place was looked for; null when no place was given
+         */
+        matchedBy: interfaces.RailOfferMatch | null
+
+        /**
+         * What to know about the offers: a weight that is missing, rows that could not price a container
+         */
+        notes: string[]
+    }
 
     export interface RailOperatorDetail {
         operator: interfaces.RailOperatorItem

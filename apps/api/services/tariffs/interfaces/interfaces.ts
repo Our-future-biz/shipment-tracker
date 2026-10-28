@@ -197,3 +197,63 @@ export interface TariffFile {
   fileBase64: string;
   contentType: string;
 }
+
+// ── Rail offers: what the tariffs ask for a quote's containers on its route ──
+
+/** A quote's containers of one type, as rail offers are asked for. */
+export interface RailOfferContainer {
+  /** As quotes name it, e.g. "40' HC" */
+  type: string;
+  qty: number;
+  /** Cargo weight per container in kg, without the box; null when not entered */
+  cargoKg: number | null;
+}
+
+/** A container line as the tariffs count it. */
+export interface RailPricedContainer extends RailOfferContainer {
+  /** From the container tare list; null for a type it does not have */
+  tareKg: number | null;
+  /** Cargo + tare, what the weight bands are by; null when either is unknown */
+  grossKg: number | null;
+  /** The length the tariffs price it by: a 45' as a 40' */
+  lengthFt: number | null;
+}
+
+/** One container line of an offer: the band its gross weight falls in and that band's price. */
+export interface RailOfferLine {
+  type: string;
+  qty: number;
+  bandCode: string;
+  /** As the tariff names it, e.g. "20'<25 t" */
+  bandLabel: string;
+  /** Per container */
+  price: number;
+  /** price × qty */
+  amount: number;
+}
+
+/** One tariff row that prices every container of the route: its operator, terminal and total. */
+export interface RailOffer {
+  rateId: string;
+  versionId: string;
+  versionNo: number;
+  tariffId: string;
+  tariffName: string;
+  supplierCustomerId: string;
+  supplierName: string;
+  currency: string;
+  place: string;
+  postcode: string;
+  region: string;
+  /** The terminal the train runs via */
+  via: string;
+  emptyDepot: string;
+  note: string;
+  /** The version's last day; null when open */
+  validTo: string | null;
+  lines: RailOfferLine[];
+  total: number;
+}
+
+/** How the place was looked for: by a postcode in it, or by its name. */
+export type RailOfferMatch = "postcode" | "place";

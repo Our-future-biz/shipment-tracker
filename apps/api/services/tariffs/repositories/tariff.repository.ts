@@ -1,7 +1,7 @@
-import { and, asc, count, desc, eq, inArray, isNull, max, ne } from "drizzle-orm";
-import { containsAllWords } from "../../../lib/db/textSearch";
+import { and, asc, count, desc, eq, getTableColumns, gte, inArray, isNull, lte, max, ne, or, sql } from "drizzle-orm";
+import { containsAllWords, foldDiacritics, foldSql } from "../../../lib/db/textSearch";
 import { db } from "../db/db";
-import type { RailDirection, RailRateRow, SupplierTariffMode, TariffPortCode } from "../interfaces/interfaces";
+import type { RailBand, RailDirection, RailRateRow, SupplierTariffMode, TariffPortCode } from "../interfaces/interfaces";
 import {
   railRateTable,
   tariffTable,
@@ -28,6 +28,31 @@ export interface TariffFields {
 export type DraftTariff = { tariffId: string } | ({ supplierCustomerId: string; mode: SupplierTariffMode } & TariffFields);
 
 export type ApproveResult = { ok: true; version: TariffVersionRecord } | { ok: false; reason: string };
+
+/** Where a route's rows are looked for: the port, direction and day, and the inland place by postcode or name. */
+export interface RouteQuery {
+  port: TariffPortCode;
+  direction: RailDirection;
+  /** YYYY-MM-DD the prices must be valid on */
+  date: string;
+  /** ISO 3166-1 alpha-2 of the inland place */
+  country: string;
+  place: { postcode: string } | { name: string };
+}
+
+/** A row on a route with what pricing it needs from its version and tariff. */
+export interface RouteRate extends RailRateRecord {
+  versionNo: number;
+  currency: string;
+  versionValidTo: string | null;
+  bands: RailBand[];
+  tariffId: string;
+  tariffName: string;
+  supplierCustomerId: string;
+}
+
+// The most rows one route lookup reads: a town can have a row per postcode and terminal.
+const ROUTE_ROWS = 500;
 
 export interface RateFilter {
   search?: string;
@@ -201,6 +226,52 @@ class TariffRepository {
       db.select({ total: count() }).from(railRateTable).where(where),
     ]);
     return { rows, total };
+  }
+
+  /**
+   * The rows of the tariffs for the port and direction whose approved version prices on the day,
+   * at the inland place: rows whose postcode range holds the postcode, or whose place is the name
+   * (diacritics and case aside). In tariff and sheet order.
+   */
+  async ratesOnRoute(companyId: string, q: RouteQuery): Promise<RouteRate[]> {
+    const place =
+      "postcode" in q.place
+        ? and(lte(railRateTable.postcodeFrom, q.place.postcode), gte(railRateTable.postcodeTo, q.place.postcode))
+        : sql`${foldSql(sql`${railRateTable.place}`)} = ${foldDiacritics(q.place.name.trim())}`;
+    return db
+      .select({
+        ...getTableColumns(railRateTable),
+        versionNo: tariffVersionTable.versionNo,
+        currency: tariffVersionTable.currency,
+        versionValidTo: tariffVersionTable.validTo,
+        bands: sql<RailBand[]>`${tariffVersionTable.layout}->'bands'`,
+        tariffId: tariffTable.id,
+        tariffName: tariffTable.name,
+        supplierCustomerId: tariffTable.supplierCustomerId,
+      })
+      .from(railRateTable)
+      .innerJoin(tariffVersionTable, eq(tariffVersionTable.id, railRateTable.versionId))
+      .innerJoin(tariffTable, eq(tariffTable.id, tariffVersionTable.tariffId))
+      .where(
+        and(
+          eq(tariffTable.companyId, companyId),
+          isNull(tariffTable.deletedAt),
+          eq(tariffTable.mode, "rail"),
+          sql`${q.port} = ANY(${tariffTable.ports})`,
+          sql`${q.direction} = ANY(${tariffTable.directions})`,
+          isNull(tariffVersionTable.deletedAt),
+          eq(tariffVersionTable.status, "active"),
+          lte(tariffVersionTable.validFrom, q.date),
+          or(isNull(tariffVersionTable.validTo), gte(tariffVersionTable.validTo, q.date)),
+          eq(railRateTable.companyId, companyId),
+          eq(railRateTable.country, q.country),
+          or(isNull(railRateTable.validFrom), lte(railRateTable.validFrom, q.date)),
+          or(isNull(railRateTable.validTo), gte(railRateTable.validTo, q.date)),
+          place,
+        ),
+      )
+      .orderBy(asc(tariffTable.name), asc(railRateTable.rowNo))
+      .limit(ROUTE_ROWS);
   }
 
   /** The terminals a version's rows run via, for filtering. */
