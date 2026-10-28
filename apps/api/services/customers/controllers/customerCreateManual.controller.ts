@@ -1,7 +1,7 @@
 import { api } from "encore.dev/api";
 import type { MatchesRegexp, MaxLen, MinLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
-import { customerService } from "../services/customer.service";
+import { assertMayGiveRoles, customerService } from "../services/customer.service";
 import type { CustomerItem, CustomerRole } from "../interfaces/interfaces";
 import type { CustomerContactRequest } from "../interfaces/requests";
 
@@ -30,6 +30,8 @@ interface CustomerCreateManualResponse {
 export const customerCreateManual = api(
   { expose: true, auth: true, method: "POST", path: "/customers/manual" },
   async (req: CustomerCreateManualRequest): Promise<CustomerCreateManualResponse> => {
-    return { customer: await customerService.createManual(getAuthData()!.companyID, req) };
+    const { companyID, role } = getAuthData()!;
+    assertMayGiveRoles(role, req.roles);
+    return { customer: await customerService.createManual(companyID, req) };
   },
 );

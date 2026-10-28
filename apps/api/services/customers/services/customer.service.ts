@@ -14,6 +14,7 @@ import type {
   CustomerStatus,
   DeletedCustomerItem,
   NewCustomerContact,
+  RoleCompanyItem,
   RiskLevelOverride,
 } from "../interfaces/interfaces";
 import type { NewContactRecord } from "../schemas/contact.schema";
@@ -107,6 +108,13 @@ const requireRoles = (roles: CustomerRole[]): CustomerRole[] => {
   return unique;
 };
 
+/** A new company with a supplier role (haulier, rail operator) is a manager's decision, as changing the roles later is. */
+export function assertMayGiveRoles(actorRole: string, roles: CustomerRole[] | undefined): void {
+  if (roles?.some((r) => r !== "customer") && !canManageSales(actorRole)) {
+    throw APIError.permissionDenied("Only a manager can add a supplier (a company with a role other than Customer)");
+  }
+}
+
 const today = () => new Date().toISOString().slice(0, 10);
 
 // Only the fields actually sent are written.
@@ -194,14 +202,19 @@ class CustomerService {
     return customers.map((customer) => ({ ...customer, createdAt: iso(customer.createdAt) }));
   }
 
-  // The company's hauliers (role "haulier") for the trucking service; only `ids` among them when
-  // given. Ids that are not uuids cannot be a customer and are left out before they reach SQL.
+  // The company's hauliers (role "haulier") for the trucking service; only `ids` among them when given.
   async haulierList(companyId: string, ids?: string[]): Promise<HaulierCompanyItem[]> {
+    return this.listWithRole(companyId, "haulier", ids);
+  }
+
+  // The company's companies with a role, e.g. the rail operators for the tariffs service; only `ids`
+  // among them when given. Ids that are not uuids cannot be a customer and are left out before they reach SQL.
+  async listWithRole(companyId: string, role: CustomerRole, ids?: string[]): Promise<RoleCompanyItem[]> {
     if (ids) {
       ids = ids.filter(isUuid);
       if (!ids.length) return [];
     }
-    return customerRepository.haulierList(companyId, ids);
+    return customerRepository.listWithRole(companyId, role, ids);
   }
 
   async createFromAres(

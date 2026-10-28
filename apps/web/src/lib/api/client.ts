@@ -42,6 +42,7 @@ export default class Client {
     public readonly quotes: quotes.ServiceClient
     public readonly sales: sales.ServiceClient
     public readonly shipments: shipments.ServiceClient
+    public readonly tariffs: tariffs.ServiceClient
     public readonly trucking: trucking.ServiceClient
     public readonly warehouse: warehouse.ServiceClient
     public readonly warehouseConcept: warehouseConcept.ServiceClient
@@ -69,6 +70,7 @@ export default class Client {
         this.quotes = new quotes.ServiceClient(base)
         this.sales = new sales.ServiceClient(base)
         this.shipments = new shipments.ServiceClient(base)
+        this.tariffs = new tariffs.ServiceClient(base)
         this.trucking = new trucking.ServiceClient(base)
         this.warehouse = new warehouse.ServiceClient(base)
         this.warehouseConcept = new warehouseConcept.ServiceClient(base)
@@ -2380,6 +2382,128 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PUT", `/user-prefs/${encodeURIComponent(prefKey)}`, JSON.stringify(params))
             return await resp.json() as controllers.UserPrefSetResponse
+        }
+    }
+}
+
+export namespace tariffs {
+
+    export class ServiceClient {
+        private baseClient: BaseClient
+
+        constructor(baseClient: BaseClient) {
+            this.baseClient = baseClient
+            this.railOperatorGet = this.railOperatorGet.bind(this)
+            this.railOperatorList = this.railOperatorList.bind(this)
+            this.railTariffApprove = this.railTariffApprove.bind(this)
+            this.railTariffDiscard = this.railTariffDiscard.bind(this)
+            this.railTariffLayout = this.railTariffLayout.bind(this)
+            this.railTariffRates = this.railTariffRates.bind(this)
+            this.railTariffSource = this.railTariffSource.bind(this)
+            this.railTariffUpdate = this.railTariffUpdate.bind(this)
+            this.railTariffUpload = this.railTariffUpload.bind(this)
+            this.railTariffVersionGet = this.railTariffVersionGet.bind(this)
+        }
+
+        /**
+         * One rail operator with its tariffs and their versions, newest first.
+         */
+        public async railOperatorGet(customerId: string): Promise<services.RailOperatorDetail> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/rail/operators/${encodeURIComponent(customerId)}`)
+            return await resp.json() as services.RailOperatorDetail
+        }
+
+        /**
+         * The rail operators with their tariffs at a glance.
+         */
+        public async railOperatorList(): Promise<controllers.RailOperatorListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/rail/operators`)
+            return await resp.json() as controllers.RailOperatorListResponse
+        }
+
+        /**
+         * Approves a draft without errors (manager): it prices from its start date; active versions whose
+         * dates it covers give way.
+         */
+        public async railTariffApprove(id: string): Promise<controllers.RailTariffVersionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/rail/versions/${encodeURIComponent(id)}/approve`)
+            return await resp.json() as controllers.RailTariffVersionResponse
+        }
+
+        /**
+         * Throws a draft away (manager).
+         */
+        public async railTariffDiscard(id: string): Promise<controllers.OkResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/rail/versions/${encodeURIComponent(id)}/discard`)
+            return await resp.json() as controllers.OkResponse
+        }
+
+        /**
+         * Reads a draft's file again with a corrected layout (manager); its rows and findings are replaced.
+         */
+        public async railTariffLayout(id: string, params: controllers.RailTariffLayoutRequest): Promise<controllers.RailTariffVersionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/rail/versions/${encodeURIComponent(id)}/layout`, JSON.stringify(params))
+            return await resp.json() as controllers.RailTariffVersionResponse
+        }
+
+        /**
+         * A page of a version's rows in sheet order.
+         */
+        public async railTariffRates(id: string, params: controllers.RailTariffRatesRequest): Promise<services.RailRatePage> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                limit:  params.limit === undefined ? undefined : String(params.limit),
+                offset: params.offset === undefined ? undefined : String(params.offset),
+                search: params.search,
+                via:    params.via,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/rail/versions/${encodeURIComponent(id)}/rates`, undefined, {query})
+            return await resp.json() as services.RailRatePage
+        }
+
+        /**
+         * The file a version was read from, as uploaded.
+         */
+        public async railTariffSource(id: string): Promise<controllers.FileResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/rail/versions/${encodeURIComponent(id)}/source`)
+            return await resp.json() as controllers.FileResponse
+        }
+
+        /**
+         * Changes a tariff (manager): its name, e.g. the one the AI suggested, the ports it is for and
+         * whether it is import, export or both.
+         */
+        public async railTariffUpdate(id: string, params: controllers.RailTariffUpdateRequest): Promise<controllers.RailTariffUpdateResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/tariffs/rail/tariffs/${encodeURIComponent(id)}`, JSON.stringify(params))
+            return await resp.json() as controllers.RailTariffUpdateResponse
+        }
+
+        /**
+         * Reads a rail operator's tariff file into a new draft (manager): the AI reads the layout, the
+         * code every row, the checks list what looks wrong. Nothing prices with it until it is approved.
+         */
+        public async railTariffUpload(params: controllers.RailTariffUploadRequest): Promise<controllers.RailTariffUploadResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/rail/upload`, JSON.stringify(params))
+            return await resp.json() as controllers.RailTariffUploadResponse
+        }
+
+        /**
+         * One version with its layout, findings and the first rows of its file.
+         */
+        public async railTariffVersionGet(id: string): Promise<controllers.RailTariffVersionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/rail/versions/${encodeURIComponent(id)}`)
+            return await resp.json() as controllers.RailTariffVersionResponse
         }
     }
 }
@@ -5841,6 +5965,10 @@ export namespace controllers {
         destination: string
     }
 
+    export interface FileResponse {
+        file: interfaces.TariffFile
+    }
+
     export interface FloorWriteLostRequest {
         /**
          * What the phone discarded, in words ("Gate-in", "Survey (receipt)").
@@ -6670,6 +6798,10 @@ export namespace controllers {
         ok: boolean
     }
 
+    export interface OkResponse {
+        ok: boolean
+    }
+
     export interface PdfResponse {
         fileName: string
         /**
@@ -6954,6 +7086,88 @@ export namespace controllers {
          * Colleagues tagged with @.
          */
         mentionedUserIds: string[]
+    }
+
+    export interface RailOperatorListResponse {
+        /**
+         * Customer Database companies with the Rail operator role, by name
+         */
+        operators: interfaces.RailOperatorItem[]
+    }
+
+    export interface RailTariffLayoutRequest {
+        layout: interfaces.RailLayout
+    }
+
+    export interface RailTariffRatesRequest {
+        /**
+         * Words to find in the place, postcode, region or note
+         */
+        search?: string
+
+        /**
+         * Only rows via this terminal
+         */
+        via?: string
+
+        offset?: number
+        limit?: number
+    }
+
+    export interface RailTariffUpdateRequest {
+        name: string
+        /**
+         * At least one
+         */
+        ports: interfaces.TariffPortCode[]
+
+        /**
+         * Import, export or both
+         */
+        directions: interfaces.RailDirection[]
+    }
+
+    export interface RailTariffUpdateResponse {
+        id: string
+        name: string
+        ports: interfaces.TariffPortCode[]
+        directions: interfaces.RailDirection[]
+    }
+
+    export interface RailTariffUploadRequest {
+        /**
+         * The rail operator's Customer Database id
+         */
+        supplierCustomerId: string
+
+        /**
+         * The tariff the file is a new version of; a new tariff of the operator when left out
+         */
+        tariffId?: string
+
+        /**
+         * A new tariff's ports, at least one; ignored for a new version
+         */
+        ports?: interfaces.TariffPortCode[]
+
+        /**
+         * A new tariff's import, export or both; ignored for a new version
+         */
+        directions?: interfaces.RailDirection[]
+
+        fileName: string
+        /**
+         * The .xlsx or .csv file, base64; at most 10 MB
+         */
+        fileBase64: string
+    }
+
+    export interface RailTariffUploadResponse {
+        version: interfaces.SupplierTariffVersionDetail
+    }
+
+    export interface RailTariffVersionResponse {
+        version: interfaces.SupplierTariffVersionDetail
     }
 
     export interface RatesOnRequest {
@@ -9941,6 +10155,11 @@ export namespace interfaces {
     }
 
     /**
+     * A column of the sheet, by its letter ("A", "AB").
+     */
+    export type ColumnLetter = string
+
+    /**
      * A saved set of visible columns for one screen
      */
     export interface ColumnTemplateItem {
@@ -10610,9 +10829,10 @@ export namespace interfaces {
     }
 
     /**
-     * What a company is to us. A customer buys our services; a haulier is a trucking subcontractor. One company can be both.
+     * What a company is to us. A customer buys our services; a haulier is a trucking subcontractor; a rail operator sells us rail
+     * transport, its tariffs kept under Tariffs. One company can have several roles.
      */
-    export type CustomerRole = "customer" | "haulier"
+    export type CustomerRole = "customer" | "haulier" | "rail_operator"
 
     /**
      * What a run of POST /customers/seats/normalize did to the company's live customers.
@@ -11027,6 +11247,8 @@ export namespace interfaces {
         fileBase64: string
         contentType: string
     }
+
+    export type FindingLevel = "error" | "warning"
 
     /**
      * A manual follow-up task as the Follow-up screen gets it. Times are ISO strings, days are YYYY-MM-DD.
@@ -12731,6 +12953,11 @@ export namespace interfaces {
 
     export type LastMile = "OWN_RUN" | "PARTNER"
 
+    /**
+     * How a version's layout was found: read by the AI, the one the tariff's last approved version used, or corrected by a user.
+     */
+    export type LayoutSource = "ai" | "remembered" | "edited"
+
     export interface Leg {
         id: string
         consignmentId: string
@@ -13964,6 +14191,187 @@ export namespace interfaces {
         inquiry: QuoteWarehouseInquiry
     }
 
+    /**
+     * A price column: the container lengths and gross weight its prices are for.
+     */
+    export interface RailBand {
+        column: ColumnLetter
+        /**
+         * As the tariff names it, e.g. "20' 0<14 t"
+         */
+        label: string
+
+        minLengthFt: number
+        maxLengthFt: number
+        /**
+         * The heaviest gross weight (cargo + container tare), in tonnes; null when the price has no weight limit
+         */
+        maxGrossTonnes: number | null
+    }
+
+    /**
+     * Import: port to inland; export: inland to port. A tariff is for one or both.
+     */
+    export type RailDirection = "import" | "export"
+
+    /**
+     * How a rail tariff's sheet is read: proposed by the AI (or remembered), corrected by the user.
+     */
+    export interface RailLayout {
+        sheet: string
+        /**
+         * 1-based row of the column headings
+         */
+        headerRow: number
+
+        /**
+         * 1-based first price row
+         */
+        firstDataRow: number
+
+        /**
+         * 1-based last price row, when notes or totals follow the table; null reads to the end. Empty rows are skipped.
+         */
+        lastDataRow: number | null
+
+        columns: RailLayoutColumns
+        bands: RailBand[]
+        /**
+         * ISO 4217, e.g. "EUR"
+         */
+        currency: string
+
+        /**
+         * The tariff's validity, YYYY-MM-DD
+         */
+        validFrom: string | null
+
+        validTo: string | null
+        /**
+         * ISO 3166-1 alpha-2 of the inland places when the sheet has no country column
+         */
+        defaultCountry: string
+
+        /**
+         * What the prices include and the tariff's terms, one line each
+         */
+        conditions: string[]
+
+        links: TariffLink[]
+        /**
+         * A name for the tariff, e.g. "Hamburg / Bremerhaven / Wilhelmshaven – Czechia"
+         */
+        name: string
+    }
+
+    /**
+     * Which columns hold what; null when the sheet has no such column.
+     */
+    export interface RailLayoutColumns {
+        country: ColumnLetter | null
+        postcode: ColumnLetter | null
+        place: ColumnLetter
+        region: ColumnLetter | null
+        /**
+         * The terminal the train runs via
+         */
+        via: ColumnLetter | null
+
+        /**
+         * Where the empty container is returned or picked up; the same column as `via` when one cell holds both ("Praha/Praha")
+         */
+        emptyDepot: ColumnLetter | null
+
+        note: ColumnLetter | null
+        validFrom: ColumnLetter | null
+        validTo: ColumnLetter | null
+    }
+
+    /**
+     * A rail operator (a Customer Database company with the role) with its tariffs at a glance.
+     */
+    export interface RailOperatorItem {
+        customerId: string
+        companyName: string
+        ico: string
+        city: string
+        country: string
+        tariffCount: number
+        /**
+         * The ports and directions of all its tariffs together, in list order
+         */
+        ports: TariffPortCode[]
+
+        directions: RailDirection[]
+        /**
+         * Versions that price today
+         */
+        activeCount: number
+
+        draftCount: number
+        /**
+         * The soonest end of an active version, YYYY-MM-DD; null when none ends
+         */
+        activeUntil: string | null
+    }
+
+    export interface RailRate {
+        id: string
+        /**
+         * The sheet row it was read from
+         */
+        rowNo: number
+
+        /**
+         * ISO 3166-1 alpha-2
+         */
+        country: string
+
+        /**
+         * As the tariff writes it, e.g. "36235" or "1xxxx"
+         */
+        postcode: string
+
+        /**
+         * The postcodes the row covers, 5 digits each ("1xxxx" → 10000–19999; a note "ZIP 10000-19900" → that range)
+         */
+        postcodeFrom: string | null
+
+        postcodeTo: string | null
+        place: string
+        region: string
+        via: string
+        emptyDepot: string
+        note: string
+        validFrom: string | null
+        validTo: string | null
+        /**
+         * Amount by band code (see bandCode); a band without a price is left out
+         */
+        prices: { [key: string]: number }
+    }
+
+    export interface RailTariffItem {
+        id: string
+        name: string
+        mode: SupplierTariffMode
+        supplierCustomerId: string
+        /**
+         * The sea ports it runs from or to, as the user chose them, in list order
+         */
+        ports: TariffPortCode[]
+
+        /**
+         * Import, export or both, as the user chose
+         */
+        directions: RailDirection[]
+
+        /**
+         * Newest first
+         */
+        versions: SupplierTariffVersion[]
+    }
+
     export interface RateExtras {
         adr: boolean
         tailLift: boolean
@@ -14401,6 +14809,18 @@ export namespace interfaces {
         at: string
         by: string
         label: string
+    }
+
+    /**
+     * The first rows of a sheet, as text by column letter, for setting up the layout by hand.
+     */
+    export interface SheetPreview {
+        name: string
+        rowCount: number
+        rows: {
+            rowNo: number
+            cells: { [key: string]: string }
+        }[]
     }
 
     /**
@@ -14982,6 +15402,63 @@ export namespace interfaces {
         cc: string[]
     }
 
+    /**
+     * What a tariff prices; rail first, more modes later.
+     */
+    export type SupplierTariffMode = "rail"
+
+    /**
+     * draft: uploaded, being checked; active: prices with; superseded: replaced by a later version.
+     */
+    export type SupplierTariffStatus = "draft" | "active" | "superseded"
+
+    export interface SupplierTariffVersion {
+        id: string
+        tariffId: string
+        versionNo: number
+        status: SupplierTariffStatus
+        validFrom: string | null
+        validTo: string | null
+        currency: string
+        rowCount: number
+        warningCount: number
+        errorCount: number
+        layoutSource: LayoutSource
+        sourceFileName: string | null
+        createdAt: string
+        createdBy: string | null
+        activatedAt: string | null
+        activatedBy: string | null
+    }
+
+    export interface SupplierTariffVersionDetail {
+        tariff: TariffRef
+        layout: RailLayout
+        /**
+         * The band codes of layout.bands, in the same order
+         */
+        bandCodes: string[]
+
+        findings: TariffFinding[]
+        preview: SheetPreview[]
+        id: string
+        tariffId: string
+        versionNo: number
+        status: SupplierTariffStatus
+        validFrom: string | null
+        validTo: string | null
+        currency: string
+        rowCount: number
+        warningCount: number
+        errorCount: number
+        layoutSource: LayoutSource
+        sourceFileName: string | null
+        createdAt: string
+        createdBy: string | null
+        activatedAt: string | null
+        activatedBy: string | null
+    }
+
     export type SurchargeCalc = "PCT" | "FLAT" | "PER_KG" | "PER_PALLET" | "PER_HOUR" | "PCT_OF_VALUE" | "FUEL_INDEX"
 
     export type SurchargeCode = "FUEL" | "TOLL" | "ADR" | "TAIL_LIFT" | "AVIZACE" | "TIME_WINDOW" | "B2C" | "WAITING_TIME" | "REDELIVERY" | "INSURANCE" | "REMOTE_AREA" | "NON_STACKABLE"
@@ -15065,6 +15542,36 @@ export namespace interfaces {
         kgPerPalletPlace: number
     }
 
+    export interface TariffFile {
+        fileName: string
+        fileBase64: string
+        contentType: string
+    }
+
+    /**
+     * A problem the checks found; errors stop a version from being approved.
+     */
+    export interface TariffFinding {
+        level: FindingLevel
+        /**
+         * What kind of problem, e.g. "price_not_number"
+         */
+        code: string
+
+        message: string
+        /**
+         * How many rows have it
+         */
+        count: number
+
+        /**
+         * The first few sheet rows that have it
+         */
+        rows: number[]
+
+        column?: ColumnLetter
+    }
+
     export interface TariffImportResult {
         /**
          * The new DRAFT; its findings include the problems met reading the file ("Sheet D2, row 7, column F")
@@ -15072,6 +15579,11 @@ export namespace interfaces {
         version: TariffVersionDetail
 
         sheets: ImportSheetReport[]
+    }
+
+    export interface TariffLink {
+        label: string
+        url: string
     }
 
     export interface TariffListItem {
@@ -15113,12 +15625,27 @@ export namespace interfaces {
      */
     export type TariffMode = "MATRIX" | "DISCOUNT"
 
+    /**
+     * A sea port a tariff runs from or to, by UN/LOCODE: Antwerp, Rotterdam, Hamburg, Bremerhaven, Wilhelmshaven, Koper.
+     */
+    export type TariffPortCode = "BEANR" | "NLRTM" | "DEHAM" | "DEBRV" | "DEWVN" | "SIKOP"
+
     export interface TariffRate {
         serviceLevel: ServiceLevelCode
         zoneCode: string
         bandId: string
         amount: number
         priceType: PriceType
+    }
+
+    export interface TariffRef {
+        id: string
+        name: string
+        mode: SupplierTariffMode
+        supplierCustomerId: string
+        supplierName: string
+        ports: TariffPortCode[]
+        directions: RailDirection[]
     }
 
     export interface TariffRounding {
@@ -17060,6 +17587,24 @@ export namespace services {
      * A UN/LOCODE place as shipments and quotes use it, written "Name (CODE)".
      */
     export type PlaceInfo = geo.Place
+
+    export interface RailOperatorDetail {
+        operator: interfaces.RailOperatorItem
+        tariffs: interfaces.RailTariffItem[]
+    }
+
+    export interface RailRatePage {
+        rates: interfaces.RailRate[]
+        /**
+         * How many rows match the filter
+         */
+        total: number
+
+        /**
+         * The terminals the version's rows run via
+         */
+        vias: string[]
+    }
 
     export interface SectionKeyChange {
         key: string

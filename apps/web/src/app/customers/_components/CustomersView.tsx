@@ -24,7 +24,7 @@ import { PillTabs } from "@/components/SectionCard";
 import { useCustomers, type CustomerItem } from "@/hooks/useCustomers";
 import { useCustomerListPref } from "@/hooks/useCustomerListPref";
 import { useDebounced } from "@/hooks/useDebounced";
-import { CUSTOMER_LABELS, CUSTOMER_ROLE_OPTIONS, CUSTOMER_ROLES, CUSTOMER_STATUSES } from "../_lib/constants";
+import { CUSTOMER_LABELS, CUSTOMER_ROLES, CUSTOMER_STATUSES, customerRoleOptions } from "../_lib/constants";
 import { CustomerHaulierBadge } from "./CustomerHaulierBadge";
 import { rememberCustomerListQuery } from "../_lib/customerListHref";
 import { marginPct } from "../_lib/customerMoney";
@@ -445,17 +445,15 @@ export function CustomersView() {
                   allowClear
                   className="w-44"
                 />
-                {canSeeConcepts && (
-                  <Select
-                    value={role || undefined}
-                    onChange={handleRoleChange}
-                    options={CUSTOMER_ROLE_OPTIONS}
-                    placeholder="All roles"
-                    aria-label="Role"
-                    allowClear
-                    className="w-32"
-                  />
-                )}
+                <Select
+                  value={role || undefined}
+                  onChange={handleRoleChange}
+                  options={customerRoleOptions(canSeeConcepts)}
+                  placeholder="All roles"
+                  aria-label="Role"
+                  allowClear
+                  className="w-36"
+                />
                 <CustomerFiltersPopover
                   filters={shownFilters}
                   onChange={handleFiltersChange}

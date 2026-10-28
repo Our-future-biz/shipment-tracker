@@ -11,6 +11,7 @@ vi.mock("../../repositories/customer.repository", () => ({
   customerRepository: {
     pipelineList: vi.fn(),
     listFiltered: vi.fn(),
+    listWithRole: vi.fn(),
     findByIco: vi.fn(),
     createWithContact: vi.fn(),
     getByIdForCompany: vi.fn(),
@@ -24,7 +25,7 @@ vi.mock("../../topics", () => ({ customerChanged: { publish: vi.fn() }, contactC
 
 import { customerRepository } from "../../repositories/customer.repository";
 import { aresService } from "../../services/ares.service";
-import { customerService } from "../../services/customer.service";
+import { assertMayGiveRoles, customerService } from "../../services/customer.service";
 
 const repository = vi.mocked(customerRepository);
 const ares = vi.mocked(aresService);
@@ -94,6 +95,24 @@ describe("roles", () => {
   it("are changed only by a manager (a haulier role reaches Trucking and its payables)", async () => {
     await expect(customerService.update("customer-1", COMPANY, "user", { roles: ["haulier"] })).rejects.toMatchObject({ code: "permission_denied" });
     expect(repository.updateForCompany).not.toHaveBeenCalled();
+  });
+
+  it("with a supplier role are given to a new company only by a manager", () => {
+    expect(() => assertMayGiveRoles("user", ["customer", "rail_operator"])).toThrow(expect.objectContaining({ code: "permission_denied" }));
+    expect(() => assertMayGiveRoles("user", ["customer"])).not.toThrow();
+    expect(() => assertMayGiveRoles("user", undefined)).not.toThrow();
+    expect(() => assertMayGiveRoles("manager", ["rail_operator"])).not.toThrow();
+  });
+
+  it("list the companies with a role, asking only for ids that can be customers", async () => {
+    repository.listWithRole.mockResolvedValue([]);
+    await customerService.listWithRole(COMPANY, "rail_operator");
+    expect(repository.listWithRole).toHaveBeenCalledWith(COMPANY, "rail_operator", undefined);
+    await customerService.listWithRole(COMPANY, "rail_operator", ["not-a-uuid", "6f1c2b9e-1d3a-4c5b-8e7f-0a1b2c3d4e5f"]);
+    expect(repository.listWithRole).toHaveBeenLastCalledWith(COMPANY, "rail_operator", ["6f1c2b9e-1d3a-4c5b-8e7f-0a1b2c3d4e5f"]);
+    repository.listWithRole.mockClear();
+    await expect(customerService.listWithRole(COMPANY, "rail_operator", ["not-a-uuid"])).resolves.toEqual([]);
+    expect(repository.listWithRole).not.toHaveBeenCalled();
   });
 
   it("stay as they are when a change does not send them", async () => {

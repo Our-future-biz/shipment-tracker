@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1793163292363,
+      "tag": "0000_tariffs",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1793178988136,
+      "tag": "0001_tariff_ports_directions",
+      "breakpoints": true
+    }
+  ]
+}

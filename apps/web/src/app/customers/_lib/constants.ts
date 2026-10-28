@@ -24,15 +24,21 @@ export const ADDRESS_TYPES = ["Registered", "Billing", "Paperwork", "Pickup", "D
 
 export const NOTE_TYPES = ["Note", "Email", "Call", "Follow-up", "Visit"] as const satisfies readonly interfaces.NoteType[];
 
-// What a company is to us; one company can have both roles. A haulier is a trucking subcontractor.
-export const CUSTOMER_ROLES = ["customer", "haulier"] as const satisfies readonly interfaces.CustomerRole[];
+// What a company is to us; one company can have several roles. A haulier is a trucking subcontractor, a rail
+// operator a supplier whose rail tariffs are kept under Tariffs.
+export const CUSTOMER_ROLES = ["customer", "haulier", "rail_operator"] as const satisfies readonly interfaces.CustomerRole[];
 
 export const CUSTOMER_ROLE_LABELS: Record<interfaces.CustomerRole, string> = {
   customer: "Customer",
   haulier: "Haulier",
+  rail_operator: "Rail operator",
 };
 
 export const CUSTOMER_ROLE_OPTIONS = CUSTOMER_ROLES.map((role) => ({ value: role, label: CUSTOMER_ROLE_LABELS[role] }));
+
+/** The roles a user can see and pick: the Haulier role belongs to the Trucking Concept, shown to those who see the concepts. */
+export const customerRoleOptions = (canSeeConcepts: boolean) =>
+  canSeeConcepts ? CUSTOMER_ROLE_OPTIONS : CUSTOMER_ROLE_OPTIONS.filter((o) => o.value !== "haulier");
 
 export const CUSTOMER_SITE_KINDS = ["loading", "delivery", "both"] as const satisfies readonly interfaces.CustomerSiteKind[];
 

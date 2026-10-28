@@ -1,5 +1,5 @@
-import { TariffSectionPage } from "../_components/TariffSectionPage";
+import { RailOperatorsView } from "./_components/RailOperatorsView";
 
 export default function RailOperatorsPage() {
-  return <TariffSectionPage title="Rail Operators" />;
+  return <RailOperatorsView />;
 }
