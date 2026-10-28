@@ -11,8 +11,18 @@ interface ZipFile {
   declared?: number;
 }
 
+interface ZipShape {
+  flags?: number;
+  /** The number of files the end record declares, when it lies. */
+  count?: number;
+  /** Bytes between the central directory and the end record. */
+  gap?: number;
+  /** Bytes before the first file (offsets in the directory do not count them). */
+  prefix?: number;
+}
+
 // A zip built by hand: local headers with the files, the central directory, its end record.
-function zipOf(files: ZipFile[], { flags = 0 }: { flags?: number } = {}): Buffer {
+function zipOf(files: ZipFile[], { flags = 0, count = files.length, gap = 0, prefix = 0 }: ZipShape = {}): Buffer {
   const locals: Buffer[] = [];
   const dir: Buffer[] = [];
   let offset = 0;
@@ -43,11 +53,11 @@ function zipOf(files: ZipFile[], { flags = 0 }: { flags?: number } = {}): Buffer
   const directory = Buffer.concat(dir);
   const end = Buffer.alloc(22);
   end.writeUInt32LE(0x06054b50, 0);
-  end.writeUInt16LE(files.length, 8);
-  end.writeUInt16LE(files.length, 10);
+  end.writeUInt16LE(count, 8);
+  end.writeUInt16LE(count, 10);
   end.writeUInt32LE(directory.length, 12);
   end.writeUInt32LE(offset, 16);
-  return Buffer.concat([...locals, directory, end]);
+  return Buffer.concat([Buffer.alloc(prefix), ...locals, directory, Buffer.alloc(gap), end]);
 }
 
 const LIMITS = { maxEntries: 10, maxBytes: 1024 * 1024 };
@@ -76,6 +86,35 @@ describe("zipUnpackedBytes", () => {
   it("counts the limit over all the files together", () => {
     const part = { data: Buffer.alloc(600 * 1024), declared: 1 };
     expect(zipUnpackedBytes(zipOf([{ name: "a.xml", ...part }, { name: "b.xml", ...part }]), LIMITS)).toBeGreaterThan(LIMITS.maxBytes);
+  });
+
+  it("refuses a zip whose end record declares fewer files than its directory holds (the workbook reader would unpack them all)", () => {
+    const zip = zipOf(
+      [
+        { name: "a.xml", data: Buffer.from("small") },
+        { name: "bomb.xml", data: Buffer.alloc(8 * 1024 * 1024), declared: 10 },
+      ],
+      { count: 1 },
+    );
+    expect(zipUnpackedBytes(zip, LIMITS)).toBeNull();
+  });
+
+  it("refuses a zip the workbook reader would read at shifted offsets: a gap before the end record, or bytes before the first file", () => {
+    const files = [{ name: "a.xml", data: Buffer.from("small") }];
+    expect(zipUnpackedBytes(zipOf(files), LIMITS)).toBe(5);
+    expect(zipUnpackedBytes(zipOf(files, { gap: 64 }), LIMITS)).toBeNull();
+    expect(zipUnpackedBytes(zipOf(files, { prefix: 64 }), LIMITS)).toBeNull();
+  });
+
+  it("refuses the markers that send the workbook reader to a ZIP64 record", () => {
+    const zip = zipOf([{ name: "a.xml", data: Buffer.from("small") }]);
+    const eocd = zip.length - 22;
+    const disk = Buffer.from(zip);
+    disk.writeUInt16LE(0xffff, eocd + 4);
+    expect(zipUnpackedBytes(disk, LIMITS)).toBeNull();
+    const size = Buffer.from(zip);
+    size.writeUInt32LE(0xffffffff, eocd + 12);
+    expect(zipUnpackedBytes(size, LIMITS)).toBeNull();
   });
 
   it("cannot read what is no plain zip: garbage, too many files, encrypted or corrupt data", () => {
