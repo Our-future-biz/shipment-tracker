@@ -87,6 +87,8 @@ interface CostLinesEditorProps {
   actions?: ReactNode;
   // Marks under a line's description, e.g. the tariff it was priced from.
   lineTag?: (line: CostLine) => ReactNode;
+  // A control under a line's description, after its marks, e.g. the tariffs that could price it.
+  lineAction?: (line: CostLine, index: number) => ReactNode;
   // The rows' React keys (useListKeys over `lines`), owned by the caller: a removal it makes on
   // its own - of a counterpart on the other side - drops that row's key as well.
   lineKeys: ListKeys;
@@ -113,6 +115,7 @@ export function CostLinesEditor({
   onChange,
   actions,
   lineTag,
+  lineAction,
   lineKeys,
   onAmountSet,
   onAmountChanged,
@@ -182,6 +185,7 @@ export function CostLinesEditor({
             {lines.map((l, i) => {
               const converted = convertLine(l, quote, sheet, { selling: !buying, live });
               const tag = lineTag?.(l);
+              const action = lineAction?.(l, i);
               return (
                 <tr key={lineKeys.keys[i]}>
                   <td className={LINE_TD_CLASS}>
@@ -201,7 +205,12 @@ export function CostLinesEditor({
                   </td>
                   <td className={LINE_TD_CLASS}>
                     <Input size="small" aria-label="Description" placeholder="Description" value={l.description} onChange={(e) => patch(i, { description: e.target.value })} />
-                    {tag && <div className="mt-1 flex flex-wrap gap-1">{tag}</div>}
+                    {(tag || action) && (
+                      <div className="mt-1 flex flex-wrap items-center gap-1">
+                        {tag}
+                        {action}
+                      </div>
+                    )}
                   </td>
                   {buying && (
                     <td className={LINE_TD_CLASS}>

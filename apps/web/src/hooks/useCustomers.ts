@@ -1,12 +1,15 @@
 "use client";
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
 import { customerQuotesKeys } from "@/hooks/salesQueryKeys";
 import { customerAddressesKey } from "@/hooks/useCustomerAddresses";
 import { refreshShipmentCopies } from "@/hooks/useShipments";
 import { refreshQuoteCopies } from "@/hooks/useSalesQuotes";
+import { railTariffKeys } from "@/hooks/useRailTariffs";
+import { collectionTariffKeys } from "@/hooks/useCollectionTariffs";
+import { oceanTariffKeys } from "@/hooks/useOceanTariffs";
 
 export type CustomerItem = interfaces.CustomerItem;
 export type DeletedCustomerItem = interfaces.DeletedCustomerItem;
@@ -85,6 +88,12 @@ export const useCustomers = (params: CustomerQueryParams = {}, { enabled = true 
   };
 };
 
+// The Tariffs pages list the companies by their supplier roles and show their names as the
+// Customer Database has them: a company's new roles, name or deletion shows there at once.
+const refreshTariffSuppliers = (queryClient: QueryClient) => {
+  for (const key of [railTariffKeys.all, collectionTariffKeys.all, oceanTariffKeys.all]) queryClient.invalidateQueries({ queryKey: key });
+};
+
 export const useCustomer = (id: string | null) => {
   const queryClient = useQueryClient();
 
@@ -95,6 +104,7 @@ export const useCustomer = (id: string | null) => {
       // Back or a link from one of its shipments would otherwise show the deleted customer as live.
       for (const key of CUSTOMER_RECORD_KEYS) queryClient.removeQueries({ queryKey: [key, id] });
       queryClient.invalidateQueries({ queryKey: [DELETED_CUSTOMERS_KEY] });
+      refreshTariffSuppliers(queryClient);
       return queryClient.invalidateQueries({ queryKey: ["customers"] });
     },
   });
@@ -123,6 +133,7 @@ export const useCustomer = (id: string | null) => {
       // (on the server, a moment later): those lists are read again once that has happened.
       refreshShipmentCopies(queryClient);
       refreshQuoteCopies(queryClient);
+      refreshTariffSuppliers(queryClient);
     },
   });
 

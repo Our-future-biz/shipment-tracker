@@ -18,6 +18,7 @@ import {
   MessageOutlined,
   MoreOutlined,
   PlusOutlined,
+  TagsOutlined,
 } from "@ant-design/icons";
 import { BackLink } from "@/components/BackLink";
 import { ConfirmModal } from "@/components/ConfirmModal";
@@ -50,7 +51,7 @@ import { createShipmentHint, shipmentFromQuoteBlockedText } from "../../_lib/shi
 import { CURRENCIES } from "@/lib/enums";
 import { CONTAINER_KINDS, CONTAINER_KINDS_BY_SIZE, CONTAINER_SIZES, containerType, teuForType } from "@/lib/cargo";
 import { useListKeys } from "@/hooks/useListKeys";
-import { asData, cargoReadyDay, computeTotals, computeCargo, documentBlock, fxNote, hasReefer, isContainerQuote, isWonRevision, reeferMissing, revisionRoot, stripProtected, withLineBasis, type QuoteTotals } from "../../_lib/salesQuote";
+import { asData, cargoReadyDay, computeTotals, computeCargo, convertLine, documentBlock, fxNote, hasReefer, isContainerQuote, isWonRevision, reeferMissing, revisionRoot, stripProtected, withLineBasis, type QuoteTotals } from "../../_lib/salesQuote";
 import { PRINT_WINDOW_BLOCKED, exportClosesQuote } from "../../_lib/exportClose";
 import { ExportCloseDialog } from "../../_components/ExportCloseDialog";
 import { NO_CUSTOMER, changesCustomer, contactFields, customerLinkFields, liveCustomerCopies, namedContact, withCustomerUnit } from "../../_lib/quoteCustomer";
@@ -97,6 +98,38 @@ import { QuoteChatDrawer, quoteThreadOf, useQuoteChatUnread } from "../../_compo
 import { QuoteSection, QuoteStepTiles, type SectionStatus } from "./_components/QuoteSection";
 import { QuoteRoadCard } from "./_components/QuoteRoadCard";
 import { QuoteRoadPriceDrawer } from "./_components/QuoteRoadPriceDrawer";
+import { RailTariffsDrawer } from "./_components/RailTariffsDrawer";
+import { useRailOffers } from "@/hooks/useRailTariffs";
+import { railVersionHref } from "@/app/tariffs/_lib/railTariffs";
+import { isInlandHaulageLine, isRailLine, railOffersRequest, railRouteOf, railVersionId, withRailOffer, type RailOffer, type RailRoute } from "../../_lib/railQuote";
+import type { TariffPick } from "../../_lib/tariffQuote";
+import { CollectionTariffsDrawer } from "./_components/CollectionTariffsDrawer";
+import { useCollectionHubs, useCollectionOffers } from "@/hooks/useCollectionTariffs";
+import { collectionVersionHref } from "@/app/tariffs/_lib/collectionTariffs";
+import {
+  collectionFreightOf,
+  collectionOffersRequest,
+  collectionRouteOf,
+  collectionVersionId,
+  isCollectionLine,
+  isInlandCollectionLine,
+  withCollectionOffer,
+  type CollectionOffer,
+  type CollectionRoute,
+} from "../../_lib/collectionQuote";
+import { OceanTariffsDrawer } from "./_components/OceanTariffsDrawer";
+import { useOceanOffers } from "@/hooks/useOceanTariffs";
+import { oceanVersionHref } from "@/app/tariffs/_lib/oceanTariffs";
+import {
+  isOceanFreightLine,
+  isOceanLine,
+  oceanOffersRequest,
+  oceanRouteOf,
+  oceanVersionId,
+  withOceanOffer,
+  type OceanOffer,
+  type OceanRoute,
+} from "../../_lib/oceanQuote";
 import { QuoteMarginPanel } from "./_components/QuoteMarginPanel";
 import { QuoteMarginApproveDialog } from "./_components/QuoteMarginApproveDialog";
 import { QuoteShipmentsDialog } from "./_components/QuoteShipmentsDialog";
@@ -212,6 +245,10 @@ export function QuoteWorkflow() {
   const [templateAsked, setTemplateAsked] = useState<string | null>(null);
   // A buying line that just got its amount (and its place), offered to selling as well with a markup.
   const [toSelling, setToSelling] = useState<{ line: CostLine; index: number } | null>(null);
+  // The buying line "Tariffs available" was opened from: for rail, collections, or ocean freight.
+  const [railLine, setRailLine] = useState<number | null>(null);
+  const [collectionLine, setCollectionLine] = useState<number | null>(null);
+  const [oceanLine, setOceanLine] = useState<number | null>(null);
   // A line being removed that has a counterpart on the other side: asked whether both go.
   const [removing, setRemoving] = useState<{ side: LineSide; index: number; other: number } | null>(null);
   // The customer picked last in the Customer box, while its contact person is still being read.
@@ -473,6 +510,21 @@ export function QuoteWorkflow() {
   useEffect(() => {
     if (saveRefused && contactLinked) void reloadContacts();
   }, [saveRefused, contactLinked, reloadContacts]);
+  // How many rail tariff offers the quote's route has, for the "Tariffs available" button of its
+  // inland container haulage lines; asked only while there is such a line to price.
+  const railCount = useRailOffers(!quoteClosed && (draft.buyingLines ?? []).some(isInlandHaulageLine) ? railOffersRequest(railRouteOf(draft, businessToday())) : null);
+  // The same for the collections tariffs, on an inland collection / delivery line of a Sea LCL or
+  // air quote; our hubs give the route its other end (asked only on such a quote).
+  const collectionHubs = useCollectionHubs({ enabled: !!collectionFreightOf(draft.serviceType) }).hubs;
+  const collectionCount = useCollectionOffers(
+    !quoteClosed && collectionFreightOf(draft.serviceType) && (draft.buyingLines ?? []).some(isInlandCollectionLine)
+      ? collectionOffersRequest(collectionRouteOf(draft, collectionHubs, businessToday()))
+      : null,
+  );
+  // The same for the shipping lines' tariffs, on the Ocean freight line of a Sea FCL quote.
+  const oceanCount = useOceanOffers(
+    !quoteClosed && draft.serviceType === "Sea FCL" && (draft.buyingLines ?? []).some(isOceanFreightLine) ? oceanOffersRequest(oceanRouteOf(draft, businessToday())) : null,
+  );
   const printNow = () => {
     const blocked = printQuote(ref, draft, exchange, company, people);
     if (blocked) toast.error(blocked);
@@ -625,6 +677,9 @@ export function QuoteWorkflow() {
   const sendBlocked = sendBlockedText(roadMargin);
   // "Tariff vN" on a line priced from a tariff, and "Override" when it was changed by hand since.
   const buyingTag = (line: CostLine) => {
+    if (isRailLine(line)) return <SupplierTariffTag line={line} label="Rail tariff" versionId={railVersionId(line)} versionHref={railVersionHref} />;
+    if (isCollectionLine(line)) return <SupplierTariffTag line={line} label="Collection tariff" versionId={collectionVersionId(line)} versionHref={collectionVersionHref} />;
+    if (isOceanLine(line)) return <SupplierTariffTag line={line} label="Ocean tariff" versionId={oceanVersionId(line)} versionHref={oceanVersionHref} />;
     const tag = lineTariffTag(line, draft.roadPricing, "buying");
     return tag && <TariffTag tag={tag} />;
   };
@@ -654,6 +709,81 @@ export function QuoteWorkflow() {
   const copyBuyingToSelling = () => {
     const { buying, selling } = pairedCopies(buyingLines);
     set({ buyingLines: buying, sellingLines: selling });
+  };
+
+  // "Tariffs available" under an inland container haulage buying line (rail tariffs), under an
+  // inland collection / delivery line of a Sea LCL or air quote (collections tariffs), and under the
+  // Ocean freight line of a Sea FCL quote (shipping lines' tariffs), with how many offers the
+  // quote's route has once that is known.
+  const tariffKindOf = (line: CostLine): "rail" | "collection" | "ocean" | null => {
+    if (isInlandHaulageLine(line)) return "rail";
+    if (isInlandCollectionLine(line) && collectionFreightOf(draft.serviceType)) return "collection";
+    if (isOceanFreightLine(line) && draft.serviceType === "Sea FCL") return "ocean";
+    return null;
+  };
+  const buyingAction = (line: CostLine, index: number) => {
+    if (quoteClosed) return null;
+    const kind = tariffKindOf(line);
+    if (!kind) return null;
+    const count = { rail: railCount, collection: collectionCount, ocean: oceanCount }[kind].result?.offers.length;
+    const open = { rail: setRailLine, collection: setCollectionLine, ocean: setOceanLine }[kind];
+    return (
+      <button
+        type="button"
+        onClick={() => open(index)}
+        className="inline-flex items-center gap-1 text-[11.5px] font-medium text-indigo-600 hover:text-indigo-700 hover:underline cursor-pointer"
+      >
+        <TagsOutlined aria-hidden />
+        Tariffs available{count !== undefined ? ` (${count})` : ""}
+      </button>
+    );
+  };
+  // An offer's amount in the quote's currency, as the buying lines are totalled.
+  const toQuoteCurrency = (amount: number, currency: string) => convertLine({ type: "", description: "", currency, amount }, draft, exchange.rates, { live: exchange });
+  // The buying lines after a pick, with the rows' React keys following them: the keys of the lines
+  // an earlier pick made go, and the offer's further lines get new ones.
+  const putPick = (pick: TariffPick) => {
+    for (const i of [...pick.removed].sort((a, b) => b - a)) buyingKeys.remove(i);
+    for (let k = 1; k < pick.count; k++) buyingKeys.insert(pick.at + k);
+    updateLines("buyingLines", pick.lines);
+  };
+  // An offer picked under "Tariffs available" goes on the line it was opened from (see
+  // withRailOffer); the rows keep their React keys. As when an amount is typed on a line that had
+  // none, selling is then offered the line. Nothing is put on a quote closed meanwhile.
+  const pickRailOffer = (offer: RailOffer, route: RailRoute) => {
+    if (quoteClosed || railLine === null || !route.port) return;
+    const before = buyingLines[railLine];
+    const pick = withRailOffer(buyingLines, railLine, offer, route.port, route.direction, draft);
+    putPick(pick);
+    setRailLine(null);
+    toast.success(`Priced from ${offer.supplierName}: ${fmtMoney(offer.total, offer.currency)}`);
+    const first = pick.lines[pick.at];
+    if (pick.count === 1 && first && !(Number(before?.amount) > 0) && offerToSelling(first, sellingLines)) setToSelling({ line: first, index: pick.at });
+  };
+  // A collections offer replaces the line it was opened from with one lump sum (see
+  // withCollectionOffer), so every row keeps its key; selling is offered it as for rail.
+  const pickCollectionOffer = (offer: CollectionOffer, route: CollectionRoute) => {
+    if (quoteClosed || collectionLine === null) return;
+    const before = buyingLines[collectionLine];
+    const lines = withCollectionOffer(buyingLines, collectionLine, offer, route);
+    updateLines("buyingLines", lines);
+    setCollectionLine(null);
+    toast.success(`Priced from ${offer.supplierName}: ${fmtMoney(offer.total, offer.currency)}`);
+    const priced = lines[collectionLine];
+    if (priced && !(Number(before?.amount) > 0) && offerToSelling(priced, sellingLines)) setToSelling({ line: priced, index: collectionLine });
+  };
+  // An ocean offer puts its freight and a line per surcharge in the place of the line it was opened
+  // from (see withOceanOffer); the rows keep their React keys, and selling is offered the freight.
+  const pickOceanOffer = (offer: OceanOffer, route: OceanRoute) => {
+    if (quoteClosed || oceanLine === null) return;
+    const before = buyingLines[oceanLine];
+    const pick = withOceanOffer(buyingLines, oceanLine, offer, route, draft);
+    putPick(pick);
+    setOceanLine(null);
+    const surcharges = offer.surcharges.length ? ` and ${offer.surcharges.length} ${offer.surcharges.length === 1 ? "surcharge" : "surcharges"}` : "";
+    toast.success(`Priced from ${offer.supplierName}: ${fmtMoney(offer.freight, offer.currency)} freight${surcharges}`);
+    const freight = pick.lines[pick.at];
+    if (freight && !(Number(before?.amount) > 0) && offerToSelling(freight, sellingLines)) setToSelling({ line: freight, index: pick.at });
   };
 
   const linesOf = (side: LineSide) => (side === "buying" ? buyingLines : sellingLines);
@@ -1302,6 +1432,7 @@ export function QuoteWorkflow() {
             live={exchange}
             onChange={(l) => updateLines("buyingLines", l)}
             lineTag={buyingTag}
+            lineAction={buyingAction}
             lineKeys={buyingKeys}
             onAmountSet={(line, index) => {
               // Not offered when selling has the line already (a copy made before its amount was set).
@@ -1814,6 +1945,31 @@ export function QuoteWorkflow() {
           onClose={() => setModal(null)}
         />
       )}
+      <RailTariffsDrawer
+        open={railLine !== null}
+        quote={draft}
+        quoteCurrency={totals.currency}
+        toQuoteCurrency={toQuoteCurrency}
+        onPick={pickRailOffer}
+        onClose={() => setRailLine(null)}
+      />
+      <CollectionTariffsDrawer
+        open={collectionLine !== null}
+        quote={draft}
+        hubs={collectionHubs}
+        quoteCurrency={totals.currency}
+        toQuoteCurrency={toQuoteCurrency}
+        onPick={pickCollectionOffer}
+        onClose={() => setCollectionLine(null)}
+      />
+      <OceanTariffsDrawer
+        open={oceanLine !== null}
+        quote={draft}
+        quoteCurrency={totals.currency}
+        toQuoteCurrency={toQuoteCurrency}
+        onPick={pickOceanOffer}
+        onClose={() => setOceanLine(null)}
+      />
       {modal === "approveMargin" && roadMargin && (
         <QuoteMarginApproveDialog quoteNumber={ref} margin={roadMargin} onApprove={approveMargin} onClose={() => setModal(null)} />
       )}
@@ -2062,6 +2218,28 @@ function SaveProblemBanner({ problem, onRetry, onLoadLatest }: SaveProblemBanner
       description="Your changes are still on this page. They are sent again with your next change, or press Retry."
       action={retry}
     />
+  );
+}
+
+interface SupplierTariffTagProps {
+  line: CostLine;
+  /** "Rail tariff", "Collection tariff", "Ocean tariff" */
+  label: string;
+  /** The tariff version the line was priced from */
+  versionId: string | null;
+  versionHref: (customerId: string, versionId: string) => string;
+}
+
+// The mark of a buying line priced from a supplier's tariff on Tariffs (rail, collections, ocean);
+// it opens the tariff version the line came from, in a new tab.
+function SupplierTariffTag({ line, label, versionId, versionHref }: SupplierTariffTagProps) {
+  if (!versionId || !line.supplierCustomerId) return <Pill tone="slate">{label}</Pill>;
+  return (
+    <a href={versionHref(line.supplierCustomerId, versionId)} target="_blank" rel="noreferrer" title={`Open the ${label.toLowerCase()} this line was priced from`}>
+      <Pill tone="slate" className="hover:bg-slate-200">
+        {label} ↗
+      </Pill>
+    </a>
   );
 }
 

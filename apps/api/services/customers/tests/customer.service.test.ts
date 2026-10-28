@@ -220,7 +220,7 @@ describe("customerService.createManual", () => {
   it("stores a foreign company as typed, without a VAT ID, as a new prospect with its contact as the main one", async () => {
     customers.findByIco.mockResolvedValue(null);
     customers.createWithContact.mockResolvedValue({ id: "c9", createdAt: now, updatedAt: now });
-    await customerService.createManual(COMPANY, SIEMENS);
+    await customerService.createManual(COMPANY, "user", SIEMENS);
     expect(customers.createWithContact).toHaveBeenCalledWith(
       COMPANY,
       expect.objectContaining({
@@ -241,29 +241,29 @@ describe("customerService.createManual", () => {
 
   it("does not look for a duplicate when there is no registration number", async () => {
     customers.createWithContact.mockResolvedValue({ id: "c9", createdAt: now, updatedAt: now });
-    await customerService.createManual(COMPANY, { ...SIEMENS, registrationNumber: " " });
+    await customerService.createManual(COMPANY, "user", { ...SIEMENS, registrationNumber: " " });
     expect(customers.findByIco).not.toHaveBeenCalled();
     expect(customers.createWithContact).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ ico: "" }), expect.anything(), expect.anything());
   });
 
   it("refuses a registration number the company already has, and a Czech company", async () => {
     customers.findByIco.mockResolvedValue({ id: "c1" });
-    await expect(customerService.createManual(COMPANY, SIEMENS)).rejects.toThrow("A customer with this registration number already exists");
-    await expect(customerService.createManual(COMPANY, { ...SIEMENS, country: "CZ" })).rejects.toThrow("A Czech company is added from ARES by its IČO");
+    await expect(customerService.createManual(COMPANY, "user", SIEMENS)).rejects.toThrow("A customer with this registration number already exists");
+    await expect(customerService.createManual(COMPANY, "user", { ...SIEMENS, country: "CZ" })).rejects.toThrow("A Czech company is added from ARES by its IČO");
     expect(customers.createWithContact).not.toHaveBeenCalled();
   });
 
   it("answers a create that races past the check like the check would, not with a 500", async () => {
     customers.findByIco.mockResolvedValue(null);
     customers.createWithContact.mockRejectedValueOnce(Object.assign(new Error("Failed query"), { cause: { code: "23505" } }));
-    await expect(customerService.createManual(COMPANY, SIEMENS)).rejects.toThrow("A customer with this registration number already exists");
+    await expect(customerService.createManual(COMPANY, "user", SIEMENS)).rejects.toThrow("A customer with this registration number already exists");
   });
 
   it("needs a contact person with a name and an email or a phone", async () => {
-    await expect(customerService.createManual(COMPANY, { ...SIEMENS, contact: { firstName: "Hans", lastName: " " } })).rejects.toThrow(
+    await expect(customerService.createManual(COMPANY, "user", { ...SIEMENS, contact: { firstName: "Hans", lastName: " " } })).rejects.toThrow(
       "The contact person needs a first and a last name",
     );
-    await expect(customerService.createManual(COMPANY, { ...SIEMENS, contact: { firstName: "Hans", lastName: "Müller", email: " " } })).rejects.toThrow(
+    await expect(customerService.createManual(COMPANY, "user", { ...SIEMENS, contact: { firstName: "Hans", lastName: "Müller", email: " " } })).rejects.toThrow(
       "The contact person needs an email or a phone number",
     );
     expect(customers.createWithContact).not.toHaveBeenCalled();
@@ -419,7 +419,7 @@ describe("customer change events (shipments, quotes, follow-ups and trucking kee
 
   it("the manual form refuses a blank company name too", async () => {
     await expect(
-      customerService.createManual(COMPANY, {
+      customerService.createManual(COMPANY, "user", {
         country: "DE", companyName: "   ", street: "Wittelsbacherplatz 2", city: "München", postalCode: "80333",
         contact: { firstName: "Hans", lastName: "Müller", email: "hans@example.de" },
       }),

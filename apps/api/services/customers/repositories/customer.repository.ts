@@ -109,13 +109,14 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
     return rows.length;
   }
 
-  // Live companies of the company's Customer Database with the haulier role (all of them, or only
-  // `ids` among them), with the few fields the trucking service shows. No logo: it is a base64 image.
-  async haulierList(
+  // Live companies of the company's Customer Database with a role (all of them, or only `ids` among
+  // them), with the few fields other services show. No logo: it is a base64 image.
+  async listWithRole(
     companyId: string,
+    role: CustomerRole,
     ids?: string[],
   ): Promise<Pick<CustomerRecord, "id" | "companyName" | "ico" | "dic" | "city" | "country">[]> {
-    const clauses = [eq(customerTable.companyId, companyId), isNull(customerTable.deletedAt), arrayContains(customerTable.roles, ["haulier"])];
+    const clauses = [eq(customerTable.companyId, companyId), isNull(customerTable.deletedAt), arrayContains(customerTable.roles, [role])];
     if (ids) clauses.push(inArray(customerTable.id, ids));
     return this.db
       .select({

@@ -13,8 +13,8 @@ import { useToast } from "@/lib/toast";
 import { czechPhoneRule } from "@/lib/phone";
 import { ContactPhoneInput, isPossiblePhone } from "../[id]/_components/ContactPhoneInput";
 import { CustomerInfoRow } from "../[id]/_components/CustomerInfoRow";
-import { CONTACT_ROLES, CUSTOMER_ROLE_OPTIONS } from "../_lib/constants";
-import { useCanSeeConcepts } from "@/lib/auth/AuthContext";
+import { CONTACT_ROLES, customerRoleOptions } from "../_lib/constants";
+import { useCanManageCustomers, useCanSeeConcepts } from "@/lib/auth/AuthContext";
 
 const ICO_LENGTH = 8;
 // ARES is searched by name from this many characters, once typing has paused.
@@ -73,12 +73,15 @@ export function AddCustomerModal({
   defaultRoles = CUSTOMER_ONLY,
 }: AddCustomerModalProps) {
   const canSeeConcepts = useCanSeeConcepts();
+  // A supplier role is a manager's decision; the server refuses anyone else.
+  const canGiveRoles = useCanManageCustomers();
   const toast = useToast();
   const submitting = useRef(false);
   const [manualForm] = Form.useForm<ManualCustomerValues>();
   const [contactForm] = Form.useForm<ContactValues>();
   const [country, setCountry] = useState(REGISTRY_COUNTRY);
-  // A company is a customer, a haulier we subcontract trucking to, or both.
+  // A company is a customer, a supplier (a haulier we subcontract trucking to, a rail operator, a first / last mile
+  // haulier, a shipping line), or several of these.
   const [roles, setRoles] = useState<interfaces.CustomerRole[]>(defaultRoles);
   // What is typed: an IČO (digits only) or part of the company name.
   const [query, setQuery] = useState("");
@@ -295,15 +298,15 @@ export function AddCustomerModal({
             onChange={handleCountryChange}
           />
         </Form.Item>
-        {canSeeConcepts && (
+        {canGiveRoles && (
           <Form.Item
             label="Roles"
-            extra="A haulier is a company we subcontract trucking to. A company can be both."
+            extra={`${canSeeConcepts ? "A haulier is a company we subcontract trucking to. " : ""}A rail operator, a first / last mile haulier (container trucking to and from ports and terminals) and a shipping line are suppliers whose tariffs are kept under Tariffs. A company can have several roles.`}
             validateStatus={roles.length === 0 ? "error" : undefined}
             help={roles.length === 0 ? "Choose at least one role" : undefined}
             className="!mb-3"
           >
-            <Checkbox.Group options={CUSTOMER_ROLE_OPTIONS} value={roles} onChange={setRoles} disabled={isCreating} />
+            <Checkbox.Group options={customerRoleOptions(canSeeConcepts)} value={roles} onChange={setRoles} disabled={isCreating} />
           </Form.Item>
         )}
       </Form>

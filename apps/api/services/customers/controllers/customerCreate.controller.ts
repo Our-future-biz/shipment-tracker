@@ -21,6 +21,7 @@ interface CustomerCreateResponse {
 export const customerCreate = api(
   { expose: true, auth: true, method: "POST", path: "/customers" },
   async (req: CustomerCreateRequest): Promise<CustomerCreateResponse> => {
-    return { customer: await customerService.createFromAres(getAuthData()!.companyID, req.ico, req.contact, req.roles) };
+    const { companyID, role } = getAuthData()!;
+    return { customer: await customerService.createFromAres(companyID, role, req.ico, req.contact, req.roles) };
   },
 );

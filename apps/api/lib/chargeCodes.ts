@@ -48,7 +48,7 @@ export const CHARGE_CODES: readonly ChargeCodeEntry[] = [
   { code: "lcl_terminal_handling", label: "Port / terminal handling", group: "locals", side: "both", modes: ["Sea LCL"] },
   { code: "lcl_documentation", label: "House bill of lading / documentation (HBL / DOC)", group: "locals", side: "both", modes: ["Sea LCL"] },
   { code: "lcl_delivery_order", label: "Delivery order / release fee (DO)", group: "locals", side: "both", modes: ["Sea LCL"] },
-  { code: "inland_collection", label: "Inland collection / delivery", group: "collection", side: "both", modes: ["Sea LCL"] },
+  { code: "inland_collection", label: "Inland collection / delivery", group: "collection", side: "both", modes: ["Sea LCL", "Air"] },
   { code: "cfs_storage", label: "CFS / warehouse storage", group: "others", side: "both", modes: ["Sea LCL"] },
   // Sea Freight Break Bulk
   { code: "bb_bunker", label: "Bunker / low-sulphur surcharge", group: "freight", side: "both", modes: ["Sea Break Bulk"] },

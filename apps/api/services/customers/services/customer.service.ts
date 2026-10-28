@@ -8,12 +8,12 @@ import type {
   CustomerItem,
   CustomerLabel,
   CustomerPipelineItem,
-  HaulierCompanyItem,
   CustomerRole,
   CustomerRollups,
   CustomerStatus,
   DeletedCustomerItem,
   NewCustomerContact,
+  RoleCompanyItem,
   RiskLevelOverride,
 } from "../interfaces/interfaces";
 import type { NewContactRecord } from "../schemas/contact.schema";
@@ -107,6 +107,16 @@ const requireRoles = (roles: CustomerRole[]): CustomerRole[] => {
   return unique;
 };
 
+/**
+ * A new company with a supplier role (any role but Customer: haulier, rail operator, first / last mile haulier,
+ * shipping line) is a manager's decision, as changing the roles later is.
+ */
+export function assertMayGiveRoles(actorRole: string, roles: CustomerRole[] | undefined): void {
+  if (roles?.some((r) => r !== "customer") && !canManageSales(actorRole)) {
+    throw APIError.permissionDenied("Only a manager can add a supplier (a company with a role other than Customer)");
+  }
+}
+
 const today = () => new Date().toISOString().slice(0, 10);
 
 // Only the fields actually sent are written.
@@ -135,7 +145,7 @@ const MANAGER_FIELDS = [
   "typicalCargo",
   "stability",
   "riskLevel",
-  // A haulier role puts the company into Trucking and its payables.
+  // A supplier role puts the company into Trucking and its payables (haulier) or under Tariffs (the others).
   "roles",
 ] as const satisfies readonly (keyof CustomerPatch)[];
 
@@ -194,22 +204,25 @@ class CustomerService {
     return customers.map((customer) => ({ ...customer, createdAt: iso(customer.createdAt) }));
   }
 
-  // The company's hauliers (role "haulier") for the trucking service; only `ids` among them when
-  // given. Ids that are not uuids cannot be a customer and are left out before they reach SQL.
-  async haulierList(companyId: string, ids?: string[]): Promise<HaulierCompanyItem[]> {
+  // The company's companies with a role: the hauliers for the trucking service, the rail operators, first / last
+  // mile hauliers and shipping lines for the tariffs service. Only `ids` among them when given (none for an empty
+  // list). Ids that are not uuids cannot be a customer and are left out before they reach SQL.
+  async listWithRole(companyId: string, role: CustomerRole, ids?: string[]): Promise<RoleCompanyItem[]> {
     if (ids) {
       ids = ids.filter(isUuid);
       if (!ids.length) return [];
     }
-    return customerRepository.haulierList(companyId, ids);
+    return customerRepository.listWithRole(companyId, role, ids);
   }
 
   async createFromAres(
     companyId: string,
+    actorRole: string,
     ico: string,
     contact: NewCustomerContact,
     roles: CustomerRole[] = ["customer"],
   ): Promise<CustomerItem> {
+    assertMayGiveRoles(actorRole, roles);
     const checkedRoles = requireRoles(roles);
     const mainContact = firstContact(contact);
     if (await customerRepository.findByIco(ico, companyId)) {
@@ -241,7 +254,8 @@ class CustomerService {
     return toCustomerItem(row);
   }
 
-  async createManual(companyId: string, input: ManualCustomerInput): Promise<CustomerItem> {
+  async createManual(companyId: string, actorRole: string, input: ManualCustomerInput): Promise<CustomerItem> {
+    assertMayGiveRoles(actorRole, input.roles);
     const mainContact = firstContact(input.contact);
     const checkedRoles = requireRoles(input.roles ?? ["customer"]);
     const country = input.country.trim().toUpperCase();

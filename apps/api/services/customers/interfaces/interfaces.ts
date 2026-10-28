@@ -22,8 +22,13 @@ export type NoteType = "Note" | "Email" | "Call" | "Follow-up" | "Visit";
 export type DocumentType = "Contract" | "NDA" | "Power of attorney" | "Customs" | "Other";
 /** Credited = reversed by a credit note; like Paid, it no longer counts as owed. */
 export type InvoiceStatus = "Open" | "Overdue" | "Paid" | "Credited";
-/** What a company is to us. A customer buys our services; a haulier is a trucking subcontractor. One company can be both. */
-export type CustomerRole = "customer" | "haulier";
+/**
+ * What a company is to us. A customer buys our services; a haulier is a trucking subcontractor; a rail operator sells us rail
+ * transport, its tariffs kept under Tariffs; a first / last mile haulier trucks containers between a port or terminal and the
+ * customer (pre- and on-carriage); a shipping line sells us ocean freight, its tariffs kept under Tariffs. One company can have
+ * several roles.
+ */
+export type CustomerRole = "customer" | "haulier" | "rail_operator" | "first_last_mile_haulier" | "shipping_line";
 /** What happens at a site: goods are picked up (loading), dropped off (delivery), or both. */
 export type CustomerSiteKind = "loading" | "delivery" | "both";
 
@@ -99,8 +104,8 @@ export interface DeletedCustomerItem {
   addressCount: number;
 }
 
-/** A haulier company as the trucking service needs it. */
-export interface HaulierCompanyItem {
+/** A company with a supplier role as another service lists it: a haulier for trucking, a rail operator, first / last mile haulier or shipping line for tariffs. */
+export interface RoleCompanyItem {
   id: string;
   companyName: string;
   ico: string;

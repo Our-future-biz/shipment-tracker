@@ -43,7 +43,8 @@ export const customerTable = pgTable(
     paymentTerms: text("payment_terms").notNull().default(""),
     freightPaymentTerms: text("freight_payment_terms").notNull().default(""),
     dutyPaymentTerms: text("duty_payment_terms").notNull().default(""),
-    // What the company is to us; a haulier is a trucking subcontractor. Existing rows become customers.
+    // What the company is to us; a haulier is a trucking subcontractor, a rail operator a rail supplier, a first / last mile
+    // haulier trucks containers to and from ports and terminals, a shipping line sells ocean freight. Existing rows become customers.
     roles: text("roles").array().$type<CustomerRole[]>().notNull().default(sql`'{customer}'::text[]`),
 
     // — Logo + website (logo stored as base64 data URL in Postgres) —
@@ -79,7 +80,7 @@ export const customerTable = pgTable(
     // At least one role, and only known ones.
     check(
       "customer_roles_check",
-      sql`cardinality(${table.roles}) > 0 AND ${table.roles} <@ ARRAY['customer', 'haulier']::text[]`,
+      sql`cardinality(${table.roles}) > 0 AND ${table.roles} <@ ARRAY['customer', 'haulier', 'rail_operator', 'first_last_mile_haulier', 'shipping_line']::text[]`,
     ),
   ],
 );

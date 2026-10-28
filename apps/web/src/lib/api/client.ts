@@ -42,6 +42,7 @@ export default class Client {
     public readonly quotes: quotes.ServiceClient
     public readonly sales: sales.ServiceClient
     public readonly shipments: shipments.ServiceClient
+    public readonly tariffs: tariffs.ServiceClient
     public readonly trucking: trucking.ServiceClient
     public readonly warehouse: warehouse.ServiceClient
     public readonly warehouseConcept: warehouseConcept.ServiceClient
@@ -69,6 +70,7 @@ export default class Client {
         this.quotes = new quotes.ServiceClient(base)
         this.sales = new sales.ServiceClient(base)
         this.shipments = new shipments.ServiceClient(base)
+        this.tariffs = new tariffs.ServiceClient(base)
         this.trucking = new trucking.ServiceClient(base)
         this.warehouse = new warehouse.ServiceClient(base)
         this.warehouseConcept = new warehouseConcept.ServiceClient(base)
@@ -2380,6 +2382,399 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PUT", `/user-prefs/${encodeURIComponent(prefKey)}`, JSON.stringify(params))
             return await resp.json() as controllers.UserPrefSetResponse
+        }
+    }
+}
+
+export namespace tariffs {
+
+    export class ServiceClient {
+        private baseClient: BaseClient
+
+        constructor(baseClient: BaseClient) {
+            this.baseClient = baseClient
+            this.collectionHaulierGet = this.collectionHaulierGet.bind(this)
+            this.collectionHaulierList = this.collectionHaulierList.bind(this)
+            this.collectionHubList = this.collectionHubList.bind(this)
+            this.collectionHubSet = this.collectionHubSet.bind(this)
+            this.collectionOffers = this.collectionOffers.bind(this)
+            this.collectionTariffUpdate = this.collectionTariffUpdate.bind(this)
+            this.collectionUpload = this.collectionUpload.bind(this)
+            this.collectionVersionApprove = this.collectionVersionApprove.bind(this)
+            this.collectionVersionDiscard = this.collectionVersionDiscard.bind(this)
+            this.collectionVersionGet = this.collectionVersionGet.bind(this)
+            this.collectionVersionLayout = this.collectionVersionLayout.bind(this)
+            this.collectionVersionSource = this.collectionVersionSource.bind(this)
+            this.collectionVersionTry = this.collectionVersionTry.bind(this)
+            this.oceanOffers = this.oceanOffers.bind(this)
+            this.oceanTariffUpdate = this.oceanTariffUpdate.bind(this)
+            this.oceanUpload = this.oceanUpload.bind(this)
+            this.oceanVersionApprove = this.oceanVersionApprove.bind(this)
+            this.oceanVersionDiscard = this.oceanVersionDiscard.bind(this)
+            this.oceanVersionGet = this.oceanVersionGet.bind(this)
+            this.oceanVersionLayout = this.oceanVersionLayout.bind(this)
+            this.oceanVersionPort = this.oceanVersionPort.bind(this)
+            this.oceanVersionRates = this.oceanVersionRates.bind(this)
+            this.oceanVersionSource = this.oceanVersionSource.bind(this)
+            this.railOffers = this.railOffers.bind(this)
+            this.railOperatorGet = this.railOperatorGet.bind(this)
+            this.railOperatorList = this.railOperatorList.bind(this)
+            this.railTariffApprove = this.railTariffApprove.bind(this)
+            this.railTariffDiscard = this.railTariffDiscard.bind(this)
+            this.railTariffLayout = this.railTariffLayout.bind(this)
+            this.railTariffRates = this.railTariffRates.bind(this)
+            this.railTariffSource = this.railTariffSource.bind(this)
+            this.railTariffUpdate = this.railTariffUpdate.bind(this)
+            this.railTariffUpload = this.railTariffUpload.bind(this)
+            this.railTariffVersionGet = this.railTariffVersionGet.bind(this)
+            this.shippingLineGet = this.shippingLineGet.bind(this)
+            this.shippingLineList = this.shippingLineList.bind(this)
+        }
+
+        /**
+         * One first / last mile haulier with its tariffs and their versions, newest first.
+         */
+        public async collectionHaulierGet(customerId: string): Promise<services.CollectionHaulierDetail> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/collections/hauliers/${encodeURIComponent(customerId)}`)
+            return await resp.json() as services.CollectionHaulierDetail
+        }
+
+        /**
+         * The first / last mile hauliers with their tariffs at a glance (Tariffs → Last / First Mile Collections).
+         */
+        public async collectionHaulierList(): Promise<controllers.CollectionHaulierListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/collections/hauliers`)
+            return await resp.json() as controllers.CollectionHaulierListResponse
+        }
+
+        /**
+         * Our hubs: where a freight mode's collections end and deliveries start.
+         */
+        public async collectionHubList(): Promise<controllers.CollectionHubsResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/collections/hubs`)
+            return await resp.json() as controllers.CollectionHubsResponse
+        }
+
+        /**
+         * Sets our hub for a freight mode (manager): where its collections end and deliveries start.
+         */
+        public async collectionHubSet(params: controllers.CollectionHubSetRequest): Promise<interfaces.CollectionHub> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/tariffs/collections/hubs`, JSON.stringify(params))
+            return await resp.json() as interfaces.CollectionHub
+        }
+
+        /**
+         * Every first / last mile haulier's price for a consignment between our hub and the customer,
+         * cheapest first (Sales → Pricing → Tariffs available on an LCL or air quote). Anyone signed in
+         * may ask; nothing is written.
+         */
+        public async collectionOffers(params: controllers.CollectionOffersRequest): Promise<services.CollectionOffersResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/collections/offers`, JSON.stringify(params))
+            return await resp.json() as services.CollectionOffersResult
+        }
+
+        /**
+         * Changes a tariff's name and what it collects and delivers (manager).
+         */
+        public async collectionTariffUpdate(tariffId: string, params: controllers.CollectionTariffUpdateRequest): Promise<services.CollectionTariffFields> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/tariffs/collections/tariffs/${encodeURIComponent(tariffId)}`, JSON.stringify(params))
+            return await resp.json() as services.CollectionTariffFields
+        }
+
+        /**
+         * Reads a haulier's tariff file into a new draft (manager): the AI reads where each part is, the
+         * code every figure, the checks list what looks wrong. Nothing prices with it until it is approved.
+         */
+        public async collectionUpload(params: controllers.CollectionUploadRequest): Promise<controllers.CollectionUploadResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/collections/upload`, JSON.stringify(params))
+            return await resp.json() as controllers.CollectionUploadResponse
+        }
+
+        /**
+         * Approves a draft without errors (manager): it prices from its start date.
+         */
+        public async collectionVersionApprove(versionId: string): Promise<controllers.CollectionVersionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/collections/versions/${encodeURIComponent(versionId)}/approve`)
+            return await resp.json() as controllers.CollectionVersionResponse
+        }
+
+        /**
+         * Throws a draft away (manager).
+         */
+        public async collectionVersionDiscard(versionId: string): Promise<void> {
+            await this.baseClient.callTypedAPI("POST", `/tariffs/collections/versions/${encodeURIComponent(versionId)}/discard`)
+        }
+
+        /**
+         * One version with its layout, findings, the first rows of its file and its price tables.
+         */
+        public async collectionVersionGet(versionId: string): Promise<controllers.CollectionVersionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/collections/versions/${encodeURIComponent(versionId)}`)
+            return await resp.json() as controllers.CollectionVersionResponse
+        }
+
+        /**
+         * Reads a draft's file again with a corrected layout (manager).
+         */
+        public async collectionVersionLayout(versionId: string, params: controllers.CollectionLayoutRequest): Promise<controllers.CollectionVersionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/collections/versions/${encodeURIComponent(versionId)}/layout`, JSON.stringify(params))
+            return await resp.json() as controllers.CollectionVersionResponse
+        }
+
+        /**
+         * The file a version was read from, as uploaded.
+         */
+        public async collectionVersionSource(versionId: string): Promise<controllers.CollectionSourceResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/collections/versions/${encodeURIComponent(versionId)}/source`)
+            return await resp.json() as controllers.CollectionSourceResponse
+        }
+
+        /**
+         * What one version (a draft too) asks between two postcodes: for checking it before approving.
+         */
+        public async collectionVersionTry(versionId: string, params: controllers.CollectionTryRequest): Promise<interfaces.CollectionTry> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/collections/versions/${encodeURIComponent(versionId)}/try`, JSON.stringify(params))
+            return await resp.json() as interfaces.CollectionTry
+        }
+
+        /**
+         * Every shipping line's way to take a Sea FCL quote's containers from port to port, with freight and
+         * surcharges (Sales → Pricing → Tariffs available on the Ocean freight line). Anyone signed in may
+         * ask; nothing is written.
+         */
+        public async oceanOffers(params: controllers.OceanOffersRequest): Promise<services.OceanOffersResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/ocean/offers`, JSON.stringify(params))
+            return await resp.json() as services.OceanOffersResult
+        }
+
+        /**
+         * Changes a tariff's name and import / export (manager).
+         */
+        public async oceanTariffUpdate(tariffId: string, params: controllers.OceanTariffUpdateRequest): Promise<services.OceanTariffFields> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/tariffs/ocean/tariffs/${encodeURIComponent(tariffId)}`, JSON.stringify(params))
+            return await resp.json() as services.OceanTariffFields
+        }
+
+        /**
+         * Reads a shipping line's rate document into a new draft (manager): the AI reads where each part
+         * is, the code every rate and port. Nothing prices with it until it is approved.
+         */
+        public async oceanUpload(params: controllers.OceanUploadRequest): Promise<controllers.OceanUploadResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/ocean/upload`, JSON.stringify(params))
+            return await resp.json() as controllers.OceanUploadResponse
+        }
+
+        /**
+         * Approves a draft without errors and with every port matched (manager).
+         */
+        public async oceanVersionApprove(versionId: string): Promise<controllers.OceanVersionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/ocean/versions/${encodeURIComponent(versionId)}/approve`)
+            return await resp.json() as controllers.OceanVersionResponse
+        }
+
+        /**
+         * Throws a draft away (manager).
+         */
+        public async oceanVersionDiscard(versionId: string): Promise<void> {
+            await this.baseClient.callTypedAPI("POST", `/tariffs/ocean/versions/${encodeURIComponent(versionId)}/discard`)
+        }
+
+        /**
+         * One version with its layout, findings, the first rows of its file and its port names.
+         */
+        public async oceanVersionGet(versionId: string): Promise<controllers.OceanVersionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/ocean/versions/${encodeURIComponent(versionId)}`)
+            return await resp.json() as controllers.OceanVersionResponse
+        }
+
+        /**
+         * Reads a draft's file again with a corrected layout (manager).
+         */
+        public async oceanVersionLayout(versionId: string, params: controllers.OceanLayoutRequest): Promise<controllers.OceanVersionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/ocean/versions/${encodeURIComponent(versionId)}/layout`, JSON.stringify(params))
+            return await resp.json() as controllers.OceanVersionResponse
+        }
+
+        /**
+         * Sets what a port name of a draft means (manager): a place picked, or none.
+         */
+        public async oceanVersionPort(versionId: string, params: controllers.OceanPortSetRequest): Promise<controllers.OceanVersionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/ocean/versions/${encodeURIComponent(versionId)}/ports`, JSON.stringify(params))
+            return await resp.json() as controllers.OceanVersionResponse
+        }
+
+        /**
+         * A page of a version's rates in table and sheet order.
+         */
+        public async oceanVersionRates(versionId: string, params: controllers.OceanRatesRequest): Promise<services.OceanRatePage> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                limit:  params.limit === undefined ? undefined : String(params.limit),
+                offset: params.offset === undefined ? undefined : String(params.offset),
+                search: params.search,
+                table:  params.table === undefined ? undefined : String(params.table),
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/ocean/versions/${encodeURIComponent(versionId)}/rates`, undefined, {query})
+            return await resp.json() as services.OceanRatePage
+        }
+
+        /**
+         * The file a version was read from, as uploaded.
+         */
+        public async oceanVersionSource(versionId: string): Promise<controllers.OceanSourceResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/ocean/versions/${encodeURIComponent(versionId)}/source`)
+            return await resp.json() as controllers.OceanSourceResponse
+        }
+
+        /**
+         * What the rail tariffs ask for a quote's containers on its route, cheapest first (Sales →
+         * Pricing → Tariffs available). Anyone signed in may ask; nothing is written.
+         */
+        public async railOffers(params: controllers.RailOffersRequest): Promise<services.RailOffersResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/rail/offers`, JSON.stringify(params))
+            return await resp.json() as services.RailOffersResult
+        }
+
+        /**
+         * One rail operator with its tariffs and their versions, newest first.
+         */
+        public async railOperatorGet(customerId: string): Promise<services.RailOperatorDetail> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/rail/operators/${encodeURIComponent(customerId)}`)
+            return await resp.json() as services.RailOperatorDetail
+        }
+
+        /**
+         * The rail operators with their tariffs at a glance.
+         */
+        public async railOperatorList(): Promise<controllers.RailOperatorListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/rail/operators`)
+            return await resp.json() as controllers.RailOperatorListResponse
+        }
+
+        /**
+         * Approves a draft without errors (manager): it prices from its start date; active versions whose
+         * dates it covers give way.
+         */
+        public async railTariffApprove(versionId: string): Promise<controllers.RailTariffVersionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/rail/versions/${encodeURIComponent(versionId)}/approve`)
+            return await resp.json() as controllers.RailTariffVersionResponse
+        }
+
+        /**
+         * Throws a draft away (manager).
+         */
+        public async railTariffDiscard(versionId: string): Promise<controllers.OkResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/rail/versions/${encodeURIComponent(versionId)}/discard`)
+            return await resp.json() as controllers.OkResponse
+        }
+
+        /**
+         * Reads a draft's file again with a corrected layout (manager); its rows and findings are replaced.
+         */
+        public async railTariffLayout(versionId: string, params: controllers.RailTariffLayoutRequest): Promise<controllers.RailTariffVersionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/rail/versions/${encodeURIComponent(versionId)}/layout`, JSON.stringify(params))
+            return await resp.json() as controllers.RailTariffVersionResponse
+        }
+
+        /**
+         * A page of a version's rows in sheet order.
+         */
+        public async railTariffRates(versionId: string, params: controllers.RailTariffRatesRequest): Promise<services.RailRatePage> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                limit:  params.limit === undefined ? undefined : String(params.limit),
+                offset: params.offset === undefined ? undefined : String(params.offset),
+                search: params.search,
+                via:    params.via,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/rail/versions/${encodeURIComponent(versionId)}/rates`, undefined, {query})
+            return await resp.json() as services.RailRatePage
+        }
+
+        /**
+         * The file a version was read from, as uploaded.
+         */
+        public async railTariffSource(versionId: string): Promise<controllers.FileResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/rail/versions/${encodeURIComponent(versionId)}/source`)
+            return await resp.json() as controllers.FileResponse
+        }
+
+        /**
+         * Changes a tariff (manager): its name, e.g. the one the AI suggested, the ports it is for and
+         * whether it is import, export or both.
+         */
+        public async railTariffUpdate(tariffId: string, params: controllers.RailTariffUpdateRequest): Promise<controllers.RailTariffUpdateResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/tariffs/rail/tariffs/${encodeURIComponent(tariffId)}`, JSON.stringify(params))
+            return await resp.json() as controllers.RailTariffUpdateResponse
+        }
+
+        /**
+         * Reads a rail operator's tariff file into a new draft (manager): the AI reads the layout, the
+         * code every row, the checks list what looks wrong. Nothing prices with it until it is approved.
+         */
+        public async railTariffUpload(params: controllers.RailTariffUploadRequest): Promise<controllers.RailTariffUploadResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/rail/upload`, JSON.stringify(params))
+            return await resp.json() as controllers.RailTariffUploadResponse
+        }
+
+        /**
+         * One version with its layout, findings and the first rows of its file.
+         */
+        public async railTariffVersionGet(versionId: string): Promise<controllers.RailTariffVersionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/rail/versions/${encodeURIComponent(versionId)}`)
+            return await resp.json() as controllers.RailTariffVersionResponse
+        }
+
+        /**
+         * One shipping line with its tariffs and their versions, newest first.
+         */
+        public async shippingLineGet(customerId: string): Promise<services.ShippingLineDetail> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/ocean/lines/${encodeURIComponent(customerId)}`)
+            return await resp.json() as services.ShippingLineDetail
+        }
+
+        /**
+         * The shipping lines with their tariffs at a glance (Tariffs → Shipping Lines).
+         */
+        public async shippingLineList(): Promise<controllers.ShippingLineListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/tariffs/ocean/lines`)
+            return await resp.json() as controllers.ShippingLineListResponse
         }
     }
 }
@@ -5129,6 +5524,131 @@ export namespace controllers {
         amount?: string
     }
 
+    export interface CollectionHaulierListResponse {
+        /**
+         * Customer Database companies with the First / last mile haulier role, by name
+         */
+        hauliers: interfaces.CollectionHaulierItem[]
+    }
+
+    export interface CollectionHubSetRequest {
+        freightMode: interfaces.CollectionFreightMode
+        /**
+         * 5 digits, e.g. "25261" or "252 61"
+         */
+        postcode: string
+
+        /**
+         * ISO 3166-1 alpha-2
+         */
+        country: string
+
+        label: string
+    }
+
+    export interface CollectionHubsResponse {
+        /**
+         * One per freight mode that has one
+         */
+        hubs: interfaces.CollectionHub[]
+    }
+
+    export interface CollectionLayoutRequest {
+        layout: interfaces.CollectionLayout
+    }
+
+    export interface CollectionOffersRequest {
+        freightMode: interfaces.CollectionFreightMode
+        /**
+         * Our hub's postcode; the hub set for the freight mode when left out
+         */
+        hubPostcode?: string
+
+        /**
+         * The customer's postcode
+         */
+        customerPostcode: string
+
+        /**
+         * YYYY-MM-DD the prices must be valid on
+         */
+        date: string
+
+        /**
+         * Real weight in kg; null when not known
+         */
+        weightKg: number | null
+
+        /**
+         * m³; null when not known
+         */
+        cbm: number | null
+
+        /**
+         * The longest side of the longest piece, cm; null when not known
+         */
+        longestCm: number | null
+    }
+
+    export interface CollectionSourceResponse {
+        file: interfaces.TariffFile
+    }
+
+    export interface CollectionTariffUpdateRequest {
+        name: string
+        /**
+         * At least one
+         */
+        freightModes: interfaces.CollectionFreightMode[]
+    }
+
+    export interface CollectionTryRequest {
+        /**
+         * Our hub's postcode, 5 digits
+         */
+        hubPostcode: string
+
+        /**
+         * The customer's postcode, 5 digits
+         */
+        customerPostcode: string
+
+        weightKg: number | null
+        cbm: number | null
+        longestCm: number | null
+    }
+
+    export interface CollectionUploadRequest {
+        /**
+         * The haulier's Customer Database id
+         */
+        supplierCustomerId: string
+
+        /**
+         * The tariff the file is a new version of; a new tariff of the haulier when left out
+         */
+        tariffId?: string
+
+        /**
+         * A new tariff's freight, at least one; ignored for a new version
+         */
+        freightModes?: interfaces.CollectionFreightMode[]
+
+        fileName: string
+        /**
+         * The .xlsx or .csv file, base64; at most 10 MB
+         */
+        fileBase64: string
+    }
+
+    export interface CollectionUploadResponse {
+        version: interfaces.CollectionTariffVersionDetail
+    }
+
+    export interface CollectionVersionResponse {
+        version: interfaces.CollectionTariffVersionDetail
+    }
+
     export interface CommentCreateRequest {
         /**
          * May be empty when the message only carries files.
@@ -5839,6 +6359,10 @@ export namespace controllers {
         text: string
 
         destination: string
+    }
+
+    export interface FileResponse {
+        file: interfaces.TariffFile
     }
 
     export interface FloorWriteLostRequest {
@@ -6662,6 +7186,118 @@ export namespace controllers {
         data: interfaces.NoteItem[]
     }
 
+    export interface OceanLayoutRequest {
+        layout: interfaces.OceanLayout
+    }
+
+    export interface OceanOffersRequest {
+        direction: interfaces.RailDirection
+        /**
+         * The quote's port of loading, UN/LOCODE
+         */
+        polCode: string
+
+        /**
+         * The quote's port of discharge, UN/LOCODE
+         */
+        podCode: string
+
+        /**
+         * Every port of loading the tariffs have to the port of discharge, not only polCode
+         */
+        comparePols: boolean
+
+        /**
+         * YYYY-MM-DD the rates must be valid on
+         */
+        date: string
+
+        /**
+         * The quote's container lines, at most 20
+         */
+        containers: interfaces.OceanOfferContainer[]
+
+        /**
+         * Dangerous goods: IMO surcharges apply
+         */
+        dangerous: boolean
+    }
+
+    export interface OceanPortSetRequest {
+        side: "pol" | "pod"
+        /**
+         * The port name as the version lists it
+         */
+        name: string
+
+        /**
+         * The UN/LOCODE it means; null leaves its rates out
+         */
+        code: string | null
+    }
+
+    export interface OceanRatesRequest {
+        /**
+         * Words to find in the port names, the transshipment port or the port of discharge's code
+         */
+        search?: string
+
+        /**
+         * One table, by its index in the layout
+         */
+        table?: number
+
+        offset?: number
+        limit?: number
+    }
+
+    export interface OceanSourceResponse {
+        file: interfaces.TariffFile
+    }
+
+    export interface OceanTariffUpdateRequest {
+        name: string
+        /**
+         * Import, export or both
+         */
+        directions: interfaces.RailDirection[]
+    }
+
+    export interface OceanUploadRequest {
+        /**
+         * The line's Customer Database id
+         */
+        supplierCustomerId: string
+
+        /**
+         * The tariff the file is a new version of; a new tariff of the line when left out
+         */
+        tariffId?: string
+
+        /**
+         * A new tariff's import / export, at least one; ignored for a new version
+         */
+        directions?: interfaces.RailDirection[]
+
+        fileName: string
+        /**
+         * The .xlsx or .csv file, base64; at most 10 MB
+         */
+        fileBase64: string
+    }
+
+    export interface OceanUploadResponse {
+        version: services.OceanTariffVersionDetail
+    }
+
+    export interface OceanVersionResponse {
+        version: services.OceanTariffVersionDetail
+    }
+
+    export interface OkResponse {
+        ok: boolean
+    }
+
     export interface OkResponse {
         ok: boolean
     }
@@ -6954,6 +7590,116 @@ export namespace controllers {
          * Colleagues tagged with @.
          */
         mentionedUserIds: string[]
+    }
+
+    export interface RailOffersRequest {
+        /**
+         * The sea port: the quote's port of discharge on an import, of loading on an export
+         */
+        port: interfaces.TariffPortCode
+
+        direction: interfaces.RailDirection
+        /**
+         * The inland place: a text with a postcode in it ("602 00", an address), or a town's name
+         */
+        place: string
+
+        /**
+         * ISO 3166-1 alpha-2 of the inland place; CZ when left out
+         */
+        country?: string
+
+        /**
+         * YYYY-MM-DD the prices must be valid on
+         */
+        date: string
+
+        /**
+         * At most 20 lines
+         */
+        containers: interfaces.RailOfferContainer[]
+    }
+
+    export interface RailOperatorListResponse {
+        /**
+         * Customer Database companies with the Rail operator role, by name
+         */
+        operators: interfaces.RailOperatorItem[]
+    }
+
+    export interface RailTariffLayoutRequest {
+        layout: interfaces.RailLayout
+    }
+
+    export interface RailTariffRatesRequest {
+        /**
+         * Words to find in the place, postcode, region or note
+         */
+        search?: string
+
+        /**
+         * Only rows via this terminal
+         */
+        via?: string
+
+        offset?: number
+        limit?: number
+    }
+
+    export interface RailTariffUpdateRequest {
+        name: string
+        /**
+         * At least one
+         */
+        ports: interfaces.TariffPortCode[]
+
+        /**
+         * Import, export or both
+         */
+        directions: interfaces.RailDirection[]
+    }
+
+    export interface RailTariffUpdateResponse {
+        id: string
+        name: string
+        ports: interfaces.TariffPortCode[]
+        directions: interfaces.RailDirection[]
+    }
+
+    export interface RailTariffUploadRequest {
+        /**
+         * The rail operator's Customer Database id
+         */
+        supplierCustomerId: string
+
+        /**
+         * The tariff the file is a new version of; a new tariff of the operator when left out
+         */
+        tariffId?: string
+
+        /**
+         * A new tariff's ports, at least one; ignored for a new version
+         */
+        ports?: interfaces.TariffPortCode[]
+
+        /**
+         * A new tariff's import, export or both; ignored for a new version
+         */
+        directions?: interfaces.RailDirection[]
+
+        fileName: string
+        /**
+         * The .xlsx or .csv file, base64; at most 10 MB
+         */
+        fileBase64: string
+    }
+
+    export interface RailTariffUploadResponse {
+        version: interfaces.SupplierTariffVersionDetail
+    }
+
+    export interface RailTariffVersionResponse {
+        version: interfaces.SupplierTariffVersionDetail
     }
 
     export interface RatesOnRequest {
@@ -8006,6 +8752,13 @@ export namespace controllers {
          * Every reference asked for, with the live shipments that name it - the oldest first.
          */
         quotes: interfaces.QuoteShipments[]
+    }
+
+    export interface ShippingLineListResponse {
+        /**
+         * Customer Database companies with the Shipping line role, by name
+         */
+        lines: services.ShippingLineItem[]
     }
 
     export interface SplitCostRequest {
@@ -9941,6 +10694,421 @@ export namespace interfaces {
     }
 
     /**
+     * Where the tariff's postcode areas are (zones by postcode).
+     */
+    export interface CollectionAreaTable {
+        sheet: string
+        firstDataRow: number
+        lastDataRow: number | null
+        postcodeFrom: ColumnLetter
+        /**
+         * null: each row is one postcode, or a prefix such as "1xxxx"
+         */
+        postcodeTo: ColumnLetter | null
+
+        zone: ColumnLetter
+        country: ColumnLetter | null
+        defaultCountry: string
+    }
+
+    /**
+     * Where the tariff's own region → region distances are (zones by distance).
+     */
+    export interface CollectionDistanceTable {
+        sheet: string
+        firstDataRow: number
+        lastDataRow: number | null
+        fromRegion: ColumnLetter
+        toRegion: ColumnLetter
+        km: ColumnLetter
+    }
+
+    /**
+     * The freight a collections tariff collects and delivers.
+     */
+    export type CollectionFreightMode = "sea_lcl" | "air"
+
+    /**
+     * A first / last mile haulier (a Customer Database company with the role) with its tariffs at a glance.
+     */
+    export interface CollectionHaulierItem {
+        customerId: string
+        companyName: string
+        ico: string
+        city: string
+        country: string
+        tariffCount: number
+        /**
+         * What its tariffs collect and deliver, all together
+         */
+        freightModes: CollectionFreightMode[]
+
+        /**
+         * Versions that price today
+         */
+        activeCount: number
+
+        draftCount: number
+        /**
+         * The soonest end of an active version, YYYY-MM-DD; null when none ends
+         */
+        activeUntil: string | null
+    }
+
+    /**
+     * Our end of a collection or delivery for one freight mode: the hub the haulier collects to or delivers from.
+     */
+    export interface CollectionHub {
+        freightMode: CollectionFreightMode
+        /**
+         * 5 digits
+         */
+        postcode: string
+
+        country: string
+        /**
+         * e.g. "CFS Jeneč"
+         */
+        label: string
+    }
+
+    /**
+     * How a collections tariff's file is read: proposed by the AI (or remembered), corrected by the user.
+     */
+    export interface CollectionLayout {
+        /**
+         * A name for the tariff, e.g. "TOPTRANS – CZ / SK"
+         */
+        name: string
+
+        /**
+         * ISO 4217, e.g. "CZK"
+         */
+        currency: string
+
+        validFrom: string | null
+        validTo: string | null
+        zoneBy: CollectionZoneBy
+        matrices: CollectionMatrix[]
+        /**
+         * kg one m³ counts as, when the tariff converts volume by a factor rather than by a volume column; null when it does neither
+         */
+        kgPerCbm: number | null
+
+        regions: CollectionRegionTable | null
+        distances: CollectionDistanceTable | null
+        /**
+         * By distance: km between two places of one region when the distance list has no such row
+         */
+        sameRegionKm: number | null
+
+        areas: CollectionAreaTable | null
+        surcharges: CollectionSurcharge[]
+        /**
+         * What the prices include and the tariff's terms, one line each
+         */
+        conditions: string[]
+
+        links: TariffLink[]
+    }
+
+    /**
+     * A price table: weight rows × zone columns, for consignments whose customer is in one country.
+     */
+    export interface CollectionMatrix {
+        /**
+         * e.g. "CZ → SK"
+         */
+        label: string
+
+        /**
+         * ISO 3166-1 alpha-2 of the customer's end
+         */
+        country: string
+
+        sheet: string
+        /**
+         * 1-based row of the zone headings
+         */
+        headerRow: number
+
+        firstDataRow: number
+        /**
+         * null reads to the end; empty rows are skipped
+         */
+        lastDataRow: number | null
+
+        /**
+         * The column with the heaviest weight (kg) a row is for
+         */
+        weightTo: ColumnLetter
+
+        /**
+         * The column with the largest volume (m³) a row is for, when the tariff counts a volume as that row's weight
+         */
+        volumeTo: ColumnLetter | null
+
+        zones: CollectionZone[]
+    }
+
+    /**
+     * One haulier's price for a consignment between our hub and the customer.
+     */
+    export interface CollectionOffer {
+        versionId: string
+        versionNo: number
+        tariffId: string
+        tariffName: string
+        supplierCustomerId: string
+        supplierName: string
+        /**
+         * The version's last day; null when open
+         */
+        validTo: string | null
+
+        /**
+         * The places the tariff's own list names for our hub and the customer's postcode; empty by postcode area
+         */
+        hubPlace: string
+
+        customerPlace: string
+        /**
+         * The table used, e.g. "CZ → SK"
+         */
+        matrixLabel: string
+
+        /**
+         * By distance: km between the two regions; null by postcode area
+         */
+        distanceKm: number | null
+
+        /**
+         * The zone column, e.g. "300 km", "Zone 2"
+         */
+        zoneLabel: string
+
+        /**
+         * What the weight band is for: the real weight, or the volume counted as weight
+         */
+        chargeableKg: number
+
+        chargeableBy: "weight" | "volume"
+        /**
+         * e.g. "up to 150 kg"
+         */
+        bandLabel: string
+
+        price: number
+        surcharges: CollectionSurchargeLine[]
+        total: number
+        currency: string
+    }
+
+    /**
+     * What one collections tariff asks for a consignment between two postcodes, and how it got there.
+     */
+    export interface CollectionPrice {
+        /**
+         * The table used, e.g. "CZ → SK"
+         */
+        matrixLabel: string
+
+        /**
+         * By distance: km between the two regions; null by postcode area
+         */
+        distanceKm: number | null
+
+        /**
+         * The zone column, e.g. "300 km", "Zone 2"
+         */
+        zoneLabel: string
+
+        /**
+         * What the weight band is for: the real weight, or the volume counted as weight
+         */
+        chargeableKg: number
+
+        chargeableBy: "weight" | "volume"
+        /**
+         * e.g. "up to 150 kg"
+         */
+        bandLabel: string
+
+        price: number
+        surcharges: CollectionSurchargeLine[]
+        total: number
+        currency: string
+    }
+
+    /**
+     * Where the tariff's own postcode → region list is (zones by distance).
+     */
+    export interface CollectionRegionTable {
+        sheet: string
+        firstDataRow: number
+        lastDataRow: number | null
+        postcode: ColumnLetter
+        region: ColumnLetter
+        country: ColumnLetter | null
+        place: ColumnLetter | null
+        /**
+         * What the country column holds, as ISO codes, e.g. {"1": "CZ", "2": "SK"}; empty when it holds ISO codes
+         */
+        countryCodes: { [key: string]: string }
+
+        /**
+         * The country of the rows without one
+         */
+        defaultCountry: string
+    }
+
+    /**
+     * How many rows of each kind a collections version holds.
+     */
+    export interface CollectionRowCounts {
+        rates: number
+        regions: number
+        distances: number
+        areas: number
+    }
+
+    export interface CollectionSurcharge {
+        kind: CollectionSurchargeKind
+        label: string
+        /**
+         * oversize: added when the longest piece is longer than this, in cm
+         */
+        overLengthCm: number | null
+
+        /**
+         * oversize and percent: % of the table price
+         */
+        percent: number | null
+
+        /**
+         * flat: per consignment, in the tariff's currency
+         */
+        amount: number | null
+    }
+
+    /**
+     * oversize: for a piece longer than overLengthCm; percent: a % of the price; flat: an amount per consignment.
+     */
+    export type CollectionSurchargeKind = "oversize" | "percent" | "flat"
+
+    /**
+     * An amount added to a table price.
+     */
+    export interface CollectionSurchargeLine {
+        label: string
+        amount: number
+    }
+
+    /**
+     * A price table as read, for showing it: its zones and weight rows.
+     */
+    export interface CollectionTableView {
+        label: string
+        country: string
+        zones: string[]
+        rows: {
+            rowNo: number
+            weightToKg: number
+            volumeToCbm: number | null
+            prices: (number | null)[]
+        }[]
+    }
+
+    export interface CollectionTariffItem {
+        id: string
+        name: string
+        supplierCustomerId: string
+        freightModes: CollectionFreightMode[]
+        /**
+         * Newest first
+         */
+        versions: SupplierTariffVersion[]
+    }
+
+    export interface CollectionTariffRef {
+        id: string
+        name: string
+        supplierCustomerId: string
+        supplierName: string
+        freightModes: CollectionFreightMode[]
+    }
+
+    export interface CollectionTariffVersionDetail {
+        tariff: CollectionTariffRef
+        layout: CollectionLayout
+        findings: TariffFinding[]
+        preview: SheetPreview[]
+        counts: CollectionRowCounts
+        tables: CollectionTableView[]
+        id: string
+        tariffId: string
+        versionNo: number
+        status: SupplierTariffStatus
+        validFrom: string | null
+        validTo: string | null
+        currency: string
+        rowCount: number
+        warningCount: number
+        errorCount: number
+        layoutSource: LayoutSource
+        sourceFileName: string | null
+        createdAt: string
+        createdBy: string | null
+        activatedAt: string | null
+        activatedBy: string | null
+    }
+
+    /**
+     * What one version asks between two postcodes, or why it cannot price the consignment.
+     */
+    export interface CollectionTry {
+        price: CollectionPrice | null
+        /**
+         * Why there is no price, in words; null when there is one
+         */
+        problem: string | null
+
+        hubPlace: string
+        customerPlace: string
+    }
+
+    /**
+     * A price column of a collections price table.
+     */
+    export interface CollectionZone {
+        column: ColumnLetter
+        /**
+         * As the tariff names it, e.g. "100 km", "Zone 3"
+         */
+        label: string
+
+        /**
+         * By distance: the longest distance in km the column is for
+         */
+        kmTo: number | null
+
+        /**
+         * By postcode area: the zone the areas name, e.g. "3"
+         */
+        zone: string | null
+    }
+
+    /**
+     * How a collections tariff finds a consignment's price column: the distance between our hub and the customer, or the customer's postcode area.
+     */
+    export type CollectionZoneBy = "distance" | "postcode"
+
+    /**
+     * A column of the sheet, by its letter ("A", "AB").
+     */
+    export type ColumnLetter = string
+
+    /**
      * A saved set of visible columns for one screen
      */
     export interface ColumnTemplateItem {
@@ -10615,9 +11783,12 @@ export namespace interfaces {
     }
 
     /**
-     * What a company is to us. A customer buys our services; a haulier is a trucking subcontractor. One company can be both.
+     * What a company is to us. A customer buys our services; a haulier is a trucking subcontractor; a rail operator sells us rail
+     * transport, its tariffs kept under Tariffs; a first / last mile haulier trucks containers between a port or terminal and the
+     * customer (pre- and on-carriage); a shipping line sells us ocean freight, its tariffs kept under Tariffs. One company can have
+     * several roles.
      */
-    export type CustomerRole = "customer" | "haulier"
+    export type CustomerRole = "customer" | "haulier" | "rail_operator" | "first_last_mile_haulier" | "shipping_line"
 
     /**
      * What a run of POST /customers/seats/normalize did to the company's live customers.
@@ -11032,6 +12203,8 @@ export namespace interfaces {
         fileBase64: string
         contentType: string
     }
+
+    export type FindingLevel = "error" | "warning"
 
     /**
      * A manual follow-up task as the Follow-up screen gets it. Times are ISO strings, days are YYYY-MM-DD.
@@ -12736,6 +13909,11 @@ export namespace interfaces {
 
     export type LastMile = "OWN_RUN" | "PARTNER"
 
+    /**
+     * How a version's layout was found: read by the AI, the one the tariff's last approved version used, or corrected by a user.
+     */
+    export type LayoutSource = "ai" | "remembered" | "edited"
+
     export interface Leg {
         id: string
         consignmentId: string
@@ -13023,7 +14201,296 @@ export namespace interfaces {
 
     export type NoteType = "Note" | "Email" | "Call" | "Follow-up" | "Visit"
 
+    /**
+     * The containers an ocean tariff prices: dry 20', 40' and 40' high cube; reefer 20' and 40' high cube.
+     */
+    export type OceanEquipment = "20DC" | "40DC" | "40HC" | "20RF" | "40RF"
+
+    /**
+     * How a shipping line's tariff file is read: proposed by the AI (or remembered), corrected by the user.
+     */
+    export interface OceanLayout {
+        /**
+         * A name for the tariff, e.g. "OOCL Export FAK – Far East, India, Australia, Intra Europe, Africa"
+         */
+        name: string
+
+        validFrom: string | null
+        validTo: string | null
+        tables: OceanTable[]
+        /**
+         * What short codes and names of ports in the file stand for, as UN/LOCODEs, e.g. {"HAM": "DEHAM", "Koper": "SIKOP"}
+         */
+        portCodes: { [key: string]: string }
+
+        surcharges: OceanSurcharge[]
+        /**
+         * What the rates include and the tariff's terms, one line each
+         */
+        conditions: string[]
+
+        links: TariffLink[]
+    }
+
+    /**
+     * One way a shipping line takes the quote's containers from port to port, with its freight and surcharges.
+     */
+    export interface OceanOffer {
+        rateId: string
+        versionId: string
+        versionNo: number
+        tariffId: string
+        tariffName: string
+        supplierCustomerId: string
+        supplierName: string
+        /**
+         * The version's last day; null when open
+         */
+        validTo: string | null
+
+        tableLabel: string
+        polCode: string
+        polName: string
+        podCode: string
+        podName: string
+        /**
+         * Transshipment port(s); empty for a direct call
+         */
+        via: string
+
+        note: string
+        /**
+         * The freight's currency
+         */
+        currency: string
+
+        lines: OceanOfferLine[]
+        freight: number
+        surcharges: OceanOfferSurcharge[]
+        /**
+         * Freight and surcharges added up per currency
+         */
+        totals: {
+            currency: string
+            amount: number
+        }[]
+    }
+
+    /**
+     * A quote's containers of one type, as ocean offers are asked for.
+     */
+    export interface OceanOfferContainer {
+        /**
+         * As quotes name it, e.g. "40' HC"
+         */
+        type: string
+
+        qty: number
+    }
+
+    /**
+     * One container line of an offer.
+     */
+    export interface OceanOfferLine {
+        /**
+         * As the quote names it, e.g. "40' HC"
+         */
+        type: string
+
+        qty: number
+        equipment: OceanEquipment
+        /**
+         * Per container
+         */
+        price: number
+
+        amount: number
+    }
+
+    /**
+     * A surcharge of an offer, worked out for the quote's containers.
+     */
+    export interface OceanOfferSurcharge {
+        name: string
+        code: string
+        charge: OceanSurchargeCharge
+        basis: OceanSurchargeBasis
+        /**
+         * How many of the basis: TEU, containers, or 1 per B/L or booking
+         */
+        units: number
+
+        /**
+         * Per unit
+         */
+        rate: number
+
+        total: number
+        currency: string
+    }
+
+    export interface OceanPlace {
+        code: string
+        name: string
+        countryCode: string
+        subdivisionName: string | null
+    }
+
+    /**
+     * A port name of the tariff and the UN/LOCODE it means.
+     */
+    export interface OceanPort {
+        side: "pol" | "pod"
+        /**
+         * As the tariff writes it, cleaned of remarks
+         */
+        name: string
+
+        /**
+         * The country the tariff names with it, ISO; null when none
+         */
+        countryHint: string | null
+
+        code: string | null
+        status: OceanPortStatus
+        /**
+         * The places it could be, when it is not matched
+         */
+        candidates: OceanPlace[]
+    }
+
+    /**
+     * matched by code: by the tariff's port codes or the place list; manual: picked by a user; skipped: left out by a user; pending: not matched yet.
+     */
+    export type OceanPortStatus = "matched" | "manual" | "skipped" | "pending"
+
+    /**
+     * A price column of a rate table and the container it is for.
+     */
+    export interface OceanPriceColumn {
+        column: ColumnLetter
+        equipment: OceanEquipment
+        /**
+         * As the tariff heads it, e.g. "20' Box", "40' HQ", "Rate 40RQ"
+         */
+        label: string
+    }
+
+    /**
+     * A surcharge rule of the tariff, as the AI reads it from the text under a rate sheet.
+     */
+    export interface OceanSurcharge {
+        /**
+         * As the tariff names it, e.g. "EBS Emergency Bunker Surcharge"
+         */
+        name: string
+
+        /**
+         * Its short code, e.g. "EBS"
+         */
+        code: string
+
+        amount: number
+        currency: string
+        basis: OceanSurchargeBasis
+        /**
+         * Only for dry or reefer containers; empty for both
+         */
+        equipment: ("dry" | "reefer")[]
+
+        /**
+         * The tables (by index) it is added to; empty for all
+         */
+        tables: number[]
+
+        /**
+         * Only to / from ports of discharge in these countries (ISO); empty for any
+         */
+        countries: string[]
+
+        exceptCountries: string[]
+        /**
+         * Only for these ports of discharge (UN/LOCODE); empty for any
+         */
+        ports: string[]
+
+        exceptPorts: string[]
+        condition: OceanSurchargeCondition
+        charge: OceanSurchargeCharge
+    }
+
+    /**
+     * per TEU (a 40' counts 2), per container, per bill of lading, per booking.
+     */
+    export type OceanSurchargeBasis = "teu" | "container" | "bl" | "booking"
+
+    /**
+     * The quote charge a surcharge goes on: BAF, AMS, B/L fee, or another named after it.
+     */
+    export type OceanSurchargeCharge = "fcl_baf" | "ams_ens" | "fcl_documentation" | "other"
+
+    /**
+     * always; only for dangerous goods; only for a booking or B/L made by hand (not electronically).
+     */
+    export type OceanSurchargeCondition = "always" | "dangerous" | "manual_booking"
+
+    /**
+     * A table of rates: rows of port of loading → port of discharge (via a transshipment port) with a price per container.
+     */
+    export interface OceanTable {
+        /**
+         * e.g. "Far East direct calls", "Far East wing ports", "Reefer Far East"
+         */
+        label: string
+
+        sheet: string
+        headerRow: number
+        firstDataRow: number
+        lastDataRow: number | null
+        /**
+         * The column with the port(s) of loading; null when every row has the same ones (polFixed)
+         */
+        pol: ColumnLetter | null
+
+        /**
+         * The ports of loading of every row when there is no column, as written, e.g. "Koper; Trieste"
+         */
+        polFixed: string | null
+
+        pod: ColumnLetter
+        /**
+         * The column with the transshipment port(s)
+         */
+        via: ColumnLetter | null
+
+        /**
+         * The column with each row's currency; null when every row has the same (currencyFixed)
+         */
+        currency: ColumnLetter | null
+
+        currencyFixed: string | null
+        prices: OceanPriceColumn[]
+        /**
+         * A column with remarks, e.g. "No DG acceptance"
+         */
+        note: ColumnLetter | null
+
+        /**
+         * ISO codes of the countries the table's ports of discharge are in, to tell ports of one name apart; empty when any
+         */
+        podCountries: string[]
+    }
+
     export type PalletType = "EUR" | "INDUSTRIAL" | "HALF" | "QUARTER" | "OTHER"
+
+    /**
+     * What the people backfill did: values looked at, records changed, values left as they are.
+     */
+    export interface PeopleNormalizeResult {
+        checked: number
+        changed: number
+        unmatched: PeopleNormalizeUnmatched[]
+    }
 
     /**
      * What the people backfill did to the company's live shipments.
@@ -13043,15 +14510,6 @@ export namespace interfaces {
          * The names left as they are, most frequent first: to be fixed by hand.
          */
         unmatched: UnmatchedPerson[]
-    }
-
-    /**
-     * What the people backfill did: values looked at, records changed, values left as they are.
-     */
-    export interface PeopleNormalizeResult {
-        checked: number
-        changed: number
-        unmatched: PeopleNormalizeUnmatched[]
     }
 
     /**
@@ -13973,6 +15431,293 @@ export namespace interfaces {
         inquiry: QuoteWarehouseInquiry
     }
 
+    /**
+     * A price column: the container lengths and gross weight its prices are for.
+     */
+    export interface RailBand {
+        column: ColumnLetter
+        /**
+         * As the tariff names it, e.g. "20' 0<14 t"
+         */
+        label: string
+
+        minLengthFt: number
+        maxLengthFt: number
+        /**
+         * The heaviest gross weight (cargo + container tare), in tonnes; null when the price has no weight limit
+         */
+        maxGrossTonnes: number | null
+    }
+
+    /**
+     * Import: port to inland; export: inland to port. A tariff is for one or both.
+     */
+    export type RailDirection = "import" | "export"
+
+    /**
+     * How a rail tariff's sheet is read: proposed by the AI (or remembered), corrected by the user.
+     */
+    export interface RailLayout {
+        sheet: string
+        /**
+         * 1-based row of the column headings
+         */
+        headerRow: number
+
+        /**
+         * 1-based first price row
+         */
+        firstDataRow: number
+
+        /**
+         * 1-based last price row, when notes or totals follow the table; null reads to the end. Empty rows are skipped.
+         */
+        lastDataRow: number | null
+
+        columns: RailLayoutColumns
+        bands: RailBand[]
+        /**
+         * ISO 4217, e.g. "EUR"
+         */
+        currency: string
+
+        /**
+         * The tariff's validity, YYYY-MM-DD
+         */
+        validFrom: string | null
+
+        validTo: string | null
+        /**
+         * ISO 3166-1 alpha-2 of the inland places when the sheet has no country column
+         */
+        defaultCountry: string
+
+        /**
+         * What the prices include and the tariff's terms, one line each
+         */
+        conditions: string[]
+
+        links: TariffLink[]
+        /**
+         * A name for the tariff, e.g. "Hamburg / Bremerhaven / Wilhelmshaven – Czechia"
+         */
+        name: string
+    }
+
+    /**
+     * Which columns hold what; null when the sheet has no such column.
+     */
+    export interface RailLayoutColumns {
+        country: ColumnLetter | null
+        postcode: ColumnLetter | null
+        place: ColumnLetter
+        region: ColumnLetter | null
+        /**
+         * The terminal the train runs via
+         */
+        via: ColumnLetter | null
+
+        /**
+         * Where the empty container is returned or picked up; the same column as `via` when one cell holds both ("Praha/Praha")
+         */
+        emptyDepot: ColumnLetter | null
+
+        note: ColumnLetter | null
+        validFrom: ColumnLetter | null
+        validTo: ColumnLetter | null
+    }
+
+    /**
+     * One tariff row that prices every container of the route: its operator, terminal and total.
+     */
+    export interface RailOffer {
+        rateId: string
+        versionId: string
+        versionNo: number
+        tariffId: string
+        tariffName: string
+        supplierCustomerId: string
+        supplierName: string
+        currency: string
+        place: string
+        postcode: string
+        region: string
+        /**
+         * The terminal the train runs via
+         */
+        via: string
+
+        emptyDepot: string
+        note: string
+        /**
+         * The version's last day; null when open
+         */
+        validTo: string | null
+
+        lines: RailOfferLine[]
+        total: number
+    }
+
+    /**
+     * A quote's containers of one type, as rail offers are asked for.
+     */
+    export interface RailOfferContainer {
+        /**
+         * As quotes name it, e.g. "40' HC"
+         */
+        type: string
+
+        qty: number
+        /**
+         * Cargo weight per container in kg, without the box; null when not entered
+         */
+        cargoKg: number | null
+    }
+
+    /**
+     * One container line of an offer: the band its gross weight falls in and that band's price.
+     */
+    export interface RailOfferLine {
+        type: string
+        qty: number
+        bandCode: string
+        /**
+         * As the tariff names it, e.g. "20'<25 t"
+         */
+        bandLabel: string
+
+        /**
+         * Per container
+         */
+        price: number
+
+        /**
+         * price × qty
+         */
+        amount: number
+    }
+
+    /**
+     * How the place was looked for: by a postcode in it, or by its name.
+     */
+    export type RailOfferMatch = "postcode" | "place"
+
+    /**
+     * A rail operator (a Customer Database company with the role) with its tariffs at a glance.
+     */
+    export interface RailOperatorItem {
+        customerId: string
+        companyName: string
+        ico: string
+        city: string
+        country: string
+        tariffCount: number
+        /**
+         * The ports and directions of all its tariffs together, in list order
+         */
+        ports: TariffPortCode[]
+
+        directions: RailDirection[]
+        /**
+         * Versions that price today
+         */
+        activeCount: number
+
+        draftCount: number
+        /**
+         * The soonest end of an active version, YYYY-MM-DD; null when none ends
+         */
+        activeUntil: string | null
+    }
+
+    /**
+     * A container line as the tariffs count it.
+     */
+    export interface RailPricedContainer {
+        /**
+         * From the container tare list; null for a type it does not have
+         */
+        tareKg: number | null
+
+        /**
+         * Cargo + tare, what the weight bands are by; null when either is unknown
+         */
+        grossKg: number | null
+
+        /**
+         * The length the tariffs price it by: a 45' as a 40'
+         */
+        lengthFt: number | null
+
+        /**
+         * As quotes name it, e.g. "40' HC"
+         */
+        type: string
+
+        qty: number
+        /**
+         * Cargo weight per container in kg, without the box; null when not entered
+         */
+        cargoKg: number | null
+    }
+
+    export interface RailRate {
+        id: string
+        /**
+         * The sheet row it was read from
+         */
+        rowNo: number
+
+        /**
+         * ISO 3166-1 alpha-2
+         */
+        country: string
+
+        /**
+         * As the tariff writes it, e.g. "36235" or "1xxxx"
+         */
+        postcode: string
+
+        /**
+         * The postcodes the row covers, 5 digits each ("1xxxx" → 10000–19999; a note "ZIP 10000-19900" → that range)
+         */
+        postcodeFrom: string | null
+
+        postcodeTo: string | null
+        place: string
+        region: string
+        via: string
+        emptyDepot: string
+        note: string
+        validFrom: string | null
+        validTo: string | null
+        /**
+         * Amount by band code (see bandCode); a band without a price is left out
+         */
+        prices: { [key: string]: number }
+    }
+
+    export interface RailTariffItem {
+        id: string
+        name: string
+        mode: SupplierTariffMode
+        supplierCustomerId: string
+        /**
+         * The sea ports it runs from or to, as the user chose them, in list order
+         */
+        ports: TariffPortCode[]
+
+        /**
+         * Import, export or both, as the user chose
+         */
+        directions: RailDirection[]
+
+        /**
+         * Newest first
+         */
+        versions: SupplierTariffVersion[]
+    }
+
     export interface RateExtras {
         adr: boolean
         tailLift: boolean
@@ -14415,6 +16160,18 @@ export namespace interfaces {
         at: string
         by: string
         label: string
+    }
+
+    /**
+     * The first rows of a sheet, as text by column letter, for setting up the layout by hand.
+     */
+    export interface SheetPreview {
+        name: string
+        rowCount: number
+        rows: {
+            rowNo: number
+            cells: { [key: string]: string }
+        }[]
     }
 
     /**
@@ -14996,6 +16753,63 @@ export namespace interfaces {
         cc: string[]
     }
 
+    /**
+     * What a tariff prices: rail container transport, first / last mile collection and delivery, or ocean freight.
+     */
+    export type SupplierTariffMode = "rail" | "collection" | "ocean"
+
+    /**
+     * draft: uploaded, being checked; active: prices with; superseded: replaced by a later version.
+     */
+    export type SupplierTariffStatus = "draft" | "active" | "superseded"
+
+    export interface SupplierTariffVersion {
+        id: string
+        tariffId: string
+        versionNo: number
+        status: SupplierTariffStatus
+        validFrom: string | null
+        validTo: string | null
+        currency: string
+        rowCount: number
+        warningCount: number
+        errorCount: number
+        layoutSource: LayoutSource
+        sourceFileName: string | null
+        createdAt: string
+        createdBy: string | null
+        activatedAt: string | null
+        activatedBy: string | null
+    }
+
+    export interface SupplierTariffVersionDetail {
+        tariff: TariffRef
+        layout: RailLayout
+        /**
+         * The band codes of layout.bands, in the same order
+         */
+        bandCodes: string[]
+
+        findings: TariffFinding[]
+        preview: SheetPreview[]
+        id: string
+        tariffId: string
+        versionNo: number
+        status: SupplierTariffStatus
+        validFrom: string | null
+        validTo: string | null
+        currency: string
+        rowCount: number
+        warningCount: number
+        errorCount: number
+        layoutSource: LayoutSource
+        sourceFileName: string | null
+        createdAt: string
+        createdBy: string | null
+        activatedAt: string | null
+        activatedBy: string | null
+    }
+
     export type SurchargeCalc = "PCT" | "FLAT" | "PER_KG" | "PER_PALLET" | "PER_HOUR" | "PCT_OF_VALUE" | "FUEL_INDEX"
 
     export type SurchargeCode = "FUEL" | "TOLL" | "ADR" | "TAIL_LIFT" | "AVIZACE" | "TIME_WINDOW" | "B2C" | "WAITING_TIME" | "REDELIVERY" | "INSURANCE" | "REMOTE_AREA" | "NON_STACKABLE"
@@ -15079,6 +16893,36 @@ export namespace interfaces {
         kgPerPalletPlace: number
     }
 
+    export interface TariffFile {
+        fileName: string
+        fileBase64: string
+        contentType: string
+    }
+
+    /**
+     * A problem the checks found; errors stop a version from being approved.
+     */
+    export interface TariffFinding {
+        level: FindingLevel
+        /**
+         * What kind of problem, e.g. "price_not_number"
+         */
+        code: string
+
+        message: string
+        /**
+         * How many rows have it
+         */
+        count: number
+
+        /**
+         * The first few sheet rows that have it
+         */
+        rows: number[]
+
+        column?: ColumnLetter
+    }
+
     export interface TariffImportResult {
         /**
          * The new DRAFT; its findings include the problems met reading the file ("Sheet D2, row 7, column F")
@@ -15086,6 +16930,11 @@ export namespace interfaces {
         version: TariffVersionDetail
 
         sheets: ImportSheetReport[]
+    }
+
+    export interface TariffLink {
+        label: string
+        url: string
     }
 
     export interface TariffListItem {
@@ -15127,12 +16976,27 @@ export namespace interfaces {
      */
     export type TariffMode = "MATRIX" | "DISCOUNT"
 
+    /**
+     * A sea port a tariff runs from or to, by UN/LOCODE: Antwerp, Rotterdam, Hamburg, Bremerhaven, Wilhelmshaven, Koper.
+     */
+    export type TariffPortCode = "BEANR" | "NLRTM" | "DEHAM" | "DEBRV" | "DEWVN" | "SIKOP"
+
     export interface TariffRate {
         serviceLevel: ServiceLevelCode
         zoneCode: string
         bandId: string
         amount: number
         priceType: PriceType
+    }
+
+    export interface TariffRef {
+        id: string
+        name: string
+        mode: SupplierTariffMode
+        supplierCustomerId: string
+        supplierName: string
+        ports: TariffPortCode[]
+        directions: RailDirection[]
     }
 
     export interface TariffRounding {
@@ -17000,6 +18864,34 @@ export namespace services {
         city: string | null
     }
 
+    export interface CollectionHaulierDetail {
+        haulier: interfaces.CollectionHaulierItem
+        tariffs: interfaces.CollectionTariffItem[]
+    }
+
+    export interface CollectionOffersResult {
+        /**
+         * Every haulier's price for the consignment, cheapest first
+         */
+        offers: interfaces.CollectionOffer[]
+
+        /**
+         * The hub postcode used; null when none is set or typed
+         */
+        hubPostcode: string | null
+
+        /**
+         * Why some tariffs have no price, and what is missing
+         */
+        notes: string[]
+    }
+
+    export interface CollectionTariffFields {
+        id: string
+        name: string
+        freightModes: interfaces.CollectionFreightMode[]
+    }
+
     export interface CompanyInfo {
         id: string
         name: string
@@ -17070,10 +18962,145 @@ export namespace services {
         countryCode: string | null
     }
 
+    export interface OceanOffersResult {
+        /**
+         * Every way a shipping line takes the containers from port to port; the caller ranks them in its own currency
+         */
+        offers: interfaces.OceanOffer[]
+
+        /**
+         * What is not priced and why, the fees only charged on a manual booking, what is not included
+         */
+        notes: string[]
+    }
+
+    export interface OceanRatePage {
+        rates: OceanRateView[]
+        /**
+         * How many rates match the filter
+         */
+        total: number
+    }
+
+    /**
+     * An ocean rate as listed on the version page.
+     */
+    export interface OceanRateView {
+        id: string
+        table: number
+        rowNo: number
+        polName: string
+        polCode: string | null
+        podName: string
+        podCode: string | null
+        via: string
+        currency: string
+        prices: { [key: string]: number }
+        note: string
+    }
+
+    export interface OceanTariffFields {
+        id: string
+        name: string
+        directions: interfaces.RailDirection[]
+    }
+
+    export interface OceanTariffItem {
+        id: string
+        name: string
+        supplierCustomerId: string
+        directions: interfaces.RailDirection[]
+        /**
+         * Newest first
+         */
+        versions: interfaces.SupplierTariffVersion[]
+    }
+
+    export interface OceanTariffRef {
+        id: string
+        name: string
+        supplierCustomerId: string
+        supplierName: string
+        directions: interfaces.RailDirection[]
+    }
+
+    export interface OceanTariffVersionDetail {
+        tariff: OceanTariffRef
+        layout: interfaces.OceanLayout
+        findings: interfaces.TariffFinding[]
+        preview: interfaces.SheetPreview[]
+        /**
+         * Every port name of the file and what it means, those still to match first
+         */
+        ports: interfaces.OceanPort[]
+
+        /**
+         * How many port names are still to match: approval waits for them
+         */
+        pendingPorts: number
+
+        id: string
+        tariffId: string
+        versionNo: number
+        status: interfaces.SupplierTariffStatus
+        validFrom: string | null
+        validTo: string | null
+        currency: string
+        rowCount: number
+        warningCount: number
+        errorCount: number
+        layoutSource: interfaces.LayoutSource
+        sourceFileName: string | null
+        createdAt: string
+        createdBy: string | null
+        activatedAt: string | null
+        activatedBy: string | null
+    }
+
     /**
      * A UN/LOCODE place as shipments and quotes use it, written "Name (CODE)".
      */
     export type PlaceInfo = geo.Place
+
+    export interface RailOffersResult {
+        /**
+         * Every tariff row on the route that prices all the containers, cheapest first
+         */
+        offers: interfaces.RailOffer[]
+
+        /**
+         * The containers as the tariffs count them
+         */
+        containers: interfaces.RailPricedContainer[]
+
+        /**
+         * How the place was looked for; null when no place was given
+         */
+        matchedBy: interfaces.RailOfferMatch | null
+
+        /**
+         * What to know about the offers: a weight that is missing, rows that could not price a container
+         */
+        notes: string[]
+    }
+
+    export interface RailOperatorDetail {
+        operator: interfaces.RailOperatorItem
+        tariffs: interfaces.RailTariffItem[]
+    }
+
+    export interface RailRatePage {
+        rates: interfaces.RailRate[]
+        /**
+         * How many rows match the filter
+         */
+        total: number
+
+        /**
+         * The terminals the version's rows run via
+         */
+        vias: string[]
+    }
 
     export interface SectionKeyChange {
         key: string
@@ -17092,6 +19119,34 @@ export namespace services {
      * The signed-in user (login, /auth/me).
      */
     export type SessionUser = AuthUserInfo
+
+    export interface ShippingLineDetail {
+        line: ShippingLineItem
+        tariffs: OceanTariffItem[]
+    }
+
+    /**
+     * A shipping line (a Customer Database company with the role) with its tariffs at a glance.
+     */
+    export interface ShippingLineItem {
+        customerId: string
+        companyName: string
+        ico: string
+        city: string
+        country: string
+        tariffCount: number
+        directions: interfaces.RailDirection[]
+        /**
+         * Versions that price today
+         */
+        activeCount: number
+
+        draftCount: number
+        /**
+         * The soonest end of an active version, YYYY-MM-DD; null when none ends
+         */
+        activeUntil: string | null
+    }
 
     export type StampKind = "gateIn" | "gateOut" | "impRelease" | "expDraft" | "expReceipt"
 }

@@ -23,11 +23,13 @@ import {
   BankOutlined,
   CalendarOutlined,
   CarOutlined,
+  TagsOutlined,
 } from "@ant-design/icons";
 import { useSalesPermissions } from "@/hooks/useSalesPermissions";
 import { useSidebarState } from "@/hooks/useSidebarState";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { SALES_NAV, SALES_PAGES, type SalesNavItem } from "@/app/sales/_lib/tabs";
+import { TARIFF_NAV, TARIFF_PAGES } from "@/app/tariffs/_lib/tariffPages";
 import type { ReactNode } from "react";
 
 // An item of a submenu. Its shape is defined with the Sales menu, the one that uses all of it.
@@ -52,6 +54,14 @@ const NAV_ITEMS: NavItem[] = [
   // The Quotes list is where work in Sales starts, so that is what "Sales" opens. /sales itself
   // only redirects there: going straight saves the detour.
   { path: "/sales", label: "Sales", icon: <LineChartOutlined />, home: SALES_PAGES.quotes.path, children: SALES_NAV },
+  // Tariffs has no page of its own yet: it opens its first section, as Sales opens Quotes.
+  {
+    path: "/tariffs",
+    label: "Tariffs",
+    icon: <TagsOutlined />,
+    home: TARIFF_PAGES.railOperators.path,
+    children: TARIFF_NAV,
+  },
   { path: "/documents", label: "Document / Text Reading", icon: <FileTextOutlined /> },
   { path: "/invoicing", label: "Invoicing", icon: <DollarOutlined /> },
   { path: "/exchange", label: "Exchange", icon: <SwapOutlined /> },

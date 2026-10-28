@@ -1,0 +1,3 @@
+-- A company can also be a shipping line: a supplier of ocean freight, its tariffs kept under Tariffs.
+ALTER TABLE "customer" DROP CONSTRAINT "customer_roles_check";--> statement-breakpoint
+ALTER TABLE "customer" ADD CONSTRAINT "customer_roles_check" CHECK (cardinality("customer"."roles") > 0 AND "customer"."roles" <@ ARRAY['customer', 'haulier', 'rail_operator', 'first_last_mile_haulier', 'shipping_line']::text[]);

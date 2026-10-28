@@ -134,7 +134,8 @@ class LocationRepository {
 
   /**
    * Places a written name could mean: the same name, a name starting with it ("Shanghai" →
-   * "Shanghai Pt") or carrying it in brackets ("Ostend (Oostende)"). `name` is ASCII-folded.
+   * "Shanghai Pt", "Nagoya" → "Nagoya, Aichi") or carrying it in brackets ("Ostend (Oostende)").
+   * `name` is ASCII-folded.
    */
   async findCandidates(name: string, countryCode: string | null, limit: number) {
     return db
@@ -143,7 +144,7 @@ class LocationRepository {
       .where(
         and(
           countryCode ? eq(locationTable.countryCode, countryCode) : undefined,
-          sql`(${locationTable.nameAscii} ILIKE ${name} OR ${locationTable.nameAscii} ILIKE ${`${name} %`} OR ${locationTable.nameAscii} ILIKE ${`%(${name})%`})`,
+          sql`(${locationTable.nameAscii} ILIKE ${name} OR ${locationTable.nameAscii} ILIKE ${`${name} %`} OR ${locationTable.nameAscii} ILIKE ${`${name},%`} OR ${locationTable.nameAscii} ILIKE ${`%(${name})%`})`,
         ),
       )
       .orderBy(locationTable.code, asc(locationTable.id))

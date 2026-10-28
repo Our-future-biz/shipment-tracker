@@ -30,6 +30,7 @@ interface CustomerCreateManualResponse {
 export const customerCreateManual = api(
   { expose: true, auth: true, method: "POST", path: "/customers/manual" },
   async (req: CustomerCreateManualRequest): Promise<CustomerCreateManualResponse> => {
-    return { customer: await customerService.createManual(getAuthData()!.companyID, req) };
+    const { companyID, role } = getAuthData()!;
+    return { customer: await customerService.createManual(companyID, role, req) };
   },
 );

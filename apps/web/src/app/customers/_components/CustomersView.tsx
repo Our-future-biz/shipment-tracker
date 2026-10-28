@@ -24,7 +24,7 @@ import { PillTabs } from "@/components/SectionCard";
 import { useCustomers, type CustomerItem } from "@/hooks/useCustomers";
 import { useCustomerListPref } from "@/hooks/useCustomerListPref";
 import { useDebounced } from "@/hooks/useDebounced";
-import { CUSTOMER_LABELS, CUSTOMER_ROLE_OPTIONS, CUSTOMER_ROLES, CUSTOMER_STATUSES } from "../_lib/constants";
+import { CUSTOMER_LABELS, CUSTOMER_STATUSES, customerRoleOptions } from "../_lib/constants";
 import { CustomerHaulierBadge } from "./CustomerHaulierBadge";
 import { rememberCustomerListQuery } from "../_lib/customerListHref";
 import { marginPct } from "../_lib/customerMoney";
@@ -138,7 +138,9 @@ export function CustomersView() {
       : undefined;
   const status = CUSTOMER_STATUSES.find((s) => s === (rawStatus ?? legacy?.status)) ?? "";
   const accountType = CUSTOMER_LABELS.find((l) => l === (rawType ?? legacy?.type)) ?? "";
-  const role = CUSTOMER_ROLES.find((r) => r === searchParams.get("role")) ?? "";
+  // Only a role the user is offered in the role box filters the list (?role=haulier without the Trucking Concept does not).
+  const roleOptions = customerRoleOptions(canSeeConcepts);
+  const role = roleOptions.find((o) => o.value === searchParams.get("role"))?.value ?? "";
   const rawSort = searchParams.get("sort") ?? "";
   const showDeleted = canSeeDeleted && searchParams.get("view") === DELETED_PILL.key;
   const sortKey = SORT_KEYS.find((key) => key === rawSort.replace(/^-/, ""));
@@ -445,17 +447,17 @@ export function CustomersView() {
                   allowClear
                   className="w-44"
                 />
-                {canSeeConcepts && (
-                  <Select
-                    value={role || undefined}
-                    onChange={handleRoleChange}
-                    options={CUSTOMER_ROLE_OPTIONS}
-                    placeholder="All roles"
-                    aria-label="Role"
-                    allowClear
-                    className="w-32"
-                  />
-                )}
+                <Select
+                  value={role || undefined}
+                  onChange={handleRoleChange}
+                  options={roleOptions}
+                  placeholder="All roles"
+                  aria-label="Role"
+                  allowClear
+                  // "First / last mile haulier" is longer than the box: the list shows it whole.
+                  popupMatchSelectWidth={false}
+                  className="w-44"
+                />
                 <CustomerFiltersPopover
                   filters={shownFilters}
                   onChange={handleFiltersChange}
