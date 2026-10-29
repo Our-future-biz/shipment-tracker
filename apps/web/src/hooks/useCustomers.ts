@@ -42,6 +42,20 @@ const CUSTOMER_RECORD_KEYS = [
 // One shared empty list, so "nothing loaded" does not look like new data on every render.
 const NO_CUSTOMERS: CustomerItem[] = [];
 
+// The Tariffs pages list the companies by their supplier roles and show their names as the
+// Customer Database has them: a company's new roles, name or deletion shows there at once.
+const refreshTariffSuppliers = (queryClient: QueryClient) => {
+  for (const key of [railTariffKeys.all, collectionTariffKeys.all, oceanTariffKeys.all]) queryClient.invalidateQueries({ queryKey: key });
+};
+
+// After a company is added: the Customer Database lists, and the Tariffs list of each supplier
+// role it was given. Not awaited: creating a customer must not wait for the whole list to
+// download again.
+export const refreshCustomerLists = (queryClient: QueryClient) => {
+  queryClient.invalidateQueries({ queryKey: ["customers"] });
+  refreshTariffSuppliers(queryClient);
+};
+
 // With `enabled: false` nothing is asked: a picker that searches as its user types has no reason
 // to download the whole customer database before anything was typed.
 export const useCustomers = (params: CustomerQueryParams = {}, { enabled = true } = {}) => {
@@ -59,20 +73,15 @@ export const useCustomers = (params: CustomerQueryParams = {}, { enabled = true 
     enabled,
   });
 
-  // Not awaited: creating a customer must not wait for the whole list to download again.
-  const refreshList = () => {
-    queryClient.invalidateQueries({ queryKey: ["customers"] });
-  };
-
   const createMutation = useMutation({
     mutationFn: (params: controllers.CustomerCreateRequest) => api.customers.customerCreate(params),
-    onSuccess: refreshList,
+    onSuccess: () => refreshCustomerLists(queryClient),
   });
 
   // A company outside the Czech Republic, typed in by hand.
   const createManualMutation = useMutation({
     mutationFn: (params: controllers.CustomerCreateManualRequest) => api.customers.customerCreateManual(params),
-    onSuccess: refreshList,
+    onSuccess: () => refreshCustomerLists(queryClient),
   });
 
   return {
@@ -86,12 +95,6 @@ export const useCustomers = (params: CustomerQueryParams = {}, { enabled = true 
     createManualCustomer: createManualMutation.mutateAsync,
     isCreating: createMutation.isPending || createManualMutation.isPending,
   };
-};
-
-// The Tariffs pages list the companies by their supplier roles and show their names as the
-// Customer Database has them: a company's new roles, name or deletion shows there at once.
-const refreshTariffSuppliers = (queryClient: QueryClient) => {
-  for (const key of [railTariffKeys.all, collectionTariffKeys.all, oceanTariffKeys.all]) queryClient.invalidateQueries({ queryKey: key });
 };
 
 export const useCustomer = (id: string | null) => {

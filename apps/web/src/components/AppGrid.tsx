@@ -11,6 +11,7 @@ import { DraggableHeaderCell } from "@/components/DraggableHeaderCell";
 import { ColumnChecklist } from "@/components/ColumnChecklist";
 import { ColumnFilterRows } from "@/components/ColumnFilterRows";
 import { TOOLBAR_BUTTON_CLASS, activeGridFilters, matchesGridFilters, type GridFilter } from "@/components/gridFilters";
+import { cellRender } from "@/components/gridColumns";
 import { downloadCsv } from "@/lib/csv";
 import { businessToday } from "@/lib/date";
 import { foldIncludes } from "@/lib/fold";
@@ -202,9 +203,10 @@ export function AppGrid<T extends object>({
   const tableColumns = useMemo(
     () =>
       resizableColumns(
-        visibleColumns.map(({ text: _text, defaultVisible: _dv, filterOptions: _fo, ...col }) => ({
+        visibleColumns.map(({ text, defaultVisible: _dv, filterOptions: _fo, ...col }) => ({
           ellipsis: true,
           ...col,
+          render: cellRender(col, text),
           // Sorting is done above on the whole list; the table only shows the arrow.
           ...(compareOf(col as AppGridColumn<T>) ? { sorter: true, sortOrder: sort?.key === col.key ? sort.order : null } : {}),
           onHeaderCell: () => ({ id: col.key }) as React.HTMLAttributes<HTMLTableCellElement>,
