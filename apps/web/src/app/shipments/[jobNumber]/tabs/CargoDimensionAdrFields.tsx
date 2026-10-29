@@ -13,51 +13,63 @@ interface CargoDimensionAdrFieldsProps {
 // What the server takes as a UN number: four digits, "UN" in front allowed.
 const UN_NUMBER = /^(UN\s*)?\d{4}$/i;
 
+// Every label in the strip reads like "Limited quantity": plain 13px, dark orange.
+const LABEL = "text-[13px] text-orange-800";
+
 // The ADR (dangerous goods) details of one cargo dimension line, shown under it while its
-// ADR box is ticked. The server checks UN number and packing group again and refuses others.
+// ADR box is ticked: a soft orange strip, each field with a small label. The server checks UN
+// number and packing group again and refuses others.
 export function CargoDimensionAdrFields({ line, onPatch, onCommit }: CargoDimensionAdrFieldsProps) {
   const unNumber = line.adrUn ?? "";
   const commitSoon = () => setTimeout(onCommit, 0);
 
   return (
-    <div className="flex flex-wrap items-center gap-2 px-1 pb-1.5 pl-3">
-      <span className="text-[10px] font-bold text-orange-600 uppercase tracking-wide">ADR</span>
-      <Input
-        size="small"
-        className="!w-24"
-        placeholder="UN number"
-        aria-label="UN number"
-        maxLength={7}
-        status={unNumber && !UN_NUMBER.test(unNumber.trim()) ? "error" : undefined}
-        value={unNumber}
-        onChange={(e) => onPatch({ adrUn: e.target.value })}
-        onBlur={onCommit}
-      />
-      <Input
-        size="small"
-        className="!w-20"
-        placeholder="Class"
-        aria-label="ADR class"
-        maxLength={8}
-        value={line.adrClass ?? ""}
-        onChange={(e) => onPatch({ adrClass: e.target.value })}
-        onBlur={onCommit}
-      />
-      <Select
-        size="small"
-        className="!w-24"
-        placeholder="Packing gr."
-        aria-label="Packing group"
-        allowClear
-        value={line.adrPackingGroup ?? undefined}
-        options={ADR_PACKING_GROUPS.map((g) => ({ value: g, label: `PG ${g}` }))}
-        onChange={(v) => {
-          onPatch({ adrPackingGroup: v ?? null });
-          commitSoon();
-        }}
-      />
+    <div className="mx-1 mt-0.5 mb-2 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg bg-orange-50/70 ring-1 ring-inset ring-orange-100 px-3 py-1.5">
+      <label className="flex items-center gap-1.5">
+        <span className={LABEL}>UN number</span>
+        <Input
+          size="small"
+          className="!w-24"
+          placeholder="1203"
+          aria-label="UN number"
+          maxLength={7}
+          status={unNumber && !UN_NUMBER.test(unNumber.trim()) ? "error" : undefined}
+          value={unNumber}
+          onChange={(e) => onPatch({ adrUn: e.target.value })}
+          onBlur={onCommit}
+        />
+      </label>
+      <label className="flex items-center gap-1.5">
+        <span className={LABEL}>Class</span>
+        <Input
+          size="small"
+          className="!w-20"
+          placeholder="3"
+          aria-label="ADR class"
+          maxLength={8}
+          value={line.adrClass ?? ""}
+          onChange={(e) => onPatch({ adrClass: e.target.value })}
+          onBlur={onCommit}
+        />
+      </label>
+      <label className="flex items-center gap-1.5">
+        <span className={LABEL}>Packing group</span>
+        <Select
+          size="small"
+          className="!w-24"
+          placeholder="—"
+          aria-label="Packing group"
+          allowClear
+          value={line.adrPackingGroup ?? undefined}
+          options={ADR_PACKING_GROUPS.map((g) => ({ value: g, label: `PG ${g}` }))}
+          onChange={(v) => {
+            onPatch({ adrPackingGroup: v ?? null });
+            commitSoon();
+          }}
+        />
+      </label>
       <Checkbox
-        className="text-xs"
+        className="!text-[13px] !text-orange-800"
         checked={line.adrLimitedQuantity ?? false}
         onChange={(e) => {
           onPatch({ adrLimitedQuantity: e.target.checked });

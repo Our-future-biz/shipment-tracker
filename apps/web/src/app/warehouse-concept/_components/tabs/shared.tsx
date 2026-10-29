@@ -8,6 +8,7 @@ import { useToast } from "@/lib/toast";
 import { errorMessage } from "@/app/warehouse-concept/gate-log/_lib/gate";
 import { formatNumber } from "@/lib/number";
 import { businessToday } from "@/lib/date";
+import { containerNumberInput, isValidContainerNumber } from "@/lib/container";
 
 // Shared pieces of the Warehouse module tabs (Containers, Dock & Yard, Reports):
 // sub-tab pills, cards, KPI tiles, callouts, status tags and a record form.
@@ -193,7 +194,8 @@ export function BulkDeleteButton<T>({
 export type FieldDef = {
   name: string;
   label: string;
-  type?: "text" | "number" | "date" | "time" | "datetime" | "select" | "textarea";
+  // "container": a container number, typed as 4 letters then 7 digits (containerNumberInput).
+  type?: "text" | "number" | "date" | "time" | "datetime" | "select" | "textarea" | "container";
   options?: string[] | { value: string; label: string }[];
   required?: boolean;
   full?: boolean;
@@ -341,7 +343,13 @@ export function RecordFormModal<V extends object>({
               name={f.name}
               label={f.label}
               className={f.full || f.type === "textarea" ? "col-span-full" : undefined}
-              rules={f.required ? [{ required: true, message: `${f.label} is required` }] : undefined}
+              normalize={f.type === "container" ? (v: string) => containerNumberInput(v ?? "") : undefined}
+              rules={[
+                ...(f.required ? [{ required: true, message: `${f.label} is required` }] : []),
+                ...(f.type === "container"
+                  ? [{ validator: (_: unknown, v?: string) => (isValidContainerNumber(v) ? Promise.resolve() : Promise.reject(new Error("4 letters + 7 digits, e.g. MSKU1234567"))) }]
+                  : []),
+              ]}
             >
               {control}
             </Form.Item>,

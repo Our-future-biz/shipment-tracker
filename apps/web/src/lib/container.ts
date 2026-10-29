@@ -5,6 +5,17 @@ export function normalizeContainerNumber(raw?: string | null): string {
   return (raw ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
 
+// What a container number field keeps while typing: uppercase letters for the first 4 places,
+// then digits for the next 7; anything else (a digit among the letters, a letter among the
+// digits, separators, a 12th character) is dropped. A pasted "msmu 272727-7" → "MSMU2727277".
+export function containerNumberInput(raw: string): string {
+  let out = "";
+  for (const ch of normalizeContainerNumber(raw)) {
+    if (out.length < 4 ? /[A-Z]/.test(ch) : out.length < 11 && /[0-9]/.test(ch)) out += ch;
+  }
+  return out;
+}
+
 /** Canonical shape: 4 letters + 7 digits. An empty value is allowed (row not filled in yet). */
 export function isValidContainerNumber(raw?: string | null): boolean {
   const n = normalizeContainerNumber(raw);

@@ -10,6 +10,7 @@ import { useListKeys } from "@/hooks/useListKeys";
 import { fileToBase64 } from "@/lib/files";
 import { escapeHtml } from "@/lib/html";
 import { formatDateTime } from "@/lib/date";
+import { containerNumberInput, isValidContainerNumber, normalizeContainerNumber } from "@/lib/container";
 import type { interfaces } from "@/lib/api/client";
 import {
   CONTAINER_TYPES,
@@ -623,11 +624,13 @@ function ContainerDialog({
     if (open) setPicked(current);
   }, [open, current]);
 
+  // Only a complete number (4 letters + 7 digits) can be added, and only once: a number
+  // recorded before in another form ("MSKU 123456-7") counts as the same.
+  const complete = number !== "" && isValidContainerNumber(number);
   const add = () => {
-    const n = number.trim().toUpperCase();
-    if (!n || containers.some((c) => c.number === n)) return;
-    onAdd({ number: n, type });
-    setPicked(n);
+    if (!complete || containers.some((c) => normalizeContainerNumber(c.number) === number)) return;
+    onAdd({ number, type });
+    setPicked(number);
     setNumber("");
   };
 
@@ -661,9 +664,9 @@ function ContainerDialog({
         ))}
       </div>
       <div className="flex gap-2 pt-3 mt-2 border-t border-slate-100">
-        <Input size="small" placeholder="MSKU 123456-7" value={number} onChange={(e) => setNumber(e.target.value)} onPressEnter={add} />
+        <Input size="small" placeholder="MSKU1234567" value={number} onChange={(e) => setNumber(containerNumberInput(e.target.value))} onPressEnter={add} />
         <Select size="small" className="w-[110px] shrink-0" value={type} onChange={setType} options={CONTAINER_TYPES.map((t) => ({ value: t, label: t }))} />
-        <Button size="small" onClick={add} disabled={!number.trim()}>
+        <Button size="small" onClick={add} disabled={!complete}>
           Add
         </Button>
       </div>

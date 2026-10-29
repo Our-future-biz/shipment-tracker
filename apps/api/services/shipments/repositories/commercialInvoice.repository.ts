@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
-import { db } from "../db/db";
+import { db, type Tx } from "../db/db";
 import { commercialInvoiceTable, type CommercialInvoiceRecord } from "../schemas/commercialInvoice.schema";
 import type { CommercialInvoiceLine } from "../interfaces/interfaces";
 
@@ -30,12 +30,12 @@ class CommercialInvoiceRepository extends TenantRepository<typeof commercialInvo
 
   // Replace-all: the invoices are edited as one list and nothing references
   // their ids, so drop the shipment's rows and insert the provided set.
-  async replaceForShipment(shipmentId: string, companyId: string, lines: CommercialInvoiceLine[]): Promise<void> {
-    await this.db
+  async replaceForShipment(shipmentId: string, companyId: string, lines: CommercialInvoiceLine[], tx: Tx | typeof db = db): Promise<void> {
+    await tx
       .delete(commercialInvoiceTable)
       .where(and(eq(commercialInvoiceTable.companyId, companyId), eq(commercialInvoiceTable.shipmentId, shipmentId)));
     if (lines.length === 0) return;
-    await this.db.insert(commercialInvoiceTable).values(
+    await tx.insert(commercialInvoiceTable).values(
       lines.map((l, i) => ({
         companyId,
         shipmentId,

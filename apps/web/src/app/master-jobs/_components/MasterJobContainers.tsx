@@ -5,6 +5,7 @@ import { rowKey } from "@/app/shipments/_lib/rowKey";
 import { App, Button, Input, Select } from "antd";
 import { ContainerOutlined, DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import { CONTAINER_TYPES, containerType } from "@/lib/cargo";
+import { containerNumberInput, isValidContainerNumber } from "@/lib/container";
 import type { MasterJobContainerLine, MasterJobShipmentItem } from "@/hooks/useMasterJobs";
 import { MasterJobCard } from "./MasterJobFields";
 
@@ -68,7 +69,7 @@ export function MasterJobContainers({ id, fromShipments, containers, shipments, 
               Discard
             </Button>
           )}
-          <Button size="small" type="primary" onClick={handleSave} disabled={!dirty} loading={saving}>
+          <Button size="small" type="primary" onClick={handleSave} disabled={!dirty || !draft.every((c) => isValidContainerNumber(c.containerNumber))} loading={saving}>
             Save containers
           </Button>
         </>
@@ -103,8 +104,10 @@ export function MasterJobContainers({ id, fromShipments, containers, shipments, 
                       size="small"
                       placeholder="MSKU1234567"
                       value={c.containerNumber}
+                      // Incomplete (not 4 letters + 7 digits) shows red and blocks Save.
+                      status={isValidContainerNumber(c.containerNumber) ? undefined : "error"}
                       aria-label="Container number"
-                      onChange={(e) => handleChange(i, { containerNumber: e.target.value.toUpperCase() })}
+                      onChange={(e) => handleChange(i, { containerNumber: containerNumberInput(e.target.value) })}
                     />
                   </td>
                   <td className="px-2 py-1.5">

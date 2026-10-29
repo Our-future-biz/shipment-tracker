@@ -32,10 +32,18 @@ vi.mock("../../repositories/shipmentAttachment.repository", () => ({ shipmentAtt
 vi.mock("../../repositories/shipmentAudit.repository", () => ({ shipmentAuditRepository: { create: vi.fn() } }));
 vi.mock("../../repositories/masterJob.repository", () => ({ masterJobRepository: {} }));
 vi.mock("../../repositories/shipmentRefCounter.repository", () => ({ shipmentRefCounterRepository: { peek: vi.fn() } }));
-vi.mock("../../repositories/container.repository", () => ({ containerRepository: { syncForShipment: vi.fn(), listByShipmentId: vi.fn() } }));
-vi.mock("../../repositories/cargoItem.repository", () => ({ cargoItemRepository: { replaceForShipment: vi.fn(), listByShipmentId: vi.fn() } }));
-vi.mock("../../repositories/cargoDimension.repository", () => ({ cargoDimensionRepository: { replaceForShipment: vi.fn(), listByShipmentId: vi.fn() } }));
-vi.mock("../../repositories/commercialInvoice.repository", () => ({ commercialInvoiceRepository: { listByShipmentId: vi.fn(async () => []), syncForShipment: vi.fn() } }));
+// The detail rows' transaction: its work runs at once, handed this stand-in for the transaction.
+const TX = vi.hoisted(() => ({ fake: "tx" }));
+vi.mock("../../repositories/container.repository", () => ({
+  containerRepository: {
+    syncForShipment: vi.fn(),
+    listByShipmentId: vi.fn(),
+    withDetailRowsLock: vi.fn(async (_shipmentId: string, _companyId: string, work: (tx: unknown) => Promise<unknown>) => work(TX)),
+  },
+}));
+vi.mock("../../repositories/cargoItem.repository", () => ({ cargoItemRepository: { replaceForShipment: vi.fn(), listByShipmentId: vi.fn(), assignLooseToContainer: vi.fn(), detachFromContainers: vi.fn() } }));
+vi.mock("../../repositories/cargoDimension.repository", () => ({ cargoDimensionRepository: { replaceForShipment: vi.fn(), listByShipmentId: vi.fn(), assignLooseToContainer: vi.fn(), detachFromContainers: vi.fn() } }));
+vi.mock("../../repositories/commercialInvoice.repository", () => ({ commercialInvoiceRepository: { listByShipmentId: vi.fn(async () => []), replaceForShipment: vi.fn() } }));
 vi.mock("../../topics", () => ({ shipmentDeleted: { publish: vi.fn() }, shipmentPartiesChanged: { publish: vi.fn() } }));
 vi.mock("../../services/quoteLinks.service", () => ({ quoteLinksService: { syncReference: vi.fn(), markDirty: vi.fn() } }));
 
@@ -45,6 +53,7 @@ import { APIError } from "../../../../lib/tests/encoreApi.stub";
 import type { QuoteSyncResult } from "../../interfaces/interfaces";
 import { cargoDimensionRepository } from "../../repositories/cargoDimension.repository";
 import { cargoItemRepository } from "../../repositories/cargoItem.repository";
+import { commercialInvoiceRepository } from "../../repositories/commercialInvoice.repository";
 import { containerRepository } from "../../repositories/container.repository";
 import { shipmentRepository } from "../../repositories/shipment.repository";
 import { shipmentAttachmentRepository } from "../../repositories/shipmentAttachment.repository";
@@ -1080,5 +1089,122 @@ describe("the Customer's PIC of a shipment made from a quote", () => {
     expect(created()).toMatchObject({ customerPic: "Jana Malá", customerPicContactId: "k1" });
     await fromQuote({ customerContact: "Petr", customerContactId: "k0" }, { customerPic: "" });
     expect(repository.createFromQuote.mock.calls[1]![2]).toMatchObject({ customerPic: "", customerPicContactId: null });
+  });
+});
+
+describe("cargo lines and containers", () => {
+  const update = (data: Record<string, unknown>) => shipmentService.update(SHIPMENT, COMPANY, data as never, USER);
+  const A = "0b8e1d2c-0000-4000-8000-00000000000a";
+  const B = "0b8e1d2c-0000-4000-8000-00000000000b";
+  const dim = (containerId: string | null, pieces = "2") => ({ containerId, pieces, lengthCm: "1", widthCm: "1", heightCm: "1", weightPerPcKg: "1", packageType: "", stackable: "" });
+  const containers = (...ids: string[]) =>
+    vi.mocked(containerRepository.listByShipmentId).mockResolvedValue(ids.map((id) => ({ id, containerNumber: "MSKU1234567", sealNumber: "", type: "", teu: "", packages: "", packageType: "", grossWeight: "", volume: "" })) as never);
+
+  beforeEach(() => stored.set(SHIPMENT, row()));
+
+  it("with exactly one container, lines without one are saved to it and stored loose lines move to it", async () => {
+    containers(A);
+    await update({ cargoDimensions: [dim(null), dim(A, "3")] });
+    expect(vi.mocked(cargoDimensionRepository.replaceForShipment).mock.calls[0]![2]).toMatchObject([dim(A), dim(A, "3")]);
+    expect(cargoDimensionRepository.assignLooseToContainer).toHaveBeenCalledWith(SHIPMENT, COMPANY, A, TX);
+    expect(cargoItemRepository.assignLooseToContainer).toHaveBeenCalledWith(SHIPMENT, COMPANY, A, TX);
+  });
+
+  it("moves stored loose lines when only the containers are saved (the first container was just added)", async () => {
+    containers(A);
+    await update({ containers: [{ id: A, containerNumber: "MSKU1234567" }] });
+    expect(cargoDimensionRepository.replaceForShipment).not.toHaveBeenCalled();
+    expect(cargoDimensionRepository.assignLooseToContainer).toHaveBeenCalledWith(SHIPMENT, COMPANY, A, TX);
+  });
+
+  it("with two containers, keeps lines without a container as they are", async () => {
+    containers(A, B);
+    await update({ cargoDimensions: [dim(null), dim(B)] });
+    expect(vi.mocked(cargoDimensionRepository.replaceForShipment).mock.calls[0]![2]).toMatchObject([dim(null), dim(B)]);
+    expect(cargoDimensionRepository.assignLooseToContainer).not.toHaveBeenCalled();
+  });
+
+  it("with one container, gives it also a line naming a container that is gone (a stale screen after the only one was replaced)", async () => {
+    containers(A);
+    await update({ cargoDimensions: [dim("0b8e1d2c-0000-4000-8000-0000000000ff")] });
+    expect(vi.mocked(cargoDimensionRepository.replaceForShipment).mock.calls[0]![2]).toMatchObject([dim(A)]);
+  });
+
+  it("drops a line of a container that no longer exists instead of bringing it back as shipment cargo", async () => {
+    containers(A, B);
+    await update({ cargoDimensions: [dim(A), dim("0b8e1d2c-0000-4000-8000-0000000000ff")] });
+    expect(vi.mocked(cargoDimensionRepository.replaceForShipment).mock.calls[0]![2]).toMatchObject([dim(A)]);
+  });
+});
+
+describe("removing the only container", () => {
+  const update = (data: Record<string, unknown>) => shipmentService.update(SHIPMENT, COMPANY, data as never, USER);
+  const A = "0b8e1d2c-0000-4000-8000-00000000000a";
+  const N = "0b8e1d2c-0000-4000-8000-00000000000c";
+  const one = { id: A, containerNumber: "MSKU1234567", sealNumber: "", type: "", teu: "", packages: "", packageType: "", grossWeight: "", volume: "" };
+  beforeEach(() => {
+    stored.set(SHIPMENT, row());
+    vi.mocked(containerRepository.listByShipmentId).mockResolvedValue([one] as never);
+  });
+
+  it("keeps its cargo as shipment cargo when it is deleted", async () => {
+    await update({ containers: [] });
+    expect(cargoItemRepository.detachFromContainers).toHaveBeenCalledWith(SHIPMENT, COMPANY, [A], TX);
+    expect(cargoDimensionRepository.detachFromContainers).toHaveBeenCalledWith(SHIPMENT, COMPANY, [A], TX);
+  });
+
+  it("keeps its cargo when it is replaced by a new container", async () => {
+    await update({ containers: [{ ...one, id: N, containerNumber: "TGHU2205539" }] });
+    expect(cargoDimensionRepository.detachFromContainers).toHaveBeenCalledWith(SHIPMENT, COMPANY, [A], TX);
+  });
+
+  it("touches nothing when the container stays", async () => {
+    await update({ containers: [one] });
+    expect(cargoDimensionRepository.detachFromContainers).not.toHaveBeenCalled();
+  });
+
+  it("touches nothing when a line without a usable id takes its place - the sync updates the container in place", async () => {
+    await update({ containers: [{ ...one, id: undefined, containerNumber: "TGHU2205539" }] });
+    await update({ containers: [{ ...one, id: "row-1", containerNumber: "TGHU2205539" }] });
+    expect(cargoItemRepository.detachFromContainers).not.toHaveBeenCalled();
+    expect(cargoDimensionRepository.detachFromContainers).not.toHaveBeenCalled();
+  });
+
+  it("keeps a cargo line sent in the same write naming it as shipment cargo, like the lines it had", async () => {
+    vi.mocked(containerRepository.listByShipmentId).mockResolvedValueOnce([one] as never).mockResolvedValueOnce([]);
+    const dim = (containerId: string | null) => ({ containerId, pieces: "2", lengthCm: "1", widthCm: "1", heightCm: "1", weightPerPcKg: "1", packageType: "", stackable: "" });
+    await update({ containers: [], cargoDimensions: [dim(A), dim(null)] });
+    expect(vi.mocked(cargoDimensionRepository.replaceForShipment).mock.calls[0]![2]).toMatchObject([dim(null), dim(null)]);
+  });
+});
+
+describe("the detail rows of one write", () => {
+  const update = (data: Record<string, unknown>) => shipmentService.update(SHIPMENT, COMPANY, data as never, USER);
+  const A = "0b8e1d2c-0000-4000-8000-00000000000a";
+  beforeEach(() => stored.set(SHIPMENT, row()));
+
+  it("are written in one transaction holding the shipment's turn", async () => {
+    const one = { id: A, containerNumber: "MSKU1234567", sealNumber: "", type: "", teu: "", packages: "", packageType: "", grossWeight: "", volume: "" };
+    vi.mocked(containerRepository.listByShipmentId).mockResolvedValue([one] as never);
+    await update({
+      containers: [one],
+      cargoItems: [{ containerId: A, cargoDescription: "Shoes" }],
+      cargoDimensions: [{ containerId: A, pieces: "1" }],
+      commercialInvoices: [{ invoiceNumber: "INV-1", value: "10", currency: "EUR" }],
+    });
+    expect(containerRepository.withDetailRowsLock).toHaveBeenCalledTimes(1);
+    expect(containerRepository.withDetailRowsLock).toHaveBeenCalledWith(SHIPMENT, COMPANY, expect.any(Function));
+    expect(vi.mocked(containerRepository.syncForShipment).mock.calls[0]![3]).toBe(TX);
+    expect(vi.mocked(cargoItemRepository.replaceForShipment).mock.calls[0]![3]).toBe(TX);
+    expect(vi.mocked(cargoDimensionRepository.replaceForShipment).mock.calls[0]![3]).toBe(TX);
+    expect(vi.mocked(commercialInvoiceRepository.replaceForShipment).mock.calls[0]![3]).toBe(TX);
+    // The containers before and after the sync are read inside it too.
+    expect(containerRepository.listByShipmentId).toHaveBeenNthCalledWith(1, SHIPMENT, COMPANY, TX);
+    expect(containerRepository.listByShipmentId).toHaveBeenNthCalledWith(2, SHIPMENT, COMPANY, TX);
+  });
+
+  it("open no transaction when the write has none", async () => {
+    await update({ vessel: "MSC ANNA" });
+    expect(containerRepository.withDetailRowsLock).not.toHaveBeenCalled();
   });
 });

@@ -10482,6 +10482,12 @@ export namespace interfaces {
         lengthCm: string
         widthCm: string
         heightCm: string
+        /**
+         * The unit the sizes were typed in. lengthCm / widthCm / heightCm are always cm; this
+         * only says how to show and edit them. Absent means "cm".
+         */
+        dimensionUnit?: DimensionUnit
+
         weightPerPcKg: string
         packageType: string
         stackable: string
@@ -12109,6 +12115,8 @@ export namespace interfaces {
          */
         changePercent: number | null
     }
+
+    export type DimensionUnit = "cm" | "in"
 
     export type DocLanguageCode = "cs" | "en" | "both"
 

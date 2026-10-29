@@ -2,6 +2,7 @@ import type { GeoKind } from "./places";
 import { CANCELLED_STATUS, LOAD_TYPES, STATUS_COLORS } from "./enums";
 import { INCOTERMS } from "./incoterms";
 import { formatDateTime } from "./date";
+import { lineInUnit, unitLabel, type DimensionUnit } from "./cargo";
 
 // "place" / "country" / "countryCode" are picked from the location database (see lib/places.ts).
 // "user" is a person: one of the company's users, picked with the UserPicker and kept by e-mail.
@@ -542,6 +543,8 @@ export interface DimensionRow {
   lengthCm: string;
   widthCm: string;
   heightCm: string;
+  // The unit the sizes were typed in; the sizes above are always cm.
+  dimensionUnit?: DimensionUnit;
   weightPerPcKg: string;
 }
 
@@ -570,7 +573,7 @@ export function computeDimensionTotals(dimensions: unknown): {
   }
 }
 
-/** The dimension lines as text: pieces × L×W×H in cm, lines separated by commas. */
+/** The dimension lines as text: pieces × L×W×H in each line's unit (cm or in), lines separated by commas. */
 export function summarizeDimensions(dimensions: unknown): string {
   if (!dimensions) return "";
   try {
@@ -578,7 +581,11 @@ export function summarizeDimensions(dimensions: unknown): string {
     const num = (v: string) => String(parseFloat(v || "0") || 0);
     return rows
       .filter((r) => [r.lengthCm, r.widthCm, r.heightCm].some((v) => parseFloat(v || "0") > 0))
-      .map((r) => `${num(r.pieces) === "0" ? "1" : num(r.pieces)}\u00d7 ${num(r.lengthCm)}\u00d7${num(r.widthCm)}\u00d7${num(r.heightCm)} cm`)
+      .map((r) => {
+        // A line typed in inches shows in inches, as typed (the same conversion as Cargo Details).
+        const shown = lineInUnit(r);
+        return `${num(r.pieces) === "0" ? "1" : num(r.pieces)}\u00d7 ${num(shown.lengthCm)}\u00d7${num(shown.widthCm)}\u00d7${num(shown.heightCm)} ${unitLabel(r.dimensionUnit)}`;
+      })
       .join(", ");
   } catch {
     return "";

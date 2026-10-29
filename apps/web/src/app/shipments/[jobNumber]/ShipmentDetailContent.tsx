@@ -1236,7 +1236,12 @@ export function ShipmentDetailContent() {
           {visibleTabs.map((tab) => (
             <div
               key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
+              // A plain tab click forgets an earlier jump to a container, so Cargo Details
+              // opens at the top like every other tab.
+              onClick={() => {
+                setCargoFocusId(null);
+                setActiveTab(tab.key);
+              }}
               className={`px-4 py-2.5 text-sm cursor-pointer transition-all duration-150 border-b-2 ${
                 activeTab === tab.key
                   ? "font-semibold text-indigo-500 border-indigo-500"
@@ -1686,11 +1691,18 @@ export function ShipmentDetailContent() {
         )}
 
         {activeTab === "cargo" && (
+          // Keyed by the shipment, so opening another shipment starts the tab afresh.
           <CargoDetailsTab
+            key={shipment.id}
             shipment={shipment}
             focusContainerId={cargoFocusId}
             // A refused line (e.g. a UN number that is not four digits) is rolled back and said.
-            onChange={(data) => updateShipment({ id: shipment.id, data }).catch((err) => toast.error(apiErrorMessage(err)))}
+            onChange={(data) =>
+              updateShipment({ id: shipment.id, data }).catch((err) => {
+                toast.error(apiErrorMessage(err));
+                throw err;
+              })
+            }
           />
         )}
 
@@ -1705,7 +1717,13 @@ export function ShipmentDetailContent() {
         {activeTab === "container" && (
           <ContainerDetailsTab
             shipment={shipment}
-            onChange={(containers) => updateShipment({ id: shipment.id, data: { containers } })}
+            // A refused save is said; the tab then shows the saved list again.
+            onChange={(containers) =>
+              updateShipment({ id: shipment.id, data: { containers } }).catch((err) => {
+                toast.error(apiErrorMessage(err));
+                throw err;
+              })
+            }
             onOpenCargo={(containerId) => {
               setCargoFocusId(containerId);
               setActiveTab("cargo");

@@ -32,9 +32,8 @@ export function teuForType(type: string): number {
 
 export const PACK_TYPES = ["Pallet(s)", "Cartons", "Colli", "Boxes", "Wooden boxes", "Drums"];
 
-/** Package types matching what is typed, for the package-type autocompletes. */
-export const packTypeOptions = (query: string) =>
-  PACK_TYPES.filter((p) => p.toLowerCase().includes((query ?? "").toLowerCase().trim())).map((p) => ({ value: p }));
+/** The package types as the options of a package-type Select (picked from the list only). */
+export const PACK_TYPE_OPTIONS = PACK_TYPES.map((p) => ({ value: p }));
 
 // A dimension row is either both stackable and overstowable, or neither.
 export const STACKABLE = "Stackable / Overstowable";
@@ -67,25 +66,21 @@ export function withShipmentStackability(
   return [{ containerId, pieces: "", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "", packageType: "", stackable }];
 }
 
-// Road freight: the pallet a dimension line stands on, and its ADR (dangerous goods) details.
-export const PALLET_TYPES: { value: interfaces.PalletType; label: string }[] = [
-  { value: "EUR", label: "EUR 120×80" },
-  { value: "INDUSTRIAL", label: "Industrial 120×100" },
-  { value: "HALF", label: "Half 80×60" },
-  { value: "QUARTER", label: "Quarter 60×40" },
-  { value: "OTHER", label: "Other" },
-];
+// Road freight: the ADR (dangerous goods) details of a dimension line.
 export const ADR_PACKING_GROUPS: interfaces.AdrPackingGroup[] = ["I", "II", "III"];
 
 /** Whether a dimension line carries any ADR detail. */
 export const hasAdr = (l: interfaces.CargoDimensionLine): boolean =>
   !!(l.adrUn || l.adrClass || l.adrPackingGroup || l.adrLimitedQuantity);
 
-/** The ADR details of a line in one short text, e.g. "UN 1203 · 3 · PG II · LQ". */
+/**
+ * The ADR details of a line in one short text, e.g. "UN 1203 / Cls: 3 / PG II / LQ". A UN
+ * number typed with its prefix ("UN2382", "un 2382") shows the prefix once: "UN 2382".
+ */
 export const adrSummary = (l: interfaces.CargoDimensionLine): string =>
-  [l.adrUn && `UN ${l.adrUn}`, l.adrClass, l.adrPackingGroup && `PG ${l.adrPackingGroup}`, l.adrLimitedQuantity && "LQ"]
+  [l.adrUn?.trim() && `UN ${l.adrUn.trim().replace(/^UN\s*/i, "")}`, l.adrClass?.trim() && `Cls: ${l.adrClass.trim()}`, l.adrPackingGroup && `PG ${l.adrPackingGroup}`, l.adrLimitedQuantity && "LQ"]
     .filter(Boolean)
-    .join(" · ");
+    .join(" / ");
 
 export const CURRENCIES: { code: string; name: string }[] = [
   { code: "USD", name: "US Dollar" },
@@ -173,6 +168,49 @@ export interface DimensionTotals {
   m3: number;
 }
 
+// ── Dimension units ──
+// The server stores the sizes of a dimension line in cm; dimensionUnit says whether the line
+// was typed in cm or inches. The editors (Cargo Details, the Dimensions dialog) hold a line in
+// its own unit and convert at the edges: lineInUnit when it comes from the server,
+// lineInCm when it is sent or measured. 1 in = 2.54 cm exactly, rounded to 4 decimals, so an
+// inch value with up to 4 decimals goes there and back unchanged (44 in -> 111.76 cm -> 44 in).
+export const INCH_CM = 2.54;
+export type DimensionUnit = interfaces.DimensionUnit;
+export const DIMENSION_UNITS: { value: DimensionUnit; label: string }[] = [
+  { value: "cm", label: "CM" },
+  { value: "in", label: "INCH" },
+];
+// What the conversion needs of a line: its three sizes and their unit. A full dimension line
+// has them, and so has a row of the grid's Dimensions column (columnConfig).
+type SizedLine = Pick<CargoDimensionLine, "lengthCm" | "widthCm" | "heightCm" | "dimensionUnit">;
+const round4 = (n: number) => String(Math.round(n * 1e4) / 1e4);
+// An empty or non-numeric size is left as it is.
+const convertSizes = <L extends SizedLine>(l: L, f: (n: number) => number): L => {
+  const size = (v: string) => {
+    const t = (v ?? "").trim();
+    return t === "" || Number.isNaN(Number(t)) ? v : round4(f(Number(t)));
+  };
+  return { ...l, lengthCm: size(l.lengthCm), widthCm: size(l.widthCm), heightCm: size(l.heightCm) };
+};
+/** A line from the server (sizes in cm) shown in its own unit. */
+export const lineInUnit = <L extends SizedLine>(l: L): L =>
+  l.dimensionUnit === "in" ? convertSizes(l, (cm) => cm / INCH_CM) : l;
+/** A line held in its own unit, with its sizes in cm (to send, or to measure volume). */
+export const lineInCm = <L extends SizedLine>(l: L): L =>
+  l.dimensionUnit === "in" ? convertSizes(l, (inch) => inch * INCH_CM) : l;
+/** The short unit written after a line's sizes: "in" or "cm". */
+export const unitLabel = (u?: DimensionUnit | null) => (u === "in" ? "in" : "cm");
+
+// A dimension line with nothing in it: never saved. The pallet type and ADR count, so
+// a line holding only those (typed in Cargo Details) survives a save from the grid's
+// Dimensions dialog, which does not show them.
+export function dimensionLineIsEmpty(l: CargoDimensionLine): boolean {
+  return (
+    !l.pieces && !l.lengthCm && !l.widthCm && !l.heightCm && !l.weightPerPcKg && !l.packageType && !l.stackable &&
+    !l.palletType?.trim() && !l.adrUn?.trim() && !l.adrClass?.trim() && !l.adrPackingGroup?.trim() && !l.adrLimitedQuantity
+  );
+}
+
 export function dimensionTotals(dims: CargoDimensionLine[]): DimensionTotals {
   return dims.reduce(
     (t, d) => {
@@ -187,24 +225,33 @@ export function dimensionTotals(dims: CargoDimensionLine[]): DimensionTotals {
 }
 
 // Compare a container's declared Pieces/Gross Weight/Volume against the sums of
-// its dimension lines. Tolerance 0.001 absorbs floating point noise. A metric
+// its dimension lines, at the precision the totals are shown in (pcs 0, kg 2, m³ 3
+// decimals), so the colour always agrees with the figures on screen. A metric
 // where both sides are empty doesn't participate (ok stays true).
+export interface FigureCheck {
+  sum: number;
+  declared: number;
+  empty: boolean;
+  ok: boolean;
+}
+
 export interface ConsistencyCheck {
   matched: boolean;
-  pcs: { sum: number; declared: number; empty: boolean; ok: boolean };
-  kg: { sum: number; declared: number; empty: boolean; ok: boolean };
-  m3: { sum: number; declared: number; empty: boolean; ok: boolean };
+  pcs: FigureCheck;
+  kg: FigureCheck;
+  m3: FigureCheck;
+}
+
+export function compareFigure(sum: number, declared: number, decimals: number): FigureCheck {
+  const empty = !sum && !declared;
+  return { sum, declared, empty, ok: empty || fmtFixed(sum, decimals) === fmtFixed(declared, decimals) };
 }
 
 export function checkConsistency(container: ContainerLine, dims: CargoDimensionLine[]): ConsistencyCheck {
   const t = dimensionTotals(dims);
-  const compare = (sum: number, declared: number) => {
-    const empty = !sum && !declared;
-    return { sum, declared, empty, ok: empty || Math.abs(sum - declared) < 0.001 };
-  };
-  const pcs = compare(t.pcs, num(container.packages));
-  const kg = compare(t.kg, num(container.grossWeight));
-  const m3 = compare(t.m3, num(container.volume));
+  const pcs = compareFigure(t.pcs, num(container.packages), 0);
+  const kg = compareFigure(t.kg, num(container.grossWeight), 2);
+  const m3 = compareFigure(t.m3, num(container.volume), 3);
   return { matched: pcs.ok && kg.ok && m3.ok, pcs, kg, m3 };
 }
 

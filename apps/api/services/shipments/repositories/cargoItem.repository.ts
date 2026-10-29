@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
-import { db } from "../db/db";
+import { db, type Tx } from "../db/db";
 import { cargoItemTable, type CargoItemRecord } from "../schemas/cargoItem.schema";
 import type { CargoItemLine } from "../interfaces/interfaces";
 
@@ -28,15 +28,32 @@ class CargoItemRepository extends TenantRepository<typeof cargoItemTable> {
       .orderBy(asc(cargoItemTable.position), asc(cargoItemTable.createdAt));
   }
 
+  // Lines of containers about to be removed become shipment-level lines (kept, not cascaded).
+  async detachFromContainers(shipmentId: string, companyId: string, containerIds: string[], tx: Tx | typeof db = db): Promise<void> {
+    if (containerIds.length === 0) return;
+    await tx
+      .update(cargoItemTable)
+      .set({ containerId: null })
+      .where(and(eq(cargoItemTable.companyId, companyId), eq(cargoItemTable.shipmentId, shipmentId), inArray(cargoItemTable.containerId, containerIds)));
+  }
+
+  // The one-container rule: lines of the shipment without a container move to its only one.
+  async assignLooseToContainer(shipmentId: string, companyId: string, containerId: string, tx: Tx | typeof db = db): Promise<void> {
+    await tx
+      .update(cargoItemTable)
+      .set({ containerId })
+      .where(and(eq(cargoItemTable.companyId, companyId), eq(cargoItemTable.shipmentId, shipmentId), isNull(cargoItemTable.containerId)));
+  }
+
   // Replace-all: cargo lines are edited as one list and nothing references their
   // ids, so drop the shipment's rows and insert the provided set. `position`
   // preserves list order.
-  async replaceForShipment(shipmentId: string, companyId: string, lines: CargoItemLine[]): Promise<void> {
-    await this.db
+  async replaceForShipment(shipmentId: string, companyId: string, lines: CargoItemLine[], tx: Tx | typeof db = db): Promise<void> {
+    await tx
       .delete(cargoItemTable)
       .where(and(eq(cargoItemTable.companyId, companyId), eq(cargoItemTable.shipmentId, shipmentId)));
     if (lines.length === 0) return;
-    await this.db.insert(cargoItemTable).values(
+    await tx.insert(cargoItemTable).values(
       lines.map((l, i) => ({
         companyId,
         shipmentId,
