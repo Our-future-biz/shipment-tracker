@@ -1,3 +1,8 @@
+import type { MaxLen } from "encore.dev/validate";
+
+// The detail lines' MaxLens are bounds, not format rules: the columns are text and older rows
+// were never checked, so each sits well above any real value a client echoes back.
+
 /** Customs priority of a shipment. */
 export type CustomsPriority = "Standard" | "Urgent";
 /** Manual override of a Customs "received" tick: "" follows the uploads. */
@@ -9,51 +14,51 @@ export interface ContainerLine {
   // Stable row id. Present on reads; clients echo it back on updates so cargo
   // lines keep pointing at the same container. A brand-new row either has none or
   // brings a UUID the client made for it, which the stored row keeps.
-  id?: string;
-  containerNumber: string;
-  sealNumber: string;
-  type: string;
+  id?: string & MaxLen<100>;
+  containerNumber: string & MaxLen<200>;
+  sealNumber: string & MaxLen<500>;
+  type: string & MaxLen<200>;
   // Derived from type on the server (20' → 1, 40' → 2); client values are ignored.
-  teu: string;
-  packages: string;
-  packageType: string;
-  grossWeight: string;
-  volume: string;
+  teu: string & MaxLen<200>;
+  packages: string & MaxLen<200>;
+  packageType: string & MaxLen<200>;
+  grossWeight: string & MaxLen<200>;
+  volume: string & MaxLen<200>;
 }
 
 // A goods line of the Cargo Description card. No volume by design — volume only
 // exists on dimension lines. containerId is null for containerless cargo (LCL/air).
 export interface CargoItemLine {
-  containerId?: string | null;
-  cargoDescription: string;
-  hsCode: string;
-  pieces: string;
-  packageType: string;
-  grossWeight: string;
-  commercialInvoiceValue: string;
-  currency: string;
+  containerId?: (string & MaxLen<100>) | null;
+  cargoDescription: string & MaxLen<10000>;
+  hsCode: string & MaxLen<200>;
+  pieces: string & MaxLen<200>;
+  packageType: string & MaxLen<200>;
+  grossWeight: string & MaxLen<200>;
+  commercialInvoiceValue: string & MaxLen<200>;
+  currency: string & MaxLen<200>;
 }
 
 // A dimension line of the Cargo Dimensions card: `pieces` identical pieces of
 // L×W×H (cm) and weightPerPcKg each. Volume per piece is derived, never stored.
 export interface CargoDimensionLine {
-  containerId?: string | null;
-  pieces: string;
-  lengthCm: string;
-  widthCm: string;
-  heightCm: string;
+  containerId?: (string & MaxLen<100>) | null;
+  pieces: string & MaxLen<200>;
+  lengthCm: string & MaxLen<200>;
+  widthCm: string & MaxLen<200>;
+  heightCm: string & MaxLen<200>;
   /** The unit the sizes were typed in. lengthCm / widthCm / heightCm are always cm; this
    * only says how to show and edit them. Absent means "cm". */
   dimensionUnit?: DimensionUnit;
-  weightPerPcKg: string;
-  packageType: string;
-  stackable: string;
+  weightPerPcKg: string & MaxLen<200>;
+  packageType: string & MaxLen<200>;
+  stackable: string & MaxLen<200>;
   // Road freight. Optional on writes: a line sent without them is stored without them.
   palletType?: PalletType | null;
   /** ADR: UN number, four digits ("UN 1203" is stored as "1203"). */
-  adrUn?: string | null;
+  adrUn?: (string & MaxLen<200>) | null;
   /** ADR class, e.g. "3" or "2.1". */
-  adrClass?: string | null;
+  adrClass?: (string & MaxLen<200>) | null;
   adrPackingGroup?: AdrPackingGroup | null;
   adrLimitedQuantity?: boolean;
 }
@@ -65,9 +70,9 @@ export type AdrPackingGroup = "I" | "II" | "III";
 
 // One commercial invoice of the shipment (the Commercial Invoice pop-up).
 export interface CommercialInvoiceLine {
-  invoiceNumber: string;
-  value: string;
-  currency: string;
+  invoiceNumber: string & MaxLen<200>;
+  value: string & MaxLen<200>;
+  currency: string & MaxLen<200>;
 }
 
 export interface ShipmentItem {
@@ -334,12 +339,12 @@ export interface MasterJobItem {
 
 /** A container on the master BL and the house shipments it is assigned to. */
 export interface MasterJobContainerLine {
-  id?: string;
-  containerNumber: string;
-  sealNumber: string;
+  id?: string & MaxLen<100>;
+  containerNumber: string & MaxLen<200>;
+  sealNumber: string & MaxLen<500>;
   /** Same dictionary as a shipment container's type, e.g. "40' HC". */
-  type: string;
-  shipmentIds: string[];
+  type: string & MaxLen<200>;
+  shipmentIds: string[] & MaxLen<500>;
 }
 
 /** A master job with its containers and house shipments. */

@@ -5,6 +5,7 @@ import { isSalesReference } from "../../../lib/salesReference";
 import log from "encore.dev/log";
 import { customers, invoicing, quotes } from "~encore/clients";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
+import type { Tx } from "../db/db";
 import { shipmentRepository, OVERDUE_DEADLINE_FIELDS, type NewShipmentData } from "../repositories/shipment.repository";
 import { shipmentAuditRepository } from "../repositories/shipmentAudit.repository";
 import { masterJobRepository } from "../repositories/masterJob.repository";
@@ -45,6 +46,7 @@ import { isUuid } from "../../../lib/uuid";
 import { publicFields } from "../lib/rows";
 import { changesTaxDate } from "../lib/taxDate";
 import { normalizeCargoDimensions, normalizeStops } from "../lib/roadFreight";
+import { detailRowChanges, type DetailRowLists } from "../lib/detailRowsAudit";
 import { partyContact, partyStop, stopKeys, type Party } from "../lib/partyAddress";
 import { CONSIGNEE_CONTACT, CUSTOMER_PIC, SHIPPER_CONTACT, linkContact, type ContactMode } from "../lib/contactLinks";
 import { shipmentDeleted, shipmentPartiesChanged } from "../topics";
@@ -276,6 +278,19 @@ function sanitizeContainerLinks<T extends { containerId?: string | null }>(lines
     return l.containerId === keptCargoOf ? [{ ...l, containerId: null }] : [];
   });
 }
+
+// A cargo line naming a client-made container id the stored container could not keep (another
+// container already had it) names the id the container got instead.
+function followRenamed<T extends { containerId?: string | null }>(lines: T[], renamed: Map<string, string>): T[] {
+  if (!renamed.size) return lines;
+  return lines.map((l) => {
+    const id = l.containerId ? renamed.get(l.containerId) : undefined;
+    return id ? { ...l, containerId: id } : l;
+  });
+}
+
+const hasDetailRows = ({ containers, cargoItems, cargoDimensions, commercialInvoices }: DetailRows) =>
+  containers !== undefined || cargoItems !== undefined || cargoDimensions !== undefined || commercialInvoices !== undefined;
 
 // The one-container rule: when a shipment has exactly one container, every cargo line
 // (dimensions and descriptions) belongs to it, also a line typed or imported before the
@@ -520,49 +535,65 @@ class ShipmentService {
     return quote;
   }
 
-  // Persist the shipment's detail rows, all in one transaction that holds the shipment's
-  // turn (withDetailRowsLock): a failed write leaves them as they were, and two writes never
-  // interleave. Containers first — cargo lines are validated against the resulting container ids.
+  // Persist the detail rows of a shipment just created, in its write turn (see writeDetailRows).
   private async syncDetailRows(shipmentId: string, companyId: string, rows: DetailRows): Promise<void> {
+    if (!hasDetailRows(rows)) return;
+    await shipmentRepository.writeTurn(shipmentId, companyId, (tx) => this.writeDetailRows(tx, shipmentId, companyId, rows));
+  }
+
+  // Write the shipment's detail rows in `tx`, a transaction that holds the shipment's write
+  // turn (shipmentRepository.writeTurn): a failed write leaves them as they were, and two
+  // writes never interleave. Containers first — cargo lines are validated against the
+  // resulting container ids.
+  private async writeDetailRows(tx: Tx, shipmentId: string, companyId: string, rows: DetailRows): Promise<void> {
     const { containers, cargoItems, cargoDimensions, commercialInvoices } = rows;
-    if (containers === undefined && cargoItems === undefined && cargoDimensions === undefined && commercialInvoices === undefined) return;
-    await containerRepository.withDetailRowsLock(shipmentId, companyId, async (tx) => {
-      let removedOnly: string | undefined;
-      if (containers !== undefined) {
-        // With one container all cargo belongs to it, so it is the shipment's cargo: removing
-        // or replacing that only container keeps the lines (they move to the new container, or
-        // become shipment-level with none left). With two or more, a removed container's own
-        // cargo goes with it (ON DELETE CASCADE). Whether the sync removes it is decided by the
-        // same matching the sync itself does.
-        const before = (await containerRepository.listByShipmentId(shipmentId, companyId, tx)).map((c) => c.id);
-        const only = before.length === 1 ? before[0] : undefined;
-        if (only && !matchContainerRows(before, containers).some((m) => m.id === only)) {
-          removedOnly = only;
-          await cargoItemRepository.detachFromContainers(shipmentId, companyId, [only], tx);
-          await cargoDimensionRepository.detachFromContainers(shipmentId, companyId, [only], tx);
-        }
-        await containerRepository.syncForShipment(shipmentId, companyId, containers, tx);
+    let removedOnly: string | undefined;
+    let renamed = new Map<string, string>();
+    if (containers !== undefined) {
+      // With one container all cargo belongs to it, so it is the shipment's cargo: removing
+      // or replacing that only container keeps the lines (they move to the new container, or
+      // become shipment-level with none left). With two or more, a removed container's own
+      // cargo goes with it (ON DELETE CASCADE). Whether the sync removes it is decided by the
+      // same matching the sync itself does.
+      const before = (await containerRepository.listByShipmentId(shipmentId, companyId, tx)).map((c) => c.id);
+      const only = before.length === 1 ? before[0] : undefined;
+      if (only && !matchContainerRows(before, containers).some((m) => m.id === only)) {
+        removedOnly = only;
+        await cargoItemRepository.detachFromContainers(shipmentId, companyId, [only], tx);
+        await cargoDimensionRepository.detachFromContainers(shipmentId, companyId, [only], tx);
       }
-      if (containers !== undefined || cargoItems !== undefined || cargoDimensions !== undefined) {
-        const containerIds = new Set((await containerRepository.listByShipmentId(shipmentId, companyId, tx)).map((c) => c.id));
-        if (cargoItems !== undefined) {
-          await cargoItemRepository.replaceForShipment(shipmentId, companyId, sanitizeContainerLinks(cargoItems, containerIds, removedOnly), tx);
-        }
-        if (cargoDimensions !== undefined) {
-          await cargoDimensionRepository.replaceForShipment(shipmentId, companyId, sanitizeContainerLinks(cargoDimensions, containerIds, removedOnly), tx);
-        }
-        // Lines that stayed without a container (e.g. the first container was just added)
-        // move to it when it is the only one.
-        if (containerIds.size === 1) {
-          const [only] = containerIds;
-          await cargoItemRepository.assignLooseToContainer(shipmentId, companyId, only!, tx);
-          await cargoDimensionRepository.assignLooseToContainer(shipmentId, companyId, only!, tx);
-        }
+      renamed = await containerRepository.syncForShipment(shipmentId, companyId, containers, tx);
+    }
+    if (containers !== undefined || cargoItems !== undefined || cargoDimensions !== undefined) {
+      const containerIds = new Set((await containerRepository.listByShipmentId(shipmentId, companyId, tx)).map((c) => c.id));
+      const linked = <T extends { containerId?: string | null }>(lines: T[]) => sanitizeContainerLinks(followRenamed(lines, renamed), containerIds, removedOnly);
+      if (cargoItems !== undefined) {
+        await cargoItemRepository.replaceForShipment(shipmentId, companyId, linked(cargoItems), tx);
       }
-      if (commercialInvoices !== undefined) {
-        await commercialInvoiceRepository.replaceForShipment(shipmentId, companyId, commercialInvoices, tx);
+      if (cargoDimensions !== undefined) {
+        await cargoDimensionRepository.replaceForShipment(shipmentId, companyId, linked(cargoDimensions), tx);
       }
-    });
+      // Lines that stayed without a container (e.g. the first container was just added)
+      // move to it when it is the only one.
+      if (containerIds.size === 1) {
+        const [only] = containerIds;
+        await cargoItemRepository.assignLooseToContainer(shipmentId, companyId, only!, tx);
+        await cargoDimensionRepository.assignLooseToContainer(shipmentId, companyId, only!, tx);
+      }
+    }
+    if (commercialInvoices !== undefined) {
+      await commercialInvoiceRepository.replaceForShipment(shipmentId, companyId, commercialInvoices, tx);
+    }
+  }
+
+  // The shipment's detail rows as its API shows them, read in `tx`: what the audit log compares.
+  private async detailRowLists(tx: Tx, shipmentId: string, companyId: string): Promise<DetailRowLists> {
+    return {
+      containers: (await containerRepository.listByShipmentId(shipmentId, companyId, tx)).map(toContainerLine),
+      cargoItems: (await cargoItemRepository.listByShipmentId(shipmentId, companyId, tx)).map(toCargoItemLine),
+      cargoDimensions: (await cargoDimensionRepository.listByShipmentId(shipmentId, companyId, tx)).map(toCargoDimensionLine),
+      commercialInvoices: (await commercialInvoiceRepository.listByShipmentId(shipmentId, companyId, tx)).map(toCommercialInvoiceLine),
+    };
   }
 
   async list(
@@ -1038,24 +1069,27 @@ class ShipmentService {
       if (owner) shipmentData.salesPerson = owner;
     }
 
-    // Write audit entries for changed shipment fields
-    for (const [key, newValue] of Object.entries(shipmentData)) {
-      const oldValue = before[key];
-      if (oldValue !== newValue) {
-        await shipmentAuditRepository.create({
-          companyId,
-          shipmentId: id,
-          userId,
-          field: key,
-          oldValue: oldValue != null ? String(oldValue) : null,
-          newValue: newValue != null ? String(newValue) : null,
-        });
+    // One write turn (shipmentRepository.writeTurn): the audit entries of the changed fields
+    // and detail-row lists, the detail rows and the shipment row land together or not at all.
+    const rows: DetailRows = { containers, cargoItems, cargoDimensions, commercialInvoices };
+    const updated = await shipmentRepository.writeTurn(id, companyId, async (tx) => {
+      const audit = (field: string, oldValue: string | null, newValue: string | null) =>
+        shipmentAuditRepository.create({ companyId, shipmentId: id, userId, field, oldValue, newValue }, tx);
+      for (const [key, newValue] of Object.entries(shipmentData)) {
+        const oldValue = before[key];
+        if (oldValue !== newValue) await audit(key, oldValue != null ? String(oldValue) : null, newValue != null ? String(newValue) : null);
       }
-    }
-
-    await this.syncDetailRows(id, companyId, { containers, cargoItems, cargoDimensions, commercialInvoices });
-
-    const updated = Object.keys(shipmentData).length > 0 ? await shipmentRepository.updateForCompany(id, companyId, shipmentData) : null;
+      if (hasDetailRows(rows)) {
+        const listsBefore = await this.detailRowLists(tx, id, companyId);
+        await this.writeDetailRows(tx, id, companyId, rows);
+        for (const change of detailRowChanges(listsBefore, await this.detailRowLists(tx, id, companyId))) {
+          await audit(change.field, change.oldValue, change.newValue);
+        }
+      }
+      return Object.keys(shipmentData).length > 0 ? shipmentRepository.updateForCompany(id, companyId, shipmentData, tx) : null;
+    });
+    // The truck's other shipments take a typed plate after the write, on their own: inside the
+    // turn, two shipments of one truck saved at once could each wait for the other's row.
     if (truck && plateTyped) {
       await shipmentRepository.setTruckPlate(companyId, truck, shipmentData.plateNumber ?? "");
     }

@@ -9,13 +9,13 @@ class CommercialInvoiceRepository extends TenantRepository<typeof commercialInvo
     super(db, commercialInvoiceTable, "commercial_invoice");
   }
 
-  async listByShipmentId(shipmentId: string, companyId: string): Promise<CommercialInvoiceRecord[]> {
-    return this.listByShipmentIds([shipmentId], companyId);
+  async listByShipmentId(shipmentId: string, companyId: string, tx: Tx | typeof db = db): Promise<CommercialInvoiceRecord[]> {
+    return this.listByShipmentIds([shipmentId], companyId, tx);
   }
 
-  async listByShipmentIds(shipmentIds: string[], companyId: string): Promise<CommercialInvoiceRecord[]> {
+  async listByShipmentIds(shipmentIds: string[], companyId: string, tx: Tx | typeof db = db): Promise<CommercialInvoiceRecord[]> {
     if (shipmentIds.length === 0) return [];
-    return this.db
+    return tx
       .select()
       .from(commercialInvoiceTable)
       .where(

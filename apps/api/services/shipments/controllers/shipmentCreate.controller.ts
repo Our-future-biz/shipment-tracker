@@ -171,11 +171,11 @@ interface ShipmentCreateRequest {
   containerType4?: string;
 
   // Detail rows (containers + cargo lines)
-  containers?: ContainerLine[];
-  cargoItems?: CargoItemLine[];
-  cargoDimensions?: CargoDimensionLine[];
+  containers?: ContainerLine[] & MaxLen<500>;
+  cargoItems?: CargoItemLine[] & MaxLen<2000>;
+  cargoDimensions?: CargoDimensionLine[] & MaxLen<2000>;
   // Replaces the shipment's commercial invoices when present.
-  commercialInvoices?: CommercialInvoiceLine[];
+  commercialInvoices?: CommercialInvoiceLine[] & MaxLen<500>;
 
   // Quote
   salesNumber?: string;

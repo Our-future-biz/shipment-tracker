@@ -1,11 +1,12 @@
 import { api } from "encore.dev/api";
+import type { MaxLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { masterJobService } from "../services/masterJob.service";
 import type { MasterJobContainerLine, MasterJobItem, MasterJobShipmentItem } from "../interfaces/interfaces";
 
 interface MasterJobContainersUpdateRequest {
   masterJobId: string;
-  containers: MasterJobContainerLine[];
+  containers: MasterJobContainerLine[] & MaxLen<500>;
 }
 
 interface MasterJobContainersUpdateResponse {

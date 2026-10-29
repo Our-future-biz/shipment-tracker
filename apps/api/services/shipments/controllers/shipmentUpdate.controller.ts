@@ -1,4 +1,5 @@
 import { api } from "encore.dev/api";
+import type { MaxLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { shipmentService } from "../services/shipment.service";
 import type {
@@ -180,11 +181,11 @@ interface ShipmentUpdateRequest {
   containerType4?: string;
 
   // Detail rows (containers + cargo lines; each replaces the shipment's set when present)
-  containers?: ContainerLine[];
-  cargoItems?: CargoItemLine[];
-  cargoDimensions?: CargoDimensionLine[];
+  containers?: ContainerLine[] & MaxLen<500>;
+  cargoItems?: CargoItemLine[] & MaxLen<2000>;
+  cargoDimensions?: CargoDimensionLine[] & MaxLen<2000>;
   // Replaces the shipment's commercial invoices when present.
-  commercialInvoices?: CommercialInvoiceLine[];
+  commercialInvoices?: CommercialInvoiceLine[] & MaxLen<500>;
 
   // Quote
   salesNumber?: string;

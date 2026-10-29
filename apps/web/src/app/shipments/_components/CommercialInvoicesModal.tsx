@@ -56,7 +56,8 @@ export function CommercialInvoicesModal({
   /** The shipment whose invoices are shown; null keeps the dialog closed. */
   shipment: ShipmentItem | null;
   onClose: () => void;
-  /** Saves the invoices (empty rows already left out); the dialog closes when it resolves. */
+  /** Saves the invoices (empty rows already left out); the dialog closes when it resolves and
+   * stays open with the rows as typed when it rejects (the caller says what went wrong). */
   onSave: (shipment: ShipmentItem, lines: CommercialInvoiceLine[]) => Promise<unknown>;
 }) {
   const [lines, setLines] = useState<CommercialInvoiceLine[]>([]);
@@ -82,6 +83,8 @@ export function CommercialInvoicesModal({
     try {
       await onSave(shipment, lines.filter((l) => !isEmpty(l)));
       onClose();
+    } catch {
+      // Nothing more to do here: the dialog stays open and the caller has said what went wrong.
     } finally {
       setSaving(false);
     }

@@ -74,7 +74,8 @@ export function DimensionsModal({
   /** The shipment whose dimensions are shown; null keeps the dialog closed. */
   shipment: ShipmentItem | null;
   onClose: () => void;
-  /** Saves the lines (empty ones already left out); the dialog closes when it resolves. */
+  /** Saves the lines (empty ones already left out); the dialog closes when it resolves and
+   * stays open with the lines as typed when it rejects (the caller says what went wrong). */
   onSave: (shipment: ShipmentItem, lines: CargoDimensionLine[]) => Promise<unknown>;
 }) {
   const [lines, setLines] = useState<CargoDimensionLine[]>([]);
@@ -139,6 +140,8 @@ export function DimensionsModal({
     try {
       await onSave(shipment, lines.filter((l) => !isEmpty(l)).map(lineInCm));
       onClose();
+    } catch {
+      // Nothing more to do here: the dialog stays open and the caller has said what went wrong.
     } finally {
       setSaving(false);
     }

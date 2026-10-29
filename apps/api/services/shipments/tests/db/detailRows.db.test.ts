@@ -11,6 +11,8 @@ import { shipmentService, type DetailRows } from "../../services/shipment.servic
 import { shipmentTable } from "../../schemas/shipment.schema";
 import { containerTable } from "../../schemas/container.schema";
 import { cargoDimensionTable } from "../../schemas/cargoDimension.schema";
+import { shipmentAuditTable } from "../../schemas/shipmentAudit.schema";
+import { cargoItemRepository } from "../../repositories/cargoItem.repository";
 import type { CargoDimensionLine, CargoItemLine, ContainerLine } from "../../interfaces/interfaces";
 
 // A shipment's containers and cargo lines written through the shipment service, against the
@@ -35,6 +37,8 @@ const storedDimensions = (s: Shipment) =>
   db.select().from(cargoDimensionTable).where(and(eq(cargoDimensionTable.companyId, s.companyId), eq(cargoDimensionTable.shipmentId, s.id)));
 const storedContainers = (s: Shipment) =>
   db.select().from(containerTable).where(and(eq(containerTable.companyId, s.companyId), eq(containerTable.shipmentId, s.id)));
+const storedAudit = (s: Shipment) =>
+  db.select().from(shipmentAuditTable).where(and(eq(shipmentAuditTable.companyId, s.companyId), eq(shipmentAuditTable.shipmentId, s.id)));
 
 const container = (over: Partial<ContainerLine> = {}): ContainerLine => ({
   containerNumber: "",
@@ -115,19 +119,40 @@ describe("one of two containers", () => {
 });
 
 describe("a write of the detail rows", () => {
-  it("is all or nothing: one that fails half way leaves the containers and cargo as they were", async () => {
-    const other = await newShipment();
-    const taken = randomUUID();
-    await update(other, { containers: [container({ id: taken })] });
+  it("is all or nothing: one that fails half way leaves the containers, cargo and audit log as they were", async () => {
     const s = await newShipment();
     const A = randomUUID();
     await update(s, { containers: [container({ id: A, containerNumber: "MSKU1234567" })], cargoDimensions: [dim({ containerId: A })] });
+    const logged = (await storedAudit(s)).length;
 
-    // The only container replaced by one under an id another container has: its cargo is
-    // moved off it first, then the insert fails.
-    await expect(update(s, { containers: [container({ id: taken, containerNumber: "TGHU2205539" })] })).rejects.toThrow();
+    // The only container replaced - its cargo moved off it, it deleted, the new one inserted -
+    // and then the write of the cargo lines fails.
+    const failing = vi.spyOn(cargoItemRepository, "replaceForShipment").mockRejectedValueOnce(new Error("the database went away"));
+    try {
+      await expect(update(s, { containers: [container({ id: randomUUID(), containerNumber: "TGHU2205539" })], cargoItems: [item()] })).rejects.toThrow("the database went away");
+    } finally {
+      failing.mockRestore();
+    }
     expect((await storedContainers(s)).map((c) => [c.id, c.containerNumber])).toEqual([[A, "MSKU1234567"]]);
     expect((await storedDimensions(s)).map((d) => d.containerId)).toEqual([A]);
+    expect(await storedAudit(s)).toHaveLength(logged);
+  });
+
+  it("gives a new container whose client-made id another container has an id of its own, and its cargo follows it", async () => {
+    const other = await newShipment();
+    const taken = randomUUID();
+    await update(other, { containers: [container({ id: taken, containerNumber: "MSKU1234567" })] });
+    const s = await newShipment();
+    const B = randomUUID();
+
+    const after = await update(s, {
+      containers: [container({ id: taken, containerNumber: "TGHU2205539" }), container({ id: B, containerNumber: "CSQU3054383" })],
+      cargoDimensions: [dim({ containerId: taken, pieces: "1" }), dim({ containerId: B, pieces: "2" })],
+    });
+    const own = after.containers![0]!.id!;
+    expect(own).not.toBe(taken);
+    expect(after.cargoDimensions).toMatchObject([{ containerId: own, pieces: "1" }, { containerId: B, pieces: "2" }]);
+    expect((await storedContainers(other)).map((c) => [c.id, c.containerNumber])).toEqual([[taken, "MSKU1234567"]]);
   });
 
   it("takes its turn: writes of the same lines at the same moment never add up their lines", async () => {
@@ -136,6 +161,22 @@ describe("a write of the detail rows", () => {
     const stored = await storedDimensions(s);
     expect(stored).toHaveLength(2);
     expect(new Set(stored.map((d) => d.pieces)).size).toBe(1);
+  });
+});
+
+describe("the audit log", () => {
+  it("keeps each list a write changed, with its lines before and after, and nothing for the same lines sent again", async () => {
+    const s = await newShipment();
+    const A = randomUUID();
+    await update(s, { containers: [container({ id: A, containerNumber: "MSKU1234567" })], cargoDimensions: [dim({ containerId: A })] });
+    await update(s, { containers: [container({ id: A, containerNumber: "MSKU1234567" })] });
+
+    // The lists' entries (the shipment's own fields that took their defaults have theirs).
+    const entries = (await storedAudit(s)).filter((e) => ["containers", "cargoItems", "cargoDimensions", "commercialInvoices"].includes(e.field));
+    expect(entries.map((e) => e.field).sort()).toEqual(["cargoDimensions", "containers"]);
+    const containers = entries.find((e) => e.field === "containers")!;
+    expect(containers).toMatchObject({ userId: USER, oldValue: "[]" });
+    expect(JSON.parse(containers.newValue!)).toMatchObject([{ id: A, containerNumber: "MSKU1234567" }]);
   });
 });
 

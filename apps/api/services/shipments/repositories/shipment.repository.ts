@@ -1,7 +1,7 @@
 import { and, eq, or, ilike, inArray, isNotNull, isNull, notInArray, desc, asc, count, sql, getTableColumns, type SQL } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import { TenantRepository } from "../../../lib/db/repository";
-import { db } from "../db/db";
+import { db, type Tx } from "../db/db";
 import { shipmentTable, type NewShipmentRecord, type ShipmentRecord } from "../schemas/shipment.schema";
 import { CANCELLED_STATUS } from "../lib/fieldDefaults";
 import { shipmentRefCounterRepository } from "./shipmentRefCounter.repository";
@@ -285,6 +285,30 @@ const SALES_NUMBER = sql<string>`btrim(${shipmentTable.salesNumber})`;
 class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
   constructor() {
     super(db, shipmentTable, "shipment");
+  }
+
+  /**
+   * Runs `work` in one transaction that holds the shipment's write turn: what an update writes
+   * (its audit entries, its containers and cargo lines, the shipment row) lands all or nothing,
+   * and two writes of the same shipment take turns (the lock lasts until the transaction ends),
+   * so a line list is never half replaced or stored twice.
+   */
+  async writeTurn<T>(shipmentId: string, companyId: string, work: (tx: Tx) => Promise<T>): Promise<T> {
+    return db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`shipments-write:${companyId}:${shipmentId}`}))`);
+      return work(tx);
+    });
+  }
+
+  /** The base update - inside a write turn when `tx` is given. */
+  override async updateForCompany(id: string, companyId: string, data: Partial<NewShipmentRecord>, tx?: Tx): Promise<ShipmentRecord | null> {
+    if (!tx) return super.updateForCompany(id, companyId, data);
+    const [row] = await tx
+      .update(shipmentTable)
+      .set({ ...data, updatedAt: new Date() })
+      .where(and(eq(shipmentTable.id, id), eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt)))
+      .returning();
+    return row ?? null;
   }
 
   // The live shipments of the company whose Sales Number is `reference`, the oldest first - the

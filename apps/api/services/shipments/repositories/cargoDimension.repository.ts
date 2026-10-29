@@ -9,13 +9,13 @@ class CargoDimensionRepository extends TenantRepository<typeof cargoDimensionTab
     super(db, cargoDimensionTable, "cargo_dimension");
   }
 
-  async listByShipmentId(shipmentId: string, companyId: string): Promise<CargoDimensionRecord[]> {
-    return this.listByShipmentIds([shipmentId], companyId);
+  async listByShipmentId(shipmentId: string, companyId: string, tx: Tx | typeof db = db): Promise<CargoDimensionRecord[]> {
+    return this.listByShipmentIds([shipmentId], companyId, tx);
   }
 
-  async listByShipmentIds(shipmentIds: string[], companyId: string): Promise<CargoDimensionRecord[]> {
+  async listByShipmentIds(shipmentIds: string[], companyId: string, tx: Tx | typeof db = db): Promise<CargoDimensionRecord[]> {
     if (shipmentIds.length === 0) return [];
-    return this.db
+    return tx
       .select()
       .from(cargoDimensionTable)
       .where(

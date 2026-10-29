@@ -11,6 +11,8 @@ vi.mock("~encore/clients", () => ({
   invoicing: { invoicingImportQuote: vi.fn(), openInvoiceCount: vi.fn() },
   quotes: { salesQuoteGet: vi.fn() },
 }));
+// A shipment's write turn: its work runs at once, handed this stand-in for the transaction.
+const TX = vi.hoisted(() => ({ fake: "tx" }));
 vi.mock("../../repositories/shipment.repository", () => ({
   OVERDUE_DEADLINE_FIELDS: new Set<string>(),
   shipmentRepository: {
@@ -26,20 +28,16 @@ vi.mock("../../repositories/shipment.repository", () => ({
     liveBySalesNumber: vi.fn(),
     peopleOf: vi.fn(),
     rewritePeople: vi.fn(),
+    setTruckPlate: vi.fn(),
+    writeTurn: vi.fn(async (_shipmentId: string, _companyId: string, work: (tx: unknown) => Promise<unknown>) => work(TX)),
   },
 }));
 vi.mock("../../repositories/shipmentAttachment.repository", () => ({ shipmentAttachmentRepository: { documentTypesByShipmentIds: vi.fn() } }));
 vi.mock("../../repositories/shipmentAudit.repository", () => ({ shipmentAuditRepository: { create: vi.fn() } }));
 vi.mock("../../repositories/masterJob.repository", () => ({ masterJobRepository: {} }));
 vi.mock("../../repositories/shipmentRefCounter.repository", () => ({ shipmentRefCounterRepository: { peek: vi.fn() } }));
-// The detail rows' transaction: its work runs at once, handed this stand-in for the transaction.
-const TX = vi.hoisted(() => ({ fake: "tx" }));
 vi.mock("../../repositories/container.repository", () => ({
-  containerRepository: {
-    syncForShipment: vi.fn(),
-    listByShipmentId: vi.fn(),
-    withDetailRowsLock: vi.fn(async (_shipmentId: string, _companyId: string, work: (tx: unknown) => Promise<unknown>) => work(TX)),
-  },
+  containerRepository: { syncForShipment: vi.fn(async () => new Map()), listByShipmentId: vi.fn() },
 }));
 vi.mock("../../repositories/cargoItem.repository", () => ({ cargoItemRepository: { replaceForShipment: vi.fn(), listByShipmentId: vi.fn(), assignLooseToContainer: vi.fn(), detachFromContainers: vi.fn() } }));
 vi.mock("../../repositories/cargoDimension.repository", () => ({ cargoDimensionRepository: { replaceForShipment: vi.fn(), listByShipmentId: vi.fn(), assignLooseToContainer: vi.fn(), detachFromContainers: vi.fn() } }));
@@ -1171,7 +1169,8 @@ describe("removing the only container", () => {
   });
 
   it("keeps a cargo line sent in the same write naming it as shipment cargo, like the lines it had", async () => {
-    vi.mocked(containerRepository.listByShipmentId).mockResolvedValueOnce([one] as never).mockResolvedValueOnce([]);
+    // Read for the audit log, by the sync before it removes the container, then after it.
+    vi.mocked(containerRepository.listByShipmentId).mockResolvedValueOnce([one] as never).mockResolvedValueOnce([one] as never).mockResolvedValueOnce([]);
     const dim = (containerId: string | null) => ({ containerId, pieces: "2", lengthCm: "1", widthCm: "1", heightCm: "1", weightPerPcKg: "1", packageType: "", stackable: "" });
     await update({ containers: [], cargoDimensions: [dim(A), dim(null)] });
     expect(vi.mocked(cargoDimensionRepository.replaceForShipment).mock.calls[0]![2]).toMatchObject([dim(null), dim(null)]);
@@ -1181,30 +1180,63 @@ describe("removing the only container", () => {
 describe("the detail rows of one write", () => {
   const update = (data: Record<string, unknown>) => shipmentService.update(SHIPMENT, COMPANY, data as never, USER);
   const A = "0b8e1d2c-0000-4000-8000-00000000000a";
+  const B = "0b8e1d2c-0000-4000-8000-00000000000b";
+  const one = { id: A, containerNumber: "MSKU1234567", sealNumber: "", type: "", teu: "", packages: "", packageType: "", grossWeight: "", volume: "" };
+  const dim = (containerId: string | null) => ({ containerId, pieces: "2", lengthCm: "1", widthCm: "1", heightCm: "1", weightPerPcKg: "1", packageType: "", stackable: "" });
+  // The audit entries of the detail-row lists (the shipment's own fields have theirs too).
+  const LISTS = ["containers", "cargoItems", "cargoDimensions", "commercialInvoices"];
+  const listEntries = () => vi.mocked(shipmentAuditRepository.create).mock.calls.map(([entry]) => entry).filter((e) => LISTS.includes(e.field));
   beforeEach(() => stored.set(SHIPMENT, row()));
 
-  it("are written in one transaction holding the shipment's turn", async () => {
-    const one = { id: A, containerNumber: "MSKU1234567", sealNumber: "", type: "", teu: "", packages: "", packageType: "", grossWeight: "", volume: "" };
+  it("are written with the audit entries and the shipment row in one transaction holding the shipment's turn", async () => {
     vi.mocked(containerRepository.listByShipmentId).mockResolvedValue([one] as never);
     await update({
+      vessel: "MSC ANNA",
       containers: [one],
       cargoItems: [{ containerId: A, cargoDescription: "Shoes" }],
       cargoDimensions: [{ containerId: A, pieces: "1" }],
       commercialInvoices: [{ invoiceNumber: "INV-1", value: "10", currency: "EUR" }],
     });
-    expect(containerRepository.withDetailRowsLock).toHaveBeenCalledTimes(1);
-    expect(containerRepository.withDetailRowsLock).toHaveBeenCalledWith(SHIPMENT, COMPANY, expect.any(Function));
+    expect(shipmentRepository.writeTurn).toHaveBeenCalledTimes(1);
+    expect(shipmentRepository.writeTurn).toHaveBeenCalledWith(SHIPMENT, COMPANY, expect.any(Function));
     expect(vi.mocked(containerRepository.syncForShipment).mock.calls[0]![3]).toBe(TX);
     expect(vi.mocked(cargoItemRepository.replaceForShipment).mock.calls[0]![3]).toBe(TX);
     expect(vi.mocked(cargoDimensionRepository.replaceForShipment).mock.calls[0]![3]).toBe(TX);
     expect(vi.mocked(commercialInvoiceRepository.replaceForShipment).mock.calls[0]![3]).toBe(TX);
-    // The containers before and after the sync are read inside it too.
-    expect(containerRepository.listByShipmentId).toHaveBeenNthCalledWith(1, SHIPMENT, COMPANY, TX);
-    expect(containerRepository.listByShipmentId).toHaveBeenNthCalledWith(2, SHIPMENT, COMPANY, TX);
+    expect(vi.mocked(shipmentRepository.updateForCompany).mock.calls[0]![3]).toBe(TX);
+    for (const [, tx] of vi.mocked(shipmentAuditRepository.create).mock.calls) expect(tx).toBe(TX);
+    // The reads of the lines for the audit log and for the sync are inside it too (the
+    // shipment the update answers with is read after it).
+    expect(vi.mocked(containerRepository.listByShipmentId).mock.calls.slice(0, 4)).toEqual(Array(4).fill([SHIPMENT, COMPANY, TX]));
   });
 
-  it("open no transaction when the write has none", async () => {
+  it("are neither read nor written when the write has none", async () => {
     await update({ vessel: "MSC ANNA" });
-    expect(containerRepository.withDetailRowsLock).not.toHaveBeenCalled();
+    expect(containerRepository.listByShipmentId).not.toHaveBeenCalledWith(SHIPMENT, COMPANY, TX);
+    expect(containerRepository.syncForShipment).not.toHaveBeenCalled();
+    expect(listEntries()).toEqual([]);
+    expect(vi.mocked(shipmentAuditRepository.create).mock.calls.map(([entry]) => entry.field)).toContain("vessel");
+  });
+
+  it("leave an audit entry for each list that came out different, its lines before and after", async () => {
+    const item = { containerId: A, cargoDescription: "Shoes", hsCode: "", pieces: "1", packageType: "", grossWeight: "", commercialInvoiceValue: "", currency: "EUR" };
+    vi.mocked(containerRepository.listByShipmentId).mockResolvedValue([one] as never);
+    vi.mocked(cargoItemRepository.listByShipmentId).mockResolvedValueOnce([]).mockResolvedValue([item] as never);
+    await update({ containers: [one], cargoItems: [item] });
+    expect(listEntries()).toEqual([{ companyId: COMPANY, shipmentId: SHIPMENT, userId: USER, field: "cargoItems", oldValue: "[]", newValue: JSON.stringify([item]) }]);
+  });
+
+  it("leave no audit entry when the lines sent are the lines stored", async () => {
+    vi.mocked(containerRepository.listByShipmentId).mockResolvedValue([one] as never);
+    await update({ containers: [one] });
+    expect(listEntries()).toEqual([]);
+  });
+
+  it("give a cargo line the id its new container got when the id the client made for it was taken", async () => {
+    const CLIENT = "0b8e1d2c-0000-4000-8000-0000000000cc";
+    vi.mocked(containerRepository.syncForShipment).mockResolvedValue(new Map([[CLIENT, A]]));
+    vi.mocked(containerRepository.listByShipmentId).mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValue([one, { ...one, id: B }] as never);
+    await update({ containers: [{ ...one, id: CLIENT }, { ...one, id: B }], cargoDimensions: [dim(CLIENT), dim(B)] });
+    expect(vi.mocked(cargoDimensionRepository.replaceForShipment).mock.calls[0]![2]).toMatchObject([dim(A), dim(B)]);
   });
 });

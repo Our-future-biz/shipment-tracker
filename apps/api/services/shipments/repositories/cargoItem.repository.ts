@@ -9,13 +9,13 @@ class CargoItemRepository extends TenantRepository<typeof cargoItemTable> {
     super(db, cargoItemTable, "cargo_item");
   }
 
-  async listByShipmentId(shipmentId: string, companyId: string): Promise<CargoItemRecord[]> {
-    return this.listByShipmentIds([shipmentId], companyId);
+  async listByShipmentId(shipmentId: string, companyId: string, tx: Tx | typeof db = db): Promise<CargoItemRecord[]> {
+    return this.listByShipmentIds([shipmentId], companyId, tx);
   }
 
-  async listByShipmentIds(shipmentIds: string[], companyId: string): Promise<CargoItemRecord[]> {
+  async listByShipmentIds(shipmentIds: string[], companyId: string, tx: Tx | typeof db = db): Promise<CargoItemRecord[]> {
     if (shipmentIds.length === 0) return [];
-    return this.db
+    return tx
       .select()
       .from(cargoItemTable)
       .where(
