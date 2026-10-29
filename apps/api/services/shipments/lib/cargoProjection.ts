@@ -1,3 +1,4 @@
+import { isUuid } from "../../../lib/uuid";
 import type { ContainerLine, CargoItemLine, CargoDimensionLine } from "../interfaces/interfaces";
 
 // Numeric fields on container/cargo lines are free-text; parse them the same way
@@ -114,4 +115,46 @@ export function normalizeContainerNumber(raw: string): string {
 export function isValidContainerNumber(raw: string): boolean {
   const n = normalizeContainerNumber(raw);
   return n === "" || /^[A-Z]{4}[0-9]{7}$/.test(n);
+}
+
+/** What a sync of a shipment's containers does with one line of the list it is given. */
+export interface ContainerRowMatch {
+  line: ContainerLine;
+  /** The existing row the line updates in place; null when it becomes a new row. */
+  id: string | null;
+  /** The id a new row takes: one the client made for it (a UUID no row of the shipment has). */
+  insertId?: string;
+}
+
+// Which existing container row (`existingIds`, in their order) each line of `lines` updates.
+// Lines are matched to existing rows by id. A new line from Container Details brings its own
+// id (a UUID made when the row was added), which the inserted row keeps, so that screen never
+// depends on position. Lines without an id come only from callers that do not echo ids (the
+// create wizard, document extraction, a master job renaming a house container); those adopt
+// the unclaimed existing row at the same position, which keeps a renamed container's cargo.
+// An existing row no line claims is removed by the sync.
+export function matchContainerRows(existingIds: string[], lines: ContainerLine[]): ContainerRowMatch[] {
+  const existing = new Set(existingIds);
+  const claimed = new Set<string>();
+  const matches: ContainerRowMatch[] = lines.map((line) => {
+    if (line.id && existing.has(line.id) && !claimed.has(line.id)) {
+      claimed.add(line.id);
+      return { line, id: line.id };
+    }
+    // A client-made id for a new row (never one already used in this list).
+    if (line.id && isUuid(line.id) && !existing.has(line.id) && !claimed.has(line.id)) {
+      claimed.add(line.id);
+      return { line, id: null, insertId: line.id };
+    }
+    return { line, id: null };
+  });
+  matches.forEach((m, i) => {
+    if (m.id || m.insertId) return;
+    const candidate = existingIds[i];
+    if (candidate && !claimed.has(candidate)) {
+      claimed.add(candidate);
+      m.id = candidate;
+    }
+  });
+  return matches;
 }

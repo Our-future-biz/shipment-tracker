@@ -6,8 +6,9 @@ import { Button, Input, Modal, Select, Tooltip } from "antd";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { CheckPill } from "./CargoCheck";
+import { ContainerTabs } from "./ContainerTabs";
 import {
-  PACK_TYPES,
+  PACK_TYPE_OPTIONS,
   STACKABLE_OPTIONS,
   checkConsistency,
   dimensionTotals,
@@ -27,8 +28,8 @@ import {
 // works like the Cargo Dimensions card of Cargo Details (same columns, same lines), but
 // edited as a whole — nothing is written until Save.
 //
-// With one or more containers a row of container tabs sits above the table (number, type,
-// ✓ / ⚠ for whether its lines add up to what it declares); the table shows the lines of
+// With one or more containers a row of container tabs sits above the table (number, type, a
+// dot for whether its lines add up to what it declares); the table shows the lines of
 // the chosen container, and a line belongs to the tab it is typed in, so no container is
 // ever picked per line. The totals compare the chosen container with what it declares;
 // with two or more, a line under them adds up all containers. Without containers there are
@@ -199,45 +200,25 @@ export function DimensionsModal({
         <div className="border border-slate-200 rounded-xl overflow-hidden">
           {containers.length > 0 && (
             // The containers as tabs on the card's top edge (also a single one, so the dialog
-            // always says whose lines these are). A dot says whether the container's lines add
-            // up to what it declares: green yes, red no, none while it has no lines.
-            <div role="tablist" aria-label="Containers" className="flex items-end gap-1 px-2 pt-2 bg-white border-b border-slate-200 overflow-x-auto">
-              {tabs.map((t) => {
-                const on = t.key === active.key;
+            // always says whose lines these are). A container's dot shows once it has lines.
+            <ContainerTabs
+              className="px-2"
+              activeKey={active.key}
+              onChange={setActiveKey}
+              tabs={tabs.map((t) => {
                 const filled = filledOf(t);
-                const check = t.container && filled.length ? checkConsistency(t.container, filled) : null;
-                return (
-                  <button
-                    key={t.key}
-                    type="button"
-                    role="tab"
-                    aria-selected={on}
-                    onClick={() => setActiveKey(t.key)}
-                    // The open container stands out: tinted tab, indigo number and a thick indigo
-                    // bar along its bottom edge; the others stay quiet until hovered.
-                    className={[
-                      "relative flex items-center gap-2 px-4 py-2.5 rounded-t-lg border-0 text-[13px] whitespace-nowrap cursor-pointer transition-colors",
-                      "outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-inset",
-                      on ? "bg-indigo-50 text-indigo-700" : "bg-transparent text-slate-500 hover:bg-slate-50 hover:text-slate-800",
-                    ].join(" ")}
-                  >
-                    {on && <span aria-hidden className="absolute inset-x-0 bottom-0 h-[3px] rounded-t bg-indigo-500" />}
-                    {check && (
-                      <span
-                        className={`w-2 h-2 rounded-full ${check.matched ? "bg-emerald-500" : "bg-red-500"}`}
-                        title={check.matched ? "Matched" : "Mismatch"}
-                        aria-label={check.matched ? "Matched" : "Mismatch"}
-                      />
-                    )}
-                    <span className={`${t.container ? "font-mono tracking-wide" : ""} ${on ? "font-bold" : "font-semibold"}`}>{t.label}</span>
-                    {t.container?.type && <span className={`text-xs ${on ? "text-indigo-500" : "text-slate-400"}`}>{t.container.type}</span>}
-                  </button>
-                );
+                return {
+                  key: t.key,
+                  label: t.label,
+                  type: t.container?.type,
+                  isContainer: !!t.container,
+                  matched: t.container && filled.length ? checkConsistency(t.container, filled).matched : null,
+                };
               })}
-            </div>
+            />
           )}
           <div className="overflow-x-auto max-h-[55vh] overflow-y-auto">
-            {/* Every column just fits its content: at 1016px Stackability gets about 258px, enough for "Not stackable / Not overstowable". */}
+            {/* Every column just fits its content: at 1108px Stackability gets about 258px, enough for "Not stackable / Not overstowable". */}
             <table className="w-full min-w-[1058px] table-fixed border-collapse [&_tbody>tr:last-child>td]:border-b-0">
               <colgroup>
                 <col className="w-[72px]" />
@@ -297,7 +278,7 @@ export function DimensionsModal({
                           value={l.packageType || undefined}
                           allowClear
                           placeholder="—"
-                          options={PACK_TYPES.map((p) => ({ value: p }))}
+                          options={PACK_TYPE_OPTIONS}
                           onChange={(v) => patch(idx, { packageType: v ?? "" })}
                         />
                       </td>
@@ -348,7 +329,7 @@ export function DimensionsModal({
                   );
                 })}
                 <tr>
-                  <td colSpan={9} className="px-2 py-1.5 border-b border-slate-100">
+                  <td colSpan={10} className="px-2 py-1.5 border-b border-slate-100">
                     <Button
                       type="link"
                       size="small"

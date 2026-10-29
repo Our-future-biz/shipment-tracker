@@ -93,6 +93,27 @@ function queuedWrite<T>(id: string, write: () => Promise<T>): Promise<T> {
   return run;
 }
 
+/**
+ * Cargo lines once the shipment's containers `before` are saved as `after`, the way the server
+ * leaves them, so a screen opened before the refetch never shows or re-sends a line that is
+ * gone: the lines of a removed container go with it - except when it was the only container,
+ * whose cargo is the shipment's: it moves to the new only container, or becomes shipment-level
+ * with none or several left. With exactly one container every line belongs to it.
+ */
+export function relinkCargo<T extends { containerId?: string | null }>(
+  lines: T[],
+  before: { id?: string }[],
+  after: { id?: string }[],
+): T[] {
+  const ids = new Set(after.flatMap((c) => (c.id ? [c.id] : [])));
+  const was = before.flatMap((c) => (c.id ? [c.id] : []));
+  const only = ids.size === 1 ? [...ids][0]! : null;
+  if (was.length === 1 && !ids.has(was[0]!)) {
+    return lines.map((l) => (l.containerId === was[0] || !l.containerId ? { ...l, containerId: only } : l));
+  }
+  return lines.filter((l) => !l.containerId || ids.has(l.containerId)).map((l) => (only && !l.containerId ? { ...l, containerId: only } : l));
+}
+
 /** How many shipments one list holds: the newest this many (the list endpoint's maximum). */
 export const SHIPMENT_LIST_LIMIT = 200;
 
@@ -184,22 +205,11 @@ export const useShipmentMutations = () => {
         // Merge update request into shipment using Object.assign for type safety
         const updated: ShipmentItem = { ...s };
         Object.assign(updated, data);
-        // Mirrors the server: cargo lines of a removed container go with it, so a screen
-        // opened before the refetch never shows or re-sends them - except when it was the
-        // only container, whose cargo is the shipment's: it moves to the new only container,
-        // or becomes shipment-level with none left.
+        // The cargo lines sent along with the containers (document reading sends both), or
+        // else the cached ones, linked to the containers as the server will link them.
         if (data.containers) {
-          const ids = new Set(data.containers.flatMap((c) => (c.id ? [c.id] : [])));
-          const before = (s.containers ?? []).flatMap((c) => (c.id ? [c.id] : []));
-          const only = ids.size === 1 ? [...ids][0]! : null;
-          const relink = <T extends { containerId?: string | null }>(ls: T[]): T[] => {
-            if (before.length === 1 && !ids.has(before[0]!)) {
-              return ls.map((l) => (l.containerId === before[0] || !l.containerId ? { ...l, containerId: only } : l));
-            }
-            return ls.filter((l) => !l.containerId || ids.has(l.containerId)).map((l) => (only && !l.containerId ? { ...l, containerId: only } : l));
-          };
-          updated.cargoItems = relink(s.cargoItems ?? []);
-          updated.cargoDimensions = relink(s.cargoDimensions ?? []);
+          updated.cargoItems = relinkCargo(updated.cargoItems ?? [], s.containers ?? [], data.containers);
+          updated.cargoDimensions = relinkCargo(updated.cargoDimensions ?? [], s.containers ?? [], data.containers);
         }
         // Mirrors the server rule: a HUB with no CFS makes the HUB the CFS.
         if (updated.hub?.trim() && !updated.cfs?.trim()) updated.cfs = updated.hub.trim();
@@ -226,6 +236,8 @@ export const useShipmentMutations = () => {
       invalidateDerivedViews();
       invalidateCustomerViews();
       if (data.salesNumber !== undefined) invalidateQuoteViews();
+      // A master job shows its houses' container numbers (a Full Load its containers too).
+      if (data.containers !== undefined) queryClient.invalidateQueries({ queryKey: ["master-jobs"] });
     },
   });
 

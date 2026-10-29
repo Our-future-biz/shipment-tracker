@@ -2,6 +2,7 @@ import type { GeoKind } from "./places";
 import { CANCELLED_STATUS, LOAD_TYPES, STATUS_COLORS } from "./enums";
 import { INCOTERMS } from "./incoterms";
 import { formatDateTime } from "./date";
+import { lineInUnit, unitLabel, type DimensionUnit } from "./cargo";
 
 // "place" / "country" / "countryCode" are picked from the location database (see lib/places.ts).
 // "user" is a person: one of the company's users, picked with the UserPicker and kept by e-mail.
@@ -543,7 +544,7 @@ export interface DimensionRow {
   widthCm: string;
   heightCm: string;
   // The unit the sizes were typed in; the sizes above are always cm.
-  dimensionUnit?: "cm" | "in";
+  dimensionUnit?: DimensionUnit;
   weightPerPcKg: string;
 }
 
@@ -578,15 +579,13 @@ export function summarizeDimensions(dimensions: unknown): string {
   try {
     const rows: DimensionRow[] = Array.isArray(dimensions) ? dimensions : JSON.parse(String(dimensions));
     const num = (v: string) => String(parseFloat(v || "0") || 0);
-    // A line typed in inches shows in inches (stored cm / 2.54, as typed).
-    const size = (r: DimensionRow, v: string) =>
-      r.dimensionUnit === "in" ? String(Math.round(((parseFloat(v || "0") || 0) / 2.54) * 1e4) / 1e4) : num(v);
     return rows
       .filter((r) => [r.lengthCm, r.widthCm, r.heightCm].some((v) => parseFloat(v || "0") > 0))
-      .map(
-        (r) =>
-          `${num(r.pieces) === "0" ? "1" : num(r.pieces)}\u00d7 ${size(r, r.lengthCm)}\u00d7${size(r, r.widthCm)}\u00d7${size(r, r.heightCm)} ${r.dimensionUnit === "in" ? "in" : "cm"}`,
-      )
+      .map((r) => {
+        // A line typed in inches shows in inches, as typed (the same conversion as Cargo Details).
+        const shown = lineInUnit(r);
+        return `${num(r.pieces) === "0" ? "1" : num(r.pieces)}\u00d7 ${num(shown.lengthCm)}\u00d7${num(shown.widthCm)}\u00d7${num(shown.heightCm)} ${unitLabel(r.dimensionUnit)}`;
+      })
       .join(", ");
   } catch {
     return "";

@@ -4,6 +4,7 @@ import {
   fmtNum,
   invoiceValueByCurrency,
   isValidContainerNumber,
+  matchContainerRows,
   normalizeContainerNumber,
   num,
   projectCargo,
@@ -158,5 +159,30 @@ describe("container numbers", () => {
     expect(isValidContainerNumber("MSK1234567")).toBe(false);
     expect(isValidContainerNumber("MSKU123456")).toBe(false);
     expect(isValidContainerNumber("MSKU12345678")).toBe(false);
+  });
+});
+
+describe("which container row a line updates", () => {
+  const A = "0b8e1d2c-0000-4000-8000-00000000000a";
+  const B = "0b8e1d2c-0000-4000-8000-00000000000b";
+  const N = "0b8e1d2c-0000-4000-8000-00000000000c";
+  const ids = (lines: ContainerLine[]) => matchContainerRows([A, B], lines).map(({ id, insertId }) => ({ id, insertId }));
+
+  it("matches a line to the row it names, wherever it stands", () => {
+    expect(ids([container({ id: B }), container({ id: A })])).toEqual([{ id: B }, { id: A }]);
+  });
+
+  it("inserts a line with an id the client made under that id, never taking a row by position", () => {
+    expect(ids([container({ id: N }), container({ id: B })])).toEqual([{ id: null, insertId: N }, { id: B }]);
+  });
+
+  it("gives a line without a usable id the unclaimed row at its position, and a new row past them", () => {
+    expect(ids([container(), container({ id: "row-2" }), container()])).toEqual([{ id: A }, { id: B }, { id: null }]);
+    expect(ids([container({ id: B }), container()])).toEqual([{ id: B }, { id: null }]);
+  });
+
+  it("lets a row or a client-made id be claimed once: a repeated id counts as no id", () => {
+    expect(ids([container({ id: A }), container({ id: A }), container({ id: A })])).toEqual([{ id: A }, { id: B }, { id: null }]);
+    expect(matchContainerRows([], [container({ id: N }), container({ id: N })]).map((m) => m.insertId)).toEqual([N, undefined]);
   });
 });

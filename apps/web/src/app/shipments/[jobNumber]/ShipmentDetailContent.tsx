@@ -1701,7 +1701,9 @@ export function ShipmentDetailContent() {
         )}
 
         {activeTab === "cargo" && (
+          // Keyed by the shipment, so opening another shipment starts the tab afresh.
           <CargoDetailsTab
+            key={shipment.id}
             shipment={shipment}
             focusContainerId={cargoFocusId}
             // A refused line (e.g. a UN number that is not four digits) is rolled back and said.

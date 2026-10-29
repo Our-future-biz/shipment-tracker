@@ -7,7 +7,7 @@ export function normalizeContainerNumber(raw?: string | null): string {
 
 // What a container number field keeps while typing: uppercase letters for the first 4 places,
 // then digits for the next 7; anything else (a digit among the letters, a letter among the
-// digits, separators, an 12th character) is dropped. A pasted "msmu 272727-7" → "MSMU2727277".
+// digits, separators, a 12th character) is dropped. A pasted "msmu 272727-7" → "MSMU2727277".
 export function containerNumberInput(raw: string): string {
   let out = "";
   for (const ch of normalizeContainerNumber(raw)) {

@@ -30,3 +30,6 @@ export const db = drizzle(pool, {
     ...userPreferenceSchema,
   },
 });
+
+/** A transaction open on the shipments database (what db.transaction hands its callback). */
+export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];

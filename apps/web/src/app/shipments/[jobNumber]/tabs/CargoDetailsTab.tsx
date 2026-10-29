@@ -4,14 +4,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { rowKey } from "@/app/shipments/_lib/rowKey";
 import { Input, Button, AutoComplete, Select, Checkbox, Tooltip } from "antd";
 import { CargoDimensionAdrFields } from "./CargoDimensionAdrFields";
-import { CheckPill } from "@/app/shipments/_components/CargoCheck";
+import { CheckPill, CHECK_PILL_CLASS } from "@/app/shipments/_components/CargoCheck";
+import { ContainerTabs } from "@/app/shipments/_components/ContainerTabs";
 import { PlusOutlined } from "@ant-design/icons";
 import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { SHIPMENT_WRITE_KEY, type ShipmentItem } from "@/hooks/useShipments";
 import { useIsMutating } from "@tanstack/react-query";
 import {
-  PACK_TYPES,
+  PACK_TYPE_OPTIONS,
   STACKABLE_OPTIONS,
   hasAdr,
   adrSummary,
@@ -21,8 +22,10 @@ import {
   fmtFixed,
   numberInput,
   dimensionVolumePerPiece,
+  dimensionTotals,
   lineInCm,
   lineInUnit,
+  unitLabel,
   DIMENSION_UNITS,
   type DimensionUnit,
   dimensionLineIsEmpty,
@@ -85,6 +88,13 @@ const dimLineKey = (l: CargoDimensionLine) => [
 ];
 const dimsKey = (ls: CargoDimensionLine[]) => JSON.stringify(ls.filter((l) => !dimIsEmpty(l)).map(dimLineKey));
 
+// A line asked to be deleted from its row's "⋯", with the table it is in.
+type DeleteRequest = { table: "dims"; line: CargoDimensionLine } | { table: "items"; line: CargoItemLine };
+
+// How many lines the panel of a line holds.
+const panelSize = <T extends { containerId?: string | null }>(list: T[], line: T) =>
+  list.filter((l) => keyOf(l.containerId) === keyOf(line.containerId)).length;
+
 // One panel per saved container; the shipment-level panel shows when there are no
 // containers, or when containerless lines exist (e.g. LCL cargo).
 function panelKeysFor(containerIds: string[], items: CargoItemLine[], dims: CargoDimensionLine[]): string[] {
@@ -113,8 +123,7 @@ const currencyOptions = (query: string) => {
   }));
 };
 
-// Centred columns with room between them, like the cargo description table.
-// Words read better than codes in the summary line.
+// Words read better than codes in a total's tooltip.
 const UNIT_LABEL: Record<string, string> = { PCS: "pieces", KG: "kg", "M³": "m³" };
 
 // minmax(0, …): every row keeps the same column widths, whatever a cell holds. The space
@@ -145,12 +154,30 @@ const DESC_COLS = `${DESC_GRID} items-center [&>*]:mx-1.5 [&>*:last-child]:!mx-0
 // row), so a row is as tall in both tables and switching tables does not shift anything.
 const DESC_CELLS = `${DESC_GRID} [&>*]:px-1.5 [&>*]:py-1.5 [&>*]:self-stretch [&>*]:content-center [&>*:last-child]:!px-0`;
 
+// Where a click does not end the editing of a row: the row itself and its own popups
+// (pickers, the "⋯" menu, the delete confirmation, tooltips), which render outside the row.
+const EDIT_ROW_AREAS = "[data-edit-row], .ant-select-dropdown, .ant-dropdown, .ant-modal-root, .ant-tooltip, .ant-picker-dropdown";
+
 /**
  * Which rows of a table are open for editing. A row closes when focus leaves it or on
  * Enter; saving is left to each field's own onBlur, so leaving a row saves exactly once.
  */
 function useOpenRows() {
   const [rows, setRows] = useState<Set<number>>(() => new Set());
+  // A click outside every row being edited ends the editing. Focus leaving a row closes it
+  // too, but a row opened by double-click may never have had focus, so the click itself is
+  // watched.
+  const anyOpen = rows.size > 0;
+  useEffect(() => {
+    if (!anyOpen) return;
+    const handleMouseDown = (e: MouseEvent) => {
+      const target = e.target as Element | null;
+      if (!target?.closest || target.closest(EDIT_ROW_AREAS)) return;
+      setRows(new Set());
+    };
+    document.addEventListener("mousedown", handleMouseDown);
+    return () => document.removeEventListener("mousedown", handleMouseDown);
+  }, [anyOpen]);
   const open = (idx: number) => setRows((o) => (o.has(idx) ? o : new Set(o).add(idx)));
   const close = (idx: number) =>
     setRows((o) => {
@@ -161,7 +188,6 @@ function useOpenRows() {
     });
   return {
     isOpen: (idx: number) => rows.has(idx),
-    count: rows.size,
     indexes: rows,
     open,
     reset: () => setRows(new Set()),
@@ -215,35 +241,6 @@ export function CargoDetailsTab({
   dimsRef.current = dims;
   const openItems = useOpenRows();
   const openDims = useOpenRows();
-  // A click outside every row being edited ends the editing. Focus leaving a row closes it
-  // too, but a row opened by double-click may never have had focus, so the click itself is
-  // watched. Clicks in a row's own popups (pickers, the "⋯" menu, the delete confirmation,
-  // tooltips) do not count: those render outside the row.
-  const anyOpen = openDims.count > 0 || openItems.count > 0;
-  useEffect(() => {
-    if (!anyOpen) return;
-    const onDown = (e: MouseEvent) => {
-      const t = e.target as Element | null;
-      if (!t?.closest) return;
-      if (t.closest("[data-edit-row], .ant-select-dropdown, .ant-dropdown, .ant-modal-root, .ant-tooltip, .ant-picker-dropdown")) return;
-      openDims.reset();
-      openItems.reset();
-    };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [anyOpen]);
-
-
-  // Reset local edit state when navigating to a different shipment.
-  useEffect(() => {
-    setItems(shipment.cargoItems ?? []);
-    setDims((shipment.cargoDimensions ?? []).map(lineInUnit));
-    setActiveKey(null);
-    openItems.reset();
-    openDims.reset();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shipment.id]);
 
   const panelKeys = useMemo(() => panelKeysFor(containers.map((c) => c.id), items, dims), [containers, items, dims]);
 
@@ -288,19 +285,23 @@ export function CargoDetailsTab({
     }
   };
   // Not while a save is pending: a refetch between two queued saves would show the first
-  // one's data over the second's edit.
+  // one's data over the second's edit. resync reads everything from refs, so the effect
+  // runs on the saved data changing, not on every render, and calls the latest one.
+  const resyncRef = useRef(resync);
+  resyncRef.current = resync;
   useEffect(() => {
-    if (pendingWrites === 0) resync();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (pendingWrites === 0) resyncRef.current();
   }, [shipment.cargoItems, shipment.cargoDimensions, shipment.containers, pendingWrites]);
 
   // Seed each panel with an empty line to type into (kept local until edited —
-  // empty lines are filtered out of every save).
+  // empty lines are filtered out of every save). Keyed by the panels as text, so it runs
+  // when a panel comes or goes, not on every edit.
+  const panelKeysText = panelKeys.join("|");
   useEffect(() => {
-    setItems((prev) => withPanelRows(prev, panelKeys, (l) => keyOf(l.containerId), emptyItem));
-    setDims((prev) => withPanelRows(prev, panelKeys, (l) => keyOf(l.containerId), emptyDim));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [panelKeys.join("|")]);
+    const keys = panelKeysText.split("|");
+    setItems((prev) => withPanelRows(prev, keys, (l) => keyOf(l.containerId), emptyItem));
+    setDims((prev) => withPanelRows(prev, keys, (l) => keyOf(l.containerId), emptyDim));
+  }, [panelKeysText]);
 
   // Jumping in from the Container tab (a container number was clicked): open its tab.
   useEffect(() => {
@@ -367,13 +368,16 @@ export function CargoDetailsTab({
       return [...r, emptyDim(panelKey === NONE ? null : panelKey, last?.dimensionUnit === "in" ? "in" : "cm")];
     });
 
-  // Removing a panel's last line just clears it (reference-UI behavior). Open rows are
-  // tracked by index, which shifts on removal, so every row goes back to read mode.
-  const removeItem = (idx: number, panelSize: number) => {
+  // Removing a panel's last line just clears it (reference-UI behavior). The line itself is
+  // looked for, not an index taken when Delete was clicked: should the lines have changed
+  // meanwhile (e.g. another screen's save came in while the question was open), the line asked
+  // about goes, or nothing when it is gone. Open rows are tracked by index, which shifts on
+  // removal, so every row goes back to read mode.
+  const removeItem = (line: CargoItemLine) => {
+    const list = itemsRef.current;
+    if (!list.includes(line)) return;
     const next =
-      panelSize > 1
-        ? itemsRef.current.filter((_, j) => j !== idx)
-        : itemsRef.current.map((l, j) => (j === idx ? emptyItem(l.containerId ?? null) : l));
+      panelSize(list, line) > 1 ? list.filter((l) => l !== line) : list.map((l) => (l === line ? emptyItem(l.containerId ?? null) : l));
     setItems(next);
     openItems.reset();
     sendItems(next);
@@ -397,16 +401,17 @@ export function CargoDetailsTab({
     openDims.reset();
     sendDims(next);
   };
-  const removeDim = (idx: number, panelSize: number) => {
+  const removeDim = (line: CargoDimensionLine) => {
+    const list = dimsRef.current;
+    if (!list.includes(line)) return;
     const next =
-      panelSize > 1
-        ? dimsRef.current.filter((_, j) => j !== idx)
-        : dimsRef.current.map((l, j) => (j === idx ? emptyDim(l.containerId ?? null, l.dimensionUnit === "in" ? "in" : "cm") : l));
+      panelSize(list, line) > 1
+        ? list.filter((l) => l !== line)
+        : list.map((l) => (l === line ? emptyDim(l.containerId ?? null, l.dimensionUnit === "in" ? "in" : "cm") : l));
     setDims(next);
     openDims.reset();
     sendDims(next);
   };
-
 
   // Everything one tab shows: its lines, their totals and how they compare with what the
   // container declares (dimensions always; descriptions once there are any).
@@ -427,12 +432,12 @@ export function CargoDetailsTab({
     const matched = !!check && check.matched && (!hasDesc || (!!descCheck && descCheck.pcs.ok && descCheck.kg.ok));
     const index = container ? containers.indexOf(container) : -1;
     const label = container ? container.containerNumber || `Container #${index + 1}` : "No container";
-    return { key, container, label, panelItems, panelDims, filledDims, filledItems, check, descPcs, descKg, descCheck, hasDesc, hasLines, matched };
+    return { key, container, label, panelItems, panelDims, check, descPcs, descKg, descCheck, hasDesc, hasLines, matched };
   };
 
   const panels = panelKeys.map(panelOf);
   const active = panels.find((p) => p.key === activeKey) ?? panels[0]!;
-  const { container, panelItems, panelDims, check, descCheck, hasDesc } = active;
+  const { panelItems, panelDims, check, descCheck, hasDesc } = active;
 
   // A total under the column it sums, its unit beneath.
   const totalCell = (sum: number, unit: string, decimals: number) => (
@@ -441,40 +446,34 @@ export function CargoDetailsTab({
       <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">{unit}</span>
     </span>
   );
-  const dimTotals = {
-    pcs: panelDims.reduce((s, { l }) => s + num(l.pieces), 0),
-    kg: panelDims.reduce((s, { l }) => s + num(l.pieces) * num(l.weightPerPcKg), 0),
-    m3: panelDims.reduce((s, { l }) => s + num(l.pieces) * dimensionVolumePerPiece(lineInCm(l)), 0),
-  };
+  const dimTotals = dimensionTotals(panelDims.map(({ l }) => lineInCm(l)));
   const descCiv = civByCurrency(panelItems.map(({ l }) => l));
 
   // Under the table of a container: its lines against what the container declares.
-  const checkStrip = (pills: React.ReactNode) =>
-    container ? (
-      <div className="flex items-center gap-2 flex-wrap mt-3 pt-3 px-1 border-t border-slate-100">
-        {pills}
-      </div>
-    ) : null;
+  const checkStrip = (pills: React.ReactNode) => (
+    <div className="flex items-center gap-2 flex-wrap mt-3 pt-3 px-1 border-t border-slate-100">{pills}</div>
+  );
 
   // Delete from a row's "⋯": a line with anything in it asks first; an empty line just goes.
-  const [confirmDelete, setConfirmDelete] = useState<{ table: "dims" | "items"; idx: number; size: number } | null>(null);
-  const askDelete = (table: "dims" | "items", idx: number, size: number) => {
-    const empty = table === "dims" ? dimIsEmpty(dims[idx] ?? emptyDim(null)) : itemIsEmpty(items[idx] ?? emptyItem(null));
-    if (!empty) return setConfirmDelete({ table, idx, size });
-    if (table === "dims") removeDim(idx, size);
-    else removeItem(idx, size);
+  const [confirmDelete, setConfirmDelete] = useState<DeleteRequest | null>(null);
+  const deleteLine = (req: DeleteRequest) => (req.table === "dims" ? removeDim(req.line) : removeItem(req.line));
+  const askDelete = (req: DeleteRequest) => {
+    const empty = req.table === "dims" ? dimIsEmpty(req.line) : itemIsEmpty(req.line);
+    if (empty) deleteLine(req);
+    else setConfirmDelete(req);
   };
-  // What the confirmation names: the line's pieces and size, or its description.
+  // What the confirmation names: the line's pieces and size (in the unit it was typed in),
+  // or its description.
   const deleteDescription = (() => {
     if (!confirmDelete) return "";
     if (confirmDelete.table === "dims") {
-      const l = dims[confirmDelete.idx];
-      const size = l && [l.lengthCm, l.widthCm, l.heightCm].every(Boolean) ? `${l.lengthCm} × ${l.widthCm} × ${l.heightCm} cm` : "";
-      const what = [l?.pieces && `${l.pieces} pcs`, size].filter(Boolean).join(", ");
+      const l = confirmDelete.line;
+      const size = [l.lengthCm, l.widthCm, l.heightCm].every(Boolean) ? `${l.lengthCm} × ${l.widthCm} × ${l.heightCm} ${unitLabel(l.dimensionUnit)}` : "";
+      const what = [l.pieces && `${l.pieces} pcs`, size].filter(Boolean).join(", ");
       return `The dimension line${what ? ` (${what})` : ""} will be deleted.`;
     }
-    const l = items[confirmDelete.idx];
-    return `The description line${l?.cargoDescription ? ` "${l.cargoDescription}"` : ""} will be deleted.`;
+    const l = confirmDelete.line;
+    return `The description line${l.cargoDescription ? ` "${l.cargoDescription}"` : ""} will be deleted.`;
   })();
 
   const addLine = () => (view === "dims" ? addDim(active.key) : addItem(active.key));
@@ -496,9 +495,9 @@ export function CargoDetailsTab({
   );
 
   return (
-    // One card: the containers as tabs, then which table (pill tabs, as on the list pages)
-    // with Add, and the table straight in the card. The page's own tab already says
-    // "Cargo Details", so the card has no title bar.
+    // One card: the containers as tabs, then which table (pill tabs, as on the list pages),
+    // and the table straight in the card with Add on its header. The page's own tab already
+    // says "Cargo Details", so the card has no title bar.
     <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
       <ConfirmModal
         open={!!confirmDelete}
@@ -508,77 +507,55 @@ export function CargoDetailsTab({
         confirmLabel="Delete"
         onClose={() => setConfirmDelete(null)}
         onConfirm={() => {
-          if (confirmDelete?.table === "dims") removeDim(confirmDelete.idx, confirmDelete.size);
-          else if (confirmDelete) removeItem(confirmDelete.idx, confirmDelete.size);
+          if (confirmDelete) deleteLine(confirmDelete);
           setConfirmDelete(null);
         }}
       />
       {panels.length > 1 && (
         // The containers as tabs (as in the grid's Dimensions dialog) - only when there is
-        // more than one to choose from; a single container is named in the pills below.
-        // The dot says whether a container's lines add up to what it declares.
-        <div role="tablist" aria-label="Containers" className="flex items-end gap-1 px-3 pt-2 bg-white border-b border-slate-200 overflow-x-auto">
-          {panels.map((p) => {
-            const on = p.key === active.key;
-            return (
-              <button
-                key={p.key}
-                type="button"
-                role="tab"
-                aria-selected={on}
-                onClick={() => setActiveKey(p.key)}
-                className={[
-                  "relative flex items-center gap-2 px-4 py-2.5 rounded-t-lg border-0 text-[13px] whitespace-nowrap cursor-pointer transition-colors",
-                  "outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-inset",
-                  on ? "bg-indigo-50 text-indigo-700" : "bg-transparent text-slate-500 hover:bg-slate-50 hover:text-slate-800",
-                ].join(" ")}
-              >
-                {on && <span aria-hidden className="absolute inset-x-0 bottom-0 h-[3px] rounded-t bg-indigo-500" />}
-                {p.container && p.hasLines && (
-                  <span
-                    className={`w-2 h-2 rounded-full ${p.matched ? "bg-emerald-500" : "bg-red-500"}`}
-                    title={p.matched ? "Matched" : "Mismatch"}
-                    aria-label={p.matched ? "Matched" : "Mismatch"}
-                  />
-                )}
-                <span className={`${p.container ? "font-mono tracking-wide" : ""} ${on ? "font-bold" : "font-semibold"}`}>{p.label}</span>
-                {p.container?.type && <span className={`text-xs ${on ? "text-indigo-500" : "text-slate-400"}`}>{p.container.type}</span>}
-              </button>
-            );
-          })}
-        </div>
+        // more than one to choose from. A container's dot shows once it has lines.
+        <ContainerTabs
+          className="px-3"
+          activeKey={active.key}
+          onChange={setActiveKey}
+          tabs={panels.map((p) => ({
+            key: p.key,
+            label: p.label,
+            type: p.container?.type,
+            isContainer: !!p.container,
+            matched: p.container && p.hasLines ? p.matched : null,
+          }))}
+        />
       )}
 
       <div className="p-4">
-        {/* Which table of this container: dimensions or descriptions, then Add for it. */}
-        <div className="flex items-center gap-2 mb-3">
-          <div role="tablist" aria-label="Cargo tables" className="flex items-center gap-2">
-            {(
-              [
-                ["dims", "Dimensions"],
-                ["desc", "Description"],
-              ] as const
-            ).map(([k, text]) => {
-              const on = view === k;
-              return (
-                <button
-                  key={k}
-                  type="button"
-                  role="tab"
-                  aria-selected={on}
-                  onClick={() => setView(k)}
-                  className={[
-                    "flex items-center gap-1.5 h-8 px-3 rounded-lg border text-[13px] font-medium transition-colors cursor-pointer",
-                    "outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-1",
-                    // The open table is filled indigo, so it is clear at a glance which one is shown.
-                    on ? "border-indigo-600 bg-indigo-600 text-white shadow-sm" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
-                  ].join(" ")}
-                >
-                  {text}
-                </button>
-              );
-            })}
-          </div>
+        {/* Which table of this container: dimensions or descriptions (Add sits on the table's header). */}
+        <div role="tablist" aria-label="Cargo tables" className="flex items-center gap-2 mb-3">
+          {(
+            [
+              ["dims", "Dimensions"],
+              ["desc", "Description"],
+            ] as const
+          ).map(([k, text]) => {
+            const on = view === k;
+            return (
+              <button
+                key={k}
+                type="button"
+                role="tab"
+                aria-selected={on}
+                onClick={() => setView(k)}
+                className={[
+                  "flex items-center gap-1.5 h-8 px-3 rounded-lg border text-[13px] font-medium transition-colors cursor-pointer",
+                  "outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-1",
+                  // The open table is filled indigo, so it is clear at a glance which one is shown.
+                  on ? "border-indigo-600 bg-indigo-600 text-white shadow-sm" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
+                ].join(" ")}
+              >
+                {text}
+              </button>
+            );
+          })}
         </div>
         {view === "dims" ? (
           <div className="relative">
@@ -629,7 +606,7 @@ export function CargoDetailsTab({
                         <span className="text-center text-orange-600 font-medium leading-snug break-words" title={adrSummary(l)}>
                           {hasAdr(l) ? adrSummary(l) : <span className="text-slate-700 font-normal">—</span>}
                         </span>
-                        <RowActionsMenu label="Dimension line actions" onCopy={() => copyDim(idx)} onDelete={() => askDelete("dims", idx, panelDims.length)} />
+                        <RowActionsMenu label="Dimension line actions" onCopy={() => copyDim(idx)} onDelete={() => askDelete({ table: "dims", line: l })} />
                       </div>
                     );
                   }
@@ -648,16 +625,17 @@ export function CargoDetailsTab({
                       <div className={`${DIM_BANDS} px-1 [&>*]:!py-1`}>
                         {/* Numbers only, like the Dimensions modal: Pcs whole, the rest may take a decimal point; at most 4 digits (weight 5). */}
                         <div>
-                          <Input size="small" className={EDIT_FIELD} inputMode="numeric" value={l.pieces} onChange={(e) => patchDim(idx, { pieces: numberInput(e.target.value, false, 4) })} onBlur={persistDims} />
+                          <Input size="small" className={EDIT_FIELD} aria-label="Pieces" inputMode="numeric" value={l.pieces} onChange={(e) => patchDim(idx, { pieces: numberInput(e.target.value, false, 4) })} onBlur={persistDims} />
                         </div>
                         <div>
                           <Select
                             size="small"
                             className={CENTERED_SELECT}
+                            aria-label="Package type"
                             value={l.packageType || undefined}
                             allowClear
                             placeholder="—"
-                            options={PACK_TYPES.map((p) => ({ value: p }))}
+                            options={PACK_TYPE_OPTIONS}
                             onChange={(v) => {
                               patchDim(idx, { packageType: v ?? "" });
                               setTimeout(persistDims, 0);
@@ -665,13 +643,13 @@ export function CargoDetailsTab({
                           />
                         </div>
                         <div>
-                          <Input size="small" className={EDIT_FIELD} inputMode="decimal" value={l.lengthCm} onChange={(e) => patchDim(idx, { lengthCm: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
+                          <Input size="small" className={EDIT_FIELD} aria-label="Length" inputMode="decimal" value={l.lengthCm} onChange={(e) => patchDim(idx, { lengthCm: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
                         </div>
                         <div>
-                          <Input size="small" className={EDIT_FIELD} inputMode="decimal" value={l.widthCm} onChange={(e) => patchDim(idx, { widthCm: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
+                          <Input size="small" className={EDIT_FIELD} aria-label="Width" inputMode="decimal" value={l.widthCm} onChange={(e) => patchDim(idx, { widthCm: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
                         </div>
                         <div>
-                          <Input size="small" className={EDIT_FIELD} inputMode="decimal" value={l.heightCm} onChange={(e) => patchDim(idx, { heightCm: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
+                          <Input size="small" className={EDIT_FIELD} aria-label="Height" inputMode="decimal" value={l.heightCm} onChange={(e) => patchDim(idx, { heightCm: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
                         </div>
                         <div>
                           {/* The unit of the three sizes: the numbers stay as typed, only their unit changes. */}
@@ -688,7 +666,7 @@ export function CargoDetailsTab({
                           />
                         </div>
                         <div>
-                          <Input size="small" className={EDIT_FIELD} inputMode="decimal" value={l.weightPerPcKg} onChange={(e) => patchDim(idx, { weightPerPcKg: numberInput(e.target.value, true, 5) })} onBlur={persistDims} />
+                          <Input size="small" className={EDIT_FIELD} aria-label="Weight per piece (kg)" inputMode="decimal" value={l.weightPerPcKg} onChange={(e) => patchDim(idx, { weightPerPcKg: numberInput(e.target.value, true, 5) })} onBlur={persistDims} />
                         </div>
                         {/* Computed, so plain text as in the read row. */}
                         <span className="text-center text-[13px] tabular-nums text-slate-500">{vpc ? vpc.toFixed(3) : "—"}</span>
@@ -696,6 +674,7 @@ export function CargoDetailsTab({
                           <Select
                             size="small"
                             className={CENTERED_SELECT}
+                            aria-label="Stackability"
                             value={l.stackable || undefined}
                             allowClear
                             placeholder="—"
@@ -710,7 +689,7 @@ export function CargoDetailsTab({
                         <div className="flex justify-center">
                           <Checkbox aria-label="Dangerous goods (ADR)" checked={adrShown} onChange={(e) => handleAdrToggle(idx, l, e.target.checked)} />
                         </div>
-                        <RowActionsMenu label="Dimension line actions" onCopy={() => copyDim(idx)} onDelete={() => askDelete("dims", idx, panelDims.length)} />
+                        <RowActionsMenu label="Dimension line actions" onCopy={() => copyDim(idx)} onDelete={() => askDelete({ table: "dims", line: l })} />
                       </div>
                       {adrShown && <CargoDimensionAdrFields line={l} onPatch={(p) => patchDim(idx, p)} onCommit={persistDims} />}
                     </div>
@@ -779,7 +758,7 @@ export function CargoDetailsTab({
                       <span className="text-center tabular-nums">{l.grossWeight || "—"}</span>
                       <span className="text-center tabular-nums">{l.commercialInvoiceValue || "—"}</span>
                       <span className="text-center truncate">{l.currency || "—"}</span>
-                      <RowActionsMenu label="Description line actions" onCopy={() => copyItem(idx)} onDelete={() => askDelete("items", idx, panelItems.length)} />
+                      <RowActionsMenu label="Description line actions" onCopy={() => copyItem(idx)} onDelete={() => askDelete({ table: "items", line: l })} />
                     </div>
                   ) : (
                     <div
@@ -789,27 +768,29 @@ export function CargoDetailsTab({
                       onBlur={openItems.onRowBlur(idx)}
                       onKeyDown={openItems.onRowKeyDown(idx)}
                     >
-                      <Input size="small" value={l.cargoDescription} placeholder="PLASTIC PARTS OF SPEAKER" onChange={(e) => patchItem(idx, { cargoDescription: e.target.value })} onBlur={persistItems} />
+                      <Input size="small" aria-label="Cargo description" value={l.cargoDescription} placeholder="PLASTIC PARTS OF SPEAKER" onChange={(e) => patchItem(idx, { cargoDescription: e.target.value })} onBlur={persistItems} />
                       {/* HS code is a tariff number — digits only (separators are dropped). */}
                       <Input
                         size="small"
                         className="text-center"
+                        aria-label="HS code"
                         inputMode="numeric"
                         value={l.hsCode}
                         placeholder="85319000"
                         onChange={(e) => patchItem(idx, { hsCode: e.target.value.replace(/\D/g, "") })}
                         onBlur={persistItems}
                       />
-                      <Input size="small" className="text-center" value={l.pieces} inputMode="numeric" onChange={(e) => patchItem(idx, { pieces: numberInput(e.target.value, false) })} onBlur={persistItems} />
+                      <Input size="small" className="text-center" aria-label="Pieces" value={l.pieces} inputMode="numeric" onChange={(e) => patchItem(idx, { pieces: numberInput(e.target.value, false) })} onBlur={persistItems} />
                       {/* Picked from the list only (typing filters it); free text is not taken. */}
                       <Select
                         size="small"
                         className={CENTERED_SELECT}
+                        aria-label="Package type"
                         value={l.packageType || undefined}
                         placeholder="Pallet(s)"
                         showSearch
                         allowClear
-                        options={PACK_TYPES.map((p) => ({ value: p }))}
+                        options={PACK_TYPE_OPTIONS}
                         onChange={(v?: string) => {
                           patchItem(idx, { packageType: v ?? "" });
                           setTimeout(persistItems, 0);
@@ -817,18 +798,19 @@ export function CargoDetailsTab({
                         onBlur={persistItems}
                       />
                       {/* Numbers only: digits and one decimal point. */}
-                      <Input size="small" className="text-center" value={l.grossWeight} inputMode="decimal" onChange={(e) => patchItem(idx, { grossWeight: numberInput(e.target.value) })} onBlur={persistItems} />
-                      <Input size="small" className="text-center" value={l.commercialInvoiceValue} placeholder="12 500" inputMode="decimal" onChange={(e) => patchItem(idx, { commercialInvoiceValue: numberInput(e.target.value) })} onBlur={persistItems} />
+                      <Input size="small" className="text-center" aria-label="Gross weight (kg)" value={l.grossWeight} inputMode="decimal" onChange={(e) => patchItem(idx, { grossWeight: numberInput(e.target.value) })} onBlur={persistItems} />
+                      <Input size="small" className="text-center" aria-label="Invoice value" value={l.commercialInvoiceValue} placeholder="12 500" inputMode="decimal" onChange={(e) => patchItem(idx, { commercialInvoiceValue: numberInput(e.target.value) })} onBlur={persistItems} />
                       <AutoComplete
                         size="small"
                         className="w-full [&_input]:!text-center"
+                        aria-label="Currency"
                         value={l.currency}
                         placeholder="USD"
                         options={currencyOptions(l.currency)}
                         onChange={(v) => patchItem(idx, { currency: (v ?? "").toUpperCase() })}
                         onBlur={persistItems}
                       />
-                      <RowActionsMenu label="Description line actions" onCopy={() => copyItem(idx)} onDelete={() => askDelete("items", idx, panelItems.length)} />
+                      <RowActionsMenu label="Description line actions" onCopy={() => copyItem(idx)} onDelete={() => askDelete({ table: "items", line: l })} />
                     </div>
                   ),
                 )}
@@ -857,10 +839,10 @@ export function CargoDetailsTab({
                     {/* The invoice value total, which nothing declares: a plain pill. */}
                     {descCiv && (
                       <Tooltip title={`Lines: ${descCiv} · the container declares no invoice value`}>
-                      <span className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs ring-1 ring-inset ring-slate-200 bg-slate-50 text-slate-700 tabular-nums whitespace-nowrap cursor-default">
-                        <span className="font-semibold uppercase tracking-wide text-[10px] text-slate-500">Invoice value</span>
-                        <span className="font-semibold">{descCiv}</span>
-                      </span>
+                        <span className={`${CHECK_PILL_CLASS} ring-slate-200 bg-slate-50 text-slate-700`}>
+                          <span className="font-semibold uppercase tracking-wide text-[10px] text-slate-500">Invoice value</span>
+                          <span className="font-semibold">{descCiv}</span>
+                        </span>
                       </Tooltip>
                     )}
                   </>,

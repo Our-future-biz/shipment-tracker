@@ -130,4 +130,17 @@ describe("dimension units", () => {
     expect(lineInCm(cmLine)).toBe(cmLine);
     expect(lineInUnit(cmLine)).toBe(cmLine);
   });
+  it("brings an inch size with up to 4 decimals back unchanged", () => {
+    for (const inch of ["0.0001", "1.2345", "44.1234", "12.5", "9999.9999"]) {
+      const back = lineInUnit(lineInCm({ ...line, lengthCm: inch }));
+      expect(back.lengthCm).toBe(String(Number(inch)));
+    }
+  });
+  it("leaves a size that is not a number as it is", () => {
+    expect(lineInCm({ ...line, lengthCm: "12,5" }).lengthCm).toBe("12,5");
+  });
+  it("converts a row holding only the sizes and their unit, keeping its other fields", () => {
+    const row = { pieces: "1", lengthCm: "25.4", widthCm: "50.8", heightCm: "", weightPerPcKg: "3", dimensionUnit: "in" as const };
+    expect(lineInUnit(row)).toEqual({ ...row, lengthCm: "10", widthCm: "20" });
+  });
 });

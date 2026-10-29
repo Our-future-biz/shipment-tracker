@@ -18,7 +18,7 @@ import {
   num,
   fmtNum,
   type ContainerLine,
-  PACK_TYPES,
+  PACK_TYPE_OPTIONS,
   numberInput,
 } from "@/lib/cargo";
 
@@ -119,7 +119,7 @@ export function ContainerDetailsTab({
   shipmentRef.current = shipment;
   const pendingWrites = useIsMutating({ mutationKey: SHIPMENT_WRITE_KEY });
   // force: after a refused save - its rows go back to what is saved, but a row added
-  // here that was not part of that save keeps what was typed into it.
+  // here that was not part of that save keeps what was typed into it and stays open.
   const resync = (force: boolean, refusedIds?: Set<string | undefined>) => {
     const local = rowsRef.current;
     const typing = editingRef.current.size > 0 || local.some((r) => !isValidContainerNumber(r.containerNumber));
@@ -141,7 +141,9 @@ export function ContainerDetailsTab({
     next.push(...saved.filter((c) => !shown.has(c.id)));
     lastSent.current = JSON.stringify(saved);
     setRows(next.length > 0 ? next : [emptyContainer()]);
-    if (force) setEditing(new Set(next.flatMap((r, i) => (savedById.has(r.id) ? [] : [i]))));
+    // A blank row needs no opening (a row without a number is always open), and kept in the
+    // set it would hold off every later resync.
+    if (force) setEditing(new Set(next.flatMap((r, i) => (savedById.has(r.id) || isBlankContainer(r) ? [] : [i]))));
   };
   useEffect(() => {
     if (pendingWrites === 0) resync(false);
@@ -278,22 +280,24 @@ export function ContainerDetailsTab({
   const [typeQuery, setTypeQuery] = useState("");
   const typeOptions = useMemo(() => containerTypeOptions(typeQuery), [typeQuery]);
 
-  // The row whose Delete waits for a yes, and what deleting it does to its cargo: with
-  // other containers left its cargo lines go with it; the only container's cargo stays
-  // on the shipment (server rule).
-  const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
-  const toDelete = confirmDelete !== null ? rows[confirmDelete] : undefined;
-  const cargoLines = toDelete?.id
-    ? (shipment.cargoDimensions ?? []).filter((l) => l.containerId === toDelete.id).length +
-      (shipment.cargoItems ?? []).filter((l) => l.containerId === toDelete.id).length
+  // The row whose Delete waits for a yes - by id, as a refetch may re-order the rows while
+  // the dialog is open - and what deleting it does to its cargo (server rule): with other
+  // saved containers its cargo lines go with it; the cargo of the only saved container stays
+  // on the shipment, on the one container left or else without a container.
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const deleteIndex = rows.findIndex((r) => r.id === confirmDeleteId);
+  const toDelete = deleteIndex >= 0 ? rows[deleteIndex] : undefined;
+  const cargoLines = toDelete
+    ? [...(shipment.cargoDimensions ?? []), ...(shipment.cargoItems ?? [])].filter((l) => l.containerId === toDelete.id).length
     : 0;
-  const othersLeft = rows.filter((r, j) => j !== confirmDelete && !isBlankContainer(r)).length > 0;
+  const otherSaved = (shipment.containers ?? []).some((c) => c.id !== toDelete?.id);
+  const left = rows.filter((r) => r.id !== toDelete?.id && !isBlankContainer(r)).length;
   const deleteDescription = [
-    `Container ${toDelete?.containerNumber || `#${(confirmDelete ?? 0) + 1}`} will be removed from this shipment.`,
+    `Container ${toDelete?.containerNumber || `#${deleteIndex + 1}`} will be removed from this shipment.`,
     cargoLines > 0
-      ? othersLeft
+      ? otherSaved
         ? `Its ${cargoLines} cargo line${cargoLines === 1 ? "" : "s"} in Cargo Details will be deleted too.`
-        : `Its cargo lines stay on the shipment as cargo without a container.`
+        : `Its cargo lines stay on the shipment${left === 1 ? ", on the other container" : " as cargo without a container"}.`
       : "",
   ]
     .filter(Boolean)
@@ -301,11 +305,11 @@ export function ContainerDetailsTab({
 
   // A row's actions behind "⋯" (centred under the "+" in the header): Delete, one click
   // further away so a container (and its cargo) is not removed by a stray click.
-  const rowMenu = (i: number) => (
+  const rowMenu = (c: ContainerLine, i: number) => (
     <RowActionsMenu
       label="Container actions"
       // A row with anything in it asks first; an empty row just goes.
-      onDelete={() => (isBlankContainer(rows[i] ?? emptyContainer()) ? remove(i) : setConfirmDelete(i))}
+      onDelete={() => (isBlankContainer(c) || !c.id ? remove(i) : setConfirmDeleteId(c.id))}
     />
   );
 
@@ -313,21 +317,21 @@ export function ContainerDetailsTab({
     <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
       {contextHolder}
       <ConfirmModal
-        open={confirmDelete !== null}
+        open={!!toDelete}
         danger
         title="Delete container?"
         description={deleteDescription}
         confirmLabel="Delete"
-        onClose={() => setConfirmDelete(null)}
+        onClose={() => setConfirmDeleteId(null)}
         onConfirm={() => {
-          if (confirmDelete !== null) remove(confirmDelete);
-          setConfirmDelete(null);
+          if (deleteIndex >= 0) remove(deleteIndex);
+          setConfirmDeleteId(null);
         }}
       />
       {/* No title bar: the page's own tab already says "Container Details". */}
       <div className="p-4 relative">
-        {/* Add container: a small "+" laid over the header row's right end, above the delete
-            icons. Outside the scroll box so nothing clips it, and no taller than the column
+        {/* Add container: a small "+" laid over the header row's right end, above the rows'
+            "⋯" menus. Outside the scroll box so nothing clips it, and no taller than the column
             titles' line, so it neither grows the header nor touches its rule. */}
         <Tooltip title="Add container">
           <Button
@@ -349,8 +353,7 @@ export function ContainerDetailsTab({
               <span className="text-center truncate">Packages</span>
               <span className="text-center truncate">Gross Weight (kg)</span>
               <span className="text-center truncate">Volume (m³)</span>
-              {/* Add container: "+" in the header's action column, above the delete icons -
-                  top right, without making the table taller. */}
+              {/* The actions column: the "+" above lies over it. */}
               <span />
             </div>
 
@@ -413,7 +416,7 @@ export function ContainerDetailsTab({
                     placeholder="Pallet(s)"
                     showSearch
                     allowClear
-                    options={PACK_TYPES.map((p) => ({ value: p }))}
+                    options={PACK_TYPE_OPTIONS}
                     onChange={(v?: string) => {
                       patch(i, { packageType: v ?? "" });
                       setTimeout(persist, 0);
@@ -439,7 +442,7 @@ export function ContainerDetailsTab({
                     onChange={(e) => patch(i, { volume: numberInput(e.target.value) })}
                     onBlur={persist}
                   />
-                  {rowMenu(i)}
+                  {rowMenu(c, i)}
                 </div>
               ) : (
                 // Read mode: double-click anywhere re-opens editing focused on the
@@ -472,7 +475,7 @@ export function ContainerDetailsTab({
                   <span data-field="packageType" className="text-sm text-slate-700 px-2 text-center truncate">{c.packageType}</span>
                   <span data-field="grossWeight" className="text-sm text-slate-700 px-2 text-center tabular-nums">{c.grossWeight}</span>
                   <span data-field="volume" className="text-sm text-slate-700 px-2 text-center tabular-nums">{c.volume}</span>
-                  {rowMenu(i)}
+                  {rowMenu(c, i)}
                 </div>
               ),
             )}

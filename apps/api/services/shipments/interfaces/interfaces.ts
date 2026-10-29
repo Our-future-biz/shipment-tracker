@@ -7,7 +7,8 @@ export type AttachmentCustomsStatus = "" | "approved" | "declined";
 
 export interface ContainerLine {
   // Stable row id. Present on reads; clients echo it back on updates so cargo
-  // lines keep pointing at the same container. Absent on brand-new rows.
+  // lines keep pointing at the same container. A brand-new row either has none or
+  // brings a UUID the client made for it, which the stored row keeps.
   id?: string;
   containerNumber: string;
   sealNumber: string;

@@ -1,6 +1,5 @@
 "use client";
 
-import { containerNumberInput, isValidContainerNumber } from "@/lib/container";
 import { useEffect, useState, type ReactNode } from "react";
 import { Alert, Button, Form, Input, InputNumber, Modal, Select, Tag } from "antd";
 import { DeleteOutlined } from "@ant-design/icons";
@@ -9,6 +8,7 @@ import { useToast } from "@/lib/toast";
 import { errorMessage } from "@/app/warehouse-concept/gate-log/_lib/gate";
 import { formatNumber } from "@/lib/number";
 import { businessToday } from "@/lib/date";
+import { containerNumberInput, isValidContainerNumber } from "@/lib/container";
 
 // Shared pieces of the Warehouse module tabs (Containers, Dock & Yard, Reports):
 // sub-tab pills, cards, KPI tiles, callouts, status tags and a record form.
