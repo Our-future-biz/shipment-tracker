@@ -277,7 +277,7 @@ export function AddCustomerModal({
             loading={isCreating}
             disabled={(fromRegistry && !preview) || roles.length === 0}
           >
-            Create customer
+            Create customer / Supplier
           </Button>
         </div>
       }
