@@ -22,7 +22,12 @@ export const useCustomerSites = (customerId: string) => {
     enabled: !!customerId,
   });
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: key });
+  // A site is a Pickup / Delivery address of the customer, which may also be its Registered one.
+  const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: ["customer-addresses", customerId] });
+    void queryClient.invalidateQueries({ queryKey: ["customer", customerId] });
+    return queryClient.invalidateQueries({ queryKey: key });
+  };
 
   const createMutation = useMutation({
     mutationFn: (params: controllers.CustomerSiteCreateRequest) => api.customers.customerSiteCreate(customerId, params),

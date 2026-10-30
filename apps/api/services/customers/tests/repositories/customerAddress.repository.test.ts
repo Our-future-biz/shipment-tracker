@@ -14,17 +14,27 @@ const fake = vi.hoisted(() => {
     seat: [] as Record<string, unknown>[],
     customerWrites: [] as { set: Record<string, unknown>; where: SQL }[],
     addressWrites: [] as Record<string, unknown>[],
+    /** The address's live site read before it is written again, or none. */
+    site: [] as Record<string, unknown>[],
+    siteInserts: [] as Record<string, unknown>[],
+    siteUpdates: [] as Record<string, unknown>[],
   };
   const name = (table: unknown) => (table as { [k: symbol]: string })[Symbol.for("drizzle:Name")];
   const tx = {
-    select: (fields: Record<string, unknown>) => ({
-      from: () => ({ where: () => ({ limit: async () => ("types" in fields ? state.before : state.seat) }) }),
+    select: (fields?: Record<string, unknown>) => ({
+      from: (table: unknown) => ({
+        where: () => ({ limit: async () => (name(table) === "customer_site" ? state.site : fields && "types" in fields ? state.before : state.seat) }),
+      }),
     }),
-    insert: () => ({
+    insert: (table: unknown) => ({
       values: (values: Record<string, unknown>) => ({
         returning: async () => {
+          if (name(table) === "customer_site") {
+            state.siteInserts.push(values);
+            return [values];
+          }
           state.addressWrites.push(values);
-          return [{ id: "a1", ...values }];
+          return [{ id: "a1", deletedAt: null, ...values }];
         },
       }),
     }),
@@ -35,6 +45,10 @@ const fake = vi.hoisted(() => {
             if (name(table) === "customer") {
               state.customerWrites.push({ set, where });
               return [{ id: "c1" }];
+            }
+            if (name(table) === "customer_site") {
+              state.siteUpdates.push(set);
+              return [set];
             }
             state.addressWrites.push(set);
             return state.address ? [state.address] : [];
@@ -48,6 +62,7 @@ const fake = vi.hoisted(() => {
 });
 
 vi.mock("../../db/db", () => ({ db: fake.db }));
+vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 
 import { customerAddressRepository } from "../../repositories/customerAddress.repository";
 import { customerTable } from "../../schemas/customer.schema";
@@ -55,12 +70,13 @@ import { customerTable } from "../../schemas/customer.schema";
 const COMPANY = "86f202b1-7449-441b-9c5b-5bf4d89f8d88";
 const address = (over: Record<string, unknown> = {}) => ({
   id: "a1", customerId: "c1", companyId: COMPANY, types: ["Registered"], label: "", street: "Na Pankráci 10", city: "Praha 4", postalCode: "140 00", country: "CZ",
+  deletedAt: null,
   ...over,
 });
 const seatOf = (a: Record<string, unknown>) => ({ street: a.street, city: a.city, postalCode: a.postalCode, country: a.country });
 
 beforeEach(() => {
-  Object.assign(fake.state, { before: [], address: null, seat: [], customerWrites: [], addressWrites: [] });
+  Object.assign(fake.state, { before: [], address: null, seat: [], customerWrites: [], addressWrites: [], site: [], siteInserts: [], siteUpdates: [] });
 });
 
 describe("the customer's seat follows its Registered address", () => {
@@ -139,5 +155,49 @@ describe("the customer's seat follows its Registered address", () => {
     await expect(customerAddressRepository.softDeleteWithSeat("x", COMPANY)).resolves.toBeNull();
     expect(fake.state.addressWrites).toHaveLength(1); // only the delete's attempt; the update stopped at the read
     expect(fake.state.customerWrites).toEqual([]);
+  });
+});
+
+describe("a Pickup / Delivery address's site", () => {
+  const pickup = { customerId: "c1", types: ["Pickup" as const], label: "Plant", street: "Průmyslová 5", city: "Kolín", postalCode: "280 02", country: "CZ" };
+
+  it("is added with the address, its postcode as sites keep it and the Sites tab's details", async () => {
+    await customerAddressRepository.createWithSeat(COMPANY, pickup, { openingHours: "7-15" });
+    expect(fake.state.siteInserts).toEqual([
+      {
+        label: "Plant", kind: "loading", street: "Průmyslová 5", postcode: "28002", city: "Kolín", country: "CZ",
+        openingHours: "7-15", companyId: COMPANY, customerId: "c1", addressId: "a1",
+      },
+    ]);
+  });
+
+  it("follows the address, used for both once it is also Delivery, its map position cleared when it moved", async () => {
+    fake.state.before = [{ types: ["Pickup"] }];
+    fake.state.site = [{ id: "s1", street: "Průmyslová 5", postcode: "28002", city: "Kolín", country: "CZ" }];
+    fake.state.address = address({ ...pickup, types: ["Pickup", "Delivery"], street: "Průmyslová 7" });
+    await customerAddressRepository.updateWithSeat("a1", COMPANY, { types: ["Pickup", "Delivery"], street: "Průmyslová 7" });
+    expect(fake.state.siteInserts).toEqual([]);
+    expect(fake.state.siteUpdates).toEqual([expect.objectContaining({ kind: "both", street: "Průmyslová 7", lat: null, lng: null })]);
+  });
+
+  it("goes when the address is neither Pickup nor Delivery any more, or is deleted", async () => {
+    fake.state.before = [{ types: ["Pickup"] }];
+    fake.state.site = [{ id: "s1", street: "Průmyslová 5", postcode: "28002", city: "Kolín", country: "CZ" }];
+    fake.state.address = address({ ...pickup, types: ["Billing"] });
+    await customerAddressRepository.updateWithSeat("a1", COMPANY, { types: ["Billing"] });
+    fake.state.address = address({ ...pickup, deletedAt: new Date() });
+    await customerAddressRepository.softDeleteWithSeat("a1", COMPANY);
+    expect(fake.state.siteUpdates).toEqual([expect.objectContaining({ deletedAt: expect.any(Date) }), expect.objectContaining({ deletedAt: expect.any(Date) })]);
+  });
+
+  it("is refused, with the address, when a Czech postcode is not 5 digits", async () => {
+    await expect(customerAddressRepository.createWithSeat(COMPANY, { ...pickup, postalCode: "Kolín" })).rejects.toThrow(/5 digits/);
+    expect(fake.state.siteInserts).toEqual([]);
+  });
+
+  it("is not added for an address that is no Pickup or Delivery", async () => {
+    await customerAddressRepository.createWithSeat(COMPANY, { ...pickup, types: ["Billing"] });
+    expect(fake.state.siteInserts).toEqual([]);
+    expect(fake.state.siteUpdates).toEqual([]);
   });
 });

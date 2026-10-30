@@ -16,9 +16,12 @@ const sites = vi.hoisted(() => ({
   getByIdForCompany: vi.fn(),
   updateForCompany: vi.fn(),
   softDeleteForCompany: vi.fn(),
+  findByAddress: vi.fn(),
 }));
+const addresses = vi.hoisted(() => ({ createWithSeat: vi.fn(), updateWithSeat: vi.fn(), softDeleteWithSeat: vi.fn(), findLive: vi.fn() }));
 vi.mock("../../repositories/customer.repository", () => ({ customerRepository: customers }));
 vi.mock("../../repositories/customerSite.repository", () => ({ customerSiteRepository: sites }));
+vi.mock("../../repositories/customerAddress.repository", () => ({ customerAddressRepository: addresses }));
 vi.mock("../../services/ares.service", () => ({ aresService: { lookup: vi.fn() } }));
 vi.mock("../../services/logo.service", () => ({ logoService: { fetchLogo: vi.fn() } }));
 // The change events need the Encore runtime.
@@ -29,10 +32,14 @@ import { customerSiteService } from "../../services/customerSite.service";
 const COMPANY = "86f202b1-7449-441b-9c5b-5bf4d89f8d88";
 const now = new Date("2026-10-15T08:00:00Z");
 const siteRow = (over: Record<string, unknown> = {}) => ({
-  id: "s1", customerId: "c1", companyId: COMPANY, label: "Main warehouse", kind: "both", street: "Jankovcova 1522/53",
+  id: "s1", customerId: "c1", companyId: COMPANY, addressId: null, label: "Main warehouse", kind: "both", street: "Jankovcova 1522/53",
   postcode: "17000", city: "Praha 7", country: "CZ", lat: null, lng: null, openingHours: "", avizaceName: "",
   avizacePhone: "", avizaceEmail: "", loadingNotes: "", tailLiftNeeded: false, isDefault: false,
   createdAt: now, updatedAt: now, deletedAt: null, ...over,
+});
+const addressRow = (over: Record<string, unknown> = {}) => ({
+  id: "a1", customerId: "c1", companyId: COMPANY, types: ["Pickup", "Delivery"], label: "Main warehouse", street: "Jankovcova 1522/53",
+  city: "Praha 7", postalCode: "170 00", country: "CZ", createdAt: now, updatedAt: now, deletedAt: null, ...over,
 });
 
 beforeEach(() => {
@@ -57,32 +64,45 @@ describe("adding a site", () => {
       customerSiteService.create(COMPANY, "other-company-customer", { label: "X", postcode: "11000" }),
     ).rejects.toMatchObject({ code: "not_found" });
     expect(customers.getByIdForCompany).toHaveBeenCalledWith("other-company-customer", COMPANY);
+    expect(addresses.createWithSeat).not.toHaveBeenCalled();
+  });
+
+  it("adds it as a Pickup and Delivery address of the customer, with the site's own details written with it", async () => {
+    customers.getByIdForCompany.mockResolvedValue({ id: "c1" });
+    addresses.createWithSeat.mockResolvedValue(addressRow());
+    sites.findByAddress.mockResolvedValue(siteRow({ addressId: "a1" }));
+    const site = await customerSiteService.create(COMPANY, "c1", { label: " Main warehouse ", postcode: "170 00", openingHours: "7-15", tailLiftNeeded: true });
+    expect(addresses.createWithSeat).toHaveBeenCalledWith(
+      COMPANY,
+      { customerId: "c1", types: ["Pickup", "Delivery"], label: "Main warehouse", street: "", city: "", postalCode: "170 00", country: "CZ" },
+      { openingHours: "7-15", tailLiftNeeded: true },
+    );
+    expect(sites.findByAddress).toHaveBeenCalledWith("a1", COMPANY);
+    expect(site.addressId).toBe("a1");
     expect(sites.createForCompany).not.toHaveBeenCalled();
   });
 
-  it("stores a Czech postcode as 5 digits, with CZ and the other defaults filled in", async () => {
+  it("used for loading only is a Pickup address", async () => {
     customers.getByIdForCompany.mockResolvedValue({ id: "c1" });
-    sites.createForCompany.mockResolvedValue(siteRow());
-    await customerSiteService.create(COMPANY, "c1", { label: "Main warehouse", postcode: "170 00" });
-    expect(sites.createForCompany).toHaveBeenCalledWith(COMPANY, {
-      customerId: "c1", label: "Main warehouse", kind: "both", street: "", postcode: "17000", city: "", country: "CZ",
-      lat: null, lng: null, openingHours: "", avizaceName: "", avizacePhone: "", avizaceEmail: "", loadingNotes: "",
-      tailLiftNeeded: false, isDefault: false,
-    });
+    addresses.createWithSeat.mockResolvedValue(addressRow({ types: ["Pickup"] }));
+    sites.findByAddress.mockResolvedValue(siteRow({ addressId: "a1", kind: "loading" }));
+    await customerSiteService.create(COMPANY, "c1", { label: "Dock", postcode: "11000", kind: "loading" });
+    expect(addresses.createWithSeat).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ types: ["Pickup"] }), {});
   });
 
   it("rejects a Czech postcode that is not 5 digits, before anything is written", async () => {
     await expect(customerSiteService.create(COMPANY, "c1", { label: "X", postcode: "1100" })).rejects.toMatchObject({
       code: "invalid_argument",
     });
-    expect(sites.createForCompany).not.toHaveBeenCalled();
+    expect(addresses.createWithSeat).not.toHaveBeenCalled();
   });
 
   it("takes another country's postcode as typed, but not an empty one", async () => {
     customers.getByIdForCompany.mockResolvedValue({ id: "c1" });
-    sites.createForCompany.mockResolvedValue(siteRow());
+    addresses.createWithSeat.mockResolvedValue(addressRow());
+    sites.findByAddress.mockResolvedValue(siteRow());
     await customerSiteService.create(COMPANY, "c1", { label: "UK depot", postcode: " SW1A 1AA ", country: "gb" });
-    expect(sites.createForCompany).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ postcode: "SW1A 1AA", country: "GB" }));
+    expect(addresses.createWithSeat).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ postalCode: "SW1A 1AA", country: "GB" }), {});
     await expect(
       customerSiteService.create(COMPANY, "c1", { label: "UK depot", postcode: " ", country: "GB" }),
     ).rejects.toMatchObject({ code: "invalid_argument" });
@@ -96,7 +116,8 @@ describe("adding a site", () => {
 
   it("as the default clears the flag on the customer's other sites first", async () => {
     customers.getByIdForCompany.mockResolvedValue({ id: "c1" });
-    sites.createForCompany.mockResolvedValue(siteRow({ isDefault: true }));
+    addresses.createWithSeat.mockResolvedValue(addressRow());
+    sites.findByAddress.mockResolvedValue(siteRow({ isDefault: true }));
     await customerSiteService.create(COMPANY, "c1", { label: "X", postcode: "11000", isDefault: true });
     expect(sites.clearDefaultFlag).toHaveBeenCalledWith("c1", COMPANY);
   });
@@ -143,10 +164,49 @@ describe("changing a site", () => {
   });
 });
 
+describe("changing a site of an address", () => {
+  it("changes the address, its use the address's Pickup / Delivery, the other types kept, and the site's own details with it", async () => {
+    sites.getByIdForCompany.mockResolvedValue(siteRow({ addressId: "a1" }));
+    addresses.findLive.mockResolvedValue(addressRow({ types: ["Registered", "Pickup", "Delivery"] }));
+    addresses.updateWithSeat.mockResolvedValue(addressRow());
+    sites.findByAddress.mockResolvedValue(siteRow({ addressId: "a1", label: "Dock B" }));
+    await customerSiteService.update("s1", COMPANY, { label: "Dock B", kind: "loading", openingHours: "6-14" });
+    expect(addresses.updateWithSeat).toHaveBeenCalledWith("a1", COMPANY, { label: "Dock B", types: ["Registered", "Pickup"] }, { openingHours: "6-14" });
+    expect(sites.updateForCompany).not.toHaveBeenCalled();
+  });
+
+  it("keeps the postcode as typed on the address, checked for the country", async () => {
+    sites.getByIdForCompany.mockResolvedValue(siteRow({ addressId: "a1" }));
+    addresses.findLive.mockResolvedValue(addressRow());
+    addresses.updateWithSeat.mockResolvedValue(addressRow());
+    sites.findByAddress.mockResolvedValue(siteRow({ addressId: "a1" }));
+    await customerSiteService.update("s1", COMPANY, { postcode: "602 00" });
+    expect(addresses.updateWithSeat).toHaveBeenCalledWith("a1", COMPANY, { country: "CZ", postalCode: "602 00" }, {});
+    await expect(customerSiteService.update("s1", COMPANY, { postcode: "6020" })).rejects.toMatchObject({ code: "invalid_argument" });
+  });
+});
+
 describe("deleting a site", () => {
   it("is scoped to the company and reports a missing one", async () => {
+    sites.getByIdForCompany.mockResolvedValue(null);
+    await expect(customerSiteService.softDelete("s1", COMPANY)).rejects.toMatchObject({ code: "not_found" });
+    expect(sites.getByIdForCompany).toHaveBeenCalledWith("s1", COMPANY);
+    sites.getByIdForCompany.mockResolvedValue(siteRow());
     sites.softDeleteForCompany.mockResolvedValue(null);
     await expect(customerSiteService.softDelete("s1", COMPANY)).rejects.toMatchObject({ code: "not_found" });
     expect(sites.softDeleteForCompany).toHaveBeenCalledWith("s1", COMPANY);
+  });
+
+  it("takes Pickup and Delivery off its address, and the address goes too when nothing else is left of it", async () => {
+    sites.getByIdForCompany.mockResolvedValue(siteRow({ addressId: "a1" }));
+    addresses.findLive.mockResolvedValue(addressRow({ types: ["Registered", "Pickup"] }));
+    addresses.updateWithSeat.mockResolvedValue(addressRow({ types: ["Registered"] }));
+    await customerSiteService.softDelete("s1", COMPANY);
+    expect(addresses.updateWithSeat).toHaveBeenCalledWith("a1", COMPANY, { types: ["Registered"] });
+    addresses.findLive.mockResolvedValue(addressRow({ types: ["Pickup", "Delivery"] }));
+    addresses.softDeleteWithSeat.mockResolvedValue(addressRow());
+    await customerSiteService.softDelete("s1", COMPANY);
+    expect(addresses.softDeleteWithSeat).toHaveBeenCalledWith("a1", COMPANY);
+    expect(sites.softDeleteForCompany).not.toHaveBeenCalled();
   });
 });

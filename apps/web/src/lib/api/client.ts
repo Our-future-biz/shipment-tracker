@@ -11911,6 +11911,11 @@ export namespace interfaces {
     export interface CustomerSiteItem {
         id: string
         customerId: string
+        /**
+         * The Pickup / Delivery address (Addresses tab) the site is; null for a site from before they were linked
+         */
+        addressId: string | null
+
         label: string
         kind: CustomerSiteKind
         street: string

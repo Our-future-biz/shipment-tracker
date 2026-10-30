@@ -183,6 +183,13 @@
       "when": 1793336354533,
       "tag": "0025_customer_address_types",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1793338276452,
+      "tag": "0026_customer_site_address",
+      "breakpoints": true
     }
   ]
 }
