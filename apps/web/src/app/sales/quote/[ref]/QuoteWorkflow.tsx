@@ -81,6 +81,7 @@ import { AddToSellingDialog } from "./_components/AddToSellingDialog";
 import { RemoveBothDialog } from "./_components/RemoveBothDialog";
 import { buyingBasis, counterpartIndex, lineRemovals, newPairId, offerToSelling, pairedCopies, type LineRemoval, type LineSide } from "../../_lib/costPairs";
 import { CostLinesEditor } from "./_components/CostLinesEditor";
+import { QuoteAddressField } from "./_components/QuoteAddressField";
 import { QuoteContactField } from "./_components/QuoteContactField";
 import { QuoteRatesEditor } from "./_components/QuoteRatesEditor";
 import { LINE_TD_CLASS, LINE_TH_CLASS, LINE_TH_RIGHT_CLASS, LineBlock, LineBlockEmpty, LineTable } from "./_components/LineBlock";
@@ -1065,9 +1066,9 @@ export function QuoteWorkflow() {
                 <GeoFlag kind="place" value={draft.pol} />
               </span>
             </InfoRow>
-            {/* The shipment's Pick-up Address: copied there when a shipment is created from the quote, and back by Copy from shipment. */}
+            {/* One of the customer's Pickup addresses in the Customer Database. The shipment's Pick-up Address: copied there when a shipment is created from the quote, and back by Copy from shipment. */}
             <InfoRow label="Pickup Address">
-              <Input size="small" aria-label="Pickup Address" value={draft.pickup ?? ""} onChange={(e) => set({ pickup: e.target.value })} />
+              <QuoteAddressField label="Pickup Address" type="Pickup" customerId={draft.customerId} value={draft.pickup} onChange={(pickup) => set({ pickup })} />
             </InfoRow>
           </div>
           <div className="min-w-0">
@@ -1083,9 +1084,9 @@ export function QuoteWorkflow() {
                 <GeoFlag kind="place" value={draft.pod} />
               </span>
             </InfoRow>
-            {/* The shipment's Delivery Address, the same way. */}
+            {/* One of the customer's Delivery addresses; the shipment's Delivery Address, the same way. */}
             <InfoRow label="Delivery Address">
-              <Input size="small" aria-label="Delivery Address" value={draft.delivery ?? ""} onChange={(e) => set({ delivery: e.target.value })} />
+              <QuoteAddressField label="Delivery Address" type="Delivery" customerId={draft.customerId} value={draft.delivery} onChange={(delivery) => set({ delivery })} />
             </InfoRow>
           </div>
         </div>
