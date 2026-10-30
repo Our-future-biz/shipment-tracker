@@ -6,8 +6,8 @@ import { PgDialect } from "drizzle-orm/pg-core";
 // run against a stand-in for the database that records what is written in the transaction.
 const fake = vi.hoisted(() => {
   const state = {
-    /** The address before an update (its type), or none. */
-    before: [] as { type: string }[],
+    /** The address before an update (its types), or none. */
+    before: [] as { types: string[] }[],
     /** The row an address write returns. */
     address: null as Record<string, unknown> | null,
     /** The live Registered address read for the customer. */
@@ -18,7 +18,7 @@ const fake = vi.hoisted(() => {
   const name = (table: unknown) => (table as { [k: symbol]: string })[Symbol.for("drizzle:Name")];
   const tx = {
     select: (fields: Record<string, unknown>) => ({
-      from: () => ({ where: () => ({ limit: async () => ("type" in fields ? state.before : state.seat) }) }),
+      from: () => ({ where: () => ({ limit: async () => ("types" in fields ? state.before : state.seat) }) }),
     }),
     insert: () => ({
       values: (values: Record<string, unknown>) => ({
@@ -54,7 +54,7 @@ import { customerTable } from "../../schemas/customer.schema";
 
 const COMPANY = "86f202b1-7449-441b-9c5b-5bf4d89f8d88";
 const address = (over: Record<string, unknown> = {}) => ({
-  id: "a1", customerId: "c1", companyId: COMPANY, type: "Registered", label: "", street: "Na Pankráci 10", city: "Praha 4", postalCode: "140 00", country: "CZ",
+  id: "a1", customerId: "c1", companyId: COMPANY, types: ["Registered"], label: "", street: "Na Pankráci 10", city: "Praha 4", postalCode: "140 00", country: "CZ",
   ...over,
 });
 const seatOf = (a: Record<string, unknown>) => ({ street: a.street, city: a.city, postalCode: a.postalCode, country: a.country });
@@ -66,7 +66,7 @@ beforeEach(() => {
 describe("the customer's seat follows its Registered address", () => {
   it("a new Registered address is written to the customer, only where its columns differ", async () => {
     fake.state.seat = [seatOf(address())];
-    await customerAddressRepository.createWithSeat(COMPANY, { customerId: "c1", type: "Registered", label: "", street: "Na Pankráci 10", city: "Praha 4", postalCode: "140 00", country: "CZ" });
+    await customerAddressRepository.createWithSeat(COMPANY, { customerId: "c1", types: ["Registered"], label: "", street: "Na Pankráci 10", city: "Praha 4", postalCode: "140 00", country: "CZ" });
     expect(fake.state.customerWrites).toHaveLength(1);
     expect(fake.state.customerWrites[0]!.set).toMatchObject({ registeredAddress: "Na Pankráci 10, 140 00 Praha 4", city: "Praha 4", country: "CZ" });
     const { sql, params } = new PgDialect().sqlToQuery(fake.state.customerWrites[0]!.where);
@@ -77,17 +77,17 @@ describe("the customer's seat follows its Registered address", () => {
   });
 
   it("other addresses leave the customer alone", async () => {
-    await customerAddressRepository.createWithSeat(COMPANY, { customerId: "c1", type: "Pickup", label: "", street: "Průmyslová 5", city: "Kolín", postalCode: "280 02", country: "CZ" });
-    fake.state.before = [{ type: "Pickup" }];
-    fake.state.address = address({ type: "Pickup", city: "Kolín" });
+    await customerAddressRepository.createWithSeat(COMPANY, { customerId: "c1", types: ["Pickup"], label: "", street: "Průmyslová 5", city: "Kolín", postalCode: "280 02", country: "CZ" });
+    fake.state.before = [{ types: ["Pickup"] }];
+    fake.state.address = address({ types: ["Pickup"], city: "Kolín" });
     await customerAddressRepository.updateWithSeat("a1", COMPANY, { city: "Kolín" });
-    fake.state.address = address({ type: "Delivery" });
+    fake.state.address = address({ types: ["Delivery"] });
     await customerAddressRepository.softDeleteWithSeat("a1", COMPANY);
     expect(fake.state.customerWrites).toEqual([]);
   });
 
   it("an edit of the Registered address reaches the customer", async () => {
-    fake.state.before = [{ type: "Registered" }];
+    fake.state.before = [{ types: ["Registered"] }];
     fake.state.address = address({ city: "Praha 5", postalCode: "150 00" });
     fake.state.seat = [seatOf(fake.state.address)];
     await customerAddressRepository.updateWithSeat("a1", COMPANY, { city: "Praha 5", postalCode: "150 00" });
@@ -97,19 +97,33 @@ describe("the customer's seat follows its Registered address", () => {
   });
 
   it("a type change counts both ways: made Registered it is the seat, retyped away it leaves none", async () => {
-    fake.state.before = [{ type: "Billing" }];
+    fake.state.before = [{ types: ["Billing"] }];
     fake.state.address = address();
     fake.state.seat = [seatOf(address())];
-    await customerAddressRepository.updateWithSeat("a1", COMPANY, { type: "Registered" });
-    fake.state.before = [{ type: "Registered" }];
-    fake.state.address = address({ type: "Billing" });
+    await customerAddressRepository.updateWithSeat("a1", COMPANY, { types: ["Registered"] });
+    fake.state.before = [{ types: ["Registered"] }];
+    fake.state.address = address({ types: ["Billing"] });
     fake.state.seat = [];
-    await customerAddressRepository.updateWithSeat("a1", COMPANY, { type: "Billing" });
+    await customerAddressRepository.updateWithSeat("a1", COMPANY, { types: ["Billing"] });
     expect(fake.state.customerWrites.map((w) => w.set)).toEqual([
       expect.objectContaining({ registeredAddress: "Na Pankráci 10, 140 00 Praha 4", city: "Praha 4" }),
       expect.objectContaining({ registeredAddress: "", city: "" }),
     ]);
     expect(fake.state.customerWrites[1]!.set).not.toHaveProperty("country");
+  });
+
+  it("an address that is everything at once is the seat too", async () => {
+    fake.state.seat = [seatOf(address())];
+    await customerAddressRepository.createWithSeat(COMPANY, {
+      customerId: "c1",
+      types: ["Registered", "Billing", "Pickup", "Delivery"],
+      label: "",
+      street: "Na Pankráci 10",
+      city: "Praha 4",
+      postalCode: "140 00",
+      country: "CZ",
+    });
+    expect(fake.state.customerWrites.map((w) => w.set)).toEqual([expect.objectContaining({ registeredAddress: "Na Pankráci 10, 140 00 Praha 4", city: "Praha 4" })]);
   });
 
   it("a deleted Registered address empties the customer's address and city, the country stays", async () => {

@@ -14,7 +14,8 @@ export interface PartyCustomer {
 
 /** The parts of a customer address (the Addresses tab) a stop is read from. */
 export interface PartyAddress {
-  type: string;
+  /** What the address is used for; one address can be several */
+  types: readonly string[];
   street: string;
   city: string;
   postalCode: string;
@@ -53,7 +54,7 @@ const STOP_KEYS = {
 /** The shipment fields of the stop a party fills, by what they hold. */
 export const stopKeys = (party: Party) => STOP_KEYS[party];
 
-const ADDRESS_TYPE: Record<Party, PartyAddress["type"]> = { shipper: "Pickup", consignee: "Delivery" };
+const ADDRESS_TYPE: Record<Party, string> = { shipper: "Pickup", consignee: "Delivery" };
 
 // The stop's own rules (lib/roadFreight), as far as the customer's data meets them: what a rule
 // refuses is left out rather than refused - nobody typed it into this write.
@@ -85,7 +86,7 @@ const fromAddress = (a: PartyAddress, customer: PartyCustomer): StopFill | null 
  */
 export function partyStop(party: Party, customer: PartyCustomer, addresses: readonly PartyAddress[]): StopFill | null {
   for (const type of [ADDRESS_TYPE[party], "Registered"] as const) {
-    for (const a of addresses.filter((x) => x.type === type)) {
+    for (const a of addresses.filter((x) => x.types.includes(type))) {
       const stop = fromAddress(a, customer);
       if (stop) return stop;
     }

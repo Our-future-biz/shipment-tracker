@@ -16,6 +16,8 @@ export type ContactRole =
   | "Owner";
 /** Registered is the company's seat; the others are where invoices and paperwork go and goods are picked up or delivered. */
 export type AddressType = "Registered" | "Billing" | "Paperwork" | "Pickup" | "Delivery" | "Warehouse";
+/** The address types in the order they are listed and stored in. */
+export const ADDRESS_TYPES: readonly AddressType[] = ["Registered", "Billing", "Paperwork", "Pickup", "Delivery", "Warehouse"];
 /** A risk level set by hand, or "" when it is derived from the registry data. */
 export type RiskLevelOverride = "" | "Low" | "Medium" | "High";
 export type NoteType = "Note" | "Email" | "Call" | "Follow-up" | "Visit";
@@ -216,7 +218,8 @@ export interface InvoiceItem {
 export interface AddressItem {
   id: string;
   customerId: string;
-  type: AddressType;
+  /** What the address is used for; one address can be all of them (the seat, invoices, pick-up, …) */
+  types: AddressType[];
   label: string;
   street: string;
   city: string;

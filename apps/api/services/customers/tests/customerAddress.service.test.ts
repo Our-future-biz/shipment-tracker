@@ -24,7 +24,7 @@ import { customerAddressService } from "../services/customerAddress.service";
 const COMPANY = "00000000-0000-0000-0000-000000000001";
 const now = new Date("2026-10-14T08:00:00Z");
 const row = (over: Record<string, unknown> = {}) => ({
-  id: "a1", customerId: "c1", companyId: COMPANY, type: "Pickup", label: "", street: "Průmyslová 5", city: "Kolín", postalCode: "280 02",
+  id: "a1", customerId: "c1", companyId: COMPANY, types: ["Pickup"], label: "", street: "Průmyslová 5", city: "Kolín", postalCode: "280 02",
   country: "CZ", createdAt: now, updatedAt: now, deletedAt: null, ...over,
 });
 
@@ -35,20 +35,32 @@ describe("customer addresses", () => {
     requireLive.mockResolvedValue({ id: "c1" });
     addresses.createWithSeat.mockResolvedValue(row());
     const item = await customerAddressService.create(COMPANY, "c1", {
-      type: "Pickup", label: " Plant ", street: " Průmyslová 5 ", city: "Kolín", postalCode: "280 02", country: "cz",
+      types: ["Pickup"], label: " Plant ", street: " Průmyslová 5 ", city: "Kolín", postalCode: "280 02", country: "cz",
     });
     expect(requireLive).toHaveBeenCalledWith("c1", COMPANY);
     expect(addresses.createWithSeat).toHaveBeenCalledWith(COMPANY, {
-      customerId: "c1", type: "Pickup", label: "Plant", street: "Průmyslová 5", city: "Kolín", postalCode: "280 02", country: "CZ",
+      customerId: "c1", types: ["Pickup"], label: "Plant", street: "Průmyslová 5", city: "Kolín", postalCode: "280 02", country: "CZ",
     });
     expect(item).not.toHaveProperty("companyId");
     expect(item.createdAt).toBe(now.toISOString());
   });
 
+  it("keep each type once, in the list's order, and need at least one", async () => {
+    requireLive.mockResolvedValue({ id: "c1" });
+    addresses.createWithSeat.mockResolvedValue(row({ types: ["Registered", "Pickup", "Delivery"] }));
+    const item = await customerAddressService.create(COMPANY, "c1", {
+      types: ["Delivery", "Registered", "Pickup", "Delivery"], street: "a", city: "b", postalCode: "c", country: "CZ",
+    });
+    expect(addresses.createWithSeat).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ types: ["Registered", "Pickup", "Delivery"] }));
+    expect(item.types).toEqual(["Registered", "Pickup", "Delivery"]);
+    await expect(customerAddressService.update("a1", COMPANY, { types: [] })).rejects.toThrow("Choose at least one type");
+    expect(addresses.updateWithSeat).not.toHaveBeenCalled();
+  });
+
   it("can't be added under a customer that isn't live in the company", async () => {
     requireLive.mockRejectedValue(new Error("Customer not found"));
     await expect(
-      customerAddressService.create(COMPANY, "x", { type: "Billing", street: "a", city: "b", postalCode: "c", country: "CZ" }),
+      customerAddressService.create(COMPANY, "x", { types: ["Billing"], street: "a", city: "b", postalCode: "c", country: "CZ" }),
     ).rejects.toThrow("Customer not found");
     expect(addresses.createWithSeat).not.toHaveBeenCalled();
   });
@@ -66,7 +78,7 @@ describe("customer addresses", () => {
   });
 
   it("are deleted through the write that also keeps the customer's seat columns in step, and report one that is gone", async () => {
-    addresses.softDeleteWithSeat.mockResolvedValueOnce(row({ type: "Registered" })).mockResolvedValueOnce(null);
+    addresses.softDeleteWithSeat.mockResolvedValueOnce(row({ types: ["Registered"] })).mockResolvedValueOnce(null);
     await customerAddressService.softDelete("a1", COMPANY);
     expect(addresses.softDeleteWithSeat).toHaveBeenCalledWith("a1", COMPANY);
     await expect(customerAddressService.softDelete("a1", COMPANY)).rejects.toThrow("Address not found");
@@ -76,7 +88,7 @@ describe("customer addresses", () => {
     requireLive.mockResolvedValue({ id: "c1" });
     addresses.createWithSeat.mockRejectedValueOnce(Object.assign(new Error("Failed query"), { cause: { code: "23505" } }));
     await expect(
-      customerAddressService.create(COMPANY, "c1", { type: "Registered", street: "A 1", city: "Praha", postalCode: "110 00", country: "CZ" }),
+      customerAddressService.create(COMPANY, "c1", { types: ["Registered"], street: "A 1", city: "Praha", postalCode: "110 00", country: "CZ" }),
     ).rejects.toThrow("already has a registered address");
   });
 });

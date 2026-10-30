@@ -1,4 +1,4 @@
-import { and, eq, asc, isNull, ne, or } from "drizzle-orm";
+import { and, arrayContains, eq, asc, isNull, ne, or } from "drizzle-orm";
 import { TenantRepository, type InsertForCompany } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { customerAddressTable, type CustomerAddressRecord } from "../schemas/customerAddress.schema";
@@ -7,7 +7,10 @@ import { seatColumns, type SeatColumns, type SeatRow } from "../lib/seat";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-const isSeat = (type: string | undefined) => type === "Registered";
+const isSeat = (types: readonly string[] | undefined) => !!types?.includes("Registered");
+
+// A live address that is (also) the customer's seat.
+const seatAddress = () => arrayContains(customerAddressTable.types, ["Registered"]);
 
 // The customer's seat columns written again from its live Registered address (or emptied without
 // one). Only when they differ, so a write that changes nothing about the seat leaves the customer be.
@@ -29,7 +32,7 @@ async function copySeat(tx: Tx, companyId: string, customerId: string): Promise<
     .where(and(
       eq(customerAddressTable.companyId, companyId),
       eq(customerAddressTable.customerId, customerId),
-      eq(customerAddressTable.type, "Registered"),
+      seatAddress(),
       isNull(customerAddressTable.deletedAt),
     ))
     .limit(1);
@@ -60,13 +63,13 @@ class CustomerAddressRepository extends TenantRepository<typeof customerAddressT
   async createWithSeat(companyId: string, data: InsertForCompany<typeof customerAddressTable>): Promise<CustomerAddressRecord> {
     return this.db.transaction(async (tx) => {
       const [row] = await tx.insert(customerAddressTable).values({ ...data, companyId }).returning();
-      if (isSeat(row!.type)) await copySeat(tx, companyId, row!.customerId);
+      if (isSeat(row!.types)) await copySeat(tx, companyId, row!.customerId);
       return row!;
     });
   }
 
-  // A type change counts both ways: an address made Registered becomes the seat, and the seat
-  // retyped to something else leaves the customer without one.
+  // A type change counts both ways: an address made (also) Registered becomes the seat, and the
+  // seat no longer Registered leaves the customer without one.
   async updateWithSeat(
     id: string,
     companyId: string,
@@ -74,11 +77,11 @@ class CustomerAddressRepository extends TenantRepository<typeof customerAddressT
   ): Promise<CustomerAddressRecord | null> {
     return this.db.transaction(async (tx) => {
       const live = and(eq(customerAddressTable.id, id), eq(customerAddressTable.companyId, companyId), isNull(customerAddressTable.deletedAt));
-      const [before] = await tx.select({ type: customerAddressTable.type }).from(customerAddressTable).where(live).limit(1);
+      const [before] = await tx.select({ types: customerAddressTable.types }).from(customerAddressTable).where(live).limit(1);
       if (!before) return null;
       const [row] = await tx.update(customerAddressTable).set({ ...data, updatedAt: new Date() }).where(live).returning();
       if (!row) return null;
-      if (isSeat(before.type) || isSeat(row.type)) await copySeat(tx, companyId, row.customerId);
+      if (isSeat(before.types) || isSeat(row.types)) await copySeat(tx, companyId, row.customerId);
       return row;
     });
   }
@@ -92,7 +95,7 @@ class CustomerAddressRepository extends TenantRepository<typeof customerAddressT
         .where(and(eq(customerAddressTable.id, id), eq(customerAddressTable.companyId, companyId), isNull(customerAddressTable.deletedAt)))
         .returning();
       if (!row) return null;
-      if (isSeat(row.type)) await copySeat(tx, companyId, row.customerId);
+      if (isSeat(row.types)) await copySeat(tx, companyId, row.customerId);
       return row;
     });
   }
@@ -120,7 +123,7 @@ class CustomerAddressRepository extends TenantRepository<typeof customerAddressT
         and(
           eq(customerAddressTable.customerId, customerTable.id),
           eq(customerAddressTable.companyId, companyId),
-          eq(customerAddressTable.type, "Registered"),
+          seatAddress(),
           isNull(customerAddressTable.deletedAt),
         ),
       )

@@ -235,7 +235,7 @@ describe("customerService.createManual", () => {
         label: "TARGET CUSTOMER",
       }),
       { name: "Hans Müller", firstName: "Hans", lastName: "Müller", email: "hans.mueller@siemens.com", phone: "", role: "Logistics Manager", isMain: true },
-      { type: "Registered", street: "Wittelsbacherplatz 2", city: "München", postalCode: "80333", country: "DE" },
+      { types: ["Registered"], street: "Wittelsbacherplatz 2", city: "München", postalCode: "80333", country: "DE" },
     );
   });
 

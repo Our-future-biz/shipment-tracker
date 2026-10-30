@@ -5247,7 +5247,11 @@ export namespace controllers {
     }
 
     export interface AddressCreateRequest {
-        type: interfaces.AddressType
+        /**
+         * What the address is used for; at least one
+         */
+        types: interfaces.AddressType[]
+
         label?: string
         street: string
         city: string
@@ -5271,7 +5275,11 @@ export namespace controllers {
     }
 
     export interface AddressUpdateRequest {
-        type?: interfaces.AddressType
+        /**
+         * What the address is used for; at least one
+         */
+        types?: interfaces.AddressType[]
+
         label?: string
         street?: string
         city?: string
@@ -10258,7 +10266,11 @@ export namespace interfaces {
     export interface AddressItem {
         id: string
         customerId: string
-        type: AddressType
+        /**
+         * What the address is used for; one address can be all of them (the seat, invoices, pick-up, …)
+         */
+        types: AddressType[]
+
         label: string
         street: string
         city: string

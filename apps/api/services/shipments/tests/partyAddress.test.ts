@@ -5,7 +5,7 @@ vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
 import { partyContact, partyStop, type PartyAddress } from "../lib/partyAddress";
 
 const address = (over: Partial<PartyAddress> = {}): PartyAddress => ({
-  type: "Pickup",
+  types: ["Pickup"],
   street: "V jámě",
   city: "Praha 6",
   postalCode: "160 00",
@@ -17,9 +17,9 @@ const cleared = { siteId: null, openingFrom: "", openingTo: "" };
 
 describe("partyStop", () => {
   const addresses = [
-    address({ type: "Registered", street: "Jankovcova 1522/53", city: "Praha", postalCode: "170 00" }),
-    address({ type: "Pickup" }),
-    address({ type: "Delivery", street: "Dopravní", city: "Praha 11", postalCode: "18000" }),
+    address({ types: ["Registered"], street: "Jankovcova 1522/53", city: "Praha", postalCode: "170 00" }),
+    address({ types: ["Pickup"] }),
+    address({ types: ["Delivery"], street: "Dopravní", city: "Praha 11", postalCode: "18000" }),
   ];
 
   it("fills the shipper's pick-up from its Pickup address, the consignee's delivery from its Delivery address", () => {
@@ -34,7 +34,7 @@ describe("partyStop", () => {
 
   it("falls back to the Registered address, then to the customer's registered address text", () => {
     expect(partyStop("shipper", customer(), [addresses[0]!, addresses[2]!])).toMatchObject({ address: "Jankovcova 1522/53, Praha", postcode: "17000" });
-    expect(partyStop("consignee", customer("Na příkopě, 969/33, Praha, 110 00"), [address({ type: "Billing" })])).toEqual({
+    expect(partyStop("consignee", customer("Na příkopě, 969/33, Praha, 110 00"), [address({ types: ["Billing"] })])).toEqual({
       address: "Na příkopě, 969/33, Praha, 110 00",
       postcode: "11000",
       country: "CZ",
@@ -45,7 +45,7 @@ describe("partyStop", () => {
   });
 
   it("gives nothing for a customer with no address", () => {
-    expect(partyStop("shipper", customer("  "), [address({ type: "Delivery" })])).toBeNull();
+    expect(partyStop("shipper", customer("  "), [address({ types: ["Delivery"] })])).toBeNull();
   });
 
   it("gives an address with no country the customer's, and reads its postcode by that country's rule", () => {

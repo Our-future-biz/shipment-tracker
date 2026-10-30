@@ -2,12 +2,12 @@ import { APIError } from "encore.dev/api";
 import { isUniqueViolation } from "../../../lib/db/errors";
 import { customerAddressRepository } from "../repositories/customerAddress.repository";
 import type { NewCustomerAddressRecord } from "../schemas/customerAddress.schema";
-import type { AddressItem, AddressType } from "../interfaces/interfaces";
+import { ADDRESS_TYPES, type AddressItem, type AddressType } from "../interfaces/interfaces";
 import { toAddressItem } from "../lib/mappers";
 import { customerService } from "./customer.service";
 
 export interface AddressInput {
-  type: AddressType;
+  types: AddressType[];
   label?: string;
   street: string;
   city: string;
@@ -22,10 +22,17 @@ function required(value: string, field: string): string {
   return v;
 }
 
-// The stored form of an address: trimmed, the country as an upper-case code.
+// An address's types as stored: each once, in the list's order; refused when none is left.
+export function addressTypes(types: readonly AddressType[]): AddressType[] {
+  const chosen = ADDRESS_TYPES.filter((t) => types.includes(t));
+  if (!chosen.length) throw APIError.invalidArgument("Choose at least one type");
+  return chosen;
+}
+
+// The stored form of an address: trimmed, its types in order, the country as an upper-case code.
 export function addressValues(input: Partial<AddressInput>): Partial<Omit<NewCustomerAddressRecord, "companyId" | "customerId">> {
   const values: Partial<Omit<NewCustomerAddressRecord, "companyId" | "customerId">> = {};
-  if (input.type !== undefined) values.type = input.type;
+  if (input.types !== undefined) values.types = addressTypes(input.types);
   if (input.label !== undefined) values.label = input.label.trim();
   if (input.street !== undefined) values.street = required(input.street, "street");
   if (input.city !== undefined) values.city = required(input.city, "city");
@@ -58,7 +65,7 @@ class CustomerAddressService {
         customerId,
         label: "",
         ...addressValues(input),
-        type: input.type,
+        types: addressTypes(input.types),
       }),
     );
     return toAddressItem(row);

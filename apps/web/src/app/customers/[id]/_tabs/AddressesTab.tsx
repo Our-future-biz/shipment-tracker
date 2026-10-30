@@ -22,8 +22,8 @@ import { apiErrorMessage } from "@/lib/api";
 
 const COUNTRY_NAME = new Map(COUNTRIES.map((country) => [country.code, country.name]));
 
-// The seat first, then the others in the order of the type list, each type in the order added.
-const typeOrder = (address: AddressItem) => ADDRESS_TYPES.indexOf(address.type);
+// The seat first, then the others by their first type in the order of the type list, each in the order added.
+const typeOrder = (address: AddressItem) => Math.min(...address.types.map((t) => ADDRESS_TYPES.indexOf(t)));
 
 interface AddressDialogState {
   // Counts the openings; used as the dialog's React key (see where the dialog is rendered).
@@ -40,7 +40,7 @@ interface AddressesTabProps {
 
 export function AddressesTab({ customerId }: AddressesTabProps) {
   const { addresses, isLoading, isError, createAddress, updateAddress, deleteAddress } = useCustomerAddresses(customerId);
-  const hasRegistered = addresses.some((a) => a.type === "Registered");
+  const hasRegistered = addresses.some((a) => a.types.includes("Registered"));
   const { customer } = useCustomer(customerId);
   const toast = useToast();
   const canDelete = canDeleteCustomerRecords(useAuth().user);
@@ -90,12 +90,16 @@ export function AddressesTab({ customerId }: AddressesTabProps) {
   const columns: ColumnsType<AddressItem> = [
     {
       title: "Type",
-      dataIndex: "type",
-      width: 130,
-      render: (v: string) => (
-        <Tag color={addressTypeColor(v)} className="!m-0">
-          {v}
-        </Tag>
+      dataIndex: "types",
+      width: 200,
+      render: (types: string[]) => (
+        <div className="flex flex-wrap gap-1">
+          {types.map((t) => (
+            <Tag key={t} color={addressTypeColor(t)} className="!m-0">
+              {t}
+            </Tag>
+          ))}
+        </div>
       ),
     },
     { title: "Name", dataIndex: "label", render: (v: string) => (v ? <span className="font-semibold text-slate-800">{v}</span> : EMPTY_CELL) },
@@ -129,7 +133,7 @@ export function AddressesTab({ customerId }: AddressesTabProps) {
                 { key: "edit", label: "Edit", icon: <EditOutlined />, onClick: () => handleOpenDialog(r) },
                 // Superadmins only (the API refuses everyone else). The Registered address is the
                 // company's seat: it is corrected, not removed.
-                ...(!canDelete || r.type === "Registered"
+                ...(!canDelete || r.types.includes("Registered")
                   ? []
                   : [{ key: "delete", label: "Delete", icon: <DeleteOutlined />, danger: true, onClick: () => setDeleteTarget(r) }]),
               ],
@@ -139,7 +143,7 @@ export function AddressesTab({ customerId }: AddressesTabProps) {
               type="text"
               size="small"
               icon={<EllipsisOutlined className="!text-[20px]" />}
-              aria-label={`Actions for the ${r.type} address`}
+              aria-label={`Actions for the ${r.types.join(", ")} address`}
               className="!text-slate-600 hover:!text-slate-900"
             />
           </Dropdown>
@@ -191,7 +195,7 @@ export function AddressesTab({ customerId }: AddressesTabProps) {
         onClose={handleCloseDelete}
         onConfirm={handleDelete}
         title="Delete address"
-        description={`Delete the ${deleteTarget?.type ?? ""} address${deleteTarget?.label ? ` “${deleteTarget.label}”` : ""}? It is hidden from everyone but kept in the database, so it can be restored.`}
+        description={`Delete the ${deleteTarget?.types.join(", ") ?? ""} address${deleteTarget?.label ? ` “${deleteTarget.label}”` : ""}? It is hidden from everyone but kept in the database, so it can be restored.`}
         confirmLabel="Delete"
         danger
         loading={deleting}

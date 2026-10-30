@@ -176,6 +176,13 @@
       "when": 1793335949526,
       "tag": "0024_customer_role_co_loader",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1793336354533,
+      "tag": "0025_customer_address_types",
+      "breakpoints": true
     }
   ]
 }
