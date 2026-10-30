@@ -263,7 +263,7 @@ export function AddCustomerModal({
       open={open}
       onCancel={handleCancel}
       afterClose={handleAfterClose}
-      title={<span className="text-lg font-semibold text-slate-800">Add Customer</span>}
+      title={<span className="text-lg font-semibold text-slate-800">Add Customer / Supplier</span>}
       width={560}
       destroyOnHidden
       footer={
