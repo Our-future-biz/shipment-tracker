@@ -105,6 +105,8 @@ describe("roles", () => {
     expect(() => assertMayGiveRoles("user", ["first_last_mile_haulier"])).toThrow(expect.objectContaining({ code: "permission_denied" }));
     expect(() => assertMayGiveRoles("manager", ["customer", "first_last_mile_haulier"])).not.toThrow();
     expect(() => assertMayGiveRoles("user", ["shipping_line"])).toThrow(expect.objectContaining({ code: "permission_denied" }));
+    expect(() => assertMayGiveRoles("user", ["co_loader"])).toThrow(expect.objectContaining({ code: "permission_denied" }));
+    expect(() => assertMayGiveRoles("manager", ["customer", "co_loader"])).not.toThrow();
     expect(() => assertMayGiveRoles("user", ["haulier"])).toThrow(expect.objectContaining({ code: "permission_denied" }));
   });
 
