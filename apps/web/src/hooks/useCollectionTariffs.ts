@@ -3,7 +3,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
-import { useSupplierTariffCache, useSupplierTariffOffers } from "./useSupplierTariffs";
+import { useSupplierTariffCache, useSupplierTariffOffers, type VersionDatesChange } from "./useSupplierTariffs";
 
 // First / last mile hauliers' tariffs (Tariffs → Last / First Mile Collections): the hauliers, their
 // tariffs and versions, one version's layout, findings and tables, our hubs, a manager's actions on
@@ -70,6 +70,7 @@ export const useCollectionTariffActions = () => {
     mutationFn: ({ id, layout }: { id: string; layout: CollectionLayout }) => api.tariffs.collectionVersionLayout(id, { layout }).then((r) => keep(r.version)),
   });
   const approve = useMutation({ mutationFn: (id: string) => api.tariffs.collectionVersionApprove(id).then((r) => keep(r.version)) });
+  const setDates = useMutation({ mutationFn: ({ id, ...dates }: VersionDatesChange) => api.tariffs.collectionVersionDates(id, dates).then((r) => keep(r.version)) });
   const discard = useMutation({ mutationFn: (id: string) => api.tariffs.collectionVersionDiscard(id), onSuccess: refresh });
   const update = useMutation({ mutationFn: ({ id, ...fields }: CollectionTariffUpdate) => api.tariffs.collectionTariffUpdate(id, fields), onSuccess: refresh });
   const setHub = useMutation({ mutationFn: (hub: CollectionHub) => api.tariffs.collectionHubSet(hub), onSuccess: refresh });
@@ -82,6 +83,8 @@ export const useCollectionTariffActions = () => {
     isRelayouting: relayout.isPending,
     approve: approve.mutateAsync,
     isApproving: approve.isPending,
+    setDates: setDates.mutateAsync,
+    isSettingDates: setDates.isPending,
     discard: discard.mutateAsync,
     isDiscarding: discard.isPending,
     update: update.mutateAsync,

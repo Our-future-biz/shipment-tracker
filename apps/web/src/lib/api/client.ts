@@ -2401,6 +2401,7 @@ export namespace tariffs {
             this.collectionTariffUpdate = this.collectionTariffUpdate.bind(this)
             this.collectionUpload = this.collectionUpload.bind(this)
             this.collectionVersionApprove = this.collectionVersionApprove.bind(this)
+            this.collectionVersionDates = this.collectionVersionDates.bind(this)
             this.collectionVersionDiscard = this.collectionVersionDiscard.bind(this)
             this.collectionVersionGet = this.collectionVersionGet.bind(this)
             this.collectionVersionLayout = this.collectionVersionLayout.bind(this)
@@ -2410,6 +2411,7 @@ export namespace tariffs {
             this.oceanTariffUpdate = this.oceanTariffUpdate.bind(this)
             this.oceanUpload = this.oceanUpload.bind(this)
             this.oceanVersionApprove = this.oceanVersionApprove.bind(this)
+            this.oceanVersionDates = this.oceanVersionDates.bind(this)
             this.oceanVersionDiscard = this.oceanVersionDiscard.bind(this)
             this.oceanVersionGet = this.oceanVersionGet.bind(this)
             this.oceanVersionLayout = this.oceanVersionLayout.bind(this)
@@ -2420,6 +2422,7 @@ export namespace tariffs {
             this.railOperatorGet = this.railOperatorGet.bind(this)
             this.railOperatorList = this.railOperatorList.bind(this)
             this.railTariffApprove = this.railTariffApprove.bind(this)
+            this.railTariffDates = this.railTariffDates.bind(this)
             this.railTariffDiscard = this.railTariffDiscard.bind(this)
             this.railTariffLayout = this.railTariffLayout.bind(this)
             this.railTariffRates = this.railTariffRates.bind(this)
@@ -2507,6 +2510,15 @@ export namespace tariffs {
         }
 
         /**
+         * Changes an approved version's dates (manager); they must not overlap another active version of the tariff.
+         */
+        public async collectionVersionDates(versionId: string, params: controllers.CollectionDatesRequest): Promise<controllers.CollectionVersionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/collections/versions/${encodeURIComponent(versionId)}/dates`, JSON.stringify(params))
+            return await resp.json() as controllers.CollectionVersionResponse
+        }
+
+        /**
          * Throws a draft away (manager).
          */
         public async collectionVersionDiscard(versionId: string): Promise<void> {
@@ -2585,6 +2597,15 @@ export namespace tariffs {
         public async oceanVersionApprove(versionId: string): Promise<controllers.OceanVersionResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/ocean/versions/${encodeURIComponent(versionId)}/approve`)
+            return await resp.json() as controllers.OceanVersionResponse
+        }
+
+        /**
+         * Changes an approved version's dates (manager); they must not overlap another active version of the tariff.
+         */
+        public async oceanVersionDates(versionId: string, params: controllers.OceanDatesRequest): Promise<controllers.OceanVersionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/ocean/versions/${encodeURIComponent(versionId)}/dates`, JSON.stringify(params))
             return await resp.json() as controllers.OceanVersionResponse
         }
 
@@ -2683,6 +2704,15 @@ export namespace tariffs {
         public async railTariffApprove(versionId: string): Promise<controllers.RailTariffVersionResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/rail/versions/${encodeURIComponent(versionId)}/approve`)
+            return await resp.json() as controllers.RailTariffVersionResponse
+        }
+
+        /**
+         * Changes an approved version's dates (manager); they must not overlap another active version of the tariff.
+         */
+        public async railTariffDates(versionId: string, params: controllers.RailTariffDatesRequest): Promise<controllers.RailTariffVersionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/rail/versions/${encodeURIComponent(versionId)}/dates`, JSON.stringify(params))
             return await resp.json() as controllers.RailTariffVersionResponse
         }
 
@@ -5524,6 +5554,18 @@ export namespace controllers {
         amount?: string
     }
 
+    export interface CollectionDatesRequest {
+        /**
+         * The first day it prices, YYYY-MM-DD
+         */
+        validFrom: string
+
+        /**
+         * The last day it prices, YYYY-MM-DD; null for no end
+         */
+        validTo: string | null
+    }
+
     export interface CollectionHaulierListResponse {
         /**
          * Customer Database companies with the First / last mile haulier role, by name
@@ -7186,6 +7228,18 @@ export namespace controllers {
         data: interfaces.NoteItem[]
     }
 
+    export interface OceanDatesRequest {
+        /**
+         * The first day it prices, YYYY-MM-DD
+         */
+        validFrom: string
+
+        /**
+         * The last day it prices, YYYY-MM-DD; null for no end
+         */
+        validTo: string | null
+    }
+
     export interface OceanLayoutRequest {
         layout: interfaces.OceanLayout
     }
@@ -7625,6 +7679,18 @@ export namespace controllers {
          * Customer Database companies with the Rail operator role, by name
          */
         operators: interfaces.RailOperatorItem[]
+    }
+
+    export interface RailTariffDatesRequest {
+        /**
+         * The first day it prices, YYYY-MM-DD
+         */
+        validFrom: string
+
+        /**
+         * The last day it prices, YYYY-MM-DD; null for no end
+         */
+        validTo: string | null
     }
 
     export interface RailTariffLayoutRequest {
@@ -11067,6 +11133,12 @@ export namespace interfaces {
         createdBy: string | null
         activatedAt: string | null
         activatedBy: string | null
+        /**
+         * When a manager last changed the dates of the approved version
+         */
+        datesChangedAt: string | null
+
+        datesChangedBy: string | null
     }
 
     /**
@@ -16789,6 +16861,12 @@ export namespace interfaces {
         createdBy: string | null
         activatedAt: string | null
         activatedBy: string | null
+        /**
+         * When a manager last changed the dates of the approved version
+         */
+        datesChangedAt: string | null
+
+        datesChangedBy: string | null
     }
 
     export interface SupplierTariffVersionDetail {
@@ -16817,6 +16895,12 @@ export namespace interfaces {
         createdBy: string | null
         activatedAt: string | null
         activatedBy: string | null
+        /**
+         * When a manager last changed the dates of the approved version
+         */
+        datesChangedAt: string | null
+
+        datesChangedBy: string | null
     }
 
     export type SurchargeCalc = "PCT" | "FLAT" | "PER_KG" | "PER_PALLET" | "PER_HOUR" | "PCT_OF_VALUE" | "FUEL_INDEX"
@@ -19064,6 +19148,12 @@ export namespace services {
         createdBy: string | null
         activatedAt: string | null
         activatedBy: string | null
+        /**
+         * When a manager last changed the dates of the approved version
+         */
+        datesChangedAt: string | null
+
+        datesChangedBy: string | null
     }
 
     /**

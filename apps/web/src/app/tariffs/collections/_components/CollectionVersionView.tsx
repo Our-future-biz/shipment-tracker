@@ -22,7 +22,7 @@ const weightRowsText = (n: number) => `${formatNumber(n)} weight rows`;
 // layout, then approves the draft (it prices from its start date) or discards it.
 export const CollectionVersionView = ({ customerId, versionId }: CollectionVersionViewProps) => {
   const { version, isLoading, error } = useCollectionTariffVersion(versionId);
-  const { relayout, isRelayouting, approve, isApproving, discard, isDiscarding } = useCollectionTariffActions();
+  const { relayout, isRelayouting, approve, isApproving, setDates, isSettingDates, discard, isDiscarding } = useCollectionTariffActions();
   const handleRelayout = useTariffRelayout(relayout, (read) => weightRowsText(read.rowCount));
 
   return (
@@ -34,7 +34,7 @@ export const CollectionVersionView = ({ customerId, versionId }: CollectionVersi
       supplierLabel="First / last mile haulier"
       titleChips={(v) => <FreightChips modes={v.tariff.freightModes} />}
       rowsText={(v) => weightRowsText(v.rowCount)}
-      actions={{ approve, isApproving, discard, isDiscarding, fetchSource: fetchCollectionTariffSource }}
+      actions={{ approve, isApproving, setDates, isSettingDates, discard, isDiscarding, fetchSource: fetchCollectionTariffSource }}
       discardDescription="The draft and everything read from it are thrown away. Upload the file again to start over."
     >
       {(v, editable) => (

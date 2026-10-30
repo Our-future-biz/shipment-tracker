@@ -142,6 +142,9 @@ export interface SupplierTariffVersion {
   createdBy: string | null;
   activatedAt: string | null;
   activatedBy: string | null;
+  /** When a manager last changed the dates of the approved version */
+  datesChangedAt: string | null;
+  datesChangedBy: string | null;
 }
 
 export interface TariffRef {

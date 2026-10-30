@@ -20,11 +20,12 @@ import { convertCollection } from "../lib/collectionConvert";
 import { collectionLayoutProblem, parseCollectionLayout } from "../lib/collectionLayout";
 import { matrixFor, priceIn, zoneFor, type PricingRow } from "../lib/collectionPricing";
 import { sheetPreview, type Sheet } from "../lib/sheet";
-import { tariffRepository } from "../repositories/tariff.repository";
+import { tariffRepository, type VersionDates } from "../repositories/tariff.repository";
 import type { CollectionRateRecord, TariffVersionRecord } from "../schemas/tariff.schema";
 import { readCollectionLayout } from "./collectionLayoutReader.service";
 import {
   approveVersion,
+  changeVersionDates,
   businessToday,
   discardVersion,
   draftSheets,
@@ -291,6 +292,12 @@ class CollectionTariffService {
   async approve(actor: Actor, versionId: string): Promise<CollectionTariffVersionDetail> {
     await versionOfMode(actor.companyID, versionId, "collection");
     await approveVersion(actor, versionId);
+    return this.version(actor.companyID, versionId);
+  }
+
+  /** Changes an approved version's dates (it must not overlap another active version of the tariff). */
+  async setDates(actor: Actor, versionId: string, dates: VersionDates): Promise<CollectionTariffVersionDetail> {
+    await changeVersionDates(actor, versionId, "collection", dates);
     return this.version(actor.companyID, versionId);
   }
 

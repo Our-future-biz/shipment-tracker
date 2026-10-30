@@ -172,6 +172,51 @@ describe("approve", () => {
   });
 });
 
+describe("setDates", () => {
+  const active = { id: VERSION, companyId: COMPANY, tariffId: TARIFF, versionNo: 2, status: "active", deletedAt: null, validFrom: "2026-05-01", validTo: "2026-05-31" };
+  const other = (over: Record<string, unknown>) => ({ id: "00000000-0000-0000-0000-0000000000b2", versionNo: 3, status: "active", validFrom: "2026-06-01", validTo: null, ...over });
+
+  it("locks the company's tariff and version, and saves the new dates with who changed them", async () => {
+    fake.state.returned = [[active], [{ id: TARIFF }], [active], [other({})], [{ ...active, validTo: "2026-05-20" }]];
+    await expect(tariffRepository.setDates(COMPANY, VERSION, { validFrom: "2026-05-01", validTo: "2026-05-20" }, "Marek")).resolves.toMatchObject({
+      ok: true,
+      version: { validTo: "2026-05-20" },
+    });
+
+    expect(fake.state.steps).toEqual(["begin", "tx select", "tx select for update", "tx select for update", "tx select", "tx update", "commit"]);
+    const [, tariffLock, versionLock, others] = fake.state.selects;
+    expect(sent(tariffLock!.where)).toEqual({ sql: '("tariff"."id" = $1 and "tariff"."company_id" = $2)', params: [TARIFF, COMPANY] });
+    expect(sent(versionLock!.where)).toEqual({ sql: '("tariff_version"."id" = $1 and "tariff_version"."company_id" = $2)', params: [VERSION, COMPANY] });
+    expect(sent(others!.where).params).toEqual([COMPANY, TARIFF, "active", VERSION]);
+    const [changed] = fake.state.updates;
+    expect(changed!.values).toMatchObject({ validFrom: "2026-05-01", validTo: "2026-05-20", datesChangedBy: "Marek" });
+    expect(changed!.values.datesChangedAt).toBeInstanceOf(Date);
+    expect(sent(changed!.where)).toEqual({ sql: '("tariff_version"."company_id" = $1 and "tariff_version"."id" = $2)', params: [COMPANY, VERSION] });
+  });
+
+  it("refuses dates that overlap another active version, and changes nothing", async () => {
+    fake.state.returned = [[active], [{ id: TARIFF }], [active], [other({})]];
+    await expect(tariffRepository.setDates(COMPANY, VERSION, { validFrom: "2026-05-01", validTo: "2026-06-15" }, "Marek")).resolves.toEqual({
+      ok: false,
+      reason: "These dates overlap version 3 (2026-06-01 – no end); change that version's dates first, or choose dates outside them.",
+    });
+    fake.state.returned = [[active], [{ id: TARIFF }], [active], [other({ versionNo: 1, validFrom: "2026-01-01", validTo: "2026-04-30" })]];
+    await expect(tariffRepository.setDates(COMPANY, VERSION, { validFrom: "2026-04-01", validTo: null }, "Marek")).resolves.toMatchObject({ ok: false });
+    expect(fake.state.updates).toEqual([]);
+  });
+
+  it("refuses a version that is no active one (any more)", async () => {
+    fake.state.returned = [[active], [{ id: TARIFF }], [{ ...active, status: "superseded" }]];
+    await expect(tariffRepository.setDates(COMPANY, VERSION, { validFrom: "2026-05-01", validTo: null }, "Marek")).resolves.toEqual({
+      ok: false,
+      reason: "Only an active version's dates can be changed",
+    });
+    fake.state.returned = [[]];
+    await expect(tariffRepository.setDates(COMPANY, VERSION, { validFrom: "2026-05-01", validTo: null }, "Marek")).resolves.toEqual({ ok: false, reason: "not_found" });
+    expect(fake.state.updates).toEqual([]);
+  });
+});
+
 describe("discard", () => {
   it("soft-deletes the company's live draft with its update time", async () => {
     fake.state.returned = [[{ id: VERSION }]];

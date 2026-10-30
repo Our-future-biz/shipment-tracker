@@ -63,6 +63,23 @@ export const railTariffApprove = api(
   },
 );
 
+interface RailTariffDatesRequest {
+  versionId: string;
+  /** The first day it prices, YYYY-MM-DD */
+  validFrom: string & MaxLen<10>;
+  /** The last day it prices, YYYY-MM-DD; null for no end */
+  validTo: (string & MaxLen<10>) | null;
+}
+
+// Changes an approved version's dates (manager); they must not overlap another active version of the tariff.
+export const railTariffDates = api(
+  { expose: true, auth: true, method: "POST", path: "/tariffs/rail/versions/:versionId/dates" },
+  async ({ versionId, ...dates }: RailTariffDatesRequest): Promise<RailTariffVersionResponse> => {
+    const actor = requireRole("superadmin", "admin", "manager");
+    return { version: await railTariffService.setDates(actor, versionId, dates) };
+  },
+);
+
 interface OkResponse {
   ok: boolean;
 }

@@ -4,11 +4,11 @@ import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button, Spin, Tooltip } from "antd";
-import { CheckOutlined, DeleteOutlined, DownloadOutlined } from "@ant-design/icons";
+import { CalendarOutlined, CheckOutlined, DeleteOutlined, DownloadOutlined } from "@ant-design/icons";
 import { BackLink } from "@/components/BackLink";
 import { LINK_CLASS } from "@/components/linkClass";
 import { ConfirmModal } from "@/components/ConfirmModal";
-import type { SupplierTariffVersion } from "@/hooks/useSupplierTariffs";
+import type { SupplierTariffVersion, VersionDatesChange } from "@/hooks/useSupplierTariffs";
 import { apiErrorMessage, isNotFound } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
 import { useCanManageTariffs } from "@/lib/auth/AuthContext";
@@ -16,6 +16,7 @@ import { formatDate, formatDateTime } from "@/lib/date";
 import { downloadDataUrl, fileDataUrl } from "@/lib/files";
 import { useToast } from "@/lib/toast";
 import { LAYOUT_SOURCE_LABEL, STATUS_CHIP, validityText, versionLabel } from "../_lib/railTariffs";
+import { TariffVersionDatesModal } from "./TariffVersionDatesModal";
 import { TariffVersionFindings } from "./TariffVersionFindings";
 
 /** What every kind of tariff version has: its summary, the tariff it belongs to and what the checks found. */
@@ -27,6 +28,9 @@ interface TariffVersionCore extends SupplierTariffVersion {
 interface TariffVersionActions {
   approve: (id: string) => Promise<unknown>;
   isApproving: boolean;
+  /** Changes an approved version's dates */
+  setDates: (change: VersionDatesChange) => Promise<unknown>;
+  isSettingDates: boolean;
   discard: (id: string) => Promise<unknown>;
   isDiscarding: boolean;
   /** The file the version was read from */
@@ -60,7 +64,7 @@ interface TariffVersionViewProps<V extends TariffVersionCore> {
 
 // One version of a supplier's tariff: what was uploaded and how it was read, what the checks found,
 // and the cards of its kind below. A manager approves the draft (it prices from its start date) or
-// discards it.
+// discards it, and changes an approved version's dates.
 export function TariffVersionView<V extends TariffVersionCore>({
   version,
   isLoading,
@@ -80,6 +84,7 @@ export function TariffVersionView<V extends TariffVersionCore>({
   const toast = useToast();
   const canManage = useCanManageTariffs();
   const [confirm, setConfirm] = useState<"approve" | "discard" | null>(null);
+  const [datesOpen, setDatesOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
 
   if (isLoading) {
@@ -187,12 +192,23 @@ export function TariffVersionView<V extends TariffVersionCore>({
                   {version.activatedBy ? ` by ${version.activatedBy}` : ""}
                 </span>
               )}
+              {version.datesChangedAt && (
+                <span>
+                  · Dates changed {formatDateTime(version.datesChangedAt)}
+                  {version.datesChangedBy ? ` by ${version.datesChangedBy}` : ""}
+                </span>
+              )}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {version.sourceFileName && (
               <Button icon={<DownloadOutlined />} loading={downloading} onClick={handleDownload}>
                 Download file
+              </Button>
+            )}
+            {canManage && version.status === "active" && (
+              <Button icon={<CalendarOutlined />} onClick={() => setDatesOpen(true)}>
+                Change dates
               </Button>
             )}
             {editable && (
@@ -235,6 +251,19 @@ export function TariffVersionView<V extends TariffVersionCore>({
         danger
         loading={actions.isDiscarding}
       />
+      {canManage && (
+        // A new key per opening: the dialog starts with the version's dates as saved.
+        <TariffVersionDatesModal
+          key={datesOpen ? "open" : "closed"}
+          open={datesOpen}
+          onClose={() => setDatesOpen(false)}
+          version={version}
+          label={label}
+          tariffName={version.tariff.name}
+          setDates={actions.setDates}
+          isSaving={actions.isSettingDates}
+        />
+      )}
     </div>
   );
 }

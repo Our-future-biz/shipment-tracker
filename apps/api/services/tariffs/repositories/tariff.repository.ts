@@ -109,6 +109,15 @@ export interface ApproveRefusal {
 
 export type ApproveResult = ApproveSuccess | ApproveRefusal;
 
+/** An active version's dates, as a manager sets them: YYYY-MM-DD, no end when validTo is null. */
+export interface VersionDates {
+  validFrom: string;
+  validTo: string | null;
+}
+
+/** The version with its new dates, or why they were refused: "not_found", or a sentence for the user. */
+export type SetDatesResult = ApproveResult;
+
 /** The port name as the pick left it. */
 export interface OceanPortPicked {
   ok: true;
@@ -391,6 +400,50 @@ class TariffRepository {
         .set({ layout: version.layout, updatedAt: now })
         .where(and(eq(tariffTable.companyId, companyId), eq(tariffTable.id, version.tariffId)));
       return { ok: true, version: approved! };
+    });
+  }
+
+  /**
+   * Changes an active version's dates, in one transaction with the tariff's row locked as approving
+   * does, so a draft approved meanwhile cannot slip in between. Refused when the version is no
+   * active one (any more), or when its new dates overlap another active version of the tariff: a
+   * day would then be priced by two versions. Who changed them and when is kept on the version.
+   */
+  async setDates(companyId: string, versionId: string, dates: VersionDates, by: string): Promise<SetDatesResult> {
+    return db.transaction(async (tx): Promise<SetDatesResult> => {
+      const [found] = await tx.select().from(tariffVersionTable).where(and(eq(tariffVersionTable.id, versionId), live(companyId)));
+      if (!found) return { ok: false, reason: "not_found" };
+      await tx
+        .select({ id: tariffTable.id })
+        .from(tariffTable)
+        .where(and(eq(tariffTable.id, found.tariffId), eq(tariffTable.companyId, companyId)))
+        .for("update");
+      const [version] = await tx
+        .select()
+        .from(tariffVersionTable)
+        .where(and(eq(tariffVersionTable.id, versionId), eq(tariffVersionTable.companyId, companyId)))
+        .for("update");
+      if (!version || version.deletedAt || version.status !== "active") return { ok: false, reason: "Only an active version's dates can be changed" };
+
+      const active = await tx
+        .select()
+        .from(tariffVersionTable)
+        .where(and(live(companyId), eq(tariffVersionTable.tariffId, version.tariffId), eq(tariffVersionTable.status, "active"), ne(tariffVersionTable.id, versionId)));
+      const { validFrom, validTo } = dates;
+      const clash = active
+        .filter((other) => (other.validTo === null || other.validTo >= validFrom) && (validTo === null || other.validFrom === null || other.validFrom <= validTo))
+        .sort((a, b) => a.versionNo - b.versionNo)[0];
+      if (clash) {
+        const its = `${clash.validFrom ?? "…"} – ${clash.validTo ?? "no end"}`;
+        return { ok: false, reason: `These dates overlap version ${clash.versionNo} (${its}); change that version's dates first, or choose dates outside them.` };
+      }
+      const now = new Date();
+      const [changed] = await tx
+        .update(tariffVersionTable)
+        .set({ validFrom, validTo, datesChangedAt: now, datesChangedBy: by, updatedAt: now })
+        .where(and(eq(tariffVersionTable.companyId, companyId), eq(tariffVersionTable.id, versionId)))
+        .returning();
+      return { ok: true, version: changed! };
     });
   }
 

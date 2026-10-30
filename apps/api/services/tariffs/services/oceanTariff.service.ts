@@ -22,11 +22,12 @@ import { countriesFor, nameVariants, placeFor, portCodeFor } from "../lib/oceanP
 import { oceanEquipmentOf, rateOffer, type OceanContainer } from "../lib/oceanPricing";
 import { RAIL_DIRECTIONS, chosenDirections } from "../lib/tariffPorts";
 import { sheetPreview, type Sheet } from "../lib/sheet";
-import { tariffRepository } from "../repositories/tariff.repository";
+import { tariffRepository, type VersionDates } from "../repositories/tariff.repository";
 import type { OceanPortRecord, TariffVersionRecord } from "../schemas/tariff.schema";
 import { readOceanLayout } from "./oceanLayoutReader.service";
 import {
   approveVersion,
+  changeVersionDates,
   businessToday,
   discardVersion,
   draftSheets,
@@ -407,6 +408,12 @@ class OceanTariffService {
     const pending = await tariffRepository.pendingOceanPorts(actor.companyID, v.id);
     if (pending) throw APIError.failedPrecondition(`${pending} port names are not matched to a place yet: pick each one, or leave it out, first`);
     await approveVersion(actor, versionId);
+    return this.version(actor.companyID, versionId);
+  }
+
+  /** Changes an approved version's dates (it must not overlap another active version of the tariff). */
+  async setDates(actor: Actor, versionId: string, dates: VersionDates): Promise<OceanTariffVersionDetail> {
+    await changeVersionDates(actor, versionId, "ocean", dates);
     return this.version(actor.companyID, versionId);
   }
 

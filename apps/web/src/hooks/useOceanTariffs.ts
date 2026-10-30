@@ -3,7 +3,7 @@
 import { keepPreviousData, useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { controllers, interfaces, services } from "@/lib/api/client";
-import { useSupplierTariffCache, useSupplierTariffOffers } from "./useSupplierTariffs";
+import { useSupplierTariffCache, useSupplierTariffOffers, type VersionDatesChange } from "./useSupplierTariffs";
 
 // Shipping lines' ocean tariffs (Tariffs → Shipping Lines): the lines, their tariffs and versions,
 // one version's layout, findings, ports and rates, a manager's actions on a draft, and the offers
@@ -88,6 +88,7 @@ export const useOceanTariffActions = () => {
   });
   const setPort = useMutation({ mutationFn: ({ id, ...req }: OceanPortSet) => api.tariffs.oceanVersionPort(id, req).then((r) => keep(r.version)) });
   const approve = useMutation({ mutationFn: (id: string) => api.tariffs.oceanVersionApprove(id).then((r) => keep(r.version)) });
+  const setDates = useMutation({ mutationFn: ({ id, ...dates }: VersionDatesChange) => api.tariffs.oceanVersionDates(id, dates).then((r) => keep(r.version)) });
   const discard = useMutation({ mutationFn: (id: string) => api.tariffs.oceanVersionDiscard(id), onSuccess: refresh });
   const update = useMutation({ mutationFn: ({ id, ...fields }: OceanTariffUpdate) => api.tariffs.oceanTariffUpdate(id, fields), onSuccess: refresh });
 
@@ -100,6 +101,8 @@ export const useOceanTariffActions = () => {
     isSettingPort: setPort.isPending,
     approve: approve.mutateAsync,
     isApproving: approve.isPending,
+    setDates: setDates.mutateAsync,
+    isSettingDates: setDates.isPending,
     discard: discard.mutateAsync,
     isDiscarding: discard.isPending,
     update: update.mutateAsync,
