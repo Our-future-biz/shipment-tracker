@@ -11,11 +11,13 @@ import { useUsers } from "@/hooks/useUsers";
 import { useToast } from "@/lib/toast";
 import { fileToBase64, formatFileSize } from "@/lib/files";
 import { shipmentAttachmentsKey } from "@/hooks/useShipmentAttachments";
+import { mentionOptions } from "../_lib/mentionOptions";
 
 // An internal conversation, laid out like a messaging app: colleagues on the left with avatar,
 // name and time, own messages on the right in blue with a read tick, files as cards under the
-// message they were sent with, and a separator for each day. Typing @ offers colleagues to tag;
-// a tagged colleague gets a notification. The same panel serves a shipment's chat (ChatPanel) and
+// message they were sent with, and a separator for each day. Typing @ offers colleagues to tag (the
+// three used most in this chat, or those matching what follows the @); a tagged colleague gets a
+// notification. The same panel serves a shipment's chat (ChatPanel) and
 // a quote's (QuoteChatPanel); what differs is where the messages come from (ChatSource).
 
 /** One message as the panel shows it (the shipments' and the quotes' messages both are). */
@@ -237,7 +239,8 @@ export const ChatThread = ({ source }: { source: ChatSource }) => {
   const mentionQuery = mention?.query.toLowerCase() ?? "";
   // A finished name followed by a space is done — don't keep offering longer namesakes.
   const mentionDone = /\s$/.test(mentionQuery) && colleagues.some((c) => c.name.toLowerCase() === mentionQuery.trimEnd());
-  const mentionMatches = mention && !mentionDone ? colleagues.filter((c) => c.name.toLowerCase().includes(mentionQuery)).slice(0, 6) : [];
+  // A bare @ offers the three colleagues used most in this chat; typing searches them all.
+  const mentionMatches = mention && !mentionDone ? mentionOptions(colleagues, comments, mentionQuery) : [];
   const mentionOpen = mentionMatches.length > 0;
 
   const pickMention = (c: Colleague) => {
