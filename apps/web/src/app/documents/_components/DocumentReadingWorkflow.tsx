@@ -8,6 +8,7 @@ import {
   Checkbox,
   Descriptions,
   Input,
+  Modal,
   Radio,
   Result,
   Segmented,
@@ -16,9 +17,10 @@ import {
   Spin,
   Steps,
   Tag,
+  Tooltip,
   Upload,
 } from "antd";
-import { DeleteOutlined, FileOutlined, InboxOutlined, ReloadOutlined } from "@ant-design/icons";
+import { DeleteOutlined, EyeOutlined, FileOutlined, InboxOutlined, ReloadOutlined } from "@ant-design/icons";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, apiErrorMessage } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
@@ -1713,8 +1715,28 @@ interface UploadedFileListProps {
   onRemove: (uid: string) => void;
 }
 
+// The type to show a picked file as; a browser sometimes leaves `type` empty, so the name decides.
+function previewType(f: UploadedFile): string {
+  if (f.type) return f.type;
+  const ext = f.name.toLowerCase().split(".").pop();
+  return ext === "pdf" ? "application/pdf" : ext === "png" ? "image/png" : ext === "jpg" || ext === "jpeg" ? "image/jpeg" : "";
+}
+
 // The files picked for one read, so it is clear exactly what will be read.
 function UploadedFileList({ files, onRemove }: UploadedFileListProps) {
+  // Opened from the bytes already in the page: nothing is uploaded to look at a file.
+  const [preview, setPreview] = useState<{ name: string; url: string; type: string } | null>(null);
+
+  const openPreview = (f: UploadedFile) => {
+    const type = previewType(f);
+    const bytes = Uint8Array.from(atob(f.base64), (c) => c.charCodeAt(0));
+    setPreview({ name: f.name, url: URL.createObjectURL(new Blob([bytes], { type })), type });
+  };
+  const closePreview = () => {
+    if (preview) URL.revokeObjectURL(preview.url);
+    setPreview(null);
+  };
+
   return (
     <div className="mt-3 border border-slate-200 rounded-lg">
       <div className="px-3 py-2 border-b border-slate-100 text-[11px] font-bold text-slate-500 uppercase tracking-wide">
@@ -1726,16 +1748,33 @@ function UploadedFileList({ files, onRemove }: UploadedFileListProps) {
             <FileOutlined className="text-indigo-400" />
             <span className="flex-1 min-w-0 truncate text-slate-800 font-medium">{f.name}</span>
             <span className="shrink-0 text-slate-400">{formatFileSize(f.size)}</span>
-            <Button
-              size="small"
-              type="text"
-              icon={<DeleteOutlined />}
-              aria-label={`Remove ${f.name}`}
-              onClick={() => onRemove(f.uid)}
-            />
+            <Tooltip title="Preview">
+              <Button size="small" type="text" icon={<EyeOutlined />} aria-label={`Preview ${f.name}`} onClick={() => openPreview(f)} />
+            </Tooltip>
+            <Tooltip title="Remove">
+              <Button
+                size="small"
+                type="text"
+                icon={<DeleteOutlined />}
+                aria-label={`Remove ${f.name}`}
+                onClick={() => onRemove(f.uid)}
+              />
+            </Tooltip>
           </li>
         ))}
       </ul>
+
+      <Modal open={!!preview} title={preview?.name} onCancel={closePreview} footer={null} width="80vw" styles={{ body: { padding: 0, height: "78vh" } }} destroyOnHidden>
+        {preview &&
+          (preview.type.startsWith("image/") ? (
+            <div className="h-full overflow-auto bg-slate-100 flex items-center justify-center">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={preview.url} alt={preview.name} className="max-w-full max-h-full object-contain" />
+            </div>
+          ) : (
+            <iframe src={preview.url} title={preview.name} className="w-full h-full border-0" />
+          ))}
+      </Modal>
     </div>
   );
 }
