@@ -1,46 +1,71 @@
 "use client";
 
 import { useState } from "react";
-import { Button, Tooltip } from "antd";
-import { ArrowDownOutlined, ArrowUpOutlined, EditOutlined } from "@ant-design/icons";
+import { Button } from "antd";
+import { EditOutlined, UnorderedListOutlined } from "@ant-design/icons";
 import { formatDate } from "@/lib/date";
-import { CARD, fmtPct, fmtRate, type FxOverview, fmtAverage } from "./fxShared";
+import { CARD, fmtPct, fmtQuoted, type FxOverview, fmtAverage } from "./fxShared";
+import { RateChange } from "./RateChange";
 import { RoeDialog } from "./RoeDialog";
+import { CurrenciesDialog } from "./CurrenciesDialog";
+import { CARD_CURRENCIES } from "./useFxCurrencies";
 
-function Change({ rate, previous, previousDate }: { rate: number | null; previous: number | null; previousDate: string | null }) {
-  if (rate == null || previous == null) return null;
-  const diff = rate - previous;
-  if (Math.abs(diff) < 0.0005) return <span className="text-[12px] text-slate-400">unchanged</span>;
-  // Neutral colour: a stronger or weaker koruna is neither good nor bad in itself.
-  const up = diff > 0;
-  return (
-    <Tooltip title={`vs ${formatDate(previousDate)}`}>
-    <span className="text-[12px] font-semibold text-slate-500">
-      {up ? <ArrowUpOutlined /> : <ArrowDownOutlined />} {Math.abs(diff).toFixed(3)}
-    </span>
-    </Tooltip>
-  );
+// A card that opens the user's full currency list when clicked.
+const OPENS = "cursor-pointer transition-colors hover:border-slate-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500";
+
+interface Props {
+  data: FxOverview;
+  isAdmin: boolean;
+  /** The user's currencies in their order; the cards show the first CARD_CURRENCIES */
+  list: string[];
+  onChangeList: (next: string[]) => void;
 }
 
-export function OverviewCards({ data, isAdmin }: { data: FxOverview; isAdmin: boolean }) {
+export function OverviewCards({ data, isAdmin, list, onChangeList }: Props) {
   const [editing, setEditing] = useState(false);
+  const [showAll, setShowAll] = useState(false);
   const pct = data.roe.pct;
-  const fixingDate = data.rates.find((r) => r.fixingDate)?.fixingDate ?? null;
+  const shown = list.slice(0, CARD_CURRENCIES);
+  const rates = shown.flatMap((c) => data.rates.filter((r) => r.currency === c));
+  const averages = shown.flatMap((c) => data.monthAverages.filter((a) => a.currency === c));
+  const fixingDate = rates.find((r) => r.fixingDate)?.fixingDate ?? null;
+  const more = list.length - shown.length;
+
+  const opener = {
+    role: "button",
+    tabIndex: 0,
+    onClick: () => setShowAll(true),
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        setShowAll(true);
+      }
+    },
+  };
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-      <div className={`${CARD} px-5 py-4`}>
-        <div className="text-[12px] font-bold tracking-[.05em] uppercase text-slate-500">Today&apos;s ČNB rate</div>
-        <div className="text-[12.5px] text-slate-400 mb-3">{fixingDate ? `Fixing of ${formatDate(fixingDate)}` : "No fixing yet"}</div>
-        {data.rates.map((r) => (
+      <div className={`${CARD} ${OPENS} px-5 py-4`} {...opener} aria-label="Show and choose your currencies">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <div className="text-[12px] font-bold tracking-[.05em] uppercase text-slate-500">Today&apos;s ČNB rate</div>
+            <div className="text-[12.5px] text-slate-400 mb-3">{fixingDate ? `Fixing of ${formatDate(fixingDate)}` : "No fixing yet"}</div>
+          </div>
+          <span className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-indigo-600 whitespace-nowrap">
+            <UnorderedListOutlined />
+            {more > 0 ? `All ${list.length}` : "Currencies"}
+          </span>
+        </div>
+        {rates.map((r) => (
           <div key={r.currency} className="flex items-baseline justify-between py-1">
             <span className="text-[14px] font-semibold text-slate-600">{r.currency}</span>
             <span className="flex items-baseline gap-3">
-              <Change rate={r.rate} previous={r.previousRate} previousDate={r.previousFixingDate} />
-              <span className="text-[22px] font-bold text-slate-900 tabular-nums">{fmtRate(r.rate)}</span>
+              <RateChange rate={r.rate} previous={r.previousRate} previousDate={r.previousFixingDate} amount={r.amount} />
+              <span className="text-[22px] font-bold text-slate-900 tabular-nums">{fmtQuoted(r.rate, r.amount)}</span>
             </span>
           </div>
         ))}
+        {more > 0 && <div className="text-[12px] text-slate-400 mt-1">+ {more} more — click to see all</div>}
       </div>
 
       <div className={`${CARD} px-5 py-4`}>
@@ -61,10 +86,12 @@ export function OverviewCards({ data, isAdmin }: { data: FxOverview; isAdmin: bo
         </div>
         <div className="text-[28px] font-bold text-slate-900 tabular-nums mt-1">{fmtPct(pct)}</div>
         <div className="text-[12.5px] text-slate-500 mb-1">Pricing rate = ČNB × {fmtPct(pct)}</div>
-        {data.rates.map((r) => (
+        {rates.map((r) => (
           <div key={r.currency} className="flex items-baseline justify-between py-0.5">
             <span className="text-[13px] text-slate-600">{r.currency}</span>
-            <span className="text-[15px] font-semibold text-slate-800 tabular-nums">{fmtRate(r.rate == null ? null : (r.rate * pct) / 100)}</span>
+            <span className="text-[15px] font-semibold text-slate-800 tabular-nums">
+              {fmtQuoted(r.rate == null ? null : (r.rate * pct) / 100, r.amount)}
+            </span>
           </div>
         ))}
         {data.scheduledRoe && (
@@ -74,13 +101,13 @@ export function OverviewCards({ data, isAdmin }: { data: FxOverview; isAdmin: bo
         )}
       </div>
 
-      <div className={`${CARD} px-5 py-4`}>
+      <div className={`${CARD} ${OPENS} px-5 py-4`} {...opener} aria-label="Show the month's average for all your currencies">
         <div className="text-[12px] font-bold tracking-[.05em] uppercase text-slate-500">This month&apos;s average</div>
         <div className="text-[12.5px] text-slate-400 mb-3">
-          {data.month} · provisional · {data.monthAverages[0]?.fixingDays ?? 0} fixing days so far
+          {data.month} · provisional · {averages[0]?.fixingDays ?? 0} fixing days so far
         </div>
-        {data.monthAverages.length === 0 && <div className="text-[13px] text-slate-400">No fixings this month yet</div>}
-        {data.monthAverages.map((a) => (
+        {averages.length === 0 && <div className="text-[13px] text-slate-400">No fixings this month yet</div>}
+        {averages.map((a) => (
           <div key={a.currency} className="flex items-baseline justify-between py-1">
             <span className="text-[14px] font-semibold text-slate-600">{a.currency}</span>
             <span className="text-[22px] font-bold text-slate-900 tabular-nums">{fmtAverage(a)}</span>
@@ -89,7 +116,8 @@ export function OverviewCards({ data, isAdmin }: { data: FxOverview; isAdmin: bo
         <div className="text-[12px] text-slate-400 mt-1">Used by reports; fixed when the month ends.</div>
       </div>
 
-      {editing && <RoeDialog current={data.roe.pct} rates={data.rates} today={data.today} onClose={() => setEditing(false)} />}
+      {editing && <RoeDialog current={data.roe.pct} rates={rates} today={data.today} onClose={() => setEditing(false)} />}
+      {showAll && <CurrenciesDialog data={data} list={list} onChange={onChangeList} onClose={() => setShowAll(false)} />}
     </div>
   );
 }

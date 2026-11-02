@@ -1013,9 +1013,14 @@ export namespace fx {
             return await resp.json() as interfaces.JobRates
         }
 
-        public async fxOverview(): Promise<interfaces.FxOverview> {
+        public async fxOverview(params: controllers.OverviewRequest): Promise<interfaces.FxOverview> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                currencies: params.currencies,
+            })
+
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/fx/overview`)
+            const resp = await this.baseClient.callTypedAPI("GET", `/fx/overview`, undefined, {query})
             return await resp.json() as interfaces.FxOverview
         }
 
@@ -7306,6 +7311,13 @@ export namespace controllers {
         ok: boolean
     }
 
+    export interface OverviewRequest {
+        /**
+         * The user's chosen currencies, comma-separated in their order ("EUR,USD,GBP"); EUR and USD when left out
+         */
+        currencies?: string
+    }
+
     export interface PdfResponse {
         fileName: string
         /**
@@ -12276,6 +12288,16 @@ export namespace interfaces {
 
     export interface FxOverview {
         today: string
+        /**
+         * The currencies shown, in the user's order: their saved choice, or EUR and USD
+         */
+        currencies: string[]
+
+        /**
+         * Every currency ČNB publishes today — what a user can pick from
+         */
+        available: string[]
+
         rates: TodayRate[]
         roe: RoeInfo
         scheduledRoe: RoeChange | null
@@ -17215,6 +17237,7 @@ export namespace interfaces {
     export interface TodayRate {
         currency: string
         rate: number | null
+        amount: number
         fixingDate: string | null
         previousRate: number | null
         previousFixingDate: string | null

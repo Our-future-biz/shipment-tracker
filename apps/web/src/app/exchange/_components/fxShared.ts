@@ -12,6 +12,25 @@ export function fmtRate(value: number | null | undefined, places = 3): string {
 }
 
 /**
+ * A per-1-unit rate as ČNB quotes it: per 100 / 1000 units for small currencies
+ * ("0.137 / 100"), else per 1.
+ */
+export function fmtQuoted(perUnit: number | null | undefined, amount = 1): string {
+  if (perUnit == null) return "—";
+  return amount > 1 ? `${fmtRate(perUnit * amount)} / ${amount}` : fmtRate(perUnit);
+}
+
+/** "British Pound" for GBP, in the browser's English names; "" when it has none. */
+export function currencyName(code: string): string {
+  try {
+    const name = new Intl.DisplayNames(["en"], { type: "currency" }).of(code);
+    return name && name !== code ? name : "";
+  } catch {
+    return "";
+  }
+}
+
+/**
  * A period average as ČNB quotes it: per 1 unit, or per 100 / 1000 for small currencies
  * ("1.190 / 1000" for IDR) — the per-1-unit value would round to nothing at 3 decimals.
  */

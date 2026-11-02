@@ -9,7 +9,8 @@ import { invalidateInvoicingDerived } from "./useInvoiceQueue";
 /** Every fx query lives under ["fx"], so one invalidation refreshes them all. */
 export const FX_KEYS = {
   all: ["fx"] as const,
-  overview: ["fx", "overview"] as const,
+  /** `currencies`: the user's chosen list, comma-separated ("" = the default EUR and USD) */
+  overview: (currencies: string) => ["fx", "overview", currencies] as const,
   daily: (month: string, all: boolean) => ["fx", "daily", month, all] as const,
   averages: (year: number, all: boolean) => ["fx", "averages", year, all] as const,
   roe: ["fx", "roe"] as const,
@@ -30,10 +31,15 @@ function useInvalidateFx() {
   }, [queryClient]);
 }
 
-export function useFxOverview() {
+/** `enabled`: false until the user's saved currencies are known, so EUR and USD don't flash first. */
+export function useFxOverview(currencies: string[], enabled = true) {
+  const list = currencies.join(",");
   return useQuery({
-    queryKey: FX_KEYS.overview,
-    queryFn: () => api.fx.fxOverview(),
+    queryKey: FX_KEYS.overview(list),
+    queryFn: () => api.fx.fxOverview({ currencies: list || undefined }),
+    enabled,
+    // A changed choice keeps the page on screen while the new rates load.
+    placeholderData: keepPreviousData,
     // Picks up the scheduled pulls (15:00, 15:30, 16:00) while the page is open.
     refetchInterval: (q) => (q.state.data?.sync.state === "ok" ? 5 * 60_000 : 60_000),
   });

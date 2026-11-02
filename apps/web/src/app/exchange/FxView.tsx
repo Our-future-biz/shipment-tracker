@@ -8,6 +8,7 @@ import { useFxOverview, useFxSync } from "@/hooks/useFx";
 import { formatDate, formatDateTime } from "@/lib/date";
 import { CARD, type FxOverview } from "./_components/fxShared";
 import { OverviewCards } from "./_components/OverviewCards";
+import { useFxCurrencies } from "./_components/useFxCurrencies";
 import { DailyTab } from "./_components/DailyTab";
 import { AveragesTab } from "./_components/AveragesTab";
 import { RoeHistoryTab } from "./_components/RoeHistoryTab";
@@ -79,13 +80,21 @@ function AlertBanner({ alerts }: { alerts: FxOverview["alerts"] }) {
   );
 }
 
+// The saved list as it stands (ahead of `data` while new rates load), without currencies ČNB
+// no longer publishes; the server's list when nothing usable is saved.
+function currencyList(saved: string[], data: FxOverview): string[] {
+  const usable = saved.filter((c) => data.available.includes(c));
+  return usable.length ? usable : data.currencies;
+}
+
 export function FxView() {
   const toast = useToast();
   const { user } = useAuth();
   const canSync = user != null && SYNC_ROLES.includes(user.role);
   const isAdmin = user != null && (user.role === "admin" || user.role === "superadmin");
 
-  const { data, isLoading, isError } = useFxOverview();
+  const currencies = useFxCurrencies();
+  const { data, isLoading, isError } = useFxOverview(currencies.saved, currencies.ready);
   const sync = useFxSync();
 
   const handleSync = () =>
@@ -101,7 +110,7 @@ export function FxView() {
   if (isError) {
     return <Alert type="error" showIcon message="Could not load the exchange rates. Try reloading the page." />;
   }
-  if (isLoading || !data) {
+  if (isLoading || !currencies.ready || !data) {
     return (
       <div className="flex items-center justify-center py-20">
         <Spin />
@@ -128,7 +137,12 @@ export function FxView() {
 
       <AlertBanner alerts={data.alerts} />
       {data.alerts.length === 0 && <SyncWarning sync={data.sync} />}
-      <OverviewCards data={data} isAdmin={isAdmin} />
+      <OverviewCards
+        data={data}
+        isAdmin={isAdmin}
+        list={currencyList(currencies.saved, data)}
+        onChangeList={currencies.save}
+      />
 
       <div className={`${CARD} px-4 pt-1 pb-4`}>
         <Tabs

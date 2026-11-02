@@ -18,7 +18,8 @@ export interface SyncResult {
 
 export interface TodayRate {
   currency: string;
-  rate: number | null;
+  rate: number | null; // CZK per 1 unit
+  amount: number; // units ČNB quotes it for (1, 100, 1000): small currencies are shown per that many
   fixingDate: string | null;
   previousRate: number | null;
   previousFixingDate: string | null;
@@ -76,6 +77,10 @@ export interface FxAlertItem {
 
 export interface FxOverview {
   today: string;
+  /** The currencies shown, in the user's order: their saved choice, or EUR and USD */
+  currencies: string[];
+  /** Every currency ČNB publishes today — what a user can pick from */
+  available: string[];
   rates: TodayRate[];
   roe: RoeInfo;
   scheduledRoe: RoeChange | null;

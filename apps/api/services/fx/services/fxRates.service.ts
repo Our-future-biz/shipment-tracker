@@ -71,38 +71,52 @@ async function syncStatus(): Promise<SyncStatus> {
 }
 
 export const fxRatesService = {
-  async overview(companyId: string): Promise<FxOverview> {
+  // `chosen`: the currencies the user picked to see (EUR and USD when none), in their order.
+  async overview(companyId: string, chosen: string[] = []): Promise<FxOverview> {
     const today = pragueToday();
     const month = today.slice(0, 7);
-    const [history, names, monthRows, sync, alerts] = await Promise.all([
+    const [history, names, sync, alerts, allCurrencies] = await Promise.all([
       roeSettingRepository.history(companyId),
       userNames(),
-      cnbRateRepository.between(`${month}-01`, today, MAIN_CURRENCIES),
       syncStatus(),
       openAlerts(),
+      cnbRateRepository.currencies(),
     ]);
+    // Only what ČNB still publishes can be picked; a retired currency (BGN) drops out of a saved list.
+    const latest = await cnbRateRepository.latestOnOrBefore(today, allCurrencies);
+    const available = ratesForDate(latest, today, expectedLatestFixing()).rates.map((r) => r.currency).sort();
+    const picked = [...new Set(chosen.map((c) => c.toUpperCase()))].filter((c) => available.includes(c));
+    const currencies = picked.length ? picked : MAIN_CURRENCIES;
 
-    const rates: TodayRate[] = [];
-    for (const currency of MAIN_CURRENCIES) {
-      const [cur, prev] = await cnbRateRepository.lastTwo(currency, today);
-      rates.push({
+    const [monthRows, lastTwos] = await Promise.all([
+      cnbRateRepository.between(`${month}-01`, today, currencies),
+      Promise.all(currencies.map((c) => cnbRateRepository.lastTwo(c, today))),
+    ]);
+    const rates: TodayRate[] = currencies.map((currency, i) => {
+      const [cur, prev] = lastTwos[i];
+      return {
         currency,
         rate: cur ? perUnit(cur) : null,
+        amount: cur?.amount || 1,
         fixingDate: cur?.validDate ?? null,
         previousRate: prev ? perUnit(prev) : null,
         previousFixingDate: prev?.validDate ?? null,
-      });
-    }
+      };
+    });
+    const averages = averageByCurrency(monthRows, `${month}-01`, today);
 
     const inForce = history.find((h) => h.effectiveFrom <= today) ?? null;
     const upcoming = history.filter((h) => h.effectiveFrom > today).at(-1) ?? null;
     return {
       today,
+      currencies,
+      available,
       rates,
       roe: roeInfo(inForce, names),
       scheduledRoe: upcoming ? toChange(upcoming, names, inForce, today) : null,
       month,
-      monthAverages: averageByCurrency(monthRows, `${month}-01`, today),
+      // in the order of `currencies`, like `rates`
+      monthAverages: currencies.flatMap((c) => averages.filter((a) => a.currency === c)),
       sync,
       alerts,
     };

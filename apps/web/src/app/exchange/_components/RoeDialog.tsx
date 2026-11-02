@@ -5,7 +5,7 @@ import { Alert, App, DatePicker, Input, InputNumber, Modal } from "antd";
 import dayjs from "dayjs";
 import { useSetRoe } from "@/hooks/useFx";
 import { useToast } from "@/lib/toast";
-import { fmtPct, fmtRate, type FxOverview } from "./fxShared";
+import { fmtPct, fmtQuoted, type FxOverview } from "./fxShared";
 
 interface Props {
   current: number;
@@ -111,7 +111,7 @@ export function RoeDialog({ current, rates, today, onClose }: Props) {
             <div key={r.currency} className="flex justify-between tabular-nums">
               <span>{r.currency}</span>
               <span>
-                ČNB {fmtRate(r.rate)} → pricing {fmtRate(r.rate == null ? null : (r.rate * (pct ?? 100)) / 100)}
+                ČNB {fmtQuoted(r.rate, r.amount)} → pricing {fmtQuoted(r.rate == null ? null : (r.rate * (pct ?? 100)) / 100, r.amount)}
               </span>
             </div>
           ))}
