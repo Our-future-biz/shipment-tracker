@@ -82,6 +82,20 @@ export function customerLinkFields(customer: Pick<CustomerItem, "id" | "companyN
   return { customerId: customer.id, customerName: customer.companyName, customerLabel: customer.label };
 }
 
+/**
+ * The currency a quote for the customer is priced in: its default currency from the Customer
+ * Database. Given only where a customer is put on a quote (picked, or a new quote for it) - a quote
+ * copied keeps its own.
+ */
+export function customerCurrencyFields(customer: Pick<CustomerItem, "currency">): SalesQuoteData {
+  return customer.currency ? { currency: customer.currency } : {};
+}
+
+/** The currencies a quote for the customer is offered: its default, then its secondary ones. */
+export function customerCurrencies(customer: Pick<CustomerItem, "currency" | "secondaryCurrencies">): string[] {
+  return [customer.currency, ...(customer.secondaryCurrencies ?? [])].filter(Boolean);
+}
+
 type ContactRef = Pick<ContactItem, "id" | "name" | "email" | "phone">;
 
 /** What a contact picked from the customer's contacts puts on a quote: its link, and its name, e-mail and phone as they are now. */

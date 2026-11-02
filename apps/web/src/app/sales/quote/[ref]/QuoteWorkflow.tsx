@@ -54,7 +54,10 @@ import { useListKeys } from "@/hooks/useListKeys";
 import { asData, cargoReadyDay, computeTotals, computeCargo, convertLine, documentBlock, fxNote, hasReefer, isContainerQuote, isWonRevision, reeferMissing, revisionRoot, stripProtected, withLineBasis, type QuoteTotals } from "../../_lib/salesQuote";
 import { PRINT_WINDOW_BLOCKED, exportClosesQuote } from "../../_lib/exportClose";
 import { ExportCloseDialog } from "../../_components/ExportCloseDialog";
-import { NO_CUSTOMER, changesCustomer, contactFields, customerLinkFields, liveCustomerCopies, namedContact, withCustomerUnit } from "../../_lib/quoteCustomer";
+import {
+  NO_CUSTOMER, changesCustomer, contactFields, customerCurrencies, customerCurrencyFields, customerLinkFields, liveCustomerCopies, namedContact,
+  withCustomerUnit,
+} from "../../_lib/quoteCustomer";
 import { useQuoteCustomerFields, useQuoteCustomerLive } from "@/hooks/useQuoteCustomerFields";
 import { useUsers } from "@/hooks/useUsers";
 import { useQuoteListHref } from "../../_lib/quoteListHref";
@@ -326,7 +329,8 @@ export function QuoteWorkflow() {
   // picked or brought in meanwhile, or the customer was taken off: a late answer must not land
   // on a later choice.
   const pickCustomer = async (customer: CustomerItem) => {
-    set({ ...NO_CUSTOMER, ...customerLinkFields(customer) });
+    // Priced in the customer's default currency (Customer Database); taking the customer off keeps it.
+    set({ ...NO_CUSTOMER, ...customerLinkFields(customer), ...customerCurrencyFields(customer) });
     pickedCustomer.current = customer.id;
     const contact = await customerContactFields(customer.id);
     if (pickedCustomer.current === customer.id) set(contact);
@@ -851,6 +855,13 @@ export function QuoteWorkflow() {
   // a read that is still on its way or one that failed does not say. The quote keeps the name
   // and its link, but the customer's page would open on "not found", so nothing leads there.
   const customerDeleted = !!draft.customerId && !linkedCustomer.customer && !linkedCustomer.isLoading && !linkedCustomer.isLoadError;
+  // A quote for a customer is priced in one of the customer's currencies (its default marked); one
+  // without a customer in any. A currency set before, and not the customer's, still shows as it is.
+  const offeredCurrencies: string[] = linkedCustomer.customer ? customerCurrencies(linkedCustomer.customer) : [...CURRENCIES];
+  const currencyOptions = (offeredCurrencies.includes(totals.currency) ? offeredCurrencies : [totals.currency, ...offeredCurrencies]).map((c) => ({
+    value: c,
+    label: linkedCustomer.customer && c === linkedCustomer.customer.currency ? `${c} · default` : c,
+  }));
   const customerPageId = customerDeleted ? undefined : draft.customerId;
 
   // What the header says under the reference: who the quote is for and what it moves where.
@@ -1409,7 +1420,9 @@ export function QuoteWorkflow() {
               aria-label="Currency"
               value={totals.currency}
               onChange={(v) => set({ currency: v })}
-              options={CURRENCIES.map((c) => ({ value: c, label: c }))}
+              options={currencyOptions}
+              labelRender={(o) => o.value}
+              popupMatchSelectWidth={false}
             />
             <span className="min-w-0 text-xs text-slate-500">The totals and the customer&apos;s document are in this currency. Every line keeps its own.</span>
           </div>

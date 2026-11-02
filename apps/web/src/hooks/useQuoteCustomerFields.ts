@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, isNotFound } from "@/lib/api";
 import type { CustomerItem } from "@/hooks/useCustomers";
-import { contactFieldsOf, customerLinkFields, withContactChecked } from "@/app/sales/_lib/quoteCustomer";
+import { contactFieldsOf, customerCurrencyFields, customerLinkFields, withContactChecked } from "@/app/sales/_lib/quoteCustomer";
 import type { SalesQuoteData } from "@/app/sales/_lib/types";
 
 /** The cache keys useCustomer / useCustomerContacts read a customer's record and contacts under. */
@@ -40,9 +40,10 @@ export const useQuoteCustomerFields = () => {
     }
   };
 
-  // What a new quote for a customer starts with: the link and the main contact.
-  const customerQuoteFields = async (customer: Pick<CustomerItem, "id" | "companyName" | "label">): Promise<SalesQuoteData> => ({
+  // What a new quote for a customer starts with: the link, its default currency and the main contact.
+  const customerQuoteFields = async (customer: Pick<CustomerItem, "id" | "companyName" | "label" | "currency">): Promise<SalesQuoteData> => ({
     ...customerLinkFields(customer),
+    ...customerCurrencyFields(customer),
     ...(await customerContactFields(customer.id)),
   });
 

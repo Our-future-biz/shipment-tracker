@@ -6,6 +6,8 @@ import {
   contactFieldsOf,
   contactOfName,
   customerCopiesUnsaved,
+  customerCurrencies,
+  customerCurrencyFields,
   followStoredCustomer,
   liveCustomerCopies,
   namedContact,
@@ -227,5 +229,17 @@ describe("the customer section of Copy from / Duplicate", () => {
 
   it("a quote without a link to a contact still has a customer section", () => {
     expect(hasSection({ customerName: "Typed Ltd" }, "customer")).toBe(true);
+  });
+});
+
+describe("customer currencies on a quote", () => {
+  it("prices a quote for a customer in its default currency", () => {
+    expect(customerCurrencyFields({ currency: "GBP" })).toEqual({ currency: "GBP" });
+    expect(customerCurrencyFields({ currency: "" })).toEqual({});
+  });
+
+  it("offers the default first, then the secondary ones", () => {
+    expect(customerCurrencies({ currency: "EUR", secondaryCurrencies: ["USD", "CZK"] })).toEqual(["EUR", "USD", "CZK"]);
+    expect(customerCurrencies({ currency: "EUR", secondaryCurrencies: [] })).toEqual(["EUR"]);
   });
 });
