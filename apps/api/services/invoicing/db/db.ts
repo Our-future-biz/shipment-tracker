@@ -11,6 +11,7 @@ import * as exchangeRateSchema from "../schemas/exchangeRate.schema";
 import * as customsInvoiceSchema from "../schemas/customsInvoice.schema";
 import * as invoiceProfileSchema from "../schemas/invoiceProfile.schema";
 import * as invoiceSchema from "../schemas/invoice.schema";
+import * as masterJobCostSchema from "../schemas/masterJobCost.schema";
 
 export const DB = new SQLDatabase("invoicing", {
   migrations: { path: "migrations", source: "drizzle" },
@@ -30,5 +31,6 @@ export const db = drizzle(pool, {
     ...customsInvoiceSchema,
     ...invoiceProfileSchema,
     ...invoiceSchema,
+    ...masterJobCostSchema,
   },
 });

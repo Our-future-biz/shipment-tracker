@@ -1,5 +1,6 @@
 import { APIError, ErrCode } from "encore.dev/api";
-import { customers } from "~encore/clients";
+import log from "encore.dev/log";
+import { customers, invoicing } from "~encore/clients";
 import { isUuid } from "../../../lib/uuid";
 import { masterJobRepository } from "../repositories/masterJob.repository";
 import { masterJobContainerRepository } from "../repositories/masterJobContainer.repository";
@@ -28,6 +29,8 @@ import type {
   MasterJobDetail,
 } from "../interfaces/interfaces";
 import { assertTimes } from "../lib/dateTimes";
+import { cargoDimensionRepository } from "../repositories/cargoDimension.repository";
+import { freightTons } from "../lib/freightTons";
 
 /** Editable master-job fields (everything but the id, MCZ number and bookkeeping). */
 export type MasterJobUpdate = Partial<
@@ -272,6 +275,8 @@ class MasterJobService {
       await this.unassignFromContainers(shipment.masterJobId, companyId, shipmentId);
     }
     await this.syncShipment(shipmentId, companyId, userId);
+    // The master job's costs are shared out again with the shipment in (and the one it left without it).
+    await this.resplitCosts([linked?.masterJobId, shipment.masterJobId]);
   }
 
   async unlinkShipment(id: string, companyId: string, shipmentId: string): Promise<MasterJobDetail> {
@@ -288,6 +293,35 @@ class MasterJobService {
     if (!shipment) throw APIError.notFound(`Shipment ${shipmentId} not found`);
     await shipmentService.unlinkMasterJob(shipmentId, companyId);
     if (shipment.masterJobId) await this.unassignFromContainers(shipment.masterJobId, companyId, shipmentId);
+    await this.resplitCosts([shipment.masterJobId]);
+  }
+
+  /** The master job's live shipments with their freight tons (W/M), what its costs are split over. */
+  async houses(id: string, companyId: string): Promise<{ shipmentId: string; jobNumber: string; freightTon: number }[]> {
+    await this.require(id, companyId);
+    const rows = await shipmentRepository.findByMasterJobId(id, companyId);
+    const dims = await cargoDimensionRepository.listByShipmentIds(rows.map((r) => r.id), companyId);
+    return rows
+      .map((r) => ({
+        shipmentId: r.id,
+        jobNumber: r.jobNumber,
+        freightTon: freightTons(dims.filter((d) => d.shipmentId === r.id), r).freightTon,
+      }))
+      .sort((a, b) => a.jobNumber.localeCompare(b.jobNumber));
+  }
+
+  /**
+   * Shares the costs of these master jobs out again over their shipments (invoicing). A failure
+   * doesn't undo what changed the shipments; it is logged, and the next change splits again.
+   */
+  async resplitCosts(masterJobIds: (string | null | undefined)[]): Promise<void> {
+    for (const masterJobId of new Set(masterJobIds.filter((id): id is string => !!id))) {
+      try {
+        await invoicing.invoicingMasterJobResplit({ masterJobId });
+      } catch (err) {
+        log.error(err, "master job costs could not be split again", { masterJobId });
+      }
+    }
   }
 
   /** Copy the master job's filled-in values onto a shipment that was just linked to it. */

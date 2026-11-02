@@ -37,12 +37,19 @@ export const invoiceCostTable = pgTable(
      * set) and read-only in Costs Breakdown.
      */
     sourceTruckingRef: text("source_trucking_ref"),
+    /**
+     * The master job's cost line this row is the shipment's share of ("master:<masterJobId>:<lineId>");
+     * null for any other row. Such rows are kept by the master job's Costs Breakdown (worked out again
+     * as a set) and read-only here.
+     */
+    sourceMasterJobRef: text("source_master_job_ref"),
   },
   (table) => [
     ...defaultTableIndexes("invoice_cost", table),
     tenantIndex("invoice_cost", table),
     index("invoice_cost_shipment_id_idx").on(table.shipmentId),
     index("invoice_cost_trucking_ref_idx").on(table.companyId, table.sourceTruckingRef).where(sql`source_trucking_ref IS NOT NULL`),
+    index("invoice_cost_master_job_ref_idx").on(table.companyId, table.sourceMasterJobRef).where(sql`source_master_job_ref IS NOT NULL`),
   ],
 );
 

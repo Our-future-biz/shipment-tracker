@@ -127,6 +127,13 @@
       "when": 1792419814768,
       "tag": "0017_index_cleanup",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1793625730540,
+      "tag": "0018_master_job_costs",
+      "breakpoints": true
     }
   ]
 }

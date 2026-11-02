@@ -4,10 +4,10 @@ import { db } from "../db/db";
 import { invoiceCostTable as t, type InvoiceCostRecord, type NewInvoiceCostRecord } from "../schemas/invoiceCost.schema";
 
 // Every query on a line also matches its shipment, so a line can only be written through its
-// own shipment's URL. Rows pushed by Trucking (source_trucking_ref) are kept by Trucking and
-// read-only here: no line write reaches them.
+// own shipment's URL. Rows pushed by Trucking (source_trucking_ref) are kept by Trucking, and a
+// master job's shares (source_master_job_ref) by the master job: read-only here, no line write reaches them.
 const lineOf = (id: string, companyId: string, shipmentId: string) =>
-  and(eq(t.id, id), eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), isNull(t.deletedAt), isNull(t.sourceTruckingRef));
+  and(eq(t.id, id), eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), isNull(t.deletedAt), isNull(t.sourceTruckingRef), isNull(t.sourceMasterJobRef));
 
 class InvoiceCostRepository extends TenantRepository<typeof t> {
   constructor() {
@@ -65,12 +65,12 @@ class InvoiceCostRepository extends TenantRepository<typeof t> {
     return rows.length > 0;
   }
 
-  /** The first live line of a charge code of a shipment, in the order Costs Breakdown lists them (Trucking's rows left out). */
+  /** The first live line of a charge code of a shipment, in the order Costs Breakdown lists them (Trucking's and master jobs' rows left out). */
   async findByCategory(shipmentId: string, companyId: string, category: string): Promise<InvoiceCostRecord | null> {
     const [row] = await this.db
       .select()
       .from(t)
-      .where(and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), eq(t.category, category), isNull(t.deletedAt), isNull(t.sourceTruckingRef)))
+      .where(and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), eq(t.category, category), isNull(t.deletedAt), isNull(t.sourceTruckingRef), isNull(t.sourceMasterJobRef)))
       .orderBy(asc(t.sortOrder), asc(t.createdAt))
       .limit(1);
     return row ?? null;

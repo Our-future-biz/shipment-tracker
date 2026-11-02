@@ -215,8 +215,19 @@ export function CostsTab({ shipment }: CostsTabProps) {
   const truckingOn = canSeeConcepts;
   const { consignments: jobConsignments } = useConsignments({ shipmentId: shipment.id }, { enabled: truckingOn && truckingRefs.size > 0 });
   const tripRefs = useTripRefs(truckingOn ? tripIds : []);
+  // A master job's share of its own costs (Master Jobs → Costs Breakdown) is read-only here too,
+  // tagged with the master job and linked to it, where it changes.
+  const masterJobRows = new Set((data?.costs ?? []).filter((c) => c.sourceMasterJobRef).map((c) => c.id));
+  const masterJobTag = shipment.masterJobId
+    ? {
+        label: `Split from ${shipment.masterJobMczNumber ?? "the master job"}`,
+        href: `/master-jobs?open=${shipment.masterJobId}`,
+        title: "This shipment's share of a master job cost - change it in the master job's Costs Breakdown",
+      }
+    : { label: "Split from a master job", href: null, title: "This shipment's share of a master job cost" };
   const truckingTagOf = (id: string) =>
-    truckingCostTag(truckingRefs.get(id), { consignments: jobConsignments, tripRefs, shipmentId: shipment.id, linkable: truckingOn });
+    truckingCostTag(truckingRefs.get(id), { consignments: jobConsignments, tripRefs, shipmentId: shipment.id, linkable: truckingOn }) ??
+    (masterJobRows.has(id) ? masterJobTag : null);
 
   // Costs feed the shipment's totals (list rows, the customer's rollups), so those refresh too.
   const invalidate = () => {

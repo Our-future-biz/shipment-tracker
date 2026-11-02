@@ -1148,6 +1148,10 @@ export namespace invoicing {
             this.invoicingDeleteSellingCost = this.invoicingDeleteSellingCost.bind(this)
             this.invoicingGet = this.invoicingGet.bind(this)
             this.invoicingImportQuote = this.invoicingImportQuote.bind(this)
+            this.invoicingMasterJobCostAdd = this.invoicingMasterJobCostAdd.bind(this)
+            this.invoicingMasterJobCostDelete = this.invoicingMasterJobCostDelete.bind(this)
+            this.invoicingMasterJobCostUpdate = this.invoicingMasterJobCostUpdate.bind(this)
+            this.invoicingMasterJobCosts = this.invoicingMasterJobCosts.bind(this)
             this.invoicingSplitCost = this.invoicingSplitCost.bind(this)
             this.invoicingUpdateBuyingCost = this.invoicingUpdateBuyingCost.bind(this)
             this.invoicingUpdateCharge = this.invoicingUpdateCharge.bind(this)
@@ -1309,6 +1313,30 @@ export namespace invoicing {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/import-quote`, JSON.stringify(params))
             return await resp.json() as interfaces.QuoteImportResult
+        }
+
+        public async invoicingMasterJobCostAdd(masterJobId: string, params: controllers.AddRequest): Promise<interfaces.MasterJobCostsView> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/master-jobs/${encodeURIComponent(masterJobId)}/costs`, JSON.stringify(params))
+            return await resp.json() as interfaces.MasterJobCostsView
+        }
+
+        public async invoicingMasterJobCostDelete(masterJobId: string, costId: string): Promise<interfaces.MasterJobCostsView> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/invoicing/master-jobs/${encodeURIComponent(masterJobId)}/costs/${encodeURIComponent(costId)}`)
+            return await resp.json() as interfaces.MasterJobCostsView
+        }
+
+        public async invoicingMasterJobCostUpdate(masterJobId: string, costId: string, params: controllers.UpdateRequest): Promise<interfaces.MasterJobCostsView> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/invoicing/master-jobs/${encodeURIComponent(masterJobId)}/costs/${encodeURIComponent(costId)}`, JSON.stringify(params))
+            return await resp.json() as interfaces.MasterJobCostsView
+        }
+
+        public async invoicingMasterJobCosts(masterJobId: string): Promise<interfaces.MasterJobCostsView> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/invoicing/master-jobs/${encodeURIComponent(masterJobId)}/costs`)
+            return await resp.json() as interfaces.MasterJobCostsView
         }
 
         /**
@@ -5199,6 +5227,22 @@ export namespace controllers {
         category?: string
         currency?: string
         value?: string
+        sortOrder?: number
+    }
+
+    export interface AddRequest {
+        category?: string
+        description?: string
+        vendor?: string
+        estQty?: string
+        estAmount?: string
+        estCurrency?: string
+        realQty?: string
+        realAmount?: string
+        realCurrency?: string
+        invoiceNumber?: string
+        received?: boolean
+        splitMethod?: interfaces.MasterJobSplitMethod
         sortOrder?: number
     }
 
@@ -9799,6 +9843,22 @@ export namespace controllers {
         value?: string
     }
 
+    export interface UpdateRequest {
+        category?: string
+        description?: string
+        vendor?: string
+        estQty?: string
+        estAmount?: string
+        estCurrency?: string
+        realQty?: string
+        realAmount?: string
+        realCurrency?: string
+        invoiceNumber?: string
+        received?: boolean
+        splitMethod?: interfaces.MasterJobSplitMethod
+        sortOrder?: number
+    }
+
     export interface UpdateSellingRequest {
         category?: string
         description?: string
@@ -13659,6 +13719,11 @@ export namespace interfaces {
         sourceTruckingRef: string | null
 
         /**
+         * The master job's line this row is the shipment's share of ("master:<id>:<line>"); null for others. Read-only.
+         */
+        sourceMasterJobRef: string | null
+
+        /**
          * The sales quote the row was copied from; "" for a row entered by hand. Its category, description and estimate are the quote's then, and it is not deleted.
          */
         sourceQuoteNumber: string
@@ -14141,12 +14206,58 @@ export namespace interfaces {
     }
 
     /**
+     * A buying cost of a whole master job, shared out over its shipments.
+     */
+    export interface MasterJobCostItem {
+        id: string
+        masterJobId: string
+        category: string
+        description: string
+        vendor: string
+        estQty: string | null
+        estAmount: string | null
+        estCurrency: string
+        realQty: string | null
+        realAmount: string | null
+        realCurrency: string
+        invoiceNumber: string
+        received: boolean
+        /**
+         * "wm": by each shipment's freight tons; "shipment": the same part for each
+         */
+        splitMethod: MasterJobSplitMethod
+
+        sortOrder: number
+    }
+
+    /**
+     * The master job's Costs Breakdown: its lines, its shipments and what each one carries.
+     */
+    export interface MasterJobCostsView {
+        lines: MasterJobCostItem[]
+        houses: MasterJobHouseItem[]
+        shares: MasterJobShareItem[]
+    }
+
+    /**
      * A master job with its containers and house shipments.
      */
     export interface MasterJobDetail {
         masterJob: MasterJobItem
         containers: MasterJobContainerLine[]
         shipments: MasterJobShipmentItem[]
+    }
+
+    /**
+     * A shipment of the master job as the split sees it.
+     */
+    export interface MasterJobHouseItem {
+        shipmentId: string
+        jobNumber: string
+        /**
+         * W/M: the greater of tons and cbm (cargo dimensions, else the typed totals)
+         */
+        freightTon: number
     }
 
     export interface MasterJobItem {
@@ -14231,6 +14342,16 @@ export namespace interfaces {
     }
 
     /**
+     * One shipment's part of a line: totals in the line's currencies; null where the line has no amount.
+     */
+    export interface MasterJobShareItem {
+        lineId: string
+        shipmentId: string
+        est: string | null
+        real: string | null
+    }
+
+    /**
      * A house shipment as listed on its master job.
      */
     export interface MasterJobShipmentItem {
@@ -14246,6 +14367,8 @@ export namespace interfaces {
          */
         containerNumber: string
     }
+
+    export type MasterJobSplitMethod = "wm" | "shipment"
 
     /**
      * A month of the job-profit report

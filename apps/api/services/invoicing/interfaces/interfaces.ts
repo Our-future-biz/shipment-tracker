@@ -19,6 +19,8 @@ export interface InvoiceCostItem {
   sortOrder: number;
   /** The Trucking consignment / trip the row was pushed from ("trucking:trip:<id>"); null otherwise. Read-only then. */
   sourceTruckingRef: string | null;
+  /** The master job's line this row is the shipment's share of ("master:<id>:<line>"); null for others. Read-only. */
+  sourceMasterJobRef: string | null;
   /** The sales quote the row was copied from; "" for a row entered by hand. Its category, description and estimate are the quote's then, and it is not deleted. */
   sourceQuoteNumber: string;
 }
@@ -582,4 +584,67 @@ export interface ShipmentCostTotals {
   profit: number | null;
   /** Currencies without a rate that made the totals unknown. */
   missingCurrencies: string[];
+}
+
+// ─── Master job costs ──────────────────────────────────────────────
+
+export type MasterJobSplitMethod = "wm" | "shipment";
+
+/** A buying cost of a whole master job, shared out over its shipments. */
+export interface MasterJobCostItem {
+  id: string;
+  masterJobId: string;
+  category: string;
+  description: string;
+  vendor: string;
+  estQty: string | null;
+  estAmount: string | null;
+  estCurrency: string;
+  realQty: string | null;
+  realAmount: string | null;
+  realCurrency: string;
+  invoiceNumber: string;
+  received: boolean;
+  /** "wm": by each shipment's freight tons; "shipment": the same part for each */
+  splitMethod: MasterJobSplitMethod;
+  sortOrder: number;
+}
+
+/** A shipment of the master job as the split sees it. */
+export interface MasterJobHouseItem {
+  shipmentId: string;
+  jobNumber: string;
+  /** W/M: the greater of tons and cbm (cargo dimensions, else the typed totals) */
+  freightTon: number;
+}
+
+/** One shipment's part of a line: totals in the line's currencies; null where the line has no amount. */
+export interface MasterJobShareItem {
+  lineId: string;
+  shipmentId: string;
+  est: string | null;
+  real: string | null;
+}
+
+/** The master job's Costs Breakdown: its lines, its shipments and what each one carries. */
+export interface MasterJobCostsView {
+  lines: MasterJobCostItem[];
+  houses: MasterJobHouseItem[];
+  shares: MasterJobShareItem[];
+}
+
+export interface MasterJobCostInput {
+  category?: string;
+  description?: string;
+  vendor?: string;
+  estQty?: string;
+  estAmount?: string;
+  estCurrency?: string;
+  realQty?: string;
+  realAmount?: string;
+  realCurrency?: string;
+  invoiceNumber?: string;
+  received?: boolean;
+  splitMethod?: MasterJobSplitMethod;
+  sortOrder?: number;
 }

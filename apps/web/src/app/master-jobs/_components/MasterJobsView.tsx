@@ -7,9 +7,13 @@ import { ArrowLeftOutlined } from "@ant-design/icons";
 import { useCreateMasterJob, useMasterJob, useMasterJobs } from "@/hooks/useMasterJobs";
 import { MasterJobsList } from "./MasterJobsList";
 import { MblDetailsTab } from "./MblDetailsTab";
+import { MasterJobCostsTab } from "./MasterJobCostsTab";
 
 // Tabs of an opened master job; more will follow.
-const DETAIL_TABS = [{ key: "mbl", label: "MBL Details" }] as const;
+const DETAIL_TABS = [
+  { key: "mbl", label: "MBL Details" },
+  { key: "costs", label: "Costs Breakdown" },
+] as const;
 
 // Master Jobs in the same shape as Customs: a list, and a master job opened
 // inside the page (?open=<id>) with its tabs. Back returns to the list exactly
@@ -95,7 +99,9 @@ export function MasterJobsView() {
               </div>
             )}
             {mj ? (
-              detailTab === "mbl" && (
+              detailTab === "costs" ? (
+                <MasterJobCostsTab masterJob={mj} />
+              ) : (
                 <MblDetailsTab
                   masterJob={mj}
                   containers={detail.containers}

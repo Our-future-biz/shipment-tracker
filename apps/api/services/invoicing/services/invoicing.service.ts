@@ -70,6 +70,7 @@ const toCostItem = (r: InvoiceCostRecord): InvoiceCostItem => ({
   haulierId: r.haulierId,
   sortOrder: r.sortOrder,
   sourceTruckingRef: r.sourceTruckingRef,
+  sourceMasterJobRef: r.sourceMasterJobRef,
   sourceQuoteNumber: r.sourceQuoteNumber,
 });
 

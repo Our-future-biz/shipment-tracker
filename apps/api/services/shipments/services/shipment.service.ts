@@ -1107,6 +1107,10 @@ class ShipmentService {
     if (updated && (updated.customer !== existing.customer || updated.customerPic !== existing.customerPic)) {
       await this.tellParties(companyId, updated);
     }
+    // A W/M split of its master job's costs follows the shipment's weight and volume.
+    if (existing.masterJobId && (cargoDimensions !== undefined || "totalWeightTons" in shipmentData || "totalVolumeCbm" in shipmentData)) {
+      await this.resplitMasterJobCosts(existing.masterJobId);
+    }
 
     // A changed Sales Number takes the shipment from one quote and gives it to another: both
     // are told, the new one without being marked Won.
@@ -1237,6 +1241,20 @@ class ShipmentService {
     await shipmentDeleted.publish({ shipmentId: id, companyId });
     // The quote the shipment named loses it - and with its last shipment a Won it owed to one.
     await this.tellQuote(companyId, existing.salesNumber.trim());
+    // Its master job's costs are shared out again over the shipments left.
+    if (existing.masterJobId) await this.resplitMasterJobCosts(existing.masterJobId);
+  }
+
+  /**
+   * Shares a master job's costs out again over its shipments (invoicing). A failure doesn't undo
+   * the change to the shipment; it is logged, and the next change splits again.
+   */
+  private async resplitMasterJobCosts(masterJobId: string): Promise<void> {
+    try {
+      await invoicing.invoicingMasterJobResplit({ masterJobId });
+    } catch (err) {
+      log.error(err, "master job costs could not be split again", { masterJobId });
+    }
   }
 
   // Release the house bill of lading, recording who released it and when.

@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // The MBL Shipper / Consignee of a master job, linked to the Customer Database: run against
 // stand-ins for the repositories, the shipment service and the customers service.
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
-vi.mock("~encore/clients", () => ({ customers: { customerGet: vi.fn() } }));
+vi.mock("~encore/clients", () => ({ customers: { customerGet: vi.fn() }, invoicing: { invoicingMasterJobResplit: vi.fn() } }));
+vi.mock("encore.dev/log", () => ({ default: { error: vi.fn(), warn: vi.fn(), info: vi.fn() } }));
+vi.mock("../../repositories/cargoDimension.repository", () => ({ cargoDimensionRepository: { listByShipmentIds: vi.fn(async () => []) } }));
 vi.mock("../../repositories/masterJob.repository", () => ({
   masterJobRepository: { getByIdForCompany: vi.fn(), updateForCompany: vi.fn(), shipmentCounts: vi.fn() },
 }));
