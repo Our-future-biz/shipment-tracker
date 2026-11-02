@@ -1,7 +1,7 @@
 import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
 import { isAdminLevel } from "../../../lib/rbac";
-import { auth } from "~encore/clients";
+import { auth, shipments } from "~encore/clients";
 import { cnbRateRepository } from "../repositories/cnbRate.repository";
 import { cnbImportRunRepository } from "../repositories/cnbImportRun.repository";
 import { roeSettingRepository } from "../repositories/roeSetting.repository";
@@ -9,6 +9,7 @@ import type { RoeSettingRecord } from "../schemas/roeSetting.schema";
 import { addDays, expectedLatestFixing, isCzechHoliday, isIsoDate, isWeekend, lastDayOfMonth, pragueToday } from "../lib/dates";
 import { againstBase, averageByCurrency, isRetired, perUnit, periodsOfYear, ratesForDate, resolveFixing, round, type Fixing } from "../lib/rates";
 import { openAlerts } from "./fxAlert.service";
+import { FX_CHOICE_PREF_KEY, parseCurrencyChoice, type CurrencyChoice } from "../lib/currencyChoice";
 import type {
   DailyRow, DayKind, FxAlertItem, FxOverview, ImportRunItem, PeriodAverage, RatesOnDate, ResolvedRate, RetiredCurrencyItem, RoeChange, RoeInfo,
   SyncStatus, TodayRate,
@@ -91,10 +92,23 @@ async function syncStatus(): Promise<SyncStatus> {
   };
 }
 
+// The signed-in user's saved choice of currencies (shipments' user preferences). A failed read
+// gives the default, so the page still shows.
+async function savedChoice(): Promise<CurrencyChoice> {
+  try {
+    return parseCurrencyChoice((await shipments.userPrefGet({ prefKey: FX_CHOICE_PREF_KEY })).value);
+  } catch (err) {
+    log.warn(err, "the user's chosen currencies could not be read; the default is shown");
+    return parseCurrencyChoice(null);
+  }
+}
+
 export const fxRatesService = {
-  // `chosen`: the currencies the user picked to see, in their order; `baseArg`: the currency
-  // the rates are shown against (CZK, as ČNB publishes them, when left out).
-  async overview(companyId: string, chosen: string[] = [], baseArg = "CZK"): Promise<FxOverview> {
+  // `choice`: the currencies the user picked to see, in their order, and the currency the rates
+  // are shown against (CZK, as ČNB publishes them, when left out); none - the user's saved choice,
+  // read here, so the page needs no read of its own first.
+  async overview(companyId: string, choice?: { currencies: string[]; base?: string }): Promise<FxOverview> {
+    const { currencies: chosen, base: baseArg = "CZK" } = choice ?? (await savedChoice());
     const today = pragueToday();
     const month = today.slice(0, 7);
     const [history, names, sync, alerts, allCurrencies] = await Promise.all([

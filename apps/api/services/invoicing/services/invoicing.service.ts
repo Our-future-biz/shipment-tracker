@@ -444,6 +444,18 @@ class InvoicingService {
   }
 
   // ── Billing ──
+  /**
+   * A shipment that got its customer (created with one, or linked to one) starts billing in the
+   * customer's default currency: its billing settings are made with it, so the Costs Breakdown,
+   * the invoice, the billing queue and the customer's totals all read the same currency. Only
+   * while it has no billing settings and no invoice - a currency chosen or billed stays.
+   */
+  async startBilling(companyId: string, shipmentId: string): Promise<void> {
+    if (await billingSettingsRepository.getByShipmentId(shipmentId, companyId)) return;
+    const billingCurrency = await startingBillingCurrency(companyId, shipmentId);
+    if (billingCurrency) await billingSettingsRepository.createIfMissing(shipmentId, companyId, { billingCurrency });
+  }
+
   async upsertBillingSettings(shipmentId: string, companyId: string, input: BillingSettingsInput): Promise<BillingSettingsItem> {
     const roe = toDecimal(input.roe, "roe", 6);
     if (roe === null) throw APIError.invalidArgument("roe can't be cleared");

@@ -163,6 +163,33 @@ describe("importQuote", () => {
   });
 });
 
+describe("startBilling", () => {
+  beforeEach(() => {
+    Object.assign(billingSettingsRepository, { getByShipmentId: vi.fn(async () => null), createIfMissing: vi.fn() });
+    vi.mocked(shipments.shipmentGet).mockResolvedValue({ shipment: { id: SHIPMENT, customerId: "c1" } } as Awaited<ReturnType<typeof shipments.shipmentGet>>);
+    vi.mocked(customers.customerGet).mockResolvedValue({ customer: { id: "c1", currency: "EUR" } } as Awaited<ReturnType<typeof customers.customerGet>>);
+  });
+
+  it("makes a shipment's first billing settings in its customer's default currency", async () => {
+    await invoicingService.startBilling(COMPANY, SHIPMENT);
+    expect(billingSettingsRepository.createIfMissing).toHaveBeenCalledWith(SHIPMENT, COMPANY, { billingCurrency: "EUR" });
+  });
+
+  it("leaves a shipment with billing settings, or with an invoice, as it is", async () => {
+    vi.mocked(billingSettingsRepository.getByShipmentId).mockResolvedValueOnce({ shipmentId: SHIPMENT, billingCurrency: "USD" } as never);
+    await invoicingService.startBilling(COMPANY, SHIPMENT);
+    vi.mocked(invoiceRepository.listByShipment).mockResolvedValueOnce([{ id: "i1" }] as never);
+    await invoicingService.startBilling(COMPANY, SHIPMENT);
+    expect(billingSettingsRepository.createIfMissing).not.toHaveBeenCalled();
+  });
+
+  it("makes nothing without a customer", async () => {
+    vi.mocked(shipments.shipmentGet).mockResolvedValue({ shipment: { id: SHIPMENT, customerId: null } } as Awaited<ReturnType<typeof shipments.shipmentGet>>);
+    await invoicingService.startBilling(COMPANY, SHIPMENT);
+    expect(billingSettingsRepository.createIfMissing).not.toHaveBeenCalled();
+  });
+});
+
 describe("getInvoicingData", () => {
   // A shipment without cost rows whose billing settings remember the quote its costs came from.
   const settingsWith = (quoteRef: string) =>

@@ -185,6 +185,11 @@ async function loadContext(shipmentId: string, companyId: string, params: IssueP
   }
 
   const currency = settings?.billingCurrency || "CZK";
+  // Not a block: the invoice is issued all the same, only without payment details in that currency.
+  const warnings: string[] = [];
+  if (profile && !profile.bankAccounts.some((a) => a.currency === currency)) {
+    warnings.push(`No bank account in ${currency} (Settings → Organization): the invoice has no payment details or QR payment`);
+  }
   const picked = await ratesForDuzp(isIsoDate(duzp) ? duzp : issueDate, issueDate);
   if (picked.problem) problems.push(picked.problem);
   const calc = calculateInvoice({
@@ -210,7 +215,7 @@ async function loadContext(shipmentId: string, companyId: string, params: IssueP
   else if (calc.gross <= 0) problems.push("The invoice total must be above zero");
 
   const dueDate = addDays(issueDate, dueDays(customer?.paymentTerms, profile?.defaultDueDays ?? 14));
-  return { shipment, profile, customer, customerId, issueDate, duzp, dueDate, calc, picked, problems };
+  return { shipment, profile, customer, customerId, issueDate, duzp, dueDate, calc, picked, problems, warnings };
 }
 
 function supplierSnapshot(profile: NonNullable<Awaited<ReturnType<typeof loadContext>>["profile"]>, currency: string): SupplierSnapshot {
@@ -426,6 +431,7 @@ class InvoiceDocumentService {
       vatSummary: ctx.calc.vatSummary,
       lines: ctx.calc.lines.map(lineItem),
       problems: ctx.problems,
+      warnings: ctx.warnings,
     };
   }
 

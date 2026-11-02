@@ -8,7 +8,7 @@ import { useFxOverview, useFxSync } from "@/hooks/useFx";
 import { formatDate, formatDateTime } from "@/lib/date";
 import { CARD, type FxOverview } from "./_components/fxShared";
 import { OverviewCards } from "./_components/OverviewCards";
-import { useFxCurrencies } from "./_components/useFxCurrencies";
+import { useFxCurrencies, withBase } from "./_components/useFxCurrencies";
 import { DailyTab } from "./_components/DailyTab";
 import { AveragesTab } from "./_components/AveragesTab";
 import { RoeHistoryTab } from "./_components/RoeHistoryTab";
@@ -80,8 +80,8 @@ function AlertBanner({ alerts }: { alerts: FxOverview["alerts"] }) {
   );
 }
 
-// The saved list as it stands (ahead of `data` while new rates load), without currencies ČNB
-// no longer publishes and without the base; the server's list when nothing usable is saved.
+// The list as it stands (a change ahead of `data` while new rates load), without currencies ČNB
+// no longer publishes and without the base; the server's list when nothing usable is chosen.
 function currencyList(saved: string[], data: FxOverview): string[] {
   const usable = saved.filter((c) => data.available.includes(c) && c !== data.base);
   return usable.length ? usable : data.currencies;
@@ -93,8 +93,9 @@ export function FxView() {
   const canSync = user != null && SYNC_ROLES.includes(user.role);
   const isAdmin = user != null && (user.role === "admin" || user.role === "superadmin");
 
-  const currencies = useFxCurrencies();
-  const { data, isLoading, isError } = useFxOverview(currencies.saved, currencies.base, currencies.ready);
+  // The user's saved choice comes with the rates (read on the server); a change made here goes ahead of its save.
+  const choice = useFxCurrencies();
+  const { data, isLoading, isError } = useFxOverview(choice.changed);
   const sync = useFxSync();
 
   const handleSync = () =>
@@ -110,13 +111,14 @@ export function FxView() {
   if (isError) {
     return <Alert type="error" showIcon message="Could not load the exchange rates. Try reloading the page." />;
   }
-  if (isLoading || !currencies.ready || !data) {
+  if (isLoading || !data) {
     return (
       <div className="flex items-center justify-center py-20">
         <Spin />
       </div>
     );
   }
+  const current = choice.changed ?? { currencies: data.currencies, base: data.base };
 
   return (
     <>
@@ -142,9 +144,9 @@ export function FxView() {
       <OverviewCards
         data={data}
         isAdmin={isAdmin}
-        list={currencyList(currencies.saved, data)}
-        onChangeList={currencies.saveList}
-        onChangeBase={currencies.saveBase}
+        list={currencyList(current.currencies, data)}
+        onChangeList={(currencies) => choice.save({ ...current, currencies })}
+        onChangeBase={(base) => choice.save(withBase(current, base))}
       />
 
       <div className={`${CARD} px-4 pt-1 pb-4`}>

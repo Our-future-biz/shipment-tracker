@@ -7368,6 +7368,9 @@ export namespace controllers {
         ok: boolean
     }
 
+    /**
+     * Neither given: the user's saved choice (read on the server).
+     */
     export interface OverviewRequest {
         /**
          * The user's chosen currencies, comma-separated in their order ("EUR,USD,GBP"); EUR and USD when left out
@@ -13876,6 +13879,11 @@ export namespace interfaces {
          * Everything that blocks issuing; empty = ready to issue
          */
         problems: string[]
+
+        /**
+         * What the user should know before issuing, without blocking it (e.g. no bank account in the currency)
+         */
+        warnings: string[]
     }
 
     /**
@@ -14237,6 +14245,15 @@ export namespace interfaces {
         lines: MasterJobCostItem[]
         houses: MasterJobHouseItem[]
         shares: MasterJobShareItem[]
+        /**
+         * Each line against its estimate, by line id; a line without both (or without a rate) is left out
+         */
+        vsEstimate: { [key: string]: MasterJobVsEstimateItem }
+
+        /**
+         * The whole master job against its estimates; null without a comparison
+         */
+        totalVsEstimate: MasterJobVsEstimateItem | null
     }
 
     /**
@@ -14369,6 +14386,17 @@ export namespace interfaces {
     }
 
     export type MasterJobSplitMethod = "wm" | "shipment"
+
+    /**
+     * Real − estimated buying cost: above 0 the cost came out higher than estimated (Profit Burning).
+     */
+    export interface MasterJobVsEstimateItem {
+        delta: number
+        /**
+         * The line's currency, or CZK (at today's ČNB rate) when its estimate and real cost differ in it
+         */
+        currency: string
+    }
 
     /**
      * A month of the job-profit report
@@ -14710,15 +14738,6 @@ export namespace interfaces {
     export type PalletType = "EUR" | "INDUSTRIAL" | "HALF" | "QUARTER" | "OTHER"
 
     /**
-     * What the people backfill did: values looked at, records changed, values left as they are.
-     */
-    export interface PeopleNormalizeResult {
-        checked: number
-        changed: number
-        unmatched: PeopleNormalizeUnmatched[]
-    }
-
-    /**
      * What the people backfill did to the company's live shipments.
      */
     export interface PeopleNormalizeResult {
@@ -14736,6 +14755,15 @@ export namespace interfaces {
          * The names left as they are, most frequent first: to be fixed by hand.
          */
         unmatched: UnmatchedPerson[]
+    }
+
+    /**
+     * What the people backfill did: values looked at, records changed, values left as they are.
+     */
+    export interface PeopleNormalizeResult {
+        checked: number
+        changed: number
+        unmatched: PeopleNormalizeUnmatched[]
     }
 
     /**

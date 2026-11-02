@@ -4,11 +4,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // changed Sales Number and on delete - run for real against stand-ins for its repositories, for
 // the other services and for the service that tells quotes about their shipments.
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
-vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
+vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn() } }));
 vi.mock("~encore/clients", () => ({
   auth: { usersList: vi.fn(), userLookup: vi.fn() },
   customers: { customerUpdate: vi.fn(), customerGet: vi.fn(), addressList: vi.fn(), contactList: vi.fn() },
-  invoicing: { invoicingImportQuote: vi.fn(), openInvoiceCount: vi.fn() },
+  invoicing: { invoicingImportQuote: vi.fn(), openInvoiceCount: vi.fn(), _internalShipmentBillingStart: vi.fn() },
   quotes: { salesQuoteGet: vi.fn() },
 }));
 // A shipment's write turn: its work runs at once, handed this stand-in for the transaction.
@@ -898,6 +898,23 @@ describe("Customer's PIC is a contact of the shipment's customer", () => {
     await update({ customerId: CUSTOMER, customer: "Alfa", customerPic: "Jana Malá" });
     expect(customers.contactList).toHaveBeenCalledWith({ customerId: CUSTOMER });
     expect(written()).toMatchObject({ customerPic: "Jana Malá" });
+  });
+
+  it("starts the billing of a shipment linked to a customer in the customer's currency, once per new customer", async () => {
+    stored.set(SHIPMENT, row({ customerId: null, customerPic: "" }));
+    await update({ customerId: CUSTOMER, customer: "Alfa" });
+    expect(invoicing._internalShipmentBillingStart).toHaveBeenCalledWith({ shipmentId: SHIPMENT });
+    vi.mocked(invoicing._internalShipmentBillingStart).mockClear();
+    stored.set(SHIPMENT, row({ customerId: CUSTOMER, customerPic: "" }));
+    await update({ pol: "Hamburg" });
+    expect(invoicing._internalShipmentBillingStart).not.toHaveBeenCalled();
+  });
+
+  it("saves the shipment all the same when invoicing can't start its billing", async () => {
+    stored.set(SHIPMENT, row({ customerId: null, customerPic: "" }));
+    vi.mocked(invoicing._internalShipmentBillingStart).mockRejectedValueOnce(new Error("invoicing is unreachable"));
+    await expect(update({ customerId: CUSTOMER, customer: "Alfa" })).resolves.toBeDefined();
+    expect(log.error).toHaveBeenCalled();
   });
 
   it("keeps an old free-text value the shipment holds, without asking for the contacts", async () => {

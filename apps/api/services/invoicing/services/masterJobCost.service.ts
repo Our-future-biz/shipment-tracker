@@ -1,5 +1,6 @@
 import { APIError } from "encore.dev/api";
-import { shipments } from "~encore/clients";
+import log from "encore.dev/log";
+import { fx, shipments } from "~encore/clients";
 import { isUuid } from "../../../lib/uuid";
 import { masterJobCostRepository, type SplitRowValues } from "../repositories/masterJobCost.repository";
 import { invoiceCostRepository } from "../repositories/invoiceCost.repository";
@@ -7,6 +8,7 @@ import { truckingLinesRepository } from "../repositories/truckingLines.repositor
 import { sameCostCodes } from "../utils/truckingLines.utils";
 import { assertNotKeptByTrucking, buyingChanges } from "./invoicing.service";
 import { masterJobRef, splitLine, splitWeights, type SplitHouse } from "../lib/masterJobSplit";
+import { lineVsEstimate, totalVsEstimate, type LineVsEstimate } from "../lib/masterJobVsEstimate";
 import type { MasterJobCostRecord, MasterJobSplitMethod, NewMasterJobCostRecord } from "../schemas/masterJobCost.schema";
 import type { MasterJobCostInput, MasterJobCostItem, MasterJobCostsView, MasterJobShareItem } from "../interfaces/interfaces";
 
@@ -60,6 +62,35 @@ function sharesOf(lines: MasterJobCostRecord[], houses: SplitHouse[]): MasterJob
 
 const truckingKey = (shipmentId: string, code: string) => `${shipmentId} ${code}`;
 
+/** The lines, shipments and shares, as a re-split leaves them (the view without its estimates). */
+type SplitView = Pick<MasterJobCostsView, "lines" | "houses" | "shares">;
+
+// CZK per 1 unit of a currency at today's ČNB fixing. Without the rates (fx can't be read) only
+// lines in one currency are compared.
+async function czkRatesToday(): Promise<(currency: string) => number | null> {
+  let rates = new Map<string, number>();
+  try {
+    rates = new Map((await fx.fxRatesOn({})).rates.map((r) => [r.currency, r.rate]));
+  } catch (err) {
+    log.warn(err, "today's ČNB rates could not be read; master job costs in two currencies are not compared");
+  }
+  return (currency) => (currency === "CZK" ? 1 : (rates.get(currency) ?? null));
+}
+
+/** The view with every line against its estimate, and the whole master job's (Profit Burning / Optimalization). */
+async function withVsEstimate(view: SplitView): Promise<MasterJobCostsView> {
+  const czkPer = await czkRatesToday();
+  const compared = view.lines.flatMap((l): [string, LineVsEstimate][] => {
+    const vs = lineVsEstimate(l, czkPer);
+    return vs ? [[l.id, vs]] : [];
+  });
+  return {
+    ...view,
+    vsEstimate: Object.fromEntries(compared.map(([id, { delta, currency }]) => [id, { delta, currency }])),
+    totalVsEstimate: totalVsEstimate(compared.map(([, vs]) => vs)),
+  };
+}
+
 /**
  * The shares as the shipments carry them: a shipment priced from a quote takes its estimate from
  * the quote alone, so it gets the real part of a line only; a shipment whose cost of the line's
@@ -93,7 +124,7 @@ class MasterJobCostService {
   async view(companyId: string, masterJobId: string): Promise<MasterJobCostsView> {
     assertMasterJobId(masterJobId);
     const [houses, lines] = await Promise.all([housesOf(masterJobId), masterJobCostRepository.list(companyId, masterJobId)]);
-    return { lines: lines.map(toItem), houses, shares: await sharesAsWritten(companyId, lines, houses) };
+    return withVsEstimate({ lines: lines.map(toItem), houses, shares: await sharesAsWritten(companyId, lines, houses) });
   }
 
   async add(companyId: string, masterJobId: string, input: MasterJobCostInput): Promise<MasterJobCostsView> {
@@ -102,7 +133,7 @@ class MasterJobCostService {
     // housesOf also refuses a master job that is not the company's.
     await assertNotKeptByTruckingFor(companyId, await housesOf(masterJobId), { category: values.category ?? "", splitMethod: values.splitMethod ?? "wm" });
     await masterJobCostRepository.create(companyId, masterJobId, values);
-    return this.resplit(companyId, masterJobId);
+    return withVsEstimate(await this.resplit(companyId, masterJobId));
   }
 
   async update(companyId: string, masterJobId: string, id: string, input: MasterJobCostInput): Promise<MasterJobCostsView> {
@@ -119,13 +150,13 @@ class MasterJobCostService {
     }
     const row = await masterJobCostRepository.update(id, companyId, masterJobId, changes);
     if (!row) throw APIError.notFound("Master job cost not found");
-    return this.resplit(companyId, masterJobId);
+    return withVsEstimate(await this.resplit(companyId, masterJobId));
   }
 
   async remove(companyId: string, masterJobId: string, id: string): Promise<MasterJobCostsView> {
     assertMasterJobId(masterJobId);
     if (!isUuid(id) || !(await masterJobCostRepository.softDelete(id, companyId, masterJobId))) throw APIError.notFound("Master job cost not found");
-    return this.resplit(companyId, masterJobId);
+    return withVsEstimate(await this.resplit(companyId, masterJobId));
   }
 
   /**
@@ -133,9 +164,9 @@ class MasterJobCostService {
    * them into the shipments' Costs Breakdowns, replacing the previous shares (sharesAsWritten).
    * Worked out under the master job's lock, so a re-split that writes last read the latest lines.
    */
-  async resplit(companyId: string, masterJobId: string): Promise<MasterJobCostsView> {
+  async resplit(companyId: string, masterJobId: string): Promise<SplitView> {
     assertMasterJobId(masterJobId);
-    let view: MasterJobCostsView = { lines: [], houses: [], shares: [] };
+    let view: SplitView = { lines: [], houses: [], shares: [] };
     await masterJobCostRepository.replaceSplitRows(companyId, masterJobId, async () => {
       const [houses, lines] = await Promise.all([housesOf(masterJobId), masterJobCostRepository.list(companyId, masterJobId)]);
       const shares = await sharesAsWritten(companyId, lines, houses);

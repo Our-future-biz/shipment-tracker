@@ -136,6 +136,15 @@ describe("preview", () => {
       "Tick at least one selling row for Invoice",
     ]);
   });
+
+  it("warns, without blocking, when there is no bank account in the billing currency", async () => {
+    const p = await invoiceDocumentService.preview(SHIPMENT, COMPANY, {});
+    expect(p.warnings).toEqual([]);
+    profiles.getByCompany.mockResolvedValue({ ...profile, bankAccounts: [{ ...profile.bankAccounts[0]!, currency: "EUR" }] });
+    const noCzk = await invoiceDocumentService.preview(SHIPMENT, COMPANY, {});
+    expect(noCzk.warnings).toEqual(["No bank account in CZK (Settings → Organization): the invoice has no payment details or QR payment"]);
+    expect(noCzk.problems).not.toContainEqual(expect.stringContaining("bank account"));
+  });
 });
 
 describe("ČNB rates", () => {

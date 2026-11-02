@@ -9,8 +9,8 @@ import { invalidateInvoicingDerived } from "./useInvoiceQueue";
 /** Every fx query lives under ["fx"], so one invalidation refreshes them all. */
 export const FX_KEYS = {
   all: ["fx"] as const,
-  /** `currencies`: the user's chosen list, comma-separated ("" = the default EUR and USD); `base`: what they're against */
-  overview: (currencies: string, base: string) => ["fx", "overview", currencies, base] as const,
+  /** The user's choice as just changed on the page (currencies comma-separated, "" = the default EUR and USD, and their base), or "saved" for the one the server reads */
+  overview: (choice: string) => ["fx", "overview", choice] as const,
   daily: (month: string, all: boolean) => ["fx", "daily", month, all] as const,
   averages: (year: number, all: boolean) => ["fx", "averages", year, all] as const,
   roe: ["fx", "roe"] as const,
@@ -31,13 +31,15 @@ function useInvalidateFx() {
   }, [queryClient]);
 }
 
-/** `enabled`: false until the user's saved currencies are known, so EUR and USD don't flash first. */
-export function useFxOverview(currencies: string[], base = "CZK", enabled = true) {
-  const list = currencies.join(",");
+/**
+ * Today's rates as the user sees them: by the choice saved on the user, which the server reads -
+ * or, once `choice` is changed on the page, by that (ahead of the save).
+ */
+export function useFxOverview(choice: { currencies: string[]; base: string } | null) {
+  const list = choice?.currencies.join(",") ?? "";
   return useQuery({
-    queryKey: FX_KEYS.overview(list, base),
-    queryFn: () => api.fx.fxOverview({ currencies: list || undefined, base }),
-    enabled,
+    queryKey: FX_KEYS.overview(choice ? `${list}|${choice.base}` : "saved"),
+    queryFn: () => api.fx.fxOverview(choice ? { currencies: list || undefined, base: choice.base } : {}),
     // A changed choice keeps the page on screen while the new rates load.
     placeholderData: keepPreviousData,
     // Picks up the scheduled pulls (15:00, 15:30, 16:00) while the page is open.

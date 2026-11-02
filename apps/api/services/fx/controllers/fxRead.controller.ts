@@ -13,6 +13,7 @@ type IsoDate = string & MatchesRegexp<"^\\d{4}-\\d{2}-\\d{2}$">;
 // Loading this module (as Encore does at startup) starts the local import timers.
 startFxScheduler();
 
+// Neither given: the user's saved choice (read on the server).
 interface OverviewRequest {
   // The user's chosen currencies, comma-separated in their order ("EUR,USD,GBP"); EUR and USD when left out
   currencies?: Query<string & MatchesRegexp<"^([A-Za-z]{3}(,[A-Za-z]{3}){0,49})?$">>;
@@ -23,7 +24,10 @@ interface OverviewRequest {
 export const fxOverview = api(
   { expose: true, auth: true, method: "GET", path: "/fx/overview" },
   async (req: OverviewRequest): Promise<FxOverview> =>
-    fxRatesService.overview(getAuthData()!.companyID, req.currencies ? req.currencies.split(",") : [], req.base),
+    fxRatesService.overview(
+      getAuthData()!.companyID,
+      req.currencies === undefined && req.base === undefined ? undefined : { currencies: req.currencies ? req.currencies.split(",") : [], base: req.base },
+    ),
 );
 
 interface DailyRequest {

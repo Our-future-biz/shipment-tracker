@@ -44,6 +44,14 @@ class BillingSettingsRepository extends TenantRepository<typeof t> {
     return row!;
   }
 
+  /** The shipment's first billing settings, unless it has some (a save at the same moment included): those stay as they are. */
+  async createIfMissing(shipmentId: string, companyId: string, data: BillingSettingsValues): Promise<void> {
+    await this.db
+      .insert(t)
+      .values({ companyId, shipmentId, ...data })
+      .onConflictDoNothing({ target: [t.companyId, t.shipmentId] });
+  }
+
   async softDeleteForShipment(shipmentId: string, companyId: string): Promise<void> {
     await this.db
       .update(t)

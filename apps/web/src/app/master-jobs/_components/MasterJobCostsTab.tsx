@@ -10,7 +10,6 @@ import type { controllers, interfaces } from "@/lib/api/client";
 import { CURRENCIES } from "@/lib/cargo";
 import { chargeLabel, chargeOptions } from "@/lib/chargeCodes";
 import { normaliseAmount } from "@/lib/money";
-import { useFxRatesToday } from "@/hooks/useFx";
 import { ProfitVsEstimate } from "@/components/ProfitVsEstimate";
 import { MasterJobCard } from "./MasterJobFields";
 
@@ -38,21 +37,6 @@ function lineTotal(amount: string | null, qty: string | null): number | null {
   return Number(amount) * (Number.isFinite(q) ? q : 1);
 }
 
-/**
- * A line's real cost against its estimate (real − estimated, in the line's currency, or in CZK at
- * today's ČNB rate when the two differ); null until it has both, or without a rate for one.
- */
-function lineVsEstimate(line: Line, czkPer: (currency: string) => number | null): { delta: number; currency: string; czk: number | null } | null {
-  const est = lineTotal(line.estAmount, line.estQty);
-  const real = lineTotal(line.realAmount, line.realQty);
-  if (est == null || real == null) return null;
-  const estRate = czkPer(line.estCurrency);
-  const realRate = czkPer(line.realCurrency);
-  const czk = estRate != null && realRate != null ? real * realRate - est * estRate : null;
-  if (line.estCurrency === line.realCurrency) return { delta: real - est, currency: line.realCurrency, czk };
-  return czk == null ? null : { delta: czk, currency: "CZK", czk };
-}
-
 interface Props {
   masterJob: interfaces.MasterJobItem;
 }
@@ -67,9 +51,6 @@ export function MasterJobCostsTab({ masterJob }: Props) {
     queryKey: costsKey(masterJob.id),
     queryFn: () => api.invoicing.invoicingMasterJobCosts(masterJob.id),
   });
-  const fx = useFxRatesToday();
-  const czkPer = (currency: string): number | null =>
-    currency === "CZK" ? 1 : (fx.data?.rates.find((r) => r.currency === currency)?.rate ?? null);
 
   // The shares are in the shipments' Costs Breakdowns (and their totals) the moment this answers.
   // With several saves on their way (fields left one after another) an answer can arrive after a
@@ -141,15 +122,8 @@ export function MasterJobCostsTab({ masterJob }: Props) {
   const noWm = houses.filter((h) => !(h.freightTon > 0));
   const anyWm = lines.some((l) => l.splitMethod === "wm");
   const busy = add.isPending || update.isPending || remove.isPending;
-  const vsEstimate = new Map(lines.map((l) => [l.id, lineVsEstimate(l, czkPer)]));
-  // The whole master job against its estimates, in CZK (one currency when all its lines are in it).
-  const compared = [...vsEstimate.values()].filter((v): v is NonNullable<typeof v> => v != null);
-  const oneCurrency = compared.length > 0 && compared.every((v) => v.currency === compared[0]!.currency) ? compared[0]!.currency : null;
-  const totalVs =
-    compared.length === 0 ? null
-    : oneCurrency ? { delta: compared.reduce((a, v) => a + v.delta, 0), currency: oneCurrency }
-    : compared.every((v) => v.czk != null) ? { delta: compared.reduce((a, v) => a + v.czk!, 0), currency: "CZK" }
-    : null;
+  // Each line and the whole master job against their estimates, worked out on the server at today's ČNB rates.
+  const { vsEstimate, totalVsEstimate: totalVs } = data;
 
   return (
     <div className="flex flex-col gap-3">
@@ -241,7 +215,7 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                   </td>
                   <td className={CELL}>
                     {(() => {
-                      const vs = vsEstimate.get(line.id);
+                      const vs = vsEstimate[line.id];
                       return vs ? <ProfitVsEstimate delta={vs.delta} currency={vs.currency} /> : <span className="text-slate-300">—</span>;
                     })()}
                   </td>

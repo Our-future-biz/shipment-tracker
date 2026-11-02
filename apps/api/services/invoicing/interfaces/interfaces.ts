@@ -404,6 +404,8 @@ export interface InvoicePreviewItem {
   lines: InvoiceDocLineItem[];
   /** Everything that blocks issuing; empty = ready to issue */
   problems: string[];
+  /** What the user should know before issuing, without blocking it (e.g. no bank account in the currency) */
+  warnings: string[];
 }
 
 /** One shipment in the Invoicing queue */
@@ -626,11 +628,22 @@ export interface MasterJobShareItem {
   real: string | null;
 }
 
+/** Real − estimated buying cost: above 0 the cost came out higher than estimated (Profit Burning). */
+export interface MasterJobVsEstimateItem {
+  delta: number;
+  /** The line's currency, or CZK (at today's ČNB rate) when its estimate and real cost differ in it */
+  currency: string;
+}
+
 /** The master job's Costs Breakdown: its lines, its shipments and what each one carries. */
 export interface MasterJobCostsView {
   lines: MasterJobCostItem[];
   houses: MasterJobHouseItem[];
   shares: MasterJobShareItem[];
+  /** Each line against its estimate, by line id; a line without both (or without a rate) is left out */
+  vsEstimate: Record<string, MasterJobVsEstimateItem>;
+  /** The whole master job against its estimates; null without a comparison */
+  totalVsEstimate: MasterJobVsEstimateItem | null;
 }
 
 export interface MasterJobCostInput {

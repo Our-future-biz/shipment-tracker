@@ -54,6 +54,7 @@ import { companyUsers, matchUser, requireUserEmail, userEmailOf, type CompanyUse
 import { PERSON_FIELDS, planPeopleNormalize, requireApprovedBy } from "../lib/people";
 import { assertTimes, clearStaleTimes } from "../lib/dateTimes";
 import { resplitMasterJobCosts } from "../lib/masterJobCosts";
+import { startShipmentBilling } from "../lib/shipmentBilling";
 
 // The customers a write links to, by the field holding the link: read once, for the link check
 // and for the party fill after it.
@@ -963,6 +964,8 @@ class ShipmentService {
     const shipment = await shipmentRepository.createWithJobNumber(companyId, shipmentData);
     await this.syncDetailRows(shipment.id, companyId, { containers, cargoItems, cargoDimensions, commercialInvoices });
     await this.recalcCustomerRollups(shipment.customerId, companyId);
+    // Billed in its customer's default currency from the start.
+    if (shipment.customerId) await startShipmentBilling(shipment.id);
     // A quote number typed as Sales Number links that quote to the shipment, without marking it Won.
     await this.tellQuote(companyId, salesNumber);
     return { shipment: (await this.getById(shipment.id, companyId))! };
@@ -1103,6 +1106,8 @@ class ShipmentService {
     // Recalc for the new customer, and for the old one when the link moved.
     const newCustomerId = "customerId" in shipmentData ? shipmentData.customerId : existing.customerId;
     await this.recalcCustomerRollups(newCustomerId, companyId);
+    // A shipment linked to a customer starts billing in its default currency, unless it was billed or set already.
+    if (newCustomerId && newCustomerId !== existing.customerId) await startShipmentBilling(id);
     if (existing.customerId && existing.customerId !== newCustomerId) {
       await this.recalcCustomerRollups(existing.customerId, companyId);
     }

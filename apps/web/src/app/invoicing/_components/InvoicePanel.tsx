@@ -207,17 +207,6 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
     });
   };
 
-  // A shipment billed for the first time starts in its customer's default currency (until now every
-  // one started in CZK): saved once, when nothing is saved yet and no invoice was issued.
-  const defaultApplied = useRef(false);
-  const startsInDefault = !!data && !data.billingSettings && !!billTo && !docsLoading && docs.length === 0 && billTo.currency !== billingCur;
-  useEffect(() => {
-    if (!startsInDefault || defaultApplied.current || !billTo) return;
-    defaultApplied.current = true;
-    billingCurrency.mutate(billTo.currency);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per panel, when the conditions first hold
-  }, [startsInDefault]);
-
   const linkCustomer = useMutation({
     mutationFn: (id: string) => {
       const c = customers.find((x) => x.id === id);
@@ -297,6 +286,8 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
     if (p.roePct !== 100 && p.lines.some((l) => l.unitCurrency !== p.currency)) {
       warnings.push(`Lines in another currency are converted at the ČNB rate × ROE ${p.roePct} % (Exchange page). The CZK tax amounts use the pure ČNB rate.`);
     }
+    // The server's own (e.g. no bank account in the billing currency).
+    warnings.push(...p.warnings);
   }
   const problems = p?.problems ?? [];
   const canIssue = !!p && problems.length === 0 && !previewLoading;

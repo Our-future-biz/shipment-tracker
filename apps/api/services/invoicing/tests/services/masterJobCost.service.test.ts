@@ -3,8 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // A master job's Costs Breakdown run for real - the split, which shipment carries what, and the
 // rows handed to the write - against stand-ins for the shipments service and the repositories.
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
+vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 const houses = vi.hoisted(() => vi.fn());
-vi.mock("~encore/clients", () => ({ shipments: { _internalMasterJobHouses: houses } }));
+const ratesOn = vi.hoisted(() => vi.fn());
+vi.mock("~encore/clients", () => ({ shipments: { _internalMasterJobHouses: houses }, fx: { fxRatesOn: ratesOn } }));
 const costs = vi.hoisted(() => ({ list: vi.fn(), create: vi.fn(), get: vi.fn(), update: vi.fn(), softDelete: vi.fn(), replaceSplitRows: vi.fn() }));
 vi.mock("../../repositories/masterJobCost.repository", () => ({ masterJobCostRepository: costs }));
 const lines = vi.hoisted(() => ({ quotePricedAmong: vi.fn() }));
@@ -49,6 +51,7 @@ beforeEach(() => {
   });
   lines.quotePricedAmong.mockResolvedValue(new Set());
   trucking.keptBuyingCodes.mockResolvedValue(new Set());
+  ratesOn.mockResolvedValue({ rates: [{ currency: "EUR", rate: 25 }] });
 });
 
 describe("re-splitting a master job's costs", () => {
@@ -89,6 +92,24 @@ describe("re-splitting a master job's costs", () => {
     await masterJobCostService.resplit(COMPANY, MASTER);
     expect(costs.replaceSplitRows).toHaveBeenCalledTimes(1);
     expect(written).toEqual([]);
+  });
+});
+
+describe("the master job's costs against their estimates", () => {
+  it("come with the view, each line and the whole master job, at today's ČNB rates", async () => {
+    costs.list.mockResolvedValue([line(), line({ id: "czk", estAmount: "1000.00", estCurrency: "CZK", realAmount: "900.00", realCurrency: "CZK" })]);
+    const view = await masterJobCostService.view(COMPANY, MASTER);
+    expect(view.vsEstimate).toEqual({ [LINE]: { delta: 30, currency: "EUR" }, czk: { delta: -100, currency: "CZK" } });
+    // Two currencies: totalled in CZK (30 EUR at 25 = 750 CZK, less 100 CZK).
+    expect(view.totalVsEstimate).toEqual({ delta: 650, currency: "CZK" });
+  });
+
+  it("compare lines in one currency only when today's rates can't be read", async () => {
+    ratesOn.mockRejectedValue(new Error("fx is unreachable"));
+    costs.list.mockResolvedValue([line({ realCurrency: "CZK" })]);
+    const view = await masterJobCostService.view(COMPANY, MASTER);
+    expect(view.vsEstimate).toEqual({});
+    expect(view.totalVsEstimate).toBeNull();
   });
 });
 
