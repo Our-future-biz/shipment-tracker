@@ -58,9 +58,10 @@ export function serviceChange(line: CostLine, code: string): { line: CostLine; a
 
 // A new cost line is in the quote's currency, so adding one never mixes currencies by accident.
 // On a quote with containers it is charged per container, their number its quantity; otherwise
-// it is a lump sum of quantity 1 unless the user sets another.
-const newCostLine = (quote: SalesQuoteData): CostLine => {
-  const code = FREIGHT_LINE_CODE[quote.serviceType ?? ""] ?? "other";
+// it is a lump sum of quantity 1 unless the user sets another. FCL pricing says where it goes: per
+// container of one type, or as a lump sum, and which charge it is.
+export const newCostLine = (quote: SalesQuoteData, place?: { basis: ChargeBasis; containerType?: string; code?: string }): CostLine => {
+  const code = place?.code ?? FREIGHT_LINE_CODE[quote.serviceType ?? ""] ?? "other";
   const containers = quoteContainerCount(quote);
   const line: CostLine = {
     ...chargeOf(code),
@@ -69,9 +70,10 @@ const newCostLine = (quote: SalesQuoteData): CostLine => {
     currency: quoteCurrency(quote),
     amount: 0,
     value: 1,
-    basis: containers > 0 ? "container" : "lumpsum",
+    basis: place?.basis ?? (containers > 0 ? "container" : "lumpsum"),
+    ...(place?.containerType ? { containerType: place.containerType } : {}),
   };
-  return withRate(line, 0, containers);
+  return withRate(line, 0, quoteContainerCount(quote, line.containerType));
 };
 
 interface CostLinesEditorProps {
@@ -127,7 +129,7 @@ export function CostLinesEditor({
   const patch = (i: number, p: Partial<CostLine>) => onChange(lines.map((x, j) => (j === i ? { ...x, ...p } : x)));
   // A line's Amount column: per W/M or container the rate, which the cargo's weight / measure or
   // the number of containers multiplies.
-  const priced = (line: CostLine, rate: number) => withRate(line, rate, basisUnits(quote, line.basis));
+  const priced = (line: CostLine, rate: number) => withRate(line, rate, basisUnits(quote, line.basis, line.containerType));
   const containers = quoteContainerCount(quote);
   // The line whose service was changed while its description held text of its own: whether that
   // text gives way to the service's name is asked.

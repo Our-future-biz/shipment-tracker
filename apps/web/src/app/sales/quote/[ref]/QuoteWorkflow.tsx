@@ -81,6 +81,8 @@ import { AddToSellingDialog } from "./_components/AddToSellingDialog";
 import { RemoveBothDialog } from "./_components/RemoveBothDialog";
 import { buyingBasis, counterpartIndex, lineRemovals, newPairId, offerToSelling, pairedCopies, type LineRemoval, type LineSide } from "../../_lib/costPairs";
 import { CostLinesEditor } from "./_components/CostLinesEditor";
+import { FclPricingEditor } from "./_components/FclPricingEditor";
+import { usesFclPricing, withFclPricing } from "../../_lib/fclPricing";
 import { QuoteAddressField } from "./_components/QuoteAddressField";
 import { QuoteContactField } from "./_components/QuoteContactField";
 import { QuoteRatesEditor } from "./_components/QuoteRatesEditor";
@@ -302,9 +304,16 @@ export function QuoteWorkflow() {
   // picked before is no longer waited for.
   // What the quote's own rules put with a change, in that same change: the Overweight surcharge as
   // the cargo has it, then the lines priced by their basis.
+  // A Sea FCL quote's selling lines are then made from its buying lines and profit (fclPricing.ts) -
+  // only once today's rates are known, as they convert each charge's profit into its currency.
   const derived = (next: SalesQuoteData): Partial<SalesQuoteData> => {
     const overweight = withOverweight(next) ?? {};
-    return { ...overweight, ...withLineBasis({ ...next, ...overweight }) };
+    const based = { ...overweight, ...withLineBasis({ ...next, ...overweight }) };
+    const priced = { ...next, ...based };
+    const fcl = usesFclPricing(priced, false) ? withFclPricing(priced, exchange.rates) : null;
+    if (!fcl) return based;
+    const changed = Object.fromEntries(Object.entries(fcl).filter(([key, value]) => JSON.stringify(value) !== JSON.stringify(priced[key as keyof SalesQuoteData])));
+    return { ...based, ...changed };
   };
   const set = (patch: Partial<SalesQuoteData>) => {
     // Nothing of a closed quote is changed here (the server would keep it as stored anyway).
@@ -478,6 +487,10 @@ export function QuoteWorkflow() {
   // everything open to change.
   const wonRevision = !!quote && isWonRevision(quote.status, draft);
   const quoteClosed = !!quote && !exportClosesQuote(quote.status) && !wonRevision;
+  // A Sea FCL quote is priced in the FCL layout (fclPricing.ts); one sent before it stays as it was
+  // sent. Shown once today's rates are known; until then (or for want of a rate) the lines as they are.
+  const fclLayout = usesFclPricing(draft, quoteClosed);
+  const fclView = useMemo(() => (fclLayout ? withFclPricing(draft, exchange.rates) : null), [fclLayout, draft, exchange.rates]);
   // A warehouse approval from before the server put its fee to Pricing: the lines are added as the
   // quote opens (once per answer; autosave stores them). Not on a quote whose pricing is closed.
   const missingFee = quote && !quoteClosed ? missingWarehouseFee(draft) : null;
@@ -759,7 +772,7 @@ export function QuoteWorkflow() {
     setRailLine(null);
     toast.success(`Priced from ${offer.supplierName}: ${fmtMoney(offer.total, offer.currency)}`);
     const first = pick.lines[pick.at];
-    if (pick.count === 1 && first && !(Number(before?.amount) > 0) && offerToSelling(first, sellingLines)) setToSelling({ line: first, index: pick.at });
+    if (!fclLayout && pick.count === 1 && first && !(Number(before?.amount) > 0) && offerToSelling(first, sellingLines)) setToSelling({ line: first, index: pick.at });
   };
   // A collections offer replaces the line it was opened from with one lump sum (see
   // withCollectionOffer), so every row keeps its key; selling is offered it as for rail.
@@ -771,7 +784,7 @@ export function QuoteWorkflow() {
     setCollectionLine(null);
     toast.success(`Priced from ${offer.supplierName}: ${fmtMoney(offer.total, offer.currency)}`);
     const priced = lines[collectionLine];
-    if (priced && !(Number(before?.amount) > 0) && offerToSelling(priced, sellingLines)) setToSelling({ line: priced, index: collectionLine });
+    if (!fclLayout && priced && !(Number(before?.amount) > 0) && offerToSelling(priced, sellingLines)) setToSelling({ line: priced, index: collectionLine });
   };
   // An ocean offer puts its freight and a line per surcharge in the place of the line it was opened
   // from (see withOceanOffer); the rows keep their React keys, and selling is offered the freight.
@@ -784,7 +797,7 @@ export function QuoteWorkflow() {
     const surcharges = offer.surcharges.length ? ` and ${offer.surcharges.length} ${offer.surcharges.length === 1 ? "surcharge" : "surcharges"}` : "";
     toast.success(`Priced from ${offer.supplierName}: ${fmtMoney(offer.freight, offer.currency)} freight${surcharges}`);
     const freight = pick.lines[pick.at];
-    if (freight && !(Number(before?.amount) > 0) && offerToSelling(freight, sellingLines)) setToSelling({ line: freight, index: pick.at });
+    if (!fclLayout && freight && !(Number(before?.amount) > 0) && offerToSelling(freight, sellingLines)) setToSelling({ line: freight, index: pick.at });
   };
 
   const linesOf = (side: LineSide) => (side === "buying" ? buyingLines : sellingLines);
@@ -1372,7 +1385,7 @@ export function QuoteWorkflow() {
             {containerQuote ? (
               <KpiTile size="text" label="Equipment" value={cargo.equipment || EMPTY_CELL} hint="As the shipment names its containers" />
             ) : (
-              <>
+            <>
                 {airFreight ? (
                   <KpiTile size="text" label="Volumetric wt" value={`${fmtQuantity(cargo.volumetricWeight)} kg`} />
                 ) : (
@@ -1424,70 +1437,82 @@ export function QuoteWorkflow() {
               onPrice={() => setModal("roadPrice")}
             />
           )}
-          <CostLinesEditor
-            kind="buying"
-            title="Buying (cost)"
-            lines={draft.buyingLines ?? []}
-            quote={draft}
-            sheet={exchange.rates}
-            live={exchange}
-            onChange={(l) => updateLines("buyingLines", l)}
-            lineTag={buyingTag}
-            lineAction={buyingAction}
-            lineKeys={buyingKeys}
-            onAmountSet={(line, index) => {
-              // Not offered when selling has the line already (a copy made before its amount was set).
-              if (offerToSelling(line, sellingLines)) setToSelling({ line, index });
-            }}
-            onRemove={(index) => removeLine("buying", index)}
-          />
-          {sideOverrideNote("buying", buyingLines)}
-          <CostLinesEditor
-            kind="selling"
-            title="Selling (rate)"
-            lines={draft.sellingLines ?? []}
-            quote={draft}
-            sheet={exchange.rates}
-            live={exchange}
-            onChange={(l) => updateLines("sellingLines", l)}
-            lineTag={sellingTag}
-            lineKeys={sellingKeys}
-            basisOf={(line) => buyingBasis(line, buyingLines)}
-            onAmountChanged={(line, index, before) => {
-              if (line.pairId === WAREHOUSE_PAIR_ID) setFeeChange({ index, amount: Number(line.amount) || 0, before, currency: line.currency, reason: line.changeReason });
-            }}
-            onRemove={(index) => removeLine("selling", index)}
-            actions={
+          {fclView ? (
+            <FclPricingEditor
+              quote={{ ...draft, ...fclView }}
+              sheet={exchange.rates}
+              onChange={(next) => set(next)}
+              lineTag={buyingTag}
+              lineAction={buyingAction}
+            />
+          ) : (
               <>
-                {/* Quoting as all-in changes what the customer is shown, so it is asked about first;
-                    going back to the breakdown is not. */}
-                {draft.allIn ? (
-                  <MiniButton onClick={() => set({ allIn: false })}>Show breakdown</MiniButton>
-                ) : (
-                  <MiniButton
-                    disabled={sellingLines.length === 0}
-                    title={sellingLines.length === 0 ? "No selling lines to quote as all-in" : undefined}
-                    onClick={() => setModal("allIn")}
-                  >
-                    Quote as all-in
-                  </MiniButton>
-                )}
-                <MiniButton
-                  icon={<CopyOutlined />}
-                  disabled={buyingLines.length === 0}
-                  title={buyingLines.length === 0 ? "No buying lines to copy" : undefined}
-                  onClick={() => (sellingLines.length ? setModal("replaceSelling") : copyBuyingToSelling())}
-                >
-                  Copy buying → selling
-                </MiniButton>
-              </>
-            }
-          />
-          {sideOverrideNote("selling", sellingLines)}
-          {draft.allIn && (
-            <div className="text-[12px] font-semibold text-slate-700">
-              Quoted as all-in: the customer&apos;s quotation shows one price of {fmtMoney(totals.selling, totals.currency)}, without the selling lines.
-            </div>
+              <CostLinesEditor
+                kind="buying"
+                title="Buying (cost)"
+                lines={draft.buyingLines ?? []}
+                quote={draft}
+                sheet={exchange.rates}
+                live={exchange}
+                onChange={(l) => updateLines("buyingLines", l)}
+                lineTag={buyingTag}
+                lineAction={buyingAction}
+                lineKeys={buyingKeys}
+                onAmountSet={(line, index) => {
+                  // Not offered when selling has the line already (a copy made before its amount was set).
+                  if (offerToSelling(line, sellingLines)) setToSelling({ line, index });
+                }}
+                onRemove={(index) => removeLine("buying", index)}
+              />
+              {sideOverrideNote("buying", buyingLines)}
+              <CostLinesEditor
+                kind="selling"
+                title="Selling (rate)"
+                lines={draft.sellingLines ?? []}
+                quote={draft}
+                sheet={exchange.rates}
+                live={exchange}
+                onChange={(l) => updateLines("sellingLines", l)}
+                lineTag={sellingTag}
+                lineKeys={sellingKeys}
+                basisOf={(line) => buyingBasis(line, buyingLines)}
+                onAmountChanged={(line, index, before) => {
+                  if (line.pairId === WAREHOUSE_PAIR_ID) setFeeChange({ index, amount: Number(line.amount) || 0, before, currency: line.currency, reason: line.changeReason });
+                }}
+                onRemove={(index) => removeLine("selling", index)}
+                actions={
+                  <>
+                    {/* Quoting as all-in changes what the customer is shown, so it is asked about first;
+                        going back to the breakdown is not. */}
+                    {draft.allIn ? (
+                      <MiniButton onClick={() => set({ allIn: false })}>Show breakdown</MiniButton>
+                    ) : (
+                      <MiniButton
+                        disabled={sellingLines.length === 0}
+                        title={sellingLines.length === 0 ? "No selling lines to quote as all-in" : undefined}
+                        onClick={() => setModal("allIn")}
+                      >
+                        Quote as all-in
+                      </MiniButton>
+                    )}
+                    <MiniButton
+                      icon={<CopyOutlined />}
+                      disabled={buyingLines.length === 0}
+                      title={buyingLines.length === 0 ? "No buying lines to copy" : undefined}
+                      onClick={() => (sellingLines.length ? setModal("replaceSelling") : copyBuyingToSelling())}
+                    >
+                      Copy buying → selling
+                    </MiniButton>
+                  </>
+                }
+              />
+              {sideOverrideNote("selling", sellingLines)}
+              {draft.allIn && (
+                <div className="text-[12px] font-semibold text-slate-700">
+                  Quoted as all-in: the customer&apos;s quotation shows one price of {fmtMoney(totals.selling, totals.currency)}, without the selling lines.
+                </div>
+              )}
+            </>
           )}
           <QuoteRatesEditor data={draft} exchange={exchange} />
           {/* Rates that could not be read leave lines out just the same, but they are not missing:

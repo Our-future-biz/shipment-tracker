@@ -141,7 +141,7 @@ describe("withOceanOffer", () => {
     ]);
   });
 
-  it("makes a lump-sum freight line per container type when the types cost differently", () => {
+  it("makes a freight line per container of each type when the types cost differently", () => {
     const quote = { ...QUOTE, containers: [{ qty: 2, type: "40' HC" }, { qty: 1, type: "20' DC" }] };
     const mixed = offer({
       lines: [
@@ -151,9 +151,9 @@ describe("withOceanOffer", () => {
       surcharges: [],
     });
     const pick = withOceanOffer([freightLine], 0, mixed, oceanRouteOf(quote, TODAY), quote);
-    expect(pick.lines.map((l) => [l.description, l.basis, l.qty, l.unit, l.unitPrice, l.amount, l.pairId])).toEqual([
-      ["Ocean freight Hamburg → Shanghai (OOCL) - 2 × 40' HC", "lumpsum", 2, "40' HC", 25, 50, "p1"],
-      ["Ocean freight Hamburg → Shanghai (OOCL) - 1 × 20' DC", "lumpsum", 1, "20' DC", 20, 20, undefined],
+    expect(pick.lines.map((l) => [l.description, l.basis, l.containerType, l.qty, l.unit, l.unitPrice, l.amount, l.pairId])).toEqual([
+      ["Ocean freight Hamburg → Shanghai (OOCL) - 2 × 40' HC", "container", "40' HC", 2, "40' HC", 25, 50, "p1"],
+      ["Ocean freight Hamburg → Shanghai (OOCL) - 1 × 20' DC", "container", "20' DC", 1, "20' DC", 20, 20, undefined],
     ]);
   });
 
