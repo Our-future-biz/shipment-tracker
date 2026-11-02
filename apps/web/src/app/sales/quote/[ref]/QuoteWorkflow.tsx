@@ -1709,23 +1709,22 @@ export function QuoteWorkflow() {
                   Revise
                 </ToolbarButton>
               )}
-              {/* The first shipment booked under this quote (its Sales Number names the quote); a click
-                  lists all of them and books another - or the way to make the first one. */}
-              {quote.shipmentId ? (
+              {/* Books a shipment from the quote: the first one, or another beside those booked. A
+                  shipment is made from an open, expired or Won quote, and makes it Won; not from a
+                  Lost or Replaced one - said by the status the pill shows. */}
+              <Tooltip title={createShipmentHint(quote.effectiveStatus)}>
+                <span>
+                  <ToolbarButton icon={<PlusOutlined />} onClick={() => createShipment(!!quote.shipmentId)} disabled={!!shipmentFromQuoteBlockedText(quote.effectiveStatus)}>
+                    Create New Shipment
+                  </ToolbarButton>
+                </span>
+              </Tooltip>
+              {/* The shipments booked under this quote (their Sales Number names it): the first one by
+                  its number, several by their count; a click lists them. */}
+              {quote.shipmentId && (
                 <ToolbarButton icon={<ContainerOutlined />} onClick={() => setModal("shipments")}>
-                  Shipment {quote.shipmentJobNumber}
-                  {quoteShipments && quoteShipments.length > 1 && <span className="text-slate-400"> +{quoteShipments.length - 1}</span>}
+                  {quoteShipments && quoteShipments.length > 1 ? `Shipments (${quoteShipments.length})` : `Shipment ${quote.shipmentJobNumber ?? ""}`.trim()}
                 </ToolbarButton>
-              ) : (
-                // A shipment is made from an open, expired or Won quote, and makes it Won; not from a
-                // Lost or Replaced one - said by the status the pill shows.
-                <Tooltip title={createShipmentHint(quote.effectiveStatus)}>
-                  <span>
-                    <ToolbarButton icon={<ContainerOutlined />} onClick={() => createShipment()} disabled={!!shipmentFromQuoteBlockedText(quote.effectiveStatus)}>
-                      Create shipment
-                    </ToolbarButton>
-                  </span>
-                </Tooltip>
               )}
               <span aria-hidden className="w-px h-6 bg-slate-200" />
               <Badge count={chatUnread} size="small" color="#ef4444" offset={[-4, 2]}>
@@ -2092,13 +2091,7 @@ export function QuoteWorkflow() {
         />
       )}
       {modal === "shipments" && (
-        <QuoteShipmentsDialog
-          quoteNumber={ref}
-          shipments={quoteShipments}
-          createBlocked={shipmentFromQuoteBlockedText(quote.effectiveStatus)}
-          onCreateAnother={() => createShipment(true)}
-          onClose={() => setModal(null)}
-        />
+        <QuoteShipmentsDialog quoteNumber={ref} shipments={quoteShipments} onClose={() => setModal(null)} />
       )}
       {modal === "revise" && (
         <ConfirmModal

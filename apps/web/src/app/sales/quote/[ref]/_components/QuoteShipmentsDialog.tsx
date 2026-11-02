@@ -1,8 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Button, Tag, Tooltip } from "antd";
-import { PlusOutlined } from "@ant-design/icons";
+import { Button, Tag } from "antd";
 import { LINK_CLASS } from "@/components/linkClass";
 import { statusLabel, statusTagColor } from "@/lib/shipmentStatus";
 import type { QuoteShipment } from "@/hooks/useQuoteShipments";
@@ -12,31 +11,18 @@ interface QuoteShipmentsDialogProps {
   quoteNumber: string;
   // The live shipments booked under the quote, the oldest first; undefined while they are read.
   shipments: QuoteShipment[] | undefined;
-  // Why no other shipment can be made from the quote (it is Lost or Replaced), else null.
-  createBlocked: string | null;
-  onCreateAnother: () => void;
   onClose: () => void;
 }
 
-// Every shipment booked under one quote, each opening its shipment, and the way to book another.
-export const QuoteShipmentsDialog = ({ quoteNumber, shipments, createBlocked, onCreateAnother, onClose }: QuoteShipmentsDialogProps) => (
+// Every shipment booked under one quote, each opening its shipment. Another is booked with the
+// quote's "Create New Shipment".
+export const QuoteShipmentsDialog = ({ quoteNumber, shipments, onClose }: QuoteShipmentsDialogProps) => (
   <SalesDialog
     open
     onClose={onClose}
     title={`Shipments of ${quoteNumber}`}
     subtitle={shipments ? `${shipments.length} shipment${shipments.length === 1 ? "" : "s"} booked under this quote, the first one at the top.` : undefined}
-    footer={
-      <>
-        <Button onClick={onClose}>Close</Button>
-        <Tooltip title={createBlocked}>
-          <span>
-            <Button type="primary" icon={<PlusOutlined />} disabled={!!createBlocked} onClick={onCreateAnother}>
-              Create another shipment
-            </Button>
-          </span>
-        </Tooltip>
-      </>
-    }
+    footer={<Button onClick={onClose}>Close</Button>}
   >
     {!shipments ? (
       <p className="m-0 text-sm text-slate-400">Loading the shipments…</p>

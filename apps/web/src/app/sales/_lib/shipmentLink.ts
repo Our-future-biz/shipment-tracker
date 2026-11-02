@@ -15,7 +15,7 @@ export function shipmentFromQuoteBlockedText(status: QuoteStatus): string | null
   return `This quote is ${QUOTE_STATUS_MAP[status]?.label ?? status} - no shipment can be created from it`;
 }
 
-/** What "Create shipment" says it does: a quote not yet Won becomes Won. */
+/** What "Create New Shipment" says it does: a quote not yet Won becomes Won. */
 export function createShipmentHint(status: QuoteStatus): string {
   return shipmentFromQuoteBlockedText(status) ?? (status === "won" ? "Create a shipment from this quote" : "Create a shipment from this quote - the quote becomes Won");
 }
