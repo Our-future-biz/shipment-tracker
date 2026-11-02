@@ -422,6 +422,12 @@ function roeOf(data: SalesQuoteData, live?: LivePricing): number {
   return data.fx?.roePct ?? live?.roePct ?? 100;
 }
 
+/** What a selling line in `currency` carries on top of its conversion: the ROE % in another currency than the quote's, else nothing (1). */
+export function sellingRoeFactor(currency: string, data: SalesQuoteData, live?: LivePricing): number {
+  const to = quoteCurrency(data);
+  return (currency || to) === to ? 1 : roeOf(data, live) / 100;
+}
+
 // One cost line in the quote's currency, rounded to cents on its own, so the lines a screen shows
 // add up to exactly the total it shows. A selling line made in another currency also carries the
 // ROE % (the FX buffer); a buying line never does. Null when a rate it needs is missing.

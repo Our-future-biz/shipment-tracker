@@ -73,6 +73,11 @@ export function FclProfitRow({ block, priced, setting, currency, closed, onSetti
           {figure("Total selling", priced.selling, true)}
         </div>
       </div>
+      {priced.roe !== 0 && (
+        <span className="text-[11px] text-slate-500">
+          Total selling includes {fmtMoney(priced.roe, currency)}{per} of ROE (the FX buffer) on the charges in another currency than {currency}, as the quotation and the totals do.
+        </span>
+      )}
       {priced.profitUnplaced && <span className={FCL_NOTE_CLASS}>No charge in this block takes profit: tick the profit basis of one, or put one in the all-in price.</span>}
     </div>
   );

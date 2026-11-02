@@ -320,7 +320,7 @@ export function QuoteWorkflow() {
     const overweight = withOverweight(next) ?? {};
     const based = { ...overweight, ...withLineBasis({ ...next, ...overweight }) };
     const priced = { ...next, ...based };
-    const fcl = usesFclPricing(priced, false) ? withFclPricing(priced, exchange.rates) : null;
+    const fcl = usesFclPricing(priced, false) ? withFclPricing(priced, exchange.rates, exchange) : null;
     return fcl ? { ...based, ...fclChanges(fcl, priced) } : based;
   };
   const set = (patch: Partial<SalesQuoteData>) => {
@@ -502,9 +502,9 @@ export function QuoteWorkflow() {
   // sent. Shown once today's rates are known; until then (or for want of a rate) the lines as they are.
   const fclLayout = usesFclPricing(draft, quoteClosed);
   const fclView = useMemo(() => {
-    const fcl = fclLayout ? withFclPricing(draft, exchange.rates) : null;
+    const fcl = fclLayout ? withFclPricing(draft, exchange.rates, exchange) : null;
     return fcl && { ...draft, ...fcl };
-  }, [fclLayout, draft, exchange.rates]);
+  }, [fclLayout, draft, exchange]);
   // Buying lines priced by a tariff for another cargo weight than Cargo details has now: marked, to recheck.
   const recheck = quoteClosed ? [] : linesToRecheck(draft);
   const toRecheck = (index: number) => recheck.includes(index);
@@ -1508,6 +1508,7 @@ export function QuoteWorkflow() {
                 lineWarn={toRecheck}
                 quote={fclView}
                 sheet={exchange.rates}
+                live={exchange}
                 onChange={set}
                 lineTag={buyingTag}
                 lineAction={buyingAction}

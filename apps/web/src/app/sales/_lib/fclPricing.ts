@@ -4,7 +4,7 @@ import type { ExchangeRates } from "@/lib/exchangeRates";
 import { roundCents } from "@/lib/money";
 import { counterpartIndex, newPairId } from "./costPairs";
 import { isTruckingLine } from "./roadQuote";
-import { basisUnits, isContainerQuote, lineRate, perUnitBasis, quoteContainerCount, quoteCurrencyFactor, withRate } from "./salesQuote";
+import { basisUnits, isContainerQuote, lineRate, perUnitBasis, quoteContainerCount, quoteCurrencyFactor, sellingRoeFactor, withRate, type LivePricing } from "./salesQuote";
 import type { CostLine, FclBlockProfit, FclPricing, FclProfit, SalesQuoteData } from "./types";
 
 // FCL pricing: how a Sea FCL quote is priced (the Pricing step's FCL layout). The buying lines are
@@ -124,8 +124,11 @@ export interface FclChargePrice {
   /** Its buying; null when no rate converts its currency. */
   buying: number | null;
   profit: number;
+  /** What the ROE % (the FX buffer) adds to its selling: a charge in another currency than the quote's; 0 otherwise. */
+  roe: number;
+  /** Its selling as the totals and the quotation have it: buying + profit + ROE. */
   selling: number | null;
-  /** Its profit in % of its selling price, rounded to a whole number; null without a selling price. */
+  /** Its profit in % of its selling price before the ROE, rounded to a whole number; null without a selling price. */
   percent: number | null;
 }
 
@@ -134,8 +137,11 @@ export interface FclBlockPrice {
   charges: FclChargePrice[];
   buying: number;
   profit: number;
+  /** What the ROE % adds to its charges in another currency than the quote's. */
+  roe: number;
+  /** Buying + profit + ROE: what its charges come to on the totals and the quotation. */
   selling: number;
-  /** Its profit in % of its selling price, rounded to a whole number; null without one. */
+  /** Its profit in % of its selling price before the ROE, rounded to a whole number; null without one. */
   percent: number | null;
   /** No charge of it takes profit, so a profit set for it is put nowhere. */
   profitUnplaced: boolean;
@@ -146,15 +152,19 @@ const wholePercent = (profit: number, selling: number | null) => (selling ? Math
 // A charge's buying as the block counts it, in its own currency: per container, or the whole line.
 const ownBuying = (line: CostLine, block: FclBlock) => (block.perContainer ? lineRate(line) : Number(line.amount) || 0);
 
-/** A block priced: each charge's buying, profit and selling, and the block's. */
-export function priceFclBlock(data: SalesQuoteData, sheet: ExchangeRates, block: FclBlock): FclBlockPrice {
+/**
+ * A block priced: each charge's buying, profit and selling, and the block's. A charge in another
+ * currency than the quote's is sold at the ROE % as every selling line is (convertLine), `live`'s
+ * on a draft: its selling shows that, so the block adds up to what the totals and the quotation show.
+ */
+export function priceFclBlock(data: SalesQuoteData, sheet: ExchangeRates, block: FclBlock, live?: LivePricing): FclBlockPrice {
   const lines = data.buyingLines ?? [];
   const allIn = !!data.allIn;
   const setting = blockProfitOf(data, block.key);
   const charges: FclChargePrice[] = block.lines.map((index) => {
     const line = lines[index]!;
     const factor = quoteCurrencyFactor(line.currency, data, sheet);
-    return { index, takesProfit: takesProfit(line, allIn), buying: factor === null ? null : roundCents(ownBuying(line, block) * factor), profit: 0, selling: null, percent: null };
+    return { index, takesProfit: takesProfit(line, allIn), buying: factor === null ? null : roundCents(ownBuying(line, block) * factor), profit: 0, roe: 0, selling: null, percent: null };
   });
   const taking = charges.filter((c) => c.takesProfit && c.buying !== null);
   if (setting.perCharge) {
@@ -168,14 +178,26 @@ export function priceFclBlock(data: SalesQuoteData, sheet: ExchangeRates, block:
     allocate(profit, taking, lines);
   }
   for (const c of charges) {
-    c.selling = c.buying === null ? null : roundCents(c.buying + c.profit);
-    c.percent = wholePercent(c.profit, c.selling);
+    if (c.buying === null) continue;
+    const sold = roundCents(c.buying + c.profit);
+    c.roe = roundCents(sold * (sellingRoeFactor(lines[c.index]!.currency, data, live) - 1));
+    c.selling = roundCents(sold + c.roe);
+    c.percent = wholePercent(c.profit, sold);
   }
   const sum = (pick: (c: FclChargePrice) => number | null) => roundCents(charges.reduce((s, c) => s + (pick(c) ?? 0), 0));
   const profit = sum((c) => c.profit);
+  const roe = sum((c) => c.roe);
   const selling = sum((c) => c.selling);
   const blockSetsProfit = setting.perCharge || (Number(setting.value) || 0) !== 0;
-  return { charges, buying: sum((c) => c.buying), profit, selling, percent: wholePercent(profit, selling), profitUnplaced: blockSetsProfit && taking.length === 0 };
+  return {
+    charges,
+    buying: sum((c) => c.buying),
+    profit,
+    roe,
+    selling,
+    percent: wholePercent(profit, roundCents(selling - roe)),
+    profitUnplaced: blockSetsProfit && taking.length === 0,
+  };
 }
 
 // The block's profit on the charges that take it, pro rata to their buying, each to the cent; what
@@ -275,8 +297,12 @@ export function fclOfferRows(data: SalesQuoteData, lines: readonly CostLine[], a
  * without a selling line is not sold - its profit takes its cost away. Then its lines made from
  * that (fclLines). Null while a rate it needs is missing.
  */
-export function withFclPricing(data: SalesQuoteData, sheet: ExchangeRates): Pick<SalesQuoteData, "buyingLines" | "sellingLines" | "fclPricing"> | null {
-  const start = data.fclPricing || !(data.sellingLines ?? []).some(priceable) ? data : fromTypedSelling(data, sheet);
+export function withFclPricing(
+  data: SalesQuoteData,
+  sheet: ExchangeRates,
+  live?: LivePricing,
+): Pick<SalesQuoteData, "buyingLines" | "sellingLines" | "fclPricing"> | null {
+  const start = data.fclPricing || !(data.sellingLines ?? []).some(priceable) ? data : fromTypedSelling(data, sheet, live);
   if (!start) return null;
   const fclPricing = start.fclPricing ?? { blocks: {} };
   const lines = fclLines({ ...start, fclPricing }, sheet);
@@ -299,8 +325,11 @@ export function fclChanges(fcl: Partial<SalesQuoteData>, data: SalesQuoteData): 
   return Object.fromEntries(Object.entries(fcl).filter(([key]) => !same(key as keyof SalesQuoteData))) as Partial<SalesQuoteData>;
 }
 
-// A quote whose selling was typed line by line, with each charge's profit as it sells it now.
-function fromTypedSelling(data: SalesQuoteData, sheet: ExchangeRates): SalesQuoteData | null {
+// A quote whose selling was typed line by line, with each charge's profit as it sells it now -
+// the ROE % included: the selling line made from it is in the charge's own currency, which the ROE
+// may apply to where the typed line's did not (or the other way round), so its profit makes the
+// same price the typed one did.
+function fromTypedSelling(data: SalesQuoteData, sheet: ExchangeRates, live?: LivePricing): SalesQuoteData | null {
   const original = data.buyingLines ?? [];
   const buyingLines = withPairIds(original);
   const selling = (data.sellingLines ?? []).filter(priceable);
@@ -329,8 +358,8 @@ function fromTypedSelling(data: SalesQuoteData, sheet: ExchangeRates): SalesQuot
       const sellFactor = sold ? quoteCurrencyFactor(sold.currency, quote, sheet) : 1;
       if (buyFactor === null || sellFactor === null) return null;
       const buying = ownBuying(line, block) * buyFactor;
-      const sellingAt = sold ? ownBuying(sold, block) * sellFactor : 0;
-      const profit = roundCents(sellingAt - buying);
+      const sellingAt = sold ? ownBuying(sold, block) * sellFactor * sellingRoeFactor(sold.currency, quote, live) : 0;
+      const profit = roundCents(sellingAt / sellingRoeFactor(line.currency, quote, live) - buying);
       total += profit;
       // Each charge keeps its profit: it takes profit in either offer.
       buyingLines[index] = { ...line, chargeProfit: { mode: "sum", value: profit }, profitBasis: profit !== 0 || isProfitBasis(line), inAllIn: true };

@@ -154,6 +154,34 @@ describe("the selling lines of an FCL-priced quote", () => {
   });
 });
 
+describe("a charge in another currency than the quote's", () => {
+  const LIVE = { roePct: 102, fixingDate: "2026-11-02" };
+
+  it("is sold at the ROE %, so the block shows what the totals and the quotation show", () => {
+    const eur = perCtr("ocean_freight", "20' DC", 1000, 2, { currency: "EUR" });
+    const data = quote({ containers: [{ qty: 2, type: "20' DC" }], buyingLines: [eur], fclPricing: { blocks: { "20' DC": { mode: "sum", value: 100 } } } });
+    const priced = priceFclBlock(data, SHEET, block(data, "20' DC"), LIVE);
+    // 1000 EUR is 1086.96 USD; with 100 profit 1186.96, on which the ROE adds 2 %.
+    expect(priced.charges.map((c) => [c.buying, c.profit, c.roe, c.selling])).toEqual([[1086.96, 100, 23.74, 1210.7]]);
+    expect([priced.profit, priced.roe, priced.selling]).toEqual([100, 23.74, 1210.7]);
+    const sold = { ...data, ...fclLines(data, SHEET)! };
+    expect(computeTotals(sold, SHEET, LIVE).selling).toBeCloseTo(priced.selling * 2, 1);
+    // In the quote's own currency the ROE adds nothing.
+    const usd = quote({ containers: [{ qty: 2, type: "20' DC" }], buyingLines: [perCtr("ocean_freight", "20' DC", 1000, 2)] });
+    expect(priceFclBlock(usd, SHEET, block(usd, "20' DC"), LIVE).roe).toBe(0);
+  });
+
+  it("keeps its price at the switch-over, though its selling line moves into the charge's own currency", () => {
+    const bought = perCtr("ocean_freight", "20' DC", 1000, 2, { currency: "EUR" });
+    const sold = perCtr("ocean_freight", "20' DC", 1200, 2, { currency: "USD" });
+    const typed = quote({ containers: [{ qty: 2, type: "20' DC" }], buyingLines: [bought], sellingLines: [sold], fclPricing: undefined });
+    const before = computeTotals(typed, SHEET, LIVE).selling;
+    const fcl = withFclPricing(typed, SHEET, LIVE)!;
+    expect(fcl.sellingLines![0]!.currency).toBe("EUR");
+    expect(computeTotals({ ...typed, ...fcl }, SHEET, LIVE).selling).toBeCloseTo(before, 1);
+  });
+});
+
 describe("an open quote whose selling was typed line by line", () => {
   it("keeps every price: each charge's profit becomes its own sum per container", () => {
     const buying = [perCtr("ocean_freight", "20' DC", 1000, 2), perCtr("fcl_baf", "20' DC", 100, 2), perShipment("truck_waiting", 30)];

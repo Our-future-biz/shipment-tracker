@@ -5,7 +5,7 @@ import { ConfigProvider, Radio } from "antd";
 import type { ExchangeRates } from "@/lib/exchangeRates";
 import { newPairId } from "@/app/sales/_lib/costPairs";
 import { ALL_CONTAINERS, PER_SHIPMENT, blockProfitOf, fclBlocks, type FclBlock } from "@/app/sales/_lib/fclPricing";
-import { basisUnits, quoteCurrency, withRate } from "@/app/sales/_lib/salesQuote";
+import { basisUnits, quoteCurrency, withRate, type LivePricing } from "@/app/sales/_lib/salesQuote";
 import type { CostLine, FclBlockProfit, FclPricing, FclProfit, SalesQuoteData } from "@/app/sales/_lib/types";
 import { FCL_NOTE_CLASS } from "../_lib/fclPricingUi";
 import { newCostLine, serviceChange } from "./CostLinesEditor";
@@ -24,6 +24,8 @@ interface FclPricingEditorProps {
   /** The quote with its FCL pricing (withFclPricing). */
   quote: SalesQuoteData;
   sheet: ExchangeRates;
+  /** Today's ROE % (a draft's): charges in another currency than the quote's are sold at it. */
+  live?: LivePricing;
   onChange: (change: FclChange) => void;
   // Marks and a control under a charge's description, as on the buying lines (tariffs available).
   lineTag?: (line: CostLine) => ReactNode;
@@ -32,7 +34,7 @@ interface FclPricingEditorProps {
   lineWarn?: (index: number) => boolean;
 }
 
-export function FclPricingEditor({ quote, sheet, onChange, lineTag, lineAction, lineWarn }: FclPricingEditorProps) {
+export function FclPricingEditor({ quote, sheet, live, onChange, lineTag, lineAction, lineWarn }: FclPricingEditorProps) {
   const { componentDisabled: closed } = ConfigProvider.useConfig();
   const currency = quoteCurrency(quote);
   const lines = useMemo(() => quote.buyingLines ?? [], [quote.buyingLines]);
@@ -86,6 +88,7 @@ export function FclPricingEditor({ quote, sheet, onChange, lineTag, lineAction, 
           block={block}
           quote={quote}
           sheet={sheet}
+          live={live}
           currency={currency}
           closed={!!closed}
           setting={blockProfitOf(quote, block.key)}
@@ -107,6 +110,7 @@ export function FclPricingEditor({ quote, sheet, onChange, lineTag, lineAction, 
           block={perCharge}
           quote={quote}
           sheet={sheet}
+          live={live}
           currency={currency}
           onClose={() => setPerCharge(null)}
           onSave={(profits) => handleSavePerCharge(perCharge, profits)}

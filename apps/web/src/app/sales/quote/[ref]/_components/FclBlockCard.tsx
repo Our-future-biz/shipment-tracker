@@ -9,7 +9,7 @@ import { CURRENCIES } from "@/lib/enums";
 import { fmtMoney } from "@/lib/money";
 import { fmtQuantity } from "../_lib/fmtQuantity";
 import { isInAllIn, isProfitBasis, priceFclBlock, type FclBlock } from "@/app/sales/_lib/fclPricing";
-import { lineRate, perUnitBasis } from "@/app/sales/_lib/salesQuote";
+import { lineRate, perUnitBasis, type LivePricing } from "@/app/sales/_lib/salesQuote";
 import type { CostLine, FclBlockProfit, SalesQuoteData } from "@/app/sales/_lib/types";
 import { FclProfitRow } from "./FclProfitRow";
 import { LockedAmountInput } from "./LockedAmountInput";
@@ -20,6 +20,8 @@ interface FclBlockCardProps {
   block: FclBlock;
   quote: SalesQuoteData;
   sheet: ExchangeRates;
+  /** Today's ROE % (a draft's): charges in another currency than the quote's are sold at it. */
+  live?: LivePricing;
   currency: string;
   closed: boolean;
   setting: FclBlockProfit;
@@ -41,6 +43,7 @@ export function FclBlockCard({
   block,
   quote,
   sheet,
+  live,
   currency,
   closed,
   setting,
@@ -57,7 +60,7 @@ export function FclBlockCard({
 }: FclBlockCardProps) {
   const lines = quote.buyingLines ?? [];
   const allIn = !!quote.allIn;
-  const priced = priceFclBlock(quote, sheet, block);
+  const priced = priceFclBlock(quote, sheet, block, live);
   const per = block.perContainer ? " per container" : "";
   const title = block.perContainer ? `${block.label} · ${block.units} ${block.units === 1 ? "container" : "containers"}` : block.label;
 
@@ -189,6 +192,7 @@ export function FclBlockCard({
                   </td>
                   <td className={`${LINE_TD_CLASS} text-right font-semibold tabular-nums whitespace-nowrap text-slate-800`}>
                     {c.selling === null ? "—" : fmtMoney(c.selling, currency)}
+                    {c.roe !== 0 && <span className="block text-[10.5px] font-normal text-slate-400">incl. ROE {fmtMoney(c.roe, currency)}</span>}
                   </td>
                   <td className={`${LINE_TD_CLASS} pl-0`}>
                     <RemoveLineButton label={`Remove charge ${l.description || l.type}`} onClick={() => onRemove(c.index)} />
