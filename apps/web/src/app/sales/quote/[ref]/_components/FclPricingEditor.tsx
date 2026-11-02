@@ -44,6 +44,8 @@ interface FclPricingEditorProps {
   // Marks and a control under a charge's description, as on the buying lines (tariffs available).
   lineTag?: (line: CostLine) => ReactNode;
   lineAction?: (line: CostLine, index: number) => ReactNode;
+  // Charges to look at again (a rate priced for another cargo weight): marked in yellow.
+  lineWarn?: (index: number) => boolean;
 }
 
 const PROFIT_MODES = [
@@ -53,7 +55,7 @@ const PROFIT_MODES = [
 
 const NOTE_CLASS = "text-[12px] font-semibold text-red-600";
 
-export function FclPricingEditor({ quote, sheet, onChange, lineTag, lineAction }: FclPricingEditorProps) {
+export function FclPricingEditor({ quote, sheet, onChange, lineTag, lineAction, lineWarn }: FclPricingEditorProps) {
   const { componentDisabled: closed } = ConfigProvider.useConfig();
   const currency = quoteCurrency(quote);
   const lines = useMemo(() => quote.buyingLines ?? [], [quote.buyingLines]);
@@ -105,6 +107,7 @@ export function FclPricingEditor({ quote, sheet, onChange, lineTag, lineAction }
           onEditPerCharge={() => setPerCharge(block)}
           lineTag={lineTag}
           lineAction={lineAction}
+          lineWarn={lineWarn}
         />
       ))}
 
@@ -149,6 +152,7 @@ interface FclBlockCardProps {
   onEditPerCharge: () => void;
   lineTag?: (line: CostLine) => ReactNode;
   lineAction?: (line: CostLine, index: number) => ReactNode;
+  lineWarn?: (index: number) => boolean;
 }
 
 function FclBlockCard({
@@ -167,6 +171,7 @@ function FclBlockCard({
   onEditPerCharge,
   lineTag,
   lineAction,
+  lineWarn,
 }: FclBlockCardProps) {
   const lines = quote.buyingLines ?? [];
   const allIn = !!quote.allIn;
@@ -227,7 +232,7 @@ function FclBlockCard({
               const tag = lineTag?.(l);
               const action = lineAction?.(l, c.index);
               return (
-                <tr key={l.pairId ?? c.index}>
+                <tr key={l.pairId ?? c.index} className={lineWarn?.(c.index) ? "bg-amber-50" : undefined}>
                   <td className={`${LINE_TD_CLASS} text-center`}>
                     <Checkbox
                       aria-label="In the all-in price"

@@ -91,6 +91,9 @@ export interface CostLine {
   pairId?: string;
   // Why Sales changed the amount the server set (the selling line of the warehouse's heavy cargo fee).
   changeReason?: string;
+  // A line priced from a tariff that prices by weight (rail, collections): the cargo weight it was
+  // priced for (tariffRecheck.ts), so a later change of the weight asks for the rate to be checked.
+  pricedFor?: string;
   // A line charged per container of one type only ("40' HC"): those containers are its quantity.
   // Without it a line charged per container counts all of the quote's containers.
   containerType?: string;

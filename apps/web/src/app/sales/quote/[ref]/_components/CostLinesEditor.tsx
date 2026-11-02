@@ -91,6 +91,8 @@ interface CostLinesEditorProps {
   lineTag?: (line: CostLine) => ReactNode;
   // A control under a line's description, after its marks, e.g. the tariffs that could price it.
   lineAction?: (line: CostLine, index: number) => ReactNode;
+  // Lines to look at again (a rate priced for another cargo weight): marked in yellow.
+  lineWarn?: (index: number) => boolean;
   // The rows' React keys (useListKeys over `lines`), owned by the caller: a removal it makes on
   // its own - of a counterpart on the other side - drops that row's key as well.
   lineKeys: ListKeys;
@@ -118,6 +120,7 @@ export function CostLinesEditor({
   actions,
   lineTag,
   lineAction,
+  lineWarn,
   lineKeys,
   onAmountSet,
   onAmountChanged,
@@ -189,7 +192,7 @@ export function CostLinesEditor({
               const tag = lineTag?.(l);
               const action = lineAction?.(l, i);
               return (
-                <tr key={lineKeys.keys[i]}>
+                <tr key={lineKeys.keys[i]} className={lineWarn?.(i) ? "bg-amber-50" : undefined}>
                   <td className={LINE_TD_CLASS}>
                     <Select
                       size="small"

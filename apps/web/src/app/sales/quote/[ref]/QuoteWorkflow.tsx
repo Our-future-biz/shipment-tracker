@@ -83,6 +83,7 @@ import { buyingBasis, counterpartIndex, lineRemovals, newPairId, offerToSelling,
 import { CostLinesEditor } from "./_components/CostLinesEditor";
 import { FclPricingEditor } from "./_components/FclPricingEditor";
 import { usesFclPricing, withFclPricing } from "../../_lib/fclPricing";
+import { linesToRecheck, rechecked, stampPricedFor, withPricedForNow } from "../../_lib/tariffRecheck";
 import { QuoteAddressField } from "./_components/QuoteAddressField";
 import { QuoteContactField } from "./_components/QuoteContactField";
 import { QuoteRatesEditor } from "./_components/QuoteRatesEditor";
@@ -330,6 +331,9 @@ export function QuoteWorkflow() {
     if (changesCustomer(draft, editable)) pickedCustomer.current = null;
     const own = withCustomerUnit(draft, editable);
     if (!Object.keys(own).length) return;
+    // A rate marked to recheck that is changed by hand has been checked.
+    const checked = own.buyingLines && rechecked(draft.buyingLines ?? [], own.buyingLines, { ...draft, ...own });
+    if (checked) own.buyingLines = checked;
     // Rates are not copied onto the quote here: a draft is priced at today's ČNB fixing and the
     // server stores the rates when the quote is sent.
     // A selling line has its buying line's basis, and a line charged per W/M or per container the
@@ -499,6 +503,9 @@ export function QuoteWorkflow() {
   // sent. Shown once today's rates are known; until then (or for want of a rate) the lines as they are.
   const fclLayout = usesFclPricing(draft, quoteClosed);
   const fclView = useMemo(() => (fclLayout ? withFclPricing(draft, exchange.rates) : null), [fclLayout, draft, exchange.rates]);
+  // Buying lines priced by a tariff for another cargo weight than Cargo details has now: marked, to recheck.
+  const recheck = quoteClosed ? [] : linesToRecheck(draft);
+  const toRecheck = (index: number) => recheck.includes(index);
   // A warehouse approval from before the server put its fee to Pricing: the lines are added as the
   // quote opens (once per answer; autosave stores them). Not on a quote whose pricing is closed.
   const missingFee = quote && !quoteClosed ? missingWarehouseFee(draft) : null;
@@ -509,8 +516,9 @@ export function QuoteWorkflow() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [missingFeeFor]);
   // Lines from before the basis was copied, W/M followed the cargo and the Overweight surcharge was
-  // put to Pricing are brought in line as the quote opens.
-  const staleWm = quote && !quoteClosed ? derived(draft) : null;
+  // put to Pricing are brought in line as the quote opens; and rates priced by weight before the
+  // weight was remembered are taken as priced for the weight the quote has now.
+  const staleWm = quote && !quoteClosed ? withPricedForNow(draft, derived(draft)) : null;
   useEffect(() => {
     if (staleWm && Object.keys(staleWm).length) change(staleWm);
     // Once as the quote opens; later changes of the cargo carry it themselves (set).
@@ -773,7 +781,8 @@ export function QuoteWorkflow() {
   const putPick = (pick: TariffPick) => {
     for (const i of [...pick.removed].sort((a, b) => b - a)) buyingKeys.remove(i);
     for (let k = 1; k < pick.count; k++) buyingKeys.insert(pick.at + k);
-    updateLines("buyingLines", pick.lines);
+    // The offer's lines are priced for the cargo weight the quote has now.
+    updateLines("buyingLines", stampPricedFor(pick.lines, Array.from({ length: pick.count }, (_, k) => pick.at + k), draft));
   };
   // An offer picked under "Tariffs available" goes on the line it was opened from (see
   // withRailOffer); the rows keep their React keys. As when an amount is typed on a line that had
@@ -793,7 +802,7 @@ export function QuoteWorkflow() {
   const pickCollectionOffer = (offer: CollectionOffer, route: CollectionRoute) => {
     if (quoteClosed || collectionLine === null) return;
     const before = buyingLines[collectionLine];
-    const lines = withCollectionOffer(buyingLines, collectionLine, offer, route);
+    const lines = stampPricedFor(withCollectionOffer(buyingLines, collectionLine, offer, route), [collectionLine], draft);
     updateLines("buyingLines", lines);
     setCollectionLine(null);
     toast.success(`Priced from ${offer.supplierName}: ${fmtMoney(offer.total, offer.currency)}`);
@@ -1467,8 +1476,22 @@ export function QuoteWorkflow() {
               onPrice={() => setModal("roadPrice")}
             />
           )}
+          {recheck.length > 0 && (
+            <Alert
+              type="warning"
+              showIcon
+              message="The cargo weight changed since these rates were priced"
+              description="Recheck the buying rates marked in yellow against the new cargo weight: pick the tariff again under Tariffs available, or change the rate."
+              action={
+                <Button size="small" onClick={() => set({ buyingLines: stampPricedFor(draft.buyingLines ?? [], recheck, draft) })}>
+                  Rates still hold
+                </Button>
+              }
+            />
+          )}
           {fclView ? (
             <FclPricingEditor
+              lineWarn={toRecheck}
               quote={{ ...draft, ...fclView }}
               sheet={exchange.rates}
               onChange={(next) => set(next)}
@@ -1487,6 +1510,7 @@ export function QuoteWorkflow() {
                 onChange={(l) => updateLines("buyingLines", l)}
                 lineTag={buyingTag}
                 lineAction={buyingAction}
+                lineWarn={toRecheck}
                 lineKeys={buyingKeys}
                 onAmountSet={(line, index) => {
                   // Not offered when selling has the line already (a copy made before its amount was set).
