@@ -27,6 +27,7 @@ import type {
   MasterJobShipmentItem,
   MasterJobDetail,
 } from "../interfaces/interfaces";
+import { assertClosingTimes } from "../lib/closingTimes";
 
 /** Editable master-job fields (everything but the id, MCZ number and bookkeeping). */
 export type MasterJobUpdate = Partial<
@@ -44,6 +45,8 @@ const DATE_FIELDS = new Set([
   "warehouseReceivedDate",
   "vgmClosing",
   "siClosing",
+  "amsDeadline",
+  "isfDeadline",
 ]);
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -171,6 +174,7 @@ class MasterJobService {
     }
     const clean: Record<string, unknown> = { ...data };
     await resolveParties(clean);
+    assertClosingTimes(clean);
     for (const key of Object.keys(clean)) {
       if (!DATE_FIELDS.has(key)) continue;
       if (clean[key] === "") clean[key] = null;

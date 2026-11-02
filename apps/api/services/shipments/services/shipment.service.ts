@@ -52,6 +52,7 @@ import { CONSIGNEE_CONTACT, CUSTOMER_PIC, SHIPPER_CONTACT, linkContact, type Con
 import { shipmentDeleted, shipmentPartiesChanged } from "../topics";
 import { companyUsers, matchUser, requireUserEmail, userEmailOf, type CompanyUser } from "../../../lib/companyUsers";
 import { PERSON_FIELDS, planPeopleNormalize, requireApprovedBy } from "../lib/people";
+import { assertClosingTimes } from "../lib/closingTimes";
 
 // The customers a write links to, by the field holding the link: read once, for the link check
 // and for the party fill after it.
@@ -313,6 +314,8 @@ const DATE_FIELDS = new Set([
   "closingDate",
   "vgmClosing",
   "siClosing",
+  "amsDeadline",
+  "isfDeadline",
   "etaWarehouse",
   "warehouseReceivedDate",
   "warehouseReleasedDate",
@@ -332,6 +335,7 @@ function sanitizeTypedFields<T extends BlankablePriority>(
   data: T,
 ): Omit<T, "customsPriority"> & { customsPriority?: CustomsPriority } {
   const out: Record<string, unknown> = { ...data };
+  assertClosingTimes(out);
   for (const key of Object.keys(out)) {
     if (out[key] !== "") continue;
     if (DATE_FIELDS.has(key)) out[key] = null;

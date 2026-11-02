@@ -124,6 +124,13 @@ interface ShipmentUpdateRequest {
   closingDate?: string;
   vgmClosing?: string;
   siClosing?: string;
+  closingTime?: string;
+  vgmClosingTime?: string;
+  siClosingTime?: string;
+  amsDeadline?: string;
+  amsDeadlineTime?: string;
+  isfDeadline?: string;
+  isfDeadlineTime?: string;
   releaseReference?: string;
   releaseDepot?: string;
   redeliveryReference?: string;

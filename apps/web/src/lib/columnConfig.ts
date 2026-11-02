@@ -23,6 +23,8 @@ export interface ColumnDef {
   fixed?: boolean;    // Cannot be moved (always first)
   readonly?: boolean; // Cannot be edited inline
   apiField?: string;  // API field name on ShipmentItem (if different from key, or for explicit mapping)
+  /** A date column whose exact time may be kept too: the API field holding it ("HH:MM", "" = none) */
+  timeField?: string;
 }
 
 // ─── Dropdown Options ─────────────────────────────────────────────────
@@ -95,8 +97,33 @@ export const DATE_COLUMNS = new Set([
   "cargoReadinessDate", "pickupDate", "pickupTime", "closingDate",
   "estimatedDeparture", "estimatedArrival", "actualDeparture", "actualArrival",
   "etaWarehouse", "warehouseReceivedDate", "warehouseReleasedDate", "plannedDeliveryDate", "plannedDeliveryTime",
-  "quoteValidity", "equipmentDeliveryDate",
+  "quoteValidity", "equipmentDeliveryDate", "vgmClosing", "siClosing", "amsDeadline", "isfDeadline",
 ]);
+
+// ─── Date + time ──────────────────────────────────────────────────────
+// A column with a `timeField` keeps its date and its time in two API fields; a cell shows and
+// edits them as one value, "YYYY-MM-DD HH:MM" (or "YYYY-MM-DD" with no time). Everything that
+// reads dates looks at the first 10 characters, so the time never gets in its way.
+
+/** "2026-11-20" + "12:00" → "2026-11-20 12:00"; no date → "". */
+export function joinDateTime(date: string | null | undefined, time: string | null | undefined): string {
+  if (!date) return "";
+  return time ? `${date} ${time}` : date;
+}
+
+/** "2026-11-20 12:00" → { date: "2026-11-20", time: "12:00" }. */
+export function splitDateTime(value: string): { date: string; time: string } {
+  const [date = "", time = ""] = value.trim().split(/\s+/);
+  return { date, time: date ? time : "" };
+}
+
+/** The API fields a value of a date + time column is saved to (just the column's field otherwise). */
+export function dateTimeUpdate(col: ColumnDef, value: string): Record<string, string> {
+  const field = col.apiField ?? col.key;
+  if (!col.timeField) return { [field]: value };
+  const { date, time } = splitDateTime(value);
+  return { [field]: date, [col.timeField]: time };
+}
 
 // ─── Computed / Read-only Columns ───────────────────────────────��─────
 
@@ -175,9 +202,11 @@ export const COLUMNS: ColumnDef[] = [
   { key: "cargoReadinessDate", title: "Cargo Readiness Date", width: 140, type: "date", apiField: "cargoReadinessDate" },
   { key: "pickupDate", title: "Pickup Date", width: 110, type: "date", apiField: "pickupDate" },
   { key: "pickupTime", title: "Pickup Time", width: 110, type: "date", apiField: "pickupTime" },
-  { key: "closingDate", title: "Closing Date", width: 110, type: "date", apiField: "closingDate" },
-  { key: "vgmClosing", title: "VGM Closing", width: 110, type: "date", apiField: "vgmClosing" },
-  { key: "siClosing", title: "SI Closing", width: 110, type: "date", apiField: "siClosing" },
+  { key: "closingDate", title: "Closing Date", width: 140, type: "date", apiField: "closingDate", timeField: "closingTime" },
+  { key: "vgmClosing", title: "VGM Closing", width: 140, type: "date", apiField: "vgmClosing", timeField: "vgmClosingTime" },
+  { key: "siClosing", title: "SI Closing", width: 140, type: "date", apiField: "siClosing", timeField: "siClosingTime" },
+  { key: "amsDeadline", title: "AMS Deadline", width: 140, type: "date", apiField: "amsDeadline", timeField: "amsDeadlineTime" },
+  { key: "isfDeadline", title: "ISF Deadline", width: 140, type: "date", apiField: "isfDeadline", timeField: "isfDeadlineTime" },
   { key: "estimatedDeparture", title: "Estimated Departure", width: 130, type: "date", apiField: "estimatedDeparture" },
   { key: "estimatedDepartureWeek", title: "Estimated Departure Week", width: 120, type: "computed", readonly: true },
   { key: "estimatedArrival", title: "Estimated Arrival", width: 130, type: "date", apiField: "estimatedArrival" },

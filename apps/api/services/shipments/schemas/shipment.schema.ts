@@ -122,6 +122,16 @@ export const shipmentTable = pgTable(
     closingDate: date("closing_date", { mode: "string" }),
     vgmClosing: date("vgm_closing", { mode: "string" }),
     siClosing: date("si_closing", { mode: "string" }),
+    // The exact time of a closing / deadline when known, "HH:MM"; "" = the date only.
+    closingTime: text("closing_time").notNull().default(""),
+    vgmClosingTime: text("vgm_closing_time").notNull().default(""),
+    siClosingTime: text("si_closing_time").notNull().default(""),
+    // AMS / ISF filing deadlines as the carrier gives them; without one, Needs Attention
+    // counts 4 days before departure.
+    amsDeadline: date("ams_deadline", { mode: "string" }),
+    amsDeadlineTime: text("ams_deadline_time").notNull().default(""),
+    isfDeadline: date("isf_deadline", { mode: "string" }),
+    isfDeadlineTime: text("isf_deadline_time").notNull().default(""),
     etaWarehouse: date("eta_warehouse", { mode: "string" }),
     // Set by the warehouse Gate Log: gate-in sets the received date, the cargo leaving the
     // warehouse sets the released date; null until then.

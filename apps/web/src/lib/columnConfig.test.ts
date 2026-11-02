@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { summarizeDimensions } from "./columnConfig";
+import { COLUMN_MAP, dateTimeUpdate, joinDateTime, splitDateTime, summarizeDimensions } from "./columnConfig";
 
 describe("summarizeDimensions", () => {
   it("writes each line in the unit it was typed in", () => {
@@ -11,5 +11,26 @@ describe("summarizeDimensions", () => {
   });
   it("leaves out lines without sizes", () => {
     expect(summarizeDimensions([{ pieces: "3", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "5" }])).toBe("");
+  });
+});
+
+describe("date + time columns", () => {
+  it("join a date and its time into one value, and split it back", () => {
+    expect(joinDateTime("2026-11-20", "12:00")).toBe("2026-11-20 12:00");
+    expect(joinDateTime("2026-11-20", "")).toBe("2026-11-20");
+    expect(joinDateTime(null, "12:00")).toBe("");
+    expect(splitDateTime("2026-11-20 12:00")).toEqual({ date: "2026-11-20", time: "12:00" });
+    expect(splitDateTime("2026-11-20")).toEqual({ date: "2026-11-20", time: "" });
+    expect(splitDateTime("")).toEqual({ date: "", time: "" });
+  });
+
+  it("save the date and the time to their own fields", () => {
+    const closing = COLUMN_MAP.get("closingDate")!;
+    expect(dateTimeUpdate(closing, "2026-11-20 12:00")).toEqual({ closingDate: "2026-11-20", closingTime: "12:00" });
+    // clearing the date clears its time too
+    expect(dateTimeUpdate(closing, "")).toEqual({ closingDate: "", closingTime: "" });
+    expect(dateTimeUpdate(COLUMN_MAP.get("isfDeadline")!, "2026-11-18")).toEqual({ isfDeadline: "2026-11-18", isfDeadlineTime: "" });
+    // a column without a time is saved as it was
+    expect(dateTimeUpdate(COLUMN_MAP.get("estimatedDeparture")!, "2026-11-22")).toEqual({ estimatedDeparture: "2026-11-22" });
   });
 });

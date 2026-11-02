@@ -110,7 +110,7 @@ const RELEVANT_ETA = sql`CASE WHEN lower(${shipmentTable.tradeDirection}) = 'exp
  * on the list after their date has passed (`keepsOverdue`) until someone confirms them
  * or the shipment departs:
  *   VGM / SI   — by their closing date, unless Confirmed (VGM also: Not Applicable);
- *   AMS / ISF  — when Pending, they must be filed 4 days before departure.
+ *   AMS / ISF  — when Pending, by their deadline; without one, 4 days before departure.
  *
  * Statuses are free text with decoration ("Confirmed (Green)"), hence the LIKE matches.
  */
@@ -134,11 +134,11 @@ const DEADLINE_DEFS = {
     keepsOverdue: true,
   },
   amsDeadline: {
-    date: sql`CASE WHEN ${statusHas(shipmentTable.ams, "pending")} THEN ${FILED_BEFORE_DEPARTURE} END`,
+    date: sql`CASE WHEN ${statusHas(shipmentTable.ams, "pending")} THEN COALESCE(${shipmentTable.amsDeadline}, ${FILED_BEFORE_DEPARTURE}) END`,
     keepsOverdue: true,
   },
   isfDeadline: {
-    date: sql`CASE WHEN ${statusHas(shipmentTable.isf, "pending")} THEN ${FILED_BEFORE_DEPARTURE} END`,
+    date: sql`CASE WHEN ${statusHas(shipmentTable.isf, "pending")} THEN COALESCE(${shipmentTable.isfDeadline}, ${FILED_BEFORE_DEPARTURE}) END`,
     keepsOverdue: true,
   },
 };

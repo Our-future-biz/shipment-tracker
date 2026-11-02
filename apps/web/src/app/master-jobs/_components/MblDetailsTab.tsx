@@ -3,7 +3,7 @@
 import { App, Tooltip } from "antd";
 import { BuildOutlined, EnvironmentOutlined, FileTextOutlined, InboxOutlined, LockOutlined } from "@ant-design/icons";
 import { CustomerLinkField } from "@/app/shipments/[jobNumber]/_components/CustomerLinkField";
-import { getComputedValue } from "@/lib/columnConfig";
+import { COLUMN_MAP, dateTimeUpdate, getComputedValue, joinDateTime } from "@/lib/columnConfig";
 import { formatDate } from "@/lib/date";
 import { teuForType } from "@/lib/cargo";
 import { FULL_LOAD } from "@/lib/enums";
@@ -99,7 +99,11 @@ export function MblDetailsTab({
       message.error("Saving the master job failed");
     }
   };
-  const handleCommit = (fieldKey: string, v: string) => save({ [fieldKey]: v } as MasterJobUpdate);
+  // A closing / deadline comes as "YYYY-MM-DD HH:MM" and is saved as its date and its time.
+  const handleCommit = (fieldKey: string, v: string) => {
+    const col = COLUMN_MAP.get(fieldKey);
+    save((col ? dateTimeUpdate(col, v) : { [fieldKey]: v }) as MasterJobUpdate);
+  };
 
   // The actual date that matters follows the direction: an export is tracked by its
   // departure, an import by its arrival. Without a direction both are shown.
@@ -131,9 +135,11 @@ export function MblDetailsTab({
             <FieldRow label="Booking Number" fieldKey="bookingNumber" value={mj.bookingNumber} onCommit={handleCommit} synced />
             <FieldRow label="Equipment" fieldKey="equipment" value={mj.equipment} onCommit={handleCommit} />
             <FieldRow label="Shipping line / Coloader" fieldKey="shippingLine" value={mj.shippingLine} onCommit={handleCommit} synced />
-            <FieldRow label="Closing Date" fieldKey="closingDate" value={mj.closingDate} onCommit={handleCommit} synced />
-            <FieldRow label="VGM Closing" fieldKey="vgmClosing" value={mj.vgmClosing} onCommit={handleCommit} synced />
-            <FieldRow label="SI Closing" fieldKey="siClosing" value={mj.siClosing} onCommit={handleCommit} synced />
+            <FieldRow label="Closing Date" fieldKey="closingDate" value={joinDateTime(mj.closingDate, mj.closingTime)} onCommit={handleCommit} synced />
+            <FieldRow label="VGM Closing" fieldKey="vgmClosing" value={joinDateTime(mj.vgmClosing, mj.vgmClosingTime)} onCommit={handleCommit} synced />
+            <FieldRow label="SI Closing" fieldKey="siClosing" value={joinDateTime(mj.siClosing, mj.siClosingTime)} onCommit={handleCommit} synced />
+            <FieldRow label="AMS Deadline" fieldKey="amsDeadline" value={joinDateTime(mj.amsDeadline, mj.amsDeadlineTime)} onCommit={handleCommit} synced />
+            <FieldRow label="ISF Deadline" fieldKey="isfDeadline" value={joinDateTime(mj.isfDeadline, mj.isfDeadlineTime)} onCommit={handleCommit} synced />
             <FieldRow label="Release Reference" fieldKey="releaseReference" value={mj.releaseReference} onCommit={handleCommit} synced />
             <FieldRow label="Release Depot" fieldKey="releaseDepot" value={mj.releaseDepot} onCommit={handleCommit} synced />
             <FieldRow label="POL" fieldKey="pol" value={mj.pol} onCommit={handleCommit} synced />

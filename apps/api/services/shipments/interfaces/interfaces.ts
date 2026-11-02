@@ -188,6 +188,15 @@ export interface ShipmentItem {
   closingDate: string | null;
   vgmClosing: string | null;
   siClosing: string | null;
+  /** Times of the closings and deadlines, "HH:MM"; "" = the date only */
+  closingTime: string;
+  vgmClosingTime: string;
+  siClosingTime: string;
+  /** AMS / ISF filing deadlines as the carrier gives them (null: 4 days before ETD counts) */
+  amsDeadline: string | null;
+  amsDeadlineTime: string;
+  isfDeadline: string | null;
+  isfDeadlineTime: string;
   etaWarehouse: string | null;
   warehouseReceivedDate: string | null;
   warehouseReleasedDate: string | null;
@@ -321,6 +330,15 @@ export interface MasterJobItem {
   equipment: string;
   vgmClosing: string | null;
   siClosing: string | null;
+  /** Times of the closings and deadlines, "HH:MM"; "" = the date only */
+  closingTime: string;
+  vgmClosingTime: string;
+  siClosingTime: string;
+  /** AMS / ISF filing deadlines as the carrier gives them (null: 4 days before ETD counts) */
+  amsDeadline: string | null;
+  amsDeadlineTime: string;
+  isfDeadline: string | null;
+  isfDeadlineTime: string;
   releaseReference: string;
   releaseDepot: string;
   redeliveryReference: string;

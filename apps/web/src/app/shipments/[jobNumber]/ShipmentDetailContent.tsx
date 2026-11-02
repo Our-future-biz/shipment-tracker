@@ -741,6 +741,8 @@ const KEY_DATES_R: FieldDef[] = [
   { key: "closingDate", label: "Closing Date (Cargo Closing)" },
   { key: "vgmClosing", label: "VGM Closing" },
   { key: "siClosing", label: "SI Closing" },
+  { key: "amsDeadline", label: "AMS Deadline" },
+  { key: "isfDeadline", label: "ISF Deadline" },
   { key: "plannedDeliveryDate", label: "Planned Delivery" },
   { key: "plannedDeliveryTime", label: "Planned Delivery Time" },
 ];

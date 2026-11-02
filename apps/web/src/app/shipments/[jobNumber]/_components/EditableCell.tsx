@@ -5,7 +5,7 @@ import { EditableLink } from "@/components/EditableLink";
 import { Input, Select, DatePicker } from "antd";
 import type { InputRef } from "antd";
 import dayjs from "dayjs";
-import { COLUMN_MAP, geoKindOf, getFilteredStatusOptions } from "@/lib/columnConfig";
+import { COLUMN_MAP, geoKindOf, getFilteredStatusOptions, splitDateTime } from "@/lib/columnConfig";
 import { GeoFlag, GeoSelect } from "@/components/GeoSelect";
 import { FadeText } from "@/components/FadeText";
 import { UserPicker } from "@/components/UserPicker";
@@ -16,6 +16,7 @@ import { formatDate } from "@/lib/date";
 import { statusLabel } from "@/lib/shipmentStatus";
 import { personChange, splitPersonStamp } from "@/app/shipments/_lib/personFields";
 import { contactLinks, type ContactLinks } from "@/app/shipments/_lib/parties";
+import { DateTimeEditor } from "./DateTimeEditor";
 
 // Dates are stored as ISO "YYYY-MM-DD" (matches the native date input).
 // Still tolerate legacy "MM/DD/YY" values for display prefill.
@@ -29,6 +30,12 @@ function toInputISO(s: string): string {
   if (!/^\d{1,2}$/.test(mm) || !/^\d{1,2}$/.test(dd) || !/^\d{1,4}$/.test(yy)) return "";
   const year = yy.length <= 2 ? `20${yy.padStart(2, "0")}` : yy;
   return `${year}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
+}
+
+/** "2026-11-20 12:00" → "20.11.2026 12:00"; a date alone → "20.11.2026". */
+function shownDate(value: string): string {
+  const { date, time } = splitDateTime(value);
+  return time ? `${formatDate(date)} ${time}` : formatDate(value);
 }
 
 /**
@@ -159,8 +166,8 @@ export function EditableCell({
 
   if (!editing) {
     const hasValue = original.length > 0;
-    // Dates are stored as ISO but shown in the unified DD.MM.YYYY display format.
-    const shown = hasValue ? (isDate ? formatDate(original) : fieldKey === "status" ? statusLabel(original) : original) : placeholder;
+    // Dates are stored as ISO but shown in the unified DD.MM.YYYY display format (a kept time after it).
+    const shown = hasValue ? (isDate ? shownDate(original) : fieldKey === "status" ? statusLabel(original) : original) : placeholder;
     const textClass = hasValue ? displayClassName : (emptyClassName ?? displayClassName);
     const textStyle = hasValue ? displayStyle : undefined;
     return (
@@ -280,6 +287,10 @@ export function EditableCell({
         />
       </div>
     );
+  }
+
+  if (isDate && col?.timeField) {
+    return <DateTimeEditor className={className} value={original} onCommit={commit} onCancel={cancel} />;
   }
 
   if (isDate) {

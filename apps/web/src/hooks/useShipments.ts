@@ -6,7 +6,7 @@ import { App } from "antd";
 import { invalidateQuoteLists } from "./useSalesQuotes";
 import { NEEDS_ATTENTION_KEY } from "./useShipmentsNeedingAttention";
 import { api } from "@/lib/api";
-import { COLUMNS, COLUMN_MAP, getComputedValue, COMPUTED_COLUMNS } from "@/lib/columnConfig";
+import { COLUMNS, COLUMN_MAP, getComputedValue, COMPUTED_COLUMNS, dateTimeUpdate, joinDateTime } from "@/lib/columnConfig";
 import type { interfaces, controllers } from "@/lib/api/client";
 
 export type ShipmentItem = interfaces.ShipmentItem;
@@ -24,6 +24,13 @@ export function getFieldValue(shipment: ShipmentItem, key: string): string {
 
   const col = COLUMN_MAP.get(key);
   if (!col) return "";
+
+  // A date kept with its time: one value, "YYYY-MM-DD HH:MM".
+  if (col.apiField && col.timeField) {
+    const date = shipment[col.apiField as keyof ShipmentItem];
+    const time = shipment[col.timeField as keyof ShipmentItem];
+    return joinDateTime(typeof date === "string" ? date : "", typeof time === "string" ? time : "");
+  }
 
   // Direct API field
   if (col.apiField) {
@@ -277,7 +284,7 @@ export const useShipmentMutations = () => {
 
       if (col.apiField) {
         updateMutation.mutate(
-          { id: shipmentId, data: { [col.apiField]: value, ...links } as controllers.ShipmentUpdateRequest },
+          { id: shipmentId, data: { ...dateTimeUpdate(col, value), ...links } as controllers.ShipmentUpdateRequest },
           // The edit is rolled back on failure; say why (e.g. a customs status the paperwork does not allow yet).
           { onError: (err) => message.error(err instanceof Error && err.message ? err.message : `Could not save ${col.title}`) },
         );
