@@ -4,7 +4,7 @@ import { countryName } from "../../../lib/geo/format";
 import { departmentRepository, branchRepository, countryRepository, locationRepository } from "../repositories/orgUnit.repository";
 import type { Place } from "../../../lib/geo/place";
 import { searchAirports, type Airport } from "../../../lib/geo/airports";
-import { searchTerminals, type Terminal } from "../../../lib/geo/terminals";
+import { searchInlandTerminals, searchTerminals, type InlandTerminal, type Terminal } from "../../../lib/geo/terminals";
 import { userRepository } from "../repositories/user.repository";
 
 export interface DepartmentInfo {
@@ -169,10 +169,11 @@ class OrgUnitService {
     return searchAirports(query);
   }
 
-  // Ocean container terminals (CYs), offered beside the places as the Origin and Destination of a
-  // sea quote or shipment. In memory too, like the airports.
-  searchTerminals(query: string): Terminal[] {
-    return searchTerminals(query);
+  // Ocean container terminals (CYs), and inland terminals (dry ports, rail and intermodal
+  // terminals), offered beside the places as the Origin and Destination of a sea quote or shipment.
+  // In memory too, like the airports.
+  searchTerminals(query: string): { terminals: Terminal[]; inland: InlandTerminal[] } {
+    return { terminals: searchTerminals(query), inland: searchInlandTerminals(query) };
   }
 
   async placesByCodes(codes: string[]): Promise<PlaceInfo[]> {

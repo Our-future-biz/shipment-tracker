@@ -433,8 +433,8 @@ export namespace auth {
         }
 
         /**
-         * Ocean container terminals (CYs) matching typed text, offered beside the places as the Origin and
-         * Destination of a sea quote or shipment.
+         * Ocean container terminals (CYs) and inland terminals matching typed text, offered beside the
+         * places as the Origin and Destination of a sea quote or shipment.
          */
         public async terminalSearch(params: controllers.TerminalSearchRequest): Promise<controllers.TerminalListResponse> {
             // Convert our params into the objects we need for the request
@@ -8939,6 +8939,7 @@ export namespace controllers {
 
     export interface TerminalListResponse {
         terminals: geo.Terminal[]
+        inland: geo.InlandTerminal[]
     }
 
     export interface TerminalSearchRequest {
@@ -10261,6 +10262,27 @@ export namespace geo {
     }
 
     export type GeoKind = "place" | "country" | "countryCode"
+
+    /**
+     * An inland terminal (dry port, rail or intermodal terminal), offered with the ocean terminals.
+     * None has an official code: its code is the app's own ("DE-IT116", inlandTerminals.data.ts).
+     */
+    export interface InlandTerminal {
+        code: string
+        name: string
+        town: string
+        countryCode: string
+        kind: InlandTerminalKind
+        /**
+         * The railroads serving a US rail terminal.
+         */
+        railroads: string | null
+    }
+
+    /**
+     * What an inland terminal is: a dry port, an intermodal (rail / road / barge) terminal, or a US rail terminal.
+     */
+    export type InlandTerminalKind = "dry_port" | "intermodal" | "rail"
 
     /**
      * A UN/LOCODE place as shipments, quotes and the extraction use it, written "Name (CODE)".

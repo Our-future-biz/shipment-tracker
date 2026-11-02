@@ -10,6 +10,9 @@ import { countryCodeOf, countryLabel, countryMatches, countryValue, isUnmatched,
 
 const COUNTRY_OPTIONS = COUNTRIES.map((c) => ({ code: c.code, label: countryLabel(c.code) }));
 
+// What an inland terminal is, beside its town.
+const INLAND_KIND: Record<string, string> = { dry_port: "Dry port", intermodal: "Intermodal", rail: "Rail" };
+
 interface GeoSelectProps {
   kind: GeoKind;
   value?: string | null;
@@ -24,7 +27,7 @@ interface GeoSelectProps {
   allowClear?: boolean;
   /** Also offer IATA airports beside the places (a quote going by air). */
   airports?: boolean;
-  /** Also offer ocean container terminals (CYs) beside the places (the Origin / Destination of a sea quote or shipment). */
+  /** Also offer ocean container terminals (CYs) and inland terminals beside the places (the Origin / Destination of a sea quote or shipment). */
   terminals?: boolean;
 }
 
@@ -112,14 +115,26 @@ export function GeoSelect({
         </span>
       ),
     }));
+    const inlandOptions: GeoOption[] = (terminalList.data?.inland ?? []).map((t) => ({
+      value: `${t.name} (${t.code})`,
+      label: (
+        <span className="flex items-baseline justify-between gap-2">
+          <span className="truncate">
+            <span className="font-medium">{t.code}</span> <span className="text-slate-400">-</span> {t.name}
+          </span>
+          <span className="shrink-0 text-xs text-slate-400 truncate max-w-[40%]">{[INLAND_KIND[t.kind], t.town, t.countryCode].filter(Boolean).join(", ")}</span>
+        </span>
+      ),
+    }));
     // Keep the current place listed so the box shows it before anything is searched.
-    const listed = [...airportOptions, ...terminalOptions, ...found].some((o) => o.value === current);
+    const listed = [...airportOptions, ...terminalOptions, ...inlandOptions, ...found].some((o) => o.value === current);
     const pinned: GeoOption[] = !debounced && current && !unmatched && !listed ? [{ value: current, label: <>{current}</> }] : [];
     if (!airports && !terminals) return [...pinned, ...found];
     // By air airports, by sea container yards, and places in groups, so either kind of code can be picked.
     const groups = [
       { label: "Airports (IATA)", options: airportOptions },
       { label: "Container yards (CY)", options: terminalOptions },
+      { label: "Inland terminals", options: inlandOptions },
       { label: "Places (UN/LOCODE)", options: found },
     ].filter((g) => g.options.length > 0);
     return [...pinned, ...groups];

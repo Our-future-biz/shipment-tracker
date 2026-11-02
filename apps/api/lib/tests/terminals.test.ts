@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { searchTerminals } from "../geo/terminals";
+import { searchInlandTerminals, searchTerminals } from "../geo/terminals";
 
 describe("searchTerminals", () => {
   it("finds a terminal by its code: the port's UN/LOCODE and the SMDG terminal code", () => {
@@ -29,5 +29,24 @@ describe("searchTerminals", () => {
 
   it("asks for at least 2 letters", () => {
     expect(searchTerminals("h")).toEqual([]);
+  });
+});
+
+describe("searchInlandTerminals", () => {
+  it("finds an inland terminal by its own code", () => {
+    expect(searchInlandTerminals("de-it116")[0]).toEqual({ code: "DE-IT116", name: "Duisburg DIT", town: "Duisburg", countryCode: "DE", kind: "intermodal", railroads: null });
+  });
+
+  it("finds them by name or town: European intermodal, US rail and dry ports", () => {
+    expect(searchInlandTerminals("duisburg").map((t) => t.code)).toEqual(expect.arrayContaining(["DE-IT116", "DE-IT459"]));
+    expect(searchInlandTerminals("mobile")).toContainEqual(
+      expect.objectContaining({ code: "US-RR004", name: "Container Terminal, Mobile", town: "Mobile, AL", kind: "rail", railroads: "CN, CSX, KCS, ALE, CGR, TASD" }),
+    );
+    expect(searchInlandTerminals("haqueena")[0]).toMatchObject({ code: "AF-DP001", kind: "dry_port", countryCode: "AF" });
+    expect(searchInlandTerminals("ceska trebova")[0]?.code).toBe("CZ-IT80");
+  });
+
+  it("asks for at least 2 letters", () => {
+    expect(searchInlandTerminals("d")).toEqual([]);
   });
 });
