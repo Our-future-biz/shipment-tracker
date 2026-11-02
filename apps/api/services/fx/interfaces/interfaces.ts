@@ -77,11 +77,16 @@ export interface FxAlertItem {
 
 export interface FxOverview {
   today: string;
-  /** The currencies shown, in the user's order: their saved choice, or EUR and USD */
+  /** The currency `rates` and `monthAverages` are against: CZK as ČNB publishes, or the user's choice */
+  base: string;
+  /** The currencies shown, in the user's order: their saved choice, or EUR and USD (never `base`) */
   currencies: string[];
-  /** Every currency ČNB publishes today — what a user can pick from */
+  /** Every currency ČNB publishes today, and CZK — what a user can pick from */
   available: string[];
+  /** Today's rate for each of `currencies`: `base` per unit (cross rates of the ČNB fixing unless `base` is CZK) */
   rates: TodayRate[];
+  /** Today's official ČNB rate, CZK per unit, for `base` and `currencies` (CZK left out) — what ROE pricing uses */
+  cnbRates: TodayRate[];
   roe: RoeInfo;
   scheduledRoe: RoeChange | null;
   month: string;

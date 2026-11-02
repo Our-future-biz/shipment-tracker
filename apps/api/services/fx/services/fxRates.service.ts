@@ -7,7 +7,7 @@ import { cnbImportRunRepository } from "../repositories/cnbImportRun.repository"
 import { roeSettingRepository } from "../repositories/roeSetting.repository";
 import type { RoeSettingRecord } from "../schemas/roeSetting.schema";
 import { addDays, expectedLatestFixing, isCzechHoliday, isIsoDate, isWeekend, lastDayOfMonth, pragueToday } from "../lib/dates";
-import { averageByCurrency, isRetired, perUnit, periodsOfYear, ratesForDate, resolveFixing, round } from "../lib/rates";
+import { againstBase, averageByCurrency, isRetired, perUnit, periodsOfYear, ratesForDate, resolveFixing, round, type Fixing } from "../lib/rates";
 import { openAlerts } from "./fxAlert.service";
 import type {
   DailyRow, DayKind, FxAlertItem, FxOverview, ImportRunItem, PeriodAverage, RatesOnDate, ResolvedRate, RetiredCurrencyItem, RoeChange, RoeInfo,
@@ -16,6 +16,8 @@ import type {
 
 // The currencies the company trades in. Every ČNB currency is stored; these are shown first.
 export const MAIN_CURRENCIES = ["EUR", "USD"];
+// What a user who hasn't picked sees: the first two of these that aren't their base currency.
+const DEFAULT_CURRENCIES = ["EUR", "USD", "CZK"];
 export const DEFAULT_ROE_PCT = 100;
 
 // Display names by user id; a lookup failure must not fail the read.
@@ -46,6 +48,25 @@ function pctOn(history: RoeSettingRecord[], date: string): number {
   return row ? Number(row.pct) : DEFAULT_ROE_PCT;
 }
 
+// A currency's newest fixing on or before today and the one before it, from `rows` (any order).
+function todayRate(currency: string, rows: Fixing[]): TodayRate {
+  const [cur, prev] = rows.filter((r) => r.currency === currency).sort((a, b) => b.validDate.localeCompare(a.validDate));
+  return {
+    currency,
+    rate: cur ? perUnit(cur) : null,
+    amount: cur?.amount || 1,
+    fixingDate: cur?.validDate ?? null,
+    previousRate: prev ? perUnit(prev) : null,
+    previousFixingDate: prev?.validDate ?? null,
+  };
+}
+
+function scheduledRoe(history: RoeSettingRecord[], names: Map<string, string>, today: string): RoeChange | null {
+  const inForce = history.find((h) => h.effectiveFrom <= today) ?? null;
+  const upcoming = history.filter((h) => h.effectiveFrom > today).at(-1) ?? null;
+  return upcoming ? toChange(upcoming, names, inForce, today) : null;
+}
+
 async function syncStatus(): Promise<SyncStatus> {
   const [latestFixing, runs] = await Promise.all([cnbRateRepository.latestValidDate(), cnbImportRunRepository.recent(20)]);
   const expectedFixing = expectedLatestFixing();
@@ -71,8 +92,9 @@ async function syncStatus(): Promise<SyncStatus> {
 }
 
 export const fxRatesService = {
-  // `chosen`: the currencies the user picked to see (EUR and USD when none), in their order.
-  async overview(companyId: string, chosen: string[] = []): Promise<FxOverview> {
+  // `chosen`: the currencies the user picked to see, in their order; `baseArg`: the currency
+  // the rates are shown against (CZK, as ČNB publishes them, when left out).
+  async overview(companyId: string, chosen: string[] = [], baseArg = "CZK"): Promise<FxOverview> {
     const today = pragueToday();
     const month = today.slice(0, 7);
     const [history, names, sync, alerts, allCurrencies] = await Promise.all([
@@ -84,36 +106,27 @@ export const fxRatesService = {
     ]);
     // Only what ČNB still publishes can be picked; a retired currency (BGN) drops out of a saved list.
     const latest = await cnbRateRepository.latestOnOrBefore(today, allCurrencies);
-    const available = ratesForDate(latest, today, expectedLatestFixing()).rates.map((r) => r.currency).sort();
-    const picked = [...new Set(chosen.map((c) => c.toUpperCase()))].filter((c) => available.includes(c));
-    const currencies = picked.length ? picked : MAIN_CURRENCIES;
+    const published = ratesForDate(latest, today, expectedLatestFixing()).rates.map((r) => r.currency);
+    const available = ["CZK", ...published].sort();
+    const base = available.includes(baseArg.toUpperCase()) ? baseArg.toUpperCase() : "CZK";
+    const picked = [...new Set(chosen.map((c) => c.toUpperCase()))].filter((c) => available.includes(c) && c !== base);
+    const currencies = picked.length ? picked : DEFAULT_CURRENCIES.filter((c) => c !== base).slice(0, 2);
 
-    const [monthRows, lastTwos] = await Promise.all([
-      cnbRateRepository.between(`${month}-01`, today, currencies),
-      Promise.all(currencies.map((c) => cnbRateRepository.lastTwo(c, today))),
-    ]);
-    const rates: TodayRate[] = currencies.map((currency, i) => {
-      const [cur, prev] = lastTwos[i];
-      return {
-        currency,
-        rate: cur ? perUnit(cur) : null,
-        amount: cur?.amount || 1,
-        fixingDate: cur?.validDate ?? null,
-        previousRate: prev ? perUnit(prev) : null,
-        previousFixingDate: prev?.validDate ?? null,
-      };
-    });
-    const averages = averageByCurrency(monthRows, `${month}-01`, today);
+    // Two weeks before the month, so the last two fixings are there on the month's first days too.
+    const cnbShown = [base, ...currencies].filter((c) => c !== "CZK");
+    const rows = await cnbRateRepository.between(addDays(`${month}-01`, -14), today, cnbShown);
+    const cross = againstBase(rows, base);
+    const averages = averageByCurrency(cross, `${month}-01`, today);
 
-    const inForce = history.find((h) => h.effectiveFrom <= today) ?? null;
-    const upcoming = history.filter((h) => h.effectiveFrom > today).at(-1) ?? null;
     return {
       today,
+      base,
       currencies,
       available,
-      rates,
-      roe: roeInfo(inForce, names),
-      scheduledRoe: upcoming ? toChange(upcoming, names, inForce, today) : null,
+      rates: currencies.map((c) => todayRate(c, cross)),
+      cnbRates: cnbShown.map((c) => todayRate(c, rows)),
+      roe: roeInfo(history.find((h) => h.effectiveFrom <= today) ?? null, names),
+      scheduledRoe: scheduledRoe(history, names, today),
       month,
       // in the order of `currencies`, like `rates`
       monthAverages: currencies.flatMap((c) => averages.filter((a) => a.currency === c)),

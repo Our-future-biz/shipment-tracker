@@ -150,6 +150,33 @@ export function averageByCurrency(rows: Fixing[], from: string, to: string): Ave
     .sort((a, b) => a.currency.localeCompare(b.currency));
 }
 
+/** Units a rate is shown per when it is under 0.1 (CZK in EUR: "4.105 / 100", not 0.041). */
+function quotingAmount(perUnitRate: number): number {
+  return [1, 100, 1000, 10000, 100000].find((a) => perUnitRate * a >= 0.1) ?? 100000;
+}
+
+/**
+ * ČNB fixings (CZK per unit) turned into rates against `base`: per fixing day, `base` per 1 unit
+ * of each currency, as the cross of the two ČNB rates — plus CZK itself. `amount` is how many
+ * units the rate is shown per. Against CZK the rows come back as ČNB published them. A day
+ * without a `base` fixing has no cross rates.
+ */
+export function againstBase(rows: Fixing[], base: string): Fixing[] {
+  if (base === "CZK") return rows;
+  const baseByDate = new Map(rows.filter((r) => r.currency === base).map((r) => [r.validDate, perUnit(r)]));
+  const out: Fixing[] = [];
+  const cross = (validDate: string, currency: string, value: number) => {
+    const amount = quotingAmount(value);
+    out.push({ validDate, currency, amount, rate: value * amount });
+  };
+  for (const r of rows) {
+    const b = baseByDate.get(r.validDate);
+    if (b && r.currency !== base) cross(r.validDate, r.currency, perUnit(r) / b);
+  }
+  for (const [validDate, b] of baseByDate) cross(validDate, "CZK", 1 / b);
+  return out;
+}
+
 export interface Period {
   type: "month" | "quarter" | "year";
   key: string; // 2026-10, 2026-Q4, 2026

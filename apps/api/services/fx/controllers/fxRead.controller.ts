@@ -16,12 +16,14 @@ startFxScheduler();
 interface OverviewRequest {
   // The user's chosen currencies, comma-separated in their order ("EUR,USD,GBP"); EUR and USD when left out
   currencies?: Query<string & MatchesRegexp<"^([A-Za-z]{3}(,[A-Za-z]{3}){0,49})?$">>;
+  // The currency rates are shown against; CZK (as ČNB publishes them) when left out
+  base?: Query<string & MatchesRegexp<"^[A-Za-z]{3}$">>;
 }
 
 export const fxOverview = api(
   { expose: true, auth: true, method: "GET", path: "/fx/overview" },
   async (req: OverviewRequest): Promise<FxOverview> =>
-    fxRatesService.overview(getAuthData()!.companyID, req.currencies ? req.currencies.split(",") : []),
+    fxRatesService.overview(getAuthData()!.companyID, req.currencies ? req.currencies.split(",") : [], req.base),
 );
 
 interface DailyRequest {

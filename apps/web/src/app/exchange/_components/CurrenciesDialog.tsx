@@ -11,14 +11,26 @@ interface Props {
   /** The user's list as it stands (it may be ahead of `data` while new rates load) */
   list: string[];
   onChange: (next: string[]) => void;
+  onChangeBase: (base: string) => void;
   onClose: () => void;
+}
+
+const option = (c: string) => ({ value: c, label: `${c}${currencyName(c) ? ` — ${currencyName(c)}` : ""}` });
+
+// CZK itself has no ČNB pricing rate; "…" while the row's rates are still loading.
+function pricingCell(cnb: FxOverview["cnbRates"][number] | undefined, loaded: boolean, pct: number): string {
+  if (!loaded) return "…";
+  return cnb ? fmtQuoted(cnb.rate == null ? null : (cnb.rate * pct) / 100, cnb.amount) : "—";
 }
 
 // Every currency the user picked, with today's rate, the pricing rate and the month's average;
 // here they add, remove and order them. The first CARD_CURRENCIES are the ones on the cards.
-export function CurrenciesDialog({ data, list, onChange, onClose }: Props) {
+export function CurrenciesDialog({ data, list, onChange, onChangeBase, onClose }: Props) {
   const pct = data.roe.pct;
+  const againstCzk = data.base === "CZK";
   const rateOf = new Map(data.rates.map((r) => [r.currency, r]));
+  // ROE prices into CZK, so the pricing column stays on ČNB's CZK rates.
+  const cnbOf = new Map(data.cnbRates.map((r) => [r.currency, r]));
   const averageOf = new Map(data.monthAverages.map((a) => [a.currency, a]));
 
   const move = (i: number, by: number) => {
@@ -28,21 +40,36 @@ export function CurrenciesDialog({ data, list, onChange, onClose }: Props) {
   };
 
   const options = data.available
-    .filter((c) => !list.includes(c))
-    .map((c) => ({ value: c, label: `${c}${currencyName(c) ? ` — ${currencyName(c)}` : ""}` }));
+    .filter((c) => !list.includes(c) && c !== data.base)
+    .map(option);
 
   return (
     <Modal open title="Your currencies" footer={null} onCancel={onClose} width={860} destroyOnHidden>
+      <div className="flex flex-wrap items-center gap-3 mb-2">
+        <span className="text-[13px] font-semibold text-slate-600">Show rates in</span>
+        <Select
+          showSearch
+          value={data.base}
+          options={data.available.map(option)}
+          optionFilterProp="label"
+          onChange={onChangeBase}
+          className="w-64"
+          aria-label="Currency the rates are shown in"
+        />
+        <span className="text-[12.5px] text-slate-400">
+          {againstCzk ? "as ČNB publishes them" : "crossed from the ČNB fixing"}
+        </span>
+      </div>
       <div className="text-[13px] text-slate-500 mb-3">
-        ČNB rates in CZK. The first {CARD_CURRENCIES} are shown on the cards; use the arrows to change which.
+        {data.base} per 1 unit. The first {CARD_CURRENCIES} are shown on the cards; use the arrows to change which.
       </div>
       <div className="overflow-x-auto">
         <table className="w-full border-collapse">
           <thead>
             <tr>
               <th className={TH}>Currency</th>
-              <th className={`${TH} !text-right`}>Today&apos;s ČNB</th>
-              <th className={`${TH} !text-right`}>Pricing at {fmtPct(pct)}</th>
+              <th className={`${TH} !text-right`}>Today{againstCzk ? "'s ČNB" : ` in ${data.base}`}</th>
+              <th className={`${TH} !text-right`}>Pricing at {fmtPct(pct)}{againstCzk ? "" : " in CZK"}</th>
               <th className={`${TH} !text-right`}>{data.month} average</th>
               <th className={TH} />
             </tr>
@@ -72,7 +99,7 @@ export function CurrenciesDialog({ data, list, onChange, onClose }: Props) {
                     )}
                   </td>
                   <td className={`${CELL} text-right tabular-nums whitespace-nowrap`}>
-                    {r ? fmtQuoted(r.rate == null ? null : (r.rate * pct) / 100, r.amount) : "…"}
+                    {pricingCell(r ? cnbOf.get(c) : undefined, !!r, pct)}
                   </td>
                   <td className={`${CELL} text-right tabular-nums whitespace-nowrap`}>{r ? fmtAverage(averageOf.get(c)) : "…"}</td>
                   <td className={`${CELL} text-right whitespace-nowrap`}>
@@ -118,7 +145,7 @@ export function CurrenciesDialog({ data, list, onChange, onClose }: Props) {
           disabled={options.length === 0}
           aria-label="Add a currency"
         />
-        <span className="text-[12.5px] text-slate-400">{data.available.length} currencies published by ČNB</span>
+        <span className="text-[12.5px] text-slate-400">{data.available.filter((c) => c !== "CZK").length} currencies published by ČNB</span>
       </div>
     </Modal>
   );

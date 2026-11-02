@@ -81,9 +81,9 @@ function AlertBanner({ alerts }: { alerts: FxOverview["alerts"] }) {
 }
 
 // The saved list as it stands (ahead of `data` while new rates load), without currencies ČNB
-// no longer publishes; the server's list when nothing usable is saved.
+// no longer publishes and without the base; the server's list when nothing usable is saved.
 function currencyList(saved: string[], data: FxOverview): string[] {
-  const usable = saved.filter((c) => data.available.includes(c));
+  const usable = saved.filter((c) => data.available.includes(c) && c !== data.base);
   return usable.length ? usable : data.currencies;
 }
 
@@ -94,7 +94,7 @@ export function FxView() {
   const isAdmin = user != null && (user.role === "admin" || user.role === "superadmin");
 
   const currencies = useFxCurrencies();
-  const { data, isLoading, isError } = useFxOverview(currencies.saved, currencies.ready);
+  const { data, isLoading, isError } = useFxOverview(currencies.saved, currencies.base, currencies.ready);
   const sync = useFxSync();
 
   const handleSync = () =>
@@ -122,7 +122,9 @@ export function FxView() {
     <>
       <div className={`${CARD} flex flex-wrap items-center justify-between gap-3 px-4 py-3`}>
         <div className="flex flex-wrap items-center gap-3">
-          <span className="text-[13px] font-semibold text-slate-600">ČNB official rates — CZK per 1 unit</span>
+          <span className="text-[13px] font-semibold text-slate-600">
+            {data.base === "CZK" ? "ČNB official rates — CZK per 1 unit" : `Rates in ${data.base} per 1 unit — crossed from the ČNB fixing`}
+          </span>
           <SyncPill sync={data.sync} />
           <span className="text-[12px] text-slate-400">Pulled daily at 15:00 · Source: ČNB</span>
         </div>
@@ -141,7 +143,8 @@ export function FxView() {
         data={data}
         isAdmin={isAdmin}
         list={currencyList(currencies.saved, data)}
-        onChangeList={currencies.save}
+        onChangeList={currencies.saveList}
+        onChangeBase={currencies.saveBase}
       />
 
       <div className={`${CARD} px-4 pt-1 pb-4`}>

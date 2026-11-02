@@ -1016,6 +1016,7 @@ export namespace fx {
         public async fxOverview(params: controllers.OverviewRequest): Promise<interfaces.FxOverview> {
             // Convert our params into the objects we need for the request
             const query = makeRecord<string, string | string[]>({
+                base:       params.base,
                 currencies: params.currencies,
             })
 
@@ -7316,6 +7317,11 @@ export namespace controllers {
          * The user's chosen currencies, comma-separated in their order ("EUR,USD,GBP"); EUR and USD when left out
          */
         currencies?: string
+
+        /**
+         * The currency rates are shown against; CZK (as ČNB publishes them) when left out
+         */
+        base?: string
     }
 
     export interface PdfResponse {
@@ -12289,16 +12295,30 @@ export namespace interfaces {
     export interface FxOverview {
         today: string
         /**
-         * The currencies shown, in the user's order: their saved choice, or EUR and USD
+         * The currency `rates` and `monthAverages` are against: CZK as ČNB publishes, or the user's choice
+         */
+        base: string
+
+        /**
+         * The currencies shown, in the user's order: their saved choice, or EUR and USD (never `base`)
          */
         currencies: string[]
 
         /**
-         * Every currency ČNB publishes today — what a user can pick from
+         * Every currency ČNB publishes today, and CZK — what a user can pick from
          */
         available: string[]
 
+        /**
+         * Today's rate for each of `currencies`: `base` per unit (cross rates of the ČNB fixing unless `base` is CZK)
+         */
         rates: TodayRate[]
+
+        /**
+         * Today's official ČNB rate, CZK per unit, for `base` and `currencies` (CZK left out) — what ROE pricing uses
+         */
+        cnbRates: TodayRate[]
+
         roe: RoeInfo
         scheduledRoe: RoeChange | null
         month: string

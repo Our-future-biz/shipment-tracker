@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyRoe, averageByCurrency, isRetired, periodsOfYear, ratesForDate, resolveFixing, type Fixing } from "../lib/rates";
+import { againstBase, applyRoe, averageByCurrency, isRetired, periodsOfYear, ratesForDate, resolveFixing, type Fixing } from "../lib/rates";
 import { expectedLatestFixing, isCzechHoliday, isFixingDay, pragueToday, previousFixingDay, previousWeekday } from "../lib/dates";
 import { parseRates, publicImportError } from "../lib/cnb";
 
@@ -123,6 +123,49 @@ describe("averageByCurrency", () => {
     expect(idr!.average).toBeCloseTo(0.00119, 9); // per-unit rounding to 3 dp would give 0.001 (−16 %)
     expect(huf).toMatchObject({ currency: "HUF", amount: 100, quoted: 6.659 });
     expect(huf!.average).toBeCloseTo(0.06659, 9);
+  });
+});
+
+describe("againstBase", () => {
+  // 30.10.2026 ČNB levels
+  const day: Fixing[] = [
+    { validDate: "2026-10-30", currency: "EUR", amount: 1, rate: 24.36 },
+    { validDate: "2026-10-30", currency: "USD", amount: 1, rate: 21.814 },
+    { validDate: "2026-10-30", currency: "JPY", amount: 100, rate: 13.875 },
+  ];
+  const find = (rows: Fixing[], c: string) => rows.find((r) => r.currency === c)!;
+
+  it("leaves ČNB rows as published against CZK", () => {
+    expect(againstBase(day, "CZK")).toBe(day);
+  });
+
+  it("gives base per 1 unit, small values per 100 / 1000, and adds CZK", () => {
+    const rows = againstBase(day, "EUR");
+    expect(rows.map((r) => r.currency).sort()).toEqual(["CZK", "JPY", "USD"]);
+    expect(find(rows, "USD")).toMatchObject({ amount: 1 });
+    expect(Number(find(rows, "USD").rate)).toBeCloseTo(21.814 / 24.36, 9); // 0.896 EUR per USD
+    expect(find(rows, "CZK").amount).toBe(100);
+    expect(Number(find(rows, "CZK").rate)).toBeCloseTo(100 / 24.36, 9); // 4.105 EUR per 100 CZK
+    expect(find(rows, "JPY").amount).toBe(100);
+    expect(Number(find(rows, "JPY").rate)).toBeCloseTo(13.875 / 24.36, 9); // 0.570 EUR per 100 JPY
+  });
+
+  it("averages cross rates day by day", () => {
+    const rows = againstBase(
+      [
+        ...day,
+        { validDate: "2026-10-29", currency: "EUR", amount: 1, rate: 24.335 },
+        { validDate: "2026-10-29", currency: "USD", amount: 1, rate: 21.862 },
+      ],
+      "EUR",
+    );
+    const usd = averageByCurrency(rows, "2026-10-01", "2026-10-31").find((a) => a.currency === "USD")!;
+    expect(usd.fixingDays).toBe(2);
+    expect(usd.quoted).toBe(Math.round(((21.814 / 24.36 + 21.862 / 24.335) / 2) * 1000) / 1000);
+  });
+
+  it("skips a day the base has no fixing", () => {
+    expect(againstBase([{ validDate: "2026-10-30", currency: "USD", amount: 1, rate: 21.814 }], "EUR")).toEqual([]);
   });
 });
 
