@@ -240,6 +240,9 @@ export interface SalesQuoteData {
   pod?: string; // port of discharge
   pickup?: string;
   delivery?: string;
+  // Origin and Destination were left blank on purpose: confirmed as Routing was saved without them
+  // ("Save & continue"), which completes the step.
+  routingBlank?: boolean;
   // Cargo
   commodity?: string;
   stackable?: boolean;

@@ -183,6 +183,12 @@ const SMALL_LINK_CLASS = `shrink-0 text-xs font-semibold whitespace-nowrap ${LIN
 // The tooltip of the e-mail and phone of a contact picked from the Customer Database.
 const CONTACT_FOLLOWS_TITLE = "From the contact in the Customer Database - change it there, or unlink the contact to type another";
 
+// What the question before Routing is saved without its Origin or Destination asks.
+function blankRoutingTitle(data: SalesQuoteData): string {
+  const blank = [!data.origin?.trim() && "Origin", !data.destination?.trim() && "Destination"].filter(Boolean);
+  return blank.length === 2 ? "Keep Origin and Destination blank?" : `Keep ${blank[0] ?? "Origin"} blank?`;
+}
+
 export function QuoteWorkflow() {
   const canSeeConcepts = useCanSeeConcepts();
   const truckingOn = canSeeConcepts;
@@ -235,6 +241,8 @@ export function QuoteWorkflow() {
   const [confirmCargoTo, setConfirmCargoTo] = useState<SectionKey | null>(null);
   // The step "Save & continue" goes to once a Sea LCL quote of over 2 t says whether any piece is over 2 t.
   const [heavyPiecesTo, setHeavyPiecesTo] = useState<SectionKey | null>(null);
+  // The step "Save & continue" goes to once leaving Origin / Destination blank is confirmed, while that is asked.
+  const [blankRoutingTo, setBlankRoutingTo] = useState<SectionKey | null>(null);
   // The selling line of the warehouse's Heavy Cargo Handling Fee whose amount Sales just changed: kept only with a reason.
   // Or a fee line Sales is removing (`removing`, its side): it goes only with a reason too.
   // Leaving Pricing with the Overweight surcharge at 0 (to the step named), or removing it (the line's index): the reason is asked.
@@ -612,7 +620,8 @@ export function QuoteWorkflow() {
     customer: !!draft.customerName,
     // A sea quote also says whether the cargo goes through a CY.
     shipment: !!(draft.direction && draft.serviceType && draft.incoterm) && (!isSeaQuote(draft) || draft.cy !== undefined),
-    routing: !!(draft.origin && draft.destination),
+    // Or left blank on purpose: confirmed as the step was saved without them.
+    routing: !!(draft.origin && draft.destination) || !!draft.routingBlank,
     // A reefer box needs its set-point, an open top or flat rack the in-gauge answer (and the
     // measures of cargo that is not), before the cargo is complete.
     cargo: !!(draft.commodity || packages.length || containers.length) && !reeferMissing(draft) && !oogMissing(draft),
@@ -1638,6 +1647,12 @@ export function QuoteWorkflow() {
       setOverweightAsk({ to, save: true });
       return;
     }
+    // Routing saved without its Origin or Destination asks whether they stay blank; confirmed, the
+    // step is complete without them.
+    if (activeSection === "routing" && !quoteClosed && !draft.routingBlank && (!draft.origin?.trim() || !draft.destination?.trim())) {
+      setBlankRoutingTo(to);
+      return;
+    }
     // A Sea LCL shipment of over 2 t is asked whether any piece is over 2 t: the warehouse charges
     // extra handling for those. Not on a quote whose pricing is closed - its lines stay as sent.
     if (activeSection === "cargo" && !quoteClosed && asksHeavyPieces(draft.serviceType, cargo.grossWeight)) {
@@ -1939,6 +1954,22 @@ export function QuoteWorkflow() {
           setFeeChange(null);
           if (!side) updateLines("sellingLines", sellingLines.map((l, j) => (j === at ? { ...l, amount: before } : l)));
         }}
+      />
+
+      <ConfirmModal
+        open={blankRoutingTo !== null}
+        onClose={() => setBlankRoutingTo(null)}
+        onConfirm={() => {
+          const to = blankRoutingTo;
+          setBlankRoutingTo(null);
+          set({ routingBlank: true });
+          saveNow();
+          if (to) setActiveSection(to);
+        }}
+        title={blankRoutingTitle(draft)}
+        description="Keep it blank and the Routing step counts as complete. You can still fill it in later."
+        confirmLabel="Keep blank"
+        cancelLabel="Fill in"
       />
 
       <ConfirmModal
