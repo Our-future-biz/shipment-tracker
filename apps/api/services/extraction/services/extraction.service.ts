@@ -241,8 +241,15 @@ export async function extractFromTextByDestination(text: string, destination: st
 }
 
 // For pipeline: classify pages (each page is its own PDF/image document block)
+// The file each page came from, for the classifier: a name like "CHV229738-MBL.pdf" is a strong hint.
+function fileHints(pages: Array<{ pageNum: number; fileName?: string }>): string {
+  const named = pages.filter((p) => p.fileName);
+  if (!named.length) return "";
+  return `Files the pages come from:\n${named.map((p) => `- page ${p.pageNum}: ${p.fileName}`).join("\n")}\n\n`;
+}
+
 export async function classifyPages(
-  pages: Array<{ pageNum: number; base64: string; mediaType: string }>,
+  pages: Array<{ pageNum: number; base64: string; mediaType: string; fileName?: string }>,
 ): Promise<Array<{ page: number; type: string; ref?: string }>> {
   const client = getClient();
   const pageBlocks: Anthropic.ContentBlockParam[] = pages.map((p) => mediaBlock(p.base64, p.mediaType));
@@ -256,7 +263,7 @@ export async function classifyPages(
         ...pageBlocks,
         {
           type: "text",
-          text: `These are ${pages.length} pages from a shipping document, in order. Classify EACH page.\n\nTypes:\n- MANIFEST: Cargo manifest/list showing multiple shipments in blocks\n- HBL: House Bill of Lading for one shipment — including its continuation/rider pages and a rated or unrated copy\n- MBL: Master Bill of Lading (single consolidated B/L with many cargo items)\n- INVOICE: Commercial invoice, pro-forma invoice\n- PACKING_LIST: Packing list, packing specification\n- SKIP: Terms & conditions, blank pages, fax/e-mail cover sheets, signatures, anything without shipment data\n\nFor every HBL page also give "ref": the House B/L number printed on it (e.g. "CHI/BRV/V01035"), exactly as printed, or "" if none is visible. A continuation page of the same HBL carries the same ref.\n\nReturn ONLY a JSON array with one object per page, in order: [{"page": 1, "type": "HBL", "ref": "CHI/BRV/V01035"}, ...]\nNo markdown.`,
+          text: `These are ${pages.length} pages from a shipping document, in order. Classify EACH page.\n\n${fileHints(pages)}Types:\n- MANIFEST: Cargo manifest/list showing multiple shipments in blocks\n- HBL: House Bill of Lading for one shipment, issued by a freight forwarder / NVOCC on its own letterhead (often "House Bill of Lading", FIATA FBL), naming the actual exporter as shipper and the actual importer as consignee — including its continuation/rider pages and a rated or unrated copy\n- MBL: Master Bill of Lading, issued by the ocean carrier (the shipping line's name as carrier, a SCAC code, the carrier's B/L number), often a sea waybill, "data freight receipt" or express release; its shipper and consignee are usually forwarders, consolidators or agents, and it may list one cargo line or many (a consolidation) for whole containers — including its continuation pages and copies. A file named as an MBL / master B/L holds MBL pages unless a page plainly is something else\n- INVOICE: Commercial invoice, pro-forma invoice\n- PACKING_LIST: Packing list, packing specification\n- SKIP: Terms & conditions, blank pages, fax/e-mail cover sheets, signatures, anything without shipment data\n\nFor every HBL page also give "ref": the House B/L number printed on it (e.g. "CHI/BRV/V01035"), exactly as printed, or "" if none is visible. A continuation page of the same HBL carries the same ref.\n\nReturn ONLY a JSON array with one object per page, in order: [{"page": 1, "type": "HBL", "ref": "CHI/BRV/V01035"}, ...]\nNo markdown.`,
         },
       ],
     }],

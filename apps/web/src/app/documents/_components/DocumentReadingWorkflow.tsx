@@ -55,6 +55,7 @@ import {
   normalizeExtracted,
   parseContainerNumbers,
   MBL_CONTAINERS_LABEL,
+  MBL_SEALS_LABEL,
   MBL_TO_MASTER_JOB,
   isMblContainerDetail,
   keepsPartyLink,
@@ -366,8 +367,10 @@ export function DocumentReadingWorkflow() {
     (!!docToSave && saveDocument && !docName.trim()) || shipmentDocViews.some((d) => d.save && !d.name.trim());
 
   const successTitle = (() => {
-    if (destination === "masterjob")
+    if (destination === "masterjob") {
+      if (masterCreatedJobs.length === 0 && mblFiled) return `Master B/L filed to ${activeMcz}`;
       return `${masterCreatedJobs.length} shipment${masterCreatedJobs.length !== 1 ? "s" : ""} created`;
+    }
     if (destination === "invoicing" && splitDone)
       return `Invoice split over ${splitDone.written.length} shipment${splitDone.written.length !== 1 ? "s" : ""} of ${invoiceMcz}`;
     if (destination === "invoicing") return `Invoice data written to ${committedJobNumber || "shipment"}`;
@@ -872,8 +875,8 @@ export function DocumentReadingWorkflow() {
   // Files the ticked MBL details onto the master job — once per batch, right after its first
   // shipment is linked, so the master job exists and its synced fields reach that shipment too.
   // A failure here doesn't undo the shipment; the user is told and can fill in MBL Details by hand.
-  const fileMblToMasterJob = async (masterJobId: string) => {
-    if (!mblInfo) return;
+  const fileMblToMasterJob = async (masterJobId: string): Promise<boolean> => {
+    if (!mblInfo) return false;
     try {
       let data = mblToMasterJobUpdate(mblInfo, mblTicked);
       if (mblLoadTypeLocked) delete data.loadType;
@@ -885,20 +888,53 @@ export function DocumentReadingWorkflow() {
         const current = await api.shipments.masterJobGet(masterJobId);
         // A Full Load master job reads its containers from the shipments.
         if (current.masterJob.loadType !== FULL_LOAD) {
+          const read = new Map(added.map((c) => [c.containerNumber, c]));
           const known = new Set(current.containers.map((c) => c.containerNumber));
           const fresh = added.filter((c) => !known.has(c.containerNumber));
-          if (fresh.length > 0) {
-            await api.shipments.masterJobContainersUpdate(masterJobId, { containers: [...current.containers, ...fresh] });
+          // A container the master job has already gets the MBL's seal, unless it has one of its own.
+          let sealed = 0;
+          const containers = current.containers.map((c) => {
+            const seal = read.get(c.containerNumber)?.sealNumber ?? "";
+            if (c.sealNumber || !seal) return c;
+            sealed += 1;
+            return { ...c, sealNumber: seal };
+          });
+          if (fresh.length > 0 || sealed > 0) {
+            await api.shipments.masterJobContainersUpdate(masterJobId, { containers: [...containers, ...fresh] });
           }
         }
       }
       setMblFiled(true);
       queryClient.invalidateQueries({ queryKey: ["master-jobs"] });
       queryClient.invalidateQueries({ queryKey: ["shipments"] });
+      return true;
     } catch (err) {
       toast.error(`MBL details could not be filed to the master job: ${err instanceof Error ? err.message : "unknown error"}`);
+      return false;
     }
   };
+
+  // A pre-alert with a Master B/L and no House B/Ls: the MBL alone is filed to the master job -
+  // the one picked, or a new one created for it.
+  const [filingMblOnly, setFilingMblOnly] = useState(false);
+  const fileMblOnly = async () => {
+    setFilingMblOnly(true);
+    try {
+      let id = masterMode === "existing" ? currentMasterJob?.id : undefined;
+      if (!id) {
+        const { masterJob } = await createMasterJob.mutateAsync();
+        id = masterJob.id;
+        setBatchMcz(masterJob.mczNumber);
+      }
+      if (await fileMblToMasterJob(id)) setStep("committed");
+    } catch (err) {
+      toast.error(`The master job could not be created: ${err instanceof Error ? err.message : "unknown error"}`);
+    } finally {
+      setFilingMblOnly(false);
+    }
+  };
+  const mblOnly =
+    destination === "masterjob" && pipelineStep === "ready" && masterShipments.length === 0 && hblBatchIndex >= hblTotalBatches && !!mblInfo;
 
   const validateAndCreate = async () => {
     if (!activeMcz) return toast.warning("No MCZ number available.");
@@ -1566,7 +1602,7 @@ export function DocumentReadingWorkflow() {
               <div className="flex gap-2">
                 <Button onClick={() => setStep("upload")}>Back</Button>
                 <Button type="primary" onClick={startMasterExtraction}>
-                  Extract Shipments from Bills of Lading
+                  {hblCount === 0 && (classification.MBL || 0) > 0 ? "Read the Master Bill of Lading" : "Extract Shipments from Bills of Lading"}
                 </Button>
               </div>
             </div>
@@ -1579,7 +1615,34 @@ export function DocumentReadingWorkflow() {
             </div>
           )}
 
-          {pipelineStep === "ready" && (
+          {mblOnly && (
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-sm font-semibold">Master Bill of Lading</span>
+                <Tag color="gold" className="font-mono">{activeMcz}</Tag>
+                <span className="text-xs text-slate-400">No House B/Ls in this upload — the MBL alone is filed</span>
+              </div>
+              <MblDetailsBox
+                info={mblInfo!}
+                ticked={mblTicked}
+                onToggle={(label) => setMblTicked((prev) => ({ ...prev, [label]: !prev[label] }))}
+                filed={mblFiled}
+                mcz={activeMcz}
+                masterJob={currentMasterJob}
+                loadTypeLocked={mblLoadTypeLocked}
+                alone
+              />
+              {error && <Alert className="mb-3" type="error" showIcon message={error} />}
+              <div className="flex gap-2 mt-4">
+                <Button onClick={() => setStep("upload")}>Back</Button>
+                <Button type="primary" loading={filingMblOnly} disabled={!Object.values(mblTicked).some(Boolean)} onClick={fileMblOnly}>
+                  File to {masterMode === "existing" ? activeMcz : "a new master job"}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {pipelineStep === "ready" && !mblOnly && (
             <div>
               <div className="flex items-center justify-between mb-3">
                 <Space size="small" wrap>
@@ -1836,12 +1899,14 @@ interface MblDetailsBoxProps {
   mcz: string;
   masterJob?: interfaces.MasterJobItem;
   loadTypeLocked: boolean;
+  /** The MBL is filed on its own (no House B/Ls), not with the first shipment. */
+  alone?: boolean;
 }
 
 // The MBL details read from the pre-alert, each with a tick: ticked ones are filed to the
 // master job (once, with the batch's first shipment). When the master job already holds a
 // different value, it is shown so the overwrite is visible before saving.
-function MblDetailsBox({ info, ticked, onToggle, filed, mcz, masterJob, loadTypeLocked }: MblDetailsBoxProps) {
+function MblDetailsBox({ info, ticked, onToggle, filed, mcz, masterJob, loadTypeLocked, alone = false }: MblDetailsBoxProps) {
   const rows = Object.entries(info).filter(([, value]) => value);
   const current = (label: string): string => {
     const field = MBL_TO_MASTER_JOB[label];
@@ -1860,7 +1925,9 @@ function MblDetailsBox({ info, ticked, onToggle, filed, mcz, masterJob, loadType
         <span className="text-xs text-slate-500">
           {filed
             ? `Filed to ${mcz}`
-            : `${tickedCount} ticked — filed to ${mcz} with the first shipment`}
+            : alone
+              ? `${tickedCount} ticked — filed to ${mcz}`
+              : `${tickedCount} ticked — filed to ${mcz} with the first shipment`}
         </span>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2">
@@ -1885,6 +1952,9 @@ function MblDetailsBox({ info, ticked, onToggle, filed, mcz, masterJob, loadType
               <span className="flex-1 min-w-0">
                 <span className="text-slate-900 font-medium break-words">{value}</span>
                 {cntrDetail && <span className="block text-[11px] text-slate-400">Used for the container type</span>}
+                {label === MBL_SEALS_LABEL && (
+                  <span className="block text-[11px] text-slate-400">Filed with the containers, one seal each</span>
+                )}
                 {label === MBL_CONTAINERS_LABEL && fullLoad && (
                   <span className="block text-[11px] text-slate-400">Full Load: the containers come from the shipments</span>
                 )}

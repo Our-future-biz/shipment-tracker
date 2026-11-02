@@ -43,6 +43,22 @@ export const BOOKING_FIELDS = [
   "CNTR count [4]", "CNTR length [4]", "CNTR type [4]",
 ];
 
+// A Master Bill of Lading, filed to its master job: what a booking confirmation gives, the B/L's own
+// details, and the containers with their seals (labels as the master-job review shows them).
+export const MBL_FIELDS = [
+  "Master BoL Number", "Master BoL Type", "Booking Number", "Shipping line / Coloader", "Load Type",
+  "Shipper", "Consignee", "Vessel", "Voyage", "POL", "POD", "Destination",
+  "Estimated Departure", "Estimated Arrival",
+  "Cargo Closing", "VGM Closing", "SI Closing",
+  "Release Reference", "Release Depot", "Redelivery Reference", "Redelivery Depot",
+  "Container Number", "Seal Number",
+  "CNTR count [1]", "CNTR length [1]", "CNTR type [1]",
+  "CNTR count [2]", "CNTR length [2]", "CNTR type [2]",
+  "CNTR count [3]", "CNTR length [3]", "CNTR type [3]",
+  "CNTR count [4]", "CNTR length [4]", "CNTR type [4]",
+  "PCS", "Type Of Packages", "Total Weight In Tons", "Total Volume In CBM",
+];
+
 export const CUSTOMS_FIELDS = ["MRN Number", "Shipper", "Consignee", "Total Weight In Tons", "Container Number"];
 
 /**

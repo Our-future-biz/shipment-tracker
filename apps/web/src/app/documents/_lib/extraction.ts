@@ -478,6 +478,14 @@ export const MBL_TO_MASTER_JOB: Record<string, MasterJobTextField> = {
   "Estimated Arrival": "estimatedArrival",
   Vessel: "vessel",
   Voyage: "voyage",
+  // As from a booking confirmation, when the B/L states them.
+  "Cargo Closing": "closingDate",
+  "VGM Closing": "vgmClosing",
+  "SI Closing": "siClosing",
+  "Release Reference": "releaseReference",
+  "Release Depot": "releaseDepot",
+  "Redelivery Reference": "redeliveryReference",
+  "Redelivery Depot": "redeliveryDepot",
   PCS: "pcs",
   "Type Of Packages": "typeOfPackages",
   "Total Weight In Tons": "totalWeightTons",
@@ -486,6 +494,9 @@ export const MBL_TO_MASTER_JOB: Record<string, MasterJobTextField> = {
 
 /** The MBL detail whose tick files its containers to the master job. */
 export const MBL_CONTAINERS_LABEL = "Container Number";
+
+/** The containers' seals, in the order of their numbers: filed with the containers, no tick of their own. */
+export const MBL_SEALS_LABEL = "Seal Number";
 
 /** CNTR count/length/type rows only describe the containers; they have no tick of their own. */
 export const isMblContainerDetail = (label: string) => /^CNTR (count|length|type) \[\d\]$/.test(label);
@@ -518,12 +529,14 @@ export function containerTypeFrom(length: string, kind: string): string {
  */
 export function mblContainers(info: Record<string, string>): interfaces.MasterJobContainerLine[] {
   const numbers = parseContainerNumbers(info[MBL_CONTAINERS_LABEL]);
+  // One seal per container, in the same order ("" where a container has none).
+  const seals = (info[MBL_SEALS_LABEL] ?? "").split(/[,;\n]/).map((s) => s.trim());
   const groups = [1, 2, 3, 4]
     .map((i) => containerTypeFrom(info[`CNTR length [${i}]`] ?? "", info[`CNTR type [${i}]`] ?? ""))
     .filter(Boolean);
   return numbers.map((containerNumber, i) => ({
     containerNumber,
-    sealNumber: "",
+    sealNumber: seals[i] ?? "",
     type: groups.length === 1 ? groups[0]! : groups.length === numbers.length ? groups[i]! : "",
     shipmentIds: [],
   }));

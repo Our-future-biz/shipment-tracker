@@ -3,8 +3,8 @@ import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
 import { classifyPages, extractFromPages } from "./extraction.service";
 import { splitPdfToPages, detectMediaType, mergePagesToPdf } from "../lib/pdf";
-import { SHIPMENT_FIELDS } from "../lib/fields";
-import { MASTER_JOB_PROMPT, PLACE_RULES } from "../lib/prompts";
+import { MBL_FIELDS, SHIPMENT_FIELDS } from "../lib/fields";
+import { MASTER_JOB_PROMPT, MBL_PROMPT } from "../lib/prompts";
 import { groupHblPages } from "../lib/hblGroups";
 import { canonicalizeRecords } from "./places.service";
 import { chargeReading } from "../lib/readingBudget";
@@ -117,7 +117,7 @@ export async function prepare(files: PipelineFile[], owner: SessionOwner): Promi
   for (let i = 0; i < rawPages.length; i += CLASSIFY_CHUNK) {
     const chunk = rawPages
       .slice(i, i + CLASSIFY_CHUNK)
-      .map((p, j) => ({ pageNum: i + j + 1, base64: p.base64, mediaType: p.mediaType }));
+      .map((p, j) => ({ pageNum: i + j + 1, base64: p.base64, mediaType: p.mediaType, fileName: p.fileName }));
     try {
       const classified = await classifyPages(chunk);
       for (let j = 0; j < chunk.length; j++) {
@@ -181,12 +181,14 @@ export async function extractMbl(sessionId: string, who: SessionOwner): Promise<
     return { mblInfo: null, message: "No MBL pages found" };
   }
 
-  const pages = mblPages.slice(0, 3).map((p) => ({ base64: p.base64, mediaType: p.mediaType }));
+  // The first pages carry the B/L's head, containers and seals; the rest are mostly its cargo
+  // lines continued and copies of the same B/L.
+  const pages = mblPages.slice(0, MBL_PAGES_READ).map((p) => ({ base64: p.base64, mediaType: p.mediaType }));
   const results = await extractFromPages(
     pages,
-    "",
-    `This is a Master Bill of Lading (MBL). Extract ONLY the shared shipping info:\n- Vessel / Voyage\n- POL, POD\n- ETD date, ETA date\n- Shipping line / Coloader\n- Booking number\n- FCL/LCL\n- CNTR no. (all container numbers)\n- CNTR count, length, type\nDo NOT extract cargo items. Return a single JSON object.\n\n${PLACE_RULES}`,
-    SHIPMENT_FIELDS,
+    MBL_PROMPT,
+    `These ${pages.length} page(s) are one Master Bill of Lading. Return a single JSON object with the fields that are on it.`,
+    MBL_FIELDS,
     2048,
   );
 
@@ -196,6 +198,8 @@ export async function extractMbl(sessionId: string, who: SessionOwner): Promise<
 
   return { mblInfo };
 }
+
+const MBL_PAGES_READ = 4;
 
 const MBL_SHARED_KEYS = [
   "POL", "POD", "Vessel", "Voyage", "Estimated Departure", "Estimated Arrival",

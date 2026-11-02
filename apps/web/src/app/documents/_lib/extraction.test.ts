@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { customerNamed, keepsPartyLink, keptPartyDetails, partyLinks, type ShipmentPartyDetails } from "./extraction";
+import { customerNamed, keepsPartyLink, keptPartyDetails, mblContainers, mblDefaultTicks, mblToMasterJobUpdate, partyLinks, type ShipmentPartyDetails } from "./extraction";
 
 const acme = { id: "k1", companyName: "Acme Logistics s.r.o." };
 const zelezny = { id: "k2", companyName: "Železný a syn" };
@@ -100,5 +100,38 @@ describe("keptPartyDetails", () => {
   it("adds nothing when the link stays as it is or the party is not written", () => {
     expect(keptPartyDetails({ consigneeId: "k2" }, shipment)).toEqual({});
     expect(keptPartyDetails({}, shipment)).toEqual({});
+  });
+});
+
+describe("Master B/L to master job", () => {
+  // As read from an ACL data freight receipt (CHV229738): one 40' HC with its seal.
+  const info = {
+    "Master BoL Number": "SA01241241",
+    "Shipping line / Coloader": "Atlantic Container Line",
+    "Container Number": "ACLU9821217",
+    "Seal Number": "SL123456",
+    "CNTR count [1]": "1",
+    "CNTR length [1]": "40HC",
+    "CNTR type [1]": "DRY",
+    "Cargo Closing": "2026-02-20",
+  };
+
+  it("files each container with its seal and type", () => {
+    expect(mblContainers(info)).toEqual([{ containerNumber: "ACLU9821217", sealNumber: "SL123456", type: "40' HC", shipmentIds: [] }]);
+  });
+
+  it("pairs seals with containers in order, leaving a container without one empty", () => {
+    const two = mblContainers({ "Container Number": "ACLU9821217, MSKU1234565", "Seal Number": ", S2" });
+    expect(two.map((c) => [c.containerNumber, c.sealNumber])).toEqual([["ACLU9821217", ""], ["MSKU1234565", "S2"]]);
+  });
+
+  it("fills booking-confirmation fields of the master job from the MBL", () => {
+    const ticks = mblDefaultTicks(info);
+    expect(ticks["Seal Number"]).toBeUndefined(); // no tick of its own: it goes with the containers
+    expect(mblToMasterJobUpdate(info, ticks)).toMatchObject({
+      masterBolNumber: "SA01241241",
+      shippingLine: "Atlantic Container Line",
+      closingDate: "2026-02-20",
+    });
   });
 });
