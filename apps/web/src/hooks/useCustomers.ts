@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient, type QueryClient } from "@tansta
 import { api } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
 import { customerQuotesKeys } from "@/hooks/salesQueryKeys";
-import { customerAddressesKey } from "@/hooks/useCustomerAddresses";
+import { customerAddressesKey } from "@/hooks/customerKeys";
 import { refreshShipmentCopies } from "@/hooks/useShipments";
 import { refreshQuoteCopies } from "@/hooks/useSalesQuotes";
 import { railTariffKeys } from "@/hooks/useRailTariffs";

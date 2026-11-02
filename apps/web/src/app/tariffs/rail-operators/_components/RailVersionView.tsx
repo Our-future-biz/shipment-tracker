@@ -18,7 +18,7 @@ interface RailVersionViewProps {
 // draft (it prices from its start date) or discards it.
 export const RailVersionView = ({ customerId, versionId }: RailVersionViewProps) => {
   const { version, isLoading, error } = useRailTariffVersion(versionId);
-  const { relayout, isRelayouting, approve, isApproving, discard, isDiscarding } = useRailTariffActions();
+  const { relayout, isRelayouting, approve, isApproving, setDates, isSettingDates, discard, isDiscarding } = useRailTariffActions();
   const handleRelayout = useTariffRelayout(relayout, (read) => `${formatNumber(read.rowCount)} rows`);
 
   return (
@@ -30,7 +30,7 @@ export const RailVersionView = ({ customerId, versionId }: RailVersionViewProps)
       supplierLabel="Rail operator"
       forText={(v) => tariffForText(v.tariff)}
       rowsText={(v) => `${formatNumber(v.rowCount)} rows`}
-      actions={{ approve, isApproving, discard, isDiscarding, fetchSource: fetchRailTariffSource }}
+      actions={{ approve, isApproving, setDates, isSettingDates, discard, isDiscarding, fetchSource: fetchRailTariffSource }}
       discardDescription="The draft and the rows read from it are thrown away. Upload the file again to start over."
     >
       {(v, editable) => (

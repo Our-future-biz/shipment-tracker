@@ -1,5 +1,5 @@
 {
-  "id": "7af7f4f1-15eb-4678-b6af-3b4b13eaf857",
+  "id": "4b3d4442-1de8-43bc-93bf-7a9f69e456d8",
   "prevId": "db71343e-e72b-4ace-8365-06fb94cdd7e1",
   "version": "7",
   "dialect": "postgresql",
@@ -347,13 +347,6 @@
           "notNull": true,
           "default": "'EUR'"
         },
-        "secondary_currencies": {
-          "name": "secondary_currencies",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::text[]"
-        },
         "payment_terms": {
           "name": "payment_terms",
           "type": "text",
@@ -517,7 +510,7 @@
         },
         "customer_roles_check": {
           "name": "customer_roles_check",
-          "value": "cardinality(\"customer\".\"roles\") > 0 AND \"customer\".\"roles\" <@ ARRAY['customer', 'haulier', 'rail_operator', 'first_last_mile_haulier', 'shipping_line']::text[]"
+          "value": "cardinality(\"customer\".\"roles\") > 0 AND \"customer\".\"roles\" <@ ARRAY['customer', 'haulier', 'rail_operator', 'first_last_mile_haulier', 'shipping_line', 'co_loader']::text[]"
         }
       },
       "isRLSEnabled": false

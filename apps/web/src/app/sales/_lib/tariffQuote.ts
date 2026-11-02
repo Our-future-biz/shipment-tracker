@@ -1,3 +1,4 @@
+import { containerType } from "@/lib/cargo";
 import { toChargeCode } from "@/lib/chargeCodes";
 import { quoteContainerCount, withRate } from "./salesQuote";
 import type { CostLine, SalesQuoteData } from "./types";
@@ -59,17 +60,21 @@ interface ContainerPrice {
  * The freight lines a picked offer makes of `base` (the picked line with the offer's supplier,
  * currency and tariffRef on it). One line per container when every container costs the same and
  * the offer prices all of the quote's containers (the quote's containers its quantity); otherwise
- * one lump-sum line per container type, priced as number × price, of which only the first keeps the
- * pairing with a selling line the picked line had.
+ * one line per container type, charged per container of that type (containerType) at its price, of
+ * which only the first keeps the pairing with a selling line the picked line had.
  */
 export function containerFreightLines(base: CostLine, description: string, prices: readonly ContainerPrice[], quote: SalesQuoteData): CostLine[] {
   const distinct = new Set(prices.map((l) => l.price));
   const counted = prices.reduce((sum, l) => sum + l.qty, 0);
   const containers = quoteContainerCount(quote);
-  if (distinct.size === 1 && counted === containers) return [withRate({ ...base, description, basis: "container" }, prices[0]!.price, containers)];
+  if (distinct.size === 1 && counted === containers) {
+    const all: CostLine = { ...base, description, basis: "container" };
+    delete all.containerType;
+    return [withRate(all, prices[0]!.price, containers)];
+  }
   return prices.map((l, i) => {
-    const sized: CostLine = { ...base, description: `${description} - ${l.qty} × ${l.type}`, basis: "lumpsum", amount: l.amount, qty: l.qty, unit: l.type, unitPrice: l.price };
-    delete sized.value;
+    const type = containerType(l.type);
+    const sized = withRate({ ...base, description: `${description} - ${l.qty} × ${type}`, basis: "container", containerType: type }, l.price, l.qty);
     if (i > 0) delete sized.pairId;
     return sized;
   });

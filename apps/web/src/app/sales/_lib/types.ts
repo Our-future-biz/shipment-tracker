@@ -91,6 +91,37 @@ export interface CostLine {
   pairId?: string;
   // Why Sales changed the amount the server set (the selling line of the warehouse's heavy cargo fee).
   changeReason?: string;
+  // A line priced from a tariff that prices by weight (rail, collections): the cargo weight it was
+  // priced for (tariffRecheck.ts), so a later change of the weight asks for the rate to be checked.
+  pricedFor?: string;
+  // A line charged per container of one type only ("40' HC"): those containers are its quantity.
+  // Without it a line charged per container counts all of the quote's containers.
+  containerType?: string;
+  // FCL pricing (fclPricing.ts), on a buying line: whether the charge is part of the all-in price
+  // (true when absent), whether profit is put on it in a breakdown offer (absent: by its charge),
+  // and the profit set for it alone in "Edit per charge". A selling line made from it keeps inAllIn,
+  // which the printed quotation goes by.
+  inAllIn?: boolean;
+  profitBasis?: boolean;
+  chargeProfit?: FclProfit;
+}
+
+/** A profit as FCL pricing takes it: a % of the selling price, or a sum in the quote's currency. */
+export interface FclProfit {
+  mode: "percent" | "sum";
+  value: number;
+}
+
+/** The profit of one block of FCL pricing: one figure for the block, or one per charge ("Edit per charge"). */
+export interface FclBlockProfit extends FclProfit {
+  perCharge?: boolean;
+}
+
+// A Sea FCL quote priced in the FCL layout (fclPricing.ts): the profit of each block - a container
+// type, all containers, or the charges per shipment - by its key. Its selling lines are made from
+// the buying lines and these.
+export interface FclPricing {
+  blocks: Record<string, FclBlockProfit>;
 }
 
 // One exchange rate an older quote kept for itself (the weekly Exchange sheet's, or typed). Read
@@ -202,6 +233,9 @@ export interface SalesQuoteData {
   serviceType?: string; // Air / Sea (FCL/LCL) / Rail / Road
   incoterm?: string;
   readyDate?: string;
+  // A sea quote: whether the cargo goes through a container yard (CY). Only with "yes" do Routing's
+  // Origin and Destination also offer the ocean terminals. Absent until it is answered.
+  cy?: boolean;
   // Routing
   origin?: string;
   destination?: string;
@@ -209,6 +243,9 @@ export interface SalesQuoteData {
   pod?: string; // port of discharge
   pickup?: string;
   delivery?: string;
+  // Origin and Destination were left blank on purpose: confirmed as Routing was saved without them
+  // ("Save & continue"), which completes the step.
+  routingBlank?: boolean;
   // Cargo
   commodity?: string;
   stackable?: boolean;
@@ -235,6 +272,8 @@ export interface SalesQuoteData {
   // Quoted as an all-in rate: the customer's document shows the selling total as one price, without
   // the lines it is made of. The lines stay on the quote as they are.
   allIn?: boolean;
+  // A Sea FCL quote priced in the FCL layout: its profit per block (fclPricing.ts).
+  fclPricing?: FclPricing;
   // The revision that replaced this quote (QCZ…-R1): written by the server when it is revised.
   replacedBy?: string;
   // The currency the quote is presented in (EUR when empty); each line keeps its own.
@@ -359,7 +398,7 @@ export const PRICING_CLOSED_STATUSES: readonly QuoteStatus[] = ["quoted", "feedb
 
 // The keys of the document that hold a quote's prices: what the server keeps as stored once the
 // quote is in one of the statuses above (its PRICING_KEYS).
-export const PRICING_KEYS = ["buyingLines", "sellingLines", "currency", "allIn", "road"] as const satisfies readonly (keyof SalesQuoteData)[];
+export const PRICING_KEYS = ["buyingLines", "sellingLines", "currency", "allIn", "fclPricing", "road"] as const satisfies readonly (keyof SalesQuoteData)[];
 
 export const LOST_REASONS: Record<string, string[]> = {
   Pricing: ["Price too high", "Competitor cheaper", "Margin too low"],

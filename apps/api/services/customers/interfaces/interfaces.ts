@@ -16,6 +16,8 @@ export type ContactRole =
   | "Owner";
 /** Registered is the company's seat; the others are where invoices and paperwork go and goods are picked up or delivered. */
 export type AddressType = "Registered" | "Billing" | "Paperwork" | "Pickup" | "Delivery" | "Warehouse";
+/** The address types in the order they are listed and stored in. */
+export const ADDRESS_TYPES: readonly AddressType[] = ["Registered", "Billing", "Paperwork", "Pickup", "Delivery", "Warehouse"];
 /** A risk level set by hand, or "" when it is derived from the registry data. */
 export type RiskLevelOverride = "" | "Low" | "Medium" | "High";
 export type NoteType = "Note" | "Email" | "Call" | "Follow-up" | "Visit";
@@ -25,10 +27,10 @@ export type InvoiceStatus = "Open" | "Overdue" | "Paid" | "Credited";
 /**
  * What a company is to us. A customer buys our services; a haulier is a trucking subcontractor; a rail operator sells us rail
  * transport, its tariffs kept under Tariffs; a first / last mile haulier trucks containers between a port or terminal and the
- * customer (pre- and on-carriage); a shipping line sells us ocean freight, its tariffs kept under Tariffs. One company can have
- * several roles.
+ * customer (pre- and on-carriage); a shipping line sells us ocean freight, its tariffs kept under Tariffs; a co-loader is a
+ * consolidator we hand LCL (groupage) cargo to. One company can have several roles.
  */
-export type CustomerRole = "customer" | "haulier" | "rail_operator" | "first_last_mile_haulier" | "shipping_line";
+export type CustomerRole = "customer" | "haulier" | "rail_operator" | "first_last_mile_haulier" | "shipping_line" | "co_loader";
 /** What happens at a site: goods are picked up (loading), dropped off (delivery), or both. */
 export type CustomerSiteKind = "loading" | "delivery" | "both";
 
@@ -155,6 +157,8 @@ export interface ContactItem {
 export interface CustomerSiteItem {
   id: string;
   customerId: string;
+  /** The Pickup / Delivery address (Addresses tab) the site is; null for a site from before they were linked */
+  addressId: string | null;
   label: string;
   kind: CustomerSiteKind;
   street: string;
@@ -219,7 +223,8 @@ export interface InvoiceItem {
 export interface AddressItem {
   id: string;
   customerId: string;
-  type: AddressType;
+  /** What the address is used for; one address can be all of them (the seat, invoices, pick-up, …) */
+  types: AddressType[];
   label: string;
   street: string;
   city: string;

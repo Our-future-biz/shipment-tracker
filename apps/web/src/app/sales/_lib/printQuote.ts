@@ -5,9 +5,10 @@ import { UNSENT_QUOTE_STATUSES } from "./types";
 import { hasCompanyDetails, type StoredCompanyDetails } from "./companyDetails";
 import { escapeHtml } from "@/lib/html";
 import { unpricedOverweight } from "./overweight";
+import { fclOfferRows } from "./fclPricing";
 import type { PickableUser } from "@/lib/people";
 import { ownerNameForCustomer, ownerNameLoading } from "./ownerName";
-import { businessDay, businessToday, cargoReadyDay, computeTotals, computeCargo, convertLine, documentBlock, fmtDimensions, fxClause, quoteValidUntil, ratesNeeded } from "./salesQuote";
+import { businessDay, businessToday, cargoReadyDay, computeTotals, computeCargo, convertLine, documentBlock, fmtDimensions, fxClause, isContainerQuote, quoteValidUntil, ratesNeeded } from "./salesQuote";
 
 // Whatever a user typed is text on the document, never markup.
 const esc = escapeHtml;
@@ -164,20 +165,19 @@ export function quoteDocument(
   // under); a line nobody described keeps its type, so that no amount stands without a name.
   // The Overweight surcharge left at 0 (with a reason) is no charge: the customer does not see it.
   const sellingLines: CostLine[] = (data.sellingLines ?? []).filter((l) => !unpricedOverweight(l));
-  const lineRows = sellingLines
-    .map(
-      (l: CostLine) => `<tr>
-        <td>${esc(l.description?.trim() || l.type)}</td>
-        <td style="text-align:right">${money(convertLine(l, data, sheet, { selling: true, live: exchange }))}</td>
-      </tr>`,
-    )
-    .join("");
-  // An all-in quote offers the total as one price.
-  const allInRow = `<tr>
-        <td>All-in rate</td>
-        <td style="text-align:right">${money(totals.selling)}</td>
+  const row = (label: string, amount: number | null) => `<tr>
+        <td>${esc(label)}</td>
+        <td style="text-align:right">${money(amount)}</td>
       </tr>`;
-  const sellingRows = lineRows && data.allIn ? allInRow : lineRows;
+  const sellingAmount = (l: CostLine) => convertLine(l, data, sheet, { selling: true, live: exchange });
+  // A quote priced in the FCL layout offers an all-in rate per container type, the charges kept
+  // out of it on their own lines (fclOfferRows).
+  const fclRows = data.fclPricing && isContainerQuote(data) ? fclOfferRows(data, sellingLines, sellingAmount) : null;
+  const lineRows = (fclRows ?? sellingLines.map((l) => ({ label: l.description?.trim() || l.type, amount: sellingAmount(l) })))
+    .map((r) => row(r.label, r.amount))
+    .join("");
+  // Any other all-in quote offers the total as one price.
+  const sellingRows = lineRows && data.allIn && !fclRows ? row("All-in rate", totals.selling) : lineRows;
 
   // A quote without selling lines has no price to offer yet, so its document has no rate offer:
   // a "Total price 0.00 EUR" in its place would read as the offer.

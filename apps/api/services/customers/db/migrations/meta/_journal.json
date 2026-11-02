@@ -173,8 +173,29 @@
     {
       "idx": 24,
       "version": "7",
+      "when": 1793335949526,
+      "tag": "0024_customer_role_co_loader",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1793336354533,
+      "tag": "0025_customer_address_types",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1793338276452,
+      "tag": "0026_customer_site_address",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
       "when": 1793620299051,
-      "tag": "0024_customer_secondary_currencies",
+      "tag": "0027_customer_secondary_currencies",
       "breakpoints": true
     }
   ]

@@ -252,7 +252,7 @@ class CustomerService {
       dutyPaymentTerms: NEW_CUSTOMER_PAYMENT_TERMS,
       roles: checkedRoles,
     };
-    const registered = { type: "Registered" as const, street: ares.street, city: ares.postalCity || ares.city, postalCode: ares.postalCode, country: ares.country };
+    const registered = { types: ["Registered" as const], street: ares.street, city: ares.postalCity || ares.city, postalCode: ares.postalCode, country: ares.country };
     const row = await insertUnique(() => customerRepository.createWithContact(companyId, values, mainContact, registered), "IČO");
     return toCustomerItem(row);
   }
@@ -288,7 +288,7 @@ class CustomerService {
       freightPaymentTerms: NEW_CUSTOMER_PAYMENT_TERMS,
       dutyPaymentTerms: NEW_CUSTOMER_PAYMENT_TERMS,
     };
-    const registered = { type: "Registered" as const, street, city, postalCode, country };
+    const registered = { types: ["Registered" as const], street, city, postalCode, country };
     const row = await insertUnique(() => customerRepository.createWithContact(companyId, values, mainContact, registered), "registration number");
     return toCustomerItem(row);
   }

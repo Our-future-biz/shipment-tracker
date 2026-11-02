@@ -56,6 +56,12 @@ describe("railRouteOf", () => {
     expect(route).toMatchObject({ port: "SIKOP", direction: "export", place: "Zlín", country: "CZ", date: TODAY });
   });
 
+  it("reads the town and country of a terminal picked as Origin / Destination without its code", () => {
+    const inland = railRouteOf({ ...QUOTE, delivery: "", destination: "Duisburg DIT (DE-IT116)" }, TODAY);
+    expect(inland).toMatchObject({ place: "Duisburg DIT", country: "DE" });
+    expect(railRouteOf({ ...QUOTE, delivery: "", destination: "Wien Freudenau (ATVIEWFR)" }, TODAY)).toMatchObject({ place: "Wien Freudenau", country: "AT" });
+  });
+
   it("leaves the port open when the quote's port has no rail tariffs", () => {
     expect(railRouteOf({ ...QUOTE, pod: "Gdansk (PLGDN)" }, TODAY).port).toBeNull();
   });
@@ -113,7 +119,7 @@ describe("withRailOffer", () => {
     expect(railVersionId(pick.lines[0]!)).toBe("version-1");
   });
 
-  it("makes a lump-sum line per container type when they cost differently", () => {
+  it("makes a line per container of each type when they cost differently", () => {
     const mixed = offer({
       lines: [
         { type: "20' DC", qty: 2, bandCode: "20ft-25t", bandLabel: "20'<25 t", price: 905, amount: 1810 },
@@ -124,17 +130,17 @@ describe("withRailOffer", () => {
     const quote = { ...QUOTE, containers: [...QUOTE.containers!, { qty: 1, type: "40' HC", weight: 20000 }] };
     const pick = withRailOffer([{ ...haulage, pairId: "p1" }, { ...haulage, chargeCode: "other", description: "Other" }], 0, mixed, "DEHAM", "import", quote);
     expect(pick).toMatchObject({ at: 0, count: 2 });
-    expect(pick.lines.map((l) => [l.description, l.basis, l.qty, l.unit, l.unitPrice, l.amount, l.pairId])).toEqual([
-      ["Rail Hamburg → Brno via Cetr - 2 × 20' DC", "lumpsum", 2, "20' DC", 905, 1810, "p1"],
-      ["Rail Hamburg → Brno via Cetr - 1 × 40' HC", "lumpsum", 1, "40' HC", 1133, 1133, undefined],
-      ["Other", "container", undefined, undefined, undefined, 0, undefined],
+    expect(pick.lines.map((l) => [l.description, l.basis, l.containerType, l.qty, l.unit, l.unitPrice, l.amount, l.pairId])).toEqual([
+      ["Rail Hamburg → Brno via Cetr - 2 × 20' DC", "container", "20' DC", 2, "20' DC", 905, 1810, "p1"],
+      ["Rail Hamburg → Brno via Cetr - 1 × 40' HC", "container", "40' HC", 1, "40' HC", 1133, 1133, undefined],
+      ["Other", "container", undefined, undefined, undefined, undefined, 0, undefined],
     ]);
   });
 
-  it("makes a lump-sum line when the offer does not price every container of the quote", () => {
+  it("makes a line per container of the type when the offer does not price every container of the quote", () => {
     const quote = { ...QUOTE, containers: [...QUOTE.containers!, { qty: 1, type: "" }] };
     const pick = withRailOffer([haulage], 0, offer(), "DEHAM", "import", quote);
-    expect(pick.lines.map((l) => [l.basis, l.qty, l.unitPrice, l.amount])).toEqual([["lumpsum", 2, 905, 1810]]);
+    expect(pick.lines.map((l) => [l.basis, l.containerType, l.qty, l.unitPrice, l.amount])).toEqual([["container", "20' DC", 2, 905, 1810]]);
   });
 
   it("replaces the lines an earlier pick on the line made", () => {

@@ -3,7 +3,7 @@ import { downloadCsv } from "@/lib/csv";
 import type { ExchangeRates } from "@/lib/exchangeRates";
 import { fmtMoney, roundCents } from "@/lib/money";
 import type { ChargeBasis, SalesQuoteData, CostLine, PackageLine, QuoteContainerLine, TimelineEntry } from "./types";
-import { teuForType } from "@/lib/cargo";
+import { containerType, teuForType } from "@/lib/cargo";
 import { withBuyingBasis } from "./costPairs";
 import { businessDay, businessToday, formatDate } from "@/lib/date";
 import { FX_DRAFT_STATUSES, PRICING_CLOSED_STATUSES, PRICING_KEYS, PROTECTED_KEYS, type QuoteStatus } from "./types";
@@ -200,6 +200,11 @@ export function isContainerQuote(data: Pick<SalesQuoteData, "serviceType">): boo
   return data.serviceType === "Sea FCL";
 }
 
+// A quote by sea: Sea FCL, Sea LCL or Sea Break Bulk.
+export function isSeaQuote(data: Pick<SalesQuoteData, "serviceType">): boolean {
+  return /^sea/i.test(data.serviceType ?? "");
+}
+
 // Whether a container type is a reefer: RF, or HR (the high-cube reefer), of any size.
 export function isReeferType(type: string | undefined): boolean {
   // HR is the 40' high-cube reefer's former name, still on quotes saved before it was HRF.
@@ -282,16 +287,23 @@ export const CONTAINER_UNIT = "container";
 export const perUnitBasis = (basis: ChargeBasis | undefined): basis is "wm" | "container" => basis === "wm" || basis === "container";
 
 /**
- * The containers a line charged per container is counted by: those of a full-container quote. A
- * quote of another mode has none, even with the container lines it kept from an earlier mode.
+ * The containers a line charged per container is counted by: those of a full-container quote, of
+ * one type when `type` is given ("40' HC"; an old "40' GP" is a 40' DC). A quote of another mode
+ * has none, even with the container lines it kept from an earlier mode.
  */
-export function quoteContainerCount(data: SalesQuoteData): number {
-  return isContainerQuote(data) ? computeCargo(data).totalContainers : 0;
+export function quoteContainerCount(data: SalesQuoteData, type?: string): number {
+  if (!isContainerQuote(data)) return 0;
+  if (!type) return computeCargo(data).totalContainers;
+  const wanted = containerType(type);
+  return (data.containers ?? []).reduce((sum, c) => sum + (containerType(c.type) === wanted ? Number(c.qty) || 0 : 0), 0);
 }
 
-/** The units a line of this basis is counted in on this quote: its weight / measure, or its containers. */
-export function basisUnits(data: SalesQuoteData, basis: ChargeBasis | undefined): number {
-  return basis === "container" ? quoteContainerCount(data) : computeCargo(data).weightMeasure;
+/**
+ * The units a line of this basis is counted in on this quote: its weight / measure, or its
+ * containers - those of its container type, when it has one.
+ */
+export function basisUnits(data: SalesQuoteData, basis: ChargeBasis | undefined, type?: string): number {
+  return basis === "container" ? quoteContainerCount(data, type) : computeCargo(data).weightMeasure;
 }
 
 /** What a line's Amount column holds: per W/M or container the rate per unit, otherwise the whole line. */
@@ -307,7 +319,8 @@ export function lineRate(line: CostLine): number {
  */
 export function withRate(line: CostLine, rate: number, units: number): CostLine {
   if (!perUnitBasis(line.basis)) return { ...line, amount: rate };
-  const unit = line.basis === "container" ? CONTAINER_UNIT : WM_UNIT;
+  // A line of one container type is counted in those containers, and says so ("40' HC").
+  const unit = line.basis === "container" ? line.containerType || CONTAINER_UNIT : WM_UNIT;
   return { ...line, value: units, qty: units, unit, unitPrice: rate, amount: roundCents(rate * units) };
 }
 
@@ -332,11 +345,11 @@ export function withLineBasis(data: SalesQuoteData): Pick<SalesQuoteData, "buyin
   const basisCopied = withBuyingBasis(data.buyingLines, data.sellingLines);
   const sellingLines = basisCopied ?? data.sellingLines;
   const wm = computeCargo(data).weightMeasure;
-  const containers = quoteContainerCount(data);
   const asBasis = (l: CostLine): CostLine => {
     if (l.basis === "wm") return withRate(l, lineRate(l), wm);
-    if (l.basis === "container") return withRate(l, lineRate(l), containers);
-    return l.unit === WM_UNIT || l.unit === CONTAINER_UNIT ? asLumpsum(l) : l;
+    if (l.basis === "container") return withRate(l, lineRate(l), quoteContainerCount(data, l.containerType));
+    const perUnit = l.unit === WM_UNIT || l.unit === CONTAINER_UNIT || (!!l.containerType && l.unit === l.containerType);
+    return perUnit ? asLumpsum(l) : l;
   };
   const same = (a: CostLine, b: CostLine) => a.value === b.value && a.qty === b.qty && a.unit === b.unit && a.unitPrice === b.unitPrice && a.amount === b.amount;
   let changed = !!basisCopied;
@@ -409,6 +422,12 @@ function roeOf(data: SalesQuoteData, live?: LivePricing): number {
   return data.fx?.roePct ?? live?.roePct ?? 100;
 }
 
+/** What a selling line in `currency` carries on top of its conversion: the ROE % in another currency than the quote's, else nothing (1). */
+export function sellingRoeFactor(currency: string, data: SalesQuoteData, live?: LivePricing): number {
+  const to = quoteCurrency(data);
+  return (currency || to) === to ? 1 : roeOf(data, live) / 100;
+}
+
 // One cost line in the quote's currency, rounded to cents on its own, so the lines a screen shows
 // add up to exactly the total it shows. A selling line made in another currency also carries the
 // ROE % (the FX buffer); a buying line never does. Null when a rate it needs is missing.
@@ -427,6 +446,19 @@ export function convertLine(
   if (fromRate === null || toRate === null) return null;
   const roe = opts.selling ? roeOf(data, opts.live) / 100 : 1;
   return roundCents(((amount * fromRate) / toRate) * roe);
+}
+
+/**
+ * What 1 unit of `currency` is worth in the quote's currency at the quote's rates, without the ROE %
+ * (the plain conversion buying lines get). Null when a rate it needs is missing.
+ */
+export function quoteCurrencyFactor(currency: string, data: SalesQuoteData, sheet: ExchangeRates): number | null {
+  const to = quoteCurrency(data);
+  const from = currency || to;
+  if (from === to) return 1;
+  const fromRate = rateOf(from, data, sheet);
+  const toRate = rateOf(to, data, sheet);
+  return fromRate === null || toRate === null ? null : fromRate / toRate;
 }
 
 function sumLines(lines: CostLine[] | undefined, data: SalesQuoteData, sheet: ExchangeRates, selling: boolean, live?: LivePricing) {

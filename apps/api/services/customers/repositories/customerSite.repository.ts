@@ -22,6 +22,16 @@ class CustomerSiteRepository extends TenantRepository<typeof customerSiteTable> 
       .orderBy(asc(customerSiteTable.createdAt));
   }
 
+  /** The live site of an address; null when it has none. */
+  async findByAddress(addressId: string, companyId: string) {
+    const [row] = await this.db
+      .select()
+      .from(customerSiteTable)
+      .where(and(eq(customerSiteTable.companyId, companyId), eq(customerSiteTable.addressId, addressId), isNull(customerSiteTable.deletedAt)))
+      .limit(1);
+    return row ?? null;
+  }
+
   async clearDefaultFlag(customerId: string, companyId: string) {
     await this.db
       .update(customerSiteTable)

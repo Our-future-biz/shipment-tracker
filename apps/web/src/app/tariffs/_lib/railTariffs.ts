@@ -80,6 +80,14 @@ export function validityText(v: { validFrom: string | null; validTo: string | nu
   return "No dates";
 }
 
+/** Why an approved version's new dates cannot be saved as they are; null when they can. */
+export function datesProblem(dates: { validFrom: string | null; validTo: string | null }, saved: { validFrom: string | null; validTo: string | null }): string | null {
+  if (!dates.validFrom) return "Pick the start date";
+  if (dates.validTo && dates.validTo < dates.validFrom) return "The end date is before the start date";
+  if (dates.validFrom === saved.validFrom && dates.validTo === saved.validTo) return "Nothing changed yet";
+  return null;
+}
+
 /** Whether a version prices on `day` (YYYY-MM-DD): active and within its dates. */
 export const pricesOn = (v: Pick<interfaces.SupplierTariffVersion, "status" | "validFrom" | "validTo">, day: string) =>
   v.status === "active" && (v.validFrom ?? "") <= day && (v.validTo === null || v.validTo >= day);

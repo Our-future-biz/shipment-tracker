@@ -171,7 +171,7 @@ export function SitesTab({ customerId }: { customerId: string }) {
         onClose={handleCloseDelete}
         onConfirm={handleDelete}
         title="Delete site"
-        description={`Delete ${deleteTarget?.label ?? "this site"}?`}
+        description={`Delete ${deleteTarget?.label ?? "this site"}? Its address in Addresses is no longer Pickup / Delivery; when it is nothing else, the address goes too.`}
         confirmLabel="Delete"
         danger
         loading={deleting}

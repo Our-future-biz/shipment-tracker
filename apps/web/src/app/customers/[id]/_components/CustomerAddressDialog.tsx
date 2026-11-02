@@ -7,7 +7,7 @@ import { COUNTRY_OPTIONS } from "@/components/countryOptions";
 import { ADDRESS_TYPES } from "../../_lib/constants";
 
 export interface CustomerAddressFormValues {
-  type: interfaces.AddressType;
+  types: interfaces.AddressType[];
   label: string;
   street: string;
   city: string;
@@ -25,6 +25,7 @@ interface CustomerAddressDialogProps {
   onCancel: () => void;
   onSubmit: (values: CustomerAddressFormValues) => void;
   // A customer has one Registered address; with one on file, the type is not offered for another address.
+  // The other types can be combined freely: one address is often all of them.
   hasRegistered: boolean;
 }
 
@@ -34,7 +35,7 @@ const required = (message: string) => [{ required: true, whitespace: true, messa
 // every opening, so the form starts from `address`.
 export function CustomerAddressDialog({ open, address, defaultCountry, saving, onCancel, onSubmit, hasRegistered }: CustomerAddressDialogProps) {
   const [form] = Form.useForm<CustomerAddressFormValues>();
-  const registeredTaken = hasRegistered && address?.type !== "Registered";
+  const registeredTaken = hasRegistered && !address?.types.includes("Registered");
   const typeOptions = ADDRESS_TYPES.map((type) => ({
     value: type,
     label: type === "Registered" && registeredTaken ? "Registered (already on file)" : type,
@@ -42,8 +43,8 @@ export function CustomerAddressDialog({ open, address, defaultCountry, saving, o
   }));
 
   const initialValues: CustomerAddressFormValues = address
-    ? { type: address.type, label: address.label, street: address.street, city: address.city, postalCode: address.postalCode, country: address.country }
-    : { type: "Pickup", label: "", street: "", city: "", postalCode: "", country: defaultCountry };
+    ? { types: address.types, label: address.label, street: address.street, city: address.city, postalCode: address.postalCode, country: address.country }
+    : { types: ["Pickup"], label: "", street: "", city: "", postalCode: "", country: defaultCountry };
 
   const handleSubmit = () => form.submit();
 
@@ -96,14 +97,17 @@ export function CustomerAddressDialog({ open, address, defaultCountry, saving, o
         initialValues={initialValues}
         onFinish={handleFinish}
       >
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
-          <Form.Item name="type" label="Type" rules={[{ required: true, message: "Type is required" }]}>
-            <Select options={typeOptions} />
-          </Form.Item>
-          <Form.Item name="label" label="Name">
-            <Input placeholder="e.g. Plant Kolín" onPressEnter={handleSubmit} />
-          </Form.Item>
-        </div>
+        <Form.Item
+          name="types"
+          label="Types"
+          extra="One address can be several types, e.g. Registered, Billing, Pickup and Delivery. A Pickup or Delivery address is also a site (Sites tab), where its opening hours, avizace and tail lift are kept."
+          rules={[{ required: true, type: "array", min: 1, message: "Choose at least one type" }]}
+        >
+          <Select mode="multiple" aria-label="Types" placeholder="Choose the types" options={typeOptions} />
+        </Form.Item>
+        <Form.Item name="label" label="Name">
+          <Input placeholder="e.g. Plant Kolín" onPressEnter={handleSubmit} />
+        </Form.Item>
         <Form.Item name="street" label="Street address" rules={required("Street address is required")}>
           <Input onPressEnter={handleSubmit} />
         </Form.Item>

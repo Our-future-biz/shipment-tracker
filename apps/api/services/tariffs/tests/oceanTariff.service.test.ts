@@ -14,6 +14,7 @@ vi.mock("../repositories/tariff.repository", () => ({
     getVersion: vi.fn(),
     createDraft: vi.fn(),
     approve: vi.fn(),
+    setDates: vi.fn(),
     update: vi.fn(),
     oceanPorts: vi.fn(),
     pendingOceanPorts: vi.fn(),
@@ -197,6 +198,32 @@ describe("ports and approval", () => {
     repo.pendingOceanPorts.mockResolvedValue(3);
     await expect(oceanTariffService.approve(ACTOR, VERSION_ID)).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringContaining("3 port names") });
     expect(repo.approve).not.toHaveBeenCalled();
+  });
+
+  it("changes an approved version's dates with who changed them, and refuses dates that are none or end before they start", async () => {
+    repo.setDates.mockResolvedValue({ ok: true, version: version({ status: "active" }) });
+    await oceanTariffService.setDates(ACTOR, VERSION_ID, { validFrom: " 2026-05-01 ", validTo: "" });
+    expect(repo.setDates).toHaveBeenCalledWith(COMPANY, VERSION_ID, { validFrom: "2026-05-01", validTo: null }, "Jana Nová");
+
+    repo.setDates.mockClear();
+    await expect(oceanTariffService.setDates(ACTOR, VERSION_ID, { validFrom: "2026-02-30", validTo: null })).rejects.toMatchObject({ code: "invalid_argument" });
+    await expect(oceanTariffService.setDates(ACTOR, VERSION_ID, { validFrom: "2026-05-01", validTo: "2026-04-30" })).rejects.toMatchObject({
+      code: "invalid_argument",
+      message: "The end date is before the start date",
+    });
+    expect(repo.setDates).not.toHaveBeenCalled();
+  });
+
+  it("says why the dates were refused", async () => {
+    repo.setDates.mockResolvedValue({ ok: false, reason: "Only an active version's dates can be changed" });
+    await expect(oceanTariffService.setDates(ACTOR, VERSION_ID, { validFrom: "2026-05-01", validTo: null })).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: "Only an active version's dates can be changed",
+    });
+    repo.get.mockResolvedValue(tariff({ mode: "rail" }));
+    repo.setDates.mockClear();
+    await expect(oceanTariffService.setDates(ACTOR, VERSION_ID, { validFrom: "2026-05-01", validTo: null })).rejects.toMatchObject({ code: "not_found" });
+    expect(repo.setDates).not.toHaveBeenCalled();
   });
 
   it("does not find a version of another kind of tariff", async () => {

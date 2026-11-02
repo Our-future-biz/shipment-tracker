@@ -190,7 +190,7 @@ export const SENT_EVIDENCE: readonly string[] = ["quoted", "feedback", "won", "e
 export const PRICING_CLOSED: readonly string[] = ["quoted", "feedback", "won", "lost", "expired", "replaced"];
 
 /** The keys of the document that hold a quote's prices: those a save cannot change once PRICING_CLOSED. */
-export const PRICING_KEYS: readonly string[] = ["buyingLines", "sellingLines", "currency", "allIn", "road"];
+export const PRICING_KEYS: readonly string[] = ["buyingLines", "sellingLines", "currency", "allIn", "fclPricing", "road"];
 
 // The statuses (as shown) a quote is revised from: it went out and is not decided.
 const REVISABLE: readonly string[] = ["quoted", "feedback", "expired", "won"];

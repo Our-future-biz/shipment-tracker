@@ -3,11 +3,9 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
+import { customerAddressesKey, customerSitesKey } from "./customerKeys";
 
 export type AddressItem = interfaces.AddressItem;
-
-/** One customer's addresses. Kept apart from the ["customers"] list key, so a list refresh doesn't refetch them. */
-export const customerAddressesKey = (customerId: string) => ["customer-addresses", customerId] as const;
 
 export const useCustomerAddresses = (customerId: string) => {
   const queryClient = useQueryClient();
@@ -20,9 +18,10 @@ export const useCustomerAddresses = (customerId: string) => {
   });
 
   // The Registered address is also the customer's registered address (header, Registry card), so
-  // the customer and the list are refreshed with it.
+  // the customer and the list are refreshed with it; a Pickup / Delivery address is also a site.
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: ["customer", customerId] });
+    void queryClient.invalidateQueries({ queryKey: customerSitesKey(customerId) });
     void queryClient.invalidateQueries({ queryKey: ["customers"] });
     return queryClient.invalidateQueries({ queryKey: key });
   };

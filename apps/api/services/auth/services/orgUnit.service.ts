@@ -4,6 +4,7 @@ import { countryName } from "../../../lib/geo/format";
 import { departmentRepository, branchRepository, countryRepository, locationRepository } from "../repositories/orgUnit.repository";
 import type { Place } from "../../../lib/geo/place";
 import { searchAirports, type Airport } from "../../../lib/geo/airports";
+import { searchInlandTerminals, searchTerminals, type InlandTerminal, type Terminal } from "../../../lib/geo/terminals";
 import { userRepository } from "../repositories/user.repository";
 
 export interface DepartmentInfo {
@@ -70,6 +71,12 @@ export interface CountryInfo {
 export interface CountryInput {
   // ISO 3166-1 alpha-2; the name comes from the server's country list.
   code: string;
+}
+
+/** The ocean (CY) and inland terminals matching typed text. */
+export interface TerminalMatches {
+  terminals: Terminal[];
+  inland: InlandTerminal[];
 }
 
 function requireCountry(input: CountryInput): { code: string; name: string } {
@@ -166,6 +173,13 @@ class OrgUnitService {
   // memory: the snapshot ships with the code, not in the database.
   searchAirports(query: string): Airport[] {
     return searchAirports(query);
+  }
+
+  // Ocean container terminals (CYs), and inland terminals (dry ports, rail and intermodal
+  // terminals), offered beside the places as the Origin and Destination of a sea quote or shipment.
+  // In memory too, like the airports.
+  searchTerminals(query: string): TerminalMatches {
+    return { terminals: searchTerminals(query), inland: searchInlandTerminals(query) };
   }
 
   async placesByCodes(codes: string[]): Promise<PlaceInfo[]> {

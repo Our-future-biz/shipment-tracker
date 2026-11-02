@@ -10,6 +10,13 @@ import type { interfaces } from "@/lib/api/client";
 /** A tariff version as a supplier's page lists it; the summary is the same for every kind of tariff. */
 export type SupplierTariffVersion = interfaces.SupplierTariffVersion;
 
+/** An approved version's new dates, YYYY-MM-DD (no end when validTo is null), with the version's id */
+export interface VersionDatesChange {
+  id: string;
+  validFrom: string;
+  validTo: string | null;
+}
+
 // After a manager's action every query of the module is read again (`all`): a version's change
 // shows on its supplier's page, in the suppliers list and in the offers on a quote too. `keep`
 // first puts the version the server answered with in place, so its page shows it straight away.

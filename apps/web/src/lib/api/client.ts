@@ -159,6 +159,7 @@ export namespace auth {
             this.departmentUpdate = this.departmentUpdate.bind(this)
             this.locationList = this.locationList.bind(this)
             this.placeSearch = this.placeSearch.bind(this)
+            this.terminalSearch = this.terminalSearch.bind(this)
             this.userCreate = this.userCreate.bind(this)
             this.userDelete = this.userDelete.bind(this)
             this.userUpdate = this.userUpdate.bind(this)
@@ -429,6 +430,21 @@ export namespace auth {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/auth/places`, undefined, {query})
             return await resp.json() as controllers.PlaceListResponse
+        }
+
+        /**
+         * Ocean container terminals (CYs) and inland terminals matching typed text, offered beside the
+         * places as the Origin and Destination of a sea quote or shipment.
+         */
+        public async terminalSearch(params: controllers.TerminalSearchRequest): Promise<controllers.TerminalListResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                q: params.q,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/auth/terminals`, undefined, {query})
+            return await resp.json() as controllers.TerminalListResponse
         }
 
         /**
@@ -2435,6 +2451,7 @@ export namespace tariffs {
             this.collectionTariffUpdate = this.collectionTariffUpdate.bind(this)
             this.collectionUpload = this.collectionUpload.bind(this)
             this.collectionVersionApprove = this.collectionVersionApprove.bind(this)
+            this.collectionVersionDates = this.collectionVersionDates.bind(this)
             this.collectionVersionDiscard = this.collectionVersionDiscard.bind(this)
             this.collectionVersionGet = this.collectionVersionGet.bind(this)
             this.collectionVersionLayout = this.collectionVersionLayout.bind(this)
@@ -2444,6 +2461,7 @@ export namespace tariffs {
             this.oceanTariffUpdate = this.oceanTariffUpdate.bind(this)
             this.oceanUpload = this.oceanUpload.bind(this)
             this.oceanVersionApprove = this.oceanVersionApprove.bind(this)
+            this.oceanVersionDates = this.oceanVersionDates.bind(this)
             this.oceanVersionDiscard = this.oceanVersionDiscard.bind(this)
             this.oceanVersionGet = this.oceanVersionGet.bind(this)
             this.oceanVersionLayout = this.oceanVersionLayout.bind(this)
@@ -2454,6 +2472,7 @@ export namespace tariffs {
             this.railOperatorGet = this.railOperatorGet.bind(this)
             this.railOperatorList = this.railOperatorList.bind(this)
             this.railTariffApprove = this.railTariffApprove.bind(this)
+            this.railTariffDates = this.railTariffDates.bind(this)
             this.railTariffDiscard = this.railTariffDiscard.bind(this)
             this.railTariffLayout = this.railTariffLayout.bind(this)
             this.railTariffRates = this.railTariffRates.bind(this)
@@ -2541,6 +2560,15 @@ export namespace tariffs {
         }
 
         /**
+         * Changes an approved version's dates (manager); they must not overlap another active version of the tariff.
+         */
+        public async collectionVersionDates(versionId: string, params: controllers.CollectionDatesRequest): Promise<controllers.CollectionVersionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/collections/versions/${encodeURIComponent(versionId)}/dates`, JSON.stringify(params))
+            return await resp.json() as controllers.CollectionVersionResponse
+        }
+
+        /**
          * Throws a draft away (manager).
          */
         public async collectionVersionDiscard(versionId: string): Promise<void> {
@@ -2619,6 +2647,15 @@ export namespace tariffs {
         public async oceanVersionApprove(versionId: string): Promise<controllers.OceanVersionResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/ocean/versions/${encodeURIComponent(versionId)}/approve`)
+            return await resp.json() as controllers.OceanVersionResponse
+        }
+
+        /**
+         * Changes an approved version's dates (manager); they must not overlap another active version of the tariff.
+         */
+        public async oceanVersionDates(versionId: string, params: controllers.OceanDatesRequest): Promise<controllers.OceanVersionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/ocean/versions/${encodeURIComponent(versionId)}/dates`, JSON.stringify(params))
             return await resp.json() as controllers.OceanVersionResponse
         }
 
@@ -2717,6 +2754,15 @@ export namespace tariffs {
         public async railTariffApprove(versionId: string): Promise<controllers.RailTariffVersionResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/rail/versions/${encodeURIComponent(versionId)}/approve`)
+            return await resp.json() as controllers.RailTariffVersionResponse
+        }
+
+        /**
+         * Changes an approved version's dates (manager); they must not overlap another active version of the tariff.
+         */
+        public async railTariffDates(versionId: string, params: controllers.RailTariffDatesRequest): Promise<controllers.RailTariffVersionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/tariffs/rail/versions/${encodeURIComponent(versionId)}/dates`, JSON.stringify(params))
             return await resp.json() as controllers.RailTariffVersionResponse
         }
 
@@ -5251,7 +5297,11 @@ export namespace controllers {
     }
 
     export interface AddressCreateRequest {
-        type: interfaces.AddressType
+        /**
+         * What the address is used for; at least one
+         */
+        types: interfaces.AddressType[]
+
         label?: string
         street: string
         city: string
@@ -5275,7 +5325,11 @@ export namespace controllers {
     }
 
     export interface AddressUpdateRequest {
-        type?: interfaces.AddressType
+        /**
+         * What the address is used for; at least one
+         */
+        types?: interfaces.AddressType[]
+
         label?: string
         street?: string
         city?: string
@@ -5556,6 +5610,18 @@ export namespace controllers {
         invoiceNumber?: string
         reason?: string
         amount?: string
+    }
+
+    export interface CollectionDatesRequest {
+        /**
+         * The first day it prices, YYYY-MM-DD
+         */
+        validFrom: string
+
+        /**
+         * The last day it prices, YYYY-MM-DD; null for no end
+         */
+        validTo: string | null
     }
 
     export interface CollectionHaulierListResponse {
@@ -7248,6 +7314,18 @@ export namespace controllers {
         data: interfaces.NoteItem[]
     }
 
+    export interface OceanDatesRequest {
+        /**
+         * The first day it prices, YYYY-MM-DD
+         */
+        validFrom: string
+
+        /**
+         * The last day it prices, YYYY-MM-DD; null for no end
+         */
+        validTo: string | null
+    }
+
     export interface OceanLayoutRequest {
         layout: interfaces.OceanLayout
     }
@@ -7702,6 +7780,18 @@ export namespace controllers {
          * Customer Database companies with the Rail operator role, by name
          */
         operators: interfaces.RailOperatorItem[]
+    }
+
+    export interface RailTariffDatesRequest {
+        /**
+         * The first day it prices, YYYY-MM-DD
+         */
+        validFrom: string
+
+        /**
+         * The last day it prices, YYYY-MM-DD; null for no end
+         */
+        validTo: string | null
     }
 
     export interface RailTariffLayoutRequest {
@@ -8938,6 +9028,15 @@ export namespace controllers {
 
     export interface TaskUpsertResponse {
         task: interfaces.TaskItem
+    }
+
+    export interface TerminalListResponse {
+        terminals: geo.Terminal[]
+        inland: geo.InlandTerminal[]
+    }
+
+    export interface TerminalSearchRequest {
+        q: string
     }
 
     export interface TermsCreateRequest {
@@ -10274,6 +10373,27 @@ export namespace geo {
     export type GeoKind = "place" | "country" | "countryCode"
 
     /**
+     * An inland terminal (dry port, rail or intermodal terminal), offered with the ocean terminals.
+     * None has an official code: its code is the app's own ("DE-IT116", inlandTerminals.data.ts).
+     */
+    export interface InlandTerminal {
+        code: string
+        name: string
+        town: string
+        countryCode: string
+        kind: InlandTerminalKind
+        /**
+         * The railroads serving a US rail terminal.
+         */
+        railroads: string | null
+    }
+
+    /**
+     * What an inland terminal is: a dry port, an intermodal (rail / road / barge) terminal, or a US rail terminal.
+     */
+    export type InlandTerminalKind = "dry_port" | "intermodal" | "rail"
+
+    /**
      * A UN/LOCODE place as shipments, quotes and the extraction use it, written "Name (CODE)".
      */
     export interface Place {
@@ -10281,6 +10401,25 @@ export namespace geo {
         countryCode: string
         name: string
         subdivisionName: string | null
+    }
+
+    /**
+     * An ocean container terminal (CY), offered beside the UN/LOCODE places as the Origin and
+     * Destination of a sea quote or shipment. Its code is the port's UN/LOCODE and the terminal's SMDG
+     * code ("DEHAMCTB"); it is written into quotes and shipments as "Name (CODE)" like a place:
+     * "HHLA CONTAINER TERMINAL BURCHARDKAI (CTB) (DEHAMCTB)".
+     */
+    export interface Terminal {
+        code: string
+        name: string
+        /**
+         * The UN/LOCODE of its port.
+         */
+        portCode: string
+
+        port: string
+        countryCode: string
+        operator: string | null
     }
 }
 
@@ -10301,7 +10440,11 @@ export namespace interfaces {
     export interface AddressItem {
         id: string
         customerId: string
-        type: AddressType
+        /**
+         * What the address is used for; one address can be all of them (the seat, invoices, pick-up, …)
+         */
+        types: AddressType[]
+
         label: string
         street: string
         city: string
@@ -11176,6 +11319,12 @@ export namespace interfaces {
         createdBy: string | null
         activatedAt: string | null
         activatedBy: string | null
+        /**
+         * When a manager last changed the dates of the approved version
+         */
+        datesChangedAt: string | null
+
+        datesChangedBy: string | null
     }
 
     /**
@@ -11910,10 +12059,10 @@ export namespace interfaces {
     /**
      * What a company is to us. A customer buys our services; a haulier is a trucking subcontractor; a rail operator sells us rail
      * transport, its tariffs kept under Tariffs; a first / last mile haulier trucks containers between a port or terminal and the
-     * customer (pre- and on-carriage); a shipping line sells us ocean freight, its tariffs kept under Tariffs. One company can have
-     * several roles.
+     * customer (pre- and on-carriage); a shipping line sells us ocean freight, its tariffs kept under Tariffs; a co-loader is a
+     * consolidator we hand LCL (groupage) cargo to. One company can have several roles.
      */
-    export type CustomerRole = "customer" | "haulier" | "rail_operator" | "first_last_mile_haulier" | "shipping_line"
+    export type CustomerRole = "customer" | "haulier" | "rail_operator" | "first_last_mile_haulier" | "shipping_line" | "co_loader"
 
     /**
      * What a run of POST /customers/seats/normalize did to the company's live customers.
@@ -11945,6 +12094,11 @@ export namespace interfaces {
     export interface CustomerSiteItem {
         id: string
         customerId: string
+        /**
+         * The Pickup / Delivery address (Addresses tab) the site is; null for a site from before they were linked
+         */
+        addressId: string | null
+
         label: string
         kind: CustomerSiteKind
         street: string
@@ -17054,6 +17208,12 @@ export namespace interfaces {
         createdBy: string | null
         activatedAt: string | null
         activatedBy: string | null
+        /**
+         * When a manager last changed the dates of the approved version
+         */
+        datesChangedAt: string | null
+
+        datesChangedBy: string | null
     }
 
     export interface SupplierTariffVersionDetail {
@@ -17082,6 +17242,12 @@ export namespace interfaces {
         createdBy: string | null
         activatedAt: string | null
         activatedBy: string | null
+        /**
+         * When a manager last changed the dates of the approved version
+         */
+        datesChangedAt: string | null
+
+        datesChangedBy: string | null
     }
 
     export type SurchargeCalc = "PCT" | "FLAT" | "PER_KG" | "PER_PALLET" | "PER_HOUR" | "PCT_OF_VALUE" | "FUEL_INDEX"
@@ -19330,6 +19496,12 @@ export namespace services {
         createdBy: string | null
         activatedAt: string | null
         activatedBy: string | null
+        /**
+         * When a manager last changed the dates of the approved version
+         */
+        datesChangedAt: string | null
+
+        datesChangedBy: string | null
     }
 
     /**

@@ -3,7 +3,7 @@
 import { keepPreviousData, useMutation, useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
-import { useSupplierTariffCache, useSupplierTariffOffers } from "./useSupplierTariffs";
+import { useSupplierTariffCache, useSupplierTariffOffers, type VersionDatesChange } from "./useSupplierTariffs";
 
 // Rail operators' tariffs (Tariffs → Rail Operators): the operators, their tariffs and versions,
 // one version's layout, findings and rows, and the manager's actions on a draft.
@@ -82,6 +82,7 @@ export const useRailTariffActions = () => {
     mutationFn: ({ id, layout }: { id: string; layout: RailLayout }) => api.tariffs.railTariffLayout(id, { layout }).then((r) => keep(r.version)),
   });
   const approve = useMutation({ mutationFn: (id: string) => api.tariffs.railTariffApprove(id).then((r) => keep(r.version)) });
+  const setDates = useMutation({ mutationFn: ({ id, ...dates }: VersionDatesChange) => api.tariffs.railTariffDates(id, dates).then((r) => keep(r.version)) });
   const discard = useMutation({ mutationFn: (id: string) => api.tariffs.railTariffDiscard(id), onSuccess: refresh });
   const update = useMutation({ mutationFn: ({ id, ...fields }: RailTariffUpdate) => api.tariffs.railTariffUpdate(id, fields), onSuccess: refresh });
 
@@ -92,6 +93,8 @@ export const useRailTariffActions = () => {
     isRelayouting: relayout.isPending,
     approve: approve.mutateAsync,
     isApproving: approve.isPending,
+    setDates: setDates.mutateAsync,
+    isSettingDates: setDates.isPending,
     discard: discard.mutateAsync,
     isDiscarding: discard.isPending,
     update: update.mutateAsync,

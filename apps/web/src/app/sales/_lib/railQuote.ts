@@ -40,6 +40,10 @@ export interface RailRoute {
 }
 
 const LOCODE = /\(([A-Z]{2})([A-Z0-9]{3})\)\s*$/;
+// The code a place of Origin / Destination is written with (lib/places.ts): a UN/LOCODE, an ocean
+// terminal's (its port's UN/LOCODE and the SMDG code) or an inland terminal's ("DE-IT116"), all
+// starting with the country.
+const PLACE_CODE = /\s*\(([A-Z]{2})(?:[A-Z0-9]{3}(?:[A-Z0-9]{2,6})?|-(?:DP|IT|RR)[0-9]{1,4})\)\s*$/;
 
 // "Hamburg (DEHAM)" → "DEHAM", if it is one of the ports tariffs are for.
 function tariffPortOf(value: string | undefined): interfaces.TariffPortCode | null {
@@ -60,11 +64,11 @@ export function railRouteOf(data: SalesQuoteData, today: string): RailRoute {
   const address = (direction === "import" ? data.delivery : data.pickup) ?? "";
   const town = (direction === "import" ? data.destination : data.origin) ?? "";
   const postcode = ADDRESS_POSTCODE.exec(address);
-  const country = LOCODE.exec(town)?.[1] ?? "CZ";
+  const country = PLACE_CODE.exec(town)?.[1] ?? "CZ";
   return {
     port: tariffPortOf(direction === "import" ? data.pod : data.pol),
     direction,
-    place: postcode ? formatPostcode(`${postcode[1]}${postcode[2]}`, country) : town.replace(LOCODE, "").trim(),
+    place: postcode ? formatPostcode(`${postcode[1]}${postcode[2]}`, country) : town.replace(PLACE_CODE, "").trim(),
     country,
     date: cargoReadyDay(data) || today,
     containers: railContainersOf(data),

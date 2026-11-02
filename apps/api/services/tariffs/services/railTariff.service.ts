@@ -22,11 +22,12 @@ import { layoutProblem, parseRailLayout } from "../lib/railLayout";
 import { placeQuery, pricedContainers, rowOffer, type BandRefusal } from "../lib/railOffers";
 import { TARIFF_PORT_CODES, chosenPortsAndDirections, portsAndDirectionsOf } from "../lib/tariffPorts";
 import { sheetPreview, type Sheet } from "../lib/sheet";
-import { tariffRepository, type RateFilter } from "../repositories/tariff.repository";
+import { tariffRepository, type RateFilter, type VersionDates } from "../repositories/tariff.repository";
 import type { RailRateRecord } from "../schemas/tariff.schema";
 import { readRailLayout } from "./railLayoutReader.service";
 import {
   approveVersion,
+  changeVersionDates,
   businessToday,
   discardVersion,
   draftSheets,
@@ -234,6 +235,12 @@ class RailTariffService {
   async approve(actor: Actor, versionId: string): Promise<SupplierTariffVersionDetail> {
     await versionOfMode(actor.companyID, versionId, "rail");
     await approveVersion(actor, versionId);
+    return this.version(actor.companyID, versionId);
+  }
+
+  /** Changes an approved version's dates (it must not overlap another active version of the tariff). */
+  async setDates(actor: Actor, versionId: string, dates: VersionDates): Promise<SupplierTariffVersionDetail> {
+    await changeVersionDates(actor, versionId, "rail", dates);
     return this.version(actor.companyID, versionId);
   }
 

@@ -21,7 +21,7 @@ interface OceanVersionViewProps {
 // corrects a draft's layout, then approves the draft (it prices from its start date) or discards it.
 export const OceanVersionView = ({ customerId, versionId }: OceanVersionViewProps) => {
   const { version, isLoading, error } = useOceanTariffVersion(versionId);
-  const { relayout, isRelayouting, approve, isApproving, discard, isDiscarding } = useOceanTariffActions();
+  const { relayout, isRelayouting, approve, isApproving, setDates, isSettingDates, discard, isDiscarding } = useOceanTariffActions();
   const handleRelayout = useTariffRelayout(relayout, (read) => `${formatNumber(read.rowCount)} rates, ${read.pendingPorts} ports to pick`);
 
   return (
@@ -35,7 +35,7 @@ export const OceanVersionView = ({ customerId, versionId }: OceanVersionViewProp
       rowsText={(v) => `${formatNumber(v.rowCount)} rates`}
       moreFacts={(v) => v.pendingPorts > 0 && <span className="text-amber-700">{v.pendingPorts} ports to pick</span>}
       approveBlockedBy={(v) => (v.pendingPorts > 0 ? "Pick the ports still to match first" : null)}
-      actions={{ approve, isApproving, discard, isDiscarding, fetchSource: fetchOceanTariffSource }}
+      actions={{ approve, isApproving, setDates, isSettingDates, discard, isDiscarding, fetchSource: fetchOceanTariffSource }}
       discardDescription="The draft and everything read from it are thrown away. Upload the file again to start over."
     >
       {(v, editable) => (

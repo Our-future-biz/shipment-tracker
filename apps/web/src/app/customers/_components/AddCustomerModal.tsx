@@ -263,7 +263,7 @@ export function AddCustomerModal({
       open={open}
       onCancel={handleCancel}
       afterClose={handleAfterClose}
-      title={<span className="text-lg font-semibold text-slate-800">Add Customer</span>}
+      title={<span className="text-lg font-semibold text-slate-800">Add Customer / Supplier</span>}
       width={560}
       destroyOnHidden
       footer={
@@ -277,7 +277,7 @@ export function AddCustomerModal({
             loading={isCreating}
             disabled={(fromRegistry && !preview) || roles.length === 0}
           >
-            Create customer
+            Create customer / Supplier
           </Button>
         </div>
       }
@@ -301,7 +301,7 @@ export function AddCustomerModal({
         {canGiveRoles && (
           <Form.Item
             label="Roles"
-            extra={`${canSeeConcepts ? "A haulier is a company we subcontract trucking to. " : ""}A rail operator, a first / last mile haulier (container trucking to and from ports and terminals) and a shipping line are suppliers whose tariffs are kept under Tariffs. A company can have several roles.`}
+            extra={`${canSeeConcepts ? "A haulier is a company we subcontract trucking to. " : ""}A rail operator, a first / last mile haulier (container trucking to and from ports and terminals) and a shipping line are suppliers whose tariffs are kept under Tariffs. A co-loader is a consolidator we hand LCL (groupage) cargo to. A company can have several roles.`}
             validateStatus={roles.length === 0 ? "error" : undefined}
             help={roles.length === 0 ? "Choose at least one role" : undefined}
             className="!mb-3"

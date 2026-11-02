@@ -6,7 +6,8 @@ import type { AddressItem, AddressType } from "../interfaces/interfaces";
 
 interface AddressUpdateRequest {
   id: string;
-  type?: AddressType;
+  /** What the address is used for; at least one */
+  types?: AddressType[] & MinLen<1> & MaxLen<6>;
   label?: string & MaxLen<100>;
   street?: string & MinLen<1> & MaxLen<200>;
   city?: string & MinLen<1> & MaxLen<200>;

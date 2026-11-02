@@ -57,6 +57,7 @@ export const toCustomerItem = (r: CustomerItemRow | CustomerRecord): CustomerIte
 export const toCustomerSiteItem = (r: CustomerSiteRecord): CustomerSiteItem => ({
   id: r.id,
   customerId: r.customerId,
+  addressId: r.addressId,
   label: r.label,
   kind: r.kind,
   street: r.street,
@@ -129,7 +130,7 @@ export const toInvoiceItem = (r: CustomerInvoiceRecord): InvoiceItem => ({
 export const toAddressItem = (r: CustomerAddressRecord): AddressItem => ({
   id: r.id,
   customerId: r.customerId,
-  type: r.type,
+  types: r.types,
   label: r.label,
   street: r.street,
   city: r.city,

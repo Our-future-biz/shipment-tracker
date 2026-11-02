@@ -44,6 +44,23 @@ export const collectionVersionApprove = api(
   },
 );
 
+interface CollectionDatesRequest {
+  versionId: string;
+  /** The first day it prices, YYYY-MM-DD */
+  validFrom: string & MaxLen<10>;
+  /** The last day it prices, YYYY-MM-DD; null for no end */
+  validTo: (string & MaxLen<10>) | null;
+}
+
+// Changes an approved version's dates (manager); they must not overlap another active version of the tariff.
+export const collectionVersionDates = api(
+  { expose: true, auth: true, method: "POST", path: "/tariffs/collections/versions/:versionId/dates" },
+  async ({ versionId, ...dates }: CollectionDatesRequest): Promise<CollectionVersionResponse> => {
+    const actor = requireRole("superadmin", "admin", "manager");
+    return { version: await collectionTariffService.setDates(actor, versionId, dates) };
+  },
+);
+
 // Throws a draft away (manager).
 export const collectionVersionDiscard = api(
   { expose: true, auth: true, method: "POST", path: "/tariffs/collections/versions/:versionId/discard" },

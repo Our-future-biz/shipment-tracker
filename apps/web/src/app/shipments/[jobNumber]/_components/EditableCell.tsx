@@ -46,10 +46,11 @@ export const TradeDirectionContext = createContext<string | undefined>(undefined
 
 /**
  * The Freight Mode of the shipment a cell belongs to. By air, its POL and POD also offer IATA
- * airports beside the UN/LOCODE places.
+ * airports beside the UN/LOCODE places; by sea, its Origin and Destination ocean terminals (CYs).
  */
 export const FreightModeContext = createContext<string | undefined>(undefined);
 const AIRPORT_FIELDS = new Set(["pol", "pod"]);
+const TERMINAL_FIELDS = new Set(["origin", "destination"]);
 
 /**
  * The customer's Contacts tab with this contact picked out: by its id (?contactId=), or by its
@@ -135,6 +136,7 @@ export function EditableCell({
   const tradeDirection = useContext(TradeDirectionContext);
   const freightMode = useContext(FreightModeContext);
   const airports = AIRPORT_FIELDS.has(fieldKey) && /^air/i.test(freightMode ?? "");
+  const terminals = TERMINAL_FIELDS.has(fieldKey) && /^sea/i.test(freightMode ?? "");
   const options = allowedOptions ?? (fieldKey === "status" ? getFilteredStatusOptions(tradeDirection) : col?.options) ?? [];
   const original = value ?? "";
   // Statuses read without [IMP]/[EXP]/[DOM] once the list holds one direction only; with several
@@ -279,6 +281,7 @@ export function EditableCell({
         <GeoSelect
           kind={geoKind}
           airports={airports}
+          terminals={terminals}
           size="small"
           autoFocus
           defaultOpen

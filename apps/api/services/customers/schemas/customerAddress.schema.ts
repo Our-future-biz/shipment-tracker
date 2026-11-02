@@ -5,7 +5,8 @@ import { customerTable } from "./customer.schema";
 import type { AddressType } from "../interfaces/interfaces";
 
 // The places of a customer: its seat (Registered, from ARES or typed in when the customer was created),
-// where invoices and paperwork go, and where goods are picked up or delivered.
+// where invoices and paperwork go, and where goods are picked up or delivered. One address can be
+// several of these at once (often all of them): its types.
 export const customerAddressTable = pgTable(
   "customer_address",
   {
@@ -14,7 +15,7 @@ export const customerAddressTable = pgTable(
     customerId: uuid("customer_id")
       .notNull()
       .references(() => customerTable.id, { onDelete: "cascade" }),
-    type: text("type").$type<AddressType>().notNull(),
+    types: text("types").array().$type<AddressType[]>().notNull(),
     // An optional name telling addresses of one type apart, e.g. "Plant Kolín".
     label: text("label").notNull().default(""),
     street: text("street").notNull().default(""),
@@ -30,8 +31,12 @@ export const customerAddressTable = pgTable(
     // One seat per customer: at most one live Registered address.
     uniqueIndex("customer_address_one_registered")
       .on(table.customerId)
-      .where(sql`${table.type} = 'Registered' AND ${table.deletedAt} IS NULL`),
-    check("customer_address_type_check", sql`${table.type} IN ('Registered', 'Billing', 'Paperwork', 'Pickup', 'Delivery', 'Warehouse')`),
+      .where(sql`'Registered' = ANY(${table.types}) AND ${table.deletedAt} IS NULL`),
+    // At least one type, and only known ones.
+    check(
+      "customer_address_types_check",
+      sql`cardinality(${table.types}) > 0 AND ${table.types} <@ ARRAY['Registered', 'Billing', 'Paperwork', 'Pickup', 'Delivery', 'Warehouse']::text[]`,
+    ),
   ],
 );
 

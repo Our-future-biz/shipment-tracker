@@ -5,6 +5,10 @@ import { COUNTRIES } from "./countries";
 //   place:        "Hamburg (DEHAM)"  — UN/LOCODE name + code from the location table
 //                 "Shanghai Pudong International Airport (PVG)" — or, by air, an IATA airport
 //                 (lib/geo/airports.ts), which placeCodeOf does not read: it is no UN/LOCODE
+//                 "HHLA CONTAINER TERMINAL BURCHARDKAI (CTB) (DEHAMCTB)" — or, by sea, as Origin /
+//                 Destination, an ocean terminal (lib/geo/terminals.ts), which placeCodeOf does
+//                 not read either; or an inland terminal under the app's own code
+//                 ("Duisburg DIT (DE-IT116)")
 //   country:      "Germany (DE)"     — ISO name + code
 //   country code: "DE"
 

@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 
 const PLACES_KEY = "places";
 const AIRPORTS_KEY = "airports";
+const TERMINALS_KEY = "terminals";
 
 // Places (UN/LOCODE) matching a search text; asks only once the text has 2+ characters.
 export const usePlaceSearch = (q: string, enabled = true) =>
@@ -20,6 +21,15 @@ export const useAirportSearch = (q: string, enabled = true) =>
   useQuery({
     queryKey: [AIRPORTS_KEY, q],
     queryFn: () => api.auth.airportSearch({ q }),
+    enabled: enabled && q.length >= 2,
+    staleTime: Infinity,
+  });
+
+// Ocean container terminals (CYs) and inland terminals matching a search text, the same way.
+export const useTerminalSearch = (q: string, enabled = true) =>
+  useQuery({
+    queryKey: [TERMINALS_KEY, q],
+    queryFn: () => api.auth.terminalSearch({ q }),
     enabled: enabled && q.length >= 2,
     staleTime: Infinity,
   });

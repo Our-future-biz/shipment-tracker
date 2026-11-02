@@ -93,6 +93,10 @@ export const tariffVersionTable = pgTable(
     /** Display name */
     activatedBy: text("activated_by"),
     supersededAt: timestamp("superseded_at", { withTimezone: true }),
+    /** When a manager last changed an active version's dates */
+    datesChangedAt: timestamp("dates_changed_at", { withTimezone: true }),
+    /** Display name */
+    datesChangedBy: text("dates_changed_by"),
   },
   (table) => [
     ...defaultTableIndexes("tariff_version", table),

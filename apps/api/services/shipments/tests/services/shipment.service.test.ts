@@ -500,8 +500,8 @@ describe("a shipper or consignee picked from the Customer Database", () => {
     vi.mocked(customers.customerGet).mockResolvedValue({ customer: { companyName: "Alza.cz a.s.", registeredAddress: "Jankovcova, 1522/53, Praha, 17000", country: "CZ" } } as never);
     vi.mocked(customers.addressList).mockResolvedValue({
       data: [
-        { type: "Registered", street: "Jankovcova 1522/53", city: "Praha", postalCode: "170 00", country: "CZ" },
-        { type: "Delivery", street: "Dopravní", city: "Praha 11", postalCode: "18000", country: "CZ" },
+        { types: ["Registered"], street: "Jankovcova 1522/53", city: "Praha", postalCode: "170 00", country: "CZ" },
+        { types: ["Delivery"], street: "Dopravní", city: "Praha 11", postalCode: "18000", country: "CZ" },
       ],
     } as never);
     vi.mocked(customers.contactList).mockResolvedValue({

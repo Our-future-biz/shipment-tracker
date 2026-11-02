@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
 import { customers } from "~encore/clients";
-import { businessDay } from "../../../lib/businessDate";
+import { businessDay, isRealYmd } from "../../../lib/businessDate";
 import { iso, isoOrNull } from "../../../lib/db/serialize";
 import type { Actor } from "../../../lib/rbac";
 import { userRefs } from "../../../lib/userNames";
@@ -10,7 +10,7 @@ import { isUuid } from "../../../lib/uuid";
 import type { SheetPreview, SupplierTariffMode, SupplierTariffVersion, TariffFile, TariffFinding } from "../interfaces/interfaces";
 import { findingTotals } from "../lib/railConvert";
 import { readSheets, type ReadOptions, type Sheet } from "../lib/sheet";
-import { tariffRepository, type DraftRows, type DraftTariff, type TariffFields } from "../repositories/tariff.repository";
+import { tariffRepository, type DraftRows, type DraftTariff, type TariffFields, type VersionDates } from "../repositories/tariff.repository";
 import type { TariffLayout, TariffRecord, TariffVersionRecord } from "../schemas/tariff.schema";
 import { tariffFileBucket } from "../storage/tariffFileBucket";
 
@@ -253,6 +253,24 @@ export async function approveVersion(actor: Actor, versionId: string): Promise<v
   throw APIError.failedPrecondition(result.reason);
 }
 
+/**
+ * Changes the dates of an active version of the kind (a manager, once it is approved): it prices
+ * from the new start to the new end, or with no end. Refused when the end is before the start, or
+ * when the dates overlap another active version of the tariff.
+ */
+export async function changeVersionDates(actor: Actor, versionId: string, mode: SupplierTariffMode, req: VersionDates): Promise<void> {
+  const validFrom = req.validFrom.trim();
+  const validTo = req.validTo?.trim() || null;
+  if (!isRealYmd(validFrom)) throw APIError.invalidArgument("The start date is not a date (YYYY-MM-DD)");
+  if (validTo !== null && !isRealYmd(validTo)) throw APIError.invalidArgument("The end date is not a date (YYYY-MM-DD)");
+  if (validTo !== null && validTo < validFrom) throw APIError.invalidArgument("The end date is before the start date");
+  await versionOfMode(actor.companyID, versionId, mode);
+  const result = await tariffRepository.setDates(actor.companyID, versionId, { validFrom, validTo }, (await userName(actor.userID)) ?? "");
+  if (result.ok) return;
+  if (result.reason === "not_found") throw APIError.notFound("Tariff version not found");
+  throw APIError.failedPrecondition(result.reason);
+}
+
 /** Throws a draft of the kind away; the file stays in storage with the soft-deleted version. */
 export async function discardVersion(companyId: string, versionId: string, mode: SupplierTariffMode): Promise<void> {
   await versionOfMode(companyId, versionId, mode);
@@ -323,6 +341,8 @@ export const summaryOf = (v: TariffVersionRecord): SupplierTariffVersion => ({
   createdBy: v.createdBy,
   activatedAt: isoOrNull(v.activatedAt),
   activatedBy: v.activatedBy,
+  datesChangedAt: isoOrNull(v.datesChangedAt),
+  datesChangedBy: v.datesChangedBy,
 });
 
 /** Whether a version prices on `day`: approved and within its dates. */
