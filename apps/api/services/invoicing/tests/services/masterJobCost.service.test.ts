@@ -72,7 +72,7 @@ describe("re-splitting a master job's costs", () => {
     lines.quotePricedAmong.mockResolvedValue(new Set(["s2"]));
     costs.list.mockResolvedValue([line(), line({ id: "estimate-only", realAmount: null, sortOrder: 1 })]);
     await masterJobCostService.resplit(COMPANY, MASTER);
-    expect(written.map((r) => [r.shipmentId, r.sourceMasterJobRef.endsWith(LINE) ? "line" : "estimate-only", r.estAmount, r.realAmount])).toEqual([
+    expect(written.map((r) => [r.shipmentId, r.sourceMasterJobRef?.endsWith(LINE) ? "line" : "estimate-only", r.estAmount, r.realAmount])).toEqual([
       ["s1", "line", "200.00", "220.00"],
       ["s2", "line", null, "110.00"],
       ["s1", "estimate-only", "200.00", null],

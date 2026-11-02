@@ -79,7 +79,7 @@ describe("importQuote", () => {
 
   it("marks the rows with the reference the quote is stored under", async () => {
     salesQuoteGet.mockResolvedValue({ quote: { quoteNumber: "QCZ20261010001", effectiveStatus: "won", data: DATA } } as Awaited<ReturnType<typeof quotes.salesQuoteGet>>);
-    await invoicingService.importQuote(SHIPMENT, COMPANY, "QCZ20261010001", "both", false, undefined);
+    await invoicingService.importQuote(SHIPMENT, COMPANY, "QCZ20261010001", "both", false);
     expect(copy.mock.calls[0]![2]).toBe("QCZ20261010001");
   });
 
