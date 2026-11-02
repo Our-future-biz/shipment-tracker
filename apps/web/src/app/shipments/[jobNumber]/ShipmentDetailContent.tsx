@@ -730,8 +730,7 @@ const KEY_DATES_L: FieldDef[] = [
   { key: "actualArrival", label: "ATA Actual" },
   { key: "cargoReadinessDate", label: "Cargo Readiness" },
   { key: "etaWarehouse", label: "ETA Warehouse/HUB" },
-  { key: "pickupDate", label: "Pickup Date" },
-  { key: "pickupTime", label: "Pickup Time" },
+  { key: "pickupDate", label: "Pick-Up Date" },
 ];
 const KEY_DATES_R: FieldDef[] = [
   { key: "estimatedDepartureWeek", label: "Est. Departure Week", ro: true },
@@ -744,7 +743,6 @@ const KEY_DATES_R: FieldDef[] = [
   { key: "amsDeadline", label: "AMS Deadline" },
   { key: "isfDeadline", label: "ISF Deadline" },
   { key: "plannedDeliveryDate", label: "Planned Delivery" },
-  { key: "plannedDeliveryTime", label: "Planned Delivery Time" },
 ];
 /** Equipment & Depot dle mockupu (id "equip") */
 const EQUIP_DEPOT_L: FieldDef[] = [

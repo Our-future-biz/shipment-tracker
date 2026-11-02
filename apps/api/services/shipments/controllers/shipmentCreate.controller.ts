@@ -149,6 +149,7 @@ interface ShipmentCreateRequest {
   customsDeadline?: string;
   equipmentDelivery?: string;
   equipmentDeliveryDate?: string;
+  equipmentDeliveryTime?: string;
   supplierPic?: string;
 
   // Compliance

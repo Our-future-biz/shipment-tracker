@@ -30,6 +30,9 @@ describe("date + time columns", () => {
     // clearing the date clears its time too
     expect(dateTimeUpdate(closing, "")).toEqual({ closingDate: "", closingTime: "" });
     expect(dateTimeUpdate(COLUMN_MAP.get("isfDeadline")!, "2026-11-18")).toEqual({ isfDeadline: "2026-11-18", isfDeadlineTime: "" });
+    // Pick-Up Date keeps its time in the Pickup Time field Trucking fills too
+    expect(dateTimeUpdate(COLUMN_MAP.get("pickupDate")!, "2026-11-05 08:00")).toEqual({ pickupDate: "2026-11-05", pickupTime: "08:00" });
+    expect(COLUMN_MAP.has("pickupTime")).toBe(false);
     // a column without a time is saved as it was
     expect(dateTimeUpdate(COLUMN_MAP.get("estimatedDeparture")!, "2026-11-22")).toEqual({ estimatedDeparture: "2026-11-22" });
   });

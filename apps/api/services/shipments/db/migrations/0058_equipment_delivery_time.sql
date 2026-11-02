@@ -1,0 +1,1 @@
+ALTER TABLE "shipment" ADD COLUMN "equipment_delivery_time" text DEFAULT '' NOT NULL;

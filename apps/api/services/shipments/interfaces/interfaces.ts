@@ -230,6 +230,8 @@ export interface ShipmentItem {
   redeliveryReference: string;
   redeliveryDepot: string;
   equipmentDeliveryDate: string | null;
+  /** "HH:MM"; "" = the date only */
+  equipmentDeliveryTime: string;
   supplierPic: string;
 
   // Compliance

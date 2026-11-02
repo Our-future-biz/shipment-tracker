@@ -8334,6 +8334,7 @@ export namespace controllers {
         customsDeadline?: string
         equipmentDelivery?: string
         equipmentDeliveryDate?: string
+        equipmentDeliveryTime?: string
         supplierPic?: string
         /**
          * Compliance
@@ -8714,6 +8715,7 @@ export namespace controllers {
         csRecvPacking?: interfaces.CustomsReceivedOverride
         equipmentDelivery?: string
         equipmentDeliveryDate?: string
+        equipmentDeliveryTime?: string
         supplierPic?: string
         /**
          * Compliance
@@ -16555,6 +16557,11 @@ export namespace interfaces {
         redeliveryReference: string
         redeliveryDepot: string
         equipmentDeliveryDate: string | null
+        /**
+         * "HH:MM"; "" = the date only
+         */
+        equipmentDeliveryTime: string
+
         supplierPic: string
         /**
          * Compliance

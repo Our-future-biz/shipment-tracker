@@ -94,9 +94,9 @@ export const DROPDOWN_OPTIONS: Record<string, string[]> = {
 // ─── Date Columns ─────────────────────────────────────────────────────
 
 export const DATE_COLUMNS = new Set([
-  "cargoReadinessDate", "pickupDate", "pickupTime", "closingDate",
+  "cargoReadinessDate", "pickupDate", "closingDate",
   "estimatedDeparture", "estimatedArrival", "actualDeparture", "actualArrival",
-  "etaWarehouse", "warehouseReceivedDate", "warehouseReleasedDate", "plannedDeliveryDate", "plannedDeliveryTime",
+  "etaWarehouse", "warehouseReceivedDate", "warehouseReleasedDate", "plannedDeliveryDate",
   "quoteValidity", "equipmentDeliveryDate", "vgmClosing", "siClosing", "amsDeadline", "isfDeadline",
 ]);
 
@@ -200,8 +200,7 @@ export const COLUMNS: ColumnDef[] = [
 
   // Dates
   { key: "cargoReadinessDate", title: "Cargo Readiness Date", width: 140, type: "date", apiField: "cargoReadinessDate" },
-  { key: "pickupDate", title: "Pickup Date", width: 110, type: "date", apiField: "pickupDate" },
-  { key: "pickupTime", title: "Pickup Time", width: 110, type: "date", apiField: "pickupTime" },
+  { key: "pickupDate", title: "Pick-Up Date", width: 140, type: "date", apiField: "pickupDate", timeField: "pickupTime" },
   { key: "closingDate", title: "Closing Date", width: 140, type: "date", apiField: "closingDate", timeField: "closingTime" },
   { key: "vgmClosing", title: "VGM Closing", width: 140, type: "date", apiField: "vgmClosing", timeField: "vgmClosingTime" },
   { key: "siClosing", title: "SI Closing", width: 140, type: "date", apiField: "siClosing", timeField: "siClosingTime" },
@@ -223,7 +222,7 @@ export const COLUMNS: ColumnDef[] = [
   { key: "warehouseTruck", title: "Truck Reference", width: 150, type: "text", readonly: true, apiField: "warehouseTruck" },
   { key: "plateNumber", title: "Plate Number", width: 140, type: "text", apiField: "plateNumber" },
   { key: "warehouseReleasedDate", title: "Warehouse Released", width: 150, type: "date", apiField: "warehouseReleasedDate" },
-  { key: "plannedDeliveryDate", title: "Planned Delivery Date", width: 140, type: "date", apiField: "plannedDeliveryDate" },
+  { key: "plannedDeliveryDate", title: "Planned Delivery Date", width: 160, type: "date", apiField: "plannedDeliveryDate", timeField: "plannedDeliveryTime" },
   { key: "plannedDeliveryTime", title: "Planned Delivery Time", width: 140, type: "date", apiField: "plannedDeliveryTime" },
   { key: "cargoOrigin", title: "Cargo Origin", width: 160, type: "country", apiField: "cargoOrigin" },
   { key: "origin", title: "Origin", width: 160, type: "place", apiField: "origin" },
@@ -249,7 +248,7 @@ export const COLUMNS: ColumnDef[] = [
   { key: "csRecvInvoice", title: "Invoice Received", width: 130, type: "text", apiField: "csRecvInvoice" },
   { key: "csRecvPacking", title: "Packing List Received", width: 155, type: "text", apiField: "csRecvPacking" },
   { key: "equipmentDelivery", title: "Equipment Delivery/Pick-Up Address", width: 200, type: "text", apiField: "equipmentDelivery" },
-  { key: "equipmentDeliveryDate", title: "Equipment Delivery/Pick-Up Date", width: 180, type: "date", apiField: "equipmentDeliveryDate" },
+  { key: "equipmentDeliveryDate", title: "Equipment Delivery/Pick-Up Date", width: 180, type: "date", apiField: "equipmentDeliveryDate", timeField: "equipmentDeliveryTime" },
   // Equipment & Depot card on the shipment detail page.
   { key: "releaseReference", title: "Release Reference", width: 150, type: "text", apiField: "releaseReference" },
   { key: "releaseDepot", title: "Release Depot", width: 170, type: "text", apiField: "releaseDepot" },
@@ -438,8 +437,8 @@ export function getCellConditionalStyle(
   if (dateFieldsForPastCheck.includes(key) && value && isDateInPast(value)) {
     return { backgroundColor: "rgba(34, 197, 94, 0.15)", fontWeight: 700 };
   }
-  // Pickup date/time linked check
-  if ((key === "pickupDate" || key === "pickupTime") && rowData["pickupDate"] && isDateInPast(rowData["pickupDate"])) {
+  // Pick-up date (its time is shown with it)
+  if (key === "pickupDate" && rowData["pickupDate"] && isDateInPast(rowData["pickupDate"])) {
     return { backgroundColor: "rgba(34, 197, 94, 0.15)", fontWeight: 700 };
   }
 

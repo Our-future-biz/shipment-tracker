@@ -174,6 +174,7 @@ export const shipmentTable = pgTable(
     redeliveryReference: text("redelivery_reference").notNull().default(""),
     redeliveryDepot: text("redelivery_depot").notNull().default(""),
     equipmentDeliveryDate: date("equipment_delivery_date", { mode: "string" }),
+    equipmentDeliveryTime: text("equipment_delivery_time").notNull().default(""), // "HH:MM"; "" = the date only
     supplierPic: text("supplier_pic").notNull().default(""),
 
     // — Compliance —

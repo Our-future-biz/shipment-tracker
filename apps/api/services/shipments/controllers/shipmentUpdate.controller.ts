@@ -159,6 +159,7 @@ interface ShipmentUpdateRequest {
   csRecvPacking?: CustomsReceivedOverride;
   equipmentDelivery?: string;
   equipmentDeliveryDate?: string;
+  equipmentDeliveryTime?: string;
   supplierPic?: string;
 
   // Compliance

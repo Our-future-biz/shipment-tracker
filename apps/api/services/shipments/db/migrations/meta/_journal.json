@@ -407,6 +407,13 @@
       "when": 1793617517546,
       "tag": "0057_closing_times_ams_isf_deadlines",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1793619399035,
+      "tag": "0058_equipment_delivery_time",
+      "breakpoints": true
     }
   ]
 }
