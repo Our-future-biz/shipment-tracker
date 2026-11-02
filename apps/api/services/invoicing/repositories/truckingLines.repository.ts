@@ -217,6 +217,17 @@ class TruckingLinesRepository {
     return !!row;
   }
 
+  /** Of these shipments, the charge codes (of `categories`) Trucking keeps live buying rows of, as "shipmentId category" keys. */
+  async keptBuyingCodes(companyId: string, shipmentIds: string[], categories: string[]): Promise<Set<string>> {
+    if (!shipmentIds.length || !categories.length) return new Set();
+    const c = invoiceCostTable;
+    const rows = await db
+      .selectDistinct({ shipmentId: c.shipmentId, category: c.category })
+      .from(c)
+      .where(and(eq(c.companyId, companyId), inArray(c.shipmentId, shipmentIds), inArray(c.category, categories), isNull(c.deletedAt), like(c.sourceTruckingRef, "trucking:%")));
+    return new Set(rows.map((r) => `${r.shipmentId} ${r.category}`));
+  }
+
   /**
    * Runs `work` while holding the shipment's trucking-lines lock (the lock a Trucking push takes):
    * a check and the write after it can't interleave with a push. The work's own writes commit on

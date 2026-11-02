@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Button,
@@ -217,6 +217,8 @@ export function DocumentReadingWorkflow() {
   // The new MCZ a batch was started under. "Next free number" moves on as soon as the
   // first shipment is linked, so the batch keeps the number it began with.
   const [batchMcz, setBatchMcz] = useState("");
+  // The master job made for an MBL filed on its own: a retry after a failed filing files to it, not to another new one.
+  const mblOnlyJobId = useRef<string | null>(null);
   // The master job a booking save created, so a retry after a failed save reuses it.
   const [bookingCreated, setBookingCreated] = useState<{ id: string; mczNumber: string } | null>(null);
   const [bookingSaving, setBookingSaving] = useState(false);
@@ -553,6 +555,7 @@ export function DocumentReadingWorkflow() {
       } else {
         // masterjob — Phase 1: prepare + classify. A new batch starts on the next free MCZ.
         setBatchMcz("");
+        mblOnlyJobId.current = null;
         setMblFiled(false);
         setMasterCreatedJobs([]);
         setPipelineStep("idle");
@@ -918,12 +921,14 @@ export function DocumentReadingWorkflow() {
   // the one picked, or a new one created for it.
   const [filingMblOnly, setFilingMblOnly] = useState(false);
   const fileMblOnly = async () => {
+    if (masterMode === "existing" && !currentMasterJob) return toast.warning(`Master job ${activeMcz || ""} was not found.`);
     setFilingMblOnly(true);
     try {
-      let id = masterMode === "existing" ? currentMasterJob?.id : undefined;
+      let id = masterMode === "existing" ? currentMasterJob!.id : mblOnlyJobId.current;
       if (!id) {
         const { masterJob } = await createMasterJob.mutateAsync();
         id = masterJob.id;
+        mblOnlyJobId.current = id;
         setBatchMcz(masterJob.mczNumber);
       }
       if (await fileMblToMasterJob(id)) setStep("committed");
@@ -1007,6 +1012,7 @@ export function DocumentReadingWorkflow() {
     setMasterMode("new");
     setMasterMczExisting("");
     setBatchMcz("");
+    mblOnlyJobId.current = null;
     setPipelineSessionId("");
     setPipelineStep("idle");
     setClassification({});
@@ -1048,6 +1054,7 @@ export function DocumentReadingWorkflow() {
                 setDestination(v as Destination);
                 setError(null);
                 setBatchMcz("");
+                mblOnlyJobId.current = null;
                 setBookingCreated(null);
               }}
               options={DESTINATION_OPTIONS as unknown as { value: string; label: string }[]}
@@ -1194,6 +1201,7 @@ export function DocumentReadingWorkflow() {
                 onChange={(e) => {
                   setMasterMode(e.target.value);
                   setBatchMcz("");
+                  mblOnlyJobId.current = null;
                 }}
                 className="mb-2"
               >
@@ -1795,10 +1803,12 @@ function UploadedFileList({ files, onRemove }: UploadedFileListProps) {
     const bytes = Uint8Array.from(atob(f.base64), (c) => c.charCodeAt(0));
     setPreview({ name: f.name, url: URL.createObjectURL(new Blob([bytes], { type })), type });
   };
-  const closePreview = () => {
-    if (preview) URL.revokeObjectURL(preview.url);
-    setPreview(null);
-  };
+  // The file's object URL is let go when the preview closes, or when the list goes while it is open.
+  useEffect(() => {
+    if (!preview) return;
+    return () => URL.revokeObjectURL(preview.url);
+  }, [preview]);
+  const closePreview = () => setPreview(null);
 
   return (
     <div className="mt-3 border border-slate-200 rounded-lg">
@@ -1827,7 +1837,7 @@ function UploadedFileList({ files, onRemove }: UploadedFileListProps) {
         ))}
       </ul>
 
-      <Modal open={!!preview} title={preview?.name} onCancel={closePreview} footer={null} width="80vw" styles={{ body: { padding: 0, height: "78vh" } }} destroyOnHidden>
+      <Modal open={!!preview} title={preview?.name} onCancel={closePreview} footer={null} width="80vw" classNames={{ body: "!p-0 h-[78vh]" }} destroyOnHidden>
         {preview &&
           (preview.type.startsWith("image/") ? (
             <div className="h-full overflow-auto bg-slate-100 flex items-center justify-center">

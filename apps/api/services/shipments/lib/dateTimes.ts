@@ -25,3 +25,27 @@ export function assertTimes(data: Record<string, unknown>): void {
     }
   }
 }
+
+/** Each date that keeps a time, and the field its time is in. */
+const DATE_TIME_PAIRS: Record<string, (typeof TIME_FIELDS)[number]> = {
+  closingDate: "closingTime",
+  vgmClosing: "vgmClosingTime",
+  siClosing: "siClosingTime",
+  amsDeadline: "amsDeadlineTime",
+  isfDeadline: "isfDeadlineTime",
+  pickupDate: "pickupTime",
+  plannedDeliveryDate: "plannedDeliveryTime",
+  equipmentDeliveryDate: "equipmentDeliveryTime",
+};
+
+/**
+ * A date moved to another day without a time of its own (a document read, a master job's date
+ * copied onto a shipment) loses the time it had: that time was the old day's. Called on a write's
+ * values, with the record as stored.
+ */
+export function clearStaleTimes(data: Record<string, unknown>, existing: Record<string, unknown>): void {
+  for (const [date, time] of Object.entries(DATE_TIME_PAIRS)) {
+    if (!(date in data) || time in data || !existing[time]) continue;
+    if ((data[date] ?? null) !== (existing[date] ?? null)) data[time] = "";
+  }
+}

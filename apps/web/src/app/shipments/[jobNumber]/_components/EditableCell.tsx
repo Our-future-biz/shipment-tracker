@@ -167,7 +167,9 @@ export function EditableCell({
   if (!editing) {
     const hasValue = original.length > 0;
     // Dates are stored as ISO but shown in the unified DD.MM.YYYY display format (a kept time after it).
-    const shown = hasValue ? (isDate ? shownDate(original) : fieldKey === "status" ? statusLabel(original) : original) : placeholder;
+    const shown = hasValue
+      ? isDate ? (col?.timeField ? shownDate(original) : formatDate(original)) : fieldKey === "status" ? statusLabel(original) : original
+      : placeholder;
     const textClass = hasValue ? displayClassName : (emptyClassName ?? displayClassName);
     const textStyle = hasValue ? displayStyle : undefined;
     return (

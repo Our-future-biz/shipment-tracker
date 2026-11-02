@@ -242,10 +242,11 @@ export async function extractFromTextByDestination(text: string, destination: st
 
 // For pipeline: classify pages (each page is its own PDF/image document block)
 // The file each page came from, for the classifier: a name like "CHV229738-MBL.pdf" is a strong hint.
-function fileHints(pages: Array<{ pageNum: number; fileName?: string }>): string {
-  const named = pages.filter((p) => p.fileName);
+// Numbered as the classifier sees the pages - 1 to n in this request - not by their place in the upload.
+function fileHints(pages: Array<{ fileName?: string }>): string {
+  const named = pages.flatMap((p, i) => (p.fileName ? [`- page ${i + 1}: ${p.fileName}`] : []));
   if (!named.length) return "";
-  return `Files the pages come from:\n${named.map((p) => `- page ${p.pageNum}: ${p.fileName}`).join("\n")}\n\n`;
+  return `Files the pages come from:\n${named.join("\n")}\n\n`;
 }
 
 export async function classifyPages(

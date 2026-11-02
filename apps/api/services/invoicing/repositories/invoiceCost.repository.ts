@@ -41,6 +41,16 @@ class InvoiceCostRepository extends TenantRepository<typeof t> {
     return !!row;
   }
 
+  /** Of these shipments, the ones with a live buying line copied from a quote (hasQuoteRows for many at once). */
+  async quotePricedAmong(companyId: string, shipmentIds: string[]): Promise<Set<string>> {
+    if (!shipmentIds.length) return new Set();
+    const rows = await this.db
+      .selectDistinct({ shipmentId: t.shipmentId })
+      .from(t)
+      .where(and(eq(t.companyId, companyId), inArray(t.shipmentId, shipmentIds), isNull(t.deletedAt), ne(t.sourceQuoteNumber, "")));
+    return new Set(rows.map((r) => r.shipmentId));
+  }
+
   /** A live line of the shipment that may be written here (not one of Trucking's), or null. */
   async findLine(id: string, companyId: string, shipmentId: string): Promise<InvoiceCostRecord | null> {
     const [row] = await this.db.select().from(t).where(lineOf(id, companyId, shipmentId)).limit(1);

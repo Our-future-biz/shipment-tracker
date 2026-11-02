@@ -9,6 +9,7 @@ vi.mock("../repositories/additionalCharge.repository", () => ({ additionalCharge
 vi.mock("../repositories/billingSettings.repository", () => ({ billingSettingsRepository: {} }));
 vi.mock("../repositories/billingOverride.repository", () => ({ billingOverrideRepository: {} }));
 vi.mock("../repositories/generatedInvoice.repository", () => ({ generatedInvoiceRepository: {} }));
+vi.mock("../repositories/invoice.repository", () => ({ invoiceRepository: {} }));
 vi.mock("../repositories/sellingCost.repository", () => ({ sellingCostRepository: {} }));
 vi.mock("../repositories/customsInvoice.repository", () => ({ customsInvoiceLineRepository: {}, customsInvoiceRepository: {} }));
 vi.mock("~encore/clients", () => ({ quotes: {} }));

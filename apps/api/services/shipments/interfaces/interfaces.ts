@@ -374,6 +374,14 @@ export interface MasterJobDetail {
   shipments: MasterJobShipmentItem[];
 }
 
+/** A house shipment as the invoicing service splits its master job's costs over it. */
+export interface MasterJobHouseItem {
+  shipmentId: string;
+  jobNumber: string;
+  /** W/M: the greater of tons and cbm */
+  freightTon: number;
+}
+
 /** A house shipment as listed on its master job. */
 export interface MasterJobShipmentItem {
   id: string;

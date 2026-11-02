@@ -1,6 +1,5 @@
 import { APIError, ErrCode } from "encore.dev/api";
-import log from "encore.dev/log";
-import { customers, invoicing } from "~encore/clients";
+import { customers } from "~encore/clients";
 import { isUuid } from "../../../lib/uuid";
 import { masterJobRepository } from "../repositories/masterJob.repository";
 import { masterJobContainerRepository } from "../repositories/masterJobContainer.repository";
@@ -25,10 +24,12 @@ import type {
   ContainerLine,
   MasterJobContainerLine,
   MasterJobItem,
+  MasterJobHouseItem,
   MasterJobShipmentItem,
   MasterJobDetail,
 } from "../interfaces/interfaces";
-import { assertTimes } from "../lib/dateTimes";
+import { assertTimes, clearStaleTimes } from "../lib/dateTimes";
+import { resplitMasterJobCosts } from "../lib/masterJobCosts";
 import { cargoDimensionRepository } from "../repositories/cargoDimension.repository";
 import { freightTons } from "../lib/freightTons";
 
@@ -186,6 +187,7 @@ class MasterJobService {
         throw APIError.invalidArgument(`${key} must be a date as "YYYY-MM-DD"`);
       }
     }
+    clearStaleTimes(clean, existing);
     // The master job wins: every synced field in this save is written onto the houses. A
     // house that is invoiced can't take a new ATA / ATD, so all houses are checked before
     // anything is written — the save goes through for all of them or for none.
@@ -252,13 +254,17 @@ class MasterJobService {
 
   async linkShipments(id: string, companyId: string, shipmentIds: string[], userId: string): Promise<MasterJobDetail> {
     const row = await this.require(id, companyId);
+    const left: (string | null)[] = [];
     for (const shipmentId of shipmentIds) {
       const shipment = await shipmentRepository.getByIdForCompany(shipmentId, companyId);
       if (!shipment) throw APIError.notFound(`Shipment ${shipmentId} not found`);
+      left.push(shipment.masterJobId);
     }
     for (const shipmentId of shipmentIds) {
-      await this.attachShipment(shipmentId, companyId, row.mczNumber, userId);
+      await this.attachShipment(shipmentId, companyId, row.mczNumber, userId, { resplit: false });
     }
+    // The costs are shared out once, with all of them in (and on the master jobs they left).
+    await resplitMasterJobCosts([id, ...left]);
     return this.get(id, companyId);
   }
 
@@ -267,7 +273,7 @@ class MasterJobService {
    * the master job's values onto it. A shipment moved off another master job is taken
    * out of that one's container assignments.
    */
-  async attachShipment(shipmentId: string, companyId: string, mczNumber: string, userId: string): Promise<void> {
+  async attachShipment(shipmentId: string, companyId: string, mczNumber: string, userId: string, { resplit = true } = {}): Promise<void> {
     const shipment = await shipmentRepository.getByIdForCompany(shipmentId, companyId);
     if (!shipment) throw APIError.notFound(`Shipment ${shipmentId} not found`);
     const linked = await shipmentService.linkMasterJob(shipmentId, companyId, mczNumber);
@@ -276,7 +282,7 @@ class MasterJobService {
     }
     await this.syncShipment(shipmentId, companyId, userId);
     // The master job's costs are shared out again with the shipment in (and the one it left without it).
-    await this.resplitCosts([linked?.masterJobId, shipment.masterJobId]);
+    if (resplit) await resplitMasterJobCosts([linked?.masterJobId, shipment.masterJobId]);
   }
 
   async unlinkShipment(id: string, companyId: string, shipmentId: string): Promise<MasterJobDetail> {
@@ -293,11 +299,11 @@ class MasterJobService {
     if (!shipment) throw APIError.notFound(`Shipment ${shipmentId} not found`);
     await shipmentService.unlinkMasterJob(shipmentId, companyId);
     if (shipment.masterJobId) await this.unassignFromContainers(shipment.masterJobId, companyId, shipmentId);
-    await this.resplitCosts([shipment.masterJobId]);
+    await resplitMasterJobCosts([shipment.masterJobId]);
   }
 
   /** The master job's live shipments with their freight tons (W/M), what its costs are split over. */
-  async houses(id: string, companyId: string): Promise<{ shipmentId: string; jobNumber: string; freightTon: number }[]> {
+  async houses(id: string, companyId: string): Promise<MasterJobHouseItem[]> {
     await this.require(id, companyId);
     const rows = await shipmentRepository.findByMasterJobId(id, companyId);
     const dims = await cargoDimensionRepository.listByShipmentIds(rows.map((r) => r.id), companyId);
@@ -308,20 +314,6 @@ class MasterJobService {
         freightTon: freightTons(dims.filter((d) => d.shipmentId === r.id), r).freightTon,
       }))
       .sort((a, b) => a.jobNumber.localeCompare(b.jobNumber));
-  }
-
-  /**
-   * Shares the costs of these master jobs out again over their shipments (invoicing). A failure
-   * doesn't undo what changed the shipments; it is logged, and the next change splits again.
-   */
-  async resplitCosts(masterJobIds: (string | null | undefined)[]): Promise<void> {
-    for (const masterJobId of new Set(masterJobIds.filter((id): id is string => !!id))) {
-      try {
-        await invoicing.invoicingMasterJobResplit({ masterJobId });
-      } catch (err) {
-        log.error(err, "master job costs could not be split again", { masterJobId });
-      }
-    }
   }
 
   /** Copy the master job's filled-in values onto a shipment that was just linked to it. */

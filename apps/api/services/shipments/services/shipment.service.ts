@@ -52,7 +52,8 @@ import { CONSIGNEE_CONTACT, CUSTOMER_PIC, SHIPPER_CONTACT, linkContact, type Con
 import { shipmentDeleted, shipmentPartiesChanged } from "../topics";
 import { companyUsers, matchUser, requireUserEmail, userEmailOf, type CompanyUser } from "../../../lib/companyUsers";
 import { PERSON_FIELDS, planPeopleNormalize, requireApprovedBy } from "../lib/people";
-import { assertTimes } from "../lib/dateTimes";
+import { assertTimes, clearStaleTimes } from "../lib/dateTimes";
+import { resplitMasterJobCosts } from "../lib/masterJobCosts";
 
 // The customers a write links to, by the field holding the link: read once, for the link check
 // and for the party fill after it.
@@ -982,6 +983,7 @@ class ShipmentService {
     assertValidContainerNumbers(containers);
     const cargoDimensions = normalizeCargoDimensions(sentDimensions);
     const shipmentData: Partial<NewShipmentRecord> = sanitizeTypedFields({ ...rest, ...legacyInvoiceFields(commercialInvoices) });
+    clearStaleTimes(shipmentData, existing);
     const users = usersOnce();
     await checkPeople(shipmentData, users, existing);
     Object.assign(shipmentData, normalizeStops(shipmentData, existing));
@@ -1107,9 +1109,12 @@ class ShipmentService {
     if (updated && (updated.customer !== existing.customer || updated.customerPic !== existing.customerPic)) {
       await this.tellParties(companyId, updated);
     }
-    // A W/M split of its master job's costs follows the shipment's weight and volume.
-    if (existing.masterJobId && (cargoDimensions !== undefined || "totalWeightTons" in shipmentData || "totalVolumeCbm" in shipmentData)) {
-      await this.resplitMasterJobCosts(existing.masterJobId);
+    // A W/M split of its master job's costs follows the shipment's weight and volume - also when
+    // a removed container took its own cargo dimensions with it (writeDetailRows).
+    const weightMayHaveChanged =
+      cargoDimensions !== undefined || containers !== undefined || "totalWeightTons" in shipmentData || "totalVolumeCbm" in shipmentData;
+    if (existing.masterJobId && weightMayHaveChanged) {
+      await resplitMasterJobCosts([existing.masterJobId]);
     }
 
     // A changed Sales Number takes the shipment from one quote and gives it to another: both
@@ -1242,19 +1247,7 @@ class ShipmentService {
     // The quote the shipment named loses it - and with its last shipment a Won it owed to one.
     await this.tellQuote(companyId, existing.salesNumber.trim());
     // Its master job's costs are shared out again over the shipments left.
-    if (existing.masterJobId) await this.resplitMasterJobCosts(existing.masterJobId);
-  }
-
-  /**
-   * Shares a master job's costs out again over its shipments (invoicing). A failure doesn't undo
-   * the change to the shipment; it is logged, and the next change splits again.
-   */
-  private async resplitMasterJobCosts(masterJobId: string): Promise<void> {
-    try {
-      await invoicing.invoicingMasterJobResplit({ masterJobId });
-    } catch (err) {
-      log.error(err, "master job costs could not be split again", { masterJobId });
-    }
+    if (existing.masterJobId) await resplitMasterJobCosts([existing.masterJobId]);
   }
 
   // Release the house bill of lading, recording who released it and when.

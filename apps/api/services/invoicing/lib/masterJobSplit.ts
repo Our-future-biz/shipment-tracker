@@ -29,12 +29,6 @@ export interface SplitShare {
 export const masterJobRef = (masterJobId: string, lineId: string) => `master:${masterJobId}:${lineId}`;
 export const masterJobRefPrefix = (masterJobId: string) => `master:${masterJobId}:`;
 
-/** The master job a split row's ref names, or null for any other ref. */
-export function masterJobIdOfRef(ref: string | null | undefined): string | null {
-  const m = /^master:([0-9a-f-]{36}):/i.exec(ref ?? "");
-  return m ? m[1]! : null;
-}
-
 /** A line's total: its amount times its quantity (no quantity counts as 1), in cents; null when it has no amount. */
 export function lineTotalCents(amount: string | null, qty: string | null): number | null {
   if (amount == null || amount.trim() === "") return null;

@@ -1,4 +1,4 @@
-import { and, eq, isNull, max, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, max, sql } from "drizzle-orm";
 import type { PgTable } from "drizzle-orm/pg-core";
 import { db } from "../db/db";
 import { billingSettingsTable } from "../schemas/billingSettings.schema";
@@ -23,6 +23,8 @@ class QuoteCostImportRepository {
    * `alreadyCopied` - and the other side is still copied; null, with nothing written, when that
    * leaves nothing to copy. An advisory lock on the shipment makes that check hold for two copies
    * started at the same moment: the second waits and then finds the rows of the first.
+   *
+   * Billing settings made by the copy (the shipment had none) start in `billingCurrency`, when given.
    */
   async copy(
     companyId: string,
@@ -30,6 +32,7 @@ class QuoteCostImportRepository {
     quoteNumber: string,
     rows: { buying?: QuoteBuyingRow[]; selling?: QuoteSellingRow[] },
     again: boolean,
+    billingCurrency?: string,
   ): Promise<QuoteImportResult | null> {
     return db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`import-quote:${shipmentId}`}))`);
@@ -52,6 +55,7 @@ class QuoteCostImportRepository {
         if (buying.quoted > 0) await this.retireBuyingQuoteRows(tx, companyId, shipmentId);
         const values: NewInvoiceCostRecord[] = buying.rows.map((row, i) => ({ ...row, ...from, sortOrder: buying.next + i }));
         await tx.insert(invoiceCostTable).values(values);
+        await this.dropSplitEstimates(tx, companyId, shipmentId);
       }
       if (selling?.rows.length) {
         // vatCode stays null: the default by the shipment's trade direction, as for a row typed in.
@@ -61,7 +65,7 @@ class QuoteCostImportRepository {
       // One settings row per (company, shipment).
       await tx
         .insert(billingSettingsTable)
-        .values({ companyId, shipmentId, quoteRef: quoteNumber })
+        .values({ companyId, shipmentId, quoteRef: quoteNumber, ...(billingCurrency ? { billingCurrency } : {}) })
         .onConflictDoUpdate({
           target: [billingSettingsTable.companyId, billingSettingsTable.shipmentId],
           set: { quoteRef: quoteNumber, updatedAt: new Date(), deletedAt: null },
@@ -88,6 +92,18 @@ class QuoteCostImportRepository {
       .update(c)
       .set({ sourceQuoteNumber: "", estQty: null, estAmount: null, updatedAt: now })
       .where(and(...quoteRows));
+  }
+
+  /**
+   * A shipment now priced from a quote carries only the real part of its master job's shares (as a
+   * re-split writes them): their estimates go, and a share with nothing but an estimate goes with it.
+   */
+  private async dropSplitEstimates(tx: ImportTransaction, companyId: string, shipmentId: string): Promise<void> {
+    const c = invoiceCostTable;
+    const now = new Date();
+    const splitRows = [eq(c.companyId, companyId), eq(c.shipmentId, shipmentId), isNull(c.deletedAt), isNotNull(c.sourceMasterJobRef)];
+    await tx.update(c).set({ deletedAt: now, updatedAt: now }).where(and(...splitRows, isNull(c.realAmount)));
+    await tx.update(c).set({ estQty: null, estAmount: null, updatedAt: now }).where(and(...splitRows));
   }
 
   // How one side of a shipment's Costs Breakdown stands: how many of its rows came from the

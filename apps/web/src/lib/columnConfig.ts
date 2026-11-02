@@ -105,10 +105,15 @@ export const DATE_COLUMNS = new Set([
 // edits them as one value, "YYYY-MM-DD HH:MM" (or "YYYY-MM-DD" with no time). Everything that
 // reads dates looks at the first 10 characters, so the time never gets in its way.
 
-/** "2026-11-20" + "12:00" → "2026-11-20 12:00"; no date → "". */
+const HH_MM = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/**
+ * "2026-11-20" + "12:00" → "2026-11-20 12:00"; no date → "". A time that is not "HH:MM" (one the
+ * old date-typed time columns stored, e.g. "2026-11-05") is left out, so an edit saves it as none.
+ */
 export function joinDateTime(date: string | null | undefined, time: string | null | undefined): string {
   if (!date) return "";
-  return time ? `${date} ${time}` : date;
+  return time && HH_MM.test(time) ? `${date} ${time}` : date;
 }
 
 /** "2026-11-20 12:00" → { date: "2026-11-20", time: "12:00" }. */
@@ -223,7 +228,6 @@ export const COLUMNS: ColumnDef[] = [
   { key: "plateNumber", title: "Plate Number", width: 140, type: "text", apiField: "plateNumber" },
   { key: "warehouseReleasedDate", title: "Warehouse Released", width: 150, type: "date", apiField: "warehouseReleasedDate" },
   { key: "plannedDeliveryDate", title: "Planned Delivery Date", width: 160, type: "date", apiField: "plannedDeliveryDate", timeField: "plannedDeliveryTime" },
-  { key: "plannedDeliveryTime", title: "Planned Delivery Time", width: 140, type: "date", apiField: "plannedDeliveryTime" },
   { key: "cargoOrigin", title: "Cargo Origin", width: 160, type: "country", apiField: "cargoOrigin" },
   { key: "origin", title: "Origin", width: 160, type: "place", apiField: "origin" },
 

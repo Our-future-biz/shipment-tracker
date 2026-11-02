@@ -1,6 +1,6 @@
 import { APIError, ErrCode } from "encore.dev/api";
 import log from "encore.dev/log";
-import { quotes } from "~encore/clients";
+import { customers, quotes, shipments } from "~encore/clients";
 import { iso } from "../../../lib/db/serialize";
 import { assertShipmentExists } from "../../../lib/shipmentRefs";
 import { toChargeCode } from "../../../lib/chargeCodes";
@@ -14,6 +14,7 @@ import { additionalChargeRepository } from "../repositories/additionalCharge.rep
 import { billingSettingsRepository } from "../repositories/billingSettings.repository";
 import { billingOverrideRepository } from "../repositories/billingOverride.repository";
 import { generatedInvoiceRepository } from "../repositories/generatedInvoice.repository";
+import { invoiceRepository } from "../repositories/invoice.repository";
 import { sellingCostRepository } from "../repositories/sellingCost.repository";
 import { customsInvoiceLineRepository, customsInvoiceRepository } from "../repositories/customsInvoice.repository";
 import { quoteCostImportRepository } from "../repositories/quoteCostImport.repository";
@@ -186,7 +187,7 @@ export function chargeChanges(input: AdditionalChargeInput): Partial<NewInvoiceA
  * whose cost of that code Trucking keeps: the haulier's cost is already there from the trip and
  * would be counted twice.
  */
-async function assertNotKeptByTrucking(companyId: string, shipmentIds: string[], code: string): Promise<void> {
+export async function assertNotKeptByTrucking(companyId: string, shipmentIds: string[], code: string): Promise<void> {
   // The road codes count as one cost: a hand-posted "pickup" on a job Trucking prices as
   // "road_freight" is the same haulier cost twice.
   const codes = sameCostCodes(code);
@@ -197,6 +198,25 @@ async function assertNotKeptByTrucking(companyId: string, shipmentIds: string[],
         `Job ${job.jobNumber} has its ${code.replace(/_/g, " ")} cost from Trucking: enter the haulier's invoice in Trucking (Haulier invoices), not here, or it is counted twice`,
       );
     }
+  }
+}
+
+/**
+ * The currency a shipment's billing starts in when its billing settings are first made, while no
+ * invoice was issued for it: its customer's default (Customers → Finance). Undefined - CZK, as
+ * before - once it was invoiced, without a customer, or when the customer can't be read (which
+ * must not stop the write it comes with).
+ */
+async function startingBillingCurrency(companyId: string, shipmentId: string): Promise<string | undefined> {
+  if ((await invoiceRepository.listByShipment(shipmentId, companyId)).length) return undefined;
+  try {
+    const { shipment } = await shipments.shipmentGet({ shipmentId });
+    if (!shipment.customerId) return undefined;
+    const { customer } = await customers.customerGet({ id: shipment.customerId });
+    return customer.currency || undefined;
+  } catch (err) {
+    log.warn(err, "the customer's default currency could not be read; billing starts in CZK", { shipmentId });
+    return undefined;
   }
 }
 
@@ -387,12 +407,17 @@ class InvoicingService {
     // A job with a Trucking consignment gets its road freight from Trucking: the quote's trucking lines are left out.
     const skipTrucking = await truckingLinesRepository.hasConsignmentRows(companyId, shipmentId);
     const rows = quoteLinesToCostRows(quote.data, { skipTrucking });
+    // The copy makes the shipment's billing settings when it has none: billed in its customer's default.
+    const billingCurrency = (await billingSettingsRepository.getByShipmentId(shipmentId, companyId))
+      ? undefined
+      : await startingBillingCurrency(companyId, shipmentId);
     const copied = await quoteCostImportRepository.copy(
       companyId,
       shipmentId,
       quote.quoteNumber,
       { buying: target === "sell" ? undefined : rows.buying, selling: target === "buy" ? undefined : rows.selling },
       force,
+      billingCurrency,
     );
     // The details tell this refusal from the one above: copying again can be asked for.
     if (!copied) throw APIError.failedPrecondition(`costs from ${quote.quoteNumber} were already copied to this shipment`).withDetails({ alreadyCopied: true });
@@ -423,7 +448,14 @@ class InvoicingService {
     const roe = toDecimal(input.roe, "roe", 6);
     if (roe === null) throw APIError.invalidArgument("roe can't be cleared");
     const data = definedOnly({ ...input, roe });
-    if (!(await billingSettingsRepository.getByShipmentId(shipmentId, companyId))) await assertShipmentExists(shipmentId);
+    if (!(await billingSettingsRepository.getByShipmentId(shipmentId, companyId))) {
+      await assertShipmentExists(shipmentId);
+      // Made now for another field (the ROE): the currency starts as the customer's default too.
+      if (data.billingCurrency === undefined) {
+        const billingCurrency = await startingBillingCurrency(companyId, shipmentId);
+        if (billingCurrency) data.billingCurrency = billingCurrency;
+      }
+    }
     return toBillingSettingsItem(await billingSettingsRepository.upsert(shipmentId, companyId, data));
   }
 

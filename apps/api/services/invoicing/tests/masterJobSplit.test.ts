@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { lineTotalCents, masterJobIdOfRef, masterJobRef, splitLine, type SplitHouse } from "../lib/masterJobSplit";
+import { lineTotalCents, masterJobRef, masterJobRefPrefix, splitLine, type SplitHouse } from "../lib/masterJobSplit";
 
 const houses: SplitHouse[] = [
   { shipmentId: "a", jobNumber: "CZ00000021", freightTon: 2 },
@@ -35,7 +35,9 @@ describe("master job cost split", () => {
 
   it("names the master job in a split row's ref", () => {
     const id = "3d55a500-d6f8-4def-8e95-82e77493cabb";
-    expect(masterJobIdOfRef(masterJobRef(id, "line-1"))).toBe(id);
-    expect(masterJobIdOfRef("trucking:trip:x")).toBeNull();
+    expect(masterJobRef(id, "line-1")).toBe(`master:${id}:line-1`);
+    // A re-split finds every row of the master job by the prefix, and no other master job's.
+    expect(masterJobRef(id, "line-1").startsWith(masterJobRefPrefix(id))).toBe(true);
+    expect(masterJobRef("4e66b611-e7f9-4ef0-9fa6-93f88504dbcc", "line-1").startsWith(masterJobRefPrefix(id))).toBe(false);
   });
 });

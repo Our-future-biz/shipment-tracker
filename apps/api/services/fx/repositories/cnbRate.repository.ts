@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, lte, max, sql } from "drizzle-orm";
+import { and, asc, desc, gte, inArray, lte, max, sql } from "drizzle-orm";
 import { db } from "../db/db";
 import { cnbRateTable, type CnbRateRecord, type NewCnbRateRecord } from "../schemas/cnbRate.schema";
 
@@ -39,16 +39,6 @@ class CnbRateRepository {
       .from(cnbRateTable)
       .where(and(inArray(cnbRateTable.currency, currencies), lte(cnbRateTable.validDate, date)))
       .orderBy(cnbRateTable.currency, desc(cnbRateTable.validDate));
-  }
-
-  // The two newest fixings on or before `date` for one currency (today's and the one before).
-  async lastTwo(currency: string, date: string): Promise<CnbRateRecord[]> {
-    return db
-      .select()
-      .from(cnbRateTable)
-      .where(and(eq(cnbRateTable.currency, currency), lte(cnbRateTable.validDate, date)))
-      .orderBy(desc(cnbRateTable.validDate))
-      .limit(2);
   }
 
   async currencies(): Promise<string[]> {

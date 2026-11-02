@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // stand-in for the quotes service and for the repository that writes the rows.
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
-vi.mock("~encore/clients", () => ({ quotes: { salesQuoteGet: vi.fn() } }));
+vi.mock("~encore/clients", () => ({ quotes: { salesQuoteGet: vi.fn() }, shipments: { shipmentGet: vi.fn() }, customers: { customerGet: vi.fn() } }));
 vi.mock("../../repositories/customsInvoice.repository", () => ({ customsInvoiceLineRepository: {}, customsInvoiceRepository: {} }));
 vi.mock("../../../../lib/shipmentRefs", () => ({ assertShipmentExists: vi.fn(async () => ({ jobNumber: "CZ00000001" })) }));
 vi.mock("../../repositories/invoiceCost.repository", () => ({ invoiceCostRepository: {} }));
@@ -12,18 +12,20 @@ vi.mock("../../repositories/additionalCharge.repository", () => ({ additionalCha
 vi.mock("../../repositories/billingSettings.repository", () => ({ billingSettingsRepository: {} }));
 vi.mock("../../repositories/billingOverride.repository", () => ({ billingOverrideRepository: {} }));
 vi.mock("../../repositories/generatedInvoice.repository", () => ({ generatedInvoiceRepository: {} }));
+vi.mock("../../repositories/invoice.repository", () => ({ invoiceRepository: { listByShipment: vi.fn() } }));
 vi.mock("../../repositories/sellingCost.repository", () => ({ sellingCostRepository: {} }));
 vi.mock("../../repositories/quoteCostImport.repository", () => ({ quoteCostImportRepository: { copy: vi.fn() } }));
 vi.mock("../../repositories/truckingLines.repository", () => ({ truckingLinesRepository: { hasConsignmentRows: vi.fn() } }));
 
 import log from "encore.dev/log";
-import { quotes } from "~encore/clients";
+import { customers, quotes, shipments } from "~encore/clients";
 import { APIError } from "../../../../lib/tests/encoreApi.stub";
 import { additionalChargeRepository } from "../../repositories/additionalCharge.repository";
 import { billingOverrideRepository } from "../../repositories/billingOverride.repository";
 import { billingSettingsRepository } from "../../repositories/billingSettings.repository";
 import { generatedInvoiceRepository } from "../../repositories/generatedInvoice.repository";
 import { invoiceCostRepository } from "../../repositories/invoiceCost.repository";
+import { invoiceRepository } from "../../repositories/invoice.repository";
 import { quoteCostImportRepository } from "../../repositories/quoteCostImport.repository";
 import { sellingCostRepository } from "../../repositories/sellingCost.repository";
 import { truckingLinesRepository } from "../../repositories/truckingLines.repository";
@@ -55,6 +57,9 @@ beforeEach(() => {
   vi.resetAllMocks();
   salesQuoteGet.mockResolvedValue({ quote: { quoteNumber: REF, effectiveStatus: "won", data: DATA } } as Awaited<ReturnType<typeof quotes.salesQuoteGet>>);
   copy.mockImplementation(async (_companyId, _shipmentId, _quoteNumber, rows) => ({ buying: rows.buying?.length ?? 0, selling: rows.selling?.length ?? 0 }));
+  // A shipment billed before: its billing settings are there, so the copy leaves its currency be.
+  Object.assign(billingSettingsRepository, { getByShipmentId: vi.fn(async () => ({ shipmentId: SHIPMENT, billingCurrency: "CZK" })) });
+  vi.mocked(invoiceRepository.listByShipment).mockResolvedValue([]);
 });
 
 describe("importQuote", () => {
@@ -62,19 +67,19 @@ describe("importQuote", () => {
     await expect(invoicingService.importQuote(SHIPMENT, COMPANY, REF, "both", false)).resolves.toEqual({ buying: 2, selling: 1 });
     // The variant suffix is part of the reference: -2 is another quote than the base.
     expect(salesQuoteGet).toHaveBeenCalledWith({ quoteNumber: REF });
-    expect(copy).toHaveBeenCalledWith(COMPANY, SHIPMENT, REF, { buying: BUYING, selling: SELLING }, false);
+    expect(copy).toHaveBeenCalledWith(COMPANY, SHIPMENT, REF, { buying: BUYING, selling: SELLING }, false, undefined);
   });
 
   it("leaves the other side untouched when one side is asked for", async () => {
     await expect(invoicingService.importQuote(SHIPMENT, COMPANY, REF, "buy", false)).resolves.toEqual({ buying: 2, selling: 0 });
-    expect(copy).toHaveBeenLastCalledWith(COMPANY, SHIPMENT, REF, { buying: BUYING, selling: undefined }, false);
+    expect(copy).toHaveBeenLastCalledWith(COMPANY, SHIPMENT, REF, { buying: BUYING, selling: undefined }, false, undefined);
     await expect(invoicingService.importQuote(SHIPMENT, COMPANY, REF, "sell", false)).resolves.toEqual({ buying: 0, selling: 1 });
-    expect(copy).toHaveBeenLastCalledWith(COMPANY, SHIPMENT, REF, { buying: undefined, selling: SELLING }, false);
+    expect(copy).toHaveBeenLastCalledWith(COMPANY, SHIPMENT, REF, { buying: undefined, selling: SELLING }, false, undefined);
   });
 
   it("marks the rows with the reference the quote is stored under", async () => {
     salesQuoteGet.mockResolvedValue({ quote: { quoteNumber: "QCZ20261010001", effectiveStatus: "won", data: DATA } } as Awaited<ReturnType<typeof quotes.salesQuoteGet>>);
-    await invoicingService.importQuote(SHIPMENT, COMPANY, "QCZ20261010001", "both", false);
+    await invoicingService.importQuote(SHIPMENT, COMPANY, "QCZ20261010001", "both", false, undefined);
     expect(copy.mock.calls[0]![2]).toBe("QCZ20261010001");
   });
 
@@ -86,7 +91,7 @@ describe("importQuote", () => {
       details: { alreadyCopied: true },
     });
     await expect(invoicingService.importQuote(SHIPMENT, COMPANY, REF, "both", true)).resolves.toEqual({ buying: 2, selling: 1 });
-    expect(copy).toHaveBeenLastCalledWith(COMPANY, SHIPMENT, REF, { buying: BUYING, selling: SELLING }, true);
+    expect(copy).toHaveBeenLastCalledWith(COMPANY, SHIPMENT, REF, { buying: BUYING, selling: SELLING }, true, undefined);
   });
 
   it("refuses a quote that is not Won, by the status it is shown with, and writes nothing", async () => {
@@ -118,7 +123,7 @@ describe("importQuote", () => {
   it("copies nothing from a quote without lines, and still records the quote on the shipment", async () => {
     salesQuoteGet.mockResolvedValue({ quote: { quoteNumber: REF, effectiveStatus: "won", data: { customerName: "ITTEC s.r.o." } } } as Awaited<ReturnType<typeof quotes.salesQuoteGet>>);
     await expect(invoicingService.importQuote(SHIPMENT, COMPANY, REF, "both", false)).resolves.toEqual({ buying: 0, selling: 0 });
-    expect(copy).toHaveBeenCalledWith(COMPANY, SHIPMENT, REF, { buying: [], selling: [] }, false);
+    expect(copy).toHaveBeenCalledWith(COMPANY, SHIPMENT, REF, { buying: [], selling: [] }, false, undefined);
   });
 
   it("leaves out the quote's trucking lines when the job has a Trucking consignment (its road freight is Trucking's)", async () => {
@@ -130,10 +135,31 @@ describe("importQuote", () => {
     salesQuoteGet.mockResolvedValue({ quote: { quoteNumber: REF, effectiveStatus: "won", data: withRoad } } as Awaited<ReturnType<typeof quotes.salesQuoteGet>>);
     vi.mocked(truckingLinesRepository.hasConsignmentRows).mockResolvedValueOnce(true);
     await expect(invoicingService.importQuote(SHIPMENT, COMPANY, REF, "both", false)).resolves.toEqual({ buying: 2, selling: 1 });
-    expect(copy).toHaveBeenLastCalledWith(COMPANY, SHIPMENT, REF, { buying: BUYING, selling: SELLING }, false);
+    expect(copy).toHaveBeenLastCalledWith(COMPANY, SHIPMENT, REF, { buying: BUYING, selling: SELLING }, false, undefined);
     // Without a consignment the trucking lines are copied as any other.
     vi.mocked(truckingLinesRepository.hasConsignmentRows).mockResolvedValueOnce(false);
     await expect(invoicingService.importQuote(SHIPMENT, COMPANY, REF, "both", true)).resolves.toEqual({ buying: 3, selling: 2 });
+  });
+
+  it("starts a shipment's first billing settings in its customer's default currency, while nothing was invoiced", async () => {
+    vi.mocked(billingSettingsRepository.getByShipmentId).mockResolvedValue(null);
+    vi.mocked(shipments.shipmentGet).mockResolvedValue({ shipment: { id: SHIPMENT, customerId: "c1" } } as Awaited<ReturnType<typeof shipments.shipmentGet>>);
+    vi.mocked(customers.customerGet).mockResolvedValue({ customer: { id: "c1", currency: "EUR" } } as Awaited<ReturnType<typeof customers.customerGet>>);
+    await invoicingService.importQuote(SHIPMENT, COMPANY, REF, "both", false);
+    expect(customers.customerGet).toHaveBeenCalledWith({ id: "c1" });
+    expect(copy).toHaveBeenLastCalledWith(COMPANY, SHIPMENT, REF, { buying: BUYING, selling: SELLING }, false, "EUR");
+    // Once an invoice was issued the currency is left as it was billed.
+    vi.mocked(invoiceRepository.listByShipment).mockResolvedValue([{ id: "i1" }] as Awaited<ReturnType<typeof invoiceRepository.listByShipment>>);
+    await invoicingService.importQuote(SHIPMENT, COMPANY, REF, "both", true);
+    expect(copy).toHaveBeenLastCalledWith(COMPANY, SHIPMENT, REF, { buying: BUYING, selling: SELLING }, true, undefined);
+  });
+
+  it("copies all the same when the customer's currency can't be read, billing in CZK as before", async () => {
+    vi.mocked(billingSettingsRepository.getByShipmentId).mockResolvedValue(null);
+    vi.mocked(shipments.shipmentGet).mockRejectedValue(new Error("shipments is unreachable"));
+    await expect(invoicingService.importQuote(SHIPMENT, COMPANY, REF, "both", false)).resolves.toEqual({ buying: 2, selling: 1 });
+    expect(copy).toHaveBeenLastCalledWith(COMPANY, SHIPMENT, REF, { buying: BUYING, selling: SELLING }, false, undefined);
+    expect(log.warn).toHaveBeenCalled();
   });
 });
 

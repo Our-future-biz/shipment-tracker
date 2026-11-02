@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import Link from "next/link";
 import { App, Button, Checkbox, Input, Segmented, Select, Spin, Tooltip } from "antd";
 import { DeleteOutlined, DollarOutlined, PlusOutlined, WarningOutlined } from "@ant-design/icons";
@@ -15,7 +16,7 @@ import { MasterJobCard } from "./MasterJobFields";
 
 type View = interfaces.MasterJobCostsView;
 type Line = interfaces.MasterJobCostItem;
-type Patch = controllers.UpdateRequest;
+type Patch = controllers.UpdateMasterJobCostRequest;
 
 // Under "master-jobs": linking or unlinking a shipment (which refreshes those) shows the new split too.
 const costsKey = (masterJobId: string) => ["master-jobs", masterJobId, "costs"] as const;
@@ -71,24 +72,45 @@ export function MasterJobCostsTab({ masterJob }: Props) {
     currency === "CZK" ? 1 : (fx.data?.rates.find((r) => r.currency === currency)?.rate ?? null);
 
   // The shares are in the shipments' Costs Breakdowns (and their totals) the moment this answers.
+  // With several saves on their way (fields left one after another) an answer can arrive after a
+  // later one's: the view is then read again once the last is in, rather than taken from either.
+  const writeKey = ["master-job-costs-write", masterJob.id];
+  const overlapped = useRef(false);
   const applied = (view: View) => {
-    queryClient.setQueryData(costsKey(masterJob.id), view);
+    if (queryClient.isMutating({ mutationKey: writeKey }) > 1) {
+      overlapped.current = true;
+      return;
+    }
+    if (overlapped.current) {
+      overlapped.current = false;
+      void queryClient.invalidateQueries({ queryKey: costsKey(masterJob.id) });
+    } else {
+      queryClient.setQueryData(costsKey(masterJob.id), view);
+    }
     void queryClient.invalidateQueries({ queryKey: ["invoicing"] });
     void queryClient.invalidateQueries({ queryKey: ["shipments"] });
   };
-  const failed = (what: string) => (err: unknown) => message.error(`${what}: ${apiErrorMessage(err)}`);
+  // A failed save leaves the view as the server has it now (an answer skipped above included).
+  const failed = (what: string) => (err: unknown) => {
+    message.error(`${what}: ${apiErrorMessage(err)}`);
+    overlapped.current = false;
+    void queryClient.invalidateQueries({ queryKey: costsKey(masterJob.id) });
+  };
 
   const add = useMutation({
+    mutationKey: writeKey,
     mutationFn: () => api.invoicing.invoicingMasterJobCostAdd(masterJob.id, { splitMethod: "wm" }),
     onSuccess: applied,
     onError: failed("Could not add the cost"),
   });
   const update = useMutation({
+    mutationKey: writeKey,
     mutationFn: ({ id, patch }: { id: string; patch: Patch }) => api.invoicing.invoicingMasterJobCostUpdate(masterJob.id, id, patch),
     onSuccess: applied,
     onError: failed("Could not save the cost"),
   });
   const remove = useMutation({
+    mutationKey: writeKey,
     mutationFn: (id: string) => api.invoicing.invoicingMasterJobCostDelete(masterJob.id, id),
     onSuccess: applied,
     onError: failed("Could not delete the cost"),

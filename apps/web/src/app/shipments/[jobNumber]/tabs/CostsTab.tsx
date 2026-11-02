@@ -226,6 +226,8 @@ export function CostsTab({ shipment }: CostsTabProps) {
         title: "This shipment's share of a master job cost - change it in the master job's Costs Breakdown",
       }
     : { label: "Split from a master job", href: null, title: "This shipment's share of a master job cost" };
+  // Trucking's rows and a master job's shares are read-only here: a reorder leaves them where they are.
+  const ownBuyRow = (r: { id: string }) => !truckingRefs.has(r.id) && !masterJobRows.has(r.id);
   const truckingTagOf = (id: string) =>
     truckingCostTag(truckingRefs.get(id), { consignments: jobConsignments, tripRefs, shipmentId: shipment.id, linkable: truckingOn }) ??
     (masterJobRows.has(id) ? masterJobTag : null);
@@ -362,7 +364,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
     // and the rows after it move down
     await Promise.all([
       api.invoicing.invoicingAddBuyingCost(shipment.id, { ...entry.values, sortOrder: entry.index }),
-      ...buyRows.flatMap((r, i) => i >= entry.index
+      ...buyRows.flatMap((r, i) => i >= entry.index && ownBuyRow(r)
         ? [api.invoicing.invoicingUpdateBuyingCost(shipment.id, r.id, { sortOrder: i + 1 })]
         : []),
     ]);
@@ -401,7 +403,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
       realQty: r.realQty, realAmount: r.realAmount, realCurrency: r.realCurrency,
       sortOrder: index + 1,
     });
-    await Promise.all(buyRows.flatMap((row, i) => i > index
+    await Promise.all(buyRows.flatMap((row, i) => i > index && ownBuyRow(row)
       ? [api.invoicing.invoicingUpdateBuyingCost(shipment.id, row.id, { sortOrder: i + 1 })]
       : []));
     invalidate();

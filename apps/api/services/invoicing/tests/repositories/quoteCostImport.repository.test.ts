@@ -118,6 +118,9 @@ describe("copy", () => {
       "read invoice_cost",
       "read invoice_selling_cost",
       "insert invoice_cost",
+      // the master job's shares on the shipment lose their estimates (the quote's alone now)
+      "update invoice_cost",
+      "update invoice_cost",
       "insert invoice_selling_cost",
       "upsert billing_settings",
       "commit",
@@ -199,7 +202,7 @@ describe("copy", () => {
 
   it("neither reads nor writes the side that is not asked for - rows of the quote there do not count", async () => {
     await expect(copy({ buying: BUYING })).resolves.toEqual({ buying: 2, selling: 0 });
-    expect(steps()).toEqual(["begin", "lock", "read invoice_cost", "insert invoice_cost", "upsert billing_settings", "commit"]);
+    expect(steps()).toEqual(["begin", "lock", "read invoice_cost", "insert invoice_cost", "update invoice_cost", "update invoice_cost", "upsert billing_settings", "commit"]);
     fake.state.steps = [];
     await expect(copy({ selling: SELLING })).resolves.toEqual({ buying: 0, selling: 1 });
     expect(steps()).toEqual(["begin", "lock", "read invoice_selling_cost", "insert invoice_selling_cost", "upsert billing_settings", "commit"]);
@@ -214,13 +217,27 @@ describe("copy", () => {
     await copy({ buying: BUYING, selling: SELLING });
     const [cost] = fake.state.reads;
     expect(sent(cost!.fields.quoted)).toEqual({ sql: `count(*) filter (where "invoice_cost"."source_quote_number" <> '')`, params: [] });
-    expect(steps()).not.toContain("update invoice_cost");
+    // No earlier quote's line is touched: the only updates are of the master job's shares.
+    expect(fake.state.updates.every((u) => sent(u.where).sql.includes('"invoice_cost"."source_master_job_ref" is not null'))).toBe(true);
+  });
+
+  it("takes the estimates off the shipment's master job shares, and a share with only an estimate goes", async () => {
+    await copy({ buying: BUYING });
+    const [gone, kept] = fake.state.updates;
+    const splitRows =
+      '"invoice_cost"."company_id" = $1 and "invoice_cost"."shipment_id" = $2 and "invoice_cost"."deleted_at" is null and "invoice_cost"."source_master_job_ref" is not null';
+    expect(gone!.values).toEqual({ deletedAt: expect.any(Date), updatedAt: expect.any(Date) });
+    expect(sent(gone!.where)).toEqual({ sql: `(${splitRows} and "invoice_cost"."real_amount" is null)`, params: [COMPANY, SHIPMENT] });
+    expect(kept!.values).toEqual({ estQty: null, estAmount: null, updatedAt: expect.any(Date) });
+    expect(sent(kept!.where)).toEqual({ sql: `(${splitRows})`, params: [COMPANY, SHIPMENT] });
   });
 
   it("makes way for the new buying lines: an earlier quote's line with nothing of the user's on it goes, one with a real cost, an invoice or a receipt stays as a line of its own, without the estimate", async () => {
     fake.state.sides = [{ copied: "0", quoted: "2", last: 3 }];
     await expect(copy({ buying: BUYING })).resolves.toEqual({ buying: 2, selling: 0 });
-    expect(steps()).toEqual(["begin", "lock", "read invoice_cost", "update invoice_cost", "update invoice_cost", "insert invoice_cost", "upsert billing_settings", "commit"]);
+    expect(steps()).toEqual([
+      "begin", "lock", "read invoice_cost", "update invoice_cost", "update invoice_cost", "insert invoice_cost", "update invoice_cost", "update invoice_cost", "upsert billing_settings", "commit",
+    ]);
     const [gone, kept] = fake.state.updates;
     expect(gone!.values).toEqual({ deletedAt: expect.any(Date), updatedAt: expect.any(Date) });
     expect(sent(gone!.where)).toEqual({
