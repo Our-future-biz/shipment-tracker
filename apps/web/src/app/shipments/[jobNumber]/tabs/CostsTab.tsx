@@ -20,6 +20,7 @@ import { useCostsData } from "./useCostsData";
 import { useConsignments, useTripRefs } from "@/hooks/useTruckingConsignments";
 import { isTruckingCost, parseTruckingRef, truckingCostTag } from "@/lib/truckingCosts";
 import { TruckingCostTagLink } from "@/components/TruckingCostTagLink";
+import { ProfitVsEstimate } from "@/components/ProfitVsEstimate";
 import { useCanSeeConcepts } from "@/lib/auth/AuthContext";
 
 interface CurrencyPickerProps {
@@ -1162,16 +1163,12 @@ export function CostsTab({ shipment }: CostsTabProps) {
                 <span className="text-[12px] font-bold tracking-[.06em] uppercase text-slate-600">
                   R x E — Real − Estimated
                 </span>
-                <Tooltip title="Difference Real − Estimated on buying costs. A negative value means a saving against the estimate.">
-                  <span
-                    className={`text-[13px] font-bold tabular-nums ${
-                      !t.hasRxe ? "text-slate-300"
-                        : t.rxeTotal > 0.001 ? "text-danger"
-                          : t.rxeTotal < -0.001 ? "text-ok" : "text-slate-400"
-                    }`}
-                  >
-                    {t.hasRxe ? `${signed(t.rxeTotal)} ${billingCur}` : "—"}
-                  </span>
+                <Tooltip title="Real − Estimated on buying costs: a real cost above the estimate is Profit Burning, one below it Profit Optimalization.">
+                  {t.hasRxe ? (
+                    <ProfitVsEstimate delta={t.rxeTotal} currency={billingCur} className="!text-[13px]" />
+                  ) : (
+                    <span className="text-[13px] font-bold text-slate-300">—</span>
+                  )}
                 </Tooltip>
               </div>
 
@@ -1192,12 +1189,8 @@ export function CostsTab({ shipment }: CostsTabProps) {
                         <td className="px-[15px] py-[8px] text-[13px] text-slate-500 border-b border-slate-100">
                           {x.vendor || "—"}
                         </td>
-                        <td
-                          className={`px-[15px] py-[8px] text-right text-[13px] font-semibold tabular-nums border-b border-slate-100 ${
-                            x.delta > 0.001 ? "text-danger" : x.delta < -0.001 ? "text-ok" : "text-slate-400"
-                          }`}
-                        >
-                          {signed(x.delta)}
+                        <td className="px-[15px] py-[8px] text-right border-b border-slate-100">
+                          <ProfitVsEstimate delta={x.delta} currency={billingCur} />
                         </td>
                         <td className="px-[15px] py-[8px] text-right text-[12.5px] text-slate-500 tabular-nums border-b border-slate-100">
                           {x.pct ? `${x.pct > 0 ? "+" : "−"}${Math.abs(x.pct).toFixed(1)} %` : ""}

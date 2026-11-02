@@ -9,6 +9,8 @@ import type { controllers, interfaces } from "@/lib/api/client";
 import { CURRENCIES } from "@/lib/cargo";
 import { chargeLabel, chargeOptions } from "@/lib/chargeCodes";
 import { normaliseAmount } from "@/lib/money";
+import { useFxRatesToday } from "@/hooks/useFx";
+import { ProfitVsEstimate } from "@/components/ProfitVsEstimate";
 import { MasterJobCard } from "./MasterJobFields";
 
 type View = interfaces.MasterJobCostsView;
@@ -35,6 +37,21 @@ function lineTotal(amount: string | null, qty: string | null): number | null {
   return Number(amount) * (Number.isFinite(q) ? q : 1);
 }
 
+/**
+ * A line's real cost against its estimate (real − estimated, in the line's currency, or in CZK at
+ * today's ČNB rate when the two differ); null until it has both, or without a rate for one.
+ */
+function lineVsEstimate(line: Line, czkPer: (currency: string) => number | null): { delta: number; currency: string; czk: number | null } | null {
+  const est = lineTotal(line.estAmount, line.estQty);
+  const real = lineTotal(line.realAmount, line.realQty);
+  if (est == null || real == null) return null;
+  const estRate = czkPer(line.estCurrency);
+  const realRate = czkPer(line.realCurrency);
+  const czk = estRate != null && realRate != null ? real * realRate - est * estRate : null;
+  if (line.estCurrency === line.realCurrency) return { delta: real - est, currency: line.realCurrency, czk };
+  return czk == null ? null : { delta: czk, currency: "CZK", czk };
+}
+
 interface Props {
   masterJob: interfaces.MasterJobItem;
 }
@@ -49,6 +66,9 @@ export function MasterJobCostsTab({ masterJob }: Props) {
     queryKey: costsKey(masterJob.id),
     queryFn: () => api.invoicing.invoicingMasterJobCosts(masterJob.id),
   });
+  const fx = useFxRatesToday();
+  const czkPer = (currency: string): number | null =>
+    currency === "CZK" ? 1 : (fx.data?.rates.find((r) => r.currency === currency)?.rate ?? null);
 
   // The shares are in the shipments' Costs Breakdowns (and their totals) the moment this answers.
   const applied = (view: View) => {
@@ -99,6 +119,15 @@ export function MasterJobCostsTab({ masterJob }: Props) {
   const noWm = houses.filter((h) => !(h.freightTon > 0));
   const anyWm = lines.some((l) => l.splitMethod === "wm");
   const busy = add.isPending || update.isPending || remove.isPending;
+  const vsEstimate = new Map(lines.map((l) => [l.id, lineVsEstimate(l, czkPer)]));
+  // The whole master job against its estimates, in CZK (one currency when all its lines are in it).
+  const compared = [...vsEstimate.values()].filter((v): v is NonNullable<typeof v> => v != null);
+  const oneCurrency = compared.length > 0 && compared.every((v) => v.currency === compared[0]!.currency) ? compared[0]!.currency : null;
+  const totalVs =
+    compared.length === 0 ? null
+    : oneCurrency ? { delta: compared.reduce((a, v) => a + v.delta, 0), currency: oneCurrency }
+    : compared.every((v) => v.czk != null) ? { delta: compared.reduce((a, v) => a + v.czk!, 0), currency: "CZK" }
+    : null;
 
   return (
     <div className="flex flex-col gap-3">
@@ -130,6 +159,7 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                 <th className={TH}>Cur</th>
                 <th className={TH}>Invoice number</th>
                 <th className={TH} title="Supplier invoice received">Received</th>
+                <th className={TH} title="The real cost against the estimate">Vs estimate</th>
                 <th className={TH}>Split</th>
                 <th className={TH} />
               </tr>
@@ -137,7 +167,7 @@ export function MasterJobCostsTab({ masterJob }: Props) {
             <tbody>
               {lines.length === 0 && (
                 <tr>
-                  <td colSpan={13} className="px-2 py-6 text-center text-xs text-slate-400">
+                  <td colSpan={14} className="px-2 py-6 text-center text-xs text-slate-400">
                     No buying costs yet - add one and it is split over the linked shipments.
                   </td>
                 </tr>
@@ -188,6 +218,12 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                     <Checkbox checked={line.received} onChange={(e) => save(line, { received: e.target.checked })} aria-label="Supplier invoice received" />
                   </td>
                   <td className={CELL}>
+                    {(() => {
+                      const vs = vsEstimate.get(line.id);
+                      return vs ? <ProfitVsEstimate delta={vs.delta} currency={vs.currency} /> : <span className="text-slate-300">—</span>;
+                    })()}
+                  </td>
+                  <td className={CELL}>
                     <Segmented
                       size="small"
                       value={line.splitMethod}
@@ -204,6 +240,18 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                 </tr>
               ))}
             </tbody>
+            {totalVs && (
+              <tfoot>
+                <tr className="border-t border-slate-200">
+                  <td className={`${CELL} text-[11px] font-bold uppercase tracking-wide text-slate-500`} colSpan={11}>
+                    Against the estimates
+                  </td>
+                  <td className={CELL} colSpan={3}>
+                    <ProfitVsEstimate delta={totalVs.delta} currency={totalVs.currency} />
+                  </td>
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
       </MasterJobCard>
