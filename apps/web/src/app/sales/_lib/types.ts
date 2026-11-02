@@ -230,6 +230,9 @@ export interface SalesQuoteData {
   serviceType?: string; // Air / Sea (FCL/LCL) / Rail / Road
   incoterm?: string;
   readyDate?: string;
+  // A sea quote: whether the cargo goes through a container yard (CY). Only with "yes" do Routing's
+  // Origin and Destination also offer the ocean terminals. Absent until it is answered.
+  cy?: boolean;
   // Routing
   origin?: string;
   destination?: string;

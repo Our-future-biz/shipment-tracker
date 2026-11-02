@@ -200,6 +200,11 @@ export function isContainerQuote(data: Pick<SalesQuoteData, "serviceType">): boo
   return data.serviceType === "Sea FCL";
 }
 
+// A quote by sea: Sea FCL, Sea LCL or Sea Break Bulk.
+export function isSeaQuote(data: Pick<SalesQuoteData, "serviceType">): boolean {
+  return /^sea/i.test(data.serviceType ?? "");
+}
+
 // Whether a container type is a reefer: RF, or HR (the high-cube reefer), of any size.
 export function isReeferType(type: string | undefined): boolean {
   // HR is the 40' high-cube reefer's former name, still on quotes saved before it was HRF.
