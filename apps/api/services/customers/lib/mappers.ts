@@ -37,6 +37,7 @@ export const toCustomerItem = (r: CustomerItemRow | CustomerRecord): CustomerIte
   label: r.label,
   creditLimit: r.creditLimit,
   currency: r.currency,
+  secondaryCurrencies: r.secondaryCurrencies,
   paymentTerms: r.paymentTerms,
   freightPaymentTerms: r.freightPaymentTerms,
   dutyPaymentTerms: r.dutyPaymentTerms,

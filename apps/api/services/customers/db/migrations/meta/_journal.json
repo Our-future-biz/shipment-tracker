@@ -169,6 +169,13 @@
       "when": 1793194525094,
       "tag": "0023_customer_role_shipping_line",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1793620299051,
+      "tag": "0024_customer_secondary_currencies",
+      "breakpoints": true
     }
   ]
 }

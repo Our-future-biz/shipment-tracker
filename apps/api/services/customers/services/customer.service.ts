@@ -31,6 +31,7 @@ import { assertCzechPhone } from "../../../lib/phone";
 import { contactChanged, customerChanged } from "../topics";
 import { contactRepository } from "../repositories/contact.repository";
 import { seatText } from "../lib/seat";
+import { billingCurrencies } from "../lib/billingCurrencies";
 
 /** A company outside the Czech Republic, typed in by hand: there is no registry to read it from. */
 export interface ManualCustomerInput {
@@ -82,6 +83,7 @@ export interface CustomerPatch {
   status?: CustomerStatus;
   salesOwnerUserId?: string | null;
   currency?: string;
+  secondaryCurrencies?: string[];
   label?: CustomerLabel;
   creditLimit?: number;
   paymentTerms?: string;
@@ -138,6 +140,7 @@ const MANAGER_FIELDS = [
   "label",
   "creditLimit",
   "currency",
+  "secondaryCurrencies",
   "paymentTerms",
   "freightPaymentTerms",
   "dutyPaymentTerms",
@@ -303,6 +306,11 @@ class CustomerService {
       if (!values.companyName) throw APIError.invalidArgument("The company name can't be empty");
     }
     if (values.roles) values.roles = requireRoles(values.roles);
+    if (values.currency !== undefined || values.secondaryCurrencies !== undefined) {
+      const current = await customerRepository.getItemForCompany(id, companyId);
+      if (!current) throw APIError.notFound("Customer not found");
+      Object.assign(values, billingCurrencies(values.currency ?? current.currency, values.secondaryCurrencies ?? current.secondaryCurrencies));
+    }
     // A date column: "" clears it, anything but a date is refused.
     const regDate = dateInput(registrationDate, "registrationDate");
     if (regDate !== undefined) values.registrationDate = regDate;

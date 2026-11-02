@@ -40,6 +40,8 @@ export const customerTable = pgTable(
     // Money as numeric (exact) rather than real (lossy float); mode:"number" keeps the API type a JS number.
     creditLimit: numeric("credit_limit", { precision: 14, scale: 2, mode: "number" }).notNull().default(0),
     currency: text("currency").notNull().default("EUR"),
+    // Up to two other currencies the customer may be billed in; billing in one asks to confirm.
+    secondaryCurrencies: text("secondary_currencies").array().notNull().default(sql`'{}'::text[]`),
     paymentTerms: text("payment_terms").notNull().default(""),
     freightPaymentTerms: text("freight_payment_terms").notNull().default(""),
     dutyPaymentTerms: text("duty_payment_terms").notNull().default(""),

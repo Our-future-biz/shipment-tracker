@@ -57,7 +57,10 @@ export interface CustomerItem {
   salesOwnerUserId: string | null;
   label: CustomerLabel;
   creditLimit: number;
+  /** The default currency the customer is billed in */
   currency: string;
+  /** Up to two other currencies it may be billed in (never `currency`); billing in one asks to confirm */
+  secondaryCurrencies: string[];
   paymentTerms: string;
   freightPaymentTerms: string;
   dutyPaymentTerms: string;

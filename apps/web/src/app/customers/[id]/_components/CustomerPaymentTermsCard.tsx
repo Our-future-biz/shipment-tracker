@@ -30,7 +30,10 @@ interface CustomerPaymentTermsCardProps {
   customer: CustomerItem;
 }
 
-// How the customer is billed: its currency and its payment terms. Every change saves itself.
+// At most this many currencies besides the default (the server holds the same limit).
+const MAX_SECONDARY_CURRENCIES = 2;
+
+// How the customer is billed: its currencies and its payment terms. Every change saves itself.
 export function CustomerPaymentTermsCard({ customer }: CustomerPaymentTermsCardProps) {
   const { shown, save } = useCustomerEdits(customer);
   // Currency and payment terms are a manager's decision; the server refuses anyone else.
@@ -47,16 +50,35 @@ export function CustomerPaymentTermsCard({ customer }: CustomerPaymentTermsCardP
 
   return (
     <SectionCard title="Payment terms">
-      <CustomerInfoRow label="Currency">
+      <CustomerInfoRow label="Default currency">
         <div className={`${SELECT_WRAPPER_CLASS} max-w-[240px]`}>
           <Select
             {...SELECT_PROPS}
-            aria-label="Currency"
+            aria-label="Default currency"
             disabled={!canManage}
             title={lockedTitle}
             value={shown.currency}
             options={CURRENCY_OPTIONS}
-            onChange={(value: string) => save({ currency: value })}
+            // A secondary currency made the default leaves the secondary ones.
+            onChange={(value: string) =>
+              save({ currency: value, secondaryCurrencies: shown.secondaryCurrencies.filter((c) => c !== value) })
+            }
+          />
+        </div>
+      </CustomerInfoRow>
+      <CustomerInfoRow label="Secondary currencies">
+        <div className={`${SELECT_WRAPPER_CLASS} max-w-[240px]`}>
+          <Select
+            {...SELECT_PROPS}
+            mode="multiple"
+            maxCount={MAX_SECONDARY_CURRENCIES}
+            aria-label="Secondary currencies"
+            disabled={!canManage}
+            title={lockedTitle ?? "Up to 2; billing in one of them asks to confirm"}
+            placeholder="None"
+            value={shown.secondaryCurrencies}
+            options={CURRENCY_OPTIONS.filter((o) => o.value !== shown.currency)}
+            onChange={(value: string[]) => save({ secondaryCurrencies: value })}
           />
         </div>
       </CustomerInfoRow>

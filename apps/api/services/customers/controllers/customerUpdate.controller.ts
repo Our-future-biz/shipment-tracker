@@ -18,6 +18,8 @@ interface CustomerUpdateRequest {
   label?: CustomerLabel;
   creditLimit?: number & Min<0>;
   currency?: string & MaxLen<3>;
+  /** The whole set (at most 2), replacing the current one; [] for none. */
+  secondaryCurrencies?: (string & MaxLen<3>)[];
   paymentTerms?: string & MaxLen<100>;
   freightPaymentTerms?: string & MaxLen<100>;
   dutyPaymentTerms?: string & MaxLen<100>;

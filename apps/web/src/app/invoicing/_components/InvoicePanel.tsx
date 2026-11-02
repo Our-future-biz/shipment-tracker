@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import dayjs from "dayjs";
-import { Alert, Button, Checkbox, DatePicker, Dropdown, Input, Modal, Popover, Select, Tag, Tooltip, type RefSelectProps } from "antd";
+import { Alert, App, Button, Checkbox, DatePicker, Dropdown, Input, Modal, Popover, Select, Tag, Tooltip, type RefSelectProps } from "antd";
 import {
   DownOutlined,
   EditOutlined,
@@ -38,6 +38,7 @@ import { useCostsData } from "@/app/shipments/[jobNumber]/tabs/useCostsData";
 import { lineTableRows, type LineTableRow as TableRow } from "../_lib/lineTable";
 
 /** Billing currencies offered: the ones the company invoices in, out of the app's currencies. */
+// Offered for a shipment without a customer; one with a customer is billed in that customer's currencies.
 const BILLING_CURRENCIES = CURRENCIES.filter((c) => c === "CZK" || c === "EUR" || c === "USD");
 
 /** What each VAT code means on the invoice; NP is set automatically for a non-VAT-payer. */
@@ -113,6 +114,7 @@ interface InvoicePanelProps {
 
 export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: InvoicePanelProps) {
   const toast = useToast();
+  const { modal } = App.useApp();
   const queryClient = useQueryClient();
   const { data, billingCur } = useCostsData(shipment);
   const { updateShipment } = useShipmentMutations();
@@ -179,6 +181,42 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
     onSettled: refreshCosts,
     onError: () => toast.error("Failed to change which lines are invoiced"),
   });
+
+  // The customer the invoice is for and the currencies it is billed in: its default, then up to
+  // two secondary ones (billing in one of those asks to confirm). Without a customer: CZK, EUR, USD.
+  const billToId = customerId ?? shipment.customerId ?? undefined;
+  const billTo = billToId ? customers.find((c) => c.id === billToId) : undefined;
+  const allowedCurrencies = billTo ? [billTo.currency, ...billTo.secondaryCurrencies] : [...BILLING_CURRENCIES];
+  // A currency saved before (or since dropped from the customer) still shows as the current one.
+  const currencyOptions = (allowedCurrencies.includes(billingCur) ? allowedCurrencies : [billingCur, ...allowedCurrencies]).map((c) => ({
+    value: c,
+    label: billTo && c === billTo.currency ? `${c} · default` : c,
+  }));
+
+  const changeBillingCurrency = (currency: string) => {
+    if (!billTo?.secondaryCurrencies.includes(currency)) {
+      billingCurrency.mutate(currency);
+      return;
+    }
+    modal.confirm({
+      title: `Bill ${billTo.companyName} in ${currency}?`,
+      content: `${currency} is an alternative currency for this customer; their default is ${billTo.currency}. Do you really want to bill this shipment in ${currency}?`,
+      okText: `Bill in ${currency}`,
+      cancelText: `Keep ${billingCur}`,
+      onOk: () => billingCurrency.mutateAsync(currency),
+    });
+  };
+
+  // A shipment billed for the first time starts in its customer's default currency (until now every
+  // one started in CZK): saved once, when nothing is saved yet and no invoice was issued.
+  const defaultApplied = useRef(false);
+  const startsInDefault = !!data && !data.billingSettings && !!billTo && !docsLoading && docs.length === 0 && billTo.currency !== billingCur;
+  useEffect(() => {
+    if (!startsInDefault || defaultApplied.current || !billTo) return;
+    defaultApplied.current = true;
+    billingCurrency.mutate(billTo.currency);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per panel, when the conditions first hold
+  }, [startsInDefault]);
 
   const linkCustomer = useMutation({
     mutationFn: (id: string) => {
@@ -412,7 +450,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
             </Fact>
             <Fact label="Due date">{p ? czDate(p.dueDate) : "—"}</Fact>
             <Fact label="Currency">
-              <Select size="small" value={billingCur} onChange={(c) => billingCurrency.mutate(c)} loading={billingCurrency.isPending} disabled={billingCurrency.isPending} options={BILLING_CURRENCIES.map((c) => ({ value: c, label: c }))} className="w-[84px]" aria-label="Billing currency" />
+              <Select size="small" value={billingCur} onChange={changeBillingCurrency} loading={billingCurrency.isPending} disabled={billingCurrency.isPending} options={currencyOptions} labelRender={(o) => o.value} popupMatchSelectWidth={false} className="w-[84px]" aria-label="Billing currency" />
             </Fact>
           </div>
         </div>
