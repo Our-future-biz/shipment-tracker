@@ -4,6 +4,7 @@ import { customerAddressRepository } from "../repositories/customerAddress.repos
 import type { NewCustomerAddressRecord } from "../schemas/customerAddress.schema";
 import { ADDRESS_TYPES, type AddressItem, type AddressType } from "../interfaces/interfaces";
 import { toAddressItem } from "../lib/mappers";
+import { SITE_RACE, isSiteRace } from "../lib/addressSite";
 import { customerService } from "./customer.service";
 
 export interface AddressInput {
@@ -41,11 +42,13 @@ export function addressValues(input: Partial<AddressInput>): Partial<Omit<NewCus
   return values;
 }
 
-// A customer has one seat: a second live Registered address is refused by a unique index.
+// A customer has one seat: a second live Registered address is refused by a unique index. So is
+// a second site of one address, given by another save at the same moment (lib/addressSite).
 async function oneRegistered<T>(write: () => Promise<T>): Promise<T> {
   try {
     return await write();
   } catch (err) {
+    if (isSiteRace(err)) throw APIError.aborted(SITE_RACE);
     if (isUniqueViolation(err)) throw APIError.alreadyExists("The customer already has a registered address — edit that one");
     throw err;
   }

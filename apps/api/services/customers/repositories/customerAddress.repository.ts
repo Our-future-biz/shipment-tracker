@@ -58,7 +58,7 @@ async function syncSite(tx: Tx, companyId: string, address: CustomerAddressRecor
   const kind = address.deletedAt ? null : siteKindOf(address.types);
   const now = new Date();
   if (!kind) {
-    if (site) await tx.update(customerSiteTable).set({ deletedAt: now, updatedAt: now }).where(and(eq(customerSiteTable.companyId, companyId), eq(customerSiteTable.id, site.id))).returning();
+    if (site) await tx.update(customerSiteTable).set({ deletedAt: now, updatedAt: now }).where(and(eq(customerSiteTable.companyId, companyId), eq(customerSiteTable.id, site.id)));
     return;
   }
   const fields = siteFieldsOf(address, kind);
@@ -67,11 +67,10 @@ async function syncSite(tx: Tx, companyId: string, address: CustomerAddressRecor
     await tx
       .update(customerSiteTable)
       .set({ ...fields, ...moved, ...details, updatedAt: now })
-      .where(and(eq(customerSiteTable.companyId, companyId), eq(customerSiteTable.id, site.id)))
-      .returning();
+      .where(and(eq(customerSiteTable.companyId, companyId), eq(customerSiteTable.id, site.id)));
     return;
   }
-  await tx.insert(customerSiteTable).values({ ...fields, ...details, companyId, customerId: address.customerId, addressId: address.id }).returning();
+  await tx.insert(customerSiteTable).values({ ...fields, ...details, companyId, customerId: address.customerId, addressId: address.id });
 }
 
 class CustomerAddressRepository extends TenantRepository<typeof customerAddressTable> {

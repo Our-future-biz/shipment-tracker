@@ -26,13 +26,13 @@ interface TariffVersionDatesModalProps {
 // tariff and says which.
 export function TariffVersionDatesModal({ open, onClose, version, label, tariffName, setDates, isSaving }: TariffVersionDatesModalProps) {
   const toast = useToast();
-  const [dates, setDraft] = useState({ validFrom: version.validFrom, validTo: version.validTo });
-  const problem = datesProblem(dates, version);
+  const [draft, setDraft] = useState({ validFrom: version.validFrom, validTo: version.validTo });
+  const problem = datesProblem(draft, version);
 
   const handleSave = async () => {
-    if (!dates.validFrom) return;
+    if (!draft.validFrom) return;
     try {
-      await setDates({ id: version.id, validFrom: dates.validFrom, validTo: dates.validTo });
+      await setDates({ id: version.id, validFrom: draft.validFrom, validTo: draft.validTo });
       toast.success(`Dates of ${label} changed`);
       onClose();
     } catch (e) {
@@ -40,10 +40,15 @@ export function TariffVersionDatesModal({ open, onClose, version, label, tariffN
     }
   };
 
+  // Not while the dates are being saved: the answer would land in a closed dialog.
+  const handleClose = () => {
+    if (!isSaving) onClose();
+  };
+
   return (
     <AppModal
       open={open}
-      onClose={() => !isSaving && onClose()}
+      onClose={handleClose}
       title={`Change the dates of ${label}`}
       subtitle={tariffName}
       footer={
@@ -60,8 +65,8 @@ export function TariffVersionDatesModal({ open, onClose, version, label, tariffN
     >
       <div className="flex flex-col gap-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <DayField label="Valid from" value={dates.validFrom} onChange={(validFrom) => setDraft({ ...dates, validFrom })} disabled={isSaving} />
-          <DayField label="Valid to" value={dates.validTo} onChange={(validTo) => setDraft({ ...dates, validTo })} disabled={isSaving} />
+          <DayField label="Valid from" value={draft.validFrom} onChange={(validFrom) => setDraft({ ...draft, validFrom })} disabled={isSaving} />
+          <DayField label="Valid to" value={draft.validTo} onChange={(validTo) => setDraft({ ...draft, validTo })} disabled={isSaving} />
         </div>
         <div className="text-[12px] text-slate-400">
           Leave “Valid to” empty for no end date. The tariff prices with the new dates straight away, also in “Tariffs available” on quotes. The dates may not overlap

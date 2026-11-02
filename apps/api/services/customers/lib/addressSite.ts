@@ -1,4 +1,5 @@
 import { APIError } from "encore.dev/api";
+import { constraintOf, isUniqueViolation } from "../../../lib/db/errors";
 import type { AddressType, CustomerSiteKind } from "../interfaces/interfaces";
 import type { CustomerAddressRecord } from "../schemas/customerAddress.schema";
 import type { NewCustomerSiteRecord } from "../schemas/customerSite.schema";
@@ -56,6 +57,13 @@ export function siteFieldsOf(
   const city = address.city.trim();
   return { label: address.label.trim() || street || city || postcode, kind, street, postcode, city, country };
 }
+
+/**
+ * Two saves giving one address its site at the same moment: the one-site-per-address index
+ * refuses the second, which is told so rather than taken for another unique rule of its write.
+ */
+export const isSiteRace = (err: unknown): boolean => isUniqueViolation(err) && constraintOf(err) === "customer_site_one_per_address";
+export const SITE_RACE = "This address was changed by someone else at the same moment - reload and try again";
 
 /** Whether the site's address differs from these fields: its map position no longer fits then. */
 export const siteMoved = (site: Pick<NewCustomerSiteRecord, "street" | "postcode" | "city" | "country">, fields: SiteAddressFields) =>

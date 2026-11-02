@@ -11,7 +11,7 @@ import { useUsers } from "@/hooks/useUsers";
 import { useToast } from "@/lib/toast";
 import { fileToBase64, formatFileSize } from "@/lib/files";
 import { shipmentAttachmentsKey } from "@/hooks/useShipmentAttachments";
-import { mentionOptions } from "../_lib/mentionOptions";
+import { mentionMatchesOf, rankByUse } from "../_lib/mentionOptions";
 
 // An internal conversation, laid out like a messaging app: colleagues on the left with avatar,
 // name and time, own messages on the right in blue with a read tick, files as cards under the
@@ -239,8 +239,10 @@ export const ChatThread = ({ source }: { source: ChatSource }) => {
   const mentionQuery = mention?.query.toLowerCase() ?? "";
   // A finished name followed by a space is done — don't keep offering longer namesakes.
   const mentionDone = /\s$/.test(mentionQuery) && colleagues.some((c) => c.name.toLowerCase() === mentionQuery.trimEnd());
-  // A bare @ offers the three colleagues used most in this chat; typing searches them all.
-  const mentionMatches = mention && !mentionDone ? mentionOptions(colleagues, comments, mentionQuery) : [];
+  // A bare @ offers the three colleagues used most in this chat; typing searches them all. Ranked
+  // once per change of the chat, not on every keystroke.
+  const rankedColleagues = useMemo(() => rankByUse(colleagues, comments), [colleagues, comments]);
+  const mentionMatches = mention && !mentionDone ? mentionMatchesOf(rankedColleagues, mentionQuery) : [];
   const mentionOpen = mentionMatches.length > 0;
 
   const pickMention = (c: Colleague) => {

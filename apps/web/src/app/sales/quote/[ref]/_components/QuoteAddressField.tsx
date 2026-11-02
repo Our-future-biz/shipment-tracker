@@ -17,6 +17,25 @@ interface QuoteAddressFieldProps {
   onChange: (text: string) => void;
 }
 
+interface AddressPlaceholderState {
+  /** The quote's customer is one of the Customer Database */
+  linked: boolean;
+  isLoading: boolean;
+  isError: boolean;
+  /** "pickup" / "delivery" */
+  kind: string;
+  /** The customer has addresses of the kind to pick from */
+  offered: boolean;
+}
+
+// What the empty field says: why there is nothing to pick yet, or what to pick.
+function addressPlaceholder({ linked, isLoading, isError, kind, offered }: AddressPlaceholderState): string {
+  if (!linked) return "Link the customer to the Customer Database first";
+  if (isLoading) return "Loading…";
+  if (isError) return "Could not load the customer's addresses";
+  return offered ? `Pick a ${kind} address` : `No ${kind} address in the Customer Database`;
+}
+
 // The quote's Pickup or Delivery Address: one of the customer's Pickup (Delivery) addresses in the
 // Customer Database, nothing typed by hand. An address the quote already has that is not one of
 // them (typed before, copied from a shipment, or of another customer) stays shown until another
@@ -25,16 +44,10 @@ export function QuoteAddressField({ label, type, customerId, value, onChange }: 
   const { addresses, isLoading, isError } = useCustomerAddresses(customerId ?? "");
   const options = quoteAddressOptions(addresses, type);
   const kind = type.toLowerCase();
-  const stray = !!value && !isLoading && !options.some((o) => o.value === value);
-  const placeholder = !customerId
-    ? "Link the customer to the Customer Database first"
-    : isLoading
-      ? "Loading…"
-      : isError
-        ? "Could not load the customer's addresses"
-        : options.length
-          ? `Pick a ${kind} address`
-          : `No ${kind} address in the Customer Database`;
+  // Only once the customer's addresses are read: without a linked customer, or while they could
+  // not be read, nothing is known to set the value apart from.
+  const stray = !!value && !!customerId && !isLoading && !isError && !options.some((o) => o.value === value);
+  const placeholder = addressPlaceholder({ linked: !!customerId, isLoading, isError, kind, offered: options.length > 0 });
   const addHere = customerId ? `/customers/${customerId}?tab=addresses` : null;
 
   return (

@@ -82,6 +82,21 @@ describe("adding a site", () => {
     expect(sites.createForCompany).not.toHaveBeenCalled();
   });
 
+  it("says which rule a save at the same moment broke: a second site of the address, or a second default", async () => {
+    customers.getByIdForCompany.mockResolvedValue({ id: "c1" });
+    const unique = (constraint: string) => Object.assign(new Error("Failed query"), { cause: { code: "23505", constraint } });
+    addresses.createWithSeat.mockRejectedValueOnce(unique("customer_site_one_per_address"));
+    await expect(customerSiteService.create(COMPANY, "c1", { label: "Dock", postcode: "11000" })).rejects.toMatchObject({
+      code: "aborted",
+      message: expect.stringContaining("changed by someone else"),
+    });
+    addresses.createWithSeat.mockRejectedValueOnce(unique("customer_site_one_default"));
+    await expect(customerSiteService.create(COMPANY, "c1", { label: "Dock", postcode: "11000", isDefault: true })).rejects.toMatchObject({
+      code: "aborted",
+      message: expect.stringContaining("made the default"),
+    });
+  });
+
   it("used for loading only is a Pickup address", async () => {
     customers.getByIdForCompany.mockResolvedValue({ id: "c1" });
     addresses.createWithSeat.mockResolvedValue(addressRow({ types: ["Pickup"] }));
@@ -189,11 +204,11 @@ describe("changing a site of an address", () => {
 describe("deleting a site", () => {
   it("is scoped to the company and reports a missing one", async () => {
     sites.getByIdForCompany.mockResolvedValue(null);
-    await expect(customerSiteService.softDelete("s1", COMPANY)).rejects.toMatchObject({ code: "not_found" });
+    await expect(customerSiteService.softDelete("s1", COMPANY, true)).rejects.toMatchObject({ code: "not_found" });
     expect(sites.getByIdForCompany).toHaveBeenCalledWith("s1", COMPANY);
     sites.getByIdForCompany.mockResolvedValue(siteRow());
     sites.softDeleteForCompany.mockResolvedValue(null);
-    await expect(customerSiteService.softDelete("s1", COMPANY)).rejects.toMatchObject({ code: "not_found" });
+    await expect(customerSiteService.softDelete("s1", COMPANY, true)).rejects.toMatchObject({ code: "not_found" });
     expect(sites.softDeleteForCompany).toHaveBeenCalledWith("s1", COMPANY);
   });
 
@@ -201,12 +216,23 @@ describe("deleting a site", () => {
     sites.getByIdForCompany.mockResolvedValue(siteRow({ addressId: "a1" }));
     addresses.findLive.mockResolvedValue(addressRow({ types: ["Registered", "Pickup"] }));
     addresses.updateWithSeat.mockResolvedValue(addressRow({ types: ["Registered"] }));
-    await customerSiteService.softDelete("s1", COMPANY);
+    await customerSiteService.softDelete("s1", COMPANY, true);
     expect(addresses.updateWithSeat).toHaveBeenCalledWith("a1", COMPANY, { types: ["Registered"] });
     addresses.findLive.mockResolvedValue(addressRow({ types: ["Pickup", "Delivery"] }));
     addresses.softDeleteWithSeat.mockResolvedValue(addressRow());
-    await customerSiteService.softDelete("s1", COMPANY);
+    await customerSiteService.softDelete("s1", COMPANY, true);
     expect(addresses.softDeleteWithSeat).toHaveBeenCalledWith("a1", COMPANY);
     expect(sites.softDeleteForCompany).not.toHaveBeenCalled();
+  });
+
+  it("deletes the address with it only for someone who may delete addresses; taking Pickup / Delivery off is anyone's", async () => {
+    sites.getByIdForCompany.mockResolvedValue(siteRow({ addressId: "a1" }));
+    addresses.findLive.mockResolvedValue(addressRow({ types: ["Pickup", "Delivery"] }));
+    await expect(customerSiteService.softDelete("s1", COMPANY, false)).rejects.toMatchObject({ code: "permission_denied" });
+    expect(addresses.softDeleteWithSeat).not.toHaveBeenCalled();
+    addresses.findLive.mockResolvedValue(addressRow({ types: ["Billing", "Pickup"] }));
+    addresses.updateWithSeat.mockResolvedValue(addressRow({ types: ["Billing"] }));
+    await customerSiteService.softDelete("s1", COMPANY, false);
+    expect(addresses.updateWithSeat).toHaveBeenCalledWith("a1", COMPANY, { types: ["Billing"] });
   });
 });

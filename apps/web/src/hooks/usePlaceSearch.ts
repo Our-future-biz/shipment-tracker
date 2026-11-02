@@ -25,7 +25,7 @@ export const useAirportSearch = (q: string, enabled = true) =>
     staleTime: Infinity,
   });
 
-// Ocean container terminals (CYs) matching a search text, the same way.
+// Ocean container terminals (CYs) and inland terminals matching a search text, the same way.
 export const useTerminalSearch = (q: string, enabled = true) =>
   useQuery({
     queryKey: [TERMINALS_KEY, q],

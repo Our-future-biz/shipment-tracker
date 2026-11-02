@@ -198,6 +198,10 @@ const live = (companyId: string) => and(eq(tariffVersionTable.companyId, company
 // The day before a YYYY-MM-DD date.
 const dayBefore = (date: string) => new Date(Date.parse(`${date}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
 
+// Whether a version prices on a day from `from` to `to` (no end when null): both prices it then.
+const overlaps = (version: Pick<TariffVersionRecord, "validFrom" | "validTo">, from: string, to: string | null) =>
+  (version.validTo === null || version.validTo >= from) && (to === null || version.validFrom === null || version.validFrom <= to);
+
 // Inserts in batches of RATE_BATCH rows, well inside Postgres' parameter limit.
 async function insertBatched<T>(rows: T[], insert: (batch: T[]) => Promise<unknown>): Promise<void> {
   for (let i = 0; i < rows.length; i += RATE_BATCH) await insert(rows.slice(i, i + RATE_BATCH));
@@ -379,8 +383,7 @@ class TariffRepository {
       const now = new Date();
       const versionById = (id: string) => and(eq(tariffVersionTable.companyId, companyId), eq(tariffVersionTable.id, id));
       for (const other of active) {
-        const overlaps = (other.validTo === null || other.validTo >= from) && (version.validTo === null || other.validFrom === null || other.validFrom <= version.validTo);
-        if (!overlaps) continue;
+        if (!overlaps(other, from, version.validTo)) continue;
         if (other.validFrom !== null && other.validFrom < from && version.validTo !== null && (other.validTo === null || other.validTo > version.validTo)) {
           return { ok: false, reason: `This version ends on ${version.validTo}, inside version ${other.versionNo}; approving it would leave the days after it without prices. Give it the same end date or none.` };
         }
@@ -430,9 +433,7 @@ class TariffRepository {
         .from(tariffVersionTable)
         .where(and(live(companyId), eq(tariffVersionTable.tariffId, version.tariffId), eq(tariffVersionTable.status, "active"), ne(tariffVersionTable.id, versionId)));
       const { validFrom, validTo } = dates;
-      const clash = active
-        .filter((other) => (other.validTo === null || other.validTo >= validFrom) && (validTo === null || other.validFrom === null || other.validFrom <= validTo))
-        .sort((a, b) => a.versionNo - b.versionNo)[0];
+      const clash = active.filter((other) => overlaps(other, validFrom, validTo)).sort((a, b) => a.versionNo - b.versionNo)[0];
       if (clash) {
         const its = `${clash.validFrom ?? "…"} – ${clash.validTo ?? "no end"}`;
         return { ok: false, reason: `These dates overlap version ${clash.versionNo} (${its}); change that version's dates first, or choose dates outside them.` };

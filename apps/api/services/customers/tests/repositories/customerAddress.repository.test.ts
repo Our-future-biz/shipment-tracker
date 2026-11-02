@@ -27,33 +27,38 @@ const fake = vi.hoisted(() => {
       }),
     }),
     insert: (table: unknown) => ({
-      values: (values: Record<string, unknown>) => ({
-        returning: async () => {
-          if (name(table) === "customer_site") {
-            state.siteInserts.push(values);
-            return [values];
-          }
-          state.addressWrites.push(values);
-          return [{ id: "a1", deletedAt: null, ...values }];
-        },
-      }),
+      values: (values: Record<string, unknown>) => {
+        // A site is written without reading it back.
+        if (name(table) === "customer_site") {
+          state.siteInserts.push(values);
+          return {};
+        }
+        return {
+          returning: async () => {
+            state.addressWrites.push(values);
+            return [{ id: "a1", deletedAt: null, ...values }];
+          },
+        };
+      },
     }),
     update: (table: unknown) => ({
       set: (set: Record<string, unknown>) => ({
-        where: (where: SQL) => ({
-          returning: async () => {
-            if (name(table) === "customer") {
-              state.customerWrites.push({ set, where });
-              return [{ id: "c1" }];
-            }
-            if (name(table) === "customer_site") {
-              state.siteUpdates.push(set);
-              return [set];
-            }
-            state.addressWrites.push(set);
-            return state.address ? [state.address] : [];
-          },
-        }),
+        where: (where: SQL) => {
+          if (name(table) === "customer_site") {
+            state.siteUpdates.push(set);
+            return {};
+          }
+          return {
+            returning: async () => {
+              if (name(table) === "customer") {
+                state.customerWrites.push({ set, where });
+                return [{ id: "c1" }];
+              }
+              state.addressWrites.push(set);
+              return state.address ? [state.address] : [];
+            },
+          };
+        },
       }),
     }),
   };

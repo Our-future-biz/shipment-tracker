@@ -61,12 +61,19 @@ export interface InlandTerminal {
 
 const KIND: Record<string, InlandTerminalKind> = { D: "dry_port", T: "intermodal", R: "rail" };
 
-const INLAND: (InlandTerminal & { text: string })[] = INLAND_TERMINALS_DATA.trim()
+interface InlandEntry extends InlandTerminal {
+  // Folded name, town and railroads, for matching typed text.
+  text: string;
+}
+
+const INLAND: InlandEntry[] = INLAND_TERMINALS_DATA.trim()
   .split("\n")
   .map((line) => {
     const [code = "", name = "", town = "", countryCode = "", kind = "T", railroads = ""] = line.split("|");
     return { code, name, town, countryCode, kind: KIND[kind] ?? "intermodal", railroads: railroads || null, text: ` ${fold(`${name} ${town} ${railroads}`)}` };
   });
+
+const toInlandTerminal = ({ code, name, town, countryCode, kind, railroads }: InlandEntry): InlandTerminal => ({ code, name, town, countryCode, kind, railroads });
 
 /**
  * Inland terminals matching typed text: the one whose code it is first, then those whose name or
@@ -79,5 +86,5 @@ export function searchInlandTerminals(query: string, limit = 30): InlandTerminal
   const exact = INLAND.find((t) => t.code === code);
   const words = ` ${q}`;
   const found = INLAND.filter((t) => t !== exact && t.text.includes(words)).sort((a, b) => a.town.localeCompare(b.town) || a.name.localeCompare(b.name));
-  return (exact ? [exact, ...found] : found).slice(0, limit).map(({ code, name, town, countryCode, kind, railroads }) => ({ code, name, town, countryCode, kind, railroads }));
+  return (exact ? [exact, ...found] : found).slice(0, limit).map(toInlandTerminal);
 }

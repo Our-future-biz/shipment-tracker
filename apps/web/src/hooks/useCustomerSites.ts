@@ -3,10 +3,9 @@
 import { useQuery, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
+import { customerAddressesKey, customerSitesKey } from "./customerKeys";
 
 export type CustomerSiteItem = interfaces.CustomerSiteItem;
-
-export const customerSitesKey = (customerId: string) => ["customer-sites", customerId] as const;
 
 /** A customer's sites through the shared cache (the dialogs that prefill stops read them once). */
 export const fetchCustomerSites = (queryClient: QueryClient, customerId: string) =>
@@ -24,7 +23,7 @@ export const useCustomerSites = (customerId: string) => {
 
   // A site is a Pickup / Delivery address of the customer, which may also be its Registered one.
   const invalidate = () => {
-    void queryClient.invalidateQueries({ queryKey: ["customer-addresses", customerId] });
+    void queryClient.invalidateQueries({ queryKey: customerAddressesKey(customerId) });
     void queryClient.invalidateQueries({ queryKey: ["customer", customerId] });
     return queryClient.invalidateQueries({ queryKey: key });
   };

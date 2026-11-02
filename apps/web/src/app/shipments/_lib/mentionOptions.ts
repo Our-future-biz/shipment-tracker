@@ -32,17 +32,17 @@ export function mentionUse(colleagues: readonly MentionColleague[], messages: re
   return use;
 }
 
-/** The colleagues the @ list offers for what is typed after the @ (empty for a bare @). */
-export function mentionOptions<C extends MentionColleague>(
-  colleagues: readonly C[],
-  messages: readonly { authorId: string; message: string }[],
-  query: string,
-): C[] {
+/** The colleagues by their use in the chat, the most used first; those used alike in their own order. */
+export function rankByUse<C extends MentionColleague>(colleagues: readonly C[], messages: readonly { authorId: string; message: string }[]): C[] {
   const use = mentionUse(colleagues, messages);
-  const ranked = colleagues
+  return colleagues
     .map((c, i) => ({ c, i, n: use.get(c.id) ?? 0 }))
     .sort((a, b) => b.n - a.n || a.i - b.i)
     .map((r) => r.c);
+}
+
+/** What the @ list offers of the ranked colleagues (rankByUse) for what is typed after the @ (empty for a bare @). */
+export function mentionMatchesOf<C extends MentionColleague>(ranked: readonly C[], query: string): C[] {
   const q = query.toLowerCase();
   if (!q) return ranked.slice(0, MENTION_TOP);
   return ranked.filter((c) => c.name.toLowerCase().includes(q)).slice(0, MENTION_SEARCH_LIMIT);

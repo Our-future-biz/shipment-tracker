@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fclBlocks, fclLines, fclOfferRows, priceFclBlock, usesFclPricing, withFclPricing } from "./fclPricing";
+import { fclBlocks, fclChanges, fclLines, fclOfferRows, priceFclBlock, usesFclPricing, withFclPricing } from "./fclPricing";
 import { computeTotals, convertLine } from "./salesQuote";
 import type { CostLine, SalesQuoteData } from "./types";
 
@@ -184,10 +184,36 @@ describe("an open quote whose selling was typed line by line", () => {
     expect([after.buying, after.selling, after.profit]).toEqual([before.buying, before.selling, before.profit]);
   });
 
+  it("keeps a pair typed without a pairId together: one charge, its profit what it sells for above its cost", () => {
+    // Typed on both sides, each line on its own: paired by their charge and text.
+    const bought = perCtr("ocean_freight", "20' DC", 1000, 2, { pairId: undefined });
+    const sold = perCtr("ocean_freight", "20' DC", 1200, 2, { pairId: undefined });
+    const fcl = withFclPricing(quote({ containers: [{ qty: 2, type: "20' DC" }], buyingLines: [bought], sellingLines: [sold], fclPricing: undefined }), SHEET)!;
+    expect(fcl.buyingLines!.map((l) => [l.amount, l.chargeProfit?.value])).toEqual([[2000, 200]]);
+    expect(fcl.sellingLines!.map((l) => [l.amount, l.pairId])).toEqual([[2400, fcl.buyingLines![0]!.pairId]]);
+  });
+
+  it("leaves the trucking lines' pairing as the trucking tariffs made it", () => {
+    const trucking: CostLine = { ...perShipment("road_freight", 300), tariffRef: "trucking:v1" };
+    delete trucking.pairId;
+    const fcl = withFclPricing(quote({ buyingLines: [perCtr("ocean_freight", "20' DC", 1000, 2), trucking], sellingLines: [trucking] }), SHEET)!;
+    expect(fcl.buyingLines![1]).toBe(trucking);
+  });
+
   it("starts with no profit when it has no selling yet", () => {
     const fcl = withFclPricing(quote({ fclPricing: undefined, sellingLines: [] }), SHEET)!;
     expect(fcl.fclPricing).toEqual({ blocks: {} });
     expect(fcl.sellingLines![0]!.unitPrice).toBe(1000);
+  });
+});
+
+describe("what FCL pricing changes of a quote", () => {
+  it("is nothing for a quote read back with its keys in another order", () => {
+    const data = quote({ fclPricing: { blocks: { "20' DC": { mode: "sum", value: 100 } } } });
+    const priced = { ...data, ...withFclPricing(data, SHEET)! };
+    const reordered = JSON.parse(JSON.stringify(priced, (_k, v) => (v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).reverse()) : v)));
+    expect(fclChanges(withFclPricing(reordered, SHEET)!, reordered)).toEqual({});
+    expect(Object.keys(fclChanges(withFclPricing(reordered, SHEET)!, { ...reordered, sellingLines: [] }))).toEqual(["sellingLines"]);
   });
 });
 

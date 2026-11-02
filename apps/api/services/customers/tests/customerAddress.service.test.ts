@@ -16,6 +16,7 @@ vi.mock("encore.dev/api", () => ({
     notFound: (msg: string) => new Error(msg),
     invalidArgument: (msg: string) => new Error(msg),
     alreadyExists: (msg: string) => new Error(msg),
+    aborted: (msg: string) => new Error(msg),
   },
 }));
 
@@ -90,5 +91,11 @@ describe("customer addresses", () => {
     await expect(
       customerAddressService.create(COMPANY, "c1", { types: ["Registered"], street: "A 1", city: "Praha", postalCode: "110 00", country: "CZ" }),
     ).rejects.toThrow("already has a registered address");
+  });
+
+  it("tells a site given to the address by another save at the same moment apart from a second registered address", async () => {
+    const race = Object.assign(new Error("Failed query"), { cause: { code: "23505", constraint: "customer_site_one_per_address" } });
+    addresses.updateWithSeat.mockRejectedValueOnce(race);
+    await expect(customerAddressService.update("a1", COMPANY, { types: ["Pickup"] })).rejects.toThrow("changed by someone else at the same moment");
   });
 });

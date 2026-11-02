@@ -199,13 +199,18 @@ function sellingCopy(line: CostLine): CostLine {
   return copy;
 }
 
+// The buying lines FCL pricing prices, each with a pairId (its selling line takes it). Trucking
+// lines are left as they are: their selling lines are the trucking tariffs', paired with them as
+// they always were.
+const withPairIds = (lines: readonly CostLine[]): CostLine[] => lines.map((l) => (l.pairId || !priceable(l) ? l : { ...l, pairId: newPairId() }));
+
 /**
  * The selling lines of an FCL-priced quote, made from its buying lines (which all get a pairId) and
  * its profit; its trucking lines stay as they are. A charge priced at nothing sells nothing and has
  * no selling line. Null while a rate a charge needs is missing: its profit could not be converted.
  */
 export function fclLines(data: SalesQuoteData, sheet: ExchangeRates): Pick<SalesQuoteData, "buyingLines" | "sellingLines"> | null {
-  const buyingLines = (data.buyingLines ?? []).map((l) => (l.pairId ? l : { ...l, pairId: newPairId() }));
+  const buyingLines = withPairIds(data.buyingLines ?? []);
   const quote = { ...data, buyingLines };
   const selling = new Map<number, CostLine>();
   for (const block of fclBlocks(quote)) {
@@ -278,13 +283,32 @@ export function withFclPricing(data: SalesQuoteData, sheet: ExchangeRates): Pick
   return lines && { ...lines, fclPricing };
 }
 
+// A value of the document with every object's keys in one order: the server stores the document
+// as jsonb, which keeps keys in an order of its own, so a line read back and the same line made
+// here can differ in nothing else.
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value === null || typeof value !== "object") return value;
+  const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return Object.fromEntries(entries.map(([k, v]) => [k, canonical(v)]));
+}
+
+/** What FCL pricing (withFclPricing) changes of the quote: the keys whose value differs, the order of keys aside. */
+export function fclChanges(fcl: Partial<SalesQuoteData>, data: SalesQuoteData): Partial<SalesQuoteData> {
+  const same = (key: keyof SalesQuoteData) => JSON.stringify(canonical(fcl[key])) === JSON.stringify(canonical(data[key]));
+  return Object.fromEntries(Object.entries(fcl).filter(([key]) => !same(key as keyof SalesQuoteData))) as Partial<SalesQuoteData>;
+}
+
 // A quote whose selling was typed line by line, with each charge's profit as it sells it now.
 function fromTypedSelling(data: SalesQuoteData, sheet: ExchangeRates): SalesQuoteData | null {
-  const buyingLines = (data.buyingLines ?? []).map((l) => (l.pairId ? l : { ...l, pairId: newPairId() }));
+  const original = data.buyingLines ?? [];
+  const buyingLines = withPairIds(original);
   const selling = (data.sellingLines ?? []).filter(priceable);
   const paired = new Map<number, CostLine>();
   for (const line of selling) {
-    const i = counterpartIndex(line, buyingLines);
+    // Paired as the lines were typed: a pair without a pairId (by its charge and text) too, so the
+    // pairIds just given must not hide it.
+    const i = counterpartIndex(line, original);
     if (i >= 0 && !paired.has(i)) {
       paired.set(i, line);
       continue;

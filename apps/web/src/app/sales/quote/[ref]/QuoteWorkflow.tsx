@@ -82,7 +82,8 @@ import { RemoveBothDialog } from "./_components/RemoveBothDialog";
 import { buyingBasis, counterpartIndex, lineRemovals, newPairId, offerToSelling, pairedCopies, type LineRemoval, type LineSide } from "../../_lib/costPairs";
 import { CostLinesEditor } from "./_components/CostLinesEditor";
 import { FclPricingEditor } from "./_components/FclPricingEditor";
-import { usesFclPricing, withFclPricing } from "../../_lib/fclPricing";
+import { FclTruckingBlock } from "./_components/FclTruckingBlock";
+import { fclChanges, usesFclPricing, withFclPricing } from "../../_lib/fclPricing";
 import { linesToRecheck, rechecked, stampPricedFor, withPricedForNow } from "../../_lib/tariffRecheck";
 import { QuoteAddressField } from "./_components/QuoteAddressField";
 import { QuoteContactField } from "./_components/QuoteContactField";
@@ -320,9 +321,7 @@ export function QuoteWorkflow() {
     const based = { ...overweight, ...withLineBasis({ ...next, ...overweight }) };
     const priced = { ...next, ...based };
     const fcl = usesFclPricing(priced, false) ? withFclPricing(priced, exchange.rates) : null;
-    if (!fcl) return based;
-    const changed = Object.fromEntries(Object.entries(fcl).filter(([key, value]) => JSON.stringify(value) !== JSON.stringify(priced[key as keyof SalesQuoteData])));
-    return { ...based, ...changed };
+    return fcl ? { ...based, ...fclChanges(fcl, priced) } : based;
   };
   const set = (patch: Partial<SalesQuoteData>) => {
     // Nothing of a closed quote is changed here (the server would keep it as stored anyway).
@@ -502,7 +501,10 @@ export function QuoteWorkflow() {
   // A Sea FCL quote is priced in the FCL layout (fclPricing.ts); one sent before it stays as it was
   // sent. Shown once today's rates are known; until then (or for want of a rate) the lines as they are.
   const fclLayout = usesFclPricing(draft, quoteClosed);
-  const fclView = useMemo(() => (fclLayout ? withFclPricing(draft, exchange.rates) : null), [fclLayout, draft, exchange.rates]);
+  const fclView = useMemo(() => {
+    const fcl = fclLayout ? withFclPricing(draft, exchange.rates) : null;
+    return fcl && { ...draft, ...fcl };
+  }, [fclLayout, draft, exchange.rates]);
   // Buying lines priced by a tariff for another cargo weight than Cargo details has now: marked, to recheck.
   const recheck = quoteClosed ? [] : linesToRecheck(draft);
   const toRecheck = (index: number) => recheck.includes(index);
@@ -518,9 +520,10 @@ export function QuoteWorkflow() {
   // Lines from before the basis was copied, W/M followed the cargo and the Overweight surcharge was
   // put to Pricing are brought in line as the quote opens; and rates priced by weight before the
   // weight was remembered are taken as priced for the weight the quote has now.
-  const staleWm = quote && !quoteClosed ? withPricedForNow(draft, derived(draft)) : null;
   useEffect(() => {
-    if (staleWm && Object.keys(staleWm).length) change(staleWm);
+    if (!quote || quoteClosed) return;
+    const staleWm = withPricedForNow(draft, derived(draft));
+    if (Object.keys(staleWm).length) change(staleWm);
     // Once as the quote opens; later changes of the cargo carry it themselves (set).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!quote]);
@@ -627,7 +630,8 @@ export function QuoteWorkflow() {
   const done: Record<SectionKey, boolean> = {
     customer: !!draft.customerName,
     // A sea quote also says whether the cargo goes through a CY.
-    shipment: !!(draft.direction && draft.serviceType && draft.incoterm) && (!isSeaQuote(draft) || draft.cy !== undefined),
+    // Not asked of one closed before it was asked: it cannot be answered there.
+    shipment: !!(draft.direction && draft.serviceType && draft.incoterm) && (!isSeaQuote(draft) || draft.cy !== undefined || quoteClosed),
     // Or left blank on purpose: confirmed as the step was saved without them.
     routing: !!(draft.origin && draft.destination) || !!draft.routingBlank,
     // A reefer box needs its set-point, an open top or flat rack the in-gauge answer (and the
@@ -741,6 +745,15 @@ export function QuoteWorkflow() {
   // the copy is asked about first, and made straight away only into an empty Selling.
   const buyingLines = draft.buyingLines ?? [];
   const sellingLines = draft.sellingLines ?? [];
+  // The FCL layout lists the trucking lines on their own (FclTruckingBlock), these notes under them.
+  const buyingOverride = sideOverrideNote("buying", buyingLines);
+  const sellingOverride = sideOverrideNote("selling", sellingLines);
+  const truckingNotes = buyingOverride || sellingOverride ? (
+    <>
+      {buyingOverride}
+      {sellingOverride}
+    </>
+  ) : null;
   // Each copy shares a pairId with its buying line, so removing one can offer to remove the other.
   const copyBuyingToSelling = () => {
     const { buying, selling } = pairedCopies(buyingLines);
@@ -1424,7 +1437,7 @@ export function QuoteWorkflow() {
             {containerQuote ? (
               <KpiTile size="text" label="Equipment" value={cargo.equipment || EMPTY_CELL} hint="As the shipment names its containers" />
             ) : (
-            <>
+              <>
                 {airFreight ? (
                   <KpiTile size="text" label="Volumetric wt" value={`${fmtQuantity(cargo.volumetricWeight)} kg`} />
                 ) : (
@@ -1490,16 +1503,27 @@ export function QuoteWorkflow() {
             />
           )}
           {fclView ? (
-            <FclPricingEditor
-              lineWarn={toRecheck}
-              quote={{ ...draft, ...fclView }}
-              sheet={exchange.rates}
-              onChange={(next) => set(next)}
-              lineTag={buyingTag}
-              lineAction={buyingAction}
-            />
+            <>
+              <FclPricingEditor
+                lineWarn={toRecheck}
+                quote={fclView}
+                sheet={exchange.rates}
+                onChange={set}
+                lineTag={buyingTag}
+                lineAction={buyingAction}
+              />
+              <FclTruckingBlock
+                buyingLines={buyingLines}
+                sellingLines={sellingLines}
+                currency={totals.currency}
+                amountOf={(line, side) => convertLine(line, draft, exchange.rates, { selling: side === "selling", live: exchange })}
+                lineTag={(line, side) => (side === "buying" ? buyingTag(line) : sellingTag(line))}
+                onRemove={removeLine}
+                notes={truckingNotes}
+              />
+            </>
           ) : (
-              <>
+            <>
               <CostLinesEditor
                 kind="buying"
                 title="Buying (cost)"

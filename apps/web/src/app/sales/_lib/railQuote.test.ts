@@ -56,6 +56,12 @@ describe("railRouteOf", () => {
     expect(route).toMatchObject({ port: "SIKOP", direction: "export", place: "Zlín", country: "CZ", date: TODAY });
   });
 
+  it("reads the town and country of a terminal picked as Origin / Destination without its code", () => {
+    const inland = railRouteOf({ ...QUOTE, delivery: "", destination: "Duisburg DIT (DE-IT116)" }, TODAY);
+    expect(inland).toMatchObject({ place: "Duisburg DIT", country: "DE" });
+    expect(railRouteOf({ ...QUOTE, delivery: "", destination: "Wien Freudenau (ATVIEWFR)" }, TODAY)).toMatchObject({ place: "Wien Freudenau", country: "AT" });
+  });
+
   it("leaves the port open when the quote's port has no rail tariffs", () => {
     expect(railRouteOf({ ...QUOTE, pod: "Gdansk (PLGDN)" }, TODAY).port).toBeNull();
   });

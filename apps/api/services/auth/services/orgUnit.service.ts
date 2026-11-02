@@ -73,6 +73,12 @@ export interface CountryInput {
   code: string;
 }
 
+/** The ocean (CY) and inland terminals matching typed text. */
+export interface TerminalMatches {
+  terminals: Terminal[];
+  inland: InlandTerminal[];
+}
+
 function requireCountry(input: CountryInput): { code: string; name: string } {
   const code = input.code.trim().toUpperCase();
   const name = countryName(code);
@@ -172,7 +178,7 @@ class OrgUnitService {
   // Ocean container terminals (CYs), and inland terminals (dry ports, rail and intermodal
   // terminals), offered beside the places as the Origin and Destination of a sea quote or shipment.
   // In memory too, like the airports.
-  searchTerminals(query: string): { terminals: Terminal[]; inland: InlandTerminal[] } {
+  searchTerminals(query: string): TerminalMatches {
     return { terminals: searchTerminals(query), inland: searchInlandTerminals(query) };
   }
 

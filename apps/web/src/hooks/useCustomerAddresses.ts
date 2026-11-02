@@ -3,12 +3,9 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
-import { customerSitesKey } from "./useCustomerSites";
+import { customerAddressesKey, customerSitesKey } from "./customerKeys";
 
 export type AddressItem = interfaces.AddressItem;
-
-/** One customer's addresses. Kept apart from the ["customers"] list key, so a list refresh doesn't refetch them. */
-export const customerAddressesKey = (customerId: string) => ["customer-addresses", customerId] as const;
 
 export const useCustomerAddresses = (customerId: string) => {
   const queryClient = useQueryClient();

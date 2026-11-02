@@ -6,7 +6,7 @@ import type { NewCustomerSiteRecord } from "../schemas/customerSite.schema";
 import type { CustomerSiteItem, CustomerSiteKind } from "../interfaces/interfaces";
 import { toCustomerSiteItem } from "../lib/mappers";
 import { normaliseCountry, normalisePostcode } from "../lib/postcode";
-import { typesForKind, typesWithoutSite } from "../lib/addressSite";
+import { SITE_RACE, isSiteRace, typesForKind, typesWithoutSite } from "../lib/addressSite";
 import { addressTypes } from "./customerAddress.service";
 import { customerService } from "./customer.service";
 import { isUniqueViolation } from "../../../lib/db/errors";
@@ -23,6 +23,7 @@ const oneDefault = async <T>(write: () => Promise<T>): Promise<T> => {
   try {
     return await write();
   } catch (err) {
+    if (isSiteRace(err)) throw APIError.aborted(SITE_RACE);
     if (isUniqueViolation(err)) throw APIError.aborted(DEFAULT_RACE);
     throw err;
   }
@@ -177,13 +178,17 @@ class CustomerSiteService {
   }
 
   // A site goes with its address's Pickup / Delivery: the address keeps its other types, and goes
-  // too when it has none left.
-  async softDelete(id: string, companyId: string): Promise<void> {
+  // too when it has none left - which only someone who may delete addresses (a superadmin, as on
+  // the Addresses tab) may do.
+  async softDelete(id: string, companyId: string, mayDeleteAddress: boolean): Promise<void> {
     const existing = await customerSiteRepository.getByIdForCompany(id, companyId);
     if (!existing) throw APIError.notFound(SITE_GONE);
     const address = existing.addressId ? await customerAddressRepository.findLive(existing.addressId, companyId) : null;
     if (address) {
       const left = typesWithoutSite(address.types);
+      if (!left.length && !mayDeleteAddress) {
+        throw APIError.permissionDenied("Deleting this site deletes its address, which only a superadmin can do; give the address another type first");
+      }
       const done = left.length
         ? await customerAddressRepository.updateWithSeat(address.id, companyId, { types: left })
         : await customerAddressRepository.softDeleteWithSeat(address.id, companyId);

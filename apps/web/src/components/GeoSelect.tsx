@@ -6,12 +6,20 @@ import { ExclamationCircleOutlined } from "@ant-design/icons";
 import { useDebounced } from "@/hooks/useDebounced";
 import { useAirportSearch, usePlaceSearch, useTerminalSearch } from "@/hooks/usePlaceSearch";
 import { COUNTRIES } from "@/lib/countries";
+import type { geo } from "@/lib/api/client";
 import { countryCodeOf, countryLabel, countryMatches, countryValue, isUnmatched, UNMATCHED_HINT, type GeoKind } from "@/lib/places";
 
 const COUNTRY_OPTIONS = COUNTRIES.map((c) => ({ code: c.code, label: countryLabel(c.code) }));
 
 // What an inland terminal is, beside its town.
-const INLAND_KIND: Record<string, string> = { dry_port: "Dry port", intermodal: "Intermodal", rail: "Rail" };
+const INLAND_KIND: Record<geo.InlandTerminalKind, string> = { dry_port: "Dry port", intermodal: "Intermodal", rail: "Rail" };
+
+// What a place field asks for, by the codes it offers besides the places.
+function placePrompt(airports: boolean, terminals: boolean): string {
+  if (airports) return "Type a city, airport or code";
+  if (terminals) return "Type a city, port, terminal or code";
+  return "Type a city, port or code";
+}
 
 interface GeoSelectProps {
   kind: GeoKind;
@@ -37,10 +45,22 @@ interface GeoOption {
   code?: string;
 }
 
+// An airport or terminal: its code first, then its name, and where it is at the side.
+const codedOption = (code: string, name: string, where: (string | null | undefined)[]): GeoOption => ({
+  value: `${name} (${code})`,
+  label: (
+    <span className="flex items-baseline justify-between gap-2">
+      <span className="truncate">
+        <span className="font-medium">{code}</span> <span className="text-slate-400">-</span> {name}
+      </span>
+      <span className="shrink-0 text-xs text-slate-400 truncate max-w-[40%]">{where.filter(Boolean).join(", ")}</span>
+    </span>
+  ),
+});
+
 /**
  * Picks a place (UN/LOCODE, searched worldwide; with `airports`, also an IATA airport; with
- * `terminals`, also an ocean container terminal) or a
- * country from the database. A value not in the database's form (older data, or what the AI
+ * `terminals`, also an ocean or inland terminal) or a country from the database. A value not in the database's form (older data, or what the AI
  * could not match) is kept and offered as the search text, so the matching places show up
  * straight away.
  */
@@ -91,41 +111,11 @@ export function GeoSelect({
         </span>
       ),
     }));
-    const airportOptions: GeoOption[] = (airportList.data?.airports ?? []).map((a) => ({
-      value: `${a.name} (${a.code})`,
-      label: (
-        <span className="flex items-baseline justify-between gap-2">
-          <span className="truncate">
-            <span className="font-medium">{a.code}</span> <span className="text-slate-400">-</span> {a.name}
-          </span>
-          <span className="shrink-0 text-xs text-slate-400 truncate max-w-[40%]">
-            {[a.city, a.countryCode].filter(Boolean).join(", ")}
-          </span>
-        </span>
-      ),
-    }));
-    const terminalOptions: GeoOption[] = (terminalList.data?.terminals ?? []).map((t) => ({
-      value: `${t.name} (${t.code})`,
-      label: (
-        <span className="flex items-baseline justify-between gap-2">
-          <span className="truncate">
-            <span className="font-medium">{t.code}</span> <span className="text-slate-400">-</span> {t.name}
-          </span>
-          <span className="shrink-0 text-xs text-slate-400 truncate max-w-[40%]">{[t.port, t.countryCode].filter(Boolean).join(", ")}</span>
-        </span>
-      ),
-    }));
-    const inlandOptions: GeoOption[] = (terminalList.data?.inland ?? []).map((t) => ({
-      value: `${t.name} (${t.code})`,
-      label: (
-        <span className="flex items-baseline justify-between gap-2">
-          <span className="truncate">
-            <span className="font-medium">{t.code}</span> <span className="text-slate-400">-</span> {t.name}
-          </span>
-          <span className="shrink-0 text-xs text-slate-400 truncate max-w-[40%]">{[INLAND_KIND[t.kind], t.town, t.countryCode].filter(Boolean).join(", ")}</span>
-        </span>
-      ),
-    }));
+    // Only the kinds this field offers: a search turned off still hands back what an earlier field
+    // of another kind cached for the same text.
+    const airportOptions = (airports ? (airportList.data?.airports ?? []) : []).map((a) => codedOption(a.code, a.name, [a.city, a.countryCode]));
+    const terminalOptions = (terminals ? (terminalList.data?.terminals ?? []) : []).map((t) => codedOption(t.code, t.name, [t.port, t.countryCode]));
+    const inlandOptions = (terminals ? (terminalList.data?.inland ?? []) : []).map((t) => codedOption(t.code, t.name, [INLAND_KIND[t.kind], t.town, t.countryCode]));
     // Keep the current place listed so the box shows it before anything is searched.
     const listed = [...airportOptions, ...terminalOptions, ...inlandOptions, ...found].some((o) => o.value === current);
     const pinned: GeoOption[] = !debounced && current && !unmatched && !listed ? [{ value: current, label: <>{current}</> }] : [];
@@ -142,6 +132,16 @@ export function GeoSelect({
 
   const selected = current && !unmatched ? (kind === "place" ? current : countryValue(countryCodeOf(current, kind)!, kind)) : undefined;
 
+  // What the list says while it has nothing to offer.
+  const notFound = () => {
+    if (kind !== "place") return "No country found";
+    if (places.isFetching || airportList.isFetching || terminalList.isFetching) return "Searching…";
+    if (debounced.length < 2) return "Type at least 2 letters";
+    if (airports) return "No airport or place found";
+    if (terminals) return "No terminal or place found";
+    return "No place found";
+  };
+
   return (
     <Select
       showSearch
@@ -150,11 +150,7 @@ export function GeoSelect({
       defaultOpen={defaultOpen}
       allowClear={allowClear}
       className={className}
-      placeholder={
-        unmatched
-          ? current
-          : (placeholder ?? (kind === "place" ? (airports ? "Type a city, airport or code" : terminals ? "Type a city, port, terminal or code" : "Type a city, port or code") : "Choose a country"))
-      }
+      placeholder={unmatched ? current : (placeholder ?? (kind === "place" ? placePrompt(airports, terminals) : "Choose a country"))}
       value={selected}
       searchValue={search}
       onSearch={onSearch}
@@ -165,19 +161,7 @@ export function GeoSelect({
           ? false
           : (input, option) => countryMatches((option as { code?: string } | undefined)?.code ?? "", input)
       }
-      notFoundContent={
-        kind === "place"
-          ? places.isFetching || airportList.isFetching || terminalList.isFetching
-            ? "Searching…"
-            : debounced.length < 2
-              ? "Type at least 2 letters"
-              : airports
-                ? "No airport or place found"
-                : terminals
-                  ? "No terminal or place found"
-                  : "No place found"
-          : "No country found"
-      }
+      notFoundContent={notFound()}
       onChange={(v) => onChange(v ?? "")}
       onBlur={onBlur}
       popupMatchSelectWidth={kind === "place" ? (airports || terminals ? 420 : 340) : true}
