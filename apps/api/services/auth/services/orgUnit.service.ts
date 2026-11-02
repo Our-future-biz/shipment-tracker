@@ -4,6 +4,7 @@ import { countryName } from "../../../lib/geo/format";
 import { departmentRepository, branchRepository, countryRepository, locationRepository } from "../repositories/orgUnit.repository";
 import type { Place } from "../../../lib/geo/place";
 import { searchAirports, type Airport } from "../../../lib/geo/airports";
+import { searchTerminals, type Terminal } from "../../../lib/geo/terminals";
 import { userRepository } from "../repositories/user.repository";
 
 export interface DepartmentInfo {
@@ -166,6 +167,12 @@ class OrgUnitService {
   // memory: the snapshot ships with the code, not in the database.
   searchAirports(query: string): Airport[] {
     return searchAirports(query);
+  }
+
+  // Ocean container terminals (CYs), offered beside the places as the Origin and Destination of a
+  // sea quote or shipment. In memory too, like the airports.
+  searchTerminals(query: string): Terminal[] {
+    return searchTerminals(query);
   }
 
   async placesByCodes(codes: string[]): Promise<PlaceInfo[]> {

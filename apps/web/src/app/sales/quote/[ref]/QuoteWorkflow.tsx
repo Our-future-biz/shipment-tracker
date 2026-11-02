@@ -680,6 +680,8 @@ export function QuoteWorkflow() {
   const shownValidity = pendingValidity === undefined ? quote.validUntil : pendingValidity;
 
   const airFreight = draft.serviceType === "Air";
+  // By sea (FCL, LCL, Break Bulk), Origin and Destination also offer the ocean terminals (CYs).
+  const seaFreight = /^sea/i.test(draft.serviceType ?? "");
 
   // Road transport: the card shows on a Road quote and on any quote with lines priced from a tariff.
   // Road pricing from the trucking tariffs only while the company has the Trucking Concept.
@@ -1069,7 +1071,7 @@ export function QuoteWorkflow() {
           <div className="min-w-0">
             <InfoRow label="Origin">
               <span className="flex items-center">
-                <GeoSelect kind="place" airports={airFreight} size="small" className="w-full" value={draft.origin} onChange={(v) => set({ origin: v })} />
+                <GeoSelect kind="place" airports={airFreight} terminals={seaFreight} size="small" className="w-full" value={draft.origin} onChange={(v) => set({ origin: v })} />
                 <GeoFlag kind="place" value={draft.origin} />
               </span>
             </InfoRow>
@@ -1087,7 +1089,7 @@ export function QuoteWorkflow() {
           <div className="min-w-0">
             <InfoRow label="Destination">
               <span className="flex items-center">
-                <GeoSelect kind="place" airports={airFreight} size="small" className="w-full" value={draft.destination} onChange={(v) => set({ destination: v })} />
+                <GeoSelect kind="place" airports={airFreight} terminals={seaFreight} size="small" className="w-full" value={draft.destination} onChange={(v) => set({ destination: v })} />
                 <GeoFlag kind="place" value={draft.destination} />
               </span>
             </InfoRow>

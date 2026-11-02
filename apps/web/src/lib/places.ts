@@ -3,6 +3,8 @@ import { COUNTRIES } from "./countries";
 // How places and countries are written into shipments and quotes (mirrors apps/api/lib/geo/format.ts):
 //   place:        "Hamburg (DEHAM)"  — UN/LOCODE name + code from the location database
 //                 "Shanghai Pudong International Airport (PVG)" — or, by air, an airport + IATA code
+//                 "HHLA CONTAINER TERMINAL BURCHARDKAI (CTB) (DEHAMCTB)" — or, by sea, as Origin /
+//                 Destination, an ocean terminal (CY): its port's UN/LOCODE + SMDG terminal code
 //   country:      "Germany (DE)"     — ISO name + code
 //   country code: "DE"
 // A value in any other form (older data, or what the AI could not match) is flagged.
@@ -12,7 +14,7 @@ export type GeoKind = "place" | "country" | "countryCode";
 export const isGeoKind = (type: string | undefined): type is GeoKind =>
   type === "place" || type === "country" || type === "countryCode";
 
-const PLACE_RE = /^.+ \(([A-Z]{2}[A-Z0-9]{3}|[A-Z]{3})\)$/;
+const PLACE_RE = /^.+ \(([A-Z]{2}[A-Z0-9]{3}(?:[A-Z0-9]{2,6})?|[A-Z]{3})\)$/;
 const COUNTRY_RE = /^.+ \(([A-Z]{2})\)$/;
 
 const COUNTRY_BY_CODE = new Map(COUNTRIES.map((c) => [c.code, c.name]));

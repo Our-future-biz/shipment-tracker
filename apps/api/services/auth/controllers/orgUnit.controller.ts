@@ -3,6 +3,7 @@ import type { MaxLen, MinLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { requireRole } from "../../../lib/rbac";
 import type { Airport } from "../../../lib/geo/airports";
+import type { Terminal } from "../../../lib/geo/terminals";
 import { orgUnitService } from "../services/orgUnit.service";
 import type { DepartmentInfo, BranchInfo, CountryInfo, LocationInfo, PlaceInfo, PlaceCandidateQuery } from "../services/orgUnit.service";
 
@@ -209,6 +210,22 @@ export const airportSearch = api(
   { expose: true, auth: true, method: "GET", path: "/auth/airports" },
   async (req: AirportSearchRequest): Promise<AirportListResponse> => {
     return { airports: orgUnitService.searchAirports(req.q) };
+  },
+);
+
+interface TerminalSearchRequest {
+  q: string;
+}
+interface TerminalListResponse {
+  terminals: Terminal[];
+}
+
+// Ocean container terminals (CYs) matching typed text, offered beside the places as the Origin and
+// Destination of a sea quote or shipment.
+export const terminalSearch = api(
+  { expose: true, auth: true, method: "GET", path: "/auth/terminals" },
+  async (req: TerminalSearchRequest): Promise<TerminalListResponse> => {
+    return { terminals: orgUnitService.searchTerminals(req.q) };
   },
 );
 

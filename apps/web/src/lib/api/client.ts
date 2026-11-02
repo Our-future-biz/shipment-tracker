@@ -159,6 +159,7 @@ export namespace auth {
             this.departmentUpdate = this.departmentUpdate.bind(this)
             this.locationList = this.locationList.bind(this)
             this.placeSearch = this.placeSearch.bind(this)
+            this.terminalSearch = this.terminalSearch.bind(this)
             this.userCreate = this.userCreate.bind(this)
             this.userDelete = this.userDelete.bind(this)
             this.userUpdate = this.userUpdate.bind(this)
@@ -429,6 +430,21 @@ export namespace auth {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/auth/places`, undefined, {query})
             return await resp.json() as controllers.PlaceListResponse
+        }
+
+        /**
+         * Ocean container terminals (CYs) matching typed text, offered beside the places as the Origin and
+         * Destination of a sea quote or shipment.
+         */
+        public async terminalSearch(params: controllers.TerminalSearchRequest): Promise<controllers.TerminalListResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                q: params.q,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/auth/terminals`, undefined, {query})
+            return await resp.json() as controllers.TerminalListResponse
         }
 
         /**
@@ -8921,6 +8937,14 @@ export namespace controllers {
         task: interfaces.TaskItem
     }
 
+    export interface TerminalListResponse {
+        terminals: geo.Terminal[]
+    }
+
+    export interface TerminalSearchRequest {
+        q: string
+    }
+
     export interface TermsCreateRequest {
         name: string
     }
@@ -10246,6 +10270,25 @@ export namespace geo {
         countryCode: string
         name: string
         subdivisionName: string | null
+    }
+
+    /**
+     * An ocean container terminal (CY), offered beside the UN/LOCODE places as the Origin and
+     * Destination of a sea quote or shipment. Its code is the port's UN/LOCODE and the terminal's SMDG
+     * code ("DEHAMCTB"); it is written into quotes and shipments as "Name (CODE)" like a place:
+     * "HHLA CONTAINER TERMINAL BURCHARDKAI (CTB) (DEHAMCTB)".
+     */
+    export interface Terminal {
+        code: string
+        name: string
+        /**
+         * The UN/LOCODE of its port.
+         */
+        portCode: string
+
+        port: string
+        countryCode: string
+        operator: string | null
     }
 }
 
