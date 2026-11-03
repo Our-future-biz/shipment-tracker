@@ -7,6 +7,7 @@ import { SectionCard } from "@/components/SectionCard";
 import { useCustomerShipments } from "@/hooks/useCustomerShipments";
 import type { ShipmentItem } from "@/hooks/useCustomerShipments";
 import { statusLabel, statusTagColor } from "@/lib/shipmentStatus";
+import { loadTypeLabel } from "@/lib/enums";
 import { EMPTY_CELL } from "../../_lib/customerTable";
 
 const RECENT_COUNT = 5;
@@ -41,7 +42,7 @@ const COLUMNS: ColumnsType<ShipmentItem> = [
       ),
   },
   { title: "Freight mode", dataIndex: "freightMode", width: 130, render: (v: string) => v || EMPTY_CELL },
-  { title: "Load type", dataIndex: "loadType", width: 130, render: (v: string) => v || EMPTY_CELL },
+  { title: "Load type", dataIndex: "loadType", width: 130, render: (v: string, r) => loadTypeLabel(v, r.freightMode) || EMPTY_CELL },
 ];
 
 interface CustomerRecentShipmentsCardProps {

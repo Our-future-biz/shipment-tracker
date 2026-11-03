@@ -4,6 +4,7 @@ import { Fragment } from "react";
 import type { ReactNode } from "react";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { dimensionTotals, num } from "@/lib/cargo";
+import { loadTypeLabel } from "@/lib/enums";
 import { HoverCard } from "./HoverCard";
 
 // ── Pure summary helpers (unit-tested in ShipmentHoverCard.test.ts) ──
@@ -89,7 +90,7 @@ interface ShipmentHoverCardProps {
 export function ShipmentHoverCard({ shipment, jobNumberColor, children }: ShipmentHoverCardProps) {
   const rows: [string, string][] = [
     ["Customer", (shipment.customer ?? "").trim()],
-    ["Load Type", (shipment.loadType ?? "").trim()],
+    ["Load Type", loadTypeLabel(shipment.loadType, shipment.freightMode).trim()],
     ["Freight Mode", (shipment.freightMode ?? "").trim()],
     ["Trade Direction", (shipment.tradeDirection ?? "").trim()],
     ["Cargo", cargoLine(shipment)],

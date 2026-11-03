@@ -44,6 +44,7 @@ import { ChatPanel } from "./ChatPanel";
 import { EditableCell, FreightModeContext } from "@/app/shipments/[jobNumber]/_components/EditableCell";
 import { CustomerCell } from "./CustomerCell";
 import { statusLabel } from "@/lib/shipmentStatus";
+import { LOAD_TYPE_FILTER_OPTIONS, loadTypeLabel } from "@/lib/enums";
 import { downloadCsv } from "@/lib/csv";
 import { businessToday } from "@/lib/date";
 import { foldIncludes } from "@/lib/fold";
@@ -110,11 +111,12 @@ const PAGE_SIZE_OPTIONS = [50, 100, 150, 200];
 const CONTAINER_LINK_COLUMNS = new Set(["containerNumber", "containerTypeSummary", "totalTeu"]);
 
 // A cell as text, for filtering and export: the Customs "received" ticks read Yes / No
-// (what the tick shows), every other column its own value.
+// (what the tick shows), an air Full Load Single Shipment, every other column its own value.
 function cellText(shipment: ShipmentItem, key: string): string {
   if (isReceivedTick(key)) return receivedValue(shipment, key) ? "Yes" : "No";
   if (key === "commercialInvoiceValue" && shipment.civByCurrency) return shipment.civByCurrency;
   if (key === "status") return statusLabel(shipment.status);
+  if (key === "loadType") return loadTypeLabel(shipment.loadType, shipment.freightMode);
   return getFieldValue(shipment, key);
 }
 
@@ -562,7 +564,8 @@ export const ShipmentsTable = ({
         }
         // Read-only columns (computed, createdBy\u2026) \u2014 plain text.
         if (col.readonly || viewReadonly?.includes(col.key)) {
-          return val ? <span className="text-slate-600" style={textStyle}>{val}</span> : <span className="text-slate-300">{"\u2014"}</span>;
+          const shown = col.key === "loadType" ? loadTypeLabel(val, record.freightMode) : val;
+          return shown ? <span className="text-slate-600" style={textStyle}>{shown}</span> : <span className="text-slate-300">{"\u2014"}</span>;
         }
         // Everything else \u2014 inline editable (double-click). Text/dropdown/date per column config.
         // The row's Freight Mode lets an air shipment's POL and POD offer airports.
@@ -848,7 +851,8 @@ export const ShipmentsTable = ({
                                 placeholder="Select value"
                                 value={f.value || undefined}
                                 onChange={(val) => updateFilter(i, { value: val ?? "" })}
-                                options={col!.options!.map((o) => ({ value: o, label: o }))}
+                                // Load Type also offers Single Shipment (an air Full Load, as its cell reads).
+                                options={(f.key === "loadType" ? LOAD_TYPE_FILTER_OPTIONS : col!.options!).map((o) => ({ value: o, label: o }))}
                                 optionFilterProp="label"
                                 size="small"
                                 className="w-full"

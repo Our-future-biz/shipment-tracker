@@ -9,6 +9,7 @@ import { api } from "@/lib/api";
 import { buildRowData, getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
 import type { interfaces } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/date";
+import { loadTypeLabel } from "@/lib/enums";
 import { NOT_STACKABLE, STACKABLE, numberInput, shipmentStackability } from "@/lib/cargo";
 import { useWarehouseSection } from "@/hooks/useWarehouseSection";
 import { SectionCard as Card, PillTabs } from "@/components/SectionCard";
@@ -64,7 +65,7 @@ export function WarehouseTab({ shipment }: { shipment: ShipmentItem }) {
               <div>
                 <Row label="Container #" value={shipment.containerNumber} />
                 <Row label="Colli / PCS" value={shipment.pcs} />
-                <Row label="Load type" value={shipment.loadType} />
+                <Row label="Load type" value={loadTypeLabel(shipment.loadType, shipment.freightMode)} />
                 <Row label="Customs procedure" value={rowData["customsProcedure"]} />
               </div>
               <div>

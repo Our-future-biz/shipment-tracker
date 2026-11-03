@@ -3,10 +3,11 @@
 import { App, Tooltip } from "antd";
 import { BuildOutlined, EnvironmentOutlined, FileTextOutlined, InboxOutlined, LockOutlined } from "@ant-design/icons";
 import { CustomerLinkField } from "@/app/shipments/[jobNumber]/_components/CustomerLinkField";
+import { FreightModeContext } from "@/app/shipments/[jobNumber]/_components/EditableCell";
 import { COLUMN_MAP, dateTimeUpdate, getComputedValue, joinDateTime } from "@/lib/columnConfig";
 import { formatDate } from "@/lib/date";
 import { teuForType } from "@/lib/cargo";
-import { FULL_LOAD } from "@/lib/enums";
+import { FULL_LOAD, loadTypeLabel } from "@/lib/enums";
 import type { MasterJobContainerLine, MasterJobItem, MasterJobShipmentItem, MasterJobUpdate } from "@/hooks/useMasterJobs";
 import { FieldRow, IncotermRow, Label, MasterJobCard, ROW, ReadOnlyRow, jumpTo } from "./MasterJobFields";
 import { MasterJobContainers } from "./MasterJobContainers";
@@ -126,8 +127,11 @@ export function MblDetailsTab({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
           <div>
             <FieldRow label="Freight Mode" fieldKey="freightMode" value={mj.freightMode} onCommit={handleCommit} />
-            {mj.loadType ? <LockedLoadType value={mj.loadType} /> : (
-              <FieldRow label="Load Type" fieldKey="loadType" value={mj.loadType} onCommit={handleCommit} synced />
+            {/* By air a Full Load reads Single Shipment. */}
+            {mj.loadType ? <LockedLoadType value={loadTypeLabel(mj.loadType, mj.freightMode)} /> : (
+              <FreightModeContext.Provider value={mj.freightMode || undefined}>
+                <FieldRow label="Load Type" fieldKey="loadType" value={mj.loadType} onCommit={handleCommit} synced />
+              </FreightModeContext.Provider>
             )}
             <IncotermRow label="Incoterm Origin" fieldKey="incotermOrigin" value={mj.incotermOrigin} onCommit={handleCommit} />
             <IncotermRow label="Incoterm Destination" fieldKey="incotermDestination" value={mj.incotermDestination} onCommit={handleCommit} />
