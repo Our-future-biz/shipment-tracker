@@ -18,13 +18,14 @@ class ManagersCockpitService {
     const dueBy = addDays(businessDay(now), -TASK_OVERDUE_DAYS);
     const [facts, tasks, users] = await Promise.all([
       quotes._internalSalesManagersFacts(),
-      followupTaskRepository.cockpitTasks(companyId, dueBy, TASKS_LIMIT),
+      // One more than shown, so "capped" means some were left out.
+      followupTaskRepository.cockpitTasks(companyId, dueBy, TASKS_LIMIT + 1),
       companyUsers(),
     ]);
     const emails = new Map(users.map((u) => [u.id, u.email]));
     return buildSalesCockpit({
       quotes: facts.quotes,
-      tasks: tasks.map((t) => ({
+      tasks: tasks.slice(0, TASKS_LIMIT).map((t) => ({
         id: t.id,
         type: t.type,
         note: t.note,
@@ -34,7 +35,7 @@ class ManagersCockpitService {
         customerLabel: t.customerLabel,
         quoteNumber: t.quoteNumber,
       })),
-      capped: facts.capped || tasks.length >= TASKS_LIMIT,
+      capped: facts.capped || tasks.length > TASKS_LIMIT,
       mode,
       now,
       lines: facts,

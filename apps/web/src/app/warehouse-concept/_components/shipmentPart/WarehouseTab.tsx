@@ -8,6 +8,7 @@ import type { MessageInstance } from "antd/es/message/interface";
 import { buildRowData, getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
 import { formatDateTime } from "@/lib/date";
 import { NOT_STACKABLE, STACKABLE, shipmentStackability } from "@/lib/cargo";
+import { loadTypeLabel } from "@/lib/enums";
 import { useWarehouseSection } from "@/hooks/useWarehouseConceptSection";
 import { SectionCard as Card, PillTabs } from "@/components/SectionCard";
 import { PickupSection } from "./PickupSection";
@@ -97,7 +98,7 @@ export function WarehouseTab({ shipment, readOnly = false, pickupReadOnly = !rea
               <div>
                 <Row label="Container #" value={shipment.containerNumber} />
                 <Row label="Colli / PCS" value={shipment.pcs} />
-                <Row label="Load type" value={shipment.loadType} />
+                <Row label="Load type" value={loadTypeLabel(shipment.loadType, shipment.freightMode)} />
                 <Row label="Customs procedure" value={rowData["customsProcedure"]} />
               </div>
               <div>

@@ -1,6 +1,7 @@
 import dayjs from "dayjs";
 import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from "@/components/DataTable";
 import type { SalesQuoteFilter } from "@/hooks/salesQueryKeys";
+import { addDays, businessToday } from "@/lib/date";
 import { isUuid } from "@/lib/uuid";
 import { OPEN_QUOTE_STATUSES, QUOTE_STATUSES } from "./types";
 
@@ -37,11 +38,13 @@ export const EMPTY_FILTERS: Filters = { statuses: [] };
 
 export const NO_OWNER = "none";
 
-// The question a set of filters asks the server. "Mine" is whoever is signed in, "this month" is
-// the month on the viewer's clock, and the statuses are the ones shown - Expired finds the quotes
-// whose validity has passed, Quoted no longer does.
+// The question a set of filters asks the server. "Mine" is whoever is signed in, and the statuses
+// are the ones shown - Expired finds the quotes whose validity has passed, Quoted no longer does.
+// "This month" and "valid within N days" count from the company's day (Prague), as the server and
+// the managers' tiles (Won / Lost this month, Valid until ≤ 7 days) do.
 export function filtersToQuery(filters: Filters): SalesQuoteFilter {
-  const month = dayjs();
+  const today = businessToday();
+  const month = dayjs(today);
   return {
     statuses: filters.statuses.join(",") || undefined,
     serviceType: filters.serviceType,
@@ -51,8 +54,8 @@ export function filtersToQuery(filters: Filters): SalesQuoteFilter {
     decidedFrom: filters.decidedThisMonth ? month.startOf("month").format("YYYY-MM-DD") : undefined,
     decidedTo: filters.decidedThisMonth ? month.endOf("month").format("YYYY-MM-DD") : undefined,
     owner: filters.mineOnly ? "me" : filters.owner,
-    validFrom: filters.validWithinDays ? month.format("YYYY-MM-DD") : undefined,
-    validTo: filters.validWithinDays ? month.add(filters.validWithinDays, "day").format("YYYY-MM-DD") : undefined,
+    validFrom: filters.validWithinDays ? today : undefined,
+    validTo: filters.validWithinDays ? addDays(today, filters.validWithinDays) : undefined,
     followUp: filters.followUpDue ? "due" : undefined,
   };
 }

@@ -81,11 +81,19 @@ export const foldSql = (text: SQL): SQL =>
 /**
  * Rows whose `columns`, joined and folded, contain every word of `search` (see searchTokens),
  * ignoring diacritics and case; % and _ typed by the user are literal. Undefined for no words.
- * A column can also be an SQL expression (e.g. a value of a related table).
+ * A column can also be an SQL expression (e.g. a value of a related table). `orWord` may give a
+ * second way for a word (as searchTokens gives it) to match, e.g. a reference found by its number
+ * whatever its letters; a word it gives nothing for has to be in the text.
  */
-export function containsAllWords(columns: (PgColumn | SQL)[], search: string): SQL | undefined {
+export function containsAllWords(columns: (PgColumn | SQL)[], search: string, orWord?: (word: string) => SQL | undefined): SQL | undefined {
   const words = searchTokens(search);
   if (!words.length) return undefined;
   const text = foldSql(sql`concat_ws(' ', ${sql.join(columns, sql`, `)})`);
-  return and(...words.map((word) => sql`${text} LIKE ${`%${word}%`}`));
+  return and(
+    ...words.map((word) => {
+      const contains = sql`${text} LIKE ${`%${word}%`}`;
+      const other = orWord?.(word);
+      return other ? sql`(${contains} OR ${other})` : contains;
+    }),
+  );
 }

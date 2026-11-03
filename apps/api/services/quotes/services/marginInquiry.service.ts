@@ -1,18 +1,17 @@
 import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
-import { auth } from "~encore/clients";
 import type { Actor } from "../../../lib/rbac";
 import { businessDay } from "../../../lib/businessDate";
 import { revisionRoot } from "../../../lib/salesReference";
 import { canDecideQuoteInquiry } from "../../../lib/salesPolicy";
 import { isUuid } from "../../../lib/uuid";
 import type { QuoteMarginApproval, QuoteMarginInquiryItem, QuoteMarginInquiryRow } from "../interfaces/interfaces";
-import { answerProblem, askProblem, isEscalated, isToldAbout, officeMinutesBetween, type InquiryAnswer } from "../lib/marginInquiry";
+import { answerProblem, askProblem, isEscalated, isToldAbout, officeMinutesBetween, withLiveNotifier, type InquiryAnswer } from "../lib/marginInquiry";
 import { approvalBasisOf, formatMargin, roadMargin } from "../lib/roadMargin";
-import { companyPeople, type People } from "../lib/people";
+import { companyDirectory, companyPeople, type People } from "../lib/people";
 import { quoteCommentRepository } from "../repositories/quoteComment.repository";
 import { quoteInquiryRepository } from "../repositories/quoteInquiry.repository";
-import { salesQuoteRepository } from "../repositories/salesQuote.repository";
+import { salesQuoteRepository, type QuoteTransaction } from "../repositories/salesQuote.repository";
 import type { SalesQuoteRecord } from "../schemas/quote.schema";
 import type { QuoteInquiryRecord } from "../schemas/quoteInquiry.schema";
 import { isPlainObject, isWonRevision } from "../utils/quoteDocument.utils";
@@ -43,13 +42,6 @@ interface AskInput {
   volume?: string;
 }
 
-interface CompanyUser {
-  id: string;
-  email: string;
-  role: string;
-  reportsToUserId: string | null;
-}
-
 function contextOf(actor: Actor, at: Date, people: People): LifecycleContext {
   return { at, today: businessDay(at), userId: actor.userID, userEmail: people.emails.get(actor.userID) ?? "" };
 }
@@ -58,12 +50,8 @@ const notFound = () => APIError.notFound("Quote not found");
 // A margin question always stores its snapshot; this stands in should one ever lack it.
 const NO_SNAPSHOT = { sellingCzk: 0, buyingCzk: 0, marginCzk: null, marginPercent: null, floorPercent: 0, floorMinCzk: 0 };
 const snapshotOf = (row: QuoteInquiryRecord) => row.snapshot ?? NO_SNAPSHOT;
-const nameOf = (people: People, id: string | null) => (id ? (people.emails.get(id) ?? "") : "");
-
-async function usersWithManagers(): Promise<CompanyUser[]> {
-  const { users } = await auth.usersList();
-  return users.map((u) => ({ id: u.id, email: u.email, role: u.role, reportsToUserId: u.reportsToUserId ?? null }));
-}
+// A person by e-mail as the users have it now; one who left keeps the e-mail the row recorded.
+const nameOf = (people: People, id: string | null, recorded = "") => (id ? people.emails.get(id) || recorded : "");
 
 // The question goes to the quote's chat as a message of whoever asks or answers, so the quote's
 // conversation has it. The quote is already saved: a chat that cannot be written is logged.
@@ -75,8 +63,13 @@ async function postToChat(actor: Actor, quoteNumber: string, message: string): P
   }
 }
 
-export function toInquiryItem(row: QuoteInquiryRecord, people: People, now: Date): QuoteMarginInquiryItem {
-  const waiting = { requestedAt: row.requestedAt, needsBy: row.needsBy, notifyUserId: row.notifyUserId };
+/**
+ * A question as the API hands it out. `managers` - the users who manage Sales now, when known -
+ * make a question addressed to someone who left or no longer manages Sales count as addressed to
+ * nobody: the admins are told.
+ */
+export function toInquiryItem(row: QuoteInquiryRecord, people: People, now: Date, managers: ReadonlySet<string> = new Set()): QuoteMarginInquiryItem {
+  const waiting = withLiveNotifier({ requestedAt: row.requestedAt, needsBy: row.needsBy, notifyUserId: row.notifyUserId }, managers);
   return {
     id: row.id,
     quoteNumber: row.quoteNumber,
@@ -87,14 +80,14 @@ export function toInquiryItem(row: QuoteInquiryRecord, people: People, now: Date
     competitorPrice: row.competitorPrice,
     volume: row.volume,
     requestedById: row.requestedById,
-    requestedByName: nameOf(people, row.requestedById),
+    requestedByName: nameOf(people, row.requestedById, row.requestedByName),
     requestedAt: row.requestedAt.toISOString(),
     snapshot: snapshotOf(row),
-    notifyName: nameOf(people, row.notifyUserId),
+    notifyName: nameOf(people, waiting.notifyUserId),
     escalated: row.status === "pending" && isEscalated(waiting, now),
     waitedOfficeMinutes: officeMinutesBetween(row.requestedAt, row.decidedAt ?? (row.status === "pending" ? now : row.updatedAt)),
     decision: row.decision,
-    decidedByName: nameOf(people, row.decidedById),
+    decidedByName: nameOf(people, row.decidedById, row.decidedByName),
     decidedAt: row.decidedAt?.toISOString() ?? null,
     approvedMarginCzk: row.approvedMarginCzk,
     approvedMarginPercent: row.approvedMarginPercent,
@@ -115,7 +108,7 @@ class MarginInquiryService {
     if (problem) throw APIError.invalidArgument(problem);
     const stored = await salesQuoteRepository.loadSales(actor.companyID, quoteNumber);
     if (!stored) throw notFound();
-    const [margins, people, users] = await Promise.all([marginsFor(actor.companyID, [stored], at), companyPeople(), usersWithManagers()]);
+    const [margins, people] = await Promise.all([marginsFor(actor.companyID, [stored], at), companyDirectory()]);
     const ctx = contextOf(actor, at, people);
     let created: QuoteInquiryRecord | null = null;
     const written = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
@@ -127,9 +120,11 @@ class MarginInquiryService {
       const margin = margins ? roadMargin(quote.data, margins) : null;
       if (!margin?.needsApproval) throw APIError.failedPrecondition("The margin is not below the floor, or an approval already covers it: nothing to ask");
       if (margin.marginCzk === null) throw APIError.failedPrecondition(`The margin cannot be worked out: ${margin.problem}`);
-      // The owner's manager is told; a quote nobody owns goes to the asker's manager.
+      // The owner's manager is told; a quote nobody owns goes to the asker's manager. One who left,
+      // or no longer manages Sales, is nobody: the admins are told at once.
       const ownerId = quote.ownerUserId ?? actor.userID;
-      const notifyUserId = users.find((u) => u.id === ownerId)?.reportsToUserId ?? null;
+      const reportsTo = people.reportsTo.get(ownerId) ?? null;
+      const notifyUserId = reportsTo && people.managers.has(reportsTo) ? reportsTo : null;
       created = await quoteInquiryRepository.insert(
         {
           companyId: actor.companyID,
@@ -137,6 +132,7 @@ class MarginInquiryService {
           quoteNumber: quote.quoteNumber,
           kind: "margin",
           requestedById: actor.userID,
+          requestedByName: ctx.userEmail,
           requestedAt: at,
           reason: input.reason,
           note: (input.note ?? "").trim(),
@@ -162,7 +158,7 @@ class MarginInquiryService {
     if (!written || !created) throw notFound();
     const manager = nameOf(people, (created as QuoteInquiryRecord).notifyUserId);
     await postToChat(actor, written.quoteNumber, `Asked a manager to approve the margin (${input.reason})${manager ? ` - ${manager} is told` : " - the admins are told"}.`);
-    return toInquiryItem(created, people, at);
+    return toInquiryItem(created, people, at, people.managers);
   }
 
   /** The newest question of a quote, for its page. */
@@ -170,7 +166,9 @@ class MarginInquiryService {
     const quote = await salesQuoteRepository.loadSales(actor.companyID, quoteNumber);
     if (!quote) throw notFound();
     const row = await quoteInquiryRepository.latestOf(actor.companyID, quote.id);
-    return row ? toInquiryItem(row, await companyPeople(), new Date()) : null;
+    if (!row) return null;
+    const people = await companyDirectory();
+    return toInquiryItem(row, people, new Date(), people.managers);
   }
 
   /** The one who asked takes a waiting question back (a manager may too). */
@@ -184,11 +182,13 @@ class MarginInquiryService {
       const pending = await quoteInquiryRepository.pendingOf(actor.companyID, quote.id, tx);
       if (!pending || pending.id !== inquiryId) throw APIError.failedPrecondition("This question no longer waits for an answer");
       if (pending.requestedById !== actor.userID && !canDecideQuoteInquiry(actor.role)) throw APIError.permissionDenied("Only the one who asked can take the question back");
-      changed = await quoteInquiryRepository.answer(actor.companyID, inquiryId, { status: "withdrawn" }, tx);
+      // Who took it back is kept: the asker, or a manager taking a rep's question back.
+      changed = await quoteInquiryRepository.answer(actor.companyID, inquiryId, { status: "withdrawn", decidedById: actor.userID, decidedByName: ctx.userEmail }, tx);
       if (!changed) throw APIError.failedPrecondition("This question no longer waits for an answer");
       return salesQuoteRepository.writeLifecycle(tx, quote, { state: stateOf(quote), entries: [pricingEntry("margin_approval", "Margin approval request withdrawn", ctx)] });
     });
     if (!written || !changed) throw notFound();
+    await postToChat(actor, written.quoteNumber, "Took back the question to approve the margin.");
     return toInquiryItem(changed, people, at);
   }
 
@@ -207,13 +207,13 @@ class MarginInquiryService {
       const pending = await quoteInquiryRepository.pendingOf(actor.companyID, quote.id, tx);
       if (!pending || pending.id !== inquiryId) {
         const row = await quoteInquiryRepository.byId(actor.companyID, inquiryId);
-        if (row && row.status !== "pending") throw APIError.failedPrecondition(`This question was already ${row.status} by ${nameOf(people, row.decidedById) || "someone"}`);
+        if (row && row.status !== "pending") throw APIError.failedPrecondition(`This question was already ${row.status} by ${nameOf(people, row.decidedById, row.decidedByName) || "someone"}`);
         throw APIError.notFound("This question is no longer on the quote");
       }
       const selfDecision = pending.requestedById === actor.userID || quote.ownerUserId === actor.userID;
       const snapshot = snapshotOf(pending);
       if (answer.decision === "reject") {
-        decided = await quoteInquiryRepository.answer(actor.companyID, inquiryId, { status: "rejected", decision: "reject", decidedById: actor.userID, decidedAt: at, comment, selfDecision }, tx);
+        decided = await quoteInquiryRepository.answer(actor.companyID, inquiryId, { status: "rejected", decision: "reject", decidedById: actor.userID, decidedByName: ctx.userEmail, decidedAt: at, comment, selfDecision }, tx);
         if (!decided) throw APIError.failedPrecondition("This question no longer waits for an answer");
         return salesQuoteRepository.writeLifecycle(tx, quote, {
           state: stateOf(quote),
@@ -238,7 +238,7 @@ class MarginInquiryService {
       decided = await quoteInquiryRepository.answer(
         actor.companyID,
         inquiryId,
-        { status: "approved", decision: answer.decision, decidedById: actor.userID, decidedAt: at, approvedMarginCzk: marginCzk, approvedMarginPercent: marginPercent, comment, selfDecision },
+        { status: "approved", decision: answer.decision, decidedById: actor.userID, decidedByName: ctx.userEmail, decidedAt: at, approvedMarginCzk: marginCzk, approvedMarginPercent: marginPercent, comment, selfDecision },
         tx,
       );
       if (!decided) throw APIError.failedPrecondition("This question no longer waits for an answer");
@@ -257,53 +257,59 @@ class MarginInquiryService {
     return toInquiryItem(done, people, at);
   }
 
-  /** A manager approved the margin directly on the quote: a question waiting about it is answered by that. */
-  async closeByDirectApproval(actor: Actor, quote: SalesQuoteRecord, approval: QuoteMarginApproval): Promise<void> {
-    const pending = await quoteInquiryRepository.pendingOf(actor.companyID, quote.id);
-    if (!pending) return;
-    await quoteInquiryRepository.answer(actor.companyID, pending.id, {
-      status: "approved",
-      decision: "approve",
-      decidedById: actor.userID,
-      decidedAt: new Date(approval.at),
-      approvedMarginCzk: approval.marginCzk,
-      approvedMarginPercent: approval.marginPercent,
-      comment: approval.reason,
-      selfDecision: pending.requestedById === actor.userID || quote.ownerUserId === actor.userID,
-    });
+  /**
+   * A manager approved the margin directly on the quote: the question `pending` waiting about it is
+   * answered by that - inside the approval's transaction (`tx`), so the two cannot disagree.
+   */
+  async closeByDirectApproval(actor: Actor, quote: SalesQuoteRecord, pending: QuoteInquiryRecord, approval: QuoteMarginApproval, tx: QuoteTransaction): Promise<void> {
+    await quoteInquiryRepository.answer(
+      actor.companyID,
+      pending.id,
+      {
+        status: "approved",
+        decision: "approve",
+        decidedById: actor.userID,
+        decidedByName: approval.byName,
+        decidedAt: new Date(approval.at),
+        approvedMarginCzk: approval.marginCzk,
+        approvedMarginPercent: approval.marginPercent,
+        comment: approval.reason,
+        selfDecision: pending.requestedById === actor.userID || quote.ownerUserId === actor.userID,
+      },
+      tx,
+    );
   }
 
   /** The managers' Quote Inquiries list: what waits, and what was answered in the last 30 days. */
   async list(actor: Actor): Promise<QuoteMarginInquiryRow[]> {
     if (!canDecideQuoteInquiry(actor.role)) throw APIError.permissionDenied("Quote Inquiries are for managers");
     const now = new Date();
-    const rows = await quoteInquiryRepository.list(actor.companyID, new Date(now.getTime() - ANSWERED_DAYS * DAY), LIST_LIMIT);
-    return this.rowsOf(actor, rows, now);
+    const [rows, people] = await Promise.all([quoteInquiryRepository.list(actor.companyID, new Date(now.getTime() - ANSWERED_DAYS * DAY), LIST_LIMIT), companyDirectory()]);
+    return this.rowsOf(actor, rows, now, people, people.managers);
   }
 
   /** What the bell of `actor` shows: questions they are told about, and answers to their own questions or quotes. */
   async forMe(actor: Actor): Promise<{ waiting: QuoteMarginInquiryRow[]; answers: QuoteMarginInquiryItem[] }> {
     const now = new Date();
-    const [pending, answerRows, people, users] = await Promise.all([
+    const [pending, answerRows, people] = await Promise.all([
       canDecideQuoteInquiry(actor.role) ? quoteInquiryRepository.pending(actor.companyID) : Promise.resolve([]),
       quoteInquiryRepository.answersFor(actor.companyID, actor.userID, new Date(now.getTime() - ANSWERED_DAYS * DAY), new Date(now.getTime() - SEEN_KEEP_DAYS * DAY), 100),
-      companyPeople(),
-      usersWithManagers(),
+      companyDirectory(),
     ]);
-    const me = users.find((u) => u.id === actor.userID) ?? { id: actor.userID, role: actor.role };
-    const told = pending.filter((r) => isToldAbout({ requestedAt: r.requestedAt, needsBy: r.needsBy, notifyUserId: r.notifyUserId }, me, now));
-    return { waiting: await this.rowsOf(actor, told, now, people), answers: answerRows.map((r) => toInquiryItem(r, people, now)) };
+    // The role as the token has it now (the auth handler reads it from the user on every request).
+    const me = { id: actor.userID, role: actor.role };
+    const told = pending.filter((r) => isToldAbout(withLiveNotifier({ requestedAt: r.requestedAt, needsBy: r.needsBy, notifyUserId: r.notifyUserId }, people.managers), me, now));
+    return { waiting: await this.rowsOf(actor, told, now, people, people.managers), answers: answerRows.map((r) => toInquiryItem(r, people, now, people.managers)) };
   }
 
   /** The answers were opened by whoever they are for: the bell keeps them 7 more days. */
   async seen(actor: Actor, ids: string[]): Promise<void> {
-    await quoteInquiryRepository.markSeen(actor.companyID, ids.filter(isUuid), new Date());
+    await quoteInquiryRepository.markSeen(actor.companyID, actor.userID, ids.filter(isUuid), new Date());
   }
 
   // Each question with its quote as it is now (customer, owner, status, today's road margin).
-  private async rowsOf(actor: Actor, rows: QuoteInquiryRecord[], now: Date, known?: People): Promise<QuoteMarginInquiryRow[]> {
+  private async rowsOf(actor: Actor, rows: QuoteInquiryRecord[], now: Date, people: People, managers: ReadonlySet<string>): Promise<QuoteMarginInquiryRow[]> {
     if (!rows.length) return [];
-    const people = known ?? (await companyPeople());
     const numbers = [...new Set(rows.map((r) => r.quoteNumber))];
     const quotes = (await Promise.all(numbers.map((n) => salesQuoteRepository.loadSales(actor.companyID, n)))).filter((q): q is SalesQuoteRecord => !!q);
     const byId = new Map(quotes.map((q) => [q.id, q]));
@@ -314,7 +320,7 @@ class MarginInquiryService {
       const data = quote && isPlainObject(quote.data) ? quote.data : {};
       const state = quote ? stateOf(quote) : null;
       return {
-        inquiry: toInquiryItem(r, people, now),
+        inquiry: toInquiryItem(r, people, now, managers),
         customer: typeof data.customerName === "string" ? data.customerName : "",
         ownerName: state ? (state.ownerUserId && people.emails.get(state.ownerUserId)) || state.ownerLabel : "",
         serviceType: typeof data.serviceType === "string" ? data.serviceType : "",

@@ -72,11 +72,16 @@ export function inquiryGateMessage(data: unknown, to: string): string | null {
   if (!inquiry) return "Pieces of 12.5 t or more have no handling rate — ask the warehouse first (Inquire Warehouse in the heavy pieces)";
   // More pieces than the warehouse approved, or its fee taken off or lowered: approved is what it approved.
   if (heavy > inquiry.pieces) return `The warehouse approved ${inquiry.pieces} piece${inquiry.pieces === 1 ? "" : "s"} of 12.5 t or more, the quote has ${heavy} — ask the warehouse again`;
-  const fee = Math.round((inquiry.priceEurPerPiece ?? 0) * inquiry.pieces * 100) / 100;
-  const buying = lines(isPlainObject(data) ? data.buyingLines : undefined).find((l) => l.pairId === WAREHOUSE_PAIR_ID);
+  // The fee is the warehouse's price for each heavy piece the quote has now (no more than it approved), in EUR.
+  const fee = Math.round((inquiry.priceEurPerPiece ?? 0) * Math.min(heavy, inquiry.pieces) * 100) / 100;
+  const d = isPlainObject(data) ? data : {};
+  const buying = lines(d.buyingLines).find((l) => l.pairId === WAREHOUSE_PAIR_ID);
   const charged = buying && typeof buying.amount === "number" ? buying.amount : buying && typeof buying.amount === "string" ? Number(buying.amount) : null;
-  if (fee > 0 && (charged === null || !Number.isFinite(charged) || charged < fee - 0.005)) {
-    return `The warehouse's approved ${HEAVY_CARGO_FEE} (EUR ${fee}) is missing from the buying or lowered — put it back, or ask the warehouse again`;
+  // A line with no currency of its own is in the quote's, which is EUR when none was ever chosen.
+  const quoteCurrency = typeof d.currency === "string" && d.currency ? d.currency : "EUR";
+  const currency = buying && typeof buying.currency === "string" && buying.currency ? buying.currency : quoteCurrency;
+  if (fee > 0 && (charged === null || !Number.isFinite(charged) || charged < fee - 0.005 || currency !== "EUR")) {
+    return `The warehouse's approved ${HEAVY_CARGO_FEE} (EUR ${fee}) is missing from the buying, lowered or no longer in EUR — put it back, or ask the warehouse again`;
   }
   return null;
 }

@@ -45,6 +45,16 @@ export interface InquiryWaiting {
   notifyUserId: string | null;
 }
 
+/**
+ * The waiting inquiry as it stands with the users of now: a manager it was addressed to who has
+ * left, or no longer manages Sales, is nobody - so the admins are told at once. `managers` empty
+ * means the users could not be read: then the address is kept as it was.
+ */
+export function withLiveNotifier<T extends InquiryWaiting>(inquiry: T, managers: ReadonlySet<string>): T {
+  if (!inquiry.notifyUserId || !managers.size || managers.has(inquiry.notifyUserId)) return inquiry;
+  return { ...inquiry, notifyUserId: null };
+}
+
 /** Whether the admins are told too: nobody to tell first, the manager too long without an answer, or the customer's moment close. */
 export function isEscalated(inquiry: InquiryWaiting, now: Date): boolean {
   if (!inquiry.notifyUserId) return true;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   approvalOf,
+  freightModeGateMessage,
   formatCzk,
   formatMoney,
   marginGateMessage,
@@ -174,7 +175,30 @@ describe("roadMargin", () => {
     expect(quote({ salesOwner: "eva@forwarder.cz" })).toMatchObject({ approvalEnded: "the Sales Owner changed" });
     expect(quote({ validUntil: "2026-11-25" })).toMatchObject({ approvalEnded: "the validity was extended past 2026-11-20" });
     expect(quote({ validUntil: "2026-11-18" })).toMatchObject({ approvalValid: true });
+    // No validity at all is no end to it: as much a longer validity as a later date.
+    expect(quote({ validUntil: undefined })).toMatchObject({ approvalValid: false, approvalEnded: "the validity was extended past 2026-11-20" });
     expect(marginGateMessage(quote({ customerId: "c2" }))).toContain("The approval no longer covers it: the customer changed.");
+  });
+
+  it("counts an empty or zero buying line as no buying (D5)", () => {
+    expect(roadMargin(road([line(20000)], [line(0)]), ctx())).toMatchObject({ noBuying: true, belowFloor: true, needsApproval: true });
+    expect(roadMargin(road([line(20000)], [{ type: "Road freight", description: "" }]), ctx())).toMatchObject({ noBuying: true, needsApproval: true });
+    expect(roadMargin(road([line(20000)], [line(0), line(15000)]), ctx())).toMatchObject({ noBuying: false, belowFloor: false });
+  });
+
+  it("covers with an approval given when nothing was sold only a quote that still sells nothing", () => {
+    const approval = { byUserId: "u", byName: "Marie", at: "2026-10-15T08:00:00.000Z", reason: "Sample", marginCzk: -1000, marginPercent: null };
+    expect(roadMargin(road([], [line(1000)], { marginApproval: approval }), ctx())).toMatchObject({ approvalValid: true });
+    expect(roadMargin(road([line(1000)], [line(2050)], { marginApproval: approval }), ctx())).toMatchObject({ marginCzk: -1050, approvalValid: false, needsApproval: true });
+  });
+
+  it("holds a Road quote while Trucking's floor could not be read, unless an approval covers its margin", () => {
+    const unread = ctx({ roadFloorUnavailable: true });
+    const margin = roadMargin(road([line(20000)], [line(10000)]), unread)!;
+    expect(margin).toMatchObject({ belowFloor: true, needsApproval: true, problem: "Trucking's margin floor could not be read" });
+    expect(marginGateMessage(margin)).toBe("The margin cannot be judged: Trucking's margin floor could not be read. Try again in a moment.");
+    // Other modes never wait for Trucking.
+    expect(roadMargin({ serviceType: "Air", currency: "CZK", sellingLines: [line(20000)], buyingLines: [line(10000)] }, unread)).toMatchObject({ belowFloor: false, problem: null });
   });
 
   it("never holds an approval for a margin it cannot work out", () => {
@@ -224,5 +248,16 @@ describe("marginGateMessage", () => {
     expect(marginGateMessage(unknown)).toBe(
       "The margin cannot be worked out: No ČNB rate for EUR on 2026-10-15. The quote can be sent once the rate is available or its lines are in CZK.",
     );
+  });
+});
+
+describe("freightModeGateMessage", () => {
+  it("holds a quote with prices and no freight mode a guardrail knows; one without lines may go", () => {
+    expect(freightModeGateMessage({ sellingLines: [line(100)] })).toMatch(/^Choose the Freight Mode first/);
+    expect(freightModeGateMessage({ serviceType: "Courier", buyingLines: [line(100)] })).toMatch(/^Choose the Freight Mode first/);
+    expect(freightModeGateMessage({ serviceType: "Air", sellingLines: [line(100)] })).toBeNull();
+    // A trucking tariff line makes it a Road quote.
+    expect(freightModeGateMessage({ sellingLines: [line(100, "CZK", { tariffRef: "trucking:v1:D1" })] })).toBeNull();
+    expect(freightModeGateMessage({})).toBeNull();
   });
 });

@@ -6,7 +6,7 @@ import log from "encore.dev/log";
 import { customers, invoicing, quotes } from "~encore/clients";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
 import type { Tx } from "../db/db";
-import { shipmentRepository, OVERDUE_DEADLINE_FIELDS, type NewShipmentData } from "../repositories/shipment.repository";
+import { shipmentRepository, OVERDUE_DEADLINE_FIELDS, type NewShipmentData, type ShipmentReference } from "../repositories/shipment.repository";
 import { shipmentAuditRepository } from "../repositories/shipmentAudit.repository";
 import { masterJobRepository } from "../repositories/masterJob.repository";
 import { shipmentRefCounterRepository } from "../repositories/shipmentRefCounter.repository";
@@ -51,7 +51,8 @@ import { detailRowChanges, type DetailRowLists } from "../lib/detailRowsAudit";
 import { partyContact, partyStop, stopKeys, type Party } from "../lib/partyAddress";
 import { CONSIGNEE_CONTACT, CUSTOMER_PIC, SHIPPER_CONTACT, linkContact, type ContactMode } from "../lib/contactLinks";
 import { shipmentDeleted, shipmentPartiesChanged } from "../topics";
-import { jobNumberFor } from "../lib/jobNumber";
+import { jobNumberFor, referenceIsFinal } from "../lib/jobNumber";
+import { jobNumberDigits } from "../../../lib/jobNumber";
 import { companyUsers, matchUser, requireUserEmail, userEmailOf, type CompanyUser } from "../../../lib/companyUsers";
 import { PERSON_FIELDS, planPeopleNormalize, requireApprovedBy } from "../lib/people";
 import { assertTimes, clearStaleTimes } from "../lib/dateTimes";
@@ -115,7 +116,7 @@ interface FromQuote {
  * What a create writes: the shipment's own fields (a blank priority allowed), plus its detail rows.
  * The job number is always the company's next one, given out when the shipment is stored.
  */
-export type ShipmentCreateData = Omit<NewShipmentRecord, "companyId" | "jobNumber" | "customsPriority"> & BlankablePriority & DetailRows & FromQuote;
+export type ShipmentCreateData = Omit<NewShipmentRecord, "companyId" | "jobNumber" | "jobNumberFinal" | "customsPriority"> & BlankablePriority & DetailRows & FromQuote;
 
 // What a create answers: the shipment, and for one made from a quote how each further step went.
 export interface CreatedShipment {
@@ -130,8 +131,11 @@ export interface CreatedShipment {
 // Any other failure is in the log and not in the answer - a database error carries its whole
 // statement and the values that went into it.
 const reasonOf = (err: unknown): string => (err instanceof APIError ? err.message : "an unexpected error occurred");
-/** What an update may write: any of the shipment's own fields, plus its detail rows. */
-export type ShipmentUpdateData = Partial<Omit<NewShipmentRecord, "customsPriority">> & BlankablePriority & DetailRows;
+/**
+ * What an update may write: any of the shipment's own fields, plus its detail rows. Whether the
+ * reference is final is not one of them: only Invoicing marks it (finalizeReference).
+ */
+export type ShipmentUpdateData = Partial<Omit<NewShipmentRecord, "customsPriority" | "jobNumberFinal">> & BlankablePriority & DetailRows;
 
 // Project table rows down to the API line shapes (drop internal
 // shipmentId/companyId/timestamps; containers keep their id — cargo lines
@@ -331,8 +335,9 @@ const DATE_FIELDS = new Set([
 const MONEY_FIELDS = new Set(["selling", "buying"]);
 // How many quotes one request may ask the shipments of: a page of the Quotes list at most.
 const MAX_QUOTE_REFERENCES = 200;
-// Shipments Invoicing is asked about at once (its limit).
-const INVOICED_ASK_MAX = 500;
+// The reference backfill asks Invoicing about this many shipments at a time, right before it
+// renames them: the answer is the fresher for it (a job may be invoiced while the backfill runs).
+const NORMALIZE_CHUNK = 50;
 
 // Requests may send "" for the customs priority; it is stored as Standard.
 type BlankablePriority = { customsPriority?: CustomsPriority | "" };
@@ -480,8 +485,9 @@ function customerPicFromQuote(data: Record<string, unknown>, quoteData: unknown)
   if (quoteId) data.customerPicContactId = quoteId;
 }
 
-// The statuses of a quote that has not gone out to the customer (a shipment makes it Won).
-const UNSENT_FOR_SHIPMENT: readonly string[] = ["draft", "ready_to_send", "revised", "expired"];
+// The statuses of a quote that has not gone out to the customer (a shipment makes it Won). Not
+// Expired: that is a quote that was sent, its validity over since - it passed the gate when sent.
+const UNSENT_FOR_SHIPMENT: readonly string[] = ["draft", "ready_to_send", "revised"];
 
 class ShipmentService {
   // The customer's stored rollups (totalRevenue/totalProfit/totalShipments/
@@ -1061,12 +1067,15 @@ class ShipmentService {
     );
 
     // The Internal Reference's letters follow the Freight Mode and Load Type, the number kept
-    // (CZFCL00000023 → CZLCL00000023) - until the job has had an invoice: invoice numbers carry the
-    // reference, so from then on it is final (owner decision, 3 Nov 2026).
-    if ("freightMode" in shipmentData || "loadType" in shipmentData) {
-      const reference = jobNumberFor(existing.jobNumber, after("freightMode"), after("loadType"));
-      if (reference !== existing.jobNumber && !(await this.hasHadInvoice(id))) shipmentData.jobNumber = reference;
-    }
+    // (CZFCL00000023 → CZLCL00000023) - until the reference is final: invoice numbers carry it
+    // (owner decision, 3 Nov 2026). Invoicing is asked here, before the write turn, about a job it
+    // invoiced before the shipment kept its own flag; the letters are worked out in the turn, from
+    // the row as this write leaves it (followLetters).
+    const lettersMayFollow =
+      ("freightMode" in shipmentData || "loadType" in shipmentData) &&
+      jobNumberDigits(existing.jobNumber) !== null &&
+      !referenceIsFinal(existing) &&
+      !(await this.hasHadInvoice(id));
 
     // The plate number belongs to the truck (TCZ…), not to one shipment on it. A shipment
     // put on a truck takes that truck's plate, one taken off loses it, and a plate typed
@@ -1116,7 +1125,9 @@ class ShipmentService {
           await audit(change.field, change.oldValue, change.newValue);
         }
       }
-      return Object.keys(shipmentData).length > 0 ? shipmentRepository.updateForCompany(id, companyId, shipmentData, tx) : null;
+      if (Object.keys(shipmentData).length === 0) return null;
+      const saved = await shipmentRepository.updateForCompany(id, companyId, shipmentData, tx);
+      return saved && lettersMayFollow ? this.followLetters(tx, companyId, userId, saved) : saved;
     });
     // The truck's other shipments take a typed plate after the write, on their own: inside the
     // turn, two shipments of one truck saved at once could each wait for the other's row.
@@ -1156,6 +1167,46 @@ class ShipmentService {
     }
 
     return (await this.getById(id, companyId))!;
+  }
+
+  // The letters of the reference as the row in the write turn reads after the write: its Freight
+  // Mode and Load Type as they are now, an edit of the other one saved meanwhile included - unless
+  // the row says the reference is final (Invoicing took it while the edit was on its way).
+  private async followLetters(tx: Tx, companyId: string, userId: string, row: ShipmentRecord): Promise<ShipmentRecord> {
+    if (referenceIsFinal(row)) return row;
+    const next = jobNumberFor(row.jobNumber, row.freightMode, row.loadType);
+    if (next === row.jobNumber) return row;
+    return (await this.renameInTurn(tx, companyId, userId, row, next)) ?? row;
+  }
+
+  // Renames the reference inside the shipment's write turn, with a line in its history.
+  private async renameInTurn(
+    tx: Tx,
+    companyId: string,
+    userId: string,
+    row: Pick<ShipmentReference, "id" | "jobNumber" | "freightMode" | "loadType">,
+    next: string,
+  ): Promise<ShipmentRecord | null> {
+    const renamed = await shipmentRepository.renameJobNumber(tx, companyId, row, next);
+    if (renamed) {
+      await shipmentAuditRepository.create({ companyId, shipmentId: row.id, userId, field: "jobNumber", oldValue: row.jobNumber, newValue: next }, tx);
+    }
+    return renamed;
+  }
+
+  /**
+   * Invoicing is about to make an invoice number of the shipment's Internal Reference: from now on
+   * the reference is final. Marked under the shipment's write turn, so an edit of its Freight Mode
+   * or Load Type either renamed it before (and the number carries the new letters) or finds it
+   * final; the reference is given back as it is now, for the number. A job whose invoice then
+   * fails stays final all the same - its reference only stops following its letters.
+   */
+  async finalizeReference(id: string, companyId: string): Promise<string> {
+    // What is not an id names no shipment, and is kept from SQL.
+    if (!isUuid(id)) throw APIError.notFound("Shipment not found");
+    const jobNumber = await shipmentRepository.writeTurn(id, companyId, (tx) => shipmentRepository.markJobNumberFinal(tx, id, companyId));
+    if (jobNumber === null) throw APIError.notFound("Shipment not found");
+    return jobNumber;
   }
 
   // What the company's shipments say about its customers, for the pipeline of the sales service:
@@ -1316,36 +1367,50 @@ class ShipmentService {
   /**
    * The one-off rename after references got the letters of their freight mode (owner decision,
    * 3 Nov 2026): each live shipment of the company takes the letters of its Freight Mode and Load
-   * Type, the number kept - except one that has had an invoice, whose invoice numbers carry the
-   * reference. Each rename is audited as the user who ran it; the quote follows (Trucking and the
-   * warehouse keep the reference they copied). Safe to run again.
+   * Type, the number kept - except one whose reference is final: Invoicing has taken it for an
+   * invoice number, the job is marked Invoiced, or an invoice was issued for it before the shipment
+   * kept its own flag. Invoicing is asked a few shipments at a time, right before they are renamed;
+   * each rename is worked out again under the shipment's write turn, from the row as it is then.
+   * Each rename is audited as the user who ran it; the quote follows (Trucking and the warehouse
+   * keep the reference they copied). Safe to run again.
    */
   async normalizeReferences(companyId: string, userId: string): Promise<ReferenceNormalizeResult> {
     const rows = await shipmentRepository.referencesOf(companyId);
-    const wanted = rows
-      .map((row) => ({ ...row, next: jobNumberFor(row.jobNumber, row.freightMode, row.loadType) }))
-      .filter((row) => row.next !== row.jobNumber);
-    const invoiced = new Set<string>();
-    for (let i = 0; i < wanted.length; i += INVOICED_ASK_MAX) {
-      const { shipmentIds } = await invoicing._internalInvoicedShipments({ shipmentIds: wanted.slice(i, i + INVOICED_ASK_MAX).map((r) => r.id) });
-      for (const shipmentId of shipmentIds) invoiced.add(shipmentId);
-    }
+    const needLetters = (row: ShipmentReference) => jobNumberFor(row.jobNumber, row.freightMode, row.loadType) !== row.jobNumber;
     const keptInvoiced: string[] = [];
+    const wanted: ShipmentReference[] = [];
+    for (const row of rows.filter(needLetters)) {
+      if (referenceIsFinal(row)) keptInvoiced.push(row.jobNumber);
+      else wanted.push(row);
+    }
     const quotesToTell = new Set<string>();
     let renamed = 0;
-    for (const row of wanted) {
-      if (invoiced.has(row.id)) {
-        keptInvoiced.push(row.jobNumber);
-        continue;
+    for (let i = 0; i < wanted.length; i += NORMALIZE_CHUNK) {
+      const chunk = wanted.slice(i, i + NORMALIZE_CHUNK);
+      const { shipmentIds } = await invoicing._internalInvoicedShipments({ shipmentIds: chunk.map((row) => row.id) });
+      const invoiced = new Set(shipmentIds);
+      for (const row of chunk) {
+        if (invoiced.has(row.id)) {
+          keptInvoiced.push(row.jobNumber);
+          continue;
+        }
+        // Worked out again from the row under its write turn: whatever was written since the read wins.
+        const outcome = await shipmentRepository.writeTurn(row.id, companyId, async (tx): Promise<{ kept: string } | { renamed: ShipmentRecord } | null> => {
+          const current = await shipmentRepository.referenceInTurn(tx, row.id, companyId);
+          if (!current || !needLetters(current)) return null;
+          if (referenceIsFinal(current)) return { kept: current.jobNumber };
+          const done = await this.renameInTurn(tx, companyId, userId, current, jobNumberFor(current.jobNumber, current.freightMode, current.loadType));
+          return done ? { renamed: done } : null;
+        });
+        if (!outcome) continue;
+        if ("kept" in outcome) {
+          keptInvoiced.push(outcome.kept);
+          continue;
+        }
+        renamed++;
+        const salesNumber = outcome.renamed.salesNumber.trim();
+        if (salesNumber) quotesToTell.add(salesNumber);
       }
-      const updated = await shipmentRepository.writeTurn(row.id, companyId, async (tx) => {
-        const done = await shipmentRepository.renameJobNumber(tx, row.id, companyId, row.jobNumber, row.next);
-        if (done) await shipmentAuditRepository.create({ companyId, shipmentId: row.id, userId, field: "jobNumber", oldValue: row.jobNumber, newValue: row.next }, tx);
-        return done;
-      });
-      if (!updated) continue;
-      renamed++;
-      if (updated.salesNumber.trim()) quotesToTell.add(updated.salesNumber.trim());
     }
     for (const salesNumber of quotesToTell) await this.tellQuote(companyId, salesNumber);
     return { checked: rows.length, renamed, keptInvoiced };

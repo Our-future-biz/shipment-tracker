@@ -84,6 +84,14 @@ class UserRepository extends BaseRepository<typeof userTable> {
     return row ?? null;
   }
 
+  // A user who no longer manages (deactivated, or now a standard user) is nobody's "Reports to".
+  async clearReportsTo(companyId: string, managerId: string) {
+    await this.db
+      .update(userTable)
+      .set({ reportsToUserId: null, updatedAt: new Date() })
+      .where(and(eq(userTable.companyId, companyId), eq(userTable.reportsToUserId, managerId)));
+  }
+
   // A removed department/branch must not stay assigned to anyone.
   async clearDepartment(companyId: string, departmentId: string) {
     await this.db

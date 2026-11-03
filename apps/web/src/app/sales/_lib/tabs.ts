@@ -39,3 +39,14 @@ export const SALES_SETTINGS_TABS = [
 export type SalesSettingsTab = (typeof SALES_SETTINGS_TABS)[number]["key"];
 
 export const salesSettingsHref = (tab: SalesSettingsTab) => `${SALES_PAGES.settings.path}?tab=${tab}`;
+
+// Sales → Managers keeps its tab (?tab=inquiries) and freight mode (?mode=) in the address; the
+// cockpit over all modes, where the page opens, needs neither.
+export type SalesManagersTab = "cockpit" | "inquiries";
+export function salesManagersHref({ tab = "cockpit", mode = "all" }: { tab?: SalesManagersTab; mode?: string } = {}): string {
+  const params = new URLSearchParams();
+  if (tab !== "cockpit") params.set("tab", tab);
+  if (mode !== "all") params.set("mode", mode);
+  const qs = params.toString();
+  return qs ? `${SALES_PAGES.managers.path}?${qs}` : SALES_PAGES.managers.path;
+}

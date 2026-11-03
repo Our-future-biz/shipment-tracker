@@ -18,7 +18,7 @@ vi.mock("../../repositories/quoteComment.repository", () => ({ quoteCommentRepos
 // The floors Sales sets: none stored, so the council's defaults (and Trucking's for Road).
 vi.mock("../../repositories/quoteGuardrail.repository", () => ({ quoteGuardrailRepository: { list: vi.fn(async () => []), save: vi.fn() } }));
 // The warehouse questions as table rows (Council Outlay 6, step 5): written with the quote, read by the lists.
-vi.mock("../../repositories/quoteInquiry.repository", () => ({ quoteInquiryRepository: { recordWarehouse: vi.fn(), listWarehouse: vi.fn(), warehouseAnswersFor: vi.fn() } }));
+vi.mock("../../repositories/quoteInquiry.repository", () => ({ quoteInquiryRepository: { recordWarehouse: vi.fn(), listWarehouse: vi.fn(), warehouseAnswersFor: vi.fn(), withdrawOpenOf: vi.fn(), moveOpen: vi.fn(), pendingOf: vi.fn(async () => null), markWarehouseSeen: vi.fn() } }));
 // A rep's question waiting about a margin is closed by a direct approval (tested in marginInquiry.service.test).
 vi.mock("../../services/marginInquiry.service", () => ({ marginInquiryService: { closeByDirectApproval: vi.fn() } }));
 vi.mock("../../repositories/salesQuote.repository", () => ({
@@ -1252,6 +1252,8 @@ describe("delete", () => {
     expect(repository.writeLifecycle.mock.calls[0]!.slice(0, 2)).toEqual([TX, stored]);
     expect(attachments.deleteForQuote).toHaveBeenCalledTimes(1);
     expect(attachments.deleteForQuote).toHaveBeenCalledWith(TX, REF, martin.companyID, NOW);
+    // What waited on it could never be answered: withdrawn in the same transaction.
+    expect(quoteInquiryRepository.withdrawOpenOf).toHaveBeenCalledWith(martin.companyID, stored!.id, U_MARTIN, NOW, TX);
   });
 
   it("lets a manager delete any quote: a colleague's, one that was sent, one that is decided", async () => {
@@ -1690,7 +1692,8 @@ describe("road transport", () => {
       fxRatesOn.mockResolvedValue(sheet([{ currency: "EUR", rate: 25 }], 102));
       expect((await salesQuoteService.get(martin, REF)).roadMargin).toMatchObject({ sellingCzk: 10200, marginCzk: 1200 });
       fxRatesOn.mockRejectedValue(new Error("fx is unreachable"));
-      expect((await salesQuoteService.get(martin, REF)).roadMargin).toMatchObject({ marginCzk: null, problem: "No ČNB rate for EUR on 2026-10-10" });
+      // The sheet could not be loaded at all: the margin says so, not that a rate is missing.
+      expect((await salesQuoteService.get(martin, REF)).roadMargin).toMatchObject({ marginCzk: null, problem: "Today's ČNB rates could not be loaded (EUR needed) - try again in a moment" });
     });
 
     it("tells whether the user may approve a margin", async () => {
@@ -1787,6 +1790,53 @@ describe("road transport", () => {
     it("lets a margin above the floor go without any approval", async () => {
       stored = roadQuote([manual(10000)], [manual(5000)]);
       await expect(salesQuoteService.transition(martin, REF, { to: "quoted" })).resolves.toMatchObject({ changed: true });
+    });
+
+    it("gates Won from a quote that never went out, not from one that was sent - expired since, or answered (D11)", async () => {
+      const SHIPMENT = "5e0c7c2a-4f1b-4d8e-9a6a-0b1c2d3e4f51";
+      stored = roadQuote([manual(10000)], [manual(9600)], { quoteStatus: "revised" }, { status: "revised" });
+      await expect(salesQuoteService.transition(martin, REF, { to: "won" })).rejects.toMatchObject({ code: "failed_precondition", message: BLOCKED });
+      // Sent at 4 % before there were guardrails, its validity over: the customer's yes is not refused.
+      const sent = { status: "quoted", sentAt: SENT, firstSentAt: SENT, validUntil: "2026-10-05", shipmentId: SHIPMENT };
+      stored = roadQuote([manual(10000)], [manual(9600)], { quoteStatus: "quoted" }, sent);
+      await expect(salesQuoteService.transition(martin, REF, { to: "won" })).resolves.toMatchObject({ changed: true });
+      // Sending a Feedback quote again: its prices are the ones it was sent with.
+      stored = roadQuote([manual(10000)], [manual(9600)], { quoteStatus: "feedback" }, { status: "feedback", sentAt: SENT, firstSentAt: SENT, validUntil: "2026-10-30" });
+      await expect(salesQuoteService.transition(martin, REF, { to: "quoted" })).resolves.toMatchObject({ changed: true });
+    });
+
+    it("holds a quote with prices and no Freight Mode: no floor would judge it", async () => {
+      stored = roadQuote([manual(10000)], [manual(9999)], { serviceType: undefined });
+      await expect(salesQuoteService.transition(martin, REF, { to: "ready_to_send" })).rejects.toMatchObject({
+        code: "failed_precondition",
+        message: "Choose the Freight Mode first: its margin floor decides whether the quote can be sent",
+      });
+      expect((await salesQuoteService.get(martin, REF)).sendBlocked).toBe("Choose the Freight Mode first: its margin floor decides whether the quote can be sent");
+      expect(repository.writeLifecycle).not.toHaveBeenCalled();
+    });
+
+    it("judges the approval on the validity the sending gives: a later one ends it (D10)", async () => {
+      const basis = { customerId: null, serviceType: "Road", containers: 0, salesOwner: "martin@forwarder.cz", validUntil: "2026-10-05" };
+      stored = roadQuote([manual(10000)], [manual(9600)], { marginApproval: { ...APPROVAL, basis }, validUntil: "2026-10-05" }, { validUntil: "2026-10-05" });
+      await expect(salesQuoteService.transition(martin, REF, { to: "quoted", validityDays: 30 })).rejects.toMatchObject({
+        code: "failed_precondition",
+        message: expect.stringContaining("The approval no longer covers it: the validity was extended past 2026-10-05."),
+      });
+      expect(repository.writeLifecycle).not.toHaveBeenCalled();
+    });
+
+    it("gives an approval recorded with no validity the one the quote is sent with, so a later one ends it", async () => {
+      const basis = { customerId: null, serviceType: "Road", containers: 0, salesOwner: "martin@forwarder.cz", validUntil: null };
+      stored = roadQuote([manual(10000)], [manual(9600)], { marginApproval: { ...APPROVAL, basis } });
+      await expect(salesQuoteService.transition(martin, REF, { to: "quoted", validityDays: 30 })).resolves.toMatchObject({ changed: true });
+      expect(written().serverKeys).toEqual({ marginApproval: { ...APPROVAL, basis: { ...basis, validUntil: "2026-11-09" } } });
+    });
+
+    it("does not hold a sent quote's Email or shipment for its margin: sendBlocked is for a quote that can still go out", async () => {
+      stored = roadQuote([manual(10000)], [manual(9600)], { quoteStatus: "quoted" }, { status: "quoted", sentAt: SENT, firstSentAt: SENT, validUntil: "2026-10-30" });
+      expect((await salesQuoteService.get(martin, REF)).sendBlocked).toBeNull();
+      stored = roadQuote([manual(10000)], [manual(9600)]);
+      expect((await salesQuoteService.get(martin, REF)).sendBlocked).toBe(BLOCKED);
     });
 
     it("never blocks another change of status, nor a save", async () => {
@@ -1944,9 +1994,15 @@ describe("the warehouse inquiry of pieces of 12.5 t or more", () => {
     };
     await refused({}, "Pieces of 12.5 t or more have no handling rate — ask the warehouse first (Inquire Warehouse in the heavy pieces)");
     await refused({ warehouseInquiry: { ...approved, pieces: 1 }, buyingLines: [fee(400)] }, "The warehouse approved 1 piece of 12.5 t or more, the quote has 2 — ask the warehouse again");
-    await refused({ warehouseInquiry: approved }, "The warehouse's approved Heavy Cargo Handling Fee (EUR 800) is missing from the buying or lowered — put it back, or ask the warehouse again");
-    await refused({ warehouseInquiry: approved, buyingLines: [fee(500)] }, "The warehouse's approved Heavy Cargo Handling Fee (EUR 800) is missing from the buying or lowered — put it back, or ask the warehouse again");
+    const missing = "The warehouse's approved Heavy Cargo Handling Fee (EUR 800) is missing from the buying, lowered or no longer in EUR — put it back, or ask the warehouse again";
+    await refused({ warehouseInquiry: approved }, missing);
+    await refused({ warehouseInquiry: approved, buyingLines: [fee(500)] }, missing);
+    // The same figure in another currency is not the fee the warehouse approved.
+    await refused({ warehouseInquiry: approved, buyingLines: [{ ...fee(800), currency: "CZK" }] }, missing);
     expect(repository.writeLifecycle).not.toHaveBeenCalled();
+    // Fewer heavy pieces than approved: the fee is for the pieces the quote has.
+    stored = withData({ sellingLines: [fee(2000)], buyingLines: [fee(400)], warehouseInquiry: approved, heavyPieces: { anyOver2t: true, pieces: { "12500": 1 } } });
+    await expect(salesQuoteService.transition(martin, REF, { to: "ready_to_send" })).resolves.toMatchObject({ changed: true });
   });
 
   it("holds a quote while its question waits, even before the pieces are saved; a rejection only with pieces of 12.5 t or more", async () => {
@@ -1988,6 +2044,14 @@ describe("the warehouse inquiry of pieces of 12.5 t or more", () => {
     expect(repository.writeLifecycle).not.toHaveBeenCalled();
     await salesQuoteService.markInquiryAnswerSeen(martin, REF, INQ);
     expect(written().serverKeys?.warehouseInquiry).toMatchObject({ answerSeenAt: NOW.toISOString() });
+  });
+
+  it("marks an answer the quote no longer holds by its row, so it can leave the bell", async () => {
+    const OLD = "7c1d4c2e-1b0a-4f43-8a52-2b7a1c9d0e99";
+    stored = withData({ warehouseInquiry: pending });
+    await salesQuoteService.markInquiryAnswerSeen(martin, REF, OLD);
+    expect(quoteInquiryRepository.markWarehouseSeen).toHaveBeenCalledWith(martin.companyID, OLD, U_MARTIN, NOW, TX);
+    expect(repository.writeLifecycle).not.toHaveBeenCalled();
   });
 
   // A warehouse question as its table row reads it, with its quote's facts.

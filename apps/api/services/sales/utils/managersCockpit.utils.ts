@@ -1,5 +1,5 @@
 import { addDays, businessDay } from "../../../lib/businessDate";
-import { isWorkingDay } from "../../../lib/workingDays";
+import { workingDaysAfter } from "../../../lib/workingDays";
 import type { SalesManagersFacts, SalesManagersQuoteFact } from "../../quotes/interfaces/interfaces";
 import type {
   SalesCockpitAudit,
@@ -108,12 +108,12 @@ const dm = (ymd: string) => `${ymd.slice(8, 10)}.${ymd.slice(5, 7)}.`;
 /** Calendar days from `from` to `to` (YYYY-MM-DD), negative when `to` is earlier. */
 const daysBetween = (from: string, to: string) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY);
 /** Working days after `from` up to and including `to`: how many working days have passed since `from`. */
-export function workingDaysSince(from: string, to: string): number {
-  let n = 0;
-  for (let d = addDays(from, 1); d <= to; d = addDays(d, 1)) if (isWorkingDay(d)) n++;
-  return n;
-}
-const dayOf = (at: string | null) => (at ? businessDay(new Date(at)) : null);
+export const workingDaysSince = (from: string, to: string): number => workingDaysAfter(from, to);
+// The Prague day of a moment; null for none, or one that is no date (a history line a browser wrote).
+const dayOf = (at: string | null) => {
+  const time = at ? Date.parse(at) : NaN;
+  return Number.isFinite(time) ? businessDay(new Date(time)) : null;
+};
 // A margin that moved by less than this since it was asked about has not changed.
 const CHANGED_TOLERANCE_CZK = 1;
 /** "45 min", "3 h", "1 day 2 h" of office minutes (a day = 9 office hours). */
@@ -363,7 +363,8 @@ export function teamLine(t: SalesManagersFacts["team"]): SalesCockpitTeam {
     sent: t.sent,
     medianHoursToFirstSent: t.medianHoursToFirstSent,
     lostByCategory: [...byCategory].map(([category, count]) => ({ category, count })).sort((a, b) => b.count - a.count || a.category.localeCompare(b.category)),
-    neededApprovalPercent: percent(t.asked, t.sent),
+    // Quotes asked about per quote sent: a quote asked about again, or not sent yet, can take it past 100.
+    neededApprovalPercent: t.sent > 0 ? Math.min(100, percent(t.asked, t.sent)!) : null,
     approvalRatePercent: rate,
     approvalWarning:
       rate === null || answered < APPROVAL_RATE_MIN_ANSWERS ? null : rate > APPROVAL_RUBBER_STAMP_PERCENT ? "rubber_stamp" : rate < APPROVAL_TOO_STRICT_PERCENT ? "too_strict" : null,

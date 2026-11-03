@@ -319,3 +319,16 @@ export interface CustomerSeatNormalizeResult {
   /** Customers without a Registered address (field "registeredAddress", value the company name): left as they are. */
   unmatched: { field: string; value: string; count: number }[];
 }
+
+/** What a customer owes, for the Sales managers' cockpit (Council Outlay 6 D17). */
+export interface CustomerCreditFacts {
+  customerId: string;
+  /** 0 = no limit set. */
+  creditLimit: number;
+  currency: string;
+  /** Unpaid (Open / Overdue) invoices, summed per currency. */
+  unpaid: { currency: string; amount: number }[];
+  overdueCount: number;
+  /** The due day of the oldest overdue invoice; null for none. */
+  oldestOverdueDue: string | null;
+}

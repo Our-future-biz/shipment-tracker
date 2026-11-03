@@ -19,7 +19,8 @@ const COLUMNS: ColumnsType<ShipmentItem> = [
   {
     title: "Job no.",
     dataIndex: "jobNumber",
-    width: 130,
+    // Fits the longest reference, CZPROJECT00000023, as the Shipments grid does.
+    width: 170,
     // The shipment page is addressed by the shipment ID, not by the job number.
     render: (v: string, r) => (
       <Link href={`/shipments/${r.id}`} className="font-mono font-semibold text-indigo-600 hover:underline whitespace-nowrap">

@@ -428,6 +428,18 @@ export function sellingRoeFactor(currency: string, data: SalesQuoteData, live?: 
   return (currency || to) === to ? 1 : roeOf(data, live) / 100;
 }
 
+/**
+ * A line's value: its amount; qty × unit price only when it has none (an older document, or a line
+ * a tariff wrote without one) - the rule of the server's margin and gate (quotes lib/quoteMargin
+ * lineAmount, C4), so the two read one number.
+ */
+export function lineValue(line: CostLine): number {
+  const raw: unknown = line.amount;
+  const typed = typeof raw === "number" ? raw : typeof raw === "string" && raw.trim() !== "" ? Number(raw) : NaN;
+  if (Number.isFinite(typed)) return typed;
+  return typeof line.qty === "number" && Number.isFinite(line.qty) && typeof line.unitPrice === "number" && Number.isFinite(line.unitPrice) ? line.qty * line.unitPrice : 0;
+}
+
 // One cost line in the quote's currency, rounded to cents on its own, so the lines a screen shows
 // add up to exactly the total it shows. A selling line made in another currency also carries the
 // ROE % (the FX buffer); a buying line never does. Null when a rate it needs is missing.
@@ -439,7 +451,7 @@ export function convertLine(
 ): number | null {
   const to = quoteCurrency(data);
   const from = line.currency || to;
-  const amount = Number(line.amount) || 0;
+  const amount = lineValue(line);
   if (from === to) return roundCents(amount);
   const fromRate = rateOf(from, data, sheet);
   const toRate = rateOf(to, data, sheet);

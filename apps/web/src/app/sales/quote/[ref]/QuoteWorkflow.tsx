@@ -145,7 +145,7 @@ import { AskMarginApprovalDialog } from "./_components/AskMarginApprovalDialog";
 import { QuoteShipmentsDialog } from "./_components/QuoteShipmentsDialog";
 import { QuotePriceTile } from "./_components/QuotePriceTile";
 import { useQuoteShipments } from "@/hooks/useQuoteShipments";
-import { useCanSeeConcepts } from "@/lib/auth/AuthContext";
+import { useAuth, useCanSeeConcepts } from "@/lib/auth/AuthContext";
 import { limitCzechPhone } from "@/lib/phone";
 
 // A new package has no dimensions and no weight: made-up ones would print as real cargo and drive
@@ -199,6 +199,7 @@ function blankRoutingTitle(data: SalesQuoteData): string {
 export function QuoteWorkflow() {
   const canSeeConcepts = useCanSeeConcepts();
   const truckingOn = canSeeConcepts;
+  const { user } = useAuth();
   const { ref } = useParams<{ ref: string }>();
   const router = useRouter();
   const pathname = usePathname();
@@ -223,15 +224,18 @@ export function QuoteWorkflow() {
   const { draft, quote, change, follow, act, load, reload, discard, save, syncedAt, saveNow, pending, reapply, dismissPending } = useSalesQuoteDraft(ref);
   // The newest question to a manager about the margin, while the quote has a road margin to ask about.
   const marginAsk = useQuoteMarginInquiry(ref, !!quote?.roadMargin);
-  // A manager answered while the quote is open: the quote is read again (without touching the
-  // version this page is based on), so its approval and the send gate show what the server holds.
-  const answeredInquiry = useRef<string | null>(null);
+  // The newest question changed while the quote is open - asked, withdrawn, or answered by a
+  // manager: the quote is read again (what was typed is saved first, and the version this page is
+  // based on is not touched), so its history, approval and send gate show what the server holds.
+  // The first answer of the server is only remembered: the quote was read with it already.
+  const seenInquiry = useRef<string | null>(null);
   useEffect(() => {
+    if (!marginAsk.loaded) return;
     const i = marginAsk.inquiry;
-    const key = i && i.status !== "pending" ? `${i.id}:${i.status}` : null;
-    if (key && answeredInquiry.current !== null && answeredInquiry.current !== key) void act(() => api.quotes.salesQuoteGet(ref));
-    answeredInquiry.current = key ?? (i ? `${i.id}:pending` : "");
-  }, [marginAsk.inquiry, act, ref]);
+    const key = i ? `${i.id}:${i.status}` : "";
+    if (seenInquiry.current !== null && seenInquiry.current !== key) void act(() => api.quotes.salesQuoteGet(ref));
+    seenInquiry.current = key;
+  }, [marginAsk.loaded, marginAsk.inquiry, act, ref]);
   const { deleteQuote } = useSalesQuotes();
   const exchange = useCurrentExchangeRates();
   const company = useCompanyDetails();
@@ -413,7 +417,9 @@ export function QuoteWorkflow() {
   };
 
   // Anybody else asks a manager to approve it (Council Outlay 6): the question and its answer are
-  // the server's, without a new version of the document, so this page's draft goes on.
+  // the server's, without a new version of the document, so this page's draft goes on. The
+  // history line the server writes with an ask or a withdrawal comes with the quote read again
+  // once the question has changed (above).
   const askMargin = async (input: { reason: string; note: string; needsBy: string | null; competitorPrice: string; volume: string }) => {
     try {
       await marginAsk.ask.mutateAsync(input);
@@ -639,10 +645,10 @@ export function QuoteWorkflow() {
     if (blocked) toast.error(blocked);
   };
   // A quote that can't go out is not e-mailed either: the server never sees a mail, so it is
-  // stopped here (Council Outlay 6 D11).
+  // stopped here (Council Outlay 6 D11) - see emailBlocked.
   const openEmail = () => {
     if (documentBlocked) toast.error(documentBlocked);
-    else if (sendBlocked) toast.error(`${ref} - ${sendBlocked}`);
+    else if (emailBlocked) toast.error(`${ref} - ${emailBlocked}`);
     else setModal("email");
   };
   // The user's word that the quotation went out. Resolves like changeStatus: a refusal is shown
@@ -761,6 +767,10 @@ export function QuoteWorkflow() {
   // Why the quote can't go out, in the server's words: a margin below its mode's floor no approval
   // covers, or heavy pieces the warehouse has not approved (Council Outlay 6).
   const sendBlocked = quote.sendBlocked ?? null;
+  // E-mailing sends the quote only where Export PDF would close it - one that has not gone out yet
+  // - and on the revision of a Won quote, whose new prices go to the customer. A quote that went
+  // out is e-mailed again as it was sent, whatever its margin says now.
+  const emailBlocked = exportClosesQuote(quote.status) || wonRevision ? sendBlocked : null;
   // "Tariff vN" on a line priced from a tariff, and "Override" when it was changed by hand since.
   const buyingTag = (line: CostLine) => {
     if (isRailLine(line)) return <SupplierTariffTag line={line} label="Rail tariff" versionId={railVersionId(line)} versionHref={railVersionHref} />;
@@ -1680,7 +1690,10 @@ export function QuoteWorkflow() {
               onApprove={() => setModal("approveMargin")}
               inquiry={marginAsk.inquiry}
               onAsk={quoteClosed ? undefined : () => setModal("askMargin")}
-              onWithdraw={(id) => void withdrawMargin(id)}
+              // The server lets only the one who asked, or a manager, take a question back.
+              onWithdraw={
+                marginAsk.inquiry && (marginAsk.inquiry.requestedById === user?.id || quote.permissions.canApproveMargin) ? (id) => void withdrawMargin(id) : undefined
+              }
             />
           )}
           {/* Which rates the totals use: stored on the quote once sent, today's until then. */}
@@ -1848,7 +1861,7 @@ export function QuoteWorkflow() {
               <ToolbarButton icon={<EyeOutlined />} onClick={() => setModal("preview")}>
                 Preview
               </ToolbarButton>
-              <Tooltip title={sendBlocked}>
+              <Tooltip title={emailBlocked}>
                 <span>
                   <ToolbarButton icon={<MailOutlined />} onClick={openEmail}>
                     Email
@@ -2120,7 +2133,7 @@ export function QuoteWorkflow() {
         data={draft}
         validUntil={quote.validUntil}
         allowedTransitions={quote.allowedTransitions}
-        sendBlocked={sendBlocked}
+        sendBlocked={emailBlocked}
         onExportPdf={exportPdf}
         onMarkSent={markSent}
         onClose={() => setModal(null)}

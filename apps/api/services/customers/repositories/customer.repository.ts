@@ -311,6 +311,16 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
       .from(customerTable)
       .where(and(eq(customerTable.companyId, companyId), inArray(customerTable.id, ids), isNull(customerTable.deletedAt)));
   }
+
+  /** The credit limit and its currency of the company's live customers among `ids` (the Sales managers' cockpit). */
+  async creditLimitsOf(companyId: string, ids: string[]): Promise<{ id: string; creditLimit: number; currency: string }[]> {
+    if (!ids.length) return [];
+    const rows = await this.db
+      .select({ id: customerTable.id, creditLimit: customerTable.creditLimit, currency: customerTable.currency })
+      .from(customerTable)
+      .where(and(eq(customerTable.companyId, companyId), inArray(customerTable.id, ids), isNull(customerTable.deletedAt)));
+    return rows.map((r) => ({ id: r.id, creditLimit: Number(r.creditLimit) || 0, currency: r.currency }));
+  }
 }
 
 export type CustomerRefRow = Pick<CustomerRecord, "id" | "companyName" | "label">;

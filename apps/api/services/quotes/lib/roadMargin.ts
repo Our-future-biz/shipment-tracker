@@ -20,6 +20,8 @@ export type MarginFloor = GuardrailFloor;
 /** What a margin is judged with: the floor of every freight mode, today's ČNB sheet (CZK per unit; null = none) and the company ROE %. */
 export interface MarginContext extends QuoteRates {
   settings: GuardrailSettings;
+  /** Trucking's floor was not read (it could not answer, or no Road quote was judged): Road's in `settings` is only a stand-in, so no Road quote passes on it. */
+  roadFloorUnavailable?: boolean;
 }
 
 // An approved margin covers the margin as it is now when that is not worse by more than this many
@@ -52,6 +54,17 @@ export function guardrailModeOf(data: unknown): GuardrailMode | null {
   return roadMarginApplies(data) ? "Road" : null;
 }
 
+/**
+ * Why a quote with prices cannot be sent before its Freight Mode is chosen: the mode's floor is what
+ * judges its margin, so with none - or one no guardrail knows - nothing would. Null when it may go.
+ */
+export function freightModeGateMessage(data: unknown): string | null {
+  if (guardrailModeOf(data)) return null;
+  const d = isObject(data) ? data : {};
+  if (!linesOf(d.sellingLines).length && !linesOf(d.buyingLines).length) return null;
+  return "Choose the Freight Mode first: its margin floor decides whether the quote can be sent";
+}
+
 /** What the quote is now, as an approval records it (D10). */
 export function approvalBasisOf(data: unknown): QuoteMarginApprovalBasis {
   const d = isObject(data) ? data : {};
@@ -73,7 +86,8 @@ export function approvalEnded(approval: QuoteMarginApproval, data: unknown): str
   if (now.serviceType !== b.serviceType) return "the freight mode changed";
   if (now.containers !== b.containers) return "the number of containers changed";
   if (now.salesOwner !== b.salesOwner) return "the Sales Owner changed";
-  if (b.validUntil && now.validUntil && now.validUntil > b.validUntil) return `the validity was extended past ${b.validUntil}`;
+  // No validity at all is a validity without end: as much an extension as a later date.
+  if (b.validUntil && (!now.validUntil || now.validUntil > b.validUntil)) return `the validity was extended past ${b.validUntil}`;
   return null;
 }
 
@@ -116,9 +130,14 @@ export function roadMargin(data: unknown, ctx: MarginContext): RoadMargin | null
   const margin = quoteMargin(data, ctx)!;
   const { marginCzk, marginPercent } = margin;
   const d = isObject(data) ? data : {};
-  const noBuying = linesOf(d.sellingLines).length > 0 && linesOf(d.buyingLines).length === 0;
+  // Judged by value, not by lines: an empty or zero buying line is no buying (D5).
+  const priced = (value: unknown) => linesOf(value).some((line) => lineAmount(line) !== 0);
+  const noBuying = priced(d.sellingLines) && !priced(d.buyingLines);
+  // Without Trucking's floor a Road quote cannot be judged: it waits rather than pass on a stand-in.
+  const floorUnknown = mode === "Road" && ctx.roadFloorUnavailable === true;
   const belowFloor =
-    !margin.empty && (noBuying || marginCzk === null || (marginPercent !== null && marginPercent < floor.percent) || marginCzk < floor.minAmountCzk);
+    !margin.empty &&
+    (floorUnknown || noBuying || marginCzk === null || (marginPercent !== null && marginPercent < floor.percent) || marginCzk < floor.minAmountCzk);
   const approval = approvalOf(data);
   const tolerance = Math.max(APPROVAL_TOLERANCE_CZK, margin.sellingCzk * APPROVAL_TOLERANCE_SHARE);
   const ended = approval ? approvalEnded(approval, data) : null;
@@ -127,7 +146,8 @@ export function roadMargin(data: unknown, ctx: MarginContext): RoadMargin | null
     marginCzk !== null &&
     ended === null &&
     marginCzk >= approval.marginCzk - tolerance &&
-    (approval.marginPercent === null || marginPercent === null || marginPercent >= approval.marginPercent - APPROVAL_TOLERANCE_POINTS);
+    // An approval given with nothing sold (no percent) covers only a quote that still sells nothing.
+    (approval.marginPercent === null ? marginPercent === null : marginPercent === null || marginPercent >= approval.marginPercent - APPROVAL_TOLERANCE_POINTS);
   return {
     mode,
     sellingCzk: margin.sellingCzk,
@@ -140,7 +160,7 @@ export function roadMargin(data: unknown, ctx: MarginContext): RoadMargin | null
     approval,
     approvalValid,
     needsApproval: belowFloor && !approvalValid,
-    problem: margin.problem,
+    problem: margin.problem ?? (floorUnknown ? "Trucking's margin floor could not be read" : null),
     noBuying,
     approvalEnded: ended,
   };
@@ -177,6 +197,8 @@ export function marginGateMessage(margin: RoadMargin): string {
   if (margin.marginCzk === null) {
     return `The margin cannot be worked out: ${margin.problem}. The quote can be sent once the rate is available or its lines are in CZK.`;
   }
+  // Known, but nothing to judge it against at the moment (Trucking's floor could not be read).
+  if (margin.problem && !margin.approvalValid) return `The margin cannot be judged: ${margin.problem}. Try again in a moment.`;
   if (margin.noBuying) return `The quote sells with no buying lines, so its margin cannot be judged. Enter the buying, or ${approve.charAt(0).toLowerCase()}${approve.slice(1)}`;
   const ended = margin.approval && margin.approvalEnded ? ` The approval no longer covers it: ${margin.approvalEnded}.` : "";
   return `The margin of ${formatMargin(margin.marginCzk, margin.marginPercent)} is below the ${margin.mode} floor of ${floor}.${ended} ${approve}`;

@@ -6,6 +6,7 @@ import { TenantRepository } from "../../../lib/db/repository";
 import type { StoredFx } from "../lib/quoteFx";
 import { db } from "../db/db";
 import { quoteTable, type NewQuoteRecord, type QuoteRecord, type SalesQuoteRecord } from "../schemas/quote.schema";
+import { quoteInquiryTable } from "../schemas/quoteInquiry.schema";
 import { isPlainObject } from "../utils/quoteDocument.utils";
 import {
   AWAITING,
@@ -571,8 +572,10 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
   /**
    * The quotes the Sales managers' cockpit judges (Council Outlay 6): open ones as shown on
    * `today`; Won ones with no shipment yet, or decided since `wonSince`; ones shown Expired whose
-   * validity ended on `expiredSince` or later; and Won or Lost ones decided since `decidedSince`
-   * (the month's counts). At most `limit`, the newest first; `capped` says more matched.
+   * validity ended on `expiredSince` or later; Won or Lost ones decided since `decidedSince`
+   * (the month's counts); the revisions of Won quotes changed since `wonSince` (they keep the
+   * decision and the shipment of the deal, however old); and every quote a margin question waits
+   * on. At most `limit`, the newest first; `capped` says more matched.
    */
   async managersRows(
     companyId: string,
@@ -593,6 +596,14 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
             and(eq(quoteTable.status, "won"), or(isNull(quoteTable.shipmentId), onBusinessDays(quoteTable.decidedAt, moment.wonSince))),
             and(sql`${shown} = 'expired'`, gte(quoteTable.validUntil, moment.expiredSince)),
             and(inArray(quoteTable.status, ["won", "lost"]), onBusinessDays(quoteTable.decidedAt, moment.decidedSince)),
+            and(eq(quoteTable.status, "won"), sql`${quoteTable.data}->>'wonRevisionOf' IS NOT NULL`, onBusinessDays(quoteTable.updatedAt, moment.wonSince)),
+            inArray(
+              quoteTable.id,
+              db
+                .select({ id: quoteInquiryTable.quoteId })
+                .from(quoteInquiryTable)
+                .where(and(eq(quoteInquiryTable.companyId, companyId), eq(quoteInquiryTable.kind, "margin"), eq(quoteInquiryTable.status, "pending"), isNull(quoteInquiryTable.deletedAt))),
+            ),
           ),
         ),
       )
@@ -604,7 +615,8 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
   /**
    * The team's figures since `since`, for the Sales managers' cockpit: quotes Won and Lost (decided
    * since), quotes first sent since and the median hours from creation to that first sending, and
-   * the Lost ones by reason.
+   * the Lost ones by reason. The revision of a Won quote keeps the deal's first sending, so it is
+   * not a sending of its own.
    */
   async teamFacts(companyId: string, since: Date): Promise<{ won: number; lost: number; sent: number; medianHoursToFirstSent: number | null; lostReasons: { reason: string; count: number }[] }> {
     const live = and(eq(quoteTable.companyId, companyId), isNull(quoteTable.deletedAt), isSalesQuote);
@@ -614,8 +626,8 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
         .select({
           won: sql<number>`count(*) FILTER (WHERE ${quoteTable.status} = 'won' AND ${quoteTable.decidedAt} >= ${at}::timestamptz)::int`,
           lost: sql<number>`count(*) FILTER (WHERE ${quoteTable.status} = 'lost' AND ${quoteTable.decidedAt} >= ${at}::timestamptz)::int`,
-          sent: sql<number>`count(*) FILTER (WHERE ${quoteTable.firstSentAt} >= ${at}::timestamptz)::int`,
-          median: sql<number | null>`percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM ${quoteTable.firstSentAt} - ${quoteTable.createdAt}) / 3600) FILTER (WHERE ${quoteTable.firstSentAt} >= ${at}::timestamptz)`,
+          sent: sql<number>`count(*) FILTER (WHERE ${quoteTable.firstSentAt} >= ${at}::timestamptz AND ${quoteTable.data}->>'wonRevisionOf' IS NULL)::int`,
+          median: sql<number | null>`percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM ${quoteTable.firstSentAt} - ${quoteTable.createdAt}) / 3600) FILTER (WHERE ${quoteTable.firstSentAt} >= ${at}::timestamptz AND ${quoteTable.data}->>'wonRevisionOf' IS NULL AND ${quoteTable.firstSentAt} >= ${quoteTable.createdAt})`,
         })
         .from(quoteTable)
         .where(live),
@@ -774,6 +786,8 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
     quoteNumber: string,
     prefix: string,
     plan: (quote: SalesQuoteRecord, existing: string[]) => { reference: string; row: NewSalesQuote; write: LifecycleWrite },
+    // What else moves from the quote to its revision, in the same transaction.
+    carryOver?: (tx: QuoteTransaction, quote: SalesQuoteRecord, revision: SalesQuoteRecord) => Promise<void>,
   ): Promise<{ quote: SalesQuoteRecord; revision: SalesQuoteRecord } | null> {
     const adoptions = this.adoptions(companyId);
     const result = await this.withReferences(companyId, prefix, async (tx, existing) => {
@@ -781,6 +795,7 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
       if (!quote) return null;
       const { reference, row, write } = plan(quote, existing);
       const revision = await this.insertQuote(tx, companyId, reference, row);
+      if (carryOver) await carryOver(tx, quote, revision);
       return { quote: await this.writeLifecycle(tx, quote, write), revision };
     });
     // As in withLockedQuote: an adoption made inside the transaction counts once it is committed.

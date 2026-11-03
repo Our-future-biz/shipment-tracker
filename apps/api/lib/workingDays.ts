@@ -45,6 +45,31 @@ export function isCzechHoliday(date: string): boolean {
   return date === addDays(easter, -2) || date === addDays(easter, 1); // Good Friday, Easter Monday
 }
 
+/** The Czech statutory public holidays of a year, YYYY-MM-DD. */
+export function czechHolidays(year: number): string[] {
+  const easter = easterSunday(year);
+  return [...FIXED_HOLIDAYS.map((md) => `${year}-${md}`), addDays(easter, -2), addDays(easter, 1)];
+}
+
+/**
+ * Working days after `from` up to and including `to` (YYYY-MM-DD; 0 when `to` is not later):
+ * how many have passed since `from`. Counted by whole weeks, then the holidays - not day by day,
+ * so a span of years costs no more than one of days.
+ */
+export function workingDaysAfter(from: string, to: string): number {
+  const days = Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+  if (!(days > 0)) return 0;
+  const weeks = Math.floor(days / 7);
+  let n = weeks * 5;
+  // The days after the whole weeks.
+  for (let d = addDays(from, weeks * 7 + 1); d <= to; d = addDays(d, 1)) if (!isWeekend(d)) n++;
+  // Holidays that fell on a weekday in between.
+  for (let year = Number(from.slice(0, 4)); year <= Number(to.slice(0, 4)); year++) {
+    for (const h of czechHolidays(year)) if (h > from && h <= to && !isWeekend(h)) n--;
+  }
+  return n;
+}
+
 /** A weekday that is neither a Czech public holiday nor one of `extraHolidays`. */
 export function isWorkingDay(date: string, extraHolidays: readonly string[] = []): boolean {
   return !isWeekend(date) && !isCzechHoliday(date) && !extraHolidays.includes(date);

@@ -25,12 +25,18 @@ export function overLimitCzk(c: CreditFacts, sheet: QuoteRates): number | null {
   return over > 0 ? Math.round(over) : null;
 }
 
-/** When the quote got the status it has now: the last status line of its history, else its creation. */
+/**
+ * When the quote got the status it has now: the last status line of its history, else its
+ * creation - also when that line's moment is no date (a browser wrote the history once).
+ */
 export function statusSinceOf(data: Record<string, unknown>, createdAt: Date): string {
   const timeline = Array.isArray(data.timeline) ? data.timeline : [];
   for (let i = timeline.length - 1; i >= 0; i--) {
     const e = timeline[i];
-    if (isPlainObject(e) && (e.kind === undefined || e.kind === "status") && typeof e.status === "string" && typeof e.at === "string") return e.at;
+    if (isPlainObject(e) && (e.kind === undefined || e.kind === "status") && typeof e.status === "string") {
+      const at = typeof e.at === "string" ? Date.parse(e.at) : NaN;
+      return Number.isFinite(at) ? new Date(at).toISOString() : createdAt.toISOString();
+    }
   }
   return createdAt.toISOString();
 }

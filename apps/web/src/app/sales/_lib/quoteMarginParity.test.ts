@@ -62,6 +62,15 @@ const QUOTES: [string, SalesQuoteData][] = [
     } as Partial<SalesQuoteData>),
   ],
   ["a quote that sells at a loss", quote({ serviceType: "Road", currency: "CZK", sellingLines: [line(9000, "CZK")], buyingLines: [line(9450, "CZK")] })],
+  [
+    "lines with no amount but a quantity and unit price (an older document)",
+    quote({
+      serviceType: "Road",
+      currency: "CZK",
+      sellingLines: [{ ...line(0, "CZK"), amount: null as unknown as number, qty: 2, unitPrice: 4500 }],
+      buyingLines: [{ ...line(0, "EUR"), amount: "" as unknown as number, qty: 3, unitPrice: 100 }],
+    }),
+  ],
 ];
 
 describe("the server's quote margin and the editor's totals", () => {

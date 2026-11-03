@@ -2,16 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { Alert, Button, InputNumber, Spin } from "antd";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, apiErrorMessage } from "@/lib/api";
-import type { controllers } from "@/lib/api/client";
+import { apiErrorMessage } from "@/lib/api";
+import { formatAmount } from "@/lib/money";
+import { formatPercent } from "@/lib/number";
 import { useToast } from "@/lib/toast";
+import { useSalesGuardrails, type GuardrailRow as Row } from "@/hooks/useSalesGuardrails";
 import { SectionCard } from "@/components/SectionCard";
 import { serviceTypeLabel } from "../_lib/types";
-
-type Row = controllers.GuardrailRow;
-
-const KEY = ["sales-guardrails"] as const;
 
 // Sales Settings → Guardrails (Council Outlay 6): the margin floor of each freight mode, a minimum %
 // and a minimum CZK (per container for Sea FCL and Rail), judged on the whole quote. A quote below
@@ -20,20 +17,15 @@ const KEY = ["sales-guardrails"] as const;
 // change them.
 export function GuardrailsTab() {
   const toast = useToast();
-  const queryClient = useQueryClient();
-  const query = useQuery({ queryKey: KEY, queryFn: () => api.quotes.salesGuardrailsGet() });
+  const { guardrails: stored, isLoading, reload, save } = useSalesGuardrails();
   const [edits, setEdits] = useState<Record<string, { percent: number | null; minAmountCzk: number | null }>>({});
-  const save = useMutation({
-    mutationFn: (rows: { serviceType: string; percent: number; minAmountCzk: number }[]) => api.quotes.salesGuardrailsSet({ guardrails: rows }),
-    onSuccess: (data) => queryClient.setQueryData(KEY, data),
-  });
   // What is stored is what the fields start from, again after every save.
-  useEffect(() => setEdits({}), [query.data]);
+  useEffect(() => setEdits({}), [stored]);
 
-  if (query.isLoading) return <Spin />;
-  if (!query.data) return <Alert type="error" showIcon message="Could not load the guardrails." action={<Button size="small" onClick={() => query.refetch()}>Retry</Button>} />;
+  if (isLoading) return <Spin />;
+  if (!stored) return <Alert type="error" showIcon message="Could not load the guardrails." action={<Button size="small" onClick={() => reload()}>Retry</Button>} />;
 
-  const { guardrails, canEdit } = query.data;
+  const { guardrails, canEdit } = stored;
   const value = (r: Row, key: "percent" | "minAmountCzk") => (r.serviceType in edits ? edits[r.serviceType]![key] : r[key]);
   const changed = guardrails.filter((r) => r.serviceType in edits && (edits[r.serviceType]!.percent !== r.percent || edits[r.serviceType]!.minAmountCzk !== r.minAmountCzk));
   const incomplete = changed.some((r) => edits[r.serviceType]!.percent === null || edits[r.serviceType]!.minAmountCzk === null);
@@ -73,14 +65,14 @@ export function GuardrailsTab() {
                       {editable ? (
                         <InputNumber aria-label={`${r.serviceType} minimum margin %`} min={0} max={100} step={0.5} value={value(r, "percent")} onChange={(v) => setField(r, "percent", v)} suffix="%" className="!w-[130px]" />
                       ) : (
-                        <span className="tabular-nums">{r.percent} %</span>
+                        <span className="tabular-nums">{formatPercent(r.percent)}</span>
                       )}
                     </td>
                     <td className="px-3 py-2">
                       {editable ? (
                         <InputNumber aria-label={`${r.serviceType} minimum margin CZK`} min={0} step={100} value={value(r, "minAmountCzk")} onChange={(v) => setField(r, "minAmountCzk", v)} suffix="CZK" className="!w-[160px]" />
                       ) : (
-                        <span className="tabular-nums">{r.minAmountCzk.toLocaleString("cs-CZ")} CZK</span>
+                        <span className="tabular-nums">{formatAmount(r.minAmountCzk, "CZK")}</span>
                       )}
                       {r.perContainer && <span className="ml-2 text-[12px] text-slate-500">per container</span>}
                     </td>

@@ -1,15 +1,14 @@
 import { api } from "encore.dev/api";
 import type { MaxLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
-import { isUuid } from "../../../lib/uuid";
-import { invoiceRepository } from "../repositories/invoice.repository";
+import { invoiceDocumentService } from "../services/invoiceDocument.service";
 
 interface InvoicedShipmentsRequest {
   shipmentIds: string[] & MaxLen<500>;
 }
 
 interface InvoicedShipmentsResponse {
-  /** Of the shipments asked about, those an invoice was ever issued for (credited ones too). */
+  /** Of the shipments asked about, those an invoice was ever issued for (credited ones and the old generator's too). */
   shipmentIds: string[];
 }
 
@@ -18,6 +17,6 @@ interface InvoicedShipmentsResponse {
 export const _internalInvoicedShipments = api(
   { expose: false, auth: true, method: "POST", path: "/internal/invoicing/invoiced-shipments" },
   async ({ shipmentIds }: InvoicedShipmentsRequest): Promise<InvoicedShipmentsResponse> => ({
-    shipmentIds: await invoiceRepository.shipmentIdsWithInvoices(shipmentIds.filter(isUuid), getAuthData()!.companyID),
+    shipmentIds: await invoiceDocumentService.shipmentsEverInvoiced(shipmentIds, getAuthData()!.companyID),
   }),
 );

@@ -1,5 +1,5 @@
-import dayjs from "dayjs";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { addDays, businessToday } from "@/lib/date";
 import { filtersToQuery, listHref, readList } from "./quoteListState";
 
 describe("the Sales managers' list filters", () => {
@@ -16,12 +16,23 @@ describe("the Sales managers' list filters", () => {
   });
 
   it("asks the server for validity from today to today + N days", () => {
-    const today = dayjs();
     expect(filtersToQuery({ statuses: [], validWithinDays: 7, followUpDue: true })).toMatchObject({
-      validFrom: today.format("YYYY-MM-DD"),
-      validTo: today.add(7, "day").format("YYYY-MM-DD"),
+      validFrom: businessToday(),
+      validTo: addDays(businessToday(), 7),
       followUp: "due",
     });
     expect(filtersToQuery({ statuses: [] })).toMatchObject({ validFrom: undefined, validTo: undefined, followUp: undefined });
+  });
+
+  describe("at 00:30 in Prague, still the day before in UTC", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-11-03T23:30:00Z"));
+    });
+    afterEach(() => vi.useRealTimers());
+
+    it("counts validity from Prague's day, as the cockpit tile does, whatever the viewer's clock", () => {
+      expect(filtersToQuery({ statuses: [], validWithinDays: 7 })).toMatchObject({ validFrom: "2026-11-04", validTo: "2026-11-11" });
+    });
   });
 });

@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { interfaces } from "@/lib/api";
+import { salesManagersKeys } from "@/hooks/salesQueryKeys";
 
 export type MarginInquiryItem = interfaces.QuoteMarginInquiryItem;
 export type MarginInquiryRow = interfaces.QuoteMarginInquiryRow;
@@ -18,6 +19,7 @@ export const marginInquiryKeys = {
   forMe: ["margin-inquiries", "for-me"] as const,
 };
 
+// The server's INQUIRY_REASONS (apps/api/services/quotes/lib/marginInquiry.ts), which refuses any other: keep the two in step.
 export const MARGIN_INQUIRY_REASONS = ["Competitor price", "Tender or volume", "New or strategic customer", "Retention", "Market drop", "Other"] as const;
 
 /** The newest question of one quote, and the rep's ask and withdraw. */
@@ -27,10 +29,17 @@ export const useQuoteMarginInquiry = (quoteNumber: string, enabled: boolean) => 
     queryKey: marginInquiryKeys.quote(quoteNumber),
     queryFn: async () => (await api.quotes.salesQuoteMarginInquiryGet(quoteNumber)).inquiry,
     enabled,
-    // The manager's answer arrives while the quote is open.
-    refetchInterval: 30_000,
+    // The manager's answer arrives while the quote is open; nothing else changes a question that
+    // was answered or withdrawn, so only a waiting one is asked about again.
+    refetchInterval: (q) => (q.state.data?.status === "pending" ? 30_000 : false),
   });
-  const done = () => queryClient.invalidateQueries({ queryKey: marginInquiryKeys.all });
+  // A question asked, withdrawn or answered also changes the managers' cockpit (its Awaiting
+  // approval tile and the "Discount waiting" signal).
+  const done = () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: marginInquiryKeys.all }),
+      queryClient.invalidateQueries({ queryKey: salesManagersKeys.cockpit }),
+    ]);
   const ask = useMutation({
     mutationFn: (input: { reason: string; note?: string; needsBy?: string | null; competitorPrice?: string; volume?: string }) =>
       api.quotes.salesQuoteMarginInquiryAsk(quoteNumber, input),
@@ -40,7 +49,14 @@ export const useQuoteMarginInquiry = (quoteNumber: string, enabled: boolean) => 
     mutationFn: (inquiryId: string) => api.quotes.salesQuoteMarginInquiryWithdraw(quoteNumber, { inquiryId }),
     onSettled: done,
   });
-  return { inquiry: query.data ?? null, ask, withdraw, refresh: query.refetch };
+  return {
+    inquiry: query.data ?? null,
+    // The server has answered at least once: until then "no question" is not known yet.
+    loaded: query.data !== undefined,
+    ask,
+    withdraw,
+    refresh: query.refetch,
+  };
 };
 
 /** The managers' Quote inquiries: what waits and what was answered in the last 30 days, and their answer. */
@@ -57,7 +73,7 @@ export const useMarginInquiries = ({ enabled = true }: { enabled?: boolean } = {
       api.quotes.salesQuoteMarginInquiryDecide(quoteNumber, answer),
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: marginInquiryKeys.all });
-      void queryClient.invalidateQueries({ queryKey: ["sales", "managers-cockpit"] });
+      void queryClient.invalidateQueries({ queryKey: salesManagersKeys.cockpit });
     },
   });
   const inquiries = query.data ?? [];

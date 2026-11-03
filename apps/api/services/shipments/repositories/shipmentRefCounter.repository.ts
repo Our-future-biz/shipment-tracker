@@ -3,7 +3,7 @@ import { db } from "../db/db";
 import { shipmentTable } from "../schemas/shipment.schema";
 import { masterJobTable } from "../schemas/masterJob.schema";
 import { shipmentRefCounterTable, type ShipmentRefSequence } from "../schemas/shipmentRefCounter.schema";
-import { LETTERS_PATTERN } from "../lib/jobNumber";
+import { LETTERS_PATTERN } from "../../../lib/jobNumber";
 
 /** A transaction, or the database itself when no transaction is open. */
 export type Tx = Pick<typeof db, "execute">;

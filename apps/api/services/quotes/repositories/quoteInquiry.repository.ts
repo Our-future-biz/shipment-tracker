@@ -10,6 +10,8 @@ type Writer = typeof db | QuoteTransaction;
 
 const live = (companyId: string) => and(eq(t.companyId, companyId), isNull(t.deletedAt));
 const margin = eq(t.kind, "margin");
+// The question's quote is still there: one on a deleted quote is out of every list and bell.
+const onLiveQuote = sql`EXISTS (SELECT 1 FROM ${quoteTable} q WHERE q.id = ${t.quoteId} AND q.company_id = ${t.companyId} AND q.deleted_at IS NULL)`;
 
 /** A warehouse question with the facts of its quote the warehouse needs (null: the quote is gone). */
 export interface WarehouseInquiryWithQuote {
@@ -85,13 +87,13 @@ class QuoteInquiryRepository {
     return row ?? null;
   }
 
-  /** Waiting margin questions, and those answered or withdrawn since `answeredSince`, the newest first. */
+  /** Waiting margin questions, and those answered or withdrawn since `answeredSince`: the waiting ones first (none is cut for an answered one), then the newest. */
   async list(companyId: string, answeredSince: Date, limit: number): Promise<QuoteInquiryRecord[]> {
     return db
       .select()
       .from(t)
-      .where(and(live(companyId), margin, or(eq(t.status, "pending"), gte(t.updatedAt, answeredSince))))
-      .orderBy(desc(t.requestedAt))
+      .where(and(live(companyId), margin, onLiveQuote, or(eq(t.status, "pending"), gte(t.updatedAt, answeredSince))))
+      .orderBy(sql`(${t.status} = 'pending') DESC`, desc(t.requestedAt))
       .limit(limit);
   }
 
@@ -105,13 +107,35 @@ class QuoteInquiryRepository {
     return db
       .select({ quoteNumber: t.quoteNumber, requestedById: t.requestedById, ownerUserId: quoteTable.ownerUserId })
       .from(t)
-      .leftJoin(quoteTable, and(eq(quoteTable.id, t.quoteId), eq(quoteTable.companyId, t.companyId)))
+      .innerJoin(quoteTable, and(eq(quoteTable.id, t.quoteId), eq(quoteTable.companyId, t.companyId), isNull(quoteTable.deletedAt)))
       .where(and(live(companyId), margin, inArray(t.status, ["approved", "rejected"]), gte(t.decidedAt, since), isNull(t.answerSeenAt)));
   }
 
   /** The company's waiting margin questions. */
   async pending(companyId: string): Promise<QuoteInquiryRecord[]> {
-    return db.select().from(t).where(and(live(companyId), margin, eq(t.status, "pending"))).orderBy(t.requestedAt);
+    return db.select().from(t).where(and(live(companyId), margin, onLiveQuote, eq(t.status, "pending"))).orderBy(t.requestedAt);
+  }
+
+  /**
+   * A quote is deleted: whatever waits on it - of either kind - is withdrawn with it, in its
+   * transaction, by whoever deleted it. Nobody could answer it any more.
+   */
+  async withdrawOpenOf(companyId: string, quoteId: string, byUserId: string, at: Date, writer: Writer): Promise<void> {
+    await writer
+      .update(t)
+      .set({ status: "withdrawn", decidedById: byUserId, comment: "The quote was deleted", updatedAt: at })
+      .where(and(live(companyId), eq(t.quoteId, quoteId), eq(t.status, "pending")));
+  }
+
+  /**
+   * A quote is revised: what waits on it - of either kind - goes with its prices to the revision,
+   * which is where it can still be answered (the revision carries the warehouse's question too).
+   */
+  async moveOpen(companyId: string, fromQuoteId: string, to: { id: string; quoteNumber: string }, writer: Writer): Promise<void> {
+    await writer
+      .update(t)
+      .set({ quoteId: to.id, quoteNumber: to.quoteNumber, updatedAt: new Date() })
+      .where(and(live(companyId), eq(t.quoteId, fromQuoteId), eq(t.status, "pending")));
   }
 
   /** Warehouse questions waiting, and those answered since `answeredSince`, the newest question first; at most `limit`. */
@@ -159,6 +183,7 @@ class QuoteInquiryRepository {
           margin,
           inArray(t.status, ["approved", "rejected"]),
           gte(t.decidedAt, since),
+          isNull(quoteTable.deletedAt),
           or(eq(t.requestedById, userId), eq(quoteTable.ownerUserId, userId)),
           // The one who answered is not told their own answer.
           ne(t.decidedById, userId),
@@ -193,13 +218,33 @@ class QuoteInquiryRepository {
       });
   }
 
-  /** Marks the answers as opened by whoever they are for. */
-  async markSeen(companyId: string, ids: string[], at: Date): Promise<void> {
+  /** Marks margin answers as opened by `userId` - only those they are for: they asked, or own the quote. */
+  async markSeen(companyId: string, userId: string, ids: string[], at: Date): Promise<void> {
     if (!ids.length) return;
     await db
       .update(t)
       .set({ answerSeenAt: at })
-      .where(and(live(companyId), inArray(t.id, ids), isNull(t.answerSeenAt), sql`${t.decidedAt} IS NOT NULL`));
+      .where(
+        and(
+          live(companyId),
+          margin,
+          inArray(t.id, ids),
+          isNull(t.answerSeenAt),
+          sql`${t.decidedAt} IS NOT NULL`,
+          or(eq(t.requestedById, userId), sql`EXISTS (SELECT 1 FROM ${quoteTable} q WHERE q.id = ${t.quoteId} AND q.company_id = ${t.companyId} AND q.owner_user_id = ${userId})`),
+        ),
+      );
+  }
+
+  /**
+   * Marks a warehouse answer as opened by the one who asked, by its row alone - for an answer its
+   * quote no longer holds (a newer question replaced it), so it can still leave their bell.
+   */
+  async markWarehouseSeen(companyId: string, id: string, userId: string, at: Date, writer: Writer = db): Promise<void> {
+    await writer
+      .update(t)
+      .set({ answerSeenAt: at, updatedAt: at })
+      .where(and(live(companyId), eq(t.kind, "warehouse_heavy"), eq(t.id, id), eq(t.requestedById, userId), inArray(t.status, ["approved", "rejected"]), isNull(t.answerSeenAt)));
   }
 }
 

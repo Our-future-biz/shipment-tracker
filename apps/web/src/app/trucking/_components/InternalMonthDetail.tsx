@@ -9,6 +9,7 @@ import { ConfirmModal } from "@/components/ConfirmModal";
 import { apiErrorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { businessDateTime, businessToday } from "@/lib/date";
+import { compareJobNumbers } from "@/lib/jobNumber";
 import { downloadDataUrl } from "@/lib/files";
 import { useToast } from "@/lib/toast";
 import { fetchInternalMonthExport, fetchInternalStatementPdf, useInternalCharges, type InternalCharge, type InternalMonth } from "@/hooks/useTruckingMoney";
@@ -41,7 +42,8 @@ const COLUMNS: AppGridColumn<InternalCharge>[] = [
     key: "job",
     title: "Job no.",
     text: (c) => c.jobNumber,
-    sorter: (a, b) => byText(a.jobNumber, b.jobNumber),
+    // By number, whatever the letters (a copied CZ00000023 next to CZROAD00000024).
+    sorter: (a, b) => compareJobNumbers(a.jobNumber, b.jobNumber),
     render: (_, c) => (
       <Link href={`/shipments/${c.shipmentId}?tab=trucking`} onClick={stop} className="font-mono text-indigo-600 hover:underline">
         {c.jobNumber}

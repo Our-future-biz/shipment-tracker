@@ -6,7 +6,6 @@ vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn() } }));
 vi.mock("~encore/clients", () => ({ auth: { usersList: vi.fn() } }));
 vi.mock("../../services/marginRates", () => ({ marginsFor: vi.fn() }));
-vi.mock("../../lib/people", () => ({ companyPeople: vi.fn() }));
 vi.mock("../../repositories/quoteComment.repository", () => ({ quoteCommentRepository: { createForCompany: vi.fn() } }));
 const TX = vi.hoisted(() => ({ fake: "tx" }));
 vi.mock("../../repositories/salesQuote.repository", () => ({
@@ -22,7 +21,7 @@ vi.mock("../../repositories/quoteInquiry.repository", () => ({
 
 import { auth } from "~encore/clients";
 import { marginsFor } from "../../services/marginRates";
-import { companyPeople } from "../../lib/people";
+import { quoteCommentRepository } from "../../repositories/quoteComment.repository";
 import { salesQuoteRepository } from "../../repositories/salesQuote.repository";
 import { quoteInquiryRepository } from "../../repositories/quoteInquiry.repository";
 import { marginInquiryService } from "../../services/marginInquiry.service";
@@ -96,7 +95,6 @@ let stored: SalesQuoteRecord;
 beforeEach(() => {
   vi.resetAllMocks();
   stored = quote();
-  vi.mocked(companyPeople).mockResolvedValue({ users: [], emails: new Map([[REP, "jan@forwarder.cz"], [BOSS, "marie@forwarder.cz"]]) });
   vi.mocked(auth.usersList).mockResolvedValue({
     users: [
       { id: REP, companyId: COMPANY, email: "jan@forwarder.cz", displayName: "", role: "user", departmentId: null, branchId: null, reportsToUserId: BOSS },
@@ -137,6 +135,33 @@ describe("ask", () => {
     const item = await marginInquiryService.ask(rep, REF, { reason: "Retention" });
     expect(vi.mocked(quoteInquiryRepository.insert).mock.calls[0]![0]).toMatchObject({ notifyUserId: null });
     expect(item.escalated).toBe(true);
+  });
+
+  it("tells the admins at once when the owner's manager left or no longer manages Sales", async () => {
+    vi.mocked(auth.usersList).mockResolvedValue({
+      users: [
+        { id: REP, companyId: COMPANY, email: "jan@forwarder.cz", displayName: "", role: "user", departmentId: null, branchId: null, reportsToUserId: BOSS },
+        { id: BOSS, companyId: COMPANY, email: "marie@forwarder.cz", displayName: "", role: "user", departmentId: null, branchId: null, reportsToUserId: null },
+      ],
+    } as never);
+    const item = await marginInquiryService.ask(rep, REF, { reason: "Retention" });
+    expect(vi.mocked(quoteInquiryRepository.insert).mock.calls[0]![0]).toMatchObject({ notifyUserId: null, requestedByName: "jan@forwarder.cz" });
+    expect(item).toMatchObject({ escalated: true, notifyName: "" });
+  });
+});
+
+describe("forMe", () => {
+  it("brings a question addressed to a manager who has left to the admins at once", async () => {
+    const GONE = "5a7c9e11-3b2d-4f6a-8c0e-1d2f3a4b5c99";
+    const ADMIN = "5a7c9e11-3b2d-4f6a-8c0e-1d2f3a4b5c02";
+    vi.mocked(auth.usersList).mockResolvedValue({
+      users: [{ id: ADMIN, companyId: COMPANY, email: "eva@forwarder.cz", displayName: "", role: "admin", departmentId: null, branchId: null, reportsToUserId: null }],
+    } as never);
+    vi.mocked(quoteInquiryRepository.pending).mockResolvedValue([pending({ notifyUserId: GONE, requestedAt: new Date() })]);
+    vi.mocked(quoteInquiryRepository.answersFor).mockResolvedValue([]);
+    const { waiting } = await marginInquiryService.forMe({ userID: ADMIN, companyID: COMPANY, role: "admin" });
+    expect(waiting).toHaveLength(1);
+    expect(waiting[0]!.inquiry).toMatchObject({ escalated: true, notifyName: "" });
   });
 });
 
@@ -190,5 +215,8 @@ describe("withdraw", () => {
     vi.mocked(quoteInquiryRepository.answer).mockImplementation(async (_c, _id, patch) => pending(patch as Partial<QuoteInquiryRecord>));
     await expect(marginInquiryService.withdraw({ ...rep, userID: "5a7c9e11-3b2d-4f6a-8c0e-1d2f3a4b5c09" }, REF, INQUIRY)).rejects.toMatchObject({ code: "permission_denied" });
     expect((await marginInquiryService.withdraw(rep, REF, INQUIRY)).status).toBe("withdrawn");
+    // Who took it back is kept, and the quote's chat says so.
+    expect(vi.mocked(quoteInquiryRepository.answer).mock.calls.at(-1)![2]).toMatchObject({ status: "withdrawn", decidedById: REP, decidedByName: "jan@forwarder.cz" });
+    expect(vi.mocked(quoteCommentRepository.createForCompany).mock.calls.at(-1)![1]).toMatchObject({ message: "Took back the question to approve the margin." });
   });
 });

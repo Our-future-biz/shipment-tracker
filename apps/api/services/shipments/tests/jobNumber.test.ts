@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { jobNumberDigits, jobNumberFor, jobNumberLetters } from "../lib/jobNumber";
+import { jobNumberFor, jobNumberLetters, referenceIsFinal } from "../lib/jobNumber";
 
 describe("jobNumberLetters", () => {
   it("names the job by its Freight Mode and Load Type", () => {
@@ -46,11 +46,18 @@ describe("jobNumberFor", () => {
   });
 });
 
-describe("jobNumberDigits", () => {
-  it("reads the number with or without letters", () => {
-    expect(jobNumberDigits("CZ00000023")).toBe("00000023");
-    expect(jobNumberDigits("CZPROJECT00000023")).toBe("00000023");
-    expect(jobNumberDigits("CZXYZ00000023")).toBeNull();
-    expect(jobNumberDigits("")).toBeNull();
+describe("referenceIsFinal", () => {
+  it("is final once Invoicing took the reference for an invoice number", () => {
+    expect(referenceIsFinal({ jobNumberFinal: true, invoicingStatus: "Not Invoiced" })).toBe(true);
+  });
+
+  it("is final for a job marked Invoiced, by hand too", () => {
+    expect(referenceIsFinal({ jobNumberFinal: false, invoicingStatus: "Invoiced" })).toBe(true);
+    expect(referenceIsFinal({ jobNumberFinal: false, invoicingStatus: " invoiced " })).toBe(true);
+  });
+
+  it("is not otherwise", () => {
+    expect(referenceIsFinal({ jobNumberFinal: false, invoicingStatus: "Not Invoiced" })).toBe(false);
+    expect(referenceIsFinal({ jobNumberFinal: false, invoicingStatus: "" })).toBe(false);
   });
 });

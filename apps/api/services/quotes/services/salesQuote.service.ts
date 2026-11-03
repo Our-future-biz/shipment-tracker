@@ -30,7 +30,7 @@ import { customerIdOf, linkForSave, refreshCopies, withRefresh } from "../utils/
 import { tryCustomerRefs } from "../lib/customerRefs";
 import { approvedPricing, inquiryGateMessage, MAX_INQUIRY_NOTE, MAX_INQUIRY_PIECES, MAX_PRICE_PER_PIECE, MIN_REJECT_REASON, readInquiry } from "../utils/warehouseInquiry.utils";
 import { fxWriteFor, mayStampFx, type StoredFx } from "../lib/quoteFx";
-import { approvalBasisOf, formatMargin, marginGateMessage, roadMargin, type MarginContext } from "../lib/roadMargin";
+import { approvalBasisOf, formatMargin, freightModeGateMessage, guardrailModeOf, marginGateMessage, roadMargin, type MarginContext } from "../lib/roadMargin";
 import { marginsFor } from "./marginRates";
 import { marginInquiryService } from "./marginInquiry.service";
 import { quoteInquiryRepository, type WarehouseInquiryWithQuote } from "../repositories/quoteInquiry.repository";
@@ -117,19 +117,33 @@ export interface RoadPriceRequest {
 }
 
 const DEFAULT_LIMIT = 50;
-// The statuses a quote is sent with: a margin below the floor must be approved before them.
-const MARGIN_GATED_STATUSES: readonly string[] = ["ready_to_send", "quoted"];
-// Statuses a quote has not gone out from: one made Won straight from them never passed the gate
-// above, so Won from them is gated too (Council Outlay 6 D11). Won from Quoted or Feedback is not:
-// those passed it when they were sent - or were sent before there were guardrails.
-const UNSENT_STATUSES: readonly string[] = ["draft", "ready_to_send", "revised", "expired"];
-/** Whether moving a quote from `shown` to `to` must pass the margin and warehouse gates. */
-const isGatedMove = (shown: string, to: string) => MARGIN_GATED_STATUSES.includes(to) || (to === "won" && UNSENT_STATUSES.includes(shown));
+// The statuses a quote is sent with, and Won: a margin below the floor must be approved before them.
+const MARGIN_GATED_STATUSES: readonly string[] = ["ready_to_send", "quoted", "won"];
+/**
+ * Whether moving a quote from `shown` to `to` must pass the margin and warehouse gates: only from a
+ * status its prices are open in (a draft, ready to send, a revision - one reopened as a draft too).
+ * One made Won straight from them never passed the gate, so Won is gated too (Council Outlay 6
+ * D11). From Quoted, Feedback or Expired it is not, nor is sending again: those passed it when they
+ * were sent - or were sent before there were guardrails - and their prices are closed since.
+ */
+const isGatedMove = (shown: string, to: string) => MARGIN_GATED_STATUSES.includes(to) && !PRICING_CLOSED.includes(shown);
 // A won or lost quote is decided: it is not priced again.
 const DECIDED_STATUSES: readonly string[] = ["won", "lost"];
 // Whether a quote's prices are closed: it went out or is decided (PRICING_CLOSED) - except the
 // revision of a Won quote, which stays Won with its validity and prices open (isWonRevision).
 const pricingClosed = (quote: SalesQuoteRecord): boolean => PRICING_CLOSED.includes(quote.status) && !isWonRevision(quote.status, quote.data);
+
+/**
+ * The quote's margin approval with the validity it is now given, when it recorded none (it was
+ * approved on a quote with no validity yet); null when there is nothing to stamp. From then on a
+ * later validity ends it, as it does any other (D10).
+ */
+function approvalWithValidity(data: unknown, validUntil: string | null): Record<string, unknown> | null {
+  if (!validUntil || !isPlainObject(data) || !isPlainObject(data.marginApproval)) return null;
+  const approval = data.marginApproval;
+  if (!isPlainObject(approval.basis) || approval.basis.validUntil) return null;
+  return { ...approval, basis: { ...approval.basis, validUntil } };
+}
 /** How long the bell keeps a warehouse answer after it was opened. */
 const READ_ANSWER_KEEP_DAYS = 7;
 /** How far back the warehouse's list shows answered inquiries. */
@@ -195,11 +209,13 @@ function warehouseRow(quote: SalesQuoteRecord, i: QuoteWarehouseInquiry): NewQuo
     kind: "warehouse_heavy",
     status: i.status,
     requestedById: i.requestedById,
+    requestedByName: i.requestedByName,
     requestedAt: at(i.requestedAt) ?? new Date(),
     note: i.note,
     details: { pieces: i.pieces, grossWeightKg: i.grossWeightKg, priceEurPerPiece: i.priceEurPerPiece },
     decision: i.status === "approved" ? "approve" : i.status === "rejected" ? "reject" : null,
     decidedById: i.decidedById,
+    decidedByName: i.decidedByName ?? "",
     decidedAt: at(i.decidedAt),
     comment: i.comment,
     answerSeenAt: at(i.answerSeenAt),
@@ -229,10 +245,10 @@ function warehouseItem(r: WarehouseInquiryWithQuote, emails: Map<string, string>
       grossWeightKg: d.grossWeightKg,
       note: i.note,
       requestedById: i.requestedById,
-      requestedByName: emails.get(i.requestedById) || recorded?.requestedByName || "",
+      requestedByName: emails.get(i.requestedById) || i.requestedByName || recorded?.requestedByName || "",
       requestedAt: i.requestedAt.toISOString(),
       decidedById: i.decidedById,
-      decidedByName: (i.decidedById && emails.get(i.decidedById)) || recorded?.decidedByName || null,
+      decidedByName: (i.decidedById && emails.get(i.decidedById)) || i.decidedByName || recorded?.decidedByName || null,
       decidedAt: i.decidedAt?.toISOString() ?? null,
       priceEurPerPiece: d.priceEurPerPiece,
       comment: i.comment,
@@ -534,8 +550,10 @@ class SalesQuoteService {
     const ctx = contextOf(actor, at, people);
     // Only a status the quote may be sent with can need them; read before the lock (see todaysFx).
     const today = mayStampFx(request.to) ? await todaysFx() : undefined;
-    // So is what a margin is judged with, for the moves a margin below the floor blocks.
-    const margins = MARGIN_GATED_STATUSES.includes(request.to) || request.to === "won" ? await this.marginsOf(actor.companyID, quoteNumber, at) : undefined;
+    // So is what a margin is judged with, for the moves a margin below the floor blocks: worked out
+    // from the quote as it is before the lock - its freight mode is checked again under it.
+    const before = MARGIN_GATED_STATUSES.includes(request.to) ? await salesQuoteRepository.loadSales(actor.companyID, quoteNumber) : null;
+    const margins = before ? await marginsFor(actor.companyID, [before], at) : undefined;
     const result = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
       if (request.expectedDataVersion !== undefined && request.expectedDataVersion !== quote.dataVersion) throw conflict();
       const state = stateOf(quote);
@@ -546,11 +564,21 @@ class SalesQuoteService {
       if (!change.changed) return { quote, changed: false };
       // A margin below its mode's floor goes out - or is Won without going out - only with a
       // manager's approval that covers it; pieces of 12.5 t or more only once the warehouse approved them.
+      let serverKeys: Record<string, unknown> | undefined;
       if (isGatedMove(effectiveStatus(state.status, state.validUntil, ctx.today), request.to)) {
-        const margin = margins ? roadMargin(quote.data, margins) : null;
+        // A mode chosen since the rates were read is judged against a floor nobody read: try again.
+        if (guardrailModeOf(quote.data) !== guardrailModeOf(before?.data)) throw conflict();
+        const modeGate = freightModeGateMessage(quote.data);
+        if (modeGate) throw APIError.failedPrecondition(modeGate);
+        // Judged as the quote will be once moved: a validity the sending sets is part of what an approval covers (D10).
+        const judged = isPlainObject(quote.data) ? { ...quote.data, validUntil: change.state.validUntil ?? undefined } : quote.data;
+        const margin = margins ? roadMargin(judged, margins) : null;
         if (margin?.needsApproval) throw APIError.failedPrecondition(marginGateMessage(margin));
         const inquiryGate = inquiryGateMessage(quote.data, "ready_to_send");
         if (inquiryGate) throw APIError.failedPrecondition(inquiryGate);
+        // An approval given before the quote had a validity covers the one it is sent with, and no later one.
+        const stamped = approvalWithValidity(quote.data, change.state.validUntil);
+        if (stamped) serverKeys = { marginApproval: stamped };
       }
       // The customer is given totals worked out with the ČNB rates and ROE % of the moment it is
       // sent: they are stored then and never change; back in a draft status they are dropped
@@ -560,6 +588,7 @@ class SalesQuoteService {
         state: change.state,
         entries: [change.entry],
         document,
+        ...(serverKeys ? { serverKeys } : {}),
       });
       return { quote: written, changed: true };
     });
@@ -616,6 +645,9 @@ class SalesQuoteService {
         // The quote names its revision, for the screens that lead from the one to the other.
         write: { state: replaced.state, entries: [replaced.entry], document: { replacedBy: reference } },
       };
+    }, async (tx, quote, revision) => {
+      // A question still waiting goes with the prices to the revision: there it can be answered.
+      await quoteInquiryRepository.moveOpen(actor.companyID, quote.id, { id: revision.id, quoteNumber: revision.quoteNumber }, tx);
     });
     if (!result) throw notFound();
     let warning: string | undefined;
@@ -709,7 +741,6 @@ class SalesQuoteService {
     const at = new Date();
     const [margins, people] = await Promise.all([this.marginsOf(actor.companyID, quoteNumber, at), companyPeople()]);
     const ctx = contextOf(actor, at, people);
-    let approved: QuoteMarginApproval | null = null;
     const written = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
       if (quote.dataVersion !== expectedDataVersion) throw conflict();
       const margin = margins ? roadMargin(quote.data, margins) : null;
@@ -727,10 +758,12 @@ class SalesQuoteService {
         // What the quote is now: a change of customer, mode, containers, owner or validity ends it (D10).
         basis: approvalBasisOf(quote.data),
       };
-      // Approving one's own quote is allowed, and the history says so (owner decision D9).
-      const self = quote.ownerUserId === actor.userID ? " (self-approval)" : "";
+      // A rep's question waiting about this margin is answered by the approval, in the same transaction.
+      const pending = await quoteInquiryRepository.pendingOf(actor.companyID, quote.id, tx);
+      // Approving one's own quote - or one's own question - is allowed, and the history says so (owner decision D9).
+      const self = quote.ownerUserId === actor.userID || pending?.requestedById === actor.userID ? " (self-approval)" : "";
       const comment = `Margin approved: ${formatMargin(margin.marginCzk, margin.marginPercent)} - ${why}${self}`;
-      approved = approval;
+      if (pending) await marginInquiryService.closeByDirectApproval(actor, quote, pending, approval, tx);
       return salesQuoteRepository.writeLifecycle(tx, quote, {
         state: stateOf(quote),
         entries: [pricingEntry("margin_approval", comment, ctx)],
@@ -738,8 +771,6 @@ class SalesQuoteService {
       });
     });
     if (!written) throw notFound();
-    // A rep's question waiting about this margin is answered by the approval.
-    if (approved) await marginInquiryService.closeByDirectApproval(actor, written, approved);
     return this.item(written, people, actor, at);
   }
 
@@ -872,6 +903,11 @@ class SalesQuoteService {
     const at = new Date();
     const written = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
       const inquiry = readInquiry(quote.data);
+      // An answer the quote no longer holds - a newer question replaced it - is still in the bell: its row is marked.
+      if (isUuid(inquiryId) && inquiry?.id !== inquiryId) {
+        await quoteInquiryRepository.markWarehouseSeen(actor.companyID, inquiryId, actor.userID, at, tx);
+        return quote;
+      }
       if (!inquiry || inquiry.id !== inquiryId || inquiry.requestedById !== actor.userID || inquiry.status === "pending" || inquiry.answerSeenAt) return quote;
       const seen = { ...inquiry, answerSeenAt: at.toISOString() };
       await quoteInquiryRepository.recordWarehouse(warehouseRow(quote, seen), tx);
@@ -1056,6 +1092,8 @@ class SalesQuoteService {
       }
       await salesQuoteRepository.writeLifecycle(tx, quote, { state, entries: [deletionEntry(ctx)], deleted: { by: actor.userID, at } });
       await quoteAttachmentRepository.deleteForQuote(tx, quote.quoteNumber, quote.companyId, at);
+      // A question waiting on it could never be answered: it is withdrawn with it.
+      await quoteInquiryRepository.withdrawOpenOf(quote.companyId, quote.id, actor.userID, at, tx);
       return true;
     });
     if (!deleted) throw notFound();

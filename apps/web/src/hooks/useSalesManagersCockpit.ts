@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { interfaces } from "@/lib/api";
+import { salesManagersKeys } from "@/hooks/salesQueryKeys";
 
 export type SalesManagersCockpit = interfaces.SalesManagersCockpit;
 export type SalesCockpitRow = interfaces.SalesCockpitRow;
@@ -15,7 +16,7 @@ export type SalesCockpitMode = interfaces.SalesCockpitMode;
  */
 export const useSalesManagersCockpit = (mode: SalesCockpitMode, enabled: boolean) => {
   const query = useQuery({
-    queryKey: ["sales", "managers-cockpit", mode],
+    queryKey: salesManagersKeys.cockpitOf(mode),
     queryFn: async () => (await api.sales.salesManagersCockpit({ mode })).cockpit,
     enabled,
     // Clocks move with time as well as with edits.

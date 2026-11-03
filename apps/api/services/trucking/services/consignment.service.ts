@@ -40,6 +40,7 @@ import type { WarehouseExceptionItem } from "../interfaces/avizace.interfaces";
 import type { QuoteRoadPricing } from "../../quotes/interfaces/interfaces";
 import { addDays, businessDay } from "../../../lib/businessDate";
 import { isUuid } from "../../../lib/uuid";
+import { namesReferenceNumber } from "../../../lib/jobNumber";
 import type { Actor } from "../../../lib/rbac";
 import {
   cleanFields,
@@ -351,7 +352,10 @@ class ConsignmentService {
           !search ||
           [i.ref, i.jobNumber, i.customerName, i.pickupCity, i.pickupPostcode, i.deliveryCity, i.deliveryPostcode, i.tripRef ?? "", i.haulierName ?? ""].some((v) =>
             v.toLowerCase().includes(search),
-          ),
+          ) ||
+          // A consignment keeps the job reference it copied, while the job's letters follow its
+          // Freight Mode: CZ00000023 and CZROAD00000023 find each other by the number.
+          namesReferenceNumber(i.jobNumber, search),
       );
     // Job updates that failed or wait too long need attention too.
     const items = await addUnsentReasons(actor.companyID, listed);

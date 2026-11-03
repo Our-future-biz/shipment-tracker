@@ -33,6 +33,9 @@ describe("statusSinceOf", () => {
   it("falls back to when the quote was created", () => {
     expect(statusSinceOf({}, created)).toBe(created.toISOString());
     expect(statusSinceOf({ timeline: "broken" }, created)).toBe(created.toISOString());
+    // A moment that is no date (a browser wrote it) is no moment: the creation stands in, never the text.
+    expect(statusSinceOf({ timeline: [{ at: "13.10.2026 14:05", status: "ready_to_send" }] }, created)).toBe(created.toISOString());
+    expect(statusSinceOf({ timeline: [{ at: "2026-10-05T10:00:00+02:00", status: "quoted" }] }, created)).toBe("2026-10-05T08:00:00.000Z");
   });
 });
 

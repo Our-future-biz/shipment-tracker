@@ -29,7 +29,7 @@ interface GuardrailsResponse {
 }
 
 async function guardrailsOf(companyId: string, role: string): Promise<GuardrailsResponse> {
-  const [settings, stored] = await Promise.all([companyGuardrails(companyId), quoteGuardrailRepository.list(companyId)]);
+  const [{ settings }, stored] = await Promise.all([companyGuardrails(companyId), quoteGuardrailRepository.list(companyId)]);
   return {
     guardrails: GUARDRAIL_MODES.map((mode: GuardrailMode) => ({
       serviceType: mode,

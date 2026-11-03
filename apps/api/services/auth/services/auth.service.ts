@@ -5,6 +5,7 @@ import { secret } from "encore.dev/config";
 import { SignJWT, jwtVerify } from "jose";
 import { isLocked, passwordRefusal, throttleKey, type FailureRule } from "../../../lib/loginRules";
 import { isCompanyRole, isAdminLevel } from "../../../lib/rbac";
+import { isUuid } from "../../../lib/uuid";
 import { loginThrottleRepository } from "../repositories/loginThrottle.repository";
 import { userRepository, type UserPatch } from "../repositories/user.repository";
 import { companyRepository } from "../repositories/company.repository";
@@ -215,6 +216,8 @@ class AuthService {
     }
     const updated = await userRepository.updateInCompany(id, companyId, changes);
     if (!updated) throw userNotFound();
+    // A manager made a standard user is no longer whom anybody reports to.
+    if (MANAGES.includes(target.role) && !MANAGES.includes(updated.role)) await userRepository.clearReportsTo(companyId, id);
     forgetSession(id);
     return this.#toInfo(updated);
   }
@@ -228,6 +231,8 @@ class AuthService {
     }
     assertSuperadminTouchedBySuperadmin(target.role, actor.role);
     if (!(await userRepository.softDeleteInCompany(id, companyId))) throw userNotFound();
+    // Nobody reports to a user who left: their questions go to the admins at once.
+    await userRepository.clearReportsTo(companyId, id);
     forgetSession(id);
   }
 
@@ -333,12 +338,16 @@ class AuthService {
       placement.branchId = input.branchId || null;
     }
     if (input.reportsToUserId !== undefined) {
+      let reportsTo: string | null = null;
       if (input.reportsToUserId) {
-        if (input.reportsToUserId === userId) throw APIError.invalidArgument("A user cannot report to themselves");
+        if (!isUuid(input.reportsToUserId)) throw APIError.invalidArgument("Reports to must be a user id");
         const manager = await userRepository.getByIdInCompany(input.reportsToUserId, companyId);
         if (!manager || !MANAGES.includes(manager.role)) throw APIError.invalidArgument("Reports to must be a manager or admin of the company");
+        // Compared as the database found them: an id in other letters is still the same user.
+        if (manager.id === userId) throw APIError.invalidArgument("A user cannot report to themselves");
+        reportsTo = manager.id;
       }
-      placement.reportsToUserId = input.reportsToUserId || null;
+      placement.reportsToUserId = reportsTo;
     }
     return placement;
   }

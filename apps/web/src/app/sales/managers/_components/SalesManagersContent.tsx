@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Alert, Button, Modal, Spin, Table, Tabs, Tag } from "antd";
 import { WarningFilled } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
@@ -13,10 +13,12 @@ import { useSalesPermissions } from "@/hooks/useSalesPermissions";
 import { useSalesManagersCockpit, type SalesCockpitMode, type SalesCockpitRow, type SalesManagersCockpit as Cockpit } from "@/hooks/useSalesManagersCockpit";
 import { SalesPage } from "../../_components/SalesPage";
 import { QuoteStatusPill } from "../../_components/QuoteStatusPill";
+import { officeTime } from "../../_lib/officeTime";
 import { quoteHref } from "../../_lib/quoteHref";
-import { SALES_PAGES } from "../../_lib/tabs";
+import { SALES_PAGES, salesManagersHref, type SalesManagersTab } from "../../_lib/tabs";
 import { OPEN_QUOTE_STATUSES, serviceTypeLabel, type QuoteStatus } from "../../_lib/types";
 import { useMarginInquiries } from "@/hooks/useMarginInquiries";
+import { COCKPIT_MODES, cockpitModeOf, inCockpitMode } from "../_lib/cockpitModes";
 import { SalesQuoteInquiries } from "./SalesQuoteInquiries";
 
 // Sales → Managers (Council Outlay 6, step 2): what the sales team needs from a manager today.
@@ -29,13 +31,6 @@ const PAGE = SALES_PAGES.managers;
 // A card lists only its first few; the count shows the total and the link opens them all.
 const VISIBLE_ROWS = 3;
 
-const MODES: { key: SalesCockpitMode; label: string }[] = [
-  { key: "all", label: "All" },
-  { key: "sea", label: "Sea" },
-  { key: "air", label: "Air" },
-  { key: "rail", label: "Rail" },
-  { key: "road", label: "Road" },
-];
 // The Quotes list filters by one freight mode; Sea is three of them, so it is not passed on.
 const LIST_SERVICE: Partial<Record<SalesCockpitMode, string>> = { air: "Air", rail: "Rail", road: "Road" };
 
@@ -63,8 +58,8 @@ type TileKey = keyof Cockpit["tiles"];
 interface TileDef {
   key: Exclude<TileKey, "openSellingCzk">;
   label: string;
-  /** Where the tile leads: a list the Quotes page reads from its address, or Quote inquiries. */
-  href: (service: string | undefined) => string;
+  /** Where the tile leads: a list the Quotes page reads from its address, or Quote inquiries of the same mode. */
+  href: (service: string | undefined, mode: SalesCockpitMode) => string;
   danger?: boolean;
 }
 const quotesHref = (params: Record<string, string>, service: string | undefined) =>
@@ -72,7 +67,8 @@ const quotesHref = (params: Record<string, string>, service: string | undefined)
 const OPEN = OPEN_QUOTE_STATUSES.join(",");
 const TILES: TileDef[] = [
   { key: "openQuotes", label: "Open quotes", href: (s) => quotesHref({ status: OPEN }, s) },
-  { key: "awaitingApproval", label: "Awaiting approval", href: () => `${PAGE.path}?tab=inquiries`, danger: true },
+  // Counted for the freight mode on screen, so it opens the inquiries of that mode.
+  { key: "awaitingApproval", label: "Awaiting approval", href: (_, mode) => salesManagersHref({ tab: "inquiries", mode }), danger: true },
   { key: "followUpDue", label: "Follow-up due", href: (s) => quotesHref({ followup: "due" }, s), danger: true },
   { key: "draftsToFinish", label: "Drafts to finish", href: (s) => quotesHref({ status: "draft" }, s) },
   { key: "validSoon", label: "Valid until ≤ 7 days", href: (s) => quotesHref({ status: OPEN, valid: "7", sort: "validUntil" }, s) },
@@ -145,7 +141,7 @@ const DIALOG_COLUMNS: ColumnsType<SalesCockpitRow> = [
   { ...signalsColumn, render: (_: unknown, r: SalesCockpitRow) => tagList(r) },
 ];
 
-function Tiles({ cockpit, isLoading, isError, service }: { cockpit: Cockpit | null; isLoading: boolean; isError: boolean; service: string | undefined }) {
+function Tiles({ cockpit, isLoading, isError, service, mode }: { cockpit: Cockpit | null; isLoading: boolean; isError: boolean; service: string | undefined; mode: SalesCockpitMode }) {
   const valueOf = (key: TileDef["key"]): string => {
     // A failed request must not read as "nothing to do".
     if (!cockpit) return isLoading ? "…" : isError ? "–" : "0";
@@ -160,7 +156,7 @@ function Tiles({ cockpit, isLoading, isError, service }: { cockpit: Cockpit | nu
         return (
           <Link
             key={t.key}
-            href={t.href(service)}
+            href={t.href(service, mode)}
             aria-label={`${t.label}: ${value}`}
             className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-200 bg-white text-[13px] !text-slate-600 hover:border-slate-300 hover:bg-slate-50 transition-colors"
           >
@@ -199,14 +195,6 @@ function HealthLine({ cockpit }: { cockpit: Cockpit }) {
   );
 }
 
-/** "45 min", "3 h", "1 office day 2 h" of office minutes (an office day = 9 hours), as the cards say it. */
-function officeTime(minutes: number): string {
-  if (minutes < 60) return `${minutes} min`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 9) return `${hours} h`;
-  const rest = hours % 9;
-  return `${plural(Math.floor(hours / 9), "office day")}${rest ? ` ${rest} h` : ""}`;
-}
 const pct = (v: number | null) => (v === null ? "–" : `${v} %`);
 
 function Line({ label, children }: { label: string; children: React.ReactNode }) {
@@ -307,25 +295,21 @@ export function SalesManagersContent() {
 
 function SalesManagersCockpit() {
   const router = useRouter();
-  const pathname = usePathname();
   const searchParams = useSearchParams();
-  // The freight mode lives in the address (?mode=), so it survives a reload and can be linked to.
-  // The tab (?tab=inquiries) and the cockpit's freight mode (?mode=) live in the address, so they
-  // survive a reload and a bell item can link to the inquiries.
-  const tab: "cockpit" | "inquiries" = searchParams.get("tab") === "inquiries" ? "inquiries" : "cockpit";
-  const mode: SalesCockpitMode = MODES.find((m) => m.key === searchParams.get("mode"))?.key ?? "all";
-  const go = (next: { tab?: "cockpit" | "inquiries"; mode?: SalesCockpitMode }) => {
-    const params = new URLSearchParams();
-    const t = next.tab ?? tab;
-    const m = next.mode ?? mode;
-    if (t === "inquiries") params.set("tab", t);
-    else if (m !== "all") params.set("mode", m);
-    const qs = params.toString();
-    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
-  };
+  // The tab (?tab=inquiries) and the freight mode (?mode=) live in the address, so they survive a
+  // reload and a bell item can link to the inquiries. The mode filters both tabs, and stays when
+  // the tab changes.
+  const tab: SalesManagersTab = searchParams.get("tab") === "inquiries" ? "inquiries" : "cockpit";
+  const mode = cockpitModeOf(searchParams.get("mode"));
+  const go = (next: { tab?: SalesManagersTab; mode?: SalesCockpitMode }) =>
+    router.replace(salesManagersHref({ tab: next.tab ?? tab, mode: next.mode ?? mode }), { scroll: false });
   const setMode = (next: SalesCockpitMode) => go({ mode: next });
   const { cockpit, isLoading, isError } = useSalesManagersCockpit(mode, tab === "cockpit");
-  const { waiting: inquiriesWaiting } = useMarginInquiries();
+  // The list of questions is read only where it is shown. The tab's count is the cockpit's
+  // Awaiting approval there - the same mode, the same figure as the tile.
+  const { inquiries } = useMarginInquiries({ enabled: tab === "inquiries" });
+  const inquiriesWaiting =
+    tab === "inquiries" ? inquiries.filter((r) => r.inquiry.status === "pending" && inCockpitMode(r.serviceType, mode)).length : (cockpit?.tiles.awaitingApproval ?? 0);
   const [openCard, setOpenCard] = useState<CardKey | null>(null);
   const service = LIST_SERVICE[mode];
 
@@ -400,7 +384,7 @@ function SalesManagersCockpit() {
     >
       <Tabs
         activeKey={tab}
-        onChange={(k) => go({ tab: k as "cockpit" | "inquiries" })}
+        onChange={(k) => go({ tab: k as SalesManagersTab })}
         className="[&>.ant-tabs-nav]:!mb-0"
         items={[
           { key: "cockpit", label: "Cockpit" },
@@ -416,15 +400,15 @@ function SalesManagersCockpit() {
         ]}
       />
 
+      <div role="group" aria-label="Freight mode">
+        <PillTabs tabs={COCKPIT_MODES} active={mode} onChange={setMode} />
+      </div>
+
       {tab === "inquiries" ? (
-        <SalesQuoteInquiries />
+        <SalesQuoteInquiries mode={mode} />
       ) : (
         <>
-          <div role="group" aria-label="Freight mode">
-            <PillTabs tabs={MODES} active={mode} onChange={setMode} />
-          </div>
-
-          <Tiles cockpit={cockpit} isLoading={isLoading} isError={isError} service={service} />
+          <Tiles cockpit={cockpit} isLoading={isLoading} isError={isError} service={service} mode={mode} />
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {renderCard("urgent")}

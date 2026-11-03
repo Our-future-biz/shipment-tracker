@@ -13,6 +13,8 @@ export interface QuoteRates {
   rates: Record<string, number | null>;
   /** The ROE % a draft's selling lines in another currency carry (100 = pure ČNB). */
   roePct: number;
+  /** Today's sheet could not be loaded at all: a missing rate then says so rather than "no rate". */
+  unavailable?: boolean;
 }
 
 export interface QuoteMargin {
@@ -115,7 +117,12 @@ export function quoteMargin(data: unknown, ctx: QuoteRates): QuoteMargin | null 
   const czk = rateOf(to, data, ctx);
   if (czk === null) missing.add(to);
   const inCzk = (amount: number) => (czk === null ? 0 : roundCents(amount * czk));
-  const problem = missing.size ? [...missing].sort().map((c) => `No ČNB rate for ${c} on ${ctx.today}`).join("; ") : null;
+  const needed = [...missing].sort();
+  const problem = !needed.length
+    ? null
+    : ctx.unavailable
+      ? `Today's ČNB rates could not be loaded (${needed.join(", ")} needed) - try again in a moment`
+      : needed.map((c) => `No ČNB rate for ${c} on ${ctx.today}`).join("; ");
   const empty = !sellingLines.length && !buyingLines.length;
   const marginCzk = problem || empty ? null : inCzk(profit);
   return {

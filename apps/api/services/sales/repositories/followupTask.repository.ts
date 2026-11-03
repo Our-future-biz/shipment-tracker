@@ -128,7 +128,6 @@ class FollowupTaskRepository extends TenantRepository<typeof followupTaskTable> 
     return rows.length;
   }
 
-  /** The customers the company's live tasks are linked to, by the name each task has, with how many tasks. */
   /**
    * The company's open tasks the Sales managers' cockpit shows: assigned to nobody, or due on
    * `dueBy` or earlier. At most `limit`, the oldest due first.
@@ -149,6 +148,7 @@ class FollowupTaskRepository extends TenantRepository<typeof followupTaskTable> 
       .limit(limit);
   }
 
+  /** The customers the company's live tasks are linked to, by the name each task has, with how many tasks. */
   async customerLinks(companyId: string): Promise<{ customerId: string; customerLabel: string; count: number }[]> {
     const rows = await this.db
       .select({ customerId: followupTaskTable.customerId, customerLabel: followupTaskTable.customerLabel, count: count() })

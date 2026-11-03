@@ -2,11 +2,13 @@
 // The number is the company's CZ sequence; letters after "CZ" say what the job is, by its Freight
 // Mode and Load Type: CZAIR00000023, CZFCL…, CZLCL…, CZBB…, CZPROJECT…, CZRAIL…, CZROAD….
 // A Project Shipment is CZPROJECT by any freight mode. While the letters can't be told yet (Sea
-// Freight without a Load Type, no Freight Mode) the reference is plain CZ00000023.
+// Freight without a Load Type, no Freight Mode) the reference is plain CZ00000023. How a
+// reference is read, sorted and searched is shared with the other services (lib/jobNumber).
 
-/** The letters a reference may carry after "CZ", longest first so a pattern tries them in order. */
-export const JOB_NUMBER_LETTERS = ["PROJECT", "RAIL", "ROAD", "AIR", "FCL", "LCL", "BB"] as const;
-export type JobNumberLetters = (typeof JOB_NUMBER_LETTERS)[number];
+import { jobNumberDigits, type JobNumberLetters } from "../../../lib/jobNumber";
+
+/** The Invoicing Status of a job that is invoiced - by an invoice issued here, or marked so by hand. */
+export const INVOICED_STATUS = "Invoiced";
 
 const same = (a: string | null | undefined, b: string) => (a ?? "").trim().toLowerCase() === b.toLowerCase();
 
@@ -24,24 +26,6 @@ export function jobNumberLetters(freightMode: string | null | undefined, loadTyp
   return "";
 }
 
-/** A Postgres / JS pattern of the optional letters right after "CZ" (no capture group). */
-export const LETTERS_PATTERN = `(?:${JOB_NUMBER_LETTERS.join("|")})?`;
-
-const REFERENCE = new RegExp(`^CZ${LETTERS_PATTERN}([0-9]+)$`);
-
-/** The digits of a CZ reference, with or without letters ("00000023"); null for any other text. */
-export function jobNumberDigits(jobNumber: string): string | null {
-  return REFERENCE.exec(jobNumber.trim())?.[1] ?? null;
-}
-
-/** Orders references by their number (the order they were made in), whatever their letters; other text after them. */
-export function compareJobNumbers(a: string, b: string): number {
-  const [x, y] = [jobNumberDigits(a), jobNumberDigits(b)];
-  if (x !== null && y !== null && x !== y) return Number(x) - Number(y);
-  if ((x === null) !== (y === null)) return x === null ? 1 : -1;
-  return a.localeCompare(b);
-}
-
 /**
  * The reference with the letters this Freight Mode and Load Type give it, the number kept:
  * CZ00000023 by Air → CZAIR00000023. Text that is no CZ reference stays as it is.
@@ -49,4 +33,20 @@ export function compareJobNumbers(a: string, b: string): number {
 export function jobNumberFor(jobNumber: string, freightMode: string | null | undefined, loadType: string | null | undefined): string {
   const digits = jobNumberDigits(jobNumber);
   return digits === null ? jobNumber : `CZ${jobNumberLetters(freightMode, loadType)}${digits}`;
+}
+
+/** What the shipment row itself says about whether its reference is final. */
+export interface ReferenceState {
+  jobNumberFinal: boolean;
+  invoicingStatus: string;
+}
+
+/**
+ * Whether the shipment row says its reference is final, so its letters no longer follow the
+ * Freight Mode and Load Type: Invoicing took it for an invoice number (jobNumberFinal), or the job
+ * is marked Invoiced (by hand too - a job invoiced outside the system). A job invoiced before the
+ * flag existed is known to Invoicing alone (ShipmentService.hasHadInvoice).
+ */
+export function referenceIsFinal(row: ReferenceState): boolean {
+  return row.jobNumberFinal || same(row.invoicingStatus, INVOICED_STATUS);
 }

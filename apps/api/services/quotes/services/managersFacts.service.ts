@@ -1,6 +1,7 @@
 import log from "encore.dev/log";
 import { customers } from "~encore/clients";
 import { addDays, businessDay } from "../../../lib/businessDate";
+import { COCKPIT_EXPIRED_DAYS, COCKPIT_WON_DAYS } from "../../../lib/salesCockpitWindows";
 import { quoteMargin } from "../lib/quoteMargin";
 import { roadMargin } from "../lib/roadMargin";
 import { companyPeople } from "../lib/people";
@@ -26,10 +27,9 @@ import { median, overLimitCzk, statusSinceOf, type CreditFacts } from "../utils/
 
 /** Quotes read at most; past it the cockpit says it shows part of them. */
 export const MANAGERS_ROWS_LIMIT = 2000;
-/** Expired quotes stay on the cockpit this many days after their validity ended. */
-const EXPIRED_DAYS = 7;
-/** Won quotes with a shipment are read this many days back (a loss is still news). */
-const WON_DAYS = 30;
+/** Expired quotes stay on the cockpit this many days after their validity ended; Won quotes with a shipment are read this many days back (a loss is still news). */
+const EXPIRED_DAYS = COCKPIT_EXPIRED_DAYS;
+const WON_DAYS = COCKPIT_WON_DAYS;
 /** The audit line counts this many days. */
 export const AUDIT_DAYS = 7;
 /** The team line counts this many days. */
@@ -83,7 +83,8 @@ export function factOf(
     wonRevision: isWonRevision(state.status, data),
     statusSince: statusSinceOf(data, row.createdAt),
     approvalAt: road?.approval && road.approvalValid ? road.approval.at : null,
-    approvalLapsed: road?.approval && !road.approvalValid ? (road.approvalEnded ?? (road.marginCzk === null ? "the margin can't be worked out" : "the margin got worse")) : null,
+    // Only while the margin still needs one: an approval nobody needs any more lapses unnoticed.
+    approvalLapsed: road?.approval && road.belowFloor && !road.approvalValid ? (road.approvalEnded ?? (road.marginCzk === null ? "the margin can't be worked out" : "the margin got worse")) : null,
     credit: credit ? { overdueCount: credit.overdueCount, oldestOverdueDue: credit.oldestOverdueDue, overLimitCzk: overLimitCzk(credit, sheet) } : null,
     warehouseInquiry: inquiry ? { status: inquiry.status, requestedAt: inquiry.requestedAt } : null,
     marginInquiry: pending
@@ -112,10 +113,11 @@ class ManagersFactsService {
     );
     const customerIds = [...new Set(rows.map((r) => r.customerId).filter((id): id is string => !!id))];
     const teamSince = new Date(now.getTime() - TEAM_DAYS * DAY);
-    const [people, sheet, margins, pending, credits, team, asked, unseen] = await Promise.all([
+    // One sheet for the margins and the credit: read once, so the two cannot disagree.
+    const sheet = await todaysSheet(now);
+    const [people, margins, pending, credits, team, asked, unseen] = await Promise.all([
       companyPeople(),
-      todaysSheet(now),
-      marginsFor(companyId, rows, now),
+      marginsFor(companyId, rows, now, sheet),
       quoteInquiryRepository.pending(companyId),
       // A customer nobody can read leaves its quotes without credit facts: the cockpit stays up.
       customers._internalCustomerCreditFacts({ customerIds }).then(
@@ -149,6 +151,8 @@ class ManagersFactsService {
       medianOfficeMinutesToDecide: median(recent.filter(decidedIn).map((r) => officeMinutesBetween(r.requestedAt, r.decidedAt!))),
     };
     const inTeam = asked.filter((r) => r.requestedAt.getTime() >= teamSince.getTime());
+    // Quotes asked about, not questions: one asked again after a rejection counts once.
+    const quotesAsked = new Set(inTeam.map((r) => r.quoteId)).size;
 
     // Questions waiting on a quote that can no longer be sent, and answers nobody will open.
     const open = new Map(quotes.map((q) => [q.quoteNumber, q]));
@@ -158,8 +162,11 @@ class ManagersFactsService {
         return !q || (!ASKABLE.has(q.shownStatus) && !q.wonRevision);
       })
       .map((p) => p.quoteNumber);
+    // Nobody known means the users could not be read, not that everybody left: nothing is flagged then.
     const active = new Set(people.users.map((u) => u.id));
-    const answersNobodyReceived = unseen.filter((u) => !active.has(u.requestedById) && !(u.ownerUserId && active.has(u.ownerUserId))).map((u) => u.quoteNumber);
+    const answersNobodyReceived = active.size
+      ? unseen.filter((u) => !active.has(u.requestedById) && !(u.ownerUserId && active.has(u.ownerUserId))).map((u) => u.quoteNumber)
+      : [];
 
     return {
       today,
@@ -169,7 +176,7 @@ class ManagersFactsService {
       team: {
         days: TEAM_DAYS,
         ...team,
-        asked: inTeam.length,
+        asked: quotesAsked,
         approved: inTeam.filter((r) => r.status === "approved").length,
         rejected: inTeam.filter((r) => r.status === "rejected").length,
       },

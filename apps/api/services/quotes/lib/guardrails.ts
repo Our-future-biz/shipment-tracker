@@ -34,6 +34,9 @@ export const DEFAULT_GUARDRAILS: Record<Exclude<GuardrailMode, "Road">, { percen
 
 export type GuardrailSettings = Record<GuardrailMode, GuardrailSetting>;
 
+/** Trucking's own starting floor (trucking lib/settingsRules DEFAULT_MARGIN_FLOOR): Road's stand-in while Trucking's cannot be read. */
+export const ROAD_FALLBACK_FLOOR = { percent: 8, minAmountCzk: 300 };
+
 /** The company's settings: its stored floors over the defaults, and Trucking's floor for Road. */
 export function guardrailSettings(stored: { serviceType: string; percent: number; minAmountCzk: number }[], road: { percent: number; minAmountCzk: number }): GuardrailSettings {
   const out = { Road: { ...road, perContainer: false } } as GuardrailSettings;

@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { InputNumber, Segmented } from "antd";
 import { CheckOutlined, CloseOutlined, MessageOutlined } from "@ant-design/icons";
@@ -8,10 +8,15 @@ import { useToast } from "@/lib/toast";
 import { apiErrorMessage } from "@/lib/api";
 import { formatDateTime } from "@/lib/date";
 import { formatAmount } from "@/lib/money";
+import { formatPercent } from "@/lib/number";
 import { useMarginInquiries, type MarginInquiryRow } from "@/hooks/useMarginInquiries";
+import type { SalesCockpitMode } from "@/hooks/useSalesManagersCockpit";
 import { useWarehouseInquiries } from "@/hooks/useWarehouseInquiries";
-import { quoteHref } from "../../_lib/quoteHref";
+import { officeTime } from "../../_lib/officeTime";
+import { quoteChatHref, quoteHref } from "../../_lib/quoteHref";
+import { floorText, marginText } from "../../_lib/roadQuote";
 import { serviceTypeLabel } from "../../_lib/types";
+import { COCKPIT_MODES, inCockpitMode } from "../_lib/cockpitModes";
 
 // Sales → Managers → Quote inquiries (Council Outlay 6, step 3): reps ask a manager to approve a
 // margin below the floor. A manager approves it, approves it down to a counter margin, rejects it,
@@ -26,9 +31,7 @@ const LABEL = "block text-[11px] font-extrabold tracking-[.07em] uppercase mb-1"
 
 type Answering = { id: string; decision: "approve" | "counter" | "reject" };
 
-const czk = (n: number | null) => (n === null ? "unknown" : formatAmount(Math.round(n), "CZK"));
-const pct = (n: number | null) => (n === null ? "" : ` (${Number(n.toFixed(1))} %)`);
-const officeTime = (minutes: number) => (minutes < 60 ? `${minutes} min` : minutes < 9 * 60 ? `${Math.floor(minutes / 60)} h` : `${Math.floor(minutes / 540)} office day${minutes >= 1080 ? "s" : ""}`);
+const czk = (n: number) => formatAmount(Math.round(n), "CZK");
 
 function AnswerPill({ row }: { row: MarginInquiryRow }) {
   const i = row.inquiry;
@@ -37,22 +40,36 @@ function AnswerPill({ row }: { row: MarginInquiryRow }) {
   return (
     <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-0.5 text-[12px] font-semibold text-emerald-700">
       {i.decision === "counter" ? "Approved down to " : "Approved · "}
-      {czk(i.approvedMarginCzk)}
-      {pct(i.approvedMarginPercent)}
+      {marginText(i.approvedMarginCzk, i.approvedMarginPercent)}
     </span>
   );
 }
 
-export function SalesQuoteInquiries() {
+/** The questions of one freight mode (the page's ?mode=), as the cockpit's Awaiting approval counts them. */
+export function SalesQuoteInquiries({ mode }: { mode: SalesCockpitMode }) {
   const toast = useToast();
-  const { inquiries, waiting, isLoading, isError, decide } = useMarginInquiries();
+  const { inquiries: all, isLoading, isError, decide } = useMarginInquiries();
   const { waiting: warehouseWaiting } = useWarehouseInquiries();
   const [view, setView] = useState<"waiting" | "answered">("waiting");
   const [answering, setAnswering] = useState<Answering | null>(null);
   const [counter, setCounter] = useState<number | null>(null);
   const [comment, setComment] = useState("");
+  // The question this manager's own answer is on its way for: its row turning answered is no news.
+  const ownAnswer = useRef<string | null>(null);
 
+  const inquiries = all.filter((r) => inCockpitMode(r.serviceType, mode));
+  const waiting = inquiries.filter((r) => r.inquiry.status === "pending").length;
   const listed = inquiries.filter((r) => (view === "waiting" ? r.inquiry.status === "pending" : r.inquiry.status !== "pending"));
+  // Another manager answered (or the rep withdrew) the question being answered here: the form
+  // closes, and says why, rather than send an answer the server would refuse.
+  const answeredRow = answering ? all.find((r) => r.inquiry.id === answering.id) : undefined;
+  const answeredElsewhere = !!answering && answering.id !== ownAnswer.current && !!answeredRow && answeredRow.inquiry.status !== "pending";
+  useEffect(() => {
+    if (!answeredElsewhere || !answeredRow) return;
+    setAnswering(null);
+    const i = answeredRow.inquiry;
+    toast.info(i.status === "withdrawn" ? `${i.quoteNumber}: the question was withdrawn meanwhile` : `${i.quoteNumber}: ${i.decidedByName || "another manager"} answered it meanwhile`);
+  }, [answeredElsewhere, answeredRow, toast]);
   const start = (r: MarginInquiryRow, decision: Answering["decision"]) => {
     setAnswering({ id: r.inquiry.id, decision });
     setCounter(decision === "counter" ? r.inquiry.snapshot.floorMinCzk : null);
@@ -60,6 +77,7 @@ export function SalesQuoteInquiries() {
   };
   const save = (r: MarginInquiryRow) => {
     if (!answering) return;
+    ownAnswer.current = r.inquiry.id;
     decide
       .mutateAsync({ quoteNumber: r.inquiry.quoteNumber, inquiryId: r.inquiry.id, decision: answering.decision, counterMarginCzk: answering.decision === "counter" ? counter : null, comment })
       .then(() => {
@@ -67,10 +85,21 @@ export function SalesQuoteInquiries() {
         toast.success(`${r.inquiry.quoteNumber} ${what} — ${r.inquiry.requestedByName || "the rep"} is notified`);
         setAnswering(null);
       })
-      .catch((e) => toast.error(apiErrorMessage(e)));
+      .catch((e) => {
+        // Refused - perhaps because somebody answered first: the list read again then closes the form.
+        ownAnswer.current = null;
+        toast.error(apiErrorMessage(e));
+      });
   };
 
-  const empty = isError ? "Could not load the inquiries." : isLoading ? "Loading…" : view === "waiting" ? "No discount waiting for a manager." : "No answers in the last 30 days.";
+  const inMode = mode === "all" ? "" : ` for ${COCKPIT_MODES.find((m) => m.key === mode)?.label ?? mode}`;
+  const empty = isError
+    ? "Could not load the inquiries."
+    : isLoading
+      ? "Loading…"
+      : view === "waiting"
+        ? `No discount waiting for a manager${inMode}.`
+        : `No answers in the last 30 days${inMode}.`;
 
   return (
     <div className="flex flex-col gap-3">
@@ -114,7 +143,8 @@ export function SalesQuoteInquiries() {
                 const s = i.snapshot;
                 const now = r.margin;
                 const changed = i.status === "pending" && now?.marginCzk != null && s.marginCzk !== null && now.marginCzk < s.marginCzk - 1;
-                const open = answering?.id === i.id ? answering : null;
+                // Only a question still waiting is answered.
+                const open = i.status === "pending" && answering?.id === i.id ? answering : null;
                 return (
                   <Fragment key={i.id}>
                     <tr className="border-b border-slate-100 align-top">
@@ -132,18 +162,12 @@ export function SalesQuoteInquiries() {
                           Selling {czk(s.sellingCzk)} · buying {czk(s.buyingCzk)}
                         </div>
                         <div>
-                          <span className="font-semibold text-red-600">
-                            {czk(s.marginCzk)}
-                            {pct(s.marginPercent)}
-                          </span>{" "}
-                          <span className="text-slate-500">
-                            vs {s.floorPercent} % / {czk(s.floorMinCzk)}
-                          </span>
+                          <span className="font-semibold text-red-600">{marginText(s.marginCzk, s.marginPercent)}</span>{" "}
+                          <span className="text-slate-500">vs {floorText(s)}</span>
                         </div>
                         {changed && (
                           <div className="text-[12px] font-semibold text-red-600">
-                            Changed since asked: now {czk(now!.marginCzk)}
-                            {pct(now!.marginPercent)}
+                            Changed since asked: now {marginText(now!.marginCzk, now!.marginPercent)}
                           </div>
                         )}
                       </td>
@@ -179,7 +203,7 @@ export function SalesQuoteInquiries() {
                               <CloseOutlined className="text-[14px]" />
                               Reject
                             </button>
-                            <Link href={`/sales/quotes?chat=${encodeURIComponent(i.quoteNumber)}`} className={`${BUTTON} !text-slate-700 hover:border-indigo-400`}>
+                            <Link href={quoteChatHref(i.quoteNumber)} className={`${BUTTON} !text-slate-700 hover:border-indigo-400`}>
                               <MessageOutlined className="text-[14px]" />
                               Ask back
                             </Link>
@@ -205,7 +229,7 @@ export function SalesQuoteInquiries() {
                               <label className="block">
                                 <span className={`${LABEL} text-emerald-700`}>Lowest margin you accept (CZK)</span>
                                 <InputNumber autoFocus min={0} precision={0} value={counter} onChange={(v) => setCounter(v)} aria-label="Lowest margin you accept in CZK" className="!w-[180px]" />
-                                {counter !== null && s.sellingCzk > 0 && <span className="ml-2 text-[12px] text-slate-500">= {Number(((counter / s.sellingCzk) * 100).toFixed(1))} % of today&apos;s selling</span>}
+                                {counter !== null && s.sellingCzk > 0 && <span className="ml-2 text-[12px] text-slate-500">= {formatPercent((counter / s.sellingCzk) * 100)} of the selling when asked</span>}
                               </label>
                             )}
                             <label className="block flex-1 min-w-[260px]">

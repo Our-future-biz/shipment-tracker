@@ -1,13 +1,25 @@
 import { businessDay } from "../../../lib/businessDate";
 import { canApproveMargin, ownerChangeRight, quoteDeletePermission, type OwnerChangeRight } from "../../../lib/salesPolicy";
-import { marginGateMessage, roadMargin, type MarginContext } from "../lib/roadMargin";
+import { freightModeGateMessage, marginGateMessage, roadMargin, type MarginContext } from "../lib/roadMargin";
 import { inquiryGateMessage } from "./warehouseInquiry.utils";
 import type { RoadMargin, SalesQuoteItem } from "../interfaces/interfaces";
 import type { SalesQuoteRecord } from "../schemas/quote.schema";
 import { isPlainObject, isWonRevision } from "./quoteDocument.utils";
-import { allowedTransitions, effectiveStatus, isFollowUpDue, keepsGivenTerms, lastContact, stateOf, wasEverSent, type LifecycleState } from "./quoteLifecycle.utils";
+import { PRICING_CLOSED, allowedTransitions, effectiveStatus, isFollowUpDue, keepsGivenTerms, lastContact, stateOf, wasEverSent, type LifecycleState } from "./quoteLifecycle.utils";
 
 const iso = (at: Date | null) => at?.toISOString() ?? null;
+
+/**
+ * Why the quote cannot go out now - or be Won without going out - or null. Only a quote whose
+ * prices are open is held (a draft, ready to send, a revision, a Won quote's revision): one that
+ * went out passed the gates when it was sent, and is not held again (Council Outlay 6).
+ */
+function sendBlockedOf(row: SalesQuoteRecord, shown: string, margin: RoadMargin | null): string | null {
+  if (PRICING_CLOSED.includes(shown) && !isWonRevision(row.status, row.data)) return null;
+  const mode = freightModeGateMessage(row.data);
+  if (mode) return mode;
+  return margin?.needsApproval ? marginGateMessage(margin) : inquiryGateMessage(row.data, "ready_to_send");
+}
 
 // The road margin with the manager who approved it shown by e-mail as the users have it now (an
 // older approval recorded a display name); somebody no longer among the users keeps what was recorded.
@@ -50,6 +62,7 @@ export function toItem(
   const today = businessDay(now);
   const margin = margins ? roadMargin(row.data, margins) : null;
   const everSent = wasEverSent(state, isPlainObject(row.data) ? row.data.timeline : undefined);
+  const shown = effectiveStatus(state.status, state.validUntil, today);
   const deletion = quoteDeletePermission(actor, { ...state, everSent });
   return {
     id: row.id,
@@ -60,7 +73,7 @@ export function toItem(
     updatedAt: row.updatedAt.toISOString(),
     dataVersion: row.dataVersion,
     status: state.status,
-    effectiveStatus: effectiveStatus(state.status, state.validUntil, today),
+    effectiveStatus: shown,
     allowedTransitions: allowedTransitions(state, today),
     substatus: state.substatus,
     lostReason: state.lostReason,
@@ -79,7 +92,7 @@ export function toItem(
     shipmentId: state.shipmentId,
     shipmentJobNumber: state.shipmentJobNumber,
     roadMargin: margin ? shownMargin(margin, userEmails) : null,
-    sendBlocked: margin?.needsApproval ? marginGateMessage(margin) : inquiryGateMessage(row.data, "ready_to_send"),
+    sendBlocked: sendBlockedOf(row, shown, margin),
     permissions: {
       ...ownerPermission(actor, state, row.data),
       canDelete: deletion.allowed,

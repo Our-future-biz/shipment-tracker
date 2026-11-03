@@ -1,5 +1,6 @@
 "use client";
 
+import { Popconfirm } from "antd";
 import { CheckCircleFilled, ClockCircleFilled, CloseCircleFilled, WarningFilled } from "@ant-design/icons";
 import { businessDateTime } from "@/lib/date";
 import { formatAmount as formatMoney } from "@/lib/money";
@@ -15,6 +16,7 @@ interface QuoteMarginPanelProps {
   // The newest question to a manager about this quote's margin, and the rep's ask / withdraw.
   inquiry?: MarginInquiryItem | null;
   onAsk?: () => void;
+  // Given only to whoever may take the waiting question back: the one who asked, or a manager.
   onWithdraw?: (inquiryId: string) => void;
 }
 
@@ -72,9 +74,17 @@ export const QuoteMarginPanel = ({ margin, canApprove, onApprove, inquiry, onAsk
             {waiting.notifyName ? ` · ${waiting.notifyName} is told` : " · the admins are told"}
           </span>
           {onWithdraw && (
-            <button type="button" onClick={() => onWithdraw(waiting.id)} className="ml-1 p-0 border-none bg-transparent text-[12.5px] font-semibold text-amber-800 underline cursor-pointer">
-              Withdraw
-            </button>
+            <Popconfirm
+              title="Withdraw the question?"
+              description="The manager is no longer asked to approve this margin."
+              okText="Withdraw"
+              cancelText="Keep it"
+              onConfirm={() => onWithdraw(waiting.id)}
+            >
+              <button type="button" className="ml-1 p-0 border-none bg-transparent text-[12.5px] font-semibold text-amber-800 underline cursor-pointer">
+                Withdraw
+              </button>
+            </Popconfirm>
           )}
         </div>
       )}

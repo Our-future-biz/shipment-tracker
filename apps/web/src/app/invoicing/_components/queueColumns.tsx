@@ -132,7 +132,8 @@ interface QueueColumnsArgs {
 // open (a card of about 1114px) without scrolling sideways. Longer names and statuses are cut
 // with an ellipsis and keep the full text as their title.
 const W = {
-  job: 140,
+  // CZPROJECT00000023 in bold monospace, as on Shipments.
+  job: 170,
   customer: 150,
   direction: 105,
   date: 110,

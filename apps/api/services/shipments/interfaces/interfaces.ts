@@ -688,16 +688,20 @@ export interface UnmatchedPerson {
   count: number;
 }
 
-/** What the people backfill did to the company's live shipments. */
+/** What the reference backfill (the letters of the Freight Mode and Load Type) did to the company's live shipments. */
 export interface ReferenceNormalizeResult {
   /** Live shipments looked at. */
   checked: number;
   /** References that took the letters of their Freight Mode and Load Type. */
   renamed: number;
-  /** References kept as they are because the shipment has had an invoice (they would need letters). */
+  /**
+   * References kept as they are because they are final (they would need letters): the shipment has
+   * had an invoice, Invoicing is numbering one, or it is marked Invoiced.
+   */
   keptInvoiced: string[];
 }
 
+/** What the people backfill did to the company's live shipments. */
 export interface PeopleNormalizeResult {
   /** Values that name a person (one field of one shipment each), looked at. */
   checked: number;

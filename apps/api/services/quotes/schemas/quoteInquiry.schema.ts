@@ -43,6 +43,8 @@ export const quoteInquiryTable = pgTable(
     kind: text("kind").$type<QuoteInquiryKind>().notNull(),
     status: text("status").$type<QuoteInquiryStatus>().notNull().default("pending"),
     requestedById: uuid("requested_by_id").notNull(),
+    // Who asked and who answered (or took it back) by e-mail as recorded then: they stay named when they leave.
+    requestedByName: text("requested_by_name").notNull().default(""),
     requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
     // Why the rep asks: one of the reasons offered (a margin question), and their own words.
     reason: text("reason").notNull().default(""),
@@ -59,6 +61,7 @@ export const quoteInquiryTable = pgTable(
     notifyUserId: uuid("notify_user_id"),
     decision: text("decision").$type<QuoteInquiryDecision>(),
     decidedById: uuid("decided_by_id"),
+    decidedByName: text("decided_by_name").notNull().default(""),
     decidedAt: timestamp("decided_at", { withTimezone: true }),
     // The margin the approval covers (that one or better); null for a rejection.
     approvedMarginCzk: doublePrecision("approved_margin_czk"),
@@ -74,6 +77,9 @@ export const quoteInquiryTable = pgTable(
     tenantIndex("quote_inquiry", table),
     index("quote_inquiry_company_status_idx").on(table.companyId, table.status),
     index("quote_inquiry_company_requested_by_idx").on(table.companyId, table.requestedById),
+    // A quote's questions (its page, every lock), and a kind's newest first (the lists).
+    index("quote_inquiry_company_quote_idx").on(table.companyId, table.quoteId),
+    index("quote_inquiry_company_kind_requested_idx").on(table.companyId, table.kind, table.requestedAt),
     // One question of a kind waits per quote; a second one is refused until it is answered.
     uniqueIndex("quote_inquiry_pending_unique").on(table.quoteId, table.kind).where(sql`status = 'pending' AND deleted_at IS NULL`),
     check("quote_inquiry_kind_check", sql`${table.kind} IN ('margin', 'warehouse_heavy')`),

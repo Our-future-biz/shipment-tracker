@@ -32,7 +32,7 @@ import { assertTimes, clearStaleTimes } from "../lib/dateTimes";
 import { resplitMasterJobCosts } from "../lib/masterJobCosts";
 import { cargoDimensionRepository } from "../repositories/cargoDimension.repository";
 import { freightTons } from "../lib/freightTons";
-import { compareJobNumbers } from "../lib/jobNumber";
+import { compareJobNumbers } from "../../../lib/jobNumber";
 
 /** Editable master-job fields (everything but the id, MCZ number and bookkeeping). */
 export type MasterJobUpdate = Partial<

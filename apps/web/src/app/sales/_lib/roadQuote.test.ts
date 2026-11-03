@@ -15,7 +15,6 @@ import {
   roadInputDefaults,
   roadInputProblems,
   roadToRateForm,
-  sendBlockedText,
   sideOverridden,
   truckingVersionId,
   type RoadMargin,
@@ -163,17 +162,6 @@ describe("margin", () => {
     expect(marginState(margin())).toBe("needsApproval");
     expect(marginState(margin({ needsApproval: false, approvalValid: true }))).toBe("approved");
     expect(marginState(margin({ belowFloor: false, needsApproval: false }))).toBe("ok");
-  });
-
-  it("blocks sending in the server's words", () => {
-    expect(sendBlockedText(margin())).toBe(
-      "The margin of 380 CZK (4.2 %) is below the floor of 8 % / 300 CZK. A manager must approve it before the quote is sent.",
-    );
-    expect(sendBlockedText(margin({ marginCzk: null, marginPercent: null, problem: "No ČNB rate for EUR on 2026-10-15" }))).toBe(
-      "The margin cannot be worked out: No ČNB rate for EUR on 2026-10-15. The quote can be sent once the rate is available or its lines are in CZK.",
-    );
-    expect(sendBlockedText(margin({ needsApproval: false }))).toBeNull();
-    expect(sendBlockedText(null)).toBeNull();
   });
 
   it("asks for a reason of 3 to 500 characters", () => {

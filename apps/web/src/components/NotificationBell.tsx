@@ -12,6 +12,9 @@ import { useFxAlerts, useInvalidateFx } from "@/hooks/useFx";
 import { NoticeSeverityTag } from "@/app/dashboard/_components/NoticeSeverityTag";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { formatDate } from "@/lib/date";
+import { formatAmount } from "@/lib/money";
+import { quoteChatHref } from "@/app/sales/_lib/quoteHref";
+import { salesManagersHref } from "@/app/sales/_lib/tabs";
 import { useWarehouseInquiryAnswers, type WarehouseInquiryItem } from "@/hooks/useWarehouseInquiries";
 import { useMarginInquiryBell, type MarginInquiryItem, type MarginInquiryRow } from "@/hooks/useMarginInquiries";
 
@@ -32,8 +35,7 @@ interface BellMention {
 }
 
 // Where a notification about a Sales Reference leads: the Quotes list with that quote's chat
-// open. One about an Internal Reference opens the Shipments list with the shipment's chat.
-const quoteChatHref = (quoteNumber: string) => `/sales/quotes?chat=${encodeURIComponent(quoteNumber)}`;
+// open (quoteChatHref). One about an Internal Reference opens the Shipments list with the shipment's chat.
 const shipmentChatHref = (shipmentId: string) => `/shipments?chat=${encodeURIComponent(shipmentId)}`;
 
 // A warehouse answer as the bell says it.
@@ -46,7 +48,7 @@ const answerText = (a: WarehouseInquiryItem) => {
 };
 
 // A margin question waiting for this manager, and a manager's answer to a rep, as the bell says them.
-const czkText = (n: number | null) => (n === null ? "unknown" : `${Math.round(n).toLocaleString("en-US").replace(/,/g, " ")} CZK`);
+const czkText = (n: number | null) => (n === null ? "unknown" : formatAmount(Math.round(n), "CZK"));
 const waitingTitle = (r: MarginInquiryRow) => `Discount waiting · ${r.inquiry.quoteNumber}`;
 const waitingText = (r: MarginInquiryRow) =>
   `${r.inquiry.requestedByName || "A rep"} asks for ${czkText(r.inquiry.snapshot.marginCzk)}${r.customer ? ` · ${r.customer}` : ""} — ${r.inquiry.reason}${r.inquiry.escalated ? " · waiting long" : ""}`;
@@ -294,7 +296,7 @@ export function NotificationBell() {
       ))}
       {marginWaitingShown.length > 0 && <div className={headingClass}>Discounts waiting for you</div>}
       {marginWaitingShown.map((r) => (
-        <button key={`w:${r.inquiry.id}`} type="button" onClick={() => go("/sales/managers?tab=inquiries")} className={rowClass}>
+        <button key={`w:${r.inquiry.id}`} type="button" onClick={() => go(salesManagersHref({ tab: "inquiries" }))} className={rowClass}>
           <span className="flex items-center gap-2">
             <span role="img" aria-label="Waiting" className={`shrink-0 w-2 h-2 rounded-full ${r.inquiry.escalated ? "bg-red-500" : "bg-amber-500"}`} />
             <span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-800 truncate">{waitingTitle(r)}</span>

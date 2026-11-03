@@ -16,9 +16,10 @@ const fake = vi.hoisted(() => {
     /** What a read of one row per customer returns, and every such read. */
     perCustomer: [] as Record<string, unknown>[],
     perCustomerReads: [] as { on: unknown[]; fields: Record<string, unknown>; where: unknown; orderBy: unknown[] }[],
-    /** The number a count reports, and the condition of every count. */
+    /** The number a count reports, and the condition of every count (or other read awaited as it is). */
     total: 0 as number | string,
     counts: [] as unknown[],
+    plainReads: [] as { fields: Record<string, unknown>; where: unknown }[],
     /** Company and sequence of every job number taken. */
     allocations: [] as [string, string][],
     /** Every update, and how many rows each one changes. */
@@ -42,6 +43,7 @@ const fake = vi.hoisted(() => {
           then: (resolve: (rows: unknown[]) => unknown, reject: (reason: unknown) => unknown) => {
             state.steps.push(`${name} count`);
             state.counts.push(where);
+            state.plainReads.push({ fields, where });
             return Promise.resolve([{ value: state.total }]).then(resolve, reject);
           },
         }),
@@ -64,7 +66,7 @@ const fake = vi.hoisted(() => {
           returning: async () => {
             state.steps.push(`${name} update`);
             state.updates.push({ values, where });
-            return Array.from({ length: state.updatedRows }, (_, i) => ({ id: `shipment-${i}` }));
+            return Array.from({ length: state.updatedRows }, (_, i) => ({ id: `shipment-${i}`, jobNumber: `CZFCL0000010${i}` }));
           },
         }),
       }),
@@ -104,7 +106,7 @@ vi.mock("../../db/db", () => ({ db: fake.db }));
 vi.mock("../../repositories/shipmentRefCounter.repository", () => ({ shipmentRefCounterRepository: fake.counter }));
 
 import { SALES_REFERENCE_PATTERN } from "../../../../lib/salesReference";
-import { searchedColumns, shipmentRepository } from "../../repositories/shipment.repository";
+import { searchMatch, searchedColumns, shipmentRepository } from "../../repositories/shipment.repository";
 import { shipmentTable } from "../../schemas/shipment.schema";
 
 const COMPANY = "86f202b1-7449-441b-9c5b-5bf4d89f8d88";
@@ -133,6 +135,7 @@ beforeEach(() => {
   fake.state.perCustomerReads = [];
   fake.state.total = 0;
   fake.state.counts = [];
+  fake.state.plainReads = [];
   fake.state.allocations = [];
   fake.state.updates = [];
   fake.state.updatedRows = 0;
@@ -273,9 +276,73 @@ describe("searchedColumns", () => {
     expect(searched(["estimatedDeparture"])).toBe(`"shipment"."job_number", to_char("shipment"."estimated_departure", 'DD.MM.YYYY')`);
   });
 
+  it("reads the Load Type as the grid shows it: by Air Freight a Full Load is a Single Shipment", () => {
+    expect(searched(["loadType"])).toBe(
+      `"shipment"."job_number", CASE WHEN "shipment"."load_type" = 'Full Load' AND "shipment"."freight_mode" ~* '^air'\n  THEN 'Single Shipment' ELSE "shipment"."load_type" END`,
+    );
+  });
+
   it("leaves out what the browser works out and keys it doesn't know, an object's own names among them", () => {
     expect(searched(["freightTon", "estimatedDepartureWeek", "profit", "nonsense"])).toBe('"shipment"."job_number"');
     expect(searched(["constructor", "toString", "__proto__", "hasOwnProperty"])).toBe('"shipment"."job_number"');
+  });
+});
+
+describe("searchMatch", () => {
+  const DIGITS = `substring("shipment"."job_number" from '^CZ(?:PROJECT|RAIL|ROAD|AIR|FCL|LCL|BB)?([0-9]+)$')`;
+
+  it("finds a word written as a reference also by its number, whatever the letters, and digits still being typed by the numbers they start", () => {
+    const { sql, params } = sent(searchMatch("czfcl00000023 Shanghai", ["pol"]));
+    // The reference word: in the text, or the number after any letters.
+    const word = params.indexOf("%czfcl00000023%") + 1;
+    expect(sql).toContain(`LIKE $${word} OR ${DIGITS} LIKE $${word + 1})`);
+    expect(params[word]).toBe("00000023%");
+    // Any other word only in the text.
+    expect(params.at(-1)).toBe("%shanghai%");
+    expect(sql.match(/substring\(/g)).toHaveLength(1);
+  });
+
+  it("looks for no number in a word that is no reference: plain digits, a quote's CZQ…", () => {
+    for (const search of ["00000023", "CZQ00000023", "QCZ20261010001"]) expect(sent(searchMatch(search)).sql).not.toContain("substring(");
+    expect(searchMatch("   ")).toBeUndefined();
+  });
+});
+
+describe("the reference writes", () => {
+  const ID = "7b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c01";
+  const inTurn = <T>(work: (tx: never) => Promise<T>) => fake.db.transaction((tx) => work(tx as never)) as Promise<T>;
+
+  it("reads the reference fields of the company's live shipments, and of one under its write turn", async () => {
+    await shipmentRepository.referencesOf(COMPANY);
+    await inTurn((tx) => shipmentRepository.referenceInTurn(tx, ID, COMPANY));
+    const [all, one] = fake.state.plainReads;
+    expect(Object.keys(all!.fields)).toEqual(["id", "jobNumber", "freightMode", "loadType", "salesNumber", "jobNumberFinal", "invoicingStatus"]);
+    expect(sent(all!.where)).toEqual({ sql: `(${LIVE})`, params: [COMPANY] });
+    expect(sent(one!.where)).toEqual({ sql: `("shipment"."id" = $1 and "shipment"."company_id" = $2 and "shipment"."deleted_at" is null)`, params: [ID, COMPANY] });
+    expect(fake.state.steps).toEqual(["db count", "begin", "tx count", "commit"]);
+  });
+
+  it("renames a reference only while the row reads what the letters were worked out from", async () => {
+    const from = { id: ID, jobNumber: "CZ00000101", freightMode: "Sea Freight", loadType: "Full Load" };
+    await expect(inTurn((tx) => shipmentRepository.renameJobNumber(tx, COMPANY, from, "CZFCL00000101"))).resolves.toBeNull();
+    const [update] = fake.state.updates;
+    expect(update!.values).toMatchObject({ jobNumber: "CZFCL00000101" });
+    expect(update!.values.updatedAt).toBeInstanceOf(Date);
+    expect(sent(update!.where)).toEqual({
+      sql: `("shipment"."id" = $1 and "shipment"."company_id" = $2 and "shipment"."deleted_at" is null and "shipment"."job_number" = $3 and "shipment"."freight_mode" = $4 and "shipment"."load_type" = $5)`,
+      params: [ID, COMPANY, "CZ00000101", "Sea Freight", "Full Load"],
+    });
+    expect(fake.state.steps).toEqual(["begin", "tx update", "commit"]);
+  });
+
+  it("marks a live shipment's reference final, leaving updatedAt, and gives the reference back", async () => {
+    fake.state.updatedRows = 1;
+    await expect(inTurn((tx) => shipmentRepository.markJobNumberFinal(tx, ID, COMPANY))).resolves.toBe("CZFCL00000100");
+    const [update] = fake.state.updates;
+    expect(update!.values).toEqual({ jobNumberFinal: true });
+    expect(sent(update!.where)).toEqual({ sql: `("shipment"."id" = $1 and "shipment"."company_id" = $2 and "shipment"."deleted_at" is null)`, params: [ID, COMPANY] });
+    fake.state.updatedRows = 0;
+    await expect(inTurn((tx) => shipmentRepository.markJobNumberFinal(tx, ID, COMPANY))).resolves.toBeNull();
   });
 });
 
