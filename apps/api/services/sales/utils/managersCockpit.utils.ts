@@ -1,15 +1,21 @@
 import { addDays, businessDay } from "../../../lib/businessDate";
 import { isWorkingDay } from "../../../lib/workingDays";
-import type { SalesManagersQuoteFact } from "../../quotes/interfaces/interfaces";
+import type { SalesManagersFacts, SalesManagersQuoteFact } from "../../quotes/interfaces/interfaces";
 import type {
+  SalesCockpitAudit,
   SalesCockpitList,
   SalesCockpitMode,
   SalesCockpitRow,
   SalesCockpitTag,
+  SalesCockpitTeam,
   SalesCockpitTiles,
   SalesManagersCockpit,
 } from "../interfaces/interfaces";
 import {
+  APPROVAL_RATE_MIN_ANSWERS,
+  APPROVAL_RUBBER_STAMP_PERCENT,
+  APPROVAL_TOO_STRICT_PERCENT,
+  APPROVED_NOT_SENT_HOURS,
   BIG_DEAL_PROFIT_CZK,
   BIG_DEAL_SELLING_CZK,
   CARGO_READY_DAYS,
@@ -18,6 +24,7 @@ import {
   DRAFT_WORKING_DAYS,
   EXPIRED_DAYS,
   NO_CONTACT_DAYS,
+  READY_TO_SEND_WORKING_DAYS,
   TASK_OVERDUE_DAYS,
   VALIDITY_ATTENTION_DAYS,
   VALID_UNTIL_TILE_DAYS,
@@ -54,6 +61,27 @@ export interface SalesCockpitInput {
   capped: boolean;
   mode: SalesCockpitMode;
   now: Date;
+  /** The quotes service's lines and questions that belong to no quote read (step 6). */
+  lines?: Pick<SalesManagersFacts, "audit" | "team" | "inquiriesOnClosedQuotes" | "answersNobodyReceived">;
+}
+
+/** The category of a lost reason, as the quote's Lost dialog groups them (web sales/_lib/types LOST_REASONS). */
+const LOST_CATEGORY: Record<string, string> = Object.fromEntries(
+  Object.entries({
+    Pricing: ["Price too high", "Competitor cheaper", "Margin too low"],
+    Operational: ["Transit time too long", "No suitable schedule", "Capacity unavailable"],
+    Customer: ["Shipment canceled", "Customer postponed shipment", "Customer inactive", "No response"],
+    Internal: ["Quote sent too late", "Missing follow-up", "Incorrect quotation"],
+    Commercial: ["Existing supplier retained", "Lost tender", "Customer chose direct carrier"],
+  }).flatMap(([category, reasons]) => reasons.map((r) => [r, category])),
+);
+const LOST_CATEGORIES = new Set(Object.values(LOST_CATEGORY));
+/** The category of a stored lost reason: "Customer: No response" as the Lost dialog writes it, or a bare reason. */
+export function lostCategoryOf(stored: string): string {
+  const reason = stored.trim();
+  if (!reason) return "Not given";
+  const category = reason.split(":")[0]!.trim();
+  return LOST_CATEGORIES.has(category) ? category : (LOST_CATEGORY[reason] ?? "Other");
 }
 
 const OPEN = new Set(["draft", "ready_to_send", "quoted", "feedback", "revised"]);
@@ -136,6 +164,12 @@ export function quoteSignals(q: SalesManagersQuoteFact, today: string, now: Date
   if (q.status === "won" && q.marginCzk !== null && q.marginCzk < 0 && wonDay && daysBetween(wonDay, today) <= WON_LOSS_DAYS) {
     out.push(urgent(5, "Won at a loss"));
   }
+  // A customer who owes too much, at the moment the quote goes out or the job is to start (D17: warn).
+  const credit = q.credit;
+  if (credit && (q.shownStatus === "ready_to_send" || (q.status === "won" && !q.shipmentId))) {
+    const parts = [credit.overLimitCzk !== null ? "Credit limit exceeded" : "", credit.overdueCount > 0 ? plural(credit.overdueCount, "invoice") + " overdue" : ""].filter(Boolean);
+    if (parts.length) out.push(urgent(6, parts.join(" · ")));
+  }
 
   // A rep's question to a manager: urgent once the admins are told too (4 office hours, or the
   // customer's moment close), and when the quote got worse than what was asked about.
@@ -150,6 +184,11 @@ export function quoteSignals(q: SalesManagersQuoteFact, today: string, now: Date
 
   // ATTENTION
   if (open && q.belowFloor && !mi) out.push(attention(10, q.marginCzk === null ? "Margin unknown · can't be sent" : "Below margin floor, not approved"));
+  if (open && q.approvalLapsed) out.push(attention(10, `Approval no longer covers it: ${q.approvalLapsed}`));
+  if (UNSENT.has(q.shownStatus) && q.approvalAt) {
+    const hours = Math.floor((now.getTime() - Date.parse(q.approvalAt)) / HOUR);
+    if (hours >= APPROVED_NOT_SENT_HOURS) out.push(attention(10, `Approved, not sent ${hours} h`));
+  }
   if (AWAITING.has(q.shownStatus) && q.validUntil && q.validUntil > today && daysBetween(today, q.validUntil) <= VALIDITY_ATTENTION_DAYS) {
     out.push(attention(11, `Valid until in ${plural(daysBetween(today, q.validUntil), "day")}`));
   }
@@ -166,6 +205,10 @@ export function quoteSignals(q: SalesManagersQuoteFact, today: string, now: Date
     const since = workingDaysSince(dayOf(q.createdAt)!, today);
     const limit = q.serviceType === "Air" ? DRAFT_AIR_WORKING_DAYS : DRAFT_WORKING_DAYS;
     if (since >= limit) out.push(attention(14, `Draft ${plural(since, "working day")}, never sent`));
+  }
+  if (q.shownStatus === "ready_to_send") {
+    const since = dayOf(q.statusSince);
+    if (since && workingDaysSince(since, today) >= READY_TO_SEND_WORKING_DAYS) out.push(attention(14, `Ready to Send since ${dm(since)}`));
   }
   if (AWAITING.has(q.shownStatus) && contactDays !== null && contactDays >= NO_CONTACT_DAYS) out.push(attention(15, `No contact ${plural(contactDays, "day")}`));
   if (q.shownStatus === "expired" && q.validUntil) {
@@ -263,9 +306,24 @@ export function buildSalesCockpit(input: SalesCockpitInput): SalesManagersCockpi
     }
   }
 
+  // A question nobody can act on any more, or an answer nobody got: on its quote when listed, a
+  // row of its own in "All" when the quote is no longer read (deleted, replaced, long closed).
+  const extra = new Map<string, Signal[]>();
+  const addExtra = (quoteNumber: string, s: Signal) => extra.set(quoteNumber, [...(extra.get(quoteNumber) ?? []), s]);
+  for (const n of input.lines?.inquiriesOnClosedQuotes ?? []) addExtra(n, attention(9, "Inquiry on a closed quote · decide or close it"));
+  for (const n of input.lines?.answersNobodyReceived ?? []) addExtra(n, attention(9, "Answer nobody received · tell the new owner"));
+  const read = new Set(input.quotes.map((q) => q.quoteNumber));
+  const loose: Ranked[] = [];
+  for (const [quoteNumber, signals] of extra) {
+    if (read.has(quoteNumber) || mode !== "all") continue;
+    const r = ranked({ kind: "quote", id: quoteNumber, ref: quoteNumber, status: "", serviceType: "", customer: "", ownerName: "", sellingCzk: null }, signals);
+    if (r) loose.push(r);
+  }
+
   const rows = [
-    ...quotes.map((q) => ranked(quoteRow(q), [...quoteSignals(q, today, now), ...(taskTags.get(q.quoteNumber) ?? [])])),
+    ...quotes.map((q) => ranked(quoteRow(q), [...quoteSignals(q, today, now), ...(taskTags.get(q.quoteNumber) ?? []), ...(extra.get(q.quoteNumber) ?? [])])),
     ...taskRows,
+    ...loose,
   ].filter((r): r is Ranked => r !== null);
 
   return {
@@ -275,6 +333,39 @@ export function buildSalesCockpit(input: SalesCockpitInput): SalesManagersCockpi
     tiles,
     urgent: card(rows.filter((r) => r.urgent)),
     attention: card(rows.filter((r) => !r.urgent)),
-    health: { marginUnknown: open.filter((q) => !!q.marginProblem).length, capped: input.capped },
+    health: {
+      marginUnknown: open.filter((q) => !!q.marginProblem).length,
+      sentNoCustomer: open.filter((q) => !!q.firstSentAt && !q.customerId).length,
+      capped: input.capped,
+    },
+    audit: input.lines ? auditLine(input.lines.audit, input.quotes) : null,
+    team: input.lines ? teamLine(input.lines.team) : null,
+  };
+}
+
+const percent = (part: number, whole: number) => (whole > 0 ? Math.round((part / whole) * 100) : null);
+
+function auditLine(a: SalesManagersFacts["audit"], quotes: SalesManagersQuoteFact[]): SalesCockpitAudit {
+  return { ...a, approvalsLapsed: quotes.filter((q) => OPEN.has(q.shownStatus) && !!q.approvalLapsed).length };
+}
+
+/** The team line of the quotes service's figures (H3). */
+export function teamLine(t: SalesManagersFacts["team"]): SalesCockpitTeam {
+  const byCategory = new Map<string, number>();
+  for (const r of t.lostReasons) byCategory.set(lostCategoryOf(r.reason), (byCategory.get(lostCategoryOf(r.reason)) ?? 0) + r.count);
+  const answered = t.approved + t.rejected;
+  const rate = percent(t.approved, answered);
+  return {
+    days: t.days,
+    won: t.won,
+    lost: t.lost,
+    hitRatePercent: percent(t.won, t.won + t.lost),
+    sent: t.sent,
+    medianHoursToFirstSent: t.medianHoursToFirstSent,
+    lostByCategory: [...byCategory].map(([category, count]) => ({ category, count })).sort((a, b) => b.count - a.count || a.category.localeCompare(b.category)),
+    neededApprovalPercent: percent(t.asked, t.sent),
+    approvalRatePercent: rate,
+    approvalWarning:
+      rate === null || answered < APPROVAL_RATE_MIN_ANSWERS ? null : rate > APPROVAL_RUBBER_STAMP_PERCENT ? "rubber_stamp" : rate < APPROVAL_TOO_STRICT_PERCENT ? "too_strict" : null,
   };
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SalesManagersQuoteFact } from "../../../quotes/interfaces/interfaces";
-import { buildSalesCockpit, inMode, quoteSignals, taskSignals, workingDaysSince, type CockpitTask } from "../../utils/managersCockpit.utils";
+import { buildSalesCockpit, inMode, lostCategoryOf, quoteSignals, taskSignals, teamLine, workingDaysSince, type CockpitTask } from "../../utils/managersCockpit.utils";
 
 // Tuesday 3 Nov 2026, 10:00 in Prague.
 const NOW = new Date("2026-11-03T09:00:00.000Z");
@@ -31,6 +31,10 @@ const fact = (over: Partial<SalesManagersQuoteFact> = {}): SalesManagersQuoteFac
   wonRevision: false,
   warehouseInquiry: null,
   marginInquiry: null,
+  statusSince: "2026-11-02T09:00:00.000Z",
+  approvalAt: null,
+  approvalLapsed: null,
+  credit: null,
   ...over,
 });
 const texts = (q: SalesManagersQuoteFact) => quoteSignals(q, TODAY, NOW).map((s) => `${s.urgent ? "U" : "A"}: ${s.text}`);
@@ -176,7 +180,8 @@ describe("buildSalesCockpit", () => {
       wonThisMonth: 1,
       lostThisMonth: 0,
     });
-    expect(cockpit.health).toEqual({ marginUnknown: 1, capped: false });
+    expect(cockpit.health).toEqual({ marginUnknown: 1, sentNoCustomer: 2, capped: false });
+    expect(cockpit.audit).toBeNull();
     expect(cockpit.today).toBe(TODAY);
   });
 
@@ -208,5 +213,74 @@ describe("buildSalesCockpit", () => {
     expect(inMode("Air", "sea")).toBe(false);
     expect(inMode("", "all")).toBe(true);
     expect(inMode("", "road")).toBe(false);
+  });
+});
+
+describe("step 6 signals", () => {
+  it("flags Ready to Send for a working day or more (A5)", () => {
+    const ready = { status: "ready_to_send", shownStatus: "ready_to_send", firstSentAt: null } as const;
+    expect(texts(fact({ ...ready, statusSince: "2026-11-02T09:00:00.000Z" }))).toEqual(["A: Ready to Send since 02.11."]);
+    expect(texts(fact({ ...ready, statusSince: "2026-11-03T07:00:00.000Z" }))).toEqual([]);
+  });
+
+  it("flags an approval nobody sent after 24 h, and one that no longer covers the quote (A7, A8)", () => {
+    const draft = { status: "draft", shownStatus: "draft", firstSentAt: null, createdAt: "2026-11-03T08:00:00.000Z" } as const;
+    expect(texts(fact({ ...draft, approvalAt: "2026-11-02T08:00:00.000Z" }))).toEqual(["A: Approved, not sent 25 h"]);
+    expect(texts(fact({ ...draft, approvalAt: "2026-11-02T10:00:00.000Z" }))).toEqual([]);
+    expect(texts(fact({ approvalLapsed: "the validity changed" }))).toEqual(["A: Approval no longer covers it: the validity changed"]);
+    expect(texts(fact({ status: "lost", shownStatus: "lost", approvalLapsed: "the validity changed" }))).toEqual([]);
+  });
+
+  it("flags a customer over its limit or with overdue invoices when the quote goes out or is Won with no shipment (U8)", () => {
+    const credit = { overdueCount: 2, oldestOverdueDue: "2026-10-01", overLimitCzk: 5_000 };
+    const ready = { status: "ready_to_send", shownStatus: "ready_to_send", statusSince: "2026-11-03T08:00:00.000Z" } as const;
+    expect(texts(fact({ ...ready, credit }))).toEqual(["U: Credit limit exceeded · 2 invoices overdue"]);
+    expect(texts(fact({ ...ready, credit: { ...credit, overLimitCzk: null, overdueCount: 1 } }))).toEqual(["U: 1 invoice overdue"]);
+    expect(texts(fact({ ...ready, credit: { ...credit, overLimitCzk: null, overdueCount: 0 } }))).toEqual([]);
+    expect(texts(fact({ status: "won", shownStatus: "won", decidedAt: "2026-11-03T08:00:00.000Z", credit }))).toEqual(["U: Credit limit exceeded · 2 invoices overdue"]);
+    expect(texts(fact({ credit }))).toEqual([]);
+  });
+
+  it("puts a question on a closed quote and an answer nobody got on the quote, or a row of its own in All (A14, A15)", () => {
+    const lines = {
+      audit: { days: 7, asked: 0, approved: 0, counter: 0, rejected: 0, withdrawn: 0, selfApprovals: 0, escalated: 0, medianOfficeMinutesToDecide: null },
+      team: { days: 30, won: 0, lost: 0, sent: 0, medianHoursToFirstSent: null, lostReasons: [], asked: 0, approved: 0, rejected: 0 },
+      inquiriesOnClosedQuotes: ["QCZ1", "QCZ8"],
+      answersNobodyReceived: ["QCZ8"],
+    };
+    const all = buildSalesCockpit({ quotes: [fact({ quoteNumber: "QCZ1" })], tasks: [], capped: false, mode: "all", now: NOW, lines });
+    expect(all.attention.rows.find((r) => r.id === "QCZ1")!.tags.map((t) => t.text)).toEqual(["Inquiry on a closed quote · decide or close it"]);
+    expect(all.attention.rows.find((r) => r.id === "QCZ8")!.tags.map((t) => t.text)).toEqual(["Inquiry on a closed quote · decide or close it", "Answer nobody received · tell the new owner"]);
+    const air = buildSalesCockpit({ quotes: [fact({ quoteNumber: "QCZ1" })], tasks: [], capped: false, mode: "air", now: NOW, lines });
+    expect(air.attention.total).toBe(0);
+    expect(all.audit).toEqual({ ...lines.audit, approvalsLapsed: 0 });
+  });
+});
+
+describe("teamLine", () => {
+  const base = { days: 30, won: 3, lost: 1, sent: 10, medianHoursToFirstSent: 5.5, lostReasons: [], asked: 2, approved: 1, rejected: 1 };
+
+  it("works out the hit rate, the share that needed approval and the lost categories", () => {
+    const t = teamLine({ ...base, lostReasons: [{ reason: "Pricing: Price too high", count: 2 }, { reason: "Competitor cheaper", count: 1 }, { reason: "Customer: No response", count: 2 }, { reason: "", count: 1 }, { reason: "Weather", count: 1 }] });
+    expect(t.hitRatePercent).toBe(75);
+    expect(t.neededApprovalPercent).toBe(20);
+    expect(t.approvalRatePercent).toBe(50);
+    expect(t.approvalWarning).toBeNull();
+    expect(t.lostByCategory).toEqual([
+      { category: "Pricing", count: 3 },
+      { category: "Customer", count: 2 },
+      { category: "Not given", count: 1 },
+      { category: "Other", count: 1 },
+    ]);
+    expect(lostCategoryOf("Lost tender")).toBe("Commercial");
+    expect(lostCategoryOf("Internal: Missing follow-up")).toBe("Internal");
+    expect(lostCategoryOf("Somebody: else")).toBe("Other");
+  });
+
+  it("warns of a rubber stamp or a guardrail set wrong only with enough answers", () => {
+    expect(teamLine({ ...base, approved: 20, rejected: 0 }).approvalWarning).toBe("rubber_stamp");
+    expect(teamLine({ ...base, approved: 1, rejected: 9 }).approvalWarning).toBe("too_strict");
+    expect(teamLine({ ...base, approved: 4, rejected: 0 }).approvalWarning).toBeNull();
+    expect(teamLine({ ...base, won: 0, lost: 0, sent: 0 })).toMatchObject({ hitRatePercent: null, neededApprovalPercent: null });
   });
 });

@@ -30,6 +30,8 @@ const activeCount = (filters: Filters) =>
     !!filters.direction,
     !!filters.dateFrom || !!filters.dateTo,
     !!filters.decidedThisMonth,
+    !!filters.validWithinDays,
+    !!filters.followUpDue,
   ].filter(Boolean).length;
 
 interface FieldProps {
@@ -43,6 +45,17 @@ function Field({ label, children }: FieldProps) {
       <span className="text-xs font-medium text-slate-500">{label}</span>
       {children}
     </label>
+  );
+}
+
+function SetFilter({ label, onRemove }: { label: string; onRemove: () => void }) {
+  return (
+    <div className="flex items-center justify-between text-xs text-slate-600">
+      <span>{label}</span>
+      <button type="button" onClick={onRemove} className="text-xs font-medium text-slate-400 hover:text-red-500 bg-transparent border-none cursor-pointer p-0">
+        Remove
+      </button>
+    </div>
   );
 }
 
@@ -121,19 +134,12 @@ export function QuoteListFilters({ filters, onChange, onClear, userOptions }: Qu
             onChange={(days) => onChange({ dateFrom: days?.[0]?.format(DAY), dateTo: days?.[1]?.format(DAY) })}
           />
         </Field>
-        {/* A filter only the built-in views set; shown so that it can be seen and taken off. */}
-        {filters.decidedThisMonth && (
-          <div className="flex items-center justify-between text-xs text-slate-600">
-            <span>Won or lost this month</span>
-            <button
-              type="button"
-              onClick={() => onChange({ decidedThisMonth: undefined })}
-              className="text-xs font-medium text-slate-400 hover:text-red-500 bg-transparent border-none cursor-pointer p-0"
-            >
-              Remove
-            </button>
-          </div>
+        {/* Filters only the built-in views and the Sales managers' tiles set; shown so that they can be seen and taken off. */}
+        {filters.decidedThisMonth && <SetFilter label="Won or lost this month" onRemove={() => onChange({ decidedThisMonth: undefined })} />}
+        {!!filters.validWithinDays && (
+          <SetFilter label={`Valid until within ${filters.validWithinDays} day${filters.validWithinDays === 1 ? "" : "s"}`} onRemove={() => onChange({ validWithinDays: undefined })} />
         )}
+        {filters.followUpDue && <SetFilter label="Follow-up due" onRemove={() => onChange({ followUpDue: undefined })} />}
       </div>
     </div>
   );

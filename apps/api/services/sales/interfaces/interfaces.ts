@@ -211,7 +211,52 @@ export interface SalesManagersCockpit {
   health: {
     /** Open quotes whose margin cannot be worked out (a ČNB rate is missing). */
     marginUnknown: number;
+    /** Open quotes sent to a customer that is not in the customer records. */
+    sentNoCustomer: number;
     /** More quotes matched than the cockpit reads: the figures are of part of them. */
     capped: boolean;
   };
+  /** Margin questions of the last days, company-wide (H2); null when the quotes service did not say. */
+  audit: SalesCockpitAudit | null;
+  /** How the team sold over the last days, company-wide (H3); null when the quotes service did not say. */
+  team: SalesCockpitTeam | null;
+}
+
+/** The audit line: what managers were asked about margins, and how they answered (H2). */
+export interface SalesCockpitAudit {
+  days: number;
+  asked: number;
+  approved: number;
+  /** Approved down to a margin the manager set. */
+  counter: number;
+  rejected: number;
+  withdrawn: number;
+  /** Answered by the manager who asked or owns the quote (allowed and shown, D9). */
+  selfApprovals: number;
+  /** Waiting now with the admins told too (D14). */
+  escalated: number;
+  /** Median office minutes from the ask to the answer; null with no answers. */
+  medianOfficeMinutesToDecide: number | null;
+  /** Open quotes whose approval no longer covers them (now, not in the last days). */
+  approvalsLapsed: number;
+}
+
+/** The team line (H3). */
+export interface SalesCockpitTeam {
+  days: number;
+  won: number;
+  lost: number;
+  /** Won ÷ (Won + Lost), %; null with nothing decided. */
+  hitRatePercent: number | null;
+  /** Quotes first sent in the days. */
+  sent: number;
+  medianHoursToFirstSent: number | null;
+  /** Lost quotes by the category of their reason, the most first. */
+  lostByCategory: { category: string; count: number }[];
+  /** Margin questions asked ÷ quotes sent, %; null with nothing sent. */
+  neededApprovalPercent: number | null;
+  /** Approved ÷ answered, %; null with no answers. */
+  approvalRatePercent: number | null;
+  /** "rubber stamp" above APPROVAL_RUBBER_STAMP_PERCENT, "too strict" below APPROVAL_TOO_STRICT_PERCENT, with enough answers. */
+  approvalWarning: "rubber_stamp" | "too_strict" | null;
 }

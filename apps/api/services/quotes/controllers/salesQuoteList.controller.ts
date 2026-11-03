@@ -48,6 +48,10 @@ interface SalesQuoteListRequest {
   decidedFrom?: string;
   /** Won or lost on this day or earlier (YYYY-MM-DD, the day in Prague). */
   decidedTo?: string;
+  /** Valid until this day or later (YYYY-MM-DD). */
+  validFrom?: string;
+  /** Valid until this day or earlier (YYYY-MM-DD). */
+  validTo?: string;
   /** "me" (the signed-in user), "none" (quotes that belong to no user) or the id of a user. */
   owner?: string & MaxLen<36>;
   /** The id of the customer the quotes are for. */

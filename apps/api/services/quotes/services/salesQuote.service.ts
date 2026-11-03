@@ -95,6 +95,8 @@ export interface SalesQuoteListRequest {
   createdTo?: string;
   decidedFrom?: string;
   decidedTo?: string;
+  validFrom?: string;
+  validTo?: string;
   /** "me", "none" (no owner user) or the id of a user. */
   owner?: string;
   customerId?: string;
@@ -297,6 +299,8 @@ function filterOf(actor: Actor, request: SalesQuoteListRequest): SalesQuoteFilte
     createdTo: dayOf(request.createdTo, "createdTo"),
     decidedFrom: dayOf(request.decidedFrom, "decidedFrom"),
     decidedTo: dayOf(request.decidedTo, "decidedTo"),
+    validFrom: dayOf(request.validFrom, "validFrom"),
+    validTo: dayOf(request.validTo, "validTo"),
     ownerUserId,
     customerId: request.customerId ? idOf(request.customerId, "customerId must be the id of a customer") : undefined,
     followUpDue: request.followUp === "due",

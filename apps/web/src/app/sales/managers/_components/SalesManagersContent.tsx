@@ -63,7 +63,7 @@ type TileKey = keyof Cockpit["tiles"];
 interface TileDef {
   key: Exclude<TileKey, "openSellingCzk">;
   label: string;
-  /** Where the tile leads: a list the Quotes page reads from its address, or Follow-up. */
+  /** Where the tile leads: a list the Quotes page reads from its address, or Quote inquiries. */
   href: (service: string | undefined) => string;
   danger?: boolean;
 }
@@ -73,9 +73,9 @@ const OPEN = OPEN_QUOTE_STATUSES.join(",");
 const TILES: TileDef[] = [
   { key: "openQuotes", label: "Open quotes", href: (s) => quotesHref({ status: OPEN }, s) },
   { key: "awaitingApproval", label: "Awaiting approval", href: () => `${PAGE.path}?tab=inquiries`, danger: true },
-  { key: "followUpDue", label: "Follow-up due", href: () => SALES_PAGES.followup.path, danger: true },
+  { key: "followUpDue", label: "Follow-up due", href: (s) => quotesHref({ followup: "due" }, s), danger: true },
   { key: "draftsToFinish", label: "Drafts to finish", href: (s) => quotesHref({ status: "draft" }, s) },
-  { key: "validSoon", label: "Valid until ≤ 7 days", href: (s) => quotesHref({ status: OPEN, sort: "validUntil" }, s) },
+  { key: "validSoon", label: "Valid until ≤ 7 days", href: (s) => quotesHref({ status: OPEN, valid: "7", sort: "validUntil" }, s) },
   { key: "noOwner", label: "No Sales Owner", href: (s) => quotesHref({ status: OPEN, owner: "none" }, s), danger: true },
   { key: "wonThisMonth", label: "Won this month", href: (s) => quotesHref({ status: "won", month: "1" }, s) },
   { key: "lostThisMonth", label: "Lost this month", href: (s) => quotesHref({ status: "lost", month: "1" }, s) },
@@ -96,7 +96,10 @@ const refColumn = {
       <Link href={rowHref(r)} className={`${r.kind === "quote" ? "font-mono" : ""} font-bold text-indigo-600 hover:underline`}>
         {r.ref}
       </Link>
-      {r.kind === "quote" ? (
+      {r.kind === "quote" && !r.status ? (
+        // A question or answer on a quote the cockpit no longer reads (deleted, replaced, long closed).
+        <span className="text-[11px] text-slate-500">Quote no longer open</span>
+      ) : r.kind === "quote" ? (
         <span className="flex flex-wrap items-center gap-1.5">
           <QuoteStatusPill status={r.status as QuoteStatus} />
           {r.serviceType && <span className="text-[11px] text-slate-500">{serviceTypeLabel(r.serviceType)}</span>}
@@ -173,13 +176,18 @@ function Tiles({ cockpit, isLoading, isError, service }: { cockpit: Cockpit | nu
 // What keeps the figures from being whole: quotes whose margin can't be worked out, and a read
 // that stopped at its limit. Quiet when there is nothing to say.
 function HealthLine({ cockpit }: { cockpit: Cockpit }) {
-  const { marginUnknown, capped } = cockpit.health;
-  if (!marginUnknown && !capped) return null;
+  const { marginUnknown, sentNoCustomer, capped } = cockpit.health;
+  if (!marginUnknown && !sentNoCustomer && !capped) return null;
   return (
     <div role="status" className="flex flex-wrap items-center gap-x-6 gap-y-1 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">
       {marginUnknown > 0 && (
         <span>
           <b>Margin unknown:</b> {plural(marginUnknown, "open quote")} (a ČNB rate is missing; their selling counts what converts)
+        </span>
+      )}
+      {sentNoCustomer > 0 && (
+        <span>
+          <b>No customer record:</b> {plural(sentNoCustomer, "open quote")} sent to a customer not in Customers (no credit check)
         </span>
       )}
       {capped && (
@@ -188,6 +196,73 @@ function HealthLine({ cockpit }: { cockpit: Cockpit }) {
         </span>
       )}
     </div>
+  );
+}
+
+/** "45 min", "3 h", "1 office day 2 h" of office minutes (an office day = 9 hours), as the cards say it. */
+function officeTime(minutes: number): string {
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 9) return `${hours} h`;
+  const rest = hours % 9;
+  return `${plural(Math.floor(hours / 9), "office day")}${rest ? ` ${rest} h` : ""}`;
+}
+const pct = (v: number | null) => (v === null ? "–" : `${v} %`);
+
+function Line({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs text-slate-600">
+      <span className="font-bold uppercase tracking-wider text-[11px] text-slate-500">{label}</span>
+      {children}
+    </div>
+  );
+}
+const Figure = ({ label, value, hot }: { label: string; value: React.ReactNode; hot?: boolean }) => (
+  <span>
+    {label} <b className={`tabular-nums ${hot ? "text-red-600" : "text-slate-900"}`}>{value}</b>
+  </span>
+);
+
+// The audit line (H2): what managers were asked about margins over the last days and how they
+// answered, company-wide. Self-approvals are allowed and counted here, by name in the quote's history (D9).
+function AuditLine({ cockpit }: { cockpit: Cockpit }) {
+  const a = cockpit.audit;
+  if (!a) return null;
+  return (
+    <Line label={`Audit · last ${a.days} days · all modes`}>
+      <Figure label="Asked" value={a.asked} />
+      <Figure label="Approved" value={a.approved} />
+      <Figure label="At a counter margin" value={a.counter} />
+      <Figure label="Rejected" value={a.rejected} />
+      <Figure label="Withdrawn" value={a.withdrawn} />
+      <Figure label="Self-approvals" value={a.selfApprovals} hot={a.selfApprovals > 0} />
+      <Figure label="Median time to decide" value={a.medianOfficeMinutesToDecide === null ? "–" : officeTime(a.medianOfficeMinutesToDecide)} />
+      <Figure label="Waiting with the admins told" value={a.escalated} hot={a.escalated > 0} />
+      <Figure label="Approvals that no longer cover" value={a.approvalsLapsed} hot={a.approvalsLapsed > 0} />
+    </Line>
+  );
+}
+
+const APPROVAL_WARNING: Record<string, string> = {
+  rubber_stamp: "almost everything is approved: the guardrail may be a rubber stamp",
+  too_strict: "most asks are rejected: the guardrail may be set wrong",
+};
+
+// The team line (H3): how the team sold over the last days, company-wide. Per-rep figures stay
+// on Sales Report (D20).
+function TeamLine({ cockpit }: { cockpit: Cockpit }) {
+  const t = cockpit.team;
+  if (!t) return null;
+  return (
+    <Line label={`Team · last ${t.days} days · all modes`}>
+      <Figure label="Hit rate" value={`${pct(t.hitRatePercent)}${t.won + t.lost ? ` (${t.won} won / ${t.lost} lost)` : ""}`} />
+      <Figure label="Median to first quotation" value={t.medianHoursToFirstSent === null ? "–" : `${t.medianHoursToFirstSent} h`} />
+      <Figure label="Sent" value={t.sent} />
+      <Figure label="Needed approval" value={pct(t.neededApprovalPercent)} />
+      <Figure label="Approval rate" value={pct(t.approvalRatePercent)} hot={!!t.approvalWarning} />
+      {t.lostByCategory.length > 0 && <Figure label="Lost by reason" value={t.lostByCategory.map((c) => `${c.category} ${c.count}`).join(" · ")} />}
+      {t.approvalWarning && <span className="text-red-600">{APPROVAL_WARNING[t.approvalWarning]}</span>}
+    </Line>
   );
 }
 
@@ -356,7 +431,13 @@ function SalesManagersCockpit() {
             {renderCard("attention")}
           </div>
 
-          {cockpit && <HealthLine cockpit={cockpit} />}
+          {cockpit && (
+            <div className="flex flex-col gap-2">
+              <AuditLine cockpit={cockpit} />
+              <TeamLine cockpit={cockpit} />
+              <HealthLine cockpit={cockpit} />
+            </div>
+          )}
         </>
       )}
 

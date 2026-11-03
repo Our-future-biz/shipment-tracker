@@ -1653,6 +1653,8 @@ export namespace quotes {
                 sortBy:        params.sortBy,
                 sortDirection: params.sortDirection === undefined ? undefined : String(params.sortDirection),
                 statuses:      params.statuses,
+                validFrom:     params.validFrom,
+                validTo:       params.validTo,
             })
 
             // Now make the actual call to the API
@@ -8249,6 +8251,16 @@ export namespace controllers {
          * Won or lost on this day or earlier (YYYY-MM-DD, the day in Prague).
          */
         decidedTo?: string
+
+        /**
+         * Valid until this day or later (YYYY-MM-DD).
+         */
+        validFrom?: string
+
+        /**
+         * Valid until this day or earlier (YYYY-MM-DD).
+         */
+        validTo?: string
 
         /**
          * "me" (the signed-in user), "none" (quotes that belong to no user) or the id of a user.
@@ -15097,6 +15109,15 @@ export namespace interfaces {
 
     export type PalletType = "EUR" | "INDUSTRIAL" | "HALF" | "QUARTER" | "OTHER"
 
+    /**
+     * What the people backfill did: values looked at, records changed, values left as they are.
+     */
+    export interface PeopleNormalizeResult {
+        checked: number
+        changed: number
+        unmatched: PeopleNormalizeUnmatched[]
+    }
+
     export interface PeopleNormalizeResult {
         /**
          * Values that name a person (one field of one shipment each), looked at.
@@ -15112,15 +15133,6 @@ export namespace interfaces {
          * The names left as they are, most frequent first: to be fixed by hand.
          */
         unmatched: UnmatchedPerson[]
-    }
-
-    /**
-     * What the people backfill did: values looked at, records changed, values left as they are.
-     */
-    export interface PeopleNormalizeResult {
-        checked: number
-        changed: number
-        unmatched: PeopleNormalizeUnmatched[]
     }
 
     /**
@@ -16700,6 +16712,41 @@ export namespace interfaces {
         note: string
     }
 
+    /**
+     * The audit line: what managers were asked about margins, and how they answered (H2).
+     */
+    export interface SalesCockpitAudit {
+        days: number
+        asked: number
+        approved: number
+        /**
+         * Approved down to a margin the manager set.
+         */
+        counter: number
+
+        rejected: number
+        withdrawn: number
+        /**
+         * Answered by the manager who asked or owns the quote (allowed and shown, D9).
+         */
+        selfApprovals: number
+
+        /**
+         * Waiting now with the admins told too (D14).
+         */
+        escalated: number
+
+        /**
+         * Median office minutes from the ask to the answer; null with no answers.
+         */
+        medianOfficeMinutesToDecide: number | null
+
+        /**
+         * Open quotes whose approval no longer covers them (now, not in the last days).
+         */
+        approvalsLapsed: number
+    }
+
     export interface SalesCockpitList {
         /**
          * Every row of the card; `rows` holds at most COCKPIT_LIST_LIMIT of them.
@@ -16759,6 +16806,48 @@ export namespace interfaces {
     export interface SalesCockpitTag {
         text: string
         urgent: boolean
+    }
+
+    /**
+     * The team line (H3).
+     */
+    export interface SalesCockpitTeam {
+        days: number
+        won: number
+        lost: number
+        /**
+         * Won ÷ (Won + Lost), %; null with nothing decided.
+         */
+        hitRatePercent: number | null
+
+        /**
+         * Quotes first sent in the days.
+         */
+        sent: number
+
+        medianHoursToFirstSent: number | null
+        /**
+         * Lost quotes by the category of their reason, the most first.
+         */
+        lostByCategory: {
+            category: string
+            count: number
+        }[]
+
+        /**
+         * Margin questions asked ÷ quotes sent, %; null with nothing sent.
+         */
+        neededApprovalPercent: number | null
+
+        /**
+         * Approved ÷ answered, %; null with no answers.
+         */
+        approvalRatePercent: number | null
+
+        /**
+         * "rubber stamp" above APPROVAL_RUBBER_STAMP_PERCENT, "too strict" below APPROVAL_TOO_STRICT_PERCENT, with enough answers.
+         */
+        approvalWarning: "rubber_stamp" | "too_strict" | null
     }
 
     export interface SalesCockpitTiles {
@@ -16854,10 +16943,24 @@ export namespace interfaces {
             marginUnknown: number
 
             /**
+             * Open quotes sent to a customer that is not in the customer records.
+             */
+            sentNoCustomer: number
+
+            /**
              * More quotes matched than the cockpit reads: the figures are of part of them.
              */
             capped: boolean
         }
+        /**
+         * Margin questions of the last days, company-wide (H2); null when the quotes service did not say.
+         */
+        audit: SalesCockpitAudit | null
+
+        /**
+         * How the team sold over the last days, company-wide (H3); null when the quotes service did not say.
+         */
+        team: SalesCockpitTeam | null
     }
 
     /**

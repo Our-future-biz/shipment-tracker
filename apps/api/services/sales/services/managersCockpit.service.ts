@@ -37,6 +37,7 @@ class ManagersCockpitService {
       capped: facts.capped || tasks.length >= TASKS_LIMIT,
       mode,
       now,
+      lines: facts,
     });
   }
 }

@@ -27,6 +27,17 @@ export const WAREHOUSE_INQUIRY_HOURS = 24;
 export const TASK_OVERDUE_DAYS = 2;
 /** Expired quotes nobody moved on are shown this many days after their validity ended (A13). */
 export const EXPIRED_DAYS = 7;
+/** Ready to Send for this many working days and not sent: ATTENTION (A5). */
+export const READY_TO_SEND_WORKING_DAYS = 1;
+/** A margin approved this many hours ago on a quote still not sent: ATTENTION (A7). */
+export const APPROVED_NOT_SENT_HOURS = 24;
+
+/** The team line's approval rate above this means the guardrail is a rubber stamp (H3)… */
+export const APPROVAL_RUBBER_STAMP_PERCENT = 95;
+/** …and below this, that the guardrail is set wrong. */
+export const APPROVAL_TOO_STRICT_PERCENT = 20;
+/** Fewer answered questions than this in the team line's days say nothing about the guardrail. */
+export const APPROVAL_RATE_MIN_ANSWERS = 5;
 
 /** The "Valid until ≤ N days" tile (W5). */
 export const VALID_UNTIL_TILE_DAYS = 7;

@@ -169,6 +169,9 @@ export interface SalesQuoteFilter {
   /** Won or lost on these business days. */
   decidedFrom?: string;
   decidedTo?: string;
+  /** Valid until these days (YYYY-MM-DD), either end open; a quote with no validity is left out. */
+  validFrom?: string;
+  validTo?: string;
   /** The user the quotes belong to; null = the quotes that belong to no user. */
   ownerUserId?: string | null;
   customerId?: string;
@@ -598,6 +601,40 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
     return { rows: salesRows(found.slice(0, limit)), capped: found.length > limit };
   }
 
+  /**
+   * The team's figures since `since`, for the Sales managers' cockpit: quotes Won and Lost (decided
+   * since), quotes first sent since and the median hours from creation to that first sending, and
+   * the Lost ones by reason.
+   */
+  async teamFacts(companyId: string, since: Date): Promise<{ won: number; lost: number; sent: number; medianHoursToFirstSent: number | null; lostReasons: { reason: string; count: number }[] }> {
+    const live = and(eq(quoteTable.companyId, companyId), isNull(quoteTable.deletedAt), isSalesQuote);
+    const at = since.toISOString();
+    const [[totals], reasons] = await Promise.all([
+      db
+        .select({
+          won: sql<number>`count(*) FILTER (WHERE ${quoteTable.status} = 'won' AND ${quoteTable.decidedAt} >= ${at}::timestamptz)::int`,
+          lost: sql<number>`count(*) FILTER (WHERE ${quoteTable.status} = 'lost' AND ${quoteTable.decidedAt} >= ${at}::timestamptz)::int`,
+          sent: sql<number>`count(*) FILTER (WHERE ${quoteTable.firstSentAt} >= ${at}::timestamptz)::int`,
+          median: sql<number | null>`percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM ${quoteTable.firstSentAt} - ${quoteTable.createdAt}) / 3600) FILTER (WHERE ${quoteTable.firstSentAt} >= ${at}::timestamptz)`,
+        })
+        .from(quoteTable)
+        .where(live),
+      db
+        .select({ reason: sql<string>`coalesce(${quoteTable.lostReason}, '')`, count: sql<number>`count(*)::int` })
+        .from(quoteTable)
+        .where(and(live, eq(quoteTable.status, "lost"), sql`${quoteTable.decidedAt} >= ${at}::timestamptz`))
+        .groupBy(sql`coalesce(${quoteTable.lostReason}, '')`),
+    ]);
+    const median = totals?.median;
+    return {
+      won: totals?.won ?? 0,
+      lost: totals?.lost ?? 0,
+      sent: totals?.sent ?? 0,
+      medianHoursToFirstSent: median === null || median === undefined ? null : Math.round(Number(median) * 10) / 10,
+      lostReasons: reasons.map((r) => ({ reason: r.reason, count: Number(r.count) })),
+    };
+  }
+
   /** The owner texts of the company's sales quotes that nobody compared with the users yet. */
   async unexaminedOwnerLabels(companyId: string): Promise<string[]> {
     const rows = await db.selectDistinct({ ownerLabel: quoteTable.ownerLabel }).from(quoteTable).where(this.unexaminedOwner(companyId));
@@ -767,6 +804,8 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
       filter.direction ? sql`${quoteTable.data}->>'direction' = ${filter.direction}` : undefined,
       onBusinessDays(quoteTable.createdAt, filter.createdFrom, filter.createdTo),
       onBusinessDays(quoteTable.decidedAt, filter.decidedFrom, filter.decidedTo),
+      filter.validFrom ? sql`${quoteTable.validUntil} >= ${filter.validFrom}::date` : undefined,
+      filter.validTo ? sql`${quoteTable.validUntil} <= ${filter.validTo}::date` : undefined,
       filter.ownerUserId === undefined
         ? undefined
         : filter.ownerUserId === null

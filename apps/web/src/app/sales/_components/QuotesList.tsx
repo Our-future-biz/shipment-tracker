@@ -98,8 +98,15 @@ type BulkFailure = { quoteNumber: string; reason: string }[];
 // chosen, each with the status its row showed then.
 interface StatusTarget {
   status: SettableQuoteStatus;
+  /** To Lost: "Category: reason", as the quote page's Lost dialog writes it. */
+  lostReason?: string;
   quotes: { quoteNumber: string; status: string }[];
 }
+
+// Lost · No response for several quotes at once: the customer never answered (Council Outlay 6
+// D19). Nothing sets it by itself - an expired quote stays Expired until somebody records it.
+const NO_RESPONSE = "Customer: No response";
+const targetLabel = (t: StatusTarget) => (t.status === "lost" && t.lostReason === NO_RESPONSE ? "Lost · No response" : statusLabel(t.status));
 
 const countOf = (quotes: number) => (quotes === 1 ? "1 quote" : `${quotes.toLocaleString("en-US")} quotes`);
 
@@ -461,13 +468,13 @@ export function QuotesList() {
   // is refused ("the quote is now Draft") rather than moved on from a status nobody here saw.
   const bulkStatus = async () => {
     if (!statusTarget) return;
-    const { status, quotes: confirmed } = statusTarget;
-    const request = transitionRequest({ status });
+    const { status, lostReason, quotes: confirmed } = statusTarget;
+    const request = transitionRequest({ status, lostReason });
     const shown = new Map(confirmed.map((q) => [q.quoteNumber, q.status]));
     await runAndReport(
       confirmed.map((q) => q.quoteNumber),
       (quoteNumber) => api.quotes.salesQuoteTransition(quoteNumber, { ...request, expectedStatus: shown.get(quoteNumber) }),
-      `Set ${statusLabel(status)} on`,
+      `Set ${targetLabel(statusTarget)} on`,
     );
     setStatusTarget(null);
   };
@@ -645,6 +652,11 @@ export function QuotesList() {
       label: `Set status: ${statusLabel(key)}`,
       onClick: () => setStatusTarget({ status: key, quotes: selected.map((q) => ({ quoteNumber: q.quoteNumber, status: q.status })) }),
     })),
+    {
+      key: "st:lost_no_response",
+      label: "Set status: Lost · No response",
+      onClick: () => setStatusTarget({ status: "lost", lostReason: NO_RESPONSE, quotes: selected.map((q) => ({ quoteNumber: q.quoteNumber, status: q.status })) }),
+    },
   ];
 
   const failedStillSelected = !!bulkFailed && bulkFailed.every((f) => selected.some((q) => q.quoteNumber === f.quoteNumber));
@@ -856,9 +868,9 @@ export function QuotesList() {
             if (!isRunningOnQuotes) setStatusTarget(null);
           }}
           onConfirm={bulkStatus}
-          title={`Set ${statusLabel(statusTarget.status)} on ${countOf(statusTarget.quotes.length)}?`}
+          title={`Set ${targetLabel(statusTarget)} on ${countOf(statusTarget.quotes.length)}?`}
           description={`${statusTarget.status === "won" ? "Won cannot be changed afterwards. " : ""}A quote whose status does not allow the change stays as it is, and is listed with the reason.`}
-          confirmLabel={`Set ${statusLabel(statusTarget.status)}`}
+          confirmLabel={`Set ${targetLabel(statusTarget)}`}
           danger={statusTarget.status === "won"}
           loading={isRunningOnQuotes}
         />

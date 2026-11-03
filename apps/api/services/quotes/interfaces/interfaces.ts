@@ -348,6 +348,14 @@ export interface SalesManagersQuoteFact {
   belowFloor: boolean;
   /** The revision of a Won quote (it stays Won while its prices are changed). */
   wonRevision: boolean;
+  /** When the quote got the status it has now (its history), else when it was created. */
+  statusSince: string;
+  /** When a manager approved the margin, while that approval covers it; null otherwise. */
+  approvalAt: string | null;
+  /** Why an approval on the quote no longer covers it ("the customer changed", "the margin got worse"); null when none or it does. */
+  approvalLapsed: string | null;
+  /** What the customer owes, when it is a customer record: overdue invoices, and how far unpaid ones exceed the credit limit. */
+  credit: { overdueCount: number; oldestOverdueDue: string | null; overLimitCzk: number | null } | null;
   /** The warehouse's heavy-piece question on the quote, when there is one. */
   warehouseInquiry: { status: "pending" | "approved" | "rejected"; requestedAt: string } | null;
   /** A rep's question to a manager about the margin that waits for an answer, when there is one. */
@@ -368,6 +376,37 @@ export interface SalesManagersFacts {
   quotes: SalesManagersQuoteFact[];
   /** More quotes matched than were read: the cockpit says so. */
   capped: boolean;
+  /** The margin questions of the last AUDIT_DAYS days (the cockpit's audit line). */
+  audit: {
+    days: number;
+    asked: number;
+    approved: number;
+    counter: number;
+    rejected: number;
+    withdrawn: number;
+    selfApprovals: number;
+    /** Waiting now with the admins told (no manager set, 4 office hours, or "needs it by" close). */
+    escalated: number;
+    /** Median office minutes from asking to the answer; null when none was answered. */
+    medianOfficeMinutesToDecide: number | null;
+  };
+  /** The team's figures of the last TEAM_DAYS days (the cockpit's team line). */
+  team: {
+    days: number;
+    won: number;
+    lost: number;
+    sent: number;
+    medianHoursToFirstSent: number | null;
+    lostReasons: { reason: string; count: number }[];
+    /** Margin questions asked, and how many were approved and rejected, in the same days. */
+    asked: number;
+    approved: number;
+    rejected: number;
+  };
+  /** Margin questions waiting on a quote that can no longer be sent (deleted, Quoted, Lost, …): Sales References. */
+  inquiriesOnClosedQuotes: string[];
+  /** Answers of the last 30 days nobody opened whose asker left and whose quote has no Sales Owner who is a user: Sales References. */
+  answersNobodyReceived: string[];
 }
 
 /** An open quote of a customer: not decided and not expired. Its value is worked out by the web, from these parts of its document. */

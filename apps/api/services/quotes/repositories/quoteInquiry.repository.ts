@@ -95,6 +95,20 @@ class QuoteInquiryRepository {
       .limit(limit);
   }
 
+  /** Margin questions asked, answered or withdrawn since `since`: the cockpit's audit line. */
+  async marginSince(companyId: string, since: Date): Promise<QuoteInquiryRecord[]> {
+    return db.select().from(t).where(and(live(companyId), margin, or(gte(t.requestedAt, since), gte(t.updatedAt, since))));
+  }
+
+  /** Margin answers since `since` that nobody opened, with whom the question's quote belongs to. */
+  async unseenMarginAnswers(companyId: string, since: Date): Promise<{ quoteNumber: string; requestedById: string; ownerUserId: string | null }[]> {
+    return db
+      .select({ quoteNumber: t.quoteNumber, requestedById: t.requestedById, ownerUserId: quoteTable.ownerUserId })
+      .from(t)
+      .leftJoin(quoteTable, and(eq(quoteTable.id, t.quoteId), eq(quoteTable.companyId, t.companyId)))
+      .where(and(live(companyId), margin, inArray(t.status, ["approved", "rejected"]), gte(t.decidedAt, since), isNull(t.answerSeenAt)));
+  }
+
   /** The company's waiting margin questions. */
   async pending(companyId: string): Promise<QuoteInquiryRecord[]> {
     return db.select().from(t).where(and(live(companyId), margin, eq(t.status, "pending"))).orderBy(t.requestedAt);

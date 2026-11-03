@@ -18,6 +18,10 @@ export interface Filters {
   mineOnly?: boolean;
   /** Won or lost in the current calendar month. */
   decidedThisMonth?: boolean;
+  /** Valid until today or within this many days after it. */
+  validWithinDays?: number;
+  /** Only the quotes whose follow-up is due. */
+  followUpDue?: boolean;
   /** The quotes of one user, by their id - or "none": the quotes that belong to no user. */
   owner?: string;
 }
@@ -47,6 +51,9 @@ export function filtersToQuery(filters: Filters): SalesQuoteFilter {
     decidedFrom: filters.decidedThisMonth ? month.startOf("month").format("YYYY-MM-DD") : undefined,
     decidedTo: filters.decidedThisMonth ? month.endOf("month").format("YYYY-MM-DD") : undefined,
     owner: filters.mineOnly ? "me" : filters.owner,
+    validFrom: filters.validWithinDays ? month.format("YYYY-MM-DD") : undefined,
+    validTo: filters.validWithinDays ? month.add(filters.validWithinDays, "day").format("YYYY-MM-DD") : undefined,
+    followUp: filters.followUpDue ? "due" : undefined,
   };
 }
 
@@ -61,7 +68,9 @@ export interface ListState {
   pageSize: number;
 }
 
-type FilterParam = "status" | "service" | "direction" | "from" | "to" | "owner" | "month";
+type FilterParam = "status" | "service" | "direction" | "from" | "to" | "owner" | "month" | "valid" | "followup";
+// The longest "valid within N days" an address may ask for.
+const MAX_VALID_WITHIN_DAYS = 90;
 type ListParam = "q" | FilterParam | "sort" | "page" | "size";
 
 // A day as the server takes it, or nothing.
@@ -75,6 +84,7 @@ export function readList(params: URLSearchParams): ListState {
   const owner = params.get("owner") ?? "";
   const page = Number(params.get("page"));
   const pageSize = Number(params.get("size"));
+  const validWithin = Number(params.get("valid"));
   return {
     search: params.get("q") ?? "",
     filters: {
@@ -86,6 +96,8 @@ export function readList(params: URLSearchParams): ListState {
       mineOnly: owner === "me" || undefined,
       decidedThisMonth: params.get("month") === "1" || undefined,
       owner: owner === NO_OWNER || isUuid(owner) ? owner : undefined,
+      validWithinDays: Number.isInteger(validWithin) && validWithin > 0 && validWithin <= MAX_VALID_WITHIN_DAYS ? validWithin : undefined,
+      followUpDue: params.get("followup") === "due" || undefined,
     },
     sort: params.get("sort") ?? "",
     page: Number.isInteger(page) && page > 0 ? page : 1,
@@ -103,6 +115,8 @@ function filterParams(filters: Filters): Record<FilterParam, string> {
     to: filters.dateTo ?? "",
     owner: filters.mineOnly ? "me" : (filters.owner ?? ""),
     month: filters.decidedThisMonth ? "1" : "",
+    valid: filters.validWithinDays ? String(filters.validWithinDays) : "",
+    followup: filters.followUpDue ? "due" : "",
   };
 }
 
