@@ -97,6 +97,16 @@ class InvoiceRepository extends TenantRepository<typeof t> {
     return new Set(rows.map((r) => r.source).filter((s): s is string => !!s));
   }
 
+  /** Of the shipments, those an invoice was ever issued for (a credited one counts too). */
+  async shipmentIdsWithInvoices(shipmentIds: string[], companyId: string): Promise<string[]> {
+    if (!shipmentIds.length) return [];
+    const rows = await this.db
+      .selectDistinct({ shipmentId: t.shipmentId })
+      .from(t)
+      .where(and(eq(t.companyId, companyId), eq(t.kind, "invoice"), isNull(t.deletedAt), inArray(t.shipmentId, shipmentIds)));
+    return rows.map((r) => r.shipmentId);
+  }
+
   async countOpenInvoices(shipmentId: string, companyId: string): Promise<number> {
     const [row] = await this.db
       .select({ n: sql<number>`count(*)::int` })

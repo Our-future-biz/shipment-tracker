@@ -32,6 +32,7 @@ import { assertTimes, clearStaleTimes } from "../lib/dateTimes";
 import { resplitMasterJobCosts } from "../lib/masterJobCosts";
 import { cargoDimensionRepository } from "../repositories/cargoDimension.repository";
 import { freightTons } from "../lib/freightTons";
+import { compareJobNumbers } from "../lib/jobNumber";
 
 /** Editable master-job fields (everything but the id, MCZ number and bookkeeping). */
 export type MasterJobUpdate = Partial<
@@ -143,7 +144,7 @@ class MasterJobService {
         ? containersFromHouses(houseContainers)
         : containers.map((c) => ({ ...toMasterContainerLine(c), shipmentIds: c.shipmentIds.filter((s) => houseIds.has(s)) }));
     const shipments: MasterJobShipmentItem[] = houses
-      .sort((a, b) => a.jobNumber.localeCompare(b.jobNumber))
+      .sort((a, b) => compareJobNumbers(a.jobNumber, b.jobNumber))
       .map((h) => ({
         id: h.id,
         jobNumber: h.jobNumber,
@@ -313,7 +314,7 @@ class MasterJobService {
         jobNumber: r.jobNumber,
         freightTon: freightTons(dims.filter((d) => d.shipmentId === r.id), r).freightTon,
       }))
-      .sort((a, b) => a.jobNumber.localeCompare(b.jobNumber));
+      .sort((a, b) => compareJobNumbers(a.jobNumber, b.jobNumber));
   }
 
   /** Copy the master job's filled-in values onto a shipment that was just linked to it. */

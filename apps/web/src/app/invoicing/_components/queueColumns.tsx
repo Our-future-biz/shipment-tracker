@@ -16,6 +16,7 @@ import {
 } from "@/lib/columnConfig";
 import { formatDate } from "@/lib/date";
 import { moneyCz } from "@/lib/money";
+import { compareJobNumbers } from "@/lib/jobNumber";
 import {
   invoicingStatusOf,
   serviceDateKey,
@@ -156,7 +157,7 @@ export function queueColumns({
       width: W.job,
       fixed: "left",
       ellipsis: true,
-      sorter: (a, b) => a.jobNumber.localeCompare(b.jobNumber),
+      sorter: (a, b) => compareJobNumbers(a.jobNumber, b.jobNumber),
       onCell: tint("jobNumber", (r) => r.jobNumber, info),
       render: (_, r) => {
         const s = styleOf("jobNumber", r.jobNumber, info, r);

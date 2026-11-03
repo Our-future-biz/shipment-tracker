@@ -8,7 +8,7 @@ vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn() } })
 vi.mock("~encore/clients", () => ({
   auth: { usersList: vi.fn(), userLookup: vi.fn() },
   customers: { customerUpdate: vi.fn(), customerGet: vi.fn(), addressList: vi.fn(), contactList: vi.fn() },
-  invoicing: { invoicingImportQuote: vi.fn(), openInvoiceCount: vi.fn(), _internalShipmentBillingStart: vi.fn() },
+  invoicing: { invoicingImportQuote: vi.fn(), openInvoiceCount: vi.fn(), _internalShipmentBillingStart: vi.fn(), _internalInvoicedShipments: vi.fn() },
   quotes: { salesQuoteGet: vi.fn() },
 }));
 // A shipment's write turn: its work runs at once, handed this stand-in for the transaction.
@@ -135,6 +135,7 @@ beforeEach(() => {
   repository.softDeleteForCompany.mockImplementation(async (id) => stored.get(id) ?? null);
   vi.mocked(shipmentAttachmentRepository.documentTypesByShipmentIds).mockResolvedValue([]);
   vi.mocked(invoicing.openInvoiceCount).mockResolvedValue({ count: 0 });
+  vi.mocked(invoicing._internalInvoicedShipments).mockResolvedValue({ shipmentIds: [] });
   vi.mocked(containerRepository.listByShipmentId).mockResolvedValue([]);
   vi.mocked(cargoItemRepository.listByShipmentId).mockResolvedValue([]);
   vi.mocked(cargoDimensionRepository.listByShipmentId).mockResolvedValue([]);
@@ -409,6 +410,39 @@ describe("Created by", () => {
 
 describe("update", () => {
   const update = (data: Record<string, unknown>) => shipmentService.update(SHIPMENT, COMPANY, data as never, USER);
+
+  describe("the Internal Reference's letters", () => {
+    it("follow a changed Freight Mode or Load Type, the number kept, and the quote is told", async () => {
+      stored.set(SHIPMENT, row({ jobNumber: "CZ00000101", freightMode: "Sea Freight", loadType: "", salesNumber: REF }));
+      await update({ loadType: "Full Load" });
+      expect(repository.updateForCompany.mock.calls[0]![2]).toMatchObject({ loadType: "Full Load", jobNumber: "CZFCL00000101" });
+      expect(vi.mocked(shipmentAuditRepository.create)).toHaveBeenCalledWith(
+        expect.objectContaining({ field: "jobNumber", oldValue: "CZ00000101", newValue: "CZFCL00000101" }),
+        TX,
+      );
+      // The quote keeps its shipment's reference too.
+      expect(links.syncReference).toHaveBeenCalledWith(COMPANY, REF);
+
+      await update({ freightMode: "Air Freight" });
+      expect(repository.updateForCompany.mock.calls[1]![2]).toMatchObject({ jobNumber: "CZAIR00000101" });
+    });
+
+    it("stay once the job has had an invoice", async () => {
+      stored.set(SHIPMENT, row({ jobNumber: "CZFCL00000101", freightMode: "Sea Freight", loadType: "Full Load" }));
+      vi.mocked(invoicing._internalInvoicedShipments).mockResolvedValue({ shipmentIds: [SHIPMENT] });
+      await update({ loadType: "Consolidation" });
+      expect(repository.updateForCompany.mock.calls[0]![2]).toMatchObject({ loadType: "Consolidation" });
+      expect(repository.updateForCompany.mock.calls[0]![2]).not.toHaveProperty("jobNumber");
+      expect(links.syncReference).not.toHaveBeenCalled();
+    });
+
+    it("are not looked at by an edit that changes neither", async () => {
+      stored.set(SHIPMENT, row({ jobNumber: "CZ00000101", freightMode: "Air Freight", loadType: "" }));
+      await update({ pol: "Shanghai" });
+      expect(repository.updateForCompany.mock.calls[0]![2]).not.toHaveProperty("jobNumber");
+      expect(invoicing._internalInvoicedShipments).not.toHaveBeenCalled();
+    });
+  });
 
   it("tells the new quote and the old one when the Sales Number changes, after the shipment is written", async () => {
     stored.set(SHIPMENT, row({ salesNumber: REF, salesPerson: "martin@firma.cz" }));

@@ -4,7 +4,8 @@ import { TenantRepository } from "../../../lib/db/repository";
 import { db, type Tx } from "../db/db";
 import { shipmentTable, type NewShipmentRecord, type ShipmentRecord } from "../schemas/shipment.schema";
 import { CANCELLED_STATUS } from "../lib/fieldDefaults";
-import { shipmentRefCounterRepository } from "./shipmentRefCounter.repository";
+import { shipmentRefCounterRepository, type Tx as CounterTx } from "./shipmentRefCounter.repository";
+import { jobNumberFor } from "../lib/jobNumber";
 import { masterJobTable } from "../schemas/masterJob.schema";
 import { containerTable } from "../schemas/container.schema";
 import { containsAllWords } from "../../../lib/db/textSearch";
@@ -12,6 +13,9 @@ import type { PeopleRewrite, ShipmentPeople } from "../lib/people";
 
 /** A new shipment's own fields; the repository sets the company and the job number. */
 export type NewShipmentData = Omit<NewShipmentRecord, "companyId" | "jobNumber">;
+
+/** What decides a shipment's reference letters (lib/jobNumber), and the quote it names. */
+export type ShipmentReference = Pick<ShipmentRecord, "id" | "jobNumber" | "freightMode" | "loadType" | "salesNumber">;
 
 /**
  * Predicates behind the Shipments overview tiles. Shared by the list filter and
@@ -282,6 +286,12 @@ export interface CustomerShipmentFactsRow {
 // spaces around it.
 const SALES_NUMBER = sql<string>`btrim(${shipmentTable.salesNumber})`;
 
+// The company's next CZ number, with the letters of the new job's Freight Mode and Load Type
+// (CZAIR00000023, lib/jobNumber).
+async function nextJobNumber(tx: CounterTx, companyId: string, data: NewShipmentData): Promise<string> {
+  return jobNumberFor(await shipmentRefCounterRepository.allocate(tx, companyId, "CZ"), data.freightMode, data.loadType);
+}
+
 class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
   constructor() {
     super(db, shipmentTable, "shipment");
@@ -388,7 +398,7 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
     return this.db.transaction(async (tx) => {
       const [existing] = await this.lockLiveBySalesNumber(tx, companyId, reference);
       if (existing && !allowSecond) return { existing };
-      const jobNumber = await shipmentRefCounterRepository.allocate(tx, companyId, "CZ");
+      const jobNumber = await nextJobNumber(tx, companyId, data);
       const [created] = await tx
         .insert(shipmentTable)
         .values({ ...data, jobNumber, companyId, salesNumber: reference, createdFromQuote: true })
@@ -403,7 +413,7 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
    */
   async createWithJobNumber(companyId: string, data: NewShipmentData): Promise<ShipmentRecord> {
     return this.db.transaction(async (tx) => {
-      const jobNumber = await shipmentRefCounterRepository.allocate(tx, companyId, "CZ");
+      const jobNumber = await nextJobNumber(tx, companyId, data);
       const [created] = await tx.insert(shipmentTable).values({ ...data, jobNumber, companyId }).returning();
       return created!;
     });
@@ -684,6 +694,33 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
       .update(shipmentTable)
       .set({ plateNumber, updatedAt: new Date() })
       .where(and(eq(shipmentTable.companyId, companyId), eq(shipmentTable.warehouseTruck, truck), isNull(shipmentTable.deletedAt)));
+  }
+
+  /** Reference, Freight Mode, Load Type and Sales Number of the company's live shipments: what the reference backfill reads. */
+  async referencesOf(companyId: string): Promise<ShipmentReference[]> {
+    return this.db
+      .select({
+        id: shipmentTable.id,
+        jobNumber: shipmentTable.jobNumber,
+        freightMode: shipmentTable.freightMode,
+        loadType: shipmentTable.loadType,
+        salesNumber: shipmentTable.salesNumber,
+      })
+      .from(shipmentTable)
+      .where(and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt)));
+  }
+
+  /**
+   * Renames a live shipment's reference from `from` to `to` inside a write turn - only while it
+   * still reads `from`, so an edit made since the read wins. Null when nothing was renamed.
+   */
+  async renameJobNumber(tx: Tx, id: string, companyId: string, from: string, to: string): Promise<ShipmentRecord | null> {
+    const [row] = await tx
+      .update(shipmentTable)
+      .set({ jobNumber: to, updatedAt: new Date() })
+      .where(and(eq(shipmentTable.id, id), eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt), eq(shipmentTable.jobNumber, from)))
+      .returning();
+    return row ?? null;
   }
 
   /** The columns that name people, of the company's live shipments: what the people backfill reads. */

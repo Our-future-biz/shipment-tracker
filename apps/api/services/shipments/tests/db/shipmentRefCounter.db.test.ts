@@ -24,7 +24,8 @@ describe("job numbers", () => {
     const companyId = randomUUID();
     await db.insert(shipmentTable).values([
       { companyId, jobNumber: "CZ00000041" },
-      { companyId, jobNumber: "CZ00000057", deletedAt: new Date() },
+      { companyId, jobNumber: "CZAIR00000049" },
+      { companyId, jobNumber: "CZPROJECT00000057", deletedAt: new Date() },
       // Not CZ numbers: a CZQ reference and free text.
       { companyId, jobNumber: "CZQ00000999" },
       { companyId, jobNumber: "IMPORT-1" },

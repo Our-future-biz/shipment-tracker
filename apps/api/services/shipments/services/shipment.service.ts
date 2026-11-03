@@ -31,6 +31,7 @@ import type {
   CostImportOutcome,
   CustomerShipmentFacts,
   PeopleNormalizeResult,
+  ReferenceNormalizeResult,
   QuoteLinkOutcome,
   QuoteShipments,
   QuoteSyncResult,
@@ -50,6 +51,7 @@ import { detailRowChanges, type DetailRowLists } from "../lib/detailRowsAudit";
 import { partyContact, partyStop, stopKeys, type Party } from "../lib/partyAddress";
 import { CONSIGNEE_CONTACT, CUSTOMER_PIC, SHIPPER_CONTACT, linkContact, type ContactMode } from "../lib/contactLinks";
 import { shipmentDeleted, shipmentPartiesChanged } from "../topics";
+import { jobNumberFor } from "../lib/jobNumber";
 import { companyUsers, matchUser, requireUserEmail, userEmailOf, type CompanyUser } from "../../../lib/companyUsers";
 import { PERSON_FIELDS, planPeopleNormalize, requireApprovedBy } from "../lib/people";
 import { assertTimes, clearStaleTimes } from "../lib/dateTimes";
@@ -329,6 +331,8 @@ const DATE_FIELDS = new Set([
 const MONEY_FIELDS = new Set(["selling", "buying"]);
 // How many quotes one request may ask the shipments of: a page of the Quotes list at most.
 const MAX_QUOTE_REFERENCES = 200;
+// Shipments Invoicing is asked about at once (its limit).
+const INVOICED_ASK_MAX = 500;
 
 // Requests may send "" for the customs priority; it is stored as Standard.
 type BlankablePriority = { customsPriority?: CustomsPriority | "" };
@@ -974,6 +978,7 @@ class ShipmentService {
   // The CZ job number the next shipment of this company would get (a per-company sequence over
   // all rows incl. archived, so a reference is never reused within the company). Only a preview:
   // the number is taken when the shipment is stored, so a parallel create may get this one first.
+  // It has no letters: a new job's Load Type is not known yet (lib/jobNumber).
   async nextJobNumber(companyId: string): Promise<string> {
     return shipmentRefCounterRepository.peek(companyId, "CZ");
   }
@@ -1047,6 +1052,14 @@ class ShipmentService {
       cfsDefault(after("hub"), after("cfs")),
     );
 
+    // The Internal Reference's letters follow the Freight Mode and Load Type, the number kept
+    // (CZFCL00000023 → CZLCL00000023) - until the job has had an invoice: invoice numbers carry the
+    // reference, so from then on it is final (owner decision, 3 Nov 2026).
+    if ("freightMode" in shipmentData || "loadType" in shipmentData) {
+      const reference = jobNumberFor(existing.jobNumber, after("freightMode"), after("loadType"));
+      if (reference !== existing.jobNumber && !(await this.hasHadInvoice(id))) shipmentData.jobNumber = reference;
+    }
+
     // The plate number belongs to the truck (TCZ…), not to one shipment on it. A shipment
     // put on a truck takes that truck's plate, one taken off loses it, and a plate typed
     // on any shipment of a truck is written to the others once this update is saved.
@@ -1113,6 +1126,11 @@ class ShipmentService {
     }
     if (updated && (updated.customer !== existing.customer || updated.customerPic !== existing.customerPic)) {
       await this.tellParties(companyId, updated);
+    }
+    // The quote shows its shipment's reference (a changed Sales Number tells it below). Trucking and
+    // the warehouse keep the reference they copied: theirs is for their own modules.
+    if (updated && updated.jobNumber !== existing.jobNumber && !salesNumberChanged) {
+      await this.tellQuote(companyId, updated.salesNumber.trim());
     }
     // A W/M split of its master job's costs follows the shipment's weight and volume - also when
     // a removed container took its own cargo dimensions with it (writeDetailRows).
@@ -1227,6 +1245,12 @@ class ShipmentService {
     return count > 0;
   }
 
+  /** Whether an invoice was ever issued for the job, a credited one too: its Internal Reference is then final. */
+  async hasHadInvoice(id: string): Promise<boolean> {
+    const { shipmentIds } = await invoicing._internalInvoicedShipments({ shipmentIds: [id] });
+    return shipmentIds.length > 0;
+  }
+
   async softDelete(id: string, companyId: string, userId?: string): Promise<void> {
     const existing = await shipmentRepository.getByIdForCompany(id, companyId);
     if (!existing) throw APIError.notFound("Shipment not found");
@@ -1279,6 +1303,44 @@ class ShipmentService {
     const plan = planPeopleNormalize(await shipmentRepository.peopleOf(companyId), users);
     const changed = await shipmentRepository.rewritePeople(companyId, plan.rewrites);
     return { checked: plan.checked, changed, unmatched: plan.unmatched };
+  }
+
+  /**
+   * The one-off rename after references got the letters of their freight mode (owner decision,
+   * 3 Nov 2026): each live shipment of the company takes the letters of its Freight Mode and Load
+   * Type, the number kept - except one that has had an invoice, whose invoice numbers carry the
+   * reference. Each rename is audited as the user who ran it; the quote follows (Trucking and the
+   * warehouse keep the reference they copied). Safe to run again.
+   */
+  async normalizeReferences(companyId: string, userId: string): Promise<ReferenceNormalizeResult> {
+    const rows = await shipmentRepository.referencesOf(companyId);
+    const wanted = rows
+      .map((row) => ({ ...row, next: jobNumberFor(row.jobNumber, row.freightMode, row.loadType) }))
+      .filter((row) => row.next !== row.jobNumber);
+    const invoiced = new Set<string>();
+    for (let i = 0; i < wanted.length; i += INVOICED_ASK_MAX) {
+      const { shipmentIds } = await invoicing._internalInvoicedShipments({ shipmentIds: wanted.slice(i, i + INVOICED_ASK_MAX).map((r) => r.id) });
+      for (const shipmentId of shipmentIds) invoiced.add(shipmentId);
+    }
+    const keptInvoiced: string[] = [];
+    const quotesToTell = new Set<string>();
+    let renamed = 0;
+    for (const row of wanted) {
+      if (invoiced.has(row.id)) {
+        keptInvoiced.push(row.jobNumber);
+        continue;
+      }
+      const updated = await shipmentRepository.writeTurn(row.id, companyId, async (tx) => {
+        const done = await shipmentRepository.renameJobNumber(tx, row.id, companyId, row.jobNumber, row.next);
+        if (done) await shipmentAuditRepository.create({ companyId, shipmentId: row.id, userId, field: "jobNumber", oldValue: row.jobNumber, newValue: row.next }, tx);
+        return done;
+      });
+      if (!updated) continue;
+      renamed++;
+      if (updated.salesNumber.trim()) quotesToTell.add(updated.salesNumber.trim());
+    }
+    for (const salesNumber of quotesToTell) await this.tellQuote(companyId, salesNumber);
+    return { checked: rows.length, renamed, keptInvoiced };
   }
 
   async linkMasterJob(shipmentId: string, companyId: string, mczNumber: string): Promise<ShipmentRecord | null> {

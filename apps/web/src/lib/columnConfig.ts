@@ -142,7 +142,7 @@ export const COMPUTED_COLUMNS = new Set([
 
 export const COLUMNS: ColumnDef[] = [
   // Internal Reference is locked (always first); Master job is an ordinary column
-  { key: "jobNumber", title: "Internal Reference", width: 140, type: "text", fixed: true, readonly: true, apiField: "jobNumber" },
+  { key: "jobNumber", title: "Internal Reference", width: 170, type: "text", fixed: true, readonly: true, apiField: "jobNumber" },
   { key: "masterJob", title: "Master job", width: 140, type: "text", readonly: true, apiField: "masterJobMczNumber" },
 
   // Meta
