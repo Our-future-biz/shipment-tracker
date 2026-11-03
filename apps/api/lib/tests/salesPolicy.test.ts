@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SALES_MANAGE_ROLES, canApproveMargin, canEditSalesSettings, canManageSales, canSetOwner, ownerChangeRight, quoteCostCopyRefusal, quoteDeletePermission, shipmentFromQuoteRefusal, shipmentLinkRefusal } from "../salesPolicy";
+import { SALES_MANAGE_ROLES, canApproveMargin, canDecideQuoteInquiry, canEditSalesSettings, canManageSales, canSetOwner, ownerChangeRight, quoteCostCopyRefusal, quoteDeletePermission, shipmentFromQuoteRefusal, shipmentLinkRefusal } from "../salesPolicy";
 
 const ME = "user-me";
 const COLLEAGUE = "user-colleague";
@@ -44,6 +44,13 @@ describe("canApproveMargin", () => {
     }
     expect(canApproveMargin("manager")).toBe(true);
     expect(canApproveMargin("user")).toBe(false);
+  });
+});
+
+describe("canDecideQuoteInquiry", () => {
+  it("lets the supervisor roles answer a quote inquiry, and nobody else", () => {
+    for (const role of ["superadmin", "admin", "manager"]) expect(canDecideQuoteInquiry(role), role).toBe(true);
+    for (const role of ["user", "", "Manager", "owner"]) expect(canDecideQuoteInquiry(role), role).toBe(false);
   });
 });
 

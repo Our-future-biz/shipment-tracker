@@ -70,6 +70,14 @@ export function canApproveMargin(role: string): boolean {
 }
 
 /**
+ * Whether the user may answer a quote inquiry: today the warehouse's heavy-piece question, which
+ * the supervisor roles answer (the same as the roles that manage Sales).
+ */
+export function canDecideQuoteInquiry(role: string): boolean {
+  return canManageSales(role);
+}
+
+/**
  * How far a user may change the owner of a quote:
  * `any` - a manager: to anybody, or to nobody;
  * `own` - a plain user on their own quote: may hand it to anybody, or give it up;

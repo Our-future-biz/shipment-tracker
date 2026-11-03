@@ -5,7 +5,7 @@ import { customers, fx, shipments, trucking } from "~encore/clients";
 import { businessDay, isRealYmd } from "../../../lib/businessDate";
 import type { PaginatedResponse } from "../../../lib/db/interface";
 import type { Actor } from "../../../lib/rbac";
-import { canApproveMargin, canSetOwner, quoteDeletePermission } from "../../../lib/salesPolicy";
+import { canApproveMargin, canDecideQuoteInquiry, canSetOwner, quoteDeletePermission } from "../../../lib/salesPolicy";
 import { baseReference, formatReference, nextRevision, nextSequence, nextVariant, revisionRoot, salesPrefix } from "../../../lib/salesReference";
 import { isUuid } from "../../../lib/uuid";
 import type { RateLevelResult, ServiceLevelCode } from "../../trucking/interfaces/interfaces";
@@ -30,7 +30,7 @@ import { customerIdOf, linkForSave, refreshCopies, withRefresh } from "../utils/
 import { tryCustomerRefs } from "../lib/customerRefs";
 import { approvedPricing, inquiryGateMessage, MAX_INQUIRY_NOTE, MAX_INQUIRY_PIECES, MAX_PRICE_PER_PIECE, MIN_REJECT_REASON, readInquiry } from "../utils/warehouseInquiry.utils";
 import { fxWriteFor, mayStampFx, type StoredFx } from "../lib/quoteFx";
-import { currenciesToResolve, formatMargin, marginGateMessage, roadMargin, roadMarginApplies, type MarginContext } from "../lib/roadMargin";
+import { formatMargin, marginGateMessage, roadMargin, roadMarginApplies, type MarginContext } from "../lib/roadMargin";
 import { choosePricing, pricedComment, rateRequestOf, replaceTruckingLines, roadPricingOf, truckingLines } from "../lib/roadPricing";
 import {
   LifecycleError,
@@ -122,8 +122,6 @@ const pricingClosed = (quote: SalesQuoteRecord): boolean => PRICING_CLOSED.inclu
 const READ_ANSWER_KEEP_DAYS = 7;
 /** How far back the warehouse's list shows answered inquiries. */
 const INQUIRY_HISTORY_DAYS = 30;
-/** Who answers the warehouse inquiries: the warehouse managers (the supervisor roles). */
-const canDecideInquiry = (role: string) => role === "superadmin" || role === "admin" || role === "manager";
 
 export interface WarehouseInquiryRequest {
   pieces: number;
@@ -329,26 +327,21 @@ async function todaysFx(): Promise<StoredFx> {
   };
 }
 
-// What the road margins of these quotes are judged with: the Trucking margin floor and today's ČNB
-// rates of the currencies a quote has no stored rate for. Undefined - and nothing is asked - when
-// the margin rule applies to none of them. A rate the fx service cannot give is missing: the
-// margin then says so instead of the read failing. Read before any row lock (see todaysFx).
+// What the road margins of these quotes are judged with: the Trucking margin floor, and today's ČNB
+// sheet with the company ROE % - the very rates the quote editor prices with (fx /fx/rates), so the
+// gate and the screen read one margin. Undefined - and nothing is asked - when the margin rule
+// applies to none of them. Rates the fx service cannot give are missing: a margin that needs one
+// then says so instead of the read failing. Read before any row lock (see todaysFx).
 async function marginsFor(rows: { data: unknown }[], at: Date): Promise<MarginContext | undefined> {
-  const applying = rows.filter((row) => roadMarginApplies(row.data));
-  if (!applying.length) return undefined;
-  const today = businessDay(at);
-  const currencies = [...new Set(applying.flatMap((row) => currenciesToResolve(row.data)))];
-  const [floor, rates] = await Promise.all([
+  if (!rows.some((row) => roadMarginApplies(row.data))) return undefined;
+  const [floor, sheet] = await Promise.all([
     trucking._internalTruckingMarginFloor(),
-    Promise.all(
-      currencies.map((currency) =>
-        /^[A-Z]{3}$/.test(currency)
-          ? fx.fxResolve({ currency, date: today }).then((r) => r.rate, () => null)
-          : Promise.resolve(null),
-      ),
+    fx.fxRatesOn({}).then(
+      (r) => ({ roePct: r.roePct, rates: Object.fromEntries(r.rates.filter((x) => x.rate > 0).map((x) => [x.currency, x.rate])) }),
+      () => ({ roePct: 100, rates: {} }),
     ),
   ]);
-  return { floor, today, rates: Object.fromEntries(currencies.map((currency, i) => [currency, rates[i] ?? null])) };
+  return { floor, today: businessDay(at), ...sheet };
 }
 
 class SalesQuoteService {
@@ -732,7 +725,7 @@ class SalesQuoteService {
   // The warehouse's questions from Sales (the Warehouse Concept Managers page): those waiting and
   // those answered in the last 30 days. Managers only.
   async listWarehouseInquiries(actor: Actor): Promise<QuoteWarehouseInquiryItem[]> {
-    if (!canDecideInquiry(actor.role)) throw APIError.permissionDenied("only a warehouse manager answers the warehouse inquiries");
+    if (!canDecideQuoteInquiry(actor.role)) throw APIError.permissionDenied("only a warehouse manager answers the warehouse inquiries");
     const since = new Date(Date.now() - INQUIRY_HISTORY_DAYS * 86_400_000).toISOString();
     const [rows, people] = await Promise.all([salesQuoteRepository.listWarehouseInquiries(actor.companyID, since), companyPeople()]);
     return rows.map((r) => inquiryItem(r, people.emails)).filter((i): i is QuoteWarehouseInquiryItem => i !== null);
@@ -741,7 +734,7 @@ class SalesQuoteService {
   // A warehouse manager answers: approved with the extra handling per piece (EUR), or rejected
   // with a reason. The answer goes to the one who asked (the bell) and into the quote's history.
   async decideWarehouseInquiry(actor: Actor, quoteNumber: string, request: WarehouseInquiryDecision): Promise<QuoteWarehouseInquiryItem> {
-    if (!canDecideInquiry(actor.role)) throw APIError.permissionDenied("only a warehouse manager answers the warehouse inquiries");
+    if (!canDecideQuoteInquiry(actor.role)) throw APIError.permissionDenied("only a warehouse manager answers the warehouse inquiries");
     const comment = (request.comment ?? "").trim();
     if (comment.length > MAX_INQUIRY_NOTE) throw APIError.invalidArgument(`The comment is too long (at most ${MAX_INQUIRY_NOTE} characters)`);
     let price: number | null = null;

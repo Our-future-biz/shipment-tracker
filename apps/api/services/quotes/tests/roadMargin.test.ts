@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   approvalOf,
-  currenciesToResolve,
   formatCzk,
   formatMoney,
   marginGateMessage,
@@ -14,11 +13,13 @@ const ctx = (over: Partial<MarginContext> = {}): MarginContext => ({
   floor: { percent: 8, minAmountCzk: 300 },
   today: "2026-10-15",
   rates: {},
+  roePct: 100,
   ...over,
 });
 
 const line = (amount: number, currency = "CZK", over: Record<string, unknown> = {}) => ({ type: "Road freight", description: "", currency, amount, ...over });
-const road = (selling: unknown[], buying: unknown[], over: Record<string, unknown> = {}) => ({ serviceType: "Road", sellingLines: selling, buyingLines: buying, ...over });
+// A road quote priced in CZK, as road quotes are unless their currency is changed.
+const road = (selling: unknown[], buying: unknown[], over: Record<string, unknown> = {}) => ({ serviceType: "Road", currency: "CZK", sellingLines: selling, buyingLines: buying, ...over });
 
 describe("roadMarginApplies", () => {
   it("applies to a Road quote and to any quote with a line priced from a trucking tariff", () => {
@@ -54,20 +55,33 @@ describe("roadMargin", () => {
 
   it("converts EUR with the rate the quote stored when it was sent, before today's", () => {
     const data = road([line(200, "EUR")], [line(4000)], { fx: { date: "2026-10-01", rates: { EUR: 25 }, roePct: 100 } });
-    expect(currenciesToResolve(data)).toEqual([]);
     expect(roadMargin(data, ctx({ rates: { EUR: 30 } }))).toMatchObject({ sellingCzk: 5000, buyingCzk: 4000, marginCzk: 1000 });
   });
 
   it("converts EUR with today's rate when the quote stored none", () => {
     const data = road([line(200, "EUR")], [line(150, "EUR")]);
-    expect(currenciesToResolve(data)).toEqual(["EUR"]);
     expect(roadMargin(data, ctx({ rates: { EUR: 25 } }))).toMatchObject({ sellingCzk: 5000, buyingCzk: 3750, marginCzk: 1250, marginPercent: 25 });
   });
 
   it("takes a line without a currency in the quote's currency, EUR when it names none", () => {
-    const data = road([{ type: "x", description: "", amount: 100 }], []);
-    expect(currenciesToResolve(data)).toEqual(["EUR"]);
-    expect(currenciesToResolve({ ...data, currency: "CZK" })).toEqual([]);
+    const data = { serviceType: "Road", sellingLines: [{ type: "x", description: "", amount: 100 }], buyingLines: [] };
+    expect(roadMargin(data, ctx({ rates: { EUR: 25 } }))).toMatchObject({ sellingCzk: 2500 });
+    expect(roadMargin({ ...data, currency: "CZK" }, ctx())).toMatchObject({ sellingCzk: 100 });
+  });
+
+  it("counts the ROE % on a selling line in another currency than the quote's, never on buying (D4)", () => {
+    const data = road([line(200, "EUR")], [line(200, "EUR")]);
+    // 200 EUR × 25 × 102 % sold, 200 EUR × 25 bought: the 2 % is margin, as the editor shows it.
+    expect(roadMargin(data, ctx({ rates: { EUR: 25 }, roePct: 102 }))).toMatchObject({ sellingCzk: 5100, buyingCzk: 5000, marginCzk: 100, marginPercent: 2 });
+    // A sent quote keeps the ROE % it stored.
+    const sent = { ...data, quoteStatus: "quoted", fx: { date: "2026-10-01", rates: { EUR: 25 }, roePct: 100 } };
+    expect(roadMargin(sent, ctx({ rates: { EUR: 25 }, roePct: 102 }))).toMatchObject({ marginCzk: 0 });
+  });
+
+  it("works an EUR quote out in EUR first, then in CZK", () => {
+    const data = road([line(400, "EUR")], [line(9000, "CZK")], { currency: "EUR" });
+    // 9 000 CZK is 360 EUR at 25: 40 EUR profit, 1 000 CZK; a CZK buying line gets no ROE.
+    expect(roadMargin(data, ctx({ rates: { EUR: 25 }, roePct: 105 }))).toMatchObject({ sellingCzk: 10000, buyingCzk: 9000, marginCzk: 1000, marginPercent: 10 });
   });
 
   it("says which rate is missing: the margin is unknown and counts as below the floor", () => {

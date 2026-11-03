@@ -1629,7 +1629,9 @@ export function QuoteWorkflow() {
               tone={marginTone(totals)}
             />
           </div>
-          {roadMargin && truckingOn && (
+          {/* Shown to everybody the gate applies to: a quote below the floor can't be sent by anyone,
+              so the reason is on screen for all (Council Outlay 6), not only where Trucking is on. */}
+          {roadMargin && (
             <QuoteMarginPanel margin={roadMargin} canApprove={quote.permissions.canApproveMargin} onApprove={() => setModal("approveMargin")} />
           )}
           {/* Which rates the totals use: stored on the quote once sent, today's until then. */}

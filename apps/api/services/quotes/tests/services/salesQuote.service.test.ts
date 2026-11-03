@@ -9,7 +9,7 @@ vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 vi.mock("~encore/clients", () => ({
   auth: { usersList: vi.fn() },
   customers: { customerActivate: vi.fn(), _internalCustomerRefs: vi.fn() },
-  fx: { fxRatesOn: vi.fn(), fxResolve: vi.fn() },
+  fx: { fxRatesOn: vi.fn() },
   shipments: { _internalShipmentsNamingQuote: vi.fn(), _internalShipmentsMoveQuote: vi.fn() },
   trucking: { truckingRate: vi.fn(), _internalTruckingMarginFloor: vi.fn() },
 }));
@@ -55,7 +55,6 @@ const chat = vi.mocked(quoteCommentRepository);
 const usersList = vi.mocked(auth.usersList);
 const fxRatesOn = vi.mocked(fx.fxRatesOn);
 const namingShipments = vi.mocked(shipments._internalShipmentsNamingQuote);
-const fxResolve = vi.mocked(fx.fxResolve);
 const truckingRate = vi.mocked(trucking.truckingRate);
 const marginFloor = vi.mocked(trucking._internalTruckingMarginFloor);
 const customerActivate = vi.mocked(customers.customerActivate);
@@ -1467,12 +1466,17 @@ const roadQuote = (selling: unknown[], buying: unknown[], over: Record<string, u
     ...row,
   });
 
+/** fx /fx/rates as it answers for 2026-10-10: these rates and ROE %. */
+const sheet = (rates: { currency: string; rate: number }[], roePct = 100) =>
+  ({ date: "2026-10-10", fixingDate: "2026-10-09", provisional: false, missing: false, roePct, rates }) as never;
+
 const APPROVAL = { byUserId: U_MANAGER, byName: "Marie Manager", at: SENT.toISOString(), reason: "Key account", marginCzk: 400, marginPercent: 4 };
 
 describe("road transport", () => {
   beforeEach(() => {
     marginFloor.mockResolvedValue({ percent: 8, minAmountCzk: 300 });
-    fxResolve.mockResolvedValue({ currency: "EUR", date: "2026-10-10", rate: 25, fixingDate: "2026-10-09", carried: false, provisional: false, missing: false, roePct: 100, reason: "" });
+    // Today's ČNB sheet and ROE %, the rates the editor prices with too.
+    fxRatesOn.mockResolvedValue(sheet([{ currency: "EUR", rate: 25 }]));
     truckingRate.mockResolvedValue({ request: {} as never, ratedAt: NOW.toISOString(), results: [levelResult()] });
     // The row after a write, document keys and all, as the statement leaves it.
     repository.writeLifecycle.mockImplementation(async (_tx, row, write) => {
@@ -1672,11 +1676,14 @@ describe("road transport", () => {
       expect(marginFloor).not.toHaveBeenCalled();
     });
 
-    it("asks today's ČNB rate for a currency the quote stored none for, and names a rate that is missing", async () => {
-      stored = roadQuote([manual(400, { currency: "EUR" })], [manual(9000)]);
+    it("reads today's ČNB sheet and ROE % for a currency the quote stored none for, and names a rate that is missing", async () => {
+      stored = roadQuote([manual(400, { currency: "EUR" })], [manual(9000)], { currency: "CZK" });
       expect((await salesQuoteService.get(martin, REF)).roadMargin).toMatchObject({ sellingCzk: 10000, marginCzk: 1000 });
-      expect(fxResolve).toHaveBeenCalledWith({ currency: "EUR", date: "2026-10-10" });
-      fxResolve.mockRejectedValue(new Error("fx is unreachable"));
+      expect(fxRatesOn).toHaveBeenCalledWith({});
+      // A selling line in another currency carries today's ROE %, as the editor shows it (D4).
+      fxRatesOn.mockResolvedValue(sheet([{ currency: "EUR", rate: 25 }], 102));
+      expect((await salesQuoteService.get(martin, REF)).roadMargin).toMatchObject({ sellingCzk: 10200, marginCzk: 1200 });
+      fxRatesOn.mockRejectedValue(new Error("fx is unreachable"));
       expect((await salesQuoteService.get(martin, REF)).roadMargin).toMatchObject({ marginCzk: null, problem: "No ČNB rate for EUR on 2026-10-10" });
     });
 
@@ -1715,8 +1722,8 @@ describe("road transport", () => {
       });
       stored = quote();
       await expect(salesQuoteService.approveMargin(manager, REF, "Key account", 3)).rejects.toMatchObject({ code: "failed_precondition" });
-      fxResolve.mockResolvedValue({ currency: "EUR", date: "2026-10-10", rate: null, fixingDate: null, carried: false, provisional: false, missing: true, roePct: 100, reason: "" });
-      stored = roadQuote([manual(400, { currency: "EUR" })], [manual(9000)]);
+      fxRatesOn.mockResolvedValue(sheet([]));
+      stored = roadQuote([manual(400, { currency: "EUR" })], [manual(9000)], { currency: "CZK" });
       await expect(salesQuoteService.approveMargin(manager, REF, "Key account", 3)).rejects.toMatchObject({
         code: "failed_precondition",
         message: "The margin cannot be worked out: No ČNB rate for EUR on 2026-10-10",

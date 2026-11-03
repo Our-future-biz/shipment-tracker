@@ -1,9 +1,13 @@
 // The margin of a road quote against the Trucking margin floor: what the quote sells for minus
-// what it buys for, in CZK. Below the floor a manager must approve the margin before the quote is
+// what it buys for, in CZK - worked out as every quote's is (lib/quoteMargin, the editor's own
+// rules, ROE included). Below the floor a manager must approve the margin before the quote is
 // sent. Pure - the floor and today's ČNB rates are passed in - so every rule is covered by a test.
 // The document comes from browsers, so nothing about its shape is taken for granted.
 
 import type { QuoteMarginApproval, RoadMargin } from "../interfaces/interfaces";
+import { lineAmount, linesOf, quoteMargin, type QuoteRates } from "./quoteMargin";
+
+export { lineAmount };
 
 /** tariffRef of a line priced from a trucking tariff: "trucking:<tariffVersionId>:<serviceLevel>". */
 export const TRUCKING_REF_PREFIX = "trucking:";
@@ -13,12 +17,9 @@ export interface MarginFloor {
   minAmountCzk: number;
 }
 
-/** What a margin is judged with: the floor, and today's ČNB rates (CZK per unit; null = none) of the currencies asked for. */
-export interface MarginContext {
+/** What a margin is judged with: the floor, today's ČNB sheet (CZK per unit; null = none) and the company ROE %. */
+export interface MarginContext extends QuoteRates {
   floor: MarginFloor;
-  /** The business day the rates are for. */
-  today: string;
-  rates: Record<string, number | null>;
 }
 
 // An approved margin covers the margin as it is now when that is not worse by more than this.
@@ -26,11 +27,6 @@ const APPROVAL_TOLERANCE_CZK = 0.005;
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 const isNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
-const roundCents = (value: number) => Math.round(value * 100) / 100;
-
-function linesOf(value: unknown): Record<string, unknown>[] {
-  return Array.isArray(value) ? value.filter(isObject) : [];
-}
 
 /** Whether a cost line was priced from a trucking tariff. */
 export function isTruckingLine(line: unknown): boolean {
@@ -42,42 +38,6 @@ export function roadMarginApplies(data: unknown): boolean {
   if (!isObject(data)) return false;
   if (data.serviceType === "Road") return true;
   return [...linesOf(data.sellingLines), ...linesOf(data.buyingLines)].some(isTruckingLine);
-}
-
-// A line's currency: its own, else the quote's (EUR when the quote names none), as the editor reads it.
-function currencyOf(line: Record<string, unknown>, data: Record<string, unknown>): string {
-  if (typeof line.currency === "string" && line.currency) return line.currency;
-  return typeof data.currency === "string" && data.currency ? data.currency : "EUR";
-}
-
-/**
- * A line's value: its amount - what the editor shows and a user may change by hand; qty × unit
- * price only when the line has no amount. Trucking prices a consignment from a quote by the same rule.
- */
-export function lineAmount(line: Record<string, unknown>): number {
-  const amount = isNumber(line.amount) ? line.amount : typeof line.amount === "string" && line.amount.trim() !== "" ? Number(line.amount) : NaN;
-  if (Number.isFinite(amount)) return amount;
-  if (isNumber(line.qty) && isNumber(line.unitPrice)) return line.qty * line.unitPrice;
-  return 0;
-}
-
-const amountOf = lineAmount;
-
-// The rate a sent quote stored for the currency (data.fx), when it has one.
-function storedRate(data: Record<string, unknown>, currency: string): number | null {
-  const rate = isObject(data.fx) && isObject(data.fx.rates) ? data.fx.rates[currency] : undefined;
-  return isNumber(rate) && rate > 0 ? rate : null;
-}
-
-/** The currencies of a quote's lines that need today's ČNB rate: not CZK and not stored on the quote. */
-export function currenciesToResolve(data: unknown): string[] {
-  if (!isObject(data) || !roadMarginApplies(data)) return [];
-  const currencies = new Set<string>();
-  for (const line of [...linesOf(data.sellingLines), ...linesOf(data.buyingLines)]) {
-    const currency = currencyOf(line, data);
-    if (currency !== "CZK" && storedRate(data, currency) === null) currencies.add(currency);
-  }
-  return [...currencies].sort();
 }
 
 /** The approval stored on a quote, when it is one. */
@@ -96,41 +56,21 @@ export function approvalOf(data: unknown): QuoteMarginApproval | null {
 }
 
 /**
- * The margin of a quote, or null when the rule does not apply to it. Each line is converted to
- * CZK with the rate the quote stored when it was sent, else today's; a line no rate converts is
- * left out of the sums and the margin is unknown - which counts as below the floor. A quote with
- * no selling and no buying lines has no margin (null) and is not below the floor.
+ * The margin of a road quote against the floor, or null when the rule does not apply to it. A line
+ * no rate converts is left out of the sums and the margin is unknown - which counts as below the
+ * floor. A quote with no selling and no buying lines has no margin (null) and is not below it.
  */
 export function roadMargin(data: unknown, ctx: MarginContext): RoadMargin | null {
-  if (!isObject(data) || !roadMarginApplies(data)) return null;
-  const missing = new Set<string>();
-  const sum = (lines: Record<string, unknown>[]) => {
-    let total = 0;
-    for (const line of lines) {
-      const currency = currencyOf(line, data);
-      const rate = currency === "CZK" ? 1 : (storedRate(data, currency) ?? ctx.rates[currency] ?? null);
-      if (rate === null) missing.add(currency);
-      else total += amountOf(line) * rate;
-    }
-    return roundCents(total);
-  };
-  const selling = linesOf(data.sellingLines);
-  const buying = linesOf(data.buyingLines);
-  const sellingCzk = sum(selling);
-  const buyingCzk = sum(buying);
-  const problem = missing.size ? [...missing].sort().map((c) => `No ČNB rate for ${c} on ${ctx.today}`).join("; ") : null;
-  // A quote with no lines yet has no margin to judge: nothing blocks it.
-  const empty = !selling.length && !buying.length;
-
-  const marginCzk = problem || empty ? null : roundCents(sellingCzk - buyingCzk);
-  const marginPercent = marginCzk !== null && sellingCzk !== 0 ? roundCents((marginCzk / sellingCzk) * 100) : null;
+  if (!roadMarginApplies(data)) return null;
+  const margin = quoteMargin(data, ctx)!;
+  const { marginCzk, marginPercent } = margin;
   const belowFloor =
-    !empty && (marginCzk === null || (marginPercent !== null && marginPercent < ctx.floor.percent) || marginCzk < ctx.floor.minAmountCzk);
+    !margin.empty && (marginCzk === null || (marginPercent !== null && marginPercent < ctx.floor.percent) || marginCzk < ctx.floor.minAmountCzk);
   const approval = approvalOf(data);
   const approvalValid = approval !== null && marginCzk !== null && marginCzk >= approval.marginCzk - APPROVAL_TOLERANCE_CZK;
   return {
-    sellingCzk,
-    buyingCzk,
+    sellingCzk: margin.sellingCzk,
+    buyingCzk: margin.buyingCzk,
     marginCzk,
     marginPercent,
     floorPercent: ctx.floor.percent,
@@ -139,7 +79,7 @@ export function roadMargin(data: unknown, ctx: MarginContext): RoadMargin | null
     approval,
     approvalValid,
     needsApproval: belowFloor && !approvalValid,
-    problem,
+    problem: margin.problem,
   };
 }
 
