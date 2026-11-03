@@ -9,6 +9,9 @@ import { isPlainObject } from "../utils/quoteDocument.utils";
 import { effectiveStatus, isFollowUpDue, lastContact, stateOf } from "../utils/quoteLifecycle.utils";
 import { readInquiry } from "../utils/warehouseInquiry.utils";
 import { marginsFor, todaysSheet } from "./marginRates";
+import { quoteInquiryRepository } from "../repositories/quoteInquiry.repository";
+import type { QuoteInquiryRecord } from "../schemas/quoteInquiry.schema";
+import { isEscalated, officeMinutesBetween } from "../lib/marginInquiry";
 import { ownerBackfillService } from "./ownerBackfill.service";
 import type { MarginContext } from "../lib/roadMargin";
 import type { QuoteRates } from "../lib/quoteMargin";
@@ -35,6 +38,7 @@ export function factOf(
   now: Date,
   sheet: QuoteRates,
   margins: MarginContext | undefined,
+  pending?: QuoteInquiryRecord,
 ): SalesManagersQuoteFact {
   const state = stateOf(row);
   const today = businessDay(now);
@@ -65,6 +69,15 @@ export function factOf(
     marginProblem: margin?.problem ?? null,
     belowRoadFloor: road?.needsApproval ?? false,
     warehouseInquiry: inquiry ? { status: inquiry.status, requestedAt: inquiry.requestedAt } : null,
+    marginInquiry: pending
+      ? {
+          requestedAt: pending.requestedAt.toISOString(),
+          needsBy: pending.needsBy?.toISOString() ?? null,
+          escalated: isEscalated({ requestedAt: pending.requestedAt, needsBy: pending.needsBy, notifyUserId: pending.notifyUserId }, now),
+          waitedOfficeMinutes: officeMinutesBetween(pending.requestedAt, now),
+          askedMarginCzk: pending.snapshot.marginCzk,
+        }
+      : null,
   };
 }
 
@@ -80,8 +93,9 @@ class ManagersFactsService {
       { today, expiredSince: addDays(today, -EXPIRED_DAYS), wonSince: addDays(today, -WON_DAYS), decidedSince: `${today.slice(0, 8)}01` },
       MANAGERS_ROWS_LIMIT,
     );
-    const [people, sheet, margins] = await Promise.all([companyPeople(), todaysSheet(now), marginsFor(rows, now)]);
-    return { today, quotes: rows.map((row) => factOf(row, people.emails, now, sheet, margins)), capped };
+    const [people, sheet, margins, pending] = await Promise.all([companyPeople(), todaysSheet(now), marginsFor(rows, now), quoteInquiryRepository.pending(companyId)]);
+    const pendingByQuote = new Map(pending.map((p) => [p.quoteId, p]));
+    return { today, quotes: rows.map((row) => factOf(row, people.emails, now, sheet, margins, pendingByQuote.get(row.id))), capped };
   }
 }
 

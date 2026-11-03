@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Alert, Button, Modal, Spin, Table, Tag } from "antd";
+import { Alert, Button, Modal, Spin, Table, Tabs, Tag } from "antd";
 import { WarningFilled } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { PillTabs } from "@/components/SectionCard";
@@ -16,6 +16,8 @@ import { QuoteStatusPill } from "../../_components/QuoteStatusPill";
 import { quoteHref } from "../../_lib/quoteHref";
 import { SALES_PAGES } from "../../_lib/tabs";
 import { OPEN_QUOTE_STATUSES, serviceTypeLabel, type QuoteStatus } from "../../_lib/types";
+import { useMarginInquiries } from "@/hooks/useMarginInquiries";
+import { SalesQuoteInquiries } from "./SalesQuoteInquiries";
 
 // Sales → Managers (Council Outlay 6, step 2): what the sales team needs from a manager today.
 // Tiles over the company's quotes, then what to act on today (URGENT) and within 48 hours
@@ -70,6 +72,7 @@ const quotesHref = (params: Record<string, string>, service: string | undefined)
 const OPEN = OPEN_QUOTE_STATUSES.join(",");
 const TILES: TileDef[] = [
   { key: "openQuotes", label: "Open quotes", href: (s) => quotesHref({ status: OPEN }, s) },
+  { key: "awaitingApproval", label: "Awaiting approval", href: () => `${PAGE.path}?tab=inquiries`, danger: true },
   { key: "followUpDue", label: "Follow-up due", href: () => SALES_PAGES.followup.path, danger: true },
   { key: "draftsToFinish", label: "Drafts to finish", href: (s) => quotesHref({ status: "draft" }, s) },
   { key: "validSoon", label: "Valid until ≤ 7 days", href: (s) => quotesHref({ status: OPEN, sort: "validUntil" }, s) },
@@ -232,9 +235,22 @@ function SalesManagersCockpit() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   // The freight mode lives in the address (?mode=), so it survives a reload and can be linked to.
+  // The tab (?tab=inquiries) and the cockpit's freight mode (?mode=) live in the address, so they
+  // survive a reload and a bell item can link to the inquiries.
+  const tab: "cockpit" | "inquiries" = searchParams.get("tab") === "inquiries" ? "inquiries" : "cockpit";
   const mode: SalesCockpitMode = MODES.find((m) => m.key === searchParams.get("mode"))?.key ?? "all";
-  const setMode = (next: SalesCockpitMode) => router.replace(next === "all" ? pathname : `${pathname}?mode=${next}`, { scroll: false });
-  const { cockpit, isLoading, isError } = useSalesManagersCockpit(mode, true);
+  const go = (next: { tab?: "cockpit" | "inquiries"; mode?: SalesCockpitMode }) => {
+    const params = new URLSearchParams();
+    const t = next.tab ?? tab;
+    const m = next.mode ?? mode;
+    if (t === "inquiries") params.set("tab", t);
+    else if (m !== "all") params.set("mode", m);
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
+  const setMode = (next: SalesCockpitMode) => go({ mode: next });
+  const { cockpit, isLoading, isError } = useSalesManagersCockpit(mode, tab === "cockpit");
+  const { waiting: inquiriesWaiting } = useMarginInquiries();
   const [openCard, setOpenCard] = useState<CardKey | null>(null);
   const service = LIST_SERVICE[mode];
 
@@ -307,18 +323,42 @@ function SalesManagersCockpit() {
         </span>
       }
     >
-      <div role="group" aria-label="Freight mode">
-        <PillTabs tabs={MODES} active={mode} onChange={setMode} />
-      </div>
+      <Tabs
+        activeKey={tab}
+        onChange={(k) => go({ tab: k as "cockpit" | "inquiries" })}
+        className="[&>.ant-tabs-nav]:!mb-0"
+        items={[
+          { key: "cockpit", label: "Cockpit" },
+          {
+            key: "inquiries",
+            label: (
+              <span className="whitespace-nowrap">
+                Quote inquiries
+                {inquiriesWaiting > 0 && <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-px text-[11px] font-semibold text-amber-700">{inquiriesWaiting}</span>}
+              </span>
+            ),
+          },
+        ]}
+      />
 
-      <Tiles cockpit={cockpit} isLoading={isLoading} isError={isError} service={service} />
+      {tab === "inquiries" ? (
+        <SalesQuoteInquiries />
+      ) : (
+        <>
+          <div role="group" aria-label="Freight mode">
+            <PillTabs tabs={MODES} active={mode} onChange={setMode} />
+          </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {renderCard("urgent")}
-        {renderCard("attention")}
-      </div>
+          <Tiles cockpit={cockpit} isLoading={isLoading} isError={isError} service={service} />
 
-      {cockpit && <HealthLine cockpit={cockpit} />}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {renderCard("urgent")}
+            {renderCard("attention")}
+          </div>
+
+          {cockpit && <HealthLine cockpit={cockpit} />}
+        </>
+      )}
 
       {/* Wide enough for the columns; the table scrolls sideways rather than spill out on a narrow window. */}
       <Modal

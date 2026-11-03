@@ -32,6 +32,7 @@ import { approvedPricing, inquiryGateMessage, MAX_INQUIRY_NOTE, MAX_INQUIRY_PIEC
 import { fxWriteFor, mayStampFx, type StoredFx } from "../lib/quoteFx";
 import { formatMargin, marginGateMessage, roadMargin, type MarginContext } from "../lib/roadMargin";
 import { marginsFor } from "./marginRates";
+import { marginInquiryService } from "./marginInquiry.service";
 import { choosePricing, pricedComment, rateRequestOf, replaceTruckingLines, roadPricingOf, truckingLines } from "../lib/roadPricing";
 import {
   LifecycleError,
@@ -634,6 +635,7 @@ class SalesQuoteService {
     const at = new Date();
     const [margins, people] = await Promise.all([this.marginsOf(actor.companyID, quoteNumber, at), companyPeople()]);
     const ctx = contextOf(actor, at, people);
+    let approved: QuoteMarginApproval | null = null;
     const written = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
       if (quote.dataVersion !== expectedDataVersion) throw conflict();
       const margin = margins ? roadMargin(quote.data, margins) : null;
@@ -649,7 +651,10 @@ class SalesQuoteService {
         marginCzk: margin.marginCzk,
         marginPercent: margin.marginPercent,
       };
-      const comment = `Margin approved: ${formatMargin(margin.marginCzk, margin.marginPercent)} - ${why}`;
+      // Approving one's own quote is allowed, and the history says so (owner decision D9).
+      const self = quote.ownerUserId === actor.userID ? " (self-approval)" : "";
+      const comment = `Margin approved: ${formatMargin(margin.marginCzk, margin.marginPercent)} - ${why}${self}`;
+      approved = approval;
       return salesQuoteRepository.writeLifecycle(tx, quote, {
         state: stateOf(quote),
         entries: [pricingEntry("margin_approval", comment, ctx)],
@@ -657,6 +662,8 @@ class SalesQuoteService {
       });
     });
     if (!written) throw notFound();
+    // A rep's question waiting about this margin is answered by the approval.
+    if (approved) await marginInquiryService.closeByDirectApproval(actor, written, approved);
     return this.item(written, people, actor, at);
   }
 

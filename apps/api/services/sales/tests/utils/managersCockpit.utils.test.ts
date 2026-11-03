@@ -29,6 +29,7 @@ const fact = (over: Partial<SalesManagersQuoteFact> = {}): SalesManagersQuoteFac
   marginProblem: null,
   belowRoadFloor: false,
   warehouseInquiry: null,
+  marginInquiry: null,
   ...over,
 });
 const texts = (q: SalesManagersQuoteFact) => quoteSignals(q, TODAY, NOW).map((s) => `${s.urgent ? "U" : "A"}: ${s.text}`);
@@ -106,6 +107,35 @@ describe("quoteSignals", () => {
   });
 });
 
+describe("margin questions", () => {
+  const asked = (over: Partial<NonNullable<SalesManagersQuoteFact["marginInquiry"]>> = {}) => ({
+    requestedAt: "2026-11-03T07:30:00.000Z",
+    needsBy: null,
+    escalated: false,
+    waitedOfficeMinutes: 90,
+    askedMarginCzk: 1000,
+    ...over,
+  });
+  const road = (over: Partial<SalesManagersQuoteFact> = {}) =>
+    fact({ status: "draft", shownStatus: "draft", firstSentAt: null, createdAt: "2026-11-03T08:00:00.000Z", serviceType: "Road", belowRoadFloor: true, marginCzk: 1000, ...over });
+
+  it("waits in Attention, and is urgent once the admins are told", () => {
+    expect(texts(road({ marginInquiry: asked() }))).toEqual(["A: Discount waiting 1 h"]);
+    expect(texts(road({ marginInquiry: asked({ escalated: true, waitedOfficeMinutes: 260, needsBy: "2026-11-03T13:00:00.000Z" }) }))).toEqual([
+      "U: Discount waiting 4 h · needs it by 03.11. 14:00",
+    ]);
+  });
+
+  it("flags a quote that got worse than the margin asked about", () => {
+    expect(texts(road({ marginCzk: 600, marginInquiry: asked() }))).toEqual(["A: Discount waiting 1 h", "U: Changed since asked · margin now 600 CZK"]);
+  });
+
+  it("counts the questions waiting in the Awaiting approval tile", () => {
+    const cockpit = buildSalesCockpit({ quotes: [road({ marginInquiry: asked() }), road({ quoteNumber: "QCZ2" })], tasks: [], capped: false, mode: "all", now: NOW });
+    expect(cockpit.tiles.awaitingApproval).toBe(1);
+  });
+});
+
 describe("taskSignals", () => {
   it("flags a task two days late, and one assigned to nobody", () => {
     expect(taskSignals(task(), TODAY).map((s) => s.text)).toEqual(["Call overdue 4 days"]);
@@ -141,6 +171,7 @@ describe("buildSalesCockpit", () => {
       draftsToFinish: 1,
       validSoon: 2,
       noOwner: 1,
+      awaitingApproval: 0,
       wonThisMonth: 1,
       lostThisMonth: 0,
     });

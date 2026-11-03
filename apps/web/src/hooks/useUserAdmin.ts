@@ -22,6 +22,8 @@ export interface UpdateUserInput {
   password?: string;
   departmentId?: string | null;
   branchId?: string | null;
+  /** The manager the user reports to; null clears it. */
+  reportsToUserId?: string | null;
 }
 
 // Company admin/manager managing their OWN company's users (company is implicit from token).

@@ -85,6 +85,13 @@
       "when": 1792787419223,
       "tag": "0011_warehouse_inquiry_chat",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1793715448038,
+      "tag": "0012_quote_inquiry",
+      "breakpoints": true
     }
   ]
 }

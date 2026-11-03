@@ -38,7 +38,8 @@ import { useCompanyDetails } from "@/hooks/useSalesPrefs";
 import { useCustomer, useCustomers, type CustomerItem } from "@/hooks/useCustomers";
 import { useDebounced } from "@/hooks/useDebounced";
 import { useTermsConditions } from "@/hooks/useTermsConditions";
-import { api } from "@/lib/api";
+import { api, apiErrorMessage } from "@/lib/api";
+import { useQuoteMarginInquiry } from "@/hooks/useMarginInquiries";
 import { businessToday } from "@/lib/date";
 import { fmtMoney, moneyInputParser } from "@/lib/money";
 import { useToast } from "@/lib/toast";
@@ -140,6 +141,7 @@ import {
 } from "../../_lib/oceanQuote";
 import { QuoteMarginPanel } from "./_components/QuoteMarginPanel";
 import { QuoteMarginApproveDialog } from "./_components/QuoteMarginApproveDialog";
+import { AskMarginApprovalDialog } from "./_components/AskMarginApprovalDialog";
 import { QuoteShipmentsDialog } from "./_components/QuoteShipmentsDialog";
 import { QuotePriceTile } from "./_components/QuotePriceTile";
 import { useQuoteShipments } from "@/hooks/useQuoteShipments";
@@ -219,6 +221,17 @@ export function QuoteWorkflow() {
   // `draft` is the document being edited; `quote` is the quote as the server last returned it,
   // with everything the server owns - status, validity, owner - and what may be done with them.
   const { draft, quote, change, follow, act, load, reload, discard, save, syncedAt, saveNow, pending, reapply, dismissPending } = useSalesQuoteDraft(ref);
+  // The newest question to a manager about the margin, while the quote has a road margin to ask about.
+  const marginAsk = useQuoteMarginInquiry(ref, !!quote?.roadMargin);
+  // A manager answered while the quote is open: the quote is read again (without touching the
+  // version this page is based on), so its approval and the send gate show what the server holds.
+  const answeredInquiry = useRef<string | null>(null);
+  useEffect(() => {
+    const i = marginAsk.inquiry;
+    const key = i && i.status !== "pending" ? `${i.id}:${i.status}` : null;
+    if (key && answeredInquiry.current !== null && answeredInquiry.current !== key) void act(() => api.quotes.salesQuoteGet(ref));
+    answeredInquiry.current = key ?? (i ? `${i.id}:pending` : "");
+  }, [marginAsk.inquiry, act, ref]);
   const { deleteQuote } = useSalesQuotes();
   const exchange = useCurrentExchangeRates();
   const company = useCompanyDetails();
@@ -254,7 +267,7 @@ export function QuoteWorkflow() {
   const [overweightAsk, setOverweightAsk] = useState<{ to?: SectionKey; save?: boolean; removing?: number } | null>(null);
   const [feeChange, setFeeChange] = useState<{ index: number; amount: number; before: number; currency: string; reason?: string; removing?: LineSide } | null>(null);
   const [modal, setModal] = useState<
-    null | "import" | "copyQuote" | "copyShipment" | "duplicate" | "preview" | "email" | "delete" | "replaceSelling" | "allIn" | "closeQuote" | "revise" | "roadPrice" | "approveMargin" | "shipments"
+    null | "import" | "copyQuote" | "copyShipment" | "duplicate" | "preview" | "email" | "delete" | "replaceSelling" | "allIn" | "closeQuote" | "revise" | "roadPrice" | "approveMargin" | "askMargin" | "shipments"
   >(null);
   // The template chosen under Shipping terms while the user is asked whether its text may replace
   // what the quote says; null when no question is open.
@@ -392,8 +405,32 @@ export function QuoteWorkflow() {
   };
 
   // A manager accepts the margin below the floor; the approval is the server's, like the status.
-  const approveMargin = (reason: string) =>
-    act((expectedDataVersion) => api.quotes.salesQuoteMarginApprove(ref, { reason, expectedDataVersion }), { versioned: true });
+  const approveMargin = async (reason: string) => {
+    const refused = await act((expectedDataVersion) => api.quotes.salesQuoteMarginApprove(ref, { reason, expectedDataVersion }), { versioned: true });
+    // A question waiting about the margin is answered by the approval.
+    if (!refused) void marginAsk.refresh();
+    return refused;
+  };
+
+  // Anybody else asks a manager to approve it (Council Outlay 6): the question and its answer are
+  // the server's, without a new version of the document, so this page's draft goes on.
+  const askMargin = async (input: { reason: string; note: string; needsBy: string | null; competitorPrice: string; volume: string }) => {
+    try {
+      await marginAsk.ask.mutateAsync(input);
+      toast.success("Sent to a manager — the answer comes to your notifications");
+      return null;
+    } catch (err) {
+      return apiErrorMessage(err);
+    }
+  };
+  const withdrawMargin = async (inquiryId: string) => {
+    try {
+      await marginAsk.withdraw.mutateAsync(inquiryId);
+      toast.success("Question withdrawn");
+    } catch (err) {
+      toast.error(`${ref} - ${apiErrorMessage(err)}`);
+    }
+  };
 
   // Validity and owner are changed at once, each by its own request. Their controls show what the
   // server stored, so a refusal leaves them as they were and is told here.
@@ -1632,7 +1669,14 @@ export function QuoteWorkflow() {
           {/* Shown to everybody the gate applies to: a quote below the floor can't be sent by anyone,
               so the reason is on screen for all (Council Outlay 6), not only where Trucking is on. */}
           {roadMargin && (
-            <QuoteMarginPanel margin={roadMargin} canApprove={quote.permissions.canApproveMargin} onApprove={() => setModal("approveMargin")} />
+            <QuoteMarginPanel
+              margin={roadMargin}
+              canApprove={quote.permissions.canApproveMargin}
+              onApprove={() => setModal("approveMargin")}
+              inquiry={marginAsk.inquiry}
+              onAsk={quoteClosed ? undefined : () => setModal("askMargin")}
+              onWithdraw={(id) => void withdrawMargin(id)}
+            />
           )}
           {/* Which rates the totals use: stored on the quote once sent, today's until then. */}
           <div className="text-[12.5px] text-slate-500">{fxNote(totals)}</div>
@@ -2111,6 +2155,7 @@ export function QuoteWorkflow() {
         onPick={pickOceanOffer}
         onClose={() => setOceanLine(null)}
       />
+      {modal === "askMargin" && roadMargin && <AskMarginApprovalDialog quoteNumber={ref} margin={roadMargin} onAsk={askMargin} onClose={() => setModal(null)} />}
       {modal === "approveMargin" && roadMargin && (
         <QuoteMarginApproveDialog quoteNumber={ref} margin={roadMargin} onApprove={approveMargin} onClose={() => setModal(null)} />
       )}

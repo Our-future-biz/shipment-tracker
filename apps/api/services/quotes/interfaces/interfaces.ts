@@ -241,6 +241,53 @@ export interface CustomerQuoteFacts {
   lastActivityAt: string;
 }
 
+/** A rep's question to a manager about a margin below the floor, as the API hands it out (Council Outlay 6, step 3). */
+export interface QuoteMarginInquiryItem {
+  id: string;
+  quoteNumber: string;
+  status: "pending" | "approved" | "rejected" | "withdrawn";
+  reason: string;
+  note: string;
+  /** When the customer needs the answer (ISO); null when not said. */
+  needsBy: string | null;
+  competitorPrice: string;
+  volume: string;
+  requestedById: string;
+  /** The one who asked, by e-mail as the users have it now. */
+  requestedByName: string;
+  requestedAt: string;
+  /** The quote's margin when they asked. */
+  snapshot: { sellingCzk: number; buyingCzk: number; marginCzk: number | null; marginPercent: number | null; floorPercent: number; floorMinCzk: number };
+  /** The owner's manager who is told; "" when nobody is set and the admins are told. */
+  notifyName: string;
+  /** Waiting long enough, or close enough to "needs it by", that the admins are told too. */
+  escalated: boolean;
+  /** Office minutes (08:00-17:00 on working days) it has waited, or waited until it was answered. */
+  waitedOfficeMinutes: number;
+  decision: "approve" | "counter" | "reject" | null;
+  decidedByName: string;
+  decidedAt: string | null;
+  /** The margin the approval covers (that one or better); null for none. */
+  approvedMarginCzk: number | null;
+  approvedMarginPercent: number | null;
+  comment: string;
+  /** The manager who answered had asked, or owns the quote (allowed and shown). */
+  selfDecision: boolean;
+  answerSeenAt: string | null;
+}
+
+/** A question in the managers' Quote Inquiries list, with the quote it is about as it is now. */
+export interface QuoteMarginInquiryRow {
+  inquiry: QuoteMarginInquiryItem;
+  customer: string;
+  ownerName: string;
+  serviceType: string;
+  /** The quote's status as shown; "" when the quote is gone. */
+  quoteStatus: string;
+  /** The quote's road margin as it is now; null when the quote is gone or has none. */
+  margin: RoadMargin | null;
+}
+
 /** One quote as the Sales managers' cockpit judges it (the sales service reads these, Council Outlay 6). */
 export interface SalesManagersQuoteFact {
   quoteNumber: string;
@@ -274,6 +321,16 @@ export interface SalesManagersQuoteFact {
   belowRoadFloor: boolean;
   /** The warehouse's heavy-piece question on the quote, when there is one. */
   warehouseInquiry: { status: "pending" | "approved" | "rejected"; requestedAt: string } | null;
+  /** A rep's question to a manager about the margin that waits for an answer, when there is one. */
+  marginInquiry: {
+    requestedAt: string;
+    needsBy: string | null;
+    /** The admins are told too (no manager set, 4 office hours passed, or "needs it by" close). */
+    escalated: boolean;
+    waitedOfficeMinutes: number;
+    /** The margin in CZK the rep asked about. */
+    askedMarginCzk: number | null;
+  } | null;
 }
 
 export interface SalesManagersFacts {

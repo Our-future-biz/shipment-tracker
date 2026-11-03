@@ -13,6 +13,7 @@ import { NoticeSeverityTag } from "@/app/dashboard/_components/NoticeSeverityTag
 import { useAuth } from "@/lib/auth/AuthContext";
 import { formatDate } from "@/lib/date";
 import { useWarehouseInquiryAnswers, type WarehouseInquiryItem } from "@/hooks/useWarehouseInquiries";
+import { useMarginInquiryBell, type MarginInquiryItem, type MarginInquiryRow } from "@/hooks/useMarginInquiries";
 
 const formatTime = (iso: string) =>
   new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
@@ -43,6 +44,17 @@ const answerText = (a: WarehouseInquiryItem) => {
     ? `${what}: EUR ${a.inquiry.priceEurPerPiece ?? 0} per piece${a.inquiry.comment ? ` — ${a.inquiry.comment}` : ""}`
     : `${what}: ${a.inquiry.comment}`;
 };
+
+// A margin question waiting for this manager, and a manager's answer to a rep, as the bell says them.
+const czkText = (n: number | null) => (n === null ? "unknown" : `${Math.round(n).toLocaleString("en-US").replace(/,/g, " ")} CZK`);
+const waitingTitle = (r: MarginInquiryRow) => `Discount waiting · ${r.inquiry.quoteNumber}`;
+const waitingText = (r: MarginInquiryRow) =>
+  `${r.inquiry.requestedByName || "A rep"} asks for ${czkText(r.inquiry.snapshot.marginCzk)}${r.customer ? ` · ${r.customer}` : ""} — ${r.inquiry.reason}${r.inquiry.escalated ? " · waiting long" : ""}`;
+const marginAnswerTitle = (a: MarginInquiryItem) => `Margin ${a.status === "approved" ? "approved" : "rejected"} · ${a.quoteNumber}`;
+const marginAnswerText = (a: MarginInquiryItem) =>
+  a.status === "approved"
+    ? `${a.decision === "counter" ? "Down to " : ""}${czkText(a.approvedMarginCzk)}${a.comment ? ` — ${a.comment}` : ""}`
+    : a.comment;
 
 // How long a read notification stays under the bell, in the "Last 7 days" view.
 const READ_KEEP_DAYS = 7;
@@ -107,6 +119,9 @@ export function NotificationBell() {
   const { announcements, viewer, hasLoaded: noticesLoaded } = useNoticeboard();
   // The warehouse answered a quote inquiry this user sent; it leaves the bell once opened.
   const { answers: warehouseAnswers, hasLoaded: answersLoaded, seen: answerSeen } = useWarehouseInquiryAnswers();
+  // Margin questions this user is told about (the owner's manager, or an admin once it waits
+  // long), and managers' answers to their questions or quotes (Council Outlay 6).
+  const { waiting: marginWaiting, answers: marginAnswers, hasLoaded: marginLoaded, seen: marginSeen } = useMarginInquiryBell();
   const [open, setOpen] = useState(false);
   // "Unread" is what still needs attention; "All" keeps the recent notices in reach after
   // they have been opened. Mentions exist here only while unread.
@@ -116,6 +131,7 @@ export function NotificationBell() {
   const notices = announcements.filter((a) => a.unread);
   const unreadMentions = allMentions.filter((m) => m.unread);
   const unreadAnswers = warehouseAnswers.filter((a) => !a.inquiry.answerSeenAt);
+  const unreadMarginAnswers = marginAnswers.filter((a) => !a.answerSeenAt);
   // "Last 7 days": everything unread, and what was read in the last 7 days (a mention: written in them).
   const viewNotices = view === "unread" ? notices : announcements.filter((a) => a.unread || keptSince(a.readAt, now));
   const viewMentions = view === "unread" ? unreadMentions : allMentions;
@@ -124,6 +140,9 @@ export function NotificationBell() {
   const mentions = viewMentions.filter((m) => matchesAll(query, m.authorName, m.message, m.ref));
   const answersShown = viewAnswers.filter((a) => matchesAll(query, answerTitle(a), answerText(a), a.quoteNumber, a.inquiry.decidedByName));
   const fxShown = fxAlerts.filter((a) => matchesAll(query, "ČNB exchange rates missing", a.reason, a.fixingDate));
+  // A waiting question stays until someone answers it, whatever the view.
+  const marginWaitingShown = marginWaiting.filter((r) => matchesAll(query, waitingTitle(r), waitingText(r)));
+  const marginAnswersShown = (view === "unread" ? unreadMarginAnswers : marginAnswers).filter((a) => matchesAll(query, marginAnswerTitle(a), marginAnswerText(a), a.decidedByName));
 
   // Announce only what arrives while the app is open, not the backlog found on load. Each kind
   // keeps its own memory of what it has seen: the two lists arrive at their own times, and the
@@ -158,6 +177,19 @@ export function NotificationBell() {
     seenAnswers.current = new Set(warehouseAnswers.map((a) => a.inquiry.id));
     for (const a of fresh) toast.notify({ title: answerTitle(a), description: answerText(a), type: a.inquiry.status === "approved" ? "info" : "warning" });
   }, [warehouseAnswers, answersLoaded, toast]);
+
+  // The same for margin questions arriving and answers coming back.
+  const seenMargin = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!marginLoaded) return;
+    const before = seenMargin.current;
+    const keys = [...marginWaiting.map((r) => `w:${r.inquiry.id}`), ...marginAnswers.map((a) => `a:${a.id}`)];
+    if (before) {
+      for (const r of marginWaiting) if (!before.has(`w:${r.inquiry.id}`)) toast.notify({ title: waitingTitle(r), description: waitingText(r), type: "warning" });
+      for (const a of marginAnswers) if (!a.answerSeenAt && !before.has(`a:${a.id}`)) toast.notify({ title: marginAnswerTitle(a), description: marginAnswerText(a), type: a.status === "approved" ? "info" : "warning" });
+    }
+    seenMargin.current = new Set(keys);
+  }, [marginWaiting, marginAnswers, marginLoaded, toast]);
 
   const seenFxAlerts = useRef<Set<string> | null>(null);
   useEffect(() => {
@@ -203,10 +235,14 @@ export function NotificationBell() {
   };
 
   // The badge counts what is unread, whatever the view or the search.
-  const total = unreadMentions.length + notices.length + fxAlerts.length + unreadAnswers.length;
+  const total = unreadMentions.length + notices.length + fxAlerts.length + unreadAnswers.length + marginWaiting.length + unreadMarginAnswers.length;
   const openAnswer = (a: WarehouseInquiryItem) => {
     if (!a.inquiry.answerSeenAt) answerSeen.mutate({ quoteNumber: a.quoteNumber, inquiryId: a.inquiry.id });
     go(quoteChatHref(a.quoteNumber));
+  };
+  const openMarginAnswer = (a: MarginInquiryItem) => {
+    if (!a.answerSeenAt) marginSeen.mutate([a.id]);
+    go(`/sales/quote/${encodeURIComponent(a.quoteNumber)}`);
   };
   const rowClass = "block w-full text-left px-4 py-2.5 border-b border-slate-100 last:border-b-0 bg-white hover:bg-slate-50 cursor-pointer";
   const headingClass = "px-4 py-2 border-b border-slate-200 bg-slate-50 text-[11px] font-semibold uppercase tracking-wider text-slate-500";
@@ -256,6 +292,30 @@ export function NotificationBell() {
           <span className="block text-[11px] text-slate-400 mt-0.5">System · {formatTime(a.raisedAt)}</span>
         </button>
       ))}
+      {marginWaitingShown.length > 0 && <div className={headingClass}>Discounts waiting for you</div>}
+      {marginWaitingShown.map((r) => (
+        <button key={`w:${r.inquiry.id}`} type="button" onClick={() => go("/sales/managers?tab=inquiries")} className={rowClass}>
+          <span className="flex items-center gap-2">
+            <span role="img" aria-label="Waiting" className={`shrink-0 w-2 h-2 rounded-full ${r.inquiry.escalated ? "bg-red-500" : "bg-amber-500"}`} />
+            <span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-800 truncate">{waitingTitle(r)}</span>
+          </span>
+          <span className="text-[12px] text-slate-600 line-clamp-2">{waitingText(r)}</span>
+          <span className="block text-[11px] text-slate-400 mt-0.5">{formatTime(r.inquiry.requestedAt)}</span>
+        </button>
+      ))}
+      {marginAnswersShown.length > 0 && <div className={headingClass}>Discount answers</div>}
+      {marginAnswersShown.map((a) => (
+        <button key={`a:${a.id}`} type="button" onClick={() => openMarginAnswer(a)} className={rowClass}>
+          <span className="flex items-center gap-2">
+            {!a.answerSeenAt && <span role="img" aria-label="Unread" className={`shrink-0 w-2 h-2 rounded-full ${a.status === "approved" ? "bg-emerald-500" : "bg-red-500"}`} />}
+            <span className={`min-w-0 flex-1 text-[13px] truncate ${a.answerSeenAt ? "font-medium text-slate-500" : "font-semibold text-slate-800"}`}>{marginAnswerTitle(a)}</span>
+          </span>
+          <span className="text-[12px] text-slate-600 line-clamp-2">{marginAnswerText(a)}</span>
+          <span className="block text-[11px] text-slate-400 mt-0.5">
+            {a.decidedByName || "A manager"} · {a.decidedAt ? formatTime(a.decidedAt) : ""}
+          </span>
+        </button>
+      ))}
       {answersShown.length > 0 && <div className={headingClass}>Warehouse answers</div>}
       {answersShown.map((a) => (
         <button key={a.inquiry.id} type="button" onClick={() => openAnswer(a)} className={rowClass}>
@@ -272,7 +332,7 @@ export function NotificationBell() {
           </span>
         </button>
       ))}
-      {listed.length + mentions.length + fxShown.length + answersShown.length === 0 && (
+      {listed.length + mentions.length + fxShown.length + answersShown.length + marginWaitingShown.length + marginAnswersShown.length === 0 && (
         <p className="px-4 py-6 text-center text-xs text-slate-400">
           {query.trim() ? `Nothing matches “${query.trim()}”.` : view === "unread" ? "Nothing new." : `Nothing in the last ${READ_KEEP_DAYS} days.`}
         </p>

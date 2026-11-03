@@ -15,6 +15,8 @@ vi.mock("~encore/clients", () => ({
 }));
 vi.mock("../../repositories/quoteAttachment.repository", () => ({ quoteAttachmentRepository: { deleteForQuote: vi.fn() } }));
 vi.mock("../../repositories/quoteComment.repository", () => ({ quoteCommentRepository: { createForCompany: vi.fn() } }));
+// A rep's question waiting about a margin is closed by a direct approval (tested in marginInquiry.service.test).
+vi.mock("../../services/marginInquiry.service", () => ({ marginInquiryService: { closeByDirectApproval: vi.fn() } }));
 vi.mock("../../repositories/salesQuote.repository", () => ({
   salesQuoteRepository: {
     adoptions: vi.fn(),
@@ -79,6 +81,7 @@ const user = (id: string, displayName: string, email: string, role: string) => (
   role,
   departmentId: null,
   branchId: null,
+  reportsToUserId: null,
 });
 const USERS = [
   user(U_MANAGER, "Marie Manager", "marie@forwarder.cz", "manager"),

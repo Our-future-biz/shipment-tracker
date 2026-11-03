@@ -1450,6 +1450,13 @@ export namespace quotes {
             this.salesQuoteGet = this.salesQuoteGet.bind(this)
             this.salesQuoteList = this.salesQuoteList.bind(this)
             this.salesQuoteMarginApprove = this.salesQuoteMarginApprove.bind(this)
+            this.salesQuoteMarginInquiryAsk = this.salesQuoteMarginInquiryAsk.bind(this)
+            this.salesQuoteMarginInquiryDecide = this.salesQuoteMarginInquiryDecide.bind(this)
+            this.salesQuoteMarginInquiryForMe = this.salesQuoteMarginInquiryForMe.bind(this)
+            this.salesQuoteMarginInquiryGet = this.salesQuoteMarginInquiryGet.bind(this)
+            this.salesQuoteMarginInquiryList = this.salesQuoteMarginInquiryList.bind(this)
+            this.salesQuoteMarginInquirySeen = this.salesQuoteMarginInquirySeen.bind(this)
+            this.salesQuoteMarginInquiryWithdraw = this.salesQuoteMarginInquiryWithdraw.bind(this)
             this.salesQuoteOwner = this.salesQuoteOwner.bind(this)
             this.salesQuoteRevise = this.salesQuoteRevise.bind(this)
             this.salesQuoteRoadPrice = this.salesQuoteRoadPrice.bind(this)
@@ -1647,6 +1654,83 @@ export namespace quotes {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/sales-quotes/${encodeURIComponent(quoteNumber)}/margin-approval`, JSON.stringify(params))
             return await resp.json() as controllers.SalesQuoteMarginApproveResponse
+        }
+
+        public async salesQuoteMarginInquiryAsk(quoteNumber: string, params: controllers.AskRequest): Promise<{
+    inquiry: interfaces.QuoteMarginInquiryItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/sales-quotes/${encodeURIComponent(quoteNumber)}/margin-inquiry`, JSON.stringify(params))
+            return await resp.json() as {
+    inquiry: interfaces.QuoteMarginInquiryItem
+}
+        }
+
+        public async salesQuoteMarginInquiryDecide(quoteNumber: string, params: controllers.DecideRequest): Promise<{
+    inquiry: interfaces.QuoteMarginInquiryItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/sales-quotes/${encodeURIComponent(quoteNumber)}/margin-inquiry/decide`, JSON.stringify(params))
+            return await resp.json() as {
+    inquiry: interfaces.QuoteMarginInquiryItem
+}
+        }
+
+        /**
+         * The bell: questions the user is told about, and answers to their questions or quotes.
+         */
+        public async salesQuoteMarginInquiryForMe(): Promise<{
+    waiting: interfaces.QuoteMarginInquiryRow[]
+    answers: interfaces.QuoteMarginInquiryItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/sales-quote-margin-inquiries/for-me`)
+            return await resp.json() as {
+    waiting: interfaces.QuoteMarginInquiryRow[]
+    answers: interfaces.QuoteMarginInquiryItem[]
+}
+        }
+
+        /**
+         * The newest question of a quote, answered or not; null when it has none.
+         */
+        public async salesQuoteMarginInquiryGet(quoteNumber: string): Promise<{
+    inquiry: interfaces.QuoteMarginInquiryItem | null
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/sales-quotes/${encodeURIComponent(quoteNumber)}/margin-inquiry`)
+            return await resp.json() as {
+    inquiry: interfaces.QuoteMarginInquiryItem | null
+}
+        }
+
+        /**
+         * The managers' list: what waits, and what was answered in the last 30 days.
+         */
+        public async salesQuoteMarginInquiryList(): Promise<{
+    inquiries: interfaces.QuoteMarginInquiryRow[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/sales-quote-margin-inquiries`)
+            return await resp.json() as {
+    inquiries: interfaces.QuoteMarginInquiryRow[]
+}
+        }
+
+        public async salesQuoteMarginInquirySeen(params: {
+    ids: string[]
+}): Promise<void> {
+            await this.baseClient.callTypedAPI("POST", `/sales-quote-margin-inquiries/seen`, JSON.stringify(params))
+        }
+
+        public async salesQuoteMarginInquiryWithdraw(quoteNumber: string, params: controllers.InquiryRef): Promise<{
+    inquiry: interfaces.QuoteMarginInquiryItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/sales-quotes/${encodeURIComponent(quoteNumber)}/margin-inquiry/withdraw`, JSON.stringify(params))
+            return await resp.json() as {
+    inquiry: interfaces.QuoteMarginInquiryItem
+}
         }
 
         public async salesQuoteOwner(quoteNumber: string, params: controllers.SalesQuoteOwnerRequest): Promise<controllers.SalesQuoteOwnerResponse> {
@@ -5461,6 +5545,22 @@ export namespace controllers {
         tooMany: boolean
     }
 
+    export interface AskRequest {
+        /**
+         * One of the reasons offered (lib/marginInquiry INQUIRY_REASONS).
+         */
+        reason: string
+
+        note?: string
+        /**
+         * When the customer needs the answer (ISO date-time).
+         */
+        needsBy?: string | null
+
+        competitorPrice?: string
+        volume?: string
+    }
+
     /**
      * Assign a business document type (Invoice, Packing list, …) to an uploaded file.
      */
@@ -6350,6 +6450,17 @@ export namespace controllers {
         retired: interfaces.RetiredCurrencyItem[]
     }
 
+    export interface DecideRequest {
+        decision: "approve" | "counter" | "reject"
+        /**
+         * For a counter: the lowest margin in CZK the manager accepts.
+         */
+        counterMarginCzk?: number | null
+
+        comment?: string
+        inquiryId: string
+    }
+
     export interface DeleteBuyingResponse {
         ok: boolean
     }
@@ -7129,6 +7240,10 @@ export namespace controllers {
 
     export interface ImportRunsResponse {
         runs: interfaces.ImportRunItem[]
+    }
+
+    export interface InquiryRef {
+        inquiryId: string
     }
 
     export interface InvoiceCreateRequest {
@@ -10115,6 +10230,10 @@ export namespace controllers {
         departmentId?: string | null
 
         branchId?: string | null
+        /**
+         * The manager the user reports to (a manager or admin of the company); null clears it.
+         */
+        reportsToUserId?: string | null
     }
 
     export interface UserUpdateResponse {
@@ -15681,6 +15800,93 @@ export namespace interfaces {
     }
 
     /**
+     * A rep's question to a manager about a margin below the floor, as the API hands it out (Council Outlay 6, step 3).
+     */
+    export interface QuoteMarginInquiryItem {
+        id: string
+        quoteNumber: string
+        status: "pending" | "approved" | "rejected" | "withdrawn"
+        reason: string
+        note: string
+        /**
+         * When the customer needs the answer (ISO); null when not said.
+         */
+        needsBy: string | null
+
+        competitorPrice: string
+        volume: string
+        requestedById: string
+        /**
+         * The one who asked, by e-mail as the users have it now.
+         */
+        requestedByName: string
+
+        requestedAt: string
+        /**
+         * The quote's margin when they asked.
+         */
+        snapshot: {
+            sellingCzk: number
+            buyingCzk: number
+            marginCzk: number | null
+            marginPercent: number | null
+            floorPercent: number
+            floorMinCzk: number
+        }
+
+        /**
+         * The owner's manager who is told; "" when nobody is set and the admins are told.
+         */
+        notifyName: string
+
+        /**
+         * Waiting long enough, or close enough to "needs it by", that the admins are told too.
+         */
+        escalated: boolean
+
+        /**
+         * Office minutes (08:00-17:00 on working days) it has waited, or waited until it was answered.
+         */
+        waitedOfficeMinutes: number
+
+        decision: "approve" | "counter" | "reject" | null
+        decidedByName: string
+        decidedAt: string | null
+        /**
+         * The margin the approval covers (that one or better); null for none.
+         */
+        approvedMarginCzk: number | null
+
+        approvedMarginPercent: number | null
+        comment: string
+        /**
+         * The manager who answered had asked, or owns the quote (allowed and shown).
+         */
+        selfDecision: boolean
+
+        answerSeenAt: string | null
+    }
+
+    /**
+     * A question in the managers' Quote Inquiries list, with the quote it is about as it is now.
+     */
+    export interface QuoteMarginInquiryRow {
+        inquiry: QuoteMarginInquiryItem
+        customer: string
+        ownerName: string
+        serviceType: string
+        /**
+         * The quote's status as shown; "" when the quote is gone.
+         */
+        quoteStatus: string
+
+        /**
+         * The quote's road margin as it is now; null when the quote is gone or has none.
+         */
+        margin: RoadMargin | null
+    }
+
+    /**
      * What a run of POST /quotes/people/normalize did to the company's live sales quotes.
      */
     export interface QuotePeopleNormalizeResult {
@@ -16499,6 +16705,11 @@ export namespace interfaces {
          * Open quotes with no Sales Owner.
          */
         noOwner: number
+
+        /**
+         * Margin questions waiting for a manager (Quote inquiries).
+         */
+        awaitingApproval: number
 
         wonThisMonth: number
         lostThisMonth: number
@@ -19482,6 +19693,10 @@ export namespace services {
         role: string
         departmentId: string | null
         branchId: string | null
+        /**
+         * The manager the user reports to; null for none.
+         */
+        reportsToUserId: string | null
     }
 
     export interface BranchInfo {

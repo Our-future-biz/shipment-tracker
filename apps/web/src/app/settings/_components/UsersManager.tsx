@@ -25,7 +25,9 @@ export function UsersManager({
   isLoading: boolean;
   allowedRoles: string[]; // roles this actor may assign
   currentUserId: string;
-  // The company's departments and branches; when given, users can be assigned to them.
+  // The company's departments and branches; when given, users can be assigned to them, and to
+  // the manager they report to (a manager or admin of the company), who gets the user's discount
+  // inquiries in Sales.
   orgUnits?: { departments: Department[]; branches: Branch[] };
   createUser: (input: NewUserInput) => Promise<unknown>;
   updateUser: (args: { id: string; input: UpdateUserInput }) => Promise<unknown>;
@@ -42,6 +44,8 @@ export function UsersManager({
   const roleOptions = allowedRoles.map((r) => ({ value: r, label: r }));
   const departmentOptions = (orgUnits?.departments ?? []).map((d) => ({ value: d.id, label: d.name }));
   const branchOptions = (orgUnits?.branches ?? []).map((b) => ({ value: b.id, label: `${b.name} (${b.country})` }));
+  const MANAGES = ["superadmin", "admin", "manager"];
+  const managerOptions = users.filter((u) => MANAGES.includes(u.role)).map((u) => ({ value: u.id, label: u.displayName || u.email }));
   const unitName = (options: { value: string; label: string }[], id: string | null) =>
     options.find((o) => o.value === id)?.label ?? <span className="text-slate-300">—</span>;
 
@@ -54,6 +58,12 @@ export function UsersManager({
         <Select options={branchOptions} allowClear placeholder="Not assigned" />
       </Form.Item>
     </>
+  );
+  // Who the user reports to: never themselves. Asked only when editing (the user exists by then).
+  const reportsToField = orgUnits && (
+    <Form.Item name="reportsToUserId" label="Reports to" extra="Gets this user's discount inquiries in Sales; the admins are told when nobody is set.">
+      <Select options={managerOptions.filter((o) => o.value !== editTarget?.id)} allowClear showSearch optionFilterProp="label" placeholder="Nobody" />
+    </Form.Item>
   );
   // A cleared select yields undefined; the API needs an explicit null to unassign.
   const placement = (v: { departmentId?: string; branchId?: string }) =>
@@ -79,7 +89,7 @@ export function UsersManager({
     const v = await editForm.validateFields();
     setSaving(true);
     try {
-      const input: UpdateUserInput = { displayName: v.displayName, ...placement(v) };
+      const input: UpdateUserInput = { displayName: v.displayName, ...placement(v), ...(orgUnits ? { reportsToUserId: v.reportsToUserId ?? null } : {}) };
       // Send the role only when it changes: the API refuses a role "change" on your own
       // account and on superadmins, even to the same value.
       if (v.role !== editTarget.role) input.role = v.role;
@@ -102,6 +112,7 @@ export function UsersManager({
       ? [
           { title: "Department", dataIndex: "departmentId", render: (v: string | null) => unitName(departmentOptions, v) },
           { title: "Branch", dataIndex: "branchId", render: (v: string | null) => unitName(branchOptions, v) },
+          { title: "Reports to", dataIndex: "reportsToUserId", render: (v: string | null) => unitName(managerOptions, v) },
         ]
       : []),
     {
@@ -122,6 +133,7 @@ export function UsersManager({
                 password: "",
                 departmentId: r.departmentId ?? undefined,
                 branchId: r.branchId ?? undefined,
+                reportsToUserId: r.reportsToUserId ?? undefined,
               });
             }}
           />
@@ -185,6 +197,7 @@ export function UsersManager({
             <Select options={roleOptions} disabled={editTarget?.id === currentUserId} />
           </Form.Item>
           {orgUnitFields}
+          {reportsToField}
           <Form.Item name="password" label="New password (leave blank to keep)" rules={[{ min: 12, message: "At least 12 characters" }]}>
             <Input.Password placeholder="••••••••" />
           </Form.Item>

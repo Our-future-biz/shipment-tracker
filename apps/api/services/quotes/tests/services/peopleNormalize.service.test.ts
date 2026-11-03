@@ -27,7 +27,7 @@ const usersList = vi.mocked(auth.usersList);
 const U_MARTIN = "0d5f0a43-52a1-4d0e-9a39-0c6f3b1f6a02";
 const U_JANA = "0d5f0a43-52a1-4d0e-9a39-0c6f3b1f6a03";
 const U_GONE = "0d5f0a43-52a1-4d0e-9a39-0c6f3b1f6a09";
-const user = (id: string, displayName: string, email: string) => ({ id, companyId: "", email, displayName, role: "user", departmentId: null, branchId: null });
+const user = (id: string, displayName: string, email: string) => ({ id, companyId: "", email, displayName, role: "user", departmentId: null, branchId: null, reportsToUserId: null });
 const USERS = [user(U_MARTIN, "Martin Koubek", "Martin@Forwarder.cz"), user(U_JANA, "Jana Nováková", "jana@forwarder.cz")];
 
 let company: string;

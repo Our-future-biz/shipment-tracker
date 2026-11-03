@@ -86,6 +86,23 @@ export function workingDaysSince(from: string, to: string): number {
   return n;
 }
 const dayOf = (at: string | null) => (at ? businessDay(new Date(at)) : null);
+// A margin that moved by less than this since it was asked about has not changed.
+const CHANGED_TOLERANCE_CZK = 1;
+/** "45 min", "3 h", "1 day 2 h" of office minutes (a day = 9 office hours). */
+export function officeTime(minutes: number): string {
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 9) return `${hours} h`;
+  const days = Math.floor(hours / 9);
+  const rest = hours % 9;
+  return `${plural(days, "office day")}${rest ? ` ${rest} h` : ""}`;
+}
+const PRAGUE_STAMP = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Prague", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+/** "04.11. 14:00" (Prague) of an ISO time. */
+function stampText(iso: string): string {
+  const p = Object.fromEntries(PRAGUE_STAMP.formatToParts(new Date(iso)).map((x) => [x.type, x.value]));
+  return `${p.day}.${p.month}. ${p.hour}:${p.minute}`;
+}
 
 interface Signal extends SalesCockpitTag {
   /** Lower comes first. */
@@ -118,8 +135,19 @@ export function quoteSignals(q: SalesManagersQuoteFact, today: string, now: Date
     out.push(urgent(5, "Won at a loss"));
   }
 
+  // A rep's question to a manager: urgent once the admins are told too (4 office hours, or the
+  // customer's moment close), and when the quote got worse than what was asked about.
+  const mi = q.marginInquiry;
+  if (mi) {
+    const waited = `Discount waiting ${officeTime(mi.waitedOfficeMinutes)}${mi.needsBy ? ` · needs it by ${stampText(mi.needsBy)}` : ""}`;
+    out.push(mi.escalated ? urgent(0, waited) : attention(9, waited));
+    if (mi.askedMarginCzk !== null && q.marginCzk !== null && q.marginCzk < mi.askedMarginCzk - CHANGED_TOLERANCE_CZK) {
+      out.push(urgent(0, `Changed since asked · margin now ${Math.round(q.marginCzk).toLocaleString("en-US").replace(/,/g, " ")} CZK`));
+    }
+  }
+
   // ATTENTION
-  if (open && q.belowRoadFloor) out.push(attention(10, q.marginCzk === null ? "Margin unknown · can't be sent" : "Below margin floor, not approved"));
+  if (open && q.belowRoadFloor && !mi) out.push(attention(10, q.marginCzk === null ? "Margin unknown · can't be sent" : "Below margin floor, not approved"));
   if (AWAITING.has(q.shownStatus) && q.validUntil && q.validUntil > today && daysBetween(today, q.validUntil) <= VALIDITY_ATTENTION_DAYS) {
     out.push(attention(11, `Valid until in ${plural(daysBetween(today, q.validUntil), "day")}`));
   }
@@ -212,6 +240,7 @@ export function buildSalesCockpit(input: SalesCockpitInput): SalesManagersCockpi
     draftsToFinish: open.filter((q) => q.shownStatus === "draft" && !q.firstSentAt).length,
     validSoon: open.filter((q) => !!q.validUntil && q.validUntil >= today && q.validUntil <= validBy).length,
     noOwner: open.filter((q) => !q.ownerUserId).length,
+    awaitingApproval: quotes.filter((q) => !!q.marginInquiry).length,
     wonThisMonth: decidedThisMonth("won"),
     lostThisMonth: decidedThisMonth("lost"),
   };

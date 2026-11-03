@@ -73,6 +73,8 @@ export interface AuthUserInfo {
   role: string;
   departmentId: string | null;
   branchId: string | null;
+  /** The manager the user reports to; null for none. */
+  reportsToUserId: string | null;
 }
 
 // A superadmin's account (password, role, deactivation) is changed only by a superadmin, never by
@@ -87,17 +89,20 @@ export function assertNotSelf(targetId: string, actorId: string): void {
 }
 
 /** What #toInfo reads of a user row. */
-type UserFields = Pick<AuthUserInfo, "id" | "companyId" | "email" | "displayName" | "role" | "departmentId" | "branchId">;
+type UserFields = Pick<AuthUserInfo, "id" | "companyId" | "email" | "displayName" | "role" | "departmentId" | "branchId" | "reportsToUserId">;
 
 /** The signed-in user (login, /auth/me). */
 export type SessionUser = AuthUserInfo;
 
 const userNotFound = () => APIError.notFound("User not found");
+// Who a user may report to: the company's managers and admins.
+const MANAGES: readonly string[] = ["superadmin", "admin", "manager"];
 
 // Org placement of a user; null clears it, undefined leaves it untouched.
 interface OrgPlacement {
   departmentId?: string | null;
   branchId?: string | null;
+  reportsToUserId?: string | null;
 }
 
 class AuthService {
@@ -200,7 +205,7 @@ class AuthService {
       throw APIError.permissionDenied("Managers can only modify standard users");
     }
     assertSuperadminTouchedBySuperadmin(target.role, actor.role);
-    const changes: UserPatch = { ...(await this.#checkPlacement(companyId, patch)) };
+    const changes: UserPatch = { ...(await this.#checkPlacement(companyId, patch, id)) };
     if (patch.displayName !== undefined) changes.displayName = patch.displayName;
     if (patch.role !== undefined) changes.role = patch.role;
     if (patch.password) {
@@ -313,7 +318,7 @@ class AuthService {
   }
 
   // A user can only be placed in a department/branch of their own company.
-  async #checkPlacement(companyId: string, input: OrgPlacement): Promise<OrgPlacement> {
+  async #checkPlacement(companyId: string, input: OrgPlacement, userId?: string): Promise<OrgPlacement> {
     const placement: OrgPlacement = {};
     if (input.departmentId !== undefined) {
       if (input.departmentId && !(await departmentRepository.getByIdForCompany(input.departmentId, companyId))) {
@@ -327,6 +332,14 @@ class AuthService {
       }
       placement.branchId = input.branchId || null;
     }
+    if (input.reportsToUserId !== undefined) {
+      if (input.reportsToUserId) {
+        if (input.reportsToUserId === userId) throw APIError.invalidArgument("A user cannot report to themselves");
+        const manager = await userRepository.getByIdInCompany(input.reportsToUserId, companyId);
+        if (!manager || !MANAGES.includes(manager.role)) throw APIError.invalidArgument("Reports to must be a manager or admin of the company");
+      }
+      placement.reportsToUserId = input.reportsToUserId || null;
+    }
     return placement;
   }
 
@@ -339,6 +352,7 @@ class AuthService {
       role: u.role,
       departmentId: u.departmentId,
       branchId: u.branchId,
+      reportsToUserId: u.reportsToUserId,
     };
   }
 

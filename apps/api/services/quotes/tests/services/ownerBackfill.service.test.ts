@@ -31,6 +31,7 @@ const user = (id: string, displayName: string, email: string) => ({
   role: "user",
   departmentId: null,
   branchId: null,
+  reportsToUserId: null,
 });
 const USERS = [user(U_MARTIN, "Martin Koubek", "Martin@Forwarder.cz"), user(U_JANA, "Jana Nováková", "jana@forwarder.cz")];
 // What a text that names a user is recorded as: that user, owning the quotes under their e-mail (lower case).

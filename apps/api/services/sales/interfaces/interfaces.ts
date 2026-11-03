@@ -190,6 +190,8 @@ export interface SalesCockpitTiles {
   validSoon: number;
   /** Open quotes with no Sales Owner. */
   noOwner: number;
+  /** Margin questions waiting for a manager (Quote inquiries). */
+  awaitingApproval: number;
   wonThisMonth: number;
   lostThisMonth: number;
 }

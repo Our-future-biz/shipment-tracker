@@ -1,0 +1,107 @@
+import { and, desc, eq, gte, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { isUniqueViolation } from "../../../lib/db/errors";
+import { db } from "../db/db";
+import { quoteTable } from "../schemas/quote.schema";
+import { quoteInquiryTable as t, type NewQuoteInquiryRecord, type QuoteInquiryRecord, type QuoteInquiryStatus } from "../schemas/quoteInquiry.schema";
+import type { QuoteTransaction } from "./salesQuote.repository";
+
+// The database, or the transaction that holds the quote's lock (so the quote and its question change together).
+type Writer = typeof db | QuoteTransaction;
+
+const live = (companyId: string) => and(eq(t.companyId, companyId), isNull(t.deletedAt));
+
+// The questions a rep asks a manager about a quote (schemas/quoteInquiry). Rows are only ever
+// added and answered, never written over: a new question is a new row.
+class QuoteInquiryRepository {
+  /** Stores a new question; null when one of its kind already waits on the quote. */
+  async insert(row: NewQuoteInquiryRecord, writer: Writer = db): Promise<QuoteInquiryRecord | null> {
+    try {
+      const [created] = await writer.insert(t).values(row).returning();
+      return created ?? null;
+    } catch (err) {
+      if (isUniqueViolation(err)) return null;
+      throw err;
+    }
+  }
+
+  /** The question of a quote that waits for an answer, when there is one. */
+  async pendingOf(companyId: string, quoteId: string, writer: Writer = db): Promise<QuoteInquiryRecord | null> {
+    const [row] = await writer.select().from(t).where(and(live(companyId), eq(t.quoteId, quoteId), eq(t.status, "pending"))).limit(1);
+    return row ?? null;
+  }
+
+  /** The newest question of a quote, answered or not. */
+  async latestOf(companyId: string, quoteId: string): Promise<QuoteInquiryRecord | null> {
+    const [row] = await db.select().from(t).where(and(live(companyId), eq(t.quoteId, quoteId))).orderBy(desc(t.requestedAt)).limit(1);
+    return row ?? null;
+  }
+
+  /**
+   * Answers a waiting question, only while it still waits - so of two managers answering at the
+   * same moment one wins and the other is told. Null when it no longer waits.
+   */
+  async answer(companyId: string, id: string, patch: Partial<NewQuoteInquiryRecord> & { status: QuoteInquiryStatus }, writer: Writer = db): Promise<QuoteInquiryRecord | null> {
+    const [row] = await writer
+      .update(t)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(and(live(companyId), eq(t.id, id), eq(t.status, "pending")))
+      .returning();
+    return row ?? null;
+  }
+
+  async byId(companyId: string, id: string): Promise<QuoteInquiryRecord | null> {
+    const [row] = await db.select().from(t).where(and(live(companyId), eq(t.id, id))).limit(1);
+    return row ?? null;
+  }
+
+  /** Waiting questions, and those answered or withdrawn since `answeredSince`, the newest first. */
+  async list(companyId: string, answeredSince: Date, limit: number): Promise<QuoteInquiryRecord[]> {
+    return db
+      .select()
+      .from(t)
+      .where(and(live(companyId), or(eq(t.status, "pending"), gte(t.updatedAt, answeredSince))))
+      .orderBy(desc(t.requestedAt))
+      .limit(limit);
+  }
+
+  /** The company's waiting questions. */
+  async pending(companyId: string): Promise<QuoteInquiryRecord[]> {
+    return db.select().from(t).where(and(live(companyId), eq(t.status, "pending"))).orderBy(t.requestedAt);
+  }
+
+  /**
+   * Answers for `userId`'s bell: of questions they asked, or on quotes they own, answered since
+   * `since`; those opened before `seenSince` are left out.
+   */
+  async answersFor(companyId: string, userId: string, since: Date, seenSince: Date, limit: number): Promise<QuoteInquiryRecord[]> {
+    const rows = await db
+      .select({ inquiry: t })
+      .from(t)
+      .leftJoin(quoteTable, and(eq(quoteTable.id, t.quoteId), eq(quoteTable.companyId, t.companyId)))
+      .where(
+        and(
+          live(companyId),
+          inArray(t.status, ["approved", "rejected"]),
+          gte(t.decidedAt, since),
+          or(eq(t.requestedById, userId), eq(quoteTable.ownerUserId, userId)),
+          // The one who answered is not told their own answer.
+          ne(t.decidedById, userId),
+          or(isNull(t.answerSeenAt), gte(t.answerSeenAt, seenSince)),
+        ),
+      )
+      .orderBy(desc(t.decidedAt))
+      .limit(limit);
+    return rows.map((r) => r.inquiry);
+  }
+
+  /** Marks the answers as opened by whoever they are for. */
+  async markSeen(companyId: string, ids: string[], at: Date): Promise<void> {
+    if (!ids.length) return;
+    await db
+      .update(t)
+      .set({ answerSeenAt: at })
+      .where(and(live(companyId), inArray(t.id, ids), isNull(t.answerSeenAt), sql`${t.decidedAt} IS NOT NULL`));
+  }
+}
+
+export const quoteInquiryRepository = new QuoteInquiryRepository();

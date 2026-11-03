@@ -17,6 +17,9 @@ export const userTable = pgTable(
     // Where the user sits in the company; both optional. Decides which noticeboards they see.
     departmentId: uuid("department_id").references(() => departmentTable.id),
     branchId: uuid("branch_id").references(() => branchTable.id),
+    // The manager the user reports to (a manager or admin of the same company); optional. Sales
+    // sends a quote's discount inquiries to its owner's manager (Council Outlay 6, D14).
+    reportsToUserId: uuid("reports_to_user_id"),
     // A service identity (one per company, "Trucking (system)"): what the system or a haulier
     // causes in other services is sent as this user. It has no password and can never sign in,
     // and it is not shown in user lists or pickers.

@@ -1,16 +1,21 @@
 "use client";
 
-import { CheckCircleFilled, WarningFilled } from "@ant-design/icons";
+import { CheckCircleFilled, ClockCircleFilled, CloseCircleFilled, WarningFilled } from "@ant-design/icons";
 import { businessDateTime } from "@/lib/date";
 import { formatAmount as formatMoney } from "@/lib/money";
 import { floorText, marginState, marginText, type RoadMargin } from "../../../_lib/roadQuote";
 import { MiniButton } from "./QuoteButtons";
+import type { MarginInquiryItem } from "@/hooks/useMarginInquiries";
 
 interface QuoteMarginPanelProps {
   margin: RoadMargin;
   // A manager may approve a margin below the floor.
   canApprove: boolean;
   onApprove: () => void;
+  // The newest question to a manager about this quote's margin, and the rep's ask / withdraw.
+  inquiry?: MarginInquiryItem | null;
+  onAsk?: () => void;
+  onWithdraw?: (inquiryId: string) => void;
 }
 
 const Figure = ({ label, value }: { label: string; value: string }) => (
@@ -23,8 +28,13 @@ const Figure = ({ label, value }: { label: string; value: string }) => (
 // The margin of a road quote in CZK against the margin floor, as the server works it out from the
 // stored lines: above the floor; below it and approved by a manager; or below it and waiting for
 // one - then the quote cannot be sent or marked Ready to send.
-export const QuoteMarginPanel = ({ margin, canApprove, onApprove }: QuoteMarginPanelProps) => {
+export const QuoteMarginPanel = ({ margin, canApprove, onApprove, inquiry, onAsk, onWithdraw }: QuoteMarginPanelProps) => {
   const state = marginState(margin);
+  const waiting = inquiry?.status === "pending" ? inquiry : null;
+  // A rejection still matters while the margin waits for an approval.
+  const rejected = state === "needsApproval" && inquiry?.status === "rejected" ? inquiry : null;
+  // Anybody below the floor may ask a manager (Council Outlay 6); a manager may also approve at once.
+  const canAsk = state === "needsApproval" && !margin.problem && !waiting && !canApprove && !!onAsk;
   const tone = state === "needsApproval" ? "border-red-200 bg-red-50/60" : state === "approved" ? "border-green-200 bg-green-50/60" : "border-slate-200 bg-white";
 
   return (
@@ -36,7 +46,10 @@ export const QuoteMarginPanel = ({ margin, canApprove, onApprove }: QuoteMarginP
           <Figure label="Margin" value={marginText(margin.marginCzk, margin.marginPercent)} />
           <Figure label="Margin floor" value={floorText(margin)} />
         </div>
-        {state === "needsApproval" && canApprove && !margin.problem && <MiniButton onClick={onApprove}>Approve margin…</MiniButton>}
+        <div className="flex flex-wrap gap-2">
+          {canAsk && <MiniButton onClick={onAsk}>{rejected ? "Ask again…" : "Ask for approval…"}</MiniButton>}
+          {state === "needsApproval" && canApprove && !margin.problem && <MiniButton onClick={onApprove}>Approve margin…</MiniButton>}
+        </div>
       </div>
 
       {state === "needsApproval" && (
@@ -45,6 +58,29 @@ export const QuoteMarginPanel = ({ margin, canApprove, onApprove }: QuoteMarginP
           <span>
             <b>Below margin floor.</b> Needs a manager&apos;s approval before the quote is sent or marked Ready to send.
             {margin.approval && !margin.approvalValid && ` The approval of ${marginText(margin.approval.marginCzk, margin.approval.marginPercent)} no longer covers it.`}
+          </span>
+        </div>
+      )}
+      {waiting && (
+        <div className="mt-2 flex flex-wrap items-start gap-1.5 text-[12.5px] text-amber-800">
+          <ClockCircleFilled className="mt-0.5" aria-hidden />
+          <span className="min-w-0">
+            <b>Waiting for a manager</b> · asked by {waiting.requestedByName || "a colleague"} on {businessDateTime(waiting.requestedAt)} ({waiting.reason})
+            {waiting.notifyName ? ` · ${waiting.notifyName} is told` : " · the admins are told"}
+          </span>
+          {onWithdraw && (
+            <button type="button" onClick={() => onWithdraw(waiting.id)} className="ml-1 p-0 border-none bg-transparent text-[12.5px] font-semibold text-amber-800 underline cursor-pointer">
+              Withdraw
+            </button>
+          )}
+        </div>
+      )}
+      {rejected && (
+        <div className="mt-2 flex items-start gap-1.5 text-[12.5px] text-red-700">
+          <CloseCircleFilled className="mt-0.5" aria-hidden />
+          <span>
+            <b>Rejected</b> by {rejected.decidedByName || "a manager"}
+            {rejected.decidedAt ? ` on ${businessDateTime(rejected.decidedAt)}` : ""}: {rejected.comment}
           </span>
         </div>
       )}
