@@ -5,7 +5,7 @@ import { AutoComplete } from "antd";
 import { PartyContactLink } from "./PartyContactLink";
 import { contactNamed, useCustomerContacts } from "@/hooks/useCustomerContacts";
 import { FadeText } from "@/components/FadeText";
-import { EMPTY, LABEL, ROW } from "./detailStyles";
+import { EMPTY, LABEL, ROW, dimLabel } from "./detailStyles";
 
 interface PartyContactFieldProps {
   label: string;
@@ -72,7 +72,7 @@ export function PartyContactField({ label, value, contactId, customerId, onChang
 
   return (
     <div className={ROW}>
-      <span className={LABEL}>{label}</span>
+      <span className={dimLabel(LABEL, !!value)}>{label}</span>
       <div className="flex-1 min-w-0">
         {editing ? (
           <AutoComplete
@@ -116,7 +116,7 @@ export function PartyContactField({ label, value, contactId, customerId, onChang
             onDoubleClick={startEdit}
           >
             {value ? (
-              <FadeText className="text-slate-800" title="Double-click to pick a saved contact">
+              <FadeText className="text-slate-900" title="Double-click to pick a saved contact">
                 {value}
               </FadeText>
             ) : (

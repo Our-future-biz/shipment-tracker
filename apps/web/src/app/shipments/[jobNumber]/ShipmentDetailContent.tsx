@@ -11,7 +11,6 @@ import { api, apiErrorMessage } from "@/lib/api";
 import {
   ArrowLeftOutlined,
   DownOutlined,
-  EnvironmentOutlined,
   InfoCircleOutlined,
   CheckSquareOutlined,
   CheckCircleOutlined,
@@ -23,6 +22,15 @@ import {
   ControlOutlined,
   DollarOutlined,
   WarningOutlined,
+  ProfileOutlined,
+  ShopOutlined,
+  FileProtectOutlined,
+  TeamOutlined,
+  NodeIndexOutlined,
+  InboxOutlined,
+  CalculatorOutlined,
+  SafetyCertificateOutlined,
+  HomeOutlined,
 } from "@ant-design/icons";
 import { useShipment } from "@/hooks/useShipment";
 import { NOT_STACKABLE, STACKABLE_OPTIONS, shipmentStackability, withShipmentStackability } from "@/lib/cargo";
@@ -59,7 +67,7 @@ import { SalesQuoteLink } from "./_components/SalesQuoteLink";
 import type { controllers } from "@/lib/api/client";
 import { TasksPanel } from "./_components/TasksPanel";
 import { ShipmentFacts, ShipmentProgress } from "./_components/ShipmentSummary";
-import { CARD, CARD_BODY, COLS2, EMPTY, HEADER_BTN, HEADER_ICON_BTN, LABEL, LABEL_TOP, LABEL_W, ROW, ROW_TOP, VALUE } from "./_components/detailStyles";
+import { CARD, CARD_BODY, COLS2, EMPTY, HEADER_BTN, HEADER_ICON_BTN, LABEL, LABEL_TOP, LABEL_W, REF_KEYS, REF_VALUE, ROW, ROW_TOP, VALUE, dimLabel } from "./_components/detailStyles";
 import { MasterJobDetailModal } from "../_components/MasterJobDetailModal";
 import { MasterJobDialog } from "../_components/MasterJobDialog";
 import { AttachmentsPanel } from "../_components/AttachmentsPanel";
@@ -283,14 +291,14 @@ function FieldRow({
   }
   return (
     <div className={ROW}>
-      <span className={LABEL.replace(LABEL_W, labelW)}>{label}</span>
+      <span className={dimLabel(LABEL.replace(LABEL_W, labelW), !!value)}>{label}</span>
       <EditableCell
         className="flex-1 min-w-0"
         fieldKey={fieldKey}
         value={value}
         onCommit={onCommit}
         placeholder="—"
-        displayClassName="text-slate-800"
+        displayClassName={REF_KEYS.has(fieldKey) ? REF_VALUE : "text-slate-900"}
         emptyClassName={EMPTY}
         // Customer's PIC is a link like the Customer row's, which takes no rule colour here either.
         displayStyle={fieldKey === "customerPic" ? undefined : styleFor?.(fieldKey, value)}
@@ -364,7 +372,7 @@ function MemberRow({
   const { person, when } = splitPersonStamp(value);
   return (
     <div className={ROW}>
-      <span className={LABEL.replace(LABEL_W, labelW)}>{label}</span>
+      <span className={dimLabel(LABEL.replace(LABEL_W, labelW), !!person)}>{label}</span>
       <UserPicker
         variant="borderless"
         size="small"
@@ -411,7 +419,7 @@ function InvoiceRow({
       : getFieldValue(shipment, fieldKey);
   return (
     <div className={ROW}>
-      <span className={LABEL.replace(LABEL_W, labelW)}>{label}</span>
+      <span className={dimLabel(LABEL.replace(LABEL_W, labelW), !!value)}>{label}</span>
       <button
         type="button"
         onClick={() => setOpen(true)}
@@ -448,14 +456,14 @@ interface RoRowProps {
 
 // Read-only horizontal row (label | value), matching FieldRow's look.
 function RoRow({ label, value, labelW = LABEL_W, wrap = false, mark }: RoRowProps) {
-  const lbl = LABEL.replace(LABEL_W, labelW);
+  const lbl = dimLabel(LABEL.replace(LABEL_W, labelW), !!value);
   return (
     <div className={wrap ? ROW_TOP : ROW}>
       <span className={wrap ? `${lbl} pt-[3px]` : lbl}>{label}</span>
       {value && wrap ? (
         <span className={`${VALUE} break-words`}>{value}</span>
       ) : value ? (
-        <FadeText className="flex-1 text-slate-800">{value}</FadeText>
+        <FadeText className="flex-1 text-slate-900 tabular-nums">{value}</FadeText>
       ) : (
         <span className={`flex-1 min-w-0 ${EMPTY}`}>—</span>
       )}
@@ -605,7 +613,11 @@ function HouseBolReleaseRow({ releasedAt, onRelease }: HouseBolReleaseRowProps) 
             <CheckCircleOutlined /> Released by {releasedAt}
           </span>
         ) : (
-          <Button size="small" danger onClick={onRelease}>
+          <Button
+            size="small"
+            onClick={onRelease}
+            className="!h-6 !px-2.5 !text-[12px] !font-semibold !text-indigo-600 !border-indigo-200 !bg-white hover:!bg-indigo-50 hover:!border-indigo-300"
+          >
             RELEASE BoL
           </Button>
         )}
@@ -638,8 +650,8 @@ function OpeningHoursRow({
       <div className="flex-1 min-w-0">
         <TimePicker.RangePicker
           size="small"
-          variant="filled"
-          className="w-full"
+          variant="borderless"
+          className="w-full rounded-md hover:!bg-slate-100 focus-within:!bg-white focus-within:!ring-1 focus-within:!ring-indigo-300 [&_input::placeholder]:!text-slate-300"
           format="HH:mm"
           minuteStep={15}
           value={[parse(from), parse(to)]}
@@ -798,13 +810,13 @@ function CargoRow({
   if (field.ro) {
     return (
       <div className={ROW}>
-        <span className={LABEL}>{field.label}</span>
+        <span className={dimLabel(LABEL, !!value)}>{field.label}</span>
         <span
           className={`flex-1 min-w-0 ${
             value
               ? field.highlight
-                ? "text-slate-800 bg-ok-softer px-1.5 py-px rounded"
-                : "text-slate-800"
+                ? "text-slate-900 bg-ok-softer px-1.5 py-px rounded"
+                : "text-slate-900"
               : EMPTY
           }`}
           style={styleFor?.(field.key, value) ?? undefined}
@@ -816,7 +828,7 @@ function CargoRow({
   }
   return (
     <div className={ROW}>
-      <span className={LABEL}>{field.label}</span>
+      <span className={dimLabel(LABEL, !!value)}>{field.label}</span>
       <EditableCell
         className="flex-1 min-w-0"
         fieldKey={field.key}
@@ -825,8 +837,8 @@ function CargoRow({
         placeholder="—"
         displayClassName={
           field.highlight
-            ? "text-slate-800 bg-ok-softer px-1.5 py-px rounded"
-            : "text-slate-800"
+            ? "text-slate-900 bg-ok-softer px-1.5 py-px rounded"
+            : "text-slate-900"
         }
         emptyClassName={EMPTY}
         displayStyle={styleFor?.(field.key, value)}
@@ -854,7 +866,7 @@ function CargoCommercialCard({
   return (
     <div className={CARD}>
       <SectionHeader
-        icon={<FileTextOutlined />}
+        icon={<InboxOutlined />}
         title="Cargo & Commercial"
         cardId="cargo"
         allFields={[...CARGO_COMMERCIAL_L, ...CARGO_COMMERCIAL_R]}
@@ -1109,7 +1121,7 @@ export function ShipmentDetailContent() {
         </div>
 
         {/* The shipment at a glance - its job number first - above the tabs, on every tab */}
-        <div className="mt-3.5 pt-3.5 border-t border-slate-100">
+        <div className="mt-3 rounded-xl border border-indigo-200 bg-indigo-50/20 shadow-sm px-5 pt-3 pb-2.5">
           <ShipmentFacts shipment={shipment} />
         </div>
 
@@ -1149,11 +1161,11 @@ export function ShipmentDetailContent() {
             {/* The shipment's progress through its stages */}
             <ShipmentProgress shipment={shipment} />
 
-          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_280px] 2xl:grid-cols-[minmax(0,1fr)_320px] gap-4 items-start">
+          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_296px] 2xl:grid-cols-[minmax(0,1fr)_320px] gap-4 items-start">
             {/* ── MAIN COLUMN ── the cards in the order a shipment is worked: overview, dates,
                 parties, transport documents, equipment, cargo, money and admin. Cards side by side
                 stretch to one height, so the page has no holes. */}
-            <div className="flex flex-col gap-4 min-w-0">
+            <div className="@container flex flex-col gap-4 min-w-0">
               {/* SHIPMENT OVERVIEW */}
               <div className={CARD}>
                 {/* Column order mirrors the agreed overview mockup 1:1 — left is
@@ -1272,7 +1284,7 @@ export function ShipmentDetailContent() {
                   return (
                     <>
                       <SectionHeader
-                        icon={<ContainerOutlined />}
+                        icon={<ProfileOutlined />}
                         title="Shipment Overview"
                         cardId="overview"
                         allFields={[...left, ...right]}
@@ -1371,7 +1383,7 @@ export function ShipmentDetailContent() {
                   return (
                     <>
                       <SectionHeader
-                        icon={<EnvironmentOutlined />}
+                        icon={<ShopOutlined />}
                         title="Commercial Parties"
                         cardId="parties"
                         allFields={[...left, ...right]}
@@ -1390,9 +1402,9 @@ export function ShipmentDetailContent() {
               </div>
 
               {/* CARRIER & BILL OF LADING  |  PARTIES & AGENTS */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 @min-[760px]:grid-cols-2 gap-4">
                 <DetailCard
-                  icon={<SplitCellsOutlined />}
+                  icon={<FileProtectOutlined />}
                   title="Carrier & Bill of Lading"
                   cardId="carrier"
                   className="h-full"
@@ -1407,7 +1419,7 @@ export function ShipmentDetailContent() {
                   }}
                 />
                 <DetailCard
-                  icon={<InfoCircleOutlined />}
+                  icon={<TeamOutlined />}
                   title="Parties & Agents"
                   cardId="partiesAgents"
                   className="h-full"
@@ -1419,9 +1431,9 @@ export function ShipmentDetailContent() {
               </div>
 
               {/* REFERENCES & ROUTING  |  EQUIPMENT & DEPOT */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 @min-[760px]:grid-cols-2 gap-4">
                 <DetailCard
-                  icon={<EnvironmentOutlined />}
+                  icon={<NodeIndexOutlined />}
                   title="References & Routing"
                   cardId="refsRouting"
                   className="h-full"
@@ -1448,7 +1460,7 @@ export function ShipmentDetailContent() {
               <CargoCommercialCard shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
 
               {/* QUOTE  |  BASIC INFORMATION */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 @min-[760px]:grid-cols-2 gap-4">
               {/* QUOTE */}
               <div className={`${CARD} h-full`}>
                 {(() => {
@@ -1476,7 +1488,7 @@ export function ShipmentDetailContent() {
                   return (
                     <>
                       <SectionHeader
-                        icon={<FileTextOutlined />}
+                        icon={<CalculatorOutlined />}
                         title="Quote"
                         cardId="quote"
                         allFields={[...QUOTE_L, ...QUOTE_R]}
@@ -1537,7 +1549,7 @@ export function ShipmentDetailContent() {
             </div>
 
             {/* ── SIDEBAR ── short checks first, then the task list */}
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-1 gap-4 items-start [--lw:118px]">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-1 xl:self-stretch xl:content-start gap-4 items-start [--lw:118px]">
               {/* CARGO HANDLING — what the cargo needs, ahead of the tasks */}
               <DetailCard
                 icon={<WarningOutlined />}
@@ -1563,13 +1575,15 @@ export function ShipmentDetailContent() {
                 }}
               />
 
-              <DetailCard icon={<CheckSquareOutlined />} title="Compliance" cardId="compliance" columns={[COMPLIANCE_FIELDS]} shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
-              <DetailCard icon={<EnvironmentOutlined />} title="Destination Warehouse Routing" cardId="destinationRouting" columns={[DESTINATION_ROUTING_FIELDS]} shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
+              <DetailCard icon={<SafetyCertificateOutlined />} title="Compliance" cardId="compliance" columns={[COMPLIANCE_FIELDS]} shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
+              <DetailCard icon={<HomeOutlined />} title="Destination Warehouse Routing" cardId="destinationRouting" columns={[DESTINATION_ROUTING_FIELDS]} shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
               {/* TASKS */}
-              <div className={CARD}>
+              {/* Stays in view while the long main column scrolls: ticking tasks is the main action here. */}
+              {/* Sticks under the app's 70px top bar; a list taller than the window scrolls inside. */}
+              <div className={`${CARD} xl:sticky xl:top-[86px] xl:max-h-[calc(100vh-102px)]`}>
                 <SectionHeader icon={<CheckSquareOutlined />} title="Tasks" />
-                <div className="px-4 pt-3 pb-3">
-                  <div className="text-[11px] uppercase tracking-[.04em] text-slate-500 font-semibold mb-1.5">
+                <div className="px-4 pt-2.5 pb-2 min-h-0 overflow-y-auto">
+                  <div className="text-[11px] uppercase tracking-[.03em] text-slate-500 font-medium mb-1">
                     {shipment.tradeDirection === "Export" ? "Export Workflow" : "Import Workflow"}
                   </div>
                   <TasksPanel shipment={shipment} />

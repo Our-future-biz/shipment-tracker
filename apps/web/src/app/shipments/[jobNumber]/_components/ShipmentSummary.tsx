@@ -30,8 +30,8 @@ interface FactProps {
 function Fact({ label, children }: FactProps) {
   return (
     <div className="min-w-0">
-      <div className="text-[11px] leading-[14px] font-semibold uppercase tracking-[.04em] text-slate-500 break-words">{label}</div>
-      <div className="mt-1 min-h-6 flex items-center text-[13px] font-medium text-slate-900 min-w-0">{children}</div>
+      <div className="text-[11px] leading-[14px] font-medium uppercase tracking-[.03em] text-slate-500 break-words">{label}</div>
+      <div className="mt-0.5 min-h-[22px] flex items-center text-[13px] font-medium text-slate-900 min-w-0">{children}</div>
     </div>
   );
 }
@@ -54,8 +54,9 @@ export function ShipmentFacts({ shipment }: { shipment: ShipmentItem }) {
   const destination = getFieldValue(shipment, "destination");
 
   return (
-    // Two rows of six on a wide screen; the columns line up across both rows.
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-x-6 gap-y-3.5">
+    // Two rows of six on a wide screen; the columns line up across both rows. The second row
+    // always reads POL, ETD, POD, ETA. The status gets the widest column, so it stays on one line.
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,0.85fr)_minmax(0,0.9fr)_minmax(0,1.45fr)] 2xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.05fr)_minmax(0,0.8fr)_minmax(0,1.25fr)_minmax(0,1.35fr)] gap-x-6 gap-y-3 lg:[&>*:nth-child(n+7)]:pt-3 lg:[&>*:nth-child(n+7)]:border-t lg:[&>*:nth-child(n+7)]:border-indigo-100">
       <Fact label="Job">
         <span className="flex items-center gap-1 min-w-0">
           <span className="truncate text-[16px] leading-6 font-bold text-slate-900 tabular-nums" title={job}>
@@ -90,6 +91,9 @@ export function ShipmentFacts({ shipment }: { shipment: ShipmentItem }) {
         )}
       </Fact>
       <Fact label="POL">{text(getFieldValue(shipment, "pol"))}</Fact>
+      <Fact label="ETD Estimated">
+        <span className="tabular-nums text-[14px] font-semibold">{formatDate(shipment.estimatedDeparture) || dash}</span>
+      </Fact>
       <Fact label="POD">
         <span className="min-w-0">
           {text(pod)}
@@ -101,13 +105,12 @@ export function ShipmentFacts({ shipment }: { shipment: ShipmentItem }) {
           )}
         </span>
       </Fact>
-      <Fact label="ETD Estimated">
-        <span className="tabular-nums">{formatDate(shipment.estimatedDeparture) || dash}</span>
-      </Fact>
       <Fact label="ETA Estimated">
-        <span className="tabular-nums">{formatDate(shipment.estimatedArrival) || dash}</span>
+        <span className="tabular-nums text-[14px] font-semibold">{formatDate(shipment.estimatedArrival) || dash}</span>
       </Fact>
-      <Fact label="Shipping line / Coloader">{text(getFieldValue(shipment, "shippingLine"))}</Fact>
+      <Fact label="ETA Warehouse/HUB">
+        <span className="tabular-nums">{formatDate(getFieldValue(shipment, "etaWarehouse")) || dash}</span>
+      </Fact>
       <Fact label="Container Number">
         {container ? (
           // The same chip the Container Details tab gives a container number.
@@ -144,7 +147,7 @@ export function ShipmentProgress({ shipment }: { shipment: ShipmentItem }) {
             <div
               title={label}
               className={`mt-1.5 flex items-start gap-1 text-[12px] leading-4 ${
-                done ? "text-indigo-600" : current ? "text-slate-900 font-semibold" : "text-slate-400"
+                done ? "text-indigo-600" : current ? "text-indigo-700 font-semibold" : "text-slate-500"
               }`}
             >
               {done && <CheckOutlined className="text-[10px] mt-[3px] shrink-0" />}
