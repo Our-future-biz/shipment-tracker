@@ -55,6 +55,9 @@ function contextOf(actor: Actor, at: Date, people: People): LifecycleContext {
 }
 
 const notFound = () => APIError.notFound("Quote not found");
+// A margin question always stores its snapshot; this stands in should one ever lack it.
+const NO_SNAPSHOT = { sellingCzk: 0, buyingCzk: 0, marginCzk: null, marginPercent: null, floorPercent: 0, floorMinCzk: 0 };
+const snapshotOf = (row: QuoteInquiryRecord) => row.snapshot ?? NO_SNAPSHOT;
 const nameOf = (people: People, id: string | null) => (id ? (people.emails.get(id) ?? "") : "");
 
 async function usersWithManagers(): Promise<CompanyUser[]> {
@@ -86,7 +89,7 @@ export function toInquiryItem(row: QuoteInquiryRecord, people: People, now: Date
     requestedById: row.requestedById,
     requestedByName: nameOf(people, row.requestedById),
     requestedAt: row.requestedAt.toISOString(),
-    snapshot: row.snapshot,
+    snapshot: snapshotOf(row),
     notifyName: nameOf(people, row.notifyUserId),
     escalated: row.status === "pending" && isEscalated(waiting, now),
     waitedOfficeMinutes: officeMinutesBetween(row.requestedAt, row.decidedAt ?? (row.status === "pending" ? now : row.updatedAt)),
@@ -208,6 +211,7 @@ class MarginInquiryService {
         throw APIError.notFound("This question is no longer on the quote");
       }
       const selfDecision = pending.requestedById === actor.userID || quote.ownerUserId === actor.userID;
+      const snapshot = snapshotOf(pending);
       if (answer.decision === "reject") {
         decided = await quoteInquiryRepository.answer(actor.companyID, inquiryId, { status: "rejected", decision: "reject", decidedById: actor.userID, decidedAt: at, comment, selfDecision }, tx);
         if (!decided) throw APIError.failedPrecondition("This question no longer waits for an answer");
@@ -217,10 +221,10 @@ class MarginInquiryService {
         });
       }
       // Approve covers the margin asked about or a better one; a counter covers the manager's figure.
-      const marginCzk = answer.decision === "counter" ? Math.round(answer.counterMarginCzk! * 100) / 100 : pending.snapshot.marginCzk;
+      const marginCzk = answer.decision === "counter" ? Math.round(answer.counterMarginCzk! * 100) / 100 : snapshot.marginCzk;
       if (marginCzk === null) throw APIError.failedPrecondition("The margin asked about is unknown: nothing can be approved");
-      const selling = pending.snapshot.sellingCzk;
-      const marginPercent = answer.decision === "counter" ? (selling ? Math.round((marginCzk / selling) * 1000) / 10 : null) : pending.snapshot.marginPercent;
+      const selling = snapshot.sellingCzk;
+      const marginPercent = answer.decision === "counter" ? (selling ? Math.round((marginCzk / selling) * 1000) / 10 : null) : snapshot.marginPercent;
       const approval: QuoteMarginApproval = {
         byUserId: actor.userID,
         byName: ctx.userEmail,

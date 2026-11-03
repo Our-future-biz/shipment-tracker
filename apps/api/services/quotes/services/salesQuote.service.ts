@@ -33,6 +33,8 @@ import { fxWriteFor, mayStampFx, type StoredFx } from "../lib/quoteFx";
 import { approvalBasisOf, formatMargin, marginGateMessage, roadMargin, type MarginContext } from "../lib/roadMargin";
 import { marginsFor } from "./marginRates";
 import { marginInquiryService } from "./marginInquiry.service";
+import { quoteInquiryRepository, type WarehouseInquiryWithQuote } from "../repositories/quoteInquiry.repository";
+import type { NewQuoteInquiryRecord } from "../schemas/quoteInquiry.schema";
 import { choosePricing, pricedComment, rateRequestOf, replaceTruckingLines, roadPricingOf, truckingLines } from "../lib/roadPricing";
 import {
   LifecycleError,
@@ -130,6 +132,8 @@ const pricingClosed = (quote: SalesQuoteRecord): boolean => PRICING_CLOSED.inclu
 const READ_ANSWER_KEEP_DAYS = 7;
 /** How far back the warehouse's list shows answered inquiries. */
 const INQUIRY_HISTORY_DAYS = 30;
+/** Rows the warehouse's list and the bell read at most (an index serves them; none is cut silently below this). */
+const INQUIRY_LIST_LIMIT = 1000;
 
 export interface WarehouseInquiryRequest {
   pieces: number;
@@ -174,6 +178,64 @@ function inquiryItem(quote: SalesQuoteRecord, emails: Map<string, string>): Quot
     to: docText(data, "pod") || docText(data, "destination"),
     ownerName: (quote.ownerUserId ? emails.get(quote.ownerUserId) : undefined) || quote.ownerLabel || "",
     inquiry,
+  };
+}
+
+// The row of the quote_inquiry table a warehouse question is kept as (Council Outlay 6, step 5): the
+// lists and the bell read those rows, while the quote keeps the question it is held by.
+function warehouseRow(quote: SalesQuoteRecord, i: QuoteWarehouseInquiry): NewQuoteInquiryRecord & { id: string } {
+  const at = (iso: string | null) => (iso ? new Date(iso) : null);
+  return {
+    id: i.id,
+    companyId: quote.companyId,
+    quoteId: quote.id,
+    quoteNumber: quote.quoteNumber,
+    kind: "warehouse_heavy",
+    status: i.status,
+    requestedById: i.requestedById,
+    requestedAt: at(i.requestedAt) ?? new Date(),
+    note: i.note,
+    details: { pieces: i.pieces, grossWeightKg: i.grossWeightKg, priceEurPerPiece: i.priceEurPerPiece },
+    decision: i.status === "approved" ? "approve" : i.status === "rejected" ? "reject" : null,
+    decidedById: i.decidedById,
+    decidedAt: at(i.decidedAt),
+    comment: i.comment,
+    answerSeenAt: at(i.answerSeenAt),
+  };
+}
+
+// A warehouse question as the lists show it, from its row and its quote; null when the quote is gone.
+function warehouseItem(r: WarehouseInquiryWithQuote, emails: Map<string, string>): QuoteWarehouseInquiryItem | null {
+  if (!r.quote) return null;
+  const i = r.inquiry;
+  const d = i.details ?? { pieces: 0, grossWeightKg: 0, priceEurPerPiece: null };
+  // Names as the quote recorded them, for somebody no longer among the users.
+  const held = readInquiry({ warehouseInquiry: r.quote.recorded });
+  const recorded = held?.id === i.id ? held : null;
+  return {
+    quoteNumber: r.quote.quoteNumber,
+    quoteStatus: r.quote.status ?? "",
+    customerName: r.quote.customerName,
+    serviceType: r.quote.serviceType,
+    from: r.quote.from,
+    to: r.quote.to,
+    ownerName: (r.quote.ownerUserId ? emails.get(r.quote.ownerUserId) : undefined) || r.quote.ownerLabel || "",
+    inquiry: {
+      id: i.id,
+      status: i.status === "approved" || i.status === "rejected" ? i.status : "pending",
+      pieces: d.pieces,
+      grossWeightKg: d.grossWeightKg,
+      note: i.note,
+      requestedById: i.requestedById,
+      requestedByName: emails.get(i.requestedById) || recorded?.requestedByName || "",
+      requestedAt: i.requestedAt.toISOString(),
+      decidedById: i.decidedById,
+      decidedByName: (i.decidedById && emails.get(i.decidedById)) || recorded?.decidedByName || null,
+      decidedAt: i.decidedAt?.toISOString() ?? null,
+      priceEurPerPiece: d.priceEurPerPiece,
+      comment: i.comment,
+      answerSeenAt: i.answerSeenAt?.toISOString() ?? null,
+    },
   };
 }
 
@@ -717,6 +779,7 @@ class SalesQuoteService {
         comment: "",
         answerSeenAt: null,
       };
+      await quoteInquiryRepository.recordWarehouse(warehouseRow(quote, inquiry), tx);
       return salesQuoteRepository.writeLifecycle(tx, quote, { state: stateOf(quote), entries: [pricingEntry("warehouse_inquiry", comment, ctx)], serverKeys: { warehouseInquiry: inquiry } });
     });
     if (!written) throw notFound();
@@ -728,9 +791,9 @@ class SalesQuoteService {
   // those answered in the last 30 days. Managers only.
   async listWarehouseInquiries(actor: Actor): Promise<QuoteWarehouseInquiryItem[]> {
     if (!canDecideQuoteInquiry(actor.role)) throw APIError.permissionDenied("only a warehouse manager answers the warehouse inquiries");
-    const since = new Date(Date.now() - INQUIRY_HISTORY_DAYS * 86_400_000).toISOString();
-    const [rows, people] = await Promise.all([salesQuoteRepository.listWarehouseInquiries(actor.companyID, since), companyPeople()]);
-    return rows.map((r) => inquiryItem(r, people.emails)).filter((i): i is QuoteWarehouseInquiryItem => i !== null);
+    const since = new Date(Date.now() - INQUIRY_HISTORY_DAYS * 86_400_000);
+    const [rows, people] = await Promise.all([quoteInquiryRepository.listWarehouse(actor.companyID, since, INQUIRY_LIST_LIMIT), companyPeople()]);
+    return rows.map((r) => warehouseItem(r, people.emails)).filter((i): i is QuoteWarehouseInquiryItem => i !== null);
   }
 
   // A warehouse manager answers: approved with the extra handling per piece (EUR), or rejected
@@ -771,6 +834,7 @@ class SalesQuoteService {
         comment,
         answerSeenAt: null,
       };
+      await quoteInquiryRepository.recordWarehouse(warehouseRow(quote, decided), tx);
       const what = `${inquiry.pieces} piece${inquiry.pieces === 1 ? "" : "s"} of 12.5 t or more`;
       line = request.approve ? `Warehouse approved ${what}: EUR ${price} per piece${comment ? ` - ${comment}` : ""}` : `Warehouse rejected ${what}: ${comment}`;
       // Approved on a quote still open for pricing: the fee goes to Pricing at once - a new version
@@ -794,9 +858,9 @@ class SalesQuoteService {
   // The answers to the signed-in user's own inquiries (the bell): not opened yet, and opened in the
   // last READ_ANSWER_KEEP_DAYS days (answerSeenAt says which).
   async myInquiryAnswers(actor: Actor): Promise<QuoteWarehouseInquiryItem[]> {
-    const seenSince = new Date(Date.now() - READ_ANSWER_KEEP_DAYS * 86_400_000).toISOString();
-    const [rows, people] = await Promise.all([salesQuoteRepository.listInquiryAnswersFor(actor.companyID, actor.userID, seenSince), companyPeople()]);
-    return rows.map((r) => inquiryItem(r, people.emails)).filter((i): i is QuoteWarehouseInquiryItem => i !== null);
+    const seenSince = new Date(Date.now() - READ_ANSWER_KEEP_DAYS * 86_400_000);
+    const [rows, people] = await Promise.all([quoteInquiryRepository.warehouseAnswersFor(actor.companyID, actor.userID, seenSince, INQUIRY_LIST_LIMIT), companyPeople()]);
+    return rows.map((r) => warehouseItem(r, people.emails)).filter((i): i is QuoteWarehouseInquiryItem => i !== null);
   }
 
   // The one who asked opened the answer: it leaves the bell. Only theirs; nothing else changes.
@@ -805,7 +869,9 @@ class SalesQuoteService {
     const written = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
       const inquiry = readInquiry(quote.data);
       if (!inquiry || inquiry.id !== inquiryId || inquiry.requestedById !== actor.userID || inquiry.status === "pending" || inquiry.answerSeenAt) return quote;
-      return salesQuoteRepository.writeLifecycle(tx, quote, { state: stateOf(quote), entries: [], serverKeys: { warehouseInquiry: { ...inquiry, answerSeenAt: at.toISOString() } } });
+      const seen = { ...inquiry, answerSeenAt: at.toISOString() };
+      await quoteInquiryRepository.recordWarehouse(warehouseRow(quote, seen), tx);
+      return salesQuoteRepository.writeLifecycle(tx, quote, { state: stateOf(quote), entries: [], serverKeys: { warehouseInquiry: seen } });
     });
     if (!written) throw notFound();
   }

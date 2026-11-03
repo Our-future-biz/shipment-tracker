@@ -2,11 +2,22 @@ import { sql } from "drizzle-orm";
 import { pgTable, text, uuid, timestamp, jsonb, boolean, doublePrecision, index, uniqueIndex, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
-/** What a quote inquiry asks: today a margin below the floor, for a manager to approve (Council Outlay 6). */
-export type QuoteInquiryKind = "margin";
+/**
+ * What a quote inquiry asks: a margin below the floor, for a manager to approve (Council Outlay 6),
+ * or pieces of 12.5 t or more, for the warehouse to price (its answer also stays on the quote, as
+ * data.warehouseInquiry, which the send gate reads).
+ */
+export type QuoteInquiryKind = "margin" | "warehouse_heavy";
 export type QuoteInquiryStatus = "pending" | "approved" | "rejected" | "withdrawn";
 /** How a manager answered: approve as asked, approve down to a counter margin, or reject. */
 export type QuoteInquiryDecision = "approve" | "counter" | "reject";
+
+/** What a warehouse question is about, and the warehouse's price when it approved. */
+export interface QuoteInquiryWarehouseDetails {
+  pieces: number;
+  grossWeightKg: number;
+  priceEurPerPiece: number | null;
+}
 
 /** The quote's margin when the rep asked, as the gate judged it. */
 export interface QuoteInquirySnapshot {
@@ -19,8 +30,9 @@ export interface QuoteInquirySnapshot {
 }
 
 // One question to a manager about one quote: a rep asks for a margin below the floor to be
-// approved, a manager answers. A row is never written over - a new question is a new row - so
-// every ask and answer stays on record. At most one question of a kind waits per quote.
+// approved, or the warehouse to price heavy pieces; a manager answers. A row is never written over -
+// a new question is a new row - so every ask and answer stays on record. At most one question of a
+// kind waits per quote.
 export const quoteInquiryTable = pgTable(
   "quote_inquiry",
   {
@@ -32,14 +44,16 @@ export const quoteInquiryTable = pgTable(
     status: text("status").$type<QuoteInquiryStatus>().notNull().default("pending"),
     requestedById: uuid("requested_by_id").notNull(),
     requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
-    // Why the rep asks: one of the reasons offered, and their own words.
-    reason: text("reason").notNull(),
+    // Why the rep asks: one of the reasons offered (a margin question), and their own words.
+    reason: text("reason").notNull().default(""),
     note: text("note").notNull().default(""),
     // When the customer needs the answer; null when not said.
     needsBy: timestamp("needs_by", { withTimezone: true }),
     competitorPrice: text("competitor_price").notNull().default(""),
     volume: text("volume").notNull().default(""),
-    snapshot: jsonb("snapshot").$type<QuoteInquirySnapshot>().notNull(),
+    // A margin question: the quote's margin when asked. A warehouse question: its pieces, and the price.
+    snapshot: jsonb("snapshot").$type<QuoteInquirySnapshot>(),
+    details: jsonb("details").$type<QuoteInquiryWarehouseDetails>(),
     // The manager the quote's owner reports to when the rep asked (auth "Reports to"); null =
     // nobody set, so the company's admins are told.
     notifyUserId: uuid("notify_user_id"),
@@ -62,7 +76,7 @@ export const quoteInquiryTable = pgTable(
     index("quote_inquiry_company_requested_by_idx").on(table.companyId, table.requestedById),
     // One question of a kind waits per quote; a second one is refused until it is answered.
     uniqueIndex("quote_inquiry_pending_unique").on(table.quoteId, table.kind).where(sql`status = 'pending' AND deleted_at IS NULL`),
-    check("quote_inquiry_kind_check", sql`${table.kind} IN ('margin')`),
+    check("quote_inquiry_kind_check", sql`${table.kind} IN ('margin', 'warehouse_heavy')`),
     check("quote_inquiry_status_check", sql`${table.status} IN ('pending', 'approved', 'rejected', 'withdrawn')`),
     check("quote_inquiry_decision_check", sql`${table.decision} IS NULL OR ${table.decision} IN ('approve', 'counter', 'reject')`),
   ],

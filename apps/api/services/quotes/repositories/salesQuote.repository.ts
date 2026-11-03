@@ -326,55 +326,6 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
     return found?.row ?? null;
   }
 
-  /**
-   * Live sales quotes with a warehouse inquiry (the document's `warehouseInquiry`): those waiting
-   * for the warehouse and those answered since `answeredSince` (ISO), newest question first. For
-   * the Warehouse Concept Managers page; at most 500.
-   */
-  async listWarehouseInquiries(companyId: string, answeredSince: string): Promise<SalesQuoteRecord[]> {
-    const inquiry = sql`${quoteTable.data}->'warehouseInquiry'`;
-    const rows = await db
-      .select()
-      .from(quoteTable)
-      .where(
-        and(
-          eq(quoteTable.companyId, companyId),
-          isNull(quoteTable.deletedAt),
-          isSalesQuote,
-          sql`jsonb_typeof(${inquiry}) = 'object'`,
-          sql`(${inquiry}->>'status' = 'pending' OR coalesce(${inquiry}->>'decidedAt', '') >= ${answeredSince})`,
-        ),
-      )
-      .orderBy(sql`${inquiry}->>'requestedAt' desc`)
-      .limit(500);
-    return salesRows(rows);
-  }
-
-  /**
-   * Live sales quotes whose warehouse inquiry `userId` asked and the warehouse answered: not opened
-   * yet, or opened since `seenSince` (ISO) — the bell keeps a read answer for a while.
-   */
-  async listInquiryAnswersFor(companyId: string, userId: string, seenSince: string): Promise<SalesQuoteRecord[]> {
-    const inquiry = sql`${quoteTable.data}->'warehouseInquiry'`;
-    const rows = await db
-      .select()
-      .from(quoteTable)
-      .where(
-        and(
-          eq(quoteTable.companyId, companyId),
-          isNull(quoteTable.deletedAt),
-          isSalesQuote,
-          sql`jsonb_typeof(${inquiry}) = 'object'`,
-          sql`${inquiry}->>'requestedById' = ${userId}`,
-          sql`${inquiry}->>'status' IN ('approved', 'rejected')`,
-          sql`(coalesce(${inquiry}->>'answerSeenAt', '') = '' OR ${inquiry}->>'answerSeenAt' >= ${seenSince})`,
-        ),
-      )
-      .orderBy(sql`${inquiry}->>'decidedAt' desc`)
-      .limit(100);
-    return salesRows(rows);
-  }
-
   /** A live sales quote by its reference; null when it is missing, deleted or a row of the old quotes module. */
   async loadSales(companyId: string, quoteNumber: string, options: { lock?: QuoteTransaction } = {}): Promise<SalesQuoteRecord | null> {
     const row = await this.loadLive(companyId, quoteNumber, options);

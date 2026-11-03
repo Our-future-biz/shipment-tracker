@@ -17,6 +17,8 @@ vi.mock("../../repositories/quoteAttachment.repository", () => ({ quoteAttachmen
 vi.mock("../../repositories/quoteComment.repository", () => ({ quoteCommentRepository: { createForCompany: vi.fn() } }));
 // The floors Sales sets: none stored, so the council's defaults (and Trucking's for Road).
 vi.mock("../../repositories/quoteGuardrail.repository", () => ({ quoteGuardrailRepository: { list: vi.fn(async () => []), save: vi.fn() } }));
+// The warehouse questions as table rows (Council Outlay 6, step 5): written with the quote, read by the lists.
+vi.mock("../../repositories/quoteInquiry.repository", () => ({ quoteInquiryRepository: { recordWarehouse: vi.fn(), listWarehouse: vi.fn(), warehouseAnswersFor: vi.fn() } }));
 // A rep's question waiting about a margin is closed by a direct approval (tested in marginInquiry.service.test).
 vi.mock("../../services/marginInquiry.service", () => ({ marginInquiryService: { closeByDirectApproval: vi.fn() } }));
 vi.mock("../../repositories/salesQuote.repository", () => ({
@@ -35,8 +37,6 @@ vi.mock("../../repositories/salesQuote.repository", () => ({
     shipmentLinks: vi.fn(),
     customerFacts: vi.fn(),
     openCustomerQuotes: vi.fn(),
-    listWarehouseInquiries: vi.fn(),
-    listInquiryAnswersFor: vi.fn(),
   },
 }));
 
@@ -50,6 +50,7 @@ import type { SalesQuoteRecord } from "../../schemas/quote.schema";
 import type { PricedSide, RateLevelResult } from "../../../trucking/interfaces/interfaces";
 import type { QuoteRoadInput } from "../../interfaces/interfaces";
 import { salesQuoteService, type SalesQuoteListRequest } from "../../services/salesQuote.service";
+import { quoteInquiryRepository } from "../../repositories/quoteInquiry.repository";
 import { PROTECTED_KEYS } from "../../utils/quoteDocument.utils";
 import { columnsOf, stateOf } from "../../utils/quoteLifecycle.utils";
 
@@ -1989,22 +1990,56 @@ describe("the warehouse inquiry of pieces of 12.5 t or more", () => {
     expect(written().serverKeys?.warehouseInquiry).toMatchObject({ answerSeenAt: NOW.toISOString() });
   });
 
-  it("lists the asker's answers not opened yet and those opened in the last 7 days", async () => {
-    repository.listInquiryAnswersFor.mockResolvedValue([]);
+  // A warehouse question as its table row reads it, with its quote's facts.
+  const tableRow = (inquiry: Record<string, unknown>, recorded: unknown = inquiry) => ({
+    inquiry: {
+      id: inquiry.id,
+      status: inquiry.status,
+      requestedById: inquiry.requestedById,
+      requestedAt: new Date(String(inquiry.requestedAt)),
+      note: inquiry.note ?? "",
+      details: { pieces: inquiry.pieces, grossWeightKg: inquiry.grossWeightKg, priceEurPerPiece: inquiry.priceEurPerPiece ?? null },
+      decidedById: inquiry.decidedById ?? null,
+      decidedAt: inquiry.decidedAt ? new Date(String(inquiry.decidedAt)) : null,
+      comment: inquiry.comment ?? "",
+      answerSeenAt: null,
+    },
+    quote: { quoteNumber: REF, status: "draft", ownerUserId: U_MARTIN, ownerLabel: "", customerName: "Alza.cz a.s.", serviceType: "Sea LCL", from: "Hamburg", to: "Prague", recorded },
+  });
+
+  it("lists the asker's answers not opened yet and those opened in the last 7 days, from the table", async () => {
+    vi.mocked(quoteInquiryRepository.warehouseAnswersFor).mockResolvedValue([]);
     await salesQuoteService.myInquiryAnswers(martin);
-    expect(repository.listInquiryAnswersFor).toHaveBeenCalledWith(martin.companyID, U_MARTIN, new Date(NOW.getTime() - 7 * 86_400_000).toISOString());
+    expect(quoteInquiryRepository.warehouseAnswersFor).toHaveBeenCalledWith(martin.companyID, U_MARTIN, new Date(NOW.getTime() - 7 * 86_400_000), 1000);
   });
 
   it("names who asked and who answered by e-mail, also on an inquiry recorded by name - unless they are no longer users", async () => {
     const answered = { ...pending, status: "approved", priceEurPerPiece: 400, decidedById: U_MANAGER, decidedByName: "Marie Manager", decidedAt: NOW.toISOString() };
-    repository.listInquiryAnswersFor.mockResolvedValue([withData({ warehouseInquiry: answered })]);
+    vi.mocked(quoteInquiryRepository.warehouseAnswersFor).mockResolvedValue([tableRow(answered)] as never);
     const [item] = await salesQuoteService.myInquiryAnswers(martin);
-    expect(item!.inquiry).toMatchObject({ requestedByName: "martin@forwarder.cz", decidedByName: "marie@forwarder.cz" });
-    // Somebody who left keeps what was recorded.
+    expect(item!.inquiry).toMatchObject({ requestedByName: "martin@forwarder.cz", decidedByName: "marie@forwarder.cz", pieces: 2, priceEurPerPiece: 400 });
+    expect(item).toMatchObject({ quoteNumber: REF, customerName: "Alza.cz a.s.", from: "Hamburg", to: "Prague" });
+    // Somebody who left keeps what the quote recorded.
     const gone = randomUUID();
-    repository.listInquiryAnswersFor.mockResolvedValue([withData({ warehouseInquiry: { ...answered, requestedById: gone, decidedById: gone } })]);
+    const left = { ...answered, requestedById: gone, decidedById: gone };
+    vi.mocked(quoteInquiryRepository.warehouseAnswersFor).mockResolvedValue([tableRow(left)] as never);
     const [old] = await salesQuoteService.myInquiryAnswers(martin);
     expect(old!.inquiry).toMatchObject({ requestedByName: "Martin Koubek", decidedByName: "Marie Manager" });
+  });
+
+  it("keeps each warehouse question as a table row: asked, answered and opened, in the quote's transaction", async () => {
+    stored = withData({});
+    await salesQuoteService.inquireWarehouse(martin, REF, { pieces: 2, grossWeightKg: 26000, note: "crane?" });
+    expect(quoteInquiryRepository.recordWarehouse).toHaveBeenLastCalledWith(
+      expect.objectContaining({ kind: "warehouse_heavy", status: "pending", requestedById: U_MARTIN, note: "crane?", details: { pieces: 2, grossWeightKg: 26000, priceEurPerPiece: null } }),
+      TX,
+    );
+    stored = withData({ warehouseInquiry: pending });
+    await salesQuoteService.decideWarehouseInquiry(manager, REF, { inquiryId: INQ, approve: true, priceEurPerPiece: 400 });
+    expect(quoteInquiryRepository.recordWarehouse).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: INQ, status: "approved", decision: "approve", decidedById: U_MANAGER, details: expect.objectContaining({ priceEurPerPiece: 400 }) }),
+      TX,
+    );
   });
 
   it("says who answered already by e-mail", async () => {

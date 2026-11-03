@@ -76,7 +76,7 @@ export function factOf(
           needsBy: pending.needsBy?.toISOString() ?? null,
           escalated: isEscalated({ requestedAt: pending.requestedAt, needsBy: pending.needsBy, notifyUserId: pending.notifyUserId }, now),
           waitedOfficeMinutes: officeMinutesBetween(pending.requestedAt, now),
-          askedMarginCzk: pending.snapshot.marginCzk,
+          askedMarginCzk: pending.snapshot?.marginCzk ?? null,
         }
       : null,
   };
