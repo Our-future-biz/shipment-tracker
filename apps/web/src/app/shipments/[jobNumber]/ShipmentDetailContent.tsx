@@ -4,9 +4,8 @@ import React, { useEffect, useState } from "react";
 import { contactUpdate, partyUpdate, type ContactField, type ContactLinks, type PartyField } from "@/app/shipments/_lib/parties";
 import { useQueryClient } from "@tanstack/react-query";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { Badge, Spin, Dropdown, Modal, Tag, Drawer, Tooltip, Select, TimePicker, Button } from "antd";
+import { Badge, Spin, Dropdown, Modal, Drawer, Tooltip, Select, TimePicker, Button } from "antd";
 import { useToast } from "@/lib/toast";
-import { CopyButton } from "@/components/CopyButton";
 import dayjs from "dayjs";
 import { api, apiErrorMessage } from "@/lib/api";
 import {
@@ -32,7 +31,6 @@ import { useCanDeleteShipments } from "@/lib/auth/AuthContext";
 import { useShipmentMutations, getFieldValue, buildRowData, type ShipmentItem } from "@/hooks/useShipments";
 import { getCellConditionalStyle, getRowConditionalStyle } from "@/lib/columnConfig";
 import { businessToday, formatDate } from "@/lib/date";
-import { statusLabel, statusTagColor } from "@/lib/shipmentStatus";
 import { useCardFields } from "./useCardFields";
 import { UserPicker } from "@/components/UserPicker";
 import { UnlinkedPersonMark } from "@/app/shipments/_components/UnlinkedPersonMark";
@@ -60,7 +58,7 @@ import { StopPlaceRow } from "./_components/StopPlaceRow";
 import { SalesQuoteLink } from "./_components/SalesQuoteLink";
 import type { controllers } from "@/lib/api/client";
 import { TasksPanel } from "./_components/TasksPanel";
-import { ShipmentSummaryCard } from "./_components/ShipmentSummaryCard";
+import { ShipmentFacts, ShipmentProgress } from "./_components/ShipmentSummary";
 import { CARD, CARD_BODY, COLS2, EMPTY, HEADER_BTN, HEADER_ICON_BTN, LABEL, LABEL_TOP, LABEL_W, ROW, ROW_TOP, VALUE } from "./_components/detailStyles";
 import { MasterJobDetailModal } from "../_components/MasterJobDetailModal";
 import { MasterJobDialog } from "../_components/MasterJobDialog";
@@ -877,35 +875,6 @@ function CargoCommercialCard({
   );
 }
 
-interface RouteLineProps {
-  segments: string[];
-}
-
-/* ── Route dots ── */
-function RouteLine({ segments }: RouteLineProps) {
-  if (segments.length === 0) return null;
-
-  return (
-    <div className="flex items-center gap-2">
-      {segments.map((city, i) => {
-        const isFirst = i === 0;
-        const isLast = i === segments.length - 1;
-        const dotColor = isFirst || isLast ? "bg-indigo-500" : "bg-slate-400";
-
-        return (
-          <div key={i} className="flex items-center gap-2">
-            {i > 0 && <span className="text-slate-300 text-xs">→</span>}
-            <div className="flex items-center gap-1.5">
-              <div className={`w-2 h-2 rounded-full ${dotColor}`} />
-              <span className="text-[12px] text-slate-600">{city}</span>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 /* ── Main component ── */
 
 export function ShipmentDetailContent() {
@@ -1008,12 +977,10 @@ export function ShipmentDetailContent() {
     updateShipment({ id: shipment.id, data: contactUpdate(field, name, contactId) });
 
   const styleFor = makeStyleFor(shipment);
-  const status = shipment.status ?? "";
   // The quote the shipment was sold from is the one its Sales Number names, when that is the
   // reference of a sales quote.
   const salesNumber = (shipment.salesNumber ?? "").trim();
   const salesQuoteRef = isSalesQuoteRef(salesNumber) ? salesNumber : null;
-  const routeSegments = [shipment.pol, shipment.pod, shipment.destination].filter(Boolean);
 
   const handleAssignMasterJob = async (ids: string[], mczNumber: string) => {
     try {
@@ -1082,39 +1049,16 @@ export function ShipmentDetailContent() {
     <div className="bg-slate-50 min-h-full">
       {/* ── Header ── */}
       <div className="bg-white border-b border-slate-200 px-4 md:px-6 pt-3.5 pb-0">
-        {/* Title row: back, the job with its status and route on the left; the actions, all one
-            height and look, on the right. */}
-        <div className="flex items-center justify-between gap-x-6 gap-y-3 flex-wrap">
-          <div className="flex items-center gap-3 min-w-0">
-            {/* Back to the list, the same button a shipment opened in Customs has. */}
-            <button
-              type="button"
-              onClick={() => router.push("/shipments")}
-              className={`${HEADER_BTN} shrink-0`}
-            >
-              <ArrowLeftOutlined className="text-[12px]" /> Shipments
-            </button>
-            <span className="w-px h-9 bg-slate-200 shrink-0" aria-hidden />
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="text-[20px] leading-7 font-bold text-slate-900 m-0 tabular-nums">
-                  {shipment.jobNumber ?? shipment.id}
-                </h1>
-                <CopyButton text={shipment.jobNumber ?? shipment.id} what="job number" />
-                {/* Status badge */}
-                {status && <Tag color={statusTagColor(status)} className="!m-0 !ml-1 !text-[12px] !font-semibold">{statusLabel(status)}</Tag>}
-              </div>
-              {/* Route and dates, one quiet line under the job */}
-              <div className="mt-0.5 flex items-center gap-3 flex-wrap text-[12px] text-slate-500">
-                <RouteLine segments={routeSegments} />
-                {routeSegments.length > 0 && <span className="w-px h-3 bg-slate-200" aria-hidden />}
-                {/* ETD / ETA */}
-                <span className="tabular-nums whitespace-nowrap">
-                  ETD {formatDate(shipment.estimatedDeparture) || "--"} / ETA {formatDate(shipment.estimatedArrival) || "--"}
-                </span>
-              </div>
-            </div>
-          </div>
+        {/* Top row: back to the list on the left; the actions, all one height and look, on the right. */}
+        <div className="flex items-center justify-between gap-x-6 gap-y-2 flex-wrap">
+          {/* Back to the list, the same button a shipment opened in Customs has. */}
+          <button
+            type="button"
+            onClick={() => router.push("/shipments")}
+            className={`${HEADER_BTN} shrink-0`}
+          >
+            <ArrowLeftOutlined className="text-[12px]" /> Shipments
+          </button>
 
           <div className="flex items-center gap-2 flex-wrap">
             {/* Invoicing of this shipment, opened with the shipment already selected */}
@@ -1164,8 +1108,13 @@ export function ShipmentDetailContent() {
           </div>
         </div>
 
+        {/* The shipment at a glance - its job number first - above the tabs, on every tab */}
+        <div className="mt-3.5 pt-3.5 border-t border-slate-100">
+          <ShipmentFacts shipment={shipment} />
+        </div>
+
         {/* Tabs */}
-        <div className="flex gap-0 mt-3 -mb-px overflow-x-auto">
+        <div className="flex gap-0 mt-3.5 -mb-px overflow-x-auto">
           {visibleTabs.map((tab) => (
             <div
               key={tab.key}
@@ -1197,8 +1146,8 @@ export function ShipmentDetailContent() {
       <div className="px-4 md:px-6 pt-4 pb-8">
         {activeTab === "details" && (
           <div className="space-y-4">
-            {/* The shipment at a glance and its progress */}
-            <ShipmentSummaryCard shipment={shipment} />
+            {/* The shipment's progress through its stages */}
+            <ShipmentProgress shipment={shipment} />
 
           <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_280px] 2xl:grid-cols-[minmax(0,1fr)_320px] gap-4 items-start">
             {/* ── MAIN COLUMN ── the cards in the order a shipment is worked: overview, dates,
