@@ -30,7 +30,8 @@ import { customerIdOf, linkForSave, refreshCopies, withRefresh } from "../utils/
 import { tryCustomerRefs } from "../lib/customerRefs";
 import { approvedPricing, inquiryGateMessage, MAX_INQUIRY_NOTE, MAX_INQUIRY_PIECES, MAX_PRICE_PER_PIECE, MIN_REJECT_REASON, readInquiry } from "../utils/warehouseInquiry.utils";
 import { fxWriteFor, mayStampFx, type StoredFx } from "../lib/quoteFx";
-import { formatMargin, marginGateMessage, roadMargin, roadMarginApplies, type MarginContext } from "../lib/roadMargin";
+import { formatMargin, marginGateMessage, roadMargin, type MarginContext } from "../lib/roadMargin";
+import { marginsFor } from "./marginRates";
 import { choosePricing, pricedComment, rateRequestOf, replaceTruckingLines, roadPricingOf, truckingLines } from "../lib/roadPricing";
 import {
   LifecycleError,
@@ -327,22 +328,6 @@ async function todaysFx(): Promise<StoredFx> {
   };
 }
 
-// What the road margins of these quotes are judged with: the Trucking margin floor, and today's ČNB
-// sheet with the company ROE % - the very rates the quote editor prices with (fx /fx/rates), so the
-// gate and the screen read one margin. Undefined - and nothing is asked - when the margin rule
-// applies to none of them. Rates the fx service cannot give are missing: a margin that needs one
-// then says so instead of the read failing. Read before any row lock (see todaysFx).
-async function marginsFor(rows: { data: unknown }[], at: Date): Promise<MarginContext | undefined> {
-  if (!rows.some((row) => roadMarginApplies(row.data))) return undefined;
-  const [floor, sheet] = await Promise.all([
-    trucking._internalTruckingMarginFloor(),
-    fx.fxRatesOn({}).then(
-      (r) => ({ roePct: r.roePct, rates: Object.fromEntries(r.rates.filter((x) => x.rate > 0).map((x) => [x.currency, x.rate])) }),
-      () => ({ roePct: 100, rates: {} }),
-    ),
-  ]);
-  return { floor, today: businessDay(at), ...sheet };
-}
 
 class SalesQuoteService {
   // What every read of sales quotes starts with: quotes written by code from before the server

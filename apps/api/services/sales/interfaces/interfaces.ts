@@ -143,3 +143,73 @@ export interface SalesLinksNormalizeResult {
   /** "customer": the name of a linked customer record that is deleted (the name stays), with how many tasks have it. */
   unmatched: { field: string; value: string; count: number }[];
 }
+
+/** Which quotes the Sales managers' cockpit counts: all, or one freight mode (Sea = FCL, LCL and Break Bulk). */
+export type SalesCockpitMode = "all" | "sea" | "air" | "rail" | "road";
+
+export interface SalesCockpitTag {
+  text: string;
+  urgent: boolean;
+}
+
+/** A row of a cockpit card: a quote, or a follow-up task that belongs to no quote listed. */
+export interface SalesCockpitRow {
+  kind: "quote" | "task";
+  /** The Sales Reference of a quote; the id of a task. */
+  id: string;
+  /** What the row is called: the Sales Reference, or the task's customer. */
+  ref: string;
+  /** The quote's status as shown; the task's type (Call, Email, Visit). */
+  status: string;
+  /** The quote's freight mode; "" for a task. */
+  serviceType: string;
+  customer: string;
+  /** The quote's Sales Owner, or the task's assignee, by e-mail; "" for nobody. */
+  ownerName: string;
+  /** The quote's selling in CZK; null for a task. */
+  sellingCzk: number | null;
+  /** Every signal of the row, the urgent ones first. */
+  tags: SalesCockpitTag[];
+}
+
+export interface SalesCockpitList {
+  /** Every row of the card; `rows` holds at most COCKPIT_LIST_LIMIT of them. */
+  total: number;
+  rows: SalesCockpitRow[];
+}
+
+export interface SalesCockpitTiles {
+  /** Draft to Revised, as shown. */
+  openQuotes: number;
+  /** Their selling in CZK (quotes whose rate is missing count what converts). */
+  openSellingCzk: number;
+  followUpDue: number;
+  /** Drafts never sent. */
+  draftsToFinish: number;
+  /** Open quotes whose validity ends within VALID_UNTIL_TILE_DAYS. */
+  validSoon: number;
+  /** Open quotes with no Sales Owner. */
+  noOwner: number;
+  wonThisMonth: number;
+  lostThisMonth: number;
+}
+
+/** Sales → Managers: what the sales team needs from a manager today (Council Outlay 6). */
+export interface SalesManagersCockpit {
+  /** ISO time the figures were made. */
+  asOf: string;
+  /** YYYY-MM-DD, Prague: the day the figures count from. */
+  today: string;
+  mode: SalesCockpitMode;
+  tiles: SalesCockpitTiles;
+  /** Act today. */
+  urgent: SalesCockpitList;
+  /** Within 48 hours, or it becomes urgent. */
+  attention: SalesCockpitList;
+  health: {
+    /** Open quotes whose margin cannot be worked out (a ČNB rate is missing). */
+    marginUnknown: number;
+    /** More quotes matched than the cockpit reads: the figures are of part of them. */
+    capped: boolean;
+  };
+}

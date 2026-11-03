@@ -1771,6 +1771,7 @@ export namespace sales {
             this.prefGet = this.prefGet.bind(this)
             this.prefSet = this.prefSet.bind(this)
             this.salesLinksNormalize = this.salesLinksNormalize.bind(this)
+            this.salesManagersCockpit = this.salesManagersCockpit.bind(this)
             this.salesPermissions = this.salesPermissions.bind(this)
             this.salesPipeline = this.salesPipeline.bind(this)
             this.termsCreate = this.termsCreate.bind(this)
@@ -1909,6 +1910,26 @@ export namespace sales {
         }
 
         /**
+         * Sales → Managers (Council Outlay 6): what the sales team needs from a manager today, counted
+         * over the company's quotes and follow-up tasks. For those who manage Sales (superadmin, admin,
+         * manager); the page polls it every minute.
+         */
+        public async salesManagersCockpit(params: controllers.SalesManagersCockpitRequest): Promise<{
+    cockpit: interfaces.SalesManagersCockpit
+}> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                mode: params.mode,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/sales/managers/cockpit`, undefined, {query})
+            return await resp.json() as {
+    cockpit: interfaces.SalesManagersCockpit
+}
+        }
+
+        /**
          * What the signed-in user may do in Sales beyond a single quote: the screens show, hide and lock
          * their controls by these flags and hold no rule about roles themselves. The endpoints refuse by
          * the same policy, whatever a screen shows.
@@ -2015,6 +2036,7 @@ export namespace shipments {
             this.shipmentPeopleNormalize = this.shipmentPeopleNormalize.bind(this)
             this.shipmentQuoteLink = this.shipmentQuoteLink.bind(this)
             this.shipmentQuoteLinksSync = this.shipmentQuoteLinksSync.bind(this)
+            this.shipmentReferencesNormalize = this.shipmentReferencesNormalize.bind(this)
             this.shipmentReleaseHouseBol = this.shipmentReleaseHouseBol.bind(this)
             this.shipmentTileCounts = this.shipmentTileCounts.bind(this)
             this.shipmentUnlinkMasterJob = this.shipmentUnlinkMasterJob.bind(this)
@@ -2368,6 +2390,17 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/shipment-quote-links/sync`, JSON.stringify(params))
             return await resp.json() as controllers.ShipmentQuoteLinksSyncResponse
+        }
+
+        /**
+         * The one-off rename after Internal References got the letters of their Freight Mode and Load Type
+         * (owner decision, 3 Nov 2026): CZ00000023 by sea, full load → CZFCL00000023, the number kept.
+         * Shipments that have had an invoice keep their reference. Safe to run again. Superadmins only.
+         */
+        public async shipmentReferencesNormalize(): Promise<interfaces.ReferenceNormalizeResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/references/normalize`)
+            return await resp.json() as interfaces.ReferenceNormalizeResult
         }
 
         /**
@@ -7905,6 +7938,13 @@ export namespace controllers {
 
     export interface RoeSetResponse {
         changes: interfaces.RoeChange[]
+    }
+
+    export interface SalesManagersCockpitRequest {
+        /**
+         * One freight mode (Sea = FCL, LCL and Break Bulk), or all of them when left out.
+         */
+        mode?: string
     }
 
     export interface SalesPipelineRequest {
@@ -14891,9 +14931,6 @@ export namespace interfaces {
 
     export type PalletType = "EUR" | "INDUSTRIAL" | "HALF" | "QUARTER" | "OTHER"
 
-    /**
-     * What the people backfill did to the company's live shipments.
-     */
     export interface PeopleNormalizeResult {
         /**
          * Values that name a person (one field of one shipment each), looked at.
@@ -16274,6 +16311,26 @@ export namespace interfaces {
         retired: RetiredCurrencyItem[]
     }
 
+    /**
+     * What the people backfill did to the company's live shipments.
+     */
+    export interface ReferenceNormalizeResult {
+        /**
+         * Live shipments looked at.
+         */
+        checked: number
+
+        /**
+         * References that took the letters of their Freight Mode and Load Type.
+         */
+        renamed: number
+
+        /**
+         * References kept as they are because the shipment has had an invoice (they would need letters).
+         */
+        keptInvoiced: string[]
+    }
+
     export interface ResolvedRate {
         currency: string
         date: string
@@ -16355,6 +16412,98 @@ export namespace interfaces {
         note: string
     }
 
+    export interface SalesCockpitList {
+        /**
+         * Every row of the card; `rows` holds at most COCKPIT_LIST_LIMIT of them.
+         */
+        total: number
+
+        rows: SalesCockpitRow[]
+    }
+
+    /**
+     * Which quotes the Sales managers' cockpit counts: all, or one freight mode (Sea = FCL, LCL and Break Bulk).
+     */
+    export type SalesCockpitMode = "all" | "sea" | "air" | "rail" | "road"
+
+    /**
+     * A row of a cockpit card: a quote, or a follow-up task that belongs to no quote listed.
+     */
+    export interface SalesCockpitRow {
+        kind: "quote" | "task"
+        /**
+         * The Sales Reference of a quote; the id of a task.
+         */
+        id: string
+
+        /**
+         * What the row is called: the Sales Reference, or the task's customer.
+         */
+        ref: string
+
+        /**
+         * The quote's status as shown; the task's type (Call, Email, Visit).
+         */
+        status: string
+
+        /**
+         * The quote's freight mode; "" for a task.
+         */
+        serviceType: string
+
+        customer: string
+        /**
+         * The quote's Sales Owner, or the task's assignee, by e-mail; "" for nobody.
+         */
+        ownerName: string
+
+        /**
+         * The quote's selling in CZK; null for a task.
+         */
+        sellingCzk: number | null
+
+        /**
+         * Every signal of the row, the urgent ones first.
+         */
+        tags: SalesCockpitTag[]
+    }
+
+    export interface SalesCockpitTag {
+        text: string
+        urgent: boolean
+    }
+
+    export interface SalesCockpitTiles {
+        /**
+         * Draft to Revised, as shown.
+         */
+        openQuotes: number
+
+        /**
+         * Their selling in CZK (quotes whose rate is missing count what converts).
+         */
+        openSellingCzk: number
+
+        followUpDue: number
+        /**
+         * Drafts never sent.
+         */
+        draftsToFinish: number
+
+        /**
+         * Open quotes whose validity ends within VALID_UNTIL_TILE_DAYS.
+         */
+        validSoon: number
+
+        /**
+         * Open quotes with no Sales Owner.
+         */
+        noOwner: number
+
+        wonThisMonth: number
+        lostThisMonth: number
+    }
+
     /**
      * What a run of POST /sales/links/normalize did to the company's follow-up tasks.
      */
@@ -16377,6 +16526,45 @@ export namespace interfaces {
             value: string
             count: number
         }[]
+    }
+
+    /**
+     * Sales → Managers: what the sales team needs from a manager today (Council Outlay 6).
+     */
+    export interface SalesManagersCockpit {
+        /**
+         * ISO time the figures were made.
+         */
+        asOf: string
+
+        /**
+         * YYYY-MM-DD, Prague: the day the figures count from.
+         */
+        today: string
+
+        mode: SalesCockpitMode
+        tiles: SalesCockpitTiles
+        /**
+         * Act today.
+         */
+        urgent: SalesCockpitList
+
+        /**
+         * Within 48 hours, or it becomes urgent.
+         */
+        attention: SalesCockpitList
+
+        health: {
+            /**
+             * Open quotes whose margin cannot be worked out (a ČNB rate is missing).
+             */
+            marginUnknown: number
+
+            /**
+             * More quotes matched than the cockpit reads: the figures are of part of them.
+             */
+            capped: boolean
+        }
     }
 
     /**

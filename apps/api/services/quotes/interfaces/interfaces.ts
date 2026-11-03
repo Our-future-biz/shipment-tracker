@@ -241,6 +241,49 @@ export interface CustomerQuoteFacts {
   lastActivityAt: string;
 }
 
+/** One quote as the Sales managers' cockpit judges it (the sales service reads these, Council Outlay 6). */
+export interface SalesManagersQuoteFact {
+  quoteNumber: string;
+  /** The status as stored, and as shown (Expired once the validity of a Quoted / Feedback quote passed). */
+  status: string;
+  shownStatus: string;
+  /** The freight mode as the quote stores it ("Sea FCL", "Air", "Road"…); "" when none. */
+  serviceType: string;
+  customer: string;
+  customerId: string | null;
+  ownerUserId: string | null;
+  /** The owner's e-mail as the users have it now, else the label stored; "" for no owner. */
+  ownerName: string;
+  createdAt: string;
+  firstSentAt: string | null;
+  decidedAt: string | null;
+  validUntil: string | null;
+  /** When the customer last heard from us: the last contact, else the sending, else the creation. */
+  lastContactAt: string | null;
+  followUpDue: boolean;
+  shipmentId: string | null;
+  /** The cargo ready date (YYYY-MM-DD) the quote names; null for none. */
+  readyDate: string | null;
+  /** The quote's selling and margin in CZK, worked out as the editor does (lib/quoteMargin). */
+  sellingCzk: number;
+  marginCzk: number | null;
+  marginPercent: number | null;
+  /** Why the margin cannot be worked out (a ČNB rate missing); null when it can. */
+  marginProblem: string | null;
+  /** A road margin below the Trucking floor that no approval covers: the quote cannot be sent. */
+  belowRoadFloor: boolean;
+  /** The warehouse's heavy-piece question on the quote, when there is one. */
+  warehouseInquiry: { status: "pending" | "approved" | "rejected"; requestedAt: string } | null;
+}
+
+export interface SalesManagersFacts {
+  /** YYYY-MM-DD, Prague: the business day the facts are judged on. */
+  today: string;
+  quotes: SalesManagersQuoteFact[];
+  /** More quotes matched than were read: the cockpit says so. */
+  capped: boolean;
+}
+
 /** An open quote of a customer: not decided and not expired. Its value is worked out by the web, from these parts of its document. */
 export interface CustomerOpenQuote {
   customerId: string;

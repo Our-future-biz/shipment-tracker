@@ -614,6 +614,39 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
     return rows.flatMap((r) => (r.customerId && r.status ? [{ ...r, customerId: r.customerId, status: r.status, fx: r.fx ?? null }] : []));
   }
 
+  /**
+   * The quotes the Sales managers' cockpit judges (Council Outlay 6): open ones as shown on
+   * `today`; Won ones with no shipment yet, or decided since `wonSince`; ones shown Expired whose
+   * validity ended on `expiredSince` or later; and Won or Lost ones decided since `decidedSince`
+   * (the month's counts). At most `limit`, the newest first; `capped` says more matched.
+   */
+  async managersRows(
+    companyId: string,
+    moment: { today: string; expiredSince: string; wonSince: string; decidedSince: string },
+    limit: number,
+  ): Promise<{ rows: SalesQuoteRecord[]; capped: boolean }> {
+    const shown = shownStatus(moment.today);
+    const found = await db
+      .select()
+      .from(quoteTable)
+      .where(
+        and(
+          eq(quoteTable.companyId, companyId),
+          isNull(quoteTable.deletedAt),
+          isSalesQuote,
+          or(
+            inArray(shown, [...OPEN]),
+            and(eq(quoteTable.status, "won"), or(isNull(quoteTable.shipmentId), onBusinessDays(quoteTable.decidedAt, moment.wonSince))),
+            and(sql`${shown} = 'expired'`, gte(quoteTable.validUntil, moment.expiredSince)),
+            and(inArray(quoteTable.status, ["won", "lost"]), onBusinessDays(quoteTable.decidedAt, moment.decidedSince)),
+          ),
+        ),
+      )
+      .orderBy(desc(quoteTable.createdAt), desc(quoteTable.id))
+      .limit(limit + 1);
+    return { rows: salesRows(found.slice(0, limit)), capped: found.length > limit };
+  }
+
   /** The owner texts of the company's sales quotes that nobody compared with the users yet. */
   async unexaminedOwnerLabels(companyId: string): Promise<string[]> {
     const rows = await db.selectDistinct({ ownerLabel: quoteTable.ownerLabel }).from(quoteTable).where(this.unexaminedOwner(companyId));
