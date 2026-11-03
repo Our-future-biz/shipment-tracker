@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Input } from "antd";
+import { LABEL, ROW } from "./detailStyles";
 
 interface StopPlaceRowProps {
   postcode?: string | null;
@@ -28,11 +29,12 @@ export function StopPlaceRow({ postcode, country, onSave }: StopPlaceRowProps) {
   };
 
   return (
-    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
-      <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Postcode / Country</span>
+    <div className={ROW}>
+      <span className={LABEL}>Postcode / Country</span>
       <div className="flex-1 min-w-0 flex gap-2">
         <Input
           size="small"
+          variant="filled"
           className="flex-1 min-w-0"
           placeholder="Postcode"
           aria-label="Postcode"
@@ -44,6 +46,7 @@ export function StopPlaceRow({ postcode, country, onSave }: StopPlaceRowProps) {
         />
         <Input
           size="small"
+          variant="filled"
           className="!w-14"
           placeholder="CZ"
           aria-label="Country (two-letter code)"

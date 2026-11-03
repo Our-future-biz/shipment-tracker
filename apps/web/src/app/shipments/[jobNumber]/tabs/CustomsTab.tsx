@@ -24,6 +24,7 @@ import { FileCell, CustomsPill, docPlural } from "./docsShared";
 import { CustomerLinkField } from "../_components/CustomerLinkField";
 import { EditableCell } from "../_components/EditableCell";
 import { CUSTOMS_TAB_GROUPS, documentGroupOf, isReviewedDocumentType } from "@/lib/documentTypes";
+import { LABEL, ROW } from "../_components/detailStyles";
 
 // Statuses the server derives from the paperwork; while one of them shows, the field is locked.
 const PAPERWORK_STATUSES = ["Waiting For Commercial Paperwork", "Paperwork Verification Pending"];
@@ -54,8 +55,8 @@ export const CUSTOMS_CONTAINERS_ID = "customs-containers";
 // each container is listed with its seal, type, packages, weight and volume.
 function ContainerNumberRow({ value }: { value: string }) {
   return (
-    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
-      <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Container Number</span>
+    <div className={ROW}>
+      <span className={LABEL}>Container Number</span>
       <div className="flex-1 min-w-0">
         {value ? (
           <a
@@ -121,15 +122,15 @@ const priorityLabel = (value: string) => (
 // Customs Status once the paperwork is verified: editable, offering only the steps from there on.
 function ManualStatusRow({ value, style, onCommit }: { value: string; style?: React.CSSProperties; onCommit: CommitFn }) {
   return (
-    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
-      <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Customs Status</span>
+    <div className={ROW}>
+      <span className={LABEL}>Customs Status</span>
       <EditableCell
         className="flex-1 min-w-0"
         fieldKey="customsStatus"
         value={value}
         options={MANUAL_STATUSES}
         onCommit={onCommit}
-        displayClassName="text-slate-900 font-medium"
+        displayClassName="text-slate-800"
         displayStyle={style}
       />
     </div>
@@ -138,10 +139,10 @@ function ManualStatusRow({ value, style, onCommit }: { value: string; style?: Re
 
 function LockedStatusRow({ value, style }: { value: string; style?: React.CSSProperties }) {
   return (
-    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
-      <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Customs Status</span>
+    <div className={ROW}>
+      <span className={LABEL}>Customs Status</span>
       <span className="flex-1 min-w-0" title="Follows the invoice and the packing list">
-        <span className="text-slate-900 font-medium" style={style}>
+        <span className="text-slate-800" style={style}>
           {value}
         </span>
       </span>
@@ -172,8 +173,8 @@ function CustomsPriorityRow({
   const complete = !!asking?.date && !!asking.time;
   const current = value || "Standard";
   return (
-    <div className="flex items-center gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
-      <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Customs Priority</span>
+    <div className={ROW}>
+      <span className={LABEL}>Customs Priority</span>
       {editing ? (
         <Select<CustomsPriority>
           size="small"

@@ -6,6 +6,7 @@ import { useCustomers } from "@/hooks/useCustomers";
 import { FadeText } from "@/components/FadeText";
 import { CustomerHoverCard } from "@/components/CustomerHoverCard";
 import { EditableLink } from "@/components/EditableLink";
+import { EMPTY, LABEL, ROW } from "./detailStyles";
 
 interface CustomerLinkFieldProps {
   label: string;
@@ -48,8 +49,8 @@ export function CustomerLinkField({ label, name, customerId, onChange }: Custome
   };
 
   return (
-    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
-      <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">{label}</span>
+    <div className={ROW}>
+      <span className={LABEL}>{label}</span>
       <div className="flex-1 min-w-0">
         {editing ? (
           <AutoComplete
@@ -85,16 +86,16 @@ export function CustomerLinkField({ label, name, customerId, onChange }: Custome
                   <EditableLink
                     href={`/customers/${customerId}`}
                     onEdit={startEdit}
-                    className="block min-w-0 text-indigo-600 hover:underline font-medium"
+                    className="block min-w-0 text-indigo-600 hover:underline"
                   >
                     <FadeText>{name}</FadeText>
                   </EditableLink>
                 </CustomerHoverCard>
               ) : (
-                <FadeText className="text-slate-900 font-medium">{name}</FadeText>
+                <FadeText className="text-slate-800">{name}</FadeText>
               )
             ) : (
-              <span className="text-slate-400">—</span>
+              <span className={EMPTY}>—</span>
             )}
           </div>
         )}

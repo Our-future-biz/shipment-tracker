@@ -10,6 +10,7 @@ import { CUSTOMS_DOCUMENT_TYPES } from "@/lib/documentTypes";
 import { customsDeadlineAt } from "@/lib/customsDeadline";
 import { RECEIVED_TICKS } from "@/lib/customsReceived";
 import { CUSTOMS_CONTAINERS_ID } from "@/app/shipments/[jobNumber]/tabs/CustomsTab";
+import { COLS2, LABEL, ROW } from "@/app/shipments/[jobNumber]/_components/detailStyles";
 
 // What a customs officer needs from the shipment itself, read-only: everything here is
 // kept in Shipments and only shown in Customs.
@@ -45,9 +46,9 @@ function customsIncoterm(shipment: ShipmentItem): string {
 
 function InfoRow({ label, children }: { label: string; children?: React.ReactNode }) {
   return (
-    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
-      <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">{label}</span>
-      <div className="flex-1 min-w-0 text-slate-900 font-medium">{children || <span className="text-slate-300">—</span>}</div>
+    <div className={ROW}>
+      <span className={LABEL}>{label}</span>
+      <div className="flex-1 min-w-0 text-slate-800">{children || <span className="text-slate-300">—</span>}</div>
     </div>
   );
 }
@@ -190,7 +191,7 @@ export function CustomsShipmentInfo({ shipment }: { shipment: ShipmentItem }) {
       />
       {/* The same card as in the shipment (party as a link to its customer page, contact, address), read-only. */}
       <DetailCard icon={<EnvironmentOutlined />} title="Commercial Parties" columns={[[]]} shipment={shipment} onCommit={noCommit}>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+        <div className={COLS2}>
           <div>
             <InfoRow label="Shipper">
               <PartyName name={shipment.shipper} customerId={shipment.shipperId} />

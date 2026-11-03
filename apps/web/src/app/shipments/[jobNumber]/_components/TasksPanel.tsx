@@ -13,26 +13,26 @@ export function TasksPanel({ shipment }: { shipment: ShipmentItem }) {
   const taskList = getTasksForDirection(shipment.tradeDirection);
 
   return (
-    <div className="space-y-2.5">
+    <div className="space-y-0.5">
       {taskList.map((def) => {
         const state = byKey.get(def.key);
         const completed = !!state?.completed;
         return (
-          <div key={def.key} className="flex items-center gap-2.5 text-xs">
+          <div key={def.key} className="flex items-center gap-2.5 min-h-[28px] -mx-2 px-2 rounded-md text-[13px] hover:bg-slate-50 transition-colors">
             <Tooltip title={completed ? "Completed tasks can't be unchecked" : def.description}>
               <input
                 type="checkbox"
                 checked={completed}
                 disabled={completed}
                 onChange={() => setCompleted(def.key, true, user?.id)}
-                className="w-[18px] h-[18px] rounded border-slate-300 accent-indigo-500 cursor-pointer disabled:cursor-default"
+                className="w-4 h-4 shrink-0 rounded border-slate-300 accent-indigo-500 cursor-pointer disabled:cursor-default"
               />
             </Tooltip>
-            <span className={completed ? "text-slate-400 line-through" : "text-slate-600"}>
+            <span className={completed ? "text-slate-400 line-through" : "text-slate-700"}>
               {def.label}
             </span>
             {completed && state?.completedAt && (
-              <span className="text-[10px] text-slate-300 ml-auto whitespace-nowrap">
+              <span className="text-[11px] text-slate-400 ml-auto whitespace-nowrap tabular-nums">
                 {formatDate(state.completedAt)}
               </span>
             )}

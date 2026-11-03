@@ -5,6 +5,7 @@ import { SplitCellsOutlined } from "@ant-design/icons";
 import { apiErrorMessage } from "@/lib/api";
 import { useSalesQuote } from "@/hooks/useSalesQuote";
 import { useToast } from "@/lib/toast";
+import { HEADER_BTN } from "./detailStyles";
 
 // The sales quote a shipment names in its Sales Number, in the shipment's header: a link to the
 // quote's page when there is such a quote, the bare reference when there is none - a typed
@@ -37,7 +38,7 @@ export function SalesQuoteLink({ shipmentId, quoteNumber }: SalesQuoteLinkProps)
   const label = `Quote ${quoteNumber}`;
   if (!quote) {
     return (
-      <span className="text-xs text-slate-500 whitespace-nowrap" title={notFound ? "There is no sales quote with this number" : undefined}>
+      <span className="text-[13px] text-slate-500 whitespace-nowrap" title={notFound ? "There is no sales quote with this number" : undefined}>
         {label}
       </span>
     );
@@ -52,7 +53,7 @@ export function SalesQuoteLink({ shipmentId, quoteNumber }: SalesQuoteLinkProps)
     <span className="flex flex-col items-end gap-0.5">
       <Link
         href={`/sales/quote/${quoteNumber}`}
-        className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 rounded bg-white hover:bg-slate-50 text-slate-600 whitespace-nowrap"
+        className={HEADER_BTN}
       >
         <SplitCellsOutlined />
         {label}

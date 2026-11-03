@@ -33,14 +33,12 @@ import { useShipmentMutations, getFieldValue, buildRowData, type ShipmentItem } 
 import { getCellConditionalStyle, getRowConditionalStyle } from "@/lib/columnConfig";
 import { businessToday, formatDate } from "@/lib/date";
 import { statusLabel, statusTagColor } from "@/lib/shipmentStatus";
-import { useShipmentTasks } from "@/hooks/useShipmentTasks";
 import { useCardFields } from "./useCardFields";
 import { UserPicker } from "@/components/UserPicker";
 import { UnlinkedPersonMark } from "@/app/shipments/_components/UnlinkedPersonMark";
 import { isPersonField, personChange, splitPersonStamp } from "@/app/shipments/_lib/personFields";
 import { isSalesQuoteRef } from "@/app/sales/_lib/salesQuote";
 import { quoteHref } from "@/app/sales/_lib/quoteHref";
-import { getTasksForDirection, getActiveStageFromTasks } from "./_components/taskDefinitions";
 import Link from "next/link";
 import { ClaimsTab } from "./tabs/ClaimsTab";
 import { CostsTab } from "./tabs/CostsTab";
@@ -62,6 +60,8 @@ import { StopPlaceRow } from "./_components/StopPlaceRow";
 import { SalesQuoteLink } from "./_components/SalesQuoteLink";
 import type { controllers } from "@/lib/api/client";
 import { TasksPanel } from "./_components/TasksPanel";
+import { ShipmentSummaryCard } from "./_components/ShipmentSummaryCard";
+import { CARD, CARD_BODY, COLS2, EMPTY, HEADER_BTN, HEADER_ICON_BTN, LABEL, LABEL_TOP, LABEL_W, ROW, ROW_TOP, VALUE } from "./_components/detailStyles";
 import { MasterJobDetailModal } from "../_components/MasterJobDetailModal";
 import { MasterJobDialog } from "../_components/MasterJobDialog";
 import { AttachmentsPanel } from "../_components/AttachmentsPanel";
@@ -84,76 +84,6 @@ const TABS = [
   { key: "claim", label: "Claim" },
   { key: "alerts", label: "Alerts" },
 ];
-
-/* ── Stepper stages ── */
-const SHIPMENT_STAGES = [
-  "Booking confirmed",
-  "Cargo ready",
-  "In transit",
-  "Arrive at POD",
-  "Customs clearance",
-  "Delivered",
-];
-
-interface ShipmentStepperProps {
-  shipment: ShipmentItem;
-}
-
-/* ── Stepper component (driven by completed tasks) ── */
-function ShipmentStepper({ shipment }: ShipmentStepperProps) {
-  const { byKey } = useShipmentTasks(shipment.id);
-  const taskList = getTasksForDirection(shipment.tradeDirection);
-  const activeIndex = getActiveStageFromTasks(taskList, (key) => !!byKey.get(key)?.completed);
-
-  return (
-    <div className="bg-white border-b border-slate-200 px-6 py-5">
-      <div className="flex items-center">
-        {SHIPMENT_STAGES.map((label, i) => {
-          const isCompleted = i < activeIndex;
-          const isCurrent = i === activeIndex;
-          const isLast = i === SHIPMENT_STAGES.length - 1;
-
-          return (
-            <div key={label} className="flex items-center flex-1 last:flex-initial">
-              <div className="flex flex-col items-center">
-                {/* Circle */}
-                <div
-                  className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold ${
-                    isCompleted
-                      ? "bg-indigo-500 text-white"
-                      : isCurrent
-                        ? "bg-white border-2 border-indigo-500 text-indigo-500"
-                        : "bg-white border-2 border-slate-200 text-slate-400"
-                  }`}
-                >
-                  {isCompleted ? "✓" : i + 1}
-                </div>
-                {/* Label */}
-                <span
-                  className={`text-[10px] mt-1.5 whitespace-nowrap ${
-                    isCompleted || isCurrent
-                      ? "text-indigo-500 font-medium"
-                      : "text-slate-400"
-                  }`}
-                >
-                  {label}
-                </span>
-              </div>
-              {/* Connector line */}
-              {!isLast && (
-                <div
-                  className={`h-0.5 flex-1 mx-2 mt-[-14px] ${
-                    isCompleted ? "bg-indigo-500" : "bg-slate-200"
-                  }`}
-                />
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 /* ── Shared UI pieces ── */
 
@@ -207,36 +137,32 @@ function SectionHeader({
 
   return (
     <>
-      {/* Full-width colored top bar across the card (card padding is p-4, so break out with -mx-4/-mt-4). */}
-      <div className="-mx-4 -mt-4 mb-4 px-4 py-2.5 flex items-center gap-2.5 bg-indigo-50 border-b border-indigo-100 rounded-t-xl">
-        <span className="text-indigo-500 text-base leading-none">{icon}</span>
-        <h3 className="text-[13px] font-bold text-slate-800 uppercase tracking-wider m-0">
+      {/* A quiet title line, as the Container / Cargo Details cards have: icon, title, tools. */}
+      <div className="flex items-center gap-2 min-h-[44px] px-4 py-2 border-b border-slate-100">
+        <span className="text-slate-400 text-[14px] leading-none shrink-0">{icon}</span>
+        <h3 className="m-0 min-w-0 text-[13px] leading-tight font-semibold text-slate-800">
           {title}
         </h3>
 
         {hasTools && (
-          <span className="ml-auto flex items-center gap-1.5">
-            {/* .sec-all z mockupu */}
+          <span className="ml-auto flex items-center gap-0.5 shrink-0">
             <button
               onClick={() => setShowAll(true)}
-              className="h-[26px] px-2.5 text-[11.5px] font-semibold rounded-md border border-line-soft
-                         bg-white text-slate-600 cursor-pointer hover:bg-surface-2 hover:text-ink-soft
-                         hover:border-line-dim transition-colors whitespace-nowrap"
+              className="h-7 px-2 rounded-md border-0 bg-transparent text-[12px] font-medium text-slate-500
+                         tabular-nums whitespace-nowrap cursor-pointer hover:bg-slate-100 hover:text-slate-800 transition-colors"
             >
               Show all ({allKeys.length})
             </button>
-            {/* .sec-edit z mockupu */}
             <Tooltip title="Choose which fields appear in this card">
               <button
                 onClick={() => setPicking(true)}
-                className={`w-[26px] h-[26px] grid place-items-center rounded-md border cursor-pointer
-                            transition-colors ${
+                className={`w-7 h-7 grid place-items-center rounded-md border-0 cursor-pointer transition-colors ${
                   isCustomised(cardId!)
-                    ? "bg-indigo-500 border-indigo-500 text-white"
-                    : "border-line-soft bg-white text-slate-600 hover:bg-surface-2 hover:text-indigo-500 hover:border-line-dim"
+                    ? "bg-indigo-50 text-indigo-600 ring-1 ring-inset ring-indigo-200"
+                    : "bg-transparent text-slate-400 hover:bg-slate-100 hover:text-indigo-600"
                 }`}
               >
-                <ControlOutlined className="text-[12px]" />
+                <ControlOutlined className="text-[13px]" />
               </button>
             </Tooltip>
           </span>
@@ -252,8 +178,8 @@ function SectionHeader({
           width={860}
           title={
             <span className="flex items-center gap-2">
-              <span className="text-indigo-500">{icon}</span>
-              <span className="text-[13px] font-bold uppercase tracking-wider">{title}</span>
+              <span className="text-slate-400">{icon}</span>
+              <span className="text-[14px] font-semibold text-slate-800">{title}</span>
               <span className="ml-2 text-[12px] font-normal text-slate-400">
                 {allKeys.length} fields
               </span>
@@ -272,8 +198,8 @@ function SectionHeader({
           width={860}
           title={
             <span className="flex items-center gap-2">
-              <span className="text-indigo-500">{icon}</span>
-              <span className="text-[13px] font-bold uppercase tracking-wider">
+              <span className="text-slate-400">{icon}</span>
+              <span className="text-[14px] font-semibold text-slate-800">
                 {title} — choose fields
               </span>
               <span className="ml-2 text-[12px] font-normal text-slate-400">
@@ -314,7 +240,7 @@ function SectionHeader({
               // indented lines break the table look "Show all" has.
               return (
                 <div
-                  className={`flex items-start gap-2.5 border-b border-slate-100 last:border-b-0 ${
+                  className={`flex items-center gap-2.5 border-b border-slate-100 last:border-b-0 ${
                     on ? "" : "opacity-45"
                   }`}
                 >
@@ -323,9 +249,9 @@ function SectionHeader({
                     checked={on}
                     onChange={() => toggleField(cardId!, f.key, allKeys)}
                     aria-label={`Show ${f.label} in this card`}
-                    className="mt-[7px] shrink-0 cursor-pointer"
+                    className="shrink-0 cursor-pointer"
                   />
-                  <div className="flex-1 min-w-0 [&>div]:border-b-0">{fieldRow(f)}</div>
+                  <div className="flex-1 min-w-0 [&>div]:border-b-0 [&>div]:mx-0">{fieldRow(f)}</div>
                 </div>
               );
             }}
@@ -351,22 +277,23 @@ function FieldRow({
   fieldKey,
   onCommit,
   styleFor,
-  labelW = "w-[140px]",
+  labelW = LABEL_W,
 }: FieldRowProps) {
   // A person is never typed in: every card and modal row of one is the user picker.
   if (isPersonField(fieldKey)) {
     return <MemberRow label={label} fieldKey={fieldKey} value={value} onCommit={onCommit} labelW={labelW} />;
   }
   return (
-    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
-      <span className={`${labelW} shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide`}>{label}</span>
+    <div className={ROW}>
+      <span className={LABEL.replace(LABEL_W, labelW)}>{label}</span>
       <EditableCell
         className="flex-1 min-w-0"
         fieldKey={fieldKey}
         value={value}
         onCommit={onCommit}
         placeholder="—"
-        displayClassName="text-slate-900 font-medium"
+        displayClassName="text-slate-800"
+        emptyClassName={EMPTY}
         // Customer's PIC is a link like the Customer row's, which takes no rule colour here either.
         displayStyle={fieldKey === "customerPic" ? undefined : styleFor?.(fieldKey, value)}
       />
@@ -392,8 +319,8 @@ interface StackabilityRowProps {
 function StackabilityRow({ value, onPick }: StackabilityRowProps) {
   const [editing, setEditing] = useState(false);
   return (
-    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
-      <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Stackability</span>
+    <div className={ROW_TOP}>
+      <span className={LABEL_TOP}>Stackability</span>
       {editing ? (
         <Select
           size="small"
@@ -413,13 +340,13 @@ function StackabilityRow({ value, onPick }: StackabilityRowProps) {
         />
       ) : (
         <span
-          className="flex-1 min-w-0 cursor-pointer rounded px-1 -mx-1 hover:bg-slate-100 transition-colors text-slate-900 font-medium break-words"
+          className="flex-1 min-w-0 cursor-pointer rounded px-1 -mx-1 hover:bg-slate-100 transition-colors text-slate-800 break-words"
           // Cargo that needs special handling stands out, like a Yes for Dangerous.
           style={value === NOT_STACKABLE ? { backgroundColor: "rgba(234, 179, 8, 0.15)" } : undefined}
           title="Double-click to edit"
           onDoubleClick={() => setEditing(true)}
         >
-          {value || <span className="text-slate-300">—</span>}
+          {value || <span className={EMPTY}>—</span>}
         </span>
       )}
     </div>
@@ -434,17 +361,17 @@ function MemberRow({
   value,
   fieldKey,
   onCommit,
-  labelW = "w-[140px]",
+  labelW = LABEL_W,
 }: MemberRowProps) {
   const { person, when } = splitPersonStamp(value);
   return (
-    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0 items-center">
-      <span className={`${labelW} shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide`}>{label}</span>
+    <div className={ROW}>
+      <span className={LABEL.replace(LABEL_W, labelW)}>{label}</span>
       <UserPicker
         variant="borderless"
         size="small"
         placeholder="—"
-        className="flex-1 min-w-0 -ml-2 text-xs"
+        className="flex-1 min-w-0 -ml-2 text-[13px]"
         popupMatchSelectWidth={false}
         aria-label={label}
         value={person}
@@ -475,7 +402,7 @@ function InvoiceRow({
   fieldKey,
   shipment,
   styleFor,
-  labelW = "w-[140px]",
+  labelW = LABEL_W,
 }: InvoiceRowProps) {
   const toast = useToast();
   const { updateShipment } = useShipmentMutations();
@@ -485,13 +412,13 @@ function InvoiceRow({
       ? shipment.civByCurrency || getFieldValue(shipment, "commercialInvoiceValue")
       : getFieldValue(shipment, fieldKey);
   return (
-    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
-      <span className={`${labelW} shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide`}>{label}</span>
+    <div className={ROW}>
+      <span className={LABEL.replace(LABEL_W, labelW)}>{label}</span>
       <button
         type="button"
         onClick={() => setOpen(true)}
         className={`flex-1 min-w-0 text-left bg-transparent border-none p-0 cursor-pointer hover:underline ${
-          value ? "text-slate-900 font-medium" : "text-slate-300"
+          value ? "text-slate-800" : EMPTY
         }`}
         style={value ? styleFor?.(fieldKey, value) ?? undefined : undefined}
       >
@@ -522,16 +449,17 @@ interface RoRowProps {
 }
 
 // Read-only horizontal row (label | value), matching FieldRow's look.
-function RoRow({ label, value, labelW = "w-[140px]", wrap = false, mark }: RoRowProps) {
+function RoRow({ label, value, labelW = LABEL_W, wrap = false, mark }: RoRowProps) {
+  const lbl = LABEL.replace(LABEL_W, labelW);
   return (
-    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
-      <span className={`${labelW} shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide`}>{label}</span>
+    <div className={wrap ? ROW_TOP : ROW}>
+      <span className={wrap ? `${lbl} pt-[3px]` : lbl}>{label}</span>
       {value && wrap ? (
-        <span className="flex-1 min-w-0 text-slate-900 font-medium break-words">{value}</span>
+        <span className={`${VALUE} break-words`}>{value}</span>
       ) : value ? (
-        <FadeText className="flex-1 text-slate-900 font-medium">{value}</FadeText>
+        <FadeText className="flex-1 text-slate-800">{value}</FadeText>
       ) : (
-        <span className="flex-1 min-w-0 text-slate-300 font-medium">—</span>
+        <span className={`flex-1 min-w-0 ${EMPTY}`}>—</span>
       )}
       {value && mark}
     </div>
@@ -553,7 +481,7 @@ function FieldColumns({
 }: FieldColumnsProps) {
   const half = Math.ceil(fields.length / 2);
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 max-h-[65vh] overflow-y-auto pr-1">
+    <div className={`${COLS2} max-h-[65vh] overflow-y-auto px-2`}>
       {[fields.slice(0, half), fields.slice(half)].map((col, i) => (
         <div key={i}>
           {col.map((f) => (
@@ -580,6 +508,10 @@ interface DetailCardProps {
   renderBefore?: Record<string, React.ReactNode>;
   renderAfter?: Record<string, React.ReactNode>;
   children?: React.ReactNode;
+  /** Extra classes for the card, e.g. h-full for one of a pair side by side. */
+  className?: string;
+  /** "stack": all columns one under another in a single column (same field order). */
+  layout?: "stack";
 }
 
 // A card of horizontal rows, optionally split into two columns.
@@ -594,6 +526,8 @@ export function DetailCard({
   renderBefore,
   renderAfter,
   children,
+  className,
+  layout,
 }: DetailCardProps) {
   const { visibleKeys } = useCardFields();
   const allFields = columns.flat();
@@ -601,8 +535,10 @@ export function DetailCard({
     ? new Set(visibleKeys(cardId, allFields.map((f) => f.key)))
     : null;
 
+  const shownColumns = layout === "stack" ? [allFields] : columns;
+
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+    <div className={`${CARD} ${className ?? ""}`}>
       <SectionHeader
         icon={icon}
         title={title}
@@ -612,9 +548,10 @@ export function DetailCard({
         onCommit={onCommit}
         styleFor={styleFor}
       />
-      <div className={columns.length > 1 ? "grid grid-cols-1 md:grid-cols-2 gap-x-6" : ""}>
-        {columns.map((col, i) => (
-          <div key={i}>
+      <div className={CARD_BODY}>
+      <div className={shownColumns.length > 1 ? COLS2 : ""}>
+        {shownColumns.map((col, i) => (
+          <div key={i} className="min-w-0">
             {col.filter((f) => !shown || shown.has(f.key)).map((f) => (
               <React.Fragment key={f.key}>
                 {renderBefore?.[f.key]}
@@ -632,6 +569,7 @@ export function DetailCard({
         ))}
       </div>
       {children}
+      </div>
     </div>
   );
 }
@@ -659,8 +597,8 @@ interface HouseBolReleaseRowProps {
 // released it shows the button; afterwards it shows who released it and when.
 function HouseBolReleaseRow({ releasedAt, onRelease }: HouseBolReleaseRowProps) {
   return (
-    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
-      <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">
+    <div className={ROW}>
+      <span className={LABEL}>
         House BoL Release
       </span>
       <div className="flex-1 min-w-0">
@@ -697,11 +635,12 @@ function OpeningHoursRow({
     return d.isValid() ? d : null;
   };
   return (
-    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
-      <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Opening Hours</span>
+    <div className={ROW}>
+      <span className={LABEL}>Opening Hours</span>
       <div className="flex-1 min-w-0">
         <TimePicker.RangePicker
           size="small"
+          variant="filled"
           className="w-full"
           format="HH:mm"
           minuteStep={15}
@@ -851,24 +790,24 @@ function CargoRow({
   styleFor,
 }: CargoRowProps) {
   if (INVOICE_FIELDS.has(field.key)) {
-    return <InvoiceRow label={field.label} fieldKey={field.key} shipment={shipment} styleFor={styleFor} labelW="w-[180px]" />;
+    return <InvoiceRow label={field.label} fieldKey={field.key} shipment={shipment} styleFor={styleFor} />;
   }
   const value = getFieldValue(shipment, field.key);
   // Approved by is a person, picked from the company's users.
   if (isPersonField(field.key)) {
-    return <MemberRow label={field.label} fieldKey={field.key} value={value} onCommit={onCommit} labelW="w-[180px]" />;
+    return <MemberRow label={field.label} fieldKey={field.key} value={value} onCommit={onCommit} />;
   }
   if (field.ro) {
     return (
-      <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
-        <span className="w-[180px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">{field.label}</span>
+      <div className={ROW}>
+        <span className={LABEL}>{field.label}</span>
         <span
           className={`flex-1 min-w-0 ${
             value
               ? field.highlight
-                ? "text-slate-900 font-medium bg-ok-softer px-1.5 py-px rounded"
-                : "text-slate-900 font-medium"
-              : "text-slate-300"
+                ? "text-slate-800 bg-ok-softer px-1.5 py-px rounded"
+                : "text-slate-800"
+              : EMPTY
           }`}
           style={styleFor?.(field.key, value) ?? undefined}
         >
@@ -878,8 +817,8 @@ function CargoRow({
     );
   }
   return (
-    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
-      <span className="w-[180px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">{field.label}</span>
+    <div className={ROW}>
+      <span className={LABEL}>{field.label}</span>
       <EditableCell
         className="flex-1 min-w-0"
         fieldKey={field.key}
@@ -888,10 +827,10 @@ function CargoRow({
         placeholder="—"
         displayClassName={
           field.highlight
-            ? "text-slate-900 font-medium bg-ok-softer px-1.5 py-px rounded"
-            : "text-slate-900 font-medium"
+            ? "text-slate-800 bg-ok-softer px-1.5 py-px rounded"
+            : "text-slate-800"
         }
-        emptyClassName="text-slate-300"
+        emptyClassName={EMPTY}
         displayStyle={styleFor?.(field.key, value)}
       />
     </div>
@@ -915,7 +854,7 @@ function CargoCommercialCard({
   );
 
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+    <div className={CARD}>
       <SectionHeader
         icon={<FileTextOutlined />}
         title="Cargo & Commercial"
@@ -925,9 +864,9 @@ function CargoCommercialCard({
         onCommit={onCommit}
         styleFor={styleFor}
       />
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-7">
+      <div className={`${CARD_BODY} ${COLS2}`}>
         {[CARGO_COMMERCIAL_L, CARGO_COMMERCIAL_R].map((col, i) => (
-          <div key={i}>
+          <div key={i} className="min-w-0">
             {col.filter((f) => cargoShown.has(f.key)).map((f) => (
               <CargoRow key={f.key} field={f} shipment={shipment} onCommit={onCommit} styleFor={styleFor} />
             ))}
@@ -947,7 +886,7 @@ function RouteLine({ segments }: RouteLineProps) {
   if (segments.length === 0) return null;
 
   return (
-    <div className="flex items-center gap-2 mt-1">
+    <div className="flex items-center gap-2">
       {segments.map((city, i) => {
         const isFirst = i === 0;
         const isLast = i === segments.length - 1;
@@ -958,7 +897,7 @@ function RouteLine({ segments }: RouteLineProps) {
             {i > 0 && <span className="text-slate-300 text-xs">→</span>}
             <div className="flex items-center gap-1.5">
               <div className={`w-2 h-2 rounded-full ${dotColor}`} />
-              <span className="text-xs text-slate-500">{city}</span>
+              <span className="text-[12px] text-slate-600">{city}</span>
             </div>
           </div>
         );
@@ -1142,38 +1081,44 @@ export function ShipmentDetailContent() {
   const page = (
     <div className="bg-slate-50 min-h-full">
       {/* ── Header ── */}
-      <div className="bg-white border-b border-slate-200 px-6 pt-4 pb-0">
-        {/* Title row */}
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
+      <div className="bg-white border-b border-slate-200 px-4 md:px-6 pt-3.5 pb-0">
+        {/* Title row: back, the job with its status and route on the left; the actions, all one
+            height and look, on the right. */}
+        <div className="flex items-center justify-between gap-x-6 gap-y-3 flex-wrap">
+          <div className="flex items-center gap-3 min-w-0">
             {/* Back to the list, the same button a shipment opened in Customs has. */}
             <button
               type="button"
               onClick={() => router.push("/shipments")}
-              className="inline-flex items-center gap-2 h-10 px-4 mr-1.5 rounded-lg border border-line-soft bg-white text-slate-900 text-[17px] font-bold cursor-pointer hover:bg-surface-2 hover:text-ink-soft transition-colors"
+              className={`${HEADER_BTN} shrink-0`}
             >
-              <ArrowLeftOutlined /> Shipments
+              <ArrowLeftOutlined className="text-[12px]" /> Shipments
             </button>
-            <h1 className="text-[22px] font-bold text-slate-800 m-0">
-              {shipment.jobNumber ?? shipment.id}
-            </h1>
-            <CopyButton text={shipment.jobNumber ?? shipment.id} what="job number" />
+            <span className="w-px h-9 bg-slate-200 shrink-0" aria-hidden />
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="text-[20px] leading-7 font-bold text-slate-900 m-0 tabular-nums">
+                  {shipment.jobNumber ?? shipment.id}
+                </h1>
+                <CopyButton text={shipment.jobNumber ?? shipment.id} what="job number" />
+                {/* Status badge */}
+                {status && <Tag color={statusTagColor(status)} className="!m-0 !ml-1 !text-[12px] !font-semibold">{statusLabel(status)}</Tag>}
+              </div>
+              {/* Route and dates, one quiet line under the job */}
+              <div className="mt-0.5 flex items-center gap-3 flex-wrap text-[12px] text-slate-500">
+                <RouteLine segments={routeSegments} />
+                {routeSegments.length > 0 && <span className="w-px h-3 bg-slate-200" aria-hidden />}
+                {/* ETD / ETA */}
+                <span className="tabular-nums whitespace-nowrap">
+                  ETD {formatDate(shipment.estimatedDeparture) || "--"} / ETA {formatDate(shipment.estimatedArrival) || "--"}
+                </span>
+              </div>
+            </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            {/* Status badge */}
-            {status && <Tag color={statusTagColor(status)} className="m-0 !text-[12px] !font-semibold">{statusLabel(status)}</Tag>}
-
-            {/* ETD / ETA */}
-            <span className="text-xs text-slate-500">
-              ETD {formatDate(shipment.estimatedDeparture) || "--"} / ETA {formatDate(shipment.estimatedArrival) || "--"}
-            </span>
-
+          <div className="flex items-center gap-2 flex-wrap">
             {/* Invoicing of this shipment, opened with the shipment already selected */}
-            <Link
-              href={`/invoicing?shipment=${shipment.id}`}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 rounded bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-600"
-            >
+            <Link href={`/invoicing?shipment=${shipment.id}`} className={HEADER_BTN}>
               <DollarOutlined />
               Invoice
             </Link>
@@ -1185,34 +1130,25 @@ export function ShipmentDetailContent() {
             {salesQuoteRef ? (
               <SalesQuoteLink shipmentId={shipment.id} quoteNumber={salesQuoteRef} />
             ) : isSalesQuoteRef(costsQuoteRef) ? (
-              <Link
-                href={quoteHref(costsQuoteRef)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 rounded bg-white hover:bg-slate-50 text-slate-600 whitespace-nowrap"
-              >
+              <Link href={quoteHref(costsQuoteRef)} className={HEADER_BTN}>
                 <SplitCellsOutlined />
                 Costs copied from {costsQuoteRef}
               </Link>
             ) : (
               // Anything else is a reference of the old quotes module: it has no page to lead to.
-              costsQuoteRef && <span className="text-xs text-slate-500 whitespace-nowrap">Costs copied from {costsQuoteRef}</span>
+              costsQuoteRef && <span className="text-[13px] text-slate-500 whitespace-nowrap">Costs copied from {costsQuoteRef}</span>
             )}
 
             {/* Notes */}
             <Tooltip title="Notes">
-              <button
-                onClick={() => setNotesOpen(true)}
-                className="flex items-center justify-center w-8 h-8 text-xs border border-slate-200 rounded bg-white hover:bg-slate-50 cursor-pointer text-slate-600"
-              >
+              <button onClick={() => setNotesOpen(true)} className={HEADER_ICON_BTN}>
                 <FileTextOutlined />
               </button>
             </Tooltip>
 
             {/* Attachments */}
             <Tooltip title="Attachments">
-              <button
-                onClick={() => setAttachmentsOpen(true)}
-                className="flex items-center justify-center w-8 h-8 text-xs border border-slate-200 rounded bg-white hover:bg-slate-50 cursor-pointer text-slate-600"
-              >
+              <button onClick={() => setAttachmentsOpen(true)} className={HEADER_ICON_BTN}>
                 <PaperClipOutlined />
               </button>
             </Tooltip>
@@ -1220,7 +1156,7 @@ export function ShipmentDetailContent() {
             {/* Actions dropdown: its one action is delete, which is for managers and up */}
             {canDelete && (
               <Dropdown menu={actionsMenu} trigger={["click"]}>
-                <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 rounded bg-white hover:bg-slate-50 cursor-pointer text-slate-600">
+                <button className={HEADER_BTN}>
                   Actions <DownOutlined className="text-[10px]" />
                 </button>
               </Dropdown>
@@ -1228,11 +1164,8 @@ export function ShipmentDetailContent() {
           </div>
         </div>
 
-        {/* Route line */}
-        <RouteLine segments={routeSegments} />
-
         {/* Tabs */}
-        <div className="flex gap-0 mt-4">
+        <div className="flex gap-0 mt-3 -mb-px overflow-x-auto">
           {visibleTabs.map((tab) => (
             <div
               key={tab.key}
@@ -1242,10 +1175,10 @@ export function ShipmentDetailContent() {
                 setCargoFocusId(null);
                 setActiveTab(tab.key);
               }}
-              className={`px-4 py-2.5 text-sm cursor-pointer transition-all duration-150 border-b-2 ${
+              className={`px-3 2xl:px-3.5 py-2.5 text-[13.5px] whitespace-nowrap cursor-pointer transition-colors duration-150 border-b-2 ${
                 activeTab === tab.key
-                  ? "font-semibold text-indigo-500 border-indigo-500"
-                  : "font-normal text-slate-400 border-transparent hover:text-slate-600"
+                  ? "font-semibold text-indigo-600 border-indigo-600"
+                  : "font-medium text-slate-500 border-transparent hover:text-slate-800"
               }`}
             >
               {tab.key === "alerts" && newAlerts > 0 ? (
@@ -1260,17 +1193,20 @@ export function ShipmentDetailContent() {
         </div>
       </div>
 
-      {/* ── Stepper (details tab only) ── */}
-      {activeTab === "details" && <ShipmentStepper shipment={shipment} />}
-
       {/* ── Tab content ── */}
-      <div className="p-6">
+      <div className="px-4 md:px-6 pt-4 pb-8">
         {activeTab === "details" && (
-          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_300px] gap-5 items-start">
-            {/* ── MAIN COLUMN ── */}
-            <div className="space-y-5 min-w-0">
+          <div className="space-y-4">
+            {/* The shipment at a glance and its progress */}
+            <ShipmentSummaryCard shipment={shipment} />
+
+          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_280px] 2xl:grid-cols-[minmax(0,1fr)_320px] gap-4 items-start">
+            {/* ── MAIN COLUMN ── the cards in the order a shipment is worked: overview, dates,
+                parties, transport documents, equipment, cargo, money and admin. Cards side by side
+                stretch to one height, so the page has no holes. */}
+            <div className="flex flex-col gap-4 min-w-0">
               {/* SHIPMENT OVERVIEW */}
-              <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+              <div className={CARD}>
                 {/* Column order mirrors the agreed overview mockup 1:1 — left is
                     "who and what", right is "where, when and in which state".
                     Fields are declared as a list so the field chooser can filter them. */}
@@ -1319,13 +1255,13 @@ export function ShipmentDetailContent() {
                   // Radky, ktere nejsou obycejny FieldRow
                   const custom: Record<string, React.ReactNode> = {
                     masterJob: (
-                      <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100">
-                        <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Master Job</span>
+                      <div className={ROW}>
+                        <span className={LABEL}>Master Job</span>
                         <div className="flex-1 min-w-0 flex items-center gap-2">
                           {/* The app's link colour (antd's link), like Customer below. */}
                           {shipment.masterJobMczNumber ? (
                             <>
-                              <button onClick={() => setMasterJobOpen(true)} className="text-link hover:underline cursor-pointer bg-transparent border-none p-0 font-medium">
+                              <button onClick={() => setMasterJobOpen(true)} className="text-link hover:underline cursor-pointer bg-transparent border-none p-0">
                                 #{shipment.masterJobMczNumber}
                               </button>
                               <button onClick={handleUnlinkMasterJob} className="text-[10px] text-slate-400 hover:text-red-500 cursor-pointer bg-transparent border-none p-0">
@@ -1333,7 +1269,7 @@ export function ShipmentDetailContent() {
                               </button>
                             </>
                           ) : (
-                            <button onClick={() => setAssignOpen(true)} className="text-link hover:underline cursor-pointer bg-transparent border-none p-0 font-medium">
+                            <button onClick={() => setAssignOpen(true)} className="text-link hover:underline cursor-pointer bg-transparent border-none p-0 text-left">
                               + Assign to master job
                             </button>
                           )}
@@ -1360,12 +1296,12 @@ export function ShipmentDetailContent() {
                       />
                     ),
                     incoterm: (
-                      <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100">
-                        <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Incoterm Origin/Destination</span>
-                        <FadeText className="flex-1 text-slate-900 font-medium">
+                      <div className={ROW}>
+                        <span className={LABEL}>Incoterm Origin/Destination</span>
+                        <FadeText className="flex-1 text-slate-800">
                           {shipment.incotermOrigin || shipment.incotermDestination
                             ? `${shipment.incotermOrigin || "—"}/${shipment.incotermDestination || "—"}`
-                            : <span className="text-slate-300">—</span>}
+                            : <span className={EMPTY}>—</span>}
                         </FadeText>
                       </div>
                     ),
@@ -1396,17 +1332,20 @@ export function ShipmentDetailContent() {
                         styleFor={styleFor}
                         renderField={custom}
                       />
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
-                        <div>{renderCol(left)}</div>
-                        <div>{renderCol(right)}</div>
+                      <div className={`${CARD_BODY} ${COLS2}`}>
+                        <div className="min-w-0">{renderCol(left)}</div>
+                        <div className="min-w-0">{renderCol(right)}</div>
                       </div>
                     </>
                   );
                 })()}
               </div>
 
+              {/* KEY DATES */}
+              <DetailCard icon={<CalendarOutlined />} title="Key Dates" cardId="dates" columns={[KEY_DATES_L, KEY_DATES_R]} shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
+
               {/* COMMERCIAL PARTIES */}
-              <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+              <div className={CARD}>
                 {(() => {
                   const left: FieldDef[] = [
                     { key: "shipper", label: "Shipper", ro: true },
@@ -1492,21 +1431,22 @@ export function ShipmentDetailContent() {
                         styleFor={styleFor}
                         renderField={custom}
                       />
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
-                        <div>{renderCol(left)}</div>
-                        <div>{renderCol(right)}</div>
+                      <div className={`${CARD_BODY} ${COLS2}`}>
+                        <div className="min-w-0">{renderCol(left)}</div>
+                        <div className="min-w-0">{renderCol(right)}</div>
                       </div>
                     </>
                   );
                 })()}
               </div>
 
-              {/* CARRIER & BILL OF LADING  |  KEY DATES */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-start">
+              {/* CARRIER & BILL OF LADING  |  PARTIES & AGENTS */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <DetailCard
                   icon={<SplitCellsOutlined />}
                   title="Carrier & Bill of Lading"
                   cardId="carrier"
+                  className="h-full"
                   columns={[CARRIER_BOL]}
                   shipment={shipment}
                   onCommit={handleCommit}
@@ -1517,38 +1457,11 @@ export function ShipmentDetailContent() {
                     ),
                   }}
                 />
-                <DetailCard icon={<CalendarOutlined />} title="Key Dates" cardId="dates" columns={[KEY_DATES_L, KEY_DATES_R]} shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
-              </div>
-
-              {/* EQUIPMENT & DEPOT (mockup: card("equip") mezi dvojici
-                  Carrier/Key Dates a kartou References) */}
-              <DetailCard
-                icon={<ContainerOutlined />}
-                title="Equipment & Depot"
-                cardId="equip"
-                columns={[EQUIP_DEPOT_L, EQUIP_DEPOT_R]}
-                shipment={shipment}
-                onCommit={handleCommit}
-                styleFor={styleFor}
-              />
-
-              {/* REFERENCES & ROUTING  |  PARTIES & AGENTS
-                  Dve samostatne karty vedle sebe, kazda s vlastni hlavickou
-                  a tuzkou - stejne jako dvojice Carrier & Key Dates vyse. */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-start">
-                <DetailCard
-                  icon={<EnvironmentOutlined />}
-                  title="References & Routing"
-                  cardId="refsRouting"
-                  columns={[REFS_ROUTING]}
-                  shipment={shipment}
-                  onCommit={handleCommit}
-                  styleFor={styleFor}
-                />
                 <DetailCard
                   icon={<InfoCircleOutlined />}
                   title="Parties & Agents"
                   cardId="partiesAgents"
+                  className="h-full"
                   columns={[PARTIES_AGENTS]}
                   shipment={shipment}
                   onCommit={handleCommit}
@@ -1556,11 +1469,43 @@ export function ShipmentDetailContent() {
                 />
               </div>
 
+              {/* REFERENCES & ROUTING  |  EQUIPMENT & DEPOT */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <DetailCard
+                  icon={<EnvironmentOutlined />}
+                  title="References & Routing"
+                  cardId="refsRouting"
+                  className="h-full"
+                  columns={[REFS_ROUTING]}
+                  shipment={shipment}
+                  onCommit={handleCommit}
+                  styleFor={styleFor}
+                />
+                <DetailCard
+                  icon={<ContainerOutlined />}
+                  title="Equipment & Depot"
+                  cardId="equip"
+                  layout="stack"
+                  className="h-full"
+                  columns={[EQUIP_DEPOT_L, EQUIP_DEPOT_R]}
+                  shipment={shipment}
+                  onCommit={handleCommit}
+                  styleFor={styleFor}
+                />
+
+              </div>
+
+              {/* CARGO & COMMERCIAL */}
+              <CargoCommercialCard shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
+
+              {/* QUOTE  |  BASIC INFORMATION */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {/* QUOTE */}
-              <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+              <div className={`${CARD} h-full`}>
                 {(() => {
                   // The money comes straight from the Costs Breakdown tab, in the billing currency.
-                  const amount = (v: number) => (costs.totals.hasAny ? `${money(v)} ${costs.billingCur}` : "—");
+                  // Without costs the row shows its empty "—", in the light grey every empty value has.
+                  const amount = (v: number) => (costs.totals.hasAny ? `${money(v)} ${costs.billingCur}` : "");
                   // The rest is the quote uploaded there; nothing on this card is typed in. Ok while
                   // the quote is valid, Check once its date has passed (as Create shipment sets it).
                   const validUntil = costsQuote?.validUntil ?? null;
@@ -1591,20 +1536,15 @@ export function ShipmentDetailContent() {
                         styleFor={styleFor}
                         renderField={custom}
                       />
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
-                        <div>{renderCol(QUOTE_L)}</div>
-                        <div>{renderCol(QUOTE_R)}</div>
-                      </div>
+                      {/* One column, in the field order of the card: it sits beside Basic Information. */}
+                      <div className={CARD_BODY}>{renderCol([...QUOTE_L, ...QUOTE_R])}</div>
                     </>
                   );
                 })()}
               </div>
 
-              {/* CARGO & COMMERCIAL */}
-              <CargoCommercialCard shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
-
               {/* BASIC INFORMATION */}
-              <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+              <div className={`${CARD} h-full`}>
                 {(() => {
                   const left: FieldDef[] = [
                     { key: "jobNumber", label: "Internal Reference", ro: true },
@@ -1638,18 +1578,17 @@ export function ShipmentDetailContent() {
                         onCommit={handleCommit}
                         styleFor={styleFor}
                       />
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
-                        <div>{renderCol(left)}</div>
-                        <div>{renderCol(right)}</div>
-                      </div>
+                      {/* One column, in the field order of the card: it sits beside the Quote. */}
+                      <div className={CARD_BODY}>{renderCol([...left, ...right])}</div>
                     </>
                   );
                 })()}
               </div>
+              </div>
             </div>
 
-            {/* ── SIDEBAR ── */}
-            <div className="space-y-5">
+            {/* ── SIDEBAR ── short checks first, then the task list */}
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-1 gap-4 items-start [--lw:118px]">
               {/* CARGO HANDLING — what the cargo needs, ahead of the tasks */}
               <DetailCard
                 icon={<WarningOutlined />}
@@ -1675,18 +1614,21 @@ export function ShipmentDetailContent() {
                 }}
               />
 
-              {/* TASKS */}
-              <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-                <SectionHeader icon={<CheckSquareOutlined />} title="Tasks" />
-                <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-3">
-                  {shipment.tradeDirection === "Export" ? "Export Workflow" : "Import Workflow"}
-                </div>
-                <TasksPanel shipment={shipment} />
-              </div>
-
               <DetailCard icon={<CheckSquareOutlined />} title="Compliance" cardId="compliance" columns={[COMPLIANCE_FIELDS]} shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
               <DetailCard icon={<EnvironmentOutlined />} title="Destination Warehouse Routing" cardId="destinationRouting" columns={[DESTINATION_ROUTING_FIELDS]} shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
+              {/* TASKS */}
+              <div className={CARD}>
+                <SectionHeader icon={<CheckSquareOutlined />} title="Tasks" />
+                <div className="px-4 pt-3 pb-3">
+                  <div className="text-[11px] uppercase tracking-[.04em] text-slate-500 font-semibold mb-1.5">
+                    {shipment.tradeDirection === "Export" ? "Export Workflow" : "Import Workflow"}
+                  </div>
+                  <TasksPanel shipment={shipment} />
+                </div>
+              </div>
+
             </div>
+          </div>
           </div>
         )}
 
