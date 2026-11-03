@@ -1,6 +1,7 @@
 import { businessDay } from "../../../lib/businessDate";
 import { canApproveMargin, ownerChangeRight, quoteDeletePermission, type OwnerChangeRight } from "../../../lib/salesPolicy";
-import { roadMargin, type MarginContext } from "../lib/roadMargin";
+import { marginGateMessage, roadMargin, type MarginContext } from "../lib/roadMargin";
+import { inquiryGateMessage } from "./warehouseInquiry.utils";
 import type { RoadMargin, SalesQuoteItem } from "../interfaces/interfaces";
 import type { SalesQuoteRecord } from "../schemas/quote.schema";
 import { isPlainObject, isWonRevision } from "./quoteDocument.utils";
@@ -47,6 +48,7 @@ export function toItem(
 ): SalesQuoteItem {
   const state = stateOf(row);
   const today = businessDay(now);
+  const margin = margins ? roadMargin(row.data, margins) : null;
   const everSent = wasEverSent(state, isPlainObject(row.data) ? row.data.timeline : undefined);
   const deletion = quoteDeletePermission(actor, { ...state, everSent });
   return {
@@ -76,7 +78,8 @@ export function toItem(
     ownerLabel: state.ownerLabel,
     shipmentId: state.shipmentId,
     shipmentJobNumber: state.shipmentJobNumber,
-    roadMargin: margins ? shownMargin(roadMargin(row.data, margins), userEmails) : null,
+    roadMargin: margin ? shownMargin(margin, userEmails) : null,
+    sendBlocked: margin?.needsApproval ? marginGateMessage(margin) : inquiryGateMessage(row.data, "ready_to_send"),
     permissions: {
       ...ownerPermission(actor, state, row.data),
       canDelete: deletion.allowed,

@@ -15,6 +15,8 @@ vi.mock("~encore/clients", () => ({
 }));
 vi.mock("../../repositories/quoteAttachment.repository", () => ({ quoteAttachmentRepository: { deleteForQuote: vi.fn() } }));
 vi.mock("../../repositories/quoteComment.repository", () => ({ quoteCommentRepository: { createForCompany: vi.fn() } }));
+// The floors Sales sets: none stored, so the council's defaults (and Trucking's for Road).
+vi.mock("../../repositories/quoteGuardrail.repository", () => ({ quoteGuardrailRepository: { list: vi.fn(async () => []), save: vi.fn() } }));
 // A rep's question waiting about a margin is closed by a direct approval (tested in marginInquiry.service.test).
 vi.mock("../../services/marginInquiry.service", () => ({ marginInquiryService: { closeByDirectApproval: vi.fn() } }));
 vi.mock("../../repositories/salesQuote.repository", () => ({
@@ -1708,7 +1710,17 @@ describe("road transport", () => {
       const item = await salesQuoteService.approveMargin(manager, REF, "  Key account  ", 3);
       const { document, entries, state } = written();
       expect(document).toEqual({
-        marginApproval: { byUserId: U_MANAGER, byName: "marie@forwarder.cz", at: NOW.toISOString(), reason: "Key account", marginCzk: 400, marginPercent: 4 },
+        marginApproval: {
+          byUserId: U_MANAGER,
+          byName: "marie@forwarder.cz",
+          at: NOW.toISOString(),
+          reason: "Key account",
+          marginCzk: 400,
+          marginPercent: 4,
+          // What the quote was: a change of any of it ends the approval (D10).
+          // (This fixture keeps the customer on the row only; a stored quote has it in its document too.)
+          basis: { customerId: null, serviceType: "Road", containers: 0, salesOwner: "martin@forwarder.cz", validUntil: null },
+        },
       });
       expect(state).toEqual(stateOf(stored!));
       expect(entries).toEqual([
@@ -1743,7 +1755,7 @@ describe("road transport", () => {
   });
 
   describe("the margin gate", () => {
-    const BLOCKED = "The margin of 400 CZK (4 %) is below the floor of 8 % / 300 CZK. A manager must approve it before the quote is sent.";
+    const BLOCKED = "The margin of 400 CZK (4 %) is below the Road floor of 8 % / 300 CZK. A manager must approve it before the quote is sent.";
 
     it("refuses Ready to send and Quoted while the margin needs approval, writing nothing", async () => {
       stored = roadQuote([manual(10000)], [manual(9600)]);
@@ -1767,7 +1779,7 @@ describe("road transport", () => {
       stored = roadQuote([manual(10000)], [manual(9700)], { marginApproval: APPROVAL });
       await expect(salesQuoteService.transition(martin, REF, { to: "quoted" })).rejects.toMatchObject({
         code: "failed_precondition",
-        message: "The margin of 300 CZK (3 %) is below the floor of 8 % / 300 CZK. A manager must approve it before the quote is sent.",
+        message: "The margin of 300 CZK (3 %) is below the Road floor of 8 % / 300 CZK. A manager must approve it before the quote is sent.",
       });
     });
 
@@ -1913,8 +1925,27 @@ describe("the warehouse inquiry of pieces of 12.5 t or more", () => {
     await expect(salesQuoteService.transition(martin, REF, { to: "ready_to_send" })).rejects.toMatchObject({
       message: "The warehouse rejected the pieces of 12.5 t or more (too heavy for our crane) — change the cargo or ask the warehouse again",
     });
-    stored = withData({ warehouseInquiry: { ...pending, status: "approved", priceEurPerPiece: 400 } });
+    // Approved, with its fee on the buying (and sold well above the LCL floor): the quote may go.
+    fxRatesOn.mockResolvedValue(sheet([{ currency: "EUR", rate: 25 }]));
+    const fee = { type: "Handling", description: "Heavy Cargo Handling Fee", currency: "EUR", amount: 800, pairId: "heavy-cargo-warehouse" };
+    stored = withData({ warehouseInquiry: { ...pending, status: "approved", priceEurPerPiece: 400 }, buyingLines: [fee], sellingLines: [{ ...fee, amount: 2000 }] });
     await expect(salesQuoteService.transition(martin, REF, { to: "ready_to_send" })).resolves.toMatchObject({ changed: true });
+  });
+
+  it("holds heavy pieces nobody asked about, more pieces than approved, and an approved fee taken off or lowered (Council Outlay 6)", async () => {
+    const approved = { ...pending, status: "approved", priceEurPerPiece: 400 };
+    const fee = (amount: number) => ({ type: "Handling", description: "Heavy Cargo Handling Fee", currency: "EUR", amount, pairId: "heavy-cargo-warehouse" });
+    fxRatesOn.mockResolvedValue(sheet([{ currency: "EUR", rate: 25 }]));
+    const refused = async (data: Record<string, unknown>, message: string) => {
+      // Priced, so only the heavy pieces can hold it: a freight line bought, the fee sold well above it.
+      stored = withData({ sellingLines: [fee(2000)], buyingLines: [{ type: "Ocean freight", description: "LCL", currency: "EUR", amount: 100 }], ...data });
+      await expect(salesQuoteService.transition(martin, REF, { to: "ready_to_send" })).rejects.toMatchObject({ code: "failed_precondition", message });
+    };
+    await refused({}, "Pieces of 12.5 t or more have no handling rate — ask the warehouse first (Inquire Warehouse in the heavy pieces)");
+    await refused({ warehouseInquiry: { ...approved, pieces: 1 }, buyingLines: [fee(400)] }, "The warehouse approved 1 piece of 12.5 t or more, the quote has 2 — ask the warehouse again");
+    await refused({ warehouseInquiry: approved }, "The warehouse's approved Heavy Cargo Handling Fee (EUR 800) is missing from the buying or lowered — put it back, or ask the warehouse again");
+    await refused({ warehouseInquiry: approved, buyingLines: [fee(500)] }, "The warehouse's approved Heavy Cargo Handling Fee (EUR 800) is missing from the buying or lowered — put it back, or ask the warehouse again");
+    expect(repository.writeLifecycle).not.toHaveBeenCalled();
   });
 
   it("holds a quote while its question waits, even before the pieces are saved; a rejection only with pieces of 12.5 t or more", async () => {

@@ -49,6 +49,9 @@ const pricing: QuoteRoadPricing = {
 };
 
 const margin = (patch: Partial<RoadMargin> = {}): RoadMargin => ({
+  mode: "Road",
+  noBuying: false,
+  approvalEnded: null,
   sellingCzk: 9000,
   buyingCzk: 8620,
   marginCzk: 380,

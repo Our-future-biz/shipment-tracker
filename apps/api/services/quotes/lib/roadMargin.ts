@@ -1,10 +1,13 @@
-// The margin of a road quote against the Trucking margin floor: what the quote sells for minus
-// what it buys for, in CZK - worked out as every quote's is (lib/quoteMargin, the editor's own
-// rules, ROE included). Below the floor a manager must approve the margin before the quote is
-// sent. Pure - the floor and today's ČNB rates are passed in - so every rule is covered by a test.
-// The document comes from browsers, so nothing about its shape is taken for granted.
+// The margin of a quote against the guardrail of its freight mode (Council Outlay 6): what the
+// quote sells for minus what it buys for, in CZK - worked out as every quote's is (lib/quoteMargin,
+// the editor's own rules, ROE included) - against the mode's floor (lib/guardrails; Road's is
+// Trucking's). Below the floor a manager must approve the margin before the quote is sent.
+// The file keeps its first name: it began with the road floor alone. Pure - the floors and today's
+// ČNB rates are passed in - so every rule is covered by a test. The document comes from browsers,
+// so nothing about its shape is taken for granted.
 
-import type { QuoteMarginApproval, RoadMargin } from "../interfaces/interfaces";
+import type { QuoteMarginApproval, QuoteMarginApprovalBasis, RoadMargin } from "../interfaces/interfaces";
+import { containersOf, floorFor, isGuardrailMode, type GuardrailFloor, type GuardrailMode, type GuardrailSettings } from "./guardrails";
 import { lineAmount, linesOf, quoteMargin, type QuoteRates } from "./quoteMargin";
 
 export { lineAmount };
@@ -12,32 +15,66 @@ export { lineAmount };
 /** tariffRef of a line priced from a trucking tariff: "trucking:<tariffVersionId>:<serviceLevel>". */
 export const TRUCKING_REF_PREFIX = "trucking:";
 
-export interface MarginFloor {
-  percent: number;
-  minAmountCzk: number;
-}
+export type MarginFloor = GuardrailFloor;
 
-/** What a margin is judged with: the floor, today's ČNB sheet (CZK per unit; null = none) and the company ROE %. */
+/** What a margin is judged with: the floor of every freight mode, today's ČNB sheet (CZK per unit; null = none) and the company ROE %. */
 export interface MarginContext extends QuoteRates {
-  floor: MarginFloor;
+  settings: GuardrailSettings;
 }
 
-// An approved margin covers the margin as it is now when that is not worse by more than this.
-const APPROVAL_TOLERANCE_CZK = 0.005;
+// An approved margin covers the margin as it is now when that is not worse by more than this many
+// CZK, or this share of the selling, whichever is more - so a small move of the ČNB rate does not
+// take an approval back (D10) - and its percent is not worse by more than this many points.
+const APPROVAL_TOLERANCE_CZK = 100;
+const APPROVAL_TOLERANCE_SHARE = 0.005;
+const APPROVAL_TOLERANCE_POINTS = 0.5;
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 const isNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
+const str = (value: unknown) => (typeof value === "string" ? value : "");
 
 /** Whether a cost line was priced from a trucking tariff. */
 export function isTruckingLine(line: unknown): boolean {
   return isObject(line) && typeof line.tariffRef === "string" && line.tariffRef.startsWith(TRUCKING_REF_PREFIX);
 }
 
-/** Whether the margin rule applies to a quote: it is a Road quote, or a line of it was priced from a trucking tariff. */
+/** Whether the road rule applies to a quote: it is a Road quote, or a line of it was priced from a trucking tariff. */
 export function roadMarginApplies(data: unknown): boolean {
   if (!isObject(data)) return false;
   if (data.serviceType === "Road") return true;
   return [...linesOf(data.sellingLines), ...linesOf(data.buyingLines)].some(isTruckingLine);
+}
+
+/** The freight mode whose guardrail judges the quote: its own, else Road when a line was priced from a trucking tariff; null for none. */
+export function guardrailModeOf(data: unknown): GuardrailMode | null {
+  if (!isObject(data)) return null;
+  if (isGuardrailMode(data.serviceType)) return data.serviceType;
+  return roadMarginApplies(data) ? "Road" : null;
+}
+
+/** What the quote is now, as an approval records it (D10). */
+export function approvalBasisOf(data: unknown): QuoteMarginApprovalBasis {
+  const d = isObject(data) ? data : {};
+  return {
+    customerId: str(d.customerId) || null,
+    serviceType: str(d.serviceType),
+    containers: containersOf(d),
+    salesOwner: str(d.salesOwner),
+    validUntil: str(d.validUntil) || null,
+  };
+}
+
+/** Why the quote is no longer what was approved; null while it is (or the approval recorded nothing). */
+export function approvalEnded(approval: QuoteMarginApproval, data: unknown): string | null {
+  const b = approval.basis;
+  if (!b) return null;
+  const now = approvalBasisOf(data);
+  if (now.customerId !== b.customerId) return "the customer changed";
+  if (now.serviceType !== b.serviceType) return "the freight mode changed";
+  if (now.containers !== b.containers) return "the number of containers changed";
+  if (now.salesOwner !== b.salesOwner) return "the Sales Owner changed";
+  if (b.validUntil && now.validUntil && now.validUntil > b.validUntil) return `the validity was extended past ${b.validUntil}`;
+  return null;
 }
 
 /** The approval stored on a quote, when it is one. */
@@ -45,6 +82,7 @@ export function approvalOf(data: unknown): QuoteMarginApproval | null {
   const a = isObject(data) ? data.marginApproval : undefined;
   if (!isObject(a) || !isNumber(a.marginCzk)) return null;
   if (typeof a.byUserId !== "string" || typeof a.at !== "string") return null;
+  const b = isObject(a.basis) ? a.basis : null;
   return {
     byUserId: a.byUserId,
     byName: typeof a.byName === "string" ? a.byName : "",
@@ -52,34 +90,59 @@ export function approvalOf(data: unknown): QuoteMarginApproval | null {
     reason: typeof a.reason === "string" ? a.reason : "",
     marginCzk: a.marginCzk,
     marginPercent: isNumber(a.marginPercent) ? a.marginPercent : null,
+    ...(b
+      ? {
+          basis: {
+            customerId: str(b.customerId) || null,
+            serviceType: str(b.serviceType),
+            containers: isNumber(b.containers) ? b.containers : 0,
+            salesOwner: str(b.salesOwner),
+            validUntil: str(b.validUntil) || null,
+          },
+        }
+      : {}),
   };
 }
 
 /**
- * The margin of a road quote against the floor, or null when the rule does not apply to it. A line
- * no rate converts is left out of the sums and the margin is unknown - which counts as below the
- * floor. A quote with no selling and no buying lines has no margin (null) and is not below it.
+ * The margin of a quote against its mode's guardrail, or null when no guardrail applies to it. A
+ * line no rate converts is left out of the sums and the margin is unknown - which counts as below
+ * the floor; so does selling with no buying (D5). A quote with no lines has no margin and is not below.
  */
 export function roadMargin(data: unknown, ctx: MarginContext): RoadMargin | null {
-  if (!roadMarginApplies(data)) return null;
+  const mode = guardrailModeOf(data);
+  if (!mode) return null;
+  const floor = floorFor(mode, data, ctx.settings);
   const margin = quoteMargin(data, ctx)!;
   const { marginCzk, marginPercent } = margin;
+  const d = isObject(data) ? data : {};
+  const noBuying = linesOf(d.sellingLines).length > 0 && linesOf(d.buyingLines).length === 0;
   const belowFloor =
-    !margin.empty && (marginCzk === null || (marginPercent !== null && marginPercent < ctx.floor.percent) || marginCzk < ctx.floor.minAmountCzk);
+    !margin.empty && (noBuying || marginCzk === null || (marginPercent !== null && marginPercent < floor.percent) || marginCzk < floor.minAmountCzk);
   const approval = approvalOf(data);
-  const approvalValid = approval !== null && marginCzk !== null && marginCzk >= approval.marginCzk - APPROVAL_TOLERANCE_CZK;
+  const tolerance = Math.max(APPROVAL_TOLERANCE_CZK, margin.sellingCzk * APPROVAL_TOLERANCE_SHARE);
+  const ended = approval ? approvalEnded(approval, data) : null;
+  const approvalValid =
+    approval !== null &&
+    marginCzk !== null &&
+    ended === null &&
+    marginCzk >= approval.marginCzk - tolerance &&
+    (approval.marginPercent === null || marginPercent === null || marginPercent >= approval.marginPercent - APPROVAL_TOLERANCE_POINTS);
   return {
+    mode,
     sellingCzk: margin.sellingCzk,
     buyingCzk: margin.buyingCzk,
     marginCzk,
     marginPercent,
-    floorPercent: ctx.floor.percent,
-    floorMinCzk: ctx.floor.minAmountCzk,
+    floorPercent: floor.percent,
+    floorMinCzk: floor.minAmountCzk,
     belowFloor,
     approval,
     approvalValid,
     needsApproval: belowFloor && !approvalValid,
     problem: margin.problem,
+    noBuying,
+    approvalEnded: ended,
   };
 }
 
@@ -114,5 +177,7 @@ export function marginGateMessage(margin: RoadMargin): string {
   if (margin.marginCzk === null) {
     return `The margin cannot be worked out: ${margin.problem}. The quote can be sent once the rate is available or its lines are in CZK.`;
   }
-  return `The margin of ${formatMargin(margin.marginCzk, margin.marginPercent)} is below the floor of ${floor}. ${approve}`;
+  if (margin.noBuying) return `The quote sells with no buying lines, so its margin cannot be judged. Enter the buying, or ${approve.charAt(0).toLowerCase()}${approve.slice(1)}`;
+  const ended = margin.approval && margin.approvalEnded ? ` The approval no longer covers it: ${margin.approvalEnded}.` : "";
+  return `The margin of ${formatMargin(margin.marginCzk, margin.marginPercent)} is below the ${margin.mode} floor of ${floor}.${ended} ${approve}`;
 }

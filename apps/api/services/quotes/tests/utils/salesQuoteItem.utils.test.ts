@@ -86,6 +86,7 @@ describe("toItem", () => {
       shipmentId: null,
       shipmentJobNumber: null,
       roadMargin: null,
+      sendBlocked: null,
       permissions: { canChangeOwner: "own", canDelete: true, canApproveMargin: false },
     });
   });

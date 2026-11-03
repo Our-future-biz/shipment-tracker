@@ -1443,6 +1443,8 @@ export namespace quotes {
             this.quoteCommentUnread = this.quoteCommentUnread.bind(this)
             this.quoteLinksNormalize = this.quoteLinksNormalize.bind(this)
             this.quotePeopleNormalize = this.quotePeopleNormalize.bind(this)
+            this.salesGuardrailsGet = this.salesGuardrailsGet.bind(this)
+            this.salesGuardrailsSet = this.salesGuardrailsSet.bind(this)
             this.salesQuoteCreate = this.salesQuoteCreate.bind(this)
             this.salesQuoteDelete = this.salesQuoteDelete.bind(this)
             this.salesQuoteDuplicate = this.salesQuoteDuplicate.bind(this)
@@ -1569,6 +1571,18 @@ export namespace quotes {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/quotes/people/normalize`)
             return await resp.json() as interfaces.QuotePeopleNormalizeResult
+        }
+
+        public async salesGuardrailsGet(): Promise<controllers.GuardrailsResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/sales-guardrails`)
+            return await resp.json() as controllers.GuardrailsResponse
+        }
+
+        public async salesGuardrailsSet(params: controllers.GuardrailsSetRequest): Promise<controllers.GuardrailsResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/sales-guardrails`, JSON.stringify(params))
+            return await resp.json() as controllers.GuardrailsResponse
         }
 
         public async salesQuoteCreate(params: controllers.SalesQuoteCreateRequest): Promise<controllers.SalesQuoteCreateResponse> {
@@ -7095,6 +7109,39 @@ export namespace controllers {
 
     export interface GetProfileResponse {
         profile: interfaces.InvoiceProfileItem
+    }
+
+    export interface GuardrailRow {
+        serviceType: string
+        percent: number
+        minAmountCzk: number
+        /**
+         * The CZK minimum is per container.
+         */
+        perContainer: boolean
+
+        /**
+         * Where it is set: Sales, or Trucking (Road).
+         */
+        setIn: "sales" | "trucking"
+
+        /**
+         * Changed from the starting floor of the council (a stored row).
+         */
+        changed: boolean
+    }
+
+    export interface GuardrailsResponse {
+        guardrails: GuardrailRow[]
+        canEdit: boolean
+    }
+
+    export interface GuardrailsSetRequest {
+        guardrails: {
+            serviceType: string
+            percent: number
+            minAmountCzk: number
+        }[]
     }
 
     export interface HaulierInvoiceBody {
@@ -15797,6 +15844,26 @@ export namespace interfaces {
         marginCzk: number
 
         marginPercent: number | null
+        /**
+         * What the quote was when approved: a change of any of these ends the approval (Council Outlay 6
+         * D10). Absent on approvals given before it was recorded, which only the margin ends.
+         */
+        basis?: QuoteMarginApprovalBasis
+    }
+
+    export interface QuoteMarginApprovalBasis {
+        customerId: string | null
+        serviceType: string
+        containers: number
+        /**
+         * The Sales Owner as the quote mirrors it (data.salesOwner).
+         */
+        salesOwner: string
+
+        /**
+         * The quote's Valid until then; a later one needs a new approval.
+         */
+        validUntil: string | null
     }
 
     /**
@@ -16567,6 +16634,11 @@ export namespace interfaces {
      * The margin of a road quote against the Trucking margin floor. Amounts in CZK.
      */
     export interface RoadMargin {
+        /**
+         * The freight mode whose guardrail the quote is judged against ("Road", "Sea FCL", ...).
+         */
+        mode: string
+
         sellingCzk: number
         buyingCzk: number
         /**
@@ -16597,6 +16669,16 @@ export namespace interfaces {
          * Why the margin cannot be worked out, e.g. "No ČNB rate for EUR on 2026-10-15".
          */
         problem: string | null
+
+        /**
+         * Selling with no buying lines: the margin cannot be judged, so it needs approval (D5).
+         */
+        noBuying: boolean
+
+        /**
+         * Why an approval no longer covers the quote, beyond the margin getting worse; null when it does or there is none.
+         */
+        approvalEnded: string | null
     }
 
     export interface RoeChange {
@@ -16872,6 +16954,13 @@ export namespace interfaces {
          * null for any other quote.
          */
         roadMargin: RoadMargin | null
+
+        /**
+         * Why the quote cannot go out (Ready to Send, Quoted) or be Won without going out, as it is now:
+         * a margin below its floor no approval covers, or heavy pieces the warehouse has not approved.
+         * Null when nothing holds it. Shipments and Invoicing ask it before making the quote binding.
+         */
+        sendBlocked: string | null
 
         /**
          * What the signed-in user may do with this quote.

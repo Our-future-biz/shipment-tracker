@@ -8,14 +8,14 @@ import { canDecideQuoteInquiry } from "../../../lib/salesPolicy";
 import { isUuid } from "../../../lib/uuid";
 import type { QuoteMarginApproval, QuoteMarginInquiryItem, QuoteMarginInquiryRow } from "../interfaces/interfaces";
 import { answerProblem, askProblem, isEscalated, isToldAbout, officeMinutesBetween, type InquiryAnswer } from "../lib/marginInquiry";
-import { formatMargin, roadMargin } from "../lib/roadMargin";
+import { approvalBasisOf, formatMargin, roadMargin } from "../lib/roadMargin";
 import { companyPeople, type People } from "../lib/people";
 import { quoteCommentRepository } from "../repositories/quoteComment.repository";
 import { quoteInquiryRepository } from "../repositories/quoteInquiry.repository";
 import { salesQuoteRepository } from "../repositories/salesQuote.repository";
 import type { SalesQuoteRecord } from "../schemas/quote.schema";
 import type { QuoteInquiryRecord } from "../schemas/quoteInquiry.schema";
-import { isPlainObject } from "../utils/quoteDocument.utils";
+import { isPlainObject, isWonRevision } from "../utils/quoteDocument.utils";
 import { effectiveStatus, pricingEntry, stateOf, type LifecycleContext } from "../utils/quoteLifecycle.utils";
 import { marginsFor } from "./marginRates";
 
@@ -112,12 +112,15 @@ class MarginInquiryService {
     if (problem) throw APIError.invalidArgument(problem);
     const stored = await salesQuoteRepository.loadSales(actor.companyID, quoteNumber);
     if (!stored) throw notFound();
-    const [margins, people, users] = await Promise.all([marginsFor([stored], at), companyPeople(), usersWithManagers()]);
+    const [margins, people, users] = await Promise.all([marginsFor(actor.companyID, [stored], at), companyPeople(), usersWithManagers()]);
     const ctx = contextOf(actor, at, people);
     let created: QuoteInquiryRecord | null = null;
     const written = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
       const shown = effectiveStatus(quote.status, quote.validUntil, ctx.today);
-      if (!ASKABLE.includes(shown)) throw APIError.failedPrecondition(`The quote is ${shown.replace(/_/g, " ")}: a margin is asked about before the quote is sent`);
+      // Before the quote goes out - or on the revision of a Won quote, whose prices stay open.
+      if (!ASKABLE.includes(shown) && !isWonRevision(quote.status, quote.data)) {
+        throw APIError.failedPrecondition(`The quote is ${shown.replace(/_/g, " ")}: a margin is asked about before the quote is sent`);
+      }
       const margin = margins ? roadMargin(quote.data, margins) : null;
       if (!margin?.needsApproval) throw APIError.failedPrecondition("The margin is not below the floor, or an approval already covers it: nothing to ask");
       if (margin.marginCzk === null) throw APIError.failedPrecondition(`The margin cannot be worked out: ${margin.problem}`);
@@ -225,6 +228,8 @@ class MarginInquiryService {
         reason: comment || `Approved on request: ${pending.reason}`,
         marginCzk,
         marginPercent,
+        // What the quote is now: a change of customer, mode, containers, owner or validity ends it (D10).
+        basis: approvalBasisOf(quote.data),
       };
       decided = await quoteInquiryRepository.answer(
         actor.companyID,
@@ -298,7 +303,7 @@ class MarginInquiryService {
     const numbers = [...new Set(rows.map((r) => r.quoteNumber))];
     const quotes = (await Promise.all(numbers.map((n) => salesQuoteRepository.loadSales(actor.companyID, n)))).filter((q): q is SalesQuoteRecord => !!q);
     const byId = new Map(quotes.map((q) => [q.id, q]));
-    const margins = await marginsFor(quotes, now);
+    const margins = await marginsFor(actor.companyID, quotes, now);
     const today = businessDay(now);
     return rows.map((r) => {
       const quote = byId.get(r.quoteId);

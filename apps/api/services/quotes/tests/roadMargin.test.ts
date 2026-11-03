@@ -8,9 +8,12 @@ import {
   roadMarginApplies,
   type MarginContext,
 } from "../lib/roadMargin";
+import { guardrailSettings } from "../lib/guardrails";
 
+// The council's floors, and Trucking's 8 % / 300 CZK for Road.
+const floors = (percent = 8, minAmountCzk = 300) => guardrailSettings([], { percent, minAmountCzk });
 const ctx = (over: Partial<MarginContext> = {}): MarginContext => ({
-  floor: { percent: 8, minAmountCzk: 300 },
+  settings: floors(),
   today: "2026-10-15",
   rates: {},
   roePct: 100,
@@ -33,12 +36,32 @@ describe("roadMarginApplies", () => {
 });
 
 describe("roadMargin", () => {
-  it("is null when the rule does not apply", () => {
-    expect(roadMargin({ serviceType: "Air", sellingLines: [line(100)] }, ctx())).toBeNull();
+  it("is null for a quote no guardrail applies to, and judges every other freight mode against its own floor", () => {
+    expect(roadMargin({ serviceType: "Courier", sellingLines: [line(100)] }, ctx())).toBeNull();
+    expect(roadMargin({ sellingLines: [line(100)] }, ctx())).toBeNull();
+    // Air: 10 % / 1 000 CZK.
+    expect(roadMargin({ serviceType: "Air", currency: "CZK", sellingLines: [line(20000)], buyingLines: [line(18500)] }, ctx())).toMatchObject({ mode: "Air", marginCzk: 1500, marginPercent: 7.5, floorPercent: 10, floorMinCzk: 1000, belowFloor: true });
+    // Sea FCL: 7 % and 1 500 CZK per container - four boxes need 6 000 CZK.
+    const fcl = { serviceType: "Sea FCL", currency: "CZK", containers: [{ qty: 3, type: "40' HC" }, { qty: 1, type: "20' DV" }], sellingLines: [line(100000)], buyingLines: [line(95000)] };
+    expect(roadMargin(fcl, ctx())).toMatchObject({ mode: "Sea FCL", floorPercent: 7, floorMinCzk: 6000, marginCzk: 5000, belowFloor: true });
+    // A Sea quote with a trucking line is judged as the Sea quote it is.
+    expect(roadMargin({ ...fcl, buyingLines: [line(95000, "CZK", { tariffRef: "trucking:v1:D1" })] }, ctx())).toMatchObject({ mode: "Sea FCL" });
+  });
+
+  it("takes the floors a manager set over the defaults", () => {
+    const settings = guardrailSettings([{ serviceType: "Air", percent: 5, minAmountCzk: 500 }], { percent: 8, minAmountCzk: 300 });
+    expect(roadMargin({ serviceType: "Air", currency: "CZK", sellingLines: [line(20000)], buyingLines: [line(18500)] }, ctx({ settings }))).toMatchObject({ floorPercent: 5, belowFloor: false });
+  });
+
+  it("holds selling with no buying for approval: its margin can't be judged (D5)", () => {
+    const margin = roadMargin(road([line(5000)], []), ctx())!;
+    expect(margin).toMatchObject({ noBuying: true, marginCzk: 5000, belowFloor: true, needsApproval: true });
+    expect(marginGateMessage(margin)).toBe("The quote sells with no buying lines, so its margin cannot be judged. Enter the buying, or a manager must approve it before the quote is sent.");
   });
 
   it("works in CZK alone without any rate", () => {
     expect(roadMargin(road([line(5000)], [line(4000)]), ctx())).toEqual({
+      mode: "Road",
       sellingCzk: 5000,
       buyingCzk: 4000,
       marginCzk: 1000,
@@ -50,6 +73,8 @@ describe("roadMargin", () => {
       approvalValid: false,
       needsApproval: false,
       problem: null,
+      noBuying: false,
+      approvalEnded: null,
     });
   });
 
@@ -99,7 +124,7 @@ describe("roadMargin", () => {
 
   it("has no percent when nothing is sold, and buying without selling is below the floor", () => {
     expect(roadMargin(road([], [line(1000)]), ctx())).toMatchObject({ sellingCzk: 0, marginCzk: -1000, marginPercent: null, belowFloor: true });
-    expect(roadMargin(road([], [line(1000)]), ctx({ floor: { percent: 8, minAmountCzk: 0 } }))).toMatchObject({ belowFloor: true });
+    expect(roadMargin(road([], [line(1000)]), ctx({ settings: floors(8, 0) }))).toMatchObject({ belowFloor: true });
   });
 
   it("does not block a quote with no lines yet: no margin, nothing to approve", () => {
@@ -130,12 +155,26 @@ describe("roadMargin", () => {
     expect(roadMargin(road([line(1000)], [line(700)]), ctx())).toMatchObject({ marginCzk: 300, belowFloor: false });
   });
 
-  it("holds an approval while the margin is the one approved or better, not when it gets worse", () => {
+  it("holds an approval while the margin is the one approved or better - within 100 CZK or 0.5 % of selling, and half a point (D10)", () => {
     const approval = { byUserId: "u", byName: "Marie", at: "2026-10-15T08:00:00.000Z", reason: "Key account", marginCzk: 400, marginPercent: 4 };
     const at = (buying: number) => roadMargin(road([line(10000)], [line(buying)], { marginApproval: approval }), ctx());
     expect(at(9600)).toMatchObject({ belowFloor: true, approval, approvalValid: true, needsApproval: false });
     expect(at(9500)).toMatchObject({ marginCzk: 500, approvalValid: true, needsApproval: false });
-    expect(at(9601)).toMatchObject({ marginCzk: 399, approvalValid: false, needsApproval: true });
+    // A small ČNB move: 50 CZK worse, 3.5 % - still covered.
+    expect(at(9650)).toMatchObject({ marginCzk: 350, approvalValid: true });
+    expect(at(9701)).toMatchObject({ marginCzk: 299, approvalValid: false, needsApproval: true });
+  });
+
+  it("ends an approval when the customer, mode, containers, owner or a longer validity make it another quote (D10)", () => {
+    const basis = { customerId: "c1", serviceType: "Road", containers: 0, salesOwner: "jan@forwarder.cz", validUntil: "2026-11-20" };
+    const approval = { byUserId: "u", byName: "Marie", at: "2026-10-15T08:00:00.000Z", reason: "Key account", marginCzk: 400, marginPercent: 4, basis };
+    const quote = (over: Record<string, unknown>) => roadMargin(road([line(10000)], [line(9600)], { customerId: "c1", salesOwner: "jan@forwarder.cz", validUntil: "2026-11-20", marginApproval: approval, ...over }), ctx())!;
+    expect(quote({})).toMatchObject({ approvalValid: true, approvalEnded: null });
+    expect(quote({ customerId: "c2" })).toMatchObject({ approvalValid: false, approvalEnded: "the customer changed" });
+    expect(quote({ salesOwner: "eva@forwarder.cz" })).toMatchObject({ approvalEnded: "the Sales Owner changed" });
+    expect(quote({ validUntil: "2026-11-25" })).toMatchObject({ approvalEnded: "the validity was extended past 2026-11-20" });
+    expect(quote({ validUntil: "2026-11-18" })).toMatchObject({ approvalValid: true });
+    expect(marginGateMessage(quote({ customerId: "c2" }))).toContain("The approval no longer covers it: the customer changed.");
   });
 
   it("never holds an approval for a margin it cannot work out", () => {
@@ -175,7 +214,7 @@ describe("marginGateMessage", () => {
 
   it("names the margin and the floor", () => {
     expect(marginGateMessage(margin)).toBe(
-      "The margin of 380 CZK (4.2 %) is below the floor of 8 % / 300 CZK. A manager must approve it before the quote is sent.",
+      "The margin of 380 CZK (4.2 %) is below the Road floor of 8 % / 300 CZK. A manager must approve it before the quote is sent.",
     );
   });
 

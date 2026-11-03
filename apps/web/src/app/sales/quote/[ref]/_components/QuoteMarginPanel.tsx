@@ -44,7 +44,7 @@ export const QuoteMarginPanel = ({ margin, canApprove, onApprove, inquiry, onAsk
           <Figure label="Selling (CZK)" value={formatMoney(margin.sellingCzk, "CZK")} />
           <Figure label="Buying (CZK)" value={formatMoney(margin.buyingCzk, "CZK")} />
           <Figure label="Margin" value={marginText(margin.marginCzk, margin.marginPercent)} />
-          <Figure label="Margin floor" value={floorText(margin)} />
+          <Figure label={`Margin floor · ${margin.mode}`} value={floorText(margin)} />
         </div>
         <div className="flex flex-wrap gap-2">
           {canAsk && <MiniButton onClick={onAsk}>{rejected ? "Ask again…" : "Ask for approval…"}</MiniButton>}
@@ -56,8 +56,11 @@ export const QuoteMarginPanel = ({ margin, canApprove, onApprove, inquiry, onAsk
         <div className="mt-2 flex items-start gap-1.5 text-[12.5px] text-red-700">
           <WarningFilled className="mt-0.5" aria-hidden />
           <span>
-            <b>Below margin floor.</b> Needs a manager&apos;s approval before the quote is sent or marked Ready to send.
-            {margin.approval && !margin.approvalValid && ` The approval of ${marginText(margin.approval.marginCzk, margin.approval.marginPercent)} no longer covers it.`}
+            <b>{margin.noBuying ? "No buying lines." : "Below margin floor."}</b>{" "}
+            {margin.noBuying ? "Without buying the margin can't be judged: enter the buying, or a manager approves it." : "Needs a manager's approval before the quote is sent or marked Ready to send."}
+            {margin.approval &&
+              !margin.approvalValid &&
+              ` The approval of ${marginText(margin.approval.marginCzk, margin.approval.marginPercent)} no longer covers it${margin.approvalEnded ? `: ${margin.approvalEnded}` : ""}.`}
           </span>
         </div>
       )}

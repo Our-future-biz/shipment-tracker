@@ -27,7 +27,8 @@ const fact = (over: Partial<SalesManagersQuoteFact> = {}): SalesManagersQuoteFac
   marginCzk: 10_000,
   marginPercent: 10,
   marginProblem: null,
-  belowRoadFloor: false,
+  belowFloor: false,
+  wonRevision: false,
   warehouseInquiry: null,
   marginInquiry: null,
   ...over,
@@ -82,7 +83,7 @@ describe("quoteSignals", () => {
   });
 
   it("puts a road quote below the floor, validity ending soon, a slow warehouse and no owner in Attention", () => {
-    expect(texts(fact({ status: "draft", shownStatus: "draft", firstSentAt: null, createdAt: "2026-11-03T08:00:00.000Z", serviceType: "Road", belowRoadFloor: true }))).toEqual([
+    expect(texts(fact({ status: "draft", shownStatus: "draft", firstSentAt: null, createdAt: "2026-11-03T08:00:00.000Z", serviceType: "Road", belowFloor: true }))).toEqual([
       "A: Below margin floor, not approved",
     ]);
     expect(texts(fact({ validUntil: "2026-11-05" }))).toEqual(["A: Valid until in 2 days"]);
@@ -117,7 +118,7 @@ describe("margin questions", () => {
     ...over,
   });
   const road = (over: Partial<SalesManagersQuoteFact> = {}) =>
-    fact({ status: "draft", shownStatus: "draft", firstSentAt: null, createdAt: "2026-11-03T08:00:00.000Z", serviceType: "Road", belowRoadFloor: true, marginCzk: 1000, ...over });
+    fact({ status: "draft", shownStatus: "draft", firstSentAt: null, createdAt: "2026-11-03T08:00:00.000Z", serviceType: "Road", belowFloor: true, marginCzk: 1000, ...over });
 
   it("waits in Attention, and is urgent once the admins are told", () => {
     expect(texts(road({ marginInquiry: asked() }))).toEqual(["A: Discount waiting 1 h"]);

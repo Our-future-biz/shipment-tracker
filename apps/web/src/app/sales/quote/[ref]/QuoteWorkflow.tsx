@@ -66,7 +66,7 @@ import { useQuoteOrigin } from "../../_lib/useQuoteOrigin";
 import { printQuote } from "../../_lib/printQuote";
 import { transitionRequest, type StatusChange } from "../../_lib/statusChange";
 import { salesSettingsHref } from "../../_lib/tabs";
-import { isRoadQuote, lineTariffTag, roadInputDefaults, roadInputProblems, sendBlockedText, sideOverridden, type LineTariffTag, type RatePick } from "../../_lib/roadQuote";
+import { isRoadQuote, lineTariffTag, roadInputDefaults, roadInputProblems, sideOverridden, type LineTariffTag, type RatePick } from "../../_lib/roadQuote";
 import { formatAmount as formatMoney } from "@/lib/money";
 import { CustomerLink } from "../../_components/CustomerLink";
 import { DeleteQuoteModal } from "../../_components/DeleteQuoteModal";
@@ -638,8 +638,11 @@ export function QuoteWorkflow() {
     const blocked = printQuote(ref, sent ?? draft, exchange, company, people, target);
     if (blocked) toast.error(blocked);
   };
+  // A quote that can't go out is not e-mailed either: the server never sees a mail, so it is
+  // stopped here (Council Outlay 6 D11).
   const openEmail = () => {
     if (documentBlocked) toast.error(documentBlocked);
+    else if (sendBlocked) toast.error(`${ref} - ${sendBlocked}`);
     else setModal("email");
   };
   // The user's word that the quotation went out. Resolves like changeStatus: a refusal is shown
@@ -755,7 +758,9 @@ export function QuoteWorkflow() {
   const roadProblems = roadInputProblems(road, businessToday());
   const roadMargin = quote.roadMargin ?? null;
   // Why the quote may not be sent or marked Ready to send: its margin waits for a manager.
-  const sendBlocked = sendBlockedText(roadMargin);
+  // Why the quote can't go out, in the server's words: a margin below its mode's floor no approval
+  // covers, or heavy pieces the warehouse has not approved (Council Outlay 6).
+  const sendBlocked = quote.sendBlocked ?? null;
   // "Tariff vN" on a line priced from a tariff, and "Override" when it was changed by hand since.
   const buyingTag = (line: CostLine) => {
     if (isRailLine(line)) return <SupplierTariffTag line={line} label="Rail tariff" versionId={railVersionId(line)} versionHref={railVersionHref} />;

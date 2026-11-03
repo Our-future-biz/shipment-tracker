@@ -51,6 +51,12 @@ export interface SalesQuoteItem {
    * null for any other quote.
    */
   roadMargin: RoadMargin | null;
+  /**
+   * Why the quote cannot go out (Ready to Send, Quoted) or be Won without going out, as it is now:
+   * a margin below its floor no approval covers, or heavy pieces the warehouse has not approved.
+   * Null when nothing holds it. Shipments and Invoicing ask it before making the quote binding.
+   */
+  sendBlocked: string | null;
   /** What the signed-in user may do with this quote. */
   permissions: {
     /** any: reassign freely. own: hand over or give up. claim: take for themselves. none: nothing. */
@@ -128,6 +134,21 @@ export interface QuoteMarginApproval {
   /** The margin that was approved. */
   marginCzk: number;
   marginPercent: number | null;
+  /**
+   * What the quote was when approved: a change of any of these ends the approval (Council Outlay 6
+   * D10). Absent on approvals given before it was recorded, which only the margin ends.
+   */
+  basis?: QuoteMarginApprovalBasis;
+}
+
+export interface QuoteMarginApprovalBasis {
+  customerId: string | null;
+  serviceType: string;
+  containers: number;
+  /** The Sales Owner as the quote mirrors it (data.salesOwner). */
+  salesOwner: string;
+  /** The quote's Valid until then; a later one needs a new approval. */
+  validUntil: string | null;
 }
 
 /**
@@ -179,6 +200,8 @@ export interface QuoteWarehouseInquiryItem {
 
 /** The margin of a road quote against the Trucking margin floor. Amounts in CZK. */
 export interface RoadMargin {
+  /** The freight mode whose guardrail the quote is judged against ("Road", "Sea FCL", ...). */
+  mode: string;
   sellingCzk: number;
   buyingCzk: number;
   /** null when a line could not be converted to CZK (see problem). */
@@ -195,6 +218,10 @@ export interface RoadMargin {
   needsApproval: boolean;
   /** Why the margin cannot be worked out, e.g. "No ČNB rate for EUR on 2026-10-15". */
   problem: string | null;
+  /** Selling with no buying lines: the margin cannot be judged, so it needs approval (D5). */
+  noBuying: boolean;
+  /** Why an approval no longer covers the quote, beyond the margin getting worse; null when it does or there is none. */
+  approvalEnded: string | null;
 }
 
 /** What the shipments service knows about one quote reference. */
@@ -317,8 +344,10 @@ export interface SalesManagersQuoteFact {
   marginPercent: number | null;
   /** Why the margin cannot be worked out (a ČNB rate missing); null when it can. */
   marginProblem: string | null;
-  /** A road margin below the Trucking floor that no approval covers: the quote cannot be sent. */
-  belowRoadFloor: boolean;
+  /** A margin below its freight mode's floor that no approval covers: the quote cannot be sent. */
+  belowFloor: boolean;
+  /** The revision of a Won quote (it stays Won while its prices are changed). */
+  wonRevision: boolean;
   /** The warehouse's heavy-piece question on the quote, when there is one. */
   warehouseInquiry: { status: "pending" | "approved" | "rejected"; requestedAt: string } | null;
   /** A rep's question to a manager about the margin that waits for an answer, when there is one. */

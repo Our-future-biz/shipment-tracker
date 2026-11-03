@@ -63,9 +63,20 @@ export function inquiryGateMessage(data: unknown, to: string): string | null {
   if (!INQUIRY_GATED_STATUSES.includes(to)) return null;
   const inquiry = readInquiry(data);
   if (inquiry?.status === "pending") return "Pieces of 12.5 t or more are waiting for the warehouse's answer — the quote can be sent once the warehouse approves";
-  if (heavyInquiryPieces(data) === 0) return null;
+  const heavy = heavyInquiryPieces(data);
+  if (heavy === 0) return null;
   if (inquiry?.status === "rejected") {
     return `The warehouse rejected the pieces of 12.5 t or more${inquiry.comment ? ` (${inquiry.comment})` : ""} — change the cargo or ask the warehouse again`;
+  }
+  // Heavy pieces saved without asking - the screen asks first, but nothing else did (Council Outlay 6).
+  if (!inquiry) return "Pieces of 12.5 t or more have no handling rate — ask the warehouse first (Inquire Warehouse in the heavy pieces)";
+  // More pieces than the warehouse approved, or its fee taken off or lowered: approved is what it approved.
+  if (heavy > inquiry.pieces) return `The warehouse approved ${inquiry.pieces} piece${inquiry.pieces === 1 ? "" : "s"} of 12.5 t or more, the quote has ${heavy} — ask the warehouse again`;
+  const fee = Math.round((inquiry.priceEurPerPiece ?? 0) * inquiry.pieces * 100) / 100;
+  const buying = lines(isPlainObject(data) ? data.buyingLines : undefined).find((l) => l.pairId === WAREHOUSE_PAIR_ID);
+  const charged = buying && typeof buying.amount === "number" ? buying.amount : buying && typeof buying.amount === "string" ? Number(buying.amount) : null;
+  if (fee > 0 && (charged === null || !Number.isFinite(charged) || charged < fee - 0.005)) {
+    return `The warehouse's approved ${HEAVY_CARGO_FEE} (EUR ${fee}) is missing from the buying or lowered — put it back, or ask the warehouse again`;
   }
   return null;
 }

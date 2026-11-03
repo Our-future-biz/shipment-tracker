@@ -480,6 +480,9 @@ function customerPicFromQuote(data: Record<string, unknown>, quoteData: unknown)
   if (quoteId) data.customerPicContactId = quoteId;
 }
 
+// The statuses of a quote that has not gone out to the customer (a shipment makes it Won).
+const UNSENT_FOR_SHIPMENT: readonly string[] = ["draft", "ready_to_send", "revised", "expired"];
+
 class ShipmentService {
   // The customer's stored rollups (totalRevenue/totalProfit/totalShipments/
   // lastActivityDate) live in the customers service, which cannot query this
@@ -859,6 +862,11 @@ class ShipmentService {
     // Replaced one would stay as it is, so none is made from it.
     const refusal = shipmentFromQuoteRefusal(quote.effectiveStatus);
     if (refusal) throw APIError.failedPrecondition(`${quote.quoteNumber} - ${refusal}`);
+    // A quote that never went out becomes Won by this shipment without passing the send gate: it
+    // has to pass it here - a margin below its floor approved, heavy pieces approved (Council Outlay 6 D11).
+    if (UNSENT_FOR_SHIPMENT.includes(quote.effectiveStatus) && quote.sendBlocked) {
+      throw APIError.failedPrecondition(`${quote.quoteNumber} - ${quote.sendBlocked}`);
+    }
     customerPicFromQuote(shipmentData, quote.data);
     await linkContact(shipmentData, undefined, CUSTOMER_PIC, contactsOf, "lenient");
     const reference = quote.quoteNumber;

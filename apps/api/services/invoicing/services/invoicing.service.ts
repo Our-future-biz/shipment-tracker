@@ -404,6 +404,10 @@ class InvoicingService {
     // Only a Won quote's costs. A quote a shipment is created from is Won by now: it is told first.
     const refusal = quoteCostCopyRefusal(quote.effectiveStatus);
     if (refusal) throw APIError.failedPrecondition(`${quote.quoteNumber} - ${refusal}`);
+    // The revision of a Won quote stays Won while its prices are changed, so no send gate sees
+    // them: costs below its floor are not copied until a manager approved them (Council Outlay 6).
+    const wonRevision = typeof quote.data === "object" && quote.data !== null && "wonRevisionOf" in quote.data;
+    if (wonRevision && quote.roadMargin?.needsApproval) throw APIError.failedPrecondition(`${quote.quoteNumber} - ${quote.sendBlocked ?? "its margin is below the floor and not approved"}`);
     // A job with a Trucking consignment gets its road freight from Trucking: the quote's trucking lines are left out.
     const skipTrucking = await truckingLinesRepository.hasConsignmentRows(companyId, shipmentId);
     const rows = quoteLinesToCostRows(quote.data, { skipTrucking });

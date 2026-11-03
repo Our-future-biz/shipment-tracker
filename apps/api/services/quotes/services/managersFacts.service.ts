@@ -5,7 +5,7 @@ import { companyPeople } from "../lib/people";
 import type { SalesManagersFacts, SalesManagersQuoteFact } from "../interfaces/interfaces";
 import { salesQuoteRepository } from "../repositories/salesQuote.repository";
 import type { SalesQuoteRecord } from "../schemas/quote.schema";
-import { isPlainObject } from "../utils/quoteDocument.utils";
+import { isPlainObject, isWonRevision } from "../utils/quoteDocument.utils";
 import { effectiveStatus, isFollowUpDue, lastContact, stateOf } from "../utils/quoteLifecycle.utils";
 import { readInquiry } from "../utils/warehouseInquiry.utils";
 import { marginsFor, todaysSheet } from "./marginRates";
@@ -67,7 +67,8 @@ export function factOf(
     marginCzk: margin?.marginCzk ?? null,
     marginPercent: margin?.marginPercent ?? null,
     marginProblem: margin?.problem ?? null,
-    belowRoadFloor: road?.needsApproval ?? false,
+    belowFloor: road?.needsApproval ?? false,
+    wonRevision: isWonRevision(state.status, data),
     warehouseInquiry: inquiry ? { status: inquiry.status, requestedAt: inquiry.requestedAt } : null,
     marginInquiry: pending
       ? {
@@ -93,7 +94,7 @@ class ManagersFactsService {
       { today, expiredSince: addDays(today, -EXPIRED_DAYS), wonSince: addDays(today, -WON_DAYS), decidedSince: `${today.slice(0, 8)}01` },
       MANAGERS_ROWS_LIMIT,
     );
-    const [people, sheet, margins, pending] = await Promise.all([companyPeople(), todaysSheet(now), marginsFor(rows, now), quoteInquiryRepository.pending(companyId)]);
+    const [people, sheet, margins, pending] = await Promise.all([companyPeople(), todaysSheet(now), marginsFor(companyId, rows, now), quoteInquiryRepository.pending(companyId)]);
     const pendingByQuote = new Map(pending.map((p) => [p.quoteId, p]));
     return { today, quotes: rows.map((row) => factOf(row, people.emails, now, sheet, margins, pendingByQuote.get(row.id))), capped };
   }

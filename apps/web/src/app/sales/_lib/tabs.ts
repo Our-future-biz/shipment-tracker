@@ -33,6 +33,7 @@ export const SALES_NAV: SalesNavItem[] = Object.values(SALES_PAGES);
 export const SALES_SETTINGS_TABS = [
   { key: "company", label: "Company details" },
   { key: "terms", label: "Terms & Conditions" },
+  { key: "guardrails", label: "Guardrails" },
 ] as const;
 
 export type SalesSettingsTab = (typeof SALES_SETTINGS_TABS)[number]["key"];

@@ -28,6 +28,7 @@ import { quoteInquiryRepository } from "../../repositories/quoteInquiry.reposito
 import { marginInquiryService } from "../../services/marginInquiry.service";
 import type { QuoteInquiryRecord } from "../../schemas/quoteInquiry.schema";
 import type { SalesQuoteRecord } from "../../schemas/quote.schema";
+import { guardrailSettings } from "../../lib/guardrails";
 
 const COMPANY = "86f202b1-7449-441b-9c5b-5bf4d89f8d88";
 const REP = "0d5f0a43-52a1-4d0e-9a39-0c6f3b1f6a02";
@@ -59,7 +60,7 @@ const quote = (over: Record<string, unknown> = {}) =>
     data: { serviceType: "Road", currency: "CZK", sellingLines: [{ currency: "CZK", amount: 10000 }], buyingLines: [{ currency: "CZK", amount: 9600 }] },
     ...over,
   }) as unknown as SalesQuoteRecord;
-const MARGINS = { floor: { percent: 8, minAmountCzk: 300 }, today: "2026-11-03", rates: {}, roePct: 100 };
+const MARGINS = { settings: guardrailSettings([], { percent: 8, minAmountCzk: 300 }), today: "2026-11-03", rates: {}, roePct: 100 };
 const pending = (over: Partial<QuoteInquiryRecord> = {}) =>
   ({
     id: INQUIRY,

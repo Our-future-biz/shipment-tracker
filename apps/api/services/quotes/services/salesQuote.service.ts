@@ -30,7 +30,7 @@ import { customerIdOf, linkForSave, refreshCopies, withRefresh } from "../utils/
 import { tryCustomerRefs } from "../lib/customerRefs";
 import { approvedPricing, inquiryGateMessage, MAX_INQUIRY_NOTE, MAX_INQUIRY_PIECES, MAX_PRICE_PER_PIECE, MIN_REJECT_REASON, readInquiry } from "../utils/warehouseInquiry.utils";
 import { fxWriteFor, mayStampFx, type StoredFx } from "../lib/quoteFx";
-import { formatMargin, marginGateMessage, roadMargin, type MarginContext } from "../lib/roadMargin";
+import { approvalBasisOf, formatMargin, marginGateMessage, roadMargin, type MarginContext } from "../lib/roadMargin";
 import { marginsFor } from "./marginRates";
 import { marginInquiryService } from "./marginInquiry.service";
 import { choosePricing, pricedComment, rateRequestOf, replaceTruckingLines, roadPricingOf, truckingLines } from "../lib/roadPricing";
@@ -115,6 +115,12 @@ export interface RoadPriceRequest {
 const DEFAULT_LIMIT = 50;
 // The statuses a quote is sent with: a margin below the floor must be approved before them.
 const MARGIN_GATED_STATUSES: readonly string[] = ["ready_to_send", "quoted"];
+// Statuses a quote has not gone out from: one made Won straight from them never passed the gate
+// above, so Won from them is gated too (Council Outlay 6 D11). Won from Quoted or Feedback is not:
+// those passed it when they were sent - or were sent before there were guardrails.
+const UNSENT_STATUSES: readonly string[] = ["draft", "ready_to_send", "revised", "expired"];
+/** Whether moving a quote from `shown` to `to` must pass the margin and warehouse gates. */
+const isGatedMove = (shown: string, to: string) => MARGIN_GATED_STATUSES.includes(to) || (to === "won" && UNSENT_STATUSES.includes(shown));
 // A won or lost quote is decided: it is not priced again.
 const DECIDED_STATUSES: readonly string[] = ["won", "lost"];
 // Whether a quote's prices are closed: it went out or is decided (PRICING_CLOSED) - except the
@@ -349,7 +355,7 @@ class SalesQuoteService {
       await ownerBackfillService.matchOwners(actor.companyID);
       stored = (await salesQuoteRepository.loadSales(actor.companyID, quote.quoteNumber)) ?? quote;
     }
-    return toItem(stored, people.emails, actor, at, await marginsFor([stored], at));
+    return toItem(stored, people.emails, actor, at, await marginsFor(actor.companyID, [stored], at));
   }
 
   // The sales quotes of the company: one page of a filtered, sorted list, or - with afterId -
@@ -371,7 +377,7 @@ class SalesQuoteService {
       { today: businessDay(at), dueBefore: followUpDueBefore(at) },
       people.users,
     );
-    const margins = await marginsFor(rows, at);
+    const margins = await marginsFor(actor.companyID, rows, at);
     return {
       pagination: { total, offset: page.offset, limit: page.limit },
       data: rows.map((row) => toItem(row, people.emails, actor, at, margins)),
@@ -398,7 +404,7 @@ class SalesQuoteService {
       (existing) => formatReference(prefix, nextSequence(prefix, existing)),
       newRow(contextOf(actor, at, people), document),
     );
-    return toItem(quote, people.emails, actor, at, await marginsFor([quote], at));
+    return toItem(quote, people.emails, actor, at, await marginsFor(actor.companyID, [quote], at));
   }
 
   // A variant of an existing quote: its reference with the next free -2, -3, ... The content is
@@ -419,7 +425,7 @@ class SalesQuoteService {
       (existing) => nextVariant(base, existing),
       newRow(contextOf(actor, at, people), document),
     );
-    return toItem(quote, people.emails, actor, at, await marginsFor([quote], at));
+    return toItem(quote, people.emails, actor, at, await marginsFor(actor.companyID, [quote], at));
   }
 
   // A save of the document by the Sales editor. Written only while the document is still the
@@ -462,8 +468,8 @@ class SalesQuoteService {
     const ctx = contextOf(actor, at, people);
     // Only a status the quote may be sent with can need them; read before the lock (see todaysFx).
     const today = mayStampFx(request.to) ? await todaysFx() : undefined;
-    // So is what a road margin is judged with, for the statuses a margin below the floor blocks.
-    const margins = MARGIN_GATED_STATUSES.includes(request.to) ? await this.marginsOf(actor.companyID, quoteNumber, at) : undefined;
+    // So is what a margin is judged with, for the moves a margin below the floor blocks.
+    const margins = MARGIN_GATED_STATUSES.includes(request.to) || request.to === "won" ? await this.marginsOf(actor.companyID, quoteNumber, at) : undefined;
     const result = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
       if (request.expectedDataVersion !== undefined && request.expectedDataVersion !== quote.dataVersion) throw conflict();
       const state = stateOf(quote);
@@ -472,12 +478,14 @@ class SalesQuoteService {
         return applyTransition(state, request, ctx);
       });
       if (!change.changed) return { quote, changed: false };
-      // A margin below the Trucking floor goes out only with a manager's approval that covers it.
-      const margin = margins ? roadMargin(quote.data, margins) : null;
-      if (margin?.needsApproval) throw APIError.failedPrecondition(marginGateMessage(margin));
-      // Pieces of 12.5 t or more go out only once the warehouse approved them.
-      const inquiryGate = inquiryGateMessage(quote.data, request.to);
-      if (inquiryGate) throw APIError.failedPrecondition(inquiryGate);
+      // A margin below its mode's floor goes out - or is Won without going out - only with a
+      // manager's approval that covers it; pieces of 12.5 t or more only once the warehouse approved them.
+      if (isGatedMove(effectiveStatus(state.status, state.validUntil, ctx.today), request.to)) {
+        const margin = margins ? roadMargin(quote.data, margins) : null;
+        if (margin?.needsApproval) throw APIError.failedPrecondition(marginGateMessage(margin));
+        const inquiryGate = inquiryGateMessage(quote.data, "ready_to_send");
+        if (inquiryGate) throw APIError.failedPrecondition(inquiryGate);
+      }
       // The customer is given totals worked out with the ČNB rates and ROE % of the moment it is
       // sent: they are stored then and never change; back in a draft status they are dropped
       // (see lib/quoteFx). That writes the document, hence a new version of it - and only then.
@@ -559,7 +567,7 @@ class SalesQuoteService {
         warning = `The shipments of ${revised.quoteNumber} could not be moved to ${revision.quoteNumber} - change their Sales Reference to ${revision.quoteNumber}`;
       }
     }
-    const margins = await marginsFor([revised, revision], at);
+    const margins = await marginsFor(actor.companyID, [revised, revision], at);
     return {
       quote: toItem(revised, people.emails, actor, at, margins),
       revision: toItem(revision, people.emails, actor, at, margins),
@@ -572,7 +580,7 @@ class SalesQuoteService {
   // a missing rate, never as converted at 1.
   private async marginsOf(companyId: string, quoteNumber: string, at: Date): Promise<MarginContext | undefined> {
     const quote = await salesQuoteRepository.loadSales(companyId, quoteNumber);
-    return quote ? marginsFor([quote], at) : undefined;
+    return quote ? marginsFor(companyId, [quote], at) : undefined;
   }
 
   // Prices the road transport of a quote from the trucking tariffs: the customer's sell price (or
@@ -650,6 +658,8 @@ class SalesQuoteService {
         reason: why,
         marginCzk: margin.marginCzk,
         marginPercent: margin.marginPercent,
+        // What the quote is now: a change of customer, mode, containers, owner or validity ends it (D10).
+        basis: approvalBasisOf(quote.data),
       };
       // Approving one's own quote is allowed, and the history says so (owner decision D9).
       const self = quote.ownerUserId === actor.userID ? " (self-approval)" : "";

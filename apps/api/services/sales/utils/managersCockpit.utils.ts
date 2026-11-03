@@ -130,6 +130,8 @@ export function quoteSignals(q: SalesManagersQuoteFact, today: string, now: Date
   if (q.shownStatus === "feedback" && q.followUpDue && (q.sellingCzk >= BIG_DEAL_SELLING_CZK || (q.marginCzk ?? 0) >= BIG_DEAL_PROFIT_CZK)) {
     out.push(urgent(4, "Big deal · Feedback · follow-up due"));
   }
+  // A Won quote's revision stays Won while its prices change, so no send gate sees them (Council Outlay 6 U2).
+  if (q.status === "won" && q.wonRevision && q.belowFloor) out.push(urgent(5, "Won revision below its floor, not approved"));
   const wonDay = dayOf(q.decidedAt);
   if (q.status === "won" && q.marginCzk !== null && q.marginCzk < 0 && wonDay && daysBetween(wonDay, today) <= WON_LOSS_DAYS) {
     out.push(urgent(5, "Won at a loss"));
@@ -147,7 +149,7 @@ export function quoteSignals(q: SalesManagersQuoteFact, today: string, now: Date
   }
 
   // ATTENTION
-  if (open && q.belowRoadFloor && !mi) out.push(attention(10, q.marginCzk === null ? "Margin unknown · can't be sent" : "Below margin floor, not approved"));
+  if (open && q.belowFloor && !mi) out.push(attention(10, q.marginCzk === null ? "Margin unknown · can't be sent" : "Below margin floor, not approved"));
   if (AWAITING.has(q.shownStatus) && q.validUntil && q.validUntil > today && daysBetween(today, q.validUntil) <= VALIDITY_ATTENTION_DAYS) {
     out.push(attention(11, `Valid until in ${plural(daysBetween(today, q.validUntil), "day")}`));
   }
@@ -171,7 +173,7 @@ export function quoteSignals(q: SalesManagersQuoteFact, today: string, now: Date
     if (ago <= EXPIRED_DAYS) out.push(attention(16, `Expired ${plural(ago, "day")} ago, no answer recorded`));
   }
   if (open && !q.ownerUserId) out.push(attention(17, "No Sales Owner"));
-  if (q.shownStatus === "ready_to_send" && q.marginProblem && !q.belowRoadFloor) out.push(attention(18, "Margin unknown: a ČNB rate is missing"));
+  if (q.shownStatus === "ready_to_send" && q.marginProblem && !q.belowFloor) out.push(attention(18, "Margin unknown: a ČNB rate is missing"));
   return out;
 }
 
