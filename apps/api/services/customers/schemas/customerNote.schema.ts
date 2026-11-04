@@ -22,6 +22,8 @@ export const customerNoteTable = pgTable(
     ...defaultTableIndexes("customer_note", table),
     tenantIndex("customer_note", table),
     index("customer_note_customer_id_idx").on(table.customerId),
+    // The customer list's Last contact: the newest live entry of each company.
+    index("customer_note_last_contact_idx").on(table.customerId, table.createdAt).where(sql`${table.deletedAt} IS NULL`),
     check("customer_note_type_check", sql`${table.type} IN ('Note', 'Email', 'Call', 'Follow-up', 'Visit')`),
   ],
 );

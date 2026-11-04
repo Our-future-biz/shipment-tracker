@@ -183,6 +183,12 @@ vi.mock("../repositories/haulierInvoice.repository", () => {
           .filter((i) => (!f.statuses || f.statuses.includes(i.status)) && (!f.haulierCustomerId || i.haulierCustomerId === f.haulierCustomerId))
           .map((invoice) => ({ invoice, lines: linesOf(invoice.id) })),
       ),
+      unpaidApproved: vi.fn(async (_c: string, h: string, limit: number) =>
+        mem.invoices
+          .filter((i) => i.haulierCustomerId === h && i.status === "APPROVED" && !i.paidOn)
+          .sort((a, b) => String(a.dueDate ?? "9999").localeCompare(String(b.dueDate ?? "9999")))
+          .slice(0, limit),
+      ),
       doneTrips: vi.fn(async (_c: string, h: string) => mem.trips.filter((t) => t.haulierCustomerId === h && t.status === "DONE" && !t.cancelledAt && t.buy)),
       donePartnerLegs: vi.fn(async (_c: string, h: string) =>
         mem.legs
@@ -457,6 +463,9 @@ describe("approve and reject", () => {
     await expect(haulierInvoiceService.markPaid(user, inv.id, undefined)).rejects.toMatchObject({ code: "permission_denied" });
     await expect(haulierInvoiceService.markPaid(manager, inv.id, "2999-01-01")).rejects.toMatchObject({ code: "invalid_argument" });
     await expect(haulierInvoiceService.markPaid(manager, inv.id, "1.11.2026")).rejects.toMatchObject({ code: "invalid_argument" });
+    await expect(haulierInvoiceService.markPaid(manager, inv.id, "2026-02-30")).rejects.toMatchObject({ code: "invalid_argument" });
+    // Not before the invoice was issued (10 Oct).
+    await expect(haulierInvoiceService.markPaid(manager, inv.id, "2026-10-09")).rejects.toMatchObject({ code: "invalid_argument", message: "The day it was paid cannot be before the invoice was issued (2026-10-10)" });
     const paid = await haulierInvoiceService.markPaid(manager, inv.id, "2026-10-20");
     expect(paid.payment).toMatchObject({ paidOn: "2026-10-20", byName: "Jana Nováková" });
     expect(mem.events.at(-1)).toMatchObject({ kind: "haulier_invoice_paid", customerId: H });
@@ -479,6 +488,25 @@ describe("approve and reject", () => {
     } finally {
       trackingSince.value = null;
     }
+  });
+
+  it("hands What we owe a haulier's approved invoices not yet paid, soonest due first, each saying whether its payment is noted here (C-1)", async () => {
+    const paid = await haulierInvoiceService.create(user, invoice({ invoiceNumber: "FV 2026/301" }));
+    await haulierInvoiceService.markPaid(manager, paid.id, "2026-10-20");
+    await haulierInvoiceService.create(user, invoice({ invoiceNumber: "FV 2026/302", totalNet: 10200, lines: [{ targetKind: "TRIP", targetId: LTL, invoiced: 1200, note: "" }] }));
+    const owed = await haulierInvoiceService.create(user, invoice({ invoiceNumber: "FV 2026/303", dueDate: null, totalNet: 800, vatAmount: 168, lines: [{ targetKind: "PARTNER_LEG", targetId: LEG, invoiced: 800, note: "" }] }));
+    expect(owed.status).toBe("APPROVED");
+    expect(await haulierInvoiceService.unpaidOf(COMPANY, H)).toEqual({
+      invoices: [{ id: owed.id, invoiceNumber: "FV 2026/303", issueDate: "2026-10-10", dueDate: null, totalGross: 968, currency: "CZK", paymentTracked: true }],
+      truncated: false,
+    });
+    trackingSince.value = new Date(Date.now() + 60_000);
+    try {
+      expect((await haulierInvoiceService.unpaidOf(COMPANY, H)).invoices.map((i) => i.paymentTracked)).toEqual([false]);
+    } finally {
+      trackingSince.value = null;
+    }
+    await expect(haulierInvoiceService.unpaidOf(COMPANY, "nope")).rejects.toMatchObject({ code: "invalid_argument" });
   });
 
   it("refuses to note as paid an invoice that is not approved", async () => {

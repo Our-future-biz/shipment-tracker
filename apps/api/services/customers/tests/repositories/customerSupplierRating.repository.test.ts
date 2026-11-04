@@ -2,9 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // The rating write, run against a stand-in for the database that records what each statement sets.
 const fake = vi.hoisted(() => {
-  const state = { sets: [] as Record<string, unknown>[], inserts: [] as Record<string, unknown>[], returning: [] as unknown[] };
+  const state = { sets: [] as Record<string, unknown>[], inserts: [] as Record<string, unknown>[], returning: [] as unknown[], locked: [] as unknown[], order: [] as string[] };
   const tx = {
-    update: () => ({ set: (values: Record<string, unknown>) => { state.sets.push(values); return { where: () => ({ returning: async () => state.returning }) }; } }),
+    select: () => ({ from: () => ({ where: () => ({ for: async (mode: string) => { state.order.push(`lock:${mode}`); return state.locked; } }) }) }),
+    update: () => ({ set: (values: Record<string, unknown>) => { state.order.push("update"); state.sets.push(values); return { where: () => ({ returning: async () => state.returning }) }; } }),
     insert: () => ({ values: async (values: Record<string, unknown>) => { state.inserts.push(values); } }),
   };
   const db = { transaction: async (fn: (t: typeof tx) => unknown) => fn(tx) };
@@ -19,6 +20,8 @@ beforeEach(() => {
   fake.state.sets = [];
   fake.state.inserts = [];
   fake.state.returning = [{ id: "c1" }];
+  fake.state.locked = [{ id: "c1" }];
+  fake.state.order = [];
 });
 
 describe("setting a supplier rating", () => {
@@ -39,8 +42,13 @@ describe("setting a supplier rating", () => {
     expect(fake.state.inserts[0]).toMatchObject({ rating: null, setBy: "lukas@ourfuture.biz", setByUserId: "u3" });
   });
 
-  it("keeps no history for a customer that is not there", async () => {
-    fake.state.returning = [];
+  it("locks the supplier's row before it writes, so two saves at once are stored and dated in order", async () => {
+    await customerSupplierRatingRepository.setRating("co", "c1", { rating: 3, reason: "", setBy: "x", setByUserId: null });
+    expect(fake.state.order).toEqual(["lock:update", "update"]);
+  });
+
+  it("keeps no history for a customer that is not there, or is no longer a supplier", async () => {
+    fake.state.locked = [];
     expect(await customerSupplierRatingRepository.setRating("co", "gone", { rating: 5, reason: "", setBy: "x", setByUserId: null })).toBeNull();
     expect(fake.state.inserts).toEqual([]);
   });

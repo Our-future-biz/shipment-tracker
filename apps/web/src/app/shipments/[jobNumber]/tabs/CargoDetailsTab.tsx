@@ -30,6 +30,7 @@ import {
   DIMENSION_UNITS,
   type DimensionUnit,
   dimensionLineIsEmpty,
+  withoutTypedVolumeWhenSized,
   checkConsistency,
   compareFigure,
   civByCurrency,
@@ -344,9 +345,11 @@ export function CargoDetailsTab({
     openItems.open(idx);
     setItems((r) => r.map((l, j) => (j === idx ? { ...l, ...p } : l)));
   };
+  // A change that gives the line all three sizes clears the volume typed for it, so it cannot
+  // come back from hiding when a size is cleared later.
   const patchDim = (idx: number, p: Partial<CargoDimensionLine>) => {
     openDims.open(idx);
-    setDims((r) => r.map((l, j) => (j === idx ? { ...l, ...p } : l)));
+    setDims((r) => r.map((l, j) => (j === idx ? withoutTypedVolumeWhenSized({ ...l, ...p }) : l)));
   };
 
   // A line's ADR details show while its ADR box is ticked. Ticking only opens the fields (the

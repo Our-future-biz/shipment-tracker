@@ -17,6 +17,11 @@ interface SupplierTermsSetRequest {
   vatCheckedAt: string & MaxLen<10>;
   /** The published accounts, the whole list (a Czech account or an IBAN each). */
   bankAccounts: (string & MaxLen<50>)[] & MaxLen<20>;
+  /**
+   * The editor started from Trucking's copy (GET /customers/:id said supplierTermsFromTrucking). A first save of
+   * a haulier whose terms Trucking holds is refused without it: it was made from values the page did not show.
+   */
+  fromTrucking?: boolean;
 }
 
 interface SupplierTermsSetResponse {
@@ -35,16 +40,22 @@ export const supplierTermsSet = api(
 interface SupplierTermsCopyResponse {
   /** Hauliers whose terms were copied from Trucking. */
   copied: number;
-  /** Those left as they are: their terms were already set here, or Trucking's profile names no live company. */
+  /** Those left as they are: their terms were already set here, or Trucking's profile names no live haulier. */
   skipped: number;
 }
 
+interface SupplierTermsCopyRequest {
+  /** The company whose hauliers are copied (a superadmin belongs to the platform company, not to it). */
+  companyId: string & MaxLen<36>;
+}
+
 // The one-off copy of every haulier's payment terms and VAT / bank details from Trucking (Council Outlay 7,
-// step 6b, E2). Only onto companies whose terms were never set here, so it can be run again. Superadmins only.
+// step 6b, E2), for one company. Only onto hauliers whose terms were never set here, so it can be run again.
+// Superadmins only.
 export const supplierTermsCopyFromTrucking = api(
   { expose: true, auth: true, method: "POST", path: "/customers/supplier-terms/copy-from-trucking" },
-  async (): Promise<SupplierTermsCopyResponse> => {
-    const actor = requireRole("superadmin");
-    return supplierTermsService.copyFromTrucking(actor.companyID);
+  async ({ companyId }: SupplierTermsCopyRequest): Promise<SupplierTermsCopyResponse> => {
+    requireRole("superadmin");
+    return supplierTermsService.copyFromTrucking(companyId);
   },
 );

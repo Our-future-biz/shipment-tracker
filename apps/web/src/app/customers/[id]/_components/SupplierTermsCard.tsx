@@ -8,7 +8,7 @@ import type { CustomerItem } from "@/hooks/useCustomers";
 import { useCustomer } from "@/hooks/useCustomers";
 import { useSupplierTerms, type SupplierTermsInput } from "@/hooks/useSupplierTerms";
 import { apiErrorMessage } from "@/lib/api";
-import { businessDayOf, businessToday, formatDate, formatDateTime } from "@/lib/date";
+import { businessDateTime, businessDayOf, businessToday, formatDate } from "@/lib/date";
 import { CURRENCIES } from "@/lib/enums";
 import { useToast } from "@/lib/toast";
 import { HaulierBankAccounts } from "@/app/trucking/hauliers/_components/HaulierBankAccounts";
@@ -21,29 +21,42 @@ interface SupplierTermsCardProps {
 const BANK_HOLD_DAYS = 30;
 const HAULIER_CURRENCIES = ["CZK", "EUR"];
 
-// Nothing is filled in that nobody chose (K7): days and currency not set stay empty until typed.
-const draftOf = (c: CustomerItem): SupplierTermsInput => ({
+// Nothing is filled in that nobody chose (K7): days and currency not set stay empty until typed. `fromTrucking`
+// tells the server the editor starts from Trucking's copy, so a first save of a haulier is not refused.
+const draftOf = (c: CustomerItem, fromTrucking: boolean): SupplierTermsInput => ({
   paymentDays: c.supplierTerms.paymentDays,
   currency: c.supplierTerms.currency ?? "",
   vatUnreliable: c.supplierTerms.vatUnreliable,
   bankAccountPublished: c.supplierTerms.bankAccountPublished,
   vatCheckedAt: c.supplierTerms.vatCheckedAt,
   bankAccounts: [...c.supplierTerms.bankAccounts],
+  fromTrucking,
 });
+
+// What a haulier's save still lacks, as the server would refuse it: Trucking pays by the days, in CZK or EUR.
+const haulierMissing = (d: SupplierTermsInput): string | null => {
+  if (d.paymentDays === null) return "A haulier needs its payment days: Trucking pays its invoices by them";
+  if (!HAULIER_CURRENCIES.includes(d.currency)) return "A haulier is paid in CZK or EUR";
+  return null;
+};
 
 // What we pay a supplier and the VAT register checks before we do (Council Outlay 7, step 6b): kept here
 // only, a haulier's copied to Trucking on every save. Managers and admins change them (the server says
 // who: canEditSupplierTerms); everyone sees them.
 export function SupplierTermsCard({ customer }: SupplierTermsCardProps) {
   const toast = useToast();
-  const { canEditSupplierTerms, supplierTermsFromTrucking } = useCustomer(customer.id);
+  const { canEditSupplierTerms, supplierTermsFromTrucking, supplierTermsUnavailable } = useCustomer(customer.id);
   const { saveTerms, saving } = useSupplierTerms(customer.id);
   const [draft, setDraft] = useState<SupplierTermsInput | null>(null);
   const terms = customer.supplierTerms;
   const haulier = customer.roles.includes("haulier");
   const editing = draft !== null;
-  const shown = draft ?? draftOf(customer);
-  const set = <K extends keyof SupplierTermsInput>(key: K, value: SupplierTermsInput[K]) => setDraft((d) => ({ ...(d ?? draftOf(customer)), [key]: value }));
+  const shown = draft ?? draftOf(customer, supplierTermsFromTrucking);
+  const set = <K extends keyof SupplierTermsInput>(key: K, value: SupplierTermsInput[K]) =>
+    setDraft((d) => ({ ...(d ?? draftOf(customer, supplierTermsFromTrucking)), [key]: value }));
+  const missing = haulier && draft ? haulierMissing(draft) : null;
+  // Trucking's copy could not be read: an edit from what is shown could wipe the VAT and bank details it holds.
+  const canEdit = canEditSupplierTerms && !supplierTermsUnavailable;
   const holdUntil = terms.bankAccountsChangedAt ? new Date(Date.parse(terms.bankAccountsChangedAt) + BANK_HOLD_DAYS * 86_400_000) : null;
   const onHold = haulier && holdUntil !== null && holdUntil.getTime() > Date.now();
   const currencies = haulier ? HAULIER_CURRENCIES : [...CURRENCIES];
@@ -59,18 +72,18 @@ export function SupplierTermsCard({ customer }: SupplierTermsCardProps) {
     );
   };
 
-  const extra = canEditSupplierTerms ? (
+  const extra = canEdit ? (
     editing ? (
       <span className="flex gap-2">
         <Button size="small" onClick={() => setDraft(null)} disabled={saving}>
           Cancel
         </Button>
-        <Button size="small" type="primary" onClick={handleSave} loading={saving}>
+        <Button size="small" type="primary" onClick={handleSave} loading={saving} disabled={!!missing} title={missing ?? undefined}>
           Save
         </Button>
       </span>
     ) : (
-      <Button size="small" icon={<EditOutlined />} onClick={() => setDraft(draftOf(customer))}>
+      <Button size="small" icon={<EditOutlined />} onClick={() => setDraft(draftOf(customer, supplierTermsFromTrucking))}>
         Edit
       </Button>
     )
@@ -87,6 +100,15 @@ export function SupplierTermsCard({ customer }: SupplierTermsCardProps) {
             description="These are not saved in the Customer Database yet. The first save keeps them here, with any change you make, and Trucking goes on using them."
           />
         )}
+        {supplierTermsUnavailable && (
+          <Alert
+            type="warning"
+            showIcon
+            message="Trucking's copy of these terms could not be read"
+            description="They are not saved in the Customer Database yet, and Trucking may hold more than is shown here. Reload the page in a moment to see and edit them."
+          />
+        )}
+        {missing && <Alert type="error" showIcon message={missing} />}
         {!canEditSupplierTerms && (
           <Alert type="info" showIcon icon={<LockOutlined />} message="Only a manager can change a supplier's payment terms and VAT / bank details." />
         )}
@@ -102,7 +124,8 @@ export function SupplierTermsCard({ customer }: SupplierTermsCardProps) {
                 placeholder={haulier ? "Required" : "Not set"}
                 value={shown.paymentDays}
                 onChange={(v) => set("paymentDays", v ?? null)}
-                style={{ width: "100%" }}
+                status={haulier && shown.paymentDays === null ? "error" : undefined}
+                className="!w-full"
               />
             ) : (
               <span className="text-[14px] text-slate-800">{terms.paymentDays === null ? "Not set" : `${terms.paymentDays} days`}</span>
@@ -119,6 +142,7 @@ export function SupplierTermsCard({ customer }: SupplierTermsCardProps) {
                 value={shown.currency || undefined}
                 options={currencies.map((c) => ({ value: c, label: c }))}
                 onChange={(v: string | undefined) => set("currency", v ?? "")}
+                status={haulier && !HAULIER_CURRENCIES.includes(shown.currency) ? "error" : undefined}
                 className="w-full"
               />
             ) : (
@@ -149,7 +173,7 @@ export function SupplierTermsCard({ customer }: SupplierTermsCardProps) {
           <HaulierBankAccounts accounts={shown.bankAccounts} onChange={(v) => set("bankAccounts", v)} readOnly={!editing} haulier={haulier} />
           {terms.bankAccountsChangedAt && (
             <p className={`m-0 text-[12px] ${onHold ? "text-amber-700" : "text-slate-400"}`}>
-              An account was added{terms.bankAccountsChangedBy ? ` by ${terms.bankAccountsChangedBy}` : ""} on {formatDateTime(terms.bankAccountsChangedAt)}
+              An account was added{terms.bankAccountsChangedBy ? ` by ${terms.bankAccountsChangedBy}` : ""} on {businessDateTime(terms.bankAccountsChangedAt)}
               {onHold && holdUntil ? `: until ${formatDate(businessDayOf(holdUntil.toISOString()))} a haulier invoice waits for a manager, even on an exact match.` : "."}
             </p>
           )}

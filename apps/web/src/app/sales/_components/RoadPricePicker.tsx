@@ -4,11 +4,12 @@ import { Select } from "antd";
 import { useHauliers, type RateLevelResult } from "@/hooks/useTrucking";
 import { HaulierOptionLabel } from "@/app/trucking/_components/HaulierOptionLabel";
 import { HaulierRatingNote } from "@/app/trucking/_components/HaulierRatingNote";
-import { ratingsOf, reasonsOf } from "@/app/trucking/_lib/haulierRating";
+import { notInUseOf, ratingsOf, reasonsOf } from "@/app/trucking/_lib/haulierRating";
 import { promisedLabel } from "@/app/trucking/_lib/rateCalculator";
 import { isPriced } from "@/app/trucking/_lib/tariffs";
 import { formatAmount as formatMoney } from "@/lib/money";
 import { TruckingField } from "@/app/trucking/_components/TruckingField";
+import { SUPPLIER_NOT_IN_USE } from "@/app/customers/_lib/supplierStatus";
 import { defaultHaulier, pickableLevels, type RatePick } from "../_lib/roadQuote";
 
 interface RoadPricePickerProps {
@@ -19,13 +20,15 @@ interface RoadPricePickerProps {
 }
 
 // Which service level and haulier go on the quote: only levels with a sell price are offered, and
-// a level's hauliers in the engine's order (preferred lane first, then cheapest), each with its stars.
-// The order is the price's, not the rating's: the first is the one the margin is worked out from.
+// a level's hauliers in the engine's order (preferred lane first, then cheapest), each with its stars, and
+// "Not in use" after one the Customer Database set so (D16). The order is the price's, not the rating's:
+// the first is the one the margin is worked out from.
 export const RoadPricePicker = ({ results, value, onChange, disabled = false }: RoadPricePickerProps) => {
   const levels = pickableLevels(results);
   const { hauliers } = useHauliers();
   const ratings = ratingsOf(hauliers);
   const reasons = reasonsOf(hauliers);
+  const notInUse = notInUseOf(hauliers);
   const chosen = value?.haulierCustomerId ?? null;
   const level = levels.find((r) => r.serviceLevel === value?.serviceLevel);
 
@@ -35,7 +38,7 @@ export const RoadPricePicker = ({ results, value, onChange, disabled = false }: 
   }));
   const haulierOptions = (level?.buy ?? []).map((b, i) => ({
     value: b.ownerCustomerId ?? "",
-    label: `${b.ownerName ?? "Haulier"} · ${formatMoney(b.total, b.currency)}${b.preferred ? " · preferred lane" : ""}${i === 0 ? " · suggested" : ""}`,
+    label: `${b.ownerName ?? "Haulier"}${b.ownerCustomerId && notInUse.has(b.ownerCustomerId) ? ` · ${SUPPLIER_NOT_IN_USE}` : ""} · ${formatMoney(b.total, b.currency)}${b.preferred ? " · preferred lane" : ""}${i === 0 ? " · suggested" : ""}`,
     rating: b.ownerCustomerId && ratings.has(b.ownerCustomerId) ? (ratings.get(b.ownerCustomerId) ?? null) : undefined,
   }));
 

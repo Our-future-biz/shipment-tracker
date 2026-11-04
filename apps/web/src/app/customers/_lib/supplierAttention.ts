@@ -2,11 +2,11 @@ import type { interfaces } from "@/lib/api/client";
 import type { ContactItem } from "@/hooks/useCustomerContacts";
 import type { DocumentItem } from "@/hooks/useCustomerDocuments";
 import type { CustomerItem } from "@/hooks/useCustomers";
-import { businessDayOf, formatDate } from "@/lib/date";
+import { addDays, businessDayOf, formatDate } from "@/lib/date";
+import { REASON_REQUIRED_UP_TO } from "@/lib/supplierRating";
 import type { AttentionItem } from "./customerAttention";
 import { DATED_DOCUMENT_TYPES } from "./constants";
 import { hasSupplierRole } from "./customerListViews";
-import { REASON_REQUIRED_UP_TO } from "./supplierRatingScale";
 
 // What on a supplier needs attention (Council Outlay 7, step 4): its Trucking check as Trucking makes it
 // (not worked out again), its rating, its tariffs, its papers and who takes its orders. One pure function
@@ -34,8 +34,6 @@ export interface SupplierTariffSummary {
   tariffCount: number;
   /** Versions that price today. */
   activeCount: number;
-  /** The soonest end of a version that prices today (YYYY-MM-DD); null when none ends. */
-  activeUntil: string | null;
   /**
    * The last day it has a tariff pricing without a gap, versions that start later counted (YYYY-MM-DD);
    * null when one never ends. "Tariffs ending" is judged on this (K12).
@@ -63,11 +61,6 @@ export interface SupplierAttentionInput {
   lastUsedAt?: string | null;
 }
 
-const addDays = (iso: string, days: number) => {
-  const d = new Date(`${iso}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-};
 const addMonths = (iso: string, months: number) => {
   const d = new Date(`${iso}T00:00:00Z`);
   d.setUTCMonth(d.getUTCMonth() + months);

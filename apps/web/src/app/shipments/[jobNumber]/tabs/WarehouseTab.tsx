@@ -10,7 +10,17 @@ import { buildRowData, getFieldValue, type ShipmentItem } from "@/hooks/useShipm
 import type { interfaces } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/date";
 import { loadTypeLabel } from "@/lib/enums";
-import { NOT_STACKABLE, STACKABLE, dimensionVolumePerPiece, numberInput, shipmentStackability } from "@/lib/cargo";
+import {
+  NOT_STACKABLE,
+  STACKABLE,
+  dimensionLineIsEmpty,
+  dimensionLineVolume,
+  dimensionTotals,
+  hasAllSizes,
+  numberInput,
+  shipmentStackability,
+  withoutTypedVolumeWhenSized,
+} from "@/lib/cargo";
 import { useWarehouseSection } from "@/hooks/useWarehouseSection";
 import { SectionCard as Card, PillTabs } from "@/components/SectionCard";
 import { PickupSection } from "./warehouse/PickupSection";
@@ -115,7 +125,7 @@ function StackabilityBadge({ shipment }: { shipment: ShipmentItem }) {
 
 type DimensionRow = interfaces.CargoDimensionLine;
 
-const EMPTY_DIM: DimensionRow = { containerId: null, pieces: "", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "", packageType: "", stackable: "" };
+const EMPTY_DIM: DimensionRow = { containerId: null, pieces: "", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "", volumePerPcM3: "", packageType: "", stackable: "" };
 
 function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; messageApi: MessageInstance }) {
   const queryClient = useQueryClient();
@@ -131,15 +141,17 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
   const [rows, setRows] = useState<DimensionRow[]>(initial);
   const [dirty, setDirty] = useState(false);
 
+  // A line given all three sizes here loses the volume typed for it in Cargo Details (the server keeps none beside them).
   const updateRow = (idx: number, field: keyof DimensionRow, value: string) => {
-    setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
+    setRows((prev) => prev.map((r, i) => (i === idx ? withoutTypedVolumeWhenSized({ ...r, [field]: value }) : r)));
     setDirty(true);
   };
   const addRow = () => { setRows((prev) => [...prev, { ...EMPTY_DIM }]); setDirty(true); };
   const deleteRow = (idx: number) => { setRows((prev) => prev.filter((_, i) => i !== idx)); setDirty(true); };
 
   const save = async () => {
-    const filtered = rows.filter((r) => r.pieces || r.lengthCm || r.widthCm || r.heightCm || r.weightPerPcKg);
+    // Only a line with nothing in it is left out: one holding just its typed volume or ADR is kept, as in Cargo Details.
+    const filtered = rows.filter((r) => !dimensionLineIsEmpty(r));
     try {
       await api.shipments.shipmentUpdate(shipment.id, { cargoDimensions: filtered });
       queryClient.invalidateQueries({ queryKey: ["shipments"] });
@@ -150,32 +162,14 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
     }
   };
 
-  const rowCbms: number[] = [];
-  let totalColli = 0, totalWeightKg = 0, totalVolumeCbm = 0;
-  for (const r of rows) {
-    const c = parseFloat(r.pieces) || 0;
-    const L = parseFloat(r.lengthCm) || 0;
-    const W = parseFloat(r.widthCm) || 0;
-    const H = parseFloat(r.heightCm) || 0;
-    const w = parseFloat(r.weightPerPcKg) || 0;
-    const cbm = (c * (L * W * H)) / 1_000_000;
-    rowCbms.push(cbm);
-    totalColli += c;
-    totalWeightKg += c * w;
-    totalVolumeCbm += cbm;
-  }
+  // Both sides count a line alike (lib/cargo): its volume from the sizes, or the m³ typed for a line
+  // without them, so a line nobody remeasured never reads as a difference.
+  const rowCbms = rows.map(dimensionLineVolume);
+  const { pcs: totalColli, kg: totalWeightKg, m3: totalVolumeCbm } = dimensionTotals(rows);
 
   const shipmentDims = useMemo(() => {
-    let sColli = 0, sWeight = 0, sVolume = 0;
-    for (const r of shipment.cargoDimensions ?? []) {
-      const c = parseFloat(r.pieces) || 0;
-      const w = parseFloat(r.weightPerPcKg) || 0;
-      sColli += c;
-      sWeight += c * w;
-      // From the sizes, or the m³ typed for a line without them.
-      sVolume += c * dimensionVolumePerPiece(r);
-    }
-    return { colli: sColli, weightKg: sWeight, volumeCbm: sVolume };
+    const t = dimensionTotals(shipment.cargoDimensions ?? []);
+    return { colli: t.pcs, weightKg: t.kg, volumeCbm: t.m3 };
   }, [shipment.cargoDimensions]);
 
   const mismatchCls = (a: number, b: number) => (a !== b && a > 0 && b > 0 ? "bg-amber-500/15 px-1.5 py-0.5 rounded" : "");
@@ -236,7 +230,11 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
                   />
                 </td>
               ))}
-              <td className="p-0.5 px-1 text-right text-[11px] text-slate-500">
+              {/* Worked out, so text: from the sizes, or for a line without them from the m³ per piece typed in Cargo Details. */}
+              <td
+                className="p-0.5 px-1 text-right text-[11px] text-slate-500"
+                title={!hasAllSizes(row) && (rowCbms[idx] ?? 0) > 0 ? `Typed in Cargo Details: ${row.volumePerPcM3} m³ per piece` : undefined}
+              >
                 {(rowCbms[idx] ?? 0) > 0 ? rowCbms[idx]!.toFixed(4) : "—"}
               </td>
               <td className="p-0.5 px-1">

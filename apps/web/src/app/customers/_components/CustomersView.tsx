@@ -36,9 +36,6 @@ import {
   VIEW_WORDS,
   hasSupplierRole,
   listViewFrom,
-  matchesOwnerFilter,
-  matchesRatingFilter,
-  matchesSupplierTypes,
   ownerFilterFrom,
   ratingFilterFrom,
   ratingRank,
@@ -60,6 +57,7 @@ import {
   type SortKey,
 } from "../_lib/customerListColumns";
 import { AddCustomerModal } from "./AddCustomerModal";
+import { AlsoChip } from "./AlsoChip";
 import { CustomerColumnPicker, type ColumnTemplate } from "./CustomerColumnPicker";
 import { CustomerFiltersPopover, type FilterTemplate, type StoredFilter } from "./CustomerFiltersPopover";
 import { TOOLBAR_BUTTON_CLASS, matchesGridFilters, storedGridFilters, withFilterId, type GridFilter } from "@/components/gridFilters";
@@ -219,6 +217,10 @@ export function CustomersView() {
         label: accountType || undefined,
         role: role || undefined,
         kind: VIEW_KIND[view],
+        // The view's own filters are the server's too, so they cover every company, not only the newest 2000.
+        owner: owner || undefined,
+        types: supplierTypes,
+        rating: ratingFilter || undefined,
       },
       // The Deleted view lists other rows; the live ones are read again when it is left.
       { enabled: !showDeleted },
@@ -272,19 +274,13 @@ export function CustomersView() {
   const rows = useMemo(() => {
     // After a failed request the rows still in memory may be out of date; the error is shown instead.
     if (isError) return [];
-    // The owner, supplier type and rating filters narrow what the server returned, as the column filters do.
-    const kept = customers.filter(
-      (c) =>
-        matchesOwnerFilter(c, owner, user?.id) &&
-        matchesSupplierTypes(c.roles, supplierTypes) &&
-        matchesRatingFilter(c.supplierRating, ratingFilter) &&
-        (!activeFilters.length || matchesGridFilters(c, activeFilters, customerCellText)),
-    );
+    // The column filters narrow what the server returned.
+    const kept = activeFilters.length ? customers.filter((c) => matchesGridFilters(c, activeFilters, customerCellText)) : customers;
     if (!sortKey) return kept;
     const direction = sortDirection === "ascend" ? 1 : -1;
     // Equal ones by name, whichever way the column is sorted.
     return [...kept].sort((a, b) => direction * COMPARE[sortKey](a, b) || COMPARE.name(a, b));
-  }, [customers, isError, sortKey, sortDirection, activeFilters, owner, user?.id, supplierTypes, ratingFilter]);
+  }, [customers, isError, sortKey, sortDirection, activeFilters]);
 
   const hasFilters =
     !!debouncedSearch || !!status || !!accountType || !!owner || supplierTypes.length > 0 || !!ratingFilter || !!role || activeFilters.length > 0;
@@ -666,9 +662,4 @@ export function CustomersView() {
       </div>
     </div>
   );
-}
-
-// "also supplier" / "also customer" beside the name of a company that is both.
-function AlsoChip({ children }: { children: string }) {
-  return <span className="whitespace-nowrap rounded-xl bg-slate-100 px-2 py-0.5 text-[11px] font-medium leading-[18px] text-slate-500">{children}</span>;
 }

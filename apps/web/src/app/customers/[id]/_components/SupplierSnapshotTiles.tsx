@@ -5,7 +5,7 @@ import { useCustomerNotes } from "@/hooks/useCustomerNotes";
 import type { CustomerItem } from "@/hooks/useCustomers";
 import { useHaulier } from "@/hooks/useTrucking";
 import { useSupplierUsage } from "@/hooks/useSupplierUsage";
-import { businessToday, formatDate } from "@/lib/date";
+import { addDays, businessToday, formatDate } from "@/lib/date";
 import { SUPPLIER_RULES } from "../../_lib/supplierAttention";
 import { EMPTY_CELL } from "../../_lib/customerTable";
 import { SnapshotTile, lastContactTile, placeholderTile, type TileContent } from "./CustomerSnapshotTiles";
@@ -41,7 +41,7 @@ export function SupplierSnapshotTiles({ customer, onSelectTab }: SupplierSnapsho
   const active = tariffs.summaries.reduce((sum, t) => sum + t.activeCount, 0);
   // How far its tariffs reach without a gap, follow-on versions counted (R8).
   const ends = tariffs.summaries.map((t) => t.coveredUntil).filter((d): d is string => !!d).sort()[0];
-  const soon = ends && ends <= new Date(Date.parse(`${businessToday()}T00:00:00Z`) + SUPPLIER_RULES.endingWithinDays * 86_400_000).toISOString().slice(0, 10);
+  const soon = ends && ends <= addDays(businessToday(), SUPPLIER_RULES.endingWithinDays);
   const tariffTile =
     placeholderTile(tariffs.isLoading, tariffs.isError) ??
     (active === 0 ? { value: "None valid", tone: "red" as const } : { value: ends ? `${active} · to ${formatDate(ends).slice(0, 5)}` : String(active), tone: soon ? ("amber" as const) : ("green" as const) });

@@ -569,7 +569,7 @@ export function getCellConditionalStyle(
 // ─── Computed Column Calculators ──────────────────────────────────────
 
 // Shape of a cargo_dimension row as served by the API (volume per piece is
-// always derived from L×W×H, never stored).
+// derived from L×W×H, or typed for a line whose sizes are not all known).
 export interface DimensionRow {
   pieces: string;
   lengthCm: string;
@@ -612,11 +612,13 @@ export function summarizeDimensions(dimensions: unknown): string {
   try {
     const rows: DimensionRow[] = Array.isArray(dimensions) ? dimensions : JSON.parse(String(dimensions));
     const num = (v: string) => String(parseFloat(v || "0") || 0);
+    // The m³ typed for a piece of a line without its sizes, read as its volume is (a comma is a point).
+    const typed = (r: DimensionRow) => (hasAllSizes(r) ? 0 : dimensionVolumePerPiece(r));
     return rows
-      .filter((r) => [r.lengthCm, r.widthCm, r.heightCm, r.volumePerPcM3 ?? ""].some((v) => parseFloat(v || "0") > 0))
+      .filter((r) => [r.lengthCm, r.widthCm, r.heightCm].some((v) => parseFloat(v || "0") > 0) || typed(r) > 0)
       .map((r) => {
         const pcs = num(r.pieces) === "0" ? "1" : num(r.pieces);
-        if (!hasAllSizes(r) && parseFloat(r.volumePerPcM3 || "0") > 0) return `${pcs}\u00d7 ${num(r.volumePerPcM3 ?? "")} m\u00b3`;
+        if (typed(r) > 0) return `${pcs}\u00d7 ${typed(r)} m\u00b3`;
         // A line typed in inches shows in inches, as typed (the same conversion as Cargo Details).
         const shown = lineInUnit(r);
         return `${pcs}\u00d7 ${num(shown.lengthCm)}\u00d7${num(shown.widthCm)}\u00d7${num(shown.heightCm)} ${unitLabel(r.dimensionUnit)}`;

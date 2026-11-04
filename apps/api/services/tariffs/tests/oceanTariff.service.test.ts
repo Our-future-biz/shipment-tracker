@@ -258,6 +258,29 @@ describe("offers", () => {
     ]);
   });
 
+  it("at the same price puts the better rated shipping line first, then goes by name, whatever order the rates come in", async () => {
+    const HAPAG = { ...OOCL, id: "22222222-2222-4222-8222-222222222222", companyName: "Hapag-Lloyd AG" };
+    const HAPAG_VERSION = "66666666-6666-4666-8666-666666666666";
+    repo.oceanCandidates.mockResolvedValue([
+      { version: version({ status: "active" }), tariff: tariff() },
+      { version: version({ id: HAPAG_VERSION, status: "active" }), tariff: tariff({ id: "t-hapag", supplierCustomerId: HAPAG.id, name: "Hapag FAK" }) },
+    ]);
+    repo.oceanRoute.mockResolvedValue([rate({ id: "oocl" }), rate({ id: "hapag", versionId: HAPAG_VERSION })]);
+    const lines = (oocl: number | null) =>
+      vi.mocked(customers._internalCompaniesWithRole).mockImplementation(async ({ ids }) => ({ companies: [{ ...OOCL, rating: oocl }, HAPAG].filter((c) => !ids || ids.includes(c.id)) }));
+    const order = async () => (await ask()).offers.map((o) => [o.rateId, o.totals[0]!.amount]);
+    lines(null);
+    expect(await order()).toEqual([
+      ["hapag", 330],
+      ["oocl", 330],
+    ]);
+    lines(4);
+    expect(await order()).toEqual([
+      ["oocl", 330],
+      ["hapag", 330],
+    ]);
+  });
+
   it("asks every port of loading when compared, and names the containers the tariffs do not price", async () => {
     const result = await ask({ comparePols: true, containers: [{ type: "40' DC", qty: 1 }, { type: "40' FR", qty: 1 }] });
     expect(repo.oceanRoute).toHaveBeenCalledWith(COMPANY, [VERSION_ID], "CNSHA", null);

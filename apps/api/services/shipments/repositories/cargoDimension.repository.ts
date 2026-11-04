@@ -3,7 +3,6 @@ import { TenantRepository } from "../../../lib/db/repository";
 import { db, type Tx } from "../db/db";
 import { cargoDimensionTable, type CargoDimensionRecord } from "../schemas/cargoDimension.schema";
 import type { CargoDimensionLine } from "../interfaces/interfaces";
-import { hasAllSizes } from "../lib/cargoProjection";
 
 class CargoDimensionRepository extends TenantRepository<typeof cargoDimensionTable> {
   constructor() {
@@ -65,8 +64,8 @@ class CargoDimensionRepository extends TenantRepository<typeof cargoDimensionTab
         heightCm: l.heightCm,
         dimensionUnit: l.dimensionUnit === "in" ? "in" : "cm",
         weightPerPcKg: l.weightPerPcKg,
-        // With all three sizes the volume is theirs: a typed one is not kept beside it.
-        volumePerPcM3: hasAllSizes(l) ? "" : (l.volumePerPcM3 ?? "").trim(),
+        // As the write normalised it (normalizeCargoDimension): "" beside all three sizes.
+        volumePerPcM3: l.volumePerPcM3 ?? "",
         packageType: l.packageType,
         stackable: l.stackable,
         palletType: l.palletType ?? null,

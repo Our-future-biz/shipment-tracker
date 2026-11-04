@@ -58,13 +58,13 @@ describe("a supplier's Needs attention", () => {
   });
 
   it("names a role with no tariff that prices today, and tariffs whose last covered day is within 30 days", () => {
-    const tariff = { role: "rail_operator" as const, label: "Rail tariffs", href: "", tariffCount: 2, activeCount: 1, activeUntil: "2026-12-31", coveredUntil: "2026-12-31" };
+    const tariff = { role: "rail_operator" as const, label: "Rail tariffs", href: "", tariffCount: 2, activeCount: 1, coveredUntil: "2026-12-31" };
     expect(keys({ tariffs: [tariff] })).toEqual([]);
     expect(keys({ tariffs: [{ ...tariff, activeCount: 0 }] })).toEqual(["no-tariff-rail_operator"]);
-    expect(keys({ tariffs: [{ ...tariff, activeUntil: "2026-12-04", coveredUntil: "2026-12-04" }] })).toEqual(["tariff-ending-rail_operator"]);
+    expect(keys({ tariffs: [{ ...tariff, coveredUntil: "2026-12-04" }] })).toEqual(["tariff-ending-rail_operator"]);
     // One version ends soon but another carries on after it, or one never ends: no ending (R8).
-    expect(keys({ tariffs: [{ ...tariff, activeUntil: "2026-11-20", coveredUntil: "2027-03-31" }] })).toEqual([]);
-    expect(keys({ tariffs: [{ ...tariff, activeUntil: "2026-11-20", coveredUntil: null }] })).toEqual([]);
+    expect(keys({ tariffs: [{ ...tariff, coveredUntil: "2027-03-31" }] })).toEqual([]);
+    expect(keys({ tariffs: [{ ...tariff, coveredUntil: null }] })).toEqual([]);
     // Not loaded yet: nothing is said about tariffs.
     expect(keys({ tariffs: null })).toEqual([]);
   });

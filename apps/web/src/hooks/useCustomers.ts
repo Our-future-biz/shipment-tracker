@@ -26,6 +26,12 @@ export interface CustomerQueryParams {
   role?: interfaces.CustomerRole;
   /** Only customers, or only suppliers (any role but customer). */
   kind?: interfaces.CustomerListKind;
+  /** Only the signed-in user's companies as Sales Owner, or those with none. */
+  owner?: interfaces.CustomerOwnerFilter;
+  /** Only suppliers of these types. */
+  types?: interfaces.CustomerRole[];
+  /** Only suppliers of this rating band, or not rated. */
+  rating?: interfaces.CustomerRatingFilter;
 }
 
 // Query keys that hold one customer's record and its lists (see the useCustomer* hooks).
@@ -59,19 +65,30 @@ export const refreshCustomerLists = (queryClient: QueryClient) => {
   refreshTariffSuppliers(queryClient);
 };
 
+/**
+ * The cached page with a company just saved put in. A save answers with the company as stored, and for a
+ * haulier shown "as Trucking holds them" (supplierTermsFromTrucking) the stored terms are empty: the terms
+ * on the page are kept until the refetch, as this save did not change them (they have a save of their own).
+ */
+export const withSavedCustomer =
+  (saved: interfaces.CustomerItem) =>
+  (prev: controllers.CustomerGetResponse | undefined): controllers.CustomerGetResponse | undefined =>
+    prev ? { ...prev, customer: { ...saved, supplierTerms: prev.customer.supplierTerms } } : prev;
+
 // With `enabled: false` nothing is asked: a picker that searches as its user types has no reason
 // to download the whole customer database before anything was typed.
 export const useCustomers = (params: CustomerQueryParams = {}, { enabled = true } = {}) => {
   const queryClient = useQueryClient();
 
   const search = params.search?.trim() || undefined;
-  const { status, label, country, role, kind } = params;
+  const { status, label, country, role, kind, owner, rating } = params;
+  const types = params.types?.length ? params.types.join(",") : undefined;
 
   // Filters are applied server-side (scoped to the company) so they cover the whole
   // customer database rather than only the rows already loaded in the browser.
   const query = useQuery({
-    queryKey: ["customers", search ?? "", status ?? "", label ?? "", country ?? "", role ?? "", kind ?? ""],
-    queryFn: () => api.customers.customerList({ search, status, label, country, role, kind }),
+    queryKey: ["customers", search ?? "", status ?? "", label ?? "", country ?? "", role ?? "", kind ?? "", owner ?? "", types ?? "", rating ?? ""],
+    queryFn: () => api.customers.customerList({ search, status, label, country, role, kind, owner, types, rating }),
     placeholderData: (prev) => prev,
     enabled,
   });
@@ -133,7 +150,7 @@ export const useCustomer = (id: string | null) => {
   const updateMutation = useMutation({
     mutationFn: (params: controllers.CustomerUpdateRequest) => api.customers.customerUpdate(id as string, params),
     onSuccess: (res) => {
-      queryClient.setQueryData<controllers.CustomerGetResponse>(["customer", id], (prev) => (prev ? { ...prev, customer: res.customer } : prev));
+      queryClient.setQueryData<controllers.CustomerGetResponse>(["customer", id], withSavedCustomer(res.customer));
       invalidate();
       // A new name or account type reaches the shipments, open quotes and follow-ups that copy it
       // (on the server, a moment later): those lists are read again once that has happened.
@@ -164,6 +181,8 @@ export const useCustomer = (id: string | null) => {
     /** Whether the signed-in user may change its payment terms and VAT / bank details (a manager, and it is a supplier). */
     canEditSupplierTerms: query.data?.canEditSupplierTerms ?? false,
     supplierTermsFromTrucking: query.data?.supplierTermsFromTrucking ?? false,
+    /** Never saved here and Trucking's copy could not be read: not to be edited until a reload reads it. */
+    supplierTermsUnavailable: query.data?.supplierTermsUnavailable ?? false,
     updateCustomer: updateMutation.mutateAsync,
     deleteCustomer: deleteMutation.mutateAsync,
     uploadLogo: uploadLogoMutation.mutateAsync,

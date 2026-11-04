@@ -242,13 +242,16 @@ export interface HaulierProfileInput {
   licenceUnlimited: boolean;
   adrCapable: boolean;
   vehicleTypes: string[];
+  /**
+   * paymentDays, currency, vatUnreliable, bankAccountPublished, vatCheckedAt and bankAccounts are the Customer
+   * Database's (step 6b): a profile save here keeps them as stored, whatever it sends.
+   */
   paymentDays: number;
   currency: HaulierCurrency;
-  /** vatUnreliable, bankAccountPublished, vatCheckedAt and bankAccounts: a manager only (another user's save must send them as stored) */
   vatUnreliable: boolean;
   bankAccountPublished: boolean;
   vatCheckedAt: string | null;
-  /** Phase 6: the published accounts (the whole list); left out = kept as saved */
+  /** The published accounts (the whole list) */
   bankAccounts?: string[];
   costSplitBasis: CostSplitBasis;
   notes: string;

@@ -79,7 +79,18 @@ describe("received and paid (Council Outlay 7, step 6b)", () => {
     expect(() => receiptChanges(stored({ received: true }), buyingChanges({ paidOn: "2026-11-05" }), now, today)).toThrow(/after today/);
     expect(receiptChanges(null, buyingChanges({ received: true, paidOn: "2026-11-04" } as never), now, today)).toEqual({ receivedAt: now, paidAt: now, paidByUserId: null, paidBy: null });
     expect(() => buyingChanges({ paidOn: "4.11.2026" })).toThrow(/paidOn must be a date/);
+    expect(() => buyingChanges({ paidOn: "2026-02-30" })).toThrow(/paidOn must be a date/);
     expect(buyingChanges({ paidOn: "" })).toEqual({ paidOn: null });
+  });
+
+  it("pay no earlier than the Prague day the invoice was received; a line received before that was kept on any day (C-8)", () => {
+    // 23:30 UTC on 1 Nov is 2 Nov in Prague.
+    const received = stored({ received: true, receivedAt: new Date("2026-11-01T23:30:00Z") });
+    expect(() => receiptChanges(received, buyingChanges({ paidOn: "2026-11-01" }), now, today)).toThrow("The day it was paid cannot be before its invoice was received (2026-11-02)");
+    expect(receiptChanges(received, buyingChanges({ paidOn: "2026-11-02" }), now, today)).toMatchObject({ paidAt: now });
+    // Ticked and paid at once: received today.
+    expect(() => receiptChanges(stored(), buyingChanges({ received: true, paidOn: "2026-11-03" } as never), now, today)).toThrow(/before its invoice was received/);
+    expect(receiptChanges(stored({ received: true }), buyingChanges({ paidOn: "2020-01-01" }), now, today)).toMatchObject({ paidAt: now });
   });
 });
 

@@ -1,3 +1,5 @@
+import type { MaxLen } from "encore.dev/validate";
+
 export interface InvoiceCostItem {
   id: string;
   shipmentId: string;
@@ -132,7 +134,7 @@ export interface BuyingCostInput {
   category?: string;
   /** what is charged, in words (from the quote) */
   description?: string;
-  vendor?: string;
+  vendor?: string & MaxLen<300>;
   /** the Customer Database supplier the vendor names; "" clears it (a vendor typed by hand) */
   supplierCustomerId?: string;
   /** the day the received invoice was paid, yyyy-mm-dd; "" takes it back */
@@ -200,7 +202,7 @@ export interface CategoryCostInput {
   realAmount?: string;
   realCurrency?: string;
   invoiceNumber?: string;
-  vendor?: string;
+  vendor?: string & MaxLen<300>;
 }
 
 /** VAT code a selling line can be set to; "NP" is only ever derived, never chosen. */
@@ -728,19 +730,66 @@ export interface SupplierUsageResponse {
   lastUsedAt: string | null;
 }
 
+/** An approved Trucking invoice of a haulier not yet paid, in What we owe (Council Review 5, C-1). */
+export interface SupplierHaulierInvoiceLine {
+  id: string;
+  invoiceNumber: string;
+  /** owed: approved and its payment noted here. untracked: approved before payments were noted here, so it may have been paid already: listed, not counted (K2) */
+  kind: "owed" | "untracked";
+  /** yyyy-mm-dd */
+  issueDate: string;
+  /** its due day in Trucking, yyyy-mm-dd; "" when it has none */
+  dueOn: string;
+  /** days past the due day; 0 when not overdue, not known or untracked */
+  overdueDays: number;
+  /** the invoice's total, with VAT */
+  amount: number;
+  currency: string;
+}
+
+/** What we owe a haulier on its Trucking invoices in one currency, with VAT, over all of them (not only those listed). */
+export interface SupplierHaulierInvoiceTotal {
+  currency: string;
+  owed: number;
+  overdue: number;
+  untracked: number;
+}
+
+/**
+ * Whether a haulier's Trucking invoices are in What we owe. included: they are; hidden: the caller does not see the
+ * Trucking Concept (superadmins only), so they are left out; unavailable: Trucking could not be read; none: the
+ * supplier is no haulier.
+ */
+export type SupplierHaulierInvoicesStatus = "included" | "hidden" | "unavailable" | "none";
+
+export interface SupplierHaulierInvoices {
+  status: SupplierHaulierInvoicesStatus;
+  /** most overdue first, then by due day (none last) (at most 300) */
+  owed: SupplierHaulierInvoiceLine[];
+  /** the newest issued first (at most 200) */
+  untracked: SupplierHaulierInvoiceLine[];
+  /** with VAT, never added to the shipment costs' totals (without VAT) */
+  totals: SupplierHaulierInvoiceTotal[];
+  /** how many there are of each, and of the owed: with no due day */
+  counts: { owed: number; untracked: number; dueUnknown: number };
+  /** more unpaid invoices than Trucking hands at once (10,000): the totals leave the latest due out */
+  truncated: boolean;
+}
+
 export interface SupplierCostsResponse {
   /** most overdue first, then oldest received (at most 300) */
   owed: SupplierCostLine[];
-  /** newest first (at most 200) */
+  /** of the lines entered last (at most 200), the newest job first */
   expected: SupplierCostLine[];
-  /** newest first (at most 200) */
+  /** of the lines entered last (at most 200), the newest job first */
   untracked: SupplierCostLine[];
+  /** each currency over every open line, without VAT (as typed) */
   totals: SupplierCostTotal[];
   /** how many there are of each, and of the owed: without a real cost, with no known due day */
   counts: { owed: number; expected: number; untracked: number; withoutAmount: number; dueUnknown: number };
   /** the supplier's payment days the due days were worked out with; null when not set */
   paymentDays: number | null;
   typedNames: SupplierTypedName[];
-  /** more open lines than can be read at once: the totals leave the oldest out */
-  truncated: boolean;
+  /** a haulier's approved Trucking invoices not yet paid, apart: their totals are with VAT */
+  haulierInvoices: SupplierHaulierInvoices;
 }

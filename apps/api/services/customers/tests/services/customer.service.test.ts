@@ -16,6 +16,7 @@ vi.mock("../../repositories/customer.repository", () => ({
     createWithContact: vi.fn(),
     getByIdForCompany: vi.fn(),
     updateForCompany: vi.fn(),
+    updateLocked: vi.fn(),
     activate: vi.fn(),
   },
 }));
@@ -68,6 +69,17 @@ describe("roles", () => {
     expect(total).toBe(1);
   });
 
+  it("are filtered on the server with the owner, supplier types and rating a user asks for", async () => {
+    repository.listFiltered.mockResolvedValue({ rows: [], total: 0 });
+    await customerService.listFor(COMPANY, "user-7", { kind: "suppliers", owner: "mine", types: "haulier, shipping_line", rating: "3" });
+    expect(repository.listFiltered).toHaveBeenLastCalledWith(COMPANY, { kind: "suppliers", salesOwner: "user-7", anyRole: ["haulier", "shipping_line"], rating: { min: 3 } });
+    await customerService.listFor(COMPANY, "user-7", { owner: "none", rating: "low" });
+    expect(repository.listFiltered).toHaveBeenLastCalledWith(COMPANY, { salesOwner: "none", rating: { max: 2 } });
+    await customerService.listFor(COMPANY, "user-7", { rating: "none", types: "" });
+    expect(repository.listFiltered).toHaveBeenLastCalledWith(COMPANY, { rating: "unrated" });
+    await expect(customerService.listFor(COMPANY, "user-7", { types: "customer" })).rejects.toMatchObject({ code: "invalid_argument" });
+  });
+
   it("make a new company a customer unless others are given", async () => {
     repository.findByIco.mockResolvedValue(null);
     ares.lookup.mockResolvedValue({ ico: "12345678", registrationDate: "" } as never);
@@ -79,20 +91,46 @@ describe("roles", () => {
     expect(repository.createWithContact).toHaveBeenLastCalledWith(COMPANY, expect.objectContaining({ roles: ["haulier"] }), expect.anything(), expect.anything());
   });
 
-  it("are stored once each when changed", async () => {
-    repository.getByIdForCompany.mockResolvedValue(customerRow({ roles: ["customer", "haulier"] }));
-    repository.updateForCompany.mockResolvedValue(customerRow({ roles: ["haulier", "customer"] }));
+  // A change of roles is worked out with the row locked: `current` is the row as the lock reads it, and the
+  // values the change writes are kept in `written`.
+  let written: Record<string, unknown> | null = null;
+  const lockedOn = (current: Record<string, unknown>) =>
+    repository.updateLocked.mockImplementation(async (_id, _company, work) => {
+      written = (await work(customerRow(current))) as Record<string, unknown> | null;
+      return customerRow({ ...current, ...written });
+    });
+
+  it("are stored once each when changed, with the row locked", async () => {
+    lockedOn({ roles: ["customer", "haulier"] });
     await customerService.update("customer-1", COMPANY, "manager", { roles: ["haulier", "customer", "haulier"] });
-    expect(repository.updateForCompany).toHaveBeenCalledWith("customer-1", COMPANY, { roles: ["haulier", "customer"] });
+    expect(repository.updateLocked).toHaveBeenCalledWith("customer-1", COMPANY, expect.any(Function));
+    expect(written).toEqual({ roles: ["haulier", "customer"] });
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
   });
 
   it("make a supplier only that becomes a customer a Prospect, unless a status is sent with them (K14)", async () => {
-    repository.getByIdForCompany.mockResolvedValue(customerRow({ roles: ["haulier"], status: "Active" }));
-    repository.updateForCompany.mockResolvedValue(customerRow({ roles: ["haulier", "customer"] }));
+    lockedOn({ roles: ["haulier"], status: "Active" });
     await customerService.update("customer-1", COMPANY, "manager", { roles: ["haulier", "customer"] });
-    expect(repository.updateForCompany).toHaveBeenLastCalledWith("customer-1", COMPANY, { roles: ["haulier", "customer"], status: "Prospect" });
+    expect(written).toEqual({ roles: ["haulier", "customer"], status: "Prospect" });
     await customerService.update("customer-1", COMPANY, "manager", { roles: ["haulier", "customer"], status: "Active" });
-    expect(repository.updateForCompany).toHaveBeenLastCalledWith("customer-1", COMPANY, expect.objectContaining({ status: "Active" }));
+    expect(written).toEqual(expect.objectContaining({ status: "Active" }));
+  });
+
+  it("keep a customer stored Inactive that becomes a supplier only in use as one, unless a status is sent with them", async () => {
+    lockedOn({ roles: ["customer", "haulier"], status: "Inactive" });
+    await customerService.update("customer-1", COMPANY, "manager", { roles: ["haulier"] });
+    expect(written).toEqual({ roles: ["haulier"], status: "Active" });
+    await customerService.update("customer-1", COMPANY, "manager", { roles: ["haulier"], status: "Inactive" });
+    expect(written).toEqual({ roles: ["haulier"], status: "Inactive" });
+    lockedOn({ roles: ["customer", "haulier"], status: "Prospect" });
+    await customerService.update("customer-1", COMPANY, "manager", { roles: ["haulier"] });
+    expect(written).toEqual({ roles: ["haulier"] });
+  });
+
+  it("are checked whole before anything is written: a bad registration date refuses the change of roles", async () => {
+    lockedOn({ roles: ["customer"] });
+    await expect(customerService.update("customer-1", COMPANY, "manager", { roles: ["customer", "haulier"], registrationDate: "31.2.2020" })).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(repository.updateLocked).not.toHaveBeenCalled();
   });
 
   it("can't be emptied: a company always has at least one role", async () => {

@@ -58,6 +58,23 @@ export interface HaulierInvoice {
   version: number;
 }
 
+/**
+ * An approved invoice not noted as paid, as the Customer Database's What we owe reads it (Council Review 5, C-1):
+ * no lines, only what is owed and when.
+ */
+export interface UnpaidHaulierInvoice {
+  id: string;
+  invoiceNumber: string;
+  /** YYYY-MM-DD */
+  issueDate: string;
+  dueDate: string | null;
+  /** With VAT */
+  totalGross: number;
+  currency: "CZK" | "EUR";
+  /** False when it was approved before payments were noted here: it may have been paid already (K2) */
+  paymentTracked: boolean;
+}
+
 /** A line as entered: the trip or partner delivery and what the haulier invoiced for it. */
 export interface HaulierInvoiceLineInput {
   targetKind: HaulierInvoiceTargetKind;

@@ -23,8 +23,14 @@ export function SupplierRatingBox({ customer }: SupplierRatingBoxProps) {
   const { canRateSupplier } = useCustomer(customer.id);
   const { setRating, saving } = useSupplierRating(customer.id, { historyEnabled: false });
   const [open, setOpen] = useState(false);
-  // The box gets the focus back when the editor closes (saved, cancelled, Escape), so the keyboard is not lost (R10).
+  // The box gets the focus back when the editor is closed from inside it (saved, cleared, cancelled, Escape),
+  // so the keyboard is not lost (R10). A click elsewhere leaves the focus where that click put it.
   const trigger = useRef<HTMLButtonElement>(null);
+  const refocus = useRef(false);
+  const close = () => {
+    refocus.current = true;
+    setOpen(false);
+  };
   const rated = customer.supplierRating !== null;
   const by = rated ? [customer.supplierRatingBy, customer.supplierRatingAt ? formatDate(businessDayOf(customer.supplierRatingAt)) : ""].filter(Boolean).join(" · ") : "";
   const reasonId = `supplier-rating-reason-${customer.id}`;
@@ -32,7 +38,7 @@ export function SupplierRatingBox({ customer }: SupplierRatingBoxProps) {
   const save = (rating: number | null, reason: string) =>
     setRating({ rating, reason }).then(
       () => {
-        setOpen(false);
+        close();
         toast.success(rating === null ? "Rating cleared" : "Rating saved");
       },
       (err: unknown) => toast.error(`The rating was not saved: ${apiErrorMessage(err)}`),
@@ -59,7 +65,13 @@ export function SupplierRatingBox({ customer }: SupplierRatingBoxProps) {
     return (
       <Tooltip title={tooltip}>
         {/* Focusable, so the keyboard reaches its tooltip (the reason, who may change it). */}
-        <div className={`${boxClass} focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500`} tabIndex={0} aria-describedby={customer.supplierRatingReason ? reasonId : undefined}>
+        <div
+          role="group"
+          aria-label="Supplier rating"
+          className={`${boxClass} focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500`}
+          tabIndex={0}
+          aria-describedby={customer.supplierRatingReason ? reasonId : undefined}
+        >
           {body}
         </div>
       </Tooltip>
@@ -75,7 +87,8 @@ export function SupplierRatingBox({ customer }: SupplierRatingBoxProps) {
       title={`Supplier rating · ${customer.companyName}`}
       destroyOnHidden
       afterOpenChange={(isOpen) => {
-        if (!isOpen) trigger.current?.focus();
+        if (!isOpen && refocus.current) trigger.current?.focus();
+        refocus.current = false;
       }}
       content={
         <SupplierRatingEditor
@@ -84,7 +97,7 @@ export function SupplierRatingBox({ customer }: SupplierRatingBoxProps) {
           saving={saving}
           onSave={(rating, reason) => save(rating, reason)}
           onClear={() => save(null, "")}
-          onCancel={() => setOpen(false)}
+          onCancel={close}
         />
       }
     >

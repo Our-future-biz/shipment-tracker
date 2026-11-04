@@ -2,6 +2,8 @@
 // warehouse — with the variance rule: any difference in pieces, or more than 5 % on weight or
 // volume. Pure helpers (tested in cargoCompare.test.ts).
 
+import { dimensionVolumePerPiece } from "@/lib/cargo";
+
 export type CargoTotals = { pieces: number; kg: number; cbm: number };
 
 /** One remeasured line as stored (numbers as text): pieces, L × W × H in cm, kg per piece. */
@@ -74,11 +76,14 @@ export function linesTotals(rows: RemeasureLine[]): CargoTotals {
   return { pieces, kg: Math.round(kg * 10) / 10, cbm: Math.round(cbm * 1000) / 1000 };
 }
 
+/** A cargo dimension line of the shipment: its sizes in cm, or the m³ per piece typed for a line without them. */
+type DeclaredLine = RemeasureLine & { volumePerPcM3?: string };
+
 type DeclaredShipment = {
   pcs?: string | null;
   totalWeightTons?: string | null;
   totalVolumeCbm?: string | null;
-  cargoDimensions?: { pieces: string; lengthCm: string; widthCm: string; heightCm: string; weightPerPcKg: string }[] | null;
+  cargoDimensions?: DeclaredLine[] | null;
 };
 
 const num = (v: string | null | undefined) => {
@@ -87,12 +92,30 @@ const num = (v: string | null | undefined) => {
 };
 
 /**
+ * The shipment's own lines added up, as its supplier e-mail declares them: a piece's volume by the
+ * rule Shipments counts it by (dimensionVolumePerPiece - from its sizes, else its typed m³), where a
+ * remeasured line only has its sizes (lineCbm).
+ */
+function declaredLinesTotals(lines: DeclaredLine[]): CargoTotals {
+  let pieces = 0;
+  let kg = 0;
+  let cbm = 0;
+  for (const d of lines) {
+    const n = num(d.pieces);
+    pieces += n;
+    kg += n * num(d.weightPerPcKg);
+    cbm += n * dimensionVolumePerPiece(d);
+  }
+  return { pieces, kg: Math.round(kg * 10) / 10, cbm: Math.round(cbm * 1000) / 1000 };
+}
+
+/**
  * What the shipment declares: its pieces, total weight (tonnes → kg) and volume; where a total is
  * missing, the sum of its cargo dimensions lines. null when the shipment declares nothing.
  */
 export function declaredTotals(s: DeclaredShipment | null | undefined): CargoTotals | null {
   if (!s) return null;
-  const dims = linesTotals((s.cargoDimensions ?? []).map((d) => ({ ...d })));
+  const dims = declaredLinesTotals(s.cargoDimensions ?? []);
   const pieces = num(s.pcs) || dims.pieces;
   const kg = num(s.totalWeightTons) ? Math.round(num(s.totalWeightTons) * 1000 * 10) / 10 : dims.kg;
   const cbm = num(s.totalVolumeCbm) || dims.cbm;

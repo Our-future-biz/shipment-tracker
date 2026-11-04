@@ -1,17 +1,15 @@
 import { isUuid } from "../../../lib/uuid";
+import { cargoNum, dimensionVolumePerPiece } from "../../../lib/cargoVolume";
 import type { ContainerLine, CargoItemLine, CargoDimensionLine } from "../interfaces/interfaces";
 
 // Numeric fields on container/cargo lines are free-text; parse them the same way
 // everywhere: strip everything but digits, ".", "," and "-", treat "," as ".",
-// non-numbers as 0.
-export function num(v: string | null | undefined): number {
-  const n = parseFloat(
-    String(v ?? "")
-      .replace(/[^0-9.,-]/g, "")
-      .replace(",", "."),
-  );
-  return Number.isFinite(n) ? n : 0;
-}
+// non-numbers as 0 (lib/cargoVolume, which the warehouse's e-mail counts by too).
+export const num = cargoNum;
+
+// The volume of a piece of a dimension line: from its sizes when all three are known, else the m³
+// typed for it - one rule with the warehouse's e-mail, so it lives in lib/cargoVolume.
+export { dimensionVolumePerPiece } from "../../../lib/cargoVolume";
 
 // en-US thousands separators; integers without decimals, otherwise at most 2.
 export function fmtNum(n: number): string {
@@ -27,16 +25,6 @@ export function teuForType(type: string): string {
   if (t.startsWith("45") || t.startsWith("40")) return "2";
   if (t.startsWith("20")) return "1";
   return "";
-}
-
-// The sizes of a piece of a dimension line, and whether all three are known (each above 0).
-type SizedPiece = Pick<CargoDimensionLine, "lengthCm" | "widthCm" | "heightCm" | "volumePerPcM3">;
-export const hasAllSizes = (d: SizedPiece): boolean => num(d.lengthCm) > 0 && num(d.widthCm) > 0 && num(d.heightCm) > 0;
-
-// Volume of one piece of a dimension line in m³: from its sizes (cm³ → m³) when all three are
-// known, else the volume typed for it (the sizes of a piece are not always known).
-export function dimensionVolumePerPiece(d: SizedPiece): number {
-  return hasAllSizes(d) ? (num(d.lengthCm) * num(d.widthCm) * num(d.heightCm)) / 1e6 : num(d.volumePerPcM3);
 }
 
 const sum = <T>(rows: T[], pick: (r: T) => number): number => rows.reduce((s, r) => s + pick(r), 0);

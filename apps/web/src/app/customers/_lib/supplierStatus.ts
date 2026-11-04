@@ -11,10 +11,18 @@ export const SUPPLIER_STATUSES = [SUPPLIER_IN_USE, SUPPLIER_NOT_IN_USE] as const
 /** Whether the company is only a supplier: it has no customer role. */
 export const isSupplierOnly = (roles: readonly interfaces.CustomerRole[]): boolean => !roles.includes("customer");
 
+/**
+ * Whether a supplier is offered where suppliers are picked (D16). Only a supplier only is "Not in use"
+ * (stored Inactive): for a company that is a customer too, Inactive is its customer status, and as a
+ * supplier it stays in use. The server's `inUse` follows the same rule.
+ */
+export const supplierInUse = (company: { status: interfaces.CustomerStatus; roles: readonly interfaces.CustomerRole[] }): boolean =>
+  !(company.status === "Inactive" && isSupplierOnly(company.roles));
+
 /** The status as the company's page and the list show it. */
 export function shownStatus(company: { status: interfaces.CustomerStatus; roles: readonly interfaces.CustomerRole[] }): string {
   if (!isSupplierOnly(company.roles)) return company.status;
-  return company.status === "Inactive" ? SUPPLIER_NOT_IN_USE : SUPPLIER_IN_USE;
+  return supplierInUse(company) ? SUPPLIER_IN_USE : SUPPLIER_NOT_IN_USE;
 }
 
 /**

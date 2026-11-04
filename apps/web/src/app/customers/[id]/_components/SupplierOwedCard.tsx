@@ -6,17 +6,16 @@ import type { ColumnsType } from "antd/es/table";
 import { SectionCard } from "@/components/SectionCard";
 import type { CustomerItem } from "@/hooks/useCustomers";
 import { useSupplierCosts } from "@/hooks/useSupplierCosts";
-import { useHaulierInvoices } from "@/hooks/useTruckingMoney";
 import { chargeLabel } from "@/lib/chargeCodes";
-import { businessDayOf, businessToday, formatDate } from "@/lib/date";
+import { businessDayOf, formatDate } from "@/lib/date";
 import { fmtMoney } from "@/lib/money";
-import { supplierOwed, type OwedItem, type OwedTotal } from "../../_lib/supplierOwed";
+import { supplierOwed, type OwedFigures, type OwedItem, type OwedTotal } from "../../_lib/supplierOwed";
 import { EMPTY_CELL, TABLE_PAGINATION } from "../../_lib/customerTable";
 
+// The server says whether a haulier's Trucking invoices are included: only for those who see the Trucking
+// Concept (E12; Council Review 5, C-1).
 interface SupplierOwedCardProps {
   customer: CustomerItem;
-  /** Count a haulier's approved Trucking invoices too (only for those who see the Trucking Concept, E12). */
-  withHaulierInvoices: boolean;
 }
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -26,15 +25,17 @@ const dayOf = (r: OwedItem) => formatDate(r.source === "cost" ? businessDayOf(r.
 
 // What we owe a supplier (Council Outlay 7, step 6b; Council Review 5): the invoices received and not paid,
 // per currency, with what is overdue, from the shipments' Costs Breakdown lines linked to it and, for a
-// haulier, its approved Trucking invoices; what is expected (no invoice yet) and what came before payments
-// were noted here, each apart and not counted. Lines that only name it as typed text are named, not counted.
-// Everyone who sees the supplier's page sees it; nothing is netted or converted.
-export function SupplierOwedCard({ customer, withHaulierInvoices }: SupplierOwedCardProps) {
+// haulier, its approved Trucking invoices (read by the server, for those who see the Trucking Concept); what
+// is expected (no invoice yet) and what came before payments were noted here, each apart and not counted.
+// Lines that only name it as typed text are named, not counted. Everyone who sees the supplier's page sees
+// it; nothing is netted or converted, and figures without VAT are never added to those with it.
+export function SupplierOwedCard({ customer }: SupplierOwedCardProps) {
   const { costs, isLoading, isError } = useSupplierCosts(customer.id);
-  const haulier = useHaulierInvoices({ haulierCustomerId: customer.id, status: "APPROVED" }, { enabled: withHaulierInvoices });
-  const owed = supplierOwed(costs, withHaulierInvoices ? haulier.invoices : [], businessToday());
-  const loading = isLoading || (withHaulierInvoices && haulier.isLoading);
-  const nothing = !loading && !owed.owed.length && !owed.expected.length && !owed.untracked.length;
+  const owed = supplierOwed(costs);
+  const withInvoices = owed.haulierInvoices === "included";
+  // A haulier whose Trucking invoices this user does not see: what is shown is the shipment costs only (E-10).
+  const invoicesLeftOut = owed.haulierInvoices === "hidden";
+  const nothing = !isLoading && !owed.owed.length && !owed.expected.length && !owed.untracked.length;
 
   const refColumn = {
     title: "Job",
@@ -104,10 +105,11 @@ export function SupplierOwedCard({ customer, withHaulierInvoices }: SupplierOwed
       ) : (
         <div className="space-y-4">
           <p className="m-0 text-xs text-slate-500">
-            Received and not paid, per currency and never converted. Shipment costs are as typed in Costs Breakdown (without VAT){withHaulierInvoices ? ", haulier invoices with VAT" : ""}.
+            Received and not paid, per currency and never converted. Shipment costs are as typed in Costs Breakdown (without VAT){withInvoices ? ", haulier invoices with VAT" : ""}.
           </p>
 
-          {nothing && <span className="text-sm text-slate-500">Nothing owed and nothing expected.</span>}
+          {nothing && <span className="text-sm text-slate-500">{invoicesLeftOut ? "Nothing owed and nothing expected on the shipment costs." : "Nothing owed and nothing expected."}</span>}
+          {invoicesLeftOut && <div className="text-xs text-slate-500">Trucking&apos;s haulier invoices are not included here.</div>}
           {owed.totals.length > 0 && (
             <div className="flex flex-wrap gap-3">
               {owed.totals.map((t) => (
@@ -116,16 +118,16 @@ export function SupplierOwedCard({ customer, withHaulierInvoices }: SupplierOwed
             </div>
           )}
 
-          {(owed.withoutAmount > 0 || owed.costsDueUnknown > 0 || owed.invoicesDueUnknown > 0 || (withHaulierInvoices && haulier.isError)) && (
+          {(owed.withoutAmount > 0 || owed.costsDueUnknown > 0 || owed.invoicesDueUnknown > 0 || owed.haulierInvoices === "unavailable") && (
             <ul className="m-0 space-y-0.5 pl-4 text-xs text-amber-700">
               {owed.withoutAmount > 0 && <li>{plural(owed.withoutAmount, "received cost line has", "received cost lines have")} no real cost typed: not in the total.</li>}
               {owed.costsDueUnknown > 0 && <li>The payment days are not set (Terms and checks): due days of the shipment costs are not known.</li>}
               {owed.invoicesDueUnknown > 0 && <li>{plural(owed.invoicesDueUnknown, "haulier invoice has", "haulier invoices have")} no due day in Trucking.</li>}
-              {withHaulierInvoices && haulier.isError && <li>The Trucking haulier invoices could not be read: they are not in the total.</li>}
+              {owed.haulierInvoices === "unavailable" && <li>The Trucking haulier invoices could not be read: they are not in the total.</li>}
             </ul>
           )}
 
-          {(loading || owed.owed.length > 0) && (
+          {(isLoading || owed.owed.length > 0) && (
             <div className="min-w-0">
               <div className="mb-1 text-xs font-medium text-slate-600">
                 Owed · most overdue first{shownOf(owed.owed.length, owed.counts.owed)}
@@ -133,7 +135,7 @@ export function SupplierOwedCard({ customer, withHaulierInvoices }: SupplierOwed
               <Table<OwedItem>
                 size="small"
                 rowKey="key"
-                loading={loading}
+                loading={isLoading}
                 dataSource={owed.owed}
                 columns={owedColumns}
                 pagination={TABLE_PAGINATION}
@@ -177,32 +179,35 @@ export function SupplierOwedCard({ customer, withHaulierInvoices }: SupplierOwed
               , not linked to this company. Pick it as the vendor on those lines in Costs Breakdown to count them here.
             </div>
           )}
-          {costs.truncated && <div className="text-xs text-slate-500">This supplier has more than 10,000 open cost lines: the oldest are left out of the totals.</div>}
+          {owed.invoicesTruncated && <div className="text-xs text-slate-500">This haulier has more than 10,000 unpaid Trucking invoices: the latest due are left out of the totals.</div>}
         </div>
       )}
     </SectionCard>
   );
 }
 
-/** One currency: what is owed, how much of it is overdue, where it comes from, and what stays apart. */
+/**
+ * One currency: what is owed and how much of it is overdue, the shipment costs (without VAT) and the haulier
+ * invoices (with VAT) each on its own and never added (C-9), and what stays apart.
+ */
 function OwedTile({ total: t }: { total: OwedTotal }) {
-  const both = t.fromCosts !== 0 && t.fromInvoices !== 0;
   return (
-    <div className="min-w-[200px] rounded-lg border border-slate-200 px-3 py-2">
+    <div className="min-w-[200px] space-y-1.5 rounded-lg border border-slate-200 px-3 py-2">
       <div className="text-[11px] tracking-wide text-slate-400 uppercase">Owed · {t.currency}</div>
-      <div className="text-lg font-semibold text-slate-800 tabular-nums">{fmtMoney(t.owed, t.currency)}</div>
-      {t.overdue > 0 && <div className="text-xs font-medium text-red-600 tabular-nums">{fmtMoney(t.overdue, t.currency)} overdue</div>}
-      {both ? (
-        <div className="text-[11px] text-slate-500 tabular-nums">
-          {fmtMoney(t.fromCosts, t.currency)} shipment costs, without VAT
-          <br />
-          {fmtMoney(t.fromInvoices, t.currency)} haulier invoices, with VAT
-        </div>
-      ) : (
-        t.owed !== 0 && <div className="text-[11px] text-slate-500">{t.fromInvoices !== 0 ? "haulier invoices, with VAT" : "shipment costs, without VAT"}</div>
-      )}
-      {t.expected > 0 && <div className="text-xs text-slate-500 tabular-nums">{fmtMoney(t.expected, t.currency)} expected</div>}
-      {t.untracked > 0 && <div className="text-xs text-slate-400 tabular-nums">{fmtMoney(t.untracked, t.currency)} before payment tracking</div>}
+      {t.costs && <OwedFigure figures={t.costs} currency={t.currency} label="Shipment costs, without VAT" />}
+      {t.invoices && <OwedFigure figures={t.invoices} currency={t.currency} label="Haulier invoices, with VAT" />}
+      {t.costs && t.costs.expected > 0 && <div className="text-xs text-slate-500 tabular-nums">{fmtMoney(t.costs.expected, t.currency)} expected, without VAT</div>}
+    </div>
+  );
+}
+
+function OwedFigure({ figures: f, currency, label }: { figures: OwedFigures; currency: string; label: string }) {
+  return (
+    <div>
+      <div className="text-lg font-semibold text-slate-800 tabular-nums">{fmtMoney(f.owed, currency)}</div>
+      <div className="text-[11px] text-slate-500">{label}</div>
+      {f.overdue > 0 && <div className="text-xs font-medium text-red-600 tabular-nums">{fmtMoney(f.overdue, currency)} overdue</div>}
+      {f.untracked > 0 && <div className="text-xs text-slate-400 tabular-nums">{fmtMoney(f.untracked, currency)} before payment tracking</div>}
     </div>
   );
 }

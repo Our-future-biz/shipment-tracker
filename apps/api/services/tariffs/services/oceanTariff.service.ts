@@ -83,7 +83,7 @@ export interface ShippingLineItem {
   draftCount: number;
   /** The soonest end of an active version, YYYY-MM-DD; null when none ends */
   activeUntil: string | null;
-  /** The last day it has a tariff pricing without a gap, later versions counted; null when one never ends (K12) */
+  /** The last day it has a tariff pricing without a gap, later versions counted; null when one never ends, or none prices today (K12) */
   coveredUntil: string | null;
   /** The supplier rating from the Customer Database, 0–5 stars, null when not rated */
   rating: number | null;
@@ -511,7 +511,8 @@ class OceanTariffService {
         totals: offer.totals,
       });
     }
-    offers.sort((a, b) => a.totals[0]!.amount - b.totals[0]!.amount || ratingRank(b.supplierRating) - ratingRank(a.supplierRating));
+    // Cheapest first; at the same price the better rated line, then by name, so the order is the same every time.
+    offers.sort((a, b) => a.totals[0]!.amount - b.totals[0]!.amount || ratingRank(b.supplierRating) - ratingRank(a.supplierRating) || a.supplierName.localeCompare(b.supplierName));
     if (unpriced) notes.push(`${unpriced} ${unpriced === 1 ? "rate has" : "rates have"} no price for one of the containers and ${unpriced === 1 ? "is" : "are"} left out`);
     if (manual.size) notes.push(`Only on a booking or B/L made by hand, not added: ${[...manual].join(", ")}`);
     if (offers.length) notes.push("Origin and destination local charges are not included: see the shipping line's own tariff");

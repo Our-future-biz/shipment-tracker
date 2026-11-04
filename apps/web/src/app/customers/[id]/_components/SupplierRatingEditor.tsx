@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
-import { Button, Input } from "antd";
-import { RATING_MEANINGS, reasonRequired } from "../../_lib/supplierRatingScale";
+import { Button, Input, Popconfirm } from "antd";
+import { RATING_MEANINGS, reasonRequired } from "@/lib/supplierRating";
+import { canSaveRating, reasonAfterChoice } from "../../_lib/supplierRatingChoice";
 
 interface SupplierRatingEditorProps {
   rating: number | null;
@@ -15,28 +16,32 @@ interface SupplierRatingEditorProps {
 }
 
 const MAX_REASON = 300;
+const CLEAR_CLASS = "ml-auto cursor-pointer border-0 bg-transparent p-0 text-[12px] text-indigo-600 hover:underline disabled:cursor-not-allowed disabled:opacity-50";
 
 // Picking a rating: six choices, 0 ("the worst") and 1–5 stars. The arrow keys move the choice as in any
 // radio group (Right / Down to the next, Left / Up back) and nothing is saved until Save, so one Save is one
-// recorded change. What the choice means shows under it. It takes the focus when it opens, and Escape closes it.
+// recorded change, and Save waits for a change. What the choice means shows under it. It takes the focus
+// when it opens, and Escape closes it.
 export function SupplierRatingEditor({ rating, reason: savedReason, saving, onSave, onClear, onCancel }: SupplierRatingEditorProps) {
   const [picked, setPicked] = useState<number | null>(rating);
   const [reason, setReason] = useState(savedReason);
+  // While "Clear rating" asks, Escape closes only that question.
+  const [confirmingClear, setConfirmingClear] = useState(false);
   const group = useRef<HTMLDivElement>(null);
   // Opened from the header box: the keyboard goes straight to the choice (R10).
   useEffect(() => {
     group.current?.querySelector<HTMLElement>('[tabindex="0"]')?.focus();
   }, []);
+  const saved = { rating, reason: savedReason };
   const meaning = picked === null ? null : RATING_MEANINGS[picked];
   const needsReason = reasonRequired(picked);
-  const canSave = picked !== null && (!needsReason || !!reason.trim()) && !saving;
+  const canSave = canSaveRating(saved, picked, reason) && !saving;
 
-  // Moving to 0–2 stars from another rating asks for a new reason: the saved one was written for that
-  // other rating (a positive reason must not pass for a downgrade, D7; Council Review 5, m17).
+  // The saved reason was written for the saved rating: it goes when the choice leaves that rating's band
+  // (D7; Council Review 5, m17), and comes back with it.
   const choose = (next: number) => {
     setPicked(next);
-    if (next !== rating && reasonRequired(next) && reason === savedReason) setReason("");
-    if (next === rating) setReason((r) => (r === "" ? savedReason : r));
+    setReason(reasonAfterChoice(saved, reason, next));
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -52,10 +57,10 @@ export function SupplierRatingEditor({ rating, reason: savedReason, saving, onSa
     <div
       className="flex w-[340px] max-w-full flex-col gap-3"
       onKeyDown={(e) => {
-        if (e.key === "Escape" && !saving) {
-          e.stopPropagation();
-          onCancel();
-        }
+        if (e.key !== "Escape" || saving) return;
+        e.stopPropagation();
+        if (confirmingClear) setConfirmingClear(false);
+        else onCancel();
       }}
     >
       <div ref={group} role="radiogroup" aria-label="Rating" className="flex flex-wrap gap-1.5" onKeyDown={handleKeyDown}>
@@ -110,11 +115,29 @@ export function SupplierRatingEditor({ rating, reason: savedReason, saving, onSa
         <Button size="small" disabled={saving} onClick={onCancel}>
           Cancel
         </Button>
-        {rating !== null && (
-          <button type="button" disabled={saving} onClick={onClear} className="ml-auto cursor-pointer border-0 bg-transparent p-0 text-[12px] text-indigo-600 hover:underline disabled:cursor-not-allowed disabled:opacity-50">
-            Clear rating
-          </button>
-        )}
+        {rating !== null &&
+          (reasonRequired(rating) ? (
+            // Cleared, a 0–2 star supplier loses its warning and sorts above the 0-star ones (D7): asked first.
+            <Popconfirm
+              title="Clear this low rating?"
+              description="Its warning goes from every picker, and it is listed as not rated."
+              okText="Clear rating"
+              okButtonProps={{ danger: true }}
+              cancelText="Keep it"
+              disabled={saving}
+              open={confirmingClear}
+              onOpenChange={setConfirmingClear}
+              onConfirm={onClear}
+            >
+              <button type="button" disabled={saving} className={CLEAR_CLASS}>
+                Clear rating
+              </button>
+            </Popconfirm>
+          ) : (
+            <button type="button" disabled={saving} onClick={onClear} className={CLEAR_CLASS}>
+              Clear rating
+            </button>
+          ))}
       </div>
     </div>
   );

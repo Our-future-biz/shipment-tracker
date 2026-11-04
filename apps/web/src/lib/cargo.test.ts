@@ -1,5 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { checkConsistency, compareFigure, dimensionLineIsEmpty, lineInCm, lineInUnit, CONTAINER_TYPES, containerType, NOT_STACKABLE, numberInput, STACKABLE, shipmentStackability, withShipmentStackability } from "./cargo";
+import {
+  checkConsistency,
+  compareFigure,
+  dimensionLineIsEmpty,
+  dimensionLineVolume,
+  dimensionTotals,
+  lineInCm,
+  lineInUnit,
+  CONTAINER_TYPES,
+  containerType,
+  NOT_STACKABLE,
+  numberInput,
+  STACKABLE,
+  shipmentStackability,
+  withShipmentStackability,
+  withoutTypedVolumeWhenSized,
+} from "./cargo";
 import { containerTypeFrom } from "@/app/documents/_lib/extraction";
 
 describe("CONTAINER_TYPES", () => {
@@ -154,5 +170,34 @@ describe("a dimension line without its sizes", () => {
     const check = checkConsistency(c, [line]);
     expect(check.matched).toBe(true);
     expect(check.m3.sum).toBeCloseTo(2.4, 6);
+  });
+
+  // What the warehouse's Dimensions / Remeasurement card lists for each line and adds up, on both
+  // sides: a line nobody remeasured counts the same, so it never reads as a difference.
+  it("counts its typed volume in the line's m³ and the totals, beside a sized line", () => {
+    const sized = { ...line, pieces: "2", lengthCm: "100", widthCm: "100", heightCm: "100", volumePerPcM3: "" };
+    expect(dimensionLineVolume(line)).toBeCloseTo(2.4, 6);
+    expect(dimensionLineVolume(sized)).toBe(2);
+    const t = dimensionTotals([sized, line]);
+    expect(t.pcs).toBe(6);
+    expect(t.kg).toBe(1500);
+    expect(t.m3).toBeCloseTo(4.4, 6);
+  });
+
+  it("reads a decimal comma as a point, and a typed volume or pieces that are no number as none", () => {
+    expect(dimensionLineVolume({ ...line, volumePerPcM3: "0,5" })).toBe(2);
+    expect(dimensionLineVolume({ ...line, volumePerPcM3: "abc" })).toBe(0);
+    expect(dimensionLineVolume({ ...line, pieces: "" })).toBe(0);
+    expect(dimensionTotals([{ ...line, pieces: "x" }])).toEqual({ pcs: 0, kg: 0, m3: 0 });
+  });
+
+  it("loses its typed volume once a change gives it all three sizes, so it cannot come back when one is cleared", () => {
+    const sized = withoutTypedVolumeWhenSized({ ...line, lengthCm: "120", widthCm: "80", heightCm: "100" });
+    expect(sized.volumePerPcM3).toBe("");
+    expect(dimensionLineVolume({ ...sized, heightCm: "" })).toBe(0);
+    // Inches are sizes too; a line still short of a size keeps what was typed.
+    expect(withoutTypedVolumeWhenSized({ ...line, lengthCm: "40", widthCm: "40", heightCm: "40", dimensionUnit: "in" as const }).volumePerPcM3).toBe("");
+    const short = { ...line, lengthCm: "120", widthCm: "80" };
+    expect(withoutTypedVolumeWhenSized(short)).toBe(short);
   });
 });

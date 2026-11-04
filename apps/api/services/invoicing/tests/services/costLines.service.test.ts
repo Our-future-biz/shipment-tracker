@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Buying costs posted by charge code (master jobs, document reading) and the split of one
 // invoice over shipments, run for real against an in-memory stand-in for the cost lines.
@@ -77,10 +77,21 @@ vi.mock("../../repositories/invoiceCost.repository", async () => {
         if (row) row.deletedAt = new Date();
         return !!row;
       },
-      async updateLine(id: string, companyId: string, shipmentId: string, data: Partial<Row>) {
-        const row = rows.find((r) => r.id === id && r.companyId === companyId && r.shipmentId === shipmentId);
+      async updateLine(id: string, companyId: string, shipmentId: string, data: Partial<Row>, receivedStamp?: Date) {
+        const row = rows.find((r) => r.id === id && r.companyId === companyId && r.shipmentId === shipmentId && !r.deletedAt);
         if (!row) return null;
-        Object.assign(row, data);
+        // As the database stamps it: from the row as it is when written.
+        const receivedAt = receivedStamp ? (row.received ? row.receivedAt : receivedStamp) : undefined;
+        Object.assign(row, data, receivedStamp ? { receivedAt } : {});
+        return row;
+      },
+      async findDeletedLine(id: string, companyId: string, shipmentId: string) {
+        return rows.find((r) => r.id === id && r.companyId === companyId && r.shipmentId === shipmentId && r.deletedAt) ?? null;
+      },
+      async restoreLine(id: string, companyId: string, shipmentId: string, sortOrder?: number) {
+        const row = rows.find((r) => r.id === id && r.companyId === companyId && r.shipmentId === shipmentId && r.deletedAt);
+        if (!row) return null;
+        Object.assign(row, { deletedAt: null }, sortOrder === undefined ? {} : { sortOrder });
         return row;
       },
     },
@@ -290,12 +301,93 @@ describe("a buying cost's supplier and payment (Council Review 5)", () => {
     expect(customerGet).not.toHaveBeenCalled();
   });
 
+  afterEach(() => vi.useRealTimers());
+  const at = (iso: string) => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(iso));
+  };
+
   it("keeps who marked a cost paid and when, and clears them when the payment is taken back", async () => {
+    at("2026-11-01T09:00:00Z");
     const line = await invoicingService.addBuyingCost(SHIP_A, COMPANY, { vendor: "Maersk", invoiceNumber: "INV-1", received: true, realAmount: "10" } as never);
+    at("2026-11-04T09:00:00Z");
     const paid = await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { paidOn: "2026-11-01" }, "u1");
     expect(paid).toMatchObject({ paidOn: "2026-11-01", paidBy: "jana@ourfuture.biz" });
     expect(paid.paidAt).not.toBeNull();
     const back = await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { paidOn: "" }, "u1");
     expect(back).toMatchObject({ paidOn: "", paidBy: "", paidAt: null });
+  });
+
+  it("is paid no earlier than the Prague day its invoice was received, unless that day is not known (C-8)", async () => {
+    // 23:30 UTC on 31 Oct is 1 Nov in Prague.
+    at("2026-10-31T23:30:00Z");
+    const line = await invoicingService.addBuyingCost(SHIP_A, COMPANY, { invoiceNumber: "INV-1", received: true, realAmount: "10" } as never);
+    at("2026-11-04T09:00:00Z");
+    await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { paidOn: "2026-10-31" }, "u1")).rejects.toThrow("The day it was paid cannot be before its invoice was received (2026-11-01)");
+    await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { paidOn: "2026-11-01" }, "u1")).resolves.toMatchObject({ paidOn: "2026-11-01" });
+    // Ticked Received and paid in one go: received today, so paid today.
+    const other = await invoicingService.addBuyingCost(SHIP_A, COMPANY, { realAmount: "5" });
+    await expect(invoicingService.updateBuyingCost(other.id, COMPANY, SHIP_A, { received: true, paidOn: "2026-11-03" }, "u1")).rejects.toThrow(/before its invoice was received/);
+    // A line received before that day was kept is paid on any day.
+    const old = await costRepo.invoiceCostRepository.createForCompany(COMPANY, { shipmentId: SHIP_A, received: true, realAmount: "7" });
+    await expect(invoicingService.updateBuyingCost(old.id, COMPANY, SHIP_A, { paidOn: "2020-01-01" }, "u1")).resolves.toMatchObject({ paidOn: "2020-01-01" });
+  });
+
+  it("is stamped received when ticked again after it was unticked meanwhile (C-5)", async () => {
+    at("2026-11-02T09:00:00Z");
+    const line = await invoicingService.addBuyingCost(SHIP_A, COMPANY, { realAmount: "5" });
+    const ticked = await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { invoiceNumber: "INV-1", received: true });
+    expect(ticked.receivedAt).toBe("2026-11-02T09:00:00.000Z");
+    // A second tick keeps the first stamp.
+    at("2026-11-03T09:00:00Z");
+    expect((await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { received: true })).receivedAt).toBe("2026-11-02T09:00:00.000Z");
+    // Unticked, then ticked by someone who read it still received: stamped again, never received without a stamp.
+    await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { received: false });
+    const row = rows.find((r) => (r as unknown as { id: string }).id === line.id) as unknown as { received: boolean; receivedAt: Date | null };
+    expect(row).toMatchObject({ received: false, receivedAt: null });
+    expect((await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { received: true })).receivedAt).toBe("2026-11-03T09:00:00.000Z");
+  });
+
+  it("loses its supplier link when the vendor is written without one (C-7)", async () => {
+    customerGet.mockResolvedValue({ customer: { roles: ["shipping_line"] } });
+    const line = await invoicingService.addBuyingCost(SHIP_A, COMPANY, { category: "ocean_freight", vendor: "Maersk", supplierCustomerId: SUPPLIER });
+    // The same text sent again keeps it.
+    expect((await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { vendor: "Maersk" })).supplierCustomerId).toBe(SUPPLIER);
+    expect((await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { vendor: "Hapag" })).supplierCustomerId).toBeNull();
+    // A cost posted by code (document reading, a master job's split) with another vendor too.
+    await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { vendor: "Maersk", supplierCustomerId: SUPPLIER });
+    expect((await invoicingService.upsertCost(SHIP_A, COMPANY, "ocean_freight", { realAmount: "10", vendor: "Maersk" })).supplierCustomerId).toBe(SUPPLIER);
+    expect((await invoicingService.upsertCost(SHIP_A, COMPANY, "ocean_freight", { realAmount: "10", vendor: "Vanguard" })).supplierCustomerId).toBeNull();
+    // No vendor in the write: the link stays.
+    await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { vendor: "Maersk", supplierCustomerId: SUPPLIER });
+    expect((await invoicingService.upsertCost(SHIP_A, COMPANY, "ocean_freight", { realAmount: "11" })).supplierCustomerId).toBe(SUPPLIER);
+  });
+});
+
+describe("undo of a deleted buying cost (C-6)", () => {
+  it("brings the line back as it was: when it was received, its payment and who noted it, where it was", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-01T09:00:00Z"));
+    try {
+      const line = await invoicingService.addBuyingCost(SHIP_A, COMPANY, { invoiceNumber: "INV-1", received: true, realAmount: "10", sortOrder: 2 } as never);
+      await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { paidOn: "2026-10-01" }, "u1");
+      vi.setSystemTime(new Date("2026-11-04T09:00:00Z"));
+      await invoicingService.deleteBuyingCost(line.id, COMPANY, SHIP_A);
+      const back = await invoicingService.restoreBuyingCost(line.id, COMPANY, SHIP_A, 1);
+      expect(back).toMatchObject({ id: line.id, receivedAt: "2026-10-01T09:00:00.000Z", paidOn: "2026-10-01", paidBy: "jana@ourfuture.biz", sortOrder: 1 });
+      expect(back.paidAt).toBe("2026-10-01T09:00:00.000Z");
+      // Only a deleted line comes back, once.
+      await expect(invoicingService.restoreBuyingCost(line.id, COMPANY, SHIP_A)).rejects.toMatchObject({ code: "not_found" });
+      await expect(invoicingService.restoreBuyingCost(line.id, COMPANY, SHIP_B)).rejects.toMatchObject({ code: "not_found" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("refuses a line with an estimate of its own once the shipment's estimate is its quote's", async () => {
+    const line = await invoicingService.addBuyingCost(SHIP_A, COMPANY, { estQty: "1", estAmount: "50" });
+    await invoicingService.deleteBuyingCost(line.id, COMPANY, SHIP_A);
+    await costRepo.invoiceCostRepository.createForCompany(COMPANY, { shipmentId: SHIP_A, category: "ocean_freight", estAmount: "150.00", sourceQuoteNumber: "QCZ20261022001" });
+    await expect(invoicingService.restoreBuyingCost(line.id, COMPANY, SHIP_A)).rejects.toMatchObject({ code: "failed_precondition" });
   });
 });

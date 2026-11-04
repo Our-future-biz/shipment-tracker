@@ -187,6 +187,23 @@ class HaulierInvoiceRepository {
     return invoices.map((invoice) => ({ invoice, lines: lines.filter((l) => l.invoiceId === invoice.id) }));
   }
 
+  /**
+   * A haulier's approved invoices not noted as paid, without their lines: the soonest due first (no due day
+   * last), then the oldest issued (at most `limit`).
+   */
+  async unpaidApproved(
+    companyId: string,
+    haulierCustomerId: string,
+    limit: number,
+  ): Promise<Pick<TruckingHaulierInvoiceRecord, "id" | "invoiceNumber" | "issueDate" | "dueDate" | "totalGross" | "currency" | "approvedAt">[]> {
+    return db
+      .select({ id: i.id, invoiceNumber: i.invoiceNumber, issueDate: i.issueDate, dueDate: i.dueDate, totalGross: i.totalGross, currency: i.currency, approvedAt: i.approvedAt })
+      .from(i)
+      .where(and(eq(i.companyId, companyId), eq(i.haulierCustomerId, haulierCustomerId), isNull(i.deletedAt), eq(i.status, "APPROVED"), isNull(i.paidOn)))
+      .orderBy(sql`${i.dueDate} ASC NULLS LAST`, asc(i.issueDate), asc(i.id))
+      .limit(limit);
+  }
+
   // ---- what a haulier may invoice ---------------------------------------------------------------
 
   /** The haulier's done, priced, not cancelled trips that no approved invoice has billed yet. */

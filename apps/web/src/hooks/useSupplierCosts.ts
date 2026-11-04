@@ -15,12 +15,13 @@ const NONE: SupplierCosts = {
   counts: { owed: 0, expected: 0, untracked: 0, withoutAmount: 0, dueUnknown: 0 },
   paymentDays: null,
   typedNames: [],
-  truncated: false,
+  haulierInvoices: { status: "none", owed: [], untracked: [], totals: [], counts: { owed: 0, untracked: 0, dueUnknown: 0 }, truncated: false },
 };
 
 // A supplier's buying lines not yet paid in the shipments' Costs Breakdown, with the totals over all of
-// them, and the typed vendor names that name it without a link (What we owe, Council Outlay 7 step 6b).
-// Read again on each visit and after a cost line is changed.
+// them, and the typed vendor names that name it without a link (What we owe, Council Outlay 7 step 6b);
+// for a haulier, its approved Trucking invoices not yet paid, when the server says the user sees them.
+// Read again on each visit, after a cost line is changed and after a haulier invoice is approved or paid.
 export function useSupplierCosts(customerId: string) {
   const query = useQuery({
     queryKey: ["supplier-costs", customerId],

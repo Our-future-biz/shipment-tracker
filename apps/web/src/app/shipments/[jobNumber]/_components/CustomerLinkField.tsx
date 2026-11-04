@@ -26,9 +26,9 @@ export function CustomerLinkField({ label, name, customerId, onChange, customers
   const [draft, setDraft] = useState(name);
   const justSelected = useRef(false);
 
-  const options = customers
-    // The shipment's Customer is someone with the Customer role (K13); a shipper or consignee may be anyone.
-    .filter((c) => !customersOnly || c.roles.includes("customer"))
+  // The shipment's Customer is someone with the Customer role (K13); a shipper or consignee may be anyone.
+  const linkable = customersOnly ? customers.filter((c) => c.roles.includes("customer")) : customers;
+  const options = linkable
     .filter((c) => c.companyName.toLowerCase().includes(draft.trim().toLowerCase()))
     .slice(0, 8)
     .map((c) => ({ value: c.companyName, id: c.id, label: c.companyName }));
@@ -45,9 +45,12 @@ export function CustomerLinkField({ label, name, customerId, onChange, customers
       setEditing(false);
       return;
     }
-    const match = customers.find((c) => c.companyName.toLowerCase() === draft.trim().toLowerCase());
-    const id = match ? match.id : draft === name ? customerId ?? null : null;
-    onChange(draft.trim(), id);
+    const typed = draft.trim();
+    // The name as it was keeps its link, also to a company since left without the Customer role (K13). A
+    // typed name links only a company that could have been picked: never a supplier as the Customer.
+    const match = linkable.find((c) => c.companyName.toLowerCase() === typed.toLowerCase());
+    const id = typed === name.trim() && customerId ? customerId : match ? match.id : null;
+    onChange(typed, id);
     setEditing(false);
   };
 

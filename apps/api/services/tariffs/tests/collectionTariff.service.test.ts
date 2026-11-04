@@ -164,6 +164,20 @@ describe("offers", () => {
     expect(result.notes).toEqual([]);
   });
 
+  it("at the same price puts the better rated haulier first, then goes by name, whatever order the tariffs come in", async () => {
+    repo.collectionRates.mockResolvedValue([rate(0, 150, [1200, 1200])]);
+    const order = async () => (await ask()).offers.map((o) => [o.supplierName, o.total]);
+    expect(await order()).toEqual([
+      ["Rychlá doprava s.r.o.", 1200],
+      ["TOPTRANS EU, a.s.", 1200],
+    ]);
+    companiesWithRole.mockImplementation(async ({ ids }) => ({ companies: [{ ...TOPTRANS, rating: 5 }, { ...OTHER, rating: 2 }].filter((c) => !ids || ids.includes(c.id)) }));
+    expect(await order()).toEqual([
+      ["TOPTRANS EU, a.s.", 1200],
+      ["Rychlá doprava s.r.o.", 1200],
+    ]);
+  });
+
   it("says why a tariff has no price, and what is missing", async () => {
     repo.regionOf.mockResolvedValue(null);
     repo.areaOf.mockResolvedValue(null);

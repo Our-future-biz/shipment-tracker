@@ -32,6 +32,8 @@ function useRefreshInvoices() {
       queryClient.invalidateQueries({ queryKey: truckingKeys.haulierInvoices() }),
       // The real cost lands on the jobs: margins, costs, billing and the lists move.
       invalidateAfterTruckingWrite(queryClient),
+      // …and the haulier's What we owe (approving, Mark paid and Take back payment move it).
+      queryClient.invalidateQueries({ queryKey: ["supplier-costs"] }),
     ]);
 }
 

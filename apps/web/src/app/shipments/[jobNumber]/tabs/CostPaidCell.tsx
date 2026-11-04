@@ -3,10 +3,12 @@
 import { useState } from "react";
 import { Button, Checkbox, DatePicker, Popover, Tooltip } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
-import { businessDateTime, businessToday, formatDate } from "@/lib/date";
+import { businessDateTime, businessDayOf, businessToday, formatDate } from "@/lib/date";
 
 interface CostPaidCellProps {
   received: boolean;
+  /** When the invoice was received (ISO); null when not known (received before that was kept). */
+  receivedAt: string | null;
   /** yyyy-mm-dd, "" while unpaid */
   paidOn: string;
   paidBy: string;
@@ -16,12 +18,15 @@ interface CostPaidCellProps {
 }
 
 // Paid on a buying cost (Council Outlay 7, step 6b; Council Review 5): the day the payment went, picked
-// (today by default, never after it, K5), with who noted it and when shown once paid (K6). A click only
-// opens the box, so a row is never paid or unpaid by an accidental click.
-export function CostPaidCell({ received, paidOn, paidBy, paidAt, onChange }: CostPaidCellProps) {
+// (today by default, never after it, K5, nor before the day its invoice was received, C-8), with who noted it
+// and when shown once paid (K6). A click only opens the box, so a row is never paid or unpaid by an
+// accidental click.
+export function CostPaidCell({ received, receivedAt, paidOn, paidBy, paidAt, onChange }: CostPaidCellProps) {
   const [open, setOpen] = useState(false);
   const [day, setDay] = useState<Dayjs | null>(null);
   const today = dayjs(businessToday());
+  // The Prague day the invoice was received, as the server checks it; none when not known.
+  const receivedOn = businessDayOf(receivedAt);
 
   if (!received) {
     return (
@@ -57,7 +62,7 @@ export function CostPaidCell({ received, paidOn, paidBy, paidAt, onChange }: Cos
             format="DD.MM.YYYY"
             value={day}
             onChange={setDay}
-            disabledDate={(d) => d.isAfter(today, "day")}
+            disabledDate={(d) => d.isAfter(today, "day") || (!!receivedOn && d.isBefore(dayjs(receivedOn), "day"))}
             allowClear={false}
             size="small"
           />

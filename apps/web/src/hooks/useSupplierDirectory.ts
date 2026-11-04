@@ -9,7 +9,7 @@ import { useCustomers, type CustomerItem } from "./useCustomers";
  * of the server. With each supplier's rating by its id, for the stars beside a picked one.
  */
 export function useSupplierDirectory() {
-  const { customers, isFetching, isError } = useCustomers({ kind: "suppliers" });
+  const { customers } = useCustomers({ kind: "suppliers" });
   const byId = useMemo(() => new Map<string, CustomerItem>(customers.map((c) => [c.id, c])), [customers]);
-  return { suppliers: customers, byId, isLoading: isFetching && customers.length === 0, isError };
+  return { suppliers: customers, byId };
 }

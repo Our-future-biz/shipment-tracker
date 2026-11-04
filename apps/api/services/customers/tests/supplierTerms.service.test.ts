@@ -26,7 +26,11 @@ const input = (over = {}) => ({
   bankAccounts: ["CZ65 0800 0000 1920 0014 5399"],
   ...over,
 });
-const company = (over: Record<string, unknown> = {}) => ({ ...fullRow(), id: "c1", roles: ["haulier"], supplierBankAccounts: [] as string[], supplierPaymentDays: null, ...over });
+// A company whose terms were never set: every one as a new company has it.
+const company = (over: Record<string, unknown> = {}) => ({
+  ...fullRow(), id: "c1", roles: ["haulier"], supplierPaymentDays: null, supplierCurrency: null, supplierVatUnreliable: false,
+  supplierBankAccountPublished: false, supplierVatCheckedAt: null, supplierBankAccounts: [] as string[], ...over,
+});
 
 // The row the locked save reads, and what it wrote (undefined when nothing).
 let current: ReturnType<typeof company>;
@@ -137,7 +141,7 @@ describe("a haulier whose terms were never saved here (K1)", () => {
 
   it("starts from Trucking's copy on the first save: an account Trucking lists is not new, and when it was added there stays", async () => {
     termsGet.mockResolvedValue({ haulier: truckingCopy });
-    await supplierTermsService.set("co", "c1", MANAGER, input({ paymentDays: 21, vatUnreliable: true }));
+    await supplierTermsService.set("co", "c1", MANAGER, input({ paymentDays: 21, vatUnreliable: true, fromTrucking: true }));
     expect(termsGet).toHaveBeenCalledWith({ customerId: "c1" });
     expect(termsSet).toHaveBeenCalledWith(expect.objectContaining({ bankAccountsChange: null }));
     expect(written).toEqual(expect.objectContaining({
@@ -146,6 +150,20 @@ describe("a haulier whose terms were never saved here (K1)", () => {
       supplierBankAccountsChangedAt: new Date("2026-10-01T08:00:00.000Z"),
       supplierBankAccountsChangedBy: "petr@ourfuture.biz",
     }));
+  });
+
+  it("refuses a first save made from values the page did not show: Trucking holds terms it could not read then", async () => {
+    termsGet.mockResolvedValue({ haulier: truckingCopy });
+    await expect(supplierTermsService.set("co", "c1", MANAGER, input())).rejects.toMatchObject({ code: "failed_precondition" });
+    expect(termsSet).not.toHaveBeenCalled();
+    expect(written).toBeUndefined();
+  });
+
+  it("counts terms as saved here once any of them is set, not only the payment days (K7)", async () => {
+    current = company({ supplierVatUnreliable: true, supplierBankAccounts: ["19-2000145399/0800"] });
+    termsGet.mockResolvedValue({ haulier: truckingCopy });
+    await supplierTermsService.set("co", "c1", MANAGER, input());
+    expect(termsGet).not.toHaveBeenCalled();
   });
 
   it("asks Trucking only while nothing was saved here", async () => {
@@ -160,6 +178,7 @@ describe("a haulier whose terms were never saved here (K1)", () => {
     termsGet.mockResolvedValue({ haulier: truckingCopy });
     expect(await supplierTermsService.shown(item())).toEqual({
       fromTrucking: true,
+      truckingUnavailable: false,
       terms: {
         paymentDays: 14, currency: "EUR", vatUnreliable: true, bankAccountPublished: true, vatCheckedAt: "2026-09-01",
         bankAccounts: ["19-2000145399/0800"], bankAccountsChangedAt: "2026-10-01T08:00:00.000Z", bankAccountsChangedBy: "petr@ourfuture.biz",
@@ -169,16 +188,19 @@ describe("a haulier whose terms were never saved here (K1)", () => {
     termsGet.mockResolvedValue({ haulier: null });
     expect((await supplierTermsService.shown(item())).fromTrucking).toBe(false);
     termsGet.mockRejectedValue(new Error("down"));
-    expect((await supplierTermsService.shown(item())).fromTrucking).toBe(false);
+    expect(await supplierTermsService.shown(item())).toMatchObject({ fromTrucking: false, truckingUnavailable: true });
     termsGet.mockClear();
     expect((await supplierTermsService.shown(item({ roles: ["rail_operator"] }))).fromTrucking).toBe(false);
+    // Saved here (an unreliable payer, no days yet): its own, whatever Trucking holds.
+    const saved = item({ supplierTerms: { paymentDays: null, currency: null, vatUnreliable: true, bankAccountPublished: false, vatCheckedAt: "", bankAccounts: [], bankAccountsChangedAt: null, bankAccountsChangedBy: "" } });
+    expect(await supplierTermsService.shown(saved)).toMatchObject({ fromTrucking: false, truckingUnavailable: false, terms: { vatUnreliable: true } });
     expect(termsGet).not.toHaveBeenCalled();
   });
 });
 
 describe("a supplier that becomes a haulier (K3)", () => {
   const railOperator = (over: Record<string, unknown> = {}) =>
-    company({ roles: ["rail_operator"], supplierPaymentDays: 45, supplierCurrency: "EUR", supplierVatCheckedAt: "2026-10-10", supplierBankAccounts: ["19-2000145399/0800"], ...over }) as never;
+    company({ roles: ["rail_operator"], supplierPaymentDays: 45, supplierCurrency: "EUR", supplierBankAccountPublished: true, supplierVatCheckedAt: "2026-10-10", supplierBankAccounts: ["19-2000145399/0800"], ...over }) as never;
 
   it("sends its terms to Trucking first, every account on the 30-day hold", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
@@ -201,7 +223,12 @@ describe("a supplier that becomes a haulier (K3)", () => {
   it("changes nothing for one already a haulier, one losing the role, or one with no terms here", async () => {
     expect(await supplierTermsService.beforeRolesChange(company({ supplierPaymentDays: 30 }) as never, ["haulier", "customer"], "u1")).toEqual({});
     expect(await supplierTermsService.beforeRolesChange(railOperator(), ["rail_operator"], "u1")).toEqual({});
-    expect(await supplierTermsService.beforeRolesChange(railOperator({ supplierPaymentDays: null }), ["haulier"], "u1")).toEqual({});
+    expect(await supplierTermsService.beforeRolesChange(company({ roles: ["rail_operator"] }) as never, ["haulier"], "u1")).toEqual({});
+    expect(termsSet).not.toHaveBeenCalled();
+  });
+
+  it("is refused for terms set here without what a haulier needs: Trucking would start from its defaults and hide them", async () => {
+    await expect(supplierTermsService.beforeRolesChange(railOperator({ supplierPaymentDays: null, supplierVatUnreliable: true }), ["haulier"], "u1")).rejects.toThrow(/payment days.*Terms and checks first/);
     expect(termsSet).not.toHaveBeenCalled();
   });
 });
@@ -216,15 +243,37 @@ describe("the one-off copy from Trucking", () => {
         { customerId: "gone", ...terms, bankAccountsChange: null },
       ],
     });
-    repo.getByIdForCompany.mockImplementation(async (id: string) => (id === "new" ? company({ id }) : id === "set" ? company({ id, supplierPaymentDays: 30 }) : null));
-    expect(await supplierTermsService.copyFromTrucking("co")).toEqual({ copied: 1, skipped: 2 });
-    expect(repo.updateForCompany).toHaveBeenCalledTimes(1);
-    expect(repo.updateForCompany).toHaveBeenCalledWith("new", "co", expect.objectContaining({
+    const rows: Record<string, ReturnType<typeof company>> = {
+      new: company({ id: "new" }),
+      set: company({ id: "set", supplierPaymentDays: 30 }),
+      notHaulier: company({ id: "notHaulier", roles: ["rail_operator"] }),
+    };
+    const writes: [string, string, Record<string, unknown>][] = [];
+    repo.updateLocked.mockImplementation(async (id: string, co: string, work: (row: unknown) => Promise<Record<string, unknown> | null>) => {
+      if (!rows[id]) return null;
+      const values = await work(rows[id]);
+      if (values) writes.push([id, co, values]);
+      return rows[id];
+    });
+    termsList.mockResolvedValue({
+      hauliers: [...(await termsList()).hauliers, { customerId: "notHaulier", ...terms, bankAccountsChange: null }],
+    });
+    const TENANT = "7f9b6c1e-2d3a-4b5c-8d9e-0f1a2b3c4d5e";
+    expect(await supplierTermsService.copyFromTrucking(TENANT)).toEqual({ copied: 1, skipped: 3 });
+    // Trucking is asked for the hauliers of the company named, not the superadmin's own.
+    expect(termsList).toHaveBeenLastCalledWith({ companyId: TENANT });
+    expect(writes).toHaveLength(1);
+    expect(writes[0]).toEqual(["new", TENANT, expect.objectContaining({
       supplierPaymentDays: 14,
       supplierVatUnreliable: true,
       supplierBankAccounts: ["19-2000145399/0800"],
       supplierBankAccountsChangedAt: new Date("2026-10-01T08:00:00.000Z"),
       supplierBankAccountsChangedBy: "Petr",
-    }));
+    })]);
+  });
+
+  it("needs the id of a company", async () => {
+    await expect(supplierTermsService.copyFromTrucking("platform")).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(termsList).not.toHaveBeenCalled();
   });
 });

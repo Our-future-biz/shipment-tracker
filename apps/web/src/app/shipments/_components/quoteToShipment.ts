@@ -9,7 +9,7 @@
 import { computeCargo, computeTotals, quoteCurrency } from "@/app/sales/_lib/salesQuote";
 import { DIRECTIONS, type PackageLine, type QuoteContainerLine, type SalesQuoteData } from "@/app/sales/_lib/types";
 import type { controllers, interfaces } from "@/lib/api/client";
-import { NOT_STACKABLE, STACKABLE, num } from "@/lib/cargo";
+import { NOT_STACKABLE, STACKABLE, hasAllSizes, num } from "@/lib/cargo";
 import type { ExchangeRates } from "@/lib/exchangeRates";
 import { fmtMoney } from "@/lib/money";
 
@@ -213,13 +213,19 @@ export function shipmentToQuoteData(shipment: interfaces.ShipmentItem): SalesQuo
 
   // Dimension rows → package lines. Their numbers are free text and are read the way the
   // shipment's own totals read them; a row nobody filled in is no package.
+  // A row without its sizes may hold the m³ typed for a piece, which a package line has no room
+  // for, and a quote adds up its packages' sizes as soon as one has them (computeCargo): the sized
+  // rows alone would make too small a volume. With such a row the packages go without sizes, so
+  // the quote takes the shipment's volume below, the typed rows counted.
+  const typedVolume = (shipment.cargoDimensions ?? []).some((line) => !hasAllSizes(line) && num(line.volumePerPcM3) > 0);
+  const size = (v: string) => (typedVolume ? undefined : num(v) || undefined);
   const packages: PackageLine[] = (shipment.cargoDimensions ?? [])
     .map((line) => ({
       qty: num(line.pieces),
       type: quotePackageType(line.packageType),
-      length: num(line.lengthCm) || undefined,
-      width: num(line.widthCm) || undefined,
-      height: num(line.heightCm) || undefined,
+      length: size(line.lengthCm),
+      width: size(line.widthCm),
+      height: size(line.heightCm),
       weight: num(line.weightPerPcKg) || undefined,
       stackable: STACKABLE_TICK[line.stackable],
     }))

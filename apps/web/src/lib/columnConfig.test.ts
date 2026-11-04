@@ -15,6 +15,11 @@ describe("summarizeDimensions", () => {
   it("writes a line without sizes by the volume typed for it", () => {
     expect(summarizeDimensions([{ pieces: "3", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "5", volumePerPcM3: "0.4" }])).toBe("3× 0.4 m³");
   });
+  it("reads the typed volume as the totals do: a decimal comma is a point, a size short still counts it", () => {
+    expect(summarizeDimensions([{ pieces: "2", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "", volumePerPcM3: "0,5" }])).toBe("2× 0.5 m³");
+    expect(summarizeDimensions([{ pieces: "2", lengthCm: "120", widthCm: "80", heightCm: "", weightPerPcKg: "", volumePerPcM3: "0,5" }])).toBe("2× 0.5 m³");
+    expect(summarizeDimensions([{ pieces: "2", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "", volumePerPcM3: "abc" }])).toBe("");
+  });
 });
 
 describe("computeDimensionTotals", () => {

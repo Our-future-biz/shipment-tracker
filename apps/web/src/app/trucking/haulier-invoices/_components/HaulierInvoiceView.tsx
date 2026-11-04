@@ -84,8 +84,12 @@ export const HaulierInvoiceView = ({ invoiceId }: HaulierInvoiceViewProps) => {
   const payment = paymentState(inv, isTruckingManager(user));
   const fixes = haulier && inv.status === "BLOCKED" ? vatBlockers(haulier.profile, inv.bankAccount) : [];
   const check = inv.bankAccountCheck;
-  const fail = (what: string) => (e: unknown) => {
+  const report = (what: string) => (e: unknown) => {
     toast.error(`${what}: ${apiErrorMessage(e)}`);
+  };
+  // TruckingTextModal stays open on a rejection, so its submits pass the error on after the toast.
+  const fail = (what: string) => (e: unknown) => {
+    report(what)(e);
     throw e;
   };
   const handleDownload = async () => {
@@ -335,7 +339,8 @@ export const HaulierInvoiceView = ({ invoiceId }: HaulierInvoiceViewProps) => {
                 setDialog(null);
                 toast.success(`${inv.invoiceNumber} noted as paid`);
               })
-              .catch(fail("Could not note the payment"))
+              // The dialog stays open by itself: only the toast, nothing thrown into an unhandled rejection.
+              .catch(report("Could not note the payment"))
               .finally(() => setPaying(false));
           }}
         >

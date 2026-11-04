@@ -9,7 +9,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, apiErrorMessage, ErrCode, isAPIError } from "@/lib/api";
 import type { controllers } from "@/lib/api/client";
 import type { ShipmentItem } from "@/hooks/useShipments";
-import { formatDate, formatDateTime } from "@/lib/date";
+import { businessDayOf, formatDate, formatDateTime } from "@/lib/date";
 import { normaliseAmount } from "@/lib/money";
 import { asData, computeTotals, isSalesQuoteRef, quoteProfitIn } from "@/app/sales/_lib/salesQuote";
 import { useSalesQuoteByRef } from "@/hooks/useSalesQuote";
@@ -239,8 +239,9 @@ export function CostsTab({ shipment }: CostsTabProps) {
     queryClient.invalidateQueries({ queryKey: ["shipments"] });
     // …and the Invoicing queue's counts (to bill, lines invoiced)
     queryClient.invalidateQueries({ queryKey: INVOICE_KEYS.queueAll });
-    // …and the suppliers' What we owe (received and paid move it)
+    // …and the suppliers' What we owe (received and paid move it), and their Open jobs and last use (a vendor link moves them)
     queryClient.invalidateQueries({ queryKey: ["supplier-costs"] });
+    queryClient.invalidateQueries({ queryKey: ["supplier-usage"] });
     return queryClient.invalidateQueries({ queryKey: ["invoicing", shipment.id] });
   };
 
@@ -304,10 +305,13 @@ export function CostsTab({ shipment }: CostsTabProps) {
      that adds the first row with one click instead. */
 
   /* ── Undo as a stack ──
-     Several deleted rows are remembered, and each comes back at its ORIGINAL position. */
-  interface UndoEntry { index: number; values: Record<string, unknown> }
-  const undoBuyStack = useRef<UndoEntry[]>([]);
-  const undoSellStack = useRef<UndoEntry[]>([]);
+     Several deleted rows are remembered, and each comes back at its ORIGINAL position. A buying row is
+     brought back as it was (the server restores it: when its invoice came, its payment and who noted it);
+     a selling row is added again from what it held. */
+  interface UndoBuyEntry { index: number; id: string }
+  interface UndoSellEntry { index: number; values: controllers.AddSellingRequest }
+  const undoBuyStack = useRef<UndoBuyEntry[]>([]);
+  const undoSellStack = useRef<UndoSellEntry[]>([]);
   const [undoBuyCount, setUndoBuyCount] = useState(0);
   const [undoSellCount, setUndoSellCount] = useState(0);
 
@@ -329,26 +333,29 @@ export function CostsTab({ shipment }: CostsTabProps) {
       : "";
 
   /**
-   * Snapshot of a row's values for the undo stack. The id is dropped (the
-   * restored row gets a new one) and so are nulls — the request fields are
-   * optional strings, and the columns are nullable anyway, so omitting a null
-   * is equivalent to sending it and avoids a type mismatch on the wire.
+   * What a selling row is added again from on undo: the fields the request takes (the restored row gets a
+   * new id; a null is left out, as the column's default is the same).
    */
-  const undoValues = (row: BuyingRow | SellingRow): Record<string, unknown> => {
-    const values: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(row)) {
-      if (key === "id" || value === null || value === undefined) continue;
-      values[key] = value;
-    }
-    return values;
-  };
+  const sellUndoValues = (row: SellingRow): controllers.AddSellingRequest => ({
+    category: row.category,
+    description: row.description,
+    customer: row.customer,
+    qty: row.qty,
+    amount: row.amount,
+    currency: row.currency,
+    invoice: row.invoice,
+    ...(row.sourceBuyId ? { sourceBuyId: row.sourceBuyId } : {}),
+  });
 
+  // Remembered once it is deleted: a row that failed to delete has nothing to bring back.
   const removeBuy = (row: BuyingRow, index: number) => {
-    if (buyRowFilled(row)) {
-      undoBuyStack.current.push({ index, values: undoValues(row) });
-      setUndoBuyCount(undoBuyStack.current.length);
-    }
-    deleteBuy.mutate(row.id);
+    deleteBuy.mutate(row.id, {
+      onSuccess: () => {
+        if (!buyRowFilled(row)) return;
+        undoBuyStack.current.push({ index, id: row.id });
+        setUndoBuyCount(undoBuyStack.current.length);
+      },
+    });
   };
 
   /**
@@ -367,7 +374,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
     // back to its original position: the row gets the sortOrder of its saved index
     // and the rows after it move down
     await Promise.all([
-      api.invoicing.invoicingAddBuyingCost(shipment.id, { ...entry.values, sortOrder: entry.index }),
+      api.invoicing.invoicingRestoreBuyingCost(shipment.id, entry.id, { sortOrder: entry.index }),
       ...buyRows.flatMap((r, i) => i >= entry.index && ownBuyRow(r)
         ? [api.invoicing.invoicingUpdateBuyingCost(shipment.id, r.id, { sortOrder: i + 1 })]
         : []),
@@ -377,7 +384,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
 
   const removeSell = (row: SellingRow, index: number) => {
     if (sellRowFilled(row)) {
-      undoSellStack.current.push({ index, values: undoValues(row) });
+      undoSellStack.current.push({ index, values: sellUndoValues(row) });
       setUndoSellCount(undoSellStack.current.length);
     }
     deleteSell.mutate(row.id);
@@ -676,7 +683,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
                     />
                   </td>
                   <td className={CELL}>
-                    <VendorCell row={r} locked={locked} className={fld} onSave={(change) => updateBuy.mutate({ id: r.id, ...change })} />
+                    <VendorCell row={r} locked={locked} className={fld} onSave={(change, onFailed) => updateBuy.mutate({ id: r.id, ...change }, { onError: onFailed })} />
                   </td>
                   {/* Estimated */}
                   <td className={CELL}>
@@ -739,7 +746,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
                   </td>
                   <td className={`${CELL} text-center`}>
                     <span className="inline-flex items-center gap-1.5">
-                      <Tooltip title={`Received is ticked automatically once the invoice number is filled in${r.receivedAt ? ` (${formatDate(r.receivedAt)})` : ""}`}>
+                      <Tooltip title={`Received is ticked automatically once the invoice number is filled in${r.receivedAt ? ` (${formatDate(businessDayOf(r.receivedAt))})` : ""}`}>
                         <span>
                           <Checkbox checked={r.received} disabled tabIndex={-1} />
                         </span>
@@ -747,6 +754,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
                       {/* Paid once the invoice came, on the day picked (Council Outlay 7, step 6b; Council Review 5). */}
                       <CostPaidCell
                         received={r.received}
+                        receivedAt={r.receivedAt}
                         paidOn={r.paidOn}
                         paidBy={r.paidBy}
                         paidAt={r.paidAt}
@@ -1331,8 +1339,11 @@ interface VendorCellProps {
   /** A locked row: the field reads as text until the row is opened. */
   locked: boolean;
   className: string;
-  onSave: (change: { vendor: string; supplierCustomerId: string }) => void;
+  /** `onFailed` is called when the save is refused. */
+  onSave: (change: { vendor: string; supplierCustomerId: string }, onFailed: () => void) => void;
 }
+
+const sameSupplier = (a: SupplierValue, b: SupplierValue) => a.name === b.name && a.supplierCustomerId === b.supplierCustomerId;
 
 // The vendor of a buying row: a supplier picked from the Customer Database (saved at once, linked, with
 // its stars) or a name typed (saved when the field is left, unlinked), as the other fields save on blur.
@@ -1341,15 +1352,26 @@ function VendorCell({ row, locked, className, onSave }: VendorCellProps) {
   const [value, setValue] = useState<SupplierValue>(stored);
   // What the field holds now, for the blur that follows a pick before the state has caught up.
   const latest = useRef(stored);
+  // What was last saved (or read): an Enter that picks also leaves the row, and its blur must not save the
+  // same pick again before the row is read back (F-5).
+  const sent = useRef(stored);
   useEffect(() => {
     const next = { name: row.vendor, supplierCustomerId: row.supplierCustomerId };
     latest.current = next;
+    sent.current = next;
     setValue(next);
   }, [row.vendor, row.supplierCustomerId]);
 
   const save = (next: SupplierValue) => {
-    if (next.name === row.vendor && next.supplierCustomerId === row.supplierCustomerId) return;
-    onSave({ vendor: next.name, supplierCustomerId: next.supplierCustomerId ?? "" });
+    if (sameSupplier(next, sent.current)) return;
+    sent.current = next;
+    // A refused save shows the stored vendor again, not the one that was not saved.
+    const back = { name: row.vendor, supplierCustomerId: row.supplierCustomerId };
+    onSave({ vendor: next.name, supplierCustomerId: next.supplierCustomerId ?? "" }, () => {
+      latest.current = back;
+      sent.current = back;
+      setValue(back);
+    });
   };
 
   return (

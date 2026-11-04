@@ -10,12 +10,15 @@ interface SupplierCostsRequest {
 /**
  * What we owe a supplier of the Customer Database, from the shipments' Costs Breakdown: its buying
  * lines not yet paid (received = owed, not received = expected) and the typed vendor names that name
- * it without being linked (Council Outlay 7, step 6b). Read by everyone who sees the supplier's page.
+ * it without being linked (Council Outlay 7, step 6b); for a haulier, its approved Trucking invoices
+ * not yet paid, apart and only for those who see the Trucking Concept. Read by everyone who sees the
+ * supplier's page.
  */
 export const invoicingSupplierCosts = api(
   { expose: true, auth: true, method: "GET", path: "/invoicing/suppliers/:customerId/costs" },
   async (req: SupplierCostsRequest): Promise<SupplierCostsResponse> => {
-    return supplierCostsService.forSupplier(getAuthData()!.companyID, req.customerId);
+    const auth = getAuthData()!;
+    return supplierCostsService.forSupplier(auth.companyID, req.customerId, auth.role);
   },
 );
 

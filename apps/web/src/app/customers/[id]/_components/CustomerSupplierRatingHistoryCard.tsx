@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { SectionCard } from "@/components/SectionCard";
 import { useSupplierRating } from "@/hooks/useSupplierRating";
-import { formatDateTime } from "@/lib/date";
+import { businessDateTime } from "@/lib/date";
 import { SupplierRatingStars } from "../../_components/SupplierRatingStars";
 
 interface CustomerSupplierRatingHistoryCardProps {
@@ -12,7 +12,8 @@ interface CustomerSupplierRatingHistoryCardProps {
 
 const SHOWN = 5;
 
-// Every change of a supplier's rating, newest first, as it was made: the trend a supplier review needs.
+// Every change of a supplier's rating, newest first, as it was made: the trend a supplier review needs. Each
+// change is timed on the company's (Prague) clock, as the header box dates the rating.
 export function CustomerSupplierRatingHistoryCard({ customerId }: CustomerSupplierRatingHistoryCardProps) {
   const { history, historyLoading, historyError } = useSupplierRating(customerId);
   const [all, setAll] = useState(false);
@@ -30,7 +31,7 @@ export function CustomerSupplierRatingHistoryCard({ customerId }: CustomerSuppli
               {entry.rating === null ? <span className="text-[12px] font-medium text-slate-500">Rating cleared</span> : <SupplierRatingStars rating={entry.rating} />}
               {entry.reason && <div className="mt-0.5 text-slate-700 [overflow-wrap:anywhere]">{entry.reason}</div>}
               <div className="text-[11px] text-slate-400">
-                {entry.setBy || "—"} · {formatDateTime(entry.setAt)}
+                {entry.setBy || "—"} · {businessDateTime(entry.setAt)}
               </div>
             </li>
           ))}

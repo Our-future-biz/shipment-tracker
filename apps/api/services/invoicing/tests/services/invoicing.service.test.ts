@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // stand-in for the quotes service and for the repository that writes the rows.
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
-vi.mock("~encore/clients", () => ({ quotes: { salesQuoteGet: vi.fn() }, shipments: { shipmentGet: vi.fn() }, customers: { customerGet: vi.fn() } }));
+vi.mock("~encore/clients", () => ({ quotes: { salesQuoteGet: vi.fn() }, shipments: { shipmentGet: vi.fn() }, customers: { customerGet: vi.fn(), _internalCompaniesWithRole: vi.fn() } }));
 vi.mock("../../repositories/customsInvoice.repository", () => ({ customsInvoiceLineRepository: {}, customsInvoiceRepository: {} }));
 vi.mock("../../../../lib/shipmentRefs", () => ({ assertShipmentExists: vi.fn(async () => ({ jobNumber: "CZ00000001" })) }));
 vi.mock("../../repositories/invoiceCost.repository", () => ({ invoiceCostRepository: {} }));
@@ -139,6 +139,35 @@ describe("importQuote", () => {
     // Without a consignment the trucking lines are copied as any other.
     vi.mocked(truckingLinesRepository.hasConsignmentRows).mockResolvedValueOnce(false);
     await expect(invoicingService.importQuote(SHIPMENT, COMPANY, REF, "both", true)).resolves.toEqual({ buying: 3, selling: 2 });
+  });
+
+  it("keeps a quote line's supplier link only when it names a live supplier of this company (C-7)", async () => {
+    const MAERSK = "3d55a500-d6f8-4def-8e95-82e77493cabb";
+    const GONE = "3d55a500-d6f8-4def-8e95-82e77493ca00";
+    const linked = {
+      ...DATA,
+      buyingLines: [
+        { ...DATA.buyingLines[0], supplierCustomerId: MAERSK.toUpperCase() },
+        { ...DATA.buyingLines[0], supplier: "Old Line", supplierCustomerId: GONE },
+      ],
+    };
+    salesQuoteGet.mockResolvedValue({ quote: { quoteNumber: REF, effectiveStatus: "won", data: linked } } as Awaited<ReturnType<typeof quotes.salesQuoteGet>>);
+    const withRole = vi.mocked(customers._internalCompaniesWithRole);
+    withRole.mockImplementation((async ({ role }: { role: string }) => ({ companies: role === "shipping_line" ? [{ id: MAERSK }] : [] })) as never);
+    await invoicingService.importQuote(SHIPMENT, COMPANY, REF, "buy", false);
+    // Asked once per supplier role, for all the ids at once.
+    expect(withRole).toHaveBeenCalledTimes(5);
+    expect(withRole).toHaveBeenCalledWith({ role: "shipping_line", ids: [MAERSK, GONE] });
+    const buying = copy.mock.calls[0]![3].buying!;
+    expect(buying.map((r) => [r.vendor, r.supplierCustomerId])).toEqual([
+      ["Maersk", MAERSK],
+      ["Old Line", null],
+    ]);
+  });
+
+  it("asks the Customer Database nothing when no quote line is linked", async () => {
+    await invoicingService.importQuote(SHIPMENT, COMPANY, REF, "both", false);
+    expect(customers._internalCompaniesWithRole).not.toHaveBeenCalled();
   });
 
   it("starts a shipment's first billing settings in its customer's default currency, while nothing was invoiced", async () => {

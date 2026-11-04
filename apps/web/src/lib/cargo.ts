@@ -169,6 +169,18 @@ export function dimensionVolumePerPiece(d: VolumeSource): number {
   return hasAllSizes(d) ? (num(d.lengthCm) * num(d.widthCm) * num(d.heightCm)) / 1e6 : num(d.volumePerPcM3);
 }
 
+/** The m³ of a whole dimension line: its pieces × the volume of one (sizes in cm). */
+export const dimensionLineVolume = (d: VolumeSource & Pick<CargoDimensionLine, "pieces">): number => num(d.pieces) * dimensionVolumePerPiece(d);
+
+/**
+ * An edited line once a change gave it all three sizes: without the volume typed for it, as the
+ * server keeps none beside them - so a hidden old value cannot come back when a size is cleared
+ * again. Either unit: a size above 0 is above 0 in both.
+ */
+export function withoutTypedVolumeWhenSized<L extends VolumeSource>(l: L): L {
+  return hasAllSizes(l) && l.volumePerPcM3 ? { ...l, volumePerPcM3: "" } : l;
+}
+
 export interface DimensionTotals {
   pcs: number;
   kg: number;
@@ -224,7 +236,7 @@ export function dimensionTotals(dims: CargoDimensionLine[]): DimensionTotals {
       const q = num(d.pieces);
       t.pcs += q;
       t.kg += q * num(d.weightPerPcKg);
-      t.m3 += q * dimensionVolumePerPiece(d);
+      t.m3 += dimensionLineVolume(d);
       return t;
     },
     { pcs: 0, kg: 0, m3: 0 },

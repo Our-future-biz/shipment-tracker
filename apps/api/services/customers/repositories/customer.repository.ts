@@ -1,4 +1,4 @@
-import { and, arrayContains, arrayOverlaps, asc, count, eq, getTableColumns, inArray, desc, isNotNull, isNull, ne, sql } from "drizzle-orm";
+import { and, arrayContains, arrayOverlaps, asc, count, eq, getTableColumns, gte, inArray, desc, isNotNull, isNull, lte, ne, sql } from "drizzle-orm";
 import { containsAllWords } from "../../../lib/db/textSearch";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
@@ -20,6 +20,12 @@ export interface CustomerListFilters {
   role?: CustomerRole;
   /** Only customers (the customer role) or only suppliers (any other role); a company that is both is in each. */
   kind?: CustomerListKind;
+  /** Only the companies of this Sales Owner (a user id), or those with none ("none"). */
+  salesOwner?: string;
+  /** Only companies with any of these roles (the supplier types picked). */
+  anyRole?: CustomerRole[];
+  /** Only these ratings: at least `min` stars, at most `max`, or not rated (`unrated`). */
+  rating?: { min?: number; max?: number } | "unrated";
   limit?: number;
 }
 
@@ -27,18 +33,26 @@ export interface CustomerListFilters {
 const { logoData: _logoData, ...withoutLogo } = getTableColumns(customerTable);
 const ITEM_COLUMNS = { ...withoutLogo, logoLength: sql<number>`length(${customerTable.logoData})`.mapWith(Number) };
 // The list also says when each company was last in touch: its newest live Communication entry (one
-// index read per row, on customer_note_customer_id_idx).
+// index read per row, on customer_note_last_contact_idx). Spelled out with an alias: in a single-table
+// select drizzle leaves column names unqualified, and inside the subquery "id" would be the note's own.
 const LIST_COLUMNS = {
   ...ITEM_COLUMNS,
-  lastContactAt: sql<Date | null>`(select max(${customerNoteTable.createdAt}) from ${customerNoteTable} where ${customerNoteTable.customerId} = ${customerTable.id} and ${customerNoteTable.deletedAt} is null)`.mapWith(customerNoteTable.createdAt),
+  lastContactAt: sql<Date | null>`(select max(note.created_at) from customer_note as note where note.customer_id = "customer"."id" and note.company_id = "customer"."company_id" and note.deleted_at is null)`.mapWith(customerNoteTable.createdAt),
 };
+
+/** The companies of a view of the list (and of its count): customers have the customer role, suppliers any other. */
+export const kindClause = (kind: CustomerListKind) =>
+  kind === "customers" ? arrayContains(customerTable.roles, ["customer"]) : arrayOverlaps(customerTable.roles, [...SUPPLIER_ROLES]);
 
 class CustomerRepository extends TenantRepository<typeof customerTable> {
   constructor() {
     super(db, customerTable, "customer");
   }
 
-  /** Active when it is not already, live and of this company; true when a row changed. */
+  /**
+   * Active when it is not already, live, of this company and a customer: a supplier only keeps its "In use" /
+   * "Not in use" as it was set. True when a row changed.
+   */
   async activate(id: string, companyId: string): Promise<boolean> {
     const rows = await this.db
       .update(customerTable)
@@ -49,6 +63,7 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
           eq(customerTable.companyId, companyId),
           isNull(customerTable.deletedAt),
           ne(customerTable.status, "Active"),
+          arrayContains(customerTable.roles, ["customer"]),
         ),
       )
       .returning({ id: customerTable.id });
@@ -122,8 +137,8 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
   async viewCounts(companyId: string): Promise<{ customers: number; suppliers: number; all: number }> {
     const [row] = await this.db
       .select({
-        customers: sql<number>`count(*) filter (where ${arrayContains(customerTable.roles, ["customer"])})`.mapWith(Number),
-        suppliers: sql<number>`count(*) filter (where ${arrayOverlaps(customerTable.roles, [...SUPPLIER_ROLES])})`.mapWith(Number),
+        customers: sql<number>`count(*) filter (where ${kindClause("customers")})`.mapWith(Number),
+        suppliers: sql<number>`count(*) filter (where ${kindClause("suppliers")})`.mapWith(Number),
         all: count(),
       })
       .from(customerTable)
@@ -150,8 +165,9 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
         country: customerTable.country,
         rating: customerTable.supplierRating,
         ratingReason: customerTable.supplierRatingReason,
-        // "Not in use" is a supplier stored Inactive (Council Outlay 7, D1): left out of pickers (D16).
-        inUse: sql<boolean>`${customerTable.status} <> 'Inactive'`,
+        // "Not in use" is a supplier only stored Inactive (Council Outlay 7, D1): left out of pickers (D16). A
+        // company that is also a customer keeps its customer status there, which says nothing of its supply.
+        inUse: sql<boolean>`not (${customerTable.status} = 'Inactive' and not (${arrayContains(customerTable.roles, ["customer"])}))`,
       })
       .from(customerTable)
       .where(and(...clauses))
@@ -190,8 +206,15 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
     if (f.label) clauses.push(eq(customerTable.label, f.label));
     if (f.country) clauses.push(eq(customerTable.country, f.country));
     if (f.role) clauses.push(arrayContains(customerTable.roles, [f.role]));
-    if (f.kind === "customers") clauses.push(arrayContains(customerTable.roles, ["customer"]));
-    if (f.kind === "suppliers") clauses.push(arrayOverlaps(customerTable.roles, [...SUPPLIER_ROLES]));
+    if (f.kind) clauses.push(kindClause(f.kind));
+    if (f.salesOwner === "none") clauses.push(isNull(customerTable.salesOwnerUserId), sql`btrim(${customerTable.salesOwner}) = ''`);
+    else if (f.salesOwner) clauses.push(eq(customerTable.salesOwnerUserId, f.salesOwner));
+    if (f.anyRole?.length) clauses.push(arrayOverlaps(customerTable.roles, f.anyRole));
+    if (f.rating === "unrated") clauses.push(isNull(customerTable.supplierRating));
+    else if (f.rating) {
+      if (f.rating.min !== undefined) clauses.push(gte(customerTable.supplierRating, f.rating.min));
+      if (f.rating.max !== undefined) clauses.push(lte(customerTable.supplierRating, f.rating.max));
+    }
     // Every word typed, anywhere in these columns, without regard to diacritics or case.
     if (f.search) {
       const match = containsAllWords([customerTable.companyName, customerTable.ico, customerTable.dic, customerTable.city], f.search);

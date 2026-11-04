@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isSupplierOnly, shownStatus, supplierStatusValue } from "./supplierStatus";
+import { isSupplierOnly, shownStatus, supplierInUse, supplierStatusValue } from "./supplierStatus";
 
 describe("the status a company shows", () => {
   it("is the stored status for a customer, also one that is a supplier too", () => {
@@ -23,5 +23,12 @@ describe("the status a company shows", () => {
     expect(supplierStatusValue("Prospect")).toBe("Active");
     expect(supplierStatusValue("Active")).toBe("Active");
     expect(supplierStatusValue("Inactive")).toBe("Inactive");
+  });
+
+  it("is Not in use only for a supplier only stored Inactive: a customer's Inactive leaves it in use as a supplier (A-2)", () => {
+    expect(supplierInUse({ status: "Inactive", roles: ["haulier"] })).toBe(false);
+    expect(supplierInUse({ status: "Inactive", roles: ["haulier", "customer"] })).toBe(true);
+    expect(supplierInUse({ status: "Prospect", roles: ["shipping_line"] })).toBe(true);
+    expect(supplierInUse({ status: "Active", roles: ["rail_operator"] })).toBe(true);
   });
 });

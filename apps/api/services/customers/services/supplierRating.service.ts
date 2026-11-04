@@ -44,7 +44,8 @@ class SupplierRatingService {
       setBy: await userEmailOf(actor.userID),
       setByUserId: actor.userID || null,
     });
-    if (!row) throw APIError.notFound("Customer not found");
+    // Deleted, or no longer a supplier, since the check above.
+    if (!row) throw APIError.notFound("Supplier not found");
     return toCustomerItem(row);
   }
 

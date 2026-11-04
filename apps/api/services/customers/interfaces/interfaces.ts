@@ -50,6 +50,10 @@ export type CustomerRole = "customer" | "haulier" | "rail_operator" | "first_las
 export const SUPPLIER_ROLES: readonly CustomerRole[] = ["haulier", "rail_operator", "first_last_mile_haulier", "shipping_line", "co_loader"];
 /** Which companies a list holds: those with the customer role, or those with any supplier role. A company that is both is in each. */
 export type CustomerListKind = "customers" | "suppliers";
+/** The list's Sales Owner filter: the signed-in user's companies, or those with no Sales Owner. */
+export type CustomerOwnerFilter = "mine" | "none";
+/** The list's rating filter: 4 ★ and up, 3 ★ and up, 0–2 ★, or not rated. */
+export type CustomerRatingFilter = "4" | "3" | "low" | "none";
 /** Whether a company with these roles is a supplier (it may also be a customer). */
 export const isSupplier = (roles: readonly CustomerRole[]): boolean => roles.some((role) => SUPPLIER_ROLES.includes(role));
 /** What happens at a site: goods are picked up (loading), dropped off (delivery), or both. */
@@ -113,6 +117,33 @@ export interface CustomerItem {
   supplierTerms: SupplierTerms;
   createdAt: string;
   updatedAt: string;
+}
+
+/** A company as its page reads it, with what the signed-in user may do with it. */
+export interface CustomerDetail {
+  customer: CustomerItem;
+  /** Whether the signed-in user may set this company's supplier rating: a manager, and the company is a supplier. */
+  canRateSupplier: boolean;
+  /** Whether the signed-in user may change its payment terms and VAT / bank details: a manager, and the company is a supplier. */
+  canEditSupplierTerms: boolean;
+  /**
+   * The haulier's terms were never saved here, so `customer.supplierTerms` are Trucking's copy (until the
+   * one-off copy, or the first save here, keeps them in the Customer Database).
+   */
+  supplierTermsFromTrucking: boolean;
+  /**
+   * The haulier's terms were never saved here and Trucking's copy could not be read: `customer.supplierTerms`
+   * may be emptier than Trucking's, so they are not to be edited until a reload can read them.
+   */
+  supplierTermsUnavailable: boolean;
+}
+
+/** How many live companies each view of the list holds. */
+export interface CustomerViewCounts {
+  customers: number;
+  /** Any role but customer; a company that is both is counted in each */
+  suppliers: number;
+  all: number;
 }
 
 /** A supplier's payment terms to us and the VAT register checks before we pay it (Council Outlay 7, step 6b). */

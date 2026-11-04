@@ -43,6 +43,22 @@ describe("declared", () => {
     expect(declaredTotals({ pcs: "", totalWeightTons: null, totalVolumeCbm: null, cargoDimensions: [] })).toBeNull();
     expect(declaredTotals(null)).toBeNull();
   });
+  it("counts a line without its sizes by the m³ per piece typed for it, as the supplier e-mail does", () => {
+    const typed = (pieces: string, volumePerPcM3: string) => ({ ...line(pieces, "", "", "", "250"), volumePerPcM3 });
+    const declared = (lines: ReturnType<typeof typed>[]) => declaredTotals({ pcs: "", totalWeightTons: "", totalVolumeCbm: "", cargoDimensions: lines });
+    expect(declared([typed("4", "0.6")])).toEqual({ pieces: 4, kg: 1000, cbm: 2.4 });
+    // A sized line goes by its sizes, whatever was typed beside them; the two add up.
+    expect(declared([{ ...line("2", "100", "100", "100", "50"), volumePerPcM3: "9" }, typed("4", "0.6")])).toEqual({ pieces: 6, kg: 1100, cbm: 4.4 });
+    // A decimal comma reads as a point; a typed volume that is no number counts as none.
+    expect(declared([typed("2", "0,5")])?.cbm).toBe(1);
+    expect(declared([typed("2", "abc")])?.cbm).toBe(0);
+    // Pieces that are no plain number count as none, so neither do their weight and volume.
+    expect(declared([typed("-2", "0.5")])).toBeNull();
+    expect(declared([typed("2 pcs", "0.5")])).toBeNull();
+  });
+  it("leaves the shipment's own total volume first", () => {
+    expect(declaredTotals({ pcs: "", totalWeightTons: "", totalVolumeCbm: "3", cargoDimensions: [{ ...line("4", "", "", "", "250"), volumePerPcM3: "0.6" }] })?.cbm).toBe(3);
+  });
 });
 
 describe("W/M and variance", () => {

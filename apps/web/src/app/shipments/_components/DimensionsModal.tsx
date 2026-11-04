@@ -21,6 +21,7 @@ import {
   dimensionLineIsEmpty,
   fmtFixed,
   numberInput,
+  withoutTypedVolumeWhenSized,
   type CargoDimensionLine,
   type ContainerLine,
 } from "@/lib/cargo";
@@ -131,8 +132,9 @@ export function DimensionsModal({
   // A tab's filled lines in cm, for its totals and the check against the container.
   const filledOf = (t: (typeof tabs)[number]) => t.rows.map(({ l }) => l).filter((l) => !isEmpty(l)).map(lineInCm);
 
+  // Once a line has all three sizes its typed volume goes, so it cannot come back when a size is cleared.
   const patch = (idx: number, p: Partial<CargoDimensionLine>) =>
-    setLines((r) => r.map((l, j) => (j === idx ? { ...l, ...p } : l)));
+    setLines((r) => r.map((l, j) => (j === idx ? withoutTypedVolumeWhenSized({ ...l, ...p }) : l)));
   // The last line of a tab is cleared rather than removed, so the tab keeps a line.
   const remove = (idx: number, tabSize: number) =>
     setLines((r) => (tabSize > 1 ? r.filter((_, j) => j !== idx) : r.map((l, j) => (j === idx ? emptyLine(l.containerId ?? null, l.dimensionUnit === "in" ? "in" : "cm") : l))));

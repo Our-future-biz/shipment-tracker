@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Alert, Checkbox } from "antd";
-import { lowRatingNote } from "@/app/customers/_lib/supplierRatingScale";
+import { lowRatingNote } from "@/lib/supplierRating";
 import { needsConfirmation } from "../_lib/haulierRating";
 
 interface HaulierRatingNoteProps {

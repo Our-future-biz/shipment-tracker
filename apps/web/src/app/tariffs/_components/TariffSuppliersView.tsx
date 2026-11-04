@@ -30,12 +30,19 @@ interface TariffSupplierRow {
   tariffCount: number;
   activeCount: number;
   draftCount: number;
-  activeUntil: string | null;
+  /** The last day its tariffs price without a gap, later versions counted; null when one never ends, or none prices today. */
+  coveredUntil: string | null;
   /** From the Customer Database: 0–5 stars, null when not rated. */
   rating: number | null;
 }
 
 const byText = (a: string, b: string) => a.localeCompare(b, "cs");
+
+// How far a supplier's tariffs reach, as its Customer Database page says it ("covered to"): no end
+// when one never ends; nothing while none prices today.
+const coveredText = (s: TariffSupplierRow) => (s.coveredUntil ? formatDate(s.coveredUntil) : s.activeCount ? "no end" : "");
+// Soonest first, no end last; a supplier with nothing pricing today before them all.
+const coveredKey = (s: TariffSupplierRow) => s.coveredUntil ?? (s.activeCount ? "9999" : "");
 
 function supplierColumns<T extends TariffSupplierRow>(nameTitle: string, href: (customerId: string) => string, forColumns: AppGridColumn<T>[]): AppGridColumn<T>[] {
   return [
@@ -74,10 +81,10 @@ function supplierColumns<T extends TariffSupplierRow>(nameTitle: string, href: (
     },
     {
       key: "until",
-      title: "Valid until",
-      text: (s) => formatDate(s.activeUntil),
-      sorter: (a, b) => (a.activeUntil ?? "9999").localeCompare(b.activeUntil ?? "9999"),
-      render: (_, s) => formatDate(s.activeUntil) || muted("—"),
+      title: "Covered to",
+      text: coveredText,
+      sorter: (a, b) => coveredKey(a).localeCompare(coveredKey(b)),
+      render: (_, s) => (s.coveredUntil ? formatDate(s.coveredUntil) : muted(coveredText(s) || "—")),
     },
     {
       key: "drafts",

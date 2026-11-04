@@ -73,7 +73,8 @@ interface CustomerAttentionCardProps {
 // missing paperwork, lapsed contact — each row leading to where it is dealt with. The card is absent when there is nothing.
 export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAttentionCardProps) {
   const { customer, isLoading: customerLoading, canRateSupplier } = useCustomer(customerId);
-  const { usage, isError: usageError } = useSupplierUsage(customerId, { enabled: !!customer && hasSupplierRole(customer.roles) });
+  const supplier = !!customer && hasSupplierRole(customer.roles);
+  const { usage, isLoading: usageLoading, isError: usageError } = useSupplierUsage(customerId, { enabled: supplier });
   const { invoices, isLoading: invoicesLoading } = useCustomerInvoices(customerId);
   const { rates, isLoading: ratesLoading } = useLatestRates();
   const { contacts, isLoading: contactsLoading, isError: contactsError } = useCustomerContacts(customerId);
@@ -87,9 +88,18 @@ export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAtten
   const [expandedFor, setExpandedFor] = useState<string | null>(null);
 
   // Until every source is in, the list would appear half-built and then grow or reorder under the reader.
-  // The rates too: without them a foreign invoice can't be weighed against the credit limit.
+  // The rates too: without them a foreign invoice can't be weighed against the credit limit. And a supplier's
+  // last job: a low rating said before it is in could vanish when it shows the supplier unused.
   const isLoading =
-    customerLoading || invoicesLoading || ratesLoading || contactsLoading || documentsLoading || notesLoading || (isHaulier && haulierLoading) || tariffs.isLoading;
+    customerLoading ||
+    invoicesLoading ||
+    ratesLoading ||
+    contactsLoading ||
+    documentsLoading ||
+    notesLoading ||
+    (isHaulier && haulierLoading) ||
+    tariffs.isLoading ||
+    (supplier && usageLoading);
 
   const items = useMemo(() => {
     if (isLoading || !customer) return [];
@@ -113,7 +123,7 @@ export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAtten
       documents: documentsError ? null : documents,
       today: businessToday(),
       canRate: canRateSupplier,
-      // Not known (loading, failed): the low rating is said all the same.
+      // Not known (it could not be read): the low rating is said all the same.
       lastUsedAt: usage && !usageError ? usage.lastUsedAt : undefined,
     });
     // Most serious first across both: every critical row, then every warning, each side in its own order.

@@ -1385,6 +1385,26 @@ describe("cargo lines and containers", () => {
     await update({ cargoDimensions: [dim(A), dim("0b8e1d2c-0000-4000-8000-0000000000ff")] });
     expect(vi.mocked(cargoDimensionRepository.replaceForShipment).mock.calls[0]![2]).toMatchObject([dim(A)]);
   });
+
+  it("stores the volume typed for a piece as a plain number, and none beside all three sizes", async () => {
+    containers(A);
+    const unsized = { ...dim(A), heightCm: "", volumePerPcM3: "0,50" };
+    await update({ cargoDimensions: [unsized, { ...dim(A), volumePerPcM3: "4" }] });
+    expect(vi.mocked(cargoDimensionRepository.replaceForShipment).mock.calls[0]![2]).toMatchObject([
+      { heightCm: "", volumePerPcM3: "0.5" },
+      { heightCm: "1", volumePerPcM3: "" },
+    ]);
+  });
+
+  it("refuses a typed volume that is no plain number of m³ and writes nothing", async () => {
+    containers(A);
+    await expect(update({ cargoDimensions: [dim(A), { ...dim(A), heightCm: "", volumePerPcM3: "-2" }] })).rejects.toMatchObject({
+      code: "invalid_argument",
+      message: "Cargo line 2: volume per piece cannot be negative",
+    });
+    await expect(update({ cargoDimensions: [{ ...dim(A), heightCm: "", volumePerPcM3: "0.5 m3" }] })).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(cargoDimensionRepository.replaceForShipment).not.toHaveBeenCalled();
+  });
 });
 
 describe("removing the only container", () => {

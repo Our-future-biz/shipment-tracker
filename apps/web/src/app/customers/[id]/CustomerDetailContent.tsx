@@ -49,14 +49,10 @@ export function CustomerDetailContent() {
   const owedByHaulier = !!customer?.roles.includes("haulier") && canSeeConcepts;
   const hasSalesInvoices = invoices.length > 0;
   // Trucking and its loading/unloading Sites belong to Trucking Concept (superadmins only). A supplier only is
-  // nobody's customer: no Shipments or Quotes of its own, and Finance only when there is money to show.
+  // nobody's customer: no Shipments or Quotes of its own. Finance stays: every supplier has its terms and checks there.
   const detailTabs = CUSTOMER_DETAIL_TABS.filter((t) => {
     if (!canSeeConcepts && (t.key === "trucking" || t.key === "sites")) return false;
-    if (!supplierOnly) return true;
-    if (t.key === "shipments" || t.key === "quotes") return false;
-    // Every supplier has its terms and checks on Finance.
-    if (t.key === "finance") return true;
-    return true;
+    return !supplierOnly || (t.key !== "shipments" && t.key !== "quotes");
   });
   const activeTab = detailTabs.some((t) => t.key === tabKey) ? tabKey : DEFAULT_TAB;
 
@@ -119,7 +115,7 @@ export function CustomerDetailContent() {
         {activeTab === "finance" && (
           <div className="space-y-5">
             {hasSupplierRole(customer.roles) && <SupplierTermsCard key={customer.id} customer={customer} />}
-            {hasSupplierRole(customer.roles) && <SupplierOwedCard customer={customer} withHaulierInvoices={customer.roles.includes("haulier") && canSeeConcepts} />}
+            {hasSupplierRole(customer.roles) && <SupplierOwedCard customer={customer} />}
             {owedByHaulier && <CustomerHaulierInvoicesCard customerId={id} />}
             {(!supplierOnly || hasSalesInvoices) && <FinanceTab customerId={id} onSelectTab={handleSelectTab} />}
           </div>

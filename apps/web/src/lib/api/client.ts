@@ -685,9 +685,12 @@ export namespace customers {
                 country: params.country,
                 kind:    params.kind === undefined ? undefined : String(params.kind),
                 label:   params.label === undefined ? undefined : String(params.label),
+                owner:   params.owner === undefined ? undefined : String(params.owner),
+                rating:  params.rating === undefined ? undefined : String(params.rating),
                 role:    params.role === undefined ? undefined : String(params.role),
                 search:  params.search,
                 status:  params.status === undefined ? undefined : String(params.status),
+                types:   params.types,
             })
 
             // Now make the actual call to the API
@@ -781,10 +784,10 @@ export namespace customers {
         /**
          * How many companies each view of the Customer Database list holds, for its view buttons (Council Review 5, m28).
          */
-        public async customerViewCounts(): Promise<controllers.CustomerViewCountsResponse> {
+        public async customerViewCounts(): Promise<interfaces.CustomerViewCounts> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/customers/view-counts`)
-            return await resp.json() as controllers.CustomerViewCountsResponse
+            return await resp.json() as interfaces.CustomerViewCounts
         }
 
         public async documentContent(id: string): Promise<controllers.DocumentContentResponse> {
@@ -893,11 +896,12 @@ export namespace customers {
 
         /**
          * The one-off copy of every haulier's payment terms and VAT / bank details from Trucking (Council Outlay 7,
-         * step 6b, E2). Only onto companies whose terms were never set here, so it can be run again. Superadmins only.
+         * step 6b, E2), for one company. Only onto hauliers whose terms were never set here, so it can be run again.
+         * Superadmins only.
          */
-        public async supplierTermsCopyFromTrucking(): Promise<controllers.SupplierTermsCopyResponse> {
+        public async supplierTermsCopyFromTrucking(params: controllers.SupplierTermsCopyRequest): Promise<controllers.SupplierTermsCopyResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/customers/supplier-terms/copy-from-trucking`)
+            const resp = await this.baseClient.callTypedAPI("POST", `/customers/supplier-terms/copy-from-trucking`, JSON.stringify(params))
             return await resp.json() as controllers.SupplierTermsCopyResponse
         }
 
@@ -1217,6 +1221,7 @@ export namespace invoicing {
             this.invoicingMasterJobCostDelete = this.invoicingMasterJobCostDelete.bind(this)
             this.invoicingMasterJobCostUpdate = this.invoicingMasterJobCostUpdate.bind(this)
             this.invoicingMasterJobCosts = this.invoicingMasterJobCosts.bind(this)
+            this.invoicingRestoreBuyingCost = this.invoicingRestoreBuyingCost.bind(this)
             this.invoicingSplitCost = this.invoicingSplitCost.bind(this)
             this.invoicingSupplierCosts = this.invoicingSupplierCosts.bind(this)
             this.invoicingSupplierUsage = this.invoicingSupplierUsage.bind(this)
@@ -1407,6 +1412,15 @@ export namespace invoicing {
         }
 
         /**
+         * Undo of a delete: the line comes back as it was (when its invoice was received, its payment), not as a new one.
+         */
+        public async invoicingRestoreBuyingCost(shipmentId: string, costId: string, params: controllers.RestoreBuyingRequest): Promise<controllers.BuyingResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/buying/${encodeURIComponent(costId)}/restore`, JSON.stringify(params))
+            return await resp.json() as controllers.BuyingResponse
+        }
+
+        /**
          * Splits one vendor invoice over shipments by weight - a master job's invoice by each
          * shipment's freight tons - so the parts add up to the total to the cent, and posts each part
          * as the real cost of the shipment's line of the charge code. With `dryRun` it only answers the
@@ -1421,7 +1435,9 @@ export namespace invoicing {
         /**
          * What we owe a supplier of the Customer Database, from the shipments' Costs Breakdown: its buying
          * lines not yet paid (received = owed, not received = expected) and the typed vendor names that name
-         * it without being linked (Council Outlay 7, step 6b). Read by everyone who sees the supplier's page.
+         * it without being linked (Council Outlay 7, step 6b); for a haulier, its approved Trucking invoices
+         * not yet paid, apart and only for those who see the Trucking Concept. Read by everyone who sees the
+         * supplier's page.
          */
         public async invoicingSupplierCosts(customerId: string): Promise<interfaces.SupplierCostsResponse> {
             // Now make the actual call to the API
@@ -3736,7 +3752,8 @@ export namespace trucking {
         }
 
         /**
-         * Saves a haulier's trucking profile (any user; the VAT and bank fields a manager only). The block is changed only by block / unblock.
+         * Saves a haulier's trucking profile (any user; its payment terms and VAT / bank details are kept, they are edited in the
+         * Customer Database). The block is changed only by block / unblock.
          */
         public async truckingHaulierUpdate(customerId: string, params: controllers.TruckingHaulierUpdateRequest): Promise<interfaces.TruckingHaulierResponse> {
             // Now make the actual call to the API
@@ -6356,6 +6373,10 @@ export namespace controllers {
         data: interfaces.DeletedCustomerItem[]
     }
 
+    /**
+     * The response keeps its name: the web app reads it as CustomerGetResponse.
+     * eslint-disable-next-line @typescript-eslint/no-empty-object-type
+     */
     export interface CustomerGetResponse {
         customer: interfaces.CustomerItem
         /**
@@ -6373,6 +6394,12 @@ export namespace controllers {
          * one-off copy, or the first save here, keeps them in the Customer Database).
          */
         supplierTermsFromTrucking: boolean
+
+        /**
+         * The haulier's terms were never saved here and Trucking's copy could not be read: `customer.supplierTerms`
+         * may be emptier than Trucking's, so they are not to be edited until a reload can read them.
+         */
+        supplierTermsUnavailable: boolean
     }
 
     export interface CustomerListPrefGetResponse {
@@ -6411,6 +6438,21 @@ export namespace controllers {
          * Only customers, or only suppliers (any role but customer); a company that is both is in each.
          */
         kind?: interfaces.CustomerListKind
+
+        /**
+         * Only the signed-in user's companies as their Sales Owner ("mine"), or those with no Sales Owner ("none").
+         */
+        owner?: interfaces.CustomerOwnerFilter
+
+        /**
+         * Only suppliers of these types: supplier roles, comma separated (?types=haulier,shipping_line).
+         */
+        types?: string
+
+        /**
+         * Only suppliers rated 4 ★ and up ("4"), 3 ★ and up ("3"), 0–2 ★ ("low"), or not rated ("none").
+         */
+        rating?: interfaces.CustomerRatingFilter
     }
 
     export interface CustomerListResponse {
@@ -6569,16 +6611,6 @@ export namespace controllers {
 
     export interface CustomerUpdateResponse {
         customer: interfaces.CustomerItem
-    }
-
-    export interface CustomerViewCountsResponse {
-        customers: number
-        /**
-         * Any role but customer; a company that is both is counted in each
-         */
-        suppliers: number
-
-        all: number
     }
 
     export interface CustomsLineResponse {
@@ -8240,6 +8272,13 @@ export namespace controllers {
         date: IsoDate
     }
 
+    export interface RestoreBuyingRequest {
+        /**
+         * position in the list it comes back at (undo keeps a line where it was)
+         */
+        sortOrder?: number
+    }
+
     export interface RoeListResponse {
         changes: interfaces.RoeChange[]
     }
@@ -9401,6 +9440,13 @@ export namespace controllers {
         customer: interfaces.CustomerItem
     }
 
+    export interface SupplierTermsCopyRequest {
+        /**
+         * The company whose hauliers are copied (a superadmin belongs to the platform company, not to it).
+         */
+        companyId: string
+    }
+
     export interface SupplierTermsCopyResponse {
         /**
          * Hauliers whose terms were copied from Trucking.
@@ -9408,7 +9454,7 @@ export namespace controllers {
         copied: number
 
         /**
-         * Those left as they are: their terms were already set here, or Trucking's profile names no live company.
+         * Those left as they are: their terms were already set here, or Trucking's profile names no live haulier.
          */
         skipped: number
     }
@@ -9435,6 +9481,12 @@ export namespace controllers {
          * The published accounts, the whole list (a Czech account or an IBAN each).
          */
         bankAccounts: string[]
+
+        /**
+         * The editor started from Trucking's copy (GET /customers/:id said supplierTermsFromTrucking). A first save of
+         * a haulier whose terms Trucking holds is refused without it: it was made from values the page did not show.
+         */
+        fromTrucking?: boolean
     }
 
     export interface SupplierTermsSetResponse {
@@ -11457,7 +11509,7 @@ export namespace interfaces {
         activeUntil: string | null
 
         /**
-         * The last day it has a tariff pricing without a gap, later versions counted; null when one never ends (K12)
+         * The last day it has a tariff pricing without a gap, later versions counted; null when one never ends, or none prices today (K12)
          */
         coveredUntil: string | null
 
@@ -12527,6 +12579,11 @@ export namespace interfaces {
     export type CustomerListKind = "customers" | "suppliers"
 
     /**
+     * The list's Sales Owner filter: the signed-in user's companies, or those with no Sales Owner.
+     */
+    export type CustomerOwnerFilter = "mine" | "none"
+
+    /**
      * What a run of POST /customers/people/normalize did to the company's live customers and notes.
      */
     export interface CustomerPeopleNormalizeResult {
@@ -12549,6 +12606,11 @@ export namespace interfaces {
             count: number
         }[]
     }
+
+    /**
+     * The list's rating filter: 4 ★ and up, 3 ★ and up, 0–2 ★, or not rated.
+     */
+    export type CustomerRatingFilter = "4" | "3" | "low" | "none"
 
     /**
      * What a company is to us. A customer buys our services; a haulier is a trucking subcontractor; a rail operator sells us rail
@@ -12638,6 +12700,19 @@ export namespace interfaces {
      * literal unions so Encore validates requests against them and the web client gets them.
      */
     export type CustomerStatus = "Active" | "Prospect" | "Inactive"
+
+    /**
+     * How many live companies each view of the list holds.
+     */
+    export interface CustomerViewCounts {
+        customers: number
+        /**
+         * Any role but customer; a company that is both is counted in each
+         */
+        suppliers: number
+
+        all: number
+    }
 
     /**
      * Line of the Invoicing tab in Customs
@@ -16720,7 +16795,7 @@ export namespace interfaces {
         activeUntil: string | null
 
         /**
-         * The last day it has a tariff pricing without a gap, later versions counted; null when one never ends (K12)
+         * The last day it has a tariff pricing without a gap, later versions counted; null when one never ends, or none prices today (K12)
          */
         coveredUntil: string | null
 
@@ -18142,16 +18217,20 @@ export namespace interfaces {
         owed: SupplierCostLine[]
 
         /**
-         * newest first (at most 200)
+         * of the lines entered last (at most 200), the newest job first
          */
         expected: SupplierCostLine[]
 
         /**
-         * newest first (at most 200)
+         * of the lines entered last (at most 200), the newest job first
          */
         untracked: SupplierCostLine[]
 
+        /**
+         * each currency over every open line, without VAT (as typed)
+         */
         totals: SupplierCostTotal[]
+
         /**
          * how many there are of each, and of the owed: without a real cost, with no known due day
          */
@@ -18170,9 +18249,9 @@ export namespace interfaces {
 
         typedNames: SupplierTypedName[]
         /**
-         * more open lines than can be read at once: the totals leave the oldest out
+         * a haulier's approved Trucking invoices not yet paid, apart: their totals are with VAT
          */
-        truncated: boolean
+        haulierInvoices: SupplierHaulierInvoices
     }
 
     export interface SupplierEmailAttachmentItem {
@@ -18224,6 +18303,89 @@ export namespace interfaces {
         survey: SupplierRecipientsItem
         remeasurement: SupplierRecipientsItem
     }
+
+    /**
+     * An approved Trucking invoice of a haulier not yet paid, in What we owe (Council Review 5, C-1).
+     */
+    export interface SupplierHaulierInvoiceLine {
+        id: string
+        invoiceNumber: string
+        /**
+         * owed: approved and its payment noted here. untracked: approved before payments were noted here, so it may have been paid already: listed, not counted (K2)
+         */
+        kind: "owed" | "untracked"
+
+        /**
+         * yyyy-mm-dd
+         */
+        issueDate: string
+
+        /**
+         * its due day in Trucking, yyyy-mm-dd; "" when it has none
+         */
+        dueOn: string
+
+        /**
+         * days past the due day; 0 when not overdue, not known or untracked
+         */
+        overdueDays: number
+
+        /**
+         * the invoice's total, with VAT
+         */
+        amount: number
+
+        currency: string
+    }
+
+    /**
+     * What we owe a haulier on its Trucking invoices in one currency, with VAT, over all of them (not only those listed).
+     */
+    export interface SupplierHaulierInvoiceTotal {
+        currency: string
+        owed: number
+        overdue: number
+        untracked: number
+    }
+
+    export interface SupplierHaulierInvoices {
+        status: SupplierHaulierInvoicesStatus
+        /**
+         * most overdue first, then by due day (none last) (at most 300)
+         */
+        owed: SupplierHaulierInvoiceLine[]
+
+        /**
+         * the newest issued first (at most 200)
+         */
+        untracked: SupplierHaulierInvoiceLine[]
+
+        /**
+         * with VAT, never added to the shipment costs' totals (without VAT)
+         */
+        totals: SupplierHaulierInvoiceTotal[]
+
+        /**
+         * how many there are of each, and of the owed: with no due day
+         */
+        counts: {
+            owed: number
+            untracked: number
+            dueUnknown: number
+        }
+
+        /**
+         * more unpaid invoices than Trucking hands at once (10,000): the totals leave the latest due out
+         */
+        truncated: boolean
+    }
+
+    /**
+     * Whether a haulier's Trucking invoices are in What we owe. included: they are; hidden: the caller does not see the
+     * Trucking Concept (superadmins only), so they are left out; unavailable: Trucking could not be read; none: the
+     * supplier is no haulier.
+     */
+    export type SupplierHaulierInvoicesStatus = "included" | "hidden" | "unavailable" | "none"
 
     /**
      * One change of a supplier's rating, as it was made.
@@ -20741,7 +20903,7 @@ export namespace services {
         activeUntil: string | null
 
         /**
-         * The last day it has a tariff pricing without a gap, later versions counted; null when one never ends (K12)
+         * The last day it has a tariff pricing without a gap, later versions counted; null when one never ends, or none prices today (K12)
          */
         coveredUntil: string | null
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { listViewFrom, matchesOwnerFilter, matchesRatingFilter, matchesSupplierTypes, ratingRank, statusRank, supplierTypesFrom } from "./customerListViews";
+import { listViewFrom, ownerFilterFrom, ratingFilterFrom, ratingRank, statusRank, supplierTypesFrom } from "./customerListViews";
 
 const params = (query: string) => new URLSearchParams(query);
 
@@ -25,19 +25,13 @@ describe("the view of the list", () => {
   });
 });
 
-describe("the Suppliers view's filters", () => {
-  it("keeps the supplier types picked, any of them, or every supplier when none is", () => {
-    expect(matchesSupplierTypes(["haulier", "first_last_mile_haulier"], ["first_last_mile_haulier"])).toBe(true);
-    expect(matchesSupplierTypes(["shipping_line"], ["haulier", "rail_operator"])).toBe(false);
-    expect(matchesSupplierTypes(["co_loader"], [])).toBe(true);
-  });
-
-  it("keeps ratings by stars, and not rated apart from 0", () => {
-    expect([5, 4, 3, null, 0].map((r) => matchesRatingFilter(r, "4"))).toEqual([true, true, false, false, false]);
-    expect([3, 2, null].map((r) => matchesRatingFilter(r, "3"))).toEqual([true, false, false]);
-    expect([3, 2, 1, 0, null].map((r) => matchesRatingFilter(r, "low"))).toEqual([false, true, true, true, false]);
-    expect([0, null].map((r) => matchesRatingFilter(r, "none"))).toEqual([false, true]);
-    expect(matchesRatingFilter(null, "")).toBe(true);
+describe("the view's own filters", () => {
+  // They are the server's (GET /customers ?owner= ?types= ?rating=); the address gives only known values.
+  it("are read from the address, known values only", () => {
+    expect(ratingFilterFrom("low")).toBe("low");
+    expect(ratingFilterFrom("2")).toBe("");
+    expect(ownerFilterFrom("mine")).toBe("mine");
+    expect(ownerFilterFrom("someone")).toBe("");
   });
 });
 
@@ -57,16 +51,5 @@ describe("best first", () => {
   it("orders statuses as the business reads them, not alphabetically", () => {
     const shown = ["Inactive", "Prospect", "Not in use", "Active", "In use"];
     expect([...shown].sort((a, b) => statusRank(a) - statusRank(b))).toEqual(["Active", "In use", "Prospect", "Inactive", "Not in use"]);
-  });
-});
-
-describe("the Customers view's owner filter", () => {
-  it("keeps my customers, or those with nobody as Sales Owner", () => {
-    const mine = { salesOwnerUserId: "me", salesOwner: "me@x.cz" };
-    const nobodys = { salesOwnerUserId: null, salesOwner: "" };
-    const typedName = { salesOwnerUserId: null, salesOwner: "Martin" };
-    expect([mine, nobodys, typedName].map((c) => matchesOwnerFilter(c, "mine", "me"))).toEqual([true, false, false]);
-    expect([mine, nobodys, typedName].map((c) => matchesOwnerFilter(c, "none", "me"))).toEqual([false, true, false]);
-    expect(matchesOwnerFilter(mine, "mine", undefined)).toBe(false);
   });
 });

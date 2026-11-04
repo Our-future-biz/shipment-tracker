@@ -1,10 +1,12 @@
 import { APIError } from "encore.dev/api";
+import { hasAllSizes } from "../../../lib/cargoVolume";
 import { isUuid } from "../../../lib/uuid";
 import type { AdrPackingGroup, CargoDimensionLine, PalletType } from "../interfaces/interfaces";
 
 // Rules for the road-freight fields of a shipment: the structured pick-up / delivery place and
-// the pallet / ADR details of its cargo lines. Applied on every write, so a value is stored in
-// one form whichever screen or caller sent it; a value that cannot be read is refused.
+// the pallet / ADR details of its cargo lines - and the volume typed for a piece of a cargo line.
+// Applied on every write, so a value is stored in one form whichever screen or caller sent it; a
+// value that cannot be read is refused.
 
 export const PALLET_TYPES: readonly PalletType[] = ["EUR", "INDUSTRIAL", "HALF", "QUARTER", "OTHER"];
 export const ADR_PACKING_GROUPS: readonly AdrPackingGroup[] = ["I", "II", "III"];
@@ -67,9 +69,35 @@ export function normalizeStops(data: StopFields, existing?: StopFields): StopFie
   return out;
 }
 
+/** The most m³ one piece is typed as: more is a slip of the keyboard, not a piece (10 × 10 × 10 m). */
+const MAX_VOLUME_PER_PIECE_M3 = 1000;
+
+/**
+ * The m³ typed for one piece as stored: a plain number with a point and nothing else ("0,50" →
+ * "0.5", ".5" → "0.5"), "" when blank. Anything else is refused - a unit, an exponent, a minus,
+ * more than MAX_VOLUME_PER_PIECE_M3 - as it would count wrongly in the shipment's volume and its
+ * freight tons, which a master job's costs are split by.
+ */
+function typedVolumePerPiece(value: string | null | undefined, row: number): string {
+  const typed = (value ?? "").trim().replace(",", ".");
+  if (!typed) return "";
+  if (typed.startsWith("-")) throw APIError.invalidArgument(`Cargo line ${row}: volume per piece cannot be negative`);
+  const parts = /^(\d*)(?:\.(\d*))?$/.exec(typed);
+  if (!parts || !(parts[1] || parts[2])) throw APIError.invalidArgument(`Cargo line ${row}: volume per piece must be a number of m³ (e.g. 0.5)`);
+  const whole = parts[1]!.replace(/^0+(?=\d)/, "") || "0";
+  const decimals = (parts[2] ?? "").replace(/0+$/, "");
+  const volume = decimals ? `${whole}.${decimals}` : whole;
+  if (Number(volume) > MAX_VOLUME_PER_PIECE_M3) {
+    throw APIError.invalidArgument(`Cargo line ${row}: volume per piece cannot be more than ${MAX_VOLUME_PER_PIECE_M3} m³`);
+  }
+  return volume;
+}
+
 /**
  * A cargo dimension line with its pallet / ADR fields as stored: blanks become null, the UN
  * number is its four digits ("UN 1203" → "1203"), pallet type and packing group in capitals.
+ * The volume typed for a piece is kept only while the line's length, width and height are not
+ * all known (with all three the volume is theirs), as a plain number (typedVolumePerPiece).
  * `row` (1-based) names the line in the message when a value is refused.
  */
 export function normalizeCargoDimension<T extends CargoDimensionLine>(line: T, row: number): T {
@@ -85,8 +113,11 @@ export function normalizeCargoDimension<T extends CargoDimensionLine>(line: T, r
   if (adrPackingGroup !== null && !ADR_PACKING_GROUPS.includes(adrPackingGroup as AdrPackingGroup)) {
     throw APIError.invalidArgument(`Cargo line ${row}: packing group must be I, II or III`);
   }
+  // A typed volume beside all three sizes is not kept, nor read: the sizes say what it is.
+  const volumePerPcM3 = hasAllSizes(line) ? "" : typedVolumePerPiece(line.volumePerPcM3, row);
   return {
     ...line,
+    volumePerPcM3,
     palletType: palletType as PalletType | null,
     adrUn,
     adrClass: blank(line.adrClass) ? null : line.adrClass!.trim(),

@@ -41,13 +41,18 @@ export const _internalHaulierTermsGet = api(
   },
 );
 
+interface HaulierTermsListRequest {
+  /** The company whose hauliers are listed: the one-off copy is run by a superadmin, who belongs to the platform company. */
+  companyId: string;
+}
+
 interface HaulierTermsListResponse {
   hauliers: (HaulierTerms & { customerId: string; bankAccountsChange: BankAccountsChange | null })[];
 }
 
 export const _internalHaulierTermsList = api(
   { expose: false, auth: true, method: "GET", path: "/internal/trucking/haulier-terms" },
-  async (): Promise<HaulierTermsListResponse> => {
-    return { hauliers: await haulierService.termsList(getAuthData()!.companyID) };
+  async ({ companyId }: HaulierTermsListRequest): Promise<HaulierTermsListResponse> => {
+    return { hauliers: await haulierService.termsList(companyId) };
   },
 );

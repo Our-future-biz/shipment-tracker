@@ -5,21 +5,25 @@ import { customerRepository } from "../repositories/customer.repository";
 import type { CustomerListFilters } from "../repositories/customer.repository";
 import type { CustomerRecord, NewCustomerRecord } from "../schemas/customer.schema";
 import type {
+  CustomerDetail,
   CustomerItem,
   CustomerLabel,
+  CustomerOwnerFilter,
   CustomerPipelineItem,
+  CustomerRatingFilter,
   CustomerRole,
   CustomerRollups,
   CustomerStatus,
+  CustomerViewCounts,
   DeletedCustomerItem,
   NewCustomerContact,
   RoleCompanyItem,
   RiskLevelOverride,
 } from "../interfaces/interfaces";
-import { isSupplier } from "../interfaces/interfaces";
+import { isSupplier, SUPPLIER_ROLES } from "../interfaces/interfaces";
 import type { NewContactRecord } from "../schemas/contact.schema";
 import { iso } from "../../../lib/db/serialize";
-import { canManageSales } from "../../../lib/salesPolicy";
+import { canManageSales, canManageSupplierTerms, canRateSupplier } from "../../../lib/salesPolicy";
 import { isUniqueViolation } from "../../../lib/db/errors";
 import { isUuid } from "../../../lib/uuid";
 import { storedEmail } from "../../../lib/personPick";
@@ -184,6 +188,28 @@ async function insertUnique<T>(insert: () => Promise<T>, what: string): Promise<
 }
 
 class CustomerService {
+  /**
+   * The list as a user asks for it: their own companies for "mine", the supplier types and the rating filter
+   * as the repository takes them. Filtered here, on the server, so they cover every company and not only the
+   * newest 2000 the list holds.
+   */
+  async listFor(
+    companyId: string,
+    userId: string,
+    req: Omit<CustomerListFilters, "salesOwner" | "anyRole" | "rating" | "limit"> & { owner?: CustomerOwnerFilter; types?: string; rating?: CustomerRatingFilter },
+  ): Promise<{ data: CustomerItem[]; total: number }> {
+    const { owner, types, rating, ...filters } = req;
+    const anyRole = (types ?? "").split(",").map((t) => t.trim()).filter(Boolean);
+    const unknown = anyRole.find((t) => !SUPPLIER_ROLES.includes(t as CustomerRole));
+    if (unknown) throw APIError.invalidArgument(`"${unknown}" is not a supplier type`);
+    return this.list(companyId, {
+      ...filters,
+      ...(owner ? { salesOwner: owner === "none" ? "none" : userId } : {}),
+      ...(anyRole.length ? { anyRole: anyRole as CustomerRole[] } : {}),
+      ...(rating ? { rating: rating === "none" ? "unrated" : rating === "low" ? { max: 2 } : { min: Number(rating) } } : {}),
+    });
+  }
+
   /** The newest matching customers (at most 2000) and how many match in all. */
   async list(companyId: string, filters: CustomerListFilters = {}): Promise<{ data: CustomerItem[]; total: number }> {
     const { rows, total } = await customerRepository.listFiltered(companyId, filters);
@@ -194,6 +220,28 @@ class CustomerService {
     const row = await customerRepository.getItemForCompany(id, companyId);
     if (!row) throw APIError.notFound("Customer not found");
     return toCustomerItem(row);
+  }
+
+  /**
+   * A company as its page reads it: a haulier's terms as they are shown (Trucking's copy while none were saved
+   * here), and what the signed-in user (`role`) may do with it.
+   */
+  async detail(id: string, companyId: string, role: string): Promise<CustomerDetail> {
+    const customer = await this.get(id, companyId);
+    const supplier = isSupplier(customer.roles);
+    const { terms, fromTrucking, truckingUnavailable } = await supplierTermsService.shown(customer);
+    return {
+      customer: { ...customer, supplierTerms: terms },
+      canRateSupplier: canRateSupplier(role) && supplier,
+      canEditSupplierTerms: canManageSupplierTerms(role) && supplier,
+      supplierTermsFromTrucking: fromTrucking,
+      supplierTermsUnavailable: truckingUnavailable,
+    };
+  }
+
+  /** How many live companies each view of the list holds: customers, suppliers (any other role), all. */
+  async viewCounts(companyId: string): Promise<CustomerViewCounts> {
+    return customerRepository.viewCounts(companyId);
   }
 
   /** The live customer of this company (for writes under it); notFound otherwise. */
@@ -307,20 +355,7 @@ class CustomerService {
       values.companyName = values.companyName.trim();
       if (!values.companyName) throw APIError.invalidArgument("The company name can't be empty");
     }
-    if (values.roles) {
-      values.roles = requireRoles(values.roles);
-      // A supplier with terms set here that becomes a haulier: Trucking gets them first (K3).
-      const current = await this.requireLive(id, companyId);
-      Object.assign(values, await supplierTermsService.beforeRolesChange(current, values.roles, actorUserId));
-      // A supplier only that is made a customer starts as a Prospect: its stored status meant "In use" /
-      // "Not in use" until now (Council Review 5, K14). A status sent with the change is kept.
-      if (!current.roles.includes("customer") && values.roles.includes("customer") && patch.status === undefined) values.status = "Prospect";
-    }
-    if (values.currency !== undefined || values.secondaryCurrencies !== undefined) {
-      const current = await customerRepository.getItemForCompany(id, companyId);
-      if (!current) throw APIError.notFound("Customer not found");
-      Object.assign(values, billingCurrencies(values.currency ?? current.currency, values.secondaryCurrencies ?? current.secondaryCurrencies));
-    }
+    if (values.roles) values.roles = requireRoles(values.roles);
     // A date column: "" clears it, anything but a date is refused.
     const regDate = dateInput(registrationDate, "registrationDate");
     if (regDate !== undefined) values.registrationDate = regDate;
@@ -328,7 +363,30 @@ class CustomerService {
       if (values[key] !== undefined) values[key] = values[key]!.trim();
     }
     if (salesOwnerUserId !== undefined) Object.assign(values, await salesOwnerOf(salesOwnerUserId));
-    const row = await customerRepository.updateForCompany(id, companyId, values);
+    // What depends on the row as it is now is worked out with the row locked, after every check above: a change
+    // of roles may write to Trucking first (K3), and it then runs one after the other with a save of the terms.
+    const fromCurrent = values.roles !== undefined || values.currency !== undefined || values.secondaryCurrencies !== undefined;
+    const row = fromCurrent
+      ? await customerRepository.updateLocked(id, companyId, async (current) => {
+          const locked = { ...values };
+          if (locked.currency !== undefined || locked.secondaryCurrencies !== undefined) {
+            Object.assign(locked, billingCurrencies(locked.currency ?? current.currency, locked.secondaryCurrencies ?? current.secondaryCurrencies));
+          }
+          if (locked.roles) {
+            const wasCustomer = current.roles.includes("customer");
+            const isCustomer = locked.roles.includes("customer");
+            // A supplier only that is made a customer starts as a Prospect: its stored status meant "In use" /
+            // "Not in use" until now (Council Review 5, K14). A status sent with the change is kept.
+            if (!wasCustomer && isCustomer && patch.status === undefined) locked.status = "Prospect";
+            // And the other way: a customer stored Inactive (it stopped buying) that is now a supplier only is still
+            // in use as one - its Inactive said nothing of its supply - unless a status comes with the change.
+            if (wasCustomer && !isCustomer && current.status === "Inactive" && patch.status === undefined) locked.status = "Active";
+            // A supplier with terms set here that becomes a haulier: Trucking gets them first (K3), the last step.
+            Object.assign(locked, await supplierTermsService.beforeRolesChange(current, locked.roles, actorUserId));
+          }
+          return locked;
+        })
+      : await customerRepository.updateForCompany(id, companyId, values);
     if (!row) throw APIError.notFound("Customer not found");
     await announce(companyId, row, false);
     return toCustomerItem(row);

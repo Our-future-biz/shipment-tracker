@@ -5,11 +5,28 @@
 //  - expected: not received yet (the real cost once typed, else the estimate); never in the owed total (E9)
 //  - untracked: ticked Received before that day was kept, before payments were noted here, so it may have
 //    been paid already: listed apart, not counted (K2)
-// Lines whose vendor only names the supplier as typed text are not counted, only named (E10). Pure.
+// Lines whose vendor only names the supplier as typed text are not counted, only named (E10). The totals are
+// added up by the database over every open line (invoiceCostRepository.openReceivedTotals /
+// openExpectedByShipment); here they are put together, and the lines listed are classified and sorted. A
+// haulier's approved Trucking invoices not yet paid are summed apart: they are with VAT (C-1, C-9). Pure.
 
 import { round2, qtyOrOne, toNumber } from "./invoiceCalc";
 import { addDays, businessDay } from "../../../lib/businessDate";
-import type { SupplierCostLine, SupplierCostTotal, SupplierTypedName } from "../interfaces/interfaces";
+import type {
+  SupplierCostLine,
+  SupplierCostsResponse,
+  SupplierCostTotal,
+  SupplierHaulierInvoiceLine,
+  SupplierHaulierInvoices,
+  SupplierHaulierInvoiceTotal,
+  SupplierTypedName,
+} from "../interfaces/interfaces";
+
+/**
+ * Whether the caller sees a haulier's Trucking invoices: the Trucking Concept is for superadmins only, as the web
+ * shows it (apps/web/src/lib/concepts.ts canSeeConcepts), so the server leaves them out for everyone else (C-1).
+ */
+export const seesTruckingConcept = (role: string): boolean => role === "superadmin";
 
 export interface SupplierCostRow {
   id: string;
@@ -34,6 +51,9 @@ export interface SupplierCostJob {
 
 /** A job no cost is expected on any more: its estimates are not expected. */
 export const CANCELLED_STATUS = "Cancelled Shipment";
+
+/** Whether what is expected on a job counts: the job is there and not cancelled. */
+export const expectsCosts = (job: SupplierCostJob | undefined): boolean => !!job && job.status !== CANCELLED_STATUS;
 
 const amountOf = (amount: string | null, qty: string | null): number => round2(toNumber(amount) * qtyOrOne(qty));
 
@@ -75,13 +95,70 @@ export function supplierCostLine(row: SupplierCostRow, job: SupplierCostJob | un
   return { ...base, kind: "expected", receivedAt: null, dueOn: "", overdueDays: 0, amount, currency: real !== null ? row.realCurrency : row.estCurrency };
 }
 
-export interface SupplierCostsSummary {
-  owed: SupplierCostLine[];
-  expected: SupplierCostLine[];
-  untracked: SupplierCostLine[];
-  totals: SupplierCostTotal[];
+/** A supplier's received open lines in one currency, as the database adds them over all of them. */
+export interface ReceivedTotalsRow {
+  currency: string;
+  /** decimal sums: owed (since when is known), its part due before today, untracked (K2) */
+  owed: string;
+  overdue: string;
+  untracked: string;
+  owedLines: number;
+  /** owed lines with no real cost typed */
   withoutAmount: number;
-  dueUnknown: number;
+  untrackedLines: number;
+  /** lines with a real cost typed: a currency with none has no total */
+  withAmount: number;
+}
+
+/** A supplier's open lines not received yet on one job in one currency, as the database adds them. */
+export interface ExpectedGroupRow {
+  shipmentId: string;
+  currency: string;
+  amount: string;
+  lines: number;
+}
+
+const byCurrency = <T extends { currency: string }>(totals: Map<string, T>, currency: string, blank: () => T): T => {
+  let t = totals.get(currency);
+  if (!t) totals.set(currency, (t = blank()));
+  return t;
+};
+
+/**
+ * Each currency's totals over every open line, and the counts: what is expected on a cancelled job, or on one
+ * gone, is left out. Without payment days no owed line has a due day.
+ */
+export function supplierCostTotals(
+  received: ReceivedTotalsRow[],
+  expected: ExpectedGroupRow[],
+  jobOf: ReadonlyMap<string, SupplierCostJob>,
+  paymentDays: number | null,
+): { totals: SupplierCostTotal[]; counts: SupplierCostsResponse["counts"] } {
+  const totals = new Map<string, SupplierCostTotal>();
+  const blank = (currency: string) => () => ({ currency, owed: 0, overdue: 0, expected: 0, untracked: 0 });
+  const counts = { owed: 0, expected: 0, untracked: 0, withoutAmount: 0, dueUnknown: 0 };
+  for (const r of received) {
+    counts.owed += r.owedLines;
+    counts.untracked += r.untrackedLines;
+    counts.withoutAmount += r.withoutAmount;
+    if (!r.withAmount) continue;
+    const t = byCurrency(totals, r.currency, blank(r.currency));
+    t.owed += toNumber(r.owed);
+    t.overdue += toNumber(r.overdue);
+    t.untracked += toNumber(r.untracked);
+  }
+  for (const g of expected) {
+    if (!expectsCosts(jobOf.get(g.shipmentId))) continue;
+    counts.expected += g.lines;
+    byCurrency(totals, g.currency, blank(g.currency)).expected += toNumber(g.amount);
+  }
+  if (paymentDays === null) counts.dueUnknown = counts.owed;
+  return {
+    totals: [...totals.values()]
+      .map((t) => ({ currency: t.currency, owed: round2(t.owed), overdue: round2(t.overdue), expected: round2(t.expected), untracked: round2(t.untracked) }))
+      .sort((a, b) => b.owed - a.owed || b.expected - a.expected || a.currency.localeCompare(b.currency)),
+    counts,
+  };
 }
 
 // Most overdue first, then by due day (unknown last), then the oldest received.
@@ -91,35 +168,76 @@ const byUrgency = (a: SupplierCostLine, b: SupplierCostLine) =>
   (a.receivedAt ?? "").localeCompare(b.receivedAt ?? "") ||
   a.jobNumber.localeCompare(b.jobNumber);
 
-/** The lines in their three lists (owed most urgent first), and the totals of each currency over all of them. */
-export function summarizeSupplierCosts(lines: SupplierCostLine[]): SupplierCostsSummary {
-  const totals = new Map<string, SupplierCostTotal>();
-  const totalOf = (currency: string) => {
-    let t = totals.get(currency);
-    if (!t) totals.set(currency, (t = { currency, owed: 0, overdue: 0, expected: 0, untracked: 0 }));
-    return t;
+// The newest job first (job numbers grow), then by the words.
+const newestJobFirst = (a: SupplierCostLine, b: SupplierCostLine) => b.jobNumber.localeCompare(a.jobNumber) || a.description.localeCompare(b.description);
+
+/** The lines listed, in their three lists: owed most urgent first, expected and untracked the newest job first. */
+export function supplierCostLists(lines: SupplierCostLine[]): { owed: SupplierCostLine[]; expected: SupplierCostLine[]; untracked: SupplierCostLine[] } {
+  return {
+    owed: lines.filter((l) => l.kind === "owed").sort(byUrgency),
+    expected: lines.filter((l) => l.kind === "expected").sort(newestJobFirst),
+    untracked: lines.filter((l) => l.kind === "untracked").sort(newestJobFirst),
   };
+}
+
+/** A haulier's approved Trucking invoice not yet paid, as handed by Trucking. */
+export interface UnpaidHaulierInvoiceRow {
+  id: string;
+  invoiceNumber: string;
+  issueDate: string;
+  dueDate: string | null;
+  /** with VAT */
+  totalGross: number;
+  currency: string;
+  paymentTracked: boolean;
+}
+
+/** The invoice as What we owe shows it: owed by its own due day, or, approved before payments were noted here, untracked (K2). */
+export function haulierInvoiceLine(i: UnpaidHaulierInvoiceRow, today: string): SupplierHaulierInvoiceLine {
+  const dueOn = i.dueDate ?? "";
+  const kind = i.paymentTracked ? "owed" : "untracked";
+  return {
+    id: i.id,
+    invoiceNumber: i.invoiceNumber,
+    kind,
+    issueDate: i.issueDate,
+    dueOn,
+    overdueDays: kind === "owed" && dueOn && dueOn < today ? daysBetween(dueOn, today) : 0,
+    amount: i.totalGross,
+    currency: i.currency,
+  };
+}
+
+/**
+ * A haulier's unpaid invoices in What we owe: the most urgent owed and the newest untracked listed (at most
+ * `shown` of each), the totals of each currency and the counts over all of them, with VAT.
+ */
+export function summarizeHaulierInvoices(
+  invoices: UnpaidHaulierInvoiceRow[],
+  today: string,
+  shown: { owed: number; untracked: number },
+): Omit<SupplierHaulierInvoices, "status" | "truncated"> {
+  const lines = invoices.map((i) => haulierInvoiceLine(i, today));
+  const owed = lines
+    .filter((l) => l.kind === "owed")
+    .sort((a, b) => b.overdueDays - a.overdueDays || (a.dueOn || "9999").localeCompare(b.dueOn || "9999") || a.issueDate.localeCompare(b.issueDate) || a.invoiceNumber.localeCompare(b.invoiceNumber));
+  const untracked = lines.filter((l) => l.kind === "untracked").sort((a, b) => b.issueDate.localeCompare(a.issueDate) || a.invoiceNumber.localeCompare(b.invoiceNumber));
+  const totals = new Map<string, SupplierHaulierInvoiceTotal>();
   for (const l of lines) {
-    if (l.amount === null) continue;
-    const t = totalOf(l.currency);
-    if (l.kind === "owed") {
+    const t = byCurrency(totals, l.currency, () => ({ currency: l.currency, owed: 0, overdue: 0, untracked: 0 }));
+    if (l.kind === "untracked") t.untracked += l.amount;
+    else {
       t.owed += l.amount;
       if (l.overdueDays > 0) t.overdue += l.amount;
-    } else {
-      t[l.kind] += l.amount;
     }
   }
-  const owed = lines.filter((l) => l.kind === "owed").sort(byUrgency);
-  const newestFirst = (a: SupplierCostLine, b: SupplierCostLine) => b.jobNumber.localeCompare(a.jobNumber) || a.description.localeCompare(b.description);
   return {
-    owed,
-    expected: lines.filter((l) => l.kind === "expected").sort(newestFirst),
-    untracked: lines.filter((l) => l.kind === "untracked").sort(newestFirst),
+    owed: owed.slice(0, shown.owed),
+    untracked: untracked.slice(0, shown.untracked),
     totals: [...totals.values()]
-      .map((t) => ({ currency: t.currency, owed: round2(t.owed), overdue: round2(t.overdue), expected: round2(t.expected), untracked: round2(t.untracked) }))
-      .sort((a, b) => b.owed - a.owed || b.expected - a.expected || a.currency.localeCompare(b.currency)),
-    withoutAmount: owed.filter((l) => l.amount === null).length,
-    dueUnknown: owed.filter((l) => !l.dueOn).length,
+      .map((t) => ({ currency: t.currency, owed: round2(t.owed), overdue: round2(t.overdue), untracked: round2(t.untracked) }))
+      .sort((a, b) => b.owed - a.owed || a.currency.localeCompare(b.currency)),
+    counts: { owed: owed.length, untracked: untracked.length, dueUnknown: owed.filter((l) => !l.dueOn).length },
   };
 }
 

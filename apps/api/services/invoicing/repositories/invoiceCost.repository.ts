@@ -1,16 +1,33 @@
-import { and, asc, count, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, ne, notInArray, or, sql } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
+import { BUSINESS_TZ } from "../../../lib/businessDate";
 import { db } from "../db/db";
 import { invoiceCostTable as t, type InvoiceCostRecord, type NewInvoiceCostRecord } from "../schemas/invoiceCost.schema";
+import type { ExpectedGroupRow, ReceivedTotalsRow } from "../lib/supplierCosts";
 
 // Every query on a line also matches its shipment, so a line can only be written through its
 // own shipment's URL. Rows pushed by Trucking (source_trucking_ref) are kept by Trucking, and a
 // master job's shares (source_master_job_ref) by the master job: read-only here, no line write reaches them.
 const lineOf = (id: string, companyId: string, shipmentId: string) =>
   and(eq(t.id, id), eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), isNull(t.deletedAt), isNull(t.sourceTruckingRef), isNull(t.sourceMasterJobRef));
+const deletedLineOf = (id: string, companyId: string, shipmentId: string) =>
+  and(eq(t.id, id), eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), isNotNull(t.deletedAt), isNull(t.sourceTruckingRef), isNull(t.sourceMasterJobRef));
 
 // Rows entered in Costs Breakdown itself (not pushed by Trucking, not a master job's share).
 const ENTERED_HERE = [isNull(t.sourceTruckingRef), isNull(t.sourceMasterJobRef)];
+
+// A supplier's live rows entered here and not yet paid, linked to its company (picked, or its haulier id): the
+// predicates of the two open-line indexes (invoicing migration 0022).
+const openOf = (companyId: string, supplierId: string) =>
+  and(eq(t.companyId, companyId), isNull(t.deletedAt), ...ENTERED_HERE, isNull(t.paidOn), or(eq(t.supplierCustomerId, supplierId), eq(t.haulierId, supplierId)));
+
+// A line's amount as Costs Breakdown counts it: price × quantity (none typed = 1), to the cent (lib/invoiceCalc).
+const realAmountOf = sql`round(${t.realAmount} * coalesce(${t.realQty}, 1), 2)`;
+const estAmountOf = sql`round(${t.estAmount} * coalesce(${t.estQty}, 1), 2)`;
+// A line not received yet is expected at its real cost once typed, else its estimate, each in its own currency.
+const expectedAmountOf = sql`CASE WHEN ${t.realAmount} IS NOT NULL THEN ${realAmountOf} ELSE ${estAmountOf} END`;
+const expectedCurrencyOf = sql<string>`CASE WHEN ${t.realAmount} IS NOT NULL THEN ${t.realCurrency} ELSE ${t.estCurrency} END`;
+const expectedOf = (companyId: string, supplierId: string) => and(openOf(companyId, supplierId), eq(t.received, false), sql`${expectedAmountOf} <> 0`);
 
 class InvoiceCostRepository extends TenantRepository<typeof t> {
   constructor() {
@@ -18,15 +35,67 @@ class InvoiceCostRepository extends TenantRepository<typeof t> {
   }
 
   /**
-   * A supplier's live buying rows not yet paid, newest first (at most `limit`): linked to its company
-   * (picked, or its haulier id), entered here - Trucking's and a master job's rows are left out. Read
-   * through the two open-line indexes (invoicing migration 0021).
+   * A supplier's received open lines per currency, summed over all of them (What we owe's totals): owed - since
+   * when is known - with its part due before `today` (the Prague day it was received + `paymentDays`; none
+   * without them), and those received before that day was kept (untracked, K2).
    */
-  async openOfSupplier(companyId: string, supplierId: string, limit: number): Promise<InvoiceCostRecord[]> {
+  async openReceivedTotals(companyId: string, supplierId: string, paymentDays: number | null, today: string): Promise<ReceivedTotalsRow[]> {
+    const tracked = isNotNull(t.receivedAt);
+    const overdue = paymentDays === null ? sql`false` : sql`((${t.receivedAt} AT TIME ZONE ${BUSINESS_TZ})::date + ${paymentDays}::int) < ${today}::date`;
+    return this.db
+      .select({
+        currency: t.realCurrency,
+        owed: sql<string>`coalesce(sum(${realAmountOf}) FILTER (WHERE ${tracked}), 0)`,
+        overdue: sql<string>`coalesce(sum(${realAmountOf}) FILTER (WHERE ${tracked} AND ${overdue}), 0)`,
+        untracked: sql<string>`coalesce(sum(${realAmountOf}) FILTER (WHERE ${t.receivedAt} IS NULL), 0)`,
+        owedLines: sql<number>`(count(*) FILTER (WHERE ${tracked}))::int`,
+        withoutAmount: sql<number>`(count(*) FILTER (WHERE ${tracked} AND ${t.realAmount} IS NULL))::int`,
+        untrackedLines: sql<number>`(count(*) FILTER (WHERE ${t.receivedAt} IS NULL))::int`,
+        withAmount: sql<number>`count(${t.realAmount})::int`,
+      })
+      .from(t)
+      .where(and(openOf(companyId, supplierId), eq(t.received, true)))
+      .groupBy(t.realCurrency);
+  }
+
+  /** A supplier's open lines not received yet with an amount, summed per job and currency (a cancelled job's are left out by the caller). */
+  async openExpectedByShipment(companyId: string, supplierId: string): Promise<ExpectedGroupRow[]> {
+    return this.db
+      .select({ shipmentId: t.shipmentId, currency: expectedCurrencyOf, amount: sql<string>`sum(${expectedAmountOf})`, lines: sql<number>`count(*)::int` })
+      .from(t)
+      .where(expectedOf(companyId, supplierId))
+      .groupBy(t.shipmentId, expectedCurrencyOf);
+  }
+
+  /**
+   * A supplier's owed open lines (received, since when is known), the oldest received first (at most `limit`):
+   * every line of a supplier is due its received day + the same payment days, so this is the most overdue first.
+   */
+  async openOwed(companyId: string, supplierId: string, limit: number): Promise<InvoiceCostRecord[]> {
     return this.db
       .select()
       .from(t)
-      .where(and(eq(t.companyId, companyId), isNull(t.deletedAt), ...ENTERED_HERE, isNull(t.paidOn), or(eq(t.supplierCustomerId, supplierId), eq(t.haulierId, supplierId))))
+      .where(and(openOf(companyId, supplierId), eq(t.received, true), isNotNull(t.receivedAt)))
+      .orderBy(asc(t.receivedAt), asc(t.id))
+      .limit(limit);
+  }
+
+  /** A supplier's open lines ticked Received before that day was kept (K2), the newest entered first (at most `limit`). */
+  async openUntracked(companyId: string, supplierId: string, limit: number): Promise<InvoiceCostRecord[]> {
+    return this.db
+      .select()
+      .from(t)
+      .where(and(openOf(companyId, supplierId), eq(t.received, true), isNull(t.receivedAt)))
+      .orderBy(desc(t.createdAt), asc(t.id))
+      .limit(limit);
+  }
+
+  /** A supplier's open lines not received yet with an amount, but none on `exceptShipmentIds`, the newest entered first (at most `limit`). */
+  async openExpected(companyId: string, supplierId: string, exceptShipmentIds: string[], limit: number): Promise<InvoiceCostRecord[]> {
+    return this.db
+      .select()
+      .from(t)
+      .where(and(expectedOf(companyId, supplierId), exceptShipmentIds.length ? notInArray(t.shipmentId, exceptShipmentIds) : undefined))
       .orderBy(desc(t.createdAt), asc(t.id))
       .limit(limit);
   }
@@ -34,6 +103,7 @@ class InvoiceCostRepository extends TenantRepository<typeof t> {
   /**
    * The jobs a supplier is on: each shipment with a live buying row linked to it (picked, its haulier id,
    * any source - Trucking's rows too) and when the newest of them was entered, newest first (at most `limit`).
+   * Read through the two used-line indexes (invoicing migration 0022).
    */
   async linkedShipments(companyId: string, supplierId: string, limit: number): Promise<{ shipmentId: string; lastAt: Date }[]> {
     const lastAt = sql<Date>`max(${t.createdAt})`;
@@ -113,11 +183,33 @@ class InvoiceCostRepository extends TenantRepository<typeof t> {
     return row ?? null;
   }
 
-  async updateLine(id: string, companyId: string, shipmentId: string, data: Partial<NewInvoiceCostRecord>): Promise<InvoiceCostRecord | null> {
+  /**
+   * `receivedStamp`: Received is ticked. The moment is stamped from the row as it is when written, so a line
+   * still received keeps its stamp and one unticked meanwhile gets this one (two saves at once never leave a
+   * received line without it, C-5).
+   */
+  async updateLine(id: string, companyId: string, shipmentId: string, data: Partial<NewInvoiceCostRecord>, receivedStamp?: Date): Promise<InvoiceCostRecord | null> {
+    const stamp = receivedStamp ? { receivedAt: sql`CASE WHEN ${t.received} THEN ${t.receivedAt} ELSE ${receivedStamp.toISOString()}::timestamptz END` } : {};
     const [row] = await this.db
       .update(t)
-      .set({ ...data, updatedAt: new Date() })
+      .set({ ...data, ...stamp, updatedAt: new Date() })
       .where(lineOf(id, companyId, shipmentId))
+      .returning();
+    return row ?? null;
+  }
+
+  /** A line of the shipment deleted here (not one of Trucking's or a master job's), or null. */
+  async findDeletedLine(id: string, companyId: string, shipmentId: string): Promise<InvoiceCostRecord | null> {
+    const [row] = await this.db.select().from(t).where(deletedLineOf(id, companyId, shipmentId)).limit(1);
+    return row ?? null;
+  }
+
+  /** Brings a deleted line back as it was, at `sortOrder` when given. */
+  async restoreLine(id: string, companyId: string, shipmentId: string, sortOrder?: number): Promise<InvoiceCostRecord | null> {
+    const [row] = await this.db
+      .update(t)
+      .set({ deletedAt: null, updatedAt: new Date(), ...(sortOrder === undefined ? {} : { sortOrder }) })
+      .where(deletedLineOf(id, companyId, shipmentId))
       .returning();
     return row ?? null;
   }

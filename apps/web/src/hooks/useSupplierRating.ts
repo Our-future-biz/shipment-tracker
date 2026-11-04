@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
-import { refreshTariffSuppliers } from "./useCustomers";
+import { refreshTariffSuppliers, withSavedCustomer } from "./useCustomers";
 import { truckingKeys } from "./truckingKeys";
 
 export type SupplierRatingEntry = interfaces.SupplierRatingEntry;
@@ -23,7 +23,7 @@ export const useSupplierRating = (customerId: string, { historyEnabled = true } 
   const setMutation = useMutation({
     mutationFn: (params: controllers.SupplierRatingSetRequest) => api.customers.supplierRatingSet(customerId, params),
     onSuccess: (res) => {
-      queryClient.setQueryData<controllers.CustomerGetResponse>(["customer", customerId], (prev) => (prev ? { ...prev, customer: res.customer } : prev));
+      queryClient.setQueryData<controllers.CustomerGetResponse>(["customer", customerId], withSavedCustomer(res.customer));
       queryClient.invalidateQueries({ queryKey: ["customer", customerId] });
       queryClient.invalidateQueries({ queryKey: ["customers"] });
       queryClient.invalidateQueries({ queryKey: historyKey });
