@@ -8,6 +8,8 @@ interface NoteCreateRequest {
   customerId: string;
   type?: NoteType;
   content: string & MinLen<1> & MaxLen<20000>;
+  /** The colleagues who went on a visit with the signed-in user, by e-mail; refused for another type. */
+  colleagues?: string[] & MaxLen<50>;
 }
 
 interface NoteCreateResponse {

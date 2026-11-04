@@ -7497,6 +7497,10 @@ export namespace controllers {
     export interface NoteCreateRequest {
         type?: interfaces.NoteType
         content: string
+        /**
+         * The colleagues who went on a visit with the signed-in user, by e-mail; refused for another type.
+         */
+        colleagues?: string[]
     }
 
     export interface NoteCreateResponse {
@@ -14820,6 +14824,11 @@ export namespace interfaces {
          * Who wrote it: the signed-in user's e-mail (older notes may hold a name).
          */
         author: string
+
+        /**
+         * The colleagues who went on a visit with the author, by e-mail; empty for every other type.
+         */
+        colleagues: string[]
 
         createdAt: string
         updatedAt: string

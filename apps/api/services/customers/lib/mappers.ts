@@ -97,6 +97,7 @@ export const toNoteItem = (r: CustomerNoteRecord): NoteItem => ({
   type: r.type,
   content: r.content,
   author: r.author,
+  colleagues: r.colleagues,
   createdAt: iso(r.createdAt),
   updatedAt: iso(r.updatedAt),
 });

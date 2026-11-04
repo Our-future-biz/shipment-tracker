@@ -189,6 +189,8 @@ export interface NoteItem {
   content: string;
   /** Who wrote it: the signed-in user's e-mail (older notes may hold a name). */
   author: string;
+  /** The colleagues who went on a visit with the author, by e-mail; empty for every other type. */
+  colleagues: string[];
   createdAt: string;
   updatedAt: string;
 }

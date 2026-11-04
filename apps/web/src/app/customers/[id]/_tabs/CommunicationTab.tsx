@@ -103,6 +103,11 @@ export function CommunicationTab({ customerId }: { customerId: string }) {
                 ) : (
                   <span className="text-slate-300">—</span>
                 )}
+                {note.colleagues.length > 0 && (
+                  <span className="min-w-0 truncate text-xs text-slate-500" title={note.colleagues.join(", ")}>
+                    with {note.colleagues.join(", ")}
+                  </span>
+                )}
                 <span className="ml-auto shrink-0 text-xs text-slate-400 tabular-nums">{createdAt}</span>
                 <Button
                   type="text"

@@ -15,6 +15,8 @@ export const customerNoteTable = pgTable(
     type: text("type").$type<NoteType>().notNull().default("Note"),
     content: text("content").notNull(),
     author: text("author").notNull().default(""),
+    /** The other users who went on a visit with the author, by e-mail; never the author, empty for other types. */
+    colleagues: text("colleagues").array().notNull().default(sql`'{}'::text[]`),
   },
   (table) => [
     ...defaultTableIndexes("customer_note", table),
