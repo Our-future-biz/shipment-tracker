@@ -312,6 +312,9 @@ class CustomerService {
       // A supplier with terms set here that becomes a haulier: Trucking gets them first (K3).
       const current = await this.requireLive(id, companyId);
       Object.assign(values, await supplierTermsService.beforeRolesChange(current, values.roles, actorUserId));
+      // A supplier only that is made a customer starts as a Prospect: its stored status meant "In use" /
+      // "Not in use" until now (Council Review 5, K14). A status sent with the change is kept.
+      if (!current.roles.includes("customer") && values.roles.includes("customer") && patch.status === undefined) values.status = "Prospect";
     }
     if (values.currency !== undefined || values.secondaryCurrencies !== undefined) {
       const current = await customerRepository.getItemForCompany(id, companyId);

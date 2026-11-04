@@ -21,7 +21,7 @@ import { DataTable } from "@/components/DataTable";
 import { ListCapNotice } from "@/components/ListCapNotice";
 import { DraggableHeaderCell } from "@/components/DraggableHeaderCell";
 import { PillTabs } from "@/components/SectionCard";
-import { useCustomers, type CustomerItem } from "@/hooks/useCustomers";
+import { useCustomerViewCounts, useCustomers, type CustomerItem } from "@/hooks/useCustomers";
 import { useCustomerListPref } from "@/hooks/useCustomerListPref";
 import { useDebounced } from "@/hooks/useDebounced";
 import { CUSTOMER_LABELS, CUSTOMER_ROLE_LABELS, CUSTOMER_STATUSES } from "../_lib/constants";
@@ -69,12 +69,8 @@ import { canDeleteCustomerRecords } from "../_lib/customerPermissions";
 import { DeletedCustomersPanel } from "./DeletedCustomersPanel";
 import { apiFileUrl } from "@/lib/api";
 
-// The views of the list: Customers (the default), Suppliers, All (?kind=).
-const VIEW_PILLS = LIST_VIEWS.map((view) => ({ key: view, label: VIEW_WORDS[view].pill }));
-
 // Superadmins also get the deleted companies, to restore one (?view=deleted).
 const DELETED_PILL = { key: "deleted", label: "Deleted" };
-const PILLS_WITH_DELETED = [...VIEW_PILLS, DELETED_PILL];
 
 // Inside the Customers view: the customer's status, as the list was filtered before it had views.
 const STATUS_PILLS = [
@@ -206,6 +202,15 @@ export function CustomersView() {
   }, [urlQuery]);
   const debouncedSearch = useDebounced(urlQuery, 300).trim();
 
+  // The views of the list: Customers (the default), Suppliers, All (?kind=), each with how many it holds (m28).
+  // A company that is both is in Customers and in Suppliers, so the two add up to more than All.
+  const viewCounts = useCustomerViewCounts();
+  const viewPills = LIST_VIEWS.map((v) => ({
+    key: v,
+    label: viewCounts ? `${VIEW_WORDS[v].pill} (${viewCounts[v]})` : VIEW_WORDS[v].pill,
+    title: v === "all" ? undefined : "A company that is both a customer and a supplier is counted in each",
+  }));
+
   const { customers, total, isFetching, isError, createCustomer, createManualCustomer, isCreating } =
     useCustomers(
       {
@@ -291,7 +296,7 @@ export function CustomersView() {
   if (isFetching) emptyText = `Loading ${words.many}…`;
   if (isError) emptyText = `Could not load ${words.many}.`;
 
-  const replaceParams = (patch: Partial<Record<ListParam, string>>) => {
+  const replaceParams = (patch: Partial<Record<ListParam, string>>, { dropColumnFilters = false }: { dropColumnFilters?: boolean } = {}) => {
     const next: Record<ListParam, string> = {
       q: search,
       // Customers is the view of a plain address.
@@ -307,9 +312,15 @@ export function CustomersView() {
       view: showDeleted ? DELETED_PILL.key : "",
       ...patch,
     };
-    const params = new URLSearchParams(searchParams.toString());
+    let params = new URLSearchParams(searchParams.toString());
     // A legacy ?tab= is already part of status / type above, so it is replaced by them.
     params.delete("tab");
+    // A change of view drops the column filters too: a filter on one view's values would empty another (m27).
+    if (dropColumnFilters) {
+      params = writeFiltersToSearchParams(params, []);
+      writtenFilters.current = "[]";
+      setShownFilters([]);
+    }
     for (const [key, value] of Object.entries(next)) {
       if (value) params.set(key, value);
       else params.delete(key);
@@ -326,8 +337,8 @@ export function CustomersView() {
 
   const handleViewChange = (key: string) =>
     key === DELETED_PILL.key
-      ? replaceParams({ ...VIEW_FILTER_PARAMS, view: DELETED_PILL.key })
-      : replaceParams({ ...VIEW_FILTER_PARAMS, kind: key === "customers" ? "" : key, view: "" });
+      ? replaceParams({ ...VIEW_FILTER_PARAMS, view: DELETED_PILL.key }, { dropColumnFilters: true })
+      : replaceParams({ ...VIEW_FILTER_PARAMS, kind: key === "customers" ? "" : key, view: "" }, { dropColumnFilters: true });
 
   const handleStatusChange = (key: string) => replaceParams({ status: key === "all" ? "" : key });
 
@@ -474,7 +485,7 @@ export function CustomersView() {
           <h1 className="text-2xl font-bold text-slate-900">Customer Database</h1>
           <div role="group" aria-label="Customers or suppliers">
             <PillTabs
-              tabs={canSeeDeleted ? PILLS_WITH_DELETED : VIEW_PILLS}
+              tabs={canSeeDeleted ? [...viewPills, DELETED_PILL] : viewPills}
               active={showDeleted ? DELETED_PILL.key : view}
               onChange={handleViewChange}
             />

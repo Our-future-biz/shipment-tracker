@@ -291,7 +291,10 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
   }
   const problems = p?.problems ?? [];
   const canIssue = !!p && problems.length === 0 && !previewLoading;
-  const customerOptions = customers.map((c) => ({ value: c.id, label: `${c.companyName}${c.ico ? ` · ${c.ico}` : ""}` }));
+  // Billed to a customer: a company with no Customer role is not offered, unless it is the one chosen (K13).
+  const customerOptions = customers
+    .filter((c) => c.roles.includes("customer") || c.id === billToId)
+    .map((c) => ({ value: c.id, label: `${c.companyName}${c.ico ? ` · ${c.ico}` : ""}` }));
   const hasLines = !!p && p.lines.length > 0;
   // The table: the invoice's lines (ticked selling rows) and, greyed, the selling rows left unticked,
   // so a line can be put back. Kept in the Costs Breakdown order (see lineTableRows).

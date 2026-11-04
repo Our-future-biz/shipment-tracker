@@ -10,12 +10,14 @@ interface HaulierBankAccountsProps {
   onChange: (accounts: string[]) => void;
   /** A manager's only: shown read-only to everyone else */
   readOnly?: boolean;
+  /** A haulier's (Trucking blocks its invoices without one); another supplier's list blocks nothing (E6, m15). */
+  haulier?: boolean;
 }
 
 // The haulier's bank accounts published in the VAT register, typed in by hand after checking the
 // register. An invoice paid to any other account is blocked (joint VAT liability). Only a manager
 // changes the list.
-export const HaulierBankAccounts = ({ accounts, onChange, readOnly = false }: HaulierBankAccountsProps) => {
+export const HaulierBankAccounts = ({ accounts, onChange, readOnly = false, haulier = true }: HaulierBankAccountsProps) => {
   const [input, setInput] = useState("");
   const problem = input.trim() ? (bankAccountProblem(input) ?? (isPublishedAccount(input, accounts) ? "Already in the list" : null)) : null;
 
@@ -29,7 +31,11 @@ export const HaulierBankAccounts = ({ accounts, onChange, readOnly = false }: Ha
     <div className="flex flex-col gap-1.5">
       <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Published bank accounts</span>
       {accounts.length === 0 ? (
-        <span className="text-[12px] text-amber-700">None yet — every invoice from this haulier is blocked until its account is listed here.</span>
+        haulier ? (
+          <span className="text-[12px] text-amber-700">None yet — every invoice from this haulier is blocked until its account is listed here.</span>
+        ) : (
+          <span className="text-[12px] text-slate-500">None listed yet.</span>
+        )
       ) : (
         <ul className="m-0 flex list-none flex-col gap-1 p-0">
           {/* Rows hold no input, so position + text is a stable key even for an account listed twice. */}

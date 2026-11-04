@@ -94,7 +94,7 @@ export function CountChip({ count }: CountChipProps) {
 }
 
 interface PillTabsProps<K extends string> {
-  tabs: readonly { key: K; label: string }[];
+  tabs: readonly { key: K; label: string; title?: string }[];
   active: K;
   onChange: (key: K) => void;
 }
@@ -110,6 +110,7 @@ export function PillTabs<K extends string>({ tabs, active, onChange }: PillTabsP
             key={t.key}
             type="button"
             aria-pressed={on}
+            title={t.title}
             onClick={() => onChange(t.key)}
             className={[
               "flex items-center h-8 px-3 rounded-lg border text-[13px] font-medium transition-colors cursor-pointer",

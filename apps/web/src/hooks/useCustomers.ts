@@ -201,3 +201,13 @@ export const useDeletedCustomers = (enabled: boolean) => {
     restoreCustomer: restoreMutation.mutateAsync,
   };
 };
+
+/** How many companies each view of the list holds (Customers · Suppliers · All); read again with the list. */
+export function useCustomerViewCounts({ enabled = true }: { enabled?: boolean } = {}) {
+  const query = useQuery({
+    queryKey: ["customers", "view-counts"],
+    queryFn: () => api.customers.customerViewCounts(),
+    enabled,
+  });
+  return query.data ?? null;
+}

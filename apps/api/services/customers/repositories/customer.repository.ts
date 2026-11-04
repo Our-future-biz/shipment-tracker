@@ -118,6 +118,19 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
     return rows.length;
   }
 
+  /** How many live companies each view of the list holds: customers, suppliers (any other role), all. */
+  async viewCounts(companyId: string): Promise<{ customers: number; suppliers: number; all: number }> {
+    const [row] = await this.db
+      .select({
+        customers: sql<number>`count(*) filter (where ${arrayContains(customerTable.roles, ["customer"])})`.mapWith(Number),
+        suppliers: sql<number>`count(*) filter (where ${arrayOverlaps(customerTable.roles, [...SUPPLIER_ROLES])})`.mapWith(Number),
+        all: count(),
+      })
+      .from(customerTable)
+      .where(and(eq(customerTable.companyId, companyId), isNull(customerTable.deletedAt)));
+    return { customers: row?.customers ?? 0, suppliers: row?.suppliers ?? 0, all: row?.all ?? 0 };
+  }
+
   // Live companies of the company's Customer Database with a role (all of them, or only `ids` among
   // them), with the few fields other services show. No logo: it is a base64 image.
   async listWithRole(

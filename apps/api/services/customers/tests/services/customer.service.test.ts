@@ -80,10 +80,19 @@ describe("roles", () => {
   });
 
   it("are stored once each when changed", async () => {
-    repository.getByIdForCompany.mockResolvedValue(customerRow({ roles: ["haulier"] }));
+    repository.getByIdForCompany.mockResolvedValue(customerRow({ roles: ["customer", "haulier"] }));
     repository.updateForCompany.mockResolvedValue(customerRow({ roles: ["haulier", "customer"] }));
     await customerService.update("customer-1", COMPANY, "manager", { roles: ["haulier", "customer", "haulier"] });
     expect(repository.updateForCompany).toHaveBeenCalledWith("customer-1", COMPANY, { roles: ["haulier", "customer"] });
+  });
+
+  it("make a supplier only that becomes a customer a Prospect, unless a status is sent with them (K14)", async () => {
+    repository.getByIdForCompany.mockResolvedValue(customerRow({ roles: ["haulier"], status: "Active" }));
+    repository.updateForCompany.mockResolvedValue(customerRow({ roles: ["haulier", "customer"] }));
+    await customerService.update("customer-1", COMPANY, "manager", { roles: ["haulier", "customer"] });
+    expect(repository.updateForCompany).toHaveBeenLastCalledWith("customer-1", COMPANY, { roles: ["haulier", "customer"], status: "Prospect" });
+    await customerService.update("customer-1", COMPANY, "manager", { roles: ["haulier", "customer"], status: "Active" });
+    expect(repository.updateForCompany).toHaveBeenLastCalledWith("customer-1", COMPANY, expect.objectContaining({ status: "Active" }));
   });
 
   it("can't be emptied: a company always has at least one role", async () => {

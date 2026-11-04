@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Popover, Tooltip } from "antd";
 import type { CustomerItem } from "@/hooks/useCustomers";
 import { useCustomer } from "@/hooks/useCustomers";
@@ -23,6 +23,8 @@ export function SupplierRatingBox({ customer }: SupplierRatingBoxProps) {
   const { canRateSupplier } = useCustomer(customer.id);
   const { setRating, saving } = useSupplierRating(customer.id, { historyEnabled: false });
   const [open, setOpen] = useState(false);
+  // The box gets the focus back when the editor closes (saved, cancelled, Escape), so the keyboard is not lost (R10).
+  const trigger = useRef<HTMLButtonElement>(null);
   const rated = customer.supplierRating !== null;
   const by = rated ? [customer.supplierRatingBy, customer.supplierRatingAt ? formatDate(businessDayOf(customer.supplierRatingAt)) : ""].filter(Boolean).join(" · ") : "";
   const reasonId = `supplier-rating-reason-${customer.id}`;
@@ -56,7 +58,8 @@ export function SupplierRatingBox({ customer }: SupplierRatingBoxProps) {
   if (!canRateSupplier) {
     return (
       <Tooltip title={tooltip}>
-        <div className={boxClass} aria-describedby={customer.supplierRatingReason ? reasonId : undefined}>
+        {/* Focusable, so the keyboard reaches its tooltip (the reason, who may change it). */}
+        <div className={`${boxClass} focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500`} tabIndex={0} aria-describedby={customer.supplierRatingReason ? reasonId : undefined}>
           {body}
         </div>
       </Tooltip>
@@ -71,6 +74,9 @@ export function SupplierRatingBox({ customer }: SupplierRatingBoxProps) {
       placement="bottomRight"
       title={`Supplier rating · ${customer.companyName}`}
       destroyOnHidden
+      afterOpenChange={(isOpen) => {
+        if (!isOpen) trigger.current?.focus();
+      }}
       content={
         <SupplierRatingEditor
           rating={customer.supplierRating}
@@ -84,6 +90,7 @@ export function SupplierRatingBox({ customer }: SupplierRatingBoxProps) {
     >
       <Tooltip title={open ? undefined : tooltip ?? "Rate this supplier"}>
         <button
+          ref={trigger}
           type="button"
           aria-haspopup="dialog"
           aria-expanded={open}

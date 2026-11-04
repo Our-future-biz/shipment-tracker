@@ -1341,7 +1341,7 @@ export function ShipmentDetailContent() {
                       </div>
                     ),
                     customer: (
-                      <CustomerLinkField label="Customer" name={shipment.customer} customerId={shipment.customerId} onChange={(n, id) => linkParty("customer", n, id)} />
+                      <CustomerLinkField label="Customer" customersOnly name={shipment.customer} customerId={shipment.customerId} onChange={(n, id) => linkParty("customer", n, id)} />
                     ),
                     shipper: (
                       <CustomerLinkField label="Shipper" name={shipment.shipper} customerId={shipment.shipperId} onChange={(n, id) => linkParty("shipper", n, id)} />

@@ -130,9 +130,16 @@ export function buildBoard(
   const newestFirst = [...customers].sort((a, b) => compare(b.createdAt, a.createdAt) || compare(a.id, b.id));
   const columns: Record<PipelineStage, PipelineCard[]> = { prospect: [], proposal: [], won: [] };
   let sentQuotesWithoutDate = 0;
+  let quotesOfNonCustomers = 0;
+  let shipmentsOfNonCustomers = 0;
   for (const customer of newestFirst) {
     // Left off the board, but still a known company below: its quotes are not those of a deleted one.
-    if (!onPipeline(customer)) continue;
+    // What it was quoted or shipped is counted, so the board says what it leaves out (K13).
+    if (!onPipeline(customer)) {
+      quotesOfNonCustomers += quotesOf.get(customer.id)?.sentQuotes ?? 0;
+      shipmentsOfNonCustomers += shipmentsOf.get(customer.id)?.shipmentCount ?? 0;
+      continue;
+    }
     const quotes = quotesOf.get(customer.id);
     const shipments = shipmentsOf.get(customer.id);
     const stage = pipelineStage({
@@ -191,6 +198,8 @@ export function buildBoard(
       quotesWithoutCustomer: quoteFacts.quotesWithoutCustomer,
       quotesOfMissingCustomers,
       sentQuotesWithoutDate,
+      quotesOfNonCustomers,
+      shipmentsOfNonCustomers,
     },
   };
 }

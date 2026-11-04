@@ -543,6 +543,7 @@ export namespace customers {
             this.customerSiteList = this.customerSiteList.bind(this)
             this.customerSiteUpdate = this.customerSiteUpdate.bind(this)
             this.customerUpdate = this.customerUpdate.bind(this)
+            this.customerViewCounts = this.customerViewCounts.bind(this)
             this.documentContent = this.documentContent.bind(this)
             this.documentCreate = this.documentCreate.bind(this)
             this.documentDelete = this.documentDelete.bind(this)
@@ -775,6 +776,15 @@ export namespace customers {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PATCH", `/customers/${encodeURIComponent(id)}`, JSON.stringify(params))
             return await resp.json() as controllers.CustomerUpdateResponse
+        }
+
+        /**
+         * How many companies each view of the Customer Database list holds, for its view buttons (Council Review 5, m28).
+         */
+        public async customerViewCounts(): Promise<controllers.CustomerViewCountsResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/customers/view-counts`)
+            return await resp.json() as controllers.CustomerViewCountsResponse
         }
 
         public async documentContent(id: string): Promise<controllers.DocumentContentResponse> {
@@ -6559,6 +6569,16 @@ export namespace controllers {
 
     export interface CustomerUpdateResponse {
         customer: interfaces.CustomerItem
+    }
+
+    export interface CustomerViewCountsResponse {
+        customers: number
+        /**
+         * Any role but customer; a company that is both is counted in each
+         */
+        suppliers: number
+
+        all: number
     }
 
     export interface CustomsLineResponse {
@@ -15529,6 +15549,14 @@ export namespace interfaces {
              * Sent quotes of the customers under Proposal that have no sent date: they count from the day they were created.
              */
             sentQuotesWithoutDate: number
+
+            /**
+             * Sent quotes and shipments whose company has no Customer role (a supplier only): left off the board, and
+             * said so, so its totals do not look complete when they are not (Council Review 5, K13).
+             */
+            quotesOfNonCustomers: number
+
+            shipmentsOfNonCustomers: number
         }
     }
 

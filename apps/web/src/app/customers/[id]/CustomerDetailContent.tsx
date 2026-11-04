@@ -45,7 +45,8 @@ export function CustomerDetailContent() {
   // A supplier only: what it owes us (sales invoices) still shows; what we owe a haulier is Trucking's, a concept.
   const { invoices } = useCustomerInvoices(id);
   const supplierOnly = !!customer && isSupplierOnly(customer.roles);
-  const owedByHaulier = supplierOnly && !!customer?.roles.includes("haulier") && canSeeConcepts;
+  // A haulier's Trucking invoices, also for a company that is a customer too (K9).
+  const owedByHaulier = !!customer?.roles.includes("haulier") && canSeeConcepts;
   const hasSalesInvoices = invoices.length > 0;
   // Trucking and its loading/unloading Sites belong to Trucking Concept (superadmins only). A supplier only is
   // nobody's customer: no Shipments or Quotes of its own, and Finance only when there is money to show.

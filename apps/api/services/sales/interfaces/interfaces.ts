@@ -100,6 +100,12 @@ export interface PipelineBoard {
     quotesOfMissingCustomers: number;
     /** Sent quotes of the customers under Proposal that have no sent date: they count from the day they were created. */
     sentQuotesWithoutDate: number;
+    /**
+     * Sent quotes and shipments whose company has no Customer role (a supplier only): left off the board, and
+     * said so, so its totals do not look complete when they are not (Council Review 5, K13).
+     */
+    quotesOfNonCustomers: number;
+    shipmentsOfNonCustomers: number;
   };
 }
 

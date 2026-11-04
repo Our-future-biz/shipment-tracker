@@ -118,7 +118,8 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-4 shrink-0">
+        {/* Wraps on a narrow screen (a company that is both shows owner, status and rating side by side). */}
+        <div className="flex min-w-0 max-w-full flex-wrap items-center gap-4">
           {/* Customer side: who owns it. Supplier side: its rating. A company that is both shows the two. */}
           {!isSupplierOnly(customer.roles) && (
             <>

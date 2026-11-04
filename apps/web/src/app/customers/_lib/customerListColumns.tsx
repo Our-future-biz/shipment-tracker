@@ -256,7 +256,8 @@ export const DEFAULT_CUSTOMER_COLUMNS = [
 /** The columns of each view until the user chooses their own (Council Outlay 7). */
 export const DEFAULT_VIEW_COLUMNS: Record<ListView, string[]> = {
   customers: DEFAULT_CUSTOMER_COLUMNS,
-  suppliers: [NAME_COLUMN_KEY, "roles", "supplierRating", "supplierRatingBy", "country", "city", "lastContactAt"],
+  // Status shows "In use" / "Not in use", so the suppliers not picked any more are told apart (K15).
+  suppliers: [NAME_COLUMN_KEY, "roles", "status", "supplierRating", "supplierRatingBy", "country", "city", "lastContactAt"],
   all: [NAME_COLUMN_KEY, "roles", "status", "supplierRating", "country", "city", "salesOwner", "lastActivityDate"],
 };
 

@@ -50,7 +50,7 @@ describe("board", () => {
     expect(board.cards.proposal.map((card) => card.companyName)).toEqual(["ittec s.r.o."]);
     expect(board.cards.prospect.map((card) => card.companyName)).toEqual(["vp s.r.o."]);
     expect(board.cards.proposal[0]!.openQuotes.map((quote) => quote.quoteNumber)).toEqual(["QCZ20261010001"]);
-    expect(board.notes).toEqual({ shipmentsWithoutCustomer: 19, quotesWithoutCustomer: 0, quotesOfMissingCustomers: 0, sentQuotesWithoutDate: 0 });
+    expect(board.notes).toEqual({ shipmentsWithoutCustomer: 19, quotesWithoutCustomer: 0, quotesOfMissingCustomers: 0, sentQuotesWithoutDate: 0, quotesOfNonCustomers: 0, shipmentsOfNonCustomers: 0 });
   });
 
   it("limits the Won column to the period asked for and leaves the other columns alone", async () => {

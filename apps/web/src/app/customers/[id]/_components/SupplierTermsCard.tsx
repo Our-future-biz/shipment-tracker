@@ -146,7 +146,7 @@ export function SupplierTermsCard({ customer }: SupplierTermsCardProps) {
               </Button>
             )}
           </div>
-          <HaulierBankAccounts accounts={shown.bankAccounts} onChange={(v) => set("bankAccounts", v)} readOnly={!editing} />
+          <HaulierBankAccounts accounts={shown.bankAccounts} onChange={(v) => set("bankAccounts", v)} readOnly={!editing} haulier={haulier} />
           {terms.bankAccountsChangedAt && (
             <p className={`m-0 text-[12px] ${onHold ? "text-amber-700" : "text-slate-400"}`}>
               An account was added{terms.bankAccountsChangedBy ? ` by ${terms.bankAccountsChangedBy}` : ""} on {formatDateTime(terms.bankAccountsChangedAt)}

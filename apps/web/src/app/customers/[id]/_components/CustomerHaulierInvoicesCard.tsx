@@ -55,7 +55,7 @@ export function CustomerHaulierInvoicesCard({ customerId }: CustomerHaulierInvoi
   ];
 
   return (
-    <SectionCard title="Haulier invoices · Trucking" extra={<span className="text-xs text-slate-400">Approved and not yet paid ones are in What we owe</span>}>
+    <SectionCard title="Haulier invoices · Trucking" extra={<span className="hidden text-xs text-slate-400 sm:inline">Approved and not yet paid ones are in What we owe</span>}>
       {isError ? (
         <span className="text-xs text-red-600">The haulier invoices could not be read.</span>
       ) : (
@@ -66,6 +66,7 @@ export function CustomerHaulierInvoicesCard({ customerId }: CustomerHaulierInvoi
           dataSource={invoices}
           columns={columns}
           pagination={TABLE_PAGINATION}
+          scroll={{ x: "max-content" }}
           locale={{ emptyText: "No invoices from this haulier yet." }}
         />
       )}

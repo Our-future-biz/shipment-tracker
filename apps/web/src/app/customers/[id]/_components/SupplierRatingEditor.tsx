@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { Button, Input } from "antd";
 import { RATING_MEANINGS, reasonRequired } from "../../_lib/supplierRatingScale";
@@ -16,11 +16,17 @@ interface SupplierRatingEditorProps {
 
 const MAX_REASON = 300;
 
-// Picking a rating: six choices, 0 ("the worst") and 1–5 stars. The arrow keys move the choice and
-// nothing is saved until Save, so one Save is one recorded change. What the choice means shows under it.
+// Picking a rating: six choices, 0 ("the worst") and 1–5 stars. The arrow keys move the choice as in any
+// radio group (Right / Down to the next, Left / Up back) and nothing is saved until Save, so one Save is one
+// recorded change. What the choice means shows under it. It takes the focus when it opens, and Escape closes it.
 export function SupplierRatingEditor({ rating, reason: savedReason, saving, onSave, onClear, onCancel }: SupplierRatingEditorProps) {
   const [picked, setPicked] = useState<number | null>(rating);
   const [reason, setReason] = useState(savedReason);
+  const group = useRef<HTMLDivElement>(null);
+  // Opened from the header box: the keyboard goes straight to the choice (R10).
+  useEffect(() => {
+    group.current?.querySelector<HTMLElement>('[tabindex="0"]')?.focus();
+  }, []);
   const meaning = picked === null ? null : RATING_MEANINGS[picked];
   const needsReason = reasonRequired(picked);
   const canSave = picked !== null && (!needsReason || !!reason.trim()) && !saving;
@@ -34,7 +40,7 @@ export function SupplierRatingEditor({ rating, reason: savedReason, saving, onSa
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    const step = e.key === "ArrowRight" || e.key === "ArrowUp" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowDown" ? -1 : 0;
+    const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
     if (!step) return;
     e.preventDefault();
     const next = Math.min(5, Math.max(0, (picked ?? (step > 0 ? -1 : 6)) + step));
@@ -43,8 +49,16 @@ export function SupplierRatingEditor({ rating, reason: savedReason, saving, onSa
   };
 
   return (
-    <div className="flex w-[340px] max-w-full flex-col gap-3">
-      <div role="radiogroup" aria-label="Rating" className="flex flex-wrap gap-1.5" onKeyDown={handleKeyDown}>
+    <div
+      className="flex w-[340px] max-w-full flex-col gap-3"
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && !saving) {
+          e.stopPropagation();
+          onCancel();
+        }
+      }}
+    >
+      <div ref={group} role="radiogroup" aria-label="Rating" className="flex flex-wrap gap-1.5" onKeyDown={handleKeyDown}>
         {RATING_MEANINGS.map(({ stars }) => {
           const on = picked === stars;
           return (

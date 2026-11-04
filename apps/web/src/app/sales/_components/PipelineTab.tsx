@@ -84,8 +84,16 @@ function notesLine(notes: PipelineBoard["notes"]): string {
   ].filter((part) => part !== false);
   const one = notes.shipmentsWithoutCustomer + unlinkedQuotes === 1;
   const undated = notes.sentQuotesWithoutDate;
+  // A company with no Customer role (a supplier only) is not on the board (K13).
+  const ofSuppliers = [
+    notes.shipmentsOfNonCustomers > 0 && plural(notes.shipmentsOfNonCustomers, "shipment", "shipments"),
+    notes.quotesOfNonCustomers > 0 && plural(notes.quotesOfNonCustomers, "sent quote", "sent quotes"),
+  ].filter((part) => part !== false);
+  const oneOfSuppliers = notes.shipmentsOfNonCustomers + notes.quotesOfNonCustomers === 1;
   return [
     unlinked.length > 0 && `${unlinked.join(" and ")} ${one ? "has no linked customer and is not counted" : "have no linked customer and are not counted"}`,
+    ofSuppliers.length > 0 &&
+      `${ofSuppliers.join(" and ")} ${oneOfSuppliers ? "names a company with no Customer role and is not counted" : "name a company with no Customer role and are not counted"}`,
     undated > 0 &&
       `${plural(undated, "sent quote", "sent quotes")} ${undated === 1 ? "has no sent date and is shown by its creation date" : "have no sent date and are shown by their creation date"}`,
   ]
