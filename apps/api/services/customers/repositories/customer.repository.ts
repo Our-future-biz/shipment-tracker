@@ -52,7 +52,7 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
   // columns: a row also carries the logo, a base64 image.
   async pipelineList(
     companyId: string,
-  ): Promise<Pick<CustomerRecord, "id" | "companyName" | "status" | "label" | "salesOwner" | "createdAt">[]> {
+  ): Promise<Pick<CustomerRecord, "id" | "companyName" | "status" | "label" | "salesOwner" | "roles" | "createdAt">[]> {
     return this.db
       .select({
         id: customerTable.id,
@@ -60,6 +60,7 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
         status: customerTable.status,
         label: customerTable.label,
         salesOwner: customerTable.salesOwner,
+        roles: customerTable.roles,
         createdAt: customerTable.createdAt,
       })
       .from(customerTable)

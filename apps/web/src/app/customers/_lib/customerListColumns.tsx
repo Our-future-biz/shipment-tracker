@@ -3,6 +3,7 @@ import type { CustomerItem } from "@/hooks/useCustomers";
 import { businessDayOf, formatDate } from "@/lib/date";
 import { CustomerAccountTypeBadge } from "../_components/CustomerAccountTypeBadge";
 import { CustomerStatusDot } from "../_components/CustomerStatusDot";
+import { SUPPLIER_STATUSES, shownStatus } from "./supplierStatus";
 import { SalesOwnerText } from "../_components/SalesOwnerText";
 import { CUSTOMER_LABELS, CUSTOMER_STATUSES, PAYMENT_TERMS } from "./constants";
 import { fmtMoney, marginPct } from "./customerMoney";
@@ -88,9 +89,9 @@ export const CUSTOMER_LIST_COLUMNS: CustomerListColumn[] = [
     key: "status",
     title: "Status",
     width: 100,
-    render: (c) => <CustomerStatusDot status={c.status} />,
-    text: (c) => c.status,
-    options: CUSTOMER_STATUSES,
+    render: (c) => <CustomerStatusDot status={shownStatus(c)} />,
+    text: (c) => shownStatus(c),
+    options: [...CUSTOMER_STATUSES, ...SUPPLIER_STATUSES],
   },
   {
     key: "paymentTerms",

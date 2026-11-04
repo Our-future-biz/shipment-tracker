@@ -46,12 +46,12 @@ beforeEach(() => {
 describe("pipelineList", () => {
   it("hands out the company's customers as the pipeline needs them, the creation time as an ISO string", async () => {
     repository.pipelineList.mockResolvedValue([
-      { id: "customer-1", companyName: "ITTEC, s.r.o.", status: "Prospect", label: "TARGET CUSTOMER", salesOwner: "Martin", createdAt: new Date("2026-09-01T08:00:00.123Z") },
-      { id: "customer-2", companyName: "RAVAK a.s.", status: "Active", label: "KEY ACCOUNT", salesOwner: "", createdAt: new Date("2026-08-01T08:00:00.000Z") },
+      { id: "customer-1", companyName: "ITTEC, s.r.o.", status: "Prospect", label: "TARGET CUSTOMER", salesOwner: "Martin", roles: ["customer" as const], createdAt: new Date("2026-09-01T08:00:00.123Z") },
+      { id: "customer-2", companyName: "RAVAK a.s.", status: "Active", label: "KEY ACCOUNT", salesOwner: "", roles: ["customer" as const], createdAt: new Date("2026-08-01T08:00:00.000Z") },
     ]);
     await expect(customerService.pipelineList(COMPANY)).resolves.toEqual([
-      { id: "customer-1", companyName: "ITTEC, s.r.o.", status: "Prospect", label: "TARGET CUSTOMER", salesOwner: "Martin", createdAt: "2026-09-01T08:00:00.123Z" },
-      { id: "customer-2", companyName: "RAVAK a.s.", status: "Active", label: "KEY ACCOUNT", salesOwner: "", createdAt: "2026-08-01T08:00:00.000Z" },
+      { id: "customer-1", companyName: "ITTEC, s.r.o.", status: "Prospect", label: "TARGET CUSTOMER", salesOwner: "Martin", roles: ["customer"], createdAt: "2026-09-01T08:00:00.123Z" },
+      { id: "customer-2", companyName: "RAVAK a.s.", status: "Active", label: "KEY ACCOUNT", salesOwner: "", roles: ["customer"], createdAt: "2026-08-01T08:00:00.000Z" },
     ]);
     expect(repository.pipelineList).toHaveBeenCalledWith(COMPANY);
   });

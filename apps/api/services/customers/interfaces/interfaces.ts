@@ -114,6 +114,8 @@ export interface CustomerPipelineItem {
   status: CustomerStatus;
   label: CustomerLabel;
   salesOwner: string;
+  /** What the company is to us: only a company with the customer role is on the sales pipeline. */
+  roles: CustomerRole[];
   createdAt: string;
 }
 

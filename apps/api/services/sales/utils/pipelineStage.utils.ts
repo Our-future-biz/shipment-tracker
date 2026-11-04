@@ -15,8 +15,16 @@ export interface PipelineCustomer {
   status: string;
   label: string;
   salesOwner: string;
+  /** What the company is to us (customer, haulier, shipping line…). */
+  roles: string[];
   createdAt: string;
 }
+
+/**
+ * Whether the company belongs on the pipeline: it has the customer role. A supplier only (a haulier, a
+ * shipping line…) is no sales prospect, whatever status it was created with.
+ */
+export const onPipeline = (customer: Pick<PipelineCustomer, "roles">): boolean => customer.roles.includes("customer");
 
 /** What the quotes service tells about the company's customers. */
 export interface CustomerQuoteFeed {
@@ -123,6 +131,8 @@ export function buildBoard(
   const columns: Record<PipelineStage, PipelineCard[]> = { prospect: [], proposal: [], won: [] };
   let sentQuotesWithoutDate = 0;
   for (const customer of newestFirst) {
+    // Left off the board, but still a known company below: its quotes are not those of a deleted one.
+    if (!onPipeline(customer)) continue;
     const quotes = quotesOf.get(customer.id);
     const shipments = shipmentsOf.get(customer.id);
     const stage = pipelineStage({

@@ -39,6 +39,7 @@ const customer = (id: string, status: string, createdAt: string, over: Partial<P
   status,
   label: "STANDARD",
   salesOwner: "Martin",
+  roles: ["customer"],
   createdAt,
   ...over,
 });
@@ -244,6 +245,22 @@ describe("buildBoard", () => {
       expect(board.notes.quotesOfMissingCustomers).toBe(3);
       // The 14 that name no customer record, and the 4 + 1 of the two customers that are gone.
       expect(board.notes.shipmentsWithoutCustomer).toBe(19);
+    });
+
+    it("leaves a supplier only off the board, a supplier that is also a customer on it, and counts neither as missing", () => {
+      const board = buildBoard(
+        [
+          customer("maersk", "Prospect", "2026-09-01T08:00:00.000Z", { roles: ["shipping_line"] }),
+          customer("metrans", "Prospect", "2026-09-02T08:00:00.000Z", { roles: ["rail_operator", "customer"] }),
+          customer("kovo", "Active", "2026-09-03T08:00:00.000Z", { roles: ["haulier"] }),
+        ],
+        quotes({ customers: [quoted("kovo", { sentQuotes: 2 })], openQuotes: [] }),
+        shipments({ customers: [], shipmentsWithoutCustomer: 0 }),
+        ALL,
+      );
+      expect(ids(board.cards.prospect)).toEqual(["metrans"]);
+      expect(board.totals).toEqual({ prospect: 1, proposal: 0, won: 0 });
+      expect(board.notes.quotesOfMissingCustomers).toBe(0);
     });
 
     it("does not count the shipments of a customer the period leaves off the board: it is in the customer list", () => {

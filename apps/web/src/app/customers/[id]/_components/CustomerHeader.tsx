@@ -14,6 +14,7 @@ import { useToast } from "@/lib/toast";
 import { CustomerAccountTypeBadge } from "../../_components/CustomerAccountTypeBadge";
 import { CustomerHaulierBadge } from "../../_components/CustomerHaulierBadge";
 import { statusDotClass } from "../../_lib/constants";
+import { shownStatus } from "../../_lib/supplierStatus";
 import { CustomerSalesOwnerSelect } from "./CustomerSalesOwnerSelect";
 import { useCustomerListHref } from "../../_lib/customerListHref";
 import { canDeleteCustomerRecords } from "../../_lib/customerPermissions";
@@ -114,10 +115,10 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
         <div className="flex flex-wrap items-center gap-4 shrink-0">
           <CustomerSalesOwnerSelect key={customer.id} customer={customer} />
           <span aria-hidden className="h-8 w-px bg-slate-200" />
-          {/* Read-only here: the status is changed in the CRM card, and a won quote makes the customer Active. */}
+          {/* Read-only here: the status is changed in the CRM card, and a won quote makes the customer Active. A supplier only reads In use / Not in use. */}
           <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3.5 py-1.5 text-[13px] font-medium text-slate-600">
-            <span aria-hidden className={`h-2.5 w-2.5 rounded-full ${statusDotClass(customer.status)}`} />
-            {customer.status}
+            <span aria-hidden className={`h-2.5 w-2.5 rounded-full ${statusDotClass(shownStatus(customer))}`} />
+            {shownStatus(customer)}
           </span>
           <span aria-hidden className="h-8 w-px bg-slate-200" />
           <Dropdown menu={{ items: actionItems }} trigger={["click"]} placement="bottomRight">

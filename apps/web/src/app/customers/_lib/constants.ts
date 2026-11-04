@@ -108,8 +108,11 @@ const STATUS_DOT: Record<interfaces.CustomerStatus, string> = {
   Inactive: "bg-red-500",
 };
 
+// A supplier only shows whether we use it (supplierStatus.ts), in the colours of Active and Inactive.
+const SUPPLIER_STATUS_DOT: Record<string, string> = { "In use": "bg-green-600", "Not in use": "bg-red-500" };
+
 export function statusDotClass(status: string): string {
-  return lookup(STATUS_DOT, status) ?? "bg-slate-400";
+  return lookup(STATUS_DOT, status) ?? SUPPLIER_STATUS_DOT[status] ?? "bg-slate-400";
 }
 
 // antd Tag colours for the categorical values of the section; unknown values fall back to "default".

@@ -2297,7 +2297,8 @@ function CustomerSelect({
   // The request waits until typing pauses.
   const search = useDebounced(wanted, 300);
   const searching = wanted.length >= MIN_CUSTOMER_SEARCH && search.length >= MIN_CUSTOMER_SEARCH;
-  const { customers, isFetching, isError } = useCustomers({ search }, { enabled: searching });
+  // Only companies with the customer role: a supplier only (a haulier, a shipping line) is not quoted to.
+  const { customers, isFetching, isError } = useCustomers({ search, role: "customer" }, { enabled: searching });
   // Only the answer to what is typed is listed. Until it is here the hook still holds what it
   // had last - an earlier search, or before the first one the whole Customer Database, left
   // behind by the Customers page - and a customer picked from that need not be one that was
@@ -2305,7 +2306,7 @@ function CustomerSelect({
   const answered = searching && search === wanted && !isFetching;
   const found = answered ? customers.slice(0, CUSTOMER_LIMIT) : [];
 
-  let emptyText = "No customers match";
+  let emptyText = "No customers match (a supplier shows here once it has the Customer role)";
   if (wanted.length < MIN_CUSTOMER_SEARCH) emptyText = `Type at least ${MIN_CUSTOMER_SEARCH} letters to search the Customer Database`;
   else if (!answered) emptyText = "Searching…";
   else if (isError) emptyText = "The Customer Database could not be searched";
