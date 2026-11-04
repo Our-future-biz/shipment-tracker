@@ -186,7 +186,7 @@ class CustomerService {
   /** The newest matching customers (at most 2000) and how many match in all. */
   async list(companyId: string, filters: CustomerListFilters = {}): Promise<{ data: CustomerItem[]; total: number }> {
     const { rows, total } = await customerRepository.listFiltered(companyId, filters);
-    return { data: rows.map(toCustomerItem), total };
+    return { data: rows.map((row) => ({ ...toCustomerItem(row), lastContactAt: row.lastContactAt ? iso(row.lastContactAt) : null })), total };
   }
 
   async get(id: string, companyId: string): Promise<CustomerItem> {

@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 
 /** What a user can store for the Customer Database list (the customers service, not the shipment preferences). */
-export type CustomerListPrefKey = "columns" | "filter-templates" | "column-templates";
+export type CustomerListPrefKey = "columns" | "columns-suppliers" | "columns-all" | "filter-templates" | "column-templates";
 
 /**
  * One saved setting of the Customer Database list for the signed-in user, kept in the customers service.

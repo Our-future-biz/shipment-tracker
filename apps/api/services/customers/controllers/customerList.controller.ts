@@ -1,7 +1,7 @@
 import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import { customerService } from "../services/customer.service";
-import type { CustomerItem, CustomerLabel, CustomerRole, CustomerStatus } from "../interfaces/interfaces";
+import type { CustomerItem, CustomerLabel, CustomerListKind, CustomerRole, CustomerStatus } from "../interfaces/interfaces";
 
 interface CustomerListRequest {
   // Server-side filtering.
@@ -11,6 +11,8 @@ interface CustomerListRequest {
   country?: string;
   /** Only companies with this role, e.g. ?role=haulier */
   role?: CustomerRole;
+  /** Only customers, or only suppliers (any role but customer); a company that is both is in each. */
+  kind?: CustomerListKind;
 }
 
 interface CustomerListResponse {

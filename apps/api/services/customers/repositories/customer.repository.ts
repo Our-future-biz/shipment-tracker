@@ -1,4 +1,4 @@
-import { and, arrayContains, asc, count, eq, getTableColumns, inArray, desc, isNotNull, isNull, ne, sql } from "drizzle-orm";
+import { and, arrayContains, arrayOverlaps, asc, count, eq, getTableColumns, inArray, desc, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { containsAllWords } from "../../../lib/db/textSearch";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
@@ -9,7 +9,7 @@ import { customerNoteTable } from "../schemas/customerNote.schema";
 import { customerDocumentTable } from "../schemas/customerDocument.schema";
 import { customerInvoiceTable } from "../schemas/customerInvoice.schema";
 import { customerSiteTable } from "../schemas/customerSite.schema";
-import type { CustomerLabel, CustomerRole, CustomerStatus } from "../interfaces/interfaces";
+import { SUPPLIER_ROLES, type CustomerLabel, type CustomerListKind, type CustomerRole, type CustomerStatus } from "../interfaces/interfaces";
 
 export interface CustomerListFilters {
   search?: string;
@@ -18,12 +18,20 @@ export interface CustomerListFilters {
   country?: string;
   /** Only companies that have this role (among possibly others). */
   role?: CustomerRole;
+  /** Only customers (the customer role) or only suppliers (any other role); a company that is both is in each. */
+  kind?: CustomerListKind;
   limit?: number;
 }
 
 // Every column but the logo (up to 2 MB of base64 per customer), and the logo's length instead.
 const { logoData: _logoData, ...withoutLogo } = getTableColumns(customerTable);
 const ITEM_COLUMNS = { ...withoutLogo, logoLength: sql<number>`length(${customerTable.logoData})`.mapWith(Number) };
+// The list also says when each company was last in touch: its newest live Communication entry (one
+// index read per row, on customer_note_customer_id_idx).
+const LIST_COLUMNS = {
+  ...ITEM_COLUMNS,
+  lastContactAt: sql<Date | null>`(select max(${customerNoteTable.createdAt}) from ${customerNoteTable} where ${customerNoteTable.customerId} = ${customerTable.id} and ${customerNoteTable.deletedAt} is null)`.mapWith(customerNoteTable.createdAt),
+};
 
 class CustomerRepository extends TenantRepository<typeof customerTable> {
   constructor() {
@@ -159,12 +167,14 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
 
   // Server-side filtered list, always scoped to the company: the newest `limit` (2000) rows, and
   // how many match in all.
-  async listFiltered(companyId: string, f: CustomerListFilters): Promise<{ rows: CustomerItemRow[]; total: number }> {
+  async listFiltered(companyId: string, f: CustomerListFilters): Promise<{ rows: (CustomerItemRow & { lastContactAt: Date | null })[]; total: number }> {
     const clauses = [eq(customerTable.companyId, companyId), isNull(customerTable.deletedAt)];
     if (f.status) clauses.push(eq(customerTable.status, f.status));
     if (f.label) clauses.push(eq(customerTable.label, f.label));
     if (f.country) clauses.push(eq(customerTable.country, f.country));
     if (f.role) clauses.push(arrayContains(customerTable.roles, [f.role]));
+    if (f.kind === "customers") clauses.push(arrayContains(customerTable.roles, ["customer"]));
+    if (f.kind === "suppliers") clauses.push(arrayOverlaps(customerTable.roles, [...SUPPLIER_ROLES]));
     // Every word typed, anywhere in these columns, without regard to diacritics or case.
     if (f.search) {
       const match = containsAllWords([customerTable.companyName, customerTable.ico, customerTable.dic, customerTable.city], f.search);
@@ -173,7 +183,7 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
     const where = and(...clauses);
     const [rows, [{ value: total }]] = await Promise.all([
       this.db
-        .select(ITEM_COLUMNS)
+        .select(LIST_COLUMNS)
         .from(customerTable)
         .where(where)
         .orderBy(desc(customerTable.createdAt), desc(customerTable.id))

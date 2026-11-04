@@ -33,6 +33,8 @@ export type InvoiceStatus = "Open" | "Overdue" | "Paid" | "Credited";
 export type CustomerRole = "customer" | "haulier" | "rail_operator" | "first_last_mile_haulier" | "shipping_line" | "co_loader";
 /** The roles that make a company a supplier: every role but customer. */
 export const SUPPLIER_ROLES: readonly CustomerRole[] = ["haulier", "rail_operator", "first_last_mile_haulier", "shipping_line", "co_loader"];
+/** Which companies a list holds: those with the customer role, or those with any supplier role. A company that is both is in each. */
+export type CustomerListKind = "customers" | "suppliers";
 /** Whether a company with these roles is a supplier (it may also be a customer). */
 export const isSupplier = (roles: readonly CustomerRole[]): boolean => roles.some((role) => SUPPLIER_ROLES.includes(role));
 /** What happens at a site: goods are picked up (loading), dropped off (delivery), or both. */
@@ -90,6 +92,8 @@ export interface CustomerItem {
   supplierRatingBy: string;
   /** When it was set (ISO); null when not rated. */
   supplierRatingAt: string | null;
+  /** Only in the list: when the latest Communication entry was made (ISO), null when there is none. */
+  lastContactAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }

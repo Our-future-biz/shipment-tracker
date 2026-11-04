@@ -24,6 +24,8 @@ export interface CustomerQueryParams {
   country?: string;
   /** Only companies with this role (e.g. hauliers). */
   role?: interfaces.CustomerRole;
+  /** Only customers, or only suppliers (any role but customer). */
+  kind?: interfaces.CustomerListKind;
 }
 
 // Query keys that hold one customer's record and its lists (see the useCustomer* hooks).
@@ -62,13 +64,13 @@ export const useCustomers = (params: CustomerQueryParams = {}, { enabled = true 
   const queryClient = useQueryClient();
 
   const search = params.search?.trim() || undefined;
-  const { status, label, country, role } = params;
+  const { status, label, country, role, kind } = params;
 
   // Filters are applied server-side (scoped to the company) so they cover the whole
   // customer database rather than only the rows already loaded in the browser.
   const query = useQuery({
-    queryKey: ["customers", search ?? "", status ?? "", label ?? "", country ?? "", role ?? ""],
-    queryFn: () => api.customers.customerList({ search, status, label, country, role }),
+    queryKey: ["customers", search ?? "", status ?? "", label ?? "", country ?? "", role ?? "", kind ?? ""],
+    queryFn: () => api.customers.customerList({ search, status, label, country, role, kind }),
     placeholderData: (prev) => prev,
     enabled,
   });

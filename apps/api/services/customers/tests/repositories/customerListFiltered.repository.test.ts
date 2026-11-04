@@ -47,6 +47,27 @@ describe("listFiltered by role", () => {
   });
 });
 
+describe("listFiltered by kind", () => {
+  it("keeps only companies with the customer role for the Customers view", async () => {
+    await customerRepository.listFiltered(COMPANY, { kind: "customers" });
+    const { sql, params } = lastWhere();
+    expect(sql).toBe('("customer"."company_id" = $1 and "customer"."deleted_at" is null and "customer"."roles" @> $2)');
+    expect(params).toEqual([COMPANY, '{"customer"}']);
+  });
+
+  it("keeps companies with any supplier role for the Suppliers view, also those that are customers too", async () => {
+    await customerRepository.listFiltered(COMPANY, { kind: "suppliers" });
+    const { sql, params } = lastWhere();
+    expect(sql).toBe('("customer"."company_id" = $1 and "customer"."deleted_at" is null and "customer"."roles" && $2)');
+    expect(params).toEqual([COMPANY, '{"haulier","rail_operator","first_last_mile_haulier","shipping_line","co_loader"}']);
+  });
+
+  it("narrows the suppliers to one type when a role is asked for too", async () => {
+    await customerRepository.listFiltered(COMPANY, { kind: "suppliers", role: "shipping_line" });
+    expect(lastWhere().sql).toBe('("customer"."company_id" = $1 and "customer"."deleted_at" is null and "customer"."roles" @> $2 and "customer"."roles" && $3)');
+  });
+});
+
 describe("listFiltered by search", () => {
   it("looks for every word typed in the name, IČO, DIČ and city, folded: no diacritics, no case, % and _ literal", async () => {
     await customerRepository.listFiltered(COMPANY, { search: "Železný 50%" });

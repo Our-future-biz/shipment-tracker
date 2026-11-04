@@ -680,6 +680,7 @@ export namespace customers {
             // Convert our params into the objects we need for the request
             const query = makeRecord<string, string | string[]>({
                 country: params.country,
+                kind:    params.kind === undefined ? undefined : String(params.kind),
                 label:   params.label === undefined ? undefined : String(params.label),
                 role:    params.role === undefined ? undefined : String(params.role),
                 search:  params.search,
@@ -6311,6 +6312,11 @@ export namespace controllers {
          * Only companies with this role, e.g. ?role=haulier
          */
         role?: interfaces.CustomerRole
+
+        /**
+         * Only customers, or only suppliers (any role but customer); a company that is both is in each.
+         */
+        kind?: interfaces.CustomerListKind
     }
 
     export interface CustomerListResponse {
@@ -12315,11 +12321,21 @@ export namespace interfaces {
          */
         supplierRatingAt: string | null
 
+        /**
+         * Only in the list: when the latest Communication entry was made (ISO), null when there is none.
+         */
+        lastContactAt?: string | null
+
         createdAt: string
         updatedAt: string
     }
 
     export type CustomerLabel = "KEY ACCOUNT" | "STANDARD" | "TARGET CUSTOMER" | "RISK"
+
+    /**
+     * Which companies a list holds: those with the customer role, or those with any supplier role. A company that is both is in each.
+     */
+    export type CustomerListKind = "customers" | "suppliers"
 
     /**
      * What a run of POST /customers/people/normalize did to the company's live customers and notes.
