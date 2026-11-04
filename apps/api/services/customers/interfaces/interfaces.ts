@@ -13,7 +13,12 @@ export type ContactRole =
   | "Finance / Accounting"
   | "Sales"
   | "Management"
-  | "Owner";
+  | "Owner"
+  // A supplier's people: who takes the orders, handles claims, sends the tariffs, and is paid.
+  | "Dispatch / Operations"
+  | "Claims"
+  | "Pricing / Tariffs"
+  | "Accounts payable";
 /** Registered is the company's seat; the others are where invoices and paperwork go and goods are picked up or delivered. */
 export type AddressType = "Registered" | "Billing" | "Paperwork" | "Pickup" | "Delivery" | "Warehouse";
 /** The address types in the order they are listed and stored in. */
@@ -21,7 +26,17 @@ export const ADDRESS_TYPES: readonly AddressType[] = ["Registered", "Billing", "
 /** A risk level set by hand, or "" when it is derived from the registry data. */
 export type RiskLevelOverride = "" | "Low" | "Medium" | "High";
 export type NoteType = "Note" | "Email" | "Call" | "Follow-up" | "Visit";
-export type DocumentType = "Contract" | "NDA" | "Power of attorney" | "Customs" | "Other";
+/** The last four are a supplier's papers, each with the date it is valid to. */
+export type DocumentType =
+  | "Contract"
+  | "NDA"
+  | "Power of attorney"
+  | "Customs"
+  | "Other"
+  | "Carrier liability insurance"
+  | "Transport licence"
+  | "Framework agreement"
+  | "Certificate";
 /** Credited = reversed by a credit note; like Paid, it no longer counts as owed. */
 export type InvoiceStatus = "Open" | "Overdue" | "Paid" | "Credited";
 /**
@@ -233,6 +248,8 @@ export interface DocumentItem {
   fileName: string;
   fileType: string;
   fileSize: number;
+  /** yyyy-mm-dd the document is valid to (insurance, licence, certificate…), or "" when it does not end. */
+  validTo: string;
   createdAt: string;
   updatedAt: string;
 }

@@ -12,6 +12,8 @@ interface DocumentCreateRequest {
   fileType?: string & MaxLen<200>;
   fileSize?: number & Min<0>;
   fileData?: string; // base64 data URL
+  /** yyyy-mm-dd it is valid to (a supplier's insurance, licence, certificate); "" or absent when it does not end. */
+  validTo?: string & MaxLen<10>;
 }
 
 interface DocumentCreateResponse {

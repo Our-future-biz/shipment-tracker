@@ -9,7 +9,7 @@ import { PillTabs, SectionCard } from "@/components/SectionCard";
 import { useCustomerDocuments } from "@/hooks/useCustomerDocuments";
 import type { DocumentItem } from "@/hooks/useCustomerDocuments";
 import { api } from "@/lib/api";
-import { formatDate } from "@/lib/date";
+import { formatDate, todayIso } from "@/lib/date";
 import { downloadDataUrl, formatFileSize } from "@/lib/files";
 import { useToast } from "@/lib/toast";
 import { DOCUMENT_TYPES, documentTypeColor } from "../../_lib/constants";
@@ -110,6 +110,12 @@ export function DocumentsTab({ customerId }: DocumentsTabProps) {
     },
     { title: "File", dataIndex: "fileName", render: (v: string) => v || EMPTY_CELL },
     { title: "Size", dataIndex: "fileSize", render: (v: number) => (v ? formatFileSize(v) : EMPTY_CELL) },
+    {
+      title: "Valid to",
+      dataIndex: "validTo",
+      // A paper past its day reads red: the supplier's Needs attention says so too.
+      render: (v: string) => (v ? <span className={v < todayIso() ? "font-medium text-red-600" : undefined}>{formatDate(v)}</span> : EMPTY_CELL),
+    },
     { title: "Uploaded", dataIndex: "createdAt", render: (v: string) => formatDate(v) || EMPTY_CELL },
     {
       title: "",

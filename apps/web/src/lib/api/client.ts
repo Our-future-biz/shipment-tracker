@@ -6579,6 +6579,10 @@ export namespace controllers {
         fileType?: string
         fileSize?: number
         fileData?: string
+        /**
+         * yyyy-mm-dd it is valid to (a supplier's insurance, licence, certificate); "" or absent when it does not end.
+         */
+        validTo?: string
     }
 
     export interface DocumentCreateResponse {
@@ -12077,7 +12081,7 @@ export namespace interfaces {
         updatedAt: string
     }
 
-    export type ContactRole = "Purchasing / Procurement" | "Customer Service" | "Logistics Manager" | "Warehouse" | "Finance / Accounting" | "Sales" | "Management" | "Owner"
+    export type ContactRole = "Purchasing / Procurement" | "Customer Service" | "Logistics Manager" | "Warehouse" | "Finance / Accounting" | "Sales" | "Management" | "Owner" | "Dispatch / Operations" | "Claims" | "Pricing / Tariffs" | "Accounts payable"
 
     export interface ContainerLine {
         /**
@@ -12720,11 +12724,19 @@ export namespace interfaces {
         fileName: string
         fileType: string
         fileSize: number
+        /**
+         * yyyy-mm-dd the document is valid to (insurance, licence, certificate…), or "" when it does not end.
+         */
+        validTo: string
+
         createdAt: string
         updatedAt: string
     }
 
-    export type DocumentType = "Contract" | "NDA" | "Power of attorney" | "Customs" | "Other"
+    /**
+     * The last four are a supplier's papers, each with the date it is valid to.
+     */
+    export type DocumentType = "Contract" | "NDA" | "Power of attorney" | "Customs" | "Other" | "Carrier liability insurance" | "Transport licence" | "Framework agreement" | "Certificate"
 
     /**
      * The addresses a user emailed quotations to, the latest first: their own list to pick To, CC and BCC from.

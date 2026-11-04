@@ -7,8 +7,12 @@ import { useCustomerDocuments } from "@/hooks/useCustomerDocuments";
 import { useCustomerInvoices } from "@/hooks/useCustomerInvoices";
 import { useCustomerNotes } from "@/hooks/useCustomerNotes";
 import { useCustomer } from "@/hooks/useCustomers";
+import { useHaulier } from "@/hooks/useTrucking";
 import { useLatestRates } from "@/lib/fx";
+import { businessToday } from "@/lib/date";
 import { buildCustomerAttention } from "../../_lib/customerAttention";
+import { buildSupplierAttention } from "../../_lib/supplierAttention";
+import { useSupplierTariffs } from "./useSupplierTariffs";
 import type { AttentionItem, AttentionSeverity } from "../../_lib/customerAttention";
 
 // The list opens with its most serious rows; the rest unfolds on demand, so a long list does not push the page down.
@@ -72,12 +76,17 @@ export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAtten
   const { contacts, isLoading: contactsLoading, isError: contactsError } = useCustomerContacts(customerId);
   const { documents, isLoading: documentsLoading, isError: documentsError } = useCustomerDocuments(customerId);
   const { notes, isLoading: notesLoading, isError: notesError } = useCustomerNotes(customerId);
+  // A supplier's own findings: Trucking's check of a haulier, and the tariffs Tariffs holds from it.
+  const isHaulier = !!customer?.roles.includes("haulier");
+  const { haulier, isLoading: haulierLoading } = useHaulier(customerId, { enabled: isHaulier });
+  const tariffs = useSupplierTariffs(customer);
   // Remembered per customer, so an unfolded list does not carry over to the next customer opened.
   const [expandedFor, setExpandedFor] = useState<string | null>(null);
 
   // Until every source is in, the list would appear half-built and then grow or reorder under the reader.
   // The rates too: without them a foreign invoice can't be weighed against the credit limit.
-  const isLoading = customerLoading || invoicesLoading || ratesLoading || contactsLoading || documentsLoading || notesLoading;
+  const isLoading =
+    customerLoading || invoicesLoading || ratesLoading || contactsLoading || documentsLoading || notesLoading || (isHaulier && haulierLoading) || tariffs.isLoading;
 
   const items = useMemo(() => {
     if (isLoading || !customer) return [];
@@ -91,9 +100,20 @@ export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAtten
     });
     // For contacts, documents and notes an empty list is itself a finding, but a list that could not be loaded is
     // not an empty one: its "nothing on file" row would be untrue.
-    return built.filter((item) => !(contactsError && item.key === "no-contact-person") &&
+    const customerItems = built.filter((item) => !(contactsError && item.key === "no-contact-person") &&
         !(documentsError && item.key === "documents-missing") && !(notesError && item.key === "no-interaction"));
-  }, [isLoading, customer, invoices, contacts, documents, notes, rates, contactsError, documentsError, notesError]);
+    const supplierItems = buildSupplierAttention({
+      customer,
+      haulierIssues: haulier?.issues ?? null,
+      tariffs: tariffs.isError ? null : tariffs.summaries,
+      contacts: contactsError ? null : contacts,
+      documents: documentsError ? null : documents,
+      today: businessToday(),
+    });
+    // Most serious first across both: every critical row, then every warning, each side in its own order.
+    const all = [...customerItems, ...supplierItems];
+    return [...all.filter((item) => item.severity === "critical"), ...all.filter((item) => item.severity === "warning")];
+  }, [isLoading, customer, invoices, contacts, documents, notes, rates, contactsError, documentsError, notesError, haulier, tariffs.isError, tariffs.summaries]);
 
   if (items.length === 0) return null;
 

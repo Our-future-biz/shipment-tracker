@@ -2,12 +2,13 @@
 
 import { useRef, useState } from "react";
 import type { ChangeEvent } from "react";
-import { Button, Form, Input, Modal, Select } from "antd";
+import { Button, DatePicker, Form, Input, Modal, Select } from "antd";
+import type { Dayjs } from "dayjs";
 import { UploadOutlined } from "@ant-design/icons";
 import { fileToDataUrl, formatFileSize } from "@/lib/files";
 import { useToast } from "@/lib/toast";
 import type { interfaces } from "@/lib/api/client";
-import { DOCUMENT_TYPES } from "../../_lib/constants";
+import { DATED_DOCUMENT_TYPES, DOCUMENT_TYPES } from "../../_lib/constants";
 
 // The API accepts 20 MiB per request and base64 makes the file about a third larger.
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
@@ -19,6 +20,8 @@ export interface CustomerDocumentInput {
   fileType: string;
   fileSize: number;
   fileData: string;
+  /** yyyy-mm-dd it is valid to, or "" when it does not end. */
+  validTo: string;
 }
 
 interface CustomerDocumentDialogProps {
@@ -30,9 +33,10 @@ interface CustomerDocumentDialogProps {
 interface CustomerDocumentFormValues {
   name: string;
   type: interfaces.DocumentType;
+  validTo?: Dayjs | null;
 }
 
-const INITIAL_VALUES: CustomerDocumentFormValues = { name: "", type: "Other" };
+const INITIAL_VALUES: CustomerDocumentFormValues = { name: "", type: "Other", validTo: null };
 
 const TYPE_OPTIONS = DOCUMENT_TYPES.map((type) => ({ value: type, label: type }));
 
@@ -47,6 +51,8 @@ export function CustomerDocumentDialog({ open, onClose, onCreate }: CustomerDocu
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState("");
   const [saving, setSaving] = useState(false);
+  // A supplier's insurance, licence, agreement or certificate asks for the day it is valid to.
+  const dated = DATED_DOCUMENT_TYPES.includes(Form.useWatch("type", form) ?? "Other");
 
   const closeDialog = () => {
     setFile(null);
@@ -109,6 +115,7 @@ export function CustomerDocumentDialog({ open, onClose, onCreate }: CustomerDocu
         fileType: file.type,
         fileSize: file.size,
         fileData,
+        validTo: dated && values.validTo ? values.validTo.format("YYYY-MM-DD") : "",
       });
       toast.success("Document added");
       closeDialog();
@@ -152,9 +159,14 @@ export function CustomerDocumentDialog({ open, onClose, onCreate }: CustomerDocu
         <Form.Item name="name" label="Name" rules={[{ required: true, whitespace: true, message: "Name is required" }]}>
           <Input placeholder="e.g. Framework contract 2026" onPressEnter={handleSubmit} />
         </Form.Item>
-        <Form.Item name="type" label="Type" className="mb-0">
+        <Form.Item name="type" label="Type" className={dated ? undefined : "mb-0"}>
           <Select options={TYPE_OPTIONS} />
         </Form.Item>
+        {dated && (
+          <Form.Item name="validTo" label="Valid to" className="mb-0" extra="Leave empty when it does not end">
+            <DatePicker format="DD.MM.YYYY" className="w-full" aria-label="Valid to" />
+          </Form.Item>
+        )}
       </Form>
     </Modal>
   );

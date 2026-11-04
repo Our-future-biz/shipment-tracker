@@ -44,3 +44,19 @@ describe("buildCustomerAttention", () => {
     expect(keys(customer(), [invoice])).toContain("invoices-not-counted");
   });
 });
+
+describe("buildCustomerAttention for a supplier only", () => {
+  it("asks nothing a customer is asked for (owner, credit, customer papers, prepayment, credit risk)", () => {
+    const supplier = customer({ roles: ["haulier"], salesOwnerUserId: null, creditLimit: 0, registrationDate: "2026-01-01", riskLevel: "High" });
+    const found = keys(supplier);
+    for (const key of ["no-sales-owner", "no-credit-limit", "documents-missing", "new-company", "high-risk-industry"]) expect(found).not.toContain(key);
+  });
+
+  it("still says it has nobody to call and nothing logged, as for any company", () => {
+    expect(keys(customer({ roles: ["shipping_line"] }))).toEqual(expect.arrayContaining(["no-contact-person", "no-interaction"]));
+  });
+
+  it("keeps every customer rule for a supplier that is also a customer", () => {
+    expect(keys(customer({ roles: ["haulier", "customer"], salesOwnerUserId: null, creditLimit: 0 }))).toEqual(expect.arrayContaining(["no-sales-owner", "no-credit-limit"]));
+  });
+});

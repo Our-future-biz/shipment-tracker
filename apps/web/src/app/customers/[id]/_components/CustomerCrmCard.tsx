@@ -78,19 +78,22 @@ export function CustomerCrmCard({ customer }: CustomerCrmCardProps) {
             />
           </div>
         </CustomerInfoRow>
-        <CustomerInfoRow label="Account type" narrow>
-          <div className={SELECT_WRAPPER_CLASS}>
-            <Select
-              {...SELECT_PROPS}
-              aria-label="Account type"
-              disabled={!canManage}
-              title={canManage ? undefined : "Only a manager can change the account type"}
-              value={shown.label}
-              options={ACCOUNT_TYPE_OPTIONS}
-              onChange={(value: interfaces.CustomerLabel) => save({ label: value })}
-            />
-          </div>
-        </CustomerInfoRow>
+        {/* A customer's account type (key account, target…): it says nothing of a supplier only. */}
+        {!supplierOnly && (
+          <CustomerInfoRow label="Account type" narrow>
+            <div className={SELECT_WRAPPER_CLASS}>
+              <Select
+                {...SELECT_PROPS}
+                aria-label="Account type"
+                disabled={!canManage}
+                title={canManage ? undefined : "Only a manager can change the account type"}
+                value={shown.label}
+                options={ACCOUNT_TYPE_OPTIONS}
+                onChange={(value: interfaces.CustomerLabel) => save({ label: value })}
+              />
+            </div>
+          </CustomerInfoRow>
+        )}
       </div>
 
       <CustomerInfoRow label="Website" narrow>

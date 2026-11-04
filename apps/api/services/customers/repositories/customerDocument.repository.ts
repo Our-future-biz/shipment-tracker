@@ -19,6 +19,7 @@ class CustomerDocumentRepository extends TenantRepository<typeof customerDocumen
         fileName: customerDocumentTable.fileName,
         fileType: customerDocumentTable.fileType,
         fileSize: customerDocumentTable.fileSize,
+        validTo: customerDocumentTable.validTo,
         createdAt: customerDocumentTable.createdAt,
         updatedAt: customerDocumentTable.updatedAt,
       })

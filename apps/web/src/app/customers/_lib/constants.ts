@@ -16,9 +16,27 @@ export const CONTACT_ROLES = [
   "Sales",
   "Management",
   "Owner",
+  // A supplier's people.
+  "Dispatch / Operations",
+  "Claims",
+  "Pricing / Tariffs",
+  "Accounts payable",
 ] as const satisfies readonly interfaces.ContactRole[];
 
-export const DOCUMENT_TYPES = ["Contract", "NDA", "Power of attorney", "Customs", "Other"] as const satisfies readonly interfaces.DocumentType[];
+export const DOCUMENT_TYPES = [
+  "Contract",
+  "NDA",
+  "Power of attorney",
+  "Customs",
+  "Carrier liability insurance",
+  "Transport licence",
+  "Framework agreement",
+  "Certificate",
+  "Other",
+] as const satisfies readonly interfaces.DocumentType[];
+
+/** A supplier's papers: each is valid to a date, asked for when it is filed. */
+export const DATED_DOCUMENT_TYPES: readonly interfaces.DocumentType[] = ["Carrier liability insurance", "Transport licence", "Framework agreement", "Certificate"];
 
 export const ADDRESS_TYPES = ["Registered", "Billing", "Paperwork", "Pickup", "Delivery", "Warehouse"] as const satisfies readonly interfaces.AddressType[];
 
@@ -125,6 +143,10 @@ const CONTACT_ROLE_COLORS: Record<interfaces.ContactRole, string> = {
   Sales: "blue",
   Management: "magenta",
   Owner: "volcano",
+  "Dispatch / Operations": "geekblue",
+  Claims: "red",
+  "Pricing / Tariffs": "lime",
+  "Accounts payable": "gold",
 };
 
 const ADDRESS_TYPE_COLORS: Record<interfaces.AddressType, string> = {
@@ -141,6 +163,10 @@ const DOCUMENT_TYPE_COLORS: Partial<Record<interfaces.DocumentType, string>> = {
   NDA: "purple",
   "Power of attorney": "gold",
   Customs: "green",
+  "Carrier liability insurance": "cyan",
+  "Transport licence": "geekblue",
+  "Framework agreement": "magenta",
+  Certificate: "lime",
 };
 
 export const INVOICE_STATUS_COLORS: Record<interfaces.InvoiceStatus, string> = {

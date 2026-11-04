@@ -116,7 +116,9 @@ export const toNoteItem = (r: CustomerNoteRecord): NoteItem => ({
 });
 
 /** Document metadata only: never the file bytes. */
-export const toDocumentItem = (r: Omit<DocumentItem, "createdAt" | "updatedAt"> & { createdAt: Date; updatedAt: Date }): DocumentItem => ({
+export const toDocumentItem = (
+  r: Omit<DocumentItem, "createdAt" | "updatedAt" | "validTo"> & { validTo: string | null; createdAt: Date; updatedAt: Date },
+): DocumentItem => ({
   id: r.id,
   customerId: r.customerId,
   name: r.name,
@@ -124,6 +126,7 @@ export const toDocumentItem = (r: Omit<DocumentItem, "createdAt" | "updatedAt"> 
   fileName: r.fileName,
   fileType: r.fileType,
   fileSize: r.fileSize,
+  validTo: dateOutput(r.validTo),
   createdAt: iso(r.createdAt),
   updatedAt: iso(r.updatedAt),
 });

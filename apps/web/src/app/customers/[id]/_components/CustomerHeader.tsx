@@ -12,7 +12,10 @@ import { useCustomer } from "@/hooks/useCustomers";
 import type { CustomerItem } from "@/hooks/useCustomers";
 import { useToast } from "@/lib/toast";
 import { CustomerAccountTypeBadge } from "../../_components/CustomerAccountTypeBadge";
-import { CustomerHaulierBadge } from "../../_components/CustomerHaulierBadge";
+import { CustomerRoleBadges } from "../../_components/CustomerRoleBadges";
+import { hasSupplierRole } from "../../_lib/customerListViews";
+import { isSupplierOnly } from "../../_lib/supplierStatus";
+import { SupplierRatingBox } from "./SupplierRatingBox";
 import { statusDotClass } from "../../_lib/constants";
 import { shownStatus } from "../../_lib/supplierStatus";
 import { CustomerSalesOwnerSelect } from "./CustomerSalesOwnerSelect";
@@ -99,8 +102,9 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
           <div className="min-w-0">
             <div className="flex items-center gap-3 flex-wrap">
               <h1 className="text-[22px] font-bold text-slate-800 m-0">{customer.companyName}</h1>
-              <CustomerAccountTypeBadge label={customer.label} />
-              <CustomerHaulierBadge roles={customer.roles} />
+              {/* A customer's account type; a supplier only shows what it supplies instead. */}
+              {!isSupplierOnly(customer.roles) && <CustomerAccountTypeBadge label={customer.label} />}
+              <CustomerRoleBadges roles={customer.roles} />
             </div>
             {/* Only where the customer is; IČO, DIČ and the rest of the registry record are in the Registry card. */}
             {customer.city && (
@@ -113,13 +117,30 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
         </div>
 
         <div className="flex flex-wrap items-center gap-4 shrink-0">
-          <CustomerSalesOwnerSelect key={customer.id} customer={customer} />
-          <span aria-hidden className="h-8 w-px bg-slate-200" />
+          {/* Customer side: who owns it. Supplier side: its rating. A company that is both shows the two. */}
+          {!isSupplierOnly(customer.roles) && (
+            <>
+              <CustomerSalesOwnerSelect key={customer.id} customer={customer} />
+              <span aria-hidden className="h-8 w-px bg-slate-200" />
+            </>
+          )}
+          {hasSupplierRole(customer.roles) && isSupplierOnly(customer.roles) && (
+            <>
+              <SupplierRatingBox key={customer.id} customer={customer} />
+              <span aria-hidden className="h-8 w-px bg-slate-200" />
+            </>
+          )}
           {/* Read-only here: the status is changed in the CRM card, and a won quote makes the customer Active. A supplier only reads In use / Not in use. */}
           <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3.5 py-1.5 text-[13px] font-medium text-slate-600">
             <span aria-hidden className={`h-2.5 w-2.5 rounded-full ${statusDotClass(shownStatus(customer))}`} />
             {shownStatus(customer)}
           </span>
+          {hasSupplierRole(customer.roles) && !isSupplierOnly(customer.roles) && (
+            <>
+              <span aria-hidden className="h-8 w-px bg-slate-200" />
+              <SupplierRatingBox key={customer.id} customer={customer} />
+            </>
+          )}
           <span aria-hidden className="h-8 w-px bg-slate-200" />
           <Dropdown menu={{ items: actionItems }} trigger={["click"]} placement="bottomRight">
             <button

@@ -31,6 +31,7 @@ export interface CustomerQueryParams {
 // Query keys that hold one customer's record and its lists (see the useCustomer* hooks).
 const CUSTOMER_RECORD_KEYS = [
   "customer",
+  "customer-supplier-rating",
   "customer-contacts",
   "customer-sites",
   "customer-notes",
@@ -158,6 +159,8 @@ export const useCustomer = (id: string | null) => {
     // A failed load (not a missing record) — the page offers a retry instead of "not found".
     isLoadError: query.isError && !query.data && (query.error as { status?: number } | null)?.status !== 404,
     refetch: query.refetch,
+    /** Whether the signed-in user may set this company's supplier rating (a manager, and it is a supplier). */
+    canRateSupplier: query.data?.canRateSupplier ?? false,
     updateCustomer: updateMutation.mutateAsync,
     deleteCustomer: deleteMutation.mutateAsync,
     uploadLogo: uploadLogoMutation.mutateAsync,

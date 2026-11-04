@@ -10,7 +10,11 @@ import { CustomerMainContactCard } from "../_components/CustomerMainContactCard"
 import { CustomerRecentShipmentsCard } from "../_components/CustomerRecentShipmentsCard";
 import { CustomerRegistryCard } from "../_components/CustomerRegistryCard";
 import { CustomerSnapshotTiles } from "../_components/CustomerSnapshotTiles";
-import { useCanSeeConcepts } from "@/lib/auth/AuthContext";
+import { CustomerSupplierRatingHistoryCard } from "../_components/CustomerSupplierRatingHistoryCard";
+import { CustomerSupplierTariffsCard } from "../_components/CustomerSupplierTariffsCard";
+import { SupplierSnapshotTiles } from "../_components/SupplierSnapshotTiles";
+import { hasSupplierRole } from "../../_lib/customerListViews";
+import { isSupplierOnly } from "../../_lib/supplierStatus";
 
 interface OverviewTabProps {
   customerId: string;
@@ -21,18 +25,27 @@ interface OverviewTabProps {
 // four figures, the latest shipments, then who the company is and its registry record. Side
 // column: who to call, a haulier's Trucking status, the credit position, and the CRM record. The all-time totals stay in the header and every
 // full list in its own tab; the cards here are summaries that lead there.
+// A supplier only gets its own tiles and no customer cards (shipments as a customer, credit); a supplier,
+// also one that is a customer too, gets its Trucking check, the tariffs we hold and its rating history.
 export function OverviewTab({ customerId, onSelectTab }: OverviewTabProps) {
-  const canSeeConcepts = useCanSeeConcepts();
   const { customer } = useCustomer(customerId);
 
   if (!customer) return null;
+  const supplierOnly = isSupplierOnly(customer.roles);
+  const supplier = hasSupplierRole(customer.roles);
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_300px] gap-5 items-start">
       <div className="space-y-5 min-w-0">
         <CustomerAttentionCard customerId={customerId} onSelectTab={onSelectTab} />
-        <CustomerSnapshotTiles customerId={customerId} onSelectTab={onSelectTab} />
-        <CustomerRecentShipmentsCard customerId={customerId} onSelectTab={onSelectTab} />
+        {supplierOnly ? (
+          <SupplierSnapshotTiles customer={customer} onSelectTab={onSelectTab} />
+        ) : (
+          <>
+            <CustomerSnapshotTiles customerId={customerId} onSelectTab={onSelectTab} />
+            <CustomerRecentShipmentsCard customerId={customerId} onSelectTab={onSelectTab} />
+          </>
+        )}
         {/* Keyed: a pending edit of one customer must not carry over to the next one opened. */}
         <CustomerCompanyAnalysisCard key={customer.id} customer={customer} />
         <CustomerRegistryCard customer={customer} />
@@ -40,9 +53,11 @@ export function OverviewTab({ customerId, onSelectTab }: OverviewTabProps) {
 
       <div className="space-y-5">
         <CustomerMainContactCard customerId={customerId} onSelectTab={onSelectTab} />
-        {/* Only for a company we subcontract trucking to; its profile lives in Trucking. */}
-        {customer.roles.includes("haulier") && canSeeConcepts && <CustomerHaulierCard customerId={customerId} />}
-        <CustomerCreditSummaryCard customerId={customerId} onSelectTab={onSelectTab} />
+        {/* Only for a company we subcontract trucking to; its profile lives in Trucking. Shown to everyone (D3). */}
+        {customer.roles.includes("haulier") && <CustomerHaulierCard customerId={customerId} />}
+        {supplier && <CustomerSupplierTariffsCard customer={customer} />}
+        {supplier && <CustomerSupplierRatingHistoryCard customerId={customerId} />}
+        {!supplierOnly && <CustomerCreditSummaryCard customerId={customerId} onSelectTab={onSelectTab} />}
         {/* Keyed so an edit still being saved never carries over to another customer. */}
         <CustomerCrmCard key={customer.id} customer={customer} />
       </div>

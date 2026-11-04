@@ -25,7 +25,7 @@ import { EMPTY_CELL } from "../../_lib/customerTable";
 import type { KpiTone } from "./CustomerKpiTile";
 
 // What one tile shows: its figure only; the label and the tab it opens are fixed in the markup below.
-interface TileContent {
+export interface TileContent {
   value: ReactNode;
   tone?: KpiTone;
 }
@@ -39,22 +39,24 @@ const VALUE_TONE: Record<KpiTone, string> = {
 interface SnapshotTileProps extends TileContent {
   label: string;
   icon: ReactNode;
-  onClick: () => void;
+  /** The tab it opens; a tile without one only shows its figure. */
+  onClick?: () => void;
 }
 
 // One tile of the snapshot row, centred from top to bottom: an icon, the name on one line under it (the icon
 // sits above rather than beside it, so the name has the whole width of the tile), then the figure large. All four
 // share one height, so the row stays even whatever the figures are; the whole tile opens the tab the figure
 // comes from.
-function SnapshotTile({ label, icon, value, tone, onClick }: SnapshotTileProps) {
+export function SnapshotTile({ label, icon, value, tone, onClick }: SnapshotTileProps) {
+  const Tag = onClick ? "button" : "div";
   return (
-    <button
-      type="button"
+    <Tag
+      type={onClick ? "button" : undefined}
       onClick={onClick}
       className={[
         "flex flex-col items-center justify-center min-w-0 h-[116px] px-3",
-        "bg-white border border-slate-200 rounded-xl shadow-sm text-center cursor-pointer",
-        "transition-colors hover:border-indigo-300 hover:bg-indigo-50/40",
+        "bg-white border border-slate-200 rounded-xl shadow-sm text-center",
+        onClick ? "cursor-pointer transition-colors hover:border-indigo-300 hover:bg-indigo-50/40" : "",
         "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500",
       ].join(" ")}
     >
@@ -76,13 +78,13 @@ function SnapshotTile({ label, icon, value, tone, onClick }: SnapshotTileProps) 
       >
         {value}
       </span>
-    </button>
+    </Tag>
   );
 }
 
 // Stands in for a tile's figure while its data is on the way or could not be loaded, so a tile never
 // shows "0" or "Never" for something that is simply not known yet.
-function placeholderTile(isLoading: boolean, isError: boolean): TileContent | null {
+export function placeholderTile(isLoading: boolean, isError: boolean): TileContent | null {
   if (isLoading) return { value: "…" };
   if (isError) return { value: EMPTY_CELL };
   return null;
@@ -121,7 +123,7 @@ function contactTone(days: number | null): KpiTone | undefined {
   return days > ATTENTION_RULES.noContactDays ? "red" : "amber";
 }
 
-function lastContactTile(notes: NoteItem[]): TileContent {
+export function lastContactTile(notes: NoteItem[]): TileContent {
   // The API returns notes newest first.
   const lastNote = notes[0];
   if (!lastNote) return { value: "Never", tone: "red" };

@@ -3,6 +3,7 @@ import { customerDocumentRepository } from "../repositories/customerDocument.rep
 import type { NewCustomerDocumentRecord } from "../schemas/customerDocument.schema";
 import type { DocumentItem, DocumentType } from "../interfaces/interfaces";
 import { toDocumentItem } from "../lib/mappers";
+import { dateInput } from "../lib/dates";
 import { customerService } from "./customer.service";
 
 export interface DocumentInput {
@@ -12,6 +13,8 @@ export interface DocumentInput {
   fileType?: string;
   fileSize?: number;
   fileData?: string; // base64 data URL
+  /** yyyy-mm-dd it is valid to, or "" when it does not end. */
+  validTo?: string;
 }
 
 export interface DocumentFile {
@@ -35,6 +38,7 @@ class DocumentService {
       fileType: input.fileType ?? "",
       fileSize: input.fileSize ?? 0,
       fileData: input.fileData ?? "",
+      validTo: dateInput(input.validTo, "validTo") ?? null,
     };
     const row = await customerDocumentRepository.createForCompany(companyId, values);
     return toDocumentItem(row);
