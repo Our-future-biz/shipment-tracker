@@ -25,12 +25,20 @@ export function SupplierRatingEditor({ rating, reason: savedReason, saving, onSa
   const needsReason = reasonRequired(picked);
   const canSave = picked !== null && (!needsReason || !!reason.trim()) && !saving;
 
+  // Moving to 0–2 stars from another rating asks for a new reason: the saved one was written for that
+  // other rating (a positive reason must not pass for a downgrade, D7; Council Review 5, m17).
+  const choose = (next: number) => {
+    setPicked(next);
+    if (next !== rating && reasonRequired(next) && reason === savedReason) setReason("");
+    if (next === rating) setReason((r) => (r === "" ? savedReason : r));
+  };
+
   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     const step = e.key === "ArrowRight" || e.key === "ArrowUp" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowDown" ? -1 : 0;
     if (!step) return;
     e.preventDefault();
     const next = Math.min(5, Math.max(0, (picked ?? (step > 0 ? -1 : 6)) + step));
-    setPicked(next);
+    choose(next);
     (e.currentTarget.querySelector(`[data-stars="${next}"]`) as HTMLElement | null)?.focus();
   };
 
@@ -48,7 +56,7 @@ export function SupplierRatingEditor({ rating, reason: savedReason, saving, onSa
               data-stars={stars}
               // One stop in the tab order: the picked choice, or the first one.
               tabIndex={on || (picked === null && stars === 0) ? 0 : -1}
-              onClick={() => setPicked(stars)}
+              onClick={() => choose(stars)}
               className={[
                 "h-8 cursor-pointer rounded-lg border px-2.5 text-[13px] tabular-nums transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500",
                 on ? "border-amber-400 bg-amber-50 font-semibold text-slate-800" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300",

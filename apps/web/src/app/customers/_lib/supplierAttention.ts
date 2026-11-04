@@ -2,7 +2,7 @@ import type { interfaces } from "@/lib/api/client";
 import type { ContactItem } from "@/hooks/useCustomerContacts";
 import type { DocumentItem } from "@/hooks/useCustomerDocuments";
 import type { CustomerItem } from "@/hooks/useCustomers";
-import { formatDate } from "@/lib/date";
+import { businessDayOf, formatDate } from "@/lib/date";
 import type { AttentionItem } from "./customerAttention";
 import { DATED_DOCUMENT_TYPES } from "./constants";
 import { hasSupplierRole } from "./customerListViews";
@@ -22,6 +22,8 @@ export const SUPPLIER_RULES = {
   vatCheckStaleMonths: 6,
   // An account added this recently: a payment to it is looked at twice (Trucking's hold on a haulier's invoices).
   bankAddedWithinDays: 30,
+  // A low rating is said for a supplier put on a job this recently: it is in use, and may be picked again.
+  lowRatingUsedWithinDays: 30,
 } as const;
 
 /** What Tariffs holds from the supplier under one of its roles. */
@@ -34,6 +36,11 @@ export interface SupplierTariffSummary {
   activeCount: number;
   /** The soonest end of a version that prices today (YYYY-MM-DD); null when none ends. */
   activeUntil: string | null;
+  /**
+   * The last day it has a tariff pricing without a gap, versions that start later counted (YYYY-MM-DD);
+   * null when one never ends. "Tariffs ending" is judged on this (K12).
+   */
+  coveredUntil: string | null;
 }
 
 export interface SupplierAttentionInput {
@@ -47,6 +54,13 @@ export interface SupplierAttentionInput {
   documents: DocumentItem[] | null;
   /** Today, YYYY-MM-DD (the company's day); given in tests. */
   today: string;
+  /** Whether the user may rate it (a manager): only they are told to (m20). */
+  canRate?: boolean;
+  /**
+   * When it was last put on a job (ISO), null when never; undefined when not known (not loaded, or failed).
+   * A low rating is said for a supplier used in the last 30 days, or when this is not known (m21).
+   */
+  lastUsedAt?: string | null;
 }
 
 const addDays = (iso: string, days: number) => {
@@ -61,7 +75,8 @@ const addMonths = (iso: string, months: number) => {
 };
 
 export function buildSupplierAttention(input: SupplierAttentionInput): AttentionItem[] {
-  const { customer, haulierIssues, tariffs, contacts, documents, today } = input;
+  const { customer, haulierIssues, tariffs, contacts, documents, today, canRate = true, lastUsedAt } = input;
+  const recentlyUsed = lastUsedAt === undefined || (lastUsedAt !== null && addDays(businessDayOf(lastUsedAt), SUPPLIER_RULES.lowRatingUsedWithinDays) > today);
   if (!hasSupplierRole(customer.roles)) return [];
   const critical: AttentionItem[] = [];
   const warnings: AttentionItem[] = [];
@@ -79,9 +94,9 @@ export function buildSupplierAttention(input: SupplierAttentionInput): Attention
 
   const rating = customer.supplierRating;
   if (rating === null) {
-    warnings.push({ key: "not-rated", severity: "warning", title: "Not rated", detail: "Rate this supplier at the top of the page." });
+    warnings.push({ key: "not-rated", severity: "warning", title: "Not rated", detail: canRate ? "Rate this supplier at the top of the page." : "A manager rates suppliers: ask one to rate it." });
   } else {
-    if (rating <= REASON_REQUIRED_UP_TO) {
+    if (rating <= REASON_REQUIRED_UP_TO && recentlyUsed) {
       warnings.push({
         key: "low-rating",
         severity: "warning",
@@ -89,7 +104,8 @@ export function buildSupplierAttention(input: SupplierAttentionInput): Attention
         detail: customer.supplierRatingReason || "Use another supplier where there is one.",
       });
     }
-    const ratedOn = customer.supplierRatingAt?.slice(0, 10) ?? "";
+    // The day on the company's (Prague) calendar, as the rest of the page shows it (m19).
+    const ratedOn = businessDayOf(customer.supplierRatingAt);
     if (ratedOn && addMonths(ratedOn, SUPPLIER_RULES.ratingStaleMonths) < today) {
       warnings.push({ key: "rating-stale", severity: "warning", title: "Rating is over a year old", detail: `Rated on ${formatDate(ratedOn)}. Rate it again.` });
     }
@@ -103,12 +119,19 @@ export function buildSupplierAttention(input: SupplierAttentionInput): Attention
         title: "No valid tariff",
         detail: t.tariffCount === 0 ? `No ${t.label.toLowerCase()} on file yet.` : `None of its ${t.label.toLowerCase()} prices today.`,
       });
-    } else if (t.activeUntil && t.activeUntil <= soon) {
-      warnings.push({ key: `tariff-ending-${t.role}`, severity: "warning", title: "Tariffs ending", detail: `Its ${t.label.toLowerCase()} end on ${formatDate(t.activeUntil)}.` });
+    } else if (t.coveredUntil && t.coveredUntil <= soon) {
+      // Only when nothing carries on after the last day (R8): a follow-on version is not an ending.
+      warnings.push({ key: `tariff-ending-${t.role}`, severity: "warning", title: "Tariffs ending", detail: `Its ${t.label.toLowerCase()} end on ${formatDate(t.coveredUntil)}, with no version after them.` });
     }
   }
 
-  for (const doc of (documents ?? []).filter((d) => DATED_DOCUMENT_TYPES.includes(d.type) && d.validTo)) {
+  // Of each kind of paper only the newest counts (R9): a renewed certificate puts an end to the old one.
+  const newest = new Map<string, DocumentItem>();
+  for (const d of (documents ?? []).filter((d) => DATED_DOCUMENT_TYPES.includes(d.type) && d.validTo)) {
+    const kept = newest.get(d.type);
+    if (!kept || d.validTo > kept.validTo) newest.set(d.type, d);
+  }
+  for (const doc of newest.values()) {
     if (doc.validTo < today) {
       warnings.push({ key: `document-expired-${doc.id}`, severity: "warning", title: `${doc.type} expired`, detail: `${doc.name}: valid to ${formatDate(doc.validTo)}.`, tab: "documents" });
     } else if (doc.validTo <= soon) {
@@ -138,7 +161,7 @@ export function buildSupplierAttention(input: SupplierAttentionInput): Attention
       tab: "finance",
     });
   }
-  const added = terms.bankAccountsChangedAt?.slice(0, 10) ?? "";
+  const added = businessDayOf(terms.bankAccountsChangedAt);
   if (added && addDays(added, SUPPLIER_RULES.bankAddedWithinDays) > today) {
     warnings.push({
       key: "bank-account-added",

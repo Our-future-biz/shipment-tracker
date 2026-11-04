@@ -32,6 +32,22 @@ class InvoiceCostRepository extends TenantRepository<typeof t> {
   }
 
   /**
+   * The jobs a supplier is on: each shipment with a live buying row linked to it (picked, its haulier id,
+   * any source - Trucking's rows too) and when the newest of them was entered, newest first (at most `limit`).
+   */
+  async linkedShipments(companyId: string, supplierId: string, limit: number): Promise<{ shipmentId: string; lastAt: Date }[]> {
+    const lastAt = sql<Date>`max(${t.createdAt})`;
+    const rows = await this.db
+      .select({ shipmentId: t.shipmentId, lastAt })
+      .from(t)
+      .where(and(eq(t.companyId, companyId), isNull(t.deletedAt), or(eq(t.supplierCustomerId, supplierId), eq(t.haulierId, supplierId))))
+      .groupBy(t.shipmentId)
+      .orderBy(desc(lastAt))
+      .limit(limit);
+    return rows.map((r) => ({ shipmentId: r.shipmentId, lastAt: new Date(r.lastAt) }));
+  }
+
+  /**
    * The vendor texts of live rows not yet paid and linked to no company, each with its row count: only rows
    * that would be counted once linked (not received yet, or received since that day is kept, K2).
    */

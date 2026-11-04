@@ -31,7 +31,7 @@ export function CustomerSupplierTariffsCard({ customer }: CustomerSupplierTariff
                   ? "None on file"
                   : t.activeCount === 0
                     ? `${t.tariffCount} on file, none valid today`
-                    : `${t.activeCount} valid${t.activeUntil ? ` · to ${formatDate(t.activeUntil)}` : ""}`}
+                    : `${t.activeCount} valid${t.coveredUntil ? ` · covered to ${formatDate(t.coveredUntil)}` : ""}`}
               </span>
             </li>
           ))}

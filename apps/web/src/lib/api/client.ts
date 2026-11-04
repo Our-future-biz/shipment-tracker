@@ -1209,6 +1209,7 @@ export namespace invoicing {
             this.invoicingMasterJobCosts = this.invoicingMasterJobCosts.bind(this)
             this.invoicingSplitCost = this.invoicingSplitCost.bind(this)
             this.invoicingSupplierCosts = this.invoicingSupplierCosts.bind(this)
+            this.invoicingSupplierUsage = this.invoicingSupplierUsage.bind(this)
             this.invoicingUpdateBuyingCost = this.invoicingUpdateBuyingCost.bind(this)
             this.invoicingUpdateCharge = this.invoicingUpdateCharge.bind(this)
             this.invoicingUpdateSellingCost = this.invoicingUpdateSellingCost.bind(this)
@@ -1416,6 +1417,15 @@ export namespace invoicing {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/invoicing/suppliers/${encodeURIComponent(customerId)}/costs`)
             return await resp.json() as interfaces.SupplierCostsResponse
+        }
+
+        /**
+         * A supplier's open jobs and when it was last put on one (its page's "Open jobs" tile; Council Review 5, m21).
+         */
+        public async invoicingSupplierUsage(customerId: string): Promise<interfaces.SupplierUsageResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/invoicing/suppliers/${encodeURIComponent(customerId)}/usage`)
+            return await resp.json() as interfaces.SupplierUsageResponse
         }
 
         public async invoicingUpdateBuyingCost(shipmentId: string, costId: string, params: controllers.UpdateBuyingRequest): Promise<controllers.BuyingResponse> {
@@ -11427,6 +11437,11 @@ export namespace interfaces {
         activeUntil: string | null
 
         /**
+         * The last day it has a tariff pricing without a gap, later versions counted; null when one never ends (K12)
+         */
+        coveredUntil: string | null
+
+        /**
          * The supplier rating from the Customer Database, 0–5 stars, null when not rated
          */
         rating: number | null
@@ -16677,6 +16692,11 @@ export namespace interfaces {
         activeUntil: string | null
 
         /**
+         * The last day it has a tariff pricing without a gap, later versions counted; null when one never ends (K12)
+         */
+        coveredUntil: string | null
+
+        /**
          * The supplier rating from the Customer Database, 0–5 stars, null when not rated
          */
         rating: number | null
@@ -18322,6 +18342,26 @@ export namespace interfaces {
     export interface SupplierTypedName {
         vendor: string
         lines: number
+    }
+
+    /**
+     * How a supplier is used on the shipments (Council Review 5, m21): its open jobs, and when it was last put on one.
+     */
+    export interface SupplierUsageResponse {
+        /**
+         * jobs with a cost line linked to it that are neither billed nor cancelled
+         */
+        openJobs: number
+
+        /**
+         * more jobs than are read: openJobs counts only the newest
+         */
+        capped: boolean
+
+        /**
+         * when a cost line linked to it was last entered (ISO); null when never
+         */
+        lastUsedAt: string | null
     }
 
     export type SurchargeCalc = "PCT" | "FLAT" | "PER_KG" | "PER_PALLET" | "PER_HOUR" | "PCT_OF_VALUE" | "FUEL_INDEX"
@@ -20671,6 +20711,11 @@ export namespace services {
          * The soonest end of an active version, YYYY-MM-DD; null when none ends
          */
         activeUntil: string | null
+
+        /**
+         * The last day it has a tariff pricing without a gap, later versions counted; null when one never ends (K12)
+         */
+        coveredUntil: string | null
 
         /**
          * The supplier rating from the Customer Database, 0–5 stars, null when not rated

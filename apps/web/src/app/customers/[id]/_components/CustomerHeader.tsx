@@ -36,6 +36,8 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
   const toast = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
   const listHref = useCustomerListHref();
+  // A supplier only is called a supplier on its own page (Council Review 5, m20).
+  const noun = isSupplierOnly(customer.roles) ? "supplier" : "customer";
   const { user } = useAuth();
   const canDelete = canDeleteCustomerRecords(user);
   const { deleteCustomer, uploadLogo, deleteLogo } = useCustomer(customer.id);
@@ -67,11 +69,11 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
     setDeleting(true);
     try {
       await deleteCustomer();
-      toast.success("Customer deleted");
+      toast.success(noun === "supplier" ? "Supplier deleted" : "Customer deleted");
       // Replace, so Back does not return to the page of a customer that no longer exists.
       router.replace(listHref);
     } catch {
-      toast.error("Failed to delete the customer");
+      toast.error(`Failed to delete the ${noun}`);
       setDeleting(false);
     }
   };
@@ -81,7 +83,7 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
     ...(customer.logoUrl ? [{ key: "remove-logo", label: "Remove logo", onClick: handleRemoveLogo }] : []),
     // Superadmins only (the API refuses everyone else).
     ...(canDelete
-      ? [{ type: "divider" as const }, { key: "delete", label: "Delete customer", danger: true, onClick: () => setDeleteOpen(true) }]
+      ? [{ type: "divider" as const }, { key: "delete", label: `Delete ${noun}`, danger: true, onClick: () => setDeleteOpen(true) }]
       : []),
   ];
 
@@ -145,7 +147,7 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
           <Dropdown menu={{ items: actionItems }} trigger={["click"]} placement="bottomRight">
             <button
               type="button"
-              aria-label="Customer actions"
+              aria-label={noun === "supplier" ? "Supplier actions" : "Customer actions"}
               className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 cursor-pointer transition-colors hover:bg-slate-50 hover:text-slate-900"
             >
               <EllipsisOutlined className="text-[18px]" />
@@ -159,7 +161,7 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
         open={deleteOpen}
         onClose={() => setDeleteOpen(false)}
         onConfirm={handleDelete}
-        title="Delete customer"
+        title={`Delete ${noun}`}
         description={`Delete ${customer.companyName}? It is hidden from everyone together with its contacts, addresses, sites, invoices, documents and notes. Its shipments and quotes are kept, and the record stays in the database: restore it under Customer Database → Deleted.`}
         confirmLabel="Delete"
         danger

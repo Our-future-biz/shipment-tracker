@@ -83,6 +83,8 @@ export interface ShippingLineItem {
   draftCount: number;
   /** The soonest end of an active version, YYYY-MM-DD; null when none ends */
   activeUntil: string | null;
+  /** The last day it has a tariff pricing without a gap, later versions counted; null when one never ends (K12) */
+  coveredUntil: string | null;
   /** The supplier rating from the Customer Database, 0–5 stars, null when not rated */
   rating: number | null;
 }

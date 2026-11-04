@@ -7,6 +7,8 @@ import { useCustomerDocuments } from "@/hooks/useCustomerDocuments";
 import { useCustomerInvoices } from "@/hooks/useCustomerInvoices";
 import { useCustomerNotes } from "@/hooks/useCustomerNotes";
 import { useCustomer } from "@/hooks/useCustomers";
+import { useSupplierUsage } from "@/hooks/useSupplierUsage";
+import { hasSupplierRole } from "../../_lib/customerListViews";
 import { useHaulier } from "@/hooks/useTrucking";
 import { useLatestRates } from "@/lib/fx";
 import { businessToday } from "@/lib/date";
@@ -70,7 +72,8 @@ interface CustomerAttentionCardProps {
 // What needs somebody's attention on this customer right now — overdue money,
 // missing paperwork, lapsed contact — each row leading to where it is dealt with. The card is absent when there is nothing.
 export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAttentionCardProps) {
-  const { customer, isLoading: customerLoading } = useCustomer(customerId);
+  const { customer, isLoading: customerLoading, canRateSupplier } = useCustomer(customerId);
+  const { usage, isError: usageError } = useSupplierUsage(customerId, { enabled: !!customer && hasSupplierRole(customer.roles) });
   const { invoices, isLoading: invoicesLoading } = useCustomerInvoices(customerId);
   const { rates, isLoading: ratesLoading } = useLatestRates();
   const { contacts, isLoading: contactsLoading, isError: contactsError } = useCustomerContacts(customerId);
@@ -109,11 +112,14 @@ export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAtten
       contacts: contactsError ? null : contacts,
       documents: documentsError ? null : documents,
       today: businessToday(),
+      canRate: canRateSupplier,
+      // Not known (loading, failed): the low rating is said all the same.
+      lastUsedAt: usage && !usageError ? usage.lastUsedAt : undefined,
     });
     // Most serious first across both: every critical row, then every warning, each side in its own order.
     const all = [...customerItems, ...supplierItems];
     return [...all.filter((item) => item.severity === "critical"), ...all.filter((item) => item.severity === "warning")];
-  }, [isLoading, customer, invoices, contacts, documents, notes, rates, contactsError, documentsError, notesError, haulier, tariffs.isError, tariffs.summaries]);
+  }, [isLoading, customer, invoices, contacts, documents, notes, rates, contactsError, documentsError, notesError, haulier, tariffs.isError, tariffs.summaries, canRateSupplier, usage, usageError]);
 
   if (items.length === 0) return null;
 

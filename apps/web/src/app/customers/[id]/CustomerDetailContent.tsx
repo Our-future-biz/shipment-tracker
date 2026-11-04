@@ -80,7 +80,7 @@ export function CustomerDetailContent() {
   if (!customer && isLoadError) {
     return (
       <div className="p-10 text-center text-slate-500">
-        Could not load the customer.{" "}
+        Could not load the company.{" "}
         <Button size="small" onClick={() => refetch()}>
           Retry
         </Button>
@@ -91,7 +91,7 @@ export function CustomerDetailContent() {
   if (!customer) {
     return (
       <div className="p-10 text-center text-slate-500">
-        Customer not found.{" "}
+        Company not found.{" "}
         <Link href={listHref} className="text-indigo-500">
           Back to list
         </Link>
@@ -104,7 +104,7 @@ export function CustomerDetailContent() {
       <div className="bg-white border-b border-slate-200 px-6 pt-4 pb-0">
         <CustomerHeader customer={customer} />
 
-        <RecordTabs label="Customer sections" tabs={detailTabs} active={activeTab} onChange={handleSelectTab} className="mt-4" />
+        <RecordTabs label={supplierOnly ? "Supplier sections" : "Customer sections"} tabs={detailTabs} active={activeTab} onChange={handleSelectTab} className="mt-4" />
       </div>
 
       <div className="p-6">

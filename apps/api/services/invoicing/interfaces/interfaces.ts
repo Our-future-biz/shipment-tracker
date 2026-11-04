@@ -718,6 +718,16 @@ export interface SupplierTypedName {
   lines: number;
 }
 
+/** How a supplier is used on the shipments (Council Review 5, m21): its open jobs, and when it was last put on one. */
+export interface SupplierUsageResponse {
+  /** jobs with a cost line linked to it that are neither billed nor cancelled */
+  openJobs: number;
+  /** more jobs than are read: openJobs counts only the newest */
+  capped: boolean;
+  /** when a cost line linked to it was last entered (ISO); null when never */
+  lastUsedAt: string | null;
+}
+
 export interface SupplierCostsResponse {
   /** most overdue first, then oldest received (at most 300) */
   owed: SupplierCostLine[];

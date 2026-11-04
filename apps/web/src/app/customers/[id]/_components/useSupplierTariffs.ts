@@ -31,8 +31,9 @@ export function useSupplierTariffs(customer: CustomerItem | null) {
   };
 }
 
-const pick = (item: { tariffCount: number; activeCount: number; activeUntil: string | null }) => ({
+const pick = (item: { tariffCount: number; activeCount: number; activeUntil: string | null; coveredUntil: string | null }) => ({
   tariffCount: item.tariffCount,
   activeCount: item.activeCount,
   activeUntil: item.activeUntil,
+  coveredUntil: item.coveredUntil,
 });

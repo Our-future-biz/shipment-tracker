@@ -44,13 +44,35 @@ describe("a supplier's Needs attention", () => {
     expect(keys({ customer: company({ supplierRatingAt: "2025-11-05T10:00:00Z" }) })).toEqual([]);
   });
 
-  it("names a role with no tariff that prices today, and tariffs ending within 30 days", () => {
-    const tariff = { role: "rail_operator" as const, label: "Rail tariffs", href: "", tariffCount: 2, activeCount: 1, activeUntil: "2026-12-31" };
+  it("says a low rating for a supplier in use: put on a job in the last 30 days, or when that is not known (m21)", () => {
+    const low = company({ supplierRating: 1, supplierRatingReason: "Lost a pallet" });
+    expect(keys({ customer: low, lastUsedAt: "2026-10-20T08:00:00Z" })).toEqual(["low-rating"]);
+    expect(keys({ customer: low, lastUsedAt: undefined })).toEqual(["low-rating"]);
+    expect(keys({ customer: low, lastUsedAt: "2026-09-01T08:00:00Z" })).toEqual([]);
+    expect(keys({ customer: low, lastUsedAt: null })).toEqual([]);
+  });
+
+  it("tells only someone who may rate it to rate it (m20)", () => {
+    const [item] = buildSupplierAttention(input({ customer: company({ supplierRating: null }), canRate: false }));
+    expect(item).toMatchObject({ key: "not-rated", detail: "A manager rates suppliers: ask one to rate it." });
+  });
+
+  it("names a role with no tariff that prices today, and tariffs whose last covered day is within 30 days", () => {
+    const tariff = { role: "rail_operator" as const, label: "Rail tariffs", href: "", tariffCount: 2, activeCount: 1, activeUntil: "2026-12-31", coveredUntil: "2026-12-31" };
     expect(keys({ tariffs: [tariff] })).toEqual([]);
     expect(keys({ tariffs: [{ ...tariff, activeCount: 0 }] })).toEqual(["no-tariff-rail_operator"]);
-    expect(keys({ tariffs: [{ ...tariff, activeUntil: "2026-12-04" }] })).toEqual(["tariff-ending-rail_operator"]);
+    expect(keys({ tariffs: [{ ...tariff, activeUntil: "2026-12-04", coveredUntil: "2026-12-04" }] })).toEqual(["tariff-ending-rail_operator"]);
+    // One version ends soon but another carries on after it, or one never ends: no ending (R8).
+    expect(keys({ tariffs: [{ ...tariff, activeUntil: "2026-11-20", coveredUntil: "2027-03-31" }] })).toEqual([]);
+    expect(keys({ tariffs: [{ ...tariff, activeUntil: "2026-11-20", coveredUntil: null }] })).toEqual([]);
     // Not loaded yet: nothing is said about tariffs.
     expect(keys({ tariffs: null })).toEqual([]);
+  });
+
+  it("judges only the newest paper of each type: a renewed one puts an end to the old (R9)", () => {
+    const doc = (id: string, type: string, validTo: string) => ({ id, name: id, type, validTo }) as never;
+    expect(keys({ documents: [doc("old", "Carrier liability insurance", "2025-12-31"), doc("new", "Carrier liability insurance", "2027-12-31")] })).toEqual([]);
+    expect(keys({ documents: [doc("old", "Carrier liability insurance", "2025-12-31"), doc("new", "Carrier liability insurance", "2026-11-20")] })).toEqual(["document-ending-new"]);
   });
 
   it("names a dated paper that expired or ends within 30 days, and only those types", () => {

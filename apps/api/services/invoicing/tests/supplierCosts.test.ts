@@ -4,7 +4,7 @@ vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
 const customerGet = vi.hoisted(() => vi.fn());
 const basics = vi.hoisted(() => vi.fn());
 vi.mock("~encore/clients", () => ({ customers: { customerGet }, shipments: { _internalShipmentBasics: basics } }));
-const repo = vi.hoisted(() => ({ openOfSupplier: vi.fn(), openTypedVendors: vi.fn() }));
+const repo = vi.hoisted(() => ({ openOfSupplier: vi.fn(), openTypedVendors: vi.fn(), linkedShipments: vi.fn() }));
 vi.mock("../repositories/invoiceCost.repository", () => ({ invoiceCostRepository: repo }));
 
 import { nameKey, summarizeSupplierCosts, supplierCostLine, typedNamesOf, type SupplierCostRow } from "../lib/supplierCosts";
@@ -154,5 +154,34 @@ describe("reading What we owe", () => {
     expect((await supplierCostsService.forSupplier("company", SUPPLIER)).owed).toEqual([]);
     expect(basics).not.toHaveBeenCalled();
     await expect(supplierCostsService.forSupplier("company", "nope")).rejects.toThrow("Not a company id");
+  });
+});
+
+describe("how a supplier is used (m21)", () => {
+  beforeEach(() => vi.resetAllMocks());
+
+  it("counts its jobs that are neither billed nor cancelled, and says when it was last put on one", async () => {
+    const at = new Date("2026-10-30T08:00:00Z");
+    repo.linkedShipments.mockResolvedValue([
+      { shipmentId: "s1", lastAt: at },
+      { shipmentId: "s2", lastAt: new Date("2026-09-01T08:00:00Z") },
+      { shipmentId: "s3", lastAt: new Date("2026-08-01T08:00:00Z") },
+      { shipmentId: "gone", lastAt: new Date("2026-07-01T08:00:00Z") },
+    ]);
+    basics.mockResolvedValue({
+      shipments: [
+        { id: "s1", jobNumber: "CZ-1", status: "In Transit [IMP]" },
+        { id: "s2", jobNumber: "CZ-2", status: "Billed [EXP]" },
+        { id: "s3", jobNumber: "CZ-3", status: "Cancelled Shipment" },
+      ],
+    });
+    expect(await supplierCostsService.usage("company", SUPPLIER)).toEqual({ openJobs: 1, capped: false, lastUsedAt: at.toISOString() });
+    expect(repo.linkedShipments).toHaveBeenCalledWith("company", SUPPLIER, 2001);
+  });
+
+  it("has nothing to say about a supplier never put on a job, and asks the shipments service nothing", async () => {
+    repo.linkedShipments.mockResolvedValue([]);
+    expect(await supplierCostsService.usage("company", SUPPLIER)).toEqual({ openJobs: 0, capped: false, lastUsedAt: null });
+    expect(basics).not.toHaveBeenCalled();
   });
 });
