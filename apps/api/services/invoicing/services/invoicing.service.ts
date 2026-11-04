@@ -7,6 +7,7 @@ import { toChargeCode } from "../../../lib/chargeCodes";
 import { quoteCostCopyRefusal } from "../../../lib/salesPolicy";
 import { isSalesReference } from "../../../lib/salesReference";
 import { isUuid } from "../../../lib/uuid";
+import { businessDay } from "../../../lib/businessDate";
 import { definedOnly, toDecimal } from "../lib/amounts";
 import { splitAmount } from "../lib/costSplit";
 import { invoiceCostRepository } from "../repositories/invoiceCost.repository";
@@ -67,6 +68,8 @@ const toCostItem = (r: InvoiceCostRecord): InvoiceCostItem => ({
   unit: r.unit,
   invoiceNumber: r.invoiceNumber,
   received: r.received,
+  receivedAt: r.receivedAt ? r.receivedAt.toISOString() : null,
+  paidOn: r.paidOn ?? "",
   vendor: r.vendor,
   haulierId: r.haulierId,
   supplierCustomerId: r.supplierCustomerId,
@@ -144,9 +147,47 @@ function companyIdOf(value: string | undefined, field: string): string | null | 
   return id;
 }
 
+// "" takes the payment back; anything else must be a real date.
+function paidOnOf(value: string | undefined): string | null | undefined {
+  if (value === undefined) return undefined;
+  const day = value.trim();
+  if (day === "") return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  const d = m && new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  if (!m || !d || d.getUTCMonth() !== Number(m[2]) - 1 || d.getUTCDate() !== Number(m[3])) throw APIError.invalidArgument("paidOn must be a date (yyyy-mm-dd)");
+  return day;
+}
+
+/**
+ * When the vendor's invoice came and when it was paid (Council Outlay 7, step 6b): ticking Received stamps
+ * the moment (its due day is that plus the supplier's payment days), unticking it clears both, and a cost
+ * is paid only once its invoice was received, on a day not after today. `current` is the stored line (null
+ * for a new one).
+ */
+export function receiptChanges(
+  current: { received: boolean; receivedAt: Date | null; paidOn: string | null } | null,
+  changes: Partial<NewInvoiceCostRecord>,
+  now: Date,
+  today: string,
+): Partial<NewInvoiceCostRecord> {
+  const out: Partial<NewInvoiceCostRecord> = {};
+  if (changes.received === true && !current?.received) out.receivedAt = now;
+  if (changes.received === false) {
+    out.receivedAt = null;
+    out.paidOn = null;
+  }
+  const received = changes.received ?? current?.received ?? false;
+  if (changes.paidOn) {
+    if (!received) throw APIError.invalidArgument("Tick Received first: a cost is paid once its invoice came");
+    if (changes.paidOn > today) throw APIError.invalidArgument("The day it was paid cannot be after today");
+  }
+  return out;
+}
+
 export function buyingChanges(input: BuyingCostInput): Partial<NewInvoiceCostRecord> {
   return definedOnly({
     ...input,
+    paidOn: paidOnOf(input.paidOn),
     category: chargeCodeOf(input.category),
     haulierId: companyIdOf(input.haulierId, "haulierId"),
     supplierCustomerId: companyIdOf(input.supplierCustomerId, "supplierCustomerId"),
@@ -261,7 +302,8 @@ class InvoicingService {
   // Once a shipment holds buying lines copied from a quote, the estimate is the quote's alone: a
   // line added by hand carries a real cost only (setsEstimate / quoteEstimateOnly).
   async addBuyingCost(shipmentId: string, companyId: string, input: BuyingCostInput): Promise<InvoiceCostItem> {
-    const values = { shipmentId, category: "", ...buyingChanges(input) };
+    const changes = buyingChanges(input);
+    const values = { shipmentId, category: "", ...changes, ...receiptChanges(null, changes, new Date(), businessDay(new Date())) };
     await assertShipmentExists(shipmentId);
     if (setsEstimate(values) && (await invoiceCostRepository.hasQuoteRows(companyId, shipmentId))) throw quoteEstimateOnly();
     return toCostItem(await invoiceCostRepository.createForCompany(companyId, values));
@@ -278,7 +320,7 @@ class InvoicingService {
       throw APIError.failedPrecondition(`this cost was copied from ${current.sourceQuoteNumber}: its category, description and estimate stay as the quote has them`);
     }
     if (!current.sourceQuoteNumber && setsEstimate(changes) && (await invoiceCostRepository.hasQuoteRows(companyId, shipmentId))) throw quoteEstimateOnly();
-    const row = await invoiceCostRepository.updateLine(id, companyId, shipmentId, changes);
+    const row = await invoiceCostRepository.updateLine(id, companyId, shipmentId, { ...changes, ...receiptChanges(current, changes, new Date(), businessDay(new Date())) });
     if (!row) throw APIError.notFound("Buying cost not found");
     return toCostItem(row);
   }

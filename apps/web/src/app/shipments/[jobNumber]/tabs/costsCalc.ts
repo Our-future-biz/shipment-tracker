@@ -43,6 +43,10 @@ export interface BuyingRow {
   realCurrency: string;
   invoiceNumber: string;
   received: boolean;
+  /** When Received was ticked (ISO); null while not received, or for a line received before this was kept. */
+  receivedAt: string | null;
+  /** The day it was paid (yyyy-mm-dd); "" while unpaid. */
+  paidOn: string;
 }
 
 export interface SellingRow {

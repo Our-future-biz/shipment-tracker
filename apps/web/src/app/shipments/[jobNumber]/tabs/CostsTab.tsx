@@ -9,7 +9,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, apiErrorMessage, ErrCode, isAPIError } from "@/lib/api";
 import type { controllers } from "@/lib/api/client";
 import type { ShipmentItem } from "@/hooks/useShipments";
-import { formatDate, formatDateTime } from "@/lib/date";
+import { businessToday, formatDate, formatDateTime } from "@/lib/date";
 import { normaliseAmount } from "@/lib/money";
 import { asData, computeTotals, isSalesQuoteRef, quoteProfitIn } from "@/app/sales/_lib/salesQuote";
 import { useSalesQuoteByRef } from "@/hooks/useSalesQuote";
@@ -575,7 +575,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
                 <th className={`${TH} text-right w-[8%]`}>Real Cost</th>
                 <th className={`${TH} text-left w-[6%]`}>Cur</th>
                 <th className={`${TH} text-left w-[8%]`}>Invoice number</th>
-                <th className={`${TH} text-center w-[5%]`} title="Supplier invoice received">Received</th>
+                <th className={`${TH} text-center w-[5%]`} title="Supplier invoice received · paid">Received · Paid</th>
                 <th className={`${TH} text-right w-[10%]`}>Total in {billingCur}</th>
                 <th className={`${TH} w-[70px]`} />
               </tr>
@@ -602,7 +602,10 @@ export function CostsTab({ shipment }: CostsTabProps) {
                       <td className={CELL}><span className={READ}>{r.realCurrency}</span></td>
                       <td className={CELL}><span className={READ}>{r.invoiceNumber}</span></td>
                       <td className={`${CELL} text-center`}>
-                        <Checkbox checked={r.received} disabled aria-label="Supplier invoice received" />
+                        <span className="inline-flex items-center gap-1.5">
+                          <Checkbox checked={r.received} disabled aria-label="Supplier invoice received" />
+                          <Checkbox checked={!!r.paidOn} disabled aria-label="Supplier invoice paid" />
+                        </span>
                       </td>
                       <td className={`${CELL} text-right text-[13px] font-semibold tabular-nums text-slate-800`}>{buyRowTotal(r)}</td>
                       <td className={CELL} />
@@ -716,11 +719,24 @@ export function CostsTab({ shipment }: CostsTabProps) {
                     />
                   </td>
                   <td className={`${CELL} text-center`}>
-                    <Tooltip title="Received is ticked automatically once the invoice number is filled in">
-                      <span>
-                        <Checkbox checked={r.received} disabled tabIndex={-1} />
-                      </span>
-                    </Tooltip>
+                    <span className="inline-flex items-center gap-1.5">
+                      <Tooltip title={`Received is ticked automatically once the invoice number is filled in${r.receivedAt ? ` (${formatDate(r.receivedAt)})` : ""}`}>
+                        <span>
+                          <Checkbox checked={r.received} disabled tabIndex={-1} />
+                        </span>
+                      </Tooltip>
+                      {/* Paid once the invoice came: ticked today, unticked takes it back (Council Outlay 7, step 6b). */}
+                      <Tooltip title={r.paidOn ? `Paid on ${formatDate(r.paidOn)}` : r.received ? "Tick when the invoice is paid" : "Paid once its invoice is received"}>
+                        <span>
+                          <Checkbox
+                            checked={!!r.paidOn}
+                            disabled={!r.received}
+                            aria-label="Supplier invoice paid"
+                            onChange={(e) => updateBuy.mutate({ id: r.id, paidOn: e.target.checked ? businessToday() : "" })}
+                          />
+                        </span>
+                      </Tooltip>
+                    </span>
                   </td>
                   <td className={`${CELL} text-right text-[13px] font-semibold tabular-nums text-slate-800`}>{buyRowTotal(r)}</td>
                   <td className={`${CELL} text-center whitespace-nowrap`}>

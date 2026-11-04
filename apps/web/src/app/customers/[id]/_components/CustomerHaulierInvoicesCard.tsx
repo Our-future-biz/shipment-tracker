@@ -16,8 +16,8 @@ interface CustomerHaulierInvoicesCardProps {
   customerId: string;
 }
 
-// What we owe a haulier: its invoices to us as Trucking has them (entered, matched, approved, blocked).
-// Haulier invoices have no "paid" yet, so an approved one is approved for payment, not paid.
+// What we owe a haulier: its invoices to us as Trucking has them (entered, matched, approved, blocked),
+// with the day each approved one was paid once Trucking notes it (Council Outlay 7, step 6b).
 export function CustomerHaulierInvoicesCard({ customerId }: CustomerHaulierInvoicesCardProps) {
   const { invoices, isLoading, isError } = useHaulierInvoices({ haulierCustomerId: customerId });
 
@@ -35,10 +35,11 @@ export function CustomerHaulierInvoicesCard({ customerId }: CustomerHaulierInvoi
     { title: "Issued", dataIndex: "issueDate", render: (v: string) => formatDate(v) || EMPTY_CELL },
     { title: "Due", dataIndex: "dueDate", render: (v: string | null) => formatDate(v) || EMPTY_CELL },
     { title: "Total", dataIndex: "totalGross", align: "right", render: (v: number, r) => <span className="tabular-nums">{fmtMoney(v, r.currency)}</span> },
+    { title: "Paid", key: "paid", render: (_, r) => (r.payment ? formatDate(r.payment.paidOn) : r.status === "APPROVED" ? <span className="text-amber-700">Not yet</span> : EMPTY_CELL) },
   ];
 
   return (
-    <SectionCard title="What we owe · haulier invoices" extra={<span className="text-xs text-slate-400">Approved means approved for payment</span>}>
+    <SectionCard title="What we owe · haulier invoices" extra={<span className="text-xs text-slate-400">Approved, not yet paid, is what we owe</span>}>
       {isError ? (
         <span className="text-xs text-red-600">The haulier invoices could not be read.</span>
       ) : (

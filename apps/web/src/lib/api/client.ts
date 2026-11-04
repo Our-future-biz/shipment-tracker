@@ -3085,7 +3085,9 @@ export namespace trucking {
             this.truckingHaulierInvoiceFile = this.truckingHaulierInvoiceFile.bind(this)
             this.truckingHaulierInvoiceGet = this.truckingHaulierInvoiceGet.bind(this)
             this.truckingHaulierInvoiceList = this.truckingHaulierInvoiceList.bind(this)
+            this.truckingHaulierInvoicePaid = this.truckingHaulierInvoicePaid.bind(this)
             this.truckingHaulierInvoiceReject = this.truckingHaulierInvoiceReject.bind(this)
+            this.truckingHaulierInvoiceUnpaid = this.truckingHaulierInvoiceUnpaid.bind(this)
             this.truckingHaulierInvoiceUpdate = this.truckingHaulierInvoiceUpdate.bind(this)
             this.truckingHaulierList = this.truckingHaulierList.bind(this)
             this.truckingHaulierUnblock = this.truckingHaulierUnblock.bind(this)
@@ -3641,11 +3643,29 @@ export namespace trucking {
         }
 
         /**
+         * Manager; an approved invoice only (Council Outlay 7, step 6b).
+         */
+        public async truckingHaulierInvoicePaid(id: string, params: controllers.HaulierInvoicePaidRequest): Promise<controllers.HaulierInvoiceResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/haulier-invoices/${encodeURIComponent(id)}/paid`, JSON.stringify(params))
+            return await resp.json() as controllers.HaulierInvoiceResponse
+        }
+
+        /**
          * Manager.
          */
         public async truckingHaulierInvoiceReject(id: string, params: controllers.HaulierInvoiceReasonRequest): Promise<controllers.HaulierInvoiceResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/trucking/haulier-invoices/${encodeURIComponent(id)}/reject`, JSON.stringify(params))
+            return await resp.json() as controllers.HaulierInvoiceResponse
+        }
+
+        /**
+         * Manager, with a reason: a payment noted by mistake.
+         */
+        public async truckingHaulierInvoiceUnpaid(id: string, params: controllers.HaulierInvoiceReasonRequest): Promise<controllers.HaulierInvoiceResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/haulier-invoices/${encodeURIComponent(id)}/unpaid`, JSON.stringify(params))
             return await resp.json() as controllers.HaulierInvoiceResponse
         }
 
@@ -5413,6 +5433,11 @@ export namespace controllers {
          * the Customer Database supplier the vendor names; "" clears it (a vendor typed by hand)
          */
         supplierCustomerId?: string
+
+        /**
+         * the day the received invoice was paid, yyyy-mm-dd; "" takes it back
+         */
+        paidOn?: string
 
         estQty?: string
         estAmount?: string
@@ -7259,6 +7284,17 @@ export namespace controllers {
 
     export interface HaulierInvoiceListResponse {
         invoices: interfaces.HaulierInvoice[]
+    }
+
+    export interface HaulierInvoicePaidRequest {
+        /**
+         * The day it was paid, YYYY-MM-DD; today when left out
+         */
+        paidOn?: string
+    }
+
+    export interface HaulierInvoiceReasonRequest {
+        reason: string
     }
 
     export interface HaulierInvoiceReasonRequest {
@@ -10258,6 +10294,11 @@ export namespace controllers {
 
         invoiceNumber?: string
         received?: boolean
+        /**
+         * the day the received invoice was paid, yyyy-mm-dd; "" takes it back
+         */
+        paidOn?: string
+
         /**
          * a Customer Database company id; "" clears it
          */
@@ -13842,6 +13883,15 @@ export namespace interfaces {
             at: string
             reason: string
         } | null
+        /**
+         * When it was paid (YYYY-MM-DD), who noted it and when; null while unpaid. Only an approved invoice is paid.
+         */
+        payment: {
+            paidOn: string
+            byName: string
+            at: string
+        } | null
+
         fileName: string | null
         createdAt: string
         createdBy: string
@@ -14275,6 +14325,16 @@ export namespace interfaces {
 
         invoiceNumber: string
         received: boolean
+        /**
+         * when Received was ticked (ISO), null while not received
+         */
+        receivedAt: string | null
+
+        /**
+         * the day the received invoice was paid (yyyy-mm-dd), "" while unpaid
+         */
+        paidOn: string
+
         vendor: string
         /**
          * the haulier the cost is owed to (a Customer Database company), or null

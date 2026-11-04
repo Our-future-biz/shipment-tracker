@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, numeric, uuid, integer, boolean, index } from "drizzle-orm/pg-core";
+import { pgTable, text, numeric, uuid, integer, boolean, index, date, timestamp } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 export const invoiceCostTable = pgTable(
@@ -25,6 +25,10 @@ export const invoiceCostTable = pgTable(
     invoiceNumber: text("invoice_number").notNull().default(""),
     /** the vendor's invoice has been received */
     received: boolean("received").notNull().default(false),
+    /** When Received was ticked (stamped by the server; cleared with it): its due day is this plus the supplier's payment days. */
+    receivedAt: timestamp("received_at", { withTimezone: true }),
+    /** The day the received invoice was paid; null while unpaid (Council Outlay 7, step 6b). */
+    paidOn: date("paid_on", { mode: "string" }),
     vendor: text("vendor").notNull().default(""),
     /** The haulier the cost is owed to: a company of the Customer Database (no FK - another service's database). */
     haulierId: uuid("haulier_id"),

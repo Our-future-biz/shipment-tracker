@@ -447,6 +447,31 @@ describe("approve and reject", () => {
     expect((await haulierInvoiceService.create(user, invoice({ invoiceNumber: "FV 2026/102" }))).status).toBe("APPROVED");
   });
 
+  it("only a manager notes an approved invoice as paid, on a day not after today, once; taking it back needs a reason", async () => {
+    const inv = await haulierInvoiceService.create(user, invoice({ invoiceNumber: "FV 2026/201" }));
+    expect(inv.status).toBe("APPROVED");
+    expect(inv.payment).toBeNull();
+    await expect(haulierInvoiceService.markPaid(user, inv.id, undefined)).rejects.toMatchObject({ code: "permission_denied" });
+    await expect(haulierInvoiceService.markPaid(manager, inv.id, "2999-01-01")).rejects.toMatchObject({ code: "invalid_argument" });
+    await expect(haulierInvoiceService.markPaid(manager, inv.id, "1.11.2026")).rejects.toMatchObject({ code: "invalid_argument" });
+    const paid = await haulierInvoiceService.markPaid(manager, inv.id, "2026-10-20");
+    expect(paid.payment).toMatchObject({ paidOn: "2026-10-20", byName: "Jana Nováková" });
+    expect(mem.events.at(-1)).toMatchObject({ kind: "haulier_invoice_paid", customerId: H });
+    await expect(haulierInvoiceService.markPaid(manager, inv.id, undefined)).rejects.toMatchObject({ code: "failed_precondition" });
+
+    await expect(haulierInvoiceService.markUnpaid(manager, inv.id, " ")).rejects.toMatchObject({ code: "invalid_argument" });
+    const back = await haulierInvoiceService.markUnpaid(manager, inv.id, "Noted on the wrong invoice");
+    expect(back.payment).toBeNull();
+    expect(mem.events.at(-1)).toMatchObject({ kind: "haulier_invoice_unpaid", payload: { reason: "Noted on the wrong invoice" } });
+    await expect(haulierInvoiceService.markUnpaid(manager, inv.id, "Again")).rejects.toMatchObject({ code: "failed_precondition" });
+  });
+
+  it("refuses to note as paid an invoice that is not approved", async () => {
+    const inv = await haulierInvoiceService.create(user, invoice({ invoiceNumber: "FV 2026/202", totalNet: 10200, lines: [{ targetKind: "TRIP", targetId: FTL, invoiced: 10200, note: "" }] }));
+    expect(inv.status).not.toBe("APPROVED");
+    await expect(haulierInvoiceService.markPaid(manager, inv.id, undefined)).rejects.toMatchObject({ code: "failed_precondition", message: "Only an approved invoice can be paid" });
+  });
+
   it("a correction is saved with the version read and matched again", async () => {
     const inv = await haulierInvoiceService.create(user, invoice({ totalNet: 12000, lines: [{ targetKind: "TRIP", targetId: FTL, invoiced: 12000, note: "" }] }));
     await expect(haulierInvoiceService.update(user, inv.id, { ...invoice(), version: inv.version + 1 })).rejects.toMatchObject({ code: "aborted" });

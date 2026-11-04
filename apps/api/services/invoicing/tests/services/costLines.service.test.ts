@@ -43,6 +43,8 @@ vi.mock("../../repositories/invoiceCost.repository", async () => {
     vendor: "",
     haulierId: null,
     supplierCustomerId: null,
+    receivedAt: null,
+    paidOn: null,
     sortOrder: 0,
     sourceQuoteNumber: "",
     sourceTruckingRef: null,

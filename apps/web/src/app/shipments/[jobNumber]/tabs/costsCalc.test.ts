@@ -7,6 +7,8 @@ const buy = (over: Partial<BuyingRow>): BuyingRow => ({
   description: "",
   vendor: "",
   supplierCustomerId: null,
+  receivedAt: null,
+  paidOn: "",
   estQty: "",
   estAmount: "",
   estCurrency: "CZK",

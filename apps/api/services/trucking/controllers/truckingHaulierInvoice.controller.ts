@@ -122,6 +122,28 @@ export const truckingHaulierInvoiceReject = api(
   },
 );
 
+interface HaulierInvoicePaidRequest {
+  id: string;
+  /** The day it was paid, YYYY-MM-DD; today when left out */
+  paidOn?: string;
+}
+
+// Manager; an approved invoice only (Council Outlay 7, step 6b).
+export const truckingHaulierInvoicePaid = api(
+  { expose: true, auth: true, method: "POST", path: "/trucking/haulier-invoices/:id/paid" },
+  async ({ id, paidOn }: HaulierInvoicePaidRequest): Promise<HaulierInvoiceResponse> => {
+    return { invoice: await haulierInvoiceService.markPaid(requireRole(), id, paidOn) };
+  },
+);
+
+// Manager, with a reason: a payment noted by mistake.
+export const truckingHaulierInvoiceUnpaid = api(
+  { expose: true, auth: true, method: "POST", path: "/trucking/haulier-invoices/:id/unpaid" },
+  async ({ id, reason }: HaulierInvoiceReasonRequest): Promise<HaulierInvoiceResponse> => {
+    return { invoice: await haulierInvoiceService.markUnpaid(requireRole(), id, reason) };
+  },
+);
+
 interface HaulierInvoiceFileResponse {
   file: FileDownload;
 }

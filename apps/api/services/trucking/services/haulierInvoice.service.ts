@@ -121,11 +121,21 @@ function toInvoice({ invoice: r, lines }: StoredInvoice, profile: HaulierProfile
     blockReasons,
     holdReasons: open || r.status === "APPROVED" ? (r.holdReasons ?? []) : [],
     approval: r.approvedAt ? { byName: r.approvedBy ?? "", at: r.approvedAt.toISOString(), reason: r.approvalReason ?? "" } : null,
+    payment: r.paidOn ? { paidOn: r.paidOn, byName: r.paidBy ?? "", at: r.paidAt ? r.paidAt.toISOString() : "" } : null,
     fileName: r.fileName,
     createdAt: r.createdAt.toISOString(),
     createdBy: r.createdBy,
     version: r.version,
   };
+}
+
+/** The day an invoice was paid as sent: a real calendar date, YYYY-MM-DD. */
+function paidOnDay(value: unknown): string {
+  const day = typeof value === "string" ? value.trim() : "";
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  const d = m ? new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))) : null;
+  if (!m || !d || d.getUTCMonth() !== Number(m[2]) - 1 || d.getUTCDate() !== Number(m[3])) throw APIError.invalidArgument("The day it was paid must be a date (YYYY-MM-DD)");
+  return day;
 }
 
 class HaulierInvoiceService {
@@ -561,6 +571,49 @@ class HaulierInvoiceService {
     });
     await this.deliver(owed);
     return toInvoice(await this.load(companyId, cur.invoice.id), profile);
+  }
+
+  /**
+   * Manager only. Notes that an approved invoice was paid, on `paidOn` (a day not after today; today when not
+   * given). There is no accounting link yet: this is what "paid" means (Council Outlay 7, step 6b, E7).
+   */
+  async markPaid(actor: Actor, id: string, paidOn: unknown): Promise<HaulierInvoice> {
+    requireManager(actor.role, "note a haulier invoice as paid");
+    const companyId = actor.companyID;
+    const today = businessDay(new Date());
+    const day = paidOn === undefined || paidOn === null || paidOn === "" ? today : paidOnDay(paidOn);
+    if (day > today) throw APIError.invalidArgument("The day it was paid cannot be after today");
+    const cur = await this.load(companyId, id);
+    if (cur.invoice.status !== "APPROVED") throw APIError.failedPrecondition("Only an approved invoice can be paid");
+    if (cur.invoice.paidOn) throw APIError.failedPrecondition(`The invoice was already noted as paid on ${cur.invoice.paidOn}`);
+    const by = await userName(actor.userID);
+    await inTx(async (tx) => {
+      const row = await haulierInvoiceRepository.update(tx, companyId, cur.invoice.id, cur.invoice.version, ["APPROVED"], {
+        paidOn: day,
+        paidAt: new Date(),
+        paidByUserId: actor.userID || null,
+        paidBy: by,
+      });
+      if (!row) throw APIError.aborted(INVOICE_CONFLICT);
+      await this.event(tx, companyId, actor, by, "haulier_invoice_paid", row, `Haulier invoice ${row.invoiceNumber} paid on ${day}: ${row.totalGross.toFixed(2)} ${row.currency}`);
+    });
+    return this.get(actor, id);
+  }
+
+  /** Manager only, with a reason: takes back a payment noted by mistake. */
+  async markUnpaid(actor: Actor, id: string, reason: unknown): Promise<HaulierInvoice> {
+    requireManager(actor.role, "take back a haulier invoice's payment");
+    const why = cleanReason(reason, "taking the payment back");
+    const companyId = actor.companyID;
+    const cur = await this.load(companyId, id);
+    if (!cur.invoice.paidOn) throw APIError.failedPrecondition("The invoice is not noted as paid");
+    const by = await userName(actor.userID);
+    await inTx(async (tx) => {
+      const row = await haulierInvoiceRepository.update(tx, companyId, cur.invoice.id, cur.invoice.version, ["APPROVED"], { paidOn: null, paidAt: null, paidByUserId: null, paidBy: null });
+      if (!row) throw APIError.aborted(INVOICE_CONFLICT);
+      await this.event(tx, companyId, actor, by, "haulier_invoice_unpaid", row, `Haulier invoice ${row.invoiceNumber}: the payment of ${cur.invoice.paidOn} taken back`, why);
+    });
+    return this.get(actor, id);
   }
 
   /** Manager only, with a reason. The invoice is not paid; its trips and deliveries may go on another invoice. */

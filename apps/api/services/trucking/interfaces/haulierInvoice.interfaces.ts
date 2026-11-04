@@ -45,6 +45,8 @@ export interface HaulierInvoice {
   /** Why an exact match was not approved automatically (NEEDS_APPROVAL): a recent bank-account change, the same user, a repriced trip; a manager decides */
   holdReasons: string[];
   approval: { byName: string; at: string; reason: string } | null;
+  /** When it was paid (YYYY-MM-DD), who noted it and when; null while unpaid. Only an approved invoice is paid. */
+  payment: { paidOn: string; byName: string; at: string } | null;
   fileName: string | null;
   createdAt: string;
   createdBy: string;

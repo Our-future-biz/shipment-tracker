@@ -37,6 +37,8 @@ interface UpdateBuyingRequest {
   unit?: string;
   invoiceNumber?: string;
   received?: boolean;
+  /** the day the received invoice was paid, yyyy-mm-dd; "" takes it back */
+  paidOn?: string;
   /** a Customer Database company id; "" clears it */
   haulierId?: string;
   /** the Customer Database supplier the vendor names; "" clears it (a vendor typed by hand) */

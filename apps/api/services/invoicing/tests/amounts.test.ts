@@ -17,7 +17,7 @@ vi.mock("../repositories/quoteCostImport.repository", () => ({ quoteCostImportRe
 vi.mock("../../../lib/shipmentRefs", () => ({ assertShipmentExists: vi.fn() }));
 
 import { definedOnly, toDecimal } from "../lib/amounts";
-import { buyingChanges, sellingChanges, setsEstimate } from "../services/invoicing.service";
+import { buyingChanges, receiptChanges, sellingChanges, setsEstimate } from "../services/invoicing.service";
 
 describe("toDecimal", () => {
   it("keeps undefined, clears blanks, keeps decimals", () => {
@@ -51,6 +51,28 @@ describe("write changes", () => {
     expect(buyingChanges({ vendor: "Maersk A/S", supplierCustomerId: id })).toEqual({ vendor: "Maersk A/S", supplierCustomerId: id });
     expect(buyingChanges({ vendor: "Typed", supplierCustomerId: "" })).toEqual({ vendor: "Typed", supplierCustomerId: null });
     expect(() => buyingChanges({ supplierCustomerId: "Maersk" })).toThrow(/supplierCustomerId must be a company id/);
+  });
+});
+
+describe("received and paid (Council Outlay 7, step 6b)", () => {
+  const now = new Date("2026-11-04T09:00:00Z");
+  const today = "2026-11-04";
+  const stored = (over = {}) => ({ received: false, receivedAt: null, paidOn: null, ...over });
+
+  it("stamp when Received is ticked, keep the first stamp, and clear both when it is unticked", () => {
+    expect(receiptChanges(stored(), { received: true }, now, today)).toEqual({ receivedAt: now });
+    expect(receiptChanges(stored({ received: true, receivedAt: new Date("2026-10-01T08:00:00Z") }), { received: true }, now, today)).toEqual({});
+    expect(receiptChanges(stored({ received: true, paidOn: "2026-10-20" }), { received: false }, now, today)).toEqual({ receivedAt: null, paidOn: null });
+    expect(receiptChanges(null, { received: true }, now, today)).toEqual({ receivedAt: now });
+  });
+
+  it("pay only a received cost, on a real day not after today, and take the payment back with \"\"", () => {
+    expect(() => receiptChanges(stored(), buyingChanges({ paidOn: "2026-11-01" }), now, today)).toThrow(/Tick Received first/);
+    expect(receiptChanges(stored({ received: true }), buyingChanges({ paidOn: "2026-11-01" }), now, today)).toEqual({});
+    expect(() => receiptChanges(stored({ received: true }), buyingChanges({ paidOn: "2026-11-05" }), now, today)).toThrow(/after today/);
+    expect(receiptChanges(null, buyingChanges({ received: true, paidOn: "2026-11-04" } as never), now, today)).toEqual({ receivedAt: now });
+    expect(() => buyingChanges({ paidOn: "4.11.2026" })).toThrow(/paidOn must be a date/);
+    expect(buyingChanges({ paidOn: "" })).toEqual({ paidOn: null });
   });
 });
 

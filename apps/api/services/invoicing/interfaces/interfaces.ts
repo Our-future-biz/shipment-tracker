@@ -13,6 +13,10 @@ export interface InvoiceCostItem {
   unit: string;
   invoiceNumber: string;
   received: boolean;
+  /** when Received was ticked (ISO), null while not received */
+  receivedAt: string | null;
+  /** the day the received invoice was paid (yyyy-mm-dd), "" while unpaid */
+  paidOn: string;
   vendor: string;
   /** the haulier the cost is owed to (a Customer Database company), or null */
   haulierId: string | null;
@@ -128,6 +132,8 @@ export interface BuyingCostInput {
   vendor?: string;
   /** the Customer Database supplier the vendor names; "" clears it (a vendor typed by hand) */
   supplierCustomerId?: string;
+  /** the day the received invoice was paid, yyyy-mm-dd; "" takes it back */
+  paidOn?: string;
   estQty?: string;
   estAmount?: string;
   estCurrency?: string;

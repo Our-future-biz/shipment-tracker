@@ -82,6 +82,9 @@ export function useHaulierInvoice(id: string) {
   };
   const approve = useMutation({ mutationFn: (reason: string) => api.trucking.truckingHaulierInvoiceApprove(id, { reason }), onSuccess: onChanged });
   const reject = useMutation({ mutationFn: (reason: string) => api.trucking.truckingHaulierInvoiceReject(id, { reason }), onSuccess: onChanged });
+  // Council Outlay 7, step 6b: an approved invoice noted as paid, and that taken back with a reason.
+  const markPaid = useMutation({ mutationFn: (paidOn: string) => api.trucking.truckingHaulierInvoicePaid(id, { paidOn }), onSuccess: onChanged });
+  const markUnpaid = useMutation({ mutationFn: (reason: string) => api.trucking.truckingHaulierInvoiceUnpaid(id, { reason }), onSuccess: onChanged });
   return {
     invoice: query.data?.invoice ?? null,
     isLoading: query.isLoading,
@@ -89,6 +92,8 @@ export function useHaulierInvoice(id: string) {
     reload: query.refetch,
     approve: approve.mutateAsync,
     reject: reject.mutateAsync,
+    markPaid: markPaid.mutateAsync,
+    markUnpaid: markUnpaid.mutateAsync,
   };
 }
 
