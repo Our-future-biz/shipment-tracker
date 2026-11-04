@@ -24,6 +24,23 @@ export const _internalHaulierTermsSet = api(
   },
 );
 
+interface HaulierTermsGetRequest {
+  customerId: string;
+}
+
+interface HaulierTermsGetResponse {
+  /** null when Trucking has no saved profile of the haulier */
+  haulier: (HaulierTerms & { bankAccountsChange: BankAccountsChange | null }) | null;
+}
+
+// One haulier's terms as Trucking holds them: the Customer Database shows and starts from them until it has its own.
+export const _internalHaulierTermsGet = api(
+  { expose: false, auth: true, method: "GET", path: "/internal/trucking/hauliers/:customerId/terms" },
+  async ({ customerId }: HaulierTermsGetRequest): Promise<HaulierTermsGetResponse> => {
+    return { haulier: await haulierService.termsFor(getAuthData()!.companyID, customerId) };
+  },
+);
+
 interface HaulierTermsListResponse {
   hauliers: (HaulierTerms & { customerId: string; bankAccountsChange: BankAccountsChange | null })[];
 }

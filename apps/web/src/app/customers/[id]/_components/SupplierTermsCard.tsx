@@ -21,9 +21,10 @@ interface SupplierTermsCardProps {
 const BANK_HOLD_DAYS = 30;
 const HAULIER_CURRENCIES = ["CZK", "EUR"];
 
+// Nothing is filled in that nobody chose (K7): days and currency not set stay empty until typed.
 const draftOf = (c: CustomerItem): SupplierTermsInput => ({
-  paymentDays: c.supplierTerms.paymentDays ?? 30,
-  currency: c.supplierTerms.currency ?? (c.roles.includes("haulier") ? "CZK" : c.currency),
+  paymentDays: c.supplierTerms.paymentDays,
+  currency: c.supplierTerms.currency ?? "",
   vatUnreliable: c.supplierTerms.vatUnreliable,
   bankAccountPublished: c.supplierTerms.bankAccountPublished,
   vatCheckedAt: c.supplierTerms.vatCheckedAt,
@@ -35,7 +36,7 @@ const draftOf = (c: CustomerItem): SupplierTermsInput => ({
 // who: canEditSupplierTerms); everyone sees them.
 export function SupplierTermsCard({ customer }: SupplierTermsCardProps) {
   const toast = useToast();
-  const { canEditSupplierTerms } = useCustomer(customer.id);
+  const { canEditSupplierTerms, supplierTermsFromTrucking } = useCustomer(customer.id);
   const { saveTerms, saving } = useSupplierTerms(customer.id);
   const [draft, setDraft] = useState<SupplierTermsInput | null>(null);
   const terms = customer.supplierTerms;
@@ -78,6 +79,14 @@ export function SupplierTermsCard({ customer }: SupplierTermsCardProps) {
   return (
     <SectionCard title="Terms and checks" extra={extra}>
       <div className="flex flex-col gap-4">
+        {supplierTermsFromTrucking && (
+          <Alert
+            type="info"
+            showIcon
+            message="Shown as Trucking holds them"
+            description="These are not saved in the Customer Database yet. The first save keeps them here, with any change you make, and Trucking goes on using them."
+          />
+        )}
         {!canEditSupplierTerms && (
           <Alert type="info" showIcon icon={<LockOutlined />} message="Only a manager can change a supplier's payment terms and VAT / bank details." />
         )}
@@ -85,7 +94,16 @@ export function SupplierTermsCard({ customer }: SupplierTermsCardProps) {
           <label className="flex flex-col gap-1 text-[12px] text-slate-500">
             Payment days (we pay within)
             {editing ? (
-              <InputNumber aria-label="Payment days" min={0} max={365} precision={0} value={shown.paymentDays} onChange={(v) => set("paymentDays", v ?? 0)} className="w-full" />
+              <InputNumber
+                aria-label="Payment days"
+                min={0}
+                max={365}
+                precision={0}
+                placeholder={haulier ? "Required" : "Not set"}
+                value={shown.paymentDays}
+                onChange={(v) => set("paymentDays", v ?? null)}
+                style={{ width: "100%" }}
+              />
             ) : (
               <span className="text-[14px] text-slate-800">{terms.paymentDays === null ? "Not set" : `${terms.paymentDays} days`}</span>
             )}
@@ -93,7 +111,16 @@ export function SupplierTermsCard({ customer }: SupplierTermsCardProps) {
           <label className="flex flex-col gap-1 text-[12px] text-slate-500">
             Paid in{haulier ? " (a haulier: CZK or EUR)" : ""}
             {editing ? (
-              <Select aria-label="Currency" value={shown.currency} options={currencies.map((c) => ({ value: c, label: c }))} onChange={(v: string) => set("currency", v)} className="w-full" />
+              <Select
+                aria-label="Currency"
+                showSearch
+                allowClear={!haulier}
+                placeholder={haulier ? "Required" : "Not set"}
+                value={shown.currency || undefined}
+                options={currencies.map((c) => ({ value: c, label: c }))}
+                onChange={(v: string | undefined) => set("currency", v ?? "")}
+                className="w-full"
+              />
             ) : (
               <span className="text-[14px] text-slate-800">{terms.currency ?? "Not set"}</span>
             )}

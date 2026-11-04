@@ -33,6 +33,7 @@ import { contactChanged, customerChanged } from "../topics";
 import { contactRepository } from "../repositories/contact.repository";
 import { seatText } from "../lib/seat";
 import { billingCurrencies } from "../lib/billingCurrencies";
+import { supplierTermsService } from "./supplierTerms.service";
 
 /** A company outside the Czech Republic, typed in by hand: there is no registry to read it from. */
 export interface ManualCustomerInput {
@@ -294,7 +295,7 @@ class CustomerService {
     return toCustomerItem(row);
   }
 
-  async update(id: string, companyId: string, role: string, patch: CustomerPatch): Promise<CustomerItem> {
+  async update(id: string, companyId: string, role: string, patch: CustomerPatch, actorUserId = ""): Promise<CustomerItem> {
     const restricted = managerFieldsIn(patch);
     if (restricted.length && !canManageSales(role)) {
       throw APIError.permissionDenied(`Only a manager can change: ${restricted.join(", ")}`);
@@ -306,7 +307,12 @@ class CustomerService {
       values.companyName = values.companyName.trim();
       if (!values.companyName) throw APIError.invalidArgument("The company name can't be empty");
     }
-    if (values.roles) values.roles = requireRoles(values.roles);
+    if (values.roles) {
+      values.roles = requireRoles(values.roles);
+      // A supplier with terms set here that becomes a haulier: Trucking gets them first (K3).
+      const current = await this.requireLive(id, companyId);
+      Object.assign(values, await supplierTermsService.beforeRolesChange(current, values.roles, actorUserId));
+    }
     if (values.currency !== undefined || values.secondaryCurrencies !== undefined) {
       const current = await customerRepository.getItemForCompany(id, companyId);
       if (!current) throw APIError.notFound("Customer not found");

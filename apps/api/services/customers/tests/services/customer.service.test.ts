@@ -80,6 +80,7 @@ describe("roles", () => {
   });
 
   it("are stored once each when changed", async () => {
+    repository.getByIdForCompany.mockResolvedValue(customerRow({ roles: ["haulier"] }));
     repository.updateForCompany.mockResolvedValue(customerRow({ roles: ["haulier", "customer"] }));
     await customerService.update("customer-1", COMPANY, "manager", { roles: ["haulier", "customer", "haulier"] });
     expect(repository.updateForCompany).toHaveBeenCalledWith("customer-1", COMPANY, { roles: ["haulier", "customer"] });

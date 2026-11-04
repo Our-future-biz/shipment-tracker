@@ -6347,6 +6347,12 @@ export namespace controllers {
          * Whether the signed-in user may change its payment terms and VAT / bank details: a manager, and the company is a supplier.
          */
         canEditSupplierTerms: boolean
+
+        /**
+         * The haulier's terms were never saved here, so `customer.supplierTerms` are Trucking's copy (until the
+         * one-off copy, or the first save here, keeps them in the Customer Database).
+         */
+        supplierTermsFromTrucking: boolean
     }
 
     export interface CustomerListPrefGetResponse {
@@ -9379,12 +9385,12 @@ export namespace controllers {
 
     export interface SupplierTermsSetRequest {
         /**
-         * Days we have to pay the supplier, 0–365.
+         * Days we have to pay the supplier, 0–365; null while not set (a haulier needs them).
          */
-        paymentDays: number
+        paymentDays: number | null
 
         /**
-         * The currency it is paid in (ISO code); a haulier's CZK or EUR.
+         * The currency it is paid in (ISO code), "" while not set; a haulier's CZK or EUR.
          */
         currency: string
 

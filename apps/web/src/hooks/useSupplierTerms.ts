@@ -14,7 +14,7 @@ export const useSupplierTerms = (customerId: string) => {
   const mutation = useMutation({
     mutationFn: (input: SupplierTermsInput) => api.customers.supplierTermsSet(customerId, input),
     onSuccess: (res) => {
-      queryClient.setQueryData<controllers.CustomerGetResponse>(["customer", customerId], (prev) => (prev ? { ...prev, customer: res.customer } : prev));
+      queryClient.setQueryData<controllers.CustomerGetResponse>(["customer", customerId], (prev) => (prev ? { ...prev, customer: res.customer, supplierTermsFromTrucking: false } : prev));
       queryClient.invalidateQueries({ queryKey: ["customer", customerId] });
       queryClient.invalidateQueries({ queryKey: ["customers"] });
       queryClient.invalidateQueries({ queryKey: truckingKeys.haulier(customerId) });

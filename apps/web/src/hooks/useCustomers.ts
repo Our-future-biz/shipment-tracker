@@ -163,6 +163,7 @@ export const useCustomer = (id: string | null) => {
     canRateSupplier: query.data?.canRateSupplier ?? false,
     /** Whether the signed-in user may change its payment terms and VAT / bank details (a manager, and it is a supplier). */
     canEditSupplierTerms: query.data?.canEditSupplierTerms ?? false,
+    supplierTermsFromTrucking: query.data?.supplierTermsFromTrucking ?? false,
     updateCustomer: updateMutation.mutateAsync,
     deleteCustomer: deleteMutation.mutateAsync,
     uploadLogo: uploadLogoMutation.mutateAsync,

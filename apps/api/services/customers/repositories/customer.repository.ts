@@ -194,6 +194,27 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
     return { rows, total: Number(total) };
   }
 
+  /**
+   * Changes a live customer while its row is locked: `work` reads the row as it is now and gives the
+   * values to write (null writes nothing). Two such changes of one customer run one after the other,
+   * so what `work` does elsewhere before the write (a supplier's copy in Trucking) is in the same order.
+   * Null when there is no such customer.
+   */
+  async updateLocked(id: string, companyId: string, work: (row: CustomerRecord) => Promise<Partial<NewCustomerRecord> | null>): Promise<CustomerRecord | null> {
+    return this.db.transaction(async (tx) => {
+      const [row] = await tx
+        .select()
+        .from(customerTable)
+        .where(and(eq(customerTable.id, id), eq(customerTable.companyId, companyId), isNull(customerTable.deletedAt)))
+        .for("update");
+      if (!row) return null;
+      const values = await work(row);
+      if (!values) return row;
+      const [saved] = await tx.update(customerTable).set({ ...values, updatedAt: new Date() }).where(eq(customerTable.id, id)).returning();
+      return saved ?? null;
+    });
+  }
+
   // A new customer together with its first contact and its registered address, in one transaction:
   // a customer is never left without them.
   async createWithContact(

@@ -12,6 +12,7 @@ import type {
   HaulierTerms,
 } from "../interfaces/interfaces";
 import type { TruckingEventKind } from "../schemas/truckingEvent.schema";
+import type { TruckingHaulierProfileRecord } from "../schemas/truckingHaulier.schema";
 import { businessDay } from "../../../lib/businessDate";
 import { isUuid } from "../../../lib/uuid";
 import {
@@ -43,6 +44,17 @@ const termsOf = (p: HaulierTerms): HaulierTerms => ({
   bankAccountPublished: p.bankAccountPublished,
   vatCheckedAt: p.vatCheckedAt,
   bankAccounts: p.bankAccounts,
+});
+
+/** The terms of a stored profile row, with when and by whom an account was last added. */
+const storedTerms = (r: TruckingHaulierProfileRecord): HaulierTerms & { bankAccountsChange: BankAccountsChange | null } => ({
+  paymentDays: r.paymentDays,
+  currency: r.currency,
+  vatUnreliable: r.vatUnreliable,
+  bankAccountPublished: r.bankAccountPublished,
+  vatCheckedAt: r.vatCheckedAt,
+  bankAccounts: r.bankAccounts ?? [],
+  bankAccountsChange: r.bankAccountsChangedAt ? { at: r.bankAccountsChangedAt.toISOString(), byUserId: r.bankAccountsChangedByUserId, by: r.bankAccountsChangedBy ?? "" } : null,
 });
 
 /** A stored profile as the input of a save, every field as it is. */
@@ -224,10 +236,11 @@ class HaulierService {
     const company = await this.company(customerId);
     const stored = await haulierRepository.find(companyId, customerId);
     const cur = stored ? toProfile(stored) : defaultProfile(customerId);
-    // A save that leaves the published bank accounts out (an older page) keeps them as saved.
-    const withAccounts = { ...input, bankAccounts: input.bankAccounts ?? cur.bankAccounts };
-    // The payment terms and VAT / bank details are the Customer Database's (step 6b): kept as they are here.
-    const next = { ...cleanProfileInput(withAccounts, await settingsService.vehicleCodes(companyId), today()), ...termsOf(cur) };
+    // The payment terms and VAT / bank details are the Customer Database's (step 6b): kept as they are here,
+    // whatever the page sends back. They are left out of the checks too, so a value the Customer Database
+    // allows and Trucking's own rules would not never stops the rest of the profile from being saved.
+    const checked = cleanProfileInput({ ...input, ...termsOf(defaultProfile(customerId)) }, await settingsService.vehicleCodes(companyId), today());
+    const next = { ...checked, ...termsOf(cur) };
     if (cur.version !== version) throw APIError.aborted(HAULIER_CONFLICT);
     const changes = profileChanges(cur, next);
     const vatBank = managerOnlyChanges(changes);
@@ -283,21 +296,16 @@ class HaulierService {
     throw APIError.aborted(HAULIER_CONFLICT);
   }
 
+  /** What Trucking holds for one haulier, or null when it has no saved profile: the Customer Database's first save of it starts from this. */
+  async termsFor(companyId: string, customerId: string): Promise<(HaulierTerms & { bankAccountsChange: BankAccountsChange | null }) | null> {
+    const stored = await haulierRepository.find(companyId, customerId);
+    return stored ? storedTerms(stored.profile) : null;
+  }
+
   /** What Trucking holds for each haulier it has a profile of: the Customer Database copies it once (step 6b, E2). */
   async termsList(companyId: string): Promise<(HaulierTerms & { customerId: string; bankAccountsChange: BankAccountsChange | null })[]> {
     const profiles = await haulierRepository.listWithLaneCounts(companyId);
-    return profiles.map(({ profile: r }) => ({
-      customerId: r.customerId,
-      paymentDays: r.paymentDays,
-      currency: r.currency,
-      vatUnreliable: r.vatUnreliable,
-      bankAccountPublished: r.bankAccountPublished,
-      vatCheckedAt: r.vatCheckedAt,
-      bankAccounts: r.bankAccounts ?? [],
-      bankAccountsChange: r.bankAccountsChangedAt
-        ? { at: r.bankAccountsChangedAt.toISOString(), byUserId: r.bankAccountsChangedByUserId, by: r.bankAccountsChangedBy ?? "" }
-        : null,
-    }));
+    return profiles.map(({ profile: r }) => ({ customerId: r.customerId, ...storedTerms(r) }));
   }
 
   /** Manager only: keeps the haulier off trips until unblocked, with the reason. */

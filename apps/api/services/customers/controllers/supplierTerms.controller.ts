@@ -7,9 +7,9 @@ import type { CustomerItem } from "../interfaces/interfaces";
 
 interface SupplierTermsSetRequest {
   id: string;
-  /** Days we have to pay the supplier, 0–365. */
-  paymentDays: number;
-  /** The currency it is paid in (ISO code); a haulier's CZK or EUR. */
+  /** Days we have to pay the supplier, 0–365; null while not set (a haulier needs them). */
+  paymentDays: number | null;
+  /** The currency it is paid in (ISO code), "" while not set; a haulier's CZK or EUR. */
   currency: string & MaxLen<3>;
   vatUnreliable: boolean;
   bankAccountPublished: boolean;

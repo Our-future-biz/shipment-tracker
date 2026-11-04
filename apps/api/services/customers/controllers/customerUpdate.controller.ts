@@ -44,6 +44,6 @@ export const customerUpdate = api(
   { expose: true, auth: true, method: "PATCH", path: "/customers/:id" },
   async ({ id, ...patch }: CustomerUpdateRequest): Promise<CustomerUpdateResponse> => {
     const actor = getAuthData()!;
-    return { customer: await customerService.update(id, actor.companyID, actor.role, patch) };
+    return { customer: await customerService.update(id, actor.companyID, actor.role, patch, actor.userID) };
   },
 );

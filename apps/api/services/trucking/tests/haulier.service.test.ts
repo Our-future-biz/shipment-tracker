@@ -209,10 +209,14 @@ describe("published bank accounts (Phase 6)", () => {
     expect(Object.keys(event.payload.changes)).toEqual(["notes"]);
   });
 
-  it("refuses an account that is neither a Czech account nor an IBAN", async () => {
-    repo.find.mockResolvedValue({ profile: record(), lanes: [] });
-    await expect(haulierService.update(C, U, "user", H, input({ bankAccounts: ["123/45"] }), 4)).rejects.toMatchObject({ code: "invalid_argument" });
-    expect(repo.save).not.toHaveBeenCalled();
+  it("ignores the terms a profile save sends back, even ones Trucking's own checks would refuse: they are the Customer Database's", async () => {
+    repo.find.mockResolvedValue({ profile: record({ bankAccounts: ["19-2000145399/0800"] }), lanes: [] });
+    repo.save.mockResolvedValue({ profile: record({ notes: "Calls ahead", bankAccounts: ["19-2000145399/0800"] }), lanes: [] });
+    await haulierService.update(C, U, "user", H, input({ bankAccounts: ["123/45"], vatCheckedAt: "2099-01-01", notes: "Calls ahead" }), 4);
+    expect(repo.save).toHaveBeenCalledTimes(1);
+    const values = repo.save.mock.calls[0]![3] as Record<string, unknown>;
+    expect(values.bankAccounts).toEqual(["19-2000145399/0800"]);
+    expect(values.vatCheckedAt).not.toBe("2099-01-01");
   });
 
   it("shows the accounts on the profile", async () => {
