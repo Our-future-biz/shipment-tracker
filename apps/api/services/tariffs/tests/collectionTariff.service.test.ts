@@ -37,7 +37,7 @@ import { railTariffService } from "../services/railTariff.service";
 
 const COMPANY = "company-1";
 const ACTOR = { userID: "user-1", companyID: COMPANY, role: "manager" };
-const TOPTRANS = { id: "11111111-1111-4111-8111-111111111111", companyName: "TOPTRANS EU, a.s.", ico: "", dic: "", city: "Brno", country: "CZ", rating: null };
+const TOPTRANS = { id: "11111111-1111-4111-8111-111111111111", companyName: "TOPTRANS EU, a.s.", ico: "", dic: "", city: "Brno", country: "CZ", rating: null, ratingReason: "", inUse: true };
 const OTHER = { ...TOPTRANS, id: "22222222-2222-4222-8222-222222222222", companyName: "Rychlá doprava s.r.o." };
 const TARIFF_ID = "55555555-5555-4555-8555-555555555555";
 const VERSION_ID = "44444444-4444-4444-8444-444444444444";

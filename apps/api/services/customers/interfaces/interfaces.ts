@@ -185,6 +185,10 @@ export interface RoleCompanyItem {
   country: string;
   /** The supplier rating, 0–5 stars (0 the worst), null when not rated. For our own staff only: never shown to the supplier. */
   rating: number | null;
+  /** Why it was rated so ("" when none given). Staff only, as the rating. */
+  ratingReason: string;
+  /** False for a supplier set "Not in use" (stored Inactive): pickers leave it out, lists and old records keep it (D16). */
+  inUse: boolean;
 }
 
 /** A customer as another service links to it: id, current name and account type. */

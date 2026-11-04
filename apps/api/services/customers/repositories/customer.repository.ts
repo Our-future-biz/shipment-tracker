@@ -124,7 +124,7 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
     companyId: string,
     role: CustomerRole,
     ids?: string[],
-  ): Promise<(Pick<CustomerRecord, "id" | "companyName" | "ico" | "dic" | "city" | "country"> & { rating: number | null })[]> {
+  ): Promise<(Pick<CustomerRecord, "id" | "companyName" | "ico" | "dic" | "city" | "country"> & { rating: number | null; ratingReason: string; inUse: boolean })[]> {
     const clauses = [eq(customerTable.companyId, companyId), isNull(customerTable.deletedAt), arrayContains(customerTable.roles, [role])];
     if (ids) clauses.push(inArray(customerTable.id, ids));
     return this.db
@@ -136,6 +136,9 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
         city: customerTable.city,
         country: customerTable.country,
         rating: customerTable.supplierRating,
+        ratingReason: customerTable.supplierRatingReason,
+        // "Not in use" is a supplier stored Inactive (Council Outlay 7, D1): left out of pickers (D16).
+        inUse: sql<boolean>`${customerTable.status} <> 'Inactive'`,
       })
       .from(customerTable)
       .where(and(...clauses))

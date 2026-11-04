@@ -403,6 +403,8 @@ export function CostsTab({ shipment }: CostsTabProps) {
     // the copy is a line added by hand: no estimate of its own once the quote's lines are in
     await api.invoicing.invoicingAddBuyingCost(shipment.id, {
       category: r.category, description: r.description, vendor: r.vendor,
+      // the copy names the same supplier: its link goes with it (Council Review 5, R6)
+      ...(r.supplierCustomerId ? { supplierCustomerId: r.supplierCustomerId } : {}),
       ...(quotePriced ? {} : { estQty: r.estQty, estAmount: r.estAmount, estCurrency: r.estCurrency }),
       realQty: r.realQty, realAmount: r.realAmount, realCurrency: r.realCurrency,
       sortOrder: index + 1,

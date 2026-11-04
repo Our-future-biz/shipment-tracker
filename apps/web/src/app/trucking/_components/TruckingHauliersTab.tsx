@@ -45,8 +45,9 @@ const buildColumns = (vehicleLabel: (code: string) => string): AppGridColumn<Hau
     key: "rating",
     title: "Rating",
     text: (h) => (h.rating === null ? "Not rated" : `${h.rating}/5`),
-    // Best first on a descending sort: 5 down to 1, not rated, then 0.
+    // Best first on a descending sort: 5 down to 1, not rated, then 0; the first click sorts so (m26).
     sorter: (a, b) => ratingRank(a.rating) - ratingRank(b.rating),
+    sortDirections: ["descend", "ascend"],
     render: (_, h) => <SupplierRatingStars rating={h.rating} />,
   },
   { key: "ico", title: "IČO", text: (h) => h.ico, sorter: (a, b) => byText(a.ico, b.ico) },

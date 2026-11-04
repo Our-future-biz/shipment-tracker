@@ -3,7 +3,8 @@
 import { Select } from "antd";
 import { useHauliers, type RateLevelResult } from "@/hooks/useTrucking";
 import { HaulierOptionLabel } from "@/app/trucking/_components/HaulierOptionLabel";
-import { ratingsOf } from "@/app/trucking/_lib/haulierRating";
+import { HaulierRatingNote } from "@/app/trucking/_components/HaulierRatingNote";
+import { ratingsOf, reasonsOf } from "@/app/trucking/_lib/haulierRating";
 import { promisedLabel } from "@/app/trucking/_lib/rateCalculator";
 import { isPriced } from "@/app/trucking/_lib/tariffs";
 import { formatAmount as formatMoney } from "@/lib/money";
@@ -22,7 +23,10 @@ interface RoadPricePickerProps {
 // The order is the price's, not the rating's: the first is the one the margin is worked out from.
 export const RoadPricePicker = ({ results, value, onChange, disabled = false }: RoadPricePickerProps) => {
   const levels = pickableLevels(results);
-  const ratings = ratingsOf(useHauliers().hauliers);
+  const { hauliers } = useHauliers();
+  const ratings = ratingsOf(hauliers);
+  const reasons = reasonsOf(hauliers);
+  const chosen = value?.haulierCustomerId ?? null;
   const level = levels.find((r) => r.serviceLevel === value?.serviceLevel);
 
   const levelOptions = levels.map((r) => ({
@@ -60,6 +64,8 @@ export const RoadPricePicker = ({ results, value, onChange, disabled = false }: 
           optionRender={(o) => <HaulierOptionLabel label={o.label} rating={o.data.rating} />}
           onChange={(haulierCustomerId: string) => value && onChange({ ...value, haulierCustomerId })}
         />
+        {/* The chosen (or suggested) haulier's rating, as a warning only: the quote line says it too (m22). */}
+        <HaulierRatingNote customerId={chosen} rating={chosen ? ratings.get(chosen) : undefined} reason={chosen ? reasons.get(chosen) : ""} />
       </TruckingField>
     </div>
   );

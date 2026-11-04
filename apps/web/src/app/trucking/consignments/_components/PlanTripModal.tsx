@@ -15,7 +15,7 @@ import { HaulierIssueList } from "../../_components/HaulierIssueList";
 import { TruckingField } from "../../_components/TruckingField";
 import { HaulierOptionLabel } from "../../_components/HaulierOptionLabel";
 import { HaulierRatingNote } from "../../_components/HaulierRatingNote";
-import { bestFirst, needsConfirmation, ratingsOf } from "../../_lib/haulierRating";
+import { bestFirst, needsConfirmation, pickable, ratingsOf, reasonsOf } from "../../_lib/haulierRating";
 
 /** The lane of a consignment as the rate engine prices it: FTL, its level, buy side only. */
 export const planRateRequest = (c: ConsignmentDetail): RateRequest => ({
@@ -63,7 +63,7 @@ export const PlanTripModal = ({ c, onClose, onPlan }: PlanTripModalProps) => {
   const [request] = useState(() => planRateRequest(c));
   const { isRating, result, error } = useRateQuery(request, round);
   const { settings } = useTruckingSettings();
-  const { hauliers } = useHauliers();
+  const { hauliers, isLoading: hauliersLoading } = useHauliers();
   const [choice, setChoice] = useState<string | null>(null);
   const [agreedHaulier, setAgreedHaulier] = useState<string | null>(null);
   const [agreedTotal, setAgreedTotal] = useState<number | null>(null);
@@ -80,12 +80,15 @@ export const PlanTripModal = ({ c, onClose, onPlan }: PlanTripModalProps) => {
   const picked = choice ?? (candidates[0]?.ownerCustomerId ?? (result ? AGREED : null));
   const agreed = picked === AGREED;
   // Picked by name: best first. The priced candidates above keep the engine's order (preferred, then cheapest).
-  const usable = bestFirst(hauliers.filter((h) => h.status !== "blocked"));
+  // "Not in use" hauliers are left out (D16), except the one already picked.
+  const usable = bestFirst(pickable(hauliers.filter((h) => h.status !== "blocked"), agreedHaulier));
   const ratings = ratingsOf(hauliers);
+  const reasons = reasonsOf(hauliers);
   const vehicles = (settings?.vehicleTypes ?? []).filter((v) => v.active);
   const pickedHaulier = agreed ? agreedHaulier : picked;
   const pickedRating = pickedHaulier ? ratings.get(pickedHaulier) : undefined;
-  const confirmed = !needsConfirmation(pickedRating) || confirmedFor === pickedHaulier;
+  // Until the hauliers are read a rating is not known: nothing is saved before it can be confirmed (m24).
+  const confirmed = !hauliersLoading && (!needsConfirmation(pickedRating) || confirmedFor === pickedHaulier);
 
   const ready = (agreed ? !!agreedHaulier && (agreedTotal ?? 0) > 0 && agreedReason.trim().length >= 3 : !!picked) && confirmed;
 
@@ -192,7 +195,7 @@ export const PlanTripModal = ({ c, onClose, onPlan }: PlanTripModalProps) => {
         </TruckingField>
       </div>
 
-      <HaulierRatingNote customerId={pickedHaulier} rating={pickedRating} confirmed={confirmedFor === pickedHaulier} onConfirm={(on) => setConfirmedFor(on ? pickedHaulier : null)} />
+      <HaulierRatingNote customerId={pickedHaulier} rating={pickedRating} reason={pickedHaulier ? reasons.get(pickedHaulier) : ""} confirmed={confirmedFor === pickedHaulier} onConfirm={(on) => setConfirmedFor(on ? pickedHaulier : null)} />
 
       {!agreed && picked && candidates.length > 0 && picked !== candidates[0]?.ownerCustomerId && (
         <div className="mt-2 text-[12px] text-slate-500">Not the suggested haulier — the change is logged on the trip.</div>

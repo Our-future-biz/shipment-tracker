@@ -206,6 +206,8 @@ class HaulierService {
         vehicleTypes: profile?.vehicleTypes ?? [],
         preferredLaneCount: stored?.laneCount ?? 0,
         rating: h.rating,
+        ratingReason: h.ratingReason,
+        inUse: h.inUse,
       };
     });
     return items

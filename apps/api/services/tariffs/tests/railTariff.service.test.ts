@@ -33,7 +33,7 @@ const COMPANY = "company-1";
 const VERSION_ID = "44444444-4444-4444-8444-444444444444";
 const TARIFF_ID = "55555555-5555-4555-8555-555555555555";
 const ACTOR = { userID: "user-1", companyID: COMPANY, role: "manager" };
-const METRANS = { id: "11111111-1111-4111-8111-111111111111", companyName: "METRANS a.s.", ico: "25676598", dic: "", city: "Praha", country: "CZ", rating: null };
+const METRANS = { id: "11111111-1111-4111-8111-111111111111", companyName: "METRANS a.s.", ico: "25676598", dic: "", city: "Praha", country: "CZ", rating: null, ratingReason: "", inUse: true };
 
 const repo = vi.mocked(tariffRepository);
 const companiesWithRole = vi.mocked(customers._internalCompaniesWithRole);

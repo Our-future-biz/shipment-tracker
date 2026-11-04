@@ -6,7 +6,7 @@ import { PushpinFilled, WarningOutlined } from "@ant-design/icons";
 import { SupplierRatingStars } from "@/app/customers/_components/SupplierRatingStars";
 import { HaulierOptionLabel } from "./HaulierOptionLabel";
 import { HaulierRatingNote } from "./HaulierRatingNote";
-import { bestFirst, needsConfirmation, ratingsOf } from "../_lib/haulierRating";
+import { bestFirst, needsConfirmation, pickable, ratingsOf, reasonsOf } from "../_lib/haulierRating";
 import { apiErrorMessage } from "@/lib/api";
 import { formatDate } from "@/lib/date";
 import { useHauliers, useRateQuery, useTruckingSettings } from "@/hooks/useTrucking";
@@ -39,7 +39,7 @@ export const NewLtlTripModal = ({ kind, date, legs, hubPostcode, onClose, onCrea
   const [request] = useState(() => ltlTripRateRequest(kind, legs, hubPostcode, date));
   const { isRating, result, error } = useRateQuery(request, round);
   const { settings } = useTruckingSettings();
-  const { hauliers } = useHauliers();
+  const { hauliers, isLoading: hauliersLoading } = useHauliers();
   const [choice, setChoice] = useState<string | null>(null);
   const [otherHaulier, setOtherHaulier] = useState<string | null>(null);
   const [otherPrice, setOtherPrice] = useState<PriceForm>(emptyPriceForm);
@@ -55,8 +55,10 @@ export const NewLtlTripModal = ({ kind, date, legs, hubPostcode, onClose, onCrea
   const other = picked === OTHER;
   const haulierId = other ? otherHaulier : picked;
   // Picked by name: best first. The priced candidates keep the engine's order (preferred, then cheapest).
-  const usable = bestFirst(hauliers.filter((h) => h.status !== "blocked"));
+  // "Not in use" hauliers are left out (D16), except the one already picked.
+  const usable = bestFirst(pickable(hauliers.filter((h) => h.status !== "blocked"), haulierId));
   const ratings = ratingsOf(hauliers);
+  const reasons = reasonsOf(hauliers);
   const pickedRating = haulierId ? ratings.get(haulierId) : undefined;
   const vehicles = (settings?.vehicleTypes ?? []).filter((v) => v.active);
   const vehicleType = vehicles.find((v) => v.code === vehicle) ?? null;
@@ -69,6 +71,8 @@ export const NewLtlTripModal = ({ kind, date, legs, hubPostcode, onClose, onCrea
   });
   const problems = [
     ...(haulierId ? [] : [`Pick the ${TERMS.haulier.toLowerCase()}`]),
+    // Until the hauliers are read a rating is not known: nothing is saved before it can be confirmed (m24).
+    ...(hauliersLoading ? [`Wait for the ${TERMS.haulier.toLowerCase()} list`] : []),
     ...(needsConfirmation(pickedRating) && confirmedFor !== haulierId ? [`Confirm the 0-star ${TERMS.haulier.toLowerCase()}`] : []),
     ...(vehicle ? [] : [`Pick the ${TERMS.vehicleType.toLowerCase()}`]),
     ...(other ? priceProblems(otherPrice) : []),
@@ -178,7 +182,7 @@ export const NewLtlTripModal = ({ kind, date, legs, hubPostcode, onClose, onCrea
         </ul>
       )}
 
-      <HaulierRatingNote customerId={haulierId} rating={pickedRating} confirmed={confirmedFor === haulierId} onConfirm={(on) => setConfirmedFor(on ? haulierId : null)} />
+      <HaulierRatingNote customerId={haulierId} rating={pickedRating} reason={haulierId ? reasons.get(haulierId) : ""} confirmed={confirmedFor === haulierId} onConfirm={(on) => setConfirmedFor(on ? haulierId : null)} />
 
       {problems.length > 0 && (result || error) && (
         <div className="mt-3 text-[12px] text-amber-700">

@@ -14,3 +14,13 @@ export const RATING_MEANINGS: readonly { stars: number; title: string; text: str
 
 /** Whether a reason must go with this rating. */
 export const reasonRequired = (rating: number | null): boolean => rating !== null && rating <= REASON_REQUIRED_UP_TO;
+
+/**
+ * The word under a low-rated pick (0–2 stars), in the scale's own words, so a picker says what the rating
+ * means (Council Review 5, K10): red at 0, amber at 1–2. Null for a supplier rated higher or not at all.
+ */
+export function lowRatingNote(rating: number | null | undefined): { tone: "red" | "amber"; title: string; text: string } | null {
+  if (rating == null || rating > REASON_REQUIRED_UP_TO) return null;
+  const meaning = RATING_MEANINGS.find((m) => m.stars === rating);
+  return meaning ? { tone: rating === 0 ? "red" : "amber", title: meaning.title, text: meaning.text } : null;
+}

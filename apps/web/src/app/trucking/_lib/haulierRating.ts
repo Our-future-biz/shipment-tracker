@@ -20,3 +20,14 @@ export const lowRated = (rating: number | null | undefined): rating is number =>
 
 /** Whether picking it needs a confirmation: 0 stars, "do not use". */
 export const needsConfirmation = (rating: number | null | undefined): boolean => rating === 0;
+
+/**
+ * The hauliers a picker offers: those in use (the Customer Database's "Not in use" ones are left out, D16),
+ * keeping the one already picked so a saved trip or leg still shows it.
+ */
+export function pickable<H extends Pick<HaulierListItem, "customerId" | "inUse">>(hauliers: readonly H[], keep?: string | null): H[] {
+  return hauliers.filter((h) => h.inUse || h.customerId === keep);
+}
+
+/** Each haulier's rating reason by its id, for the note under a picked one (K11). */
+export const reasonsOf = (hauliers: readonly HaulierListItem[]): Map<string, string> => new Map(hauliers.map((h) => [h.customerId, h.ratingReason]));

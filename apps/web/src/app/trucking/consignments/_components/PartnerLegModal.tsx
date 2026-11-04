@@ -14,7 +14,7 @@ import { TruckingField } from "../../_components/TruckingField";
 import { TruckingPriceFields } from "../../_components/TruckingPriceFields";
 import { HaulierOptionLabel } from "../../_components/HaulierOptionLabel";
 import { HaulierRatingNote } from "../../_components/HaulierRatingNote";
-import { bestFirst, needsConfirmation } from "../../_lib/haulierRating";
+import { bestFirst, needsConfirmation, pickable } from "../../_lib/haulierRating";
 
 const AT_HUB = "__hub__";
 
@@ -30,7 +30,7 @@ interface PartnerLegModalProps {
 // depots (its Customer Database delivery sites, or it collects at our warehouse — then no line haul)
 // and the price — the partner's buy tariff (scope LTL) per consignment, or agreed with a reason.
 export const PartnerLegModal = ({ c, leg, onClose, onSave }: PartnerLegModalProps) => {
-  const { hauliers } = useHauliers();
+  const { hauliers, isLoading: hauliersLoading } = useHauliers();
   const [haulierId, setHaulierId] = useState<string | null>(leg.haulierCustomerId ?? c.partnerHaulierCustomerId);
   // A partner already set with no depot collects at our warehouse.
   const [depot, setDepot] = useState<string | null>(leg.depotSiteId ?? (leg.haulierCustomerId ? AT_HUB : null));
@@ -44,10 +44,14 @@ export const PartnerLegModal = ({ c, leg, onClose, onSave }: PartnerLegModalProp
   const { sites, isLoading: sitesLoading } = useCustomerSites(haulierId ?? "");
   const depots = useMemo(() => depotSites(sites), [sites]);
   // Picked by name: best first.
-  const partners = bestFirst(hauliers.filter((h) => h.status !== "blocked" || h.customerId === haulierId));
-  const pickedRating = haulierId ? hauliers.find((h) => h.customerId === haulierId)?.rating : undefined;
+  // "Not in use" partners are left out (D16), except the one already picked.
+  const partners = bestFirst(pickable(hauliers.filter((h) => h.status !== "blocked" || h.customerId === haulierId), haulierId));
+  const picked = haulierId ? hauliers.find((h) => h.customerId === haulierId) : undefined;
+  const pickedRating = picked?.rating;
   const problems = [
     ...(haulierId ? [] : ["Pick the partner haulier"]),
+    // Until the hauliers are read a rating is not known: nothing is saved before it can be confirmed (m24).
+    ...(hauliersLoading ? ["Wait for the haulier list"] : []),
     ...(needsConfirmation(pickedRating) && confirmedFor !== haulierId ? ["Confirm the 0-star partner"] : []),
     ...(depot ? [] : ["Pick the depot"]),
     ...priceProblems(price),
@@ -93,7 +97,7 @@ export const PartnerLegModal = ({ c, leg, onClose, onSave }: PartnerLegModalProp
             }}
           />
         </TruckingField>
-        <HaulierRatingNote customerId={haulierId} rating={pickedRating} confirmed={confirmedFor === haulierId} onConfirm={(on) => setConfirmedFor(on ? haulierId : null)} />
+        <HaulierRatingNote customerId={haulierId} rating={pickedRating} reason={picked?.ratingReason} confirmed={confirmedFor === haulierId} onConfirm={(on) => setConfirmedFor(on ? haulierId : null)} />
         <TruckingField label="Depot" hint="The partner's delivery sites in the Customer Database">
           <Select
             aria-label="Depot"

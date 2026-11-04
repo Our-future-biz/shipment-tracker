@@ -187,6 +187,10 @@ export interface HaulierListItem {
   preferredLaneCount: number;
   /** The supplier rating from the Customer Database, 0–5 stars, null when not rated. Staff only: HaulierDetail, which the portal reads, has none. */
   rating: number | null;
+  /** Why it was rated so, from the Customer Database ("" when none). Staff only, as the rating. */
+  ratingReason: string;
+  /** False when the Customer Database has it "Not in use": left out where a haulier is picked, still listed (D16). */
+  inUse: boolean;
 }
 
 export interface HaulierDetail {

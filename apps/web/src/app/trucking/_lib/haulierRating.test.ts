@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bestFirst, lowRated, needsConfirmation } from "./haulierRating";
+import { bestFirst, lowRated, needsConfirmation, pickable } from "./haulierRating";
 
 describe("hauliers best first", () => {
   it("orders 5 down to 1 star, then not rated, then 0, and equal ones by name", () => {
@@ -16,5 +16,17 @@ describe("hauliers best first", () => {
   it("says a word at 2 stars or fewer, and asks to confirm only at 0", () => {
     expect([null, 5, 3, 2, 1, 0].map(lowRated)).toEqual([false, false, false, true, true, true]);
     expect([null, 2, 1, 0].map(needsConfirmation)).toEqual([false, false, false, true]);
+  });
+});
+
+describe("the hauliers a picker offers (D16)", () => {
+  it("leaves out those not in use, but keeps the one already picked", () => {
+    const hauliers = [
+      { customerId: "a", inUse: true },
+      { customerId: "b", inUse: false },
+      { customerId: "c", inUse: false },
+    ];
+    expect(pickable(hauliers).map((h) => h.customerId)).toEqual(["a"]);
+    expect(pickable(hauliers, "c").map((h) => h.customerId)).toEqual(["a", "c"]);
   });
 });

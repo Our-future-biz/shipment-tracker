@@ -56,6 +56,8 @@ function supplierColumns<T extends TariffSupplierRow>(nameTitle: string, href: (
       text: (s) => (s.rating === null ? "Not rated" : `${s.rating}/5`),
       // Best first on a descending sort: 5 down to 1, not rated, then 0.
       sorter: (a, b) => ratingRank(a.rating) - ratingRank(b.rating),
+      // The first click puts the best first, as in the Customer Database (m26).
+      sortDirections: ["descend", "ascend"],
       render: (_, s) => <SupplierRatingStars rating={s.rating} />,
     },
     { key: "ico", title: "IČO", text: (s) => s.ico, sorter: (a, b) => byText(a.ico, b.ico) },

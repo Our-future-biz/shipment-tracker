@@ -10,6 +10,9 @@ import { CURRENCIES } from "../_lib/hauliers";
 import { TERMS } from "../_lib/glossary";
 import { ConsignmentLoadFields } from "./ConsignmentLoadFields";
 import { ConsignmentStopFields } from "./ConsignmentStopFields";
+import { HaulierOptionLabel } from "./HaulierOptionLabel";
+import { HaulierRatingNote } from "./HaulierRatingNote";
+import { bestFirst, pickable } from "../_lib/haulierRating";
 import { TruckingField } from "./TruckingField";
 
 interface ConsignmentFormFieldsProps {
@@ -26,8 +29,11 @@ export const ConsignmentFormFields = ({ form, onChange, limited = false }: Consi
   const { sites } = useCustomerSites(form.customerId ?? "");
   const { hauliers } = useHauliers();
   const ltl = form.scope === "LTL";
-  // Blocked hauliers are not offered; the one already chosen stays visible.
-  const partners = hauliers.filter((h) => h.status !== "blocked" || h.customerId === form.partnerHaulierCustomerId);
+  // Blocked and "Not in use" hauliers are not offered; the one already chosen stays visible. Picked by
+  // name, so best first, with the stars (Council Outlay 7, step 5; Council Review 5, R7).
+  const chosen = form.partnerHaulierCustomerId;
+  const partners = bestFirst(pickable(hauliers.filter((h) => h.status !== "blocked" || h.customerId === chosen), chosen));
+  const chosenPartner = chosen ? hauliers.find((h) => h.customerId === chosen) : undefined;
   const set = <K extends keyof ConsignmentForm>(key: K, value: ConsignmentForm[K]) => onChange({ ...form, [key]: value });
 
   const levels = (settings?.serviceLevels ?? []).filter((l) => l.active || l.code === form.serviceLevel);
@@ -59,9 +65,12 @@ export const ConsignmentFormFields = ({ form, onChange, limited = false }: Consi
                   optionFilterProp="label"
                   disabled={limited}
                   value={form.partnerHaulierCustomerId ?? undefined}
-                  options={partners.map((h) => ({ value: h.customerId, label: `${h.companyName}${h.status === "warning" ? " (warning)" : ""}` }))}
+                  options={partners.map((h) => ({ value: h.customerId, label: `${h.companyName}${h.status === "warning" ? " (warning)" : ""}`, rating: h.rating }))}
+                  optionRender={(o) => <HaulierOptionLabel label={o.label} rating={o.data.rating} />}
                   onChange={(id) => set("partnerHaulierCustomerId", id ?? null)}
                 />
+                {/* A warning only: a 0-star partner is confirmed when its delivery is set ("Set partner…"). */}
+                <HaulierRatingNote customerId={chosen} rating={chosenPartner?.rating} reason={chosenPartner?.ratingReason} />
               </TruckingField>
             )}
           </div>

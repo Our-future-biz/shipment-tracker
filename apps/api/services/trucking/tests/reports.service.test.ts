@@ -142,7 +142,7 @@ beforeEach(() => {
   tariffs.list.mockResolvedValue([{ id: "std", scope: "LTL", side: "SELL", ownerCustomerId: null }]);
   tariffs.bindingOn.mockResolvedValue([{ tariffId: "std", input: { zones } }]);
   hauliers.findMany.mockResolvedValue([profile(H1)]);
-  vi.mocked(customers._internalHaulierList).mockResolvedValue({ hauliers: [{ id: H1, companyName: "Alfa s.r.o.", ico: "", dic: "", city: "", country: "CZ", rating: null }] });
+  vi.mocked(customers._internalHaulierList).mockResolvedValue({ hauliers: [{ id: H1, companyName: "Alfa s.r.o.", ico: "", dic: "", city: "", country: "CZ", rating: null, ratingReason: "", inUse: true }] });
   vi.mocked(holidays._internalHolidaysCzNational).mockResolvedValue({ dates: [] });
   rates.eurRate.mockResolvedValue({ rate: 25, date: "2026-10-20" });
 });

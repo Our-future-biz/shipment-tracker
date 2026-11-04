@@ -5,7 +5,7 @@ import { Alert, Button, Input, InputNumber, Modal, Radio, Select } from "antd";
 import { apiErrorMessage } from "@/lib/api";
 import { useHauliers, type TariffCreate, type TariffSide } from "@/hooks/useTrucking";
 import { HaulierOptionLabel } from "./HaulierOptionLabel";
-import { bestFirst } from "../_lib/haulierRating";
+import { bestFirst, pickable } from "../_lib/haulierRating";
 import { TERMS } from "../_lib/glossary";
 import { CURRENCIES } from "../_lib/hauliers";
 import { INTERNAL_OWNER, SCOPE_LABELS, TARIFF_SIDES, ZONE_BY_LABELS, discountLabel, type TariffScope } from "../_lib/tariffs";
@@ -98,9 +98,15 @@ export const TariffCreateModal = ({ open, side, onClose, create, isCreating, onC
   const set = <K extends keyof CreateDraft>(key: K, value: CreateDraft[K]) => setDraft((d) => ({ ...d, [key]: value }));
 
   const haulierOptions = useMemo(
-    // Best first, as every list a haulier is picked from by name.
-    () => bestFirst(hauliers).map((h) => ({ value: h.customerId, label: h.status === "blocked" ? `${h.companyName} (blocked)` : h.companyName, name: h.companyName, rating: h.rating })),
-    [hauliers],
+    // Best first, as every list a haulier is picked from by name; "Not in use" ones are left out (D16).
+    () =>
+      bestFirst(pickable(hauliers, draft.ownerCustomerId)).map((h) => ({
+        value: h.customerId,
+        label: h.status === "blocked" ? `${h.companyName} (blocked)` : h.companyName,
+        name: h.companyName,
+        rating: h.rating,
+      })),
+    [hauliers, draft.ownerCustomerId],
   );
   const isCustomerTariff = draft.side === "SELL" && !draft.standard;
 
