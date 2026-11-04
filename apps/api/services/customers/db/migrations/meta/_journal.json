@@ -218,6 +218,13 @@
       "when": 1793769547397,
       "tag": "0030_supplier_contacts_documents",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1793773213016,
+      "tag": "0031_supplier_terms",
+      "breakpoints": true
     }
   ]
 }

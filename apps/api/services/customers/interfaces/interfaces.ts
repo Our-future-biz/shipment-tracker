@@ -109,8 +109,28 @@ export interface CustomerItem {
   supplierRatingAt: string | null;
   /** Only in the list: when the latest Communication entry was made (ISO), null when there is none. */
   lastContactAt?: string | null;
+  /** A supplier's terms and checks (what we pay it, and the VAT register checks); defaults for a company that is none. */
+  supplierTerms: SupplierTerms;
   createdAt: string;
   updatedAt: string;
+}
+
+/** A supplier's payment terms to us and the VAT register checks before we pay it (Council Outlay 7, step 6b). */
+export interface SupplierTerms {
+  /** Days we have to pay it; null until set. */
+  paymentDays: number | null;
+  /** The currency it is paid in (ISO code); null until set. A haulier's is CZK or EUR. */
+  currency: string | null;
+  vatUnreliable: boolean;
+  /** Its account is published in the VAT register. */
+  bankAccountPublished: boolean;
+  /** yyyy-mm-dd of the last VAT register check; "" when never. */
+  vatCheckedAt: string;
+  /** The published accounts, normalised (a Czech account or an IBAN). */
+  bankAccounts: string[];
+  /** When an account was last added (ISO), and by whom (e-mail); null / "" when never. */
+  bankAccountsChangedAt: string | null;
+  bankAccountsChangedBy: string;
 }
 
 /** One change of a supplier's rating, as it was made. */

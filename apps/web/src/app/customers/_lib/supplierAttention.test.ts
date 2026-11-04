@@ -9,6 +9,7 @@ const company = (over: Partial<CustomerItem> = {}): CustomerItem => ({
   creditLimit: 0, currency: "EUR", secondaryCurrencies: [], paymentTerms: "", freightPaymentTerms: "", dutyPaymentTerms: "",
   companyWebsite: "", logoUrl: "", logoSource: "", logoUpdatedAt: "", totalRevenue: 0, totalProfit: 0, totalShipments: 0,
   lastActivityDate: "", supplierRating: 4, supplierRatingReason: "", supplierRatingBy: "m@x.cz", supplierRatingAt: "2026-10-01T08:00:00Z",
+  supplierTerms: { paymentDays: null, currency: null, vatUnreliable: false, bankAccountPublished: false, vatCheckedAt: "", bankAccounts: [], bankAccountsChangedAt: null, bankAccountsChangedBy: "" },
   createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
   ...over,
 });

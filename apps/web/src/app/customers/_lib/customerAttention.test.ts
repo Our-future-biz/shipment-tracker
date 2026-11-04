@@ -12,6 +12,7 @@ const customer = (over: Partial<CustomerItem> = {}): CustomerItem => ({
   creditLimit: 1000, currency: "EUR", secondaryCurrencies: [], paymentTerms: "30 days", freightPaymentTerms: "", dutyPaymentTerms: "",
   companyWebsite: "", logoUrl: "", logoSource: "", logoUpdatedAt: "", totalRevenue: 0, totalProfit: 0, totalShipments: 0,
   lastActivityDate: "", supplierRating: null, supplierRatingReason: "", supplierRatingBy: "", supplierRatingAt: null,
+  supplierTerms: { paymentDays: null, currency: null, vatUnreliable: false, bankAccountPublished: false, vatCheckedAt: "", bankAccounts: [], bankAccountsChangedAt: null, bankAccountsChangedBy: "" },
   createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
   ...over,
 });

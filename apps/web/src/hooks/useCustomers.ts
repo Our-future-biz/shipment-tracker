@@ -161,6 +161,8 @@ export const useCustomer = (id: string | null) => {
     refetch: query.refetch,
     /** Whether the signed-in user may set this company's supplier rating (a manager, and it is a supplier). */
     canRateSupplier: query.data?.canRateSupplier ?? false,
+    /** Whether the signed-in user may change its payment terms and VAT / bank details (a manager, and it is a supplier). */
+    canEditSupplierTerms: query.data?.canEditSupplierTerms ?? false,
     updateCustomer: updateMutation.mutateAsync,
     deleteCustomer: deleteMutation.mutateAsync,
     uploadLogo: uploadLogoMutation.mutateAsync,

@@ -86,6 +86,14 @@ export function canRateSupplier(role: string): boolean {
 }
 
 /**
+ * Whether the user may change a supplier's payment terms and VAT / bank checks in the Customer Database
+ * (Council Outlay 7, step 6b, E5): the roles that manage Sales, as Trucking's bank fields always were.
+ */
+export function canManageSupplierTerms(role: string): boolean {
+  return canManageSales(role);
+}
+
+/**
  * How far a user may change the owner of a quote:
  * `any` - a manager: to anybody, or to nobody;
  * `own` - a plain user on their own quote: may hand it to anybody, or give it up;

@@ -22,6 +22,8 @@ import { useCanSeeConcepts } from "@/lib/auth/AuthContext";
 import { useCustomerInvoices } from "@/hooks/useCustomerInvoices";
 import { isSupplierOnly } from "../_lib/supplierStatus";
 import { CustomerHaulierInvoicesCard } from "./_components/CustomerHaulierInvoicesCard";
+import { SupplierTermsCard } from "./_components/SupplierTermsCard";
+import { hasSupplierRole } from "../_lib/customerListViews";
 
 const DEFAULT_TAB = "overview";
 
@@ -50,7 +52,8 @@ export function CustomerDetailContent() {
     if (!canSeeConcepts && (t.key === "trucking" || t.key === "sites")) return false;
     if (!supplierOnly) return true;
     if (t.key === "shipments" || t.key === "quotes") return false;
-    if (t.key === "finance") return owedByHaulier || hasSalesInvoices;
+    // Every supplier has its terms and checks on Finance.
+    if (t.key === "finance") return true;
     return true;
   });
   const activeTab = detailTabs.some((t) => t.key === tabKey) ? tabKey : DEFAULT_TAB;
@@ -113,6 +116,7 @@ export function CustomerDetailContent() {
         {activeTab === "trucking" && <TruckingTab customerId={id} />}
         {activeTab === "finance" && (
           <div className="space-y-5">
+            {hasSupplierRole(customer.roles) && <SupplierTermsCard key={customer.id} customer={customer} />}
             {owedByHaulier && <CustomerHaulierInvoicesCard customerId={id} />}
             {(!supplierOnly || hasSalesInvoices) && <FinanceTab customerId={id} onSelectTab={handleSelectTab} />}
           </div>

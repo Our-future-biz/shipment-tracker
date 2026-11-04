@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, integer, smallint, numeric, date, index, uniqueIndex, check, uuid, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, smallint, numeric, date, index, uniqueIndex, check, uuid, timestamp, boolean } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 import type { CustomerLabel, CustomerRole, CustomerStatus, RiskLevelOverride } from "../interfaces/interfaces";
 
@@ -59,6 +59,21 @@ export const customerTable = pgTable(
     supplierRatingByUserId: uuid("supplier_rating_by_user_id"),
     supplierRatingAt: timestamp("supplier_rating_at", { withTimezone: true }),
 
+    // — A supplier's terms and checks (step 6b): what we pay it, and the VAT register checks before we do —
+    // The one place they are edited; a haulier's are also copied to Trucking on every save, whose rules run on them.
+    // Payment days and currency are null until set: a customer's paymentTerms are our terms to it, not these.
+    supplierPaymentDays: integer("supplier_payment_days"),
+    supplierCurrency: text("supplier_currency"),
+    supplierVatUnreliable: boolean("supplier_vat_unreliable").notNull().default(false),
+    supplierBankAccountPublished: boolean("supplier_bank_account_published").notNull().default(false),
+    supplierVatCheckedAt: date("supplier_vat_checked_at", { mode: "string" }),
+    // Normalised (lib/bankAccount.ts). When one was last added, and by whom: a haulier's exact-match
+    // invoice is not approved automatically for 30 days after (Trucking).
+    supplierBankAccounts: text("supplier_bank_accounts").array().notNull().default(sql`'{}'::text[]`),
+    supplierBankAccountsChangedAt: timestamp("supplier_bank_accounts_changed_at", { withTimezone: true }),
+    supplierBankAccountsChangedByUserId: uuid("supplier_bank_accounts_changed_by_user_id"),
+    supplierBankAccountsChangedBy: text("supplier_bank_accounts_changed_by").notNull().default(""),
+
     // — Logo + website (logo stored as base64 data URL in Postgres) —
     companyWebsite: text("company_website").notNull().default(""),
     logoData: text("logo_data").notNull().default(""),
@@ -90,6 +105,7 @@ export const customerTable = pgTable(
       sql`${table.label} IN ('KEY ACCOUNT', 'STANDARD', 'TARGET CUSTOMER', 'RISK')`,
     ),
     check("customer_supplier_rating_check", sql`${table.supplierRating} BETWEEN 0 AND 5`),
+    check("customer_supplier_payment_days_check", sql`${table.supplierPaymentDays} BETWEEN 0 AND 365`),
     // At least one role, and only known ones.
     check(
       "customer_roles_check",

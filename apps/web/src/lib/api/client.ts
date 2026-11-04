@@ -559,6 +559,8 @@ export namespace customers {
             this.noteList = this.noteList.bind(this)
             this.supplierRatingHistory = this.supplierRatingHistory.bind(this)
             this.supplierRatingSet = this.supplierRatingSet.bind(this)
+            this.supplierTermsCopyFromTrucking = this.supplierTermsCopyFromTrucking.bind(this)
+            this.supplierTermsSet = this.supplierTermsSet.bind(this)
         }
 
         public async addressCreate(customerId: string, params: controllers.AddressCreateRequest): Promise<controllers.AddressCreateResponse> {
@@ -877,6 +879,25 @@ export namespace customers {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PUT", `/customers/${encodeURIComponent(id)}/supplier-rating`, JSON.stringify(params))
             return await resp.json() as controllers.SupplierRatingSetResponse
+        }
+
+        /**
+         * The one-off copy of every haulier's payment terms and VAT / bank details from Trucking (Council Outlay 7,
+         * step 6b, E2). Only onto companies whose terms were never set here, so it can be run again. Superadmins only.
+         */
+        public async supplierTermsCopyFromTrucking(): Promise<controllers.SupplierTermsCopyResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/customers/supplier-terms/copy-from-trucking`)
+            return await resp.json() as controllers.SupplierTermsCopyResponse
+        }
+
+        /**
+         * A supplier's payment terms and VAT / bank checks: managers and admins only; a haulier's are copied to Trucking in the same save.
+         */
+        public async supplierTermsSet(id: string, params: controllers.SupplierTermsSetRequest): Promise<controllers.SupplierTermsSetResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/customers/${encodeURIComponent(id)}/supplier-terms`, JSON.stringify(params))
+            return await resp.json() as controllers.SupplierTermsSetResponse
         }
     }
 }
@@ -6284,6 +6305,11 @@ export namespace controllers {
          * Whether the signed-in user may set this company's supplier rating: a manager, and the company is a supplier.
          */
         canRateSupplier: boolean
+
+        /**
+         * Whether the signed-in user may change its payment terms and VAT / bank details: a manager, and the company is a supplier.
+         */
+        canEditSupplierTerms: boolean
     }
 
     export interface CustomerListPrefGetResponse {
@@ -9288,6 +9314,46 @@ export namespace controllers {
     }
 
     export interface SupplierRatingSetResponse {
+        customer: interfaces.CustomerItem
+    }
+
+    export interface SupplierTermsCopyResponse {
+        /**
+         * Hauliers whose terms were copied from Trucking.
+         */
+        copied: number
+
+        /**
+         * Those left as they are: their terms were already set here, or Trucking's profile names no live company.
+         */
+        skipped: number
+    }
+
+    export interface SupplierTermsSetRequest {
+        /**
+         * Days we have to pay the supplier, 0–365.
+         */
+        paymentDays: number
+
+        /**
+         * The currency it is paid in (ISO code); a haulier's CZK or EUR.
+         */
+        currency: string
+
+        vatUnreliable: boolean
+        bankAccountPublished: boolean
+        /**
+         * yyyy-mm-dd of the last VAT register check, or ""
+         */
+        vatCheckedAt: string
+
+        /**
+         * The published accounts, the whole list (a Czech account or an IBAN each).
+         */
+        bankAccounts: string[]
+    }
+
+    export interface SupplierTermsSetResponse {
         customer: interfaces.CustomerItem
     }
 
@@ -12349,6 +12415,11 @@ export namespace interfaces {
          * Only in the list: when the latest Communication entry was made (ISO), null when there is none.
          */
         lastContactAt?: string | null
+
+        /**
+         * A supplier's terms and checks (what we pay it, and the VAT register checks); defaults for a company that is none.
+         */
+        supplierTerms: SupplierTerms
 
         createdAt: string
         updatedAt: string
@@ -18013,6 +18084,44 @@ export namespace interfaces {
         datesChangedAt: string | null
 
         datesChangedBy: string | null
+    }
+
+    /**
+     * A supplier's payment terms to us and the VAT register checks before we pay it (Council Outlay 7, step 6b).
+     */
+    export interface SupplierTerms {
+        /**
+         * Days we have to pay it; null until set.
+         */
+        paymentDays: number | null
+
+        /**
+         * The currency it is paid in (ISO code); null until set. A haulier's is CZK or EUR.
+         */
+        currency: string | null
+
+        vatUnreliable: boolean
+        /**
+         * Its account is published in the VAT register.
+         */
+        bankAccountPublished: boolean
+
+        /**
+         * yyyy-mm-dd of the last VAT register check; "" when never.
+         */
+        vatCheckedAt: string
+
+        /**
+         * The published accounts, normalised (a Czech account or an IBAN).
+         */
+        bankAccounts: string[]
+
+        /**
+         * When an account was last added (ISO), and by whom (e-mail); null / "" when never.
+         */
+        bankAccountsChangedAt: string | null
+
+        bankAccountsChangedBy: string
     }
 
     export type SurchargeCalc = "PCT" | "FLAT" | "PER_KG" | "PER_PALLET" | "PER_HOUR" | "PCT_OF_VALUE" | "FUEL_INDEX"

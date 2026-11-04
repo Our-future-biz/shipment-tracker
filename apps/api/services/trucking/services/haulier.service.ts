@@ -9,6 +9,7 @@ import type {
   HaulierProfile,
   HaulierProfileInput,
   HaulierStatus,
+  HaulierTerms,
 } from "../interfaces/interfaces";
 import type { TruckingEventKind } from "../schemas/truckingEvent.schema";
 import { businessDay } from "../../../lib/businessDate";
@@ -33,6 +34,41 @@ import type { Actor } from "../../../lib/rbac";
 type CallAs = Pick<Actor, "userID" | "companyID" | "role">;
 
 export const HAULIER_CONFLICT = "The haulier was changed by someone else. Reload and try again.";
+
+/** The fields the Customer Database keeps for a haulier (HaulierTerms): never changed by a profile save in Trucking. */
+const termsOf = (p: HaulierTerms): HaulierTerms => ({
+  paymentDays: p.paymentDays,
+  currency: p.currency,
+  vatUnreliable: p.vatUnreliable,
+  bankAccountPublished: p.bankAccountPublished,
+  vatCheckedAt: p.vatCheckedAt,
+  bankAccounts: p.bankAccounts,
+});
+
+/** A stored profile as the input of a save, every field as it is. */
+const inputOf = (p: HaulierProfile): HaulierProfileInput => ({
+  insurer: p.insurer,
+  insurancePolicyNo: p.insurancePolicyNo,
+  insuranceLimit: p.insuranceLimit,
+  insuranceCurrency: p.insuranceCurrency,
+  insuranceValidTo: p.insuranceValidTo,
+  licenceNo: p.licenceNo,
+  licenceValidTo: p.licenceValidTo,
+  licenceUnlimited: p.licenceUnlimited,
+  adrCapable: p.adrCapable,
+  vehicleTypes: p.vehicleTypes,
+  ...termsOf(p),
+  costSplitBasis: p.costSplitBasis,
+  notes: p.notes,
+  preferredLanes: p.preferredLanes,
+});
+
+/** Who changed a haulier's published accounts and when, as the Customer Database stamped it. */
+export interface BankAccountsChange {
+  at: string;
+  byUserId: string | null;
+  by: string;
+}
 const MAX_REASON = 500;
 
 /** A haulier company as the Customer Database gives it. */
@@ -190,7 +226,8 @@ class HaulierService {
     const cur = stored ? toProfile(stored) : defaultProfile(customerId);
     // A save that leaves the published bank accounts out (an older page) keeps them as saved.
     const withAccounts = { ...input, bankAccounts: input.bankAccounts ?? cur.bankAccounts };
-    const next = cleanProfileInput(withAccounts, await settingsService.vehicleCodes(companyId), today());
+    // The payment terms and VAT / bank details are the Customer Database's (step 6b): kept as they are here.
+    const next = { ...cleanProfileInput(withAccounts, await settingsService.vehicleCodes(companyId), today()), ...termsOf(cur) };
     if (cur.version !== version) throw APIError.aborted(HAULIER_CONFLICT);
     const changes = profileChanges(cur, next);
     const vatBank = managerOnlyChanges(changes);
@@ -214,6 +251,53 @@ class HaulierService {
     });
     if (!saved) throw APIError.aborted(HAULIER_CONFLICT);
     return this.get(companyId, customerId);
+  }
+
+  /**
+   * Trucking's copy of what the Customer Database keeps for a haulier, updated on every save there (the
+   * caller checked who may). Written with the profile's event, as any change of a profile; a save of
+   * someone else in between is tried again once.
+   */
+  async setTermsFromCustomers(companyId: string, customerId: string, terms: HaulierTerms, bankChange: BankAccountsChange | null, by: { userId: string; name: string }): Promise<void> {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const stored = await haulierRepository.find(companyId, customerId);
+      const cur = stored ? toProfile(stored) : defaultProfile(customerId);
+      const next: HaulierProfileInput = { ...inputOf(cur), ...terms };
+      const changes = profileChanges(cur, next);
+      if (stored && !Object.keys(changes).length) return;
+      const { preferredLanes: _lanes, ...values } = next;
+      const stamp = bankChange ? { bankAccountsChangedAt: new Date(bankChange.at), bankAccountsChangedByUserId: bankChange.byUserId, bankAccountsChangedBy: bankChange.by || null } : {};
+      const vatBank = managerOnlyChanges(changes);
+      const saved = await haulierRepository.save(companyId, customerId, cur.version, { ...values, ...stamp }, null, {
+        kind: stored ? "profile_updated" : "profile_created",
+        byUserId: by.userId || null,
+        byName: by.name,
+        payload: {
+          changes,
+          summary: `Payment terms and VAT / bank details changed in the Customer Database${vatBank.length ? `: ${vatBank.join(", ")}` : ""}`,
+          facts: { fromCustomerDatabase: true, ...(vatBank.length ? { vatBankChanged: vatBank, bankAccountAdded: !!bankChange } : {}) },
+        },
+      });
+      if (saved) return;
+    }
+    throw APIError.aborted(HAULIER_CONFLICT);
+  }
+
+  /** What Trucking holds for each haulier it has a profile of: the Customer Database copies it once (step 6b, E2). */
+  async termsList(companyId: string): Promise<(HaulierTerms & { customerId: string; bankAccountsChange: BankAccountsChange | null })[]> {
+    const profiles = await haulierRepository.listWithLaneCounts(companyId);
+    return profiles.map(({ profile: r }) => ({
+      customerId: r.customerId,
+      paymentDays: r.paymentDays,
+      currency: r.currency,
+      vatUnreliable: r.vatUnreliable,
+      bankAccountPublished: r.bankAccountPublished,
+      vatCheckedAt: r.vatCheckedAt,
+      bankAccounts: r.bankAccounts ?? [],
+      bankAccountsChange: r.bankAccountsChangedAt
+        ? { at: r.bankAccountsChangedAt.toISOString(), byUserId: r.bankAccountsChangedByUserId, by: r.bankAccountsChangedBy ?? "" }
+        : null,
+    }));
   }
 
   /** Manager only: keeps the haulier off trips until unblocked, with the reason. */

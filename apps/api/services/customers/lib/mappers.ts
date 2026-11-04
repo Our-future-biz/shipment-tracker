@@ -6,7 +6,7 @@ import type { CustomerInvoiceRecord } from "../schemas/customerInvoice.schema";
 import type { CustomerNoteRecord } from "../schemas/customerNote.schema";
 import type { CustomerSiteRecord } from "../schemas/customerSite.schema";
 import type { CustomerSupplierRatingRecord } from "../schemas/customerSupplierRating.schema";
-import type { AddressItem, ContactItem, CustomerItem, CustomerSiteItem, DocumentItem, InvoiceItem, NoteItem, SupplierRatingEntry } from "../interfaces/interfaces";
+import type { AddressItem, ContactItem, CustomerItem, CustomerSiteItem, DocumentItem, InvoiceItem, NoteItem, SupplierRatingEntry, SupplierTerms } from "../interfaces/interfaces";
 import { dateOutput } from "./dates";
 import { customerLogoUrl } from "./logoUrl";
 
@@ -55,8 +55,20 @@ export const toCustomerItem = (r: CustomerItemRow | CustomerRecord): CustomerIte
   supplierRatingReason: r.supplierRatingReason,
   supplierRatingBy: r.supplierRatingBy,
   supplierRatingAt: r.supplierRatingAt ? iso(r.supplierRatingAt) : null,
+  supplierTerms: toSupplierTerms(r),
   createdAt: iso(r.createdAt),
   updatedAt: iso(r.updatedAt),
+});
+
+export const toSupplierTerms = (r: CustomerItemRow | CustomerRecord): SupplierTerms => ({
+  paymentDays: r.supplierPaymentDays,
+  currency: r.supplierCurrency,
+  vatUnreliable: r.supplierVatUnreliable,
+  bankAccountPublished: r.supplierBankAccountPublished,
+  vatCheckedAt: dateOutput(r.supplierVatCheckedAt),
+  bankAccounts: r.supplierBankAccounts,
+  bankAccountsChangedAt: r.supplierBankAccountsChangedAt ? iso(r.supplierBankAccountsChangedAt) : null,
+  bankAccountsChangedBy: r.supplierBankAccountsChangedBy,
 });
 
 export const toSupplierRatingEntry = (r: CustomerSupplierRatingRecord): SupplierRatingEntry => ({

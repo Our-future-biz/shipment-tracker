@@ -212,6 +212,20 @@ export interface PreferredLaneInput {
   note: string;
 }
 
+/**
+ * A haulier's payment terms and VAT / bank details as the Customer Database keeps them (Council Outlay 7,
+ * step 6b): edited there only, and Trucking's copy updated on every save there. A profile save here keeps them.
+ */
+export interface HaulierTerms {
+  paymentDays: number;
+  currency: HaulierCurrency;
+  vatUnreliable: boolean;
+  bankAccountPublished: boolean;
+  /** YYYY-MM-DD */
+  vatCheckedAt: string | null;
+  bankAccounts: string[];
+}
+
 /** What a profile save may change (block, version and the customer are managed by the server). */
 export interface HaulierProfileInput {
   insurer: string;
