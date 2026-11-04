@@ -9,7 +9,7 @@ const company = (over: Partial<CustomerItem> = {}): CustomerItem => ({
   creditLimit: 0, currency: "EUR", secondaryCurrencies: [], paymentTerms: "", freightPaymentTerms: "", dutyPaymentTerms: "",
   companyWebsite: "", logoUrl: "", logoSource: "", logoUpdatedAt: "", totalRevenue: 0, totalProfit: 0, totalShipments: 0,
   lastActivityDate: "", supplierRating: 4, supplierRatingReason: "", supplierRatingBy: "m@x.cz", supplierRatingAt: "2026-10-01T08:00:00Z",
-  supplierTerms: { paymentDays: null, currency: null, vatUnreliable: false, bankAccountPublished: false, vatCheckedAt: "", bankAccounts: [], bankAccountsChangedAt: null, bankAccountsChangedBy: "" },
+  supplierTerms: { paymentDays: 30, currency: "CZK", vatUnreliable: false, bankAccountPublished: true, vatCheckedAt: "2026-10-01", bankAccounts: ["19-2000145399/0800"], bankAccountsChangedAt: null, bankAccountsChangedBy: "" },
   createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
   ...over,
 });
@@ -64,5 +64,31 @@ describe("a supplier's Needs attention", () => {
   it("asks for a dispatch contact, unless the contacts could not be read", () => {
     expect(keys({ contacts: [] })).toEqual(["no-dispatch-contact"]);
     expect(keys({ contacts: null })).toEqual([]);
+  });
+
+  describe("the VAT register checks", () => {
+    const terms = (over: Partial<CustomerItem["supplierTerms"]>) => company({ roles: ["rail_operator"], supplierTerms: { ...company().supplierTerms, ...over } });
+
+    it("name an unreliable payer as critical, and a check never made or over 6 months old", () => {
+      const unreliable = buildSupplierAttention(input({ customer: terms({ vatUnreliable: true }) }));
+      expect(unreliable.map((i) => [i.key, i.severity])).toEqual([["vat-unreliable", "critical"]]);
+      expect(keys({ customer: terms({ vatCheckedAt: "" }) })).toEqual(["vat-not-checked"]);
+      expect(keys({ customer: terms({ vatCheckedAt: "2026-05-03" }) })).toEqual(["vat-check-old"]);
+      expect(keys({ customer: terms({ vatCheckedAt: "2026-05-05" }) })).toEqual([]);
+    });
+
+    it("leave a haulier's unreliable payer and check to Trucking, which says them itself", () => {
+      const haulier = company({ supplierTerms: { ...company().supplierTerms, vatUnreliable: true, vatCheckedAt: "" } });
+      expect(keys({ customer: haulier })).toEqual([]);
+    });
+
+    it("name a checked supplier with no published account, and an account added in the last 30 days, a haulier too", () => {
+      expect(keys({ customer: terms({ bankAccounts: [] }) })).toEqual(["no-published-account"]);
+      expect(keys({ customer: terms({ bankAccountPublished: false }) })).toEqual(["no-published-account"]);
+      // Never checked: only that is said.
+      expect(keys({ customer: terms({ vatCheckedAt: "", bankAccounts: [] }) })).toEqual(["vat-not-checked"]);
+      expect(keys({ customer: company({ supplierTerms: { ...company().supplierTerms, bankAccountsChangedAt: "2026-10-20T08:00:00Z", bankAccountsChangedBy: "jana@x.cz" } }) })).toEqual(["bank-account-added"]);
+      expect(keys({ customer: company({ supplierTerms: { ...company().supplierTerms, bankAccountsChangedAt: "2026-10-01T08:00:00Z" } }) })).toEqual([]);
+    });
   });
 });
