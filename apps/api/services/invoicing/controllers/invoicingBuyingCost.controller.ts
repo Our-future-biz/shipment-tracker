@@ -39,6 +39,8 @@ interface UpdateBuyingRequest {
   received?: boolean;
   /** a Customer Database company id; "" clears it */
   haulierId?: string;
+  /** the Customer Database supplier the vendor names; "" clears it (a vendor typed by hand) */
+  supplierCustomerId?: string;
   /** position in the list (undo / re-insert keeps a line where it was) */
   sortOrder?: number;
 }

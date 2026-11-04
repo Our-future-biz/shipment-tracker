@@ -5388,6 +5388,11 @@ export namespace controllers {
         description?: string
 
         vendor?: string
+        /**
+         * the Customer Database supplier the vendor names; "" clears it (a vendor typed by hand)
+         */
+        supplierCustomerId?: string
+
         estQty?: string
         estAmount?: string
         estCurrency?: string
@@ -10193,6 +10198,11 @@ export namespace controllers {
         haulierId?: string
 
         /**
+         * the Customer Database supplier the vendor names; "" clears it (a vendor typed by hand)
+         */
+        supplierCustomerId?: string
+
+        /**
          * position in the list (undo / re-insert keeps a line where it was)
          */
         sortOrder?: number
@@ -14199,6 +14209,11 @@ export namespace interfaces {
          * the haulier the cost is owed to (a Customer Database company), or null
          */
         haulierId: string | null
+
+        /**
+         * the supplier `vendor` names when it was picked from the Customer Database; null for a vendor only typed
+         */
+        supplierCustomerId: string | null
 
         sortOrder: number
         /**

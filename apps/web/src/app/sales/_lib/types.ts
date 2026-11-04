@@ -72,7 +72,8 @@ export interface CostLine {
   chargeCode?: string;
   description: string;
   supplier?: string;
-  // The haulier (a customer) a line priced from a trucking tariff is bought from.
+  // The Customer Database company `supplier` names: picked on the line, or the supplier of the tariff
+  // the line was priced from. Absent for a supplier only typed. Goes with the line into Costs Breakdown.
   supplierCustomerId?: string;
   currency: string;
   // The whole line; with qty and unitPrice it is their product.

@@ -45,6 +45,13 @@ describe("write changes", () => {
     expect(buyingChanges({ sortOrder: 3, estAmount: "" })).toEqual({ sortOrder: 3, estAmount: null });
     expect(sellingChanges({ sortOrder: 0, qty: "2" })).toEqual({ sortOrder: 0, qty: "2" });
   });
+
+  it("link the vendor to a picked supplier by its company id, clear it with \"\", and refuse anything else", () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    expect(buyingChanges({ vendor: "Maersk A/S", supplierCustomerId: id })).toEqual({ vendor: "Maersk A/S", supplierCustomerId: id });
+    expect(buyingChanges({ vendor: "Typed", supplierCustomerId: "" })).toEqual({ vendor: "Typed", supplierCustomerId: null });
+    expect(() => buyingChanges({ supplierCustomerId: "Maersk" })).toThrow(/supplierCustomerId must be a company id/);
+  });
 });
 
 describe("setsEstimate", () => {

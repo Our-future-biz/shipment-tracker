@@ -4,12 +4,15 @@
 // browsers, so nothing about its shape is taken for granted. Pure, so the mapping has its test.
 
 import { toChargeCode } from "../../../lib/chargeCodes";
+import { isUuid } from "../../../lib/uuid";
 
 /** A buying row of Costs Breakdown, as a quote's buying line fills it. */
 export interface QuoteBuyingRow {
   category: string;
   description: string;
   vendor: string;
+  /** the supplier picked on the quote's line (a Customer Database company), or null */
+  supplierCustomerId: string | null;
   estQty: string;
   estAmount: string | null;
   estCurrency: string;
@@ -70,6 +73,7 @@ interface QuoteLine {
   category: string;
   description: string;
   supplier: string;
+  supplierCustomerId: string | null;
   /** the quantity of the row: the line's own with its unit price, else 1 */
   qty: string;
   unit: string;
@@ -107,6 +111,8 @@ function linesOf(value: unknown, quoteCurrency: string, skipTrucking: boolean): 
       category: toChargeCode(text(line.chargeCode) || text(line.type)),
       description,
       supplier,
+      // Only an id goes with the supplier: the document comes from browsers.
+      supplierCustomerId: supplier && isUuid(text(line.supplierCustomerId)) ? text(line.supplierCustomerId) : null,
       qty: perUnit ? toAmount(qtyCents)! : ONE,
       unit: text(line.unit),
       amount: perUnit ? toAmount(unitPriceCents) : toAmount(cents),
@@ -134,6 +140,7 @@ export function quoteLinesToCostRows(data: unknown, opts: { skipTrucking?: boole
       category: line.category,
       description: line.description,
       vendor: line.supplier,
+      supplierCustomerId: line.supplierCustomerId,
       estQty: line.qty,
       estAmount: line.amount,
       estCurrency: line.currency,

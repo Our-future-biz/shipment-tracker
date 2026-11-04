@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import { Input, InputNumber, Select } from "antd";
+import { SupplierPicker } from "@/components/SupplierPicker";
 import { PlusOutlined } from "@ant-design/icons";
 import type { ExchangeRates } from "@/lib/exchangeRates";
 import { fmtMoney, moneyInputParser } from "@/lib/money";
@@ -219,7 +220,12 @@ export function CostLinesEditor({
                   </td>
                   {buying && (
                     <td className={LINE_TD_CLASS}>
-                      <Input size="small" aria-label="Supplier" placeholder="Supplier" value={l.supplier ?? ""} onChange={(e) => patch(i, { supplier: e.target.value })} />
+                      {/* Picked from the Customer Database's suppliers (with their stars) or typed; a tariff's line keeps the tariff's supplier. */}
+                      <SupplierPicker
+                        value={{ name: l.supplier ?? "", supplierCustomerId: l.supplierCustomerId ?? null }}
+                        readOnly={!!l.tariffRef}
+                        onChange={(next) => patch(i, { supplier: next.name, supplierCustomerId: next.supplierCustomerId ?? undefined })}
+                      />
                     </td>
                   )}
                   <td className={LINE_TD_CLASS}>

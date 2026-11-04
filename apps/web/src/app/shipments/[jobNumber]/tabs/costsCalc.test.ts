@@ -6,6 +6,7 @@ const buy = (over: Partial<BuyingRow>): BuyingRow => ({
   category: "Ocean freight",
   description: "",
   vendor: "",
+  supplierCustomerId: null,
   estQty: "",
   estAmount: "",
   estCurrency: "CZK",

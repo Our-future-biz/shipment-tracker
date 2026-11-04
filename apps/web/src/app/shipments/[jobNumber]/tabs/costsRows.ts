@@ -26,6 +26,7 @@ export const buyRowsOf = (costs: InvoicingData["costs"] | undefined): BuyingRow[
     category: c.category ?? "",
     description: c.description ?? "",
     vendor: c.vendor ?? "",
+    supplierCustomerId: c.supplierCustomerId ?? null,
     estQty: c.estQty ?? "",
     estAmount: c.estAmount ?? "",
     estCurrency: c.estCurrency || "CZK",

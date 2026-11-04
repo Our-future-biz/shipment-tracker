@@ -16,6 +16,8 @@ export interface InvoiceCostItem {
   vendor: string;
   /** the haulier the cost is owed to (a Customer Database company), or null */
   haulierId: string | null;
+  /** the supplier `vendor` names when it was picked from the Customer Database; null for a vendor only typed */
+  supplierCustomerId: string | null;
   sortOrder: number;
   /** The Trucking consignment / trip the row was pushed from ("trucking:trip:<id>"); null otherwise. Read-only then. */
   sourceTruckingRef: string | null;
@@ -124,6 +126,8 @@ export interface BuyingCostInput {
   /** what is charged, in words (from the quote) */
   description?: string;
   vendor?: string;
+  /** the Customer Database supplier the vendor names; "" clears it (a vendor typed by hand) */
+  supplierCustomerId?: string;
   estQty?: string;
   estAmount?: string;
   estCurrency?: string;

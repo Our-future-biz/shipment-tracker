@@ -28,6 +28,11 @@ export const invoiceCostTable = pgTable(
     vendor: text("vendor").notNull().default(""),
     /** The haulier the cost is owed to: a company of the Customer Database (no FK - another service's database). */
     haulierId: uuid("haulier_id"),
+    /**
+     * The supplier the vendor text names, when it was picked from the Customer Database (or came so from
+     * the quote): a company id, no FK. Null for a vendor only typed. Lets its rating show beside it.
+     */
+    supplierCustomerId: uuid("supplier_customer_id"),
     sortOrder: integer("sort_order").notNull().default(0),
     /** The sales quote the row was copied from; "" for a row entered by hand. Tells whether a quote was already copied. */
     sourceQuoteNumber: text("source_quote_number").notNull().default(""),

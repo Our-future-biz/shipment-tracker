@@ -69,6 +69,7 @@ const toCostItem = (r: InvoiceCostRecord): InvoiceCostItem => ({
   received: r.received,
   vendor: r.vendor,
   haulierId: r.haulierId,
+  supplierCustomerId: r.supplierCustomerId,
   sortOrder: r.sortOrder,
   sourceTruckingRef: r.sourceTruckingRef,
   sourceMasterJobRef: r.sourceMasterJobRef,
@@ -134,12 +135,12 @@ const toInvoiceItem = (r: GeneratedInvoiceRecord): GeneratedInvoiceItem => ({
 // A category is stored as its charge code, however the caller wrote it ("Road freight").
 const chargeCodeOf = (category: string | undefined) => (category === undefined ? undefined : toChargeCode(category));
 
-// "" clears the haulier; anything else must be a company id.
-function haulierIdOf(value: string | undefined): string | null | undefined {
+// "" clears the company; anything else must be a company id.
+function companyIdOf(value: string | undefined, field: string): string | null | undefined {
   if (value === undefined) return undefined;
   const id = value.trim();
   if (id === "") return null;
-  if (!isUuid(id)) throw APIError.invalidArgument("haulierId must be a company id");
+  if (!isUuid(id)) throw APIError.invalidArgument(`${field} must be a company id`);
   return id;
 }
 
@@ -147,7 +148,8 @@ export function buyingChanges(input: BuyingCostInput): Partial<NewInvoiceCostRec
   return definedOnly({
     ...input,
     category: chargeCodeOf(input.category),
-    haulierId: haulierIdOf(input.haulierId),
+    haulierId: companyIdOf(input.haulierId, "haulierId"),
+    supplierCustomerId: companyIdOf(input.supplierCustomerId, "supplierCustomerId"),
     estQty: toDecimal(input.estQty, "estQty"),
     estAmount: toDecimal(input.estAmount, "estAmount"),
     realQty: toDecimal(input.realQty, "realQty"),

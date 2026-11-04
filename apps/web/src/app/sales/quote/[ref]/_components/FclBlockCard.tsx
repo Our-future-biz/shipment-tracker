@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { Checkbox, Input, Select } from "antd";
+import { SupplierPicker } from "@/components/SupplierPicker";
 import { PlusOutlined } from "@ant-design/icons";
 import type { ExchangeRates } from "@/lib/exchangeRates";
 import { chargeOptions, toChargeCode } from "@/lib/chargeCodes";
@@ -159,7 +160,12 @@ export function FclBlockCard({
                     )}
                   </td>
                   <td className={LINE_TD_CLASS}>
-                    <Input size="small" aria-label="Supplier" placeholder="Supplier" value={l.supplier ?? ""} onChange={(e) => onPatchLine(c.index, { supplier: e.target.value })} />
+                    {/* Picked from the Customer Database's suppliers (with their stars) or typed; a tariff's line keeps the tariff's supplier. */}
+                    <SupplierPicker
+                      value={{ name: l.supplier ?? "", supplierCustomerId: l.supplierCustomerId ?? null }}
+                      readOnly={!!l.tariffRef}
+                      onChange={(next) => onPatchLine(c.index, { supplier: next.name, supplierCustomerId: next.supplierCustomerId ?? undefined })}
+                    />
                   </td>
                   <td className={LINE_TD_CLASS}>
                     <Select

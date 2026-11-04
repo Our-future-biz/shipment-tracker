@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CURRENCIES } from "@/lib/cargo";
 import Link from "next/link";
 import { App, Input, Select, Checkbox, Tooltip, Modal } from "antd";
@@ -22,6 +22,7 @@ import { isTruckingCost, parseTruckingRef, truckingCostTag } from "@/lib/truckin
 import { TruckingCostTagLink } from "@/components/TruckingCostTagLink";
 import { ProfitVsEstimate } from "@/components/ProfitVsEstimate";
 import { useCanSeeConcepts } from "@/lib/auth/AuthContext";
+import { SupplierPicker, type SupplierValue } from "@/components/SupplierPicker";
 
 interface CurrencyPickerProps {
   value: string;
@@ -653,11 +654,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
                     />
                   </td>
                   <td className={CELL}>
-                    <input
-                      className={`${FIELD}${fld}`}
-                      defaultValue={r.vendor}
-                      onBlur={(e) => e.target.value !== r.vendor && updateBuy.mutate({ id: r.id, vendor: e.target.value })}
-                    />
+                    <VendorCell row={r} locked={locked} className={fld} onSave={(change) => updateBuy.mutate({ id: r.id, ...change })} />
                   </td>
                   {/* Estimated */}
                   <td className={CELL}>
@@ -1294,5 +1291,48 @@ function QuoteProfitRows({ quoteRef, data, loading, rates, profitCZK, hasAny }: 
         ))}
       </tr>
     </>
+  );
+}
+
+interface VendorCellProps {
+  row: BuyingRow;
+  /** A locked row: the field reads as text until the row is opened. */
+  locked: boolean;
+  className: string;
+  onSave: (change: { vendor: string; supplierCustomerId: string }) => void;
+}
+
+// The vendor of a buying row: a supplier picked from the Customer Database (saved at once, linked, with
+// its stars) or a name typed (saved when the field is left, unlinked), as the other fields save on blur.
+function VendorCell({ row, locked, className, onSave }: VendorCellProps) {
+  const stored: SupplierValue = { name: row.vendor, supplierCustomerId: row.supplierCustomerId };
+  const [value, setValue] = useState<SupplierValue>(stored);
+  // What the field holds now, for the blur that follows a pick before the state has caught up.
+  const latest = useRef(stored);
+  useEffect(() => {
+    const next = { name: row.vendor, supplierCustomerId: row.supplierCustomerId };
+    latest.current = next;
+    setValue(next);
+  }, [row.vendor, row.supplierCustomerId]);
+
+  const save = (next: SupplierValue) => {
+    if (next.name === row.vendor && next.supplierCustomerId === row.supplierCustomerId) return;
+    onSave({ vendor: next.name, supplierCustomerId: next.supplierCustomerId ?? "" });
+  };
+
+  return (
+    <SupplierPicker
+      value={value}
+      className={className}
+      plain={locked}
+      ariaLabel="Vendor"
+      placeholder="—"
+      onChange={(next) => {
+        latest.current = next;
+        setValue(next);
+        if (next.supplierCustomerId) save(next);
+      }}
+      onBlur={() => save(latest.current)}
+    />
   );
 }

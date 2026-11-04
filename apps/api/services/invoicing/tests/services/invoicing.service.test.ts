@@ -48,8 +48,8 @@ const DATA = {
   sellingLines: [{ type: "Ocean freight", description: "All-in", currency: "USD", amount: 2400 }],
 };
 const BUYING = [
-  { category: "ocean_freight", description: "", vendor: "Maersk", estQty: "1", estAmount: "2000.00", estCurrency: "USD", realQty: "1", realCurrency: "USD", unit: "" },
-  { category: "thc_destination", description: "", vendor: "", estQty: "1", estAmount: "3500.00", estCurrency: "CZK", realQty: "1", realCurrency: "CZK", unit: "" },
+  { category: "ocean_freight", description: "", vendor: "Maersk", supplierCustomerId: null, estQty: "1", estAmount: "2000.00", estCurrency: "USD", realQty: "1", realCurrency: "USD", unit: "" },
+  { category: "thc_destination", description: "", vendor: "", supplierCustomerId: null, estQty: "1", estAmount: "3500.00", estCurrency: "CZK", realQty: "1", realCurrency: "CZK", unit: "" },
 ];
 const SELLING = [{ category: "ocean_freight", description: "All-in", customer: "ITTEC s.r.o.", qty: "1", amount: "2400.00", currency: "USD", invoice: true }];
 

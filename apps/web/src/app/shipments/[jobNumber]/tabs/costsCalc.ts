@@ -33,6 +33,8 @@ export interface BuyingRow {
   /** What the cost is for, in the user's words - the description of the quote line it was copied from. */
   description: string;
   vendor: string;
+  /** The Customer Database supplier the vendor names when it was picked (or came so from the quote); null when only typed. */
+  supplierCustomerId: string | null;
   estQty: string;
   estAmount: string;
   estCurrency: string;

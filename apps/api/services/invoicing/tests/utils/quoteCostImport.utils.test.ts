@@ -27,6 +27,7 @@ describe("quoteLinesToCostRows", () => {
         category: "ocean_freight",
         description: "Shanghai - Hamburg, 1x40HC",
         vendor: "Maersk",
+        supplierCustomerId: null,
         estQty: "1",
         estAmount: "2000.00",
         estCurrency: "USD",
@@ -34,8 +35,24 @@ describe("quoteLinesToCostRows", () => {
         realCurrency: "USD",
         unit: "",
       },
-      { category: "thc_destination", description: "", vendor: "Metrans", estQty: "1", estAmount: "3500.00", estCurrency: "CZK", realQty: "1", realCurrency: "CZK", unit: "" },
-      { category: "handling", description: "Terminal handling", vendor: "", estQty: "1", estAmount: "80.00", estCurrency: "EUR", realQty: "1", realCurrency: "EUR", unit: "" },
+      { category: "thc_destination", description: "", vendor: "Metrans", supplierCustomerId: null, estQty: "1", estAmount: "3500.00", estCurrency: "CZK", realQty: "1", realCurrency: "CZK", unit: "" },
+      { category: "handling", description: "Terminal handling", vendor: "", supplierCustomerId: null, estQty: "1", estAmount: "80.00", estCurrency: "EUR", realQty: "1", realCurrency: "EUR", unit: "" },
+    ]);
+  });
+
+  it("carries the supplier picked on a line to its row, only as a company id and only with its name", () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    const rows = buying([
+      { type: "Ocean freight", supplier: "Maersk A/S", supplierCustomerId: id, amount: 100, currency: "EUR" },
+      { type: "Handling", supplier: "Typed only", amount: 50, currency: "EUR" },
+      { type: "Handling", supplier: "Bad id", supplierCustomerId: "not-an-id", amount: 10, currency: "EUR" },
+      { type: "Handling", supplier: "", supplierCustomerId: id, description: "no name", amount: 10, currency: "EUR" },
+    ]);
+    expect(rows.map((r) => [r.vendor, r.supplierCustomerId])).toEqual([
+      ["Maersk A/S", id],
+      ["Typed only", null],
+      ["Bad id", null],
+      ["", null],
     ]);
   });
 
@@ -125,7 +142,7 @@ describe("quoteLinesToCostRows", () => {
 
   it("takes text as text only, trimmed: a type, supplier or customer of another kind is empty", () => {
     expect(buying([{ type: 5, description: [" x "], supplier: { name: "Maersk" }, amount: 80 }])).toEqual([
-      { category: "", description: "", vendor: "", estQty: "1", estAmount: "80.00", estCurrency: "EUR", realQty: "1", realCurrency: "EUR", unit: "" },
+      { category: "", description: "", vendor: "", supplierCustomerId: null, estQty: "1", estAmount: "80.00", estCurrency: "EUR", realQty: "1", realCurrency: "EUR", unit: "" },
     ]);
     expect(selling([{ type: " Handling ", description: " per container ", amount: 80 }], { customerName: 42 })).toEqual([
       { category: "handling", description: "per container", customer: "", qty: "1", amount: "80.00", currency: "EUR", invoice: true },
