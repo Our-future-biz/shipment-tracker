@@ -23,6 +23,7 @@ import { useCustomerInvoices } from "@/hooks/useCustomerInvoices";
 import { isSupplierOnly } from "../_lib/supplierStatus";
 import { CustomerHaulierInvoicesCard } from "./_components/CustomerHaulierInvoicesCard";
 import { SupplierTermsCard } from "./_components/SupplierTermsCard";
+import { SupplierOwedCard } from "./_components/SupplierOwedCard";
 import { hasSupplierRole } from "../_lib/customerListViews";
 
 const DEFAULT_TAB = "overview";
@@ -117,6 +118,7 @@ export function CustomerDetailContent() {
         {activeTab === "finance" && (
           <div className="space-y-5">
             {hasSupplierRole(customer.roles) && <SupplierTermsCard key={customer.id} customer={customer} />}
+            {hasSupplierRole(customer.roles) && <SupplierOwedCard customer={customer} withHaulierInvoices={customer.roles.includes("haulier") && canSeeConcepts} />}
             {owedByHaulier && <CustomerHaulierInvoicesCard customerId={id} />}
             {(!supplierOnly || hasSalesInvoices) && <FinanceTab customerId={id} onSelectTab={handleSelectTab} />}
           </div>

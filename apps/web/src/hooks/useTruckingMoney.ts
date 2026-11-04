@@ -35,11 +35,12 @@ function useRefreshInvoices() {
     ]);
 }
 
-export function useHaulierInvoices(filters: HaulierInvoiceListRequest = {}) {
+export function useHaulierInvoices(filters: HaulierInvoiceListRequest = {}, { enabled = true }: { enabled?: boolean } = {}) {
   const query = useQuery({
     queryKey: truckingKeys.haulierInvoiceList({ status: filters.status, haulierCustomerId: filters.haulierCustomerId }),
     queryFn: () => api.trucking.truckingHaulierInvoiceList(filters),
     placeholderData: keepPreviousData,
+    enabled,
   });
   return { invoices: query.data?.invoices ?? NO_INVOICES, isLoading: query.isLoading, isError: query.isError };
 }

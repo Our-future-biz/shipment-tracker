@@ -1208,6 +1208,7 @@ export namespace invoicing {
             this.invoicingMasterJobCostUpdate = this.invoicingMasterJobCostUpdate.bind(this)
             this.invoicingMasterJobCosts = this.invoicingMasterJobCosts.bind(this)
             this.invoicingSplitCost = this.invoicingSplitCost.bind(this)
+            this.invoicingSupplierCosts = this.invoicingSupplierCosts.bind(this)
             this.invoicingUpdateBuyingCost = this.invoicingUpdateBuyingCost.bind(this)
             this.invoicingUpdateCharge = this.invoicingUpdateCharge.bind(this)
             this.invoicingUpdateSellingCost = this.invoicingUpdateSellingCost.bind(this)
@@ -1404,6 +1405,17 @@ export namespace invoicing {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/cost-split`, JSON.stringify(params))
             return await resp.json() as controllers.SplitCostResponse
+        }
+
+        /**
+         * What we owe a supplier of the Customer Database, from the shipments' Costs Breakdown: its buying
+         * lines not yet paid (received = owed, not received = expected) and the typed vendor names that name
+         * it without being linked (Council Outlay 7, step 6b). Read by everyone who sees the supplier's page.
+         */
+        public async invoicingSupplierCosts(customerId: string): Promise<interfaces.SupplierCostsResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/invoicing/suppliers/${encodeURIComponent(customerId)}/costs`)
+            return await resp.json() as interfaces.SupplierCostsResponse
         }
 
         public async invoicingUpdateBuyingCost(shipmentId: string, costId: string, params: controllers.UpdateBuyingRequest): Promise<controllers.BuyingResponse> {
@@ -17995,6 +18007,45 @@ export namespace interfaces {
         estimatedCzk: number
     }
 
+    /**
+     * A buying cost line of a shipment's Costs Breakdown owed to a supplier and not yet paid (Council
+     * Outlay 7, step 6b "What we owe"): linked to the supplier's company, entered here (Trucking's and a
+     * master job's rows are left out: Trucking's money is in its haulier invoices).
+     */
+    export interface SupplierCostLine {
+        id: string
+        shipmentId: string
+        jobNumber: string
+        category: string
+        description: string
+        invoiceNumber: string
+        /**
+         * the supplier's invoice was received: owed. Otherwise only expected
+         */
+        received: boolean
+
+        /**
+         * when Received was ticked (ISO); null when not received, or received before it was kept
+         */
+        receivedAt: string | null
+
+        /**
+         * owed: the real cost (null when not entered). Expected: the real cost once entered, else the estimate
+         */
+        amount: number | null
+
+        currency: string
+    }
+
+    export interface SupplierCostsResponse {
+        lines: SupplierCostLine[]
+        typedNames: SupplierTypedName[]
+        /**
+         * more open lines than were read: the newest are shown
+         */
+        truncated: boolean
+    }
+
     export interface SupplierEmailAttachmentItem {
         fileId: string
         fileName: string
@@ -18182,6 +18233,14 @@ export namespace interfaces {
         bankAccountsChangedAt: string | null
 
         bankAccountsChangedBy: string
+    }
+
+    /**
+     * Cost lines whose vendor only names the supplier as typed text: not counted, only named (E10).
+     */
+    export interface SupplierTypedName {
+        vendor: string
+        lines: number
     }
 
     export type SurchargeCalc = "PCT" | "FLAT" | "PER_KG" | "PER_PALLET" | "PER_HOUR" | "PCT_OF_VALUE" | "FUEL_INDEX"

@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, ne } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { invoiceCostTable as t, type InvoiceCostRecord, type NewInvoiceCostRecord } from "../schemas/invoiceCost.schema";
@@ -9,9 +9,34 @@ import { invoiceCostTable as t, type InvoiceCostRecord, type NewInvoiceCostRecor
 const lineOf = (id: string, companyId: string, shipmentId: string) =>
   and(eq(t.id, id), eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), isNull(t.deletedAt), isNull(t.sourceTruckingRef), isNull(t.sourceMasterJobRef));
 
+// Rows entered in Costs Breakdown itself (not pushed by Trucking, not a master job's share).
+const ENTERED_HERE = [isNull(t.sourceTruckingRef), isNull(t.sourceMasterJobRef)];
+
 class InvoiceCostRepository extends TenantRepository<typeof t> {
   constructor() {
     super(db, t, "invoice_cost");
+  }
+
+  /**
+   * A supplier's live buying rows not yet paid, newest first (at most `limit`): linked to its company
+   * (picked, or its haulier id), entered here - Trucking's and a master job's rows are left out.
+   */
+  async openOfSupplier(companyId: string, supplierId: string, limit: number): Promise<InvoiceCostRecord[]> {
+    return this.db
+      .select()
+      .from(t)
+      .where(and(eq(t.companyId, companyId), isNull(t.deletedAt), ...ENTERED_HERE, isNull(t.paidOn), or(eq(t.supplierCustomerId, supplierId), eq(t.haulierId, supplierId))))
+      .orderBy(desc(t.createdAt), asc(t.id))
+      .limit(limit);
+  }
+
+  /** The vendor texts of live rows not yet paid and linked to no company, each with its row count. */
+  async openTypedVendors(companyId: string): Promise<{ vendor: string; lines: number }[]> {
+    return this.db
+      .select({ vendor: t.vendor, lines: count() })
+      .from(t)
+      .where(and(eq(t.companyId, companyId), isNull(t.deletedAt), ...ENTERED_HERE, isNull(t.paidOn), isNull(t.supplierCustomerId), isNull(t.haulierId), sql`btrim(${t.vendor}) <> ''`))
+      .groupBy(t.vendor);
   }
 
   /** Live rows of these shipments (the job-profit report reads many jobs at once). */

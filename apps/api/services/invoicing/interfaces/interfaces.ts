@@ -671,3 +671,37 @@ export interface MasterJobCostInput {
   splitMethod?: MasterJobSplitMethod;
   sortOrder?: number;
 }
+
+/**
+ * A buying cost line of a shipment's Costs Breakdown owed to a supplier and not yet paid (Council
+ * Outlay 7, step 6b "What we owe"): linked to the supplier's company, entered here (Trucking's and a
+ * master job's rows are left out: Trucking's money is in its haulier invoices).
+ */
+export interface SupplierCostLine {
+  id: string;
+  shipmentId: string;
+  jobNumber: string;
+  category: string;
+  description: string;
+  invoiceNumber: string;
+  /** the supplier's invoice was received: owed. Otherwise only expected */
+  received: boolean;
+  /** when Received was ticked (ISO); null when not received, or received before it was kept */
+  receivedAt: string | null;
+  /** owed: the real cost (null when not entered). Expected: the real cost once entered, else the estimate */
+  amount: number | null;
+  currency: string;
+}
+
+/** Cost lines whose vendor only names the supplier as typed text: not counted, only named (E10). */
+export interface SupplierTypedName {
+  vendor: string;
+  lines: number;
+}
+
+export interface SupplierCostsResponse {
+  lines: SupplierCostLine[];
+  typedNames: SupplierTypedName[];
+  /** more open lines than were read: the newest are shown */
+  truncated: boolean;
+}

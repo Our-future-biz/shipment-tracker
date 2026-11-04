@@ -16,7 +16,7 @@ interface CustomerHaulierInvoicesCardProps {
   customerId: string;
 }
 
-// What we owe a haulier: its invoices to us as Trucking has them (entered, matched, approved, blocked),
+// A haulier's invoices to us as Trucking has them (entered, matched, approved, blocked),
 // with the day each approved one was paid once Trucking notes it (Council Outlay 7, step 6b).
 export function CustomerHaulierInvoicesCard({ customerId }: CustomerHaulierInvoicesCardProps) {
   const { invoices, isLoading, isError } = useHaulierInvoices({ haulierCustomerId: customerId });
@@ -39,7 +39,7 @@ export function CustomerHaulierInvoicesCard({ customerId }: CustomerHaulierInvoi
   ];
 
   return (
-    <SectionCard title="What we owe · haulier invoices" extra={<span className="text-xs text-slate-400">Approved, not yet paid, is what we owe</span>}>
+    <SectionCard title="Haulier invoices · Trucking" extra={<span className="text-xs text-slate-400">Approved and not yet paid ones are in What we owe</span>}>
       {isError ? (
         <span className="text-xs text-red-600">The haulier invoices could not be read.</span>
       ) : (
