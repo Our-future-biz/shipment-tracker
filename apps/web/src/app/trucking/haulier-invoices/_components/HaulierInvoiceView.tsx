@@ -56,7 +56,9 @@ export const HaulierInvoiceView = ({ invoiceId }: HaulierInvoiceViewProps) => {
   const toast = useToast();
   const { user } = useAuth();
   const { invoice: inv, isLoading, error, approve, reject, markPaid, markUnpaid } = useHaulierInvoice(invoiceId);
-  const { haulier } = useHaulier(inv?.haulierCustomerId ?? "", { enabled: inv?.status === "BLOCKED" });
+  // Read for a blocked invoice (what to fix) and for an approved one (whether the haulier is now an unreliable VAT payer, K16).
+  const { haulier } = useHaulier(inv?.haulierCustomerId ?? "", { enabled: inv?.status === "BLOCKED" || inv?.status === "APPROVED" });
+  const [paying, setPaying] = useState(false);
   const [dialog, setDialog] = useState<"approve" | "reject" | "pay" | "unpay" | null>(null);
   const [paidOn, setPaidOn] = useState<Dayjs | null>(null);
 
@@ -80,7 +82,7 @@ export const HaulierInvoiceView = ({ invoiceId }: HaulierInvoiceViewProps) => {
 
   const decision = invoiceDecisionState(inv, isTruckingManager(user));
   const payment = paymentState(inv, isTruckingManager(user));
-  const fixes = haulier ? vatBlockers(haulier.profile, inv.bankAccount) : [];
+  const fixes = haulier && inv.status === "BLOCKED" ? vatBlockers(haulier.profile, inv.bankAccount) : [];
   const check = inv.bankAccountCheck;
   const fail = (what: string) => (e: unknown) => {
     toast.error(`${what}: ${apiErrorMessage(e)}`);
@@ -323,15 +325,31 @@ export const HaulierInvoiceView = ({ invoiceId }: HaulierInvoiceViewProps) => {
           okText="Mark paid"
           onCancel={() => setDialog(null)}
           okButtonProps={{ disabled: !paidOn }}
-          onOk={() =>
+          // Sent once: a second click while it saves does nothing (m11).
+          confirmLoading={paying}
+          onOk={() => {
+            if (paying) return;
+            setPaying(true);
             markPaid(paidOn!.format("YYYY-MM-DD"))
               .then(() => {
                 setDialog(null);
                 toast.success(`${inv.invoiceNumber} noted as paid`);
               })
               .catch(fail("Could not note the payment"))
-          }
+              .finally(() => setPaying(false));
+          }}
         >
+          {haulier?.profile.vatUnreliable && (
+            // The payment is made outside this system, so it is not refused; paying an unreliable VAT payer
+            // can make us liable for its VAT (ručení za DPH, K16).
+            <Alert
+              type="error"
+              showIcon
+              className="mb-3"
+              message={`${inv.haulierName} is now an unreliable VAT payer`}
+              description="Paying it can make us liable for its VAT. Check the VAT register again before you note this payment."
+            />
+          )}
           <p className="mt-0 text-[13px] text-slate-600">
             {formatMoney(inv.totalGross, inv.currency)} to {inv.haulierName}. The day the payment went; your name and the time are kept.
           </p>

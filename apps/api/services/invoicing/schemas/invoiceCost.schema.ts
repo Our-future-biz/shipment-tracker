@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, numeric, uuid, integer, boolean, index, date, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, numeric, uuid, integer, boolean, index, date, timestamp, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 export const invoiceCostTable = pgTable(
@@ -29,6 +29,10 @@ export const invoiceCostTable = pgTable(
     receivedAt: timestamp("received_at", { withTimezone: true }),
     /** The day the received invoice was paid; null while unpaid (Council Outlay 7, step 6b). */
     paidOn: date("paid_on", { mode: "string" }),
+    /** When Paid was noted and by whom (e-mail and user); null while unpaid (Council Review 5, K6). */
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    paidByUserId: uuid("paid_by_user_id"),
+    paidBy: text("paid_by"),
     vendor: text("vendor").notNull().default(""),
     /** The haulier the cost is owed to: a company of the Customer Database (no FK - another service's database). */
     haulierId: uuid("haulier_id"),
@@ -59,6 +63,14 @@ export const invoiceCostTable = pgTable(
     index("invoice_cost_shipment_id_idx").on(table.shipmentId),
     index("invoice_cost_trucking_ref_idx").on(table.companyId, table.sourceTruckingRef).where(sql`source_trucking_ref IS NOT NULL`),
     index("invoice_cost_master_job_ref_idx").on(table.companyId, table.sourceMasterJobRef).where(sql`source_master_job_ref IS NOT NULL`),
+    // What we owe a supplier: its open lines, by the company picked or the haulier, and the vendor texts linked to none.
+    index("invoice_cost_supplier_open_idx").on(table.companyId, table.supplierCustomerId).where(sql`deleted_at IS NULL AND paid_on IS NULL AND supplier_customer_id IS NOT NULL`),
+    index("invoice_cost_haulier_open_idx").on(table.companyId, table.haulierId).where(sql`deleted_at IS NULL AND paid_on IS NULL AND haulier_id IS NOT NULL`),
+    index("invoice_cost_unlinked_open_idx")
+      .on(table.companyId, table.vendor)
+      .where(sql`deleted_at IS NULL AND paid_on IS NULL AND supplier_customer_id IS NULL AND haulier_id IS NULL`),
+    // A cost is paid only once its invoice was received (also when two people change it at once).
+    check("invoice_cost_paid_check", sql`${table.paidOn} IS NULL OR ${table.received}`),
   ],
 );
 

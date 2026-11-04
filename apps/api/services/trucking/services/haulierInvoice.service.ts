@@ -88,7 +88,7 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 const targetKey = (kind: HaulierInvoiceTargetKind, id: string) => `${kind}:${id}`;
 
 /** The invoice as shown: an open one with its status and block reasons worked out against the haulier's profile now. */
-function toInvoice({ invoice: r, lines }: StoredInvoice, profile: HaulierProfile | null): HaulierInvoice {
+function toInvoice({ invoice: r, lines }: StoredInvoice, profile: HaulierProfile | null, trackingSince: Date | null): HaulierInvoice {
   const open = OPEN_STATUSES.includes(r.status);
   const blockReasons = open ? invoiceBlockReasons(profile, r.bankAccount) : r.blockReasons;
   const status = currentStatus(r.status, r.totalNet, lines, blockReasons);
@@ -122,6 +122,7 @@ function toInvoice({ invoice: r, lines }: StoredInvoice, profile: HaulierProfile
     holdReasons: open || r.status === "APPROVED" ? (r.holdReasons ?? []) : [],
     approval: r.approvedAt ? { byName: r.approvedBy ?? "", at: r.approvedAt.toISOString(), reason: r.approvalReason ?? "" } : null,
     payment: r.paidOn ? { paidOn: r.paidOn, byName: r.paidBy ?? "", at: r.paidAt ? r.paidAt.toISOString() : "" } : null,
+    paymentTracked: !!r.paidOn || !r.approvedAt || !trackingSince || r.approvedAt >= trackingSince,
     fileName: r.fileName,
     createdAt: r.createdAt.toISOString(),
     createdBy: r.createdBy,
@@ -468,7 +469,7 @@ class HaulierInvoiceService {
       }),
     ));
     await this.deliver(owed);
-    return toInvoice(await this.load(companyId, saved.invoice.id), profile);
+    return toInvoice(await this.load(companyId, saved.invoice.id), profile, await haulierInvoiceRepository.paymentTrackingSince());
   }
 
   /** Any user. Saves the whole invoice again (DRAFT, NEEDS_APPROVAL or BLOCKED) with the version read; the status is worked out again. */
@@ -516,7 +517,7 @@ class HaulierInvoiceService {
       }),
     ));
     await this.deliver(owed);
-    return toInvoice(await this.load(companyId, cur.invoice.id), profile);
+    return toInvoice(await this.load(companyId, cur.invoice.id), profile, await haulierInvoiceRepository.paymentTrackingSince());
   }
 
   /**
@@ -570,7 +571,7 @@ class HaulierInvoiceService {
       return owed;
     });
     await this.deliver(owed);
-    return toInvoice(await this.load(companyId, cur.invoice.id), profile);
+    return toInvoice(await this.load(companyId, cur.invoice.id), profile, await haulierInvoiceRepository.paymentTrackingSince());
   }
 
   /**
@@ -638,7 +639,7 @@ class HaulierInvoiceService {
       await this.event(tx, companyId, actor, by, "haulier_invoice_rejected", row, `Haulier invoice ${row.invoiceNumber} rejected`, why);
     });
     const profile = await this.profile(companyId, cur.invoice.haulierCustomerId);
-    return toInvoice(await this.load(companyId, cur.invoice.id), profile);
+    return toInvoice(await this.load(companyId, cur.invoice.id), profile, await haulierInvoiceRepository.paymentTrackingSince());
   }
 
   // A unique index refused the write (a save at the same moment got there first).
@@ -655,7 +656,7 @@ class HaulierInvoiceService {
 
   async get(actor: Actor, id: string): Promise<HaulierInvoice> {
     const stored = await this.load(actor.companyID, id);
-    return toInvoice(stored, await this.profile(actor.companyID, stored.invoice.haulierCustomerId));
+    return toInvoice(stored, await this.profile(actor.companyID, stored.invoice.haulierCustomerId), await haulierInvoiceRepository.paymentTrackingSince());
   }
 
   async list(actor: Actor, filter: { status?: HaulierInvoiceStatus; haulierCustomerId?: string }): Promise<HaulierInvoice[]> {
@@ -668,7 +669,8 @@ class HaulierInvoiceService {
     const stored = await haulierInvoiceRepository.list(actor.companyID, { statuses, haulierCustomerId });
     const profiles = await haulierRepository.findMany(actor.companyID, [...new Set(stored.map((s) => s.invoice.haulierCustomerId))]);
     const profileOf = new Map(profiles.map((p) => [p.profile.customerId, toProfile(p)]));
-    const invoices = stored.map((s) => toInvoice(s, profileOf.get(s.invoice.haulierCustomerId) ?? null));
+    const since = await haulierInvoiceRepository.paymentTrackingSince();
+    const invoices = stored.map((s) => toInvoice(s, profileOf.get(s.invoice.haulierCustomerId) ?? null, since));
     return status ? invoices.filter((i) => i.status === status) : invoices;
   }
 

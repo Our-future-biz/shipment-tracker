@@ -9,6 +9,8 @@ const buy = (over: Partial<BuyingRow>): BuyingRow => ({
   supplierCustomerId: null,
   receivedAt: null,
   paidOn: "",
+  paidBy: "",
+  paidAt: null,
   estQty: "",
   estAmount: "",
   estCurrency: "CZK",

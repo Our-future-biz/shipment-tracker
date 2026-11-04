@@ -17,6 +17,9 @@ export interface InvoiceCostItem {
   receivedAt: string | null;
   /** the day the received invoice was paid (yyyy-mm-dd), "" while unpaid */
   paidOn: string;
+  /** who noted it paid (e-mail) and when (ISO); "" / null while unpaid or for a payment noted before they were kept */
+  paidBy: string;
+  paidAt: string | null;
   vendor: string;
   /** the haulier the cost is owed to (a Customer Database company), or null */
   haulierId: string | null;
@@ -673,9 +676,9 @@ export interface MasterJobCostInput {
 }
 
 /**
- * A buying cost line of a shipment's Costs Breakdown owed to a supplier and not yet paid (Council
- * Outlay 7, step 6b "What we owe"): linked to the supplier's company, entered here (Trucking's and a
- * master job's rows are left out: Trucking's money is in its haulier invoices).
+ * A buying cost line of a shipment's Costs Breakdown owed to a supplier and not yet paid (Council Outlay 7,
+ * step 6b "What we owe"): linked to the supplier's company, entered here (Trucking's and a master job's rows
+ * are left out: Trucking's money is in its haulier invoices). Amounts are as typed in Costs Breakdown.
  */
 export interface SupplierCostLine {
   id: string;
@@ -684,13 +687,29 @@ export interface SupplierCostLine {
   category: string;
   description: string;
   invoiceNumber: string;
-  /** the supplier's invoice was received: owed. Otherwise only expected */
-  received: boolean;
+  /**
+   * owed: received, and since when is known. expected: not received yet. untracked: ticked Received before
+   * that day was kept (before payments were noted here), so it may have been paid already: listed, not counted (K2).
+   */
+  kind: "owed" | "expected" | "untracked";
   /** when Received was ticked (ISO); null when not received, or received before it was kept */
   receivedAt: string | null;
+  /** its due day (received day + the supplier's payment days), yyyy-mm-dd; "" when not known */
+  dueOn: string;
+  /** days past the due day; 0 when not overdue or not known */
+  overdueDays: number;
   /** owed: the real cost (null when not entered). Expected: the real cost once entered, else the estimate */
   amount: number | null;
   currency: string;
+}
+
+/** What we owe a supplier in one currency, over every open line (not only those listed). */
+export interface SupplierCostTotal {
+  currency: string;
+  owed: number;
+  overdue: number;
+  expected: number;
+  untracked: number;
 }
 
 /** Cost lines whose vendor only names the supplier as typed text: not counted, only named (E10). */
@@ -700,8 +719,18 @@ export interface SupplierTypedName {
 }
 
 export interface SupplierCostsResponse {
-  lines: SupplierCostLine[];
+  /** most overdue first, then oldest received (at most 300) */
+  owed: SupplierCostLine[];
+  /** newest first (at most 200) */
+  expected: SupplierCostLine[];
+  /** newest first (at most 200) */
+  untracked: SupplierCostLine[];
+  totals: SupplierCostTotal[];
+  /** how many there are of each, and of the owed: without a real cost, with no known due day */
+  counts: { owed: number; expected: number; untracked: number; withoutAmount: number; dueUnknown: number };
+  /** the supplier's payment days the due days were worked out with; null when not set */
+  paymentDays: number | null;
   typedNames: SupplierTypedName[];
-  /** more open lines than were read: the newest are shown */
+  /** more open lines than can be read at once: the totals leave the oldest out */
   truncated: boolean;
 }

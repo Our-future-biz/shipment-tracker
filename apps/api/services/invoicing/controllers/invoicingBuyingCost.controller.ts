@@ -17,7 +17,7 @@ interface BuyingResponse {
 export const invoicingAddBuyingCost = api(
   { expose: true, auth: true, method: "POST", path: "/invoicing/:shipmentId/buying" },
   async ({ shipmentId, ...input }: AddBuyingRequest): Promise<BuyingResponse> => {
-    return { cost: await invoicingService.addBuyingCost(shipmentId, getAuthData()!.companyID, input) };
+    return { cost: await invoicingService.addBuyingCost(shipmentId, getAuthData()!.companyID, input, getAuthData()!.userID) };
   },
 );
 
@@ -50,7 +50,7 @@ interface UpdateBuyingRequest {
 export const invoicingUpdateBuyingCost = api(
   { expose: true, auth: true, method: "PATCH", path: "/invoicing/:shipmentId/buying/:costId" },
   async ({ shipmentId, costId, ...input }: UpdateBuyingRequest): Promise<BuyingResponse> => {
-    return { cost: await invoicingService.updateBuyingCost(costId, getAuthData()!.companyID, shipmentId, input) };
+    return { cost: await invoicingService.updateBuyingCost(costId, getAuthData()!.companyID, shipmentId, input, getAuthData()!.userID) };
   },
 );
 

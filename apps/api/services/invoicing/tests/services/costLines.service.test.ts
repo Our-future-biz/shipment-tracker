@@ -4,7 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // invoice over shipments, run for real against an in-memory stand-in for the cost lines.
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
-vi.mock("~encore/clients", () => ({ quotes: { salesQuoteGet: vi.fn() } }));
+const customerGet = vi.hoisted(() => vi.fn());
+vi.mock("~encore/clients", () => ({ quotes: { salesQuoteGet: vi.fn() }, customers: { customerGet }, auth: { userLookup: vi.fn(async () => ({ users: [{ id: "u1", email: "Jana@OurFuture.biz" }] })) } }));
 vi.mock("../../repositories/customsInvoice.repository", () => ({ customsInvoiceLineRepository: {}, customsInvoiceRepository: {} }));
 vi.mock("../../../../lib/shipmentRefs", () => ({ assertShipmentExists: vi.fn(async () => ({ jobNumber: "CZ00000001" })) }));
 vi.mock("../../repositories/additionalCharge.repository", () => ({ additionalChargeRepository: {} }));
@@ -45,6 +46,9 @@ vi.mock("../../repositories/invoiceCost.repository", async () => {
     supplierCustomerId: null,
     receivedAt: null,
     paidOn: null,
+    paidAt: null,
+    paidByUserId: null,
+    paidBy: null,
     sortOrder: 0,
     sourceQuoteNumber: "",
     sourceTruckingRef: null,
@@ -266,5 +270,32 @@ describe("a shipment priced from a quote", () => {
     await quoteLine();
     await invoicingService.upsertCost(SHIP_A, COMPANY, "ocean_freight", { estAmount: "999", realAmount: "155.00", realCurrency: "EUR" });
     expect(rows.filter((r) => r.shipmentId === SHIP_A)).toMatchObject([{ estAmount: "150.00", realAmount: "155.00" }]);
+  });
+});
+
+describe("a buying cost's supplier and payment (Council Review 5)", () => {
+  const SUPPLIER = "3d55a500-d6f8-4def-8e95-82e77493cabb";
+
+  it("links only a live supplier of the Customer Database, checked when the link changes", async () => {
+    const { APIError } = await import("../../../../lib/tests/encoreApi.stub");
+    customerGet.mockResolvedValueOnce({ customer: { roles: ["customer"] } });
+    await expect(invoicingService.addBuyingCost(SHIP_A, COMPANY, { vendor: "Kovo", supplierCustomerId: SUPPLIER })).rejects.toThrow(/no supplier/);
+    customerGet.mockRejectedValueOnce(APIError.notFound("Customer not found"));
+    await expect(invoicingService.addBuyingCost(SHIP_A, COMPANY, { vendor: "Gone", supplierCustomerId: SUPPLIER })).rejects.toThrow(/not a company of the Customer Database/);
+    customerGet.mockResolvedValue({ customer: { roles: ["shipping_line"] } });
+    const line = await invoicingService.addBuyingCost(SHIP_A, COMPANY, { vendor: "Maersk", supplierCustomerId: SUPPLIER });
+    expect(line.supplierCustomerId).toBe(SUPPLIER);
+    customerGet.mockClear();
+    await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { vendor: "Maersk", supplierCustomerId: SUPPLIER });
+    expect(customerGet).not.toHaveBeenCalled();
+  });
+
+  it("keeps who marked a cost paid and when, and clears them when the payment is taken back", async () => {
+    const line = await invoicingService.addBuyingCost(SHIP_A, COMPANY, { vendor: "Maersk", invoiceNumber: "INV-1", received: true, realAmount: "10" } as never);
+    const paid = await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { paidOn: "2026-11-01" }, "u1");
+    expect(paid).toMatchObject({ paidOn: "2026-11-01", paidBy: "jana@ourfuture.biz" });
+    expect(paid.paidAt).not.toBeNull();
+    const back = await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { paidOn: "" }, "u1");
+    expect(back).toMatchObject({ paidOn: "", paidBy: "", paidAt: null });
   });
 });

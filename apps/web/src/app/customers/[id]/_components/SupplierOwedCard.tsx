@@ -8,9 +8,9 @@ import type { CustomerItem } from "@/hooks/useCustomers";
 import { useSupplierCosts } from "@/hooks/useSupplierCosts";
 import { useHaulierInvoices } from "@/hooks/useTruckingMoney";
 import { chargeLabel } from "@/lib/chargeCodes";
-import { businessToday, formatDate } from "@/lib/date";
+import { businessDayOf, businessToday, formatDate } from "@/lib/date";
 import { fmtMoney } from "@/lib/money";
-import { supplierOwed, type OwedItem } from "../../_lib/supplierOwed";
+import { supplierOwed, type OwedItem, type OwedTotal } from "../../_lib/supplierOwed";
 import { EMPTY_CELL, TABLE_PAGINATION } from "../../_lib/customerTable";
 
 interface SupplierOwedCardProps {
@@ -20,34 +20,27 @@ interface SupplierOwedCardProps {
 }
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+const VAT_LABEL = { without: "without VAT", with: "with VAT" } as const;
+// A haulier invoice's day is its issue day (yyyy-mm-dd), a cost line's the moment it was received.
+const dayOf = (r: OwedItem) => formatDate(r.source === "cost" ? businessDayOf(r.receivedAt) : r.receivedAt);
 
-// What we owe a supplier (Council Outlay 7, step 6b): the invoices received and not paid, per currency,
-// with what is overdue, from the shipments' Costs Breakdown lines linked to it and, for a haulier, its
-// approved Trucking invoices; what is expected (no invoice yet) apart. Lines that only name it as typed
-// text are named, not counted. Everyone who sees the supplier's page sees it; nothing is netted.
+// What we owe a supplier (Council Outlay 7, step 6b; Council Review 5): the invoices received and not paid,
+// per currency, with what is overdue, from the shipments' Costs Breakdown lines linked to it and, for a
+// haulier, its approved Trucking invoices; what is expected (no invoice yet) and what came before payments
+// were noted here, each apart and not counted. Lines that only name it as typed text are named, not counted.
+// Everyone who sees the supplier's page sees it; nothing is netted or converted.
 export function SupplierOwedCard({ customer, withHaulierInvoices }: SupplierOwedCardProps) {
-  const costs = useSupplierCosts(customer.id);
-  const haulier = useHaulierInvoices(
-    { haulierCustomerId: customer.id },
-    { enabled: withHaulierInvoices },
-  );
-  const paymentDays = customer.supplierTerms.paymentDays;
-  const owed = supplierOwed(
-    costs.lines,
-    withHaulierInvoices ? haulier.invoices : [],
-    paymentDays,
-    businessToday(),
-  );
-  const loading = costs.isLoading || (withHaulierInvoices && haulier.isLoading);
+  const { costs, isLoading, isError } = useSupplierCosts(customer.id);
+  const haulier = useHaulierInvoices({ haulierCustomerId: customer.id, status: "APPROVED" }, { enabled: withHaulierInvoices });
+  const owed = supplierOwed(costs, withHaulierInvoices ? haulier.invoices : [], businessToday());
+  const loading = isLoading || (withHaulierInvoices && haulier.isLoading);
+  const nothing = !loading && !owed.owed.length && !owed.expected.length && !owed.untracked.length;
 
   const refColumn = {
     title: "Job",
     key: "ref",
     render: (_: unknown, r: OwedItem) => (
-      <Link
-        href={r.href}
-        className={`${r.source === "cost" ? "font-mono" : ""} font-semibold text-indigo-600 hover:underline whitespace-nowrap`}
-      >
+      <Link href={r.href} className={`${r.source === "cost" ? "font-mono" : ""} font-semibold whitespace-nowrap text-indigo-600 hover:underline`}>
         {r.ref}
       </Link>
     ),
@@ -58,12 +51,11 @@ export function SupplierOwedCard({ customer, withHaulierInvoices }: SupplierOwed
     render: (_: unknown, r: OwedItem) => (
       <span>
         {r.category ? chargeLabel(r.category) : r.description}
-        {r.category && r.description && (
-          <span className="block text-[11px] text-slate-500">{r.description}</span>
-        )}
+        {r.category && r.description && <span className="block text-[11px] text-slate-500">{r.description}</span>}
       </span>
     ),
   };
+  const invoiceColumn = { title: "Invoice", dataIndex: "invoiceNumber", render: (v: string) => v || EMPTY_CELL };
   const amountColumn = (title: string) => ({
     title,
     key: "amount",
@@ -72,19 +64,18 @@ export function SupplierOwedCard({ customer, withHaulierInvoices }: SupplierOwed
       r.amount === null ? (
         <span className="text-xs text-amber-700">No real cost typed</span>
       ) : (
-        <span className="tabular-nums whitespace-nowrap">{fmtMoney(r.amount, r.currency)}</span>
+        <span className="whitespace-nowrap tabular-nums">
+          {fmtMoney(r.amount, r.currency)}
+          <span className="block text-[10.5px] text-slate-400">{VAT_LABEL[r.vat]}</span>
+        </span>
       ),
   });
 
   const owedColumns: ColumnsType<OwedItem> = [
     refColumn,
     chargeColumn,
-    { title: "Invoice", dataIndex: "invoiceNumber", render: (v: string) => v || EMPTY_CELL },
-    {
-      title: "Received",
-      dataIndex: "receivedOn",
-      render: (v: string) => formatDate(v) || EMPTY_CELL,
-    },
+    invoiceColumn,
+    { title: "Received", key: "received", render: (_, r) => dayOf(r) || EMPTY_CELL },
     {
       title: "Due",
       key: "due",
@@ -94,118 +85,83 @@ export function SupplierOwedCard({ customer, withHaulierInvoices }: SupplierOwed
         ) : (
           <span className="whitespace-nowrap">
             {formatDate(r.dueOn)}
-            {r.overdueDays > 0 && (
-              <span className="block text-[11px] font-medium text-red-600">
-                {plural(r.overdueDays, "day", "days")} overdue
-              </span>
-            )}
+            {r.overdueDays > 0 && <span className="block text-[11px] font-medium text-red-600">{plural(r.overdueDays, "day", "days")} overdue</span>}
           </span>
         ),
     },
     amountColumn("Amount"),
   ];
-  const expectedColumns: ColumnsType<OwedItem> = [
-    refColumn,
-    chargeColumn,
-    amountColumn("Expected"),
-  ];
+  const expectedColumns: ColumnsType<OwedItem> = [refColumn, chargeColumn, amountColumn("Expected")];
+  const untrackedColumns: ColumnsType<OwedItem> = [refColumn, chargeColumn, invoiceColumn, amountColumn("Amount")];
+
+  // "Showing 300 of 412": the lists are the most urgent (or newest); the totals cover all.
+  const shownOf = (shown: number, all: number) => (all > shown ? ` · the first ${shown} of ${all}` : "");
 
   return (
-    <SectionCard
-      title="What we owe"
-      extra={
-        <span className="text-xs text-slate-400">
-          Received and not paid · per currency, not converted
-        </span>
-      }
-    >
-      {costs.isError ? (
+    <SectionCard title="What we owe">
+      {isError ? (
         <span className="text-xs text-red-600">The shipment costs could not be read.</span>
       ) : (
         <div className="space-y-4">
-          {!loading && (
+          <p className="m-0 text-xs text-slate-500">
+            Received and not paid, per currency and never converted. Shipment costs are as typed in Costs Breakdown (without VAT){withHaulierInvoices ? ", haulier invoices with VAT" : ""}.
+          </p>
+
+          {nothing && <span className="text-sm text-slate-500">Nothing owed and nothing expected.</span>}
+          {owed.totals.length > 0 && (
             <div className="flex flex-wrap gap-3">
-              {owed.totals.length === 0 ? (
-                <span className="text-sm text-slate-500">Nothing owed and nothing expected.</span>
-              ) : (
-                owed.totals.map((t) => (
-                  <div
-                    key={t.currency}
-                    className="min-w-[180px] rounded-lg border border-slate-200 px-3 py-2"
-                  >
-                    <div className="text-[11px] uppercase tracking-wide text-slate-400">
-                      Owed · {t.currency}
-                    </div>
-                    <div className="text-lg font-semibold tabular-nums text-slate-800">
-                      {fmtMoney(t.owed, t.currency)}
-                    </div>
-                    {t.overdue > 0 && (
-                      <div className="text-xs font-medium tabular-nums text-red-600">
-                        {fmtMoney(t.overdue, t.currency)} overdue
-                      </div>
-                    )}
-                    {t.expected > 0 && (
-                      <div className="text-xs tabular-nums text-slate-500">
-                        {fmtMoney(t.expected, t.currency)} expected
-                      </div>
-                    )}
-                  </div>
-                ))
-              )}
+              {owed.totals.map((t) => (
+                <OwedTile key={t.currency} total={t} />
+              ))}
             </div>
           )}
 
-          {(owed.withoutAmount > 0 ||
-            owed.dueUnknown > 0 ||
-            (withHaulierInvoices && haulier.isError)) && (
-            <ul className="space-y-0.5 text-xs text-amber-700">
-              {owed.withoutAmount > 0 && (
-                <li>
-                  {plural(owed.withoutAmount, "received line has", "received lines have")} no real
-                  cost typed: not in the total.
-                </li>
-              )}
-              {owed.dueUnknown > 0 &&
-                (paymentDays === null ? (
-                  <li>The payment days are not set (Terms and checks): due days are not known.</li>
-                ) : (
-                  <li>
-                    {plural(owed.dueUnknown, "line was", "lines were")} received before the received
-                    day was kept: its due day is not known.
-                  </li>
-                ))}
-              {withHaulierInvoices && haulier.isError && (
-                <li>The Trucking haulier invoices could not be read: they are not in the total.</li>
-              )}
+          {(owed.withoutAmount > 0 || owed.costsDueUnknown > 0 || owed.invoicesDueUnknown > 0 || (withHaulierInvoices && haulier.isError)) && (
+            <ul className="m-0 space-y-0.5 pl-4 text-xs text-amber-700">
+              {owed.withoutAmount > 0 && <li>{plural(owed.withoutAmount, "received cost line has", "received cost lines have")} no real cost typed: not in the total.</li>}
+              {owed.costsDueUnknown > 0 && <li>The payment days are not set (Terms and checks): due days of the shipment costs are not known.</li>}
+              {owed.invoicesDueUnknown > 0 && <li>{plural(owed.invoicesDueUnknown, "haulier invoice has", "haulier invoices have")} no due day in Trucking.</li>}
+              {withHaulierInvoices && haulier.isError && <li>The Trucking haulier invoices could not be read: they are not in the total.</li>}
             </ul>
           )}
 
-          {(loading || owed.totals.length > 0 || owed.owed.length > 0) && (
-            <Table<OwedItem>
-              size="small"
-              rowKey="key"
-              loading={loading}
-              dataSource={owed.owed}
-              columns={owedColumns}
-              pagination={TABLE_PAGINATION}
-              rowClassName={(r) => (r.overdueDays > 0 ? "bg-red-50/60" : "")}
-              locale={{ emptyText: "No received invoice is waiting to be paid." }}
-            />
-          )}
-
-          {owed.expected.length > 0 && (
-            <div>
+          {(loading || owed.owed.length > 0) && (
+            <div className="min-w-0">
               <div className="mb-1 text-xs font-medium text-slate-600">
-                Expected · {plural(owed.expected.length, "cost", "costs")} with no invoice received
-                yet (not in what we owe)
+                Owed · most overdue first{shownOf(owed.owed.length, owed.counts.owed)}
               </div>
               <Table<OwedItem>
                 size="small"
                 rowKey="key"
-                dataSource={owed.expected}
-                columns={expectedColumns}
+                loading={loading}
+                dataSource={owed.owed}
+                columns={owedColumns}
                 pagination={TABLE_PAGINATION}
+                scroll={{ x: "max-content" }}
+                rowClassName={(r) => (r.overdueDays > 0 ? "bg-red-50/60" : "")}
               />
+            </div>
+          )}
+
+          {owed.expected.length > 0 && (
+            <div className="min-w-0">
+              <div className="mb-1 text-xs font-medium text-slate-600">
+                Expected · {plural(owed.counts.expected, "cost", "costs")} with no invoice received yet, not in what we owe{shownOf(owed.expected.length, owed.counts.expected)}
+              </div>
+              <Table<OwedItem> size="small" rowKey="key" dataSource={owed.expected} columns={expectedColumns} pagination={TABLE_PAGINATION} scroll={{ x: "max-content" }} />
+            </div>
+          )}
+
+          {owed.untracked.length > 0 && (
+            <div className="min-w-0">
+              <div className="mb-1 text-xs font-medium text-slate-600">
+                Before payment tracking · {plural(owed.counts.untracked, "invoice", "invoices")} received or approved before payments were noted here, not counted
+                {shownOf(owed.untracked.length, owed.counts.untracked)}
+              </div>
+              <p className="m-0 mb-1 text-[11px] text-slate-500">
+                They may have been paid already. Mark the ones that were paid in Costs Breakdown or Trucking, and they leave this list.
+              </p>
+              <Table<OwedItem> size="small" rowKey="key" dataSource={owed.untracked} columns={untrackedColumns} pagination={TABLE_PAGINATION} scroll={{ x: "max-content" }} />
             </div>
           )}
 
@@ -218,17 +174,35 @@ export function SupplierOwedCard({ customer, withHaulierInvoices }: SupplierOwed
                   {plural(n.lines, "cost line names", "cost lines name")} “{n.vendor}” as text
                 </span>
               ))}
-              , not linked to this company. Pick it as the vendor on those lines in Costs Breakdown
-              to count them here.
+              , not linked to this company. Pick it as the vendor on those lines in Costs Breakdown to count them here.
             </div>
           )}
-          {costs.truncated && (
-            <div className="text-xs text-slate-500">
-              Only the newest 500 open cost lines are shown.
-            </div>
-          )}
+          {costs.truncated && <div className="text-xs text-slate-500">This supplier has more than 10,000 open cost lines: the oldest are left out of the totals.</div>}
         </div>
       )}
     </SectionCard>
+  );
+}
+
+/** One currency: what is owed, how much of it is overdue, where it comes from, and what stays apart. */
+function OwedTile({ total: t }: { total: OwedTotal }) {
+  const both = t.fromCosts !== 0 && t.fromInvoices !== 0;
+  return (
+    <div className="min-w-[200px] rounded-lg border border-slate-200 px-3 py-2">
+      <div className="text-[11px] tracking-wide text-slate-400 uppercase">Owed · {t.currency}</div>
+      <div className="text-lg font-semibold text-slate-800 tabular-nums">{fmtMoney(t.owed, t.currency)}</div>
+      {t.overdue > 0 && <div className="text-xs font-medium text-red-600 tabular-nums">{fmtMoney(t.overdue, t.currency)} overdue</div>}
+      {both ? (
+        <div className="text-[11px] text-slate-500 tabular-nums">
+          {fmtMoney(t.fromCosts, t.currency)} shipment costs, without VAT
+          <br />
+          {fmtMoney(t.fromInvoices, t.currency)} haulier invoices, with VAT
+        </div>
+      ) : (
+        t.owed !== 0 && <div className="text-[11px] text-slate-500">{t.fromInvoices !== 0 ? "haulier invoices, with VAT" : "shipment costs, without VAT"}</div>
+      )}
+      {t.expected > 0 && <div className="text-xs text-slate-500 tabular-nums">{fmtMoney(t.expected, t.currency)} expected</div>}
+      {t.untracked > 0 && <div className="text-xs text-slate-400 tabular-nums">{fmtMoney(t.untracked, t.currency)} before payment tracking</div>}
+    </div>
   );
 }

@@ -62,15 +62,22 @@ describe("received and paid (Council Outlay 7, step 6b)", () => {
   it("stamp when Received is ticked, keep the first stamp, and clear both when it is unticked", () => {
     expect(receiptChanges(stored(), { received: true }, now, today)).toEqual({ receivedAt: now });
     expect(receiptChanges(stored({ received: true, receivedAt: new Date("2026-10-01T08:00:00Z") }), { received: true }, now, today)).toEqual({});
-    expect(receiptChanges(stored({ received: true, paidOn: "2026-10-20" }), { received: false }, now, today)).toEqual({ receivedAt: null, paidOn: null });
+    expect(receiptChanges(stored({ received: true, paidOn: "2026-10-20" }), { received: false }, now, today)).toEqual({ receivedAt: null, paidOn: null, paidAt: null, paidByUserId: null, paidBy: null });
     expect(receiptChanges(null, { received: true }, now, today)).toEqual({ receivedAt: now });
   });
 
   it("pay only a received cost, on a real day not after today, and take the payment back with \"\"", () => {
     expect(() => receiptChanges(stored(), buyingChanges({ paidOn: "2026-11-01" }), now, today)).toThrow(/Tick Received first/);
-    expect(receiptChanges(stored({ received: true }), buyingChanges({ paidOn: "2026-11-01" }), now, today)).toEqual({});
+    expect(receiptChanges(stored({ received: true }), buyingChanges({ paidOn: "2026-11-01" }), now, today)).toEqual({ paidAt: now, paidByUserId: null, paidBy: null });
+    // Who noted it and when are kept with the day (K6); taking it back clears them.
+    expect(receiptChanges(stored({ received: true }), buyingChanges({ paidOn: "2026-11-01" }), now, today, { userId: "u1", email: "jana@ourfuture.biz" })).toEqual({
+      paidAt: now,
+      paidByUserId: "u1",
+      paidBy: "jana@ourfuture.biz",
+    });
+    expect(receiptChanges(stored({ received: true, paidOn: "2026-11-01" }), buyingChanges({ paidOn: "" }), now, today)).toEqual({ paidOn: null, paidAt: null, paidByUserId: null, paidBy: null });
     expect(() => receiptChanges(stored({ received: true }), buyingChanges({ paidOn: "2026-11-05" }), now, today)).toThrow(/after today/);
-    expect(receiptChanges(null, buyingChanges({ received: true, paidOn: "2026-11-04" } as never), now, today)).toEqual({ receivedAt: now });
+    expect(receiptChanges(null, buyingChanges({ received: true, paidOn: "2026-11-04" } as never), now, today)).toEqual({ receivedAt: now, paidAt: now, paidByUserId: null, paidBy: null });
     expect(() => buyingChanges({ paidOn: "4.11.2026" })).toThrow(/paidOn must be a date/);
     expect(buyingChanges({ paidOn: "" })).toEqual({ paidOn: null });
   });

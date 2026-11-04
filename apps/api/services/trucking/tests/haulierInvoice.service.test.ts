@@ -73,6 +73,8 @@ interface OutboxRow {
   [column: string]: unknown;
 }
 
+// Since when payments are noted (trucking migration 0013); null = no row (every invoice counts as tracked).
+const trackingSince = vi.hoisted(() => ({ value: null as Date | null }));
 const mem = vi.hoisted(() => ({
   invoices: [] as InvRow[],
   lines: [] as LineRow[],
@@ -133,6 +135,7 @@ vi.mock("../repositories/haulierInvoice.repository", () => {
     });
   return {
     haulierInvoiceRepository: {
+      paymentTrackingSince: vi.fn(async () => trackingSince.value),
       lockHaulier: vi.fn(async () => undefined),
       findByNumber: vi.fn(async (_tx: unknown, _c: string, h: string, key: string, except?: string) =>
         mem.invoices.find((i) => i.haulierCustomerId === h && i.invoiceNumberKey === key && i.status !== "REJECTED" && i.id !== except) ?? null,
@@ -464,6 +467,18 @@ describe("approve and reject", () => {
     expect(back.payment).toBeNull();
     expect(mem.events.at(-1)).toMatchObject({ kind: "haulier_invoice_unpaid", payload: { reason: "Noted on the wrong invoice" } });
     await expect(haulierInvoiceService.markUnpaid(manager, inv.id, "Again")).rejects.toMatchObject({ code: "failed_precondition" });
+  });
+
+  it("says an approved invoice from before payments were noted here is not tracked, until it is marked paid (K2)", async () => {
+    const inv = await haulierInvoiceService.create(user, invoice({ invoiceNumber: "FV 2026/203" }));
+    expect(inv.paymentTracked).toBe(true);
+    trackingSince.value = new Date(Date.now() + 60_000);
+    try {
+      expect((await haulierInvoiceService.get(user, inv.id)).paymentTracked).toBe(false);
+      expect((await haulierInvoiceService.markPaid(manager, inv.id, undefined)).paymentTracked).toBe(true);
+    } finally {
+      trackingSince.value = null;
+    }
   });
 
   it("refuses to note as paid an invoice that is not approved", async () => {

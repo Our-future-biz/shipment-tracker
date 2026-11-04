@@ -47,6 +47,9 @@ export interface BuyingRow {
   receivedAt: string | null;
   /** The day it was paid (yyyy-mm-dd); "" while unpaid. */
   paidOn: string;
+  /** Who noted it paid (e-mail) and when (ISO); "" / null while unpaid. */
+  paidBy: string;
+  paidAt: string | null;
 }
 
 export interface SellingRow {

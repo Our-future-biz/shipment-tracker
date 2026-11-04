@@ -47,6 +47,11 @@ export interface HaulierInvoice {
   approval: { byName: string; at: string; reason: string } | null;
   /** When it was paid (YYYY-MM-DD), who noted it and when; null while unpaid. Only an approved invoice is paid. */
   payment: { paidOn: string; byName: string; at: string } | null;
+  /**
+   * False for an approved invoice not paid here that was approved before payments were noted in this system
+   * (Council Review 5, K2): it may have been paid already, so What we owe lists it apart instead of counting it.
+   */
+  paymentTracked: boolean;
   fileName: string | null;
   createdAt: string;
   createdBy: string;

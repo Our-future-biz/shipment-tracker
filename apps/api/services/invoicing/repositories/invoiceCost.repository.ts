@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { invoiceCostTable as t, type InvoiceCostRecord, type NewInvoiceCostRecord } from "../schemas/invoiceCost.schema";
@@ -19,7 +19,8 @@ class InvoiceCostRepository extends TenantRepository<typeof t> {
 
   /**
    * A supplier's live buying rows not yet paid, newest first (at most `limit`): linked to its company
-   * (picked, or its haulier id), entered here - Trucking's and a master job's rows are left out.
+   * (picked, or its haulier id), entered here - Trucking's and a master job's rows are left out. Read
+   * through the two open-line indexes (invoicing migration 0021).
    */
   async openOfSupplier(companyId: string, supplierId: string, limit: number): Promise<InvoiceCostRecord[]> {
     return this.db
@@ -30,12 +31,26 @@ class InvoiceCostRepository extends TenantRepository<typeof t> {
       .limit(limit);
   }
 
-  /** The vendor texts of live rows not yet paid and linked to no company, each with its row count. */
+  /**
+   * The vendor texts of live rows not yet paid and linked to no company, each with its row count: only rows
+   * that would be counted once linked (not received yet, or received since that day is kept, K2).
+   */
   async openTypedVendors(companyId: string): Promise<{ vendor: string; lines: number }[]> {
     return this.db
       .select({ vendor: t.vendor, lines: count() })
       .from(t)
-      .where(and(eq(t.companyId, companyId), isNull(t.deletedAt), ...ENTERED_HERE, isNull(t.paidOn), isNull(t.supplierCustomerId), isNull(t.haulierId), sql`btrim(${t.vendor}) <> ''`))
+      .where(
+        and(
+          eq(t.companyId, companyId),
+          isNull(t.deletedAt),
+          ...ENTERED_HERE,
+          isNull(t.paidOn),
+          isNull(t.supplierCustomerId),
+          isNull(t.haulierId),
+          sql`btrim(${t.vendor}) <> ''`,
+          or(eq(t.received, false), isNotNull(t.receivedAt)),
+        ),
+      )
       .groupBy(t.vendor);
   }
 

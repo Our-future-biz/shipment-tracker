@@ -7,7 +7,7 @@ vi.mock("~encore/clients", () => ({ customers: { customerGet }, shipments: { _in
 const repo = vi.hoisted(() => ({ openOfSupplier: vi.fn(), openTypedVendors: vi.fn() }));
 vi.mock("../repositories/invoiceCost.repository", () => ({ invoiceCostRepository: repo }));
 
-import { nameKey, supplierCostLine, typedNamesOf, type SupplierCostRow } from "../lib/supplierCosts";
+import { nameKey, summarizeSupplierCosts, supplierCostLine, typedNamesOf, type SupplierCostRow } from "../lib/supplierCosts";
 import { supplierCostsService } from "../services/supplierCosts.service";
 
 const SUPPLIER = "3d55a500-d6f8-4def-8e95-82e77493cabb";
@@ -17,31 +17,67 @@ const row = (over: Partial<SupplierCostRow> = {}): SupplierCostRow => ({
 });
 const JOB = { jobNumber: "CZ00000021", status: "In Transit" };
 
+const TODAY = "2026-11-04";
+const line = (r: Partial<SupplierCostRow>, job = JOB, days: number | null = 30) => supplierCostLine(row(r), job, days, TODAY);
+
 describe("a supplier's cost line in What we owe", () => {
-  it("owes a received line its real cost (quantity × price), with the day it was received", () => {
-    const at = new Date("2026-11-02T09:00:00Z");
-    expect(supplierCostLine(row({ received: true, receivedAt: at, realQty: "2", realAmount: "150.50", realCurrency: "USD", invoiceNumber: "INV-7" }), JOB)).toEqual({
+  it("owes a received line its real cost (quantity × price), due its received day (Prague) + the payment days", () => {
+    // 23:30 UTC on 1 Oct is 2 Oct in Prague: due 1 Nov, 3 days overdue on 4 Nov.
+    const at = new Date("2026-10-01T23:30:00Z");
+    expect(line({ received: true, receivedAt: at, realQty: "2", realAmount: "150.50", realCurrency: "USD", invoiceNumber: "INV-7" })).toEqual({
       id: "c1", shipmentId: "s1", jobNumber: "CZ00000021", category: "ocean_freight", description: "Ocean freight", invoiceNumber: "INV-7",
-      received: true, receivedAt: at.toISOString(), amount: 301, currency: "USD",
+      kind: "owed", receivedAt: at.toISOString(), dueOn: "2026-11-01", overdueDays: 3, amount: 301, currency: "USD",
     });
   });
 
+  it("is not overdue on its due day, and has no due day without payment days", () => {
+    expect(line({ received: true, receivedAt: new Date("2026-10-05T08:00:00Z"), realAmount: "1" })).toMatchObject({ dueOn: TODAY, overdueDays: 0 });
+    expect(line({ received: true, receivedAt: new Date("2026-10-05T08:00:00Z"), realAmount: "1" }, JOB, null)).toMatchObject({ dueOn: "", overdueDays: 0 });
+  });
+
   it("keeps a received line with no real cost typed, without an amount", () => {
-    expect(supplierCostLine(row({ received: true, estAmount: "100" }), JOB)).toMatchObject({ received: true, amount: null, receivedAt: null });
+    expect(line({ received: true, receivedAt: new Date(), estAmount: "100" })).toMatchObject({ kind: "owed", amount: null });
+  });
+
+  it("lists a line ticked Received before that day was kept as untracked (K2)", () => {
+    expect(line({ received: true, realAmount: "100" })).toMatchObject({ kind: "untracked", receivedAt: null, dueOn: "", amount: 100 });
   });
 
   it("expects a line not received: its real cost once typed, else the estimate", () => {
-    expect(supplierCostLine(row({ estQty: "3", estAmount: "10" }), JOB)).toMatchObject({ received: false, amount: 30, currency: "EUR" });
-    expect(supplierCostLine(row({ estAmount: "10", realAmount: "12", realCurrency: "CZK" }), JOB)).toMatchObject({ amount: 12, currency: "CZK" });
+    expect(line({ estQty: "3", estAmount: "10" })).toMatchObject({ kind: "expected", amount: 30, currency: "EUR" });
+    expect(line({ estAmount: "10", realAmount: "12", realCurrency: "CZK" })).toMatchObject({ amount: 12, currency: "CZK" });
   });
 
   it("shows nothing for an expected line with no amount, one on a cancelled job, or one whose job is gone", () => {
-    expect(supplierCostLine(row(), JOB)).toBeNull();
-    expect(supplierCostLine(row({ estAmount: "0" }), JOB)).toBeNull();
-    expect(supplierCostLine(row({ estAmount: "10" }), { ...JOB, status: "Cancelled Shipment" })).toBeNull();
-    expect(supplierCostLine(row({ estAmount: "10" }), undefined)).toBeNull();
+    expect(line({})).toBeNull();
+    expect(line({ estAmount: "0" })).toBeNull();
+    expect(line({ estAmount: "10" }, { ...JOB, status: "Cancelled Shipment" })).toBeNull();
+    expect(supplierCostLine(row({ estAmount: "10" }), undefined, 30, TODAY)).toBeNull();
     // What was received on a cancelled job is still owed.
-    expect(supplierCostLine(row({ received: true, realAmount: "5" }), { ...JOB, status: "Cancelled Shipment" })).toMatchObject({ amount: 5 });
+    expect(line({ received: true, receivedAt: new Date(), realAmount: "5" }, { ...JOB, status: "Cancelled Shipment" })).toMatchObject({ amount: 5 });
+  });
+});
+
+describe("the totals of What we owe", () => {
+  it("add each currency on its own over every line: owed, its overdue part, expected and untracked apart", () => {
+    const lines = [
+      line({ id: "late", received: true, receivedAt: new Date("2026-09-01T08:00:00Z"), realAmount: "100" }),
+      line({ id: "due", received: true, receivedAt: new Date("2026-10-30T08:00:00Z"), realAmount: "50" }),
+      line({ id: "noamount", received: true, receivedAt: new Date("2026-10-30T08:00:00Z") }),
+      line({ id: "exp", estAmount: "70" }),
+      line({ id: "old", received: true, realAmount: "999" }),
+      line({ id: "czk", received: true, receivedAt: new Date("2026-10-30T08:00:00Z"), realAmount: "1000", realCurrency: "CZK" }),
+    ].filter((l) => l !== null);
+    const s = summarizeSupplierCosts(lines);
+    expect(s.totals).toEqual([
+      { currency: "CZK", owed: 1000, overdue: 0, expected: 0, untracked: 0 },
+      { currency: "EUR", owed: 150, overdue: 100, expected: 70, untracked: 999 },
+    ]);
+    expect(s.owed.map((l) => l.id)).toEqual(["late", "due", "noamount", "czk"]);
+    expect(s.expected.map((l) => l.id)).toEqual(["exp"]);
+    expect(s.untracked.map((l) => l.id)).toEqual(["old"]);
+    expect(s.withoutAmount).toBe(1);
+    expect(s.dueUnknown).toBe(0);
   });
 });
 
@@ -74,35 +110,48 @@ describe("typed vendor names", () => {
 describe("reading What we owe", () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    customerGet.mockResolvedValue({ customer: { companyName: "Maersk A/S" } });
+    vi.useRealTimers();
+    customerGet.mockResolvedValue({ customer: { companyName: "Maersk A/S", supplierTerms: { paymentDays: 30 } } });
     repo.openTypedVendors.mockResolvedValue([{ vendor: "Maersk", lines: 2 }]);
-    basics.mockResolvedValue({ shipments: [{ id: "s1", jobNumber: "CZ00000021", status: "In Transit" }] });
+    basics.mockImplementation(async ({ ids }: { ids: string[] }) => ({ shipments: ids.filter((id) => id !== "gone").map((id) => ({ id, jobNumber: `CZ-${id}`, status: "In Transit" })) }));
   });
 
-  it("gives the lines with their job numbers and the typed names, reading each job once", async () => {
-    repo.openOfSupplier.mockResolvedValue([row({ id: "a", received: true, realAmount: "10" }), row({ id: "b", estAmount: "5" }), row({ id: "c", shipmentId: "gone", estAmount: "5" })]);
-    const res = await supplierCostsService.forSupplier("company", SUPPLIER);
-    expect(res.lines.map((l) => [l.id, l.jobNumber, l.received, l.amount])).toEqual([
-      ["a", "CZ00000021", true, 10],
-      ["b", "CZ00000021", false, 5],
+  it("gives the three lists with their job numbers, the totals, the counts and the typed names", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-04T09:00:00Z"));
+    repo.openOfSupplier.mockResolvedValue([
+      row({ id: "a", received: true, receivedAt: new Date("2026-09-01T08:00:00Z"), realAmount: "10" }),
+      row({ id: "b", estAmount: "5" }),
+      row({ id: "c", received: true, realAmount: "7" }),
+      row({ id: "d", shipmentId: "gone", estAmount: "5" }),
     ]);
+    const res = await supplierCostsService.forSupplier("company", SUPPLIER);
+    expect(res.owed.map((l) => [l.id, l.jobNumber, l.dueOn, l.overdueDays])).toEqual([["a", "CZ-s1", "2026-10-01", 34]]);
+    expect(res.expected.map((l) => l.id)).toEqual(["b"]);
+    expect(res.untracked.map((l) => l.id)).toEqual(["c"]);
+    expect(res.totals).toEqual([{ currency: "EUR", owed: 10, overdue: 10, expected: 5, untracked: 7 }]);
+    expect(res.counts).toEqual({ owed: 1, expected: 1, untracked: 1, withoutAmount: 0, dueUnknown: 0 });
+    expect(res.paymentDays).toBe(30);
     expect(res.typedNames).toEqual([{ vendor: "Maersk", lines: 2 }]);
     expect(res.truncated).toBe(false);
     expect(basics).toHaveBeenCalledWith({ ids: ["s1", "gone"] });
     expect(customerGet).toHaveBeenCalledWith({ id: SUPPLIER });
   });
 
-  it("reads at most 500 lines and says when there were more", async () => {
-    repo.openOfSupplier.mockResolvedValue(Array.from({ length: 501 }, (_, i) => row({ id: `l${i}`, estAmount: "1" })));
+  it("totals every line it reads, names the jobs 500 at a time, and lists only the first of each list", async () => {
+    repo.openOfSupplier.mockResolvedValue(Array.from({ length: 1200 }, (_, i) => row({ id: `l${i}`, shipmentId: `s${i}`, estAmount: "1" })));
     const res = await supplierCostsService.forSupplier("company", SUPPLIER);
-    expect(repo.openOfSupplier).toHaveBeenCalledWith("company", SUPPLIER, 501);
-    expect(res.lines).toHaveLength(500);
-    expect(res.truncated).toBe(true);
+    expect(repo.openOfSupplier).toHaveBeenCalledWith("company", SUPPLIER, 10_001);
+    expect(basics).toHaveBeenCalledTimes(3);
+    expect(res.expected).toHaveLength(200);
+    expect(res.counts.expected).toBe(1200);
+    expect(res.totals[0]!.expected).toBe(1200);
+    expect(res.truncated).toBe(false);
   });
 
   it("asks the shipments service nothing when there are no lines, and refuses what is no company id", async () => {
     repo.openOfSupplier.mockResolvedValue([]);
-    expect((await supplierCostsService.forSupplier("company", SUPPLIER)).lines).toEqual([]);
+    expect((await supplierCostsService.forSupplier("company", SUPPLIER)).owed).toEqual([]);
     expect(basics).not.toHaveBeenCalled();
     await expect(supplierCostsService.forSupplier("company", "nope")).rejects.toThrow("Not a company id");
   });

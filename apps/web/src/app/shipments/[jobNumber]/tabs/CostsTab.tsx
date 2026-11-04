@@ -9,7 +9,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, apiErrorMessage, ErrCode, isAPIError } from "@/lib/api";
 import type { controllers } from "@/lib/api/client";
 import type { ShipmentItem } from "@/hooks/useShipments";
-import { businessToday, formatDate, formatDateTime } from "@/lib/date";
+import { formatDate, formatDateTime } from "@/lib/date";
 import { normaliseAmount } from "@/lib/money";
 import { asData, computeTotals, isSalesQuoteRef, quoteProfitIn } from "@/app/sales/_lib/salesQuote";
 import { useSalesQuoteByRef } from "@/hooks/useSalesQuote";
@@ -23,6 +23,7 @@ import { TruckingCostTagLink } from "@/components/TruckingCostTagLink";
 import { ProfitVsEstimate } from "@/components/ProfitVsEstimate";
 import { useCanSeeConcepts } from "@/lib/auth/AuthContext";
 import { SupplierPicker, type SupplierValue } from "@/components/SupplierPicker";
+import { CostPaidCell } from "./CostPaidCell";
 
 interface CurrencyPickerProps {
   value: string;
@@ -159,7 +160,7 @@ interface CostsTabProps {
 export function CostsTab({ shipment }: CostsTabProps) {
   const queryClient = useQueryClient();
   // Toasts go through the App context: antd's static `message` shows nothing under React 19.
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [quoteInput, setQuoteInput] = useState("");
   const [quoteLoading, setQuoteLoading] = useState(false);
   // the Copy from quote dialog
@@ -238,6 +239,8 @@ export function CostsTab({ shipment }: CostsTabProps) {
     queryClient.invalidateQueries({ queryKey: ["shipments"] });
     // …and the Invoicing queue's counts (to bill, lines invoiced)
     queryClient.invalidateQueries({ queryKey: INVOICE_KEYS.queueAll });
+    // …and the suppliers' What we owe (received and paid move it)
+    queryClient.invalidateQueries({ queryKey: ["supplier-costs"] });
     return queryClient.invalidateQueries({ queryKey: ["invoicing", shipment.id] });
   };
 
@@ -428,10 +431,24 @@ export function CostsTab({ shipment }: CostsTabProps) {
     updateBuy.mutate({ id: r.id, estCurrency: currency, ...(mirror ? { realCurrency: currency } : {}) });
   };
 
-  /* ── Received follows the invoice number being filled in; it can't be ticked by hand ── */
-  const changeInvoiceNumber = (r: BuyingRow, value: string) => {
+  /* ── Received follows the invoice number being filled in; it can't be ticked by hand ──
+     Clearing the number of a paid line also takes its payment back: that is asked first (K8). */
+  const changeInvoiceNumber = (r: BuyingRow, field: HTMLInputElement) => {
+    const value = field.value;
     if (value === r.invoiceNumber) return;
-    updateBuy.mutate({ id: r.id, invoiceNumber: value, received: !!value.trim() });
+    const save = () => updateBuy.mutate({ id: r.id, invoiceNumber: value, received: !!value.trim() });
+    if (value.trim() || !r.paidOn) return save();
+    modal.confirm({
+      title: "Take back the payment?",
+      content: `This cost was noted as paid on ${formatDate(r.paidOn)}. Without an invoice number it is no longer received, so the payment is taken back too.`,
+      okText: "Clear number and payment",
+      okButtonProps: { danger: true },
+      cancelText: "Keep them",
+      onOk: save,
+      onCancel: () => {
+        field.value = r.invoiceNumber;
+      },
+    });
   };
 
   /* ── Copy from buying ──
@@ -715,7 +732,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
                     <input
                       className={`${FIELD}${fld}`}
                       defaultValue={r.invoiceNumber}
-                      onBlur={(e) => changeInvoiceNumber(r, e.target.value)}
+                      onBlur={(e) => changeInvoiceNumber(r, e.target)}
                     />
                   </td>
                   <td className={`${CELL} text-center`}>
@@ -725,17 +742,14 @@ export function CostsTab({ shipment }: CostsTabProps) {
                           <Checkbox checked={r.received} disabled tabIndex={-1} />
                         </span>
                       </Tooltip>
-                      {/* Paid once the invoice came: ticked today, unticked takes it back (Council Outlay 7, step 6b). */}
-                      <Tooltip title={r.paidOn ? `Paid on ${formatDate(r.paidOn)}` : r.received ? "Tick when the invoice is paid" : "Paid once its invoice is received"}>
-                        <span>
-                          <Checkbox
-                            checked={!!r.paidOn}
-                            disabled={!r.received}
-                            aria-label="Supplier invoice paid"
-                            onChange={(e) => updateBuy.mutate({ id: r.id, paidOn: e.target.checked ? businessToday() : "" })}
-                          />
-                        </span>
-                      </Tooltip>
+                      {/* Paid once the invoice came, on the day picked (Council Outlay 7, step 6b; Council Review 5). */}
+                      <CostPaidCell
+                        received={r.received}
+                        paidOn={r.paidOn}
+                        paidBy={r.paidBy}
+                        paidAt={r.paidAt}
+                        onChange={(paidOn) => updateBuy.mutate({ id: r.id, paidOn })}
+                      />
                     </span>
                   </td>
                   <td className={`${CELL} text-right text-[13px] font-semibold tabular-nums text-slate-800`}>{buyRowTotal(r)}</td>

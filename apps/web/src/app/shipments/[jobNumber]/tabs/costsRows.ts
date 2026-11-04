@@ -37,6 +37,8 @@ export const buyRowsOf = (costs: InvoicingData["costs"] | undefined): BuyingRow[
     received: !!c.received,
     receivedAt: c.receivedAt ?? null,
     paidOn: c.paidOn ?? "",
+    paidBy: c.paidBy ?? "",
+    paidAt: c.paidAt ?? null,
   }));
 
 export const sellRowsOf = (sellingCosts: InvoicingData["sellingCosts"] | undefined): SellingRow[] =>

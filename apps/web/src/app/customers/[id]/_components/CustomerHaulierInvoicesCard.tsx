@@ -35,7 +35,23 @@ export function CustomerHaulierInvoicesCard({ customerId }: CustomerHaulierInvoi
     { title: "Issued", dataIndex: "issueDate", render: (v: string) => formatDate(v) || EMPTY_CELL },
     { title: "Due", dataIndex: "dueDate", render: (v: string | null) => formatDate(v) || EMPTY_CELL },
     { title: "Total", dataIndex: "totalGross", align: "right", render: (v: number, r) => <span className="tabular-nums">{fmtMoney(v, r.currency)}</span> },
-    { title: "Paid", key: "paid", render: (_, r) => (r.payment ? formatDate(r.payment.paidOn) : r.status === "APPROVED" ? <span className="text-amber-700">Not yet</span> : EMPTY_CELL) },
+    {
+      title: "Paid",
+      key: "paid",
+      render: (_, r) =>
+        r.payment ? (
+          formatDate(r.payment.paidOn)
+        ) : r.status !== "APPROVED" ? (
+          EMPTY_CELL
+        ) : r.paymentTracked ? (
+          <span className="text-amber-700">Not yet</span>
+        ) : (
+          // Approved before payments were noted here: it may have been paid already (Council Review 5, K2).
+          <span className="text-slate-400" title="Approved before payments were noted here: it may have been paid already">
+            Not tracked
+          </span>
+        ),
+    },
   ];
 
   return (

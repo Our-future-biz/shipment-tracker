@@ -18,6 +18,7 @@ import {
   type TruckingTripRecord,
 } from "../schemas/truckingConsignment.schema";
 import type { HaulierInvoiceStatus, HaulierInvoiceTargetKind } from "../interfaces/haulierInvoice.interfaces";
+import { truckingPaymentTrackingTable } from "../schemas/paymentTracking.schema";
 
 const i = truckingHaulierInvoiceTable;
 const li = truckingHaulierInvoiceLineTable;
@@ -53,6 +54,17 @@ const notOnApprovedInvoice = (companyId: string, kind: HaulierInvoiceTargetKind,
 // lockHaulier, so two saves for one haulier never interleave: the duplicate-number and
 // target-already-invoiced checks see each other's rows, and the unique indexes catch the rest.
 class HaulierInvoiceRepository {
+  private trackingSince: Date | null | undefined;
+
+  /** Since when payments of approved invoices are noted here (trucking migration 0013): read once, it never changes. */
+  async paymentTrackingSince(): Promise<Date | null> {
+    if (this.trackingSince === undefined) {
+      const [row] = await db.select({ since: truckingPaymentTrackingTable.since }).from(truckingPaymentTrackingTable).where(eq(truckingPaymentTrackingTable.id, 1));
+      this.trackingSince = row?.since ?? null;
+    }
+    return this.trackingSince;
+  }
+
   /** Holds a transaction-scoped lock on the haulier's invoices until the transaction ends. */
   async lockHaulier(tx: Tx, companyId: string, haulierCustomerId: string): Promise<void> {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`trucking-haulier-invoice:${companyId}:${haulierCustomerId}`}))`);
