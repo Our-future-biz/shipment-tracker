@@ -35,10 +35,13 @@ export function LineTable({ minWidthClass, children }: LineTableProps) {
   );
 }
 
-const LINE_TH_SHAPE = "px-2 py-1.5 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap";
+const LINE_TH_LOOK = "px-2 py-1.5 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wide";
+const LINE_TH_SHAPE = `${LINE_TH_LOOK} whitespace-nowrap`;
 export const LINE_TH_CLASS = `${LINE_TH_SHAPE} text-left`;
 // The heading of a column of figures.
 export const LINE_TH_RIGHT_CLASS = `${LINE_TH_SHAPE} text-right`;
+// The heading of a narrow checkbox column: over the checkbox, on two lines when it doesn't fit on one.
+export const LINE_TH_CHECK_CLASS = `${LINE_TH_LOOK} text-center leading-tight`;
 export const LINE_TD_CLASS = "px-2 py-1.5 border-b border-slate-100 align-middle";
 
 interface LineBlockEmptyProps {
