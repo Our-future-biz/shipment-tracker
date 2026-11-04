@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, integer, numeric, date, index, uniqueIndex, check, uuid } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, smallint, numeric, date, index, uniqueIndex, check, uuid, timestamp } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 import type { CustomerLabel, CustomerRole, CustomerStatus, RiskLevelOverride } from "../interfaces/interfaces";
 
@@ -49,6 +49,16 @@ export const customerTable = pgTable(
     // haulier trucks containers to and from ports and terminals, a shipping line sells ocean freight. Existing rows become customers.
     roles: text("roles").array().$type<CustomerRole[]>().notNull().default(sql`'{customer}'::text[]`),
 
+    // — Supplier rating (a company with a supplier role) —
+    // 0–5 whole stars set by hand by a manager; null = not rated (0 is a rating: the worst). Who set it,
+    // when and why go with it; every change is also kept in customer_supplier_rating.
+    supplierRating: smallint("supplier_rating"),
+    supplierRatingReason: text("supplier_rating_reason").notNull().default(""),
+    // The e-mail of who set it, as a person is recorded, and the user (another database, so no foreign key).
+    supplierRatingBy: text("supplier_rating_by").notNull().default(""),
+    supplierRatingByUserId: uuid("supplier_rating_by_user_id"),
+    supplierRatingAt: timestamp("supplier_rating_at", { withTimezone: true }),
+
     // — Logo + website (logo stored as base64 data URL in Postgres) —
     companyWebsite: text("company_website").notNull().default(""),
     logoData: text("logo_data").notNull().default(""),
@@ -79,6 +89,7 @@ export const customerTable = pgTable(
       "customer_label_check",
       sql`${table.label} IN ('KEY ACCOUNT', 'STANDARD', 'TARGET CUSTOMER', 'RISK')`,
     ),
+    check("customer_supplier_rating_check", sql`${table.supplierRating} BETWEEN 0 AND 5`),
     // At least one role, and only known ones.
     check(
       "customer_roles_check",

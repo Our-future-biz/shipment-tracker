@@ -78,6 +78,14 @@ export function canDecideQuoteInquiry(role: string): boolean {
 }
 
 /**
+ * Whether the user may set or clear a supplier's rating (0–5 stars) in the Customer Database: the
+ * roles that manage Sales, as for the other commercial fields of a company. Everyone may see it.
+ */
+export function canRateSupplier(role: string): boolean {
+  return canManageSales(role);
+}
+
+/**
  * How far a user may change the owner of a quote:
  * `any` - a manager: to anybody, or to nobody;
  * `own` - a plain user on their own quote: may hand it to anybody, or give it up;

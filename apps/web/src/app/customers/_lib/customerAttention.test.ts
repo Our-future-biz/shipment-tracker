@@ -11,7 +11,8 @@ const customer = (over: Partial<CustomerItem> = {}): CustomerItem => ({
   dataSource: "", lastRegistryUpdate: "", status: "Active", salesOwner: "", salesOwnerUserId: "u", label: "STANDARD",
   creditLimit: 1000, currency: "EUR", secondaryCurrencies: [], paymentTerms: "30 days", freightPaymentTerms: "", dutyPaymentTerms: "",
   companyWebsite: "", logoUrl: "", logoSource: "", logoUpdatedAt: "", totalRevenue: 0, totalProfit: 0, totalShipments: 0,
-  lastActivityDate: "", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+  lastActivityDate: "", supplierRating: null, supplierRatingReason: "", supplierRatingBy: "", supplierRatingAt: null,
+  createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
   ...over,
 });
 

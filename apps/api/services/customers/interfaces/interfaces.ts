@@ -31,6 +31,10 @@ export type InvoiceStatus = "Open" | "Overdue" | "Paid" | "Credited";
  * consolidator we hand LCL (groupage) cargo to. One company can have several roles.
  */
 export type CustomerRole = "customer" | "haulier" | "rail_operator" | "first_last_mile_haulier" | "shipping_line" | "co_loader";
+/** The roles that make a company a supplier: every role but customer. */
+export const SUPPLIER_ROLES: readonly CustomerRole[] = ["haulier", "rail_operator", "first_last_mile_haulier", "shipping_line", "co_loader"];
+/** Whether a company with these roles is a supplier (it may also be a customer). */
+export const isSupplier = (roles: readonly CustomerRole[]): boolean => roles.some((role) => SUPPLIER_ROLES.includes(role));
 /** What happens at a site: goods are picked up (loading), dropped off (delivery), or both. */
 export type CustomerSiteKind = "loading" | "delivery" | "both";
 
@@ -78,8 +82,28 @@ export interface CustomerItem {
   lastActivityDate: string;
   /** Never empty; "customer" for every company added before roles existed. */
   roles: CustomerRole[];
+  /** A supplier's rating, 0–5 whole stars set by a manager (0 the worst); null when not rated. */
+  supplierRating: number | null;
+  /** Why it was given; "" when none was. */
+  supplierRatingReason: string;
+  /** The e-mail of who set it; "" when not rated. */
+  supplierRatingBy: string;
+  /** When it was set (ISO); null when not rated. */
+  supplierRatingAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** One change of a supplier's rating, as it was made. */
+export interface SupplierRatingEntry {
+  id: string;
+  /** 0–5 stars, or null when the rating was cleared. */
+  rating: number | null;
+  reason: string;
+  /** The e-mail of who set it. */
+  setBy: string;
+  /** When (ISO). */
+  setAt: string;
 }
 
 /** A customer as the pipeline of the sales service needs it. */

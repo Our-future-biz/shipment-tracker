@@ -5,7 +5,8 @@ import type { CustomerItemRow, CustomerRecord } from "../schemas/customer.schema
 import type { CustomerInvoiceRecord } from "../schemas/customerInvoice.schema";
 import type { CustomerNoteRecord } from "../schemas/customerNote.schema";
 import type { CustomerSiteRecord } from "../schemas/customerSite.schema";
-import type { AddressItem, ContactItem, CustomerItem, CustomerSiteItem, DocumentItem, InvoiceItem, NoteItem } from "../interfaces/interfaces";
+import type { CustomerSupplierRatingRecord } from "../schemas/customerSupplierRating.schema";
+import type { AddressItem, ContactItem, CustomerItem, CustomerSiteItem, DocumentItem, InvoiceItem, NoteItem, SupplierRatingEntry } from "../interfaces/interfaces";
 import { dateOutput } from "./dates";
 import { customerLogoUrl } from "./logoUrl";
 
@@ -50,8 +51,20 @@ export const toCustomerItem = (r: CustomerItemRow | CustomerRecord): CustomerIte
   totalShipments: r.totalShipments,
   lastActivityDate: dateOutput(r.lastActivityDate),
   roles: r.roles,
+  supplierRating: r.supplierRating,
+  supplierRatingReason: r.supplierRatingReason,
+  supplierRatingBy: r.supplierRatingBy,
+  supplierRatingAt: r.supplierRatingAt ? iso(r.supplierRatingAt) : null,
   createdAt: iso(r.createdAt),
   updatedAt: iso(r.updatedAt),
+});
+
+export const toSupplierRatingEntry = (r: CustomerSupplierRatingRecord): SupplierRatingEntry => ({
+  id: r.id,
+  rating: r.rating,
+  reason: r.reason,
+  setBy: r.setBy,
+  setAt: iso(r.createdAt),
 });
 
 export const toCustomerSiteItem = (r: CustomerSiteRecord): CustomerSiteItem => ({

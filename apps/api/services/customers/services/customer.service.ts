@@ -16,6 +16,7 @@ import type {
   RoleCompanyItem,
   RiskLevelOverride,
 } from "../interfaces/interfaces";
+import { isSupplier } from "../interfaces/interfaces";
 import type { NewContactRecord } from "../schemas/contact.schema";
 import { iso } from "../../../lib/db/serialize";
 import { canManageSales } from "../../../lib/salesPolicy";
@@ -114,7 +115,7 @@ const requireRoles = (roles: CustomerRole[]): CustomerRole[] => {
  * shipping line) is a manager's decision, as changing the roles later is.
  */
 export function assertMayGiveRoles(actorRole: string, roles: CustomerRole[] | undefined): void {
-  if (roles?.some((r) => r !== "customer") && !canManageSales(actorRole)) {
+  if (roles && isSupplier(roles) && !canManageSales(actorRole)) {
     throw APIError.permissionDenied("Only a manager can add a supplier (a company with a role other than Customer)");
   }
 }

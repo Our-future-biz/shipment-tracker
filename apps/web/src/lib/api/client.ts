@@ -557,6 +557,8 @@ export namespace customers {
             this.noteCreate = this.noteCreate.bind(this)
             this.noteDelete = this.noteDelete.bind(this)
             this.noteList = this.noteList.bind(this)
+            this.supplierRatingHistory = this.supplierRatingHistory.bind(this)
+            this.supplierRatingSet = this.supplierRatingSet.bind(this)
         }
 
         public async addressCreate(customerId: string, params: controllers.AddressCreateRequest): Promise<controllers.AddressCreateResponse> {
@@ -859,6 +861,21 @@ export namespace customers {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/customers/${encodeURIComponent(customerId)}/notes`)
             return await resp.json() as controllers.NoteListResponse
+        }
+
+        public async supplierRatingHistory(id: string): Promise<controllers.SupplierRatingHistoryResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/customers/${encodeURIComponent(id)}/supplier-rating/history`)
+            return await resp.json() as controllers.SupplierRatingHistoryResponse
+        }
+
+        /**
+         * Managers and admins only; who and when come from the login and the server's clock, never the request.
+         */
+        public async supplierRatingSet(id: string, params: controllers.SupplierRatingSetRequest): Promise<controllers.SupplierRatingSetResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/customers/${encodeURIComponent(id)}/supplier-rating`, JSON.stringify(params))
+            return await resp.json() as controllers.SupplierRatingSetResponse
         }
     }
 }
@@ -6257,6 +6274,10 @@ export namespace controllers {
 
     export interface CustomerGetResponse {
         customer: interfaces.CustomerItem
+        /**
+         * Whether the signed-in user may set this company's supplier rating: a manager, and the company is a supplier.
+         */
+        canRateSupplier: boolean
     }
 
     export interface CustomerListPrefGetResponse {
@@ -9233,6 +9254,26 @@ export namespace controllers {
         status?: string
         consol?: string
         marks?: string
+    }
+
+    export interface SupplierRatingHistoryResponse {
+        data: interfaces.SupplierRatingEntry[]
+    }
+
+    export interface SupplierRatingSetRequest {
+        /**
+         * 0–5 whole stars (0 the worst), or null to clear the rating.
+         */
+        rating: number | null
+
+        /**
+         * Why; needed for 0, 1 or 2 stars.
+         */
+        reason?: string
+    }
+
+    export interface SupplierRatingSetResponse {
+        customer: interfaces.CustomerItem
     }
 
     export interface TaskListResponse {
@@ -12253,6 +12294,26 @@ export namespace interfaces {
          * Never empty; "customer" for every company added before roles existed.
          */
         roles: CustomerRole[]
+
+        /**
+         * A supplier's rating, 0–5 whole stars set by a manager (0 the worst); null when not rated.
+         */
+        supplierRating: number | null
+
+        /**
+         * Why it was given; "" when none was.
+         */
+        supplierRatingReason: string
+
+        /**
+         * The e-mail of who set it; "" when not rated.
+         */
+        supplierRatingBy: string
+
+        /**
+         * When it was set (ISO); null when not rated.
+         */
+        supplierRatingAt: string | null
 
         createdAt: string
         updatedAt: string
@@ -17779,6 +17840,28 @@ export namespace interfaces {
         vgm: SupplierRecipientsItem
         survey: SupplierRecipientsItem
         remeasurement: SupplierRecipientsItem
+    }
+
+    /**
+     * One change of a supplier's rating, as it was made.
+     */
+    export interface SupplierRatingEntry {
+        id: string
+        /**
+         * 0–5 stars, or null when the rating was cleared.
+         */
+        rating: number | null
+
+        reason: string
+        /**
+         * The e-mail of who set it.
+         */
+        setBy: string
+
+        /**
+         * When (ISO).
+         */
+        setAt: string
     }
 
     export interface SupplierRecipientsItem {

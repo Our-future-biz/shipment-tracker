@@ -204,6 +204,13 @@
       "when": 1793763962142,
       "tag": "0028_note_colleagues",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1793768148023,
+      "tag": "0029_supplier_rating",
+      "breakpoints": true
     }
   ]
 }
