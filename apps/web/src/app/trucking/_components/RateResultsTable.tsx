@@ -2,7 +2,7 @@
 
 import { Table, Tooltip } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { StarFilled, WarningOutlined } from "@ant-design/icons";
+import { PushpinFilled, WarningOutlined } from "@ant-design/icons";
 import { Pill } from "@/components/Pill";
 import type { interfaces } from "@/lib/api/client";
 import type { RateLevelResult } from "@/hooks/useTrucking";
@@ -74,7 +74,7 @@ export const RateResultsTable = ({ results, includeBuy, includeInternal, marginF
             <span className="block text-[12px] text-slate-600 whitespace-nowrap">
               {best.preferred && (
                 <Tooltip title="Preferred lane of this haulier">
-                  <StarFilled className="mr-1 text-amber-500" aria-label="Preferred lane" />
+                  <PushpinFilled className="mr-1 text-indigo-500" aria-label="Preferred lane" />
                 </Tooltip>
               )}
               {best.ownerName ?? "Haulier"}

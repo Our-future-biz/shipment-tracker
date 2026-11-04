@@ -34,6 +34,7 @@ const offer = (over: Partial<OceanOffer> = {}): OceanOffer => ({
   tariffName: "OOCL Export FAK",
   supplierCustomerId: "oocl",
   supplierName: "OOCL",
+  supplierRating: null,
   validTo: "2026-05-31",
   tableLabel: "Far East direct calls",
   polCode: "DEHAM",

@@ -157,6 +157,7 @@ class HaulierService {
         adrCapable: profile?.adrCapable ?? false,
         vehicleTypes: profile?.vehicleTypes ?? [],
         preferredLaneCount: stored?.laneCount ?? 0,
+        rating: h.rating,
       };
     });
     return items

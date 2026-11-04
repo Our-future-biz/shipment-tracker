@@ -163,6 +163,8 @@ export interface RoleCompanyItem {
   city: string;
   /** ISO 3166-1 alpha-2 as stored ("CZ" for most); "" when unknown */
   country: string;
+  /** The supplier rating, 0–5 stars (0 the worst), null when not rated. For our own staff only: never shown to the supplier. */
+  rating: number | null;
 }
 
 /** A customer as another service links to it: id, current name and account type. */

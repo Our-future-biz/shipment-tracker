@@ -17,6 +17,8 @@ import type { interfaces } from "@/lib/api/client";
 import { useCanManageTariffs } from "@/lib/auth/AuthContext";
 import { formatDate } from "@/lib/date";
 import { muted } from "./TariffText";
+import { SupplierRatingStars } from "@/app/customers/_components/SupplierRatingStars";
+import { ratingRank } from "@/app/trucking/_lib/haulierRating";
 
 /** A supplier as a Tariffs section lists it: the Customer Database company and its tariffs at a glance. */
 interface TariffSupplierRow {
@@ -29,6 +31,8 @@ interface TariffSupplierRow {
   activeCount: number;
   draftCount: number;
   activeUntil: string | null;
+  /** From the Customer Database: 0–5 stars, null when not rated. */
+  rating: number | null;
 }
 
 const byText = (a: string, b: string) => a.localeCompare(b, "cs");
@@ -45,6 +49,14 @@ function supplierColumns<T extends TariffSupplierRow>(nameTitle: string, href: (
           {s.companyName}
         </Link>
       ),
+    },
+    {
+      key: "rating",
+      title: "Rating",
+      text: (s) => (s.rating === null ? "Not rated" : `${s.rating}/5`),
+      // Best first on a descending sort: 5 down to 1, not rated, then 0.
+      sorter: (a, b) => ratingRank(a.rating) - ratingRank(b.rating),
+      render: (_, s) => <SupplierRatingStars rating={s.rating} />,
     },
     { key: "ico", title: "IČO", text: (s) => s.ico, sorter: (a, b) => byText(a.ico, b.ico) },
     { key: "city", title: "City", text: (s) => s.city, sorter: (a, b) => byText(a.city, b.city) },

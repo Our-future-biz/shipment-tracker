@@ -47,7 +47,7 @@ const NO_CUSTOMERS: CustomerItem[] = [];
 
 // The Tariffs pages list the companies by their supplier roles and show their names as the
 // Customer Database has them: a company's new roles, name or deletion shows there at once.
-const refreshTariffSuppliers = (queryClient: QueryClient) => {
+export const refreshTariffSuppliers = (queryClient: QueryClient) => {
   for (const key of [railTariffKeys.all, collectionTariffKeys.all, oceanTariffKeys.all]) queryClient.invalidateQueries({ queryKey: key });
 };
 

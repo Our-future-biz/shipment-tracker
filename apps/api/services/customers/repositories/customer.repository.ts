@@ -124,7 +124,7 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
     companyId: string,
     role: CustomerRole,
     ids?: string[],
-  ): Promise<Pick<CustomerRecord, "id" | "companyName" | "ico" | "dic" | "city" | "country">[]> {
+  ): Promise<(Pick<CustomerRecord, "id" | "companyName" | "ico" | "dic" | "city" | "country"> & { rating: number | null })[]> {
     const clauses = [eq(customerTable.companyId, companyId), isNull(customerTable.deletedAt), arrayContains(customerTable.roles, [role])];
     if (ids) clauses.push(inArray(customerTable.id, ids));
     return this.db
@@ -135,6 +135,7 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
         dic: customerTable.dic,
         city: customerTable.city,
         country: customerTable.country,
+        rating: customerTable.supplierRating,
       })
       .from(customerTable)
       .where(and(...clauses))

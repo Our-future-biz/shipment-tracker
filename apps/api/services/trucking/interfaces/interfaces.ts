@@ -185,6 +185,8 @@ export interface HaulierListItem {
   adrCapable: boolean;
   vehicleTypes: string[];
   preferredLaneCount: number;
+  /** The supplier rating from the Customer Database, 0–5 stars, null when not rated. Staff only: HaulierDetail, which the portal reads, has none. */
+  rating: number | null;
 }
 
 export interface HaulierDetail {

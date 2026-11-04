@@ -37,6 +37,7 @@ import {
   supplierGlance,
   supplierTariffs,
   suppliersOf,
+  ratingRank,
   summaryOf,
   tariffName,
   unusableLayout,
@@ -336,7 +337,7 @@ class CollectionTariffService {
     if (!postcodeOf(req.customerPostcode)) return { offers: [], hubPostcode: postcodeOf(hub), notes: [...notes, "Type the customer's 5-digit postcode"] };
 
     const candidates = await tariffRepository.collectionCandidates(companyId, req.freightMode, req.date);
-    const names = new Map((await suppliersOf("collection", [...new Set(candidates.map((c) => c.tariff.supplierCustomerId))])).map((h) => [h.id, h.companyName]));
+    const names = new Map((await suppliersOf("collection", [...new Set(candidates.map((c) => c.tariff.supplierCustomerId))])).map((h) => [h.id, h]));
     const route: CollectionRoute = { ...req, hubPostcode: hub ?? "" };
     // A company that is no first / last mile haulier any more has no tariffs to offer.
     const asked = candidates.filter((c) => names.has(c.tariff.supplierCustomerId));
@@ -344,7 +345,8 @@ class CollectionTariffService {
     const prices = await Promise.all(asked.map((c) => priceVersion(companyId, c.version, route)));
     const offers: CollectionOffer[] = [];
     for (const [i, { version, tariff }] of asked.entries()) {
-      const supplierName = names.get(tariff.supplierCustomerId)!;
+      const supplier = names.get(tariff.supplierCustomerId)!;
+      const supplierName = supplier.companyName;
       const priced = prices[i]!;
       if (!priced.ok) {
         notes.push(`${supplierName} (${tariff.name}): ${priced.problem}`);
@@ -358,12 +360,13 @@ class CollectionTariffService {
         tariffName: tariff.name,
         supplierCustomerId: tariff.supplierCustomerId,
         supplierName,
+        supplierRating: supplier.rating,
         validTo: version.validTo,
         hubPlace: priced.hubPlace,
         customerPlace: priced.customerPlace,
       });
     }
-    offers.sort((a, b) => a.total - b.total || a.supplierName.localeCompare(b.supplierName));
+    offers.sort((a, b) => a.total - b.total || ratingRank(b.supplierRating) - ratingRank(a.supplierRating) || a.supplierName.localeCompare(b.supplierName));
     if (!candidates.length) notes.push(`No approved collections tariff for ${FREIGHT_LABEL[req.freightMode]} is valid on ${req.date}`);
     return { offers, hubPostcode: postcodeOf(hub), notes };
   }

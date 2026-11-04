@@ -93,7 +93,15 @@ export interface SupplierGlance {
   draftCount: number;
   /** The soonest end of a version pricing on the day, YYYY-MM-DD; null when none ends */
   activeUntil: string | null;
+  /** The supplier rating, 0–5 stars, null when not rated */
+  rating: number | null;
 }
+
+/**
+ * The order of "best first" (Council Outlay 7, D14): 5 down to 1 star, then not rated, then 0. Offers stay
+ * cheapest first; this only settles an exact tie on price (D13).
+ */
+export const ratingRank = (rating: number | null): number => (rating === null ? 0.5 : rating === 0 ? -1 : rating);
 
 export function supplierGlance({ company, tariffs, versions }: SupplierTariffs, day: string): SupplierGlance {
   const pricing = versions.filter((v) => pricesOn(v, day));
@@ -108,6 +116,7 @@ export function supplierGlance({ company, tariffs, versions }: SupplierTariffs, 
     activeCount: pricing.length,
     draftCount: versions.filter((v) => v.status === "draft").length,
     activeUntil: ends.length ? ends.sort()[0]! : null,
+    rating: company.rating,
   };
 }
 

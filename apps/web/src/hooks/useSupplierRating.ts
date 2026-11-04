@@ -3,6 +3,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
+import { refreshTariffSuppliers } from "./useCustomers";
+import { truckingKeys } from "./truckingKeys";
 
 export type SupplierRatingEntry = interfaces.SupplierRatingEntry;
 
@@ -25,6 +27,10 @@ export const useSupplierRating = (customerId: string, { historyEnabled = true } 
       queryClient.invalidateQueries({ queryKey: ["customer", customerId] });
       queryClient.invalidateQueries({ queryKey: ["customers"] });
       queryClient.invalidateQueries({ queryKey: historyKey });
+      // Where the stars are shown outside the Customer Database: Trucking's hauliers (every haulier
+      // picker reads that list) and the Tariffs suppliers and offers.
+      queryClient.invalidateQueries({ queryKey: truckingKeys.haulierList() });
+      refreshTariffSuppliers(queryClient);
     },
   });
 

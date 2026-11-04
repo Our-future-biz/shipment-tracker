@@ -1,7 +1,9 @@
 "use client";
 
 import { Select } from "antd";
-import type { RateLevelResult } from "@/hooks/useTrucking";
+import { useHauliers, type RateLevelResult } from "@/hooks/useTrucking";
+import { HaulierOptionLabel } from "@/app/trucking/_components/HaulierOptionLabel";
+import { ratingsOf } from "@/app/trucking/_lib/haulierRating";
 import { promisedLabel } from "@/app/trucking/_lib/rateCalculator";
 import { isPriced } from "@/app/trucking/_lib/tariffs";
 import { formatAmount as formatMoney } from "@/lib/money";
@@ -16,9 +18,11 @@ interface RoadPricePickerProps {
 }
 
 // Which service level and haulier go on the quote: only levels with a sell price are offered, and
-// a level's hauliers in the engine's order (preferred lane first, then cheapest).
+// a level's hauliers in the engine's order (preferred lane first, then cheapest), each with its stars.
+// The order is the price's, not the rating's: the first is the one the margin is worked out from.
 export const RoadPricePicker = ({ results, value, onChange, disabled = false }: RoadPricePickerProps) => {
   const levels = pickableLevels(results);
+  const ratings = ratingsOf(useHauliers().hauliers);
   const level = levels.find((r) => r.serviceLevel === value?.serviceLevel);
 
   const levelOptions = levels.map((r) => ({
@@ -27,7 +31,8 @@ export const RoadPricePicker = ({ results, value, onChange, disabled = false }: 
   }));
   const haulierOptions = (level?.buy ?? []).map((b, i) => ({
     value: b.ownerCustomerId ?? "",
-    label: `${b.ownerName ?? "Haulier"} · ${formatMoney(b.total, b.currency)}${b.preferred ? " · preferred lane" : ""}${i === 0 ? " · best" : ""}`,
+    label: `${b.ownerName ?? "Haulier"} · ${formatMoney(b.total, b.currency)}${b.preferred ? " · preferred lane" : ""}${i === 0 ? " · suggested" : ""}`,
+    rating: b.ownerCustomerId && ratings.has(b.ownerCustomerId) ? (ratings.get(b.ownerCustomerId) ?? null) : undefined,
   }));
 
   const handleLevelChange = (serviceLevel: RateLevelResult["serviceLevel"]) =>
@@ -52,6 +57,7 @@ export const RoadPricePicker = ({ results, value, onChange, disabled = false }: 
           disabled={disabled || !level?.buy.length}
           value={value?.haulierCustomerId ?? undefined}
           options={haulierOptions}
+          optionRender={(o) => <HaulierOptionLabel label={o.label} rating={o.data.rating} />}
           onChange={(haulierCustomerId: string) => value && onChange({ ...value, haulierCustomerId })}
         />
       </TruckingField>

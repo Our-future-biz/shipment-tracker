@@ -6,6 +6,7 @@ import { Pill } from "@/components/Pill";
 import { formatDate } from "@/lib/date";
 import { fmtMoney } from "@/lib/money";
 import { offerInQuoteCurrency, type ToQuoteCurrency } from "../../../_lib/tariffQuote";
+import { SupplierRatingStars } from "@/app/customers/_components/SupplierRatingStars";
 
 // The columns the "Tariffs available" drawers (rail, collections, ocean) have in common: the rank,
 // the supplier and its tariff, the total in the offer's and the quote's currency, and "Use".
@@ -18,6 +19,8 @@ interface TariffOfferSource {
   versionNo: number;
   tariffName: string;
   validTo: string | null;
+  /** The supplier's rating, 0–5 stars, null when not rated: shown beside its name; the offers stay cheapest first. */
+  supplierRating?: number | null;
 }
 
 /** "Cheapest" on the first offer, the place of every other. */
@@ -35,7 +38,10 @@ export const tariffColumn = <T extends TariffOfferSource>(title: string, version
   title,
   render: (_, o) => (
     <div className="min-w-0">
-      <div className="font-semibold text-slate-800">{o.supplierName}</div>
+      <div className="flex flex-wrap items-center gap-x-2 font-semibold text-slate-800">
+        {o.supplierName}
+        {o.supplierRating !== undefined && <SupplierRatingStars rating={o.supplierRating} />}
+      </div>
       <a href={versionHref(o)} target="_blank" rel="noreferrer" className={`text-[12px] ${LINK_CLASS}`}>
         {o.tariffName} v{o.versionNo}
       </a>

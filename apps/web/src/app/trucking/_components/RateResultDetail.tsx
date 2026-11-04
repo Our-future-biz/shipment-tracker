@@ -1,6 +1,6 @@
 "use client";
 
-import { StarFilled } from "@ant-design/icons";
+import { PushpinFilled } from "@ant-design/icons";
 import type { RateLevelResult } from "@/hooks/useTrucking";
 import { isPriced, isUnpriced } from "../_lib/tariffs";
 import { HaulierIssueList } from "./HaulierIssueList";
@@ -34,8 +34,8 @@ export const RateResultDetail = ({ result, includeBuy }: RateResultDetailProps) 
                 {i === 0 && <span className="rounded bg-indigo-50 px-1.5 text-[10.5px] font-bold uppercase text-indigo-600">Best</span>}
                 {b.ownerName ?? "Haulier"}
                 {b.preferred && (
-                  <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-600">
-                    <StarFilled aria-hidden /> preferred lane
+                  <span className="inline-flex items-center gap-1 text-[11px] font-medium text-indigo-600">
+                    <PushpinFilled aria-hidden /> preferred lane
                   </span>
                 )}
               </span>

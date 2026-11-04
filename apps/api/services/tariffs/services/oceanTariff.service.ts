@@ -39,6 +39,7 @@ import {
   supplierGlance,
   supplierTariffs,
   suppliersOf,
+  ratingRank,
   summaryOf,
   tariffName,
   unusableLayout,
@@ -82,6 +83,8 @@ export interface ShippingLineItem {
   draftCount: number;
   /** The soonest end of an active version, YYYY-MM-DD; null when none ends */
   activeUntil: string | null;
+  /** The supplier rating from the Customer Database, 0–5 stars, null when not rated */
+  rating: number | null;
 }
 
 export interface OceanTariffItem {
@@ -465,15 +468,16 @@ class OceanTariffService {
     const candidates = await tariffRepository.oceanCandidates(companyId, req.direction, req.date);
     const versions = new Map(candidates.map((c) => [c.version.id, c]));
     const rates = await tariffRepository.oceanRoute(companyId, [...versions.keys()], podCode, req.comparePols ? null : polCode);
-    const names = new Map((await suppliersOf("ocean", [...new Set(candidates.map((c) => c.tariff.supplierCustomerId))])).map((l) => [l.id, l.companyName]));
+    const names = new Map((await suppliersOf("ocean", [...new Set(candidates.map((c) => c.tariff.supplierCustomerId))])).map((l) => [l.id, l]));
 
     const offers: OceanOffer[] = [];
     const manual = new Set<string>();
     let unpriced = 0;
     for (const rate of rates) {
       const candidate = versions.get(rate.versionId)!;
-      const supplierName = names.get(candidate.tariff.supplierCustomerId);
-      if (supplierName === undefined) continue;
+      const line = names.get(candidate.tariff.supplierCustomerId);
+      if (line === undefined) continue;
+      const supplierName = line.companyName;
       const layout = layoutOf(candidate.version);
       const offer = rateOffer(rate, containers, layout.surcharges, { table: rate.tableNo, podCode, dangerous: req.dangerous });
       if (!offer.ok) {
@@ -489,6 +493,7 @@ class OceanTariffService {
         tariffName: candidate.tariff.name,
         supplierCustomerId: candidate.tariff.supplierCustomerId,
         supplierName,
+        supplierRating: line.rating,
         validTo: candidate.version.validTo,
         tableLabel: layout.tables[rate.tableNo]?.label ?? "",
         polCode: rate.polCode ?? "",
@@ -504,7 +509,7 @@ class OceanTariffService {
         totals: offer.totals,
       });
     }
-    offers.sort((a, b) => a.totals[0]!.amount - b.totals[0]!.amount);
+    offers.sort((a, b) => a.totals[0]!.amount - b.totals[0]!.amount || ratingRank(b.supplierRating) - ratingRank(a.supplierRating));
     if (unpriced) notes.push(`${unpriced} ${unpriced === 1 ? "rate has" : "rates have"} no price for one of the containers and ${unpriced === 1 ? "is" : "are"} left out`);
     if (manual.size) notes.push(`Only on a booking or B/L made by hand, not added: ${[...manual].join(", ")}`);
     if (offers.length) notes.push("Origin and destination local charges are not included: see the shipping line's own tariff");

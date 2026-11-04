@@ -24,6 +24,7 @@ const offer = (over: Partial<RailOffer> = {}): RailOffer => ({
   tariffName: "Hamburg – Czechia",
   supplierCustomerId: "metrans",
   supplierName: "METRANS a.s.",
+  supplierRating: null,
   currency: "EUR",
   place: "Brno",
   postcode: "60200",

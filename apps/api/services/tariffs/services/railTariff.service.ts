@@ -39,6 +39,7 @@ import {
   supplierGlance,
   supplierTariffs,
   suppliersOf,
+  ratingRank,
   summaryOf,
   tariffName,
   unusableLayout,
@@ -281,14 +282,15 @@ class RailTariffService {
     if (!place) return { offers: [], containers, matchedBy: null, notes };
 
     const rows = await tariffRepository.ratesOnRoute(companyId, { port: req.port, direction: req.direction, date: req.date, country, place });
-    const operators = new Map((await suppliersOf("rail", [...new Set(rows.map((r) => r.supplierCustomerId))])).map((o) => [o.id, o.companyName]));
+    const operators = new Map((await suppliersOf("rail", [...new Set(rows.map((r) => r.supplierCustomerId))])).map((o) => [o.id, o]));
     const refused = new Map<string, { container: number; reason: BandRefusal; rows: number }>();
     const seen = new Set<string>();
     const offers: RailOffer[] = [];
     for (const row of rows) {
       // A company that is no rail operator any more has no tariffs to offer, as on the Tariffs pages.
-      const supplierName = operators.get(row.supplierCustomerId);
-      if (supplierName === undefined) continue;
+      const operator = operators.get(row.supplierCustomerId);
+      if (operator === undefined) continue;
+      const supplierName = operator.companyName;
       const offer = rowOffer(row.bands, row.prices, containers);
       if (!offer.ok) {
         const key = `${offer.container}:${offer.reason}`;
@@ -307,6 +309,7 @@ class RailTariffService {
         tariffName: row.tariffName,
         supplierCustomerId: row.supplierCustomerId,
         supplierName,
+        supplierRating: operator.rating,
         currency: row.currency,
         place: row.place,
         postcode: row.postcode,
@@ -319,7 +322,7 @@ class RailTariffService {
         total: offer.total,
       });
     }
-    offers.sort((a, b) => a.total - b.total || a.supplierName.localeCompare(b.supplierName) || a.via.localeCompare(b.via));
+    offers.sort((a, b) => a.total - b.total || ratingRank(b.supplierRating) - ratingRank(a.supplierRating) || a.supplierName.localeCompare(b.supplierName) || a.via.localeCompare(b.via));
     for (const r of refused.values()) notes.push(refusalNote(containers[r.container]!, r.reason, r.rows));
     return { offers, containers, matchedBy: "postcode" in place ? "postcode" : "place", notes };
   }

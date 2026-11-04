@@ -11290,6 +11290,11 @@ export namespace interfaces {
          * The soonest end of an active version, YYYY-MM-DD; null when none ends
          */
         activeUntil: string | null
+
+        /**
+         * The supplier rating from the Customer Database, 0–5 stars, null when not rated
+         */
+        rating: number | null
     }
 
     /**
@@ -11398,6 +11403,11 @@ export namespace interfaces {
         tariffName: string
         supplierCustomerId: string
         supplierName: string
+        /**
+         * The supplier's rating, 0–5 stars, null when not rated: shown beside the price, breaks only an exact tie.
+         */
+        supplierRating: number | null
+
         /**
          * The version's last day; null when open
          */
@@ -13851,6 +13861,10 @@ export namespace interfaces {
         adrCapable: boolean
         vehicleTypes: string[]
         preferredLaneCount: number
+        /**
+         * The supplier rating from the Customer Database, 0–5 stars, null when not rated. Staff only: HaulierDetail, which the portal reads, has none.
+         */
+        rating: number | null
     }
 
     export interface HaulierProfile {
@@ -14973,6 +14987,11 @@ export namespace interfaces {
         tariffName: string
         supplierCustomerId: string
         supplierName: string
+        /**
+         * The supplier's rating, 0–5 stars, null when not rated: shown beside the price, breaks only an exact tie.
+         */
+        supplierRating: number | null
+
         /**
          * The version's last day; null when open
          */
@@ -16375,6 +16394,11 @@ export namespace interfaces {
         tariffName: string
         supplierCustomerId: string
         supplierName: string
+        /**
+         * The supplier's rating, 0–5 stars, null when not rated: shown beside the price, breaks only an exact tie.
+         */
+        supplierRating: number | null
+
         currency: string
         place: string
         postcode: string
@@ -16465,6 +16489,11 @@ export namespace interfaces {
          * The soonest end of an active version, YYYY-MM-DD; null when none ends
          */
         activeUntil: string | null
+
+        /**
+         * The supplier rating from the Customer Database, 0–5 stars, null when not rated
+         */
+        rating: number | null
     }
 
     /**
@@ -20318,6 +20347,11 @@ export namespace services {
          * The soonest end of an active version, YYYY-MM-DD; null when none ends
          */
         activeUntil: string | null
+
+        /**
+         * The supplier rating from the Customer Database, 0–5 stars, null when not rated
+         */
+        rating: number | null
     }
 
     export type StampKind = "gateIn" | "gateOut" | "impRelease" | "expDraft" | "expReceipt"

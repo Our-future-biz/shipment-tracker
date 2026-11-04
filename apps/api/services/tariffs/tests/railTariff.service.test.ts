@@ -33,7 +33,7 @@ const COMPANY = "company-1";
 const VERSION_ID = "44444444-4444-4444-8444-444444444444";
 const TARIFF_ID = "55555555-5555-4555-8555-555555555555";
 const ACTOR = { userID: "user-1", companyID: COMPANY, role: "manager" };
-const METRANS = { id: "11111111-1111-4111-8111-111111111111", companyName: "METRANS a.s.", ico: "25676598", dic: "", city: "Praha", country: "CZ" };
+const METRANS = { id: "11111111-1111-4111-8111-111111111111", companyName: "METRANS a.s.", ico: "25676598", dic: "", city: "Praha", country: "CZ", rating: null };
 
 const repo = vi.mocked(tariffRepository);
 const companiesWithRole = vi.mocked(customers._internalCompaniesWithRole);
@@ -286,6 +286,26 @@ describe("offers", () => {
       ["Praha", "20'<25 t", 1139, 2278, "METRANS a.s."],
     ]);
     expect(result.notes).toEqual([]);
+  });
+
+  it("stays cheapest first whatever the ratings, and lets the rating settle only an exact tie (best first)", async () => {
+    const CDC = { ...METRANS, id: "22222222-2222-4222-8222-222222222222", companyName: "ČD Cargo, a.s.", rating: 5 };
+    const LOW = { ...METRANS, id: "33333333-3333-4333-8333-333333333333", companyName: "Alfa Rail", rating: 0 };
+    companiesWithRole.mockResolvedValue({ companies: [{ ...METRANS, rating: 2 }, CDC, LOW] });
+    repo.ratesOnRoute.mockResolvedValue([
+      rate({ id: "metrans", via: "Praha" }),
+      rate({ id: "low", via: "Ostrava", supplierCustomerId: LOW.id, tariffId: "t-low", versionId: "v-low" }),
+      rate({ id: "cdc", via: "Brno", supplierCustomerId: CDC.id, tariffId: "t-cdc", versionId: "v-cdc" }),
+      rate({ id: "cheap-low", via: "Cetr", supplierCustomerId: LOW.id, tariffId: "t-low2", versionId: "v-low2", prices: { "20ft-14t": 781, "20ft-25t": 905 } }),
+    ]);
+    const offers = (await ask()).offers;
+    // The 0-star operator's cheaper row stays first; at the same price 5 stars come before 2, and 2 before 0.
+    expect(offers.map((o) => [o.rateId, o.total, o.supplierRating])).toEqual([
+      ["cheap-low", 1810, 0],
+      ["cdc", 2278, 5],
+      ["metrans", 2278, 2],
+      ["low", 2278, 0],
+    ]);
   });
 
   it("shows rows asking the same of the same tariff via the same terminal once", async () => {
