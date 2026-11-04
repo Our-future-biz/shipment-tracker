@@ -51,6 +51,9 @@ export interface CargoDimensionLine {
    * only says how to show and edit them. Absent means "cm". */
   dimensionUnit?: DimensionUnit;
   weightPerPcKg: string & MaxLen<200>;
+  /** m³ of one piece as typed, for a line whose length, width and height are not all known;
+   * with all three the volume is worked out from them and this is "". Absent on a write means "". */
+  volumePerPcM3?: string & MaxLen<200>;
   packageType: string & MaxLen<200>;
   stackable: string & MaxLen<200>;
   // Road freight. Optional on writes: a line sent without them is stored without them.

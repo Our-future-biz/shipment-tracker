@@ -10,7 +10,7 @@ import { buildRowData, getFieldValue, type ShipmentItem } from "@/hooks/useShipm
 import type { interfaces } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/date";
 import { loadTypeLabel } from "@/lib/enums";
-import { NOT_STACKABLE, STACKABLE, numberInput, shipmentStackability } from "@/lib/cargo";
+import { NOT_STACKABLE, STACKABLE, dimensionVolumePerPiece, numberInput, shipmentStackability } from "@/lib/cargo";
 import { useWarehouseSection } from "@/hooks/useWarehouseSection";
 import { SectionCard as Card, PillTabs } from "@/components/SectionCard";
 import { PickupSection } from "./warehouse/PickupSection";
@@ -169,13 +169,11 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
     let sColli = 0, sWeight = 0, sVolume = 0;
     for (const r of shipment.cargoDimensions ?? []) {
       const c = parseFloat(r.pieces) || 0;
-      const L = parseFloat(r.lengthCm) || 0;
-      const W = parseFloat(r.widthCm) || 0;
-      const H = parseFloat(r.heightCm) || 0;
       const w = parseFloat(r.weightPerPcKg) || 0;
       sColli += c;
       sWeight += c * w;
-      sVolume += (c * (L * W * H)) / 1_000_000;
+      // From the sizes, or the m³ typed for a line without them.
+      sVolume += c * dimensionVolumePerPiece(r);
     }
     return { colli: sColli, weightKg: sWeight, volumeCbm: sVolume };
   }, [shipment.cargoDimensions]);

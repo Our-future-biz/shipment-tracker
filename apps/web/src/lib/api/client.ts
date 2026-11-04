@@ -10963,6 +10963,12 @@ export namespace interfaces {
         dimensionUnit?: DimensionUnit
 
         weightPerPcKg: string
+        /**
+         * m³ of one piece as typed, for a line whose length, width and height are not all known;
+         * with all three the volume is worked out from them and this is "". Absent on a write means "".
+         */
+        volumePerPcM3?: string
+
         packageType: string
         stackable: string
         /**

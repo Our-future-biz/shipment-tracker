@@ -2,7 +2,7 @@ import type { GeoKind } from "./places";
 import { CANCELLED_STATUS, LOAD_TYPES, STATUS_COLORS } from "./enums";
 import { INCOTERMS } from "./incoterms";
 import { formatDateTime } from "./date";
-import { lineInUnit, unitLabel, type DimensionUnit } from "./cargo";
+import { dimensionVolumePerPiece, hasAllSizes, lineInUnit, unitLabel, type DimensionUnit } from "./cargo";
 
 // "place" / "country" / "countryCode" are picked from the location database (see lib/places.ts).
 // "user" is a person: one of the company's users, picked with the UserPicker and kept by e-mail.
@@ -578,6 +578,8 @@ export interface DimensionRow {
   // The unit the sizes were typed in; the sizes above are always cm.
   dimensionUnit?: DimensionUnit;
   weightPerPcKg: string;
+  /** m³ of one piece as typed, when the sizes are not all known. */
+  volumePerPcM3?: string;
 }
 
 export function computeDimensionTotals(dimensions: unknown): {
@@ -593,10 +595,9 @@ export function computeDimensionTotals(dimensions: unknown): {
       const pieces = parseFloat(r.pieces || "0") || 0;
       const L = parseFloat(r.lengthCm || "0") || 0;
       const W = parseFloat(r.widthCm || "0") || 0;
-      const H = parseFloat(r.heightCm || "0") || 0;
       const wPiece = parseFloat(r.weightPerPcKg || "0") || 0;
       weightKg += pieces * wPiece;
-      volumeCbm += pieces * (L * W * H) / 1_000_000;
+      volumeCbm += pieces * dimensionVolumePerPiece(r);
       surface += pieces * (L * W) / 10_000;
     }
     return { weightKg, volumeCbm, surface };
@@ -605,18 +606,20 @@ export function computeDimensionTotals(dimensions: unknown): {
   }
 }
 
-/** The dimension lines as text: pieces × L×W×H in each line's unit (cm or in), lines separated by commas. */
+/** The dimension lines as text: pieces × L×W×H in each line's unit (cm or in), or pieces × the m³ typed for a line without its sizes; lines separated by commas. */
 export function summarizeDimensions(dimensions: unknown): string {
   if (!dimensions) return "";
   try {
     const rows: DimensionRow[] = Array.isArray(dimensions) ? dimensions : JSON.parse(String(dimensions));
     const num = (v: string) => String(parseFloat(v || "0") || 0);
     return rows
-      .filter((r) => [r.lengthCm, r.widthCm, r.heightCm].some((v) => parseFloat(v || "0") > 0))
+      .filter((r) => [r.lengthCm, r.widthCm, r.heightCm, r.volumePerPcM3 ?? ""].some((v) => parseFloat(v || "0") > 0))
       .map((r) => {
+        const pcs = num(r.pieces) === "0" ? "1" : num(r.pieces);
+        if (!hasAllSizes(r) && parseFloat(r.volumePerPcM3 || "0") > 0) return `${pcs}\u00d7 ${num(r.volumePerPcM3 ?? "")} m\u00b3`;
         // A line typed in inches shows in inches, as typed (the same conversion as Cargo Details).
         const shown = lineInUnit(r);
-        return `${num(r.pieces) === "0" ? "1" : num(r.pieces)}\u00d7 ${num(shown.lengthCm)}\u00d7${num(shown.widthCm)}\u00d7${num(shown.heightCm)} ${unitLabel(r.dimensionUnit)}`;
+        return `${pcs}\u00d7 ${num(shown.lengthCm)}\u00d7${num(shown.widthCm)}\u00d7${num(shown.heightCm)} ${unitLabel(r.dimensionUnit)}`;
       })
       .join(", ");
   } catch {

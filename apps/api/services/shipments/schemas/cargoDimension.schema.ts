@@ -6,7 +6,8 @@ import { containerTable } from "./container.schema";
 
 // One dimension line (pieces of identical size/weight) of a shipment.
 // containerId is null for shipments without containers (LCL/air). Volume per
-// piece is derived (L×W×H/1e6) and never stored.
+// piece is derived (L×W×H/1e6) when the three sizes are known; without them it is
+// what was typed (volumePerPcM3), as the sizes of a piece are not always known.
 export const cargoDimensionTable = pgTable(
   "cargo_dimension",
   {
@@ -24,6 +25,8 @@ export const cargoDimensionTable = pgTable(
     // right; the unit only says how to show and edit them.
     dimensionUnit: text("dimension_unit").notNull().default("cm"),
     weightPerPcKg: text("weight_per_pc_kg").notNull().default(""),
+    // m³ of one piece as typed, for a line whose sizes are not all known; "" once they are.
+    volumePerPcM3: text("volume_per_pc_m3").notNull().default(""),
     packageType: text("package_type").notNull().default(""),
     stackable: text("stackable").notNull().default(""),
     // Road freight: the pallet the pieces stand on, and ADR (dangerous goods) when it applies.

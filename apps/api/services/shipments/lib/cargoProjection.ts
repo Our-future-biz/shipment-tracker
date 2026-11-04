@@ -29,9 +29,14 @@ export function teuForType(type: string): string {
   return "";
 }
 
-// Volume of one piece of a dimension line in m³ (cm³ → m³). Derived, never stored.
-export function dimensionVolumePerPiece(d: CargoDimensionLine): number {
-  return (num(d.lengthCm) * num(d.widthCm) * num(d.heightCm)) / 1e6;
+// The sizes of a piece of a dimension line, and whether all three are known (each above 0).
+type SizedPiece = Pick<CargoDimensionLine, "lengthCm" | "widthCm" | "heightCm" | "volumePerPcM3">;
+export const hasAllSizes = (d: SizedPiece): boolean => num(d.lengthCm) > 0 && num(d.widthCm) > 0 && num(d.heightCm) > 0;
+
+// Volume of one piece of a dimension line in m³: from its sizes (cm³ → m³) when all three are
+// known, else the volume typed for it (the sizes of a piece are not always known).
+export function dimensionVolumePerPiece(d: SizedPiece): number {
+  return hasAllSizes(d) ? (num(d.lengthCm) * num(d.widthCm) * num(d.heightCm)) / 1e6 : num(d.volumePerPcM3);
 }
 
 const sum = <T>(rows: T[], pick: (r: T) => number): number => rows.reduce((s, r) => s + pick(r), 0);

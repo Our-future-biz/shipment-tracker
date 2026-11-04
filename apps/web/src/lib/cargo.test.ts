@@ -144,3 +144,15 @@ describe("dimension units", () => {
     expect(lineInUnit(row)).toEqual({ ...row, lengthCm: "10", widthCm: "20" });
   });
 });
+
+describe("a dimension line without its sizes", () => {
+  const line = { containerId: null, pieces: "4", lengthCm: "", widthCm: "", heightCm: "", dimensionUnit: "cm" as const, weightPerPcKg: "250", volumePerPcM3: "0.6", packageType: "", stackable: "" };
+
+  it("keeps the volume typed for it and adds it to the container's check", () => {
+    expect(dimensionLineIsEmpty({ ...line, pieces: "", weightPerPcKg: "" })).toBe(false);
+    const c = { containerNumber: "", sealNumber: "", type: "", teu: "", packages: "4", packageType: "", grossWeight: "1000", volume: "2.4" };
+    const check = checkConsistency(c, [line]);
+    expect(check.matched).toBe(true);
+    expect(check.m3.sum).toBeCloseTo(2.4, 6);
+  });
+});

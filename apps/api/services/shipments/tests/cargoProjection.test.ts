@@ -77,6 +77,21 @@ describe("dimensionVolumePerPiece", () => {
   it("computes L×W×H in m³", () => {
     expect(dimensionVolumePerPiece(dim({ lengthCm: "120", widthCm: "100", heightCm: "88" }))).toBeCloseTo(1.056, 3);
   });
+
+  it("takes the typed volume when the sizes are not all known", () => {
+    expect(dimensionVolumePerPiece(dim({ volumePerPcM3: "0.75" }))).toBe(0.75);
+    expect(dimensionVolumePerPiece(dim({ lengthCm: "120", widthCm: "80", volumePerPcM3: "0,5" }))).toBe(0.5);
+  });
+
+  it("goes by the sizes once all three are known, whatever was typed", () => {
+    expect(dimensionVolumePerPiece(dim({ lengthCm: "100", widthCm: "100", heightCm: "100", volumePerPcM3: "9" }))).toBe(1);
+  });
+
+  it("counts a typed volume in the shipment's total", () => {
+    const p = projectCargo([], [], [dim({ pieces: "4", weightPerPcKg: "300", volumePerPcM3: "0.8" })]);
+    expect(p.totalVolumeM3).toBe("3.2");
+    expect(p.totalGrossWeightKg).toBe("1,200");
+  });
 });
 
 describe("invoiceValueByCurrency", () => {

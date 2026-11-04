@@ -157,9 +157,16 @@ export type CargoDimensionLine = interfaces.CargoDimensionLine;
 export type CargoItemLine = interfaces.CargoItemLine;
 export type ContainerLine = interfaces.ContainerLine;
 
-// Volume of one piece in m³ (cm³ → m³); derived live, never stored.
-export function dimensionVolumePerPiece(d: CargoDimensionLine): number {
-  return (num(d.lengthCm) * num(d.widthCm) * num(d.heightCm)) / 1e6;
+// The sizes of a piece (in cm) and the volume typed for it: what its volume is worked out from.
+type VolumeSource = Pick<CargoDimensionLine, "lengthCm" | "widthCm" | "heightCm" | "volumePerPcM3">;
+
+/** Whether all three sizes of a piece are known (each above 0): then its volume is worked out from them. */
+export const hasAllSizes = (d: VolumeSource): boolean => num(d.lengthCm) > 0 && num(d.widthCm) > 0 && num(d.heightCm) > 0;
+
+// Volume of one piece in m³: from its sizes in cm (cm³ → m³) when all three are known, else the
+// volume typed for it, as the sizes are not always known. The same rule as the server's.
+export function dimensionVolumePerPiece(d: VolumeSource): number {
+  return hasAllSizes(d) ? (num(d.lengthCm) * num(d.widthCm) * num(d.heightCm)) / 1e6 : num(d.volumePerPcM3);
 }
 
 export interface DimensionTotals {
@@ -206,7 +213,7 @@ export const unitLabel = (u?: DimensionUnit | null) => (u === "in" ? "in" : "cm"
 // Dimensions dialog, which does not show them.
 export function dimensionLineIsEmpty(l: CargoDimensionLine): boolean {
   return (
-    !l.pieces && !l.lengthCm && !l.widthCm && !l.heightCm && !l.weightPerPcKg && !l.packageType && !l.stackable &&
+    !l.pieces && !l.lengthCm && !l.widthCm && !l.heightCm && !l.weightPerPcKg && !l.volumePerPcM3?.trim() && !l.packageType && !l.stackable &&
     !l.palletType?.trim() && !l.adrUn?.trim() && !l.adrClass?.trim() && !l.adrPackingGroup?.trim() && !l.adrLimitedQuantity
   );
 }

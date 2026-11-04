@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { COLUMN_MAP, dateTimeUpdate, joinDateTime, splitDateTime, summarizeDimensions } from "./columnConfig";
+import { COLUMN_MAP, computeDimensionTotals, dateTimeUpdate, joinDateTime, splitDateTime, summarizeDimensions } from "./columnConfig";
 
 describe("summarizeDimensions", () => {
   it("writes each line in the unit it was typed in", () => {
@@ -11,6 +11,21 @@ describe("summarizeDimensions", () => {
   });
   it("leaves out lines without sizes", () => {
     expect(summarizeDimensions([{ pieces: "3", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "5" }])).toBe("");
+  });
+  it("writes a line without sizes by the volume typed for it", () => {
+    expect(summarizeDimensions([{ pieces: "3", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "5", volumePerPcM3: "0.4" }])).toBe("3× 0.4 m³");
+  });
+});
+
+describe("computeDimensionTotals", () => {
+  it("counts a typed volume where a line has no sizes, the sizes where it has them", () => {
+    const rows = [
+      { pieces: "2", lengthCm: "100", widthCm: "100", heightCm: "100", weightPerPcKg: "10", volumePerPcM3: "5" },
+      { pieces: "3", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "20", volumePerPcM3: "0.5" },
+    ];
+    const t = computeDimensionTotals(rows);
+    expect(t.volumeCbm).toBeCloseTo(3.5, 6);
+    expect(t.weightKg).toBe(80);
   });
 });
 

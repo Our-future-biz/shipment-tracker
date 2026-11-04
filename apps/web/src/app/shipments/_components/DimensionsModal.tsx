@@ -13,6 +13,7 @@ import {
   checkConsistency,
   dimensionTotals,
   dimensionVolumePerPiece,
+  hasAllSizes,
   lineInCm,
   lineInUnit,
   DIMENSION_UNITS,
@@ -61,7 +62,9 @@ const DELETE_BTN =
 const maxDigits = (key: string) => (key === "weightPerPcKg" ? 5 : 4);
 // A number field as wide as its most digits plus antd's 11px padding and border on each side
 // (important: antd sets width: 100% outside Tailwind's cascade layers).
-const fieldWidth = (key: string) => (maxDigits(key) === 5 ? "!w-[calc(5ch+26px)]" : "!w-[calc(4ch+26px)]");
+// The volume gets room for its decimals ("0.125").
+const fieldWidth = (key: string) =>
+  key === "volumePerPcM3" ? "!w-[calc(6ch+26px)]" : maxDigits(key) === 5 ? "!w-[calc(5ch+26px)]" : "!w-[calc(4ch+26px)]";
 
 // Same test as Cargo Details: a line with only a pallet type or ADR data is kept.
 const isEmpty = dimensionLineIsEmpty;
@@ -95,6 +98,7 @@ export function DimensionsModal({
     heightCm: "",
     dimensionUnit,
     weightPerPcKg: "",
+    volumePerPcM3: "",
     packageType: "",
     stackable: "",
   });
@@ -149,7 +153,7 @@ export function DimensionsModal({
 
   const field = (
     idx: number,
-    key: "pieces" | "lengthCm" | "widthCm" | "heightCm" | "weightPerPcKg",
+    key: "pieces" | "lengthCm" | "widthCm" | "heightCm" | "weightPerPcKg" | "volumePerPcM3",
   ) => (
     // Numbers only, at most 4 digits (the weight 5): Pcs takes whole numbers, the measures and
     // the weight a decimal point too.
@@ -158,7 +162,8 @@ export function DimensionsModal({
       <Input
         className={`text-center tabular-nums ${fieldWidth(key)}`}
         inputMode={key === "pieces" ? "numeric" : "decimal"}
-        value={lines[idx]![key]}
+        aria-label={key === "volumePerPcM3" ? "Volume per piece (m³)" : undefined}
+        value={lines[idx]![key] ?? ""}
         onChange={(e) =>
           patch(idx, { [key]: numberInput(e.target.value, key !== "pieces", maxDigits(key)) })
         }
@@ -300,10 +305,14 @@ export function DimensionsModal({
                       </td>
                       <td className={TD_NUM}>{field(idx, "weightPerPcKg")}</td>
                       <td className={TD_NUM}>
-                        {/* Computed, so shown as text rather than a read-only field. */}
-                        <span className={READ_NUM}>
-                          {vpc ? vpc.toFixed(3) : <span className="text-slate-300">—</span>}
-                        </span>
+                        {/* Worked out from the sizes, so shown as text; without all three it is typed. */}
+                        {hasAllSizes(lineInCm(l)) ? (
+                          <span className={READ_NUM}>
+                            {vpc ? vpc.toFixed(3) : <span className="text-slate-300">—</span>}
+                          </span>
+                        ) : (
+                          field(idx, "volumePerPcM3")
+                        )}
                       </td>
                       <td className={TD}>
                         <Select

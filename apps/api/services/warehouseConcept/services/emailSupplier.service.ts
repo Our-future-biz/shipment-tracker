@@ -83,7 +83,10 @@ async function declaredTotals(shipmentId: string | null): Promise<EmailTotals | 
     const dims = (s.cargoDimensions ?? []).reduce(
       (a, d) => {
         const n = numOf(d.pieces);
-        return { pieces: a.pieces + n, kg: a.kg + n * numOf(d.weightPerPcKg), cbm: a.cbm + (n * numOf(d.lengthCm) * numOf(d.widthCm) * numOf(d.heightCm)) / 1_000_000 };
+        // As Shipments counts a piece (dimensionVolumePerPiece): from its sizes when all three are known, else its typed m³.
+        const sized = numOf(d.lengthCm) > 0 && numOf(d.widthCm) > 0 && numOf(d.heightCm) > 0;
+        const perPiece = sized ? (numOf(d.lengthCm) * numOf(d.widthCm) * numOf(d.heightCm)) / 1_000_000 : numOf(d.volumePerPcM3);
+        return { pieces: a.pieces + n, kg: a.kg + n * numOf(d.weightPerPcKg), cbm: a.cbm + n * perPiece };
       },
       { pieces: 0, kg: 0, cbm: 0 },
     );

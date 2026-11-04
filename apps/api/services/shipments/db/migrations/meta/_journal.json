@@ -421,6 +421,13 @@
       "when": 1793730586881,
       "tag": "0059_shipment_job_number_final",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1793765499700,
+      "tag": "0060_dimension_volume_per_piece",
+      "breakpoints": true
     }
   ]
 }

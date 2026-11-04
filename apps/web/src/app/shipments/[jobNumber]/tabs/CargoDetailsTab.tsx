@@ -23,6 +23,7 @@ import {
   numberInput,
   dimensionVolumePerPiece,
   dimensionTotals,
+  hasAllSizes,
   lineInCm,
   lineInUnit,
   unitLabel,
@@ -61,6 +62,7 @@ const emptyDim = (containerId: string | null, dimensionUnit: DimensionUnit = "cm
   heightCm: "",
   dimensionUnit,
   weightPerPcKg: "",
+  volumePerPcM3: "",
   packageType: "",
   stackable: "",
 });
@@ -79,7 +81,10 @@ const itemsKey = (ls: CargoItemLine[]) => JSON.stringify(ls.filter((l) => !itemI
 // so a saved line compares equal to what was sent.
 const blankToNull = (v: string | null | undefined) => (v == null || !String(v).trim() ? null : String(v).trim());
 const dimLineKey = (l: CargoDimensionLine) => [
-  l.containerId ?? null, l.pieces, l.lengthCm, l.widthCm, l.heightCm, l.dimensionUnit === "in" ? "in" : "cm", l.weightPerPcKg, l.packageType, l.stackable,
+  l.containerId ?? null, l.pieces, l.lengthCm, l.widthCm, l.heightCm, l.dimensionUnit === "in" ? "in" : "cm", l.weightPerPcKg,
+  // The server keeps a typed volume only while the sizes are not all known.
+  hasAllSizes(lineInCm(l)) ? "" : (l.volumePerPcM3 ?? "").trim(),
+  l.packageType, l.stackable,
   blankToNull(l.palletType)?.toUpperCase() ?? null,
   blankToNull(l.adrUn)?.replace(/^UN\s*/i, "") ?? null,
   blankToNull(l.adrClass),
@@ -585,6 +590,8 @@ export function CargoDetailsTab({
 
                 {panelDims.map(({ l, idx }) => {
                   const vpc = dimensionVolumePerPiece(lineInCm(l));
+                  // With length, width and height the volume is worked out; without them it is typed.
+                  const sized = hasAllSizes(lineInCm(l));
                   if (!dimIsOpen(idx)) {
                     return (
                       <div
@@ -600,7 +607,9 @@ export function CargoDetailsTab({
                         <span className="text-center tabular-nums">{l.heightCm || "—"}</span>
                         <span className="text-center text-xs font-semibold uppercase text-slate-500">{l.dimensionUnit === "in" ? "inch" : "cm"}</span>
                         <span className="text-center tabular-nums">{l.weightPerPcKg || "—"}</span>
-                        <span className="text-center tabular-nums text-slate-500">{vpc ? vpc.toFixed(3) : "—"}</span>
+                        <span className={`text-center tabular-nums ${sized ? "text-slate-500" : ""}`} title={vpc && !sized ? "Typed (no dimensions)" : undefined}>
+                          {vpc ? vpc.toFixed(3) : "—"}
+                        </span>
                         <span className="text-center leading-snug break-words" title={l.stackable || undefined}>{l.stackable || "—"}</span>
                         {/* The whole ADR summary, wrapping onto a second line rather than being cut. */}
                         <span className="text-center text-orange-600 font-medium leading-snug break-words" title={adrSummary(l)}>
@@ -668,8 +677,14 @@ export function CargoDetailsTab({
                         <div>
                           <Input size="small" className={EDIT_FIELD} aria-label="Weight per piece (kg)" inputMode="decimal" value={l.weightPerPcKg} onChange={(e) => patchDim(idx, { weightPerPcKg: numberInput(e.target.value, true, 5) })} onBlur={persistDims} />
                         </div>
-                        {/* Computed, so plain text as in the read row. */}
-                        <span className="text-center text-[13px] tabular-nums text-slate-500">{vpc ? vpc.toFixed(3) : "—"}</span>
+                        {/* Worked out from the sizes, so plain text as in the read row; without all three it is typed (at most 4 digits before the point). */}
+                        {sized ? (
+                          <span className="text-center text-[13px] tabular-nums text-slate-500">{vpc ? vpc.toFixed(3) : "—"}</span>
+                        ) : (
+                          <div>
+                            <Input size="small" className={EDIT_FIELD} aria-label="Volume per piece (m³)" inputMode="decimal" placeholder="m³" value={l.volumePerPcM3 ?? ""} onChange={(e) => patchDim(idx, { volumePerPcM3: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
+                          </div>
+                        )}
                         <div>
                           <Select
                             size="small"

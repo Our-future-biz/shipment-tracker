@@ -7,7 +7,7 @@ import { DeleteOutlined, PlusOutlined, EditOutlined } from "@ant-design/icons";
 import type { MessageInstance } from "antd/es/message/interface";
 import { buildRowData, getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
 import { formatDateTime } from "@/lib/date";
-import { NOT_STACKABLE, STACKABLE, shipmentStackability } from "@/lib/cargo";
+import { NOT_STACKABLE, STACKABLE, dimensionVolumePerPiece, shipmentStackability } from "@/lib/cargo";
 import { loadTypeLabel } from "@/lib/enums";
 import { useWarehouseSection } from "@/hooks/useWarehouseConceptSection";
 import { SectionCard as Card, PillTabs } from "@/components/SectionCard";
@@ -272,13 +272,11 @@ function DimensionsEditor({ shipment, messageApi, readOnly }: { shipment: Shipme
     let sColli = 0, sWeight = 0, sVolume = 0;
     for (const r of shipment.cargoDimensions ?? []) {
       const c = parseFloat(r.pieces) || 0;
-      const L = parseFloat(r.lengthCm) || 0;
-      const W = parseFloat(r.widthCm) || 0;
-      const H = parseFloat(r.heightCm) || 0;
       const w = parseFloat(r.weightPerPcKg) || 0;
       sColli += c;
       sWeight += c * w;
-      sVolume += (c * (L * W * H)) / 1_000_000;
+      // From the sizes, or the m³ typed for a line without them.
+      sVolume += c * dimensionVolumePerPiece(r);
     }
     return { colli: sColli, weightKg: sWeight, volumeCbm: sVolume };
   }, [shipment.cargoDimensions]);
