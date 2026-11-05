@@ -200,7 +200,7 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
         { colli: totalColli, weightKg: totalWeightKg, volumeCbm: totalVolumeCbm },
       );
       if (tagged > 0) messageApi.success("Operations informed in the shipment's chat");
-      else messageApi.warning("Posted in the shipment's chat, but no one else is set as Person in Charge or Holiday Cover to notify");
+      else messageApi.warning("Posted in the shipment's chat, but no Person in Charge or Holiday Cover is set to notify");
     } catch {
       messageApi.error("Could not post the message to the shipment's chat");
     }

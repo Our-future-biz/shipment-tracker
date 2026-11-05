@@ -23,7 +23,7 @@ class ShipmentCommentRepository extends TenantRepository<typeof shipmentCommentT
   }
 
   // Messages per live shipment that landed after the user last opened that chat (their own
-  // don't count).
+  // don't count, unless they tag them).
   async unreadCounts(companyId: string, userId: string): Promise<{ shipmentId: string; unread: number }[]> {
     const read = this.db
       .select({ shipmentId: shipmentCommentReadTable.shipmentId, readAt: shipmentCommentReadTable.readAt })
@@ -41,7 +41,8 @@ class ShipmentCommentRepository extends TenantRepository<typeof shipmentCommentT
           eq(shipmentCommentTable.companyId, companyId),
           isNull(shipmentCommentTable.deletedAt),
           isNull(shipmentTable.deletedAt),
-          sql`${shipmentCommentTable.authorId} <> ${userId}`,
+          // Others' messages, and the user's own ones that tag them (a notice posted for their click).
+          sql`(${shipmentCommentTable.authorId} <> ${userId} or ${shipmentCommentTable.mentionedUserIds} @> ARRAY[${userId}::uuid])`,
           sql`(${read.readAt} is null or ${shipmentCommentTable.createdAt} > ${read.readAt})`,
         ),
       )

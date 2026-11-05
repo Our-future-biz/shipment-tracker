@@ -3,12 +3,14 @@ import { describe, expect, it, vi } from "vitest";
 // The bell's mentions: unread ones, and read ones written in the last 7 days, each saying which it
 // is. The service is run for real against a stand-in repository.
 vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
-vi.mock("../repositories/shipmentComment.repository", () => ({ shipmentCommentRepository: { unreadMentions: vi.fn() } }));
-vi.mock("../repositories/shipmentAttachment.repository", () => ({ shipmentAttachmentRepository: {} }));
+vi.mock("../repositories/shipmentComment.repository", () => ({ shipmentCommentRepository: { unreadMentions: vi.fn(), createForCompany: vi.fn() } }));
+vi.mock("../repositories/shipmentAttachment.repository", () => ({
+  shipmentAttachmentRepository: { linkToComment: vi.fn(), listChatFilesByShipmentId: vi.fn(async () => []) },
+}));
 // Who wrote a message is shown by e-mail, as every person is.
-vi.mock("../lib/userEmails", () => ({ userEmails: vi.fn(async () => new Map([["u-eva", "eva@firma.cz"]])) }));
+vi.mock("../lib/userEmails", () => ({ userEmails: vi.fn(async () => new Map([["u-eva", "eva@firma.cz"], ["u-me", "me@firma.cz"]])) }));
 vi.mock("../services/attachment.service", () => ({ attachmentService: {} }));
-vi.mock("../services/shipment.service", () => ({ shipmentService: {} }));
+vi.mock("../services/shipment.service", () => ({ shipmentService: { requireLive: vi.fn() } }));
 vi.mock("../lib/contentToken", () => ({ attachmentContentUrl: vi.fn() }));
 
 import { shipmentCommentRepository } from "../repositories/shipmentComment.repository";
@@ -32,5 +34,13 @@ describe("the bell's mentions", () => {
       ["m2", false, "eva@firma.cz", "CZ2"],
       ["m3", true, "", ""],
     ]);
+  });
+});
+
+describe("a message's tags", () => {
+  it("keeps a tag of the writer (a notice posted for their click) and drops anyone who is no colleague", async () => {
+    repo.createForCompany.mockImplementation(async (companyId, c) => ({ id: "c1", companyId, createdAt: new Date(), ...c }) as never);
+    await commentService.create("s1", "c1", "u-me", { message: "Cargo has been remeasured", attachmentIds: [], mentionedUserIds: ["u-me", "u-eva", "u-eva", "u-stranger"] });
+    expect(repo.createForCompany).toHaveBeenCalledWith("c1", expect.objectContaining({ authorId: "u-me", mentionedUserIds: ["u-me", "u-eva"] }));
   });
 });

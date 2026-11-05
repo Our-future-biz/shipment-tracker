@@ -90,9 +90,12 @@ class CommentService {
       throw APIError.invalidArgument("message or attachment is required");
     }
     await shipmentService.requireLive(shipmentId, companyId);
-    // Only real colleagues from the same company can be tagged, and never yourself.
+    // Only real colleagues from the same company can be tagged. The chat's @ list never offers the
+    // writer, but a notice posted for someone's click (the warehouse's "Inform Operations") tags the
+    // shipment's Person in Charge and Holiday Cover - who may be the one clicking - so a tag of the
+    // author is kept: it reaches their notifications and marks the chat unread for them.
     const colleagues = await userEmails();
-    const mentions = [...new Set(input.mentionedUserIds)].filter((id) => id !== authorId && colleagues.has(id));
+    const mentions = [...new Set(input.mentionedUserIds)].filter((id) => colleagues.has(id));
     const comment = await shipmentCommentRepository.createForCompany(companyId, {
       shipmentId,
       authorId,
