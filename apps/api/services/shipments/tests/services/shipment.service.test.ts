@@ -1405,6 +1405,50 @@ describe("cargo lines and containers", () => {
     await expect(update({ cargoDimensions: [{ ...dim(A), heightCm: "", volumePerPcM3: "0.5 m3" }] })).rejects.toMatchObject({ code: "invalid_argument" });
     expect(cargoDimensionRepository.replaceForShipment).not.toHaveBeenCalled();
   });
+
+  describe("ADR details and Dangerous", () => {
+    const adrLine = { ...dim(A), adrUn: "UN 1203" };
+    const dangerousSaved = () =>
+      repository.updateForCompany.mock.calls.map(([, , data]) => (data as { dangerous?: string }).dangerous).filter((value) => value !== undefined);
+
+    beforeEach(() => containers(A));
+
+    it("a line saved with ADR details switches Dangerous to Yes, in the shipment's history", async () => {
+      stored.set(SHIPMENT, row({ dangerous: "" }));
+      await update({ cargoDimensions: [dim(A), adrLine] });
+      expect(dangerousSaved()).toEqual(["Yes"]);
+      expect(shipmentAuditRepository.create).toHaveBeenCalledWith(expect.objectContaining({ field: "dangerous", oldValue: "", newValue: "Yes" }), TX);
+    });
+
+    it("wins over a No, also one sent in the same write", async () => {
+      stored.set(SHIPMENT, row({ dangerous: "No" }));
+      await update({ dangerous: "No", cargoDimensions: [adrLine] });
+      expect(dangerousSaved()).toEqual(["Yes"]);
+    });
+
+    it("leaves Dangerous alone when the lines have no ADR details, the ADR details just removed included", async () => {
+      stored.set(SHIPMENT, row({ dangerous: "Yes" }));
+      await update({ cargoDimensions: [dim(A)] });
+      expect(dangerousSaved()).toEqual([]);
+    });
+
+    it("leaves a Dangerous picked by hand alone when the write does not touch the lines", async () => {
+      stored.set(SHIPMENT, row({ dangerous: "" }));
+      await update({ dangerous: "No" });
+      expect(dangerousSaved()).toEqual(["No"]);
+    });
+
+    it("a refused UN number changes nothing", async () => {
+      stored.set(SHIPMENT, row({ dangerous: "" }));
+      await expect(update({ cargoDimensions: [{ ...dim(A), adrUn: "12" }] })).rejects.toMatchObject({ code: "invalid_argument" });
+      expect(repository.updateForCompany).not.toHaveBeenCalled();
+    });
+
+    it("a new shipment with ADR details starts as Dangerous", async () => {
+      await shipmentService.create(COMPANY, { cargoDimensions: [dim(null), { ...dim(null), adrClass: "3" }] } as never);
+      expect(repository.createWithJobNumber.mock.calls[0]![1]).toMatchObject({ dangerous: "Yes" });
+    });
+  });
 });
 
 describe("removing the only container", () => {

@@ -46,7 +46,7 @@ import { iso } from "../../../lib/db/serialize";
 import { isUuid } from "../../../lib/uuid";
 import { publicFields } from "../lib/rows";
 import { changesTaxDate } from "../lib/taxDate";
-import { normalizeCargoDimensions, normalizeStops } from "../lib/roadFreight";
+import { dangerousFromAdr, normalizeCargoDimensions, normalizeStops } from "../lib/roadFreight";
 import { detailRowChanges, type DetailRowLists } from "../lib/detailRowsAudit";
 import { partyContact, partyStop, stopKeys, type Party } from "../lib/partyAddress";
 import { CONSIGNEE_CONTACT, CUSTOMER_PIC, SHIPPER_CONTACT, linkContact, type ContactMode } from "../lib/contactLinks";
@@ -967,6 +967,7 @@ class ShipmentService {
         invoicingStatus: shipmentData.invoicingStatus,
       }),
       cfsDefault(shipmentData.hub, shipmentData.cfs),
+      dangerousFromAdr(cargoDimensions, shipmentData.dangerous),
     );
 
     if (fromQuote) {
@@ -1067,6 +1068,7 @@ class ShipmentService {
         invoicingStatus: after("invoicingStatus"),
       }),
       cfsDefault(after("hub"), after("cfs")),
+      dangerousFromAdr(cargoDimensions, after("dangerous")),
     );
 
     // The Internal Reference's letters follow the Freight Mode and Load Type, the number kept
