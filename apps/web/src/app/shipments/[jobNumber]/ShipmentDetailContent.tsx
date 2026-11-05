@@ -84,7 +84,6 @@ import {
   LINK,
   MODAL_TITLE,
 } from "@/styles/ui";
-import { MasterJobDetailModal } from "../_components/MasterJobDetailModal";
 import { MasterJobDialog } from "../_components/MasterJobDialog";
 import { AttachmentsPanel } from "../_components/AttachmentsPanel";
 import { NotesDrawer } from "../_components/NotesDrawer";
@@ -894,7 +893,6 @@ export function ShipmentDetailContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { updateField, updateShipment, deleteShipment, linkMasterJob, unlinkMasterJob } = useShipmentMutations();
-  const [masterJobOpen, setMasterJobOpen] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
@@ -1216,14 +1214,12 @@ export function ShipmentDetailContent() {
                             <>
                               {shipment.masterJobId ? (
                                 <MasterJobHoverCard masterJobId={shipment.masterJobId} mczNumber={String(shipment.masterJobMczNumber)}>
-                                  <button onClick={() => setMasterJobOpen(true)} className={`${LINK} cursor-pointer bg-transparent border-none p-0`}>
+                                  <button onClick={() => router.push(`/master-jobs?open=${shipment.masterJobId}`)} className={`${LINK} cursor-pointer bg-transparent border-none p-0`}>
                                     #{shipment.masterJobMczNumber}
                                   </button>
                                 </MasterJobHoverCard>
                               ) : (
-                                <button onClick={() => setMasterJobOpen(true)} className={`${LINK} cursor-pointer bg-transparent border-none p-0`}>
-                                  #{shipment.masterJobMczNumber}
-                                </button>
+                                <span>#{shipment.masterJobMczNumber}</span>
                               )}
                               <button onClick={handleUnlinkMasterJob} className="text-[10px] text-slate-500 hover:text-red-600 cursor-pointer bg-transparent border-none p-0">
                                 unassign
@@ -1642,14 +1638,6 @@ export function ShipmentDetailContent() {
 
         {activeTab === "alerts" && <NotificationsTab shipment={shipment} onOpen={setActiveTab} />}
       </div>
-
-      {shipment.masterJobMczNumber && (
-        <MasterJobDetailModal
-          mcz={String(shipment.masterJobMczNumber)}
-          open={masterJobOpen}
-          onClose={() => setMasterJobOpen(false)}
-        />
-      )}
 
       <MasterJobDialog
         open={assignOpen}

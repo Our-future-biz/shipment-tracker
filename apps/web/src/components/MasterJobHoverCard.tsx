@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { Spin } from "antd";
@@ -21,9 +21,6 @@ interface MasterJobHoverCardProps {
 // second. Read when the card opens, not for every grid row.
 export function MasterJobHoverCard({ masterJobId, mczNumber, children }: MasterJobHoverCardProps) {
   const [open, setOpen] = useState(false);
-  // A click on the reference opens the master job's own window, which the card must not cover: no
-  // card until the pointer has left the reference.
-  const clicked = useRef(false);
   const { shipments, isLoading, isError } = useMasterJobShipments(masterJobId, open);
 
   const content = (
@@ -59,18 +56,8 @@ export function MasterJobHoverCard({ masterJobId, mczNumber, children }: MasterJ
   );
 
   return (
-    <HoverCard content={content} delay={HOVER_DELAY_S} flipNearTop open={open} onOpenChange={(next) => setOpen(next && !clicked.current)}>
-      <span
-        onClickCapture={() => {
-          clicked.current = true;
-          setOpen(false);
-        }}
-        onMouseLeave={() => {
-          clicked.current = false;
-        }}
-      >
-        {children}
-      </span>
+    <HoverCard content={content} delay={HOVER_DELAY_S} flipNearTop open={open} onOpenChange={setOpen}>
+      {children}
     </HoverCard>
   );
 }

@@ -35,7 +35,6 @@ import { RECEIVED_TICKS, isReceivedTick, receivedFollowsDocuments, receivedValue
 import { ColumnPicker } from "./ColumnPicker";
 import { OverviewTiles, type TileId } from "./OverviewTiles";
 import { NeedsAttentionTable } from "./NeedsAttentionTable";
-import { MasterJobDetailModal } from "./MasterJobDetailModal";
 import { DocumentsPanel } from "./DocumentsPanel";
 import { DimensionsModal } from "./DimensionsModal";
 import { MasterJobHoverCard } from "@/components/MasterJobHoverCard";
@@ -260,7 +259,6 @@ export const ShipmentsTable = ({
 
   const [pageSize, setPageSize] = useState(50);
   const [currentPage, setCurrentPage] = useState(1);
-  const [mczModal, setMczModal] = useState<string | null>(null);
   const [docsShipment, setDocsShipment] = useState<ShipmentItem | null>(null);
   // Shipment whose Dimensions dialog is open, by id so the dialog sees fresh rows.
   const [dimsShipmentId, setDimsShipmentId] = useState<string | null>(null);
@@ -482,24 +480,20 @@ export const ShipmentsTable = ({
             </ShipmentHoverCard>
           );
         }
-        // Master job \u2192 opens the master-job modal.
+        // Master job \u2192 opens it in the Master Jobs module; resting on it lists its shipments.
         if (col.key === "masterJob") {
           if (!val) return <span className={EMPTY}>{"\u2014"}</span>;
-          const reference = (
-            <button
-              onClick={(e) => { e.stopPropagation(); setMczModal(val); }}
-              className={`${cellLinkClass(textStyle?.color)} font-medium bg-transparent border-none p-0 cursor-pointer`}
-              style={textStyle}
-            >
-              {val}
-            </button>
-          );
-          return record.masterJobId ? (
+          if (!record.masterJobId) return <span style={textStyle}>{val}</span>;
+          return (
             <MasterJobHoverCard masterJobId={record.masterJobId} mczNumber={val}>
-              {reference}
+              <button
+                onClick={(e) => { e.stopPropagation(); router.push(`/master-jobs?open=${record.masterJobId}`); }}
+                className={`${cellLinkClass(textStyle?.color)} font-medium bg-transparent border-none p-0 cursor-pointer`}
+                style={textStyle}
+              >
+                {val}
+              </button>
             </MasterJobHoverCard>
-          ) : (
-            reference
           );
         }
         // Container Number / Type / Total TEU \u2192 open the shipment's Container Details tab.
@@ -1007,10 +1001,6 @@ export const ShipmentsTable = ({
           />
         </div>
       </div>
-
-      {mczModal && (
-        <MasterJobDetailModal mcz={mczModal} open={!!mczModal} onClose={() => setMczModal(null)} />
-      )}
 
       <CommercialInvoicesModal
         shipment={shipments.find((s) => s.id === invoicesShipmentId) ?? null}
