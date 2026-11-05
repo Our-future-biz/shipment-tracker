@@ -24,6 +24,13 @@ export const DOCUMENT_TYPES = [
 export const isKnownDocumentType = (documentType: string) =>
   (DOCUMENT_TYPES as readonly string[]).includes(documentType);
 
+/**
+ * The name a type is shown under. Stored types stay as they are (the server reads "Invoice" for
+ * the customs status); only the name on screen differs where the stored one is too short.
+ */
+const DOCUMENT_TYPE_LABELS: Record<string, string> = { Invoice: "Commercial Invoice" };
+export const documentTypeLabel = (documentType: string) => DOCUMENT_TYPE_LABELS[documentType] ?? documentType;
+
 /** Documents a shipment is expected to have — missing ones are flagged. */
 export const REQUIRED_DOCUMENT_TYPES = [
   "Invoice",
@@ -33,9 +40,6 @@ export const REQUIRED_DOCUMENT_TYPES = [
   "Customs document",
   "CMR / POD",
 ] as const;
-
-/** Nice to have, never flagged as missing. */
-export const OPTIONAL_DOCUMENT_TYPES = ["Insurance", "Certificate of origin"] as const;
 
 /**
  * Best-effort type guess from a file name, offered to the user as a
@@ -65,8 +69,8 @@ export const SUPPLIER_INVOICE_TYPES = [
 ] as const;
 
 /**
- * The Documents tab lists a shipment's files in four tables, by document type. Commercial
- * is only ever invoices and packing lists; a type that is in none of the tables (Other, or
+ * The Documents tab lists a shipment's files in four groups, by document type. Commercial
+ * is only ever invoices and packing lists; a type that is in none of the groups (Other, or
  * not set yet) is listed with the shipping documents.
  */
 export const DOCUMENT_GROUPS = [

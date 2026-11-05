@@ -456,7 +456,7 @@ interface RoRowProps {
 }
 
 // Read-only horizontal row (label | value), matching FieldRow's look.
-function RoRow({ label, value, labelW = LABEL_W, wrap = false, mark }: RoRowProps) {
+export function RoRow({ label, value, labelW = LABEL_W, wrap = false, mark }: RoRowProps) {
   const lbl = LABEL.replace(LABEL_W, labelW);
   return (
     <div className={wrap ? ROW_TOP : ROW}>
@@ -1627,7 +1627,8 @@ export function ShipmentDetailContent() {
           />
         )}
 
-        {activeTab === "customs" && <CustomsTab shipment={shipment} onCommit={handleCommit} />}
+        {/* Only the Customs card: the documents are in the Documents tab, and customs reviews them in the Customs section. */}
+        {activeTab === "customs" && <CustomsTab section="details" shipment={shipment} onCommit={handleCommit} />}
 
         {activeTab === "claim" && <ClaimsTab shipment={shipment} />}
 

@@ -313,6 +313,9 @@ export function ContainerDetailsTab({
     />
   );
 
+  // A thin line between rows; the last row has none, so the totals row's thicker line is the only one under it.
+  const rowLine = (i: number) => (i < rows.length - 1 ? "border-b border-slate-100" : "");
+
   return (
     <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
       {contextHolder}
@@ -361,7 +364,7 @@ export function ContainerDetailsTab({
               isEditing(i) ? (
                 <div
                   key={rowKey(c)}
-                  className={`${COLS} px-2 py-1.5 border-b border-slate-100`}
+                  className={`${COLS} px-2 py-1.5 ${rowLine(i)}`}
                   onBlur={onRowBlur(i)}
                   onKeyDown={onRowKeyDown(i)}
                 >
@@ -449,7 +452,7 @@ export function ContainerDetailsTab({
                 // clicked column; the container number is a link to its cargo panel.
                 <div
                   key={rowKey(c)}
-                  className={`${COLS} px-2 py-1.5 border-b border-slate-100 cursor-pointer hover:bg-slate-50 select-none`}
+                  className={`${COLS} px-2 py-1.5 ${rowLine(i)} cursor-pointer hover:bg-slate-50 select-none`}
                   onDoubleClick={(e) => {
                     const field = (e.target as HTMLElement).closest<HTMLElement>("[data-field]")?.dataset.field as
                       | Field

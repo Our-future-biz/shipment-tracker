@@ -3,6 +3,7 @@ import {
   CUSTOMS_TAB_GROUPS,
   DOCUMENT_TYPES,
   documentGroupOf,
+  documentTypeLabel,
   isReviewedDocumentType,
   supplierInvoiceType,
   SUPPLIER_INVOICE_TYPES,
@@ -40,5 +41,13 @@ describe("suppliers' invoices", () => {
     expect(documentGroupOf("Insurance").title).toBe("Shipping Documents");
     expect(documentGroupOf("Other").title).toBe("Shipping Documents");
     expect(isReviewedDocumentType("Invoice")).toBe(true);
+  });
+});
+
+describe("document type names on screen", () => {
+  it("show Invoice as Commercial Invoice and keep every other type as stored", () => {
+    expect(documentTypeLabel("Invoice")).toBe("Commercial Invoice");
+    expect(documentTypeLabel("Packing list")).toBe("Packing list");
+    expect(documentTypeLabel("")).toBe("");
   });
 });

@@ -18,9 +18,11 @@ import {
   numberInput,
   STACKABLE,
   shipmentStackability,
+  shipmentWeightKg,
   withShipmentStackability,
   withoutTypedVolumeWhenSized,
 } from "./cargo";
+import type { CargoDimensionLine } from "./cargo";
 import { containerTypeFrom } from "@/app/documents/_lib/extraction";
 
 describe("CONTAINER_TYPES", () => {
@@ -259,5 +261,25 @@ describe("All pieces: totals stored per piece", () => {
     expect([piecesOf({ pieces: "" }), piecesOf({ pieces: "0" }), piecesOf({ pieces: "12" })]).toEqual([0, 0, 12]);
     expect([perPieceText(3000, 0), totalText(150, 0, 2), lineTotal(150, 0)]).toEqual(["", "", 0]);
     expect([perPieceText(0, 5), totalText(0, 5, 2)]).toEqual(["", ""]);
+  });
+});
+
+describe("shipmentWeightKg", () => {
+  const line = (pieces: string, weightPerPcKg: string) => ({ pieces, weightPerPcKg }) as CargoDimensionLine;
+
+  it("sums the dimension lines to the hundredth of a kg, as Cargo Details does", () => {
+    // 1.235 t in the computed tons column; the lines say 1,234.56 kg.
+    expect(shipmentWeightKg({ cargoDimensions: [line("2", "617.28")], totalWeightTons: "9" })).toBeCloseTo(1234.56, 6);
+  });
+
+  it("falls back to the typed tons when the lines carry no weight", () => {
+    expect(shipmentWeightKg({ cargoDimensions: [line("3", "")], totalWeightTons: "1.2345" })).toBe(1234.5);
+    expect(shipmentWeightKg({ cargoDimensions: null, totalWeightTons: "4,2" })).toBe(4200);
+    expect(shipmentWeightKg({ totalWeightTons: "0" })).toBe(0);
+  });
+
+  it("is null with neither", () => {
+    expect(shipmentWeightKg({ cargoDimensions: [], totalWeightTons: "" })).toBeNull();
+    expect(shipmentWeightKg({ totalWeightTons: null })).toBeNull();
   });
 });

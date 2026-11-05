@@ -16,7 +16,8 @@ import {
 } from "@ant-design/icons";
 import { api, apiFileUrl } from "@/lib/api";
 import { useShipmentMutations, type ShipmentItem } from "@/hooks/useShipments";
-import { DetailCard, makeStyleFor, type CommitFn } from "../ShipmentDetailContent";
+import { DetailCard, RoRow, makeStyleFor, type CommitFn } from "../ShipmentDetailContent";
+import { fmtNum, shipmentWeightKg } from "@/lib/cargo";
 import { formatDateTime } from "@/lib/date";
 import { useShipmentAttachments } from "@/hooks/useShipmentAttachments";
 import type { interfaces } from "@/lib/api/client";
@@ -34,11 +35,11 @@ const MANUAL_STATUSES = ["Paperwork Verified", "Under Customs Clearance", "Custo
 
 // Field layout mirrors CUSTOMS_L / CUSTOMS_R from the approved mockup. Read-only
 // fields are derived elsewhere (containers, cargo lines) and must not be edited here.
+// The total weight is shown in kg (a row put before Total Volume In CBM, see weightKg), not in tons.
 const CUSTOMS_LEFT = [
   { key: "jobNumber", label: "Internal Reference", ro: true },
   { key: "pcs", label: "Colli", ro: true },
   { key: "typeOfPackages", label: "Type Of Packages", ro: true },
-  { key: "totalWeightTons", label: "Total Weight In Tons", ro: true },
   { key: "totalVolumeCbm", label: "Total Volume In CBM", ro: true },
   { key: "cargoDescription", label: "Cargo Description", ro: true },
   { key: "hsCode", label: "HS Code", ro: true },
@@ -107,6 +108,13 @@ const DOC_COLUMNS: { label: string; widthClass?: string }[] = [
 const DOC_CELL = "py-[13px] border-b border-line";
 const DOC_BUTTON =
   "inline-flex items-center h-8 gap-[7px] text-[12.5px] font-semibold px-[10px] rounded-[7px] border border-line-strong bg-white text-ink cursor-pointer transition-colors";
+
+// The shipment's total weight in kg: from the cargo lines, else the typed tons × 1000 - to 0.01 kg,
+// as the Cargo Details total shows it.
+function weightKg(shipment: ShipmentItem): string {
+  const kg = shipmentWeightKg(shipment);
+  return kg == null ? "" : fmtNum(kg);
+}
 
 const PRIORITY_DOT: Record<string, string> = { Standard: "bg-green-500", Urgent: "bg-red-500" };
 
@@ -262,8 +270,9 @@ export function CustomsTab({
   shipment: ShipmentItem;
   onCommit: CommitFn;
   /**
-   * Documents are approved, declined and changed only in the Customs section. In the
-   * shipment's own Customs tab the review is shown, without the buttons.
+   * True in the Customs section, where documents are approved, declined and changed. Without
+   * it the documents show the review without the buttons. The shipment's own Customs tab
+   * shows only the Customs card (section "details"), with no documents.
    */
   canReview?: boolean;
   /** Shows only that part (the Customs section has them on separate tabs); left out, both. */
@@ -286,8 +295,13 @@ export function CustomsTab({
   const paperworkIn = !PAPERWORK_STATUSES.includes(shipment.customsStatus);
   // The status is drawn by its own row: LockedStatusRow while it follows the paperwork (same
   // colours, no editing), ManualStatusRow with only the allowed steps after that.
+  // In the shipment's own Customs tab Commercial Invoice(s) Value closes the left column, so
+  // both columns have the same number of rows. The Customs section's card is already even
+  // (Principal Party on the left, two container rows fewer on the right), so it keeps the value on the right.
+  const civOnLeft = !canReview;
+  const leftColumn = civOnLeft ? [...CUSTOMS_LEFT, ...CUSTOMS_RIGHT.filter((f) => f.key === "commercialInvoiceValue")] : CUSTOMS_LEFT;
   const rightColumn = (canReview ? CUSTOMS_RIGHT.filter((f) => !CUSTOMS_OVERVIEW_HIDDEN.includes(f.key)) : CUSTOMS_RIGHT).filter(
-    (f) => f.key !== "customsStatus",
+    (f) => f.key !== "customsStatus" && !(civOnLeft && f.key === "commercialInvoiceValue"),
   );
 
   const { attachments, refresh: refreshDocuments } = useShipmentAttachments(shipment.id);
@@ -324,7 +338,7 @@ export function CustomsTab({
         icon={<SafetyCertificateOutlined />}
         // The Customs section calls its card Customs Overview; in the shipment it is the Customs tab's card.
         title={canReview ? "Customs Overview" : "Customs"}
-        columns={[CUSTOMS_LEFT, rightColumn]}
+        columns={[leftColumn, rightColumn]}
         renderAfter={
           canReview
             ? {
@@ -370,6 +384,8 @@ export function CustomsTab({
             />
             </>
           ),
+          // The same total weight as everywhere else (stored and worked out in tons), shown in kg.
+          totalVolumeCbm: <RoRow label="Total Weight In KG" value={weightKg(cardShipment)} />,
           // In the Customs section the container number is a link, in the place of the plain field.
           ...(canReview ? { containerTypeSummary: <ContainerNumberRow value={shipment.containerNumber} /> } : {}),
         }}
