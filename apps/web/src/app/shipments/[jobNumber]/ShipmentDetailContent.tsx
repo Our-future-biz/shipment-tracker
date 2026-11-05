@@ -456,7 +456,7 @@ interface RoRowProps {
 }
 
 // Read-only horizontal row (label | value), matching FieldRow's look.
-function RoRow({ label, value, labelW = LABEL_W, wrap = false, mark }: RoRowProps) {
+export function RoRow({ label, value, labelW = LABEL_W, wrap = false, mark }: RoRowProps) {
   const lbl = LABEL.replace(LABEL_W, labelW);
   return (
     <div className={wrap ? ROW_TOP : ROW}>

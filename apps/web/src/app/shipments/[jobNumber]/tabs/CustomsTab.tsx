@@ -16,7 +16,9 @@ import {
 } from "@ant-design/icons";
 import { api, apiFileUrl } from "@/lib/api";
 import { useShipmentMutations, type ShipmentItem } from "@/hooks/useShipments";
-import { DetailCard, makeStyleFor, type CommitFn } from "../ShipmentDetailContent";
+import { DetailCard, RoRow, makeStyleFor, type CommitFn } from "../ShipmentDetailContent";
+import { getFieldValue } from "@/hooks/useShipments";
+import { fmtNum, num } from "@/lib/cargo";
 import { formatDateTime } from "@/lib/date";
 import { useShipmentAttachments } from "@/hooks/useShipmentAttachments";
 import type { interfaces } from "@/lib/api/client";
@@ -34,11 +36,11 @@ const MANUAL_STATUSES = ["Paperwork Verified", "Under Customs Clearance", "Custo
 
 // Field layout mirrors CUSTOMS_L / CUSTOMS_R from the approved mockup. Read-only
 // fields are derived elsewhere (containers, cargo lines) and must not be edited here.
+// The total weight is shown in kg (WeightKgRow, before Total Volume In CBM), not in tons.
 const CUSTOMS_LEFT = [
   { key: "jobNumber", label: "Internal Reference", ro: true },
   { key: "pcs", label: "Colli", ro: true },
   { key: "typeOfPackages", label: "Type Of Packages", ro: true },
-  { key: "totalWeightTons", label: "Total Weight In Tons", ro: true },
   { key: "totalVolumeCbm", label: "Total Volume In CBM", ro: true },
   { key: "cargoDescription", label: "Cargo Description", ro: true },
   { key: "hsCode", label: "HS Code", ro: true },
@@ -107,6 +109,13 @@ const DOC_COLUMNS: { label: string; widthClass?: string }[] = [
 const DOC_CELL = "py-[13px] border-b border-line";
 const DOC_BUTTON =
   "inline-flex items-center h-8 gap-[7px] text-[12.5px] font-semibold px-[10px] rounded-[7px] border border-line-strong bg-white text-ink cursor-pointer transition-colors";
+
+// The shipment's total weight in kg: its tons (from the cargo lines, else the typed total) × 1000,
+// to 0.1 kg - the tons are kept to 4 decimals.
+function weightKg(shipment: ShipmentItem): string {
+  const tons = getFieldValue(shipment, "totalWeightTons");
+  return tons ? fmtNum(Math.round(num(tons) * 10000) / 10) : "";
+}
 
 const PRIORITY_DOT: Record<string, string> = { Standard: "bg-green-500", Urgent: "bg-red-500" };
 
@@ -376,6 +385,8 @@ export function CustomsTab({
             />
             </>
           ),
+          // The same total weight as everywhere else (stored and worked out in tons), shown in kg.
+          totalVolumeCbm: <RoRow label="Total Weight In KG" value={weightKg(cardShipment)} />,
           // In the Customs section the container number is a link, in the place of the plain field.
           ...(canReview ? { containerTypeSummary: <ContainerNumberRow value={shipment.containerNumber} /> } : {}),
         }}
