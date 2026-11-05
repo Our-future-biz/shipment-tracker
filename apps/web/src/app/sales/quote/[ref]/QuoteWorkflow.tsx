@@ -52,7 +52,7 @@ import { createShipmentHint, shipmentFromQuoteBlockedText } from "../../_lib/shi
 import { CURRENCIES } from "@/lib/enums";
 import { CONTAINER_KINDS, CONTAINER_KINDS_BY_SIZE, CONTAINER_SIZES, containerType, teuForType } from "@/lib/cargo";
 import { useListKeys } from "@/hooks/useListKeys";
-import { asData, cargoReadyDay, computeTotals, computeCargo, convertLine, cyAtDestination, cyAtOrigin, cyTermsOf, CY_TERMS, documentBlock, fxNote, hasReefer, isContainerQuote, isSeaQuote, isWonRevision, reeferMissing, revisionRoot, stripProtected, withLineBasis, type CyTerms, type QuoteTotals } from "../../_lib/salesQuote";
+import { asData, cargoReadyDay, computeTotals, computeCargo, convertLine, cyAtDestination, cyAtOrigin, cyTermsOf, CY_TERMS, documentBlock, fxNote, hasReefer, isContainerQuote, isSeaQuote, isWonRevision, reeferMissing, revisionRoot, routingMissing, stripProtected, withLineBasis, type CyTerms, type QuoteTotals } from "../../_lib/salesQuote";
 import { PRINT_WINDOW_BLOCKED, exportClosesQuote } from "../../_lib/exportClose";
 import { ExportCloseDialog } from "../../_components/ExportCloseDialog";
 import {
@@ -192,7 +192,7 @@ const CONTACT_FOLLOWS_TITLE = "From the contact in the Customer Database - chang
 
 // What the question before Routing is saved without its Origin or Destination asks.
 function blankRoutingTitle(data: SalesQuoteData): string {
-  const blank = [!data.origin?.trim() && "Origin", !data.destination?.trim() && "Destination"].filter(Boolean);
+  const blank = routingMissing(data);
   return blank.length === 2 ? "Keep Origin and Destination blank?" : `Keep ${blank[0] ?? "Origin"} blank?`;
 }
 
@@ -682,8 +682,9 @@ export function QuoteWorkflow() {
     // A sea quote also says whether the cargo goes through a CY.
     // Not asked of one closed before it was asked: it cannot be answered there.
     shipment: !!(draft.direction && draft.serviceType && draft.incoterm) && (!isSeaQuote(draft) || cyTermsOf(draft) !== undefined || quoteClosed),
+    // Origin and Destination, but not an FOB import's Origin or a CFR export's Destination (routingNeeds).
     // Or left blank on purpose: confirmed as the step was saved without them.
-    routing: !!(draft.origin && draft.destination) || !!draft.routingBlank,
+    routing: routingMissing(draft).length === 0 || !!draft.routingBlank,
     // A reefer box needs its set-point, an open top or flat rack the in-gauge answer (and the
     // measures of cargo that is not), before the cargo is complete.
     cargo: !!(draft.commodity || packages.length || containers.length) && !reeferMissing(draft) && !oogMissing(draft),
@@ -1772,9 +1773,9 @@ export function QuoteWorkflow() {
       setOverweightAsk({ to, save: true });
       return;
     }
-    // Routing saved without its Origin or Destination asks whether they stay blank; confirmed, the
-    // step is complete without them.
-    if (activeSection === "routing" && !quoteClosed && !draft.routingBlank && (!draft.origin?.trim() || !draft.destination?.trim())) {
+    // Routing saved without an Origin or Destination its terms need asks whether they stay blank;
+    // confirmed, the step is complete without them.
+    if (activeSection === "routing" && !quoteClosed && !draft.routingBlank && routingMissing(draft).length > 0) {
       setBlankRoutingTo(to);
       return;
     }

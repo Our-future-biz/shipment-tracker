@@ -225,6 +225,27 @@ export function cyTermsOf(data: Pick<SalesQuoteData, "cy">): CyTerms | undefined
 export const cyAtOrigin = (terms: CyTerms | undefined) => terms?.startsWith("CY") === true;
 export const cyAtDestination = (terms: CyTerms | undefined) => terms?.endsWith("CY") === true;
 
+/**
+ * The places a quote's Routing needs before it is complete. An import on FOB starts at the port
+ * of loading, so it needs no Origin; an export on CFR ends at the port of discharge, so it needs
+ * no Destination.
+ */
+export function routingNeeds(data: Pick<SalesQuoteData, "direction" | "incoterm">): { origin: boolean; destination: boolean } {
+  const incoterm = (data.incoterm ?? "").trim().toUpperCase();
+  return {
+    origin: !(data.direction === "Import" && incoterm === "FOB"),
+    destination: !(data.direction === "Export" && incoterm === "CFR"),
+  };
+}
+
+/** The Routing places a quote still needs, "Origin" and / or "Destination". */
+export function routingMissing(data: Pick<SalesQuoteData, "direction" | "incoterm" | "origin" | "destination">): string[] {
+  const needs = routingNeeds(data);
+  return [needs.origin && !data.origin?.trim() && "Origin", needs.destination && !data.destination?.trim() && "Destination"].filter(
+    (x): x is string => !!x,
+  );
+}
+
 // Whether a container type is a reefer: RF, or HR (the high-cube reefer), of any size.
 export function isReeferType(type: string | undefined): boolean {
   // HR is the 40' high-cube reefer's former name, still on quotes saved before it was HRF.
