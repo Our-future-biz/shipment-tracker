@@ -287,8 +287,13 @@ export function CustomsTab({
   const paperworkIn = !PAPERWORK_STATUSES.includes(shipment.customsStatus);
   // The status is drawn by its own row: LockedStatusRow while it follows the paperwork (same
   // colours, no editing), ManualStatusRow with only the allowed steps after that.
+  // In the shipment's own Customs tab Commercial Invoice(s) Value closes the left column, so
+  // both columns have the same number of rows. The Customs section's card is already even
+  // (Principal Party on the left, two container rows fewer on the right), so it keeps the value on the right.
+  const civOnLeft = !canReview;
+  const leftColumn = civOnLeft ? [...CUSTOMS_LEFT, ...CUSTOMS_RIGHT.filter((f) => f.key === "commercialInvoiceValue")] : CUSTOMS_LEFT;
   const rightColumn = (canReview ? CUSTOMS_RIGHT.filter((f) => !CUSTOMS_OVERVIEW_HIDDEN.includes(f.key)) : CUSTOMS_RIGHT).filter(
-    (f) => f.key !== "customsStatus",
+    (f) => f.key !== "customsStatus" && !(civOnLeft && f.key === "commercialInvoiceValue"),
   );
 
   const { attachments, refresh: refreshDocuments } = useShipmentAttachments(shipment.id);
@@ -325,7 +330,7 @@ export function CustomsTab({
         icon={<SafetyCertificateOutlined />}
         // The Customs section calls its card Customs Overview; in the shipment it is the Customs tab's card.
         title={canReview ? "Customs Overview" : "Customs"}
-        columns={[CUSTOMS_LEFT, rightColumn]}
+        columns={[leftColumn, rightColumn]}
         renderAfter={
           canReview
             ? {
