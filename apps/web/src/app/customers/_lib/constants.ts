@@ -127,7 +127,7 @@ const STATUS_DOT: Record<interfaces.CustomerStatus, string> = {
 };
 
 // A supplier only shows whether we use it (supplierStatus.ts), in the colours of Active and Inactive.
-const SUPPLIER_STATUS_DOT: Record<string, string> = { "In use": "bg-green-600", "Not in use": "bg-red-500" };
+const SUPPLIER_STATUS_DOT: Record<string, string> = { "In use": "bg-green-600", "Not in use": "bg-red-500", "Waiting for approval": "bg-amber-500" };
 
 export function statusDotClass(status: string): string {
   return lookup(STATUS_DOT, status) ?? SUPPLIER_STATUS_DOT[status] ?? "bg-slate-400";

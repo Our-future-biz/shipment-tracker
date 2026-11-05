@@ -119,10 +119,44 @@ const requireRoles = (roles: CustomerRole[]): CustomerRole[] => {
  * A new company with a supplier role (any role but Customer: haulier, rail operator, first / last mile haulier,
  * shipping line) is a manager's decision, as changing the roles later is.
  */
-export function assertMayGiveRoles(actorRole: string, roles: CustomerRole[] | undefined): void {
+export function assertMayGiveRoles(actorRole: string, roles: CustomerRole[] | undefined, forApproval = false): void {
+  if (forApproval) {
+    if (!roles || !isSupplier(roles)) throw APIError.invalidArgument("A new supplier needs a supplier role");
+    return;
+  }
   if (roles && isSupplier(roles) && !canManageSales(actorRole)) {
     throw APIError.permissionDenied("Only a manager can add a supplier (a company with a role other than Customer)");
   }
+}
+
+/** A supplier added from a quote's Pricing: who adds it and from which quote. */
+export interface NewSupplierRequest {
+  userId: string;
+  quoteNumber: string;
+}
+
+/** The request a create carries when it adds a supplier from a quote; none without a quote. */
+export const supplierRequestOf = (userId: string, fromQuote: string | undefined): NewSupplierRequest | undefined =>
+  fromQuote?.trim() ? { userId, quoteNumber: fromQuote.trim() } : undefined;
+
+/**
+ * The approval columns of a new company. A supplier a user who is no manager adds from a quote waits
+ * for a manager (Sales → Managers → Company approval); a manager's own is approved at once, as adding a
+ * supplier is already a manager's right. Anything else needs no approval.
+ */
+async function approvalOf(actorRole: string, request: NewSupplierRequest | undefined): Promise<Partial<NewCustomerRecord>> {
+  if (!request || canManageSales(actorRole)) return {};
+  const quoteNumber = request.quoteNumber.trim();
+  if (!quoteNumber) throw APIError.invalidArgument("A new supplier names the quote it is added from");
+  const { users } = await auth.userLookup({ ids: [request.userId] });
+  const user = users.find((u) => u.id === request.userId);
+  return {
+    approvalStatus: "pending",
+    approvalRequestedBy: user ? storedEmail(user.email) : "",
+    approvalRequestedByUserId: request.userId,
+    approvalRequestedAt: new Date(),
+    approvalQuoteNumber: quoteNumber,
+  };
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -274,15 +308,18 @@ class CustomerService {
     ico: string,
     contact: NewCustomerContact,
     roles: CustomerRole[] = ["customer"],
+    supplierRequest?: NewSupplierRequest,
   ): Promise<CustomerItem> {
-    assertMayGiveRoles(actorRole, roles);
+    assertMayGiveRoles(actorRole, roles, !!supplierRequest);
     const checkedRoles = requireRoles(roles);
     const mainContact = firstContact(contact);
     if (await customerRepository.findByIco(ico, companyId)) {
       throw APIError.alreadyExists("A customer with this IČO already exists");
     }
     const ares = await aresService.lookup(ico);
+    const approval = await approvalOf(actorRole, supplierRequest);
     const values: Omit<NewCustomerRecord, "companyId"> = {
+      ...approval,
       ico: ares.ico,
       dic: ares.dic,
       companyName: ares.companyName,
@@ -307,8 +344,8 @@ class CustomerService {
     return toCustomerItem(row);
   }
 
-  async createManual(companyId: string, actorRole: string, input: ManualCustomerInput): Promise<CustomerItem> {
-    assertMayGiveRoles(actorRole, input.roles);
+  async createManual(companyId: string, actorRole: string, input: ManualCustomerInput, supplierRequest?: NewSupplierRequest): Promise<CustomerItem> {
+    assertMayGiveRoles(actorRole, input.roles, !!supplierRequest);
     const mainContact = firstContact(input.contact);
     const checkedRoles = requireRoles(input.roles ?? ["customer"]);
     const country = input.country.trim().toUpperCase();
@@ -322,7 +359,9 @@ class CustomerService {
     const street = input.street.trim();
     const city = input.city.trim();
     const postalCode = input.postalCode.trim();
+    const approval = await approvalOf(actorRole, supplierRequest);
     const values: Omit<NewCustomerRecord, "companyId"> = {
+      ...approval,
       // The column holds the IČO of a Czech customer and the registration number of a foreign one.
       ico: registrationNumber,
       dic: (input.vatId ?? "").trim(),
@@ -452,6 +491,7 @@ class CustomerService {
     }
     let row: CustomerRecord | null;
     try {
+      // A declined new supplier brought back is a company like any other: its approval ends there.
       row = await customerRepository.restoreWithChildren(id, companyId);
     } catch (err) {
       // Another customer with the same registration number was added in the meantime.

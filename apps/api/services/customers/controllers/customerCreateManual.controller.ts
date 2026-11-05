@@ -1,7 +1,7 @@
 import { api } from "encore.dev/api";
 import type { MatchesRegexp, MaxLen, MinLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
-import { customerService } from "../services/customer.service";
+import { customerService, supplierRequestOf } from "../services/customer.service";
 import type { CustomerItem, CustomerRole } from "../interfaces/interfaces";
 import type { CustomerContactRequest } from "../interfaces/requests";
 
@@ -20,6 +20,11 @@ interface CustomerCreateManualRequest {
   contact: CustomerContactRequest;
   /** ["customer"] when left out. */
   roles?: CustomerRole[];
+  /**
+   * A supplier added from this quote's Pricing (its Sales Reference). Any user may add one so: unless the
+   * user is a manager, it waits for a manager's approval on Sales → Managers → Company approval.
+   */
+  fromQuote?: string & MaxLen<40>;
 }
 
 interface CustomerCreateManualResponse {
@@ -30,7 +35,7 @@ interface CustomerCreateManualResponse {
 export const customerCreateManual = api(
   { expose: true, auth: true, method: "POST", path: "/customers/manual" },
   async (req: CustomerCreateManualRequest): Promise<CustomerCreateManualResponse> => {
-    const { companyID, role } = getAuthData()!;
-    return { customer: await customerService.createManual(companyID, role, req) };
+    const { companyID, role, userID } = getAuthData()!;
+    return { customer: await customerService.createManual(companyID, role, req, supplierRequestOf(userID, req.fromQuote)) };
   },
 );

@@ -45,6 +45,10 @@ import { fmtMoney, moneyInputParser } from "@/lib/money";
 import { useToast } from "@/lib/toast";
 import { CustomerAccountTypeBadge } from "@/app/customers/_components/CustomerAccountTypeBadge";
 import { GeoFlag, GeoSelect } from "@/components/GeoSelect";
+import { NewSupplierFromQuote } from "@/components/SupplierPicker";
+import { useSupplierApprovals } from "@/hooks/useSupplierApprovals";
+import { useSupplierDirectory } from "@/hooks/useSupplierDirectory";
+import { supplierSendBlock } from "../../_lib/supplierApproval";
 import type { SalesQuoteData, PackageLine, QuoteContainerLine, CostLine } from "../../_lib/types";
 import type { QuoteProblem } from "../../_lib/quoteProblem";
 import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, PACKING_TYPES, serviceTypeLabel } from "../../_lib/types";
@@ -258,6 +262,8 @@ export function QuoteWorkflow() {
   const { terms } = useTermsConditions();
   // Sales Settings, where the templates are kept, is for managers and admins only.
   const { canManageSales } = useSalesPermissions();
+  const supplierDirectory = useSupplierDirectory();
+  const supplierApprovals = useSupplierApprovals();
 
   // The step "Save & continue" goes to once the out-of-gauge cargo is confirmed, while that is asked.
   const [confirmCargoTo, setConfirmCargoTo] = useState<SectionKey | null>(null);
@@ -769,7 +775,9 @@ export function QuoteWorkflow() {
   // Why the quote may not be sent or marked Ready to send: its margin waits for a manager.
   // Why the quote can't go out, in the server's words: a margin below its mode's floor no approval
   // covers, or heavy pieces the warehouse has not approved (Council Outlay 6).
-  const sendBlocked = quote.sendBlocked ?? null;
+  // And a buying line linked to a new supplier that waits for a manager's approval, or was declined: the
+  // server refuses the sending too, this says it beforehand.
+  const sendBlocked = quote.sendBlocked ?? (quoteClosed ? null : supplierSendBlock(draft.buyingLines ?? [], (id) => supplierDirectory.byId.get(id), supplierApprovals.declined));
   // E-mailing sends the quote only where Export PDF would close it - one that has not gone out yet
   // - and on the revision of a Won quote, whose new prices go to the customer. A quote that went
   // out is e-mailed again as it was sent, whatever its margin says now.
@@ -1529,6 +1537,8 @@ export function QuoteWorkflow() {
       title: "Pricing",
       subtitle: "Buying & selling breakdown with margin",
       content: (
+        // A supplier is taken from the Customer Database only; one that is not there is added (and waits for a manager).
+        <NewSupplierFromQuote.Provider value={quoteClosed ? null : ref}>
         <div className="flex flex-col gap-3">
           <div className="flex items-center gap-2.5 min-h-6">
             <span className={FIELD_LABEL_CLASS}>Currency</span>
@@ -1704,6 +1714,7 @@ export function QuoteWorkflow() {
             </div>
           )}
         </div>
+        </NewSupplierFromQuote.Provider>
       ),
     },
     {

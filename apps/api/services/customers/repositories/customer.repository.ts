@@ -154,7 +154,10 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
     ids?: string[],
   ): Promise<(Pick<CustomerRecord, "id" | "companyName" | "ico" | "dic" | "city" | "country"> & { rating: number | null; ratingReason: string; inUse: boolean })[]> {
     const clauses = [eq(customerTable.companyId, companyId), isNull(customerTable.deletedAt), arrayContains(customerTable.roles, [role])];
+    // Looked up by id, a company is found whatever it is; the whole list (Trucking's and Tariffs' pickers)
+    // leaves out a new supplier still waiting for a manager's approval.
     if (ids) clauses.push(inArray(customerTable.id, ids));
+    else clauses.push(ne(customerTable.approvalStatus, "pending"));
     return this.db
       .select({
         id: customerTable.id,
@@ -355,7 +358,8 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
       const back = { deletedAt: null, updatedAt: now };
       const [customer] = await tx
         .update(customerTable)
-        .set(back)
+        // A declined new supplier comes back as a company like any other.
+        .set({ ...back, approvalStatus: sql`case when ${customerTable.approvalStatus} = 'declined' then '' else ${customerTable.approvalStatus} end` })
         .where(and(eq(customerTable.id, id), eq(customerTable.companyId, companyId), eq(customerTable.deletedAt, stamp)))
         .returning();
       if (!customer) return null;

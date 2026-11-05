@@ -1,0 +1,278 @@
+"use client";
+
+import { Fragment, useState } from "react";
+import Link from "next/link";
+import { Checkbox, Input, Modal, Segmented } from "antd";
+import { CheckOutlined, CloseOutlined, EditOutlined } from "@ant-design/icons";
+import { useQueryClient } from "@tanstack/react-query";
+import { api, apiErrorMessage } from "@/lib/api";
+import type { interfaces } from "@/lib/api";
+import { formatDateTime } from "@/lib/date";
+import { useToast } from "@/lib/toast";
+import { useCanSeeConcepts } from "@/lib/auth/AuthContext";
+import { refreshCustomerLists } from "@/hooks/useCustomers";
+import { supplierApprovalKeys, useSupplierApprovals, type SupplierApprovalItem } from "@/hooks/useSupplierApprovals";
+import { CUSTOMER_ROLE_LABELS, customerRoleOptions } from "@/app/customers/_lib/constants";
+import { quoteHref } from "../../_lib/quoteHref";
+
+// Sales → Managers → Company approval: a user who is no manager adds a supplier that is not in the
+// Customer Database from a quote's Pricing. It is in the database at once, waiting here; until a manager
+// approves it the quote can't be sent. A manager approves it, edits it first, or declines it with a
+// reason: declined it is deleted (Customer Database → Deleted customers can restore it), and the one who
+// added it is told in their bell, as of an approval.
+
+const BUTTON = "inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-200 bg-white text-[12.5px] font-semibold text-slate-700 cursor-pointer transition-colors";
+const SAVE = "text-[12.5px] font-semibold px-3 py-1.5 rounded-lg border text-white cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed hover:brightness-110";
+const LABEL = "block text-[11px] font-extrabold tracking-[.07em] uppercase mb-1";
+const MIN_REASON = 3;
+
+const rolesText = (roles: interfaces.CustomerRole[]) => roles.map((r) => CUSTOMER_ROLE_LABELS[r] ?? r).join(", ");
+
+function AnswerPill({ item }: { item: SupplierApprovalItem }) {
+  return item.decision === "declined" ? (
+    <span className="inline-flex rounded-full bg-red-50 px-2.5 py-0.5 text-[12px] font-semibold text-red-700">Declined</span>
+  ) : (
+    <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-0.5 text-[12px] font-semibold text-emerald-700">Approved</span>
+  );
+}
+
+export function SalesCompanyApprovals() {
+  const toast = useToast();
+  const { approvals, waiting, isLoading, isError, decide } = useSupplierApprovals();
+  const [view, setView] = useState<"waiting" | "answered">("waiting");
+  // The supplier being declined (its reason typed below its row), or edited (in the dialog).
+  const [declining, setDeclining] = useState<string | null>(null);
+  const [reason, setReason] = useState("");
+  const [editing, setEditing] = useState<SupplierApprovalItem | null>(null);
+
+  const listed = approvals.filter((a) => (view === "waiting" ? a.status === "pending" : a.decision !== ""));
+  const who = (a: SupplierApprovalItem) => a.requestedBy || "whoever added it";
+
+  const answer = (a: SupplierApprovalItem, decision: "approve" | "decline") =>
+    decide
+      .mutateAsync({ id: a.customerId, decision, comment: decision === "decline" ? reason : undefined })
+      .then(() => {
+        toast.success(`${a.companyName} ${decision === "approve" ? "approved" : "declined"} — ${who(a)} is notified`);
+        setDeclining(null);
+      })
+      .catch((e) => toast.error(apiErrorMessage(e)));
+
+  const empty = isError ? "Could not load the new suppliers." : isLoading ? "Loading…" : view === "waiting" ? "No new supplier waiting for a manager." : "No answers in the last 30 days.";
+
+  return (
+    <div className="flex flex-col gap-3">
+      <section className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 bg-slate-50 border-b border-slate-200">
+          <div>
+            <div className="text-[13px] font-bold uppercase tracking-wider text-slate-800">Company approval · new suppliers</div>
+            <div className="text-[12px] text-slate-500">
+              Added from a quote&apos;s Pricing; its quote can&apos;t be sent until the supplier is approved. Approve it, edit it first, or decline it with a reason (it is then deleted). The one who added it is told.
+            </div>
+          </div>
+          <Segmented
+            size="small"
+            value={view}
+            onChange={(v) => setView(v as typeof view)}
+            options={[
+              { value: "waiting", label: `Waiting (${isError ? "–" : waiting})` },
+              { value: "answered", label: "Answered (30 days)" },
+            ]}
+          />
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[980px] border-collapse text-[13px]">
+            <thead>
+              <tr className="text-left text-[11px] uppercase tracking-wider text-slate-500 border-b border-slate-200">
+                <th className="px-4 py-2 font-semibold">Company</th>
+                <th className="px-4 py-2 font-semibold">Contact</th>
+                <th className="px-4 py-2 font-semibold">Added</th>
+                <th className="px-4 py-2 font-semibold">Answer</th>
+              </tr>
+            </thead>
+            <tbody>
+              {listed.length === 0 && (
+                <tr>
+                  <td colSpan={4} className={`px-4 py-8 text-center ${isError ? "text-red-500" : "text-slate-400"}`}>
+                    {empty}
+                  </td>
+                </tr>
+              )}
+              {listed.map((a) => {
+                const open = a.status === "pending" && declining === a.customerId;
+                return (
+                  <Fragment key={a.customerId}>
+                    <tr className="border-b border-slate-100 align-top">
+                      <td className="px-4 py-3">
+                        {a.status === "declined" ? (
+                          <span className="font-semibold text-slate-700">{a.companyName}</span>
+                        ) : (
+                          <Link href={`/customers/${a.customerId}`} target="_blank" className="font-semibold text-indigo-600 hover:underline">
+                            {a.companyName}
+                          </Link>
+                        )}
+                        <div className="text-[12px] text-slate-600">{rolesText(a.roles)}</div>
+                        <div className="text-[11px] text-slate-500">
+                          {[a.ico && `${a.country === "CZ" ? "IČO" : "Reg. no."} ${a.ico}`, a.dic && `VAT ${a.dic}`, a.dataSource === "ARES" ? "from ARES" : "typed in"].filter(Boolean).join(" · ")}
+                        </div>
+                        <div className="text-[11px] text-slate-400">{[a.registeredAddress, a.country].filter(Boolean).join(", ")}</div>
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {a.contactName || "—"}
+                        <div className="text-[11px] text-slate-400">{[a.contactEmail, a.contactPhone].filter(Boolean).join(" · ")}</div>
+                      </td>
+                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                        {a.requestedBy || "—"}
+                        <div className="text-[11px] text-slate-400 tabular-nums">{a.requestedAt ? formatDateTime(a.requestedAt) : ""}</div>
+                        {a.quoteNumber && (
+                          <Link href={quoteHref(a.quoteNumber)} className="text-[12px] font-mono font-semibold text-indigo-600 hover:underline">
+                            {a.quoteNumber}
+                          </Link>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {a.status === "pending" ? (
+                          <div className="flex flex-wrap gap-2">
+                            <button type="button" disabled={decide.isPending} onClick={() => void answer(a, "approve")} className={`${BUTTON} hover:border-emerald-500 hover:text-emerald-700 hover:bg-emerald-50`}>
+                              <CheckOutlined className="text-[14px]" />
+                              Approve
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDeclining(a.customerId);
+                                setReason("");
+                              }}
+                              className={`${BUTTON} hover:border-red-500 hover:text-red-700 hover:bg-red-50`}
+                            >
+                              <CloseOutlined className="text-[14px]" />
+                              Decline
+                            </button>
+                            <button type="button" onClick={() => setEditing(a)} className={`${BUTTON} hover:border-indigo-400 hover:text-indigo-700`}>
+                              <EditOutlined className="text-[14px]" />
+                              Edit
+                            </button>
+                          </div>
+                        ) : (
+                          <div>
+                            <AnswerPill item={a} />
+                            <div className="text-[11px] text-slate-400 mt-1 tabular-nums">
+                              {a.decidedBy || "—"}
+                              {a.decidedAt ? ` · ${formatDateTime(a.decidedAt)}` : ""}
+                              {a.answerSeen ? " · seen" : ""}
+                            </div>
+                            {a.comment && <div className="text-[12px] text-slate-600 mt-1 max-w-[280px] whitespace-pre-wrap">{a.comment}</div>}
+                            {a.status === "declined" && <div className="text-[11px] text-slate-400 mt-1">Deleted: Customer Database → Deleted customers can restore it</div>}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                    {open && (
+                      <tr className="border-b border-slate-200 bg-slate-50">
+                        <td colSpan={4} className="px-4 pb-4 pt-2">
+                          <div className="flex flex-wrap items-end gap-3">
+                            <label className="block flex-1 min-w-[260px]">
+                              <span className={`${LABEL} text-red-600`}>Why it is declined</span>
+                              <textarea
+                                autoFocus
+                                rows={2}
+                                value={reason}
+                                maxLength={500}
+                                onChange={(e) => setReason(e.target.value)}
+                                className="w-full text-[13px] border border-slate-300 rounded-lg px-2.5 py-2 bg-white outline-none resize-y focus:border-indigo-500"
+                              />
+                              <span className="block text-[11px] text-slate-500 mt-0.5">
+                                Sent to {who(a)}. The company is deleted, and its quote&apos;s line asks for another supplier.
+                              </span>
+                            </label>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                disabled={decide.isPending || reason.trim().length < MIN_REASON}
+                                onClick={() => void answer(a, "decline")}
+                                className={`${SAVE} border-red-600 bg-red-600`}
+                              >
+                                Decline supplier
+                              </button>
+                              <button type="button" onClick={() => setDeclining(null)} className={BUTTON}>
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      {editing && <EditSupplierModal item={editing} onClose={() => setEditing(null)} />}
+    </div>
+  );
+}
+
+/** A manager corrects a new supplier before answering: its name, VAT ID and supplier roles; the rest on its page. */
+function EditSupplierModal({ item, onClose }: { item: SupplierApprovalItem; onClose: () => void }) {
+  const toast = useToast();
+  const queryClient = useQueryClient();
+  const canSeeConcepts = useCanSeeConcepts();
+  const [companyName, setCompanyName] = useState(item.companyName);
+  const [dic, setDic] = useState(item.dic);
+  const [roles, setRoles] = useState<interfaces.CustomerRole[]>(item.roles);
+  const [saving, setSaving] = useState(false);
+  const options = customerRoleOptions(canSeeConcepts);
+  const hasSupplierRole = roles.some((r) => r !== "customer");
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.customers.customerUpdate(item.customerId, { companyName: companyName.trim(), dic: dic.trim(), roles });
+      toast.success(`${companyName.trim()} saved`);
+      await queryClient.invalidateQueries({ queryKey: supplierApprovalKeys.all });
+      refreshCustomerLists(queryClient);
+      void queryClient.invalidateQueries({ queryKey: ["customer", item.customerId] });
+      onClose();
+    } catch (e) {
+      toast.error(apiErrorMessage(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal
+      open
+      onCancel={onClose}
+      title={<span className="text-lg font-semibold text-slate-800">Edit new supplier</span>}
+      okText="Save"
+      onOk={() => void save()}
+      okButtonProps={{ disabled: !companyName.trim() || !hasSupplierRole, loading: saving }}
+      destroyOnHidden
+    >
+      <div className="flex flex-col gap-3 pt-2">
+        <label className="block">
+          <span className={`${LABEL} text-slate-500`}>Company name</span>
+          <Input value={companyName} onChange={(e) => setCompanyName(e.target.value)} maxLength={300} />
+        </label>
+        <label className="block">
+          <span className={`${LABEL} text-slate-500`}>VAT ID</span>
+          <Input value={dic} onChange={(e) => setDic(e.target.value)} maxLength={20} placeholder="e.g. CZ12345678" />
+        </label>
+        <div>
+          <span className={`${LABEL} text-slate-500`}>Roles</span>
+          <Checkbox.Group options={options} value={roles} onChange={setRoles} />
+          {!hasSupplierRole && <div className="text-[12px] text-red-600 mt-1">Keep at least one supplier role</div>}
+        </div>
+        <div className="text-[12px] text-slate-500">
+          Addresses, contacts and terms:{" "}
+          <Link href={`/customers/${item.customerId}`} target="_blank" className="font-semibold text-indigo-600 hover:underline">
+            open {item.companyName} in the Customer Database
+          </Link>
+          . Saving does not approve it: approve or decline it on the list.
+        </div>
+      </div>
+    </Modal>
+  );
+}

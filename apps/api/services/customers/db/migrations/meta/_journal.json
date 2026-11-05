@@ -232,6 +232,13 @@
       "when": 1793817225872,
       "tag": "0032_note_last_contact_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1793862283976,
+      "tag": "0033_supplier_approval",
+      "breakpoints": true
     }
   ]
 }

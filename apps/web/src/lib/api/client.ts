@@ -567,6 +567,9 @@ export namespace customers {
             this.noteCreate = this.noteCreate.bind(this)
             this.noteDelete = this.noteDelete.bind(this)
             this.noteList = this.noteList.bind(this)
+            this.supplierApprovalDecide = this.supplierApprovalDecide.bind(this)
+            this.supplierApprovalList = this.supplierApprovalList.bind(this)
+            this.supplierApprovalSeen = this.supplierApprovalSeen.bind(this)
             this.supplierRatingHistory = this.supplierRatingHistory.bind(this)
             this.supplierRatingSet = this.supplierRatingSet.bind(this)
             this.supplierTermsCopyFromTrucking = this.supplierTermsCopyFromTrucking.bind(this)
@@ -886,6 +889,28 @@ export namespace customers {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/customers/${encodeURIComponent(customerId)}/notes`)
             return await resp.json() as controllers.NoteListResponse
+        }
+
+        /**
+         * Managers and admins only. Declined, the company is deleted (it can be restored from Deleted customers).
+         */
+        public async supplierApprovalDecide(id: string, params: controllers.SupplierApprovalDecideRequest): Promise<controllers.SupplierApprovalDecideResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/customers/${encodeURIComponent(id)}/supplier-approval`, JSON.stringify(params))
+            return await resp.json() as controllers.SupplierApprovalDecideResponse
+        }
+
+        /**
+         * Sales → Managers → Company approval, and the bell: a manager is told what waits, the one who asked the answer.
+         */
+        public async supplierApprovalList(): Promise<controllers.SupplierApprovalListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/customers/supplier-approvals`)
+            return await resp.json() as controllers.SupplierApprovalListResponse
+        }
+
+        public async supplierApprovalSeen(params: controllers.SupplierApprovalSeenRequest): Promise<void> {
+            await this.baseClient.callTypedAPI("POST", `/customers/supplier-approvals/seen`, JSON.stringify(params))
         }
 
         public async supplierRatingHistory(id: string): Promise<controllers.SupplierRatingHistoryResponse> {
@@ -6344,6 +6369,12 @@ export namespace controllers {
          * ["customer"] when left out.
          */
         roles?: interfaces.CustomerRole[]
+
+        /**
+         * A supplier added from this quote's Pricing (its Sales Reference). Any user may add one so: unless the
+         * user is a manager, it waits for a manager's approval on Sales → Managers → Company approval.
+         */
+        fromQuote?: string
     }
 
     export interface CustomerCreateManualResponse {
@@ -6360,6 +6391,12 @@ export namespace controllers {
          * ["customer"] when left out.
          */
         roles?: interfaces.CustomerRole[]
+
+        /**
+         * A supplier added from this quote's Pricing (its Sales Reference). Any user may add one so: unless the
+         * user is a manager, it waits for a manager's approval on Sales → Managers → Company approval.
+         */
+        fromQuote?: string
 
         /**
          * The contact person, created as the customer's main contact.
@@ -9434,6 +9471,32 @@ export namespace controllers {
         status?: string
         consol?: string
         marks?: string
+    }
+
+    export interface SupplierApprovalDecideRequest {
+        decision: "approve" | "decline"
+        /**
+         * Why it is declined (needed), or a note with an approval.
+         */
+        comment?: string
+    }
+
+    export interface SupplierApprovalDecideResponse {
+        approval: interfaces.SupplierApprovalItem
+    }
+
+    export interface SupplierApprovalListResponse {
+        /**
+         * What waits for a manager, and what was answered in the last 30 days; newest request first.
+         */
+        approvals: interfaces.SupplierApprovalItem[]
+    }
+
+    export interface SupplierApprovalSeenRequest {
+        /**
+         * Companies whose answers the user has opened.
+         */
+        ids: string[]
     }
 
     export interface SupplierRatingHistoryResponse {
@@ -12582,6 +12645,11 @@ export namespace interfaces {
          * A supplier's terms and checks (what we pay it, and the VAT register checks); defaults for a company that is none.
          */
         supplierTerms: SupplierTerms
+
+        /**
+         * "pending" for a new supplier waiting for a manager's approval; "" otherwise.
+         */
+        approvalStatus: SupplierApprovalStatus
 
         createdAt: string
         updatedAt: string
@@ -18173,6 +18241,77 @@ export namespace interfaces {
          */
         estimatedCzk: number
     }
+
+    /**
+     * A manager's answer to a new supplier; "" until one is given.
+     */
+    export type SupplierApprovalDecision = "" | "approved" | "declined"
+
+    /**
+     * A new supplier on Sales → Managers → Company approval: waiting, or answered lately.
+     */
+    export interface SupplierApprovalItem {
+        customerId: string
+        companyName: string
+        ico: string
+        dic: string
+        registeredAddress: string
+        city: string
+        country: string
+        /**
+         * ARES, or Manual for a company typed in by hand.
+         */
+        dataSource: string
+
+        roles: CustomerRole[]
+        /**
+         * "pending" while it waits; "" once approved; "declined" once declined (the company is deleted).
+         */
+        status: SupplierApprovalStatus
+
+        /**
+         * The main contact given with it.
+         */
+        contactName: string
+
+        contactEmail: string
+        contactPhone: string
+        /**
+         * Who asked, by e-mail as a person is recorded, and the user.
+         */
+        requestedBy: string
+
+        requestedByUserId: string | null
+        /**
+         * ISO.
+         */
+        requestedAt: string
+
+        /**
+         * The quote it was added from.
+         */
+        quoteNumber: string
+
+        decision: SupplierApprovalDecision
+        decidedBy: string
+        decidedAt: string | null
+        /**
+         * Why it was declined (or a note with an approval); "" when none.
+         */
+        comment: string
+
+        /**
+         * Whether the one who asked has opened the answer.
+         */
+        answerSeen: boolean
+    }
+
+    /**
+     * Whether a new supplier is approved: "" (approved, or never needed approval), "pending" (added from a
+     * quote by a user who is no manager, waiting on Sales → Managers → Company approval) or "declined"
+     * (a manager declined it: the company is deleted).
+     */
+    export type SupplierApprovalStatus = "" | "pending" | "declined"
 
     /**
      * A buying cost line of a shipment's Costs Breakdown owed to a supplier and not yet paid (Council Outlay 7,

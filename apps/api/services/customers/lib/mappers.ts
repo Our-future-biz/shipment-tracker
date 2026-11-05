@@ -56,6 +56,7 @@ export const toCustomerItem = (r: CustomerItemRow | CustomerRecord): CustomerIte
   supplierRatingBy: r.supplierRatingBy,
   supplierRatingAt: r.supplierRatingAt ? iso(r.supplierRatingAt) : null,
   supplierTerms: toSupplierTerms(r),
+  approvalStatus: r.approvalStatus,
   createdAt: iso(r.createdAt),
   updatedAt: iso(r.updatedAt),
 });

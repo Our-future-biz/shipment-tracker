@@ -6,7 +6,7 @@ vi.mock("encore.dev/config", () => ({ secret: () => () => "test-secret" }));
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("../../db/db", () => ({ db: {} }));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
-vi.mock("~encore/clients", () => ({ auth: { usersList: vi.fn() } }));
+vi.mock("~encore/clients", () => ({ auth: { usersList: vi.fn(), userLookup: vi.fn() } }));
 vi.mock("../../repositories/customer.repository", () => ({
   customerRepository: {
     pipelineList: vi.fn(),
@@ -26,6 +26,7 @@ vi.mock("../../topics", () => ({ customerChanged: { publish: vi.fn() }, contactC
 
 import { customerRepository } from "../../repositories/customer.repository";
 import { aresService } from "../../services/ares.service";
+import { auth } from "~encore/clients";
 import { assertMayGiveRoles, customerService } from "../../services/customer.service";
 
 const repository = vi.mocked(customerRepository);
@@ -169,6 +170,27 @@ describe("roles", () => {
     repository.createWithContact.mockResolvedValue(customerRow({ roles: ["shipping_line"] }));
     await customerService.createManual(COMPANY, "manager", { ...manual, roles: ["shipping_line"] });
     expect(repository.createWithContact).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ roles: ["shipping_line"] }), expect.anything(), expect.anything());
+  });
+
+  it("with a supplier role are let to a plain user from a quote, waiting for a manager's approval", async () => {
+    expect(() => assertMayGiveRoles("user", ["shipping_line"], true)).not.toThrow();
+    // From a quote it is a supplier: it needs a supplier role.
+    expect(() => assertMayGiveRoles("user", ["customer"], true)).toThrow(expect.objectContaining({ code: "invalid_argument" }));
+    const USER = "6f1c2b9e-1d3a-4c5b-8e7f-0a1b2c3d4e5f";
+    vi.mocked(auth.userLookup).mockResolvedValue({ users: [{ id: USER, email: "Rep@Firm.cz", displayName: "Rep" }] } as never);
+    repository.findByIco.mockResolvedValue(null);
+    repository.createWithContact.mockResolvedValue(customerRow({ roles: ["shipping_line"], approvalStatus: "pending" }));
+    const manual = { country: "DE", companyName: "Hapag-Lloyd AG", street: "Ballindamm 25", city: "Hamburg", postalCode: "20095", contact: CONTACT, roles: ["shipping_line" as const] };
+    await customerService.createManual(COMPANY, "user", manual, { userId: USER, quoteNumber: "QCZ20261105001" });
+    expect(repository.createWithContact).toHaveBeenLastCalledWith(
+      COMPANY,
+      expect.objectContaining({ approvalStatus: "pending", approvalRequestedBy: "rep@firm.cz", approvalRequestedByUserId: USER, approvalQuoteNumber: "QCZ20261105001" }),
+      expect.anything(),
+      expect.anything(),
+    );
+    // A manager's own is approved at once: nothing waits.
+    await customerService.createManual(COMPANY, "manager", manual, { userId: USER, quoteNumber: "QCZ20261105001" });
+    expect(repository.createWithContact.mock.lastCall?.[1]).not.toHaveProperty("approvalStatus");
   });
 
   it("list the companies with a role, asking only for ids that can be customers", async () => {

@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { pgTable, text, integer, smallint, numeric, date, index, uniqueIndex, check, uuid, timestamp, boolean } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
-import type { CustomerLabel, CustomerRole, CustomerStatus, RiskLevelOverride } from "../interfaces/interfaces";
+import type { CustomerLabel, CustomerRole, CustomerStatus, RiskLevelOverride, SupplierApprovalDecision, SupplierApprovalStatus } from "../interfaces/interfaces";
 
 export const customerTable = pgTable(
   "customer",
@@ -74,6 +74,25 @@ export const customerTable = pgTable(
     supplierBankAccountsChangedByUserId: uuid("supplier_bank_accounts_changed_by_user_id"),
     supplierBankAccountsChangedBy: text("supplier_bank_accounts_changed_by").notNull().default(""),
 
+    // — A new supplier waiting for a manager (Sales → Managers → Company approval) —
+    // A user who is no manager adds a supplier from a quote's Pricing: the company is in the Customer
+    // Database at once, "pending" until a manager approves it ("" again) or declines it ("declined": it is
+    // deleted, and can be restored). A quote linked to a pending or declined supplier is not sent.
+    approvalStatus: text("approval_status").$type<SupplierApprovalStatus>().notNull().default(""),
+    // Who asked (e-mail as a person is recorded, and the user) and from which quote.
+    approvalRequestedBy: text("approval_requested_by").notNull().default(""),
+    approvalRequestedByUserId: uuid("approval_requested_by_user_id"),
+    approvalRequestedAt: timestamp("approval_requested_at", { withTimezone: true }),
+    approvalQuoteNumber: text("approval_quote_number").notNull().default(""),
+    // The manager's answer: who, when, and why a decline.
+    approvalDecision: text("approval_decision").$type<SupplierApprovalDecision>().notNull().default(""),
+    approvalDecidedBy: text("approval_decided_by").notNull().default(""),
+    approvalDecidedByUserId: uuid("approval_decided_by_user_id"),
+    approvalDecidedAt: timestamp("approval_decided_at", { withTimezone: true }),
+    approvalComment: text("approval_comment").notNull().default(""),
+    // When the one who asked opened the answer in their bell.
+    approvalAnswerSeenAt: timestamp("approval_answer_seen_at", { withTimezone: true }),
+
     // — Logo + website (logo stored as base64 data URL in Postgres) —
     companyWebsite: text("company_website").notNull().default(""),
     logoData: text("logo_data").notNull().default(""),
@@ -105,6 +124,10 @@ export const customerTable = pgTable(
       sql`${table.label} IN ('KEY ACCOUNT', 'STANDARD', 'TARGET CUSTOMER', 'RISK')`,
     ),
     check("customer_supplier_rating_check", sql`${table.supplierRating} BETWEEN 0 AND 5`),
+    check("customer_approval_status_check", sql`${table.approvalStatus} IN ('', 'pending', 'declined')`),
+    check("customer_approval_decision_check", sql`${table.approvalDecision} IN ('', 'approved', 'declined')`),
+    // The Company approval list: what waits, and what was answered lately.
+    index("customer_approval_idx").on(table.companyId, table.approvalRequestedAt).where(sql`approval_requested_at IS NOT NULL`),
     check("customer_supplier_payment_days_check", sql`${table.supplierPaymentDays} BETWEEN 0 AND 365`),
     // At least one role, and only known ones.
     check(

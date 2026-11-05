@@ -19,8 +19,16 @@ export const isSupplierOnly = (roles: readonly interfaces.CustomerRole[]): boole
 export const supplierInUse = (company: { status: interfaces.CustomerStatus; roles: readonly interfaces.CustomerRole[] }): boolean =>
   !(company.status === "Inactive" && isSupplierOnly(company.roles));
 
+/** A new supplier added from a quote that waits for a manager (Sales → Managers → Company approval). */
+export const WAITING_FOR_APPROVAL = "Waiting for approval";
+
 /** The status as the company's page and the list show it. */
-export function shownStatus(company: { status: interfaces.CustomerStatus; roles: readonly interfaces.CustomerRole[] }): string {
+export function shownStatus(company: {
+  status: interfaces.CustomerStatus;
+  roles: readonly interfaces.CustomerRole[];
+  approvalStatus?: interfaces.SupplierApprovalStatus;
+}): string {
+  if (company.approvalStatus === "pending") return WAITING_FOR_APPROVAL;
   if (!isSupplierOnly(company.roles)) return company.status;
   return supplierInUse(company) ? SUPPLIER_IN_USE : SUPPLIER_NOT_IN_USE;
 }

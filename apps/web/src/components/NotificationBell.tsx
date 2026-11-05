@@ -17,6 +17,8 @@ import { quoteChatHref } from "@/app/sales/_lib/quoteHref";
 import { salesManagersHref } from "@/app/sales/_lib/tabs";
 import { useWarehouseInquiryAnswers, type WarehouseInquiryItem } from "@/hooks/useWarehouseInquiries";
 import { useMarginInquiryBell, type MarginInquiryItem, type MarginInquiryRow } from "@/hooks/useMarginInquiries";
+import { useSalesPermissions } from "@/hooks/useSalesPermissions";
+import { useSupplierApprovals, type SupplierApprovalItem } from "@/hooks/useSupplierApprovals";
 
 const formatTime = (iso: string) =>
   new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
@@ -52,6 +54,14 @@ const czkText = (n: number | null) => (n === null ? "unknown" : formatAmount(Mat
 const waitingTitle = (r: MarginInquiryRow) => `Discount waiting · ${r.inquiry.quoteNumber}`;
 const waitingText = (r: MarginInquiryRow) =>
   `${r.inquiry.requestedByName || "A rep"} asks for ${czkText(r.inquiry.snapshot.marginCzk)}${r.customer ? ` · ${r.customer}` : ""} — ${r.inquiry.reason}${r.inquiry.escalated ? " · waiting long" : ""}`;
+// A new supplier waiting for a manager, and the manager's answer to whoever added it from a quote.
+const supplierWaitingTitle = (a: SupplierApprovalItem) => `Supplier waiting approval · ${a.companyName}`;
+const supplierWaitingText = (a: SupplierApprovalItem) => `${a.requestedBy || "A colleague"} added it from ${a.quoteNumber || "a quote"}`;
+const supplierAnswerTitle = (a: SupplierApprovalItem) => `Supplier ${a.decision === "approved" ? "approved" : "declined"} · ${a.companyName}`;
+const supplierAnswerText = (a: SupplierApprovalItem) =>
+  a.decision === "approved"
+    ? `${a.quoteNumber ? `${a.quoteNumber} can be sent` : "It can be used"}${a.comment ? ` — ${a.comment}` : ""}`
+    : `${a.comment}${a.quoteNumber ? ` — pick another supplier on ${a.quoteNumber}` : ""}`;
 const marginAnswerTitle = (a: MarginInquiryItem) => `Margin ${a.status === "approved" ? "approved" : "rejected"} · ${a.quoteNumber}`;
 const marginAnswerText = (a: MarginInquiryItem) =>
   a.status === "approved"
@@ -124,6 +134,11 @@ export function NotificationBell() {
   // Margin questions this user is told about (the owner's manager, or an admin once it waits
   // long), and managers' answers to their questions or quotes (Council Outlay 6).
   const { waiting: marginWaiting, answers: marginAnswers, hasLoaded: marginLoaded, seen: marginSeen } = useMarginInquiryBell();
+  // New suppliers added from quotes: a manager is told what waits, whoever added one the answer.
+  const { canManageSales } = useSalesPermissions();
+  const { approvals: supplierApprovals, hasLoaded: suppliersLoaded, seen: supplierSeen } = useSupplierApprovals();
+  const supplierWaiting = canManageSales ? supplierApprovals.filter((a) => a.status === "pending") : [];
+  const supplierAnswers = supplierApprovals.filter((a) => a.decision !== "" && !!user && a.requestedByUserId === user.id);
   const [open, setOpen] = useState(false);
   // "Unread" is what still needs attention; "All" keeps the recent notices in reach after
   // they have been opened. Mentions exist here only while unread.
@@ -145,6 +160,9 @@ export function NotificationBell() {
   // A waiting question stays until someone answers it, whatever the view.
   const marginWaitingShown = marginWaiting.filter((r) => matchesAll(query, waitingTitle(r), waitingText(r)));
   const marginAnswersShown = (view === "unread" ? unreadMarginAnswers : marginAnswers).filter((a) => matchesAll(query, marginAnswerTitle(a), marginAnswerText(a), a.decidedByName));
+  const unreadSupplierAnswers = supplierAnswers.filter((a) => !a.answerSeen);
+  const supplierWaitingShown = supplierWaiting.filter((a) => matchesAll(query, supplierWaitingTitle(a), supplierWaitingText(a)));
+  const supplierAnswersShown = (view === "unread" ? unreadSupplierAnswers : supplierAnswers).filter((a) => matchesAll(query, supplierAnswerTitle(a), supplierAnswerText(a), a.decidedBy));
 
   // Announce only what arrives while the app is open, not the backlog found on load. Each kind
   // keeps its own memory of what it has seen: the two lists arrive at their own times, and the
@@ -193,6 +211,22 @@ export function NotificationBell() {
     seenMargin.current = new Set(keys);
   }, [marginWaiting, marginAnswers, marginLoaded, toast]);
 
+  // And new suppliers waiting, and answers to the ones this user added.
+  const seenSuppliers = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!suppliersLoaded) return;
+    const before = seenSuppliers.current;
+    const keys = [...supplierWaiting.map((a) => `w:${a.customerId}`), ...supplierAnswers.map((a) => `a:${a.customerId}`)];
+    if (before) {
+      for (const a of supplierWaiting) if (!before.has(`w:${a.customerId}`)) toast.notify({ title: supplierWaitingTitle(a), description: supplierWaitingText(a), type: "warning" });
+      for (const a of supplierAnswers)
+        if (!a.answerSeen && !before.has(`a:${a.customerId}`)) toast.notify({ title: supplierAnswerTitle(a), description: supplierAnswerText(a), type: a.decision === "approved" ? "info" : "warning" });
+    }
+    seenSuppliers.current = new Set(keys);
+    // The lists are filtered from the one answer; it changes only with the server's.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supplierApprovals, suppliersLoaded, canManageSales, toast]);
+
   const seenFxAlerts = useRef<Set<string> | null>(null);
   useEffect(() => {
     if (!fxAlertData) return;
@@ -237,7 +271,12 @@ export function NotificationBell() {
   };
 
   // The badge counts what is unread, whatever the view or the search.
-  const total = unreadMentions.length + notices.length + fxAlerts.length + unreadAnswers.length + marginWaiting.length + unreadMarginAnswers.length;
+  const total =
+    unreadMentions.length + notices.length + fxAlerts.length + unreadAnswers.length + marginWaiting.length + unreadMarginAnswers.length + supplierWaiting.length + unreadSupplierAnswers.length;
+  const openSupplierAnswer = (a: SupplierApprovalItem) => {
+    if (!a.answerSeen) supplierSeen.mutate([a.customerId]);
+    go(a.quoteNumber ? `/sales/quote/${encodeURIComponent(a.quoteNumber)}` : "/customers");
+  };
   const openAnswer = (a: WarehouseInquiryItem) => {
     if (!a.inquiry.answerSeenAt) answerSeen.mutate({ quoteNumber: a.quoteNumber, inquiryId: a.inquiry.id });
     go(quoteChatHref(a.quoteNumber));
@@ -318,6 +357,30 @@ export function NotificationBell() {
           </span>
         </button>
       ))}
+      {supplierWaitingShown.length > 0 && <div className={headingClass}>Suppliers waiting for approval</div>}
+      {supplierWaitingShown.map((a) => (
+        <button key={`sw:${a.customerId}`} type="button" onClick={() => go(salesManagersHref({ tab: "approvals" }))} className={rowClass}>
+          <span className="flex items-center gap-2">
+            <span role="img" aria-label="Waiting" className="shrink-0 w-2 h-2 rounded-full bg-amber-500" />
+            <span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-800 truncate">{supplierWaitingTitle(a)}</span>
+          </span>
+          <span className="text-[12px] text-slate-600 line-clamp-2">{supplierWaitingText(a)}</span>
+          <span className="block text-[11px] text-slate-400 mt-0.5">{a.requestedAt ? formatTime(a.requestedAt) : ""}</span>
+        </button>
+      ))}
+      {supplierAnswersShown.length > 0 && <div className={headingClass}>Supplier answers</div>}
+      {supplierAnswersShown.map((a) => (
+        <button key={`sa:${a.customerId}`} type="button" onClick={() => openSupplierAnswer(a)} className={rowClass}>
+          <span className="flex items-center gap-2">
+            {!a.answerSeen && <span role="img" aria-label="Unread" className={`shrink-0 w-2 h-2 rounded-full ${a.decision === "approved" ? "bg-emerald-500" : "bg-red-500"}`} />}
+            <span className={`min-w-0 flex-1 text-[13px] truncate ${a.answerSeen ? "font-medium text-slate-500" : "font-semibold text-slate-800"}`}>{supplierAnswerTitle(a)}</span>
+          </span>
+          <span className="text-[12px] text-slate-600 line-clamp-2">{supplierAnswerText(a)}</span>
+          <span className="block text-[11px] text-slate-400 mt-0.5">
+            {a.decidedBy || "A manager"} · {a.decidedAt ? formatTime(a.decidedAt) : ""}
+          </span>
+        </button>
+      ))}
       {answersShown.length > 0 && <div className={headingClass}>Warehouse answers</div>}
       {answersShown.map((a) => (
         <button key={a.inquiry.id} type="button" onClick={() => openAnswer(a)} className={rowClass}>
@@ -334,7 +397,7 @@ export function NotificationBell() {
           </span>
         </button>
       ))}
-      {listed.length + mentions.length + fxShown.length + answersShown.length + marginWaitingShown.length + marginAnswersShown.length === 0 && (
+      {listed.length + mentions.length + fxShown.length + answersShown.length + marginWaitingShown.length + marginAnswersShown.length + supplierWaitingShown.length + supplierAnswersShown.length === 0 && (
         <p className="px-4 py-6 text-center text-xs text-slate-400">
           {query.trim() ? `Nothing matches “${query.trim()}”.` : view === "unread" ? "Nothing new." : `Nothing in the last ${READ_KEEP_DAYS} days.`}
         </p>

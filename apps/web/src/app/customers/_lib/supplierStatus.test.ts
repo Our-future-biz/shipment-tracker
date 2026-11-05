@@ -8,6 +8,11 @@ describe("the status a company shows", () => {
     expect(shownStatus({ status: "Inactive", roles: ["customer"] })).toBe("Inactive");
   });
 
+  it("is Waiting for approval for a new supplier a manager has not approved yet", () => {
+    expect(shownStatus({ status: "Prospect", roles: ["shipping_line"], approvalStatus: "pending" })).toBe("Waiting for approval");
+    expect(shownStatus({ status: "Prospect", roles: ["shipping_line"], approvalStatus: "" })).toBe("In use");
+  });
+
   it("is In use or Not in use for a supplier only: never Prospect", () => {
     expect(shownStatus({ status: "Prospect", roles: ["shipping_line"] })).toBe("In use");
     expect(shownStatus({ status: "Active", roles: ["haulier", "first_last_mile_haulier"] })).toBe("In use");

@@ -28,6 +28,7 @@ import { matchOwnerLabel } from "../utils/ownerMatch.utils";
 import { carryKeys, closedCarryKeys, isPlainObject, isWonRevision, newDocument } from "../utils/quoteDocument.utils";
 import { customerIdOf, linkForSave, refreshCopies, withRefresh } from "../utils/customerLinks.utils";
 import { tryCustomerRefs } from "../lib/customerRefs";
+import { linkedSupplierIds, supplierGate, type LinkedSupplierState } from "../utils/supplierApproval.utils";
 import { approvedPricing, inquiryGateMessage, MAX_INQUIRY_NOTE, MAX_INQUIRY_PIECES, MAX_PRICE_PER_PIECE, MIN_REJECT_REASON, readInquiry } from "../utils/warehouseInquiry.utils";
 import { fxWriteFor, mayStampFx, type StoredFx } from "../lib/quoteFx";
 import { approvalBasisOf, formatMargin, freightModeGateMessage, guardrailModeOf, marginGateMessage, roadMargin, type MarginContext } from "../lib/roadMargin";
@@ -369,6 +370,13 @@ async function activateCustomer(companyId: string, customerId: string | null): P
 }
 const conflict = () => APIError.aborted("the quote was changed by someone else since it was loaded");
 
+// Where the suppliers a quote is linked to stand, by id (the caller's company: the request's login).
+async function linkedSupplierStates(ids: string[]): Promise<Map<string, LinkedSupplierState>> {
+  if (!ids.length) return new Map();
+  const { states } = await customers._internalSupplierApprovalStates({ ids });
+  return new Map(states.map((s) => [s.id, { companyName: s.companyName, status: s.status, comment: s.comment }]));
+}
+
 // The rules refuse in words meant for the user; the API adds what kind of refusal it is.
 function ruled<T>(run: () => T): T {
   try {
@@ -554,6 +562,8 @@ class SalesQuoteService {
     // from the quote as it is before the lock - its freight mode is checked again under it.
     const before = MARGIN_GATED_STATUSES.includes(request.to) ? await salesQuoteRepository.loadSales(actor.companyID, quoteNumber) : null;
     const margins = before ? await marginsFor(actor.companyID, [before], at) : undefined;
+    // And where its linked suppliers stand: a new one waiting for a manager, or declined, holds the quote.
+    const suppliers = before ? await linkedSupplierStates(linkedSupplierIds(before.data)) : undefined;
     const result = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
       if (request.expectedDataVersion !== undefined && request.expectedDataVersion !== quote.dataVersion) throw conflict();
       const state = stateOf(quote);
@@ -576,6 +586,10 @@ class SalesQuoteService {
         if (margin?.needsApproval) throw APIError.failedPrecondition(marginGateMessage(margin));
         const inquiryGate = inquiryGateMessage(quote.data, "ready_to_send");
         if (inquiryGate) throw APIError.failedPrecondition(inquiryGate);
+        // A supplier linked since they were read is judged by nobody: try again.
+        const supplierCheck = supplierGate(quote.data, suppliers ?? new Map());
+        if (supplierCheck.unknown) throw conflict();
+        if (supplierCheck.message) throw APIError.failedPrecondition(supplierCheck.message);
         // An approval given before the quote had a validity covers the one it is sent with, and no later one.
         const stamped = approvalWithValidity(quote.data, change.state.validUntil);
         if (stamped) serverKeys = { marginApproval: stamped };

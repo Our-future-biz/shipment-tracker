@@ -56,6 +56,59 @@ export type CustomerOwnerFilter = "mine" | "none";
 export type CustomerRatingFilter = "4" | "3" | "low" | "none";
 /** Whether a company with these roles is a supplier (it may also be a customer). */
 export const isSupplier = (roles: readonly CustomerRole[]): boolean => roles.some((role) => SUPPLIER_ROLES.includes(role));
+/**
+ * Whether a new supplier is approved: "" (approved, or never needed approval), "pending" (added from a
+ * quote by a user who is no manager, waiting on Sales → Managers → Company approval) or "declined"
+ * (a manager declined it: the company is deleted).
+ */
+export type SupplierApprovalStatus = "" | "pending" | "declined";
+/** A manager's answer to a new supplier; "" until one is given. */
+export type SupplierApprovalDecision = "" | "approved" | "declined";
+
+/** A new supplier on Sales → Managers → Company approval: waiting, or answered lately. */
+export interface SupplierApprovalItem {
+  customerId: string;
+  companyName: string;
+  ico: string;
+  dic: string;
+  registeredAddress: string;
+  city: string;
+  country: string;
+  /** ARES, or Manual for a company typed in by hand. */
+  dataSource: string;
+  roles: CustomerRole[];
+  /** "pending" while it waits; "" once approved; "declined" once declined (the company is deleted). */
+  status: SupplierApprovalStatus;
+  /** The main contact given with it. */
+  contactName: string;
+  contactEmail: string;
+  contactPhone: string;
+  /** Who asked, by e-mail as a person is recorded, and the user. */
+  requestedBy: string;
+  requestedByUserId: string | null;
+  /** ISO. */
+  requestedAt: string;
+  /** The quote it was added from. */
+  quoteNumber: string;
+  decision: SupplierApprovalDecision;
+  decidedBy: string;
+  decidedAt: string | null;
+  /** Why it was declined (or a note with an approval); "" when none. */
+  comment: string;
+  /** Whether the one who asked has opened the answer. */
+  answerSeen: boolean;
+}
+
+/** Where a supplier a quote line is linked to stands, for the quotes service's send check. */
+export interface SupplierApprovalState {
+  id: string;
+  companyName: string;
+  /** "missing" when no company of this id was ever in the Customer Database. */
+  status: SupplierApprovalStatus | "missing";
+  /** A decline's reason. */
+  comment: string;
+}
+
 /** What happens at a site: goods are picked up (loading), dropped off (delivery), or both. */
 export type CustomerSiteKind = "loading" | "delivery" | "both";
 
@@ -115,6 +168,8 @@ export interface CustomerItem {
   lastContactAt?: string | null;
   /** A supplier's terms and checks (what we pay it, and the VAT register checks); defaults for a company that is none. */
   supplierTerms: SupplierTerms;
+  /** "pending" for a new supplier waiting for a manager's approval; "" otherwise. */
+  approvalStatus: SupplierApprovalStatus;
   createdAt: string;
   updatedAt: string;
 }
