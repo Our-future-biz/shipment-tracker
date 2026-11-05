@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Select } from "antd";
 import type { interfaces } from "@/lib/api/client";
 import { formatQty } from "@/lib/number";
+import { LABEL_TEXT } from "@/styles/ui";
 import { previewSheet } from "../_lib/railLayoutForm";
 import { TariffSheetPreview } from "./TariffSheetPreview";
 
@@ -33,7 +34,7 @@ export const TariffSheetPicker = ({ preview, defaultSheet, marksOf }: TariffShee
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[12px] font-semibold text-slate-600">The file&apos;s first rows</span>
+        <span className={LABEL_TEXT}>The file&apos;s first rows</span>
         <Select
           size="small"
           aria-label="Sheet shown"

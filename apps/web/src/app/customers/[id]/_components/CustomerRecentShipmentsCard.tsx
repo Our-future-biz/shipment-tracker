@@ -1,19 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { Table, Tag } from "antd";
+import { Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { SectionCard } from "@/components/SectionCard";
 import { useCustomerShipments } from "@/hooks/useCustomerShipments";
 import type { ShipmentItem } from "@/hooks/useCustomerShipments";
-import { statusLabel, statusTagColor } from "@/lib/shipmentStatus";
+import { StatusBadge } from "@/components/StatusBadge";
 import { loadTypeLabel } from "@/lib/enums";
 import { EMPTY_CELL } from "../../_lib/customerTable";
+import { LINK } from "@/styles/ui";
 
 const RECENT_COUNT = 5;
 
-// Statuses run to 50+ characters: the tag is cut to its column and keeps the full text as a tooltip.
-const STATUS_TAG_CLASS = "!m-0 max-w-full truncate";
+// Statuses run to 50+ characters: the badge is cut to its column and keeps the full text as a tooltip.
+const STATUS_BADGE_CLASS = "max-w-full truncate";
 
 const COLUMNS: ColumnsType<ShipmentItem> = [
   {
@@ -23,7 +24,7 @@ const COLUMNS: ColumnsType<ShipmentItem> = [
     width: 170,
     // The shipment page is addressed by the shipment ID, not by the job number.
     render: (v: string, r) => (
-      <Link href={`/shipments/${r.id}`} className="font-mono font-semibold text-indigo-600 hover:underline whitespace-nowrap">
+      <Link href={`/shipments/${r.id}`} className={`tabular-nums font-semibold whitespace-nowrap ${LINK}`}>
         {v}
       </Link>
     ),
@@ -35,9 +36,7 @@ const COLUMNS: ColumnsType<ShipmentItem> = [
     ellipsis: true,
     render: (v: string) =>
       v ? (
-        <Tag color={statusTagColor(v)} title={statusLabel(v)} className={STATUS_TAG_CLASS}>
-          {statusLabel(v)}
-        </Tag>
+        <StatusBadge status={v} className={STATUS_BADGE_CLASS} />
       ) : (
         EMPTY_CELL
       ),
@@ -68,7 +67,7 @@ export function CustomerRecentShipmentsCard({ customerId, onSelectTab }: Custome
         <button
           type="button"
           onClick={() => onSelectTab("shipments")}
-          className="bg-transparent border-0 p-0 text-xs font-semibold text-indigo-600 whitespace-nowrap cursor-pointer hover:underline"
+          className={`bg-transparent border-0 p-0 text-xs font-semibold whitespace-nowrap cursor-pointer ${LINK}`}
         >
           View all
         </button>

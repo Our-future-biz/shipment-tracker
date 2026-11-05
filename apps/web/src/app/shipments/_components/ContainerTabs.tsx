@@ -1,11 +1,13 @@
 "use client";
 
+import { REF } from "@/styles/ui";
+
 export interface ContainerTab {
   key: string;
   label: string;
   // The container's type ("40' HC"), shown after its number.
   type?: string | null;
-  // A container's number is set in mono type; the "No container" tab is not.
+  // A container's number is set in even figures; the "No container" tab is not.
   isContainer: boolean;
   // Whether the container's lines add up to what it declares; null shows no dot (nothing to
   // check yet, or no container).
@@ -38,11 +40,11 @@ export function ContainerTabs({ tabs, activeKey, onChange, className = "" }: Con
             onClick={() => onChange(t.key)}
             className={[
               "relative flex items-center gap-2 px-4 py-2.5 rounded-t-lg border-0 text-[13px] whitespace-nowrap cursor-pointer transition-colors",
-              "outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-inset",
-              on ? "bg-indigo-50 text-indigo-700" : "bg-transparent text-slate-500 hover:bg-slate-50 hover:text-slate-800",
+              "outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-inset",
+              on ? "bg-indigo-50 text-indigo-600" : "bg-transparent text-slate-500 hover:bg-slate-50 hover:text-slate-900",
             ].join(" ")}
           >
-            {on && <span aria-hidden className="absolute inset-x-0 bottom-0 h-[3px] rounded-t bg-indigo-500" />}
+            {on && <span aria-hidden className="absolute inset-x-0 bottom-0 h-[3px] rounded-t bg-indigo-600" />}
             {t.matched !== null && (
               <span
                 role="img"
@@ -51,8 +53,8 @@ export function ContainerTabs({ tabs, activeKey, onChange, className = "" }: Con
                 aria-label={t.matched ? "Matched" : "Mismatch"}
               />
             )}
-            <span className={`${t.isContainer ? "font-mono tracking-wide" : ""} ${on ? "font-bold" : "font-semibold"}`}>{t.label}</span>
-            {t.type && <span className={`text-xs ${on ? "text-indigo-500" : "text-slate-400"}`}>{t.type}</span>}
+            <span className={`${t.isContainer ? REF : ""} ${on ? "font-bold" : "font-semibold"}`}>{t.label}</span>
+            {t.type && <span className={`text-xs ${on ? "text-indigo-600" : "text-slate-400"}`}>{t.type}</span>}
           </button>
         );
       })}

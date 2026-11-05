@@ -252,7 +252,7 @@ export function CostLinesEditor({
                       }}
                     />
                   </td>
-                  <td className={`${LINE_TD_CLASS} text-right font-medium tabular-nums whitespace-nowrap ${converted === null ? "text-red-600" : "text-slate-600"}`}>
+                  <td className={`${LINE_TD_CLASS} text-right font-medium tabular-nums whitespace-nowrap ${converted === null ? "!text-red-600" : ""}`}>
                     {converted === null ? "no rate" : fmtMoney(converted, currency)}
                   </td>
                   <td className={LINE_TD_CLASS}>
@@ -288,7 +288,7 @@ export function CostLinesEditor({
                       onChange={(basis: ChargeBasis) => patch(i, { basis })}
                     />
                   </td>
-                  <td className={`${LINE_TD_CLASS} pl-0`}>
+                  <td className={`${LINE_TD_CLASS} !pl-0`}>
                     <RemoveLineButton
                       label={`Remove ${kind} line ${i + 1}`}
                       onClick={() => {

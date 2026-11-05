@@ -25,7 +25,7 @@ export const CostGrid = ({ rows, roe, overrides, onField, onFieldBlur, onOverrid
       />
       {rows.map((row, i) => (
         <div key={row.category} className={`grid ${TEMPLATE} items-center gap-1 py-[2px] border-b border-slate-100`}>
-          <span className="text-[11px] text-slate-600 font-medium px-1">{row.label}</span>
+          <span className="text-[13px] text-slate-700 font-medium px-1">{row.label}</span>
           <GridInput value={row.estAmount} onChange={(v) => onField(i, "estAmount", v)} onBlur={() => onFieldBlur(i)} placeholder="0.00" />
           <GridSelect value={row.estCurrency} options={CURRENCIES} onChange={(v) => { onField(i, "estCurrency", v); onFieldBlur(i); }} />
           <GridInput value={row.realAmount} onChange={(v) => onField(i, "realAmount", v)} onBlur={() => onFieldBlur(i)} placeholder="0.00" />
@@ -37,7 +37,7 @@ export const CostGrid = ({ rows, roe, overrides, onField, onFieldBlur, onOverrid
             onChange={(v) => onOverride(row.category, v)}
             onBlur={() => onOverrideBlur(row.category)}
             placeholder={billingDisplay(undefined, row.realAmount, roe) || "auto"}
-            className="text-indigo-600 font-medium"
+            className="!text-indigo-600 font-medium"
           />
         </div>
       ))}

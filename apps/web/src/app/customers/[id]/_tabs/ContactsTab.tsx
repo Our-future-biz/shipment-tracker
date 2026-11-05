@@ -2,17 +2,18 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Button, Dropdown, Table, Tag } from "antd";
+import { Button, Dropdown, Table } from "antd";
 import { DeleteOutlined, EditOutlined, EllipsisOutlined, PlusOutlined, StarFilled } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { Pill } from "@/components/Pill";
 import { SectionCard } from "@/components/SectionCard";
+import { LINK } from "@/styles/ui";
 import { findContact, useCustomerContacts } from "@/hooks/useCustomerContacts";
 import type { ContactItem } from "@/hooks/useCustomerContacts";
 import { useToast } from "@/lib/toast";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { canDeleteCustomerRecords } from "../../_lib/customerPermissions";
-import { contactRoleColor } from "../../_lib/constants";
 import { CustomerContactDialog } from "../_components/CustomerContactDialog";
 import type { CustomerContactFormValues } from "../_components/CustomerContactDialog";
 import { CustomerCountChip } from "../_components/CustomerCountChip";
@@ -87,7 +88,7 @@ export function ContactsTab({ customerId, country }: { customerId: string; count
       title: "Name",
       dataIndex: "name",
       render: (v: string, r) => (
-        <span className="inline-flex items-center gap-1.5 font-semibold text-slate-800">
+        <span className="inline-flex items-center gap-1.5 font-semibold text-slate-900">
           {v}
           {r.isMain && (
             <span role="img" aria-label="Main contact" title="Main contact" className="text-xs text-amber-400">
@@ -102,7 +103,7 @@ export function ContactsTab({ customerId, country }: { customerId: string; count
       dataIndex: "email",
       render: (v: string) =>
         v ? (
-          <a href={`mailto:${v.trim()}`} className="text-indigo-600 hover:underline">
+          <a href={`mailto:${v.trim()}`} className={LINK}>
             {v}
           </a>
         ) : (
@@ -116,9 +117,7 @@ export function ContactsTab({ customerId, country }: { customerId: string; count
       width: 200,
       render: (v: string) =>
         v ? (
-          <Tag color={contactRoleColor(v)} className="!m-0">
-            {v}
-          </Tag>
+          <Pill tone="slate">{v}</Pill>
         ) : (
           EMPTY_CELL
         ),
@@ -147,7 +146,6 @@ export function ContactsTab({ customerId, country }: { customerId: string; count
               size="small"
               icon={<EllipsisOutlined className="!text-[20px]" />}
               aria-label={`Actions for ${r.name}`}
-              className="!text-slate-600 hover:!text-slate-900"
             />
           </Dropdown>
         </div>

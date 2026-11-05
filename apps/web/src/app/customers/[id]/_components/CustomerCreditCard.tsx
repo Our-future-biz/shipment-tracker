@@ -10,6 +10,7 @@ import { fmtMoney, moneyInputParser } from "../../_lib/customerMoney";
 import type { KpiTone } from "./CustomerKpiTile";
 import { useCanManageCustomers } from "@/lib/auth/AuthContext";
 import { apiErrorMessage } from "@/lib/api";
+import { LABEL_TEXT } from "@/styles/ui";
 
 const AMBER_FROM_PCT = 70;
 const RED_FROM_PCT = 90;
@@ -29,8 +30,6 @@ export const BAR_COLOR: Record<KpiTone, string> = {
   amber: "var(--color-chart-bar-amber)",
   green: "var(--color-chart-bar-green)",
 };
-
-const LABEL_CLASS = "text-[11px] font-bold text-slate-500 uppercase tracking-wide";
 
 interface CustomerCreditCardProps {
   customer: CustomerItem;
@@ -87,8 +86,8 @@ export function CustomerCreditCard({ customer, outstanding, utilization }: Custo
       <div className="flex flex-wrap items-end gap-x-10 gap-y-4">
         <div className="flex-1 min-w-[240px]">
           <div className="flex items-baseline justify-between gap-3 mb-1.5">
-            <span className={LABEL_CLASS}>Utilization</span>
-            <span className={`text-[13px] font-semibold ${utilization === null ? "text-slate-300" : "text-slate-800"}`}>
+            <span className={LABEL_TEXT}>Utilization</span>
+            <span className={`text-[13px] font-semibold ${utilization === null ? "text-slate-300" : "text-slate-900"}`}>
               {utilization === null ? "—" : `${utilization}%`}
             </span>
           </div>
@@ -109,7 +108,7 @@ export function CustomerCreditCard({ customer, outstanding, utilization }: Custo
         </div>
 
         <div>
-          <label htmlFor={inputId} className={`block mb-1.5 ${LABEL_CLASS}`}>
+          <label htmlFor={inputId} className={`block mb-1.5 ${LABEL_TEXT}`}>
             Credit limit
           </label>
           <div className="flex items-center gap-2">

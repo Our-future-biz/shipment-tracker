@@ -6,6 +6,7 @@ import { WarningOutlined } from "@ant-design/icons";
 import { AppGrid, type AppGridColumn } from "@/components/AppGrid";
 import { Pill } from "@/components/Pill";
 import type { MarginRow, TruckingReport } from "@/hooks/useTruckingReports";
+import { EMPTY, HINT } from "@/styles/ui";
 import { TERMS } from "../_lib/glossary";
 import { belowFloorText, MARGIN_VIEWS, marginPercentText, marginRows, marginText, marginTotals, type MarginView } from "../_lib/reports";
 import { formatMoney } from "../_lib/tariffs";
@@ -17,7 +18,7 @@ const money = (n: number) => <span className="tabular-nums">{formatMoney(n, "CZK
 
 // A negative margin is red and says "(loss)", so colour is never the only sign.
 const MarginCell = ({ value }: { value: number }) => (
-  <span className={`tabular-nums font-semibold ${value < 0 ? "text-red-600" : "text-slate-800"}`}>{marginText(value)}</span>
+  <span className={`tabular-nums font-semibold ${value < 0 ? "text-red-600" : "text-slate-900"}`}>{marginText(value)}</span>
 );
 
 const buildColumns = (view: MarginView): AppGridColumn<MarginRow>[] => [
@@ -26,7 +27,7 @@ const buildColumns = (view: MarginView): AppGridColumn<MarginRow>[] => [
     title: FIRST_COLUMN[view],
     text: (r) => r.label,
     sorter: (a, b) => a.label.localeCompare(b.label, "cs"),
-    render: (_, r) => <span className="font-medium text-slate-800">{r.label}</span>,
+    render: (_, r) => <span className="font-medium text-slate-900">{r.label}</span>,
   },
   { key: "consignments", title: "Consignments", align: "right", text: (r) => String(r.consignments), sorter: (a, b) => a.consignments - b.consignments },
   { key: "sell", title: "Sell", align: "right", text: (r) => formatMoney(r.sellCzk, "CZK"), sorter: (a, b) => a.sellCzk - b.sellCzk, render: (_, r) => money(r.sellCzk) },
@@ -52,7 +53,7 @@ const buildColumns = (view: MarginView): AppGridColumn<MarginRow>[] => [
           {belowFloorText(r.belowFloor)}
         </Pill>
       ) : (
-        <span className="text-slate-400">—</span>
+        <span className={EMPTY}>—</span>
       ),
   },
 ];
@@ -82,12 +83,12 @@ export const ReportMarginSection = ({ report }: ReportMarginSectionProps) => {
         emptyText="No Road consignment was delivered in this period."
         resetKey={view}
       />
-      <p className="m-0 mt-2 text-xs text-slate-600">
+      <p className="m-0 mt-2 text-xs text-slate-700">
         <b>Total:</b> {totals.consignments} consignments · sell {formatMoney(totals.sellCzk, "CZK")} · buy {formatMoney(totals.buyCzk, "CZK")} · margin{" "}
         <span className={totals.marginCzk < 0 ? "font-semibold text-red-600" : "font-semibold"}>{marginText(totals.marginCzk)}</span> ({marginPercentText(totals.marginPercent)})
         {totals.belowFloor > 0 && <span className="text-amber-700"> · {belowFloorText(totals.belowFloor)}</span>}
       </p>
-      <p className="m-0 mt-1 text-[11px] text-slate-500">
+      <p className={`m-0 mt-1 ${HINT}`}>
         Road consignments delivered in the period (Prague days), in CZK — EUR at the rate stored with each price. Internal consignments are left out; they are in
         the department result.
       </p>

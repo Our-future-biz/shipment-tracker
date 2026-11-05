@@ -18,12 +18,12 @@ export const TariffSheetPreview = ({ preview, headerRow, firstDataRow, priceColu
   const letters = [...columnHeadings(preview, headerRow).keys()];
   const prices = new Set(priceColumns);
 
-  const rowClass = (rowNo: number) => (rowNo === headerRow ? "bg-indigo-50 font-semibold text-slate-800" : rowNo === firstDataRow ? "bg-emerald-50" : "");
+  const rowClass = (rowNo: number) => (rowNo === headerRow ? "bg-indigo-50 font-semibold text-slate-900" : rowNo === firstDataRow ? "bg-emerald-50" : "");
 
   return (
     <div>
       <div className="overflow-x-auto rounded-lg border border-slate-200 max-h-80">
-        <table className="text-[11.5px] border-collapse w-max min-w-full">
+        <table className="text-[12px] border-collapse w-max min-w-full">
           <thead className="sticky top-0 bg-slate-100 z-10">
             <tr>
               <th className="px-2 py-1 text-slate-400 font-normal text-right border-b border-slate-200">#</th>
@@ -52,7 +52,7 @@ export const TariffSheetPreview = ({ preview, headerRow, firstDataRow, priceColu
           </tbody>
         </table>
       </div>
-      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 text-[11.5px] text-slate-500">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 text-[12px] text-slate-500">
         <span>
           <span className="inline-block w-2.5 h-2.5 rounded-sm bg-indigo-100 border border-indigo-200 mr-1 align-middle" />
           Headings row {headerRow}

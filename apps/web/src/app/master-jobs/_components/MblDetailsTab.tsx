@@ -8,6 +8,8 @@ import { COLUMN_MAP, dateTimeUpdate, getComputedValue, joinDateTime } from "@/li
 import { formatDate } from "@/lib/date";
 import { teuForType } from "@/lib/cargo";
 import { FULL_LOAD, loadTypeLabel } from "@/lib/enums";
+import { KPI_TILE_CLASS } from "@/components/KpiTile";
+import { EMPTY, HINT, KPI_VALUE, LABEL_TEXT } from "@/styles/ui";
 import type { MasterJobContainerLine, MasterJobItem, MasterJobShipmentItem, MasterJobUpdate } from "@/hooks/useMasterJobs";
 import { FieldRow, IncotermRow, Label, MasterJobCard, ROW, ReadOnlyRow, jumpTo } from "./MasterJobFields";
 import { MasterJobContainers } from "./MasterJobContainers";
@@ -61,17 +63,18 @@ interface TileProps {
   target: string;
 }
 
+// The app's KPI tile (KpiTile) as a button that keeps its "Go to" hint.
 function Tile({ label, value, note, target }: TileProps) {
   return (
     <button
       type="button"
       onClick={() => jumpTo(target)}
       title={`Go to ${label}`}
-      className="text-left bg-white border border-slate-200 rounded-xl px-4 py-3 shadow-sm cursor-pointer transition-colors hover:border-indigo-300 hover:bg-indigo-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+      className={`${KPI_TILE_CLASS} block w-full text-left cursor-pointer transition-colors hover:border-indigo-300 hover:bg-indigo-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500`}
     >
-      <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">{label}</div>
-      <div className="mt-1 text-[17px] font-bold text-slate-900">{value || "—"}</div>
-      {note && <div className="mt-0.5 text-[12px] text-slate-500">{note}</div>}
+      <div className={`${LABEL_TEXT} truncate`}>{label}</div>
+      <div className={`mt-0.5 truncate ${KPI_VALUE}`}>{value || <span className={EMPTY}>—</span>}</div>
+      {note && <div className={`${HINT} truncate`}>{note}</div>}
     </button>
   );
 }

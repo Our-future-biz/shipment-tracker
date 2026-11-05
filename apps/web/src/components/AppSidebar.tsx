@@ -31,6 +31,7 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { SALES_NAV, SALES_PAGES, type SalesNavItem } from "@/app/sales/_lib/tabs";
 import { TARIFF_NAV, TARIFF_PAGES } from "@/app/tariffs/_lib/tariffPages";
 import type { ReactNode } from "react";
+import { ICON_BTN_GHOST } from "@/styles/ui";
 
 // An item of a submenu. Its shape is defined with the Sales menu, the one that uses all of it.
 type NavChild = SalesNavItem;
@@ -144,7 +145,7 @@ export function AppSidebar() {
         onClick={() => router.push(item.path)}
         className={`flex items-center gap-3 rounded-xl text-[14px] cursor-pointer mb-0.5 transition-all duration-150 ${
           collapsed ? "justify-center px-2 py-3" : "px-4 py-3"
-        } ${isActive ? "bg-indigo-500 text-white font-medium" : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"}`}
+        } ${isActive ? "bg-indigo-600 text-white font-medium" : "text-slate-500 hover:text-slate-900 hover:bg-slate-100"}`}
       >
         <span className="text-base shrink-0">{item.icon}</span>
         {!collapsed && <span className="whitespace-nowrap overflow-hidden">{item.label}</span>}
@@ -185,7 +186,7 @@ export function AppSidebar() {
           <div
             onClick={openOwnPage}
             className={`flex items-center justify-center px-2 py-3 rounded-xl text-[14px] cursor-pointer mb-0.5 transition-all duration-150 ${
-              groupActive ? "bg-indigo-500 text-white font-medium" : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+              groupActive ? "bg-indigo-600 text-white font-medium" : "text-slate-500 hover:text-slate-900 hover:bg-slate-100"
             }`}
           >
             <span className="text-base shrink-0">{item.icon}</span>
@@ -203,10 +204,10 @@ export function AppSidebar() {
           }}
           className={`flex items-center gap-3 rounded-xl text-[14px] cursor-pointer mb-0.5 px-4 py-3 transition-all duration-150 ${
             onOwnPage
-              ? "bg-indigo-500 text-white font-medium"
+              ? "bg-indigo-600 text-white font-medium"
               : groupActive && !open
                 ? "text-indigo-600 font-medium bg-indigo-50"
-                : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+                : "text-slate-500 hover:text-slate-900 hover:bg-slate-100"
           }`}
         >
           <span className="text-base shrink-0">{item.icon}</span>
@@ -224,7 +225,7 @@ export function AppSidebar() {
                 <div
                   onClick={() => router.push(c.path)}
                   className={`px-3 py-2 rounded-lg text-[13px] cursor-pointer transition-all duration-150 ${
-                    isChildActive(c) ? "bg-indigo-500 text-white font-medium" : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+                    isChildActive(c) ? "bg-indigo-600 text-white font-medium" : "text-slate-500 hover:text-slate-900 hover:bg-slate-100"
                   }`}
                 >
                   {c.label}
@@ -252,14 +253,14 @@ export function AppSidebar() {
           <>
             <div
               onClick={() => router.push("/dashboard")}
-              className="w-8 h-8 bg-indigo-500 rounded-lg flex items-center justify-center text-white font-bold text-[11px] shrink-0 cursor-pointer"
+              className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold text-[11px] shrink-0 cursor-pointer"
             >
               ST
             </div>
             <button
               onClick={toggle}
               aria-label="Expand sidebar"
-              className="w-6 h-6 flex items-center justify-center rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors duration-150"
+              className={ICON_BTN_GHOST}
             >
               <RightOutlined className="text-[11px]" />
             </button>
@@ -267,14 +268,14 @@ export function AppSidebar() {
         ) : (
           <>
             <div className="flex items-center gap-2 cursor-pointer min-w-0 flex-1" onClick={() => router.push("/dashboard")}>
-              <div className="w-9 h-9 bg-indigo-500 rounded-xl flex items-center justify-center text-white font-bold text-xs shrink-0">ST</div>
+              <div className="w-9 h-9 bg-indigo-600 rounded-xl flex items-center justify-center text-white font-bold text-[12px] shrink-0">ST</div>
               <div className="overflow-hidden">
-                <div className="text-[15px] font-semibold text-slate-800 whitespace-nowrap">Shipment Tracker</div>
+                <div className="text-[14px] font-semibold text-slate-900 whitespace-nowrap">Shipment Tracker</div>
               </div>
             </div>
             <button
               onClick={toggle}
-              className="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors duration-150 shrink-0"
+              className={ICON_BTN_GHOST}
               aria-label="Collapse sidebar"
             >
               <LeftOutlined className="text-xs" />

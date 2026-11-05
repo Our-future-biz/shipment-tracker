@@ -27,17 +27,15 @@ export function FloorReadiness({ m, onBack }: { m: GateMovement; onBack: () => v
     <div className="flex flex-col gap-4">
       <FloorBack onBack={onBack} title="Release readiness" />
       <FloorCard title={TERMS.releaseGates}>
-        <Badge tone={state.tone} className="!text-[14px]">
-          {state.label}
-        </Badge>
-        {state.detail && <div className="mt-1 text-[14px] text-slate-600 break-words">{state.detail}</div>}
+        <Badge tone={state.tone}>{state.label}</Badge>
+        {state.detail && <div className="mt-1 text-[14px] text-slate-700 break-words">{state.detail}</div>}
         {!m.impRelease && waiting.length > 0 && <div className="mt-2 text-[14px] text-slate-700">Waiting for: {waiting.join(", ")}</div>}
         <ul className="m-0 mt-3 list-none border-t border-slate-100 p-0">
           {m.releaseGates.map((g) => (
             <li key={g.g} className="flex min-h-[44px] items-center gap-3 border-b border-slate-100 py-1 last:border-b-0">
               {ICON[g.s]}
               <div className="min-w-0 flex-1">
-                <div className="text-[15px] font-semibold">{g.g}</div>
+                <div className="text-[14px] font-semibold">{g.g}</div>
                 {g.note && g.note !== "—" && <div className="text-[13px] text-slate-500 break-words">{g.note}</div>}
               </div>
               <span className="text-[13px] text-slate-500">{g.s}</span>

@@ -3,7 +3,9 @@
 import { Button, Modal, Select, Tooltip } from "antd";
 import { ArrowDownOutlined, ArrowUpOutlined, CloseOutlined } from "@ant-design/icons";
 import { CARD_CURRENCIES } from "./useFxCurrencies";
-import { CELL, TH, currencyName, fmtAverage, fmtPct, fmtQuoted, type FxOverview } from "./fxShared";
+import { Pill } from "@/components/Pill";
+import { HINT, LABEL_TEXT, TD, TH } from "@/styles/ui";
+import { currencyName, fmtAverage, fmtPct, fmtQuoted, type FxOverview } from "./fxShared";
 import { RateChange } from "./RateChange";
 
 interface Props {
@@ -46,7 +48,7 @@ export function CurrenciesDialog({ data, list, onChange, onChangeBase, onClose }
   return (
     <Modal open title="Your currencies" footer={null} onCancel={onClose} width={860} destroyOnHidden>
       <div className="flex flex-wrap items-center gap-3 mb-2">
-        <span className="text-[13px] font-semibold text-slate-600">Show rates in</span>
+        <span className={LABEL_TEXT}>Show rates in</span>
         <Select
           showSearch
           value={data.base}
@@ -56,11 +58,11 @@ export function CurrenciesDialog({ data, list, onChange, onChangeBase, onClose }
           className="w-64"
           aria-label="Currency the rates are shown in"
         />
-        <span className="text-[12.5px] text-slate-400">
+        <span className={HINT}>
           {againstCzk ? "as ČNB publishes them" : "crossed from the ČNB fixing"}
         </span>
       </div>
-      <div className="text-[13px] text-slate-500 mb-3">
+      <div className={`${HINT} mb-3`}>
         {data.base} per 1 unit. The first {CARD_CURRENCIES} are shown on the cards; use the arrows to change which.
       </div>
       <div className="overflow-x-auto">
@@ -79,16 +81,16 @@ export function CurrenciesDialog({ data, list, onChange, onChangeBase, onClose }
               const r = rateOf.get(c);
               return (
                 <tr key={c} className={i === CARD_CURRENCIES - 1 && list.length > CARD_CURRENCIES ? "border-b-2 border-slate-300" : ""}>
-                  <td className={CELL}>
+                  <td className={TD}>
                     <div className="flex items-baseline gap-2">
-                      <span className="font-semibold text-slate-800">{c}</span>
-                      <span className="text-[12.5px] text-slate-400 whitespace-nowrap">{currencyName(c)}</span>
+                      <span className="font-semibold text-slate-900">{c}</span>
+                      <span className="text-[13px] text-slate-400 whitespace-nowrap">{currencyName(c)}</span>
                       {i < CARD_CURRENCIES && (
-                        <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 rounded px-1.5 whitespace-nowrap">on cards</span>
+                        <Pill tone="slate">on cards</Pill>
                       )}
                     </div>
                   </td>
-                  <td className={`${CELL} text-right whitespace-nowrap`}>
+                  <td className={`${TD} text-right whitespace-nowrap`}>
                     {r ? (
                       <span className="inline-flex items-baseline gap-3">
                         <RateChange rate={r.rate} previous={r.previousRate} previousDate={r.previousFixingDate} amount={r.amount} />
@@ -98,11 +100,11 @@ export function CurrenciesDialog({ data, list, onChange, onChangeBase, onClose }
                       <span className="text-slate-400">…</span>
                     )}
                   </td>
-                  <td className={`${CELL} text-right tabular-nums whitespace-nowrap`}>
+                  <td className={`${TD} text-right tabular-nums whitespace-nowrap`}>
                     {pricingCell(r ? cnbOf.get(c) : undefined, !!r, pct)}
                   </td>
-                  <td className={`${CELL} text-right tabular-nums whitespace-nowrap`}>{r ? fmtAverage(averageOf.get(c)) : "…"}</td>
-                  <td className={`${CELL} text-right whitespace-nowrap`}>
+                  <td className={`${TD} text-right tabular-nums whitespace-nowrap`}>{r ? fmtAverage(averageOf.get(c)) : "…"}</td>
+                  <td className={`${TD} text-right whitespace-nowrap`}>
                     <Tooltip title="Move up">
                       <Button type="text" size="small" icon={<ArrowUpOutlined />} disabled={i === 0} onClick={() => move(i, -1)} aria-label={`Move ${c} up`} />
                     </Tooltip>
@@ -145,7 +147,7 @@ export function CurrenciesDialog({ data, list, onChange, onChangeBase, onClose }
           disabled={options.length === 0}
           aria-label="Add a currency"
         />
-        <span className="text-[12.5px] text-slate-400">{data.available.filter((c) => c !== "CZK").length} currencies published by ČNB</span>
+        <span className={HINT}>{data.available.filter((c) => c !== "CZK").length} currencies published by ČNB</span>
       </div>
     </Modal>
   );

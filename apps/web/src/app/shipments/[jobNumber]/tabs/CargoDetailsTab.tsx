@@ -9,6 +9,8 @@ import { ContainerTabs } from "@/app/shipments/_components/ContainerTabs";
 import { PlusOutlined } from "@ant-design/icons";
 import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { SectionCard } from "@/components/SectionCard";
+import { CARD, EMPTY, LABEL_TEXT } from "@/styles/ui";
 import { SHIPMENT_WRITE_KEY, type ShipmentItem } from "@/hooks/useShipments";
 import { useIsMutating } from "@tanstack/react-query";
 import {
@@ -43,6 +45,9 @@ import {
   type CargoDimensionLine,
   type ContainerLine,
 } from "@/lib/cargo";
+
+// The "—" of an empty cell.
+const DASH = <span className={EMPTY}>—</span>;
 
 // Panel key: the container row id, or "none" for cargo that belongs to the
 // shipment directly (no containers / LCL / air).
@@ -170,7 +175,7 @@ const DIM_BANDS =
   "[&>*:nth-child(n+3):nth-child(-n+8)]:bg-slate-100/70 [&>*:nth-child(7)]:border-l-4 [&>*:nth-child(7)]:border-white";
 // The line of group labels ("Size", "Per piece") over the Dimensions bands; Description
 // keeps an empty line of the same height.
-const GROUP_ROW = "text-[10px] font-bold uppercase tracking-wider text-slate-500";
+const GROUP_ROW = LABEL_TEXT;
 // A field in an edited row: centred value, white on the column band.
 const EDIT_FIELD = "text-center tabular-nums !bg-white";
 const CENTERED_SELECT = "w-full [&_.ant-select-selection-item]:!text-center [&_.ant-select-selection-placeholder]:!text-center";
@@ -536,7 +541,7 @@ export function CargoDetailsTab({
   // A total under the column it sums, its unit beneath.
   const totalCell = (sum: number, unit: string, decimals: number) => (
     <span key={unit} className="flex flex-col items-center tabular-nums whitespace-nowrap" title={`${fmtFixed(sum, decimals)} ${UNIT_LABEL[unit] ?? unit}`}>
-      <span className="text-[13px] font-bold text-slate-900">{decimals === 0 ? fmtNum(sum) : fmtFixed(sum, decimals)}</span>
+      <span className="text-[13px] font-semibold text-slate-900">{decimals === 0 ? fmtNum(sum) : fmtFixed(sum, decimals)}</span>
       <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">{unit}</span>
     </span>
   );
@@ -592,7 +597,7 @@ export function CargoDetailsTab({
   );
 
   return (
-    // Each table in its own card, under its purple title, with Add on its header: Dimensions,
+    // Each table in its own card, under its title bar, with Add on its header: Dimensions,
     // and under it Description. With more than one container, the containers as tabs sit in a
     // card above both, since they switch both tables. The page's own tab already says
     // "Cargo Details", so there is no title bar.
@@ -612,7 +617,7 @@ export function CargoDetailsTab({
       {panels.length > 1 && (
         // The containers as tabs (as in the grid's Dimensions dialog) - only when there is
         // more than one to choose from. A container's dot shows once it has lines.
-        <div className={CARD}>
+        <div className={`${CARD} overflow-hidden`}>
           <ContainerTabs
             className="px-3"
             activeKey={active.key}
@@ -628,8 +633,7 @@ export function CargoDetailsTab({
         </div>
       )}
 
-      <div className={`${CARD} p-4`}>
-        <TableTitle>Dimensions</TableTitle>
+      <SectionCard title="Dimensions">
         <div className="relative">
           {addButton("dims")}
           <div className="overflow-x-auto">
@@ -664,7 +668,7 @@ export function CargoDetailsTab({
                 </span>
                 <span className="col-span-3" />
               </div>
-              <div className={`${DIM_BANDS} px-1 text-[10px] font-bold text-slate-500 uppercase tracking-wide border-b border-slate-200 [&>*]:!pt-0 [&>*]:!pb-1.5`}>
+              <div className={`${DIM_BANDS} px-1 ${LABEL_TEXT} border-b border-slate-200 [&>*]:!pt-0 [&>*]:!pb-1.5`}>
                 <span className="text-center truncate">Pcs</span>
                 <span className="text-center truncate">Packages</span>
                 <span className="text-center truncate">Length</span>
@@ -690,37 +694,37 @@ export function CargoDetailsTab({
                       onDoubleClick={() => openDims.open(idx)}
                       title="Double-click to edit"
                     >
-                      <span className="text-center tabular-nums font-medium text-slate-900">{l.pieces || "—"}</span>
-                      <span className="text-center truncate">{l.packageType || "—"}</span>
-                      <span className="text-center tabular-nums">{l.lengthCm || "—"}</span>
-                      <span className="text-center tabular-nums">{l.widthCm || "—"}</span>
-                      <span className="text-center tabular-nums">{l.heightCm || "—"}</span>
+                      <span className="text-center tabular-nums font-medium text-slate-900">{l.pieces || DASH}</span>
+                      <span className="text-center truncate">{l.packageType || DASH}</span>
+                      <span className="text-center tabular-nums">{l.lengthCm || DASH}</span>
+                      <span className="text-center tabular-nums">{l.widthCm || DASH}</span>
+                      <span className="text-center tabular-nums">{l.heightCm || DASH}</span>
                       <span className="text-center text-xs font-semibold uppercase text-slate-500">{l.dimensionUnit === "in" ? "inch" : "cm"}</span>
                       {figures === "total" ? (
                         // Without pieces a line has no totals (it counts nothing): "—", and why.
                         <>
                           <span className="text-center tabular-nums" title={!piecesOf(l) && num(l.weightPerPcKg) ? NO_PIECES_HINT : undefined}>
-                            {totalText(num(l.weightPerPcKg), piecesOf(l), 2) || "—"}
+                            {totalText(num(l.weightPerPcKg), piecesOf(l), 2) || DASH}
                           </span>
                           <span
                             className={`text-center tabular-nums ${sized ? "text-slate-500" : ""}`}
                             title={!piecesOf(l) && vpc ? NO_PIECES_HINT : vpc && !sized ? "Typed (no dimensions)" : undefined}
                           >
-                            {vpc && piecesOf(l) ? (vpc * piecesOf(l)).toFixed(3) : "—"}
+                            {vpc && piecesOf(l) ? (vpc * piecesOf(l)).toFixed(3) : DASH}
                           </span>
                         </>
                       ) : (
                         <>
-                          <span className="text-center tabular-nums">{l.weightPerPcKg || "—"}</span>
+                          <span className="text-center tabular-nums">{l.weightPerPcKg || DASH}</span>
                           <span className={`text-center tabular-nums ${sized ? "text-slate-500" : ""}`} title={vpc && !sized ? "Typed (no dimensions)" : undefined}>
-                            {vpc ? vpc.toFixed(3) : "—"}
+                            {vpc ? vpc.toFixed(3) : DASH}
                           </span>
                         </>
                       )}
-                      <span className="text-center leading-snug break-words" title={l.stackable || undefined}>{l.stackable || "—"}</span>
+                      <span className="text-center leading-snug break-words" title={l.stackable || undefined}>{l.stackable || DASH}</span>
                       {/* The whole ADR summary, wrapping onto a second line rather than being cut. */}
-                      <span className="text-center text-orange-600 font-medium leading-snug break-words" title={adrSummary(l)}>
-                        {hasAdr(l) ? adrSummary(l) : <span className="text-slate-700 font-normal">—</span>}
+                      <span className="text-center text-amber-700 font-medium leading-snug break-words" title={adrSummary(l)}>
+                        {hasAdr(l) ? adrSummary(l) : <span className={`${EMPTY} font-normal`}>—</span>}
                       </span>
                       <RowActionsMenu label="Dimension line actions" onCopy={() => copyDim(idx)} onDelete={() => askDelete({ table: "dims", line: l })} />
                     </div>
@@ -803,7 +807,7 @@ export function CargoDetailsTab({
                       {/* Worked out from the sizes, so plain text as in the read row; without all three it is typed (at most 4 digits before the point). */}
                       {sized ? (
                         <span className="text-center text-[13px] tabular-nums text-slate-500">
-                          {vpc && (figures !== "total" || piecesOf(l)) ? (figures === "total" ? vpc * piecesOf(l) : vpc).toFixed(3) : "—"}
+                          {vpc && (figures !== "total" || piecesOf(l)) ? (figures === "total" ? vpc * piecesOf(l) : vpc).toFixed(3) : DASH}
                         </span>
                       ) : figures === "total" ? (
                         <div>
@@ -885,10 +889,9 @@ export function CargoDetailsTab({
               )}
           </div>
         </div>
-      </div>
+      </SectionCard>
 
-      <div className={`${CARD} p-4`}>
-        <TableTitle>Description</TableTitle>
+      <SectionCard title="Description">
         <div className="relative">
           {addButton("desc")}
           <div className="overflow-x-auto">
@@ -898,7 +901,7 @@ export function CargoDetailsTab({
               <div aria-hidden className={`${GROUP_ROW} pt-1.5 pb-0.5 invisible`}>
                 Size
               </div>
-              <div className={`${DESC_COLS} px-1 pb-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wide border-b border-slate-200`}>
+              <div className={`${DESC_COLS} px-1 pb-1.5 ${LABEL_TEXT} border-b border-slate-200`}>
                 <span className="truncate">Cargo Description</span>
                 <span className="text-center truncate">HS Code</span>
                 <span className="text-center truncate">Pcs</span>
@@ -917,13 +920,13 @@ export function CargoDetailsTab({
                     onDoubleClick={() => openItems.open(idx)}
                     title="Double-click to edit"
                   >
-                    <span className="font-medium text-slate-900 truncate">{l.cargoDescription || "—"}</span>
-                    <span className="font-mono text-center truncate">{l.hsCode || "—"}</span>
-                    <span className="text-center tabular-nums">{l.pieces || "—"}</span>
-                    <span className="text-center truncate">{l.packageType || "—"}</span>
-                    <span className="text-center tabular-nums">{l.grossWeight || "—"}</span>
-                    <span className="text-center tabular-nums">{l.commercialInvoiceValue || "—"}</span>
-                    <span className="text-center truncate">{l.currency || "—"}</span>
+                    <span className="font-medium text-slate-900 truncate">{l.cargoDescription || DASH}</span>
+                    <span className="tabular-nums text-center truncate">{l.hsCode || DASH}</span>
+                    <span className="text-center tabular-nums">{l.pieces || DASH}</span>
+                    <span className="text-center truncate">{l.packageType || DASH}</span>
+                    <span className="text-center tabular-nums">{l.grossWeight || DASH}</span>
+                    <span className="text-center tabular-nums">{l.commercialInvoiceValue || DASH}</span>
+                    <span className="text-center truncate">{l.currency || DASH}</span>
                     <RowActionsMenu label="Description line actions" onCopy={() => copyItem(idx)} onDelete={() => askDelete({ table: "items", line: l })} />
                   </div>
                 ) : (
@@ -990,7 +993,7 @@ export function CargoDetailsTab({
                   {totalCell(active.descPcs, "PCS", 0)}
                   <span />
                   {totalCell(active.descKg, "KG", 2)}
-                  <span className={`text-center text-[13px] font-bold tabular-nums whitespace-nowrap ${descCiv ? "text-slate-900" : "text-slate-300"}`}>{descCiv || "—"}</span>
+                  <span className={`text-center text-[13px] font-semibold tabular-nums whitespace-nowrap ${descCiv ? "text-slate-900" : "text-slate-300"}`}>{descCiv || "—"}</span>
                   <span className="col-span-2" />
                 </div>
               )}
@@ -1015,19 +1018,7 @@ export function CargoDetailsTab({
               )}
           </div>
         </div>
-      </div>
+      </SectionCard>
     </div>
-  );
-}
-
-// The white card each part of the tab sits in.
-const CARD = "bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden";
-
-// The purple title over each table (the look the table switch had for the open table).
-function TableTitle({ children }: { children: React.ReactNode }) {
-  return (
-    <h3 className="m-0 mb-3 flex w-fit items-center h-8 px-3 rounded-lg border border-indigo-600 bg-indigo-600 text-white text-[13px] font-medium shadow-sm">
-      {children}
-    </h3>
   );
 }

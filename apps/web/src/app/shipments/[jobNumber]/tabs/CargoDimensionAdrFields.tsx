@@ -13,18 +13,18 @@ interface CargoDimensionAdrFieldsProps {
 // What the server takes as a UN number: four digits, "UN" in front allowed.
 const UN_NUMBER = /^(UN\s*)?\d{4}$/i;
 
-// Every label in the strip reads like "Limited quantity": plain 13px, dark orange.
-const LABEL = "text-[13px] text-orange-800";
+// Every label in the strip reads like "Limited quantity": plain 13px, dark amber (a warning).
+const LABEL = "text-[13px] text-amber-800";
 
 // The ADR (dangerous goods) details of one cargo dimension line, shown under it while its
-// ADR box is ticked: a soft orange strip, each field with a small label. The server checks UN
+// ADR box is ticked: a soft amber strip, each field with a small label. The server checks UN
 // number and packing group again and refuses others.
 export function CargoDimensionAdrFields({ line, onPatch, onCommit }: CargoDimensionAdrFieldsProps) {
   const unNumber = line.adrUn ?? "";
   const commitSoon = () => setTimeout(onCommit, 0);
 
   return (
-    <div className="mx-1 mt-0.5 mb-2 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg bg-orange-50/70 ring-1 ring-inset ring-orange-100 px-3 py-1.5">
+    <div className="mx-1 mt-0.5 mb-2 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg bg-amber-50/70 ring-1 ring-inset ring-amber-100 px-3 py-1.5">
       <label className="flex items-center gap-1.5">
         <span className={LABEL}>UN number</span>
         <Input
@@ -69,7 +69,7 @@ export function CargoDimensionAdrFields({ line, onPatch, onCommit }: CargoDimens
         />
       </label>
       <Checkbox
-        className="!text-[13px] !text-orange-800"
+        className="!text-amber-800"
         checked={line.adrLimitedQuantity ?? false}
         onChange={(e) => {
           onPatch({ adrLimitedQuantity: e.target.checked });

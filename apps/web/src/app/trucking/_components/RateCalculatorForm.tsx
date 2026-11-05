@@ -2,6 +2,7 @@
 
 import dayjs from "dayjs";
 import { Checkbox, DatePicker, Input, InputNumber, Select, Switch, TimePicker } from "antd";
+import { LABEL_TEXT } from "@/styles/ui";
 import { TERMS } from "../_lib/glossary";
 import { formatPsc, pscDigits } from "../_lib/hauliers";
 import type { RateExtras, RateForm } from "../_lib/rateCalculator";
@@ -101,7 +102,7 @@ export const RateCalculatorForm = ({ form, onChange, customer, laneOnly = false 
       </div>
 
       <div className="flex flex-col gap-2">
-        <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Extras</span>
+        <span className={LABEL_TEXT}>Extras</span>
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
           {EXTRA_FLAGS.map((x) => (
             <Checkbox key={x.key} checked={form.extras[x.key]} onChange={(e) => setExtra(x.key, e.target.checked)}>

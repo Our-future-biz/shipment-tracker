@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Button,
-  Card,
   Checkbox,
   Descriptions,
   Input,
@@ -16,11 +15,10 @@ import {
   Space,
   Spin,
   Steps,
-  Tag,
   Tooltip,
   Upload,
 } from "antd";
-import { DeleteOutlined, EyeOutlined, FileOutlined, InboxOutlined, ReloadOutlined } from "@ant-design/icons";
+import { BarChartOutlined, DeleteOutlined, EyeOutlined, FileOutlined, InboxOutlined, ReloadOutlined } from "@ant-design/icons";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, apiErrorMessage } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
@@ -34,6 +32,10 @@ import { DOCUMENT_TYPES, isReviewedDocumentType, supplierInvoiceType } from "@/l
 import { chargeLabel, chargeOptions, toChargeCode } from "@/lib/chargeCodes";
 import { useCreateMasterJob, useMasterJobs, useUpdateMasterJob } from "@/hooks/useMasterJobs";
 import { useNextJobNumber } from "@/hooks/useNextJobNumber";
+import { AppCard } from "@/components/AppCard";
+import { Pill } from "@/components/Pill";
+import { SectionCard } from "@/components/SectionCard";
+import { CARD, CARD_BAR, CARD_ICON, CARD_TITLE, HINT, LABEL_TEXT, REF } from "@/styles/ui";
 import { FieldReviewTable } from "./FieldReviewTable";
 import { QuoteOpenButton, QuoteReview, QuoteTarget } from "./QuoteReading";
 import {
@@ -1045,9 +1047,9 @@ export function DocumentReadingWorkflow() {
 
       {/* ─── STEP: Upload ─── */}
       {step === "upload" && (
-        <Card>
+        <AppCard>
           <div className="mb-4">
-            <div className="text-xs font-medium text-slate-500 mb-2">Extract to</div>
+            <div className={`${LABEL_TEXT} mb-2`}>Extract to</div>
             <Segmented
               value={destination}
               onChange={(v) => {
@@ -1059,7 +1061,7 @@ export function DocumentReadingWorkflow() {
               }}
               options={DESTINATION_OPTIONS as unknown as { value: string; label: string }[]}
             />
-            <p className="mt-2 mb-0 text-xs text-slate-400">{DESTINATION_HINT[destination]}</p>
+            <p className={`mt-2 mb-0 ${HINT}`}>{DESTINATION_HINT[destination]}</p>
           </div>
 
           {/* Target selectors */}
@@ -1084,9 +1086,9 @@ export function DocumentReadingWorkflow() {
                   filterOption={(input, option) => (option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
                 />
               ) : (
-                <Tag color="cyan" className="font-mono text-sm py-1 px-2">
+                <Pill tone="slate" className={REF}>
                   {newShipmentPreview} (will be assigned)
-                </Tag>
+                </Pill>
               )}
             </div>
           )}
@@ -1099,7 +1101,7 @@ export function DocumentReadingWorkflow() {
               </Radio.Group>
               {invoiceTarget === "shipment" ? (
                 <>
-                  <div className="text-xs font-medium text-slate-500 mb-1.5">Target shipment for invoice costs</div>
+                  <div className={`${LABEL_TEXT} mb-1.5`}>Target shipment for invoice costs</div>
                   <Select
                     showSearch
                     className="w-full"
@@ -1112,9 +1114,9 @@ export function DocumentReadingWorkflow() {
                 </>
               ) : (
                 <>
-                  <div className="text-xs font-medium text-slate-500 mb-1.5">Master Job Number</div>
+                  <div className={`${LABEL_TEXT} mb-1.5`}>Master Job Number</div>
                   {existingMcz.length === 0 ? (
-                    <div className="text-xs italic text-slate-400">No existing MCZ numbers found.</div>
+                    <div className={`${HINT} italic`}>No existing MCZ numbers found.</div>
                   ) : (
                     <Select
                       showSearch
@@ -1145,7 +1147,7 @@ export function DocumentReadingWorkflow() {
 
           {destination === "customs" && (
             <div className="mb-4">
-              <div className="text-xs font-medium text-slate-500 mb-1.5">Internal Reference (required)</div>
+              <div className={`${LABEL_TEXT} mb-1.5`}>Internal Reference (required)</div>
               <Select
                 showSearch
                 className="w-full"
@@ -1162,7 +1164,7 @@ export function DocumentReadingWorkflow() {
 
           {destination === "booking" && (
             <div className="mb-4">
-              <div className="text-xs font-medium text-slate-500 mb-1.5">Master Job Number</div>
+              <div className={`${LABEL_TEXT} mb-1.5`}>Master Job Number</div>
               <Radio.Group
                 value={bookingMode}
                 onChange={(e) => {
@@ -1175,11 +1177,11 @@ export function DocumentReadingWorkflow() {
                 <Radio value="existing">Add to existing</Radio>
               </Radio.Group>
               {bookingMode === "new" ? (
-                <Tag color="gold" className="font-mono text-sm py-1 px-2">
+                <Pill tone="slate" className={REF}>
                   {newMcz} (will be assigned)
-                </Tag>
+                </Pill>
               ) : existingMcz.length === 0 ? (
-                <div className="text-xs italic text-slate-400">No existing MCZ numbers found.</div>
+                <div className={`${HINT} italic`}>No existing MCZ numbers found.</div>
               ) : (
                 <Select
                   showSearch
@@ -1195,7 +1197,7 @@ export function DocumentReadingWorkflow() {
 
           {destination === "masterjob" && (
             <div className="mb-4">
-              <div className="text-xs font-medium text-slate-500 mb-1.5">Master Job Number</div>
+              <div className={`${LABEL_TEXT} mb-1.5`}>Master Job Number</div>
               <Radio.Group
                 value={masterMode}
                 onChange={(e) => {
@@ -1209,11 +1211,11 @@ export function DocumentReadingWorkflow() {
                 <Radio value="existing">Add to existing</Radio>
               </Radio.Group>
               {masterMode === "new" ? (
-                <Tag color="gold" className="font-mono text-sm py-1 px-2">
+                <Pill tone="slate" className={REF}>
                   {newMcz} (will be assigned)
-                </Tag>
+                </Pill>
               ) : existingMcz.length === 0 ? (
-                <div className="text-xs italic text-slate-400">No existing MCZ numbers found.</div>
+                <div className={`${HINT} italic`}>No existing MCZ numbers found.</div>
               ) : (
                 <Select
                   className="w-full"
@@ -1305,51 +1307,50 @@ export function DocumentReadingWorkflow() {
           <Button type="primary" className="mt-4" disabled={!canExtract} onClick={handleExtract}>
             {destination === "masterjob" ? "Extract Pre-Alert" : "Extract Data"}
           </Button>
-        </Card>
+        </AppCard>
       )}
 
       {/* ─── STEP: Extracting ─── */}
       {step === "extracting" && (
-        <Card>
+        <AppCard>
           <div className="text-center py-10">
             <Spin size="large" />
             <p className="mt-4 mb-0 text-slate-500">Analyzing document and extracting data…</p>
             {destination === "masterjob" ? (
-              <p className="mt-1 mb-0 text-xs text-slate-400">
+              <p className={`mt-1 mb-0 ${HINT}`}>
                 {masterFiles.length} file{masterFiles.length === 1 ? "" : "s"}: {masterFiles.map((f) => f.name).join(", ")}
               </p>
             ) : destination === "shipment" ? (
               inputMode === "file" && (
-                <p className="mt-1 mb-0 text-xs text-slate-400">
+                <p className={`mt-1 mb-0 ${HINT}`}>
                   {shipmentFiles.length} file{shipmentFiles.length === 1 ? "" : "s"}: {shipmentFiles.map((f) => f.name).join(", ")}
                 </p>
               )
             ) : (
-              fileName && <p className="mt-1 mb-0 text-xs text-slate-400">{fileName}</p>
+              fileName && <p className={`mt-1 mb-0 ${HINT}`}>{fileName}</p>
             )}
           </div>
-        </Card>
+        </AppCard>
       )}
 
       {/* ─── STEP: Review — shipment / customs / booking ─── */}
       {step === "review" && (destination === "shipment" || destination === "customs" || destination === "booking") && (
-        <Card>
-          <div className="flex items-center justify-between mb-3">
-            <Space size="small" wrap>
-              <span className="text-sm font-semibold">{fields.length} fields extracted</span>
-              {extractionMethod && <Tag>{extractionMethod}</Tag>}
-              {conflictCount > 0 && <Tag color="orange">{conflictCount} conflict{conflictCount > 1 ? "s" : ""}</Tag>}
+        <SectionCard
+          title={`${fields.length} fields extracted`}
+          extra={
+            <>
+              {extractionMethod && <Pill tone="slate">{extractionMethod}</Pill>}
+              {conflictCount > 0 && <Pill tone="amber">{conflictCount} conflict{conflictCount > 1 ? "s" : ""}</Pill>}
               {differCount > 0 && (
-                <Tag color="gold">
+                <Pill tone="amber">
                   Files differ on {differCount} field{differCount > 1 ? "s" : ""} — pick a value
-                </Tag>
+                </Pill>
               )}
-            </Space>
-            <Space>
               <Button size="small" onClick={() => setAll(true)}>Approve All</Button>
               <Button size="small" onClick={() => setAll(false)}>Reject All</Button>
-            </Space>
-          </div>
+            </>
+          }
+        >
           {error && <Alert className="mb-3" type="error" showIcon message={error} />}
           <FieldReviewTable fields={fields} onToggle={toggleField} editable onEdit={editField} onPick={pickField} />
           {shipmentDocViews.map((d) => (
@@ -1394,7 +1395,7 @@ export function DocumentReadingWorkflow() {
                     : "shipment"}
             </Button>
           </div>
-        </Card>
+        </SectionCard>
       )}
 
       {/* ─── STEP: Review — quote ─── */}
@@ -1404,14 +1405,11 @@ export function DocumentReadingWorkflow() {
 
       {/* ─── STEP: Review — invoicing ─── */}
       {step === "review" && invoiceToMaster && (
-        <Card>
-          <div className="text-sm font-semibold mb-3">
-            Invoice for master job <span className="font-mono">{invoiceMcz}</span>
-          </div>
+        <SectionCard title={`Invoice for master job ${invoiceMcz}`}>
           {error && <Alert className="mb-3" type="error" showIcon message={error} />}
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_110px_1fr_1fr] gap-3 mb-4">
             <div>
-              <div className="text-xs font-medium text-slate-500 mb-1.5">
+              <div className={`${LABEL_TEXT} mb-1.5`}>
                 Invoice total <span className="text-red-500">*</span>
               </div>
               <Input
@@ -1421,7 +1419,7 @@ export function DocumentReadingWorkflow() {
               />
             </div>
             <div>
-              <div className="text-xs font-medium text-slate-500 mb-1.5">Currency</div>
+              <div className={`${LABEL_TEXT} mb-1.5`}>Currency</div>
               <Select
                 className="w-full"
                 value={invoiceCurrency}
@@ -1430,7 +1428,7 @@ export function DocumentReadingWorkflow() {
               />
             </div>
             <div>
-              <div className="text-xs font-medium text-slate-500 mb-1.5">
+              <div className={`${LABEL_TEXT} mb-1.5`}>
                 Invoice number <span className="text-red-500">*</span>
               </div>
               <Input
@@ -1440,12 +1438,12 @@ export function DocumentReadingWorkflow() {
               />
             </div>
             <div>
-              <div className="text-xs font-medium text-slate-500 mb-1.5">Vendor</div>
+              <div className={`${LABEL_TEXT} mb-1.5`}>Vendor</div>
               <Input value={invoiceData.vendor ?? ""} onChange={(e) => setInvoiceData((d) => ({ ...d, vendor: e.target.value }))} />
             </div>
           </div>
           <div className="mb-4">
-            <div className="text-xs font-medium text-slate-500 mb-1.5">
+            <div className={`${LABEL_TEXT} mb-1.5`}>
               Cost Category <span className="text-red-500">*</span>
             </div>
             <Select
@@ -1505,12 +1503,11 @@ export function DocumentReadingWorkflow() {
               Split to {invoiceTicked.size} shipment{invoiceTicked.size !== 1 ? "s" : ""} (Real Cost)
             </Button>
           </div>
-        </Card>
+        </SectionCard>
       )}
 
       {step === "review" && destination === "invoicing" && !invoiceToMaster && (
-        <Card>
-          <div className="text-sm font-semibold mb-3">Invoice data extracted</div>
+        <SectionCard title="Invoice data extracted">
           {error && <Alert className="mb-3" type="error" showIcon message={error} />}
           <Descriptions
             bordered
@@ -1530,7 +1527,7 @@ export function DocumentReadingWorkflow() {
               }))}
           />
           <div className="mt-4">
-            <div className="text-xs font-medium text-slate-500 mb-1.5">
+            <div className={`${LABEL_TEXT} mb-1.5`}>
               Cost Category <span className="text-red-500">*</span>
             </div>
             <Select
@@ -1553,65 +1550,67 @@ export function DocumentReadingWorkflow() {
               Write to invoicing (Real Cost)
             </Button>
           </div>
-        </Card>
+        </SectionCard>
       )}
 
       {/* ─── STEP: Review — master job ─── */}
       {step === "review" && destination === "masterjob" && (
-        <Card>
+        <div className={`${CARD} overflow-hidden`}>
           {pipelineStep === "classified" && (
             <div>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-lg">📊</span>
-                <h3 className="text-sm font-semibold m-0">Document Analysis Complete</h3>
+              <div className={CARD_BAR}>
+                <BarChartOutlined className={CARD_ICON} />
+                <h3 className={CARD_TITLE}>Document Analysis Complete</h3>
               </div>
-              <p className="text-xs text-slate-400 mb-3">
-                {Object.values(classification).reduce((sum, n) => sum + (n || 0), 0)}{" "}
-                pages scanned from {preparedFiles.length} file{preparedFiles.length === 1 ? "" : "s"}:
-              </p>
-              {preparedFiles.length > 0 && (
-                <ul className="mb-3 pl-0 list-none flex flex-col gap-1">
-                  {preparedFiles.map((f) => (
-                    <li key={f.fileName} className="flex items-center gap-2 text-xs text-slate-600">
-                      <FileOutlined className="text-slate-400" />
-                      <span className="truncate">{f.fileName}</span>
-                      <span className="ml-auto shrink-0 text-slate-400">
-                        {f.pageCount} page{f.pageCount === 1 ? "" : "s"}
-                      </span>
-                    </li>
+              <div className="p-4">
+                <p className={`mt-0 mb-3 ${HINT}`}>
+                  {Object.values(classification).reduce((sum, n) => sum + (n || 0), 0)}{" "}
+                  pages scanned from {preparedFiles.length} file{preparedFiles.length === 1 ? "" : "s"}:
+                </p>
+                {preparedFiles.length > 0 && (
+                  <ul className="mb-3 pl-0 list-none flex flex-col gap-1">
+                    {preparedFiles.map((f) => (
+                      <li key={f.fileName} className="flex items-center gap-2 text-xs text-slate-700">
+                        <FileOutlined className="text-slate-400" />
+                        <span className="truncate">{f.fileName}</span>
+                        <span className="ml-auto shrink-0 text-slate-400">
+                          {f.pageCount} page{f.pageCount === 1 ? "" : "s"}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div className="grid grid-cols-2 gap-2 mb-4">
+                  {[
+                    { label: "Manifest pages", val: classification.MANIFEST || 0 },
+                    { label: "House BL pages", val: classification.HBL || 0 },
+                    { label: "Master BL pages", val: classification.MBL || 0 },
+                    { label: "Commercial invoice pages", val: classification.INVOICE || 0, muted: true },
+                    { label: "Packing list pages", val: classification.PACKING_LIST || 0, muted: true },
+                    { label: "Skipped", val: classification.SKIP || 0, muted: true },
+                  ].map((c) => (
+                    <div
+                      key={c.label}
+                      className="flex items-center justify-between px-3 py-2 rounded-lg bg-slate-50 border border-slate-200"
+                    >
+                      <span className="text-xs text-slate-500">{c.label}</span>
+                      <span className={`text-sm font-semibold ${c.muted ? "text-slate-400" : "text-amber-600"}`}>{c.val}</span>
+                    </div>
                   ))}
-                </ul>
-              )}
-              <div className="grid grid-cols-2 gap-2 mb-4">
-                {[
-                  { label: "Manifest pages", val: classification.MANIFEST || 0 },
-                  { label: "House BL pages", val: classification.HBL || 0 },
-                  { label: "Master BL pages", val: classification.MBL || 0 },
-                  { label: "Commercial invoice pages", val: classification.INVOICE || 0, muted: true },
-                  { label: "Packing list pages", val: classification.PACKING_LIST || 0, muted: true },
-                  { label: "Skipped", val: classification.SKIP || 0, muted: true },
-                ].map((c) => (
-                  <div
-                    key={c.label}
-                    className="flex items-center justify-between px-3 py-2 rounded-md bg-slate-50 border border-slate-200"
-                  >
-                    <span className="text-xs text-slate-500">{c.label}</span>
-                    <span className={`text-sm font-semibold ${c.muted ? "text-slate-400" : "text-amber-600"}`}>{c.val}</span>
-                  </div>
-                ))}
-              </div>
-              <div className="flex items-center justify-between px-3 py-2.5 mb-4 rounded-md bg-indigo-50 border border-indigo-100">
-                <span className="text-xs font-semibold text-indigo-700">
-                  House Bills of Lading found — one shipment each
-                </span>
-                <span className="text-base font-bold text-indigo-700">{hblCount}</span>
-              </div>
-              {error && <Alert className="mb-3" type="error" showIcon message={error} />}
-              <div className="flex gap-2">
-                <Button onClick={() => setStep("upload")}>Back</Button>
-                <Button type="primary" onClick={startMasterExtraction}>
-                  {hblCount === 0 && (classification.MBL || 0) > 0 ? "Read the Master Bill of Lading" : "Extract Shipments from Bills of Lading"}
-                </Button>
+                </div>
+                <div className="flex items-center justify-between px-3 py-2.5 mb-4 rounded-lg bg-indigo-50 border border-indigo-100">
+                  <span className="text-xs font-semibold text-indigo-700">
+                    House Bills of Lading found — one shipment each
+                  </span>
+                  <span className="text-base font-bold text-indigo-700">{hblCount}</span>
+                </div>
+                {error && <Alert className="mb-3" type="error" showIcon message={error} />}
+                <div className="flex gap-2">
+                  <Button onClick={() => setStep("upload")}>Back</Button>
+                  <Button type="primary" onClick={startMasterExtraction}>
+                    {hblCount === 0 && (classification.MBL || 0) > 0 ? "Read the Master Bill of Lading" : "Extract Shipments from Bills of Lading"}
+                  </Button>
+                </div>
               </div>
             </div>
           )}
@@ -1625,135 +1624,137 @@ export function DocumentReadingWorkflow() {
 
           {mblOnly && (
             <div>
-              <div className="flex items-center gap-2 mb-3">
-                <span className="text-sm font-semibold">Master Bill of Lading</span>
-                <Tag color="gold" className="font-mono">{activeMcz}</Tag>
-                <span className="text-xs text-slate-400">No House B/Ls in this upload — the MBL alone is filed</span>
+              <div className={CARD_BAR}>
+                <h3 className={CARD_TITLE}>Master Bill of Lading</h3>
+                <Pill tone="slate" className={REF}>{activeMcz}</Pill>
+                <span className={HINT}>No House B/Ls in this upload — the MBL alone is filed</span>
               </div>
-              <MblDetailsBox
-                info={mblInfo!}
-                ticked={mblTicked}
-                onToggle={(label) => setMblTicked((prev) => ({ ...prev, [label]: !prev[label] }))}
-                filed={mblFiled}
-                mcz={activeMcz}
-                masterJob={currentMasterJob}
-                loadTypeLocked={mblLoadTypeLocked}
-                alone
-              />
-              {error && <Alert className="mb-3" type="error" showIcon message={error} />}
-              <div className="flex gap-2 mt-4">
-                <Button onClick={() => setStep("upload")}>Back</Button>
-                <Button type="primary" loading={filingMblOnly} disabled={!Object.values(mblTicked).some(Boolean)} onClick={fileMblOnly}>
-                  File to {masterMode === "existing" ? activeMcz : "a new master job"}
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {pipelineStep === "ready" && !mblOnly && (
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <Space size="small" wrap>
-                  <span className="text-sm font-semibold">
-                    Shipment {Math.min(masterIdx + 1, masterShipments.length)} of {masterShipments.length}
-                    {hblBatchIndex < hblTotalBatches ? "+" : ""}
-                  </span>
-                  <Tag color="gold" className="font-mono">{activeMcz}</Tag>
-                  <span className="text-xs text-slate-400">{masterCreatedJobs.length} created</span>
-                </Space>
-              </div>
-
-              {mblInfo && Object.keys(mblInfo).length > 0 && (
+              <div className="p-4">
                 <MblDetailsBox
-                  info={mblInfo}
+                  info={mblInfo!}
                   ticked={mblTicked}
                   onToggle={(label) => setMblTicked((prev) => ({ ...prev, [label]: !prev[label] }))}
                   filed={mblFiled}
                   mcz={activeMcz}
                   masterJob={currentMasterJob}
                   loadTypeLocked={mblLoadTypeLocked}
+                  alone
                 />
-              )}
-
-              {error && <Alert className="mb-3" type="error" showIcon message={error} />}
-
-              {waitingForBatch ? (
-                <div className="text-center py-10">
-                  <Spin />
-                  <p className="mt-3 mb-0 text-sm text-slate-500">Loading the next shipments…</p>
+                {error && <Alert className="mb-3" type="error" showIcon message={error} />}
+                <div className="flex gap-2 mt-4">
+                  <Button onClick={() => setStep("upload")}>Back</Button>
+                  <Button type="primary" loading={filingMblOnly} disabled={!Object.values(mblTicked).some(Boolean)} onClick={fileMblOnly}>
+                    File to {masterMode === "existing" ? activeMcz : "a new master job"}
+                  </Button>
                 </div>
-              ) : (
-                <>
-                  <FieldReviewTable
-                    fields={masterFields}
-                    onToggle={toggleMasterField}
-                    editable
-                    onEdit={editMasterField}
-                    showExisting={false}
-                    accent="amber"
-                  />
-                  {docToSave && (
-                    <SaveDocumentBox
-                      checked={saveDocument}
-                      onCheck={setSaveDocument}
-                      name={docName}
-                      onName={setDocNameEdit}
-                      hint={docHint}
-                      type={docType}
-                      onType={setDocTypeEdit}
-                    />
-                  )}
-
-                  <div className="flex gap-2 mt-4">
-                    <Button onClick={() => setStep("upload")}>Back</Button>
-                    <Button onClick={advanceMaster}>Skip</Button>
-                    <Button
-                      type="primary"
-                      disabled={masterFields.filter((f) => f.approved).length === 0 || docNameMissing}
-                      onClick={validateAndCreate}
-                    >
-                      Validate &amp; Create
-                      {masterIdx < masterShipments.length - 1 || hblBatchIndex < hblTotalBatches ? " → Next" : ""}
-                    </Button>
-                  </div>
-                </>
-              )}
-
-              {hblTotalBatches > 1 && (
-                <div className="flex items-center justify-between mt-3 px-3 py-2 rounded-md bg-slate-50 text-xs">
-                  <span className="text-slate-500">
-                    Batch {Math.min(hblBatchIndex, hblTotalBatches)} of {hblTotalBatches} · {masterShipments.length}{" "}
-                    shipments loaded
-                  </span>
-                  {hblBatchIndex < hblTotalBatches && (
-                    <span className="flex items-center gap-1.5 text-slate-400">
-                      <Spin size="small" /> loading next batch…
-                    </span>
-                  )}
-                </div>
-              )}
+              </div>
             </div>
           )}
-        </Card>
+
+          {pipelineStep === "ready" && !mblOnly && (
+            <div>
+              <div className={CARD_BAR}>
+                <h3 className={CARD_TITLE}>
+                  Shipment {Math.min(masterIdx + 1, masterShipments.length)} of {masterShipments.length}
+                  {hblBatchIndex < hblTotalBatches ? "+" : ""}
+                </h3>
+                <Pill tone="slate" className={REF}>{activeMcz}</Pill>
+                <span className={HINT}>{masterCreatedJobs.length} created</span>
+              </div>
+              <div className="p-4">
+
+                {mblInfo && Object.keys(mblInfo).length > 0 && (
+                  <MblDetailsBox
+                    info={mblInfo}
+                    ticked={mblTicked}
+                    onToggle={(label) => setMblTicked((prev) => ({ ...prev, [label]: !prev[label] }))}
+                    filed={mblFiled}
+                    mcz={activeMcz}
+                    masterJob={currentMasterJob}
+                    loadTypeLocked={mblLoadTypeLocked}
+                  />
+                )}
+
+                {error && <Alert className="mb-3" type="error" showIcon message={error} />}
+
+                {waitingForBatch ? (
+                  <div className="text-center py-10">
+                    <Spin />
+                    <p className="mt-3 mb-0 text-sm text-slate-500">Loading the next shipments…</p>
+                  </div>
+                ) : (
+                  <>
+                    <FieldReviewTable
+                      fields={masterFields}
+                      onToggle={toggleMasterField}
+                      editable
+                      onEdit={editMasterField}
+                      showExisting={false}
+                      accent="amber"
+                    />
+                    {docToSave && (
+                      <SaveDocumentBox
+                        checked={saveDocument}
+                        onCheck={setSaveDocument}
+                        name={docName}
+                        onName={setDocNameEdit}
+                        hint={docHint}
+                        type={docType}
+                        onType={setDocTypeEdit}
+                      />
+                    )}
+
+                    <div className="flex gap-2 mt-4">
+                      <Button onClick={() => setStep("upload")}>Back</Button>
+                      <Button onClick={advanceMaster}>Skip</Button>
+                      <Button
+                        type="primary"
+                        disabled={masterFields.filter((f) => f.approved).length === 0 || docNameMissing}
+                        onClick={validateAndCreate}
+                      >
+                        Validate &amp; Create
+                        {masterIdx < masterShipments.length - 1 || hblBatchIndex < hblTotalBatches ? " → Next" : ""}
+                      </Button>
+                    </div>
+                  </>
+                )}
+
+                {hblTotalBatches > 1 && (
+                  <div className="flex items-center justify-between mt-3 px-3 py-2 rounded-lg bg-slate-50 text-xs">
+                    <span className="text-slate-500">
+                      Batch {Math.min(hblBatchIndex, hblTotalBatches)} of {hblTotalBatches} · {masterShipments.length}{" "}
+                      shipments loaded
+                    </span>
+                    {hblBatchIndex < hblTotalBatches && (
+                      <span className="flex items-center gap-1.5 text-slate-400">
+                        <Spin size="small" /> loading next batch…
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {/* ─── STEP: Committed ─── */}
       {step === "committed" && (
-        <Card>
+        <AppCard>
           <Result
             status="success"
             title={successTitle}
             subTitle={successSubtitle}
             extra={
               <Space>
-                <Button type="primary" size="large" icon={<ReloadOutlined />} onClick={reset}>
+                <Button type="primary" icon={<ReloadOutlined />} onClick={reset}>
                   New Extraction
                 </Button>
                 {destination === "quote" && quoteReading.written && <QuoteOpenButton quoteNumber={quoteReading.written.quoteNumber} />}
               </Space>
             }
           />
-        </Card>
+        </AppCard>
       )}
     </div>
   );
@@ -1812,14 +1813,14 @@ function UploadedFileList({ files, onRemove }: UploadedFileListProps) {
 
   return (
     <div className="mt-3 border border-slate-200 rounded-lg">
-      <div className="px-3 py-2 border-b border-slate-100 text-[11px] font-bold text-slate-500 uppercase tracking-wide">
+      <div className={`px-3 py-2 border-b border-slate-100 ${LABEL_TEXT}`}>
         Uploaded files ({files.length}) · {formatFileSize(files.reduce((sum, f) => sum + f.size, 0))}
       </div>
       <ul className="m-0 p-0 list-none">
         {files.map((f) => (
           <li key={f.uid} className="flex items-center gap-2 px-3 py-2 border-b border-slate-100 last:border-b-0 text-xs">
             <FileOutlined className="text-indigo-400" />
-            <span className="flex-1 min-w-0 truncate text-slate-800 font-medium">{f.name}</span>
+            <span className="flex-1 min-w-0 truncate text-slate-900 font-medium">{f.name}</span>
             <span className="shrink-0 text-slate-400">{formatFileSize(f.size)}</span>
             <Tooltip title="Preview">
               <Button size="small" type="text" icon={<EyeOutlined />} aria-label={`Preview ${f.name}`} onClick={() => openPreview(f)} />
@@ -1871,19 +1872,19 @@ function SaveDocumentBox({ checked, onCheck, name, onName, hint, type, onType, t
   return (
     <div className="mt-4 border border-slate-200 rounded-lg px-3 py-3">
       <Checkbox checked={checked} onChange={(e) => onCheck(e.target.checked)}>
-        <span className="text-sm font-semibold text-slate-800">{title ?? "Save the document to the shipment's documents"}</span>
+        <span className="text-sm font-semibold text-slate-900">{title ?? "Save the document to the shipment's documents"}</span>
       </Checkbox>
       {checked && (
         <div className="mt-3 grid grid-cols-1 lg:grid-cols-[1fr_220px] gap-3">
           <div>
-            <div className="text-xs font-medium text-slate-500 mb-1.5">
+            <div className={`${LABEL_TEXT} mb-1.5`}>
               File name <span className="text-red-500">*</span>
             </div>
             <Input value={name} onChange={(e) => onName(e.target.value)} status={name.trim() ? undefined : "error"} />
-            <p className="mt-1 mb-0 text-[11px] text-slate-400">{hint}</p>
+            <p className={`mt-1 mb-0 ${HINT}`}>{hint}</p>
           </div>
           <div>
-            <div className="text-xs font-medium text-slate-500 mb-1.5">Document type</div>
+            <div className={`${LABEL_TEXT} mb-1.5`}>Document type</div>
             <Select
               className="w-full"
               value={type}
@@ -1891,7 +1892,7 @@ function SaveDocumentBox({ checked, onCheck, name, onName, hint, type, onType, t
               options={DOCUMENT_TYPES.map((t) => ({ value: t, label: t }))}
             />
             {isReviewedDocumentType(type) && (
-              <p className="mt-1 mb-0 text-[11px] text-amber-600">Customs reviews this type of document.</p>
+              <p className="mt-1 mb-0 text-[12px] text-amber-600">Customs reviews this type of document.</p>
             )}
           </div>
         </div>
@@ -1929,10 +1930,10 @@ function MblDetailsBox({ info, ticked, onToggle, filed, mcz, masterJob, loadType
   const fullLoad = (masterJob?.loadType || (ticked["Load Type"] ? info["Load Type"] : "")) === FULL_LOAD;
 
   return (
-    <div className="mb-3 border border-slate-200 rounded-lg overflow-hidden">
-      <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 border-b border-slate-200">
-        <span className="text-sm font-semibold text-slate-800">MBL shared info</span>
-        <span className="text-xs text-slate-500">
+    <div className={`mb-3 ${CARD} overflow-hidden`}>
+      <div className={CARD_BAR}>
+        <h3 className={CARD_TITLE}>MBL shared info</h3>
+        <span className={HINT}>
           {filed
             ? `Filed to ${mcz}`
             : alone
@@ -1947,7 +1948,7 @@ function MblDetailsBox({ info, ticked, onToggle, filed, mcz, masterJob, loadType
           const locked = label === "Load Type" && loadTypeLocked;
           const existing = current(label);
           return (
-            <div key={label} className="flex items-start gap-2 px-3 py-2 border-b border-slate-100 text-xs">
+            <div key={label} className="flex items-start gap-2 px-3 py-2 border-b border-slate-100 text-[13px]">
               <span className="w-5 shrink-0 pt-0.5">
                 {fileable && !locked && (
                   <Checkbox
@@ -1958,23 +1959,23 @@ function MblDetailsBox({ info, ticked, onToggle, filed, mcz, masterJob, loadType
                   />
                 )}
               </span>
-              <span className="w-[150px] shrink-0 text-slate-500">{label}</span>
+              <span className={`w-[150px] shrink-0 pt-0.5 ${LABEL_TEXT}`}>{label}</span>
               <span className="flex-1 min-w-0">
                 <span className="text-slate-900 font-medium break-words">{value}</span>
-                {cntrDetail && <span className="block text-[11px] text-slate-400">Used for the container type</span>}
+                {cntrDetail && <span className={`block ${HINT}`}>Used for the container type</span>}
                 {label === MBL_SEALS_LABEL && (
-                  <span className="block text-[11px] text-slate-400">Filed with the containers, one seal each</span>
+                  <span className={`block ${HINT}`}>Filed with the containers, one seal each</span>
                 )}
                 {label === MBL_CONTAINERS_LABEL && fullLoad && (
-                  <span className="block text-[11px] text-slate-400">Full Load: the containers come from the shipments</span>
+                  <span className={`block ${HINT}`}>Full Load: the containers come from the shipments</span>
                 )}
                 {locked && (
-                  <span className="block text-[11px] text-amber-600">
+                  <span className="block text-[12px] text-amber-600">
                     Master job is already {masterJob?.loadType}; Load Type can&apos;t be changed
                   </span>
                 )}
                 {!locked && existing && existing !== value && fileable && (
-                  <span className="block text-[11px] text-slate-400">On master job now: {existing}</span>
+                  <span className={`block ${HINT}`}>On master job now: {existing}</span>
                 )}
               </span>
             </div>

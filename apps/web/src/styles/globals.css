@@ -1,3 +1,7 @@
+/* antd's styles sit in their own layer (StyleProvider in lib/theme/ThemeProvider.tsx), between
+   Tailwind's base and its utilities: antd still beats the browser reset, and a utility class beats antd. */
+@layer theme, base, antd, components, utilities;
+
 @import "tailwindcss";
 
 /* The panel palette of the shipment detail tabs (documents, customs, costs). Use these
@@ -24,36 +28,56 @@
   --color-chart-bar-green: #22c55e;
 }
 
+/* One typeface for every letter: Inter (loaded in app/layout.tsx). Mono points to it too, so a
+   code never shows in another face - codes use tabular-nums / slashed-zero instead (REF in
+   styles/ui.ts). */
 @theme {
-  --color-ink: #151b2b;
-  --color-ink-strong: #10141f;
-  --color-ink-soft: #46506b;
-  --color-ink-muted: #4e5769;
-  --color-subtle: #5a6478;
-  --color-muted: #8b94a7;
-  --color-line: #e4e7f0;
-  --color-line-strong: #d3d8e5;
-  --color-line-soft: #d8dce6;
-  --color-line-dim: #c3c9d6;
-  --color-surface: #fafbfd;
-  --color-surface-2: #f4f5f9;
-  --color-surface-3: #f6f7fb;
-  --color-accent: #4457d6;
-  --color-accent-strong: #3f4dbf;
-  --color-accent-soft: #e7eafc;
-  --color-accent-softer: #edeffc;
-  --color-accent-faint: #f5f6fd;
-  --color-ok: #177245;
-  --color-ok-soft: #e1f3e9;
-  --color-ok-softer: #eaf6ee;
-  --color-warn: #95620b;
-  --color-warn-ink: #5a4a20;
-  --color-warn-soft: #fbeed2;
-  --color-warn-faint: #fbf6ef;
-  --color-danger: #c3392b;
-  --color-danger-soft: #fbe6e4;
-  /* The app's link colour: antd's link (colorInfo in lib/theme/themeConfig.ts). */
-  --color-link: #3b82f6;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+/* The palette names some panels use (text-ink, border-line, bg-accent-soft, ...) are the app's
+   own slate / indigo / emerald / amber / red, so those panels match every other page. See
+   styles/ui.ts for which colour is for what. */
+@theme {
+  --color-ink: var(--color-slate-900);
+  --color-ink-strong: var(--color-slate-950);
+  --color-ink-soft: var(--color-slate-600);
+  --color-ink-muted: var(--color-slate-600);
+  --color-subtle: var(--color-slate-500);
+  --color-muted: var(--color-slate-400);
+  --color-line: var(--color-slate-200);
+  --color-line-strong: var(--color-slate-300);
+  --color-line-soft: var(--color-slate-200);
+  --color-line-dim: var(--color-slate-300);
+  --color-surface: var(--color-slate-50);
+  --color-surface-2: var(--color-slate-100);
+  --color-surface-3: var(--color-slate-50);
+  --color-accent: var(--color-indigo-600);
+  --color-accent-strong: var(--color-indigo-700);
+  --color-accent-soft: var(--color-indigo-100);
+  --color-accent-softer: var(--color-indigo-50);
+  --color-accent-faint: var(--color-indigo-50);
+  --color-ok: var(--color-emerald-700);
+  --color-ok-soft: var(--color-emerald-100);
+  --color-ok-softer: var(--color-emerald-50);
+  --color-warn: var(--color-amber-700);
+  --color-warn-ink: var(--color-amber-900);
+  --color-warn-soft: var(--color-amber-100);
+  --color-warn-faint: var(--color-amber-50);
+  --color-danger: var(--color-red-600);
+  --color-danger-soft: var(--color-red-100);
+  /* The app's link colour: indigo, as antd's (colorLink in lib/theme/themeConfig.ts). */
+  --color-link: var(--color-indigo-600);
+}
+
+@layer base {
+  body {
+    background-color: var(--color-slate-50);
+    color: var(--color-slate-900);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
 }
 
 /* Ant Design Table fixed columns need opaque background */
@@ -65,7 +89,7 @@
 
 .ant-table-tbody > tr:hover > .ant-table-cell-fix-left,
 .ant-table-tbody > tr:hover > .ant-table-cell-fix-right {
-  background: #f0fdfa !important;
+  background: #f8fafc !important;
 }
 
 /* OBL rows: force the text color (red) across every cell and inner element, without
@@ -77,6 +101,18 @@
 /* …except a value whose colour is its meaning (Invoicing's Lines Invoiced: green done, red not) */
 .ant-table-tbody > tr.cf-row-fg > td.ant-table-cell .cf-own-color.cf-own-color {
   color: var(--cf-own-color) !important;
+}
+
+/* Every antd table's head as a plain table's (TH in styles/ui.ts): small bold caps in black on
+   white, over a slate-200 line. The extra classes outweigh antd's own selector. */
+.ant-table-wrapper .ant-table .ant-table-thead > tr > th,
+.ant-table-wrapper .ant-table .ant-table-thead > tr > td {
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+  color: var(--color-slate-900);
 }
 
 /* Remove extra borders from Ant table inside card */

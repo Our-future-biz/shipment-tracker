@@ -10,6 +10,7 @@ import { businessDayOf, formatDate } from "@/lib/date";
 import { useToast } from "@/lib/toast";
 import { SupplierRatingStars } from "../../_components/SupplierRatingStars";
 import { SupplierRatingEditor } from "./SupplierRatingEditor";
+import { LABEL_TEXT } from "@/styles/ui";
 
 interface SupplierRatingBoxProps {
   customer: CustomerItem;
@@ -46,7 +47,7 @@ export function SupplierRatingBox({ customer }: SupplierRatingBoxProps) {
 
   const body = (
     <>
-      <span className="block text-[11px] leading-4 text-slate-500">Supplier rating</span>
+      <span className={`block ${LABEL_TEXT}`}>Supplier rating</span>
       <span className="flex h-6 items-center">
         <SupplierRatingStars rating={customer.supplierRating} />
       </span>

@@ -22,13 +22,13 @@ export function CountToggleButton({ label, count, active, onToggle, title }: Cou
       onClick={onToggle}
       aria-pressed={active}
       title={title}
-      className={`flex items-center gap-2 shrink-0 h-9 pl-3 pr-1.5 rounded-lg border text-[13px] font-bold uppercase tracking-wide cursor-pointer transition-colors ${
-        active ? "border-red-600 bg-red-50 text-red-700" : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
+      className={`flex items-center gap-2 shrink-0 h-8 pl-3 pr-1 rounded-lg border text-[13px] font-bold uppercase tracking-wide cursor-pointer transition-colors ${
+        active ? "border-red-600 bg-red-50 text-red-700" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900"
       }`}
     >
       {label}
       <span
-        className={`inline-flex items-center justify-center min-w-7 h-7 px-2 rounded-full text-[13px] font-bold tracking-normal tabular-nums ${
+        className={`inline-flex items-center justify-center min-w-6 h-6 px-1.5 rounded-full text-[12px] font-bold tracking-normal tabular-nums ${
           count ? "bg-red-600 text-white" : "bg-slate-100 text-slate-500"
         }`}
       >

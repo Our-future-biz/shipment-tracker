@@ -8,6 +8,7 @@ import type { CollectionTariffVersionDetail } from "@/hooks/useCollectionTariffs
 import type { interfaces } from "@/lib/api/client";
 import { formatNumber, formatQty } from "@/lib/number";
 import { volumeToText, weightToText } from "../../_lib/collectionTariffs";
+import { LABEL_TEXT } from "@/styles/ui";
 
 type Row = interfaces.CollectionTableView["rows"][number];
 
@@ -40,13 +41,13 @@ export const CollectionVersionTables = ({ version }: { version: CollectionTariff
 
   return (
     <SectionCard title="Price tables" extra={<span className="text-xs text-slate-500">Prices in {version.currency}</span>}>
-      <p className="mt-0 mb-4 text-[13px] text-slate-600">What was read: {read.join(", ")}.</p>
+      <p className="mt-0 mb-4 text-[13px] text-slate-700">What was read: {read.join(", ")}.</p>
       {!version.tables.length && <p className="m-0 text-[13px] text-slate-500">No price table was read.</p>}
       <div className="flex flex-col gap-5">
         {version.tables.map((table, i) => (
           <div key={i} className="min-w-0">
-            <div className="text-[12px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-              {table.label} <span className="font-normal normal-case tracking-normal text-slate-400">· customer in {table.country}</span>
+            <div className={`${LABEL_TEXT} mb-1.5`}>
+              {table.label} <span className="font-normal normal-case tracking-normal text-slate-500">· customer in {table.country}</span>
             </div>
             <Table<Row>
               size="small"

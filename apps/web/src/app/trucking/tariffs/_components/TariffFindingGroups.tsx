@@ -2,6 +2,7 @@
 
 import { Alert } from "antd";
 import type { interfaces } from "@/lib/api/client";
+import { CARD, LABEL_TEXT } from "@/styles/ui";
 import { WHOLE_VERSION, groupFindings } from "../../_lib/tariffUpload";
 import { TariffFindingList } from "./TariffFindingList";
 
@@ -35,12 +36,13 @@ export const TariffFindingGroups = ({ findings }: TariffFindingGroupsProps) => {
 
       {sections.map((section) => (
         <div key={section.severity} className="flex flex-col gap-2">
-          <h4 className={`m-0 text-[12px] font-bold uppercase tracking-wide ${section.severity === "error" ? "text-red-700" : "text-amber-700"}`}>
+          {/* Small bold caps in the colour of the section ("!": LABEL_TEXT's own slate would win). */}
+          <h4 className={`m-0 ${LABEL_TEXT} ${section.severity === "error" ? "!text-red-700" : "!text-amber-700"}`}>
             {section.severity === "error" ? "Errors" : "Warnings"} · {section.count}
           </h4>
           {section.groups.map((g) => (
-            <div key={g.sheet} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-              <div className="mb-1 text-[12px] font-semibold text-slate-700">{g.sheet === WHOLE_VERSION ? g.sheet : `Sheet ${g.sheet}`}</div>
+            <div key={g.sheet} className={`${CARD} px-3 py-2`}>
+              <div className={`mb-1 ${LABEL_TEXT}`}>{g.sheet === WHOLE_VERSION ? g.sheet : `Sheet ${g.sheet}`}</div>
               <TariffFindingList findings={g.findings} />
             </div>
           ))}

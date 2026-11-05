@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { Button, Tag } from "antd";
+import { Button } from "antd";
 import { LINK_CLASS } from "@/components/linkClass";
-import { statusLabel, statusTagColor } from "@/lib/shipmentStatus";
+import { StatusBadge } from "@/components/StatusBadge";
 import type { QuoteShipment } from "@/hooks/useQuoteShipments";
 import { SalesDialog } from "../../../_components/SalesDialog";
 
@@ -25,20 +25,20 @@ export const QuoteShipmentsDialog = ({ quoteNumber, shipments, onClose }: QuoteS
     footer={<Button onClick={onClose}>Close</Button>}
   >
     {!shipments ? (
-      <p className="m-0 text-sm text-slate-400">Loading the shipments…</p>
+      <p className="m-0 text-[13px] text-slate-400">Loading the shipments…</p>
     ) : shipments.length === 0 ? (
-      <p className="m-0 text-sm text-slate-500">No shipment is booked under this quote any more.</p>
+      <p className="m-0 text-[13px] text-slate-500">No shipment is booked under this quote any more.</p>
     ) : (
       <ul className="m-0 p-0 list-none divide-y divide-slate-100 border border-slate-200 rounded-lg">
         {shipments.map((shipment, index) => (
           <li key={shipment.id} className="flex items-center justify-between gap-4 px-3 py-2">
             <span className="flex items-center gap-3 min-w-0">
               <span className="w-5 text-right text-xs text-slate-400 tabular-nums">{index + 1}.</span>
-              <Link href={`/shipments/${shipment.id}`} className={`font-mono text-sm font-semibold ${LINK_CLASS}`}>
+              <Link href={`/shipments/${shipment.id}`} className={`tabular-nums font-semibold ${LINK_CLASS}`}>
                 {shipment.jobNumber || "Shipment"}
               </Link>
             </span>
-            {shipment.status && <Tag color={statusTagColor(shipment.status)} className="m-0">{statusLabel(shipment.status)}</Tag>}
+            {shipment.status && <StatusBadge status={shipment.status} />}
           </li>
         ))}
       </ul>

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCanSeeConcepts } from "@/lib/auth/AuthContext";
 import { tripHref, tripLabel } from "@/lib/tripSource";
+import { PILL_CLASS } from "./Pill";
 
 interface TripMarkerProps {
   x: { source?: unknown } | null | undefined;
@@ -17,7 +18,8 @@ export function TripMarker({ x, className = "" }: TripMarkerProps) {
   const label = tripLabel(x);
   if (!label) return null;
   const href = canSeeConcepts ? tripHref(x) : null;
-  const cls = `whitespace-nowrap rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 ${className}`;
+  // In the shape of every pill (PILL_CLASS), in the app's indigo.
+  const cls = `${PILL_CLASS} bg-indigo-100 text-indigo-700 ${className}`;
   return href ? (
     <Link href={href} className={`${cls} hover:underline`} title="Planned in Trucking — open the trip to change it">
       {label}

@@ -1,15 +1,16 @@
 import type { ReactNode } from "react";
+import { LABEL_TEXT } from "@/styles/ui";
 
 export type KpiTone = "red" | "green" | "amber";
 
 // The colour of a tone, and the frame of a tile - also for a tile of its own beside these.
 export const KPI_TONE_CLASS: Record<KpiTone, string> = {
   red: "text-red-600",
-  green: "text-green-600",
+  green: "text-emerald-600",
   amber: "text-amber-600",
 };
 
-export const KPI_TILE_CLASS = "bg-white border border-slate-200 rounded-xl px-3 py-2.5 min-w-0";
+export const KPI_TILE_CLASS = "bg-white border border-slate-200 rounded-xl shadow-sm px-3 py-2.5 min-w-0";
 
 interface KpiTileProps {
   label: string;
@@ -34,13 +35,13 @@ interface KpiTileProps {
 // The app's one KPI tile. Lay tiles out with KPI_GRID_CLASS so every row wraps the same way.
 export function KpiTile({ label, value, tone, hint, hintTone, size = "figure", onClick, action, centered = false }: KpiTileProps) {
   const valueClass =
-    (size === "figure" ? "text-lg font-bold truncate" : "flex items-center gap-1.5 min-h-6 text-sm font-semibold") +
+    (size === "figure" ? "text-[20px] leading-7 font-bold tabular-nums truncate" : "flex items-center gap-1.5 min-h-6 text-[14px] font-semibold") +
     (centered ? " flex-1 flex items-center justify-center text-center" : "");
   const content = (
     <>
-      <div className={`text-[11px] text-slate-400 uppercase tracking-wide truncate${centered ? " text-center" : ""}`}>{label}</div>
-      <div className={`mt-0.5 ${valueClass} ${tone ? KPI_TONE_CLASS[tone] : "text-slate-800"}`}>{value}</div>
-      {hint && <div className={`text-[11px] truncate${centered ? " text-center" : ""} ${hintTone ? KPI_TONE_CLASS[hintTone] : "text-slate-400"}`}>{hint}</div>}
+      <div className={`${LABEL_TEXT} truncate${centered ? " text-center" : ""}`}>{label}</div>
+      <div className={`mt-0.5 ${valueClass} ${tone ? KPI_TONE_CLASS[tone] : "text-slate-900"}`}>{value}</div>
+      {hint && <div className={`text-[12px] truncate${centered ? " text-center" : ""} ${hintTone ? KPI_TONE_CLASS[hintTone] : "text-slate-500"}`}>{hint}</div>}
     </>
   );
 

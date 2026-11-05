@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Alert, Button, Input } from "antd";
 import { SalesDialog } from "../../../_components/SalesDialog";
 import { APPROVAL_REASON_MAX, approvalReasonProblem, floorText, marginText, type RoadMargin } from "../../../_lib/roadQuote";
+import { LABEL_TEXT } from "@/styles/ui";
 
 interface QuoteMarginApproveDialogProps {
   quoteNumber: string;
@@ -50,7 +51,7 @@ export const QuoteMarginApproveDialog = ({ quoteNumber, margin, onApprove, onClo
     >
       <div className="flex flex-col gap-3">
         <label className="flex flex-col gap-1">
-          <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Reason</span>
+          <span className={LABEL_TEXT}>Reason</span>
           <Input.TextArea
             aria-label="Reason"
             rows={3}

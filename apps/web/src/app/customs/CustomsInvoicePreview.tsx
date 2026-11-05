@@ -5,6 +5,7 @@ import { escapeHtml } from "@/lib/html";
 import { type ShipmentItem } from "@/hooks/useShipments";
 
 import { type CustomsInvoiceLine, fmt, totalsByCurrency } from "./_lib/customsInvoice";
+import { EMPTY, LABEL_TEXT } from "@/styles/ui";
 
 
 // Who the invoice is for: the customer, or the principal party when there is none.
@@ -104,14 +105,14 @@ interface FieldProps {
 function Field({ label, value }: FieldProps) {
   return (
     <div className="flex text-[13px]">
-      <span className="w-36 shrink-0 text-slate-400">{label}</span>
-      <span className="text-slate-700">{value || "—"}</span>
+      <span className="w-36 shrink-0 text-slate-500">{label}</span>
+      <span className={value ? "text-slate-700" : EMPTY}>{value || "—"}</span>
     </div>
   );
 }
 
 function SectionTitle({ children }: { children: string }) {
-  return <h3 className="mt-6 mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">{children}</h3>;
+  return <h3 className={`mt-6 mb-2 ${LABEL_TEXT}`}>{children}</h3>;
 }
 
 interface CustomsInvoicePreviewProps {
@@ -143,12 +144,12 @@ export function CustomsInvoicePreview({ open, shipment, issuedNumber, lines, onC
       <div className="bg-white">
         <div className="bg-slate-800 text-white rounded-t-lg px-6 py-4 flex items-start justify-between">
           <div>
-            <div className="text-lg font-semibold">Customs Invoice</div>
-            <div className="font-mono text-xs text-slate-300">{issuedNumber || "—"}</div>
+            <div className="text-[16px] leading-6 font-semibold">Customs Invoice</div>
+            <div className="tabular-nums text-xs text-slate-300">{issuedNumber || "—"}</div>
           </div>
           <div className="text-right">
             <div className="text-sm">Job</div>
-            <div className="font-mono text-xs text-slate-300">{shipment.jobNumber}</div>
+            <div className="tabular-nums text-xs text-slate-300">{shipment.jobNumber}</div>
           </div>
         </div>
 
@@ -173,10 +174,10 @@ export function CustomsInvoicePreview({ open, shipment, issuedNumber, lines, onC
           <SectionTitle>Charges</SectionTitle>
           <table className="w-full border-collapse text-[13px]">
             <thead>
-              <tr className="bg-slate-50 text-left text-slate-500">
-                <th className="border border-slate-200 px-2.5 py-1.5 font-medium">Category</th>
-                <th className="border border-slate-200 px-2.5 py-1.5 font-medium">Currency</th>
-                <th className="border border-slate-200 px-2.5 py-1.5 text-right font-medium">Value</th>
+              <tr className="bg-slate-50 text-left">
+                <th className={`border border-slate-200 px-2.5 py-1.5 ${LABEL_TEXT}`}>Category</th>
+                <th className={`border border-slate-200 px-2.5 py-1.5 ${LABEL_TEXT}`}>Currency</th>
+                <th className={`border border-slate-200 px-2.5 py-1.5 text-right ${LABEL_TEXT}`}>Value</th>
               </tr>
             </thead>
             <tbody>

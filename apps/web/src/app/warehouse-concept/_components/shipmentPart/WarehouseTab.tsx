@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useMemo } from "react";
 import Link from "next/link";
-import { InputNumber, Button, Tag, Tooltip, message } from "antd";
+import { Alert, InputNumber, Button, Tooltip, message } from "antd";
 import { DeleteOutlined, PlusOutlined, EditOutlined } from "@ant-design/icons";
 import type { MessageInstance } from "antd/es/message/interface";
 import { buildRowData, getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
@@ -12,6 +12,10 @@ import { loadTypeLabel } from "@/lib/enums";
 import { useWarehouseSection } from "@/hooks/useWarehouseConceptSection";
 import { informedText } from "@/lib/informOperations";
 import { SectionCard as Card, PillTabs } from "@/components/SectionCard";
+import { Badge } from "@/components/Badge";
+import { InfoRow } from "@/components/InfoRow";
+import { Pill } from "@/components/Pill";
+import { CARD, EMPTY, HINT, LABEL_TEXT, TH } from "@/styles/ui";
 import { PickupSection } from "./PickupSection";
 import { JobNotes, ActionPushButtons, SaveStatus, SavedMeanwhile, sectionSaveError } from "./JobExtras";
 
@@ -34,14 +38,9 @@ function computeWM(weightTons?: string | null, volumeCbm?: string | null): strin
   return Math.max(w, v).toFixed(3);
 }
 
-// Label/value row, the same shape the detail cards use.
+// Label/value row: the app's InfoRow, the same shape the detail cards use.
 function Row({ label, value }: { label: string; value?: string | null }) {
-  return (
-    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
-      <span className="w-[160px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">{label}</span>
-      <span className={`flex-1 min-w-0 font-medium ${value ? "text-slate-900" : "text-slate-300"}`}>{value || "—"}</span>
-    </div>
-  );
+  return <InfoRow label={label}>{value}</InfoRow>;
 }
 
 const SUB_TABS = [
@@ -78,7 +77,7 @@ export function WarehouseTab({ shipment, readOnly = false, pickupReadOnly = !rea
       <div className="flex items-center gap-3">
         <PillTabs tabs={SUB_TABS} active={subTab} onChange={setSubTab} />
         {subTab === "details" && readOnly && (
-          <span className="ml-auto flex items-center gap-3 text-xs text-slate-500">
+          <span className={`ml-auto flex items-center gap-3 ${HINT}`}>
             Kept by the warehouse — view only
             {editHref && (
               <Link href={editHref}>
@@ -88,7 +87,7 @@ export function WarehouseTab({ shipment, readOnly = false, pickupReadOnly = !rea
           </span>
         )}
         {subTab === "pickup" && pickupReadOnly && (
-          <span className="ml-auto text-xs text-slate-500">Entered in Shipments → Warehouse → Pick-up — view only</span>
+          <span className={`ml-auto ${HINT}`}>Entered in Shipments → Warehouse → Pick-up — view only</span>
         )}
       </div>
 
@@ -132,14 +131,9 @@ export function WarehouseTab({ shipment, readOnly = false, pickupReadOnly = !rea
 function StackabilityBadge({ shipment }: { shipment: ShipmentItem }) {
   const value = shipmentStackability(shipment.cargoDimensions ?? []);
   const stackability = value === STACKABLE ? "stackable" : value === NOT_STACKABLE ? "not_stackable" : "unknown";
-  const tone =
-    stackability === "stackable"
-      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-      : stackability === "not_stackable"
-        ? "bg-red-50 text-red-600 border-red-200"
-        : "bg-slate-50 text-slate-500 border-slate-200";
+  const tone = stackability === "stackable" ? "green" : stackability === "not_stackable" ? "red" : "slate";
   const label = stackability === "stackable" ? "Stackable" : stackability === "not_stackable" ? "Not stackable" : "Unknown stackability";
-  return <span className={`inline-flex items-center h-6 px-2 rounded-md border text-[11px] font-semibold ${tone}`}>{label}</span>;
+  return <Pill tone={tone}>{label}</Pill>;
 }
 
 // ─── Dimensions / Remeasurement Editor ──────────────────────────
@@ -346,16 +340,16 @@ function DimensionsEditor({ shipment, messageApi, readOnly }: { shipment: Shipme
       {!readOnly && conflict && (
         <SavedMeanwhile theirs={describeRows(saved)} onUseTheirs={() => setDirty(false)} onKeepMine={() => setBase(saved ?? "")} />
       )}
-      <table className="w-full border-collapse text-xs">
+      <table className="w-full border-collapse text-[13px]">
         <thead>
-          <tr className="bg-slate-50 border-b border-slate-200">
+          <tr>
             {["Qty", "L (cm)", "W (cm)", "H (cm)", "Weight/pc (kg)"].map((h) => (
-              <th key={h} className="text-left px-2 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+              <th key={h} className={TH}>
                 {h}
               </th>
             ))}
-            <th className="text-right px-2 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-500">Vol (CBM)</th>
-            <th className="w-[36px]" />
+            <th className={`${TH} !text-right`}>Vol (CBM)</th>
+            <th className={`${TH} w-[36px]`} />
           </tr>
         </thead>
         <tbody>
@@ -366,7 +360,7 @@ function DimensionsEditor({ shipment, messageApi, readOnly }: { shipment: Shipme
                 return (
                   <td key={field} className="p-0.5 px-1">
                     {readOnly ? (
-                      <span className={`block px-2 py-1 ${bad ? "text-red-600" : row[field] ? "text-slate-900" : "text-slate-300"}`}>{row[field] || "—"}</span>
+                      <span className={`block px-2 py-1 ${bad ? "text-red-600" : row[field] ? "text-slate-900" : EMPTY}`}>{row[field] || "—"}</span>
                     ) : (
                       <InputNumber
                         size="small"
@@ -390,11 +384,9 @@ function DimensionsEditor({ shipment, messageApi, readOnly }: { shipment: Shipme
                   </td>
                 );
               })}
-              <td className="p-0.5 px-1 text-right text-[11px] text-slate-500">
+              <td className="p-0.5 px-1 text-right text-slate-700 tabular-nums">
                 {rowInvalid(row) ? (
-                  <Tag color="red" className="m-0 !text-[10px]">
-                    invalid — re-enter
-                  </Tag>
+                  <Badge tone="r">invalid — re-enter</Badge>
                 ) : (rowCbms[idx] ?? 0) > 0 ? (
                   rowCbms[idx]!.toFixed(4)
                 ) : (
@@ -416,47 +408,52 @@ function DimensionsEditor({ shipment, messageApi, readOnly }: { shipment: Shipme
           ["Total volume", totalVolumeCbm > 0 ? `${totalVolumeCbm.toFixed(3)} CBM` : "—"],
         ].map(([k, v]) => (
           <div key={k}>
-            <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{k}</div>
-            <div className="text-[15px] font-bold text-slate-900 mt-0.5">{v}</div>
+            <div className={LABEL_TEXT}>{k}</div>
+            <div className="text-[14px] font-bold text-slate-900 mt-0.5">{v}</div>
           </div>
         ))}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-        <div className="border border-slate-200 rounded-xl px-4 py-3">
-          <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-2">Shipment values</div>
-          <div className="flex gap-4 text-xs">
-            <div><div className="text-[10px] uppercase text-slate-500">Colli</div><div className={`font-semibold ${mismatchCls(shipmentDims.colli, totalColli)}`}>{shipmentDims.colli || "—"}</div></div>
-            <div><div className="text-[10px] uppercase text-slate-500">Weight (kg)</div><div className={`font-semibold ${mismatchCls(shipmentDims.weightKg, totalWeightKg)}`}>{shipmentDims.weightKg > 0 ? shipmentDims.weightKg.toFixed(1) : "—"}</div></div>
-            <div><div className="text-[10px] uppercase text-slate-500">Volume (CBM)</div><div className={`font-semibold ${mismatchCls(shipmentDims.volumeCbm, totalVolumeCbm)}`}>{shipmentDims.volumeCbm > 0 ? shipmentDims.volumeCbm.toFixed(3) : "—"}</div></div>
+        <div className={`${CARD} px-4 py-3`}>
+          <div className={`${LABEL_TEXT} mb-2`}>Shipment values</div>
+          <div className="flex gap-4 text-[13px]">
+            <div><div className={LABEL_TEXT}>Colli</div><div className={`font-semibold ${mismatchCls(shipmentDims.colli, totalColli)}`}>{shipmentDims.colli || "—"}</div></div>
+            <div><div className={LABEL_TEXT}>Weight (kg)</div><div className={`font-semibold ${mismatchCls(shipmentDims.weightKg, totalWeightKg)}`}>{shipmentDims.weightKg > 0 ? shipmentDims.weightKg.toFixed(1) : "—"}</div></div>
+            <div><div className={LABEL_TEXT}>Volume (CBM)</div><div className={`font-semibold ${mismatchCls(shipmentDims.volumeCbm, totalVolumeCbm)}`}>{shipmentDims.volumeCbm > 0 ? shipmentDims.volumeCbm.toFixed(3) : "—"}</div></div>
           </div>
         </div>
-        <div className="border border-slate-200 rounded-xl px-4 py-3">
-          <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-2">Remeasured values</div>
-          <div className="flex gap-4 text-xs">
-            <div><div className="text-[10px] uppercase text-slate-500">Colli</div><div className={`font-semibold ${mismatchCls(totalColli, shipmentDims.colli)}`}>{totalColli || "—"}</div></div>
-            <div><div className="text-[10px] uppercase text-slate-500">Weight (kg)</div><div className={`font-semibold ${mismatchCls(totalWeightKg, shipmentDims.weightKg)}`}>{totalWeightKg > 0 ? totalWeightKg.toFixed(1) : "—"}</div></div>
-            <div><div className="text-[10px] uppercase text-slate-500">Volume (CBM)</div><div className={`font-semibold ${mismatchCls(totalVolumeCbm, shipmentDims.volumeCbm)}`}>{totalVolumeCbm > 0 ? totalVolumeCbm.toFixed(3) : "—"}</div></div>
+        <div className={`${CARD} px-4 py-3`}>
+          <div className={`${LABEL_TEXT} mb-2`}>Remeasured values</div>
+          <div className="flex gap-4 text-[13px]">
+            <div><div className={LABEL_TEXT}>Colli</div><div className={`font-semibold ${mismatchCls(totalColli, shipmentDims.colli)}`}>{totalColli || "—"}</div></div>
+            <div><div className={LABEL_TEXT}>Weight (kg)</div><div className={`font-semibold ${mismatchCls(totalWeightKg, shipmentDims.weightKg)}`}>{totalWeightKg > 0 ? totalWeightKg.toFixed(1) : "—"}</div></div>
+            <div><div className={LABEL_TEXT}>Volume (CBM)</div><div className={`font-semibold ${mismatchCls(totalVolumeCbm, shipmentDims.volumeCbm)}`}>{totalVolumeCbm > 0 ? totalVolumeCbm.toFixed(3) : "—"}</div></div>
           </div>
         </div>
       </div>
 
       {hasData && hasMismatch && (
-        <div className="mt-4 flex items-center justify-between gap-3 rounded-md border border-red-200 bg-red-50 px-3.5 py-2.5">
-          <span className="text-xs text-red-600">Remeasured values differ from the shipment values.</span>
-          {!readOnly && (
-            <Tooltip title={informBlocked ?? undefined}>
-              <span className="inline-flex">
-                <Button danger size="small" onClick={informOperations} loading={isInforming} disabled={!!informBlocked}>
-                  {informedAt ? "Inform Again" : "Inform Operations"}
-                </Button>
-              </span>
-            </Tooltip>
-          )}
-        </div>
+        <Alert
+          className="!mt-4"
+          type="warning"
+          showIcon
+          message={<span className="text-xs">Remeasured values differ from the shipment values.</span>}
+          action={
+            !readOnly && (
+              <Tooltip title={informBlocked ?? undefined}>
+                <span className="inline-flex">
+                  <Button danger size="small" onClick={informOperations} loading={isInforming} disabled={!!informBlocked}>
+                    {informedAt ? "Inform Again" : "Inform Operations"}
+                  </Button>
+                </span>
+              </Tooltip>
+            )
+          }
+        />
       )}
       {hasData && !hasMismatch && (
-        <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-xs text-emerald-700">✓ All values match</div>
+        <Alert className="!mt-4" type="success" showIcon message={<span className="text-xs">All values match</span>} />
       )}
       {/* Shown whatever the lines say now, e.g. for a shipment informed before its lines changed. */}
       {informedAt && <div className="mt-2 text-[11px] text-slate-500">Operations informed on {formatDateTime(informedAt)}</div>}

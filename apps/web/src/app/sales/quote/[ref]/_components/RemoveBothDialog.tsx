@@ -3,6 +3,7 @@
 import { Button, Modal } from "antd";
 import type { CostLine } from "@/app/sales/_lib/types";
 import { fmtMoney } from "@/lib/money";
+import { MODAL_TITLE } from "@/styles/ui";
 
 interface RemoveBothDialogProps {
   side: "buying" | "selling";
@@ -22,7 +23,7 @@ export function RemoveBothDialog({ side, line, counterpart, onBoth, onOnly, onCl
   return (
     <Modal
       open
-      title={`Remove from ${other} as well?`}
+      title={<div className={MODAL_TITLE}>{`Remove from ${other} as well?`}</div>}
       onCancel={onClose}
       width={440}
       destroyOnHidden
@@ -37,9 +38,9 @@ export function RemoveBothDialog({ side, line, counterpart, onBoth, onOnly, onCl
         </div>
       }
     >
-      <div className="text-sm text-slate-600 leading-relaxed pt-1">
-        Removing the {side} line <span className="font-medium text-slate-800">{lineText(line)}</span>. The {other} side has{" "}
-        <span className="font-medium text-slate-800">{lineText(counterpart)}</span> - remove it too?
+      <div className="text-[13px] text-slate-600 leading-relaxed pt-1">
+        Removing the {side} line <span className="font-medium text-slate-900">{lineText(line)}</span>. The {other} side has{" "}
+        <span className="font-medium text-slate-900">{lineText(counterpart)}</span> - remove it too?
       </div>
     </Modal>
   );

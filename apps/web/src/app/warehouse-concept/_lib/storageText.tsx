@@ -1,4 +1,5 @@
 import type { interfaces } from "@/lib/api/client";
+import { EMPTY } from "@/styles/ui";
 import { nf } from "../gate-log/_lib/gate";
 
 // The storage clock in words — the one free-time calculation of the warehouse (made by the
@@ -16,7 +17,7 @@ export function freeTimeText(s: Storage): string {
 
 /** Tailwind text colour of the free time: red chargeable, amber expiring, green otherwise. */
 export function freeTimeTone(s: Storage): string {
-  if (!s.started) return "text-slate-300";
+  if (!s.started) return EMPTY;
   if (s.chargeableDays > 0) return "text-red-600";
   if (s.state === "Expiring") return "text-amber-600";
   return "text-emerald-600";

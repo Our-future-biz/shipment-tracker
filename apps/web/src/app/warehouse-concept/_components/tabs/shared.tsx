@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Alert, Button, Form, Input, InputNumber, Modal, Select, Tag } from "antd";
+import { Alert, Button, Form, Input, InputNumber, Modal, Select } from "antd";
 import { DeleteOutlined } from "@ant-design/icons";
+import { Badge, type Tone } from "@/components/Badge";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { KpiTile, type KpiTone } from "@/components/KpiTile";
+import { CARD, CARD_BAR, CARD_TITLE, EMPTY, HINT, LABEL_TEXT } from "@/styles/ui";
 import { useToast } from "@/lib/toast";
 import { errorMessage } from "@/app/warehouse-concept/gate-log/_lib/gate";
 import { formatNumber } from "@/lib/number";
@@ -11,77 +14,49 @@ import { businessToday } from "@/lib/date";
 import { containerNumberInput, isValidContainerNumber } from "@/lib/container";
 
 // Shared pieces of the Warehouse module tabs (Containers, Dock & Yard, Reports):
-// sub-tab pills, cards, KPI tiles, callouts, status tags and a record form.
+// sub-tab pills, cards, KPI tiles, callouts, status marks and a record form - in the app's one
+// look (styles/ui.ts and the shared components).
 
-export function SubTabs<K extends string>({ tabs, active, onChange }: { tabs: { key: K; label: string }[]; active: K; onChange: (key: K) => void }) {
-  return (
-    <div className="flex items-center gap-2 flex-wrap">
-      {tabs.map((t) => {
-        const on = t.key === active;
-        return (
-          <button
-            key={t.key}
-            type="button"
-            aria-pressed={on}
-            onClick={() => onChange(t.key)}
-            className={[
-              "flex items-center h-8 px-3 rounded-lg border text-[13px] font-medium transition-colors cursor-pointer",
-              on ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
-            ].join(" ")}
-          >
-            {t.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
+// The sub-tab pills are the app's own (PillTabs); re-exported under the name the tabs use.
+export { PillTabs as SubTabs } from "@/components/SectionCard";
 
+// A white card with the app's indigo title bar (styles/ui.ts: CARD, CARD_BAR, CARD_TITLE).
 export function Card({ title, extra, children, bodyClassName = "p-4" }: { title: ReactNode; extra?: ReactNode; children: ReactNode; bodyClassName?: string }) {
   return (
-    <section className="bg-white border border-slate-200 rounded-xl shadow-sm min-w-0">
-      <div className="px-4 py-2.5 flex items-center gap-2.5 bg-indigo-50 border-b border-indigo-100 rounded-t-xl">
-        <h3 className="text-[13px] font-bold text-slate-800 uppercase tracking-wider m-0">{title}</h3>
-        {extra && <div className="ml-auto flex items-center gap-2 text-xs text-slate-500">{extra}</div>}
+    <section className={`${CARD} min-w-0`}>
+      <div className={`${CARD_BAR} rounded-t-xl`}>
+        <h3 className={CARD_TITLE}>{title}</h3>
+        {extra && <div className={`ml-auto flex items-center gap-2 ${HINT}`}>{extra}</div>}
       </div>
       <div className={bodyClassName}>{children}</div>
     </section>
   );
 }
 
-const TONE_TEXT = { default: "text-slate-900", indigo: "text-indigo-600", green: "text-emerald-600", amber: "text-amber-600", red: "text-red-600" };
+// The app's KPI tile (components/KpiTile); "indigo" and "default" both draw the plain figure.
+const KPI_TONE: Record<"default" | "indigo" | "green" | "amber" | "red", KpiTone | undefined> = { default: undefined, indigo: undefined, green: "green", amber: "amber", red: "red" };
 
-export function Kpi({ label, value, sub, tone = "default" }: { label: string; value: ReactNode; sub?: ReactNode; tone?: keyof typeof TONE_TEXT }) {
-  return (
-    <div className="bg-white border border-slate-200 rounded-xl shadow-sm px-4 py-3 min-w-0">
-      <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">{label}</div>
-      <div className={`mt-1 text-[26px] leading-tight font-bold ${TONE_TEXT[tone]}`}>{value}</div>
-      {sub && <div className="text-xs text-slate-500 mt-1">{sub}</div>}
-    </div>
-  );
+export function Kpi({ label, value, sub, tone = "default" }: { label: string; value: ReactNode; sub?: ReactNode; tone?: keyof typeof KPI_TONE }) {
+  return <KpiTile label={label} value={value} hint={sub} tone={KPI_TONE[tone]} />;
 }
 
 export function Callout({ title, children }: { title?: string; children: ReactNode }) {
   return (
-    <div className="bg-white border border-slate-200 border-l-[3px] border-l-indigo-500 rounded-lg px-3.5 py-2.5 text-xs text-slate-600 leading-relaxed">
-      {title && <b className="text-slate-800">{title} </b>}
+    <div className={`${CARD} border-l-[3px] border-l-indigo-500 px-3.5 py-2.5 text-[12px] text-slate-700 leading-relaxed`}>
+      {title && <b className="text-slate-900">{title} </b>}
       {children}
     </div>
   );
 }
 
-// Status → antd Tag colour.
-export function StatusTag({ value, colors }: { value: string; colors: Record<string, string> }) {
-  if (!value) return <span className="text-slate-300">—</span>;
-  return (
-    <Tag color={colors[value] ?? "default"} className="m-0 !text-[11px] !font-semibold">
-      {value}
-    </Tag>
-  );
+// A status in the app's one status mark (Badge); `tones` gives each value its tone, others are grey.
+export function StatusTag({ value, tones }: { value: string; tones: Record<string, Tone> }) {
+  if (!value) return <span className={EMPTY}>—</span>;
+  return <Badge tone={tones[value] ?? ""}>{value}</Badge>;
 }
 
 export const dim = (v: string | number | null | undefined) =>
-  v === "" || v == null ? <span className="text-slate-300">—</span> : <span className="text-slate-600">{v}</span>;
+  v === "" || v == null ? <span className={EMPTY}>—</span> : <span className="text-slate-700">{v}</span>;
 
 export const nf = (v: number | null | undefined, d = 0) => formatNumber(v, d, "");
 
@@ -95,12 +70,12 @@ export const daysUntil = (date: string) => (date ? Math.floor(Date.parse(`${date
 // Carrier detention expiry: red when passed, amber within 2 days, green otherwise.
 export function ExpiryTag({ date }: { date: string }) {
   const d = daysUntil(date);
-  if (d == null) return <span className="text-slate-300">—</span>;
-  const color = d < 0 ? "red" : d <= 2 ? "orange" : "green";
+  if (d == null) return <span className={EMPTY}>—</span>;
+  const tone: Tone = d < 0 ? "r" : d <= 2 ? "a" : "g";
   return (
-    <Tag color={color} className="m-0 !text-[11px] !font-semibold">
+    <Badge tone={tone}>
       {date} · {d >= 0 ? `${d} d` : `${-d} d over`}
-    </Tag>
+    </Badge>
   );
 }
 
@@ -280,9 +255,8 @@ export function RecordFormModal<V extends object>({
       footer={(_, { OkBtn, CancelBtn }) => (
         <div className="flex items-center gap-2">
           {onDelete && (
-            <button
-              type="button"
-              className="text-xs text-red-500 hover:underline bg-transparent border-none cursor-pointer p-0"
+            <Button
+              danger
               onClick={() =>
                 modal.confirm({
                   title: "Delete this record?",
@@ -296,7 +270,7 @@ export function RecordFormModal<V extends object>({
               }
             >
               Delete
-            </button>
+            </Button>
           )}
           <div className="flex-1" />
           <CancelBtn />
@@ -305,7 +279,7 @@ export function RecordFormModal<V extends object>({
       )}
     >
       {modalHolder}
-      {note && <div className="mb-3 text-xs text-slate-500">{note}</div>}
+      {note && <div className={`mb-3 ${HINT}`}>{note}</div>}
       {error && <Alert type="error" showIcon className="!mb-3" message={error} />}
       <Form
         form={form}
@@ -317,7 +291,7 @@ export function RecordFormModal<V extends object>({
         {fields.map((f) => {
           const header =
             f.section && f.section !== lastSection ? (
-              <div key={`s-${f.section}`} className="col-span-full text-[11px] font-bold uppercase tracking-wide text-slate-500 mt-2 mb-2 pb-1.5 border-b border-slate-100">
+              <div key={`s-${f.section}`} className={`col-span-full ${LABEL_TEXT} mt-2 mb-2 pb-1.5 border-b border-slate-100`}>
                 {f.section}
               </div>
             ) : null;

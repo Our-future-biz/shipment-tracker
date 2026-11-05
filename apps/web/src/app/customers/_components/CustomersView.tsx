@@ -66,6 +66,7 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { canDeleteCustomerRecords } from "../_lib/customerPermissions";
 import { DeletedCustomersPanel } from "./DeletedCustomersPanel";
 import { apiFileUrl } from "@/lib/api";
+import { BTN_PRIMARY, CARD, LINK, PAGE_TITLE } from "@/styles/ui";
 
 // Superadmins also get the deleted companies, to restore one (?view=deleted).
 const DELETED_PILL = { key: "deleted", label: "Deleted" };
@@ -446,7 +447,7 @@ export function CustomersView() {
         <Link
           href={`/customers/${record.id}`}
           onClick={(e) => e.stopPropagation()}
-          className="font-medium text-indigo-600 hover:underline"
+          className={`font-medium ${LINK}`}
         >
           {name || record.ico}
         </Link>
@@ -478,7 +479,7 @@ export function CustomersView() {
     <div className="bg-slate-50 min-h-full px-8 py-6">
       <div className="max-w-[1400px] mx-auto flex flex-col gap-5">
         <div className="flex items-center justify-between gap-4 flex-wrap">
-          <h1 className="text-2xl font-bold text-slate-900">Customer Database</h1>
+          <h1 className={PAGE_TITLE}>Customer Database</h1>
           <div role="group" aria-label="Customers or suppliers">
             <PillTabs
               tabs={canSeeDeleted ? [...viewPills, DELETED_PILL] : viewPills}
@@ -492,12 +493,12 @@ export function CustomersView() {
           <DeletedCustomersPanel />
         ) : (
           <>
-            <div className="flex flex-wrap items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3">
+            <div className={`flex flex-wrap items-center justify-between gap-3 ${CARD} px-4 py-3`}>
               <div className="flex items-center gap-3 min-w-0">
                 <button
                   type="button"
                   onClick={handleAddOpen}
-                  className="flex items-center gap-1.5 shrink-0 rounded-lg bg-indigo-600 px-3 h-8 text-[13px] font-semibold text-white hover:bg-indigo-700 transition-colors cursor-pointer"
+                  className={BTN_PRIMARY}
                 >
                   <PlusOutlined />
                   Add Customer / Supplier
@@ -607,10 +608,11 @@ export function CustomersView() {
                     aria-pressed={reordering}
                     disabled={!columnPref.loaded}
                     onClick={() => setReordering((on) => !on)}
+                    // On: the toolbar button in the app's active indigo ("!" over its own frame and fill).
                     className={
                       reordering
-                        ? "flex items-center justify-center shrink-0 rounded-lg border w-8 h-8 p-0 transition-colors cursor-pointer border-indigo-500 bg-indigo-50 text-indigo-600"
-                        : `${TOOLBAR_BUTTON_CLASS} cursor-pointer disabled:cursor-not-allowed disabled:opacity-50`
+                        ? `${TOOLBAR_BUTTON_CLASS} !border-indigo-500 !bg-indigo-50 !text-indigo-600`
+                        : TOOLBAR_BUTTON_CLASS
                     }
                   >
                     <EditOutlined />

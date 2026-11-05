@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { CheckOutlined, CloseOutlined } from "@ant-design/icons";
 import { SectionCard } from "@/components/SectionCard";
+import { LABEL_TEXT } from "@/styles/ui";
 
 export type SectionStatus = "empty" | "in-progress" | "completed";
 
@@ -20,7 +21,7 @@ function StepMark({ status }: StepMarkProps) {
       role="img"
       aria-label={STATUS_LABEL[status]}
       title={STATUS_LABEL[status]}
-      className={`shrink-0 flex items-center justify-center w-[18px] h-[18px] rounded-full text-white ${done ? "bg-green-500" : "bg-red-500"}`}
+      className={`shrink-0 flex items-center justify-center w-[18px] h-[18px] rounded-full text-white ${done ? "bg-emerald-500" : "bg-red-500"}`}
     >
       {done ? <CheckOutlined className="text-[10px]" /> : <CloseOutlined className="text-[10px]" />}
     </span>
@@ -58,7 +59,7 @@ export function QuoteStepTiles({ steps, active, onSelect }: QuoteStepTilesProps)
             }`}
           >
             <StepMark status={step.status} />
-            <span className="min-w-0 truncate text-[12px] font-bold uppercase tracking-wide text-slate-800" title={step.title}>
+            <span className={`min-w-0 truncate ${LABEL_TEXT}`} title={step.title}>
               {step.title}
             </span>
           </button>

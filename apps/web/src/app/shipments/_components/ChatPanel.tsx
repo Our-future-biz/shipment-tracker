@@ -12,9 +12,11 @@ import { useToast } from "@/lib/toast";
 import { fileToBase64, formatFileSize } from "@/lib/files";
 import { shipmentAttachmentsKey } from "@/hooks/useShipmentAttachments";
 import { mentionMatchesOf, rankByUse } from "../_lib/mentionOptions";
+import { Pill } from "@/components/Pill";
+import { BTN_PRIMARY, HINT, ICON_BTN_GHOST, REF } from "@/styles/ui";
 
 // An internal conversation, laid out like a messaging app: colleagues on the left with avatar,
-// name and time, own messages on the right in blue with a read tick, files as cards under the
+// name and time, own messages on the right in indigo with a read tick, files as cards under the
 // message they were sent with, and a separator for each day. Typing @ offers colleagues to tag (the
 // three used most in this chat, or those matching what follows the @); a tagged colleague gets a
 // notification. The same panel serves a shipment's chat (ChatPanel) and
@@ -85,16 +87,16 @@ const timeLabel = (iso: string) => new Date(iso).toLocaleTimeString(undefined, {
 
 // Coloured file-type badge, by extension.
 const FILE_KINDS: { exts: string[]; label: string; tone: string }[] = [
-  { exts: ["pdf"], label: "PDF", tone: "bg-red-500" },
+  { exts: ["pdf"], label: "PDF", tone: "bg-red-600" },
   { exts: ["xls", "xlsx", "csv"], label: "XLS", tone: "bg-emerald-600" },
-  { exts: ["doc", "docx"], label: "DOC", tone: "bg-blue-600" },
-  { exts: ["jpg", "jpeg", "png", "gif", "webp", "heic"], label: "IMG", tone: "bg-violet-500" },
+  { exts: ["doc", "docx"], label: "DOC", tone: "bg-indigo-600" },
+  { exts: ["jpg", "jpeg", "png", "gif", "webp", "heic"], label: "IMG", tone: "bg-indigo-600" },
 ];
 const FileBadge = ({ fileName }: { fileName: string }) => {
   const ext = (fileName.split(".").pop() ?? "").toLowerCase();
   const kind = FILE_KINDS.find((k) => k.exts.includes(ext)) ?? { label: "FILE", tone: "bg-slate-400" };
   return (
-    <span className={`shrink-0 flex items-center justify-center w-8 h-9 rounded-md text-[9px] font-bold text-white ${kind.tone}`}>
+    <span className={`shrink-0 flex items-center justify-center w-8 h-9 rounded-md text-[10px] font-bold text-white ${kind.tone}`}>
       {kind.label}
     </span>
   );
@@ -114,10 +116,10 @@ const mentionQueryAt = (text: string, caret: number) => {
 
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-// One tick = sent, two blue ticks = a colleague has opened the chat since.
+// One tick = sent, two indigo ticks = a colleague has opened the chat since.
 const ReadTicks = ({ read }: { read: boolean }) => (
   <Tooltip title={read ? "Read" : "Sent"}>
-    <svg width="16" height="10" viewBox="0 0 16 10" fill="none" className={read ? "text-blue-600" : "text-slate-400"} aria-label={read ? "Read" : "Sent"}>
+    <svg width="16" height="10" viewBox="0 0 16 10" fill="none" className={read ? "text-indigo-600" : "text-slate-400"} aria-label={read ? "Read" : "Sent"}>
       <path d="M1 5.5 4 8.5 10 1.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
       {read && <path d="M7.5 8.5 8 9 15 1.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />}
     </svg>
@@ -294,7 +296,7 @@ export const ChatThread = ({ source }: { source: ChatSource }) => {
     mentionPattern
       ? text.split(mentionPattern).map((part, i) =>
           i % 2 === 1 ? (
-            <span key={i} className={`font-semibold ${isMe ? "text-white underline decoration-white/50" : "text-blue-700"}`}>
+            <span key={i} className={`font-semibold ${isMe ? "text-white underline decoration-white/50" : "text-indigo-700"}`}>
               {part}
             </span>
           ) : (
@@ -317,30 +319,30 @@ export const ChatThread = ({ source }: { source: ChatSource }) => {
         href={apiFileUrl(a.contentUrl)}
         target="_blank"
         rel="noopener noreferrer"
-        className="flex-1 min-w-0 !text-slate-800 hover:!text-blue-600"
+        className="flex-1 min-w-0 !text-slate-900 hover:!text-indigo-600"
       >
-        <span className="block text-[12.5px] font-semibold truncate">{a.fileName}</span>
+        <span className="block text-[13px] font-semibold truncate">{a.fileName}</span>
         <span className="block text-[11px] font-normal text-slate-500">{formatFileSize(a.fileSize)}</span>
       </a>
       <a
         href={apiFileUrl(a.contentUrl, true)}
         aria-label={`Download ${a.fileName}`}
-        className="shrink-0 !text-slate-500 hover:!text-blue-600"
+        className="shrink-0 !text-slate-500 hover:!text-indigo-600"
       >
-        <DownloadOutlined className="text-[15px]" />
+        <DownloadOutlined className="text-[14px]" />
       </a>
     </div>
   );
 
   // A quote's thread spans its revisions: each message says which Sales Reference it was written on.
   const writtenOn = (c: Comment) =>
-    source.showQuoteNumber && c.quoteNumber ? <span className="font-mono text-[10.5px] text-slate-400">{c.quoteNumber}</span> : null;
+    source.showQuoteNumber && c.quoteNumber ? <span className={`${REF} text-[11px] text-slate-500`}>{c.quoteNumber}</span> : null;
 
   const row = (c: Comment, isMe: boolean, firstOfGroup: boolean) => {
     const text = c.message && (
       <div
         className={`px-3.5 py-2 rounded-xl text-[13px] leading-snug whitespace-pre-wrap break-words ${
-          isMe ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-800"
+          isMe ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-900"
         }`}
       >
         {withMentions(c.message, isMe)}
@@ -355,7 +357,7 @@ export const ChatThread = ({ source }: { source: ChatSource }) => {
               type="button"
               aria-label="Delete message"
               onClick={() => deleteComment.mutate(c.id)}
-              className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity text-slate-300 hover:text-red-500 bg-transparent border-none cursor-pointer p-0"
+              className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity text-slate-300 hover:text-red-600 bg-transparent border-none cursor-pointer p-0"
             >
               <DeleteOutlined className="text-[11px]" />
             </button>
@@ -383,7 +385,7 @@ export const ChatThread = ({ source }: { source: ChatSource }) => {
         <div className="max-w-[80%] min-w-0 flex flex-col items-start gap-1.5">
           {firstOfGroup && (
             <span className="flex items-baseline gap-2">
-              <span className="text-[13px] font-bold text-slate-700">{c.authorName || "Unknown"}</span>
+              <span className="text-[13px] font-bold text-slate-900">{c.authorName || "Unknown"}</span>
               <span className="text-[11px] text-slate-500">{timeLabel(c.createdAt)}</span>
               {writtenOn(c)}
             </span>
@@ -398,9 +400,9 @@ export const ChatThread = ({ source }: { source: ChatSource }) => {
   return (
     <div className="flex flex-col h-full bg-white">
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-1.5">
-        {isLoading && <p className="text-center text-slate-400 text-xs py-4">Loading…</p>}
+        {isLoading && <p className={`${HINT} text-center py-4`}>Loading…</p>}
         {!isLoading && comments.length === 0 && (
-          <p className="text-center text-slate-400 text-xs py-6">{source.emptyText}</p>
+          <p className={`${HINT} text-center py-6`}>{source.emptyText}</p>
         )}
 
         {comments.map((c, i) => {
@@ -415,7 +417,7 @@ export const ChatThread = ({ source }: { source: ChatSource }) => {
               {newDay && (
                 <div className="flex items-center gap-3 my-2">
                   <span className="flex-1 h-px bg-slate-200" />
-                  <span className="px-3 py-0.5 rounded-full bg-slate-100 text-[11px] font-semibold text-slate-600">{dayLabel(c.createdAt)}</span>
+                  <Pill tone="slate">{dayLabel(c.createdAt)}</Pill>
                   <span className="flex-1 h-px bg-slate-200" />
                 </div>
               )}
@@ -439,7 +441,7 @@ export const ChatThread = ({ source }: { source: ChatSource }) => {
                   pickMention(c);
                 }}
                 onMouseEnter={() => setMentionIndex(i)}
-                className={`flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-[13px] text-slate-800 ${i === mentionIndex ? "bg-slate-100" : ""}`}
+                className={`flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-[13px] text-slate-900 ${i === mentionIndex ? "bg-slate-100" : ""}`}
               >
                 <span className={`flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold ${toneFor(c.id)}`}>{initials(c.name)}</span>
                 <span className="truncate">{c.name}</span>
@@ -452,12 +454,12 @@ export const ChatThread = ({ source }: { source: ChatSource }) => {
             {files.map((f, i) => (
               <span key={`${f.name}-${i}`} className="flex items-center gap-1.5 max-w-full pl-2 pr-1 py-1 rounded-md bg-slate-100 text-[12px] text-slate-700">
                 <span className="truncate">{f.name}</span>
-                <span className="shrink-0 text-slate-400">{formatFileSize(f.size)}</span>
+                <span className="shrink-0 text-slate-500">{formatFileSize(f.size)}</span>
                 <button
                   type="button"
                   aria-label={`Remove ${f.name}`}
                   onClick={() => setFiles(files.filter((_, j) => j !== i))}
-                  className="shrink-0 flex items-center text-slate-400 hover:text-red-500 bg-transparent border-none cursor-pointer p-0.5"
+                  className="shrink-0 flex items-center text-slate-400 hover:text-red-600 bg-transparent border-none cursor-pointer p-0.5"
                 >
                   <CloseOutlined className="text-[10px]" />
                 </button>
@@ -480,7 +482,8 @@ export const ChatThread = ({ source }: { source: ChatSource }) => {
             type="button"
             aria-label="Attach files"
             onClick={() => fileInputRef.current?.click()}
-            className="shrink-0 flex items-center justify-center w-9 h-9 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-slate-100 bg-transparent border-none cursor-pointer transition-colors"
+            // As tall as the message field and the Send button beside it.
+            className={`${ICON_BTN_GHOST} !w-8 !h-8`}
           >
             <PaperClipOutlined className="text-[18px]" />
           </button>
@@ -489,7 +492,6 @@ export const ChatThread = ({ source }: { source: ChatSource }) => {
             ref={inputRef}
             placeholder="Write a message…  (@ to mention a colleague)"
             autoSize={{ minRows: 1, maxRows: 5 }}
-            className="!text-[13px] !rounded-lg"
             onChange={(e) => {
               setMessage(e.target.value);
               setCaret(e.target.selectionStart ?? e.target.value.length);
@@ -527,7 +529,7 @@ export const ChatThread = ({ source }: { source: ChatSource }) => {
             aria-label="Send message"
             onClick={handleSend}
             disabled={!canSend}
-            className="shrink-0 flex items-center justify-center w-11 h-9 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed transition-colors border-none cursor-pointer"
+            className={BTN_PRIMARY}
           >
             <SendOutlined />
           </button>

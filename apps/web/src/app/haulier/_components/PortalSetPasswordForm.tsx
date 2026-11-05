@@ -3,10 +3,11 @@
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { apiErrorMessage } from "@/lib/api";
+import { CARD, PAGE_TITLE } from "@/styles/ui";
 import { portalSetPassword } from "../_lib/portalClient";
 import { MIN_PASSWORD_LENGTH, PASSWORD_RULES, passwordProblem } from "../_lib/portal";
 import { PORTAL_LOGIN_PATH } from "../_lib/portalSession";
-import { PORTAL_INPUT, PORTAL_LABEL, PORTAL_PRIMARY } from "../_lib/portalStyles";
+import { PORTAL_INPUT, PORTAL_LABEL, PORTAL_PRIMARY, PORTAL_PRIMARY_LINK } from "../_lib/portalStyles";
 import { Bi } from "./Bi";
 
 interface PortalSetPasswordFormProps {
@@ -43,11 +44,11 @@ export const PortalSetPasswordForm = ({ token }: PortalSetPasswordFormProps) => 
   if (done) {
     return (
       <main className="flex min-h-screen items-start justify-center bg-slate-50 px-4 py-10">
-        <div className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-5">
-          <p className="m-0 text-[16px] font-semibold text-emerald-800">
+        <div className={`${CARD} w-full max-w-sm p-5`}>
+          <p className="m-0 text-[14px] font-semibold text-emerald-700">
             <Bi text={{ cs: "Heslo je nastaveno.", en: "Your password is set." }} />
           </p>
-          <Link href={PORTAL_LOGIN_PATH} className={`${PORTAL_PRIMARY} mt-4 block text-center no-underline`}>
+          <Link href={PORTAL_LOGIN_PATH} className={`${PORTAL_PRIMARY_LINK} mt-4`}>
             <Bi text={{ cs: "Přihlásit se", en: "Sign in" }} />
           </Link>
         </div>
@@ -57,11 +58,11 @@ export const PortalSetPasswordForm = ({ token }: PortalSetPasswordFormProps) => 
 
   return (
     <main className="flex min-h-screen items-start justify-center bg-slate-50 px-4 py-10">
-      <form onSubmit={handleSubmit} className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-5">
-        <h1 className="m-0 text-[20px] font-bold text-slate-900">
+      <form onSubmit={handleSubmit} className={`${CARD} w-full max-w-sm p-5`}>
+        <h1 className={PAGE_TITLE}>
           <Bi text={{ cs: "Nastavte si heslo", en: "Set your password" }} />
         </h1>
-        <ul className="mb-4 mt-2 pl-5 text-[13px] text-slate-600">
+        <ul className="mb-4 mt-2 pl-5 text-[13px] text-slate-700">
           {PASSWORD_RULES.map((rule, i) => (
             <li key={rule.en} className={i === 0 && password.length >= MIN_PASSWORD_LENGTH ? "text-emerald-700" : ""}>
               <Bi text={rule} />

@@ -12,6 +12,7 @@ import { PICKUP_PIN_GATE, waitingGates } from "../../_lib/steps";
 import { btnDanger, btnDefault, Section } from "./fields";
 import { EXCEPTION_GATE } from "./ExceptionsPanel";
 import { customsDue, movementCustomsClock } from "@/app/warehouse-concept/_lib/customsClock";
+import { HINT } from "@/styles/ui";
 
 const isEmptyReturn = (g: string) => /empty return/i.test(g);
 
@@ -71,15 +72,15 @@ export function ReleaseGatesPanel({
   return (
     <Section title={TERMS.releaseGates} icon={<UnlockOutlined />}>
       <div className="flex flex-col gap-1">
-        <Badge tone={state.tone} className="self-start !text-[11.5px]">
+        <Badge tone={state.tone} className="self-start">
           {state.label}
         </Badge>
-        {state.detail && <div className="text-[11px] text-slate-500 break-words">{state.detail}</div>}
+        {state.detail && <div className={`${HINT} break-words`}>{state.detail}</div>}
       </div>
 
       <ul className="list-none m-0 mt-3 p-0 border-t border-slate-100">
         {m.releaseGates.map((x) => (
-          <li key={x.g} className="flex items-start gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
+          <li key={x.g} className="flex items-start gap-2.5 py-1.5 text-[13px] border-b border-slate-100 last:border-b-0">
             {/* Ticked by hand once met; Customs follows the customs status, the Pick-up PIN line the
                 PIN check, and nothing moves after release. */}
             {!isCustoms(x.g) && !isPickupPin(x.g) && !isException(x.g) && !m.impRelease ? (
@@ -96,8 +97,8 @@ export function ReleaseGatesPanel({
               </span>
             )}
             <div className="min-w-0 flex-1">
-              <div className="font-semibold text-slate-800">{x.g}</div>
-              <div className="text-[11px] text-slate-500 break-words">
+              <div className="font-semibold text-slate-900">{x.g}</div>
+              <div className={`${HINT} break-words`}>
                 {x.note && x.note !== "—" ? x.note : x.s}
                 {isEmptyReturn(x.g) ? " · does not hold release" : ""}
                 {isCustoms(x.g) ? " · follows the customs status" : ""}
@@ -106,7 +107,7 @@ export function ReleaseGatesPanel({
               </div>
               {isCustoms(x.g) && customs.state !== "none" && (
                 <div
-                  className={`text-[11px] break-words ${customs.state === "overdue" ? "text-red-600 font-semibold" : customsDue(customs) ? "text-amber-600 font-semibold" : "text-slate-500"}`}
+                  className={`text-[12px] break-words ${customs.state === "overdue" ? "text-red-600 font-semibold" : customsDue(customs) ? "text-amber-600 font-semibold" : "text-slate-500"}`}
                   title="Customs deadline: goods in temporary storage must get a customs procedure within 90 days of the receipt (UCC art. 149). The WH release discharges the bonded register entry."
                 >
                   Customs deadline: {customs.note}
@@ -115,7 +116,7 @@ export function ReleaseGatesPanel({
             </div>
           </li>
         ))}
-        {m.releaseGates.length === 0 && <li className="py-2 text-xs text-slate-400">No release gates on this movement.</li>}
+        {m.releaseGates.length === 0 && <li className={`py-2 ${HINT}`}>No release gates on this movement.</li>}
       </ul>
 
       {(canRefuse || canOverride) && (
@@ -201,7 +202,7 @@ export function ReasonModal({
       }}
       destroyOnHidden
     >
-      <p className="text-xs text-slate-500 mt-0">{hint}</p>
+      <p className={`${HINT} mt-0`}>{hint}</p>
       {children}
       <Input.TextArea autoFocus autoSize={{ minRows: 3, maxRows: 6 }} placeholder="Reason (required)" value={reason} onChange={(e) => setReason(e.target.value)} />
     </Modal>

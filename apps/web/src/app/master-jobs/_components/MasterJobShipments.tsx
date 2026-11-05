@@ -8,6 +8,8 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useDebounced } from "@/hooks/useDebounced";
 import type { MasterJobItem, MasterJobShipmentItem } from "@/hooks/useMasterJobs";
+import { EMPTY_CELL } from "@/components/EmptyCell";
+import { HINT, LINK, REF, TD, TH } from "@/styles/ui";
 
 interface MasterJobShipmentsProps {
   masterJob: MasterJobItem;
@@ -15,9 +17,6 @@ interface MasterJobShipmentsProps {
   onLink: (shipmentIds: string[]) => Promise<unknown>;
   onUnlink: (shipmentId: string) => Promise<unknown>;
 }
-
-const TH = "px-2 py-2 text-left text-[11px] font-bold text-slate-500 uppercase tracking-wide";
-const TD = "px-2 py-2 text-slate-700";
 
 // The house shipments under the master job, with linking and unlinking right here.
 export function MasterJobShipments({ masterJob, shipments, onLink, onUnlink }: MasterJobShipmentsProps) {
@@ -36,11 +35,11 @@ export function MasterJobShipments({ masterJob, shipments, onLink, onUnlink }: M
   return (
     <>
       {shipments.length === 0 ? (
-        <div className="py-4 text-center text-xs text-slate-400">No shipments linked yet.</div>
+        <div className={`py-4 text-center ${HINT}`}>No shipments linked yet.</div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead className="border-b border-slate-200">
+          <table className="w-full">
+            <thead>
               <tr>
                 <th className={TH}>Job Number</th>
                 <th className={TH}>Customer</th>
@@ -48,23 +47,23 @@ export function MasterJobShipments({ masterJob, shipments, onLink, onUnlink }: M
                 <th className={TH}>Consignee</th>
                 <th className={TH}>Direction</th>
                 <th className={TH}>Containers</th>
-                <th className="w-10" />
+                <th className={`${TH} w-10`} />
               </tr>
             </thead>
             <tbody>
               {shipments.map((s) => (
-                <tr key={s.id} className="border-b border-slate-100 last:border-b-0">
+                <tr key={s.id}>
                   <td className={TD}>
-                    <Link href={`/shipments/${s.id}`} className="font-mono font-semibold text-indigo-600 hover:underline">
+                    <Link href={`/shipments/${s.id}`} className={`${REF} font-semibold ${LINK}`}>
                       {s.jobNumber}
                     </Link>
                   </td>
-                  <td className={TD}>{s.customer || "—"}</td>
-                  <td className={TD}>{s.shipper || "—"}</td>
-                  <td className={TD}>{s.consignee || "—"}</td>
-                  <td className={TD}>{s.tradeDirection || "—"}</td>
-                  <td className={`${TD} font-mono`}>{s.containerNumber || "—"}</td>
-                  <td className="px-2 py-2 text-right">
+                  <td className={TD}>{s.customer || EMPTY_CELL}</td>
+                  <td className={TD}>{s.shipper || EMPTY_CELL}</td>
+                  <td className={TD}>{s.consignee || EMPTY_CELL}</td>
+                  <td className={TD}>{s.tradeDirection || EMPTY_CELL}</td>
+                  <td className={`${TD} ${REF}`}>{s.containerNumber || EMPTY_CELL}</td>
+                  <td className={`${TD} text-right`}>
                     <Popconfirm
                       title={`Remove ${s.jobNumber} from ${masterJob.mczNumber}?`}
                       description="The shipment keeps the values it got from the master job."
@@ -80,7 +79,7 @@ export function MasterJobShipments({ masterJob, shipments, onLink, onUnlink }: M
           </table>
         </div>
       )}
-      <Button size="small" type="dashed" icon={<PlusOutlined />} className="mt-3" onClick={() => setAdding(true)}>
+      <Button size="small" icon={<PlusOutlined />} className="mt-3" onClick={() => setAdding(true)}>
         Add shipments
       </Button>
       <AddShipmentsModal
@@ -146,7 +145,7 @@ function AddShipmentsModal({ open, masterJob, linkedIds, onClose, onLink }: AddS
       onOk={handleLink}
       width={720}
     >
-      <p className="text-xs text-slate-500 mb-3">
+      <p className={`${HINT} mb-3`}>
         Linked shipments take over the master job&apos;s synced MBL details.
       </p>
       <Input
@@ -163,7 +162,7 @@ function AddShipmentsModal({ open, masterJob, linkedIds, onClose, onLink }: AddS
             <Spin />
           </div>
         ) : candidates.length === 0 ? (
-          <div className="py-8 text-center text-xs text-slate-400">No shipments found.</div>
+          <div className={`py-8 text-center ${HINT}`}>No shipments found.</div>
         ) : (
           <Checkbox.Group className="w-full flex-col" value={selected} onChange={(v) => setSelected(v as string[])}>
             {candidates.map((s) => (
@@ -172,8 +171,8 @@ function AddShipmentsModal({ open, masterJob, linkedIds, onClose, onLink }: AddS
                 className="flex items-center gap-3 px-3 py-2 border-b border-slate-100 last:border-b-0 text-xs cursor-pointer hover:bg-slate-50"
               >
                 <Checkbox value={s.id} />
-                <span className="font-mono font-semibold w-[110px] shrink-0">{s.jobNumber}</span>
-                <span className="flex-1 min-w-0 truncate text-slate-700">{s.customer || s.shipper || "—"}</span>
+                <span className={`${REF} font-semibold w-[110px] shrink-0`}>{s.jobNumber}</span>
+                <span className="flex-1 min-w-0 truncate text-slate-700">{s.customer || s.shipper || EMPTY_CELL}</span>
                 <span className="w-[120px] shrink-0 text-slate-500 truncate">
                   {[s.pol, s.pod].filter(Boolean).join(" → ")}
                 </span>

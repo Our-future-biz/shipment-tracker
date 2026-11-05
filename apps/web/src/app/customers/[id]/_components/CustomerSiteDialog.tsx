@@ -7,6 +7,7 @@ import type { interfaces } from "@/lib/api/client";
 import { CUSTOMER_SITE_KIND_LABELS, CUSTOMER_SITE_KINDS } from "../../_lib/constants";
 import { formatPostcode } from "../../_lib/customerSites";
 import { czechPhoneRule, limitCzechPhone } from "@/lib/phone";
+import { LABEL_TEXT } from "@/styles/ui";
 
 export interface CustomerSiteFormValues {
   label: string;
@@ -129,7 +130,7 @@ export function CustomerSiteDialog({ open, site, saving, onCancel, onSubmit }: C
       destroyOnHidden
     >
       {/* A site is one of the customer's Pickup / Delivery addresses: the two are one record. */}
-      <div className="mb-3 rounded-md bg-slate-50 px-3 py-2 text-[12.5px] text-slate-600">
+      <div className="mb-3 rounded-lg bg-slate-50 px-3 py-2 text-[13px] text-slate-500">
         A site is a Pickup / Delivery address of the customer: its name, use and address are the same in Addresses, and a change here is
         made there too. {site ? "" : "Adding a site adds the address."}
       </div>
@@ -175,7 +176,7 @@ export function CustomerSiteDialog({ open, site, saving, onCancel, onSubmit }: C
           <Input placeholder="e.g. Mon–Fri 7:00–15:00" onPressEnter={handleSubmit} />
         </Form.Item>
 
-        <div className="text-xs font-semibold text-slate-500 mb-2">Avizace (call before arrival)</div>
+        <div className={`${LABEL_TEXT} mb-2`}>Avizace (call before arrival)</div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4">
           <Form.Item name="avizaceName" label="Name">
             <Input onPressEnter={handleSubmit} />

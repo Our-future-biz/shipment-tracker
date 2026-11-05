@@ -3,6 +3,7 @@
 import { Alert, Input } from "antd";
 import { SectionCard } from "@/components/SectionCard";
 import type { interfaces } from "@/lib/api/client";
+import { HINT } from "@/styles/ui";
 import { TERMS } from "../../_lib/glossary";
 import { pscDigits } from "../../_lib/hauliers";
 import { hubIsSet } from "../../_lib/settings";
@@ -41,7 +42,7 @@ export const HubSection = ({ hub, disabled, onChange }: HubSectionProps) => {
             <Input aria-label="Warehouse country" value={hub.country} disabled />
           </TruckingField>
         </div>
-        <p className="m-0 text-[11px] text-slate-400">
+        <p className={`m-0 ${HINT}`}>
           Pick-up runs end here, delivery runs and line hauls start here, and every truck passes the warehouse Gate Log. The warehouse confirms the gate-in, which starts the {TERMS.ltl} service-level clock.
         </p>
       </div>

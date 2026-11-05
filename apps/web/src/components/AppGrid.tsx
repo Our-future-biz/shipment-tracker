@@ -10,6 +10,7 @@ import { SortableContext, arrayMove, horizontalListSortingStrategy } from "@dnd-
 import { DraggableHeaderCell } from "@/components/DraggableHeaderCell";
 import { ColumnChecklist } from "@/components/ColumnChecklist";
 import { ColumnFilterRows } from "@/components/ColumnFilterRows";
+import { CARD, HEADING, PAGE_TITLE } from "@/styles/ui";
 import { TOOLBAR_BUTTON_CLASS, activeGridFilters, matchesGridFilters, type GridFilter } from "@/components/gridFilters";
 import { cellRender } from "@/components/gridColumns";
 import { downloadCsv } from "@/lib/csv";
@@ -246,7 +247,7 @@ export function AppGrid<T extends object>({
         <div>
           {(title || headerExtra) && (
             <div className="flex items-center justify-between gap-4 flex-wrap">
-              {title && <h1 className="text-2xl font-bold text-slate-900">{title}</h1>}
+              {title && <h1 className={PAGE_TITLE}>{title}</h1>}
               {headerExtra}
             </div>
           )}
@@ -256,7 +257,7 @@ export function AppGrid<T extends object>({
 
       {/* Filters Row */}
       {/* Wraps onto a second line when narrow, so the search never shrinks under the buttons. */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3">
+      <div className={`flex flex-wrap items-center justify-between gap-3 ${CARD} px-4 py-3`}>
         <div className="flex items-center gap-3 shrink-0">{actions}</div>
         {/* Search sits in the middle of the toolbar, actions left, the rest right. "/" focuses it. */}
         <div className="flex flex-1 basis-[220px] justify-center min-w-[200px]">
@@ -283,7 +284,7 @@ export function AppGrid<T extends object>({
             content={
               <div className="w-[430px] -m-1">
                 <div className="flex items-center justify-between px-1 pb-2.5 mb-2.5 border-b border-slate-100">
-                  <span className="text-[13px] font-semibold text-slate-800">Filter by column</span>
+                  <span className={HEADING}>Filter by column</span>
                   {colFilters.length > 0 && (
                     <button
                       onClick={() => setColFilters([])}
@@ -345,7 +346,7 @@ export function AppGrid<T extends object>({
 
       {/* Bulk action bar (shown when rows are selected) */}
       {selectedKeys.length > 0 && (
-        <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 rounded-2xl px-4 py-2.5">
+        <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-2.5">
           <span className="text-sm text-indigo-700 font-medium">{selectedKeys.length} selected</span>
           {!hideExport && (
             <Button size="small" icon={<DownloadOutlined />} onClick={() => exportCsv(selectedRows, visibleColumns, exportFilePrefix)}>
@@ -360,7 +361,7 @@ export function AppGrid<T extends object>({
       )}
 
       {/* Table */}
-      <div className="shipments-table app-grid bg-white border border-slate-200 rounded-2xl overflow-hidden">
+      <div className={`shipments-table app-grid ${CARD} overflow-hidden`}>
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
           <SortableContext items={visible} strategy={horizontalListSortingStrategy}>
             <Table<T>

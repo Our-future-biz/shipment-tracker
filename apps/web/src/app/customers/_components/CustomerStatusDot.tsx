@@ -6,7 +6,7 @@ import { statusDotClass } from "../_lib/constants";
 // shape from the account-type pill, so the two read as separate fields.
 export function CustomerStatusDot({ status }: { status: string }) {
   return (
-    <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-[13px] text-slate-600">
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-[13px] text-slate-700">
       <span className={`w-2 h-2 rounded-full ${statusDotClass(status)}`} />
       {status}
     </span>

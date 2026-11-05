@@ -69,10 +69,10 @@ export const TripVehicleForm = ({ trip, readOnly }: TripVehicleFormProps) => {
           />
         </TruckingField>
         <TruckingField label="Tractor plate">
-          <Input aria-label="Tractor plate" disabled={readOnly} className="font-mono" value={draft.tractorPlate} onChange={(e) => set("tractorPlate", plate(e.target.value))} />
+          <Input aria-label="Tractor plate" disabled={readOnly} className="tabular-nums" value={draft.tractorPlate} onChange={(e) => set("tractorPlate", plate(e.target.value))} />
         </TruckingField>
         <TruckingField label="Trailer plate">
-          <Input aria-label="Trailer plate" disabled={readOnly} className="font-mono" value={draft.trailerPlate} onChange={(e) => set("trailerPlate", plate(e.target.value))} />
+          <Input aria-label="Trailer plate" disabled={readOnly} className="tabular-nums" value={draft.trailerPlate} onChange={(e) => set("trailerPlate", plate(e.target.value))} />
         </TruckingField>
         <TruckingField label="Driver">
           <Input aria-label="Driver" disabled={readOnly} value={draft.driverName} onChange={(e) => set("driverName", e.target.value)} />

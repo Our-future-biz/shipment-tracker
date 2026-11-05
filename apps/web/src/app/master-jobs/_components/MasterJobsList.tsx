@@ -12,6 +12,7 @@ import { DROPDOWN_OPTIONS } from "@/lib/columnConfig";
 import { formatDate } from "@/lib/date";
 import { LOAD_TYPE_FILTER_OPTIONS, loadTypeLabel } from "@/lib/enums";
 import type { MasterJobItem } from "@/hooks/useMasterJobs";
+import { LINK, PAGE_TITLE, REF } from "@/styles/ui";
 
 interface MasterJobsListProps {
   masterJobs: MasterJobItem[];
@@ -89,7 +90,7 @@ export function MasterJobsList({ masterJobs, isLoading, creating, onCreate }: Ma
       width: 140,
       sorter: (a, b) => byText(a.mczNumber, b.mczNumber),
       render: (v: string, m) => (
-        <Link href={openHref(m.id)} className="font-mono font-semibold text-indigo-600 hover:underline">
+        <Link href={openHref(m.id)} className={`${REF} font-semibold ${LINK}`}>
           {v}
         </Link>
       ),
@@ -135,7 +136,7 @@ export function MasterJobsList({ masterJobs, isLoading, creating, onCreate }: Ma
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold text-slate-900">Master Jobs</h1>
+        <h1 className={PAGE_TITLE}>Master Jobs</h1>
         <Button type="primary" icon={<PlusOutlined />} loading={creating} onClick={onCreate}>
           New master job
         </Button>

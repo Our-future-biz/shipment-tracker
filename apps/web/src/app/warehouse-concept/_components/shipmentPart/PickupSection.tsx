@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Input, Button, Popconfirm, Space, Tag } from "antd";
+import { Input, Button, Popconfirm, Space } from "antd";
 import { DeleteOutlined } from "@ant-design/icons";
 import type { MessageInstance } from "antd/es/message/interface";
 import { useGeneratePickupPin, useWarehouseSection } from "@/hooks/useWarehouseConceptSection";
@@ -10,6 +10,8 @@ import { formatDateTime } from "@/lib/date";
 import { splitPickupRows, type PickupRowData } from "@/lib/tripSource";
 import { TripMarker } from "@/components/TripMarker";
 import { useListKeys } from "@/hooks/useListKeys";
+import { Badge } from "@/components/Badge";
+import { EMPTY, KPI_VALUE, LABEL_TEXT, REF, TH } from "@/styles/ui";
 import { SaveStatus } from "./JobExtras";
 
 // The PIN and its fields are written by the server only; this page sends the rows. The server
@@ -94,9 +96,9 @@ export function PickupSection({ ownerId, messageApi, readOnly = false }: { owner
   return (
     <div>
       <div className="mb-5">
-        <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mb-2">PIN</div>
+        <div className={`${LABEL_TEXT} mb-2`}>PIN</div>
         <Space align="center" wrap>
-          <span className="font-mono text-[32px] tracking-[0.3em] text-slate-800">
+          <span className={`${KPI_VALUE} tracking-[0.3em]`}>
             {pin ? pin.split("").join(" ") : pinSet ? "• • • • • •" : "– – – – – –"}
           </span>
           {!pinSet && !readOnly && (
@@ -104,7 +106,7 @@ export function PickupSection({ ownerId, messageApi, readOnly = false }: { owner
               Generate PIN
             </Button>
           )}
-          {locked && <Tag color="red">Locked — 3 wrong tries at the gate</Tag>}
+          {locked && <Badge tone="r">Locked — 3 wrong tries at the gate</Badge>}
           {locked && !readOnly && (
             <Popconfirm
               title="Generate a new PIN?"
@@ -117,7 +119,7 @@ export function PickupSection({ ownerId, messageApi, readOnly = false }: { owner
               </Button>
             </Popconfirm>
           )}
-          {pinSet && !locked && <Tag color="green">{pin ? "Set" : "Set — hidden"}</Tag>}
+          {pinSet && !locked && <Badge tone="g">{pin ? "Set" : "Set — hidden"}</Badge>}
         </Space>
         {pinSet && section.pinCreatedAt && (
           <div className="text-[11px] text-slate-500 mt-1">
@@ -128,7 +130,7 @@ export function PickupSection({ ownerId, messageApi, readOnly = false }: { owner
       </div>
 
       <div className="flex justify-between mb-2">
-        <strong className="text-xs">Pickup Details</strong>
+        <strong className={LABEL_TEXT}>Pickup Details</strong>
         {!readOnly && (
           <Space size="small">
             <SaveStatus dirty={dirty} savedAt={savedAt} />
@@ -137,23 +139,23 @@ export function PickupSection({ ownerId, messageApi, readOnly = false }: { owner
           </Space>
         )}
       </div>
-      <table className="w-full border-collapse text-xs">
+      <table className="w-full border-collapse text-[13px]">
         <thead>
-          <tr className="bg-slate-50 border-b border-slate-200">
+          <tr>
             {["PIN", "Haulier", "License Plate", "Driver", ""].map((h) => (
-              <th key={h} className="text-left p-1.5 font-semibold text-slate-500">{h}</th>
+              <th key={h} className={TH}>{h}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           {tripRows.map((row, idx) => (
-            <tr key={`trip-${idx}`} className="border-b border-slate-100 bg-sky-50/40">
-              <td className="p-0.5 px-1.5 font-mono text-indigo-500">{pin ?? ""}</td>
+            <tr key={`trip-${idx}`} className="border-b border-slate-100 bg-indigo-50/40">
+              <td className={`p-0.5 px-1.5 ${REF} text-indigo-600`}>{pin ?? ""}</td>
               {["haulier", "licensePlate", "driver"].map((f) => {
                 const v = typeof row[f] === "string" ? (row[f] as string) : "";
                 return (
                   <td key={f} className="p-0.5">
-                    <span className={`block px-1.5 py-1 ${v ? "text-slate-900" : "text-slate-300"}`}>{v || "—"}</span>
+                    <span className={`block px-1.5 py-1 ${v ? "text-slate-900" : EMPTY}`}>{v || "—"}</span>
                   </td>
                 );
               })}
@@ -165,11 +167,11 @@ export function PickupSection({ ownerId, messageApi, readOnly = false }: { owner
           {rows.map((row, idx) => (
             <tr key={rowKeys.keys[idx]} className="border-b border-slate-100">
               {/* The PIN belongs to the pick-up, so every row carries it. */}
-              <td className="p-0.5 px-1.5 font-mono text-indigo-500">{pin ?? ""}</td>
+              <td className={`p-0.5 px-1.5 ${REF} text-indigo-600`}>{pin ?? ""}</td>
               {["haulier", "licensePlate", "driver"].map((f) => (
                 <td key={f} className="p-0.5">
                   {readOnly ? (
-                    <span className={`block px-1.5 py-1 ${row[f] ? "text-slate-900" : "text-slate-300"}`}>{row[f] || "—"}</span>
+                    <span className={`block px-1.5 py-1 ${row[f] ? "text-slate-900" : EMPTY}`}>{row[f] || "—"}</span>
                   ) : (
                     <Input size="small" value={row[f] || ""} onChange={(e) => update(idx, f, e.target.value)} />
                   )}

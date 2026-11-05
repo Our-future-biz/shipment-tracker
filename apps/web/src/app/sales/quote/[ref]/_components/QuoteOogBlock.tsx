@@ -7,6 +7,7 @@ import { moneyInputParser } from "@/lib/money";
 import { answerInGauge, checkOog, gaugeAdvice, hasGauge, inGaugeMaximum, type OogCheck } from "../../../_lib/oog";
 import type { QuoteOog } from "../../../_lib/types";
 import { LINE_TD_CLASS, LINE_TH_CLASS, LINE_TH_RIGHT_CLASS, LineBlock, LineTable } from "./LineBlock";
+import { HINT, LABEL_TEXT } from "@/styles/ui";
 
 interface QuoteOogBlockProps {
   value: QuoteOog | undefined;
@@ -39,7 +40,7 @@ function lostText(lost: OogCheck["lost"]): string {
 function Measure({ label, hint, value, onChange }: { label: string; hint: string; value: number | undefined; onChange: (v: number | undefined) => void }) {
   return (
     <label className="block text-xs">
-      <span className="block mb-1 text-slate-500 font-medium">{label}</span>
+      <span className={`block mb-1 ${LABEL_TEXT}`}>{label}</span>
       <InputNumber
         size="small"
         className="!w-full"
@@ -51,7 +52,7 @@ function Measure({ label, hint, value, onChange }: { label: string; hint: string
         suffix="cm"
         onChange={(v) => onChange(v ?? undefined)}
       />
-      <span className="block mt-0.5 text-[11px] text-slate-400">{hint}</span>
+      <span className={`block mt-0.5 ${HINT}`}>{hint}</span>
     </label>
   );
 }
@@ -59,7 +60,7 @@ function Measure({ label, hint, value, onChange }: { label: string; hint: string
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex items-center gap-3 text-xs">
-      <span className="w-[150px] shrink-0 text-slate-500 font-medium">{label}</span>
+      <span className={`w-[150px] shrink-0 ${LABEL_TEXT}`}>{label}</span>
       {children}
     </div>
   );
@@ -116,7 +117,7 @@ export function QuoteOogBlock({ value, types, onChange, missing }: QuoteOogBlock
             </div>
 
             {checks.length > 0 && (
-              <div className="border border-slate-200 rounded-md overflow-hidden">
+              <div className="border border-slate-200 rounded-lg overflow-hidden">
                 {/* The headings are long for their figures: the columns are wide enough for them, and a
                     heading that still does not fit wraps instead of running into the next one. */}
                 <LineTable minWidthClass="min-w-[760px] [&_th]:!whitespace-normal">
@@ -140,7 +141,7 @@ export function QuoteOogBlock({ value, types, onChange, missing }: QuoteOogBlock
                     {checks.map((c) => (
                       // Cargo a flat rack takes only with the liner's confirmation is marked yellow.
                       <tr key={c.type} className={c.liner.length > 0 && !c.lost.total ? "bg-amber-50" : undefined}>
-                        <td className={`${LINE_TD_CLASS} font-medium text-slate-700`}>{c.type}</td>
+                        <td className={`${LINE_TD_CLASS} font-medium`}>{c.type}</td>
                         <td className={`${LINE_TD_CLASS} text-right tabular-nums`}>{over(c.overWidthPerSide)}</td>
                         <td className={`${LINE_TD_CLASS} text-right tabular-nums`}>{over(c.overHeight)}</td>
                         <td className={`${LINE_TD_CLASS} text-right tabular-nums`}>{over(c.overLengthPerEnd)}</td>
@@ -149,7 +150,7 @@ export function QuoteOogBlock({ value, types, onChange, missing }: QuoteOogBlock
                             <span className="font-semibold text-red-600">{c.doesNotFit}</span>
                           ) : c.lost.total > 0 ? (
                             <span>
-                              <span className="font-semibold text-slate-800">{c.lost.total}</span>
+                              <span className="font-semibold text-slate-900">{c.lost.total}</span>
                               <span className="text-slate-500"> - {lostText(c.lost)}</span>
                             </span>
                           ) : c.liner.length > 0 ? (
@@ -157,8 +158,8 @@ export function QuoteOogBlock({ value, types, onChange, missing }: QuoteOogBlock
                               None - <span className="font-bold">you need to have this confirmed by the liner</span>
                             </span>
                           ) : (
-                            <span className="text-green-700 font-semibold">
-                              None - within the box{c.loading === "doors" && <span className="font-normal text-slate-600"> · load through the doors</span>}
+                            <span className="text-emerald-700 font-semibold">
+                              None - within the box{c.loading === "doors" && <span className="font-normal text-slate-500"> · load through the doors</span>}
                             </span>
                           )}
                         </td>
@@ -172,7 +173,7 @@ export function QuoteOogBlock({ value, types, onChange, missing }: QuoteOogBlock
             {checks
               .filter((c) => c.liner.length > 0)
               .map((c) => (
-                <div key={`liner-${c.type}`} className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                <div key={`liner-${c.type}`} className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                   <span className="font-bold">{c.type}: you need to have this confirmed by the liner.</span>{" "}
                   {c.liner
                     .map((l) => `${l.measure === "length" ? "Length" : l.measure === "width" ? "Width" : "Height"} ${l.value.toLocaleString("en-US")} cm is over the ${l.inGauge.toLocaleString("en-US")} cm in gauge (liner limit ${l.limit.toLocaleString("en-US")} cm)`)

@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Input, Button, Space, Tag } from "antd";
+import { Input, Button, Space } from "antd";
 import { DeleteOutlined } from "@ant-design/icons";
 import type { MessageInstance } from "antd/es/message/interface";
 import { useWarehouseSection } from "@/hooks/useWarehouseSection";
+import { Pill } from "@/components/Pill";
+import { KPI_VALUE, LABEL_TEXT, REF, TH } from "@/styles/ui";
 
 interface PickupSectionData {
   pin?: string;
@@ -70,28 +72,28 @@ export function PickupSection({ ownerId, messageApi }: { ownerId: string; messag
   return (
     <div>
       <div className="mb-5">
-        <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mb-2">PIN</div>
+        <div className={`${LABEL_TEXT} mb-2`}>PIN</div>
         <Space align="center">
-          <span className="font-mono text-[32px] tracking-[0.3em] text-slate-800">
+          <span className={`${KPI_VALUE} tracking-[0.3em]`}>
             {pin ? pin.split("").join(" ") : "– – – –"}
           </span>
           {!pin && <Button type="primary" size="small" onClick={generatePin} loading={isSaving}>Generate PIN</Button>}
-          {pin && <Tag color="green">Locked</Tag>}
+          {pin && <Pill tone="green">Locked</Pill>}
         </Space>
       </div>
 
       <div className="flex justify-between mb-2">
-        <strong className="text-xs">Pickup Details</strong>
+        <strong className={LABEL_TEXT}>Pickup Details</strong>
         <Space size="small">
           <Button size="small" onClick={addRow}>+ Row</Button>
           {dirty && <Button size="small" type="primary" onClick={handleSave} loading={isSaving}>Save</Button>}
         </Space>
       </div>
-      <table className="w-full border-collapse text-xs">
+      <table className="w-full border-collapse text-[13px]">
         <thead>
-          <tr className="bg-slate-50 border-b border-slate-200">
+          <tr>
             {["PIN", "Haulier", "License Plate", "Driver", ""].map((h) => (
-              <th key={h} className="text-left p-1.5 font-semibold text-slate-500">{h}</th>
+              <th key={h} className={TH}>{h}</th>
             ))}
           </tr>
         </thead>
@@ -99,7 +101,7 @@ export function PickupSection({ ownerId, messageApi }: { ownerId: string; messag
           {rows.map((row, idx) => (
             <tr key={idx} className="border-b border-slate-100">
               {/* The PIN belongs to the pick-up, so every row carries it. */}
-              <td className="p-0.5 px-1.5 font-mono text-indigo-500">{pin ?? ""}</td>
+              <td className={`p-0.5 px-1.5 ${REF} text-slate-900`}>{pin ?? ""}</td>
               {["haulier", "licensePlate", "driver"].map((f) => (
                 <td key={f} className="p-0.5">
                   <Input size="small" value={row[f] || ""} onChange={(e) => update(idx, f, e.target.value)} />

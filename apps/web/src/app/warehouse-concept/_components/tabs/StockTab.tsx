@@ -28,6 +28,8 @@ import { TERMS } from "@/app/warehouse-concept/_lib/glossary";
 import { useUrlParam } from "@/hooks/useUrlParam";
 import { BulkDeleteButton, Callout, Card, Kpi, RecordFormModal, StatusTag, SubTabs, dim, nf, type FieldDef } from "./shared";
 import { businessToday } from "@/lib/date";
+import type { Tone } from "@/components/Badge";
+import { BTN_PRIMARY, EMPTY, HINT, LABEL_TEXT, REF, TD, TH } from "@/styles/ui";
 
 // Stock tab: what is on hand (per house job), where it sits on the floor, how it moved, how long
 // it has been in store against its free time, and what is under customs control.
@@ -38,48 +40,45 @@ const STOCK_STATUSES = ["Available", "Allocated", "On hold", "Picked"];
 // An automatic line is closed by the gate (Picked when it leaves, Voided when the receipt is voided).
 const AUTO_STATUSES = ["Available", "Allocated", "On hold"];
 const ALL_STATUSES = [...STOCK_STATUSES, "Voided"];
-const STOCK_STATUS_COLORS: Record<string, string> = { Available: "green", Allocated: "blue", "On hold": "red", Picked: "purple", Voided: "default" };
+const STOCK_STATUS_TONES: Record<string, Tone> = { Available: "g", Allocated: "b", "On hold": "r", Picked: "i", Voided: "" };
 const CUSTOMS = ["Free circulation", "T1 bonded", "Temporary storage", "Customs warehouse", "Export cleared"];
 const UNDER_CUSTOMS = ["T1 bonded", "Temporary storage", "Customs warehouse"];
-const CUSTOMS_COLORS: Record<string, string> = {
-  "T1 bonded": "orange",
-  "Temporary storage": "orange",
-  "Customs warehouse": "gold",
-  "Export cleared": "blue",
-  "Free circulation": "default",
+const CUSTOMS_TONES: Record<string, Tone> = {
+  "T1 bonded": "a",
+  "Temporary storage": "a",
+  "Customs warehouse": "a",
+  "Export cleared": "b",
+  "Free circulation": "",
 };
-const SOURCE_COLORS: Record<string, string> = { Auto: "geekblue", Manual: "default" };
+const SOURCE_TONES: Record<string, Tone> = { Auto: "i", Manual: "" };
 const sourceLabel = (s: string) => (s === "auto" ? "Auto" : "Manual");
 const SOURCE_HINT = "Auto: follows the gate record (opened at the receipt, closed when the position leaves). Manual: typed by hand.";
-const FREE_TIME_COLORS: Record<string, string> = { "Within free time": "green", Expiring: "orange", Chargeable: "red" };
+const FREE_TIME_TONES: Record<string, Tone> = { "Within free time": "g", Expiring: "a", Chargeable: "r" };
 const MOVEMENT_TYPES = ["Receipt", "Put-away", "Transfer", "Pick", "Load", "Adjustment", "Rework"];
-const MOVEMENT_COLORS: Record<string, string> = {
-  Receipt: "blue",
-  "Put-away": "geekblue",
-  Transfer: "default",
-  Pick: "orange",
-  Load: "green",
-  Adjustment: "red",
-  Rework: "gold",
+const MOVEMENT_TONES: Record<string, Tone> = {
+  Receipt: "b",
+  "Put-away": "i",
+  Transfer: "",
+  Pick: "a",
+  Load: "g",
+  Adjustment: "r",
+  Rework: "a",
 };
-const BONDED_COLORS: Record<string, string> = { "In stock": "orange", Discharged: "green", Voided: "default" };
+const BONDED_TONES: Record<string, Tone> = { "In stock": "a", Discharged: "g", Voided: "" };
 
-const btnPrimary =
-  "flex items-center gap-1.5 shrink-0 rounded-lg bg-indigo-600 px-3 h-8 text-[13px] font-semibold text-white hover:bg-indigo-700 transition-colors";
-
-const mono = (v: string) => (v ? <span className="font-mono font-bold text-indigo-500">{v}</span> : dim(""));
+const mono = (v: string) => (v ? <span className={`${REF} font-bold text-indigo-600`}>{v}</span> : dim(""));
 // House job coloured by its free-time state, as on the prototype.
 const JOB_TONE: Record<string, string> = { Chargeable: "text-red-600", Expiring: "text-amber-600", "Within free time": "text-emerald-600" };
 const job = (l: StockLine) => (
-  <span className={`font-mono font-bold ${l.closed ? "text-slate-400" : (JOB_TONE[l.freeTimeState] ?? "text-indigo-500")}`} title={l.movementId ? undefined : "Not linked to a position"}>
+  <span className={`${REF} font-bold ${l.closed ? "text-slate-400" : (JOB_TONE[l.freeTimeState] ?? "text-indigo-600")}`} title={l.movementId ? undefined : "Not linked to a position"}>
     {l.job}
-    {!l.movementId && <span className="ml-1 font-sans font-normal text-[10px] text-slate-400">not linked</span>}
+    {!l.movementId && <span className="ml-1 font-normal tracking-normal text-[10px] text-slate-500">not linked</span>}
   </span>
 );
 
 const sourceTag = (source: string) => (
   <span title={SOURCE_HINT}>
-    <StatusTag value={sourceLabel(source)} colors={SOURCE_COLORS} />
+    <StatusTag value={sourceLabel(source)} tones={SOURCE_TONES} />
   </span>
 );
 
@@ -110,12 +109,12 @@ function BuildStockButton() {
         title: "Build stock from gate records?",
         width: 560,
         content: (
-          <div className="text-xs text-slate-600 flex flex-col gap-2">
+          <div className="text-[13px] text-slate-700 flex flex-col gap-2">
             <p className="m-0">
               Every live gate record is checked: received positions get their automatic stock line (and a bonded register entry when under
               customs control); lines of positions that left are closed. Manual lines are not changed.
             </p>
-            <p className="m-0 font-semibold text-slate-800">{stockSyncText(preview, true)}</p>
+            <p className="m-0 font-semibold text-slate-900">{stockSyncText(preview, true)}</p>
             {preview.manualLineExists.length > 0 && (
               <p className="m-0 text-amber-700">
                 Manual line exists — check: {preview.manualLineExists.slice(0, 20).join(", ")}
@@ -248,10 +247,10 @@ function StockOnHand() {
       title: "Free time",
       width: 150,
       text: (l) => l.freeTimeState,
-      filterOptions: Object.keys(FREE_TIME_COLORS),
-      render: (_, l) => <StatusTag value={l.freeTimeState} colors={FREE_TIME_COLORS} />,
+      filterOptions: Object.keys(FREE_TIME_TONES),
+      render: (_, l) => <StatusTag value={l.freeTimeState} tones={FREE_TIME_TONES} />,
     },
-    { key: "customs", title: "Customs", width: 150, text: (l) => l.customs, filterOptions: CUSTOMS, render: (_, l) => <StatusTag value={l.customs} colors={CUSTOMS_COLORS} /> },
+    { key: "customs", title: "Customs", width: 150, text: (l) => l.customs, filterOptions: CUSTOMS, render: (_, l) => <StatusTag value={l.customs} tones={CUSTOMS_TONES} /> },
     customsDeadlineCol,
     { key: "consol", title: "Consol", width: 130, text: (l) => l.consol, render: (_, l) => mono(l.consol) },
     {
@@ -262,7 +261,7 @@ function StockOnHand() {
       filterOptions: ALL_STATUSES,
       render: (_, l) => (
         <span title={l.closedReason ? `${l.closedReason}${l.closedAt ? ` · ${formatDateTime(l.closedAt)}` : ""}` : undefined}>
-          <StatusTag value={l.status} colors={STOCK_STATUS_COLORS} />
+          <StatusTag value={l.status} tones={STOCK_STATUS_TONES} />
         </span>
       ),
     },
@@ -286,7 +285,7 @@ function StockOnHand() {
         searchPlaceholder="Search job, customer, shipper, marks…"
         actions={
           <>
-            <button className={btnPrimary} onClick={() => setEditing({})} title="A manual line, for odd cases — received cargo gets its line from the gate">
+            <button type="button" className={BTN_PRIMARY} onClick={() => setEditing({})} title="A manual line, for odd cases — received cargo gets its line from the gate">
               <PlusOutlined /> Manual line
             </button>
             <BuildStockButton />
@@ -296,7 +295,7 @@ function StockOnHand() {
           <>
             <Select value={status} onChange={setStatus} className="w-40" options={[{ value: "", label: "All statuses" }, ...(showClosed ? ALL_STATUSES : STOCK_STATUSES).map((s) => ({ value: s, label: s }))]} />
             <Select value={customs} onChange={setCustoms} className="w-44" options={[{ value: "", label: "All customs" }, ...CUSTOMS.map((s) => ({ value: s, label: s }))]} />
-            <label className="flex items-center gap-1.5 text-xs text-slate-500 whitespace-nowrap">
+            <label className={`flex items-center gap-1.5 ${HINT} whitespace-nowrap`}>
               <Switch size="small" checked={showClosed} onChange={setShowClosed} /> Show closed
             </label>
           </>
@@ -410,12 +409,12 @@ function Locations() {
         ))}
       >
         {zones.length === 0 ? (
-          <p className="text-xs text-slate-400 m-0">No zones yet — add the storage zones on the right to draw the floor map.</p>
+          <p className={`${HINT} m-0`}>No zones yet — add the storage zones on the right to draw the floor map.</p>
         ) : (
           <div className="flex flex-col gap-4">
             {zones.map((z) => (
               <div key={z.id}>
-                <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-2">
+                <div className={`${LABEL_TEXT} mb-2`}>
                   Zone {z.code}
                   {z.name ? ` — ${z.name}` : ""}
                 </div>
@@ -430,7 +429,7 @@ function Locations() {
                         onClick={() => setSelected(b.code)}
                         className={`text-left rounded-md border px-2 py-1.5 cursor-pointer transition-shadow ${bayTone(b)} ${selected === b.code ? "ring-2 ring-indigo-500" : ""}`}
                       >
-                        <div className="font-mono text-[11px] font-bold text-slate-700">{b.code}</div>
+                        <div className="tabular-nums text-[11px] font-bold text-slate-700">{b.code}</div>
                         <div className="text-[10px] text-slate-500 truncate">
                           {b.blocked ? "Blocked" : b.lines.length ? `${b.lines[0]!.job.slice(-4)} · ${nf(b.lines.reduce((s, l) => s + l.cbm, 0), 1)} cbm` : "Empty"}
                         </div>
@@ -454,13 +453,13 @@ function Locations() {
           }
         >
           {isLoading ? null : zones.length === 0 ? (
-            <p className="text-xs text-slate-400 m-0 p-4">No zones yet.</p>
+            <p className={`${HINT} m-0 p-4`}>No zones yet.</p>
           ) : (
-            <table className="w-full border-collapse text-xs">
+            <table className="w-full border-collapse">
               <thead>
-                <tr className="bg-slate-50 border-b border-slate-200">
+                <tr>
                   {["Zone", "Use", "Occupied", "Full"].map((h, i) => (
-                    <th key={h} className={`px-4 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-500 ${i >= 2 ? "text-right" : "text-left"}`}>
+                    <th key={h} className={`${TH} !px-4 ${i >= 2 ? "!text-right" : ""}`}>
                       {h}
                     </th>
                   ))}
@@ -468,13 +467,13 @@ function Locations() {
               </thead>
               <tbody>
                 {zones.map((z) => (
-                  <tr key={z.id} onClick={() => setEditing({ zone: z })} className="border-b border-slate-100 last:border-b-0 cursor-pointer hover:bg-slate-50">
-                    <td className="px-4 py-2">{mono(z.code)}</td>
-                    <td className="px-4 py-2">{dim(z.name)}</td>
-                    <td className="px-4 py-2 text-right tabular-nums">{dim(z.capacity ? `${z.occupied} / ${z.capacity}` : `${z.usedBays} / ${z.bays} bays`)}</td>
-                    <td className="px-4 py-2 text-right">
+                  <tr key={z.id} onClick={() => setEditing({ zone: z })} className="cursor-pointer hover:bg-slate-50">
+                    <td className={`${TD} !px-4`}>{mono(z.code)}</td>
+                    <td className={`${TD} !px-4`}>{dim(z.name)}</td>
+                    <td className={`${TD} !px-4 text-right tabular-nums`}>{dim(z.capacity ? `${z.occupied} / ${z.capacity}` : `${z.usedBays} / ${z.bays} bays`)}</td>
+                    <td className={`${TD} !px-4 text-right`}>
                       {/* A full zone is the problem, not the goal. */}
-                      <StatusTag value={`${z.fullPercent} %`} colors={{ [`${z.fullPercent} %`]: z.fullPercent >= 90 ? "red" : z.fullPercent >= 70 ? "orange" : "green" }} />
+                      <StatusTag value={`${z.fullPercent} %`} tones={{ [`${z.fullPercent} %`]: z.fullPercent >= 90 ? "r" : z.fullPercent >= 70 ? "a" : "g" }} />
                     </td>
                   </tr>
                 ))}
@@ -484,7 +483,7 @@ function Locations() {
         </Card>
         <Card title="Bay detail">
           {!bay ? (
-            <p className="text-xs text-slate-400 m-0">Select a bay on the map.</p>
+            <p className={`${HINT} m-0`}>Select a bay on the map.</p>
           ) : bay.blocked ? (
             <Callout title={bay.code}>Blocked — no storage permitted.</Callout>
           ) : !bay.lines.length ? (
@@ -492,7 +491,7 @@ function Locations() {
           ) : (
             <div className="flex flex-col gap-3">
               {bay.lines.map((l) => (
-                <dl key={l.id} className="grid grid-cols-[120px_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs m-0">
+                <dl key={l.id} className="grid grid-cols-[120px_minmax(0,1fr)] gap-x-3 gap-y-1 text-[13px] m-0">
                   {[
                     ["Bay", l.location],
                     ["House job", l.job],
@@ -507,8 +506,8 @@ function Locations() {
                     ["Status", l.status],
                   ].map(([k, v]) => (
                     <div key={k} className="contents">
-                      <dt className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{k}</dt>
-                      <dd className="m-0 font-medium text-slate-900">{v || "—"}</dd>
+                      <dt className={`${LABEL_TEXT} self-center`}>{k}</dt>
+                      <dd className="m-0 font-medium text-slate-900">{v || <span className={EMPTY}>—</span>}</dd>
                     </div>
                   ))}
                 </dl>
@@ -554,8 +553,8 @@ function Movements() {
   const rows = useMemo(() => (type ? items.filter((m) => m.type === type) : items), [items, type]);
 
   const columns: AppGridColumn<StockMovement>[] = [
-    { key: "at", title: "Timestamp", width: 150, text: (m) => m.at, render: (_, m) => <span className="font-mono text-slate-600">{formatDateTime(m.at)}</span> },
-    { key: "type", title: "Type", width: 120, text: (m) => m.type, filterOptions: MOVEMENT_TYPES, render: (_, m) => <StatusTag value={m.type} colors={MOVEMENT_COLORS} /> },
+    { key: "at", title: "Timestamp", width: 150, text: (m) => m.at, render: (_, m) => <span className="tabular-nums text-slate-700">{formatDateTime(m.at)}</span> },
+    { key: "type", title: "Type", width: 120, text: (m) => m.type, filterOptions: MOVEMENT_TYPES, render: (_, m) => <StatusTag value={m.type} tones={MOVEMENT_TONES} /> },
     { key: "job", title: "House job", width: 150, text: (m) => m.job, render: (_, m) => mono(m.job) },
     { key: "source", title: "Source", width: 90, text: (m) => sourceLabel(m.source), filterOptions: ["Auto", "Manual"], render: (_, m) => sourceTag(m.source) },
     { key: "pieces", title: TERMS.pieces, width: 80, align: "right", text: (m) => String(m.pieces), render: (_, m) => dim(m.pieces) },
@@ -571,10 +570,10 @@ function Movements() {
         searchPlaceholder="Search job, user, location…"
         actions={
           <>
-            <button className={btnPrimary} onClick={() => setOpen(true)}>
+            <button type="button" className={BTN_PRIMARY} onClick={() => setOpen(true)}>
               <PlusOutlined /> Record movement
             </button>
-            <span className="text-xs text-slate-400">Every movement is final and stamped with who recorded it. Receipts, picks and loads from the gate are written automatically.</span>
+            <span className={HINT}>Every movement is final and stamped with who recorded it. Receipts, picks and loads from the gate are written automatically.</span>
           </>
         }
         filters={<Select value={type} onChange={setType} className="w-44" options={[{ value: "", label: "All movement types" }, ...MOVEMENT_TYPES.map((t) => ({ value: t, label: t }))]} />}
@@ -626,8 +625,8 @@ function Ageing() {
       title: "State",
       width: 150,
       text: (l) => l.freeTimeState,
-      filterOptions: Object.keys(FREE_TIME_COLORS),
-      render: (_, l) => <StatusTag value={l.freeTimeState} colors={FREE_TIME_COLORS} />,
+      filterOptions: Object.keys(FREE_TIME_TONES),
+      render: (_, l) => <StatusTag value={l.freeTimeState} tones={FREE_TIME_TONES} />,
     },
     customsDeadlineCol,
   ];
@@ -722,7 +721,7 @@ function Bonded() {
       render: (_, b) => (
         <span className="flex flex-col gap-0.5">
           <CustomsDeadlineChip clock={b.customsClock} empty="" />
-          {b.deadline && <span className="text-[10.5px] text-slate-400">{formatDate(b.deadline)}</span>}
+          {b.deadline && <span className={HINT}>{formatDate(b.deadline)}</span>}
         </span>
       ),
     },
@@ -732,7 +731,7 @@ function Bonded() {
     { key: "discharged", title: "Discharged", width: 140, text: (b) => b.dischargedAt ?? "", render: (_, b) => dim(b.dischargedAt ? formatDateTime(b.dischargedAt) : "") },
     { key: "dischargeRef", title: "Ref", width: 240, text: (b) => b.dischargeRef || b.discharge || b.voidedReason, render: (_, b) => dim(b.dischargeRef || b.discharge || (b.voidedReason ? `Voided — ${b.voidedReason}` : "")) },
     { key: "balance", title: "Balance", width: 90, align: "right", text: (b) => String(b.balance), render: (_, b) => dim(b.balance) },
-    { key: "status", title: "Status", width: 120, text: (b) => b.status, filterOptions: ["In stock", "Discharged", "Voided"], render: (_, b) => <StatusTag value={b.status} colors={BONDED_COLORS} /> },
+    { key: "status", title: "Status", width: 120, text: (b) => b.status, filterOptions: ["In stock", "Discharged", "Voided"], render: (_, b) => <StatusTag value={b.status} tones={BONDED_TONES} /> },
   ];
   const open = items.filter((b) => b.status === "In stock");
 
@@ -757,7 +756,7 @@ function Bonded() {
       <AppGrid<BondedEntry>
         searchPlaceholder="Search MRN, job, consignee…"
         actions={
-          <button className={btnPrimary} onClick={() => setEditing({})} title="A manual entry, for odd cases — positions under customs control get theirs from the gate">
+          <button type="button" className={BTN_PRIMARY} onClick={() => setEditing({})} title="A manual entry, for odd cases — positions under customs control get theirs from the gate">
             <PlusOutlined /> Manual entry
           </button>
         }

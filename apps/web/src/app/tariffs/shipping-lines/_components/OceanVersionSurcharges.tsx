@@ -13,7 +13,7 @@ type Surcharge = interfaces.OceanSurcharge;
 // when, and the quote line each one goes on.
 export const OceanVersionSurcharges = ({ layout }: { layout: Pick<OceanLayout, "surcharges" | "tables"> }) => {
   const columns: TableColumnsType<Surcharge> = [
-    { key: "code", title: "Code", render: (_, s) => <span className="font-semibold text-slate-800">{s.code}</span> },
+    { key: "code", title: "Code", render: (_, s) => <span className="font-semibold text-slate-900">{s.code}</span> },
     { key: "name", title: "Name", render: (_, s) => s.name },
     {
       key: "amount",
@@ -26,7 +26,7 @@ export const OceanVersionSurcharges = ({ layout }: { layout: Pick<OceanLayout, "
       ),
     },
     { key: "basis", title: "Basis", render: (_, s) => <span className="whitespace-nowrap">{SURCHARGE_BASIS_TEXT[s.basis]}</span> },
-    { key: "for", title: "For", render: (_, s) => <span className="text-xs text-slate-600">{surchargeScopeText(s, layout.tables)}</span> },
+    { key: "for", title: "For", render: (_, s) => <span className="text-xs text-slate-500">{surchargeScopeText(s, layout.tables)}</span> },
     { key: "condition", title: "When", render: (_, s) => SURCHARGE_CONDITION_TEXT[s.condition] || "always" },
     { key: "charge", title: "Quote charge", render: (_, s) => SURCHARGE_CHARGE_TEXT[s.charge] },
   ];

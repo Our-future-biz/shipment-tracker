@@ -2,6 +2,7 @@
 
 import { CopyOutlined } from "@ant-design/icons";
 import { useToast } from "@/lib/toast";
+import { ICON_BTN_GHOST } from "@/styles/ui";
 
 interface CopyButtonProps {
   /** What is copied, e.g. a job number or a quote reference. */
@@ -24,7 +25,7 @@ export const CopyButton = ({ text, what }: CopyButtonProps) => {
           () => toast.error(`Could not copy the ${what}`),
         )
       }
-      className="text-slate-400 hover:text-indigo-500 cursor-pointer bg-transparent border-none p-1"
+      className={ICON_BTN_GHOST}
     >
       <CopyOutlined />
     </button>

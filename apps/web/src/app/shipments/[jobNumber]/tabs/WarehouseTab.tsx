@@ -13,6 +13,9 @@ import { SectionChangedError, useWarehouseSection } from "@/hooks/useWarehouseSe
 import { apiErrorMessage } from "@/lib/api";
 import { informedText } from "@/lib/informOperations";
 import { SectionCard as Card, PillTabs } from "@/components/SectionCard";
+import { Pill } from "@/components/Pill";
+import { LABEL_TEXT, TH } from "@/styles/ui";
+import { EMPTY, LABEL, ROW, VALUE } from "../_components/detailStyles";
 import { PickupSection } from "./warehouse/PickupSection";
 import { JobNotes, ActionPushButtons } from "./warehouse/JobExtras";
 
@@ -35,12 +38,12 @@ function computeWM(weightTons?: string | null, volumeCbm?: string | null): strin
   return Math.max(w, v).toFixed(3);
 }
 
-// Label/value row, the same shape the detail cards use.
+// Label/value row, the same shape the detail cards use (detailStyles).
 function Row({ label, value }: { label: string; value?: string | null }) {
   return (
-    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
-      <span className="w-[160px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">{label}</span>
-      <span className={`flex-1 min-w-0 font-medium ${value ? "text-slate-900" : "text-slate-300"}`}>{value || "—"}</span>
+    <div className={ROW}>
+      <span className={LABEL}>{label}</span>
+      <span className={value ? VALUE : `flex-1 min-w-0 ${EMPTY}`}>{value || "—"}</span>
     </div>
   );
 }
@@ -101,14 +104,9 @@ export function WarehouseTab({ shipment }: { shipment: ShipmentItem }) {
 function StackabilityBadge({ shipment }: { shipment: ShipmentItem }) {
   const value = shipmentStackability(shipment.cargoDimensions ?? []);
   const stackability = value === STACKABLE ? "stackable" : value === NOT_STACKABLE ? "not_stackable" : "unknown";
-  const tone =
-    stackability === "stackable"
-      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-      : stackability === "not_stackable"
-        ? "bg-red-50 text-red-600 border-red-200"
-        : "bg-slate-50 text-slate-500 border-slate-200";
+  const tone = stackability === "stackable" ? "green" : stackability === "not_stackable" ? "red" : "slate";
   const label = stackability === "stackable" ? "Stackable" : stackability === "not_stackable" ? "Not stackable" : "Unknown stackability";
-  return <span className={`inline-flex items-center h-6 px-2 rounded-md border text-[11px] font-semibold ${tone}`}>{label}</span>;
+  return <Pill tone={tone}>{label}</Pill>;
 }
 
 // ─── Dimensions / Remeasurement Editor (shipment-specific) ──────
@@ -228,16 +226,16 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
         </>
       }
     >
-      <table className="w-full border-collapse text-xs">
+      <table className="w-full border-collapse text-[13px]">
         <thead>
-          <tr className="bg-slate-50 border-b border-slate-200">
+          <tr>
             {["Qty", "L (cm)", "W (cm)", "H (cm)", "Weight/pc (kg)"].map((h) => (
-              <th key={h} className="text-left px-2 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+              <th key={h} className={TH}>
                 {h}
               </th>
             ))}
-            <th className="text-right px-2 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-500">Vol (CBM)</th>
-            <th className="w-[36px]" />
+            <th className={`${TH} text-right`}>Vol (CBM)</th>
+            <th className={`${TH} w-[36px]`} />
           </tr>
         </thead>
         <tbody>
@@ -257,7 +255,7 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
                 </td>
               ))}
               {/* Worked out from the sizes, so text. */}
-              <td className="p-0.5 px-1 text-right text-[11px] text-slate-500">
+              <td className="p-0.5 px-1 text-right text-[13px] text-slate-700 tabular-nums">
                 {(rowCbms[idx] ?? 0) > 0 ? rowCbms[idx]!.toFixed(4) : "—"}
               </td>
               <td className="p-0.5 px-1">
@@ -275,33 +273,33 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
           ["Total volume", totalVolumeCbm > 0 ? `${totalVolumeCbm.toFixed(3)} CBM` : "—"],
         ].map(([k, v]) => (
           <div key={k}>
-            <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{k}</div>
-            <div className="text-[15px] font-bold text-slate-900 mt-0.5">{v}</div>
+            <div className={LABEL_TEXT}>{k}</div>
+            <div className="text-[14px] font-bold text-slate-900 mt-0.5">{v}</div>
           </div>
         ))}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
         <div className="border border-slate-200 rounded-xl px-4 py-3">
-          <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-2">Shipment values</div>
-          <div className="flex gap-4 text-xs">
-            <div><div className="text-[10px] uppercase text-slate-500">Colli</div><div className={`font-semibold ${mismatchCls(shipmentDims.colli, totalColli)}`}>{shipmentDims.colli || "—"}</div></div>
-            <div><div className="text-[10px] uppercase text-slate-500">Weight (kg)</div><div className={`font-semibold ${mismatchCls(shipmentDims.weightKg, totalWeightKg)}`}>{shipmentDims.weightKg > 0 ? shipmentDims.weightKg.toFixed(1) : "—"}</div></div>
-            <div><div className="text-[10px] uppercase text-slate-500">Volume (CBM)</div><div className={`font-semibold ${mismatchCls(shipmentDims.volumeCbm, totalVolumeCbm)}`}>{shipmentDims.volumeCbm > 0 ? shipmentDims.volumeCbm.toFixed(3) : "—"}</div></div>
+          <div className={`${LABEL_TEXT} mb-2`}>Shipment values</div>
+          <div className="flex gap-4 text-[13px] text-slate-900">
+            <div><div className={LABEL_TEXT}>Colli</div><div className={`font-semibold ${mismatchCls(shipmentDims.colli, totalColli)}`}>{shipmentDims.colli || "—"}</div></div>
+            <div><div className={LABEL_TEXT}>Weight (kg)</div><div className={`font-semibold ${mismatchCls(shipmentDims.weightKg, totalWeightKg)}`}>{shipmentDims.weightKg > 0 ? shipmentDims.weightKg.toFixed(1) : "—"}</div></div>
+            <div><div className={LABEL_TEXT}>Volume (CBM)</div><div className={`font-semibold ${mismatchCls(shipmentDims.volumeCbm, totalVolumeCbm)}`}>{shipmentDims.volumeCbm > 0 ? shipmentDims.volumeCbm.toFixed(3) : "—"}</div></div>
           </div>
         </div>
         <div className="border border-slate-200 rounded-xl px-4 py-3">
-          <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-2">Remeasured values</div>
-          <div className="flex gap-4 text-xs">
-            <div><div className="text-[10px] uppercase text-slate-500">Colli</div><div className={`font-semibold ${mismatchCls(totalColli, shipmentDims.colli)}`}>{totalColli || "—"}</div></div>
-            <div><div className="text-[10px] uppercase text-slate-500">Weight (kg)</div><div className={`font-semibold ${mismatchCls(totalWeightKg, shipmentDims.weightKg)}`}>{totalWeightKg > 0 ? totalWeightKg.toFixed(1) : "—"}</div></div>
-            <div><div className="text-[10px] uppercase text-slate-500">Volume (CBM)</div><div className={`font-semibold ${mismatchCls(totalVolumeCbm, shipmentDims.volumeCbm)}`}>{totalVolumeCbm > 0 ? totalVolumeCbm.toFixed(3) : "—"}</div></div>
+          <div className={`${LABEL_TEXT} mb-2`}>Remeasured values</div>
+          <div className="flex gap-4 text-[13px] text-slate-900">
+            <div><div className={LABEL_TEXT}>Colli</div><div className={`font-semibold ${mismatchCls(totalColli, shipmentDims.colli)}`}>{totalColli || "—"}</div></div>
+            <div><div className={LABEL_TEXT}>Weight (kg)</div><div className={`font-semibold ${mismatchCls(totalWeightKg, shipmentDims.weightKg)}`}>{totalWeightKg > 0 ? totalWeightKg.toFixed(1) : "—"}</div></div>
+            <div><div className={LABEL_TEXT}>Volume (CBM)</div><div className={`font-semibold ${mismatchCls(totalVolumeCbm, shipmentDims.volumeCbm)}`}>{totalVolumeCbm > 0 ? totalVolumeCbm.toFixed(3) : "—"}</div></div>
           </div>
         </div>
       </div>
 
       {hasData && hasMismatch && (
-        <div className="mt-4 flex items-center justify-between gap-3 rounded-md border border-red-200 bg-red-50 px-3.5 py-2.5">
+        <div className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5">
           <span className="text-xs text-red-600">Remeasured values differ from the shipment values.</span>
           <Tooltip title={informBlocked ?? undefined}>
             <span className="inline-flex">

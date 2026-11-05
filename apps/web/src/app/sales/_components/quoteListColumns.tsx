@@ -46,7 +46,7 @@ function validityMark(q: SalesQuote): { label: string; dot: string; ring?: strin
   if (q.status === "expired") return { label: "Expired", dot: "bg-red-500", ring: "ring-2 ring-red-100", text: "text-red-600" };
   // Counted by the day the server counts validity by: Prague's, wherever the viewer sits.
   if (q.validUntil && q.validUntil < businessToday()) return { label: "Validity ended", dot: "bg-slate-300" };
-  return { label: "Valid until", dot: "bg-green-500", ring: "ring-2 ring-green-100" };
+  return { label: "Valid until", dot: "bg-emerald-500", ring: "ring-2 ring-emerald-100" };
 }
 
 interface ValidityDotProps {
@@ -152,7 +152,7 @@ export const QUOTE_COLUMNS: QuoteColumn[] = [
       // A quote without a price shows a dash - unless the price is only missing an exchange rate.
       if (!totals.selling && !totals.missingSellingRates.length) return EMPTY_CELL;
       return (
-        <span className="text-slate-600 tabular-nums">
+        <span className="text-slate-700 tabular-nums">
           <QuoteSelling totals={totals} />
         </span>
       );

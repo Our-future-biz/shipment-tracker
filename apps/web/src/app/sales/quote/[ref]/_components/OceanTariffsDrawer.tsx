@@ -69,7 +69,7 @@ export const OceanTariffsDrawer = ({ open, quote, quoteCurrency, toQuoteCurrency
       "Shipping line / tariff",
       (o) => oceanVersionHref(o.supplierCustomerId, o.versionId),
       (o) => (
-        <div className="text-[11.5px] text-slate-400">
+        <div className="text-[12px] text-slate-400">
           {o.tableLabel}
           {o.validTo ? ` · valid until ${formatDate(o.validTo)}` : ""}
         </div>
@@ -83,8 +83,8 @@ export const OceanTariffsDrawer = ({ open, quote, quoteCurrency, toQuoteCurrency
         return (
           <div>
             {from} <span className="text-slate-400">{o.polCode}</span> → {to} <span className="text-slate-400">{o.podCode}</span>
-            <div className="text-[11.5px] text-slate-400">{o.via ? `via ${o.via}` : "direct"}</div>
-            {o.note && <div className="text-[11.5px] text-amber-700">{o.note}</div>}
+            <div className="text-[12px] text-slate-400">{o.via ? `via ${o.via}` : "direct"}</div>
+            {o.note && <div className="text-[12px] text-amber-700">{o.note}</div>}
           </div>
         );
       },
@@ -93,7 +93,7 @@ export const OceanTariffsDrawer = ({ open, quote, quoteCurrency, toQuoteCurrency
       key: "freight",
       title: "Per container",
       render: (_, o) => (
-        <div className="flex flex-col gap-0.5 text-[12.5px] tabular-nums">
+        <div className="flex flex-col gap-0.5 text-[13px] tabular-nums">
           {o.lines.map((l) => (
             <span key={`${l.type}-${l.equipment}`} className="whitespace-nowrap">
               {l.qty} × {l.type}: {fmtMoney(l.price, o.currency)} <span className="text-slate-400">({equipmentLabel(l.equipment)})</span>
@@ -128,11 +128,11 @@ export const OceanTariffsDrawer = ({ open, quote, quoteCurrency, toQuoteCurrency
         return (
           <div className="whitespace-nowrap tabular-nums">
             {o.totals.map((t) => (
-              <div key={t.currency} className="font-semibold text-slate-800">
+              <div key={t.currency} className="font-semibold text-slate-900">
                 {fmtMoney(t.amount, t.currency)}
               </div>
             ))}
-            {foreign && <div className="text-[11.5px] text-slate-400">{converted === null ? "no rate" : `≈ ${fmtMoney(converted, quoteCurrency)}`}</div>}
+            {foreign && <div className="text-[12px] text-slate-400">{converted === null ? "no rate" : `≈ ${fmtMoney(converted, quoteCurrency)}`}</div>}
           </div>
         );
       },
@@ -172,15 +172,15 @@ export const OceanTariffsDrawer = ({ open, quote, quoteCurrency, toQuoteCurrency
           />
         </TariffDrawerField>
       </div>
-      <label className="flex items-center gap-2 text-[12.5px] text-slate-600 cursor-pointer w-fit">
+      <label className="flex items-center gap-2 text-[13px] text-slate-700 cursor-pointer w-fit">
         <Switch size="small" checked={route.comparePols} onChange={(comparePols) => set({ comparePols })} />
         Compare other ports of loading
       </label>
 
-      <div className="text-[12.5px] text-slate-600">
+      <div className="text-[13px] text-slate-700">
         {containersText || "No containers"}
         {route.dangerous && <span className="text-amber-700"> · dangerous goods: IMO surcharges apply</span>}
-        <div className="text-[11.5px] text-slate-400">
+        <div className="text-[12px] text-slate-400">
           Containers from Cargo details. 20&apos; DC, 40&apos; DC, 40&apos; HC, 20&apos; RF and 40&apos; HRF are priced; special equipment is priced individually. Origin
           and destination local charges are not included.
         </div>

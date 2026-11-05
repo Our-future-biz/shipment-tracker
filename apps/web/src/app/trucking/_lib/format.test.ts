@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { EMPTY } from "@/styles/ui";
 import { byNumber, byText, dash, place, pragueDate } from "./format";
 
 describe("trucking display helpers", () => {
@@ -13,8 +14,8 @@ describe("trucking display helpers", () => {
     expect(place("", "")).toBe("");
   });
 
-  it("draws an empty cell as a grey dash", () => {
-    expect(dash.props).toMatchObject({ className: "text-slate-400", children: "—" });
+  it("draws an empty cell as the app's empty dash", () => {
+    expect(dash.props).toMatchObject({ className: EMPTY, children: "—" });
   });
 
   it("dates a stored time by Prague's calendar", () => {

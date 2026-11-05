@@ -22,10 +22,10 @@ export function SaveBar({
   return (
     <div className="sticky bottom-0 z-20 -mx-1 mt-1">
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50/95 backdrop-blur px-4 py-2.5 shadow-md">
-        <span className="text-sm font-semibold text-amber-800">
+        <span className="text-[14px] font-semibold text-amber-700">
           {count} unsaved change{count === 1 ? "" : "s"}
         </span>
-        {blocked && <span className="text-xs text-amber-700">{blocked}</span>}
+        {blocked && <span className="text-[12px] text-amber-700">{blocked}</span>}
         <span className="ml-auto flex gap-2">
           <Button size="small" onClick={onDiscard} disabled={saving}>
             Discard

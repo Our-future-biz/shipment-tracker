@@ -12,6 +12,7 @@ import { LifecycleStrip } from "../LifecycleStrip";
 import { releaseState } from "../../gate-log/_components/job/ReleaseGatesPanel";
 import { btnPrimary } from "../../gate-log/_components/job/fields";
 import { Card } from "../tabs/shared";
+import { CARD, LABEL_TEXT, LINK } from "@/styles/ui";
 
 // Block F — can the cargo go? The release gates with their reasons, the Pick-up PIN and the WH
 // release time — read-only. The release itself is stamped on the gate job.
@@ -50,7 +51,7 @@ export function ReleaseReadiness({ m }: { m: GateMovement | undefined }) {
           {m.container && (
             <>
               {" — "}
-              <Link href={`/warehouse-concept/containers/${m.container.id}`} className="font-semibold text-indigo-500 hover:underline">
+              <Link href={`/warehouse-concept/containers/${m.container.id}`} className={`font-semibold ${LINK}`}>
                 open container {m.container.number}
               </Link>
             </>
@@ -64,7 +65,7 @@ export function ReleaseReadiness({ m }: { m: GateMovement | undefined }) {
     return (
       <Card title="Release readiness">
         {lifecycle}
-        <div className="text-xs text-slate-600">
+        <div className="text-xs text-slate-700">
           {m.container?.kind === "export"
             ? `Inbound cargo leaves the warehouse with its export container: the container's gate-out stops the storage clock and sets the shipment's released date. `
             : "Inbound cargo has no WH release here. "}
@@ -81,9 +82,7 @@ export function ReleaseReadiness({ m }: { m: GateMovement | undefined }) {
     <Card title="Release readiness">
       {lifecycle}
       <div className="flex flex-wrap items-center gap-2">
-        <Badge tone={state.tone} className="!text-[11.5px]">
-          {state.label}
-        </Badge>
+        <Badge tone={state.tone}>{state.label}</Badge>
         {state.detail && <span className="text-[11px] text-slate-500 break-words">{state.detail}</span>}
       </div>
       <ul className="list-none m-0 mt-3 p-0 border-t border-slate-100">
@@ -93,7 +92,7 @@ export function ReleaseReadiness({ m }: { m: GateMovement | undefined }) {
               {ICON[x.s]}
             </span>
             <div className="min-w-0 flex-1">
-              <div className="font-semibold text-slate-800">{x.g}</div>
+              <div className="font-semibold text-slate-900">{x.g}</div>
               <div className="text-[11px] text-slate-500 break-words">{x.note && x.note !== "—" ? x.note : x.s}</div>
             </div>
           </li>
@@ -102,8 +101,8 @@ export function ReleaseReadiness({ m }: { m: GateMovement | undefined }) {
       </ul>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3 text-xs">
-        <div className="rounded-lg border border-slate-200 px-3 py-2">
-          <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-1">{TERMS.pickupPin}</div>
+        <div className={`${CARD} px-3 py-2`}>
+          <div className={`${LABEL_TEXT} mb-1`}>{TERMS.pickupPin}</div>
           {m.pickup ? (
             <>
               <div>
@@ -119,10 +118,10 @@ export function ReleaseReadiness({ m }: { m: GateMovement | undefined }) {
               </div>
               {pinLine?.note && pinLine.note !== "—" && <div className="mt-1 text-[11px] text-slate-500">{pinLine.note}</div>}
               {m.pickup.rows.length > 0 && (
-                <ul className="list-none m-0 mt-1.5 p-0 text-[11px] text-slate-600">
+                <ul className="list-none m-0 mt-1.5 p-0 text-[11px] text-slate-500">
                   {m.pickup.rows.map((r, i) => (
                     <li key={i}>
-                      {r.haulier || "—"} · <span className="font-mono">{r.licensePlate || "—"}</span> · {r.driver || "—"}
+                      {r.haulier || "—"} · <span className="tabular-nums">{r.licensePlate || "—"}</span> · {r.driver || "—"}
                     </li>
                   ))}
                 </ul>
@@ -134,8 +133,8 @@ export function ReleaseReadiness({ m }: { m: GateMovement | undefined }) {
             </span>
           )}
         </div>
-        <div className="rounded-lg border border-slate-200 px-3 py-2">
-          <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-1">{TERMS.whRelease}</div>
+        <div className={`${CARD} px-3 py-2`}>
+          <div className={`${LABEL_TEXT} mb-1`}>{TERMS.whRelease}</div>
           {m.impRelease ? <span className="font-semibold text-emerald-700">{formatDateTime(m.impRelease)}</span> : <span className="text-slate-400">Not released yet</span>}
         </div>
       </div>

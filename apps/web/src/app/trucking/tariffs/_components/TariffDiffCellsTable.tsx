@@ -7,12 +7,12 @@ import { diffChangeText, diffTone, type DiffTone } from "../../_lib/tariffUpload
 import { formatMoney } from "../../_lib/tariffs";
 
 // A change is red when it costs us (a higher buy price, a lower sell or internal price) and green
-// when it earns us; new cells indigo, removed ones grey. The text says it too.
+// when it earns us (emerald); new cells indigo, removed ones grey. The text says it too.
 export const diffToneClass = (tone: DiffTone, side: TariffSide): string => {
   if (tone === "added") return "text-indigo-700";
   if (tone === "removed" || tone === "same") return "text-slate-500";
   const costsUs = side === "BUY" ? tone === "up" : tone === "down";
-  return costsUs ? "text-red-700" : "text-green-700";
+  return costsUs ? "text-red-700" : "text-emerald-700";
 };
 
 interface TariffDiffCellsTableProps {

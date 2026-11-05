@@ -1,4 +1,5 @@
 import type { interfaces } from "@/lib/api/client";
+import type { Tone } from "@/components/Badge";
 
 // Kept in step with the API's unions: `satisfies` fails the build when a value is not one of them.
 export const CUSTOMER_STATUSES = ["Active", "Prospect", "Inactive"] as const satisfies readonly interfaces.CustomerStatus[];
@@ -71,11 +72,6 @@ export const CUSTOMER_SITE_KIND_LABELS: Record<interfaces.CustomerSiteKind, stri
   both: "Loading & delivery",
 };
 
-export const CUSTOMER_SITE_KIND_COLORS: Record<interfaces.CustomerSiteKind, string> = {
-  loading: "blue",
-  delivery: "green",
-  both: "purple",
-};
 
 
 export interface CustomerTab {
@@ -108,74 +104,43 @@ export const CUSTOMER_TAB_ALIASES: Record<string, string> = {
 // A map keyed by an API union, read with a stored string (an older value may be outside the union).
 const lookup = <V>(map: Partial<Record<string, V>>, key: string): V | undefined => map[key];
 
-// Account type (label) badge colours, as Tailwind background + text classes.
-const LABEL_CLASSES: Record<interfaces.CustomerLabel, string> = {
-  "KEY ACCOUNT": "bg-yellow-100 text-yellow-700",
-  STANDARD: "bg-slate-100 text-slate-500",
-  "TARGET CUSTOMER": "bg-purple-100 text-purple-700",
-  RISK: "bg-red-100 text-red-600",
+// Account type (label) badge tones (components/Badge.tsx).
+const LABEL_TONES: Record<interfaces.CustomerLabel, Tone> = {
+  "KEY ACCOUNT": "a",
+  STANDARD: "",
+  "TARGET CUSTOMER": "i",
+  RISK: "r",
 };
 
-export function labelClass(label: string): string {
-  return lookup(LABEL_CLASSES, label) ?? "bg-slate-100 text-slate-500";
+export function labelTone(label: string): Tone {
+  return lookup(LABEL_TONES, label) ?? "";
 }
 
 const STATUS_DOT: Record<interfaces.CustomerStatus, string> = {
-  Active: "bg-green-600",
-  Prospect: "bg-blue-600",
+  Active: "bg-emerald-600",
+  Prospect: "bg-indigo-500",
   Inactive: "bg-red-500",
 };
 
 // A supplier only shows whether we use it (supplierStatus.ts), in the colours of Active and Inactive.
-const SUPPLIER_STATUS_DOT: Record<string, string> = { "In use": "bg-green-600", "Not in use": "bg-red-500", "Waiting for approval": "bg-amber-500" };
+const SUPPLIER_STATUS_DOT: Record<string, string> = { "In use": "bg-emerald-600", "Not in use": "bg-red-500", "Waiting for approval": "bg-amber-500" };
 
 export function statusDotClass(status: string): string {
   return lookup(STATUS_DOT, status) ?? SUPPLIER_STATUS_DOT[status] ?? "bg-slate-400";
 }
 
-// antd Tag colours for the categorical values of the section; unknown values fall back to "default".
-const CONTACT_ROLE_COLORS: Record<interfaces.ContactRole, string> = {
-  "Purchasing / Procurement": "purple",
-  "Customer Service": "cyan",
-  "Logistics Manager": "green",
-  Warehouse: "orange",
-  "Finance / Accounting": "gold",
-  Sales: "blue",
-  Management: "magenta",
-  Owner: "volcano",
-  "Dispatch / Operations": "geekblue",
-  Claims: "red",
-  "Pricing / Tariffs": "lime",
-  "Accounts payable": "gold",
+// A contact's role, an address's type, a document's type and a site's kind are drawn as one neutral pill
+// (Pill tone "slate"); only statuses are coloured.
+
+// Invoice status badge tones (components/Badge.tsx): open in the app's indigo, then red, green and grey.
+export const INVOICE_STATUS_TONES: Record<interfaces.InvoiceStatus, Tone> = {
+  Open: "i",
+  Overdue: "r",
+  Paid: "g",
+  Credited: "",
 };
 
-const ADDRESS_TYPE_COLORS: Record<interfaces.AddressType, string> = {
-  Registered: "blue",
-  Billing: "gold",
-  Paperwork: "cyan",
-  Pickup: "green",
-  Delivery: "purple",
-  Warehouse: "orange",
-};
-
-const DOCUMENT_TYPE_COLORS: Partial<Record<interfaces.DocumentType, string>> = {
-  Contract: "blue",
-  NDA: "purple",
-  "Power of attorney": "gold",
-  Customs: "green",
-  "Carrier liability insurance": "cyan",
-  "Transport licence": "geekblue",
-  "Framework agreement": "magenta",
-  Certificate: "lime",
-};
-
-export const INVOICE_STATUS_COLORS: Record<interfaces.InvoiceStatus, string> = {
-  Open: "blue",
-  Overdue: "red",
-  Paid: "green",
-  Credited: "default",
-};
-
+// antd Tag colours of a note's type, for the Sales follow-up tasks (sales/_components/FollowUpTasksCard.tsx).
 const NOTE_TYPE_COLORS: Partial<Record<interfaces.NoteType, string>> = {
   Email: "blue",
   Call: "green",
@@ -183,9 +148,6 @@ const NOTE_TYPE_COLORS: Partial<Record<interfaces.NoteType, string>> = {
   Visit: "purple",
 };
 
-export const contactRoleColor = (role: string) => lookup(CONTACT_ROLE_COLORS, role) ?? "default";
-export const addressTypeColor = (type: string) => lookup(ADDRESS_TYPE_COLORS, type) ?? "default";
-export const documentTypeColor = (type: string) => lookup(DOCUMENT_TYPE_COLORS, type) ?? "default";
 export const noteTypeColor = (type: string) => lookup(NOTE_TYPE_COLORS, type) ?? "default";
 
 // Recharts palette of the customer finance charts (theme tokens in styles/globals.css).

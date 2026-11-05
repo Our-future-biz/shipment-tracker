@@ -1,3 +1,4 @@
+import { EMPTY } from "@/styles/ui";
 import { Badge, type Tone } from "../gate-log/_lib/gate";
 import { customsChipText, customsHint, type CustomsClock, type CustomsClockState, type CustomsRegime } from "./customsClock";
 
@@ -13,7 +14,7 @@ const TONE: Record<CustomsClockState, Tone> = { none: "", not_started: "", ok: "
 const asClock = (c: CustomsClockLike): CustomsClock => ({ ...c, state: c.state as CustomsClockState, regime: c.regime as CustomsRegime });
 
 export function CustomsDeadlineChip({ clock, empty = "—" }: { clock: CustomsClockLike | null | undefined; empty?: string }) {
-  if (!clock || clock.state === "none") return <span className="text-slate-300">{empty}</span>;
+  if (!clock || clock.state === "none") return <span className={EMPTY}>{empty}</span>;
   const c = asClock(clock);
   return (
     <Badge tone={TONE[c.state] ?? ""} title={customsHint(c)}>

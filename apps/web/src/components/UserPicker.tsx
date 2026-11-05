@@ -55,7 +55,7 @@ export function UserPicker({ value, onChange, placeholder = "Pick a user", "aria
       }}
       optionRender={(option) => (
         <span className="flex flex-col leading-tight py-0.5">
-          <span className="text-slate-800">{option.data.name || option.data.value}</span>
+          <span className="text-slate-900">{option.data.name || option.data.value}</span>
           {option.data.name && <span className="text-[11px] text-slate-500">{option.data.value}</span>}
         </span>
       )}

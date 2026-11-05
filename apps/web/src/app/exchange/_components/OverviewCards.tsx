@@ -4,7 +4,8 @@ import { useState } from "react";
 import { Button } from "antd";
 import { EditOutlined, UnorderedListOutlined } from "@ant-design/icons";
 import { formatDate } from "@/lib/date";
-import { CARD, fmtPct, fmtQuoted, type FxOverview, fmtAverage } from "./fxShared";
+import { CARD, HINT, KPI_VALUE, LABEL_TEXT } from "@/styles/ui";
+import { fmtPct, fmtQuoted, type FxOverview, fmtAverage } from "./fxShared";
 import { RateChange } from "./RateChange";
 import { RoeDialog } from "./RoeDialog";
 import { CurrenciesDialog } from "./CurrenciesDialog";
@@ -55,12 +56,12 @@ export function OverviewCards({ data, isAdmin, list, onChangeList, onChangeBase 
       <div className={`${CARD} ${OPENS} px-5 py-4`} {...opener} aria-label="Show and choose your currencies">
         <div className="flex items-start justify-between gap-2">
           <div>
-            <div className="text-[12px] font-bold tracking-[.05em] uppercase text-slate-500">
+            <div className={LABEL_TEXT}>
               {againstCzk ? "Today's ČNB rate" : `Today's rate in ${data.base}`}
             </div>
-            <div className="text-[12.5px] text-slate-400 mb-3">{fixingDate ? `Fixing of ${formatDate(fixingDate)}` : "No fixing yet"}</div>
+            <div className={`${HINT} mb-3`}>{fixingDate ? `Fixing of ${formatDate(fixingDate)}` : "No fixing yet"}</div>
           </div>
-          <span className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-indigo-600 whitespace-nowrap">
+          <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-indigo-600 whitespace-nowrap">
             <UnorderedListOutlined />
             {more > 0 ? `All ${list.length}` : "Currencies"}
           </span>
@@ -70,18 +71,18 @@ export function OverviewCards({ data, isAdmin, list, onChangeList, onChangeBase 
             <span className="text-[14px] font-semibold text-slate-600">{r.currency}</span>
             <span className="flex items-baseline gap-3">
               <RateChange rate={r.rate} previous={r.previousRate} previousDate={r.previousFixingDate} amount={r.amount} />
-              <span className="text-[22px] font-bold text-slate-900 tabular-nums">{fmtQuoted(r.rate, r.amount)}</span>
+              <span className={KPI_VALUE}>{fmtQuoted(r.rate, r.amount)}</span>
             </span>
           </div>
         ))}
-        {more > 0 && <div className="text-[12px] text-slate-400 mt-1">+ {more} more — click to see all</div>}
+        {more > 0 && <div className={`${HINT} mt-1`}>+ {more} more — click to see all</div>}
       </div>
 
       <div className={`${CARD} px-5 py-4`}>
         <div className="flex items-start justify-between">
           <div>
-            <div className="text-[12px] font-bold tracking-[.05em] uppercase text-slate-500">Company ROE %</div>
-            <div className="text-[12.5px] text-slate-400">
+            <div className={LABEL_TEXT}>Company ROE %</div>
+            <div className={HINT}>
               {data.roe.effectiveFrom
                 ? `Since ${formatDate(data.roe.effectiveFrom)}${data.roe.changedByName ? `, set by ${data.roe.changedByName}` : ""}`
                 : "Standard — pure ČNB rate"}
@@ -93,15 +94,15 @@ export function OverviewCards({ data, isAdmin, list, onChangeList, onChangeBase 
             </Button>
           )}
         </div>
-        <div className="text-[28px] font-bold text-slate-900 tabular-nums mt-1">{fmtPct(pct)}</div>
-        <div className="text-[12.5px] text-slate-500 mb-1">
+        <div className={`${KPI_VALUE} mt-1`}>{fmtPct(pct)}</div>
+        <div className="text-[13px] text-slate-500 mb-1">
           Pricing rate = ČNB × {fmtPct(pct)}
           {!againstCzk && " · CZK per 1 unit"}
         </div>
         {pricing.map((r) => (
           <div key={r.currency} className="flex items-baseline justify-between py-0.5">
             <span className="text-[13px] text-slate-600">{r.currency}</span>
-            <span className="text-[15px] font-semibold text-slate-800 tabular-nums">
+            <span className="text-[14px] font-semibold text-slate-900 tabular-nums">
               {fmtQuoted(r.rate == null ? null : (r.rate * pct) / 100, r.amount)}
             </span>
           </div>
@@ -114,20 +115,20 @@ export function OverviewCards({ data, isAdmin, list, onChangeList, onChangeBase 
       </div>
 
       <div className={`${CARD} ${OPENS} px-5 py-4`} {...opener} aria-label="Show the month's average for all your currencies">
-        <div className="text-[12px] font-bold tracking-[.05em] uppercase text-slate-500">
+        <div className={LABEL_TEXT}>
           This month&apos;s average{againstCzk ? "" : ` in ${data.base}`}
         </div>
-        <div className="text-[12.5px] text-slate-400 mb-3">
+        <div className={`${HINT} mb-3`}>
           {data.month} · provisional · {averages[0]?.fixingDays ?? 0} fixing days so far
         </div>
-        {averages.length === 0 && <div className="text-[13px] text-slate-400">No fixings this month yet</div>}
+        {averages.length === 0 && <div className={HINT}>No fixings this month yet</div>}
         {averages.map((a) => (
           <div key={a.currency} className="flex items-baseline justify-between py-1">
             <span className="text-[14px] font-semibold text-slate-600">{a.currency}</span>
-            <span className="text-[22px] font-bold text-slate-900 tabular-nums">{fmtAverage(a)}</span>
+            <span className={KPI_VALUE}>{fmtAverage(a)}</span>
           </div>
         ))}
-        <div className="text-[12px] text-slate-400 mt-1">
+        <div className={`${HINT} mt-1`}>
           {againstCzk ? "Used by reports; fixed when the month ends." : "Crossed day by day from ČNB; reports use the CZK averages."}
         </div>
       </div>

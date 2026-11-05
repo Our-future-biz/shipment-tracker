@@ -16,19 +16,20 @@ import { isTruckingManager, managerOnlyReason } from "@/app/trucking/_lib/roles"
 import { SCOPE_LABELS, modeLabel, tariffListStatus, validityLabel, versionLabel } from "@/app/trucking/_lib/tariffs";
 import { haulierBuyTariffs, priceListsUsed } from "../../_lib/customerTrucking";
 import { CustomerConsignmentsCard } from "./CustomerConsignmentsCard";
+import { LABEL_TEXT, LINK } from "@/styles/ui";
 
-const LINK = "font-semibold text-indigo-600 hover:underline";
+const TARIFF_LINK = `font-semibold ${LINK}`;
 
 // One tariff in a line: its name (to the tariff page), how it prices and the version that prices today.
 const TariffLine = ({ tariff, note }: { tariff: TariffListItem; note?: string }) => {
   const status = tariffListStatus(tariff);
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 border-b border-slate-100 last:border-b-0 text-[13px]">
-      <span className="w-20 shrink-0 text-[11px] font-bold uppercase tracking-wide text-slate-500">{SCOPE_LABELS[tariff.scope]}</span>
-      <Link href={tariffHref(tariff.id)} className={LINK}>
+      <span className={`w-20 shrink-0 ${LABEL_TEXT}`}>{SCOPE_LABELS[tariff.scope]}</span>
+      <Link href={tariffHref(tariff.id)} className={TARIFF_LINK}>
         {tariff.name}
       </Link>
-      <span className="text-slate-600">{modeLabel(tariff)}</span>
+      <span className="text-slate-700">{modeLabel(tariff)}</span>
       {tariff.activeVersion && (
         <span className="text-slate-500 whitespace-nowrap">
           {versionLabel(tariff.activeVersion)} · {validityLabel(tariff.activeVersion.validFrom, tariff.activeVersion.validTo)}
@@ -91,7 +92,7 @@ export function TruckingTab({ customerId }: { customerId: string }) {
           </>
         }
       >
-        <p className="mt-0 mb-2 text-[12.5px] text-slate-500">
+        <p className="mt-0 mb-2 text-[13px] text-slate-500">
           Quotes and the rate calculator price {name}&apos;s consignments with {hasOwn ? "its own tariff where it has one" : "the Standard list"}; a scope without an own tariff
           falls back to Standard.
         </p>
@@ -102,7 +103,7 @@ export function TruckingTab({ customerId }: { customerId: string }) {
         <SectionCard
           title="Buy tariffs (haulier)"
           extra={
-            <Link href={`/trucking/hauliers/${customerId}`} className="text-xs font-semibold text-indigo-600 whitespace-nowrap hover:underline">
+            <Link href={`/trucking/hauliers/${customerId}`} className={`text-xs font-semibold whitespace-nowrap ${LINK}`}>
               Open in Trucking
             </Link>
           }

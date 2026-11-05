@@ -1,16 +1,25 @@
-// The look shared by the haulier portal's phone screens: big fields and buttons a thumb hits.
+import type { Tone } from "@/components/Badge";
+import { BTN, BTN_DANGER, BTN_PRIMARY, LABEL_TEXT } from "@/styles/ui";
 
-export const PORTAL_INPUT = "w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-[16px] text-slate-900 focus:border-indigo-500 focus:outline-none";
-export const PORTAL_LABEL = "mb-1 block text-[13px] font-semibold text-slate-600";
-export const PORTAL_PRIMARY = "w-full rounded-lg bg-indigo-600 px-4 py-3 text-[15px] font-semibold text-white disabled:opacity-50";
-export const PORTAL_SECONDARY = "w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-[15px] font-semibold text-slate-700 disabled:opacity-50";
-export const PORTAL_CARD = "rounded-xl border border-slate-200 bg-white p-4";
-export const PORTAL_CARD_TITLE = "m-0 mb-2 text-[13px] font-bold uppercase tracking-wide text-indigo-700";
+// The look of the haulier portal's phone screens: the app's own (styles/ui.ts), only taller where a
+// thumb has to hit it, and 16px in a field so a phone does not zoom in on it.
 
-export const PORTAL_TONE = {
-  amber: "bg-amber-100 text-amber-800",
-  green: "bg-emerald-100 text-emerald-800",
-  red: "bg-red-100 text-red-800",
-  blue: "bg-blue-100 text-blue-800",
-  slate: "bg-slate-100 text-slate-700",
-} as const;
+/** A field (input or textarea): the app's INPUT frame and focus ring, at a thumb's size. */
+export const PORTAL_INPUT =
+  "w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-[16px] text-slate-900 placeholder:text-slate-400 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-colors";
+export const PORTAL_LABEL = `mb-1 block ${LABEL_TEXT}`;
+/** The app's buttons, full width and 44px tall. */
+export const PORTAL_PRIMARY = `${BTN_PRIMARY} w-full !h-11 !text-[14px]`;
+export const PORTAL_SECONDARY = `${BTN} w-full !h-11 !text-[14px]`;
+export const PORTAL_DANGER = `${BTN_DANGER} w-full !h-11 !text-[14px]`;
+/** PORTAL_PRIMARY on a link: antd colours every <a> in unlayered CSS, which would beat the white. */
+export const PORTAL_PRIMARY_LINK = `${PORTAL_PRIMARY} !text-white hover:!text-white no-underline`;
+
+/** The Badge tone of a portal status (lib/portal, lib/publicOrder). */
+export const PORTAL_BADGE_TONE: Record<"amber" | "green" | "red" | "blue" | "slate", Tone> = {
+  amber: "a",
+  green: "g",
+  red: "r",
+  blue: "b",
+  slate: "",
+};

@@ -6,6 +6,7 @@ import { Spin } from "antd";
 import { MailOutlined, PhoneOutlined } from "@ant-design/icons";
 import { findContact, useCustomerContacts } from "@/hooks/useCustomerContacts";
 import { HoverCard } from "./HoverCard";
+import { EMPTY, LINK } from "@/styles/ui";
 
 interface ContactHoverCardProps {
   /** The contact's name as the shipment stores it. */
@@ -31,7 +32,7 @@ export function ContactHoverCard({ name, contactId, customerId, children }: Cont
     </div>
   ) : (
     <div className="w-[240px]">
-      <div className="text-[13px] font-semibold text-slate-800 truncate">{fullName}</div>
+      <div className="text-[13px] font-semibold text-slate-900 truncate">{fullName}</div>
       {contact?.role && <div className="mt-0.5 text-[11px] text-slate-500">{contact.role}</div>}
       {contact ? (
         <div className="mt-2.5 flex flex-col gap-1.5 border-t border-slate-100 pt-2.5 text-xs">
@@ -39,7 +40,7 @@ export function ContactHoverCard({ name, contactId, customerId, children }: Cont
           <ContactLine icon={<PhoneOutlined />} value={contact.phone} href={contact.phone ? `tel:${contact.phone.replace(/\s+/g, "")}` : undefined} />
         </div>
       ) : (
-        <div className="mt-2 text-[11px] text-amber-600">Not saved among the customer&apos;s contacts.</div>
+        <div className="mt-2 text-[11px] text-amber-700">Not saved among the customer&apos;s contacts.</div>
       )}
     </div>
   );
@@ -56,11 +57,11 @@ function ContactLine({ icon, value, href }: { icon: ReactNode; value: string; hr
     <div className="flex items-center gap-2 min-w-0">
       <span className="text-slate-400 text-[12px] shrink-0">{icon}</span>
       {value && href ? (
-        <a href={href} className="!text-indigo-600 hover:underline truncate" onClick={(e) => e.stopPropagation()}>
+        <a href={href} className={`${LINK} truncate`} onClick={(e) => e.stopPropagation()}>
           {value}
         </a>
       ) : (
-        <span className="text-slate-300">—</span>
+        <span className={EMPTY}>—</span>
       )}
     </div>
   );

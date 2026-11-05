@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import dayjs from "dayjs";
-import { Alert, App, Button, Checkbox, DatePicker, Dropdown, Input, Modal, Popover, Select, Tag, Tooltip, type RefSelectProps } from "antd";
+import { Alert, App, Button, Checkbox, DatePicker, Dropdown, Input, Modal, Popover, Select, Tooltip, type RefSelectProps } from "antd";
 import {
   DownOutlined,
   EditOutlined,
@@ -34,6 +34,9 @@ import { moneyCz } from "@/lib/money";
 import { chargeLabel } from "@/lib/chargeCodes";
 import { statusLabel } from "@/lib/shipmentStatus";
 import { SectionCard } from "@/components/SectionCard";
+import { EMPTY_CELL } from "@/components/EmptyCell";
+import { Pill } from "@/components/Pill";
+import { CARD, HINT, ICON_BTN, ICON_BTN_GHOST, LABEL_TEXT, LINK, REF, TD, TH } from "@/styles/ui";
 import { useCostsData } from "@/app/shipments/[jobNumber]/tabs/useCostsData";
 import { lineTableRows, type LineTableRow as TableRow } from "../_lib/lineTable";
 
@@ -61,19 +64,14 @@ const isBillingStatus = (status: string | null | undefined) => /^Billing \[(IMP|
 /** §28 ZDPH: a tax document must be issued within 15 days of the DUZP. */
 const MAX_DAYS_AFTER_DUZP = 15;
 
-const TH = "text-[11.5px] font-bold tracking-[.04em] uppercase text-slate-500 px-2 py-2 border-b border-slate-200";
-const TD = "px-2 py-2 border-b border-slate-100 text-[13px] text-slate-700";
-
 const czDate = (iso: string) => formatDate(iso) || "—";
 
 /** The two views of the lines card: what goes on the next invoice, and what was invoiced already. */
 type LinesView = "to_invoice" | "invoiced";
-const INVOICE_STATUS: Record<interfaces.InvoiceDocStatus, { label: string; className: string }> = {
-  issued: { label: "Issued", className: "bg-emerald-50 text-emerald-700" },
-  credited: { label: "Credited", className: "bg-orange-50 text-orange-700" },
+const INVOICE_STATUS: Record<interfaces.InvoiceDocStatus, { label: string; tone: "green" | "amber" }> = {
+  issued: { label: "Issued", tone: "green" },
+  credited: { label: "Credited", tone: "amber" },
 };
-const TOOL_BUTTON =
-  "flex items-center justify-center shrink-0 rounded-lg border border-slate-200 bg-white w-8 h-8 p-0 text-slate-500 hover:text-indigo-600 hover:border-indigo-300 transition-colors cursor-pointer";
 const newKey = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
 
 interface FactProps {
@@ -87,9 +85,9 @@ interface FactProps {
 /** One fact of the strip at the top of the invoice, styled like the job card above it. */
 const Fact = ({ label, sub, className = "", children }: FactProps) => (
   <div className={`min-w-0 ${className}`}>
-    <div className="text-[11px] font-bold uppercase tracking-[.04em] text-slate-500 whitespace-nowrap">{label}</div>
+    <div className={`${LABEL_TEXT} whitespace-nowrap`}>{label}</div>
     <div className="mt-1 min-h-7 text-[13px] text-slate-900 flex items-center flex-wrap gap-x-2 gap-y-1 break-words">{children}</div>
-    {sub && <div className="text-[12px] text-slate-500 leading-[18px]">{sub}</div>}
+    {sub && <div className={`${HINT} leading-[18px]`}>{sub}</div>}
   </div>
 );
 
@@ -369,7 +367,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
       optionFilterProp="label"
       className="w-[220px] max-w-full"
       aria-label="Customer to invoice"
-      notFoundContent={<span className="text-[12.5px]">No customers — add one in the <Link href="/customers">Customer Database</Link></span>}
+      notFoundContent={<span className="text-[13px]">No customers — add one in the <Link href="/customers">Customer Database</Link></span>}
       autoFocus={behindPencil}
       defaultOpen={behindPencil}
       onOpenChange={behindPencil ? (open) => !open && closePicker() : undefined}
@@ -382,7 +380,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
         // Two cards in the SectionCard frame: who and when on top, what and how much below
         <div className="flex flex-col gap-4">
         {/* ── Customer and terms, in the job card's style ── */}
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm">
+        <div className={CARD}>
           <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-[minmax(0,2fr)_repeat(4,minmax(0,1fr))] gap-x-4 gap-y-3 px-4 py-4">
             {p && !p.customer ? (
               <Fact label="Bill to" className="col-span-2 md:col-span-4 xl:col-span-1" sub="Pick one from the Customer Database — it is also linked to the shipment.">
@@ -410,10 +408,10 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
                   <>
                     {p?.customer ? (
                       <span className="font-semibold min-w-0">
-                        {p.customerId ? <Link href={`/customers/${p.customerId}`} className="text-slate-900 hover:text-indigo-600">{p.customer.companyName}</Link> : p.customer.companyName}
+                        {p.customerId ? <Link href={`/customers/${p.customerId}`} className={LINK}>{p.customer.companyName}</Link> : p.customer.companyName}
                       </span>
                     ) : (
-                      <span className="text-slate-400">—</span>
+                      EMPTY_CELL
                     )}
                     <Tooltip title={p?.customer ? "Change customer" : "Pick customer"}>
                       <Button
@@ -423,14 +421,13 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
                         icon={<EditOutlined />}
                         aria-label={p?.customer ? "Change customer" : "Pick customer"}
                         onClick={() => setPickingCustomer(true)}
-                        className="!text-slate-400 hover:!text-slate-700"
                       />
                     </Tooltip>
                   </>
                 )}
               </Fact>
             )}
-            <Fact label="Issue date">{p ? czDate(p.issueDate) : "—"}</Fact>
+            <Fact label="Issue date">{p ? czDate(p.issueDate) : EMPTY_CELL}</Fact>
             <Fact label="DUZP">
               <DatePicker
                 size="small"
@@ -442,7 +439,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
                 aria-label="DUZP"
               />
             </Fact>
-            <Fact label="Due date">{p ? czDate(p.dueDate) : "—"}</Fact>
+            <Fact label="Due date">{p ? czDate(p.dueDate) : EMPTY_CELL}</Fact>
             <Fact label="Currency">
               <Select size="small" value={billingCur} onChange={changeBillingCurrency} loading={billingCurrency.isPending} disabled={billingCurrency.isPending} options={currencyOptions} labelRender={(o) => o.value} popupMatchSelectWidth={false} className="w-[84px]" aria-label="Billing currency" />
             </Fact>
@@ -450,7 +447,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
         </div>
 
         {/* ── Lines, totals and Issue ── */}
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-clip">
+        <div className={`${CARD} overflow-clip`}>
           {/* ── The card's tabs, search and tools ── */}
           <div className="flex items-center gap-3 flex-wrap px-4 border-b border-slate-200">
             <div role="tablist" aria-label="Invoice lines" className="flex items-center gap-4 self-stretch">
@@ -468,13 +465,14 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
                     role="tab"
                     aria-selected={active}
                     onClick={() => setLinesView(t.key)}
-                    className={`flex items-center gap-2 py-3 -mb-px bg-transparent border-0 border-b-2 cursor-pointer text-sm transition-colors ${
-                      active ? "border-indigo-500 text-indigo-600 font-semibold" : "border-transparent text-slate-600 hover:text-slate-900"
+                    // the colours of the app's tab strip (RecordTabs), with a count on each tab
+                    className={`flex items-center gap-2 py-3 -mb-px bg-transparent border-0 border-b-2 cursor-pointer text-[13px] whitespace-nowrap transition-colors ${
+                      active ? "border-indigo-600 text-indigo-600 font-semibold" : "border-transparent text-slate-500 font-medium hover:text-slate-900"
                     }`}
                   >
                     {t.label}
                     {t.count !== undefined && (
-                      <span className={`rounded px-1.5 text-xs font-medium leading-5 ${active ? "bg-indigo-50 text-indigo-600" : "bg-slate-100 text-slate-500"}`}>
+                      <span className={`rounded-full px-2 text-[11px] font-semibold leading-5 tabular-nums ${active ? "bg-indigo-50 text-indigo-600" : "bg-slate-100 text-slate-500"}`}>
                         {t.count}
                       </span>
                     )}
@@ -498,7 +496,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
                 content={
                   linesView === "to_invoice" ? (
                     <div className="flex flex-col gap-2 min-w-[160px]">
-                      <div className="text-[11px] font-bold uppercase tracking-[.04em] text-slate-500">Currency</div>
+                      <div className={LABEL_TEXT}>Currency</div>
                       <Checkbox.Group
                         className="flex flex-col gap-1"
                         value={activeCurrencies}
@@ -508,7 +506,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
                     </div>
                   ) : (
                     <div className="flex flex-col gap-2 min-w-[160px]">
-                      <div className="text-[11px] font-bold uppercase tracking-[.04em] text-slate-500">Status</div>
+                      <div className={LABEL_TEXT}>Status</div>
                       <Checkbox.Group
                         className="flex flex-col gap-1"
                         value={statusFilter}
@@ -523,7 +521,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
                   <button
                     type="button"
                     aria-label="Filter"
-                    className={`${TOOL_BUTTON} ${activeFilters.length ? "!border-indigo-400 !text-indigo-600 !bg-indigo-50" : ""}`}
+                    className={`${ICON_BTN} ${activeFilters.length ? "!border-indigo-500 !text-indigo-600 !bg-indigo-50" : ""}`}
                   >
                     <FilterOutlined />
                   </button>
@@ -551,7 +549,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
                   },
                 }}
               >
-                <button type="button" aria-label="More actions" className={TOOL_BUTTON}>
+                <button type="button" aria-label="More actions" className={ICON_BTN}>
                   <EllipsisOutlined />
                 </button>
               </Dropdown>
@@ -580,16 +578,16 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
                         />
                       </th>
                       <th className={`${TH} text-left`}>Service</th>
-                      <th className={`${TH} text-right w-[8%]`}>Qty</th>
-                      <th className={`${TH} text-right w-[17%]`}>Price</th>
+                      <th className={`${TH} !text-right w-[8%]`}>Qty</th>
+                      <th className={`${TH} !text-right w-[17%]`}>Price</th>
                       <th className={`${TH} text-left w-[18%]`}>VAT</th>
-                      <th className={`${TH} text-right w-[18%]`}>Net ({p.currency})</th>
+                      <th className={`${TH} !text-right w-[18%]`}>Net ({p.currency})</th>
                     </tr>
                   </thead>
                   <tbody>
                     {shownRows.length === 0 && (
                       <tr>
-                        <td colSpan={6} className={`${TD} text-center text-slate-500 py-6`}>
+                        <td colSpan={6} className={`${TD} text-center !text-slate-500 !py-6`}>
                           No lines match the search or filter.
                         </td>
                       </tr>
@@ -633,7 +631,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
                               />
                             )}
                           </td>
-                          <td className={`${TD} text-right tabular-nums font-medium${muted}`}>{l ? moneyCz(Number(l.net)) : t.ticked ? "…" : "—"}</td>
+                          <td className={`${TD} text-right tabular-nums font-medium${muted}`}>{l ? moneyCz(Number(l.net)) : t.ticked ? "…" : EMPTY_CELL}</td>
                         </tr>
                       );
                     })}
@@ -665,37 +663,37 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
                     aria-expanded={vatOpen}
                     aria-controls="invoice-vat-breakdown"
                     onClick={() => setVatOpen((o) => !o)}
-                    className="-ml-1 !px-1 !text-[12.5px] !text-slate-500 hover:!text-slate-800"
+                    className="-ml-2.5"
                   >
                     VAT breakdown
                   </Button>
                   <div className="ml-auto text-right tabular-nums">
                     <div className="flex items-baseline justify-end gap-x-4 gap-y-1 flex-wrap">
-                      <span className="text-[12.5px] text-slate-500">Net {moneyCz(p.net)} · VAT {moneyCz(p.vat)}</span>
-                      <span className="text-[15px] font-bold text-slate-900">Total {moneyCz(p.gross)} {p.currency}</span>
+                      <span className="text-[13px] text-slate-500">Net {moneyCz(p.net)} · VAT {moneyCz(p.vat)}</span>
+                      <span className="text-[14px] font-bold text-slate-900">Total {moneyCz(p.gross)} {p.currency}</span>
                     </div>
-                    {foreign && <div className="text-[12.5px] text-slate-500 mt-0.5">= {moneyCz(p.grossCzk)} CZK (VAT {moneyCz(p.vatCzk)} CZK)</div>}
+                    {foreign && <div className="text-[13px] text-slate-500 mt-0.5">= {moneyCz(p.grossCzk)} CZK (VAT {moneyCz(p.vatCzk)} CZK)</div>}
                   </div>
                 </div>
                 <div id="invoice-vat-breakdown" hidden={!vatOpen} className="overflow-x-auto mt-2">
-                  <table className="border-collapse text-[12.5px]">
+                  <table className="border-collapse">
                     <thead>
-                      <tr className="text-slate-500">
-                        <th className="text-left font-semibold pr-4 pb-1">VAT</th>
-                        <th className="text-right font-semibold pr-4 pb-1">Base {p.currency}</th>
-                        <th className="text-right font-semibold pr-4 pb-1">VAT {p.currency}</th>
-                        {foreign && <th className="text-right font-semibold pr-4 pb-1">Base CZK</th>}
-                        {foreign && <th className="text-right font-semibold pb-1">VAT CZK</th>}
+                      <tr>
+                        <th className={TH}>VAT</th>
+                        <th className={`${TH} !text-right`}>Base {p.currency}</th>
+                        <th className={`${TH} !text-right`}>VAT {p.currency}</th>
+                        {foreign && <th className={`${TH} !text-right`}>Base CZK</th>}
+                        {foreign && <th className={`${TH} !text-right`}>VAT CZK</th>}
                       </tr>
                     </thead>
                     <tbody>
                       {p.vatSummary.map((v) => (
-                        <tr key={v.vatCode} className="text-slate-700 tabular-nums">
-                          <td className="pr-4">{VAT_LABEL[v.vatCode] ?? v.vatCode}</td>
-                          <td className="text-right pr-4">{moneyCz(v.base)}</td>
-                          <td className="text-right pr-4">{moneyCz(v.vat)}</td>
-                          {foreign && <td className="text-right pr-4">{moneyCz(v.baseCzk)}</td>}
-                          {foreign && <td className="text-right">{moneyCz(v.vatCzk)}</td>}
+                        <tr key={v.vatCode} className="tabular-nums">
+                          <td className={TD}>{VAT_LABEL[v.vatCode] ?? v.vatCode}</td>
+                          <td className={`${TD} text-right`}>{moneyCz(v.base)}</td>
+                          <td className={`${TD} text-right`}>{moneyCz(v.vat)}</td>
+                          {foreign && <td className={`${TD} text-right`}>{moneyCz(v.baseCzk)}</td>}
+                          {foreign && <td className={`${TD} text-right`}>{moneyCz(v.vatCzk)}</td>}
                         </tr>
                       ))}
                     </tbody>
@@ -708,7 +706,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
             {warnings.length > 0 && (
               <div className="flex flex-col gap-2 mt-4">
                 {warnings.map((x) => (
-                  <div key={x} className="flex items-start gap-2 text-[13px] text-warn bg-warn-faint border border-warn-soft rounded-md px-3 py-2">
+                  <div key={x} className="flex items-start gap-2 text-[13px] text-warn bg-warn-faint border border-warn-soft rounded-lg px-3 py-2">
                     <WarningOutlined className="mt-[3px]" />
                     <span>{x}</span>
                   </div>
@@ -730,7 +728,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
             {/* status and button wrap together, so the button stays on the right */}
             <div className="flex-[3_1_360px] flex items-center justify-end gap-3 min-w-0">
               {/* what blocks issuing, or that nothing does */}
-              <span className={`min-w-0 max-w-[480px] truncate text-[12.5px] ${problems.length ? "text-slate-500" : "text-ok font-medium"}`}>
+              <span className={`min-w-0 max-w-[480px] truncate text-[13px] ${problems.length ? "text-slate-500" : "text-ok font-medium"}`}>
                 {problems[0] ?? (canIssue ? "Ready to issue" : "")}
               </span>
               <Tooltip title={canIssue ? "" : problems[0] ?? ""}>
@@ -754,15 +752,15 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
                     </th>
                     <th className={`${TH} text-left`}>Invoice</th>
                     <th className={`${TH} text-left`}>Date</th>
-                    <th className={`${TH} text-right`}>Items</th>
-                    <th className={`${TH} text-right`}>Total (CZK)</th>
+                    <th className={`${TH} !text-right`}>Items</th>
+                    <th className={`${TH} !text-right`}>Total (CZK)</th>
                     <th className={`${TH} text-left !pl-6 !pr-4`}>Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {shownInvoices.length === 0 && (
                     <tr>
-                      <td colSpan={6} className={`${TD} text-center text-slate-500 py-6`}>
+                      <td colSpan={6} className={`${TD} text-center !text-slate-500 !py-6`}>
                         {docsLoading
                           ? "Loading the invoices…"
                           : issuedInvoices.length === 0
@@ -786,7 +784,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
                                 e.stopPropagation();
                                 toggleInvoice(d.id);
                               }}
-                              className="bg-transparent border-0 p-1 cursor-pointer text-slate-500 hover:text-slate-900"
+                              className={ICON_BTN_GHOST}
                             >
                               <RightOutlined rotate={open ? 90 : 0} className="!text-[11px]" />
                             </button>
@@ -800,7 +798,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
                                   e.stopPropagation();
                                   void download(d);
                                 }}
-                                className="bg-transparent border-0 p-0 font-mono font-semibold text-indigo-600 hover:underline cursor-pointer disabled:cursor-default disabled:no-underline"
+                                className={`bg-transparent border-0 p-0 ${REF} font-semibold text-indigo-600 hover:text-indigo-700 hover:underline cursor-pointer disabled:cursor-default disabled:no-underline`}
                               >
                                 {d.number}
                               </button>
@@ -810,21 +808,21 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
                           <td className={`${TD} text-right tabular-nums`}>{d.lines.length}</td>
                           <td className={`${TD} text-right tabular-nums font-medium`}>{moneyCz(Number(d.grossCzk))}</td>
                           <td className={`${TD} !pl-6 !pr-4`}>
-                            <span className={`inline-block rounded-md px-2 py-0.5 text-[12px] font-medium ${status.className}`}>{status.label}</span>
+                            <Pill tone={status.tone}>{status.label}</Pill>
                           </td>
                         </tr>
                         {open && (
                           <tr>
                             <td colSpan={6} className="px-4 py-3 border-b border-slate-100 bg-slate-50/40">
-                              <div className="bg-white border border-slate-200 rounded-lg px-3 py-1">
+                              <div className={`${CARD} px-3 py-1`}>
                                 <table className="w-full border-collapse">
                                   <thead>
                                     <tr>
                                       <th className={`${TH} text-left`}>Service</th>
-                                      <th className={`${TH} text-right w-[8%]`}>Qty</th>
-                                      <th className={`${TH} text-right w-[18%]`}>Price</th>
+                                      <th className={`${TH} !text-right w-[8%]`}>Qty</th>
+                                      <th className={`${TH} !text-right w-[18%]`}>Price</th>
                                       <th className={`${TH} text-left w-[16%] !pl-6`}>VAT</th>
-                                      <th className={`${TH} text-right w-[18%]`}>Net ({d.currency})</th>
+                                      <th className={`${TH} !text-right w-[18%]`}>Net ({d.currency})</th>
                                     </tr>
                                   </thead>
                                   <tbody>
@@ -867,13 +865,15 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
                 <tbody>
                   {docs.map((d) => (
                     <tr key={d.id}>
-                      <td className={`${TD} font-mono font-medium`}>{d.number}</td>
+                      <td className={`${TD} ${REF} font-medium`}>{d.number}</td>
                       <td className={TD}>
-                        {d.kind === "credit_note" ? <Tag color="purple" bordered={false}>Credit note</Tag> : <Tag bordered={false}>Invoice</Tag>}
-                        {d.status === "credited" && <Tag color="orange" bordered={false}>Credited</Tag>}
+                        <span className="inline-flex gap-2">
+                          <Pill tone="slate">{d.kind === "credit_note" ? "Credit note" : "Invoice"}</Pill>
+                          {d.status === "credited" && <Pill tone="amber">Credited</Pill>}
+                        </span>
                       </td>
-                      <td className={`${TD} text-slate-500`}>{czDate(d.issueDate)}</td>
-                      <td className={`${TD} text-slate-600`}>{d.customer.companyName}</td>
+                      <td className={`${TD} !text-slate-500`}>{czDate(d.issueDate)}</td>
+                      <td className={TD}>{d.customer.companyName}</td>
                       <td className={`${TD} text-right tabular-nums font-medium`}>{moneyCz(Number(d.gross))} {d.currency}</td>
                       <td className={`${TD} text-right whitespace-nowrap`}>
                         <Button size="small" type="text" icon={<FilePdfOutlined />} loading={downloading === d.id} onClick={() => void download(d)}>

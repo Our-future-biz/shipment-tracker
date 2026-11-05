@@ -1,15 +1,14 @@
 "use client";
 
-import { Tag } from "antd";
+import { Pill } from "@/components/Pill";
 import { SectionCard } from "@/components/SectionCard";
+import { LINK } from "@/styles/ui";
 import { useCustomerContacts } from "@/hooks/useCustomerContacts";
-import { contactRoleColor } from "../../_lib/constants";
 import { CustomerInfoRow } from "./CustomerInfoRow";
 
-const TEXT_BUTTON_CLASS =
-  "bg-transparent border-0 p-0 text-xs font-semibold text-indigo-600 whitespace-nowrap cursor-pointer hover:underline";
+const TEXT_BUTTON_CLASS = `bg-transparent border-0 p-0 text-xs font-semibold whitespace-nowrap cursor-pointer ${LINK}`;
 
-const LINK_CLASS = "min-w-0 text-indigo-600 hover:underline [overflow-wrap:anywhere]";
+const LINK_CLASS = `min-w-0 [overflow-wrap:anywhere] ${LINK}`;
 
 interface CustomerMainContactCardProps {
   customerId: string;
@@ -48,9 +47,7 @@ export function CustomerMainContactCard({ customerId, onSelectTab }: CustomerMai
           </CustomerInfoRow>
           <CustomerInfoRow label="Role" narrow>
             {contact.role && (
-              <Tag color={contactRoleColor(contact.role)} className="!m-0">
-                {contact.role}
-              </Tag>
+              <Pill tone="slate">{contact.role}</Pill>
             )}
           </CustomerInfoRow>
           <CustomerInfoRow label="Phone" narrow>

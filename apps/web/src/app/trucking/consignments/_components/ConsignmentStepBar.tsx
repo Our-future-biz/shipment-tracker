@@ -1,11 +1,12 @@
 "use client";
 
 import { Fragment } from "react";
-import { Dropdown, Tag, Tooltip } from "antd";
+import { Dropdown, Tooltip } from "antd";
 import { CheckCircleOutlined, DownOutlined, RightOutlined } from "@ant-design/icons";
 import type { ConsignmentDetail, StampKind } from "@/hooks/useTruckingConsignments";
 import { businessDateTime } from "@/lib/date";
 import { btnDefault, btnPrimary } from "@/components/buttons";
+import { Pill } from "@/components/Pill";
 import { STAMP_LABELS, nextStep, stampKindsFor, stampOf, type ActionState, type ConsignmentActions } from "../../_lib/consignments";
 
 interface ConsignmentStepBarProps {
@@ -21,7 +22,7 @@ const stateOf = (actions: ConsignmentActions, kind: StampKind): ActionState => {
   return actions[kind];
 };
 
-// The stamps of a consignment in order, as on the Warehouse gate: a green tag with the time and who
+// The stamps of a consignment in order, as on the Warehouse gate: a green pill with the time and who
 // once stamped (a manager can void it from its menu), else a button — primary for the next step,
 // disabled with the reason for the others.
 export const ConsignmentStepBar = ({ c, actions, onStep, onVoid }: ConsignmentStepBarProps) => {
@@ -34,11 +35,12 @@ export const ConsignmentStepBar = ({ c, actions, onStep, onVoid }: ConsignmentSt
         let item;
         if (stamp) {
           const tag = (
-            <Tag color="success" icon={<CheckCircleOutlined />} className={`m-0 !px-2 !py-1 !text-[12px] ${actions.voidStamp ? "cursor-pointer" : ""}`}>
-              <span className="font-semibold">{label}</span> <span className="font-mono">{businessDateTime(stamp.at)}</span>
+            <Pill tone="green" className={actions.voidStamp ? "cursor-pointer" : ""}>
+              <CheckCircleOutlined />
+              <span className="font-semibold">{label}</span> <span className="tabular-nums">{businessDateTime(stamp.at)}</span>
               {stamp.by ? ` · ${stamp.by}` : ""}
-              {actions.voidStamp && <DownOutlined className="ml-1 text-[9px]" />}
-            </Tag>
+              {actions.voidStamp && <DownOutlined className="ml-1 text-[10px]" />}
+            </Pill>
           );
           item = actions.voidStamp ? (
             <Dropdown trigger={["click"]} menu={{ items: [{ key: "void", danger: true, label: "Void this stamp…", onClick: () => onVoid(kind) }] }}>

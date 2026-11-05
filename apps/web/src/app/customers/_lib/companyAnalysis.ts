@@ -114,9 +114,9 @@ export function calcRisk(
   return { level, reasons };
 }
 
-// Tailwind background + text classes of the risk-level pill.
-export const RISK_CLASS: Record<RiskLevel, string> = {
-  Low: "bg-green-100 text-green-600",
-  Medium: "bg-amber-100 text-amber-600",
-  High: "bg-red-100 text-red-600",
+// The tone of the risk-level pill (components/Pill.tsx).
+export const RISK_TONE: Record<RiskLevel, "green" | "amber" | "red"> = {
+  Low: "green",
+  Medium: "amber",
+  High: "red",
 };

@@ -6,6 +6,7 @@ import { PlusOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { useToast } from "@/lib/toast";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { SectionCard } from "@/components/SectionCard";
 import { useCountries } from "@/hooks/useOrgUnits";
 import type { Country } from "@/hooks/useOrgUnits";
 import { COUNTRIES } from "@/lib/countries";
@@ -80,23 +81,26 @@ export function CountriesManager({ search }: CountriesManagerProps) {
   ];
 
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl p-4">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-semibold text-slate-800">{sectionTitle("Countries", shown.length, countries.length)}</span>
-        <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => setEditing("new")}>
-          Add Country
-        </Button>
-      </div>
-
-      <Table<Country>
-        size="small"
-        rowKey="id"
-        loading={isLoading}
-        dataSource={shown}
-        columns={columns}
-        pagination={false}
-        locale={{ emptyText: emptyText(search, "No countries yet") }}
-      />
+    <>
+      <SectionCard
+        title={sectionTitle("Countries", shown.length, countries.length)}
+        bodyClassName="p-2"
+        extra={
+          <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => setEditing("new")}>
+            Add Country
+          </Button>
+        }
+      >
+        <Table<Country>
+          size="small"
+          rowKey="id"
+          loading={isLoading}
+          dataSource={shown}
+          columns={columns}
+          pagination={false}
+          locale={{ emptyText: emptyText(search, "No countries yet") }}
+        />
+      </SectionCard>
 
       <Modal
         open={!!editing}
@@ -129,6 +133,6 @@ export function CountriesManager({ search }: CountriesManagerProps) {
         confirmLabel="Remove"
         danger
       />
-    </div>
+    </>
   );
 }

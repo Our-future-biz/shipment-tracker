@@ -5,7 +5,9 @@ import { Alert, Button, Spin, Switch } from "antd";
 import { LeftOutlined, RightOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { useFxAverages } from "@/hooks/useFx";
-import { CELL, TH, fmtAverage, type AveragesResponse } from "./fxShared";
+import { Pill } from "@/components/Pill";
+import { HINT, LABEL_TEXT, TD, TH } from "@/styles/ui";
+import { fmtAverage, type AveragesResponse } from "./fxShared";
 
 type Period = AveragesResponse["periods"][number];
 
@@ -49,8 +51,8 @@ export function AveragesTab({ initialYear }: { initialYear: number }) {
             <thead>
               <tr>
                 <th className={TH}>Period</th>
-                {currencies.map((c) => <th key={c} className={`${TH} text-right`}>{c}</th>)}
-                <th className={`${TH} text-right`}>Fixing days</th>
+                {currencies.map((c) => <th key={c} className={`${TH} !text-right`}>{c}</th>)}
+                <th className={`${TH} !text-right`}>Fixing days</th>
                 <th className={TH}>Status</th>
               </tr>
             </thead>
@@ -60,24 +62,24 @@ export function AveragesTab({ initialYear }: { initialYear: number }) {
                 if (!rows.length) return null;
                 return [
                   <tr key={g.type}>
-                    <td colSpan={currencies.length + 3} className="px-4 pt-3 pb-1 text-[11.5px] font-bold tracking-[.05em] uppercase text-slate-400">
+                    <td colSpan={currencies.length + 3} className={`px-2 pt-3 pb-1 ${LABEL_TEXT}`}>
                       {g.title}
                     </td>
                   </tr>,
                   ...rows.map((p) => (
                     <tr key={p.key}>
-                      <td className={`${CELL} ${p.type === "month" ? "" : "font-semibold"}`}>{label(p)}</td>
+                      <td className={`${TD} ${p.type === "month" ? "" : "font-semibold"}`}>{label(p)}</td>
                       {currencies.map((c) => (
-                        <td key={c} className={`${CELL} text-right tabular-nums`}>
+                        <td key={c} className={`${TD} text-right tabular-nums`}>
                           {fmtAverage(p.averages.find((a) => a.currency === c))}
                         </td>
                       ))}
-                      <td className={`${CELL} text-right tabular-nums text-slate-500`}>{p.averages[0]?.fixingDays ?? 0}</td>
-                      <td className={CELL}>
+                      <td className={`${TD} text-right tabular-nums !text-slate-500`}>{p.averages[0]?.fixingDays ?? 0}</td>
+                      <td className={TD}>
                         {p.final ? (
-                          <span className="text-[12px] font-semibold text-slate-600 bg-slate-100 rounded px-2 py-0.5">Final</span>
+                          <Pill tone="slate">Final</Pill>
                         ) : (
-                          <span className="text-[12px] font-semibold text-warn bg-warn-soft rounded px-2 py-0.5">Provisional</span>
+                          <Pill tone="amber">Provisional</Pill>
                         )}
                       </td>
                     </tr>
@@ -88,7 +90,7 @@ export function AveragesTab({ initialYear }: { initialYear: number }) {
           </table>
         </div>
       )}
-      <p className="text-[12.5px] text-slate-400 m-0">
+      <p className={`${HINT} m-0`}>
         Average of the ČNB fixing days in the period, shown per the units ČNB quotes (e.g. per 1000 IDR) to 3 decimals — the same
         method as ČNB&apos;s own published averages; reports convert with the unrounded rate.
         Quarters and years average all their fixing days, not the monthly averages. Reports use these rates without the ROE %.

@@ -5,6 +5,7 @@ import { Alert, Button, Modal, Select } from "antd";
 import { apiErrorMessage } from "@/lib/api";
 import { useCustomerSites } from "@/hooks/useCustomerSites";
 import { useHauliers } from "@/hooks/useTrucking";
+import { HINT } from "@/styles/ui";
 import type { ConsignmentDetail, Leg, LegPartnerRequest } from "@/hooks/useTruckingConsignments";
 import { formatPsc } from "../../_lib/hauliers";
 import { TERMS } from "../../_lib/glossary";
@@ -81,7 +82,7 @@ export const PartnerLegModal = ({ c, leg, onClose, onSave }: PartnerLegModalProp
           goods there first.
         </p>
         {leg.buy && (
-          <div className="text-[12px] text-slate-500">
+          <div className={HINT}>
             Now: {formatMoney(leg.buy.total, leg.buy.currency)} ({leg.buy.source === "MANUAL" ? "agreed" : leg.buy.tariffName})
           </div>
         )}

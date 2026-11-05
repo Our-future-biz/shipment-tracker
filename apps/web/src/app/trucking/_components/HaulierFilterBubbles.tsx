@@ -1,6 +1,7 @@
 "use client";
 
 import { Tooltip } from "antd";
+import { KPI_VALUE, LABEL_TEXT } from "@/styles/ui";
 import { HAULIER_STATUS_CHIP, type HaulierStatus } from "../_lib/hauliers";
 
 const BUBBLE_ORDER: HaulierStatus[] = ["blocked", "warning", "ok"];
@@ -12,6 +13,7 @@ interface HaulierFilterBubblesProps {
 }
 
 // Status tiles over the Hauliers grid (same tiles as the Warehouse worklist): click to filter, again to clear.
+// The chosen tile shows in its indigo frame; label and figure keep the app's label and KPI type.
 export const HaulierFilterBubbles = ({ active, counts, onSelect }: HaulierFilterBubblesProps) => (
   <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
     {BUBBLE_ORDER.map((status) => {
@@ -29,8 +31,8 @@ export const HaulierFilterBubbles = ({ active, counts, onSelect }: HaulierFilter
             ].join(" ")}
           >
             <div className="flex items-baseline gap-2">
-              <span className={`text-[15px] font-bold uppercase tracking-wide ${on ? "text-indigo-600" : "text-slate-500"}`}>{chip.label}:</span>
-              <span className={`text-[22px] leading-tight font-bold tabular-nums ${on ? "text-indigo-700" : "text-slate-900"}`}>{counts[status]}</span>
+              <span className={LABEL_TEXT}>{chip.label}:</span>
+              <span className={KPI_VALUE}>{counts[status]}</span>
             </div>
           </button>
         </Tooltip>

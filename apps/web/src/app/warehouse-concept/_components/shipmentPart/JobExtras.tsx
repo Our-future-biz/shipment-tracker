@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Alert, Input, Button, Space, Tag, Modal } from "antd";
+import { Alert, Input, Button, Space, Modal } from "antd";
 import type { MessageInstance } from "antd/es/message/interface";
 import { SECTION_CONFLICT_TEXT, SectionConflictError, useWarehouseSection } from "@/hooks/useWarehouseConceptSection";
 import { APIError } from "@/lib/api/client";
 import { SectionCard as Card } from "@/components/SectionCard";
 import { formatDate } from "@/lib/date";
+import { Badge } from "@/components/Badge";
+import { EMPTY, HINT } from "@/styles/ui";
 
 interface JobSectionData {
   notes?: string;
@@ -30,11 +32,7 @@ export function sectionSaveError(e: unknown, fallback = "Failed to save"): strin
 // Save state shown in a card header: "Unsaved changes" while edited, "Saved HH:mm" after a save.
 export function SaveStatus({ dirty, savedAt }: { dirty: boolean; savedAt: Date | null }) {
   if (dirty) {
-    return (
-      <Tag color="orange" className="m-0 !text-[11px]">
-        Unsaved changes
-      </Tag>
-    );
+    return <Badge tone="a">Unsaved changes</Badge>;
   }
   if (!savedAt) return null;
   const hhmm = savedAt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
@@ -130,7 +128,7 @@ export function JobNotes({ ownerId, messageApi, readOnly = false }: { ownerId: s
         />
       )}
       {readOnly ? (
-        <p className={`text-xs whitespace-pre-wrap ${notes ? "text-slate-900" : "text-slate-300"}`}>{notes || "—"}</p>
+        <p className={`text-[13px] whitespace-pre-wrap ${notes ? "text-slate-900" : EMPTY}`}>{notes || "—"}</p>
       ) : (
         <Input.TextArea rows={2} value={notes} placeholder="Warehouse notes…" onChange={(e) => setNotes(e.target.value)} />
       )}
@@ -192,10 +190,12 @@ export function ActionPushButtons({ ownerId, messageApi }: { ownerId: string; me
         {ACTIONS.map((action) => {
           const parsed = parseActionData(section[action.key]);
           return parsed ? (
-            <Tag key={action.key} color="green" className="text-[11px]">
-              {action.label} marked sent — {formatDate(parsed.timestamp)}
-              {parsed.note && <span className="block text-[10px] text-slate-500">{parsed.note}</span>}
-            </Tag>
+            <span key={action.key}>
+              <Badge tone="g">
+                {action.label} marked sent — {formatDate(parsed.timestamp)}
+              </Badge>
+              {parsed.note && <span className={`block mt-0.5 ${HINT}`}>{parsed.note}</span>}
+            </span>
           ) : (
             <Button key={action.key} size="small" onClick={() => setModalState({ actionKey: action.key, label: action.label, note: "" })}>
               Mark {action.label} as sent
@@ -214,7 +214,7 @@ export function ActionPushButtons({ ownerId, messageApi }: { ownerId: string; me
         ]}
         destroyOnHidden
       >
-        <p className="text-xs text-slate-500 mt-0 mb-3">Nothing is e-mailed — this only records that it was sent outside the app.</p>
+        <p className={`${HINT} mt-0 mb-3`}>Nothing is e-mailed — this only records that it was sent outside the app.</p>
         <Input.TextArea placeholder="Add a note..." rows={3} value={modalState?.note || ""} onChange={(e) => modalState && setModalState({ ...modalState, note: e.target.value })} />
       </Modal>
     </Card>

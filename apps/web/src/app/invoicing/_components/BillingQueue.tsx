@@ -14,6 +14,7 @@ import { ColumnFiltersPopover, type StoredFilter } from "@/components/ColumnFilt
 import { ColumnPickerPopover } from "@/components/ColumnPickerPopover";
 import { TOOLBAR_BUTTON_CLASS, storedGridFilters, withFilterId, type GridFilter } from "@/components/gridFilters";
 import { btnPrimary } from "@/components/buttons";
+import { CARD, PAGE_TITLE } from "@/styles/ui";
 import { useDebounced } from "@/hooks/useDebounced";
 import { useInvoiceQueue, type BillingQueueView } from "@/hooks/useInvoiceQueue";
 import { useColumnPrefs, type ColumnViewScope } from "@/hooks/useColumnPrefs";
@@ -246,8 +247,8 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
     <div className="bg-slate-50 min-h-full px-8 py-6">
       <div className="max-w-[1400px] mx-auto flex flex-col gap-5">
         {/* One bar: the title, the stage tabs with their counts, then search, the table tools and the action. */}
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-3 bg-white border border-slate-200 rounded-2xl px-5 py-3">
-          <h1 className="text-2xl font-bold text-slate-900 m-0 uppercase">Invoicing</h1>
+        <div className={`flex flex-wrap items-center gap-x-6 gap-y-3 ${CARD} px-4 py-3`}>
+          <h1 className={PAGE_TITLE}>Invoicing</h1>
           <div role="tablist" aria-label="Invoicing stage" className="flex items-center gap-1 self-stretch">
             {STAGE_TABS.map((t) => {
               const active = view === t.key;
@@ -260,16 +261,17 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
                     role="tab"
                     aria-selected={active}
                     onClick={() => setView(t.key)}
-                    className={`flex items-center gap-2 h-full px-2 -mb-px bg-transparent border-0 border-b-2 cursor-pointer text-sm transition-colors ${
+                    // the colours of the app's tab strip (RecordTabs), with a count on each tab
+                    className={`flex items-center gap-2 h-full px-2 -mb-px bg-transparent border-0 border-b-2 cursor-pointer text-[13px] whitespace-nowrap transition-colors ${
                       active
-                        ? "border-indigo-500 text-indigo-600 font-semibold"
-                        : "border-transparent text-slate-600 hover:text-slate-900"
+                        ? "border-indigo-600 text-indigo-600 font-semibold"
+                        : "border-transparent text-slate-500 font-medium hover:text-slate-900"
                     }`}
                   >
                     {t.label}
                     {n !== undefined && (
                       <span
-                        className={`rounded px-1.5 text-xs font-medium leading-5 ${
+                        className={`rounded-full px-2 text-[11px] font-semibold leading-5 tabular-nums ${
                           active ? "bg-indigo-50 text-indigo-600" : "bg-slate-100 text-slate-500"
                         }`}
                       >
@@ -414,7 +416,7 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
           onClose={() => setDocsJob(null)}
           width={480}
           destroyOnHidden
-          styles={{ body: { padding: 0 } }}
+          classNames={{ body: "!p-0" }}
           title={docsJob ? `Documents — ${docsJob.jobNumber}` : "Documents"}
         >
           {docsJob && <DocumentsPanel shipmentId={docsJob.id} />}
@@ -425,7 +427,7 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
           onClose={() => setChatJob(null)}
           width={460}
           destroyOnHidden
-          styles={{ body: { padding: 0 } }}
+          classNames={{ body: "!p-0" }}
           title={chatJob ? `Chat — ${chatJob.jobNumber}` : "Chat"}
         >
           {chatJob && <ChatPanel shipmentId={chatJob.id} />}

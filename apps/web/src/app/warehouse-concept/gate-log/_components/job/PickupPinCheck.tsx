@@ -10,10 +10,11 @@ import { TERMS } from "@/app/warehouse-concept/_lib/glossary";
 import { Badge } from "../../_lib/gate";
 import { MAX_PIN_TRIES, PICKUP_PIN_GATE, pinCheckMessage, type PinCheckResult } from "../../_lib/steps";
 import { btnPrimary, Section } from "./fields";
+import { HINT, REF, TD, TH } from "@/styles/ui";
 
 const TONE_BOX = {
-  g: "bg-emerald-50 text-green-700 border-emerald-200",
-  a: "bg-orange-50 text-orange-700 border-orange-200",
+  g: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  a: "bg-amber-50 text-amber-700 border-amber-200",
   r: "bg-red-50 text-red-700 border-red-200",
 } as const;
 
@@ -63,55 +64,62 @@ export function PickupPinCheck({ m, verifyPin }: { m: GateMovement; verifyPin: (
 
   return (
     <Section title={TERMS.pickupPin} icon={<KeyOutlined />} extra={status}>
-      <div className="text-[11px] text-slate-500 mb-2">
+      <div className={`${HINT} mb-2`}>
         Pick-up from Shipments — compare with the truck at the gate.
         {p.pinSet && p.pinCreatedAt ? ` PIN generated ${formatDateTime(p.pinCreatedAt)}${p.pinCreatedBy ? ` · ${p.pinCreatedBy}` : ""}.` : ""}
       </div>
-      <table className="w-full border-collapse text-xs">
+      <table className="w-full border-collapse">
         <thead>
-          <tr className="border-b border-slate-200 text-left text-slate-500">
-            <th className="py-1 pr-2 font-semibold">Haulier</th>
-            <th className="py-1 pr-2 font-semibold">{TERMS.plate}</th>
-            <th className="py-1 font-semibold">{TERMS.driver}</th>
+          <tr>
+            <th className={`${TH} first:pl-0`}>Haulier</th>
+            <th className={TH}>{TERMS.plate}</th>
+            <th className={`${TH} last:pr-0`}>{TERMS.driver}</th>
           </tr>
         </thead>
         <tbody>
           {p.rows.map((r, i) => (
-            <tr key={i} className="border-b border-slate-100">
-              <td className="py-1 pr-2 text-slate-800 break-words">
+            <tr key={i}>
+              <td className={`${TD} first:pl-0 break-words`}>
                 {r.haulier || "—"}
                 <TripMarker x={r} className="ml-1.5" />
               </td>
-              <td className="py-1 pr-2 font-mono text-slate-800">{r.licensePlate || "—"}</td>
-              <td className="py-1 text-slate-800 break-words">{r.driver || "—"}</td>
+              <td className={`${TD} ${REF}`}>{r.licensePlate || "—"}</td>
+              <td className={`${TD} last:pr-0 break-words`}>{r.driver || "—"}</td>
             </tr>
           ))}
           {p.rows.length === 0 && (
             <tr>
-              <td colSpan={3} className="py-1.5 text-slate-400">
-                No pick-up entered in Shipments yet.
+              <td colSpan={3} className={`${TD} first:pl-0`}>
+                <span className="text-slate-400">No pick-up entered in Shipments yet.</span>
               </td>
             </tr>
           )}
-          <tr className="text-slate-500">
-            <td className="pt-1.5 pr-2 italic">Truck at the gate (OUT)</td>
-            <td className="pt-1.5 pr-2 font-mono">{truckPlate || "—"}</td>
-            <td className="pt-1.5">{truckDriver || "—"}</td>
+          {/* The truck to compare with the rows above, in grey. */}
+          <tr className="[&>td]:border-b-0">
+            <td className={`${TD} first:pl-0`}>
+              <span className="italic text-slate-500">Truck at the gate (OUT)</span>
+            </td>
+            <td className={`${TD} ${REF}`}>
+              <span className="text-slate-500">{truckPlate || "—"}</span>
+            </td>
+            <td className={`${TD} last:pr-0`}>
+              <span className="text-slate-500">{truckDriver || "—"}</span>
+            </td>
           </tr>
         </tbody>
       </table>
 
       {m.impRelease ? null : verified ? (
-        <div className={`mt-3 rounded border px-2.5 py-1.5 text-xs font-semibold ${TONE_BOX.g}`}>PIN verified — no further check needed.</div>
+        <div className={`mt-3 rounded-lg border px-2.5 py-1.5 text-xs font-semibold ${TONE_BOX.g}`}>PIN verified — no further check needed.</div>
       ) : (
         <div className="mt-3">
-          <div className="text-[11px] text-slate-500 mb-1.5">
+          <div className={`${HINT} mb-1.5`}>
             {p.pinSet ? `${p.tries} of ${MAX_PIN_TRIES} tries used` : "Operations make the PIN in Shipments → Warehouse → Pick-up."}
           </div>
           <div className="flex gap-2">
             <Input
               size="middle"
-              className="!w-40 font-mono tracking-[0.3em]"
+              className="!w-40 tabular-nums tracking-[0.3em]"
               placeholder="PIN"
               inputMode="numeric"
               autoComplete="off"
@@ -126,8 +134,8 @@ export function PickupPinCheck({ m, verifyPin }: { m: GateMovement; verifyPin: (
               Check PIN
             </button>
           </div>
-          {msg && <div className={`mt-2 rounded border px-2.5 py-1.5 text-xs font-semibold ${TONE_BOX[msg.tone]}`}>{msg.text}</div>}
-          {!msg && p.locked && <div className={`mt-2 rounded border px-2.5 py-1.5 text-xs font-semibold ${TONE_BOX.r}`}>{pinCheckMessage("locked", p.tries).text}</div>}
+          {msg && <div className={`mt-2 rounded-lg border px-2.5 py-1.5 text-xs font-semibold ${TONE_BOX[msg.tone]}`}>{msg.text}</div>}
+          {!msg && p.locked && <div className={`mt-2 rounded-lg border px-2.5 py-1.5 text-xs font-semibold ${TONE_BOX.r}`}>{pinCheckMessage("locked", p.tries).text}</div>}
         </div>
       )}
     </Section>

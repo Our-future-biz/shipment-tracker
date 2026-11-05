@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Checkbox, Input } from "antd";
+import { HINT } from "@/styles/ui";
 
 interface ColumnChecklistProps {
   columns: { key: string; title: string }[];
@@ -35,7 +36,7 @@ export function ColumnChecklist({ columns, visible, onChange, fixedKeys = [], al
     <>
       <Input size="small" placeholder="Find a column…" value={search} onChange={(e) => setSearch(e.target.value)} allowClear className="mb-2" />
       <div className="max-h-[320px] overflow-y-auto pr-1 flex flex-col gap-1">
-        {shown.length === 0 && <div className="text-xs text-slate-400 py-2">No columns found.</div>}
+        {shown.length === 0 && <div className={`${HINT} py-2`}>No columns found.</div>}
         {shown.map((c) => {
           const isFixed = fixed.has(c.key);
           return (
@@ -55,7 +56,7 @@ export function ColumnChecklist({ columns, visible, onChange, fixedKeys = [], al
           type="button"
           disabled={disabled}
           onClick={selectAll}
-          className="text-[11px] text-indigo-500 hover:underline disabled:text-slate-300 bg-transparent border-none p-0 cursor-pointer"
+          className="text-[12px] text-indigo-600 hover:text-indigo-700 hover:underline disabled:text-slate-300 disabled:no-underline bg-transparent border-none p-0 cursor-pointer"
         >
           Select all
         </button>
@@ -63,11 +64,11 @@ export function ColumnChecklist({ columns, visible, onChange, fixedKeys = [], al
           type="button"
           disabled={disabled}
           onClick={clear}
-          className="text-[11px] text-slate-400 hover:underline disabled:text-slate-300 bg-transparent border-none p-0 cursor-pointer"
+          className="text-[12px] text-slate-500 hover:text-slate-900 hover:underline disabled:text-slate-300 disabled:no-underline bg-transparent border-none p-0 cursor-pointer"
         >
           Clear
         </button>
-        <span className="ml-auto text-[11px] text-slate-400">{visible.length} shown</span>
+        <span className={`ml-auto ${HINT}`}>{visible.length} shown</span>
       </div>
     </>
   );

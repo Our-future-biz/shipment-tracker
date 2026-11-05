@@ -3,14 +3,17 @@
 import { useCallback, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Select, Tag } from "antd";
+import { Select } from "antd";
 import { useShipmentMutations, type ShipmentItem } from "@/hooks/useShipments";
 import { useShipment } from "@/hooks/useShipment";
 import { useInvoiceDocList } from "@/hooks/useInvoiceDocs";
 import { useInvoicing } from "@/hooks/useInvoicing";
 import { AppCard } from "@/components/AppCard";
+import { EMPTY_CELL } from "@/components/EmptyCell";
+import { Pill } from "@/components/Pill";
+import { CARD, LABEL_TEXT, LINK, PAGE_SUBTITLE, PAGE_TITLE, REF } from "@/styles/ui";
 import { formatDate } from "@/lib/date";
-import { statusLabel, statusTagColor } from "@/lib/shipmentStatus";
+import { StatusBadge } from "@/components/StatusBadge";
 import { moneyCz } from "@/lib/money";
 import { useToast } from "@/lib/toast";
 import { CostsTab } from "@/app/shipments/[jobNumber]/tabs/CostsTab";
@@ -33,11 +36,7 @@ const isTabKey = (v: string | null): v is TabKey => TABS.some((t) => t.key === v
 const INVOICING_STATUSES = ["Not Invoiced", "Invoiced"];
 
 function InvoicingStatusTag({ value }: { value: string }) {
-  return value === "Invoiced" ? (
-    <Tag color="green" bordered={false} className="!m-0">Invoiced</Tag>
-  ) : (
-    <Tag color="red" bordered={false} className="!m-0">{value || "Not Invoiced"}</Tag>
-  );
+  return value === "Invoiced" ? <Pill tone="green">Invoiced</Pill> : <Pill tone="red">{value || "Not Invoiced"}</Pill>;
 }
 
 interface SummaryItemProps {
@@ -48,7 +47,7 @@ interface SummaryItemProps {
 function SummaryItem({ label, children }: SummaryItemProps) {
   return (
     <div className="min-w-0">
-      <div className="text-[11px] font-bold uppercase tracking-[.04em] text-slate-500 whitespace-nowrap">{label}</div>
+      <div className={`${LABEL_TEXT} whitespace-nowrap`}>{label}</div>
       <div className="mt-1 min-h-7 text-[13px] text-slate-900 flex items-center flex-wrap gap-x-2 gap-y-1 break-words">{children}</div>
     </div>
   );
@@ -91,16 +90,16 @@ function ShipmentSummary({ shipment, nextDuzp }: ShipmentProps & { nextDuzp: str
     // the width of their label (labels do not wrap); a long Shipment Status is cut, not widened
     <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,1.3fr)_minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,0.9fr)_fit-content(120px)_max-content_max-content] gap-x-4 gap-y-3">
       <SummaryItem label="Job">
-        <Link href={`/shipments/${shipment.id}`} className="font-semibold text-indigo-600 hover:underline">
+        <Link href={`/shipments/${shipment.id}`} className={`${REF} font-semibold ${LINK}`}>
           {shipment.jobNumber}
         </Link>
       </SummaryItem>
-      <SummaryItem label="Direction">{shipment.tradeDirection || "—"}</SummaryItem>
+      <SummaryItem label="Direction">{shipment.tradeDirection || EMPTY_CELL}</SummaryItem>
       <SummaryItem label="Customer">{shipment.customer || <span className="text-slate-500">Not linked</span>}</SummaryItem>
-      <SummaryItem label="POL">{shipment.pol || "—"}</SummaryItem>
+      <SummaryItem label="POL">{shipment.pol || EMPTY_CELL}</SummaryItem>
       <SummaryItem label="POD">
         <span className="min-w-0">
-          {shipment.pod || "—"}
+          {shipment.pod || EMPTY_CELL}
           {/* the final destination, which the old Route column also showed */}
           {shipment.destination && shipment.destination !== shipment.pod && (
             <span className="block text-[12px] text-slate-500">Destination: {shipment.destination}</span>
@@ -108,9 +107,9 @@ function ShipmentSummary({ shipment, nextDuzp }: ShipmentProps & { nextDuzp: str
         </span>
       </SummaryItem>
       {/* The tax date: of the newest open invoice once issued, else the one the Invoice tab would use */}
-      <SummaryItem label="DUZP">{formatDate(jobDuzp(data?.invoices ?? [], nextDuzp)) || "—"}</SummaryItem>
+      <SummaryItem label="DUZP">{formatDate(jobDuzp(data?.invoices ?? [], nextDuzp)) || EMPTY_CELL}</SummaryItem>
       <SummaryItem label="Shipment Status">
-        {status ? <Tag color={statusTagColor(status)} title={statusLabel(status)} className="!m-0 !text-[11px] max-w-full truncate">{statusLabel(status)}</Tag> : "—"}
+        {status ? <StatusBadge status={status} className="max-w-full truncate" /> : EMPTY_CELL}
       </SummaryItem>
       <SummaryItem label="Invoicing Status">
         <Select
@@ -133,7 +132,7 @@ function ShipmentSummary({ shipment, nextDuzp }: ShipmentProps & { nextDuzp: str
             {lines.invoiced}/{lines.total}
           </span>
         ) : (
-          "—"
+          EMPTY_CELL
         )}
       </SummaryItem>
     </div>
@@ -145,7 +144,7 @@ function CostsTotals({ shipment }: ShipmentProps) {
   const { billingCur, totals: t } = useCostsData(shipment);
   return (
     // one block that does not squeeze; its parts wrap only if it is wider than the whole row
-    <div className="ml-auto shrink-0 max-w-full whitespace-nowrap flex flex-wrap items-center gap-x-4 gap-y-1 px-2 py-2.5 text-[12.5px] text-slate-600 tabular-nums">
+    <div className="ml-auto shrink-0 max-w-full whitespace-nowrap flex flex-wrap items-center gap-x-4 gap-y-1 px-2 py-2.5 text-[13px] text-slate-500 tabular-nums">
       <span>Buying <strong className="text-slate-900">{moneyCz(t.buyTotal)}</strong></span>
       <span>Selling <strong className="text-slate-900">{moneyCz(t.sellTotal)}</strong></span>
       <span>
@@ -183,10 +182,11 @@ function JobTabs({ shipment, active, onChange }: JobTabsProps) {
             aria-selected={active === tab.key}
             aria-controls="invoicing-tab-panel"
             onClick={() => onChange(tab.key)}
-            className={`px-4 py-2.5 text-sm cursor-pointer transition-all duration-150 border-b-2 bg-transparent ${
+            // the classes of the app's tab strip (RecordTabs), which has no tab ids or counts
+            className={`px-4 py-2.5 text-[13px] whitespace-nowrap cursor-pointer bg-transparent border-0 border-b-2 transition-colors ${
               active === tab.key
-                ? "font-semibold text-indigo-500 border-indigo-500"
-                : "font-normal text-slate-400 border-transparent hover:text-slate-600"
+                ? "font-semibold text-indigo-600 border-indigo-600"
+                : "font-medium text-slate-500 border-transparent hover:text-slate-900"
             }`}
           >
             {tab.label}
@@ -264,11 +264,11 @@ export const InvoicingView = () => {
             <button
               type="button"
               onClick={() => handleSelect(null)}
-              className="p-0 border-0 bg-transparent cursor-pointer text-[13px] text-slate-500 hover:text-indigo-600"
+              className={`${PAGE_SUBTITLE} p-0 border-0 bg-transparent cursor-pointer hover:text-indigo-600`}
             >
               ← Invoicing queue
             </button>
-            <h1 className="text-2xl font-bold text-slate-900 m-0">
+            <h1 className={PAGE_TITLE}>
               Invoicing{selectedShipment ? <span className="text-slate-400 font-semibold"> · {selectedShipment.jobNumber}</span> : null}
             </h1>
           </div>
@@ -277,7 +277,7 @@ export const InvoicingView = () => {
         {selectedShipment ? (
           <>
             {/* The job at a glance, with the tab bar along its bottom edge as on the shipment detail */}
-            <section className="bg-white border border-slate-200 rounded-xl shadow-sm min-w-0">
+            <section className={`${CARD} min-w-0`}>
               <div className="px-4 pt-4 pb-3">
                 <ShipmentSummary shipment={selectedShipment} nextDuzp={nextDuzp?.id === selectedShipment.id ? nextDuzp.iso : null} />
               </div>

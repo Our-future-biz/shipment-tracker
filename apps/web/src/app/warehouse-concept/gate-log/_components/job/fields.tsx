@@ -7,12 +7,13 @@ import customParseFormat from "dayjs/plugin/customParseFormat";
 import { formatDateTime } from "@/lib/date";
 import { czechPhoneProblem, limitCzechPhone } from "@/lib/phone";
 import { UserPicker } from "@/components/UserPicker";
+import { CARD, CARD_BAR, CARD_ICON, CARD_TITLE, HINT, LABEL_TEXT } from "@/styles/ui";
 
 dayjs.extend(customParseFormat);
 
-// Building blocks for the gate log job, in the app's detail-page style (see the
-// shipment detail page): white rounded cards with an indigo section bar, uppercase
-// field labels, and inline fields that look like text until touched and save on blur.
+// Building blocks for the gate log job, in the app's one look (styles/ui.ts, as the shipment
+// detail page): white cards with the indigo title bar, small bold caps field labels, and inline
+// fields that look like text until touched and save on blur.
 
 export function Section({
   title,
@@ -30,11 +31,11 @@ export function Section({
   bodyClassName?: string;
 }) {
   return (
-    <section className={`bg-white border border-slate-200 rounded-xl shadow-sm min-w-0 ${className}`}>
-      <div className="px-4 py-2.5 flex items-center gap-2.5 bg-indigo-50 border-b border-indigo-100 rounded-t-xl">
-        {icon && <span className="text-indigo-500 text-base leading-none">{icon}</span>}
-        <h3 className="text-[13px] font-bold text-slate-800 uppercase tracking-wider m-0">{title}</h3>
-        {extra && <div className="ml-auto flex items-center gap-2 text-xs text-slate-500">{extra}</div>}
+    <section className={`${CARD} min-w-0 ${className}`}>
+      <div className={`${CARD_BAR} rounded-t-xl`}>
+        {icon && <span className={CARD_ICON}>{icon}</span>}
+        <h3 className={CARD_TITLE}>{title}</h3>
+        {extra && <div className={`ml-auto flex items-center gap-2 ${HINT}`}>{extra}</div>}
       </div>
       <div className={bodyClassName || "p-4"}>{children}</div>
     </section>
@@ -43,8 +44,8 @@ export function Section({
 
 export function FieldRow({ label, children, tall }: { label: string; children: ReactNode; tall?: boolean }) {
   return (
-    <div className={`flex gap-2.5 py-1 text-xs border-b border-slate-100 last:border-b-0 ${tall ? "items-start" : "items-center"}`}>
-      <span className={`w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide ${tall ? "pt-1.5" : ""}`}>{label}</span>
+    <div className={`flex gap-2.5 py-1 text-[13px] border-b border-slate-100 last:border-b-0 ${tall ? "items-start" : "items-center"}`}>
+      <span className={`w-[140px] shrink-0 ${LABEL_TEXT} ${tall ? "pt-1.5" : ""}`}>{label}</span>
       <div className="flex-1 min-w-0">{children}</div>
     </div>
   );
@@ -57,7 +58,7 @@ function useDraft<T>(value: T) {
   return [draft, setDraft] as const;
 }
 
-const inlineClass = "!text-xs -ml-[7px] hover:!bg-slate-50 focus-within:!bg-white";
+const inlineClass = "!text-[13px] -ml-[7px] hover:!bg-slate-50 focus-within:!bg-white";
 
 export function InlineText({
   value,
@@ -85,7 +86,7 @@ export function InlineText({
       placeholder={placeholder}
       status={problem ? "error" : undefined}
       title={problem || undefined}
-      className={`${inlineClass} font-medium text-slate-900 ${mono ? "font-mono" : ""} ${className}`}
+      className={`${inlineClass} font-medium text-slate-900 ${mono ? "tabular-nums" : ""} ${className}`}
       onChange={(e) => setDraft(phone ? limitCzechPhone(e.target.value) : e.target.value)}
       onBlur={() => !problem && draft !== value && onSave(draft.trim())}
       onPressEnter={(e) => e.currentTarget.blur()}
@@ -101,7 +102,7 @@ export const parseStamp = (value: string) => {
   return d.isValid() ? d : null;
 };
 
-const pickerClass = `${inlineClass} font-mono font-medium [&_input]:!text-xs`;
+const pickerClass = `${inlineClass} tabular-nums font-medium [&_input]:!text-[13px]`;
 
 export function InlineDate({ value, onSave, className = "" }: { value: string; onSave: (v: string) => void; className?: string }) {
   return (
@@ -157,7 +158,7 @@ export function InlineNumber({
         step={step}
         controls={false}
         value={draft}
-        className={`${inlineClass} w-[110px] font-mono font-medium`}
+        className={`${inlineClass} w-[110px] tabular-nums font-medium`}
         onChange={(v) => setDraft(v == null ? null : Number(v))}
         onBlur={() => {
           const n = Math.max(0, draft ?? 0);
@@ -252,16 +253,16 @@ export function InlineTextarea({ value, onSave, placeholder }: { value: string; 
 export function YesNo({ value, neg, onSave, label }: { value: boolean | null; neg: "yes" | "no"; onSave: (v: boolean) => void; label: string }) {
   const current = value == null ? "" : value ? "yes" : "no";
   return (
-    <span className="inline-flex rounded-md border border-slate-200 overflow-hidden" role="group" aria-label={label}>
+    <span className="inline-flex rounded-lg border border-slate-200 overflow-hidden" role="group" aria-label={label}>
       {(["yes", "no"] as const).map((opt) => {
         const on = current === opt;
-        const tone = on ? (opt === neg ? "bg-red-50 text-red-600 font-semibold" : "bg-slate-100 text-slate-800 font-semibold") : "bg-white text-slate-400 hover:text-slate-700";
+        const tone = on ? (opt === neg ? "bg-red-50 text-red-600 font-semibold" : "bg-slate-100 text-slate-900 font-semibold") : "bg-white text-slate-400 hover:text-slate-700";
         return (
           <button
             key={opt}
             type="button"
             aria-pressed={on}
-            className={`px-3 py-0.5 text-xs border-0 cursor-pointer transition-colors ${tone} ${opt === "no" ? "border-l border-slate-200" : ""}`}
+            className={`px-3 py-0.5 text-[12px] border-0 cursor-pointer transition-colors ${tone} ${opt === "no" ? "border-l border-slate-200" : ""}`}
             onClick={() => !on && onSave(opt === "yes")}
           >
             {opt === "yes" ? "Yes" : "No"}

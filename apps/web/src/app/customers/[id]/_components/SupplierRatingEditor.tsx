@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { Button, Input, Popconfirm } from "antd";
 import { RATING_MEANINGS, reasonRequired } from "@/lib/supplierRating";
+import { LINK } from "@/styles/ui";
 import { canSaveRating, reasonAfterChoice } from "../../_lib/supplierRatingChoice";
 
 interface SupplierRatingEditorProps {
@@ -16,7 +17,7 @@ interface SupplierRatingEditorProps {
 }
 
 const MAX_REASON = 300;
-const CLEAR_CLASS = "ml-auto cursor-pointer border-0 bg-transparent p-0 text-[12px] text-indigo-600 hover:underline disabled:cursor-not-allowed disabled:opacity-50";
+const CLEAR_CLASS = `ml-auto cursor-pointer border-0 bg-transparent p-0 text-[12px] disabled:cursor-not-allowed disabled:opacity-50 ${LINK}`;
 
 // Picking a rating: six choices, 0 ("the worst") and 1–5 stars. The arrow keys move the choice as in any
 // radio group (Right / Down to the next, Left / Up back) and nothing is saved until Save, so one Save is one
@@ -76,9 +77,10 @@ export function SupplierRatingEditor({ rating, reason: savedReason, saving, onSa
               // One stop in the tab order: the picked choice, or the first one.
               tabIndex={on || (picked === null && stars === 0) ? 0 : -1}
               onClick={() => choose(stars)}
+              // The app's pill choice (PillTabs): indigo when picked.
               className={[
-                "h-8 cursor-pointer rounded-lg border px-2.5 text-[13px] tabular-nums transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500",
-                on ? "border-amber-400 bg-amber-50 font-semibold text-slate-800" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300",
+                "h-8 cursor-pointer rounded-lg border px-2.5 text-[13px] font-medium tabular-nums transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500",
+                on ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
               ].join(" ")}
             >
               {stars === 0 ? "0 · worst" : <><span className="text-amber-500" aria-hidden>★</span> {stars}</>}

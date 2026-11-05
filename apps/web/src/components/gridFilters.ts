@@ -1,3 +1,4 @@
+import { ICON_BTN } from "@/styles/ui";
 import { fold, foldIncludes } from "@/lib/fold";
 
 // "Filter by column" rows shared by the app's grids (AppGrid, the Customer Database list, the Invoicing queue):
@@ -50,5 +51,5 @@ export function matchesGridFilters<T>(
 }
 
 /** The grid toolbar's square icon button. */
-export const TOOLBAR_BUTTON_CLASS =
-  "flex items-center justify-center shrink-0 rounded-lg border border-slate-300 bg-white w-8 h-8 p-0 text-slate-700 hover:bg-slate-50 transition-colors";
+// The app's icon button (styles/ui.ts), as every list page's toolbar has it.
+export const TOOLBAR_BUTTON_CLASS = `${ICON_BTN} p-0`;

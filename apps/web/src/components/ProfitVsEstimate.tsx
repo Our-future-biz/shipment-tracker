@@ -13,7 +13,7 @@ export function ProfitVsEstimate({ delta, currency, className = "" }: ProfitVsEs
   if (Math.abs(delta) < 0.005) return <span className={`text-[12px] text-slate-400 ${className}`}>On estimate</span>;
   const burning = delta > 0;
   return (
-    <span className={`text-[12px] font-semibold whitespace-nowrap ${burning ? "text-danger" : "text-ok"} ${className}`}>
+    <span className={`text-[12px] font-semibold whitespace-nowrap ${burning ? "text-red-600" : "text-emerald-700"} ${className}`}>
       {burning ? "Profit Burning" : "Profit Optimalization"}{" "}
       <span className="tabular-nums">
         {money(Math.abs(delta))} {currency}

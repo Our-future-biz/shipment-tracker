@@ -5,6 +5,7 @@ import { Alert, App, DatePicker, Input, InputNumber, Modal } from "antd";
 import dayjs from "dayjs";
 import { useSetRoe } from "@/hooks/useFx";
 import { useToast } from "@/lib/toast";
+import { LABEL_TEXT } from "@/styles/ui";
 import { fmtPct, fmtQuoted, type FxOverview } from "./fxShared";
 
 interface Props {
@@ -76,8 +77,8 @@ export function RoeDialog({ current, rates, today, onClose }: Props) {
           message="Applies to new quotes and draft lines priced in another currency. Sent quotes, issued invoices and closed jobs keep their rates. Profit, VAT and reports always use the pure ČNB rate."
         />
         <div className="grid grid-cols-2 gap-4">
-          <label className="flex flex-col gap-1 text-[13px] font-semibold text-slate-600">
-            ROE %
+          <label className="flex flex-col gap-1">
+            <span className={LABEL_TEXT}>ROE %</span>
             <InputNumber
               value={pct}
               onChange={(v) => setPct(v)}
@@ -90,8 +91,8 @@ export function RoeDialog({ current, rates, today, onClose }: Props) {
               className="!w-full"
             />
           </label>
-          <label className="flex flex-col gap-1 text-[13px] font-semibold text-slate-600">
-            Effective from
+          <label className="flex flex-col gap-1">
+            <span className={LABEL_TEXT}>Effective from</span>
             <DatePicker
               value={dayjs(effectiveFrom)}
               onChange={(d) => d && setEffectiveFrom(d.format("YYYY-MM-DD"))}
@@ -101,12 +102,12 @@ export function RoeDialog({ current, rates, today, onClose }: Props) {
             />
           </label>
         </div>
-        <label className="flex flex-col gap-1 text-[13px] font-semibold text-slate-600">
-          Note (why it changes)
+        <label className="flex flex-col gap-1">
+          <span className={LABEL_TEXT}>Note (why it changes)</span>
           <Input.TextArea value={note} onChange={(e) => setNote(e.target.value)} rows={2} maxLength={300} placeholder="e.g. USD volatility, agreed with finance" />
         </label>
         <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-[13px]">
-          <div className="font-semibold text-slate-600 mb-1">Preview at {fmtPct(pct ?? 100)}</div>
+          <div className={`${LABEL_TEXT} mb-1`}>Preview at {fmtPct(pct ?? 100)}</div>
           {rates.map((r) => (
             <div key={r.currency} className="flex justify-between tabular-nums">
               <span>{r.currency}</span>
@@ -116,7 +117,7 @@ export function RoeDialog({ current, rates, today, onClose }: Props) {
             </div>
           ))}
         </div>
-        {backdated && <div className="text-[12.5px] text-warn">This date is in the past — you will be asked to confirm.</div>}
+        {backdated && <div className="text-[13px] text-warn">This date is in the past — you will be asked to confirm.</div>}
         {error && <div className="text-[13px] text-red-600">{error}</div>}
       </div>
     </Modal>

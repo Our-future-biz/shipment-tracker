@@ -7,6 +7,7 @@ import { ConfirmModal } from "@/components/ConfirmModal";
 import { Pill } from "@/components/Pill";
 import { CountChip, SectionCard } from "@/components/SectionCard";
 import { apiErrorMessage } from "@/lib/api";
+import { HINT } from "@/styles/ui";
 import { businessDateTime } from "@/lib/date";
 import { useToast } from "@/lib/toast";
 import { usePortalUsers, type PortalUser, type PortalUserCreate } from "@/hooks/useTrucking";
@@ -106,12 +107,12 @@ export const HaulierPortalUsers = ({ customerId, manageReason }: HaulierPortalUs
               <li key={u.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-[13px] font-semibold text-slate-800">{u.name}</span>
+                    <span className="text-[13px] font-semibold text-slate-900">{u.name}</span>
                     <Tooltip title={chip.hint} mouseEnterDelay={0.4}>
                       <Pill tone={chip.tone}>{chip.label}</Pill>
                     </Tooltip>
                   </div>
-                  <div className="text-xs text-slate-500 [overflow-wrap:anywhere]">
+                  <div className={`${HINT} [overflow-wrap:anywhere]`}>
                     {u.email}
                     {u.phone ? ` · ${u.phone}` : ""} · {u.lastLoginAt ? `last signed in ${businessDateTime(u.lastLoginAt)}` : "never signed in"}
                   </div>

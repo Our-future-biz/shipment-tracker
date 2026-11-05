@@ -11,7 +11,9 @@ import { CUSTOMS_DOCUMENT_TYPES } from "@/lib/documentTypes";
 import { customsDeadlineAt } from "@/lib/customsDeadline";
 import { RECEIVED_TICKS } from "@/lib/customsReceived";
 import { CUSTOMS_CONTAINERS_ID } from "@/app/shipments/[jobNumber]/tabs/CustomsTab";
-import { COLS2, LABEL, ROW } from "@/app/shipments/[jobNumber]/_components/detailStyles";
+import { COLS2, LABEL, ROW, VALUE } from "@/app/shipments/[jobNumber]/_components/detailStyles";
+import { KpiTile, KPI_GRID_CLASS } from "@/components/KpiTile";
+import { EMPTY, HINT, LINK, TD, TH } from "@/styles/ui";
 
 // What a customs officer needs from the shipment itself, read-only: everything here is
 // kept in Shipments and only shown in Customs.
@@ -49,7 +51,7 @@ function InfoRow({ label, children }: { label: string; children?: React.ReactNod
   return (
     <div className={ROW}>
       <span className={LABEL}>{label}</span>
-      <div className="flex-1 min-w-0 text-slate-800">{children || <span className="text-slate-300">—</span>}</div>
+      <div className={VALUE}>{children || <span className={EMPTY}>—</span>}</div>
     </div>
   );
 }
@@ -58,7 +60,7 @@ function InfoRow({ label, children }: { label: string; children?: React.ReactNod
 function PartyName({ name, customerId }: { name: string; customerId?: string | null }) {
   if (!name) return null;
   return customerId ? (
-    <Link href={`/customers/${customerId}`} className="text-indigo-600 hover:underline font-medium">
+    <Link href={`/customers/${customerId}`} className={`${LINK} font-medium`}>
       {name}
     </Link>
   ) : (
@@ -66,36 +68,22 @@ function PartyName({ name, customerId }: { name: string; customerId?: string | n
   );
 }
 
+/** A fact of the top strip: the app's KPI tile, with the fact in words. */
 function Tile({ label, value, note, tone }: { label: string; value: React.ReactNode; note?: React.ReactNode; tone?: "red" | "green" }) {
-  return (
-    <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 shadow-sm min-w-0">
-      <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">{label}</div>
-      <div
-        className={`mt-1 text-sm font-semibold truncate ${
-          tone === "red" ? "text-red-600" : tone === "green" ? "text-emerald-700" : "text-slate-900"
-        }`}
-      >
-        {value || <span className="text-slate-300">—</span>}
-      </div>
-      {note && <div className="mt-0.5 text-xs text-slate-500 truncate">{note}</div>}
-    </div>
-  );
+  return <KpiTile size="text" label={label} value={value || <span className={EMPTY}>—</span>} tone={tone} hint={note} />;
 }
-
-const TH = "text-[11px] font-bold text-slate-500 uppercase tracking-wide px-2 py-1.5 border-b border-slate-200";
-const TD = "px-2 py-1.5 border-b border-slate-100 text-xs text-slate-900 font-medium";
 
 // The first column (what the line is) reads from the left; the figures after it are centred
 // under their headings, like the cargo table in the shipment.
 function LinesTable({ head, rows, empty }: { head: string[]; rows: string[][]; empty: string }) {
-  if (rows.length === 0) return <div className="py-3 text-xs text-slate-400">{empty}</div>;
+  if (rows.length === 0) return <div className={`py-3 ${HINT}`}>{empty}</div>;
   return (
     <div className="overflow-x-auto">
       <table className="w-full border-collapse">
         <thead>
           <tr>
             {head.map((h, i) => (
-              <th key={h} className={`${TH} ${i === 0 ? "text-left" : "text-center"}`}>
+              <th key={h} className={`${TH} ${i === 0 ? "" : "!text-center"}`}>
                 {h}
               </th>
             ))}
@@ -106,7 +94,7 @@ function LinesTable({ head, rows, empty }: { head: string[]; rows: string[][]; e
             <tr key={i}>
               {r.map((cell, j) => (
                 <td key={j} className={`${TD} ${j === 0 ? "text-left" : "text-center"}`}>
-                  {cell || <span className="text-slate-300">—</span>}
+                  {cell || <span className={EMPTY}>—</span>}
                 </td>
               ))}
             </tr>
@@ -133,7 +121,7 @@ export function CustomsSummary({ shipment }: { shipment: ShipmentItem }) {
   const missingNote = missing.map((t) => (tickedOnPaper(t) ? `${t} (on paper, to upload)` : t)).join(", ");
 
   return (
-    <div className="grid gap-3 grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
+    <div className={KPI_GRID_CLASS}>
       <Tile
         label="Priority"
         value={shipment.customsPriority || "Standard"}

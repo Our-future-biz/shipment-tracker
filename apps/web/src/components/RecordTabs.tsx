@@ -24,10 +24,11 @@ export function RecordTabs({ tabs, active, onChange, label, className = "" }: Re
             type="button"
             aria-current={selected ? "page" : undefined}
             onClick={() => onChange(tab.key)}
-            className={`px-4 py-2.5 text-sm whitespace-nowrap cursor-pointer bg-transparent border-0 border-b-2 transition-all duration-150 ${
+            // The app's one tab strip: indigo-600 underline and text on the open tab.
+            className={`px-4 py-2.5 text-[13px] whitespace-nowrap cursor-pointer bg-transparent border-0 border-b-2 transition-colors ${
               selected
-                ? "font-semibold text-indigo-500 border-indigo-500"
-                : "font-normal text-slate-400 border-transparent hover:text-slate-600"
+                ? "font-semibold text-indigo-600 border-indigo-600"
+                : "font-medium text-slate-500 border-transparent hover:text-slate-900"
             }`}
           >
             {tab.label}

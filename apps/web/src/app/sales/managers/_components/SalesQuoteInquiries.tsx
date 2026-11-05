@@ -5,6 +5,8 @@ import Link from "next/link";
 import { InputNumber, Segmented } from "antd";
 import { CheckOutlined, CloseOutlined, MessageOutlined } from "@ant-design/icons";
 import { useToast } from "@/lib/toast";
+import { LINK_CLASS } from "@/components/linkClass";
+import { Pill } from "@/components/Pill";
 import { apiErrorMessage } from "@/lib/api";
 import { formatDateTime } from "@/lib/date";
 import { formatAmount } from "@/lib/money";
@@ -17,6 +19,7 @@ import { quoteChatHref, quoteHref } from "../../_lib/quoteHref";
 import { floorText, marginText } from "../../_lib/roadQuote";
 import { serviceTypeLabel } from "../../_lib/types";
 import { COCKPIT_MODES, inCockpitMode } from "../_lib/cockpitModes";
+import { BTN, BTN_DANGER, BTN_PRIMARY, CARD, CARD_BAR, CARD_TITLE, HINT, LABEL_TEXT, TD, TH } from "@/styles/ui";
 
 // Sales → Managers → Quote inquiries (Council Outlay 6, step 3): reps ask a manager to approve a
 // margin below the floor. A manager approves it, approves it down to a counter margin, rejects it,
@@ -25,9 +28,10 @@ import { COCKPIT_MODES, inCockpitMode } from "../_lib/cockpitModes";
 // shown (owner decision D9). The warehouse's heavy-piece questions are decided on Warehouse →
 // Managers; here they are one line to chase.
 
-const BUTTON = "inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-200 bg-white text-[12.5px] font-semibold text-slate-700 cursor-pointer transition-colors";
-const SAVE = "text-[12.5px] font-semibold px-3 py-1.5 rounded-lg border text-white cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed hover:brightness-110";
-const LABEL = "block text-[11px] font-extrabold tracking-[.07em] uppercase mb-1";
+const LABEL = `block ${LABEL_TEXT} mb-1`;
+// A cell of the list, its first and last a card's padding in from the frame.
+const HEAD = `${TH} first:pl-4 last:pr-4`;
+const CELL = `${TD} !align-top first:pl-4 last:pr-4`;
 
 type Answering = { id: string; decision: "approve" | "counter" | "reject" };
 
@@ -35,13 +39,13 @@ const czk = (n: number) => formatAmount(Math.round(n), "CZK");
 
 function AnswerPill({ row }: { row: MarginInquiryRow }) {
   const i = row.inquiry;
-  if (i.status === "withdrawn") return <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-0.5 text-[12px] font-semibold text-slate-600">Withdrawn</span>;
-  if (i.status === "rejected") return <span className="inline-flex rounded-full bg-red-50 px-2.5 py-0.5 text-[12px] font-semibold text-red-700">Rejected</span>;
+  if (i.status === "withdrawn") return <Pill tone="slate">Withdrawn</Pill>;
+  if (i.status === "rejected") return <Pill tone="red">Rejected</Pill>;
   return (
-    <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-0.5 text-[12px] font-semibold text-emerald-700">
+    <Pill tone="green">
       {i.decision === "counter" ? "Approved down to " : "Approved · "}
       {marginText(i.approvedMarginCzk, i.approvedMarginPercent)}
-    </span>
+    </Pill>
   );
 }
 
@@ -103,11 +107,11 @@ export function SalesQuoteInquiries({ mode }: { mode: SalesCockpitMode }) {
 
   return (
     <div className="flex flex-col gap-3">
-      <section className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
-        <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 bg-slate-50 border-b border-slate-200">
+      <section className={`${CARD} overflow-hidden`}>
+        <div className={`${CARD_BAR} flex-wrap justify-between`}>
           <div>
-            <div className="text-[13px] font-bold uppercase tracking-wider text-slate-800">Quote inquiries · margins below the floor</div>
-            <div className="text-[12px] text-slate-500">Approve as asked, approve down to a counter margin, or reject with a reason. The answer goes to whoever asked and to the quote&apos;s owner.</div>
+            <h3 className={CARD_TITLE}>Quote inquiries · margins below the floor</h3>
+            <div className={HINT}>Approve as asked, approve down to a counter margin, or reject with a reason. The answer goes to whoever asked and to the quote&apos;s owner.</div>
           </div>
           <Segmented
             size="small"
@@ -122,19 +126,19 @@ export function SalesQuoteInquiries({ mode }: { mode: SalesCockpitMode }) {
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1040px] border-collapse text-[13px]">
             <thead>
-              <tr className="text-left text-[11px] uppercase tracking-wider text-slate-500 border-b border-slate-200">
-                <th className="px-4 py-2 font-semibold">Quote</th>
-                <th className="px-4 py-2 font-semibold">Margin vs floor</th>
-                <th className="px-4 py-2 font-semibold">Why</th>
-                <th className="px-4 py-2 font-semibold">Asked</th>
-                <th className="px-4 py-2 font-semibold">Answer</th>
+              <tr>
+                <th className={HEAD}>Quote</th>
+                <th className={HEAD}>Margin vs floor</th>
+                <th className={HEAD}>Why</th>
+                <th className={HEAD}>Asked</th>
+                <th className={HEAD}>Answer</th>
               </tr>
             </thead>
             <tbody>
               {listed.length === 0 && (
                 <tr>
-                  <td colSpan={5} className={`px-4 py-8 text-center ${isError ? "text-red-500" : "text-slate-400"}`}>
-                    {empty}
+                  <td colSpan={5} className={`${TD} !py-8 text-center`}>
+                    <span className={isError ? "text-red-600" : "text-slate-400"}>{empty}</span>
                   </td>
                 </tr>
               )}
@@ -147,17 +151,17 @@ export function SalesQuoteInquiries({ mode }: { mode: SalesCockpitMode }) {
                 const open = i.status === "pending" && answering?.id === i.id ? answering : null;
                 return (
                   <Fragment key={i.id}>
-                    <tr className="border-b border-slate-100 align-top">
-                      <td className="px-4 py-3">
-                        <Link href={quoteHref(i.quoteNumber)} className="font-mono font-bold text-indigo-600 hover:underline">
+                    <tr>
+                      <td className={CELL}>
+                        <Link href={quoteHref(i.quoteNumber)} className={`tabular-nums font-semibold ${LINK_CLASS}`}>
                           {i.quoteNumber}
                         </Link>
-                        <div className="text-[12px] text-slate-600">{r.customer || "—"}</div>
+                        <div className="text-[12px] text-slate-700">{r.customer || "—"}</div>
                         <div className="text-[11px] text-slate-400">
                           {[serviceTypeLabel(r.serviceType), r.ownerName ? `Sales Owner: ${r.ownerName}` : "no Sales Owner"].filter(Boolean).join(" · ")}
                         </div>
                       </td>
-                      <td className="px-4 py-3 tabular-nums">
+                      <td className={`${CELL} tabular-nums`}>
                         <div className="text-slate-700">
                           Selling {czk(s.sellingCzk)} · buying {czk(s.buyingCzk)}
                         </div>
@@ -171,14 +175,14 @@ export function SalesQuoteInquiries({ mode }: { mode: SalesCockpitMode }) {
                           </div>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-slate-600 max-w-[300px]">
-                        <div className="font-semibold text-slate-700">{i.reason}</div>
+                      <td className={`${CELL} max-w-[300px]`}>
+                        <div className="font-semibold text-slate-900">{i.reason}</div>
                         {i.note && <div className="whitespace-pre-wrap">{i.note}</div>}
                         {(i.competitorPrice || i.volume) && (
                           <div className="text-[12px] text-slate-500">{[i.competitorPrice && `Competitor: ${i.competitorPrice}`, i.volume && `Volume: ${i.volume}`].filter(Boolean).join(" · ")}</div>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                      <td className={`${CELL} whitespace-nowrap`}>
                         {i.requestedByName || "—"}
                         <div className="text-[11px] text-slate-400 tabular-nums">{formatDateTime(i.requestedAt)}</div>
                         {i.status === "pending" && (
@@ -189,21 +193,21 @@ export function SalesQuoteInquiries({ mode }: { mode: SalesCockpitMode }) {
                         )}
                         <div className="text-[11px] text-slate-400">{i.notifyName ? `told: ${i.notifyName}` : "told: the admins"}</div>
                       </td>
-                      <td className="px-4 py-3">
+                      <td className={CELL}>
                         {i.status === "pending" ? (
                           <div className="flex flex-wrap gap-2">
-                            <button type="button" onClick={() => start(r, "approve")} className={`${BUTTON} hover:border-emerald-500 hover:text-emerald-700 hover:bg-emerald-50`}>
+                            <button type="button" onClick={() => start(r, "approve")} className={BTN}>
                               <CheckOutlined className="text-[14px]" />
                               Approve
                             </button>
-                            <button type="button" onClick={() => start(r, "counter")} className={`${BUTTON} hover:border-emerald-500 hover:text-emerald-700 hover:bg-emerald-50`}>
+                            <button type="button" onClick={() => start(r, "counter")} className={BTN}>
                               Approve at…
                             </button>
-                            <button type="button" onClick={() => start(r, "reject")} className={`${BUTTON} hover:border-red-500 hover:text-red-700 hover:bg-red-50`}>
+                            <button type="button" onClick={() => start(r, "reject")} className={BTN}>
                               <CloseOutlined className="text-[14px]" />
                               Reject
                             </button>
-                            <Link href={quoteChatHref(i.quoteNumber)} className={`${BUTTON} !text-slate-700 hover:border-indigo-400`}>
+                            <Link href={quoteChatHref(i.quoteNumber)} className={`${BTN} !text-slate-700 hover:!text-slate-900`}>
                               <MessageOutlined className="text-[14px]" />
                               Ask back
                             </Link>
@@ -216,7 +220,7 @@ export function SalesQuoteInquiries({ mode }: { mode: SalesCockpitMode }) {
                               {i.selfDecision ? " · self-approval" : ""}
                               {i.answerSeenAt ? " · seen by Sales" : ""}
                             </div>
-                            {i.comment && <div className="text-[12px] text-slate-600 mt-1 max-w-[280px] whitespace-pre-wrap">{i.comment}</div>}
+                            {i.comment && <div className="text-[12px] text-slate-700 mt-1 max-w-[280px] whitespace-pre-wrap">{i.comment}</div>}
                           </div>
                         )}
                       </td>
@@ -227,13 +231,13 @@ export function SalesQuoteInquiries({ mode }: { mode: SalesCockpitMode }) {
                           <div className="flex flex-wrap items-end gap-3">
                             {open.decision === "counter" && (
                               <label className="block">
-                                <span className={`${LABEL} text-emerald-700`}>Lowest margin you accept (CZK)</span>
+                                <span className={LABEL}>Lowest margin you accept (CZK)</span>
                                 <InputNumber autoFocus min={0} precision={0} value={counter} onChange={(v) => setCounter(v)} aria-label="Lowest margin you accept in CZK" className="!w-[180px]" />
                                 {counter !== null && s.sellingCzk > 0 && <span className="ml-2 text-[12px] text-slate-500">= {formatPercent((counter / s.sellingCzk) * 100)} of the selling when asked</span>}
                               </label>
                             )}
                             <label className="block flex-1 min-w-[260px]">
-                              <span className={`${LABEL} ${open.decision === "reject" ? "text-red-600" : "text-slate-500"}`}>
+                              <span className={LABEL}>
                                 {open.decision === "reject" ? "Reason for rejection" : open.decision === "counter" ? "What the rep should aim for" : "Comment for the rep (optional)"}
                               </span>
                               <textarea
@@ -242,20 +246,20 @@ export function SalesQuoteInquiries({ mode }: { mode: SalesCockpitMode }) {
                                 value={comment}
                                 maxLength={1000}
                                 onChange={(e) => setComment(e.target.value)}
-                                className="w-full text-[13px] border border-slate-300 rounded-lg px-2.5 py-2 bg-white outline-none resize-y focus:border-indigo-500"
+                                className="w-full text-[13px] text-slate-900 border border-slate-300 rounded-lg px-2.5 py-2 bg-white outline-none resize-y focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-colors"
                               />
-                              <span className="block text-[11px] text-slate-500 mt-0.5">Sent to {i.requestedByName || "whoever asked"} and the quote&apos;s owner, and kept in the quote&apos;s history</span>
+                              <span className={`block ${HINT} mt-0.5`}>Sent to {i.requestedByName || "whoever asked"} and the quote&apos;s owner, and kept in the quote&apos;s history</span>
                             </label>
                             <div className="flex gap-2">
                               <button
                                 type="button"
                                 disabled={decide.isPending || (open.decision !== "approve" && comment.trim().length < 3) || (open.decision === "counter" && counter === null)}
                                 onClick={() => save(r)}
-                                className={`${SAVE} ${open.decision === "reject" ? "border-red-600 bg-red-600" : "border-emerald-600 bg-emerald-600"}`}
+                                className={open.decision === "reject" ? BTN_DANGER : BTN_PRIMARY}
                               >
                                 {open.decision === "reject" ? "Save rejection" : "Save approval"}
                               </button>
-                              <button type="button" onClick={() => setAnswering(null)} className={BUTTON}>
+                              <button type="button" onClick={() => setAnswering(null)} className={BTN}>
                                 Cancel
                               </button>
                             </div>
@@ -271,9 +275,9 @@ export function SalesQuoteInquiries({ mode }: { mode: SalesCockpitMode }) {
         </div>
       </section>
       {warehouseWaiting > 0 && (
-        <div role="status" className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs text-slate-600">
+        <div role="status" className={`${CARD} px-4 py-2 text-xs text-slate-700`}>
           <b>{warehouseWaiting}</b> heavy-piece question{warehouseWaiting === 1 ? "" : "s"} waiting for the warehouse (decided there) ·{" "}
-          <Link href="/warehouse-concept/managers?tab=inquiries" className="font-semibold text-indigo-600 hover:underline">
+          <Link href="/warehouse-concept/managers?tab=inquiries" className={`font-semibold ${LINK_CLASS}`}>
             Open Warehouse → Managers
           </Link>
         </div>

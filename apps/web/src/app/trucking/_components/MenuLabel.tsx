@@ -1,3 +1,5 @@
+import { HINT } from "@/styles/ui";
+
 interface MenuLabelProps {
   label: string;
   /** Why the item cannot be chosen now; "" when it can. */
@@ -10,7 +12,7 @@ export const MenuLabel = ({ label, reason }: MenuLabelProps) =>
   reason ? (
     <span className="flex flex-col">
       <span>{label}</span>
-      <span className="max-w-[280px] whitespace-normal text-[11px] leading-snug text-slate-400">{reason}</span>
+      <span className={`max-w-[280px] whitespace-normal leading-snug ${HINT}`}>{reason}</span>
     </span>
   ) : (
     <>{label}</>

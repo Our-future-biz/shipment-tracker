@@ -1,6 +1,7 @@
 "use client";
 
 import { Modal, Button } from "antd";
+import { MODAL_TITLE } from "@/styles/ui";
 
 interface ConfirmModalProps {
   open: boolean;
@@ -43,10 +44,10 @@ export function ConfirmModal({
           {danger ? "\u26A0\uFE0F" : "\u2139\uFE0F"}
         </div>
         <div className="min-w-0 [overflow-wrap:anywhere]">
-          <div className="text-[15px] font-semibold text-slate-800 mb-1">
+          <div className={`${MODAL_TITLE} mb-1`}>
             {title}
           </div>
-          <div className="text-sm text-slate-500 leading-relaxed">{description}</div>
+          <div className="text-[13px] text-slate-700 leading-relaxed">{description}</div>
         </div>
       </div>
       <div className="flex justify-end gap-2 mt-5">

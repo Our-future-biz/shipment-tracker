@@ -7,6 +7,7 @@ import { FadeText } from "@/components/FadeText";
 import { CustomerHoverCard } from "@/components/CustomerHoverCard";
 import { EditableLink } from "@/components/EditableLink";
 import { EMPTY, LABEL, ROW } from "./detailStyles";
+import { LINK } from "@/styles/ui";
 
 interface CustomerLinkFieldProps {
   label: string;
@@ -93,7 +94,7 @@ export function CustomerLinkField({ label, name, customerId, onChange, customers
                   <EditableLink
                     href={`/customers/${customerId}`}
                     onEdit={startEdit}
-                    className="block min-w-0 text-indigo-600 hover:underline"
+                    className={`${LINK} block min-w-0`}
                   >
                     <FadeText>{name}</FadeText>
                   </EditableLink>

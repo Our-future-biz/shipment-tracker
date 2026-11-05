@@ -56,7 +56,7 @@ export const PortalLinkDialog = ({ value, onClose }: PortalLinkDialogProps) => {
             description="Copy it and send it to the haulier yourself (e-mail sending is off). It will not be shown again — if it gets lost, reset the password for a new one. It works once."
           />
           <div className="flex gap-2">
-            <Input readOnly aria-label="One-time link" value={value.link} onFocus={(e) => e.target.select()} className="font-mono" />
+            <Input readOnly aria-label="One-time link" value={value.link} onFocus={(e) => e.target.select()} className="tabular-nums" />
             <Button icon={<CopyOutlined />} onClick={handleCopy}>
               Copy
             </Button>

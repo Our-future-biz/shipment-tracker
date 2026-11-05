@@ -12,9 +12,10 @@ import { TERMS } from "@/app/warehouse-concept/_lib/glossary";
 import { dropHouse, moveHouse, planCandidates, planTotals } from "@/app/warehouse-concept/_lib/containerPlan";
 import { stageLabel, stageTone } from "@/app/warehouse-concept/_lib/lifecycle";
 import { Badge, errorMessage, nf } from "@/app/warehouse-concept/gate-log/_lib/gate";
-import { btnDefault, btnPrimary } from "@/app/warehouse-concept/gate-log/_components/job/fields";
+import { btnPrimary } from "@/app/warehouse-concept/gate-log/_components/job/fields";
 import { Card } from "../tabs/shared";
 import { FillBar } from "./FillBar";
+import { EMPTY, ICON_BTN, LINK, REF, TD, TH } from "@/styles/ui";
 
 // The stuffing plan of an export container: which inbound positions go in, in order, with their
 // pieces / weight / volume against the capacity of the container type (over capacity is a warning).
@@ -24,8 +25,8 @@ import { FillBar } from "./FillBar";
 
 type Api = ReturnType<typeof useWarehouseContainer>;
 
-const th = "text-left px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-500 whitespace-nowrap";
-const td = "px-3 py-1.5 align-middle";
+// The last row's cells lose their bottom line: the card's edge is the line there.
+const ROW = "[&:last-child>td]:border-b-0";
 
 export function StuffingPlan({ c, api }: { c: WarehouseContainer; api: Api }) {
   const toast = useToast();
@@ -77,20 +78,20 @@ export function StuffingPlan({ c, api }: { c: WarehouseContainer; api: Api }) {
           <div className="p-4 text-xs text-slate-400">No houses planned yet — add positions in the warehouse from the list.</div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] border-collapse text-xs">
+            <table className="w-full min-w-[860px] border-collapse">
               <thead>
-                <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className={th} aria-label="Order" />
-                  <th className={th}>{TERMS.warehouseRef}</th>
-                  <th className={th}>Customer</th>
-                  <th className={th}>POD · ETD</th>
-                  <th className={`${th} !text-right`}>{TERMS.pieces}</th>
-                  <th className={`${th} !text-right`}>kg</th>
-                  <th className={`${th} !text-right`}>cbm</th>
-                  <th className={th}>{TERMS.reweigh}</th>
-                  <th className={th}>{TERMS.lifecycle}</th>
-                  <th className={th}>{TERMS.stuffed}</th>
-                  <th className={th} aria-label="Actions" />
+                <tr>
+                  <th className={TH} aria-label="Order" />
+                  <th className={TH}>{TERMS.warehouseRef}</th>
+                  <th className={TH}>Customer</th>
+                  <th className={TH}>POD · ETD</th>
+                  <th className={`${TH} !text-right`}>{TERMS.pieces}</th>
+                  <th className={`${TH} !text-right`}>kg</th>
+                  <th className={`${TH} !text-right`}>cbm</th>
+                  <th className={TH}>{TERMS.reweigh}</th>
+                  <th className={TH}>{TERMS.lifecycle}</th>
+                  <th className={TH}>{TERMS.stuffed}</th>
+                  <th className={TH} aria-label="Actions" />
                 </tr>
               </thead>
               <tbody>
@@ -109,35 +110,35 @@ export function StuffingPlan({ c, api }: { c: WarehouseContainer; api: Api }) {
                       setDragging(null);
                     }}
                     onDragEnd={() => setDragging(null)}
-                    className={`border-b border-slate-100 last:border-b-0 ${dragging === h.movementId ? "opacity-50" : ""} ${h.stuffedAt ? "bg-emerald-50/40" : ""}`}
+                    className={`${ROW} ${dragging === h.movementId ? "opacity-50" : ""} ${h.stuffedAt ? "bg-emerald-50/40" : ""}`}
                   >
-                    <td className={`${td} text-slate-400 whitespace-nowrap`}>
+                    <td className={`${TD} !text-slate-400 whitespace-nowrap`}>
                       {!closed && <HolderOutlined className="cursor-grab mr-1" aria-hidden />}
                       <span className="tabular-nums">{i + 1}</span>
                     </td>
-                    <td className={td}>
-                      <Link href={`/warehouse-concept/gate-log/${h.movementId}`} className="font-mono font-bold text-indigo-500 hover:underline">
+                    <td className={TD}>
+                      <Link href={`/warehouse-concept/gate-log/${h.movementId}`} className={`${REF} font-bold ${LINK}`}>
                         {h.positionRef || h.gateRef}
                       </Link>
                       {h.addedBy === "migration" && <div className="text-[10px] text-slate-400">from the old register</div>}
                     </td>
-                    <td className={`${td} text-slate-700`}>{h.customer || "—"}</td>
-                    <td className={`${td} text-slate-600 whitespace-nowrap`}>
+                    <td className={TD}>{h.customer || <span className={EMPTY}>—</span>}</td>
+                    <td className={`${TD} whitespace-nowrap`}>
                       {h.pod || "—"} · {formatDate(h.etd) || "—"}
                     </td>
-                    <td className={`${td} text-right tabular-nums`}>{nf(h.pieces)}</td>
-                    <td className={`${td} text-right tabular-nums`}>{nf(h.weightKg)}</td>
-                    <td className={`${td} text-right tabular-nums`}>{nf(h.cbm, 2)}</td>
-                    <td className={td}>
+                    <td className={`${TD} text-right tabular-nums`}>{nf(h.pieces)}</td>
+                    <td className={`${TD} text-right tabular-nums`}>{nf(h.weightKg)}</td>
+                    <td className={`${TD} text-right tabular-nums`}>{nf(h.cbm, 2)}</td>
+                    <td className={TD}>
                       {h.reweighKg != null ? (
                         <Badge tone={h.reweighFlagged ? "a" : "g"}>{nf(h.reweighKg)} kg{h.reweighFlagged ? " · variance" : ""}</Badge>
                       ) : h.needsReweigh ? (
                         <Badge tone="r">Missing</Badge>
                       ) : (
-                        <span className="text-slate-300">—</span>
+                        <span className={EMPTY}>—</span>
                       )}
                     </td>
-                    <td className={td}>
+                    <td className={TD}>
                       <Badge tone={stageTone(h.stage)}>{stageLabel(h.stage, h.stageLabel)}</Badge>
                       {h.openExceptions > 0 && !h.overridden && (
                         <Badge tone="r" className="ml-1">
@@ -145,7 +146,7 @@ export function StuffingPlan({ c, api }: { c: WarehouseContainer; api: Api }) {
                         </Badge>
                       )}
                     </td>
-                    <td className={`${td} whitespace-nowrap`}>
+                    <td className={`${TD} whitespace-nowrap`}>
                       <Tooltip title={stuffBlocked ?? undefined}>
                         <span className="inline-flex items-center gap-2">
                           <Switch
@@ -164,15 +165,15 @@ export function StuffingPlan({ c, api }: { c: WarehouseContainer; api: Api }) {
                         </span>
                       </Tooltip>
                     </td>
-                    <td className={`${td} whitespace-nowrap text-right`}>
+                    <td className={`${TD} whitespace-nowrap text-right`}>
                       {!closed && (
                         <span className="inline-flex items-center gap-1">
-                          <button type="button" className={btnDefault} aria-label="Move up" disabled={i === 0 || api.reorder.isPending} onClick={() => reorder(moveHouse(order, h.movementId, -1))}>
+                          <button type="button" className={ICON_BTN} aria-label="Move up" disabled={i === 0 || api.reorder.isPending} onClick={() => reorder(moveHouse(order, h.movementId, -1))}>
                             <ArrowUpOutlined />
                           </button>
                           <button
                             type="button"
-                            className={btnDefault}
+                            className={ICON_BTN}
                             aria-label="Move down"
                             disabled={i === c.positions.length - 1 || api.reorder.isPending}
                             onClick={() => reorder(moveHouse(order, h.movementId, 1))}
@@ -181,7 +182,7 @@ export function StuffingPlan({ c, api }: { c: WarehouseContainer; api: Api }) {
                           </button>
                           <Tooltip title={h.stuffedAt ? "Stuffed — take it back out first" : "Take out of the plan"}>
                             <span className="inline-flex">
-                              <button type="button" className={btnDefault} aria-label="Take out of the plan" disabled={!!h.stuffedAt || api.removePosition.isPending} onClick={() => removeHouse(h)}>
+                              <button type="button" className={ICON_BTN} aria-label="Take out of the plan" disabled={!!h.stuffedAt || api.removePosition.isPending} onClick={() => removeHouse(h)}>
                                 <DeleteOutlined />
                               </button>
                             </span>
@@ -212,9 +213,9 @@ export function StuffingPlan({ c, api }: { c: WarehouseContainer; api: Api }) {
                   <Checkbox
                     checked={picked.includes(m.id)}
                     onChange={(e) => setPicked((p) => (e.target.checked ? [...p, m.id] : p.filter((x) => x !== m.id)))}
-                    className="!text-xs w-full"
+                    className="w-full"
                   >
-                    <span className="font-mono font-semibold text-slate-800">{m.positionRef || m.gateRef}</span>
+                    <span className="tabular-nums font-semibold text-slate-900">{m.positionRef || m.gateRef}</span>
                     <span className="text-slate-500"> · {m.customer || "—"}</span>
                     <span className="block text-[11px] text-slate-500 tabular-nums">
                       {m.pod || "—"} · ETD {formatDate(m.etd) || "—"} · {nf(m.colli)} pcs · {nf(m.weightKg)} kg · {nf(m.measureCbm, 2)} cbm
@@ -228,7 +229,7 @@ export function StuffingPlan({ c, api }: { c: WarehouseContainer; api: Api }) {
           <div className="border-t border-slate-200 px-4 py-3 flex flex-col gap-2">
             <div className="text-[11px] text-slate-500">With the chosen positions</div>
             <FillBar totals={projected} />
-            <div className="text-[11px] text-slate-600 tabular-nums">
+            <div className="text-[11px] text-slate-700 tabular-nums">
               {nf(projected.pieces)} pcs · {nf(projected.kg)} kg · {nf(projected.cbm, 2)} cbm
             </div>
             {projected.overCapacity && <div className="text-[11px] font-semibold text-red-600">Over the capacity of a {c.equipment || "container of this type"} — check before stuffing.</div>}

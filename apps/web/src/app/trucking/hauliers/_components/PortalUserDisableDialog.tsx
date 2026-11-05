@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Button, Input, Modal } from "antd";
+import { LABEL_TEXT, MODAL_TITLE } from "@/styles/ui";
 
 const MIN_REASON = 3;
 const MAX_REASON = 500;
@@ -25,10 +26,10 @@ export const PortalUserDisableDialog = ({ userName, loading, onClose, onConfirm 
       <div className="flex items-start gap-3">
         <div className="w-9 h-9 rounded-full flex items-center justify-center text-base shrink-0 bg-red-100">⛔</div>
         <div className="min-w-0 flex-1 [overflow-wrap:anywhere]">
-          <div className="text-[15px] font-semibold text-slate-800 mb-1">Disable {userName}?</div>
-          <div className="text-sm text-slate-500 leading-relaxed mb-3">The user is signed out at once and cannot sign in to the haulier portal until a manager enables it again.</div>
+          <div className={`${MODAL_TITLE} mb-1`}>Disable {userName}?</div>
+          <div className="text-[13px] text-slate-600 leading-relaxed mb-3">The user is signed out at once and cannot sign in to the haulier portal until a manager enables it again.</div>
           <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Reason (required)</span>
+            <span className={LABEL_TEXT}>Reason (required)</span>
             <Input.TextArea
               aria-label="Reason for disabling"
               autoFocus

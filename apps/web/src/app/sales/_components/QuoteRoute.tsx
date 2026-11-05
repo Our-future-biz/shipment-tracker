@@ -10,7 +10,7 @@ interface QuoteRouteProps {
 export function QuoteRoute({ origin, destination }: QuoteRouteProps) {
   if (!origin && !destination) return EMPTY_CELL;
   return (
-    <span className="text-slate-600">
+    <span className="text-slate-700">
       {origin || "—"} <span className="text-slate-300">→</span> {destination || "—"}
     </span>
   );

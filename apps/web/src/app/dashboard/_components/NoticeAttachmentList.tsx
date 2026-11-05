@@ -3,6 +3,7 @@
 import { Button, Tooltip } from "antd";
 import { DownloadOutlined, EyeOutlined, FileExcelOutlined, FileImageOutlined, FileOutlined, FilePdfOutlined, FileWordOutlined } from "@ant-design/icons";
 import { formatFileSize } from "@/lib/files";
+import { HINT } from "@/styles/ui";
 
 export interface NoticeAttachmentRow {
   key: string;
@@ -48,11 +49,11 @@ export function NoticeAttachmentList({ files, onOpen, onPreview, downloadingKeys
               type="button"
               title={f.fileName}
               onClick={() => onOpen(f.key)}
-              className="block max-w-full truncate p-0 border-none bg-transparent text-left text-[13px] font-semibold text-slate-800 hover:text-indigo-600 hover:underline cursor-pointer"
+              className="block max-w-full truncate p-0 border-none bg-transparent text-left text-[13px] font-semibold text-slate-900 hover:text-indigo-600 hover:underline cursor-pointer"
             >
               {f.fileName}
             </button>
-            <span className="block text-[11px] text-slate-500">{[formatFileSize(f.fileSize), extension(f.fileName).toUpperCase()].filter(Boolean).join(" · ")}</span>
+            <span className={`block ${HINT}`}>{[formatFileSize(f.fileSize), extension(f.fileName).toUpperCase()].filter(Boolean).join(" · ")}</span>
           </span>
           <span className="shrink-0 flex items-center gap-1.5">
             {/* Kept on every row so the buttons line up; disabled where the browser cannot show the file. */}

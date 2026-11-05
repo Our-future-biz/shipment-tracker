@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Alert, Checkbox } from "antd";
 import { lowRatingNote } from "@/lib/supplierRating";
+import { LINK } from "@/styles/ui";
 import { needsConfirmation } from "../_lib/haulierRating";
 
 interface HaulierRatingNoteProps {
@@ -25,7 +26,7 @@ export function HaulierRatingNote({ customerId, rating, reason = "", confirmed =
     <>
       Rated {rating} of 5 · {note.title}: {note.text}
       {reason && <> Reason: “{reason}”.</>}{" "}
-      <Link href={`/customers/${customerId}`} target="_blank" className="font-semibold">
+      <Link href={`/customers/${customerId}`} target="_blank" className={`${LINK} font-semibold`}>
         See why
       </Link>
     </>

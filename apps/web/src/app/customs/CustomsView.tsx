@@ -2,14 +2,16 @@
 
 import { useMemo, useState } from "react";
 import { Spin } from "antd";
-import { ArrowLeftOutlined } from "@ant-design/icons";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useShipments } from "@/hooks/useShipments";
 import { useShipment } from "@/hooks/useShipment";
 import { useDebounced } from "@/hooks/useDebounced";
+import { BackLink } from "@/components/BackLink";
 import { CountToggleButton } from "@/components/CountToggleButton";
+import { RecordTabs } from "@/components/RecordTabs";
+import { PAGE_SUBTITLE, PAGE_TITLE, REF } from "@/styles/ui";
 import { ShipmentsTable } from "@/app/shipments/_components/ShipmentsTable";
 import { CustomsSummary, CustomsShipmentInfo } from "./CustomsOverview";
 import { CustomsTab } from "@/app/shipments/[jobNumber]/tabs/CustomsTab";
@@ -104,12 +106,10 @@ export function CustomsView() {
   };
 
   // Back to the list as it was left: its search and filters stay, only the opened shipment goes.
-  const backToList = () => {
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete("open");
-    const qs = params.toString();
-    router.push(qs ? `/customs?${qs}` : "/customs");
-  };
+  const listParams = new URLSearchParams(searchParams.toString());
+  listParams.delete("open");
+  const listQs = listParams.toString();
+  const listHref = listQs ? `/customs?${listQs}` : "/customs";
 
   // Commercial Invoice Value shows the per-currency total of the cargo lines whenever they
   // carry values (the same rule as the Customs tab); the shipment's own field is the fallback.
@@ -124,39 +124,26 @@ export function CustomsView() {
         {openId ? (
           <div className="flex flex-col gap-5">
             <div>
-              <div className="flex items-center gap-3.5 mb-4">
-                <button
-                  type="button"
-                  onClick={backToList}
-                  className="inline-flex items-center gap-2 h-10 px-4 rounded-lg border border-line-soft bg-white text-slate-900 text-[17px] font-bold cursor-pointer hover:bg-surface-2 hover:text-ink-soft transition-colors"
-                >
-                  <ArrowLeftOutlined /> Customs
-                </button>
+              {/* The way back above the shipment's job number, its page title, as on every record page. */}
+              <div className="mb-4">
+                <BackLink href={listHref} className="mb-1.5">
+                  Customs
+                </BackLink>
                 {openShipment && (
-                  <span className="font-mono text-[18px] font-bold tracking-[.02em] text-ink-strong">
-                    {openShipment.jobNumber}
-                  </span>
-                )}
-                {openShipment?.customer && (
-                  <span className="text-[13px] font-semibold text-slate-600">{openShipment.customer}</span>
+                  <div className="flex flex-wrap items-baseline gap-x-3">
+                    <h1 className={`${PAGE_TITLE} ${REF}`}>{openShipment.jobNumber}</h1>
+                    {openShipment.customer && <span className={PAGE_SUBTITLE}>{openShipment.customer}</span>}
+                  </div>
                 )}
               </div>
               {openShipment && (
-                <div className="flex gap-0 mb-4 border-b border-slate-200">
-                  {CUSTOMS_DETAIL_TABS.map((tab) => (
-                    <div
-                      key={tab.key}
-                      onClick={() => setDetailTab(tab.key)}
-                      className={`px-4 py-2.5 text-sm cursor-pointer transition-all duration-150 border-b-2 -mb-px ${
-                        detailTab === tab.key
-                          ? "font-semibold text-indigo-500 border-indigo-500"
-                          : "font-normal text-slate-400 border-transparent hover:text-slate-600"
-                      }`}
-                    >
-                      {tab.label}
-                    </div>
-                  ))}
-                </div>
+                <RecordTabs
+                  label="Shipment sections"
+                  tabs={CUSTOMS_DETAIL_TABS}
+                  active={detailTab}
+                  onChange={(key) => setDetailTab(key as DetailTab)}
+                  className="mb-4 border-b border-slate-200"
+                />
               )}
               {openShipment && detailTab === "invoicing" ? (
                 <CustomsInvoicing shipment={openShipment} />
@@ -176,7 +163,7 @@ export function CustomsView() {
                   <Spin />
                 </div>
               ) : (
-                <div className="px-3 py-7 text-center text-sm text-slate-400">Shipment not found.</div>
+                <div className="px-3 py-7 text-center text-[13px] text-slate-500">Shipment not found.</div>
               )}
             </div>
           </div>

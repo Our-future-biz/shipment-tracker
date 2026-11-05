@@ -10,6 +10,8 @@ import { useColumnView } from "@/hooks/useColumnView";
 import { COLUMN_MAP, DATE_COLUMNS } from "@/lib/columnConfig";
 import { formatDate } from "@/lib/date";
 import { StatusBadge } from "@/components/StatusBadge";
+import { CountChip } from "@/components/SectionCard";
+import { CARD, CARD_BAR, CARD_TITLE, EMPTY as EMPTY_TEXT, LINK, PAGE_TITLE, REF } from "@/styles/ui";
 import { ColumnPicker } from "@/app/shipments/_components/ColumnPicker";
 import { DimensionsModal } from "@/app/shipments/_components/DimensionsModal";
 import { useToast } from "@/lib/toast";
@@ -46,7 +48,7 @@ function columnsFor(section: WarehouseSection, chosen: string[], openDimensions:
         render: (_: unknown, s: ShipmentItem) => {
           if (key === "jobNumber") {
             return (
-              <Link href={`/warehouse/${s.id}?from=${section}`} className="font-mono font-bold text-indigo-500 hover:underline">
+              <Link href={`/warehouse/${s.id}?from=${section}`} className={`${REF} font-semibold ${LINK}`}>
                 {s.jobNumber || "—"}
               </Link>
             );
@@ -55,7 +57,7 @@ function columnsFor(section: WarehouseSection, chosen: string[], openDimensions:
             return (
               <button
                 onClick={() => openDimensions(s.id)}
-                className="text-link hover:underline font-medium bg-transparent border-none p-0 cursor-pointer"
+                className={`${LINK} font-medium bg-transparent border-none p-0 cursor-pointer`}
               >
                 Click for Preview
               </button>
@@ -63,7 +65,7 @@ function columnsFor(section: WarehouseSection, chosen: string[], openDimensions:
           }
           const raw = getFieldValue(s, key);
           const value = DATE_COLUMNS.has(key) ? formatDate(raw) || raw : raw;
-          if (!value) return <span className="text-slate-300">{"—"}</span>;
+          if (!value) return <span className={EMPTY_TEXT}>{"—"}</span>;
           return key === "status" ? <StatusBadge status={value} /> : value;
         },
       },
@@ -97,7 +99,7 @@ export function WarehouseDashboard() {
     <div className="bg-slate-50 min-h-full px-8 py-6">
       <div className="max-w-[1400px] mx-auto flex flex-col gap-5">
         <div className="flex items-center justify-between gap-4">
-          <h1 className="text-2xl font-bold text-slate-900 m-0">Warehouse</h1>
+          <h1 className={PAGE_TITLE}>Warehouse</h1>
           <ColumnPicker
             visible={visible}
             onChange={setVisible}
@@ -112,17 +114,16 @@ export function WarehouseDashboard() {
         </div>
 
         {ORDER.map((section) => (
-          <section key={section} className="data-table bg-white border border-slate-200 rounded-2xl overflow-hidden">
-            <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-slate-100">
+          <section key={section} className={`data-table ${CARD} overflow-hidden`}>
+            <div className={`${CARD_BAR} justify-between`}>
               <div className="flex items-center gap-2.5">
-                <Link href={`/warehouse/${section}`} className="text-[15px] font-semibold text-slate-900 hover:text-indigo-600">
+                {/* "!": antd colours every <a> in unlayered CSS, which wins over a plain utility. */}
+                <Link href={`/warehouse/${section}`} className={`${CARD_TITLE} !text-slate-900 hover:!text-indigo-600`}>
                   {WAREHOUSE_SECTIONS[section]}
                 </Link>
-                <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-600 tabular-nums">
-                  {isLoading ? "…" : bySection[section].length}
-                </span>
+                <CountChip count={isLoading ? "…" : bySection[section].length} />
               </div>
-              <Link href={`/warehouse/${section}`} className="text-[13px] text-indigo-500 hover:text-indigo-600">
+              <Link href={`/warehouse/${section}`} className={`text-[13px] ${LINK}`}>
                 Open
               </Link>
             </div>

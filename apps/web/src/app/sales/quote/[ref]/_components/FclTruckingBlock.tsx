@@ -61,17 +61,17 @@ export function FclTruckingBlock({ buyingLines, sellingLines, currency, amountOf
             const amount = amountOf(line, side);
             return (
               <tr key={`${side}-${index}`}>
-                <td className={`${LINE_TD_CLASS} text-slate-600`}>{SIDE_LABEL[side]}</td>
+                <td className={LINE_TD_CLASS}>{SIDE_LABEL[side]}</td>
                 <td className={LINE_TD_CLASS}>
                   {line.description?.trim() || line.type}
                   {tag && <div className="mt-1 flex flex-wrap items-center gap-1">{tag}</div>}
                 </td>
-                <td className={`${LINE_TD_CLASS} truncate text-slate-600`}>{line.supplier || "—"}</td>
+                <td className={`${LINE_TD_CLASS} truncate`}>{line.supplier || "—"}</td>
                 <td className={`${LINE_TD_CLASS} text-right tabular-nums whitespace-nowrap`}>{fmtMoney(Number(line.amount) || 0, line.currency)}</td>
-                <td className={`${LINE_TD_CLASS} text-right tabular-nums whitespace-nowrap ${amount === null ? "text-red-600" : "font-semibold text-slate-800"}`}>
+                <td className={`${LINE_TD_CLASS} text-right tabular-nums whitespace-nowrap ${amount === null ? "!text-red-600" : "font-semibold !text-slate-900"}`}>
                   {amount === null ? "no rate" : fmtMoney(amount, currency)}
                 </td>
-                <td className={`${LINE_TD_CLASS} pl-0`}>
+                <td className={`${LINE_TD_CLASS} !pl-0`}>
                   <RemoveLineButton label={`Remove the ${side} line ${line.description || line.type}`} onClick={() => onRemove(side, index)} />
                 </td>
               </tr>

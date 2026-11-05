@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Drawer } from "antd";
 import { useHauliers, useTariffs } from "@/hooks/useTrucking";
 import { useConsignments, useTrips } from "@/hooks/useTruckingConsignments";
+import { PAGE_TITLE } from "@/styles/ui";
 import { TRUCKING_TABS, tabSearch, type TruckingTab } from "../_lib/tabs";
 import { tripsNotConfirmed } from "../_lib/trips";
 import { TruckingConsignmentsTab } from "./TruckingConsignmentsTab";
@@ -49,7 +50,7 @@ export const TruckingView = () => {
     <div className="bg-slate-50 min-h-full px-8 py-6">
       <div className="max-w-[1400px] mx-auto flex flex-col gap-5">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Trucking Concept</h1>
+          <h1 className={PAGE_TITLE}>Trucking Concept</h1>
           <TruckingTabs
             active={activeTab.key}
             counts={tabCounts}

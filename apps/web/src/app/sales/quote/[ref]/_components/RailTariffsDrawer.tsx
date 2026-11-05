@@ -80,7 +80,7 @@ export const RailTariffsDrawer = ({ open, quote, quoteCurrency, toQuoteCurrency,
       render: (_, o) => (
         <div>
           {o.place} <span className="text-slate-400">{formatPostcode(o.postcode)}</span>
-          {o.note && <div className="text-[11.5px] text-slate-400">{o.note}</div>}
+          {o.note && <div className="text-[12px] text-slate-400">{o.note}</div>}
         </div>
       ),
     },
@@ -90,7 +90,7 @@ export const RailTariffsDrawer = ({ open, quote, quoteCurrency, toQuoteCurrency,
       render: (_, o) => (
         <div>
           {o.via || "—"}
-          {o.emptyDepot && o.emptyDepot !== o.via && <div className="text-[11.5px] text-slate-400">empty: {o.emptyDepot}</div>}
+          {o.emptyDepot && o.emptyDepot !== o.via && <div className="text-[12px] text-slate-400">empty: {o.emptyDepot}</div>}
         </div>
       ),
     },
@@ -98,7 +98,7 @@ export const RailTariffsDrawer = ({ open, quote, quoteCurrency, toQuoteCurrency,
       key: "prices",
       title: "Per container",
       render: (_, o) => (
-        <div className="flex flex-col gap-0.5 text-[12.5px] tabular-nums">
+        <div className="flex flex-col gap-0.5 text-[13px] tabular-nums">
           {o.lines.map((l) => (
             <span key={`${l.type}-${l.bandCode}`} className="whitespace-nowrap">
               {l.qty} × {l.type}: {fmtMoney(l.price, o.currency)} <span className="text-slate-400">({l.bandLabel})</span>
@@ -145,10 +145,10 @@ export const RailTariffsDrawer = ({ open, quote, quoteCurrency, toQuoteCurrency,
         </TariffDrawerField>
       </div>
 
-      <div className="text-[12.5px] text-slate-600 flex flex-col gap-0.5">
+      <div className="text-[13px] text-slate-700 flex flex-col gap-0.5">
         {/* The quote's container lines, in their order (two can be alike). */}
         {result ? result.containers.map((c, i) => <span key={i}>{containerText(c)}</span>) : route.containers.map((c, i) => <span key={i}>{`${c.qty} × ${c.type}`}</span>)}
-        <span className="text-[11.5px] text-slate-400">
+        <span className="text-[12px] text-slate-400">
           Tariffs price by gross weight: the cargo per container from Cargo details plus the container&apos;s tare. A 45&apos; is priced as a 40&apos;.
         </span>
       </div>

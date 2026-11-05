@@ -6,6 +6,7 @@ import { Spin } from "antd";
 import { BackLink } from "@/components/BackLink";
 import { useShipments } from "@/hooks/useShipments";
 import { WarehouseTab } from "@/app/shipments/[jobNumber]/tabs/WarehouseTab";
+import { LINK, PAGE_TITLE, REF } from "@/styles/ui";
 import { WAREHOUSE_SECTIONS, type WarehouseSection } from "../_components/warehouseRules";
 
 // What a reference on In Warehouse / Stock / Out Warehouse opens: the shipment's Warehouse
@@ -38,12 +39,12 @@ export function WarehouseShipmentContent() {
           {back}
           <div className="flex items-center justify-between gap-4 mt-1.5">
             <div className="flex items-baseline gap-3">
-              <h1 className="text-2xl font-bold text-slate-900 m-0">{shipment.jobNumber ?? shipment.id}</h1>
+              <h1 className={`${PAGE_TITLE} ${REF}`}>{shipment.jobNumber ?? shipment.id}</h1>
               {shipment.warehouseReference && (
-                <span className="font-mono text-[13px] font-semibold text-slate-500">{shipment.warehouseReference}</span>
+                <span className={`${REF} text-[13px] font-semibold text-slate-500`}>{shipment.warehouseReference}</span>
               )}
             </div>
-            <Link href={`/shipments/${shipment.id}`} className="text-[13px] text-slate-500 hover:text-indigo-500">
+            <Link href={`/shipments/${shipment.id}`} className={`text-[13px] ${LINK}`}>
               Open shipment
             </Link>
           </div>

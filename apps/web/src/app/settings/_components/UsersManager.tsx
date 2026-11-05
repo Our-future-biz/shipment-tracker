@@ -1,15 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { Table, Button, Modal, Form, Input, Select, Tag } from "antd";
+import { Table, Button, Modal, Form, Input, Select } from "antd";
 import { PlusOutlined, EditOutlined, StopOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { useToast } from "@/lib/toast";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { Badge, type Tone } from "@/components/Badge";
+import { SectionCard } from "@/components/SectionCard";
+import { EMPTY } from "@/styles/ui";
 import type { ManagedUser, NewUserInput, UpdateUserInput } from "@/hooks/useUserAdmin";
 import type { Department, Branch } from "@/hooks/useOrgUnits";
 
-const ROLE_COLOR: Record<string, string> = { superadmin: "magenta", admin: "geekblue", manager: "gold", user: "default" };
+// The role marks in the app's badge tones: the administrators in indigo, managers amber, users grey.
+const ROLE_TONE: Record<string, Tone> = { superadmin: "i", admin: "i", manager: "a", user: "" };
 
 // The roles a user may report to: the server's MANAGES (apps/api/services/auth/services/auth.service.ts),
 // which refuses anyone else as "Reports to". apps/web has no shared copy of it - keep the two in step.
@@ -51,7 +55,7 @@ export function UsersManager({
   const branchOptions = (orgUnits?.branches ?? []).map((b) => ({ value: b.id, label: `${b.name} (${b.country})` }));
   const managerOptions = users.filter((u) => MANAGES.includes(u.role)).map((u) => ({ value: u.id, label: u.displayName || u.email }));
   const unitName = (options: { value: string; label: string }[], id: string | null) =>
-    options.find((o) => o.value === id)?.label ?? <span className="text-slate-300">—</span>;
+    options.find((o) => o.value === id)?.label ?? <span className={EMPTY}>—</span>;
   // A user may still report to somebody who was since demoted or removed: named for what they are
   // now, never by a bare id.
   const formerManager = (id: string) => {
@@ -128,9 +132,9 @@ export function UsersManager({
   };
 
   const columns: ColumnsType<ManagedUser> = [
-    { title: "Name", dataIndex: "displayName", render: (v: string) => v || <span className="text-slate-300">—</span> },
-    { title: "Email", dataIndex: "email", render: (v: string) => <span className="font-mono text-xs">{v}</span> },
-    { title: "Role", dataIndex: "role", width: 130, render: (v: string) => <Tag color={ROLE_COLOR[v] ?? "default"}>{v}</Tag> },
+    { title: "Name", dataIndex: "displayName", render: (v: string) => v || <span className={EMPTY}>—</span> },
+    { title: "Email", dataIndex: "email", render: (v: string) => <span className="tabular-nums text-xs">{v}</span> },
+    { title: "Role", dataIndex: "role", width: 130, render: (v: string) => <Badge tone={ROLE_TONE[v] ?? ""}>{v}</Badge> },
     ...(orgUnits
       ? [
           { title: "Department", dataIndex: "departmentId", render: (v: string | null) => unitName(departmentOptions, v) },
@@ -175,23 +179,26 @@ export function UsersManager({
   ];
 
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl p-4">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-semibold text-slate-800">Users ({users.length})</span>
-        <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => setAddOpen(true)}>
-          Add User
-        </Button>
-      </div>
-
-      <Table<ManagedUser>
-        size="small"
-        rowKey="id"
-        loading={isLoading}
-        dataSource={users}
-        columns={columns}
-        pagination={false}
-        locale={{ emptyText: "No users yet" }}
-      />
+    <>
+      <SectionCard
+        title={`Users (${users.length})`}
+        bodyClassName="p-2"
+        extra={
+          <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => setAddOpen(true)}>
+            Add User
+          </Button>
+        }
+      >
+        <Table<ManagedUser>
+          size="small"
+          rowKey="id"
+          loading={isLoading}
+          dataSource={users}
+          columns={columns}
+          pagination={false}
+          locale={{ emptyText: "No users yet" }}
+        />
+      </SectionCard>
 
       <Modal open={addOpen} onCancel={() => setAddOpen(false)} onOk={submitAdd} confirmLoading={saving} title="Add User" okText="Create" destroyOnHidden>
         <Form form={addForm} layout="vertical" initialValues={{ role: "user" }} className="pt-2">
@@ -240,6 +247,6 @@ export function UsersManager({
         confirmLabel="Deactivate"
         danger
       />
-    </div>
+    </>
   );
 }

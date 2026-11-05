@@ -8,6 +8,8 @@ import { useWarehouseContainer, type ContainerHouse, type WarehouseContainer } f
 import { useToast } from "@/lib/toast";
 import { formatDateTime } from "@/lib/date";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { KpiTile } from "@/components/KpiTile";
+import { LABEL_TEXT, LINK, PAGE_TITLE, REF } from "@/styles/ui";
 import { TERMS } from "@/app/warehouse-concept/_lib/glossary";
 import {
   CONTAINER_STAMP_LABEL,
@@ -28,7 +30,7 @@ import {
 import { Badge, hhmm, nf } from "@/app/warehouse-concept/gate-log/_lib/gate";
 import { useFloorQueue, type SubmitResult } from "../_lib/useFloorQueue";
 import { applyPendingContainer, pendingInContainer } from "../_lib/queue";
-import { Chip, FloorCard, NeedsConnection, Stepper, bigDanger, bigDefault, bigPrimary } from "./floorUi";
+import { Chip, FloorCard, NeedsConnection, Stepper, bigDanger, bigDefault, bigDefaultLink, bigPrimary, bigPrimaryLink } from "./floorUi";
 
 // A container on the phone (scan its number): an import container's stripping tally — tick each
 // house off as it comes out (pieces counted, condition, location), or mark it short / not arrived
@@ -49,7 +51,7 @@ export function FloorContainer({ id }: { id: string }) {
   const toast = useToast();
 
   if (!c) {
-    return <div className="py-10 text-center text-[15px] text-slate-500">{isLoading ? "Loading…" : "Container not found (or not loaded while offline)."}</div>;
+    return <div className="py-10 text-center text-[14px] text-slate-500">{isLoading ? "Loading…" : "Container not found (or not loaded while offline)."}</div>;
   }
   const kind = containerKind(c.direction);
   const waiting = pendingInContainer(q.items, c.id);
@@ -83,25 +85,21 @@ export function FloorContainer({ id }: { id: string }) {
       <FloorCard>
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
-            <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Container</div>
-            <div className="break-all font-mono text-[22px] font-bold leading-tight text-slate-900">{c.number}</div>
+            <div className={LABEL_TEXT}>Container</div>
+            <div className={`break-all ${PAGE_TITLE} ${REF}`}>{c.number}</div>
           </div>
-          <Badge tone={CONTAINER_STATUS_TONE[c.status] ?? ""} className="!text-[12px]">
-            {c.status}
-          </Badge>
+          <Badge tone={CONTAINER_STATUS_TONE[c.status] ?? ""}>{c.status}</Badge>
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-2 text-[13px] text-slate-600">
-          <Badge tone={kind === "export" ? "i" : "b"} className="!text-[12px]">
-            {KIND_LABEL[kind]}
-          </Badge>
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-[13px] text-slate-500">
+          <Badge tone={kind === "export" ? "i" : "b"}>{KIND_LABEL[kind]}</Badge>
           <span>{c.equipment || "—"}</span>
-          {c.seal && <span className="font-mono">seal {c.seal}</span>}
+          {c.seal && <span className={REF}>seal {c.seal}</span>}
           {waiting.length > 0 && <span className="font-semibold text-amber-700">{waiting.length} waiting to send</span>}
         </div>
-        <div className="mt-3 grid grid-cols-3 gap-2 text-center">
-          <Tile label="Houses" value={String(c.positions.length)} />
-          <Tile label={TERMS.pieces} value={nf(c.totals.pieces)} />
-          <Tile label={kind === "export" ? "Stuffed" : "Done"} value={`${kind === "export" ? c.positions.filter((h) => h.stuffedAt).length : tallyHouses(c).length - openHouses(c).length}`} />
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          <KpiTile centered label="Houses" value={String(c.positions.length)} />
+          <KpiTile centered label={TERMS.pieces} value={nf(c.totals.pieces)} />
+          <KpiTile centered label={kind === "export" ? "Stuffed" : "Done"} value={`${kind === "export" ? c.positions.filter((h) => h.stuffedAt).length : tallyHouses(c).length - openHouses(c).length}`} />
         </div>
       </FloorCard>
 
@@ -111,7 +109,7 @@ export function FloorContainer({ id }: { id: string }) {
 
       {next && !queueable && (
         <FloorCard title={CONTAINER_STAMP_LABEL[next]}>
-          <p className="m-0 text-[14px] text-slate-600">
+          <p className="m-0 text-[14px] text-slate-700">
             {containerStampBlocked(c, next) ?? `${CONTAINER_STAMP_LABEL[next]} is stamped on the container page — it needs a connection and is checked against every house.`}
           </p>
           {!q.online && (
@@ -119,7 +117,7 @@ export function FloorContainer({ id }: { id: string }) {
               <NeedsConnection what={CONTAINER_STAMP_LABEL[next]} />
             </div>
           )}
-          <Link href={`/warehouse-concept/containers/${c.id}`} className={`${bigDefault} mt-3 flex items-center justify-center`}>
+          <Link href={`/warehouse-concept/containers/${c.id}`} className={`${bigDefaultLink} mt-3`}>
             Open the container page
           </Link>
         </FloorCard>
@@ -149,15 +147,6 @@ export function FloorContainer({ id }: { id: string }) {
           loading={stamping}
         />
       )}
-    </div>
-  );
-}
-
-function Tile({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg bg-slate-50 px-2 py-2">
-      <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{label}</div>
-      <div className="text-[18px] font-bold tabular-nums text-slate-900">{value}</div>
     </div>
   );
 }
@@ -224,8 +213,8 @@ function TallyList({ c, report }: { c: WarehouseContainer; report: (res: SubmitR
                   <span className="h-6 w-6 rounded-full border-2 border-indigo-500" />
                 )}
                 <span className="min-w-0 flex-1">
-                  <span className="block font-mono text-[16px] font-bold text-slate-900">{ref}</span>
-                  <span className="block truncate text-[13px] text-slate-600">
+                  <span className={`block ${REF} text-[16px] font-bold text-slate-900`}>{ref}</span>
+                  <span className="block truncate text-[13px] text-slate-500">
                     {h.customer || "—"} · {nf(h.pieces)} pcs expected
                   </span>
                   {done && (
@@ -241,7 +230,7 @@ function TallyList({ c, report }: { c: WarehouseContainer; report: (res: SubmitR
               {open && (
                 <div className="mt-3 flex flex-col gap-3">
                   {needsWeigh && (
-                    <Link href={`/warehouse-concept/floor/${h.movementId}?view=reweigh`} className={`${bigPrimary} flex items-center justify-center`}>
+                    <Link href={`/warehouse-concept/floor/${h.movementId}?view=reweigh`} className={bigPrimaryLink}>
                       {TERMS.reweigh} {ref}
                     </Link>
                   )}
@@ -277,7 +266,7 @@ function TallyList({ c, report }: { c: WarehouseContainer; report: (res: SubmitR
                       {TERMS.notArrived}
                     </button>
                   </div>
-                  <Link href={`/warehouse-concept/floor/${h.movementId}`} className="text-center text-[14px] font-semibold text-indigo-600 underline">
+                  <Link href={`/warehouse-concept/floor/${h.movementId}`} className={`${LINK} text-center text-[14px] font-semibold`}>
                     Open position {ref}
                   </Link>
                 </div>
@@ -285,7 +274,7 @@ function TallyList({ c, report }: { c: WarehouseContainer; report: (res: SubmitR
             </li>
           );
         })}
-        {c.positions.length === 0 && <li className="px-4 py-3 text-[15px] text-slate-500">No houses in this container — they are added on the container page.</li>}
+        {c.positions.length === 0 && <li className="px-4 py-3 text-[14px] text-slate-500">No houses in this container — they are added on the container page.</li>}
       </ul>
     </FloorCard>
   );
@@ -326,8 +315,8 @@ function StuffList({ c, report }: { c: WarehouseContainer; report: (res: SubmitR
             <li key={h.id} className="flex items-center gap-3 border-t border-slate-100 px-4 py-3 first:border-t-0">
               <span className="w-6 text-center text-[14px] font-bold tabular-nums text-slate-400">{i + 1}</span>
               <span className="min-w-0 flex-1">
-                <span className="block font-mono text-[16px] font-bold text-slate-900">{ref}</span>
-                <span className="block truncate text-[13px] text-slate-600">
+                <span className={`block ${REF} text-[16px] font-bold text-slate-900`}>{ref}</span>
+                <span className="block truncate text-[13px] text-slate-500">
                   {h.customer || "—"} · {nf(h.pieces)} pcs · {nf(h.weightKg)} kg
                 </span>
                 {h.stuffedAt && <span className="block text-[13px] text-slate-500">{pending ? "Waiting to send" : `Stuffed ${by(h.stuffedAt, h.stuffedBy)}`}</span>}
@@ -337,8 +326,8 @@ function StuffList({ c, report }: { c: WarehouseContainer; report: (res: SubmitR
                 aria-pressed={!!h.stuffedAt}
                 disabled={!!blocked || busy === h.movementId}
                 onClick={() => toggle(h)}
-                className={`min-h-[48px] min-w-[112px] rounded-xl border px-3 text-[15px] font-bold cursor-pointer disabled:opacity-50 ${
-                  h.stuffedAt ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "border-indigo-500 bg-indigo-600 text-white"
+                className={`min-h-[48px] min-w-[112px] rounded-xl border px-3 text-[14px] font-bold cursor-pointer disabled:opacity-50 ${
+                  h.stuffedAt ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "border-transparent bg-indigo-600 text-white hover:bg-indigo-700"
                 }`}
               >
                 {h.stuffedAt ? "Stuffed ✓" : "Stuff"}
@@ -346,7 +335,7 @@ function StuffList({ c, report }: { c: WarehouseContainer; report: (res: SubmitR
             </li>
           );
         })}
-        {c.positions.length === 0 && <li className="px-4 py-3 text-[15px] text-slate-500">Nothing planned — the stuffing plan is made on the container page.</li>}
+        {c.positions.length === 0 && <li className="px-4 py-3 text-[14px] text-slate-500">Nothing planned — the stuffing plan is made on the container page.</li>}
       </ul>
     </FloorCard>
   );

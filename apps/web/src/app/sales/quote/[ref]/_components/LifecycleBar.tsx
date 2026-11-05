@@ -7,6 +7,7 @@ import { CheckOutlined, DownOutlined, LockOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { EMPTY_CELL } from "@/components/EmptyCell";
 import { KpiTile } from "@/components/KpiTile";
+import { LINK_CLASS } from "@/components/linkClass";
 import type { interfaces } from "@/lib/api/client";
 import { formatDate } from "@/lib/date";
 import type { QuoteStatus, SettableQuoteStatus } from "../../../_lib/types";
@@ -46,8 +47,8 @@ interface Props {
   price: ReactNode;
 }
 
-// The date and the probability, drawn as large as the price tile beside them is tall.
-const FIGURE_CLASS = "text-2xl font-bold leading-tight tabular-nums";
+// The date and the probability, in the size of a KPI figure, as the price tile beside them.
+const FIGURE_CLASS = "text-[20px] leading-7 font-bold tabular-nums";
 
 // The main forward flow shown as a chain of steps.
 const FLOW: readonly QuoteStatus[] = ["draft", "ready_to_send", "quoted", "feedback", "revised", "won"];
@@ -191,7 +192,7 @@ export function LifecycleBar({ quote, sendBlocked, onChange, hrefOf, changingOwn
                 {revision ? (
                   <>
                     Replaced by its revision{" "}
-                    <Link href={hrefOf(revision)} className="font-medium text-indigo-600 hover:underline">
+                    <Link href={hrefOf(revision)} className={`font-medium ${LINK_CLASS}`}>
                       {revision}
                     </Link>
                     .
@@ -218,18 +219,18 @@ export function LifecycleBar({ quote, sendBlocked, onChange, hrefOf, changingOwn
               const done = isDone(key, i);
               const last = i === FLOW.length - 1;
               const circle = done
-                ? "bg-indigo-500 text-white"
+                ? "bg-indigo-600 text-white"
                 : isCurrent
-                  ? "bg-white border-2 border-indigo-500 text-indigo-500"
+                  ? "bg-white border-2 border-indigo-600 text-indigo-600"
                   : "bg-white border-2 border-slate-200 text-slate-400";
-              const label = isCurrent ? "font-semibold text-slate-800" : done ? "font-medium text-slate-600" : "text-slate-500";
+              const label = isCurrent ? "font-semibold text-slate-900" : done ? "font-medium text-slate-700" : "text-slate-500";
               return (
                 <li key={key} aria-current={isCurrent ? "step" : undefined} className={`flex items-center min-w-0 ${last ? "shrink-0" : "flex-auto"}`}>
                   <span className={`shrink-0 flex items-center justify-center w-6 h-6 rounded-full text-[11px] font-semibold ${circle}`}>
                     {done ? <CheckOutlined /> : i + 1}
                   </span>
                   <span className={`ml-2 text-xs whitespace-nowrap ${label}`}>{QUOTE_STATUS_MAP[key]?.label}</span>
-                  {!last && <span aria-hidden className={`flex-1 min-w-3 h-0.5 mx-3 ${done ? "bg-indigo-500" : "bg-slate-200"}`} />}
+                  {!last && <span aria-hidden className={`flex-1 min-w-3 h-0.5 mx-3 ${done ? "bg-indigo-600" : "bg-slate-200"}`} />}
                 </li>
               );
             })}
@@ -326,7 +327,7 @@ export function LifecycleBar({ quote, sendBlocked, onChange, hrefOf, changingOwn
             ) : (
               // A validity that still holds is not this dialog's to change: shown locked, not as a field.
               <Form.Item label="Validity" extra="To change it, set Valid until under Shipping terms before you confirm.">
-                <div className="flex items-center gap-2 h-9 px-3 rounded-lg bg-slate-100 text-[13px] text-slate-600">
+                <div className="flex items-center gap-2 h-8 px-3 rounded-lg bg-slate-100 text-[13px] text-slate-500">
                   <span className="min-w-0 flex-1 truncate">Valid until {formatDate(quote.validUntil)}</span>
                   <LockOutlined className="!text-slate-400" title="Set under Shipping terms" />
                 </div>

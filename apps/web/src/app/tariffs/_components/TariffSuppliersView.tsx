@@ -16,6 +16,7 @@ import { apiErrorMessage } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
 import { useCanManageTariffs } from "@/lib/auth/AuthContext";
 import { formatDate } from "@/lib/date";
+import { PAGE_TITLE } from "@/styles/ui";
 import { muted } from "./TariffText";
 import { SupplierRatingStars } from "@/app/customers/_components/SupplierRatingStars";
 import { ratingRank } from "@/app/trucking/_lib/haulierRating";
@@ -169,7 +170,7 @@ export function TariffSuppliersView<T extends TariffSupplierRow>({
   return (
     <div className="bg-slate-50 min-h-full px-8 py-6">
       <div className="max-w-[1400px] mx-auto flex flex-col gap-5 min-w-0">
-        <h1 className="text-2xl font-bold text-slate-900">{title}</h1>
+        <h1 className={PAGE_TITLE}>{title}</h1>
         {above}
         <AppGrid<T>
           searchPlaceholder={searchPlaceholder}

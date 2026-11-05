@@ -13,6 +13,8 @@ import { flagOf } from "@/lib/countries";
 import { formatDateTime } from "@/lib/date";
 import { foldIncludes } from "@/lib/fold";
 import { useToast } from "@/lib/toast";
+import { EMPTY_CELL } from "@/components/EmptyCell";
+import { CARD } from "@/styles/ui";
 import { CustomerAccountTypeBadge } from "./CustomerAccountTypeBadge";
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -58,13 +60,13 @@ export function DeletedCustomersPanel() {
     {
       title: "Customer",
       key: "companyName",
-      render: (_: unknown, c) => <span className="font-medium text-slate-800">{c.companyName || c.ico}</span>,
+      render: (_: unknown, c) => <span className="font-medium text-slate-900">{c.companyName || c.ico}</span>,
     },
     {
       title: "IČO / Reg. no.",
       key: "ico",
       width: 130,
-      render: (_: unknown, c) => <span className="font-mono text-xs">{c.ico || "—"}</span>,
+      render: (_: unknown, c) => c.ico ? <span className="tabular-nums text-xs">{c.ico}</span> : EMPTY_CELL,
     },
     {
       title: "Location",
@@ -88,7 +90,7 @@ export function DeletedCustomersPanel() {
     {
       title: "Comes back with",
       key: "restoredWith",
-      render: (_: unknown, c) => <span className="whitespace-nowrap text-slate-600">{restoredWith(c)}</span>,
+      render: (_: unknown, c) => <span className="whitespace-nowrap text-slate-500">{restoredWith(c)}</span>,
     },
     {
       title: "",
@@ -111,7 +113,7 @@ export function DeletedCustomersPanel() {
 
   return (
     <>
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3">
+      <div className={`flex flex-wrap items-center justify-between gap-3 ${CARD} px-4 py-3`}>
         <p className="m-0 text-[13px] text-slate-500 min-w-0">
           Deleted customers are hidden from everyone. Restore brings a customer back with the contacts,
           addresses, notes, documents, invoices and sites deleted together with it.

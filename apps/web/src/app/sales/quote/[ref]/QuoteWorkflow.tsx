@@ -152,6 +152,7 @@ import { QuotePriceTile } from "./_components/QuotePriceTile";
 import { useQuoteShipments } from "@/hooks/useQuoteShipments";
 import { useAuth, useCanSeeConcepts } from "@/lib/auth/AuthContext";
 import { limitCzechPhone } from "@/lib/phone";
+import { LABEL_TEXT, PAGE_TITLE } from "@/styles/ui";
 
 // A new package has no dimensions and no weight: made-up ones would print as real cargo and drive
 // the chargeable weight.
@@ -188,7 +189,7 @@ const AIR_ONLY = <span title="Air freight only">{EMPTY_CELL}</span>;
 const FIELD_COLUMNS_CLASS = "grid grid-cols-[repeat(auto-fit,minmax(min(300px,100%),1fr))] gap-x-6";
 
 // The label of a field that stands in a line of its own rather than in a label / value row.
-const FIELD_LABEL_CLASS = "shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide";
+const FIELD_LABEL_CLASS = `shrink-0 ${LABEL_TEXT}`;
 
 // A small link out of the form, as on the customer page's cards.
 const SMALL_LINK_CLASS = `shrink-0 text-xs font-semibold whitespace-nowrap ${LINK_CLASS}`;
@@ -853,7 +854,7 @@ export function QuoteWorkflow() {
       <button
         type="button"
         onClick={() => open(index)}
-        className="inline-flex items-center gap-1 text-[11.5px] font-medium text-indigo-600 hover:text-indigo-700 hover:underline cursor-pointer"
+        className={`inline-flex items-center gap-1 text-[12px] font-medium ${LINK_CLASS} cursor-pointer`}
       >
         <TagsOutlined aria-hidden />
         Tariffs available{count !== undefined ? ` (${count})` : ""}
@@ -1304,7 +1305,7 @@ export function QuoteWorkflow() {
                             options={CONTAINER_TYPE_OPTIONS}
                           />
                         </td>
-                        <td className={`${LINE_TD_CLASS} text-right tabular-nums text-slate-600`}>{fmtQuantity((Number(c.qty) || 0) * teuForType(c.type))}</td>
+                        <td className={`${LINE_TD_CLASS} text-right tabular-nums`}>{fmtQuantity((Number(c.qty) || 0) * teuForType(c.type))}</td>
                         <td className={LINE_TD_CLASS}>
                           <InputNumber
                             size="small"
@@ -1317,7 +1318,7 @@ export function QuoteWorkflow() {
                             onChange={(v) => patchContainer(i, { weight: v ?? undefined })}
                           />
                         </td>
-                        <td className={`${LINE_TD_CLASS} pl-0`}>
+                        <td className={`${LINE_TD_CLASS} !pl-0`}>
                           <RemoveLineButton label={`Remove container ${i + 1}`} onClick={() => {
                               containerKeys.remove(i);
                               updateContainers(containers.filter((_, j) => j !== i));
@@ -1420,7 +1421,7 @@ export function QuoteWorkflow() {
                       <td className={LINE_TD_CLASS}>
                         <Checkbox aria-label="Stackable" checked={p.stackable !== false} onChange={(e) => patchPackage(i, { stackable: e.target.checked })} />
                       </td>
-                      <td className={`${LINE_TD_CLASS} pl-0`}>
+                      <td className={`${LINE_TD_CLASS} !pl-0`}>
                         <RemoveLineButton label={`Remove package ${i + 1}`} onClick={() => {
                             packageKeys.remove(i);
                             updatePackages(packages.filter((_, j) => j !== i));
@@ -1705,9 +1706,9 @@ export function QuoteWorkflow() {
             />
           )}
           {/* Which rates the totals use: stored on the quote once sent, today's until then. */}
-          <div className="text-[12.5px] text-slate-500">{fxNote(totals)}</div>
+          <div className="text-[13px] text-slate-500">{fxNote(totals)}</div>
           {liveRatesMissing && (
-            <div className="text-[12.5px] text-danger bg-danger-soft border border-danger/30 rounded-lg px-3 py-2">
+            <div className="text-[13px] text-danger bg-danger-soft border border-danger/30 rounded-lg px-3 py-2">
               Today&apos;s ČNB rates have not been imported — prices use an older fixing. Sync them on the Exchange page before sending.
             </div>
           )}
@@ -1844,11 +1845,11 @@ export function QuoteWorkflow() {
         <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
           <div className="flex-[1_1_300px] min-w-0">
             <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-              <h1 className="text-[22px] font-bold font-mono text-slate-800 m-0">{ref}</h1>
+              <h1 className={`${PAGE_TITLE} tabular-nums`}>{ref}</h1>
               <CopyButton text={ref} what="reference" />
               <QuoteStatusPill status={quote.effectiveStatus} />
             </div>
-            <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[15px] font-bold text-slate-500">
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[14px] font-bold text-slate-500">
               {headline.map((part, i) => (
                 <Fragment key={i}>
                   {i > 0 && <span aria-hidden>·</span>}
@@ -1887,7 +1888,7 @@ export function QuoteWorkflow() {
                 </ToolbarButton>
               )}
               <span aria-hidden className="w-px h-6 bg-slate-200" />
-              <Badge count={chatUnread} size="small" color="#ef4444" offset={[-4, 2]}>
+              <Badge count={chatUnread} size="small" offset={[-4, 2]}>
                 <ToolbarButton icon={<MessageOutlined />} onClick={() => setChatOpen(true)} aria-label={chatUnread ? `Chat — ${chatUnread} unread` : "Chat"}>
                   Chat
                 </ToolbarButton>
@@ -2483,11 +2484,11 @@ function marginTone({ profit, margin }: QuoteTotals): KpiTone | undefined {
 }
 
 // The KG / CONTAINER field by where the cargo weight stands: no colour within the standard limit,
-// yellow when it needs a heavy-tested box (or the shipping line's confirmation), red when too heavy.
+// amber when it needs a heavy-tested box (or the shipping line's confirmation), red when too heavy.
 const WEIGHT_FIELD_CLASS: Record<WeightCheck["level"], string> = {
   standard: "",
-  heavyTested: "!bg-yellow-100 !border-yellow-400",
-  confirm: "!bg-yellow-100 !border-yellow-400",
+  heavyTested: "!bg-amber-100 !border-amber-400",
+  confirm: "!bg-amber-100 !border-amber-400",
   tooHeavy: "!bg-red-100 !border-red-400",
 };
 
@@ -2497,9 +2498,9 @@ function ContainerWeightNote({ check }: { check: WeightCheck }) {
   return (
     <div className="text-[11px] text-slate-500">
       Standard up to {kg(check.standard)} · {check.heavyTested ? "Heavy tested up to" : "Max"} {kg(check.max)}
-      {check.level === "heavyTested" && <span className="ml-2 text-yellow-700">Heavy-tested box needed</span>}
+      {check.level === "heavyTested" && <span className="ml-2 text-amber-700">Heavy-tested box needed</span>}
       {check.level === "confirm" && (
-        <span className="ml-2 text-yellow-700">
+        <span className="ml-2 text-amber-700">
           {check.heavyTested && "Heavy-tested box needed. "}
           <strong>You need to have it confirmed by shipping line</strong>
         </span>

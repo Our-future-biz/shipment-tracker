@@ -185,7 +185,7 @@ export function FollowUpTasksCard() {
       render: (_: unknown, r) =>
         r.dueDate ? (
           <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-            <span className={`tabular-nums ${r.overdue ? "font-bold text-red-600" : "text-slate-600"}`}>{formatDate(r.dueDate)}</span>
+            <span className={`tabular-nums ${r.overdue ? "font-bold text-red-600" : "text-slate-700"}`}>{formatDate(r.dueDate)}</span>
             {r.overdue && <Pill tone="red">Overdue</Pill>}
           </span>
         ) : (
@@ -204,7 +204,7 @@ export function FollowUpTasksCard() {
       title: "Note",
       dataIndex: "note",
       // A task carried over from the old list keeps a due date nobody could read as a line of its own.
-      render: (v: string) => (v ? <div className="whitespace-pre-line text-slate-600 [overflow-wrap:anywhere]">{v}</div> : EMPTY_CELL),
+      render: (v: string) => (v ? <div className="whitespace-pre-line text-slate-700 [overflow-wrap:anywhere]">{v}</div> : EMPTY_CELL),
     },
     {
       title: "Done",

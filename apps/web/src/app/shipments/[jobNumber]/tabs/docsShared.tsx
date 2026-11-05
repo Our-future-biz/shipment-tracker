@@ -2,12 +2,14 @@
 
 import { CheckOutlined, CloseOutlined } from "@ant-design/icons";
 import { formatFileSize } from "@/lib/files";
+import { Pill } from "@/components/Pill";
+import { HINT } from "@/styles/ui";
 
 export { formatFileSize };
 
 /**
  * Shared pieces of the Documents card, used by the Documents tab and by the Documents card in
- * Customs so both look the same. Colours are the panel palette tokens in styles/globals.css.
+ * Customs so both look the same, in the app's one look (styles/ui.ts).
  */
 
 /** docPlural z mockupu */
@@ -15,24 +17,27 @@ export function docPlural(n: number): string {
   return n === 1 ? "1 file" : `${n} files`;
 }
 
-/** .ext z mockupu - barevny stitek podle pripony */
-export function ExtBadge({ fileName }: { fileName: string }) {
+/**
+ * The file's extension in a small coloured chip: a PDF red, a spreadsheet emerald, a document or
+ * an image indigo, anything else slate. `className` sets its size to fit the row it stands in.
+ */
+export function ExtBadge({ fileName, className = "w-[30px] h-9" }: { fileName: string; className?: string }) {
   const ext = (fileName.split(".").pop() ?? "").toLowerCase();
   const kind = ext === "pdf"
     ? "pdf"
     : ["xls", "xlsx", "csv"].includes(ext)
       ? "xls"
-      : ["jpg", "jpeg", "png", "heic", "gif", "webp"].includes(ext)
-        ? "img"
+      : ["doc", "docx", "jpg", "jpeg", "png", "heic", "gif", "webp"].includes(ext)
+        ? "doc"
         : "other";
   const cls = {
-    pdf: "text-danger border-danger bg-danger-soft",
-    xls: "text-ok border-ok bg-ok-soft",
-    img: "text-accent border-accent bg-accent-soft",
-    other: "text-muted border-line-strong bg-surface",
+    pdf: "bg-red-50 text-red-600 ring-red-200",
+    xls: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+    doc: "bg-indigo-50 text-indigo-600 ring-indigo-200",
+    other: "bg-slate-50 text-slate-500 ring-slate-200",
   }[kind];
   return (
-    <span className={`flex-none w-[30px] h-[36px] rounded-[5px] grid place-items-center text-[8.5px] font-extrabold tracking-[.02em] border ${cls}`}>
+    <span aria-hidden className={`flex-none rounded-md grid place-items-center text-[10px] font-bold tracking-tight ring-1 ring-inset ${cls} ${className}`}>
       {ext.slice(0, 4).toUpperCase() || "FILE"}
     </span>
   );
@@ -47,34 +52,30 @@ export function FileCell({ fileName, fileSize }: { fileName: string; fileSize: n
     <div className="flex items-center gap-3 min-w-0">
       <ExtBadge fileName={fileName} />
       <span className="min-w-0">
-        <span className="block text-[14px] leading-8 font-semibold text-accent truncate" title={fileName}>
+        <span className="block text-[14px] leading-8 font-semibold text-indigo-600 truncate" title={fileName}>
           {fileName}
         </span>
-        <span className="block text-[12px] leading-4 text-muted font-medium tabular-nums">{formatFileSize(fileSize)}</span>
+        <span className={`block ${HINT} leading-4 tabular-nums`}>{formatFileSize(fileSize)}</span>
       </span>
     </div>
   );
 }
 
-/** .pill z mockupu - csPill(): Approved / Declined / Awaiting review */
+/** Customs' verdict on a file, as a Pill: Approved / Declined / Awaiting review. */
 export function CustomsPill({ status }: { status: string }) {
-  const base =
-    "inline-flex items-center gap-[5px] whitespace-nowrap text-[11.5px] font-extrabold tracking-[.04em] uppercase px-2 py-1 rounded-[6px] border";
   if (status === "approved")
     return (
-      <span className={`${base} text-ok bg-ok-soft border-ok`}>
-        <CheckOutlined className="text-[12px]" />
+      <Pill tone="green">
+        <CheckOutlined aria-hidden className="text-[10px]" />
         Approved
-      </span>
+      </Pill>
     );
   if (status === "declined")
     return (
-      <span className={`${base} text-danger bg-danger-soft border-danger`}>
-        <CloseOutlined className="text-[12px]" />
+      <Pill tone="red">
+        <CloseOutlined aria-hidden className="text-[10px]" />
         Declined
-      </span>
+      </Pill>
     );
-  return (
-    <span className={`${base} text-muted bg-surface border-line-strong`}>Awaiting review</span>
-  );
+  return <Pill tone="slate">Awaiting review</Pill>;
 }

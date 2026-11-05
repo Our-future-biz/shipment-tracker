@@ -6,6 +6,7 @@ import type { RailBand, RailLayout } from "@/hooks/useRailTariffs";
 import { COLUMN_FIELDS, columnOptions, newBand } from "../../_lib/railLayoutForm";
 import { bandText } from "../../_lib/railTariffs";
 import { ConditionsField, DayField, Field, SubTitle } from "../../_components/TariffFormParts";
+import { LABEL_TEXT } from "@/styles/ui";
 
 const NONE = "";
 
@@ -78,7 +79,7 @@ export const RailVersionLayoutForm = ({ form, onChange, sheetNames, headings, di
 
       <SubTitle>Price columns</SubTitle>
       <div className="flex flex-col gap-2">
-        <div className="hidden md:grid grid-cols-[minmax(150px,1.2fr)_minmax(120px,1fr)_90px_90px_110px_minmax(120px,1fr)_32px] gap-2 text-[11px] font-semibold text-slate-500">
+        <div className={`hidden md:grid grid-cols-[minmax(150px,1.2fr)_minmax(120px,1fr)_90px_90px_110px_minmax(120px,1fr)_32px] gap-2 ${LABEL_TEXT}`}>
           <span>Column</span>
           <span>Label</span>
           <span>Length from (ft)</span>

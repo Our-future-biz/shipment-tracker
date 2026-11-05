@@ -9,6 +9,7 @@ import { useToast } from "@/lib/toast";
 import { directionOf } from "@/app/warehouse-concept/_lib/glossary";
 import { scanHref } from "@/app/warehouse-concept/_lib/scanner";
 import { useScanOpen, useWedgeScanner } from "@/app/warehouse-concept/_lib/useWedgeScanner";
+import { EMPTY, HINT, REF } from "@/styles/ui";
 
 // Handheld scanners on every Warehouse page: a scan (fast keys + Enter while no field has the
 // focus) opens the matching position — its gate job, or its floor screen in floor mode. Several
@@ -40,9 +41,9 @@ export function WarehouseScanListener() {
               onClick={() => setMany(null)}
               className="flex flex-wrap items-center gap-x-3 gap-y-0.5 min-h-[48px] rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-50"
             >
-              <span className="font-mono font-bold text-indigo-600">{m.positionRef || m.gateRef}</span>
-              <span className="text-slate-700">{m.customer || "—"}</span>
-              <span className="ml-auto text-xs text-slate-500">{directionOf(m)}</span>
+              <span className={`${REF} font-bold text-indigo-600`}>{m.positionRef || m.gateRef}</span>
+              <span className="text-slate-700">{m.customer || <span className={EMPTY}>—</span>}</span>
+              <span className={`ml-auto ${HINT}`}>{directionOf(m)}</span>
             </Link>
           </li>
         ))}

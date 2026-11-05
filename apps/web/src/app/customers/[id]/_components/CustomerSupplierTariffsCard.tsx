@@ -5,6 +5,7 @@ import { SectionCard } from "@/components/SectionCard";
 import type { CustomerItem } from "@/hooks/useCustomers";
 import { formatDate } from "@/lib/date";
 import { useSupplierTariffs } from "./useSupplierTariffs";
+import { LINK } from "@/styles/ui";
 
 interface CustomerSupplierTariffsCardProps {
   customer: CustomerItem;
@@ -23,7 +24,7 @@ export function CustomerSupplierTariffsCard({ customer }: CustomerSupplierTariff
         <ul className="m-0 flex list-none flex-col gap-2 p-0">
           {summaries.map((t) => (
             <li key={t.role} className="flex items-baseline justify-between gap-3 text-[13px]">
-              <Link href={t.href} className="font-medium text-indigo-600 hover:underline">
+              <Link href={t.href} className={`font-medium ${LINK}`}>
                 {t.label}
               </Link>
               <span className={`text-xs ${t.activeCount === 0 ? "text-red-600" : "text-slate-500"}`}>

@@ -5,6 +5,7 @@ import { Button, Table, Tooltip } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { businessDateTime } from "@/lib/date";
 import { fetchTariffTemplate, fetchTariffVersionSource, type TariffVersionSummary } from "@/hooks/useTrucking";
+import { EMPTY, HINT, LINK } from "@/styles/ui";
 import { validityLabel, versionLabel } from "../../_lib/tariffs";
 import { TariffVersionStatusChip } from "../../_components/TariffVersionStatusChip";
 import { TariffDownloadButton } from "./TariffDownloadButton";
@@ -31,14 +32,14 @@ export const TariffVersionsTable = ({ tariffId, versions, hasFile, canManage, le
       key: "version",
       title: "Version",
       render: (_, v) => (
-        <Link href={versionHref(tariffId, v.id)} className="font-semibold text-indigo-600 hover:underline">
+        <Link href={versionHref(tariffId, v.id)} className={`${LINK} font-semibold`}>
           {versionLabel(v)}
         </Link>
       ),
     },
     { key: "status", title: "Status", render: (_, v) => <TariffVersionStatusChip status={v.status} /> },
     { key: "validity", title: "Valid", render: (_, v) => <span className="whitespace-nowrap">{validityLabel(v.validFrom, v.validTo)}</span> },
-    { key: "levels", title: "Service levels", render: (_, v) => v.serviceLevels.map(levelLabel).join(", ") || <span className="text-slate-400">—</span> },
+    { key: "levels", title: "Service levels", render: (_, v) => v.serviceLevels.map(levelLabel).join(", ") || <span className={EMPTY}>—</span> },
     { key: "zones", title: "Zones", align: "right", render: (_, v) => <span className="tabular-nums">{v.zoneCount}</span> },
     {
       key: "errors",
@@ -56,7 +57,7 @@ export const TariffVersionsTable = ({ tariffId, versions, hasFile, canManage, le
       key: "created",
       title: "Created",
       render: (_, v) => (
-        <span className="text-[12px] text-slate-600 whitespace-nowrap">
+        <span className={`${HINT} whitespace-nowrap`}>
           {businessDateTime(v.createdAt)}
           {v.createdBy ? ` · ${v.createdBy}` : ""}
         </span>
@@ -67,12 +68,12 @@ export const TariffVersionsTable = ({ tariffId, versions, hasFile, canManage, le
       title: "Activated",
       render: (_, v) =>
         v.activatedAt ? (
-          <span className="text-[12px] text-slate-600 whitespace-nowrap">
+          <span className={`${HINT} whitespace-nowrap`}>
             {businessDateTime(v.activatedAt)}
             {v.activatedBy ? ` · ${v.activatedBy}` : ""}
           </span>
         ) : (
-          <span className="text-slate-400">—</span>
+          <span className={EMPTY}>—</span>
         ),
     },
     {

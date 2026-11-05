@@ -420,7 +420,7 @@ export function EmailQuoteModal({
 
       {opened && (
         <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
-          <div className="text-[13px] text-slate-600">
+          <div className="text-[13px] text-slate-700">
             Your email program should now show the message. Nothing there?{" "}
             <a {...mailLink} className={LINK_CLASS}>
               Open it again
@@ -428,7 +428,7 @@ export function EmailQuoteModal({
             .
           </div>
           {askSent && (
-            <div className="mt-1.5 text-[13px] font-medium text-slate-800">
+            <div className="mt-1.5 text-[13px] font-medium text-slate-900">
               Was the quote sent? Marking it as sent sets its status to Quoted.
             </div>
           )}

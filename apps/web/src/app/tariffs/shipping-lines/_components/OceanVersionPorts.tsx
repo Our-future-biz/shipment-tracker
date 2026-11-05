@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Button, Select, Table, Tooltip, type TableColumnsType } from "antd";
+import { Badge, type Tone } from "@/components/Badge";
 import { GeoSelect } from "@/components/GeoSelect";
 import { CountChip, PillTabs, SectionCard } from "@/components/SectionCard";
 import { useOceanTariffActions, type OceanPort, type OceanTariffVersionDetail } from "@/hooks/useOceanTariffs";
@@ -11,11 +12,11 @@ import { PORT_STATUS_TEXT, placeCodeOf, placeText, portText, portsOf, type PortF
 
 const PAGE_SIZE = 50;
 
-const STATUS_CLASS: Record<OceanPort["status"], string> = {
-  matched: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  manual: "bg-indigo-50 text-indigo-700 border-indigo-200",
-  skipped: "bg-slate-100 text-slate-500 border-slate-200",
-  pending: "bg-amber-50 text-amber-700 border-amber-200",
+const STATUS_TONE: Record<OceanPort["status"], Tone> = {
+  matched: "g",
+  manual: "i",
+  skipped: "",
+  pending: "a",
 };
 
 const SIDE_TEXT: Record<OceanPort["side"], string> = { pol: "POL", pod: "POD" };
@@ -62,7 +63,7 @@ export const OceanVersionPorts = ({ version, editable }: OceanVersionPortsProps)
       key: "name",
       title: "Port as the tariff writes it",
       render: (_, p) => (
-        <span className="font-medium text-slate-800">
+        <span className="font-medium text-slate-900">
           {p.name}
           {p.countryHint && <span className="ml-1.5 text-xs font-normal text-slate-400">{p.countryHint}</span>}
         </span>
@@ -71,7 +72,7 @@ export const OceanVersionPorts = ({ version, editable }: OceanVersionPortsProps)
     {
       key: "status",
       title: "Status",
-      render: (_, p) => <span className={`whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-semibold ${STATUS_CLASS[p.status]}`}>{PORT_STATUS_TEXT[p.status]}</span>,
+      render: (_, p) => <Badge tone={STATUS_TONE[p.status]}>{PORT_STATUS_TEXT[p.status]}</Badge>,
     },
     {
       key: "place",

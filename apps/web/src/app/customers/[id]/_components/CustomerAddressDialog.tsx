@@ -5,6 +5,7 @@ import type { AddressItem } from "@/hooks/useCustomerAddresses";
 import type { interfaces } from "@/lib/api/client";
 import { COUNTRY_OPTIONS } from "@/components/countryOptions";
 import { ADDRESS_TYPES } from "../../_lib/constants";
+import { HINT, MODAL_TITLE } from "@/styles/ui";
 
 export interface CustomerAddressFormValues {
   types: interfaces.AddressType[];
@@ -68,8 +69,8 @@ export function CustomerAddressDialog({ open, address, defaultCountry, saving, o
       destroyOnHidden
       title={
         <div>
-          <div className="text-lg font-semibold text-slate-800">{address ? "Edit Address" : "Add Address"}</div>
-          <div className="mt-1 text-[13px] font-normal text-slate-500">
+          <div className={MODAL_TITLE}>{address ? "Edit Address" : "Add Address"}</div>
+          <div className={`${HINT} font-normal mt-0.5`}>
             {address ? "Update this address." : "Add an address where this company is billed or goods are picked up or delivered."}
           </div>
         </div>

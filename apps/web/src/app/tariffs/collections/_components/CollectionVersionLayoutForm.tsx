@@ -7,6 +7,7 @@ import type { interfaces } from "@/lib/api/client";
 import { sheetColumnOptions } from "../../_lib/railLayoutForm";
 import { ConditionsField, DayField, Field, SubTitle, TypedList } from "../../_components/TariffFormParts";
 import { SURCHARGE_KIND_OPTIONS, ZONE_BY_OPTIONS, countryCodesText, newMatrix, newSurcharge, newZone, parseCountryCodes, withZoneBy } from "../../_lib/collectionLayoutForm";
+import { LABEL_TEXT } from "@/styles/ui";
 
 type Matrix = interfaces.CollectionMatrix;
 type Zone = interfaces.CollectionZone;
@@ -230,7 +231,7 @@ export const CollectionVersionLayoutForm = ({ form, onChange, preview, disabled 
               </Field>
             </div>
             <div className="flex flex-col gap-2">
-              <div className="text-[12px] font-semibold text-slate-600">Zone columns</div>
+              <div className={LABEL_TEXT}>Zone columns</div>
               {m.zones.map((z, k) => (
                 <div key={k} className="grid grid-cols-[1.4fr_1fr_110px_32px] gap-2 items-center">
                   <Select

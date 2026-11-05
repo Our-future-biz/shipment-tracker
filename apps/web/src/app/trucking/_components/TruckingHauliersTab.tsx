@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { SupplierRatingStars } from "@/app/customers/_components/SupplierRatingStars";
+import { BTN_PRIMARY, EMPTY, LINK } from "@/styles/ui";
 import { ratingRank } from "../_lib/haulierRating";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Tooltip } from "antd";
@@ -36,7 +37,7 @@ const buildColumns = (vehicleLabel: (code: string) => string): AppGridColumn<Hau
     text: (h) => h.companyName,
     sorter: (a, b) => byText(a.companyName, b.companyName),
     render: (_, h) => (
-      <Link href={haulierHref(h.customerId)} onClick={(e) => e.stopPropagation()} className="font-semibold text-indigo-600 hover:underline">
+      <Link href={haulierHref(h.customerId)} onClick={(e) => e.stopPropagation()} className={`${LINK} font-semibold`}>
         {h.companyName}
       </Link>
     ),
@@ -66,10 +67,10 @@ const buildColumns = (vehicleLabel: (code: string) => string): AppGridColumn<Hau
     text: (h) => h.issues.map((i) => i.message).join("; "),
     render: (_, h) => {
       const summary = issueSummary(h.issues);
-      if (!summary) return <span className="text-slate-400">—</span>;
+      if (!summary) return <span className={EMPTY}>—</span>;
       return (
         <Tooltip title={summary.more ? h.issues.map((i) => i.message).join(" · ") : undefined}>
-          <span className="text-[12.5px] text-slate-700">
+          <span className="text-[13px] text-slate-700">
             {summary.first}
             {summary.more > 0 && <span className="ml-1 font-semibold text-slate-500">+{summary.more}</span>}
           </span>
@@ -82,16 +83,16 @@ const buildColumns = (vehicleLabel: (code: string) => string): AppGridColumn<Hau
     title: "Insurance valid to",
     text: (h) => formatDate(h.insuranceValidTo),
     sorter: (a, b) => byDate(a.insuranceValidTo, b.insuranceValidTo),
-    render: (_, h) => formatDate(h.insuranceValidTo) || <span className="text-slate-400">—</span>,
+    render: (_, h) => formatDate(h.insuranceValidTo) || <span className={EMPTY}>—</span>,
   },
   {
     key: "licence",
     title: "Licence valid to",
     text: (h) => formatDate(h.licenceValidTo),
     sorter: (a, b) => byDate(a.licenceValidTo, b.licenceValidTo),
-    render: (_, h) => formatDate(h.licenceValidTo) || <span className="text-slate-400">{h.hasProfile ? "No end date" : "—"}</span>,
+    render: (_, h) => formatDate(h.licenceValidTo) || (h.hasProfile ? <span className="text-slate-500">No end date</span> : <span className={EMPTY}>—</span>),
   },
-  { key: "adr", title: "ADR", text: (h) => (h.adrCapable ? "Yes" : "No"), filterOptions: ["Yes", "No"], render: (_, h) => (h.adrCapable ? "Yes" : <span className="text-slate-400">No</span>) },
+  { key: "adr", title: "ADR", text: (h) => (h.adrCapable ? "Yes" : "No"), filterOptions: ["Yes", "No"], render: (_, h) => (h.adrCapable ? "Yes" : <span className="text-slate-500">No</span>) },
   { key: "vehicles", title: "Vehicle types", text: (h) => h.vehicleTypes.map(vehicleLabel).join(", ") },
   { key: "lanes", title: "Preferred lanes", text: (h) => String(h.preferredLaneCount), sorter: (a, b) => a.preferredLaneCount - b.preferredLaneCount },
 ];
@@ -169,7 +170,7 @@ export const TruckingHauliersTab = () => {
             <button
               type="button"
               onClick={() => setAddOpen(true)}
-              className="flex items-center gap-1.5 shrink-0 rounded-lg bg-indigo-600 px-3 h-8 text-[13px] font-semibold text-white hover:bg-indigo-700 transition-colors"
+              className={BTN_PRIMARY}
             >
               <PlusOutlined />
               Add haulier

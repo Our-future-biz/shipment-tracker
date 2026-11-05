@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { App, Spin } from "antd";
 import { ArrowLeftOutlined } from "@ant-design/icons";
+import { RecordTabs } from "@/components/RecordTabs";
+import { BTN, MODAL_TITLE, PAGE_SUBTITLE, REF } from "@/styles/ui";
 import { useCreateMasterJob, useMasterJob, useMasterJobs } from "@/hooks/useMasterJobs";
 import { MasterJobsList } from "./MasterJobsList";
 import { MblDetailsTab } from "./MblDetailsTab";
@@ -64,39 +66,22 @@ export function MasterJobsView() {
         {openId ? (
           <div>
             <div className="flex items-center gap-3.5 mb-4">
-              <button
-                type="button"
-                onClick={backToList}
-                className="inline-flex items-center gap-2 h-10 px-4 rounded-lg border border-line-soft bg-white text-slate-900 text-[17px] font-bold cursor-pointer hover:bg-surface-2 hover:text-ink-soft transition-colors"
-              >
+              <button type="button" onClick={backToList} className={BTN}>
                 <ArrowLeftOutlined /> Master Jobs
               </button>
-              {mj && (
-                <span className="font-mono text-[18px] font-bold tracking-[.02em] text-ink-strong">{mj.mczNumber}</span>
-              )}
+              {mj && <h1 className={`${MODAL_TITLE} ${REF}`}>{mj.mczNumber}</h1>}
               {mj?.masterBolNumber && (
-                <span className="text-[13px] font-semibold text-slate-600">MBL {mj.masterBolNumber}</span>
+                <span className={PAGE_SUBTITLE}>MBL {mj.masterBolNumber}</span>
               )}
             </div>
             {mj && (
-              <div className="flex gap-0 mb-4 border-b border-slate-200" role="tablist">
-                {DETAIL_TABS.map((tab) => (
-                  <button
-                    key={tab.key}
-                    type="button"
-                    role="tab"
-                    aria-selected={detailTab === tab.key}
-                    onClick={() => setDetailTab(tab.key)}
-                    className={`px-4 py-2.5 text-sm cursor-pointer transition-all duration-150 border-b-2 -mb-px bg-transparent ${
-                      detailTab === tab.key
-                        ? "font-semibold text-indigo-500 border-indigo-500"
-                        : "font-normal text-slate-400 border-transparent hover:text-slate-600"
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
+              <RecordTabs
+                tabs={DETAIL_TABS}
+                active={detailTab}
+                onChange={(key) => setDetailTab(key as DetailTab)}
+                label="Master job sections"
+                className="mb-4 border-b border-slate-200"
+              />
             )}
             {mj ? (
               detailTab === "costs" ? (
@@ -117,7 +102,7 @@ export function MasterJobsView() {
                 <Spin />
               </div>
             ) : (
-              <div className="px-3 py-7 text-center text-sm text-slate-400">Master job not found.</div>
+              <div className="px-3 py-7 text-center text-[13px] text-slate-400">Master job not found.</div>
             )}
           </div>
         ) : (

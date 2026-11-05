@@ -11,6 +11,7 @@ import type { TimelineEntry } from "../_lib/types";
 import { whoDid } from "../_lib/whoDid";
 import { QuoteStatusPill } from "./QuoteStatusPill";
 import { SalesDialog } from "./SalesDialog";
+import { LABEL_TEXT } from "@/styles/ui";
 
 // The longest note the server takes (MAX_FOLLOW_UP_NOTE in the API's quoteLifecycle.utils.ts).
 const MAX_NOTE_LENGTH = 2000;
@@ -129,13 +130,13 @@ function FollowUpHistory({ history }: { history: TimelineEntry[] }) {
 
   return (
     <div className="mt-5">
-      <div className="mb-2 text-sm font-medium text-slate-700">
+      <div className={`mb-2 ${LABEL_TEXT}`}>
         Earlier follow-ups{history.length > 0 && <span className="ml-1 font-normal text-slate-500">({history.length})</span>}
       </div>
       {history.length === 0 ? (
         <div className="text-xs text-slate-500">No follow-up recorded yet</div>
       ) : (
-        <ul className="max-h-60 overflow-y-auto divide-y divide-slate-100 rounded-md border border-slate-200">
+        <ul className="max-h-60 overflow-y-auto divide-y divide-slate-100 rounded-lg border border-slate-200">
           {history.map((entry, i) => {
             const expanded = open.has(i);
             const who = whoDid(entry.userId, entry.user, users);
@@ -168,7 +169,7 @@ function FollowUpHistory({ history }: { history: TimelineEntry[] }) {
                   onClick={() => toggle(i)}
                 >
                   {head}
-                  <div className={`mt-0.5 text-sm text-slate-700 ${expanded ? "whitespace-pre-wrap break-words" : "truncate"}`}>{entry.comment}</div>
+                  <div className={`mt-0.5 text-[13px] text-slate-700 ${expanded ? "whitespace-pre-wrap break-words" : "truncate"}`}>{entry.comment}</div>
                 </button>
               </li>
             );

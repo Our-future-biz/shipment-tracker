@@ -1,6 +1,8 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { SectionCard } from "@/components/SectionCard";
+import { EMPTY, TD, TH } from "@/styles/ui";
 import { GLOSSARY, TERMS } from "../../_lib/glossary";
 
 // Read me of the Warehouse module, shown in the "?" help drawer: how the module works today,
@@ -8,14 +10,12 @@ import { GLOSSARY, TERMS } from "../../_lib/glossary";
 
 function Part({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="bg-white border border-slate-200 rounded-xl shadow-sm">
-      <div className="px-4 py-2.5 bg-indigo-50 border-b border-indigo-100 rounded-t-xl">
-        <h3 className="text-[13px] font-bold text-slate-800 uppercase tracking-wider m-0">{title}</h3>
-      </div>
-      <div className="p-4 text-[13px] leading-relaxed text-slate-600 [&_p]:mt-0 [&_p]:mb-2.5 [&_p:last-child]:mb-0 [&_ul]:mt-0 [&_ul]:mb-2.5 [&_ul]:pl-5 [&_ul]:list-disc [&_ul:last-child]:mb-0 [&_li]:mb-1">
-        {children}
-      </div>
-    </section>
+    <SectionCard
+      title={title}
+      bodyClassName="p-4 text-[13px] leading-relaxed text-slate-700 [&_p]:mt-0 [&_p]:mb-2.5 [&_p:last-child]:mb-0 [&_ul]:mt-0 [&_ul]:mb-2.5 [&_ul]:pl-5 [&_ul]:list-disc [&_ul:last-child]:mb-0 [&_li]:mb-1"
+    >
+      {children}
+    </SectionCard>
   );
 }
 
@@ -410,20 +410,20 @@ export function ReadmeTab() {
       </Part>
 
       <Part title="Words we use">
-        <table className="w-full border-collapse text-xs">
+        <table className="w-full border-collapse">
           <thead>
-            <tr className="border-b border-slate-200 text-left text-[11px] uppercase tracking-wide text-slate-500">
-              <th className="py-1.5 pr-3">Term</th>
-              <th className="py-1.5 pr-3">Meaning</th>
-              <th className="py-1.5">Instead of</th>
+            <tr>
+              <th className={TH}>Term</th>
+              <th className={TH}>Meaning</th>
+              <th className={TH}>Instead of</th>
             </tr>
           </thead>
           <tbody>
             {GLOSSARY.map((g) => (
-              <tr key={g.term} className="border-b border-slate-100 last:border-b-0 align-top">
-                <td className="py-1.5 pr-3 font-semibold text-slate-800 whitespace-nowrap">{g.term}</td>
-                <td className="py-1.5 pr-3">{g.meaning}</td>
-                <td className="py-1.5 text-slate-400">{g.replaces ?? "—"}</td>
+              <tr key={g.term}>
+                <td className={`${TD} !align-top font-semibold !text-slate-900 whitespace-nowrap`}>{g.term}</td>
+                <td className={`${TD} !align-top`}>{g.meaning}</td>
+                <td className={`${TD} !align-top !text-slate-500`}>{g.replaces ?? <span className={EMPTY}>—</span>}</td>
               </tr>
             ))}
           </tbody>

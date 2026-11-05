@@ -12,6 +12,8 @@ import { TERMS } from "@/app/warehouse-concept/_lib/glossary";
 import { useUrlParam } from "@/hooks/useUrlParam";
 import { KpiCard, KpiPeriodBar, kpiTone } from "../kpi/KpiCards";
 import { useKpiPeriod, useKpiReport } from "@/hooks/useKpis";
+import type { Tone } from "@/components/Badge";
+import { BTN_PRIMARY, HINT, LINK, REF } from "@/styles/ui";
 import { Callout, Card, RecordFormModal, StatusTag, SubTabs, dim, nf } from "./shared";
 
 // Reports: KPIs worked out from the gate stamps for a period (each says how it is measured; a
@@ -25,21 +27,18 @@ type Report = interfaces.WarehouseKpiReport;
 type Bucket = interfaces.KpiThroughputBucket;
 
 const CLAIM_STATUSES = ["Under review", "Filed", "Open", "Claim filed", "Settled", "Settled — insurer", "Recovered", "Rejected"];
-const CLAIM_COLORS: Record<string, string> = {
-  Open: "orange",
-  "Under review": "orange",
-  Filed: "orange",
-  "Claim filed": "red",
-  Settled: "green",
-  "Settled — insurer": "green",
-  Recovered: "green",
-  Rejected: "red",
+const CLAIM_TONES: Record<string, Tone> = {
+  Open: "a",
+  "Under review": "a",
+  Filed: "a",
+  "Claim filed": "r",
+  Settled: "g",
+  "Settled — insurer": "g",
+  Recovered: "g",
+  Rejected: "r",
 };
-const VERDICT_COLORS: Record<string, string> = { Healthy: "green", Acceptable: "orange", "Below target": "red" };
+const VERDICT_TONES: Record<string, Tone> = { Healthy: "g", Acceptable: "a", "Below target": "r" };
 const REPORT_FORMATS = ["XLSX", "PDF", "CSV"];
-
-const btnPrimary =
-  "flex items-center gap-1.5 shrink-0 rounded-lg bg-indigo-600 px-3 h-8 text-[13px] font-semibold text-white hover:bg-indigo-700 transition-colors";
 
 const SUBS = ["kpis", "throughput", "utilisation", "quality", "library"] as const satisfies readonly Sub[];
 
@@ -82,19 +81,19 @@ export function ReportsTab() {
 export function HealthLine({ report }: { report: Pick<Report, "shipmentUpdates" | "storage"> }) {
   const u = report.shipmentUpdates;
   const st = report.storage;
-  const tone = u.failed > 0 ? "border-red-200 bg-red-50 text-red-700" : u.pending > 0 ? "border-amber-200 bg-amber-50 text-amber-800" : "border-slate-200 bg-white text-slate-600";
+  const tone = u.failed > 0 ? "border-red-200 bg-red-50 text-red-700" : u.pending > 0 ? "border-amber-200 bg-amber-50 text-amber-700" : "border-slate-200 bg-white text-slate-700";
   return (
     <div role="status" className={`flex flex-wrap items-center gap-x-6 gap-y-1 rounded-xl border px-4 py-2 text-xs ${tone}`}>
       <span>
         <b>Shipment updates now:</b> {u.pending} pending · {u.failed} failed
         {u.oldestPendingAt ? ` · oldest pending since ${formatDateTime(u.oldestPendingAt)}` : ""}
         {u.pending + u.failed > 0 && (
-          <Link href="/warehouse-concept?tab=gatelog" className="ml-2 font-semibold underline">
+          <Link href="/warehouse-concept?tab=gatelog" className={`${LINK} ml-2 font-semibold`}>
             Open the Gate Log
           </Link>
         )}
       </span>
-      <span className="text-slate-600">
+      <span className="text-slate-700">
         <b>Storage now:</b> {st.inWarehouse} in the warehouse · <span className={st.expiring ? "text-amber-700" : ""}>{st.expiring} expiring ≤ 2 days</span> ·{" "}
         <span className={st.chargeable ? "text-red-600" : ""}>
           {st.chargeable} chargeable (est. CZK {nf(st.estimatedCzk)})
@@ -185,7 +184,7 @@ function Throughput({ report }: { report: Report }) {
   const per = report.period.bucket === "day" ? "day" : "ISO week";
 
   const bucketColumns: AppGridColumn<Bucket>[] = [
-    { key: "label", title: per === "day" ? "Day" : "Week", width: 100, text: (r) => r.label, render: (_, r) => <span className="font-medium text-slate-800">{r.label}</span> },
+    { key: "label", title: per === "day" ? "Day" : "Week", width: 100, text: (r) => r.label, render: (_, r) => <span className="font-medium text-slate-900">{r.label}</span> },
     { key: "inPositions", title: "Positions in", width: 110, align: "right", text: (r) => String(r.inPositions), render: (_, r) => dim(r.inPositions) },
     { key: "inPieces", title: "Pieces in", width: 100, align: "right", text: (r) => String(r.inPieces), render: (_, r) => dim(nf(r.inPieces)) },
     { key: "inKg", title: "kg in", width: 110, align: "right", text: (r) => String(r.inKg), render: (_, r) => dim(nf(r.inKg)) },
@@ -196,14 +195,14 @@ function Throughput({ report }: { report: Report }) {
     { key: "outCbm", title: "cbm out", width: 100, align: "right", text: (r) => String(r.outCbm), render: (_, r) => dim(nf(r.outCbm, 1)) },
   ];
   const topColumns: AppGridColumn<Top>[] = [
-    { key: "customer", title: "Customer", width: 200, text: (r) => r.customer, render: (_, r) => <span className="font-medium text-slate-800">{r.customer}</span> },
+    { key: "customer", title: "Customer", width: 200, text: (r) => r.customer, render: (_, r) => <span className="font-medium text-slate-900">{r.customer}</span> },
     { key: "jobs", title: "Positions", width: 100, align: "right", text: (r) => String(r.jobs), render: (_, r) => dim(r.jobs) },
     { key: "cbm", title: TERMS.volumeCbm, width: 110, align: "right", text: (r) => String(r.cbm), render: (_, r) => dim(nf(r.cbm, 1)) },
     { key: "wm", title: "w/m", width: 90, align: "right", text: (r) => String(r.wm), render: (_, r) => dim(nf(r.wm, 1)) },
     { key: "share", title: "Share", width: 90, align: "right", text: (r) => `${r.share} %`, render: (_, r) => dim(`${r.share} %`) },
   ];
   const monthColumns: AppGridColumn<Month>[] = [
-    { key: "month", title: "Month", width: 130, text: (r) => r.month, render: (_, r) => <span className="font-medium text-slate-800">{r.month}{r.monthToDate ? " (MTD)" : ""}</span> },
+    { key: "month", title: "Month", width: 130, text: (r) => r.month, render: (_, r) => <span className="font-medium text-slate-900">{r.month}{r.monthToDate ? " (MTD)" : ""}</span> },
     { key: "receipts", title: "Received", width: 100, align: "right", text: (r) => String(r.receipts), render: (_, r) => dim(r.receipts) },
     { key: "cbmIn", title: `${TERMS.volumeCbm} in`, width: 120, align: "right", text: (r) => String(r.cbmIn), render: (_, r) => dim(nf(r.cbmIn, 1)) },
     { key: "dispatches", title: "Left", width: 90, align: "right", text: (r) => String(r.dispatches), render: (_, r) => dim(r.dispatches) },
@@ -232,8 +231,8 @@ function Throughput({ report }: { report: Report }) {
         }
       >
         <ThroughputChart buckets={report.throughput} measure={measure} />
-        <p className="m-0 mt-2 text-[11px] text-slate-500">
-          <b className="text-slate-600">How it is measured:</b> in = positions received in the {per} (WH receipt / stripping tally tick); out = positions that left
+        <p className={`m-0 mt-2 ${HINT}`}>
+          <b className="text-slate-700">How it is measured:</b> in = positions received in the {per} (WH receipt / stripping tally tick); out = positions that left
           (WH release / export container gate-out). Pieces, weight and volume are the gate figures of the position.
         </p>
       </Card>
@@ -259,7 +258,7 @@ function Throughput({ report }: { report: Report }) {
             storageKey="warehouse:report-monthly"
             exportFilePrefix="monthly-summary"
           />
-          <p className="m-0 mt-2 text-[11px] text-slate-500">Not filtered by the period. Received and left as in the KPIs; yard container-days from the container gate-in / gate-out stamps (typed yard dates when not stamped).</p>
+          <p className={`m-0 mt-2 ${HINT}`}>Not filtered by the period. Received and left as in the KPIs; yard container-days from the container gate-in / gate-out stamps (typed yard dates when not stamped).</p>
         </Card>
       </div>
     </>
@@ -275,7 +274,7 @@ function FillMeter({ value }: { value: number }) {
       <div className="h-1.5 w-24 rounded-full bg-slate-100 overflow-hidden">
         <div className={`h-full rounded-full ${color}`} style={{ width: `${Math.min(value, 100)}%` }} />
       </div>
-      <span className="text-xs font-semibold tabular-nums text-slate-700">{value} %</span>
+      <span className="text-[12px] font-semibold tabular-nums text-slate-700">{value} %</span>
     </div>
   );
 }
@@ -283,13 +282,13 @@ function FillMeter({ value }: { value: number }) {
 function Utilisation({ report }: { report: Report }) {
 
   const columns: AppGridColumn<Lane>[] = [
-    { key: "lane", title: "Lane (discharge port)", width: 200, text: (r) => r.lane, render: (_, r) => <span className="font-medium text-slate-800">{r.lane}</span> },
+    { key: "lane", title: "Lane (discharge port)", width: 200, text: (r) => r.lane, render: (_, r) => <span className="font-medium text-slate-900">{r.lane}</span> },
     { key: "containers", title: "Containers", width: 110, align: "right", text: (r) => String(r.containers), render: (_, r) => dim(r.containers) },
     { key: "avgCbm", title: `Avg ${TERMS.volumeCbm.toLowerCase()}`, width: 130, align: "right", text: (r) => String(r.avgCbm), render: (_, r) => dim(nf(r.avgCbm, 1)) },
     { key: "capacityCbm", title: "Capacity", width: 100, align: "right", text: (r) => String(r.capacityCbm), render: (_, r) => dim(r.capacityCbm) },
     { key: "fill", title: "Fill rate", width: 170, text: (r) => `${r.fill} %`, render: (_, r) => <FillMeter value={r.fill} /> },
     { key: "avgPieces", title: "Avg pieces", width: 110, align: "right", text: (r) => String(r.avgPieces), render: (_, r) => dim(nf(r.avgPieces, 1)) },
-    { key: "verdict", title: "Verdict", width: 130, text: (r) => r.verdict, filterOptions: Object.keys(VERDICT_COLORS), render: (_, r) => <StatusTag value={r.verdict} colors={VERDICT_COLORS} /> },
+    { key: "verdict", title: "Verdict", width: 130, text: (r) => r.verdict, filterOptions: Object.keys(VERDICT_TONES), render: (_, r) => <StatusTag value={r.verdict} tones={VERDICT_TONES} /> },
   ];
 
   return (
@@ -322,13 +321,13 @@ function QualityAndClaims({ report }: { report?: Report }) {
   const quality = (report?.kpis ?? []).filter((k) => ["exceptionRate", "reweighVariance", "onTime"].includes(k.key));
 
   const columns: AppGridColumn<Claim>[] = [
-    { key: "ref", title: "Claim", width: 130, text: (c) => c.ref, render: (_, c) => <span className="font-mono font-bold text-indigo-500">{c.ref}</span> },
-    { key: "job", title: "House job", width: 160, text: (c) => c.job, render: (_, c) => (c.job ? <span className="font-mono text-slate-700">{c.job}</span> : dim("")) },
+    { key: "ref", title: "Claim", width: 130, text: (c) => c.ref, render: (_, c) => <span className={`${REF} font-bold text-indigo-600`}>{c.ref}</span> },
+    { key: "job", title: "House job", width: 160, text: (c) => c.job, render: (_, c) => (c.job ? <span className={`${REF} text-slate-700`}>{c.job}</span> : dim("")) },
     { key: "against", title: "Against", width: 220, text: (c) => c.against, render: (_, c) => dim(c.against) },
     { key: "type", title: "Type", width: 150, text: (c) => c.type, render: (_, c) => dim(c.type) },
     { key: "value", title: "Value", width: 120, align: "right", text: (c) => c.value, render: (_, c) => dim(c.value) },
     { key: "raised", title: "Raised", width: 110, text: (c) => c.raised, render: (_, c) => dim(c.raised) },
-    { key: "status", title: "Status", width: 150, text: (c) => c.status, filterOptions: CLAIM_STATUSES, render: (_, c) => <StatusTag value={c.status} colors={CLAIM_COLORS} /> },
+    { key: "status", title: "Status", width: 150, text: (c) => c.status, filterOptions: CLAIM_STATUSES, render: (_, c) => <StatusTag value={c.status} tones={CLAIM_TONES} /> },
   ];
 
   return (
@@ -344,7 +343,7 @@ function QualityAndClaims({ report }: { report?: Report }) {
         <AppGrid<Claim>
           searchPlaceholder="Search claim, job, party…"
           actions={
-            <button className={btnPrimary} onClick={() => setEditing({})}>
+            <button type="button" className={BTN_PRIMARY} onClick={() => setEditing({})}>
               <PlusOutlined /> Claim
             </button>
           }
@@ -389,22 +388,22 @@ function Library() {
   const [editing, setEditing] = useState<{ report?: SavedReport } | null>(null);
 
   const columns: AppGridColumn<SavedReport>[] = [
-    { key: "name", title: "Report", width: 240, text: (r) => r.name, render: (_, r) => <span className="font-medium text-slate-800">{r.name}</span> },
+    { key: "name", title: "Report", width: 240, text: (r) => r.name, render: (_, r) => <span className="font-medium text-slate-900">{r.name}</span> },
     { key: "owner", title: "Owner", width: 140, text: (r) => r.owner, render: (_, r) => dim(r.owner) },
     { key: "frequency", title: "Frequency", width: 140, text: (r) => r.frequency, render: (_, r) => dim(r.frequency) },
-    { key: "format", title: "Format", width: 100, text: (r) => r.format, filterOptions: REPORT_FORMATS, render: (_, r) => <StatusTag value={r.format} colors={{}} /> },
+    { key: "format", title: "Format", width: 100, text: (r) => r.format, filterOptions: REPORT_FORMATS, render: (_, r) => <StatusTag value={r.format} tones={{}} /> },
     { key: "distribution", title: "Distribution", width: 260, text: (r) => r.distribution, render: (_, r) => dim(r.distribution) },
   ];
 
   return (
     <Card title="Saved reports" extra="Names only — not run or sent" bodyClassName="p-4">
-      <p className="m-0 mb-3 text-xs text-amber-700">
+      <p className="m-0 mb-3 text-[12px] text-amber-700">
         This list only keeps report names, owners and who they are meant for. Nothing here is run, built or e-mailed automatically.
       </p>
       <AppGrid<SavedReport>
         searchPlaceholder="Search report, owner…"
         actions={
-          <button className={btnPrimary} onClick={() => setEditing({})}>
+          <button type="button" className={BTN_PRIMARY} onClick={() => setEditing({})}>
             <PlusOutlined /> New report
           </button>
         }

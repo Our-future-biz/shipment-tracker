@@ -12,6 +12,7 @@ import { ScanBurst, containerHref, matchScanned, scanHref, scannedContainer, typ
 import { dialogOpen } from "@/app/warehouse-concept/_lib/useWedgeScanner";
 import { errorMessage } from "../_lib/gate";
 import { btnInline } from "./job/fields";
+import { CARD, CARD_TITLE, REF } from "@/styles/ui";
 
 // Scan or type at the gate: a scanner types the label's barcode / QR value (the warehouse ref)
 // and Enter. An exact ref opens that job; otherwise one match on the job no., a container or a
@@ -117,9 +118,9 @@ export function ScanBox({
   const status = !result ? "" : result.matches.length === 1 ? `Match — opening ${result.matches[0]!.positionRef || result.matches[0]!.gateRef}` : result.matches.length > 1 ? `${result.matches.length} matches for “${result.q}”` : `No match for “${result.q}”`;
 
   return (
-    <div data-scan-box className={large ? "bg-white border border-slate-200 rounded-xl shadow-sm p-3" : "mt-4 bg-white border border-slate-200 rounded-xl shadow-sm px-4 py-3"}>
+    <div data-scan-box className={large ? `${CARD} p-3` : `mt-4 ${CARD} px-4 py-3`}>
       <div className={large ? "flex flex-col gap-2" : "flex flex-wrap items-center gap-3"}>
-        <label htmlFor="gate-scan" className="text-[13px] font-bold uppercase tracking-wider text-slate-800 shrink-0">
+        <label htmlFor="gate-scan" className={`${CARD_TITLE} shrink-0`}>
           Scan or type
         </label>
         <div className={large ? "flex items-center gap-2" : "contents"}>
@@ -161,7 +162,7 @@ export function ScanBox({
           {result.matches.map((m) => (
             <li key={m.id}>
               <Link href={scanHref(target, m.id)} className={large ? `${btnInline} !min-h-[48px] !px-3 !text-sm` : btnInline}>
-                <span className="font-mono font-semibold text-indigo-500">{m.positionRef || m.gateRef}</span>
+                <span className={`${REF} font-semibold text-indigo-600`}>{m.positionRef || m.gateRef}</span>
                 <span className="text-slate-500">{m.customer || "—"}</span>
               </Link>
             </li>
@@ -169,7 +170,7 @@ export function ScanBox({
         </ul>
       )}
       {result && result.matches.length === 0 && (
-        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-700">
           No match — an unannounced truck?
           <button type="button" className={large ? `${btnInline} !min-h-[48px] !px-3 !text-sm` : btnInline} disabled={creating} onClick={walkIn}>
             Record a walk-in

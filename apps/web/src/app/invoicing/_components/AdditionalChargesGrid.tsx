@@ -3,6 +3,7 @@
 import { Button } from "antd";
 import { DeleteOutlined } from "@ant-design/icons";
 import { CURRENCIES } from "@/lib/enums";
+import { HINT } from "@/styles/ui";
 import { billingDisplay, overrideKeyForCharge, type ChargeRow } from "../_lib/billing";
 import { GridHeader, GridInput, GridSelect } from "./gridControls";
 
@@ -30,7 +31,7 @@ export const AdditionalChargesGrid = ({
   onDelete,
 }: AdditionalChargesGridProps) => {
   if (rows.length === 0) {
-    return <p className="text-xs text-slate-400 m-0">No additional charges. Add one below.</p>;
+    return <p className={`${HINT} m-0`}>No additional charges. Add one below.</p>;
   }
   return (
     <section>
@@ -54,9 +55,9 @@ export const AdditionalChargesGrid = ({
               onChange={(v) => onOverride(row.id, v)}
               onBlur={() => onOverrideBlur(row.id)}
               placeholder={billingDisplay(undefined, row.realAmount, roe) || "auto"}
-              className="text-indigo-600 font-medium"
+              className="!text-indigo-600 font-medium"
             />
-            <Button type="text" size="small" icon={<DeleteOutlined />} onClick={() => onDelete(i)} className="!text-slate-400 hover:!text-red-500" />
+            <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => onDelete(i)} />
           </div>
         );
       })}

@@ -7,6 +7,7 @@ import { formatDate } from "@/lib/date";
 import { HaulierIssueList } from "@/app/trucking/_components/HaulierIssueList";
 import { HaulierStatusChip } from "@/app/trucking/_components/HaulierStatusChip";
 import { useCanSeeConcepts } from "@/lib/auth/AuthContext";
+import { LINK } from "@/styles/ui";
 
 interface CustomerHaulierCardProps {
   customerId: string;
@@ -21,7 +22,7 @@ export function CustomerHaulierCard({ customerId }: CustomerHaulierCardProps) {
   // Trucking itself is a concept module: the way there only for those who see it.
   const canSeeConcepts = useCanSeeConcepts();
   const link = canSeeConcepts && (
-    <Link href={`/trucking/hauliers/${customerId}`} className="text-xs font-semibold text-indigo-600 whitespace-nowrap hover:underline">
+    <Link href={`/trucking/hauliers/${customerId}`} className={`text-xs font-semibold whitespace-nowrap ${LINK}`}>
       Open in Trucking
     </Link>
   );
@@ -38,9 +39,9 @@ export function CustomerHaulierCard({ customerId }: CustomerHaulierCardProps) {
           <HaulierIssueList issues={haulier.issues} limit={TOP_ISSUES} />
           <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
             <dt className="text-slate-500">Insurance valid to</dt>
-            <dd className="m-0 text-slate-800">{formatDate(haulier.profile.insuranceValidTo) || "—"}</dd>
+            <dd className="m-0 text-slate-900">{formatDate(haulier.profile.insuranceValidTo) || "—"}</dd>
             <dt className="text-slate-500">Licence valid to</dt>
-            <dd className="m-0 text-slate-800">
+            <dd className="m-0 text-slate-900">
               {haulier.profile.licenceUnlimited ? "No end date" : formatDate(haulier.profile.licenceValidTo) || "—"}
             </dd>
           </dl>

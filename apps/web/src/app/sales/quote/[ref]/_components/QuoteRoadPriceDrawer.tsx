@@ -10,6 +10,7 @@ import { toRateRequest } from "@/app/trucking/_lib/rateCalculator";
 import { RoadPricePicker } from "../../../_components/RoadPricePicker";
 import { defaultPick, roadToRateForm, type RatePick } from "../../../_lib/roadQuote";
 import type { QuoteRoadInput } from "../../../_lib/types";
+import { CARD } from "@/styles/ui";
 
 interface QuoteRoadPriceDrawerProps {
   open: boolean;
@@ -89,7 +90,7 @@ export const QuoteRoadPriceDrawer = ({ open, road, customerId, previousLevel, on
               Rated {businessDateTime(result.ratedAt)} for {customerId ? "the quote's customer (their own tariff, else the Standard list)" : "the Standard list"} · click a row
               for the price lines and every haulier
             </div>
-            <div className="rounded-xl border border-slate-200 bg-white">
+            <div className={CARD}>
               <RateResultsTable results={result.results} includeBuy includeInternal={false} marginFloor={settings?.marginFloor ?? null} />
             </div>
             <RoadPricePicker results={result.results} value={pick} onChange={setPick} disabled={saving} />

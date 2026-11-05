@@ -20,7 +20,7 @@ export function QuoteRefLink({ quoteNumber, origin }: QuoteRefLinkProps) {
       // In a table whose rows open the quote as well: without stopping the click here a
       // Ctrl/Cmd-click would open a new tab and also navigate this one.
       onClick={(e) => e.stopPropagation()}
-      className={`font-mono font-semibold whitespace-nowrap ${LINK_CLASS}`}
+      className={`tabular-nums font-semibold whitespace-nowrap ${LINK_CLASS}`}
     >
       {quoteNumber}
     </Link>

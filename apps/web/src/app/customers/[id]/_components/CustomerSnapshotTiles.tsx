@@ -22,6 +22,8 @@ import { useLatestRates, type Rates } from "@/lib/fx";
 import { summarizeInvoices } from "../../_lib/customerInvoices";
 import { fmtMoney } from "../../_lib/customerMoney";
 import { EMPTY_CELL } from "../../_lib/customerTable";
+import { KPI_TONE_CLASS } from "@/components/KpiTile";
+import { CARD, LABEL_TEXT } from "@/styles/ui";
 import type { KpiTone } from "./CustomerKpiTile";
 
 // What one tile shows: its figure only; the label and the tab it opens are fixed in the markup below.
@@ -29,12 +31,6 @@ export interface TileContent {
   value: ReactNode;
   tone?: KpiTone;
 }
-
-const VALUE_TONE: Record<KpiTone, string> = {
-  red: "text-red-600",
-  green: "text-green-600",
-  amber: "text-amber-600",
-};
 
 interface SnapshotTileProps extends TileContent {
   label: string;
@@ -55,26 +51,26 @@ export function SnapshotTile({ label, icon, value, tone, onClick }: SnapshotTile
       onClick={onClick}
       className={[
         "flex flex-col items-center justify-center min-w-0 h-[116px] px-3",
-        "bg-white border border-slate-200 rounded-xl shadow-sm text-center",
+        `${CARD} text-center`,
         onClick ? "cursor-pointer transition-colors hover:border-indigo-300 hover:bg-indigo-50/40" : "",
         "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500",
       ].join(" ")}
     >
       <span
         aria-hidden
-        className="flex shrink-0 items-center justify-center w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 text-[15px]"
+        className="flex shrink-0 items-center justify-center w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 text-[14px]"
       >
         {icon}
       </span>
       {/* One line: a tile too narrow for the whole name cuts it with "…" rather than wrapping it. */}
       <span
-        className="mt-1.5 max-w-full truncate text-[12px] font-bold uppercase tracking-wide text-slate-700"
+        className={`mt-1.5 max-w-full truncate ${LABEL_TEXT}`}
         title={label}
       >
         {label}
       </span>
       <span
-        className={`mt-2 max-w-full truncate text-2xl font-bold tabular-nums leading-none ${tone ? VALUE_TONE[tone] : "text-slate-900"}`}
+        className={`mt-2 max-w-full truncate text-[20px] font-bold tabular-nums leading-none ${tone ? KPI_TONE_CLASS[tone] : "text-slate-900"}`}
       >
         {value}
       </span>

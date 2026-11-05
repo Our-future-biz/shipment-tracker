@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { Button, Tabs, Tooltip } from "antd";
+import { Tabs, Tooltip } from "antd";
 import { QuestionCircleOutlined, SettingOutlined } from "@ant-design/icons";
+import { ICON_BTN_GHOST } from "@/styles/ui";
+import { LINK_ICON_BTN_GHOST } from "../_lib/linkButtons";
 import { TRUCKING_TABS, type TruckingTab } from "../_lib/tabs";
 
 interface TruckingTabsProps {
@@ -16,7 +18,7 @@ interface TruckingTabsProps {
 }
 
 // Real tabs (keyboard: Tab to the bar, arrow keys between tabs), used as the tab bar only — each
-// tab's content renders below it. Same bar as the Warehouse module.
+// tab's content renders below it. Same bar as the Warehouse module; settings and help are the app's frameless icon buttons.
 export const TruckingTabs = ({ active, counts, queues = {}, onChange, onHelp }: TruckingTabsProps) => (
   <Tabs
     activeKey={active}
@@ -26,16 +28,14 @@ export const TruckingTabs = ({ active, counts, queues = {}, onChange, onHelp }: 
       right: (
         <span className="flex items-center gap-1">
           <Tooltip title="Trucking settings — service levels, vehicle types, margin floor, free waiting time, transport-order e-mail, fuel index">
-            <Link
-              href="/trucking/settings"
-              aria-label="Trucking settings"
-              className="inline-flex h-6 w-6 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 hover:text-indigo-600 transition-colors"
-            >
+            <Link href="/trucking/settings" aria-label="Trucking settings" className={LINK_ICON_BTN_GHOST}>
               <SettingOutlined />
             </Link>
           </Tooltip>
           <Tooltip title="Read me — how the Trucking module works">
-            <Button type="text" shape="circle" aria-label="Help" icon={<QuestionCircleOutlined />} onClick={onHelp} />
+            <button type="button" aria-label="Help" className={ICON_BTN_GHOST} onClick={onHelp}>
+              <QuestionCircleOutlined />
+            </button>
           </Tooltip>
         </span>
       ),

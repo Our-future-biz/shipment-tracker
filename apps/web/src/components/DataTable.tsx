@@ -6,6 +6,7 @@ import type { TableProps } from "antd";
 import type { SorterResult } from "antd/es/table/interface";
 import { DraggableHeaderCell } from "@/components/DraggableHeaderCell";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { CARD } from "@/styles/ui";
 import { resizableColumns, useColumnWidths } from "@/hooks/useColumnWidths";
 
 // A column's own compare function, as antd's `sorter` may carry it.
@@ -134,7 +135,7 @@ export function DataTable<T extends object>({ dataSource, resetKey, server, onCh
   }, [resetKey, ownPageSize]);
 
   return (
-    <div className="data-table bg-white border border-slate-200 rounded-2xl overflow-hidden">
+    <div className={`data-table ${CARD} overflow-hidden`}>
       <Table<T>
         {...tableProps}
         columns={sizedColumns}

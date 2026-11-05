@@ -8,6 +8,7 @@ import type { ColumnsType } from "antd/es/table";
 import { api } from "@/lib/api";
 import { usePublicHolidays } from "@/hooks/usePublicHolidays";
 import { fileToBase64 } from "@/lib/files";
+import { CARD, CARD_BAR, CARD_TITLE, HINT, ICON_BTN_GHOST } from "@/styles/ui";
 import type { HolidayRow } from "../_lib/holidays";
 import { dateCell, textCell } from "./holidayCells";
 
@@ -102,28 +103,28 @@ export function HolidaysUploadTab({ onSaved }: HolidaysUploadTabProps) {
     { title: "Regional start date", dataIndex: "regionalStart", width: 130, render: dateCell },
     { title: "Regional end date", dataIndex: "regionalEnd", width: 130, render: dateCell },
     { title: "Region(s) / subdivision(s)", dataIndex: "regions", width: 220, render: textCell },
-    { title: "File", dataIndex: "source", width: 180, render: (v: string) => <span className="text-slate-400 text-xs">{v}</span> },
+    { title: "File", dataIndex: "source", width: 180, render: (v: string) => <span className={HINT}>{v}</span> },
     {
       title: "",
       key: "remove",
       width: 48,
       fixed: "right",
       render: (_: unknown, r: PreviewRow) => (
-        <Button
-          type="text"
-          size="small"
-          icon={<CloseOutlined />}
+        <button
+          type="button"
           aria-label="Leave this row out"
           onClick={() => setRows((prev) => prev.filter((x) => x.key !== r.key))}
-          className="text-slate-400 hover:!text-red-500"
-        />
+          className={ICON_BTN_GHOST}
+        >
+          <CloseOutlined />
+        </button>
       ),
     },
   ];
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+      <div className={`${CARD} p-4`}>
         <Upload.Dragger
           accept={ACCEPT}
           multiple
@@ -144,7 +145,7 @@ export function HolidaysUploadTab({ onSaved }: HolidaysUploadTabProps) {
         </Upload.Dragger>
 
         {reading.length > 0 && (
-          <div className="flex items-center gap-3 mt-4 text-[13px] text-slate-600">
+          <div className="flex items-center gap-3 mt-4 text-[13px] text-slate-500">
             <Spin size="small" /> Reading {reading.map((f) => f.name).join(", ")}… (the AI can take up to a minute)
           </div>
         )}
@@ -169,10 +170,10 @@ export function HolidaysUploadTab({ onSaved }: HolidaysUploadTabProps) {
       </div>
 
       {rows.length > 0 && (
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm">
-          <div className="flex flex-wrap items-center gap-3 p-4 border-b border-slate-100">
-            <span className="text-sm font-bold text-slate-700 uppercase tracking-wide">Check before saving</span>
-            <span className="text-[13px] text-slate-500">{rows.length} holidays — remove any row that is wrong.</span>
+        <div className={`${CARD} overflow-hidden`}>
+          <div className={`${CARD_BAR} flex-wrap`}>
+            <h3 className={CARD_TITLE}>Check before saving</h3>
+            <span className={HINT}>{rows.length} holidays — remove any row that is wrong.</span>
             <div className="flex-1" />
             <Button
               onClick={() => {

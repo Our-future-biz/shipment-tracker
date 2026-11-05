@@ -28,6 +28,7 @@ import { Worklist } from "../remeasurement/Worklist";
 import { useJobDraft } from "../remeasurement/useJobDraft";
 import { useWarehouseShipment } from "@/hooks/useWarehouseShipment";
 import { informedText } from "@/lib/informOperations";
+import { ICON_BTN_GHOST, LINK, MODAL_TITLE, REF } from "@/styles/ui";
 
 // Remeasurement / Release: the warehouse's work on one POSITION — linked to a shipment or
 // stand-alone. Opened from the Job no. in Positions (?position=<task id>), from "Shipment Details"
@@ -60,7 +61,7 @@ function Resolve({ shipmentId, positionId, onBack }: { shipmentId: string | null
 
 function BackButton({ onBack }: { onBack: () => void }) {
   return (
-    <button onClick={onBack} aria-label="Back to the worklist" className="text-slate-400 hover:text-indigo-500 cursor-pointer bg-transparent border-none p-1">
+    <button type="button" onClick={onBack} aria-label="Back to the worklist" className={ICON_BTN_GHOST}>
       <ArrowLeftOutlined />
     </button>
   );
@@ -198,8 +199,8 @@ function ShipmentOnlyPart({ shipmentId, onBack }: { shipmentId: string; onBack: 
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-2">
         <BackButton onBack={onBack} />
-        <h2 className="text-[20px] font-bold text-slate-800 m-0 font-mono">{shipment.jobNumber}</h2>
-        {shipment.customer && <span className="ml-2 text-sm text-slate-500">{shipment.customer}</span>}
+        <h2 className={`${MODAL_TITLE} ${REF}`}>{shipment.jobNumber}</h2>
+        {shipment.customer && <span className="ml-2 text-[13px] text-slate-500">{shipment.customer}</span>}
       </div>
       <Alert
         type="info"
@@ -207,7 +208,7 @@ function ShipmentOnlyPart({ shipmentId, onBack }: { shipmentId: string; onBack: 
         message={
           <span className="text-xs">
             This shipment is not a warehouse position. Import it in{" "}
-            <Link href="/warehouse-concept" className="text-indigo-500">
+            <Link href="/warehouse-concept" className={LINK}>
               Positions → Create new
             </Link>{" "}
             to get the gate figures, exceptions and release here.

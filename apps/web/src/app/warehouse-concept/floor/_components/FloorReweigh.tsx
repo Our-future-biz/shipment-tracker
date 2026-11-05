@@ -8,6 +8,7 @@ import { formatDateTime } from "@/lib/date";
 import { TERMS } from "@/app/warehouse-concept/_lib/glossary";
 import { pctText } from "@/app/warehouse-concept/_lib/cargoCompare";
 import { hhmm, nf } from "@/app/warehouse-concept/gate-log/_lib/gate";
+import { KPI_VALUE } from "@/styles/ui";
 import { useFloorQueue } from "../_lib/useFloorQueue";
 import { MAX_KG, typeKg } from "../_lib/keypad";
 import { FloorCard, bigPrimary } from "./floorUi";
@@ -52,7 +53,7 @@ export function FloorReweigh({ m, onBack }: { m: GateMovement; onBack: () => voi
     }
   };
 
-  const key = "h-14 rounded-xl border border-slate-300 bg-white text-[22px] font-bold text-slate-800 active:bg-slate-100 cursor-pointer";
+  const key = "h-14 rounded-xl border border-slate-300 bg-white text-[22px] font-bold text-slate-900 hover:bg-slate-50 active:bg-slate-100 cursor-pointer";
 
   return (
     <div className="flex flex-col gap-4 pb-24">
@@ -60,7 +61,7 @@ export function FloorReweigh({ m, onBack }: { m: GateMovement; onBack: () => voi
 
       {r && (
         <FloorCard title="Current re-weigh (the one that counts)">
-          <div className="text-[15px] font-semibold text-slate-900">
+          <div className="text-[14px] font-semibold text-slate-900">
             {nf(r.weighedKg, r.weighedKg % 1 ? 1 : 0)} kg{r.variancePct != null ? ` · ${pctText(r.variancePct)}` : ""}
             {r.flagged ? <span className="text-amber-700"> · variance</span> : null}
           </div>
@@ -72,8 +73,8 @@ export function FloorReweigh({ m, onBack }: { m: GateMovement; onBack: () => voi
       )}
 
       <FloorCard title="Weighed gross kg">
-        <div className="mb-3 rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-right font-mono text-[32px] font-bold tabular-nums text-slate-900" aria-live="polite" aria-label="Weighed kg">
-          {value || <span className="text-slate-300">0</span>} <span className="text-[18px] text-slate-500">kg</span>
+        <div className={`mb-3 rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-right ${KPI_VALUE}`} aria-live="polite" aria-label="Weighed kg">
+          {value || <span className="text-slate-300">0</span>} <span className="text-[14px] font-semibold text-slate-500">kg</span>
         </div>
         <div className="grid grid-cols-3 gap-2" role="group" aria-label="Keypad">
           {KEYS.map((k) => (

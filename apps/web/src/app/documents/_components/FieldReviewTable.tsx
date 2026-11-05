@@ -1,6 +1,8 @@
 "use client";
 
 import { Table, Checkbox, Input, Tag } from "antd";
+import { Pill } from "@/components/Pill";
+import { EMPTY } from "@/styles/ui";
 import type { ExtractedField } from "../_lib/extraction";
 import { GeoFlag, GeoSelect } from "@/components/GeoSelect";
 import { LABEL_GEO_FIELDS } from "@/lib/places";
@@ -13,7 +15,8 @@ interface FieldReviewTableProps {
   /** Picks one of the values the files read together gave (ExtractedField.choices). */
   onPick?: (index: number, value: string) => void;
   showExisting?: boolean;
-  accent?: "teal" | "amber";
+  /** The colour of the values read: the app's indigo, or amber (the master job's shipments). */
+  accent?: "indigo" | "amber";
 }
 
 export function FieldReviewTable({
@@ -23,9 +26,9 @@ export function FieldReviewTable({
   onEdit,
   onPick,
   showExisting = true,
-  accent = "teal",
+  accent = "indigo",
 }: FieldReviewTableProps) {
-  const valueClass = accent === "amber" ? "text-amber-600" : "text-teal-600";
+  const valueClass = accent === "amber" ? "text-amber-600" : "text-indigo-600";
   const rows = fields.map((f, index) => ({ ...f, index, key: `${f.column}-${index}` }));
 
   type Row = (typeof rows)[number];
@@ -58,7 +61,7 @@ export function FieldReviewTable({
               <GeoFlag kind={geoKind} value={v} />
             </span>
           ) : (
-            <span className={`font-mono ${valueClass}`}>
+            <span className={`tabular-nums ${valueClass}`}>
               {v}
               <GeoFlag kind={geoKind} value={v} />
             </span>
@@ -68,11 +71,11 @@ export function FieldReviewTable({
             size="small"
             variant="borderless"
             value={v}
-            className={`font-mono ${valueClass}`}
+            className={`tabular-nums ${valueClass}`}
             onChange={(e) => onEdit?.(row.index, e.target.value)}
           />
         ) : (
-          <span className={`font-mono ${valueClass}`}>{v}</span>
+          <span className={`tabular-nums ${valueClass}`}>{v}</span>
         );
         if (!row.choices || !onPick) return value;
         // The files read together disagree: each value with the files it came from, to pick one.
@@ -102,9 +105,9 @@ export function FieldReviewTable({
             dataIndex: "existingValue",
             render: (v: string) =>
               v ? (
-                <span className="font-mono text-slate-500">{v}</span>
+                <span className="tabular-nums text-slate-500">{v}</span>
               ) : (
-                <span className="italic text-slate-300">empty</span>
+                <span className={`italic ${EMPTY}`}>empty</span>
               ),
           },
           {
@@ -112,11 +115,11 @@ export function FieldReviewTable({
             width: 110,
             render: (_: unknown, row: Row) =>
               row.hasConflict ? (
-                <Tag color="orange">Conflict</Tag>
+                <Pill tone="amber">Conflict</Pill>
               ) : row.choices ? (
-                <Tag color="gold">Files differ</Tag>
+                <Pill tone="amber">Files differ</Pill>
               ) : (
-                <Tag color="green">New</Tag>
+                <Pill tone="green">New</Pill>
               ),
           },
         ]

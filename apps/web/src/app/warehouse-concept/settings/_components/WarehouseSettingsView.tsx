@@ -12,6 +12,7 @@ import { Card } from "../../_components/tabs/shared";
 import { useUnsavedGuard } from "../../_lib/useUnsavedGuard";
 import { isEmailAddress, normaliseList, recipientsProblem, splitAddresses } from "../_lib/emailList";
 import { useWarehouseSettings, type SupplierKind, type SupplierRecipients, type WarehouseSettings } from "@/hooks/useWarehouseSettings";
+import { HINT, ICON_BTN_GHOST, LABEL_TEXT, LINK, PAGE_SUBTITLE, PAGE_TITLE } from "@/styles/ui";
 
 // Warehouse settings: who gets the supplier e-mails (VGM, Survey, Remeasurement) — an on/off switch
 // and To / Cc per type — and the docks with their opening hours (the Dock Schedule grid and dock
@@ -85,7 +86,7 @@ export function WarehouseSettingsView() {
     return (
       <div className="p-10 text-center text-slate-500">
         The warehouse settings could not be read — reload the page.{" "}
-        <Link href="/warehouse-concept" className="text-indigo-500">
+        <Link href="/warehouse-concept" className={LINK}>
           Back to Warehouse
         </Link>
       </div>
@@ -134,12 +135,12 @@ export function WarehouseSettingsView() {
     <div className="bg-slate-50 min-h-full">
       <div className="bg-white border-b border-slate-200 px-6 py-4">
         <div className="flex items-start gap-2">
-          <Link href="/warehouse-concept" aria-label="Back to Warehouse" className="mt-1 text-slate-400 hover:text-indigo-500 p-1">
+          <Link href="/warehouse-concept" aria-label="Back to Warehouse" className={ICON_BTN_GHOST}>
             <ArrowLeftOutlined />
           </Link>
           <div className="min-w-0">
-            <h1 className="text-[22px] font-bold text-slate-800 m-0">Warehouse settings</h1>
-            <div className="text-xs text-slate-500 mt-1">
+            <h1 className={PAGE_TITLE}>Warehouse settings</h1>
+            <div className={`${PAGE_SUBTITLE} mt-1`}>
               Who gets the supplier e-mails, and the docks with their opening hours.
               {settings.updatedAt ? ` Last changed ${formatDateTime(settings.updatedAt)}${settings.updatedBy ? ` by ${settings.updatedBy}` : ""}.` : " Nothing saved yet — the defaults are shown."}
             </div>
@@ -159,7 +160,7 @@ export function WarehouseSettingsView() {
         )}
 
         <Card title="Supplier e-mail" extra="Send VGM / Send survey / Send remeasurement on the Remeasurement / Release tab">
-          <p className="text-xs text-slate-500 mt-0 mb-3">
+          <p className={`${HINT} mt-0 mb-3`}>
             When a type is <b>on</b> and has a To address, its button e-mails it and only then records it as sent (with the recipients in the history). When it is off, the button stays{" "}
             <b>Mark as sent</b> — recorded only, nothing is e-mailed.
           </p>
@@ -219,16 +220,16 @@ export function WarehouseSettingsView() {
 
         <Card title="Change log" extra={settings.events.length ? `latest ${settings.events.length}` : undefined}>
           {settings.events.length ? (
-            <ul className="list-none m-0 p-0 text-xs text-slate-600">
+            <ul className="list-none m-0 p-0 text-[13px] text-slate-700">
               {settings.events.map((e, i) => (
                 <li key={`${e.at}-${i}`} className="py-1 border-b border-slate-100 last:border-b-0">
-                  <span className="font-mono text-slate-500">{formatDateTime(e.at)}</span>
+                  <span className="tabular-nums text-slate-500">{formatDateTime(e.at)}</span>
                   {e.by ? <span className="text-slate-500"> · {e.by}</span> : null} — {e.label}
                 </li>
               ))}
             </ul>
           ) : (
-            <span className="text-xs text-slate-400">No changes yet.</span>
+            <span className={HINT}>No changes yet.</span>
           )}
         </Card>
       </div>
@@ -239,7 +240,7 @@ export function WarehouseSettingsView() {
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="flex flex-col gap-1 min-w-0">
-      <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{label}</span>
+      <span className={LABEL_TEXT}>{label}</span>
       {children}
     </label>
   );
@@ -295,12 +296,12 @@ function RecipientsRow({
   return (
     <div className="py-3 first:pt-0 last:pb-0 grid grid-cols-1 md:grid-cols-[170px_1fr_1fr] gap-3 items-start">
       <div>
-        <div className="text-[13px] font-bold text-slate-800">{label}</div>
+        <div className="text-[13px] font-bold text-slate-900">{label}</div>
         <div className="flex items-center gap-2 mt-1">
           <Switch size="small" checked={value.enabled} disabled={disabled} onChange={(on) => onChange({ enabled: on })} aria-label={`E-mail ${label}`} />
           <span className={`text-xs ${value.enabled ? "text-emerald-700 font-semibold" : "text-slate-500"}`}>{value.enabled ? "E-mailed" : "Recorded only"}</span>
         </div>
-        <div className="text-[11px] text-slate-400 mt-1">{what}</div>
+        <div className={`${HINT} mt-1`}>{what}</div>
       </div>
       <Field label="To">
         <AddressSelect label={`${label} To`} value={value.to} disabled={disabled} onChange={(to) => onChange({ to })} />
@@ -309,7 +310,7 @@ function RecipientsRow({
         <AddressSelect label={`${label} Cc`} value={value.cc} disabled={disabled} onChange={(cc) => onChange({ cc })} />
       </Field>
       {(problem || ccDup.length > 0) && (
-        <div className="md:col-start-2 md:col-span-2 text-[11px]">
+        <div className="md:col-start-2 md:col-span-2 text-[12px]">
           {problem && <span className="text-red-600">{problem}</span>}
           {ccDup.length > 0 && <span className="text-slate-500"> {ccDup.join(", ")} is in To already — kept in To only.</span>}
         </div>

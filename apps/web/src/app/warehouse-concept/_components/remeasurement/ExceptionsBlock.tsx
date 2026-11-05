@@ -5,6 +5,7 @@ import type { GateMovement } from "@/hooks/useGateLog";
 import { Badge } from "../../gate-log/_lib/gate";
 import { ExceptionList } from "../../gate-log/_components/job/ExceptionsPanel";
 import { Card } from "../tabs/shared";
+import { LINK } from "@/styles/ui";
 
 // Block E — damage / short / over found on this cargo (read-only here; recorded and resolved on
 // the gate job), with links to their photos.
@@ -17,7 +18,7 @@ export function ExceptionsBlock({ m }: { m: GateMovement | undefined }) {
         m && (
           <>
             {open > 0 ? <Badge tone={m.impRelease ? "a" : "r"}>{m.impRelease ? `${open} open (already released)` : `On hold — ${open} open`}</Badge> : null}
-            <Link href={`/warehouse-concept/gate-log/${m.id}?tab=survey`} className="text-indigo-500 hover:underline">
+            <Link href={`/warehouse-concept/gate-log/${m.id}?tab=survey`} className={LINK}>
               Record or resolve on the gate job
             </Link>
           </>

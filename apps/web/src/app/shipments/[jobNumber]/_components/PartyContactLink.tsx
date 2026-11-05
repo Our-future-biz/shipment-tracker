@@ -5,10 +5,10 @@ import { Modal, Spin } from "antd";
 import { findContact, useCustomerContacts } from "@/hooks/useCustomerContacts";
 import { FadeText } from "@/components/FadeText";
 import { useSingleOrDouble } from "@/components/EditableLink";
+import { EMPTY, HINT, LINK, TD, TH } from "@/styles/ui";
 
-const TH = "text-left text-[11px] font-bold text-slate-500 uppercase tracking-wide px-2 py-1.5 border-b border-slate-200 whitespace-nowrap";
-const TD = "px-2 py-2 text-xs text-slate-900 font-medium whitespace-nowrap";
-const DASH = <span className="text-slate-300">—</span>;
+const CELL = `${TD} whitespace-nowrap`;
+const DASH = <span className={EMPTY}>—</span>;
 
 // The contact person of a shipment party (Shipper / Consignee), shown as a link. Clicking it
 // opens the whole contact as saved on that party's customer record: role, e-mail, phone.
@@ -41,7 +41,7 @@ export function PartyContactLink({
         onClick={onEdit ? clicks.onClick : () => setOpen(true)}
         onDoubleClick={onEdit ? clicks.onDoubleClick : undefined}
         onKeyDown={onEdit ? clicks.onKeyDown : undefined}
-        className="min-w-0 max-w-full text-indigo-600 hover:underline font-medium bg-transparent border-0 p-0 cursor-pointer text-left"
+        className={`${LINK} min-w-0 max-w-full bg-transparent border-0 p-0 cursor-pointer text-left`}
       >
         <FadeText>{name}</FadeText>
       </button>
@@ -65,20 +65,20 @@ export function PartyContactLink({
                 </thead>
                 <tbody>
                   <tr>
-                    <td className={TD}>{contact?.name || name}</td>
-                    <td className={TD}>{contact?.role || DASH}</td>
-                    <td className={TD}>
+                    <td className={CELL}>{contact?.name || name}</td>
+                    <td className={CELL}>{contact?.role || DASH}</td>
+                    <td className={CELL}>
                       {contact?.email ? (
-                        <a href={`mailto:${contact.email}`} className="!text-indigo-600 hover:underline">
+                        <a href={`mailto:${contact.email}`} className={LINK}>
                           {contact.email}
                         </a>
                       ) : (
                         DASH
                       )}
                     </td>
-                    <td className={TD}>
+                    <td className={CELL}>
                       {contact?.phone ? (
-                        <a href={`tel:${contact.phone.replace(/\s+/g, "")}`} className="!text-indigo-600 hover:underline">
+                        <a href={`tel:${contact.phone.replace(/\s+/g, "")}`} className={LINK}>
                           {contact.phone}
                         </a>
                       ) : (
@@ -90,11 +90,11 @@ export function PartyContactLink({
               </table>
             </div>
             {isError ? (
-              <p className="mt-3 mb-0 text-xs text-red-600">
+              <p className="mt-3 mb-0 text-[12px] text-red-600">
                 The customer&apos;s contacts could not be loaded, so only the name is shown.
               </p>
             ) : !contact && (
-              <p className="mt-3 mb-0 text-xs text-slate-500">
+              <p className={`mt-3 mb-0 ${HINT}`}>
                 This contact is not saved among the customer&apos;s contacts, so only the name is known.
               </p>
             )}

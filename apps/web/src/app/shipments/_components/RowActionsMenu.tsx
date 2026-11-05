@@ -44,7 +44,7 @@ export function RowActionsMenu({ onDelete, onCopy, downloadHref, label = "Row ac
         size="small"
         icon={<EllipsisOutlined className="text-[22px] [&_svg]:stroke-current [&_svg]:stroke-[40]" />}
         aria-label={label}
-        className="justify-self-center !text-slate-900 hover:!bg-slate-100"
+        className="justify-self-center"
         // Two quick clicks open and close the menu; they must not also reach the read row
         // around it, where a double-click opens the row for editing.
         onDoubleClick={(e) => e.stopPropagation()}

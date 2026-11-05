@@ -11,6 +11,7 @@ import { apiErrorMessage } from "@/lib/api";
 import { useCanManageCustomers } from "@/lib/auth/AuthContext";
 import { SALES_OWNER_FIELD_ID } from "../../_lib/customerAttention";
 import { matchesUserOption, userIdOptions, UserOptionLabel, type UserIdOption } from "@/app/sales/_lib/userOptions";
+import { LABEL_TEXT } from "@/styles/ui";
 
 // First letters of the first and the last word of a name ("Martin Koubek" -> "MK"); one word gives two letters.
 function initialsOf(name: string): string {
@@ -38,7 +39,7 @@ function OwnerName({ email, name }: OwnerNameProps) {
       >
         {initialsOf(name || email)}
       </span>
-      <span className="truncate font-medium text-slate-800">{email}</span>
+      <span className="truncate font-medium text-slate-900">{email}</span>
     </span>
   );
 }
@@ -97,7 +98,7 @@ export function CustomerSalesOwnerSelect({ customer }: CustomerSalesOwnerSelectP
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white pl-3 pr-1 pt-1 pb-0.5 w-[220px] max-w-full">
-      <label htmlFor={SALES_OWNER_FIELD_ID} className="block text-[11px] text-slate-500 leading-4">
+      <label htmlFor={SALES_OWNER_FIELD_ID} className={`block ${LABEL_TEXT}`}>
         Sales Owner
       </label>
       {!editing ? (

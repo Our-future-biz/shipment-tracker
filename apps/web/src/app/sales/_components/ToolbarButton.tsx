@@ -1,18 +1,19 @@
 import type { ComponentProps, ReactNode } from "react";
+import { BTN, BTN_DANGER, BTN_PRIMARY, ICON_BTN } from "@/styles/ui";
 
 type ToolbarButtonVariant = "primary" | "secondary" | "danger";
 
 const VARIANT_CLASS: Record<ToolbarButtonVariant, string> = {
-  primary: "bg-indigo-600 font-semibold text-white hover:bg-indigo-700",
-  secondary: "border border-slate-300 bg-white font-medium text-slate-700 hover:bg-slate-50",
-  danger: "border border-red-200 bg-white font-medium text-red-600 hover:bg-red-50",
+  primary: BTN_PRIMARY,
+  secondary: BTN,
+  danger: BTN_DANGER,
 };
 
-// The classes of the 32px button of the app's list toolbars (Customer Database, Shipments), for
-// where the button has to be a plain element - the trigger of a dropdown or of a popover.
-// "square" is the button that holds an icon and no words.
+// The classes of the app's 32px button (styles/ui.ts), for where the button has to be a plain
+// element - the trigger of a dropdown or of a popover. "square" is the button that holds an icon
+// and no words (ICON_BTN).
 export function toolbarButtonClass(variant: ToolbarButtonVariant = "secondary", shape: "wide" | "square" = "wide"): string {
-  return `flex items-center gap-1.5 shrink-0 rounded-lg ${shape === "square" ? "justify-center w-8" : "px-3"} h-8 text-[13px] whitespace-nowrap transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${VARIANT_CLASS[variant]}`;
+  return shape === "square" ? ICON_BTN : VARIANT_CLASS[variant];
 }
 
 // The shape is the button's own: a class from outside would replace it, so none is taken.

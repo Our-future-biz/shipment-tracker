@@ -8,6 +8,7 @@ import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
 import { SHIPMENT_WRITE_KEY, type ShipmentItem } from "@/hooks/useShipments";
 import { useIsMutating } from "@tanstack/react-query";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { CARD, LABEL_TEXT, REF } from "@/styles/ui";
 import { uuid } from "@/lib/uuid";
 import { containerNumberInput, isValidContainerNumber, normalizeContainerNumber } from "@/lib/container";
 import {
@@ -317,7 +318,7 @@ export function ContainerDetailsTab({
   const rowLine = (i: number) => (i < rows.length - 1 ? "border-b border-slate-100" : "");
 
   return (
-    <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+    <div className={`${CARD} overflow-hidden`}>
       {contextHolder}
       <ConfirmModal
         open={!!toDelete}
@@ -348,7 +349,7 @@ export function ContainerDetailsTab({
         </Tooltip>
         <div className="overflow-x-auto">
           <div className="min-w-[880px]">
-            <div className={`${COLS} px-2 pb-2 text-[10px] font-bold text-slate-500 uppercase tracking-wide border-b border-slate-200`}>
+            <div className={`${COLS} px-2 pb-2 ${LABEL_TEXT} border-b border-slate-200`}>
               <span className="truncate">Container Number</span>
               <span className="text-center truncate">Seal Number</span>
               <span className="text-center truncate">Container Type</span>
@@ -463,7 +464,7 @@ export function ContainerDetailsTab({
                   <span data-field="containerNumber">
                     <button
                       type="button"
-                      className={`font-mono font-bold text-[13px] tracking-wide px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-600 ${
+                      className={`${REF} font-bold text-[13px] px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-600 ${
                         savedIds.has(c.id ?? "") && onOpenCargo ? "hover:bg-indigo-100 hover:text-indigo-700 cursor-pointer" : "cursor-default"
                       }`}
                       title="Open Cargo Details"
@@ -472,19 +473,19 @@ export function ContainerDetailsTab({
                       {c.containerNumber}
                     </button>
                   </span>
-                  <span data-field="sealNumber" className="text-sm text-slate-700 px-2 text-center truncate">{c.sealNumber}</span>
-                  <span data-field="type" className="text-sm text-slate-700 px-2 text-center truncate">{c.type}</span>
-                  <span data-field="packages" className="text-sm text-slate-700 px-2 text-center tabular-nums">{c.packages}</span>
-                  <span data-field="packageType" className="text-sm text-slate-700 px-2 text-center truncate">{c.packageType}</span>
-                  <span data-field="grossWeight" className="text-sm text-slate-700 px-2 text-center tabular-nums">{c.grossWeight}</span>
-                  <span data-field="volume" className="text-sm text-slate-700 px-2 text-center tabular-nums">{c.volume}</span>
+                  <span data-field="sealNumber" className="text-[13px] text-slate-700 px-2 text-center truncate">{c.sealNumber}</span>
+                  <span data-field="type" className="text-[13px] text-slate-700 px-2 text-center truncate">{c.type}</span>
+                  <span data-field="packages" className="text-[13px] text-slate-700 px-2 text-center tabular-nums">{c.packages}</span>
+                  <span data-field="packageType" className="text-[13px] text-slate-700 px-2 text-center truncate">{c.packageType}</span>
+                  <span data-field="grossWeight" className="text-[13px] text-slate-700 px-2 text-center tabular-nums">{c.grossWeight}</span>
+                  <span data-field="volume" className="text-[13px] text-slate-700 px-2 text-center tabular-nums">{c.volume}</span>
                   {rowMenu(c, i)}
                 </div>
               ),
             )}
 
-            <div className={`${COLS} px-2 pt-3 mt-1 text-xs font-bold text-slate-800 border-t-2 border-slate-200`}>
-              <span className="uppercase tracking-wide text-[11px]">
+            <div className={`${COLS} px-2 pt-3 mt-1 text-[13px] font-semibold text-slate-900 border-t-2 border-slate-200`}>
+              <span className={LABEL_TEXT}>
                 {rows.length} container{rows.length === 1 ? "" : "s"}
               </span>
               <span />

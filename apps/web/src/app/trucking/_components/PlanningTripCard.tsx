@@ -7,6 +7,7 @@ import { ArrowDownOutlined, ArrowUpOutlined, CloseOutlined, DownOutlined, Holder
 import type { PlanningTrip } from "@/hooks/useTruckingConsignments";
 import { Badge } from "@/components/Badge";
 import { btnDefault } from "@/components/buttons";
+import { HINT, ICON_BTN_GHOST, LINK, REF } from "@/styles/ui";
 import { TRIP_STATUS_CHIP, tripHref } from "../_lib/consignments";
 import { TERMS } from "../_lib/glossary";
 import { formatPsc } from "../_lib/hauliers";
@@ -72,11 +73,11 @@ export const PlanningTripCard = ({ trip, vehicleLabel, avizaceWarning, legDraggi
       className={`flex flex-col gap-2 rounded-xl border bg-white p-3 shadow-sm ${over ? "border-indigo-400 ring-2 ring-indigo-200" : takesLegs ? "border-dashed border-indigo-300" : "border-slate-200"}`}
     >
       <header className="flex flex-wrap items-center gap-2">
-        <Link href={tripHref(trip.id)} className="font-mono text-[13px] font-bold text-indigo-600 hover:underline">
+        <Link href={tripHref(trip.id)} className={`${LINK} ${REF} text-[13px] font-bold`}>
           {trip.ref}
         </Link>
         <TruckingStatusChip chip={TRIP_STATUS_CHIP[trip.status]} />
-        <span className="text-[13px] font-semibold text-slate-800">{trip.haulierName}</span>
+        <span className="text-[13px] font-semibold text-slate-900">{trip.haulierName}</span>
         <span className="text-xs text-slate-500">{vehicleLabel}</span>
         <Dropdown
           trigger={["click"]}
@@ -115,7 +116,7 @@ export const PlanningTripCard = ({ trip, vehicleLabel, avizaceWarning, legDraggi
       </div>
 
       {warnings.length > 0 && (
-        <ul className="m-0 list-none rounded-md bg-amber-50 px-2.5 py-1.5 text-[11.5px] text-amber-800" aria-label="Warnings">
+        <ul className="m-0 list-none rounded-md bg-amber-50 px-2.5 py-1.5 text-[12px] text-amber-800" aria-label="Warnings">
           {warnings.map((w) => (
             <li key={w} className="flex gap-1.5">
               <WarningOutlined className="mt-[3px]" aria-hidden />
@@ -150,9 +151,9 @@ export const PlanningTripCard = ({ trip, vehicleLabel, avizaceWarning, legDraggi
               className={`flex items-center gap-2 border-t border-slate-100 py-1 text-xs ${draggingStop === s.legId ? "opacity-50" : ""}`}
             >
               {!locked && <HolderOutlined className="cursor-grab text-slate-300" aria-hidden />}
-              <span className="w-4 text-right tabular-nums text-slate-400">{i + 1}</span>
-              <span className="font-mono font-semibold text-slate-800">{s.consignmentRef}</span>
-              <span className="min-w-0 flex-1 truncate text-slate-600">
+              <span className="w-4 text-right tabular-nums text-slate-500">{i + 1}</span>
+              <span className={`${REF} font-semibold text-slate-900`}>{s.consignmentRef}</span>
+              <span className="min-w-0 flex-1 truncate text-slate-700">
                 {trip.kind === "PICKUP_RUN" ? `${formatPsc(s.fromPostcode)} ${s.fromCity}` : `${formatPsc(s.toPostcode)} ${s.toCity}`} · {s.customerName}
               </span>
               <StopDeadlineBadge promisedDate={s.promisedDate} tripDate={trip.date} />
@@ -160,13 +161,13 @@ export const PlanningTripCard = ({ trip, vehicleLabel, avizaceWarning, legDraggi
               <span className="tabular-nums text-slate-500">{formatQty(s.weightKg)} kg</span>
               {!locked && (
                 <span className="inline-flex items-center gap-0.5">
-                  <button type="button" className={btnDefault} aria-label={`Move ${s.consignmentRef} up`} disabled={i === 0 || busy} onClick={() => reorder(moveStop(order, s.legId, -1))}>
+                  <button type="button" className={ICON_BTN_GHOST} aria-label={`Move ${s.consignmentRef} up`} disabled={i === 0 || busy} onClick={() => reorder(moveStop(order, s.legId, -1))}>
                     <ArrowUpOutlined />
                   </button>
-                  <button type="button" className={btnDefault} aria-label={`Move ${s.consignmentRef} down`} disabled={i === trip.stops.length - 1 || busy} onClick={() => reorder(moveStop(order, s.legId, 1))}>
+                  <button type="button" className={ICON_BTN_GHOST} aria-label={`Move ${s.consignmentRef} down`} disabled={i === trip.stops.length - 1 || busy} onClick={() => reorder(moveStop(order, s.legId, 1))}>
                     <ArrowDownOutlined />
                   </button>
-                  <button type="button" className={btnDefault} aria-label={`Take ${s.consignmentRef} off ${trip.ref}`} disabled={busy} onClick={() => onRemove(trip, s.legId)}>
+                  <button type="button" className={ICON_BTN_GHOST} aria-label={`Take ${s.consignmentRef} off ${trip.ref}`} disabled={busy} onClick={() => onRemove(trip, s.legId)}>
                     <CloseOutlined />
                   </button>
                 </span>
@@ -175,8 +176,8 @@ export const PlanningTripCard = ({ trip, vehicleLabel, avizaceWarning, legDraggi
           ))}
         </ol>
       )}
-      {locked && <div className="text-[11px] text-slate-400">On its way — legs and stops no longer change here.</div>}
-      {trip.status === "DRAFT" && trip.stops.length > 0 && <div className="text-[11px] text-slate-400">Draft — send the {TERMS.transportOrder.toLowerCase()} next.</div>}
+      {locked && <div className={HINT}>On its way — legs and stops no longer change here.</div>}
+      {trip.status === "DRAFT" && trip.stops.length > 0 && <div className={HINT}>Draft — send the {TERMS.transportOrder.toLowerCase()} next.</div>}
     </article>
   );
 };

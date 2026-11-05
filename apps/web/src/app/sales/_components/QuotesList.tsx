@@ -78,6 +78,7 @@ import { SalesPage } from "./SalesPage";
 import { ToolbarButton, toolbarButtonClass } from "./ToolbarButton";
 import { DEFAULT_QUOTE_COLUMNS, QUOTE_COLUMNS, ValidityDot, quoteCsvColumns, shownColumns, type SortDirection } from "./quoteListColumns";
 import { QuoteChatButton, QuoteChatDrawer, quoteThreadOf, useQuoteChatUnread } from "./QuoteChat";
+import { CARD, ICON_BTN_GHOST } from "@/styles/ui";
 
 interface ExportPdfButtonProps {
   quote: SalesQuote;
@@ -617,7 +618,7 @@ export function QuotesList() {
               setViewsMenuOpen(false);
               setViewToDelete(v);
             }}
-            className="shrink-0 flex items-center justify-center w-5 h-5 rounded text-slate-400 hover:text-red-500 hover:bg-red-50 bg-transparent border-none cursor-pointer"
+            className={`${ICON_BTN_GHOST} hover:!bg-red-50 hover:!text-red-600`}
           >
             <CloseOutlined className="text-[10px]" />
           </button>
@@ -674,7 +675,7 @@ export function QuotesList() {
       }
     >
       {/* Toolbar: actions on the left, finding things on the right - search, saved views, the filters behind one button, the columns. */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3">
+      <div className={`flex flex-wrap items-center justify-between gap-3 ${CARD} px-4 py-3`}>
         <div className="flex flex-wrap items-center gap-3 min-w-0">
           <ToolbarButton variant="primary" icon={<PlusOutlined />} onClick={() => setNewOpen(true)}>
             New Quote
@@ -716,8 +717,8 @@ export function QuotesList() {
           quotes at once - their owner, their status, a CSV of just those. A quote is deleted on
           its own page, never from the list. */}
       {ticked > 0 && (
-        <div role="region" aria-label="Bulk actions" className="flex flex-wrap items-center gap-2 rounded-2xl border px-4 py-2.5 bg-indigo-50 border-indigo-200">
-          <span className="text-sm font-medium mr-1 tabular-nums text-indigo-700">{ticked} selected</span>
+        <div role="region" aria-label="Bulk actions" className="flex flex-wrap items-center gap-2 rounded-xl border px-4 py-2.5 bg-indigo-50 border-indigo-200">
+          <span className="text-[13px] font-medium mr-1 tabular-nums text-indigo-700">{ticked} selected</span>
           {/* Closed while a bulk action runs: a second one would race the first for the same quotes. */}
           <Dropdown trigger={["click"]} disabled={isBulkRunning} menu={{ items: bulkItems }}>
             <Button size="small" loading={isBulkRunning} icon={<DownOutlined />} iconPosition="end">
@@ -746,7 +747,7 @@ export function QuotesList() {
           }`}
           description={[...new Set(bulkFailed.map((f) => f.reason))].map((reason) => (
             <div key={reason}>
-              <span className="font-mono text-xs">
+              <span className="tabular-nums text-xs">
                 {bulkFailed.filter((f) => f.reason === reason).map((f) => f.quoteNumber).join(", ")}
               </span>{" "}
               - {reason}

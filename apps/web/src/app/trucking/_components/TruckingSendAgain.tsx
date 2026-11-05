@@ -3,6 +3,7 @@
 import { apiErrorMessage } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { useTruckingUnsent } from "@/hooks/useSendAgain";
+import { BTN, BTN_SM } from "@/styles/ui";
 
 interface TruckingSendAgainProps {
   /** A consignment's job updates, or (with tripId) those of the consignments on the trip */
@@ -37,7 +38,7 @@ export const TruckingSendAgain = ({ consignmentId, tripId, manager }: TruckingSe
         aria-label="Send the failed updates again"
         disabled={sendAgain.isPending}
         onClick={handleSendAgain}
-        className="inline-flex h-7 shrink-0 cursor-pointer items-center rounded border border-red-300 bg-white px-3 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+        className={`${BTN} ${BTN_SM}`}
       >
         Send again
       </button>

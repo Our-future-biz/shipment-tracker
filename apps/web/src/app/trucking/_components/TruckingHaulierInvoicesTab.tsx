@@ -9,6 +9,7 @@ import { AppGrid, type AppGridColumn } from "@/components/AppGrid";
 import { formatDate } from "@/lib/date";
 import { useToast } from "@/lib/toast";
 import { useCreateHaulierInvoice, useHaulierInvoices, type HaulierInvoice, type HaulierInvoiceStatus } from "@/hooks/useTruckingMoney";
+import { BTN_PRIMARY, LINK, REF } from "@/styles/ui";
 import { INVOICE_STATUS_CHIP, INVOICE_STATUS_ORDER, differenceText, haulierInvoiceHref } from "../_lib/haulierInvoices";
 import { formatMoney } from "../_lib/tariffs";
 import { HaulierInvoiceEntryModal } from "../haulier-invoices/_components/HaulierInvoiceEntryModal";
@@ -23,7 +24,7 @@ const COLUMNS: AppGridColumn<HaulierInvoice>[] = [
     text: (i) => i.invoiceNumber,
     sorter: (a, b) => byText(a.invoiceNumber, b.invoiceNumber),
     render: (_, i) => (
-      <Link href={haulierInvoiceHref(i.id)} onClick={(e) => e.stopPropagation()} className="font-mono font-semibold text-indigo-600 hover:underline">
+      <Link href={haulierInvoiceHref(i.id)} onClick={(e) => e.stopPropagation()} className={`${LINK} ${REF} font-semibold`}>
         {i.invoiceNumber}
       </Link>
     ),
@@ -58,7 +59,7 @@ const COLUMNS: AppGridColumn<HaulierInvoice>[] = [
     sorter: (a, b) => Math.abs(a.difference) - Math.abs(b.difference),
     render: (_, i) => <span className={i.difference ? "font-semibold text-amber-700" : "text-emerald-700"}>{differenceText(i.difference, i.currency)}</span>,
   },
-  { key: "lines", title: "Lines", text: (i) => i.lines.map((l) => l.target.ref).join(", "), render: (_, i) => <span className="font-mono">{i.lines.map((l) => l.target.ref).join(", ")}</span> },
+  { key: "lines", title: "Lines", text: (i) => i.lines.map((l) => l.target.ref).join(", "), render: (_, i) => <span className={REF}>{i.lines.map((l) => l.target.ref).join(", ")}</span> },
   { key: "created", title: "Entered", text: (i) => `${pragueDate(i.createdAt)}${i.createdBy ? ` · ${i.createdBy}` : ""}`, sorter: (a, b) => byText(a.createdAt, b.createdAt) },
 ];
 
@@ -104,12 +105,12 @@ export const TruckingHaulierInvoicesTab = () => {
                     aria-pressed={on}
                     onClick={() => handleStatus(on ? null : s)}
                     className={[
-                      "inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-full border px-3 text-[12.5px] font-medium transition-colors",
-                      on ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
+                      "inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border text-[13px] font-medium transition-colors cursor-pointer",
+                      on ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
                     ].join(" ")}
                   >
                     {chip.label}
-                    <span className={`tabular-nums font-semibold ${danger ? "text-red-600" : on ? "text-indigo-700" : "text-slate-500"}`}>{isLoading ? "—" : counts[s]}</span>
+                    <span className={`font-bold tabular-nums ${danger ? "text-red-600" : on ? "text-indigo-700" : "text-slate-900"}`}>{isLoading ? "—" : counts[s]}</span>
                   </button>
                 </Tooltip>
               );
@@ -131,7 +132,7 @@ export const TruckingHaulierInvoicesTab = () => {
             <button
               type="button"
               onClick={() => setEntryOpen(true)}
-              className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-indigo-600 px-3 text-[13px] font-semibold text-white transition-colors hover:bg-indigo-700"
+              className={BTN_PRIMARY}
             >
               <PlusOutlined />
               Enter invoice

@@ -24,6 +24,8 @@ interface CollapsibleSidebarProps {
 
 const EXPANDED_WIDTH = 180;
 const COLLAPSED_WIDTH = 44;
+// A group's caption ("Sections", "Tools"): the type of LABEL_TEXT, muted, so it does not outshout the items.
+const GROUP_LABEL = "text-[11px] leading-[14px] font-bold uppercase tracking-wide text-slate-400";
 
 export function CollapsibleSidebar({
   collapsed,
@@ -46,8 +48,8 @@ export function CollapsibleSidebar({
           collapsed ? "justify-center gap-0 py-2" : "justify-start gap-2 px-3 py-2"
         } ${
           isActive
-            ? "text-indigo-500 bg-indigo-50"
-            : "text-slate-500 bg-transparent"
+            ? "font-medium text-indigo-600 bg-indigo-50"
+            : "text-slate-500 bg-transparent hover:text-slate-900 hover:bg-slate-100"
         }`}
       >
         <span className={`text-sm text-center shrink-0 ${collapsed ? "w-auto" : "w-[18px]"}`}>
@@ -57,7 +59,7 @@ export function CollapsibleSidebar({
           <>
             <span className="flex-1">{item.label}</span>
             {item.badge !== undefined && (
-              <span className="text-[10px]" style={{ color: item.badgeColor ?? "#94a3b8" }}>
+              <span className={`text-[10px] ${item.badgeColor ? "" : "text-slate-400"}`} style={item.badgeColor ? { color: item.badgeColor } : undefined}>
                 {item.badge}
               </span>
             )}
@@ -65,8 +67,9 @@ export function CollapsibleSidebar({
         )}
         {collapsed && item.badge !== undefined && (
           <span
-            className="absolute top-1 right-0.5 w-3.5 h-3.5 rounded-full text-white text-[8px] flex items-center justify-center font-semibold"
-            style={{ background: item.badgeColor ?? "#94a3b8" }}
+            className={`absolute top-1 right-0.5 w-3.5 h-3.5 rounded-full text-white text-[10px] flex items-center justify-center font-semibold ${item.badgeColor ? "" : "bg-slate-400"}`}
+            // A badge colour the caller gives is a value, so it stays inline.
+            style={item.badgeColor ? { background: item.badgeColor } : undefined}
           >
             {typeof item.badge === "number" ? item.badge : ""}
           </span>
@@ -94,7 +97,7 @@ export function CollapsibleSidebar({
       {header && !collapsed && <div className="mb-2">{header}</div>}
 
       {!collapsed && (
-        <div className="text-[10px] text-slate-400 uppercase tracking-wide px-3 py-1 font-medium">
+        <div className={`${GROUP_LABEL} px-3 py-1`}>
           Sections
         </div>
       )}
@@ -105,7 +108,7 @@ export function CollapsibleSidebar({
           <>
             <div className="border-t border-slate-200 my-1.5" />
             {!collapsed && (
-              <div className="text-[10px] text-slate-400 uppercase tracking-wide px-3 py-1 font-medium">
+              <div className={`${GROUP_LABEL} px-3 py-1`}>
                 Tools
               </div>
             )}
@@ -116,7 +119,7 @@ export function CollapsibleSidebar({
 
       <div
         onClick={onToggle}
-        className="flex items-center justify-center py-2 cursor-pointer text-slate-400 border-t border-slate-200 mt-2"
+        className="flex items-center justify-center py-2 cursor-pointer text-slate-400 hover:text-slate-900 border-t border-slate-200 mt-2"
       >
         {collapsed ? <RightOutlined className="text-xs" /> : <LeftOutlined className="text-xs" />}
       </div>

@@ -2,6 +2,7 @@
 
 import { Table } from "antd";
 import type { interfaces } from "@/lib/api/client";
+import { EMPTY } from "@/styles/ui";
 import { SURCHARGE_CALC_LABELS, SURCHARGE_LABELS, formatMoney, formatPercent, formatQty } from "../../_lib/tariffs";
 
 const PERCENT_CALCS: interfaces.SurchargeCalc[] = ["PCT", "PCT_OF_VALUE"];
@@ -30,12 +31,12 @@ export const TariffSurchargesTable = ({ surcharges, currency }: TariffSurcharges
       { key: "code", title: "Surcharge", render: (_, s) => <span className="font-semibold">{SURCHARGE_LABELS[s.code] ?? s.code}</span> },
       { key: "calc", title: "Charged as", render: (_, s) => SURCHARGE_CALC_LABELS[s.calc] ?? s.calc },
       { key: "value", title: "Value", align: "right", render: (_, s) => <span className="tabular-nums">{valueText(s, currency)}</span> },
-      { key: "min", title: "At least", align: "right", render: (_, s) => <span className="tabular-nums">{s.min != null ? formatMoney(s.min, currency) : "—"}</span> },
+      { key: "min", title: "At least", align: "right", render: (_, s) => (s.min != null ? <span className="tabular-nums">{formatMoney(s.min, currency)}</span> : <span className={EMPTY}>—</span>) },
       {
         key: "base",
         title: "Percentage of",
         render: (_, s) =>
-          s.calc === "PCT" || s.calc === "FUEL_INDEX" ? (s.onBasePlusSurcharges ? "Freight + surcharges" : "Freight only") : <span className="text-slate-400">—</span>,
+          s.calc === "PCT" || s.calc === "FUEL_INDEX" ? (s.onBasePlusSurcharges ? "Freight + surcharges" : "Freight only") : <span className={EMPTY}>—</span>,
       },
     ]}
   />

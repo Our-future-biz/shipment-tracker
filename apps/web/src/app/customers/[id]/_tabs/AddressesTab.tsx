@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Button, Dropdown, Table, Tag } from "antd";
+import { Button, Dropdown, Table } from "antd";
 import { DeleteOutlined, EditOutlined, EllipsisOutlined, PlusOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { Pill } from "@/components/Pill";
 import { SectionCard } from "@/components/SectionCard";
 import { useCustomerAddresses } from "@/hooks/useCustomerAddresses";
 import type { AddressItem } from "@/hooks/useCustomerAddresses";
@@ -13,7 +14,7 @@ import { COUNTRIES, flagOf } from "@/lib/countries";
 import { useToast } from "@/lib/toast";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { canDeleteCustomerRecords } from "../../_lib/customerPermissions";
-import { addressTypeColor, ADDRESS_TYPES } from "../../_lib/constants";
+import { ADDRESS_TYPES } from "../../_lib/constants";
 import { CustomerAddressDialog } from "../_components/CustomerAddressDialog";
 import type { CustomerAddressFormValues } from "../_components/CustomerAddressDialog";
 import { CustomerCountChip } from "../_components/CustomerCountChip";
@@ -95,14 +96,14 @@ export function AddressesTab({ customerId }: AddressesTabProps) {
       render: (types: string[]) => (
         <div className="flex flex-wrap gap-1">
           {types.map((t) => (
-            <Tag key={t} color={addressTypeColor(t)} className="!m-0">
+            <Pill key={t} tone="slate">
               {t}
-            </Tag>
+            </Pill>
           ))}
         </div>
       ),
     },
-    { title: "Name", dataIndex: "label", render: (v: string) => (v ? <span className="font-semibold text-slate-800">{v}</span> : EMPTY_CELL) },
+    { title: "Name", dataIndex: "label", render: (v: string) => (v ? <span className="font-semibold text-slate-900">{v}</span> : EMPTY_CELL) },
     { title: "Street", dataIndex: "street", render: (v: string) => v || EMPTY_CELL },
     { title: "City", dataIndex: "city", render: (v: string) => v || EMPTY_CELL },
     { title: "ZIP", dataIndex: "postalCode", render: (v: string) => v || EMPTY_CELL },
@@ -144,7 +145,6 @@ export function AddressesTab({ customerId }: AddressesTabProps) {
               size="small"
               icon={<EllipsisOutlined className="!text-[20px]" />}
               aria-label={`Actions for the ${r.types.join(", ")} address`}
-              className="!text-slate-600 hover:!text-slate-900"
             />
           </Dropdown>
         </div>

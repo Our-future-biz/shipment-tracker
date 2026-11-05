@@ -6,6 +6,8 @@ import { PlusOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { useToast } from "@/lib/toast";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { SectionCard } from "@/components/SectionCard";
+import { EMPTY } from "@/styles/ui";
 import { useBranches, useCountries, useLocations } from "@/hooks/useOrgUnits";
 import type { Branch, BranchInput, Location } from "@/hooks/useOrgUnits";
 import { matchesSearch, sectionTitle, emptyText } from "../_lib/orgSearch";
@@ -77,7 +79,7 @@ export function BranchesManager({ search }: BranchesManagerProps) {
 
   const columns: ColumnsType<Branch> = [
     { title: "Name", dataIndex: "name" },
-    { title: "City", dataIndex: "city", width: 200, render: (city: string | null) => city ?? <span className="text-slate-400">—</span> },
+    { title: "City", dataIndex: "city", width: 200, render: (city: string | null) => city ?? <span className={EMPTY}>—</span> },
     { title: "Country", dataIndex: "country", width: 200 },
     {
       title: "",
@@ -93,23 +95,26 @@ export function BranchesManager({ search }: BranchesManagerProps) {
   ];
 
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl p-4">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-semibold text-slate-800">{sectionTitle("Branches", shown.length, branches.length)}</span>
-        <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => setEditing("new")}>
-          Add Branch
-        </Button>
-      </div>
-
-      <Table<Branch>
-        size="small"
-        rowKey="id"
-        loading={isLoading}
-        dataSource={shown}
-        columns={columns}
-        pagination={false}
-        locale={{ emptyText: emptyText(search, "No branches yet") }}
-      />
+    <>
+      <SectionCard
+        title={sectionTitle("Branches", shown.length, branches.length)}
+        bodyClassName="p-2"
+        extra={
+          <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => setEditing("new")}>
+            Add Branch
+          </Button>
+        }
+      >
+        <Table<Branch>
+          size="small"
+          rowKey="id"
+          loading={isLoading}
+          dataSource={shown}
+          columns={columns}
+          pagination={false}
+          locale={{ emptyText: emptyText(search, "No branches yet") }}
+        />
+      </SectionCard>
 
       <Modal
         open={!!editing}
@@ -178,6 +183,6 @@ export function BranchesManager({ search }: BranchesManagerProps) {
         confirmLabel="Remove"
         danger
       />
-    </div>
+    </>
   );
 }

@@ -5,6 +5,7 @@ import type { ConsignmentDetail } from "@/hooks/useTruckingConsignments";
 import { Badge } from "@/components/Badge";
 import { btnDefault, btnPrimary } from "@/components/buttons";
 import { businessDateTime } from "@/lib/date";
+import { CARD, LABEL_TEXT } from "@/styles/ui";
 import { AVIZACE_BADGE, AVIZACE_CHANNEL_LABELS, agreedWindowText, avizaceState } from "../../_lib/avizace";
 import { TERMS } from "../../_lib/glossary";
 
@@ -21,8 +22,8 @@ export const ConsignmentAvizaceCard = ({ c, onTemplate, onRecord }: ConsignmentA
   const a = c.avizace;
   const closed = c.status === "CANCELLED";
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 shadow-sm">
-      <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{TERMS.avizace}</span>
+    <div className={`${CARD} mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5`}>
+      <span className={LABEL_TEXT}>{TERMS.avizace}</span>
       <Tooltip title={badge.hint}>
         <span className="inline-flex">
           <Badge tone={badge.tone}>{badge.label}</Badge>
@@ -33,7 +34,7 @@ export const ConsignmentAvizaceCard = ({ c, onTemplate, onRecord }: ConsignmentA
           {AVIZACE_CHANNEL_LABELS[a.channel]} · {a.contact}
           {agreedWindowText(a.agreedFrom, a.agreedTo) && <span className="font-semibold"> · agreed {agreedWindowText(a.agreedFrom, a.agreedTo)}</span>}
           {a.note && <span className="text-slate-500"> · “{a.note}”</span>}
-          <span className="text-slate-400">
+          <span className="text-slate-500">
             {" "}
             — recorded {businessDateTime(a.at)}
             {a.by ? ` by ${a.by}` : ""}

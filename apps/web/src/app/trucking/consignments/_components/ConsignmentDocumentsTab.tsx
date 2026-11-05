@@ -7,6 +7,7 @@ import { fetchConsignmentCmr, fetchTruckingDocument, type ConsignmentDetail, typ
 import { businessDateTime } from "@/lib/date";
 import { btnDefault } from "@/components/buttons";
 import { Badge } from "@/components/Badge";
+import { TD, TH } from "@/styles/ui";
 import { TERMS } from "../../_lib/glossary";
 import { TariffDownloadButton } from "../../tariffs/_components/TariffDownloadButton";
 import { DOCUMENT_KIND_LABELS } from "./DocumentUploadModal";
@@ -44,26 +45,26 @@ export const ConsignmentDocumentsTab = ({ c, documents, isLoading, onUpload }: C
       ) : documents.length === 0 ? (
         <p className="m-0 p-4 text-[13px] text-slate-500">No documents yet. The haulier uploads the {TERMS.pod} through the link in the transport order, or upload it here.</p>
       ) : (
-        <table className="w-full border-collapse text-[12.5px]">
+        <table className="w-full border-collapse">
           <thead>
-            <tr className="border-b border-slate-200 text-left text-[11px] uppercase tracking-wide text-slate-500">
-              <th className="px-4 py-2 font-semibold">Kind</th>
-              <th className="px-4 py-2 font-semibold">File</th>
-              <th className="px-4 py-2 font-semibold">Uploaded</th>
-              <th className="px-4 py-2 font-semibold">By</th>
-              <th className="px-4 py-2" />
+            <tr>
+              <th className={`${TH} !px-4`}>Kind</th>
+              <th className={`${TH} !px-4`}>File</th>
+              <th className={`${TH} !px-4`}>Uploaded</th>
+              <th className={`${TH} !px-4`}>By</th>
+              <th className={`${TH} !px-4`} />
             </tr>
           </thead>
-          <tbody>
+          <tbody className="[&>tr:last-child>td]:border-b-0">
             {documents.map((d) => (
-              <tr key={d.id} className="border-b border-slate-100 last:border-b-0">
-                <td className="px-4 py-2 font-semibold text-slate-800">{DOCUMENT_KIND_LABELS[d.kind]}</td>
-                <td className="px-4 py-2 break-all text-slate-700">{d.fileName}</td>
-                <td className="px-4 py-2 whitespace-nowrap font-mono text-slate-500">{businessDateTime(d.uploadedAt)}</td>
-                <td className="px-4 py-2">
-                  {d.source === "HAULIER" ? <Badge tone="b">Haulier</Badge> : null} <span className="text-slate-600">{d.uploadedBy}</span>
+              <tr key={d.id}>
+                <td className={`${TD} !px-4 font-semibold !text-slate-900`}>{DOCUMENT_KIND_LABELS[d.kind]}</td>
+                <td className={`${TD} !px-4 break-all`}>{d.fileName}</td>
+                <td className={`${TD} !px-4 whitespace-nowrap tabular-nums`}>{businessDateTime(d.uploadedAt)}</td>
+                <td className={`${TD} !px-4`}>
+                  {d.source === "HAULIER" ? <Badge tone="i">Haulier</Badge> : null} {d.uploadedBy}
                 </td>
-                <td className="px-4 py-2 text-right">
+                <td className={`${TD} !px-4 text-right`}>
                   <TariffDownloadButton size="small" type="text" load={() => fetchTruckingDocument(d.id)} ariaLabel={`Download ${d.fileName}`}>
                     Download
                   </TariffDownloadButton>

@@ -6,6 +6,8 @@ import { PushpinFilled, WarningOutlined } from "@ant-design/icons";
 import { SupplierRatingStars } from "@/app/customers/_components/SupplierRatingStars";
 import { SUPPLIER_NOT_IN_USE } from "@/app/customers/_lib/supplierStatus";
 import { Pill } from "@/components/Pill";
+import { Badge } from "@/components/Badge";
+import { LABEL_TEXT } from "@/styles/ui";
 import { HaulierListError } from "./HaulierListError";
 import { HaulierOptionLabel } from "./HaulierOptionLabel";
 import { HaulierRatingNote } from "./HaulierRatingNote";
@@ -118,30 +120,30 @@ export const NewLtlTripModal = ({ kind, date, legs, hubPostcode, onClose, onCrea
             <Radio key={b.ownerCustomerId ?? i} value={b.ownerCustomerId} className="!m-0 rounded-lg border border-slate-200 px-3 py-2">
               <span className="flex flex-wrap items-baseline gap-x-2">
                 {b.preferred && <PushpinFilled className="text-indigo-500" aria-label="Preferred lane" title="Preferred lane" />}
-                <span className="font-semibold text-slate-800">{b.ownerName ?? TERMS.haulier}</span>
+                <span className="font-semibold text-slate-900">{b.ownerName ?? TERMS.haulier}</span>
                 {b.ownerCustomerId && ratings.has(b.ownerCustomerId) && <SupplierRatingStars rating={ratings.get(b.ownerCustomerId) ?? null} />}
                 {b.ownerCustomerId && notInUse.has(b.ownerCustomerId) && <Pill tone="slate">{SUPPLIER_NOT_IN_USE}</Pill>}
                 <span className="tabular-nums">{formatMoney(b.total, b.currency)}</span>
                 <span className="text-[12px] text-slate-500">
                   {b.tariffName} {versionLabel(b)}
                 </span>
-                {i === 0 && <span className="rounded bg-indigo-50 px-1.5 text-[11px] font-semibold text-indigo-600">Suggested</span>}
+                {i === 0 && <Badge tone="i">Suggested</Badge>}
               </span>
             </Radio>
           ))}
           {result && !candidates.length && <div className="text-[13px] text-amber-700">No haulier has a buy tariff for this run — choose one below.</div>}
           <Radio value={OTHER} className="!m-0 rounded-lg border border-slate-200 px-3 py-2">
-            <span className="font-semibold text-slate-800">Another haulier</span>
+            <span className="font-semibold text-slate-900">Another haulier</span>
           </Radio>
         </Radio.Group>
       )}
 
       {excluded.length > 0 && (
         <div className="mt-3 rounded-lg border border-red-100 bg-red-50/50 px-3 py-2">
-          <div className="mb-1 text-[11px] font-bold uppercase tracking-wide text-red-700">Not offered — blocked</div>
+          <div className={`mb-1 ${LABEL_TEXT} !text-red-700`}>Not offered — blocked</div>
           {excluded.map((x) => (
             <div key={x.customerId} className="py-1">
-              <div className="text-[13px] font-semibold text-slate-700">{x.name}</div>
+              <div className="text-[13px] font-semibold text-slate-900">{x.name}</div>
               <HaulierIssueList issues={x.issues} limit={2} />
             </div>
           ))}

@@ -1,8 +1,10 @@
 "use client";
 
 import { Alert, Spin } from "antd";
+import { KPI_TILE_CLASS } from "@/components/KpiTile";
 import { apiErrorMessage } from "@/lib/api";
 import { useTariffVersionDiff, type TariffSide } from "@/hooks/useTrucking";
+import { CARD, HINT, KPI_VALUE, LABEL_TEXT } from "@/styles/ui";
 import { affectedText } from "../../_lib/reports";
 import { DIFF_CELL_LIMIT, diffStructureLines, diffTiles, isSameAsAgainst } from "../../_lib/tariffUpload";
 import { validityLabel, versionLabel } from "../../_lib/tariffs";
@@ -38,16 +40,17 @@ export const TariffDiffPanel = ({ versionId, currency, side, levelLabel }: Tarif
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="m-0 text-[13px] text-slate-600">
+      <p className="m-0 text-[13px] text-slate-700">
         Against the active version <b>{versionLabel(diff.against)}</b> (valid {validityLabel(diff.against.validFrom, diff.against.validTo)}).
         {isSameAsAgainst(diff) && " The prices are the same."}
       </p>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
         {diffTiles(diff).map((t) => (
-          <div key={t.label} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-            <div className="text-[10.5px] font-semibold uppercase tracking-wide text-slate-500">{t.label}</div>
-            <div className={`text-lg font-bold tabular-nums ${t.tone === "same" ? "text-slate-800" : diffToneClass(t.tone, side)}`}>{t.value}</div>
+          <div key={t.label} className={KPI_TILE_CLASS}>
+            <div className={`${LABEL_TEXT} truncate`}>{t.label}</div>
+            {/* A KPI figure (KPI_VALUE), in the colour of the change when there is one, as KpiTile's toned figure. */}
+            <div className={`mt-0.5 ${t.tone === "same" ? KPI_VALUE : `text-[20px] leading-7 font-bold tabular-nums ${diffToneClass(t.tone, side)}`}`}>{t.value}</div>
           </div>
         ))}
       </div>
@@ -76,10 +79,10 @@ export const TariffDiffPanel = ({ versionId, currency, side, levelLabel }: Tarif
       )}
 
       {diff.cells.length > 0 && (
-        <div className="rounded-lg border border-slate-200 bg-white">
+        <div className={`${CARD} overflow-hidden`}>
           <TariffDiffCellsTable cells={diff.cells} currency={currency} side={side} levelLabel={levelLabel} />
           {diff.cells.length >= DIFF_CELL_LIMIT && (
-            <p className="m-0 px-3 py-2 text-[11px] text-slate-400">Only the {DIFF_CELL_LIMIT} largest changes are listed.</p>
+            <p className={`m-0 px-3 py-2 ${HINT}`}>Only the {DIFF_CELL_LIMIT} largest changes are listed.</p>
           )}
         </div>
       )}

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { apiErrorMessage } from "@/lib/api";
 import { truckingKeys } from "@/hooks/truckingKeys";
+import { CARD, HINT, PAGE_TITLE } from "@/styles/ui";
 import { portalSignIn } from "../_lib/portalClient";
 import { PORTAL_INPUT, PORTAL_LABEL, PORTAL_PRIMARY } from "../_lib/portalStyles";
 import { Bi } from "./Bi";
@@ -44,8 +45,8 @@ export const PortalLoginForm = () => {
 
   return (
     <main className="flex min-h-screen items-start justify-center bg-slate-50 px-4 py-10">
-      <form onSubmit={handleSubmit} className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-5">
-        <h1 className="m-0 text-[20px] font-bold text-slate-900">
+      <form onSubmit={handleSubmit} className={`${CARD} w-full max-w-sm p-5`}>
+        <h1 className={PAGE_TITLE}>
           <Bi text={{ cs: "Portál dopravce", en: "Haulier portal" }} />
         </h1>
         <p className="mb-4 mt-1 text-[13px] text-slate-500">
@@ -69,7 +70,7 @@ export const PortalLoginForm = () => {
         <button type="submit" disabled={busy || !email.trim() || !password} className={`${PORTAL_PRIMARY} mt-4`}>
           {busy ? <Bi text={{ cs: "Přihlašuji…", en: "Signing in…" }} /> : <Bi text={{ cs: "Přihlásit", en: "Sign in" }} />}
         </button>
-        <p className="mb-0 mt-4 text-[12px] text-slate-500">
+        <p className={`mb-0 mt-4 ${HINT}`}>
           <Bi
             text={{
               cs: "Zapomenuté heslo? Požádejte dispečera o nový odkaz.",

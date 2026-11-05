@@ -1,6 +1,7 @@
 "use client";
 
 import { Modal } from "antd";
+import { HINT, MODAL_TITLE } from "@/styles/ui";
 import type { ReactNode } from "react";
 
 type ModalSize = "small" | "medium" | "large";
@@ -38,9 +39,9 @@ export function AppModal({
       onCancel={onClose}
       title={
         <div>
-          <div className="text-base font-semibold">{title}</div>
+          <div className={MODAL_TITLE}>{title}</div>
           {subtitle && (
-            <div className="text-xs text-slate-500 font-normal mt-0.5">
+            <div className={`${HINT} font-normal mt-0.5`}>
               {subtitle}
             </div>
           )}
@@ -49,14 +50,7 @@ export function AppModal({
       width={SIZE_MAP[size]}
       footer={footer}
       destroyOnHidden={destroyOnHidden}
-      styles={{
-        body: { padding: "16px 24px" },
-        footer: {
-          padding: "12px 24px",
-          borderTop: "1px solid #e2e8f0",
-          background: "#fafbfc",
-        },
-      }}
+      classNames={{ footer: "!border-t !border-slate-200 !pt-3" }}
     >
       {children}
     </Modal>

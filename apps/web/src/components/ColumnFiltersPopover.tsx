@@ -13,6 +13,7 @@ import {
   type GridFilter,
   type GridFilterColumn,
 } from "@/components/gridFilters";
+import { HINT } from "@/styles/ui";
 
 /** A filter as stored in a template and in the URL: column and value (rows on screen add an id). */
 export type StoredFilter = { key: string; value: string };
@@ -97,7 +98,7 @@ export function ColumnFiltersPopover({
         content={
           <div className="w-[430px] -m-1">
             <div className="flex items-center gap-3 px-1 pb-2.5 mb-2.5 border-b border-slate-100">
-              <span className="text-[13px] font-semibold text-slate-800 shrink-0">
+              <span className="text-[13px] font-semibold text-slate-900 shrink-0">
                 Filter by column
               </span>
               <Select
@@ -112,7 +113,7 @@ export function ColumnFiltersPopover({
                 }}
                 options={templates.map((t) => ({ value: t.id, label: t.name }))}
                 notFoundContent={
-                  <span className="text-xs text-slate-400">
+                  <span className={HINT}>
                     No templates yet — set filters and press Save.
                   </span>
                 }
@@ -126,7 +127,7 @@ export function ColumnFiltersPopover({
                         e.stopPropagation();
                         setToDelete({ id: String(option.value), name: String(option.label) });
                       }}
-                      className="shrink-0 flex items-center justify-center w-5 h-5 rounded text-slate-400 hover:text-red-500 hover:bg-red-50 bg-transparent border-none cursor-pointer"
+                      className="shrink-0 flex items-center justify-center w-5 h-5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 bg-transparent border-none cursor-pointer"
                     >
                       <CloseOutlined className="text-[10px]" />
                     </button>
@@ -143,7 +144,7 @@ export function ColumnFiltersPopover({
               <button
                 onClick={() => onChange([])}
                 disabled={filters.length === 0}
-                className="shrink-0 text-xs font-medium text-slate-400 hover:text-red-500 disabled:text-slate-300 disabled:cursor-not-allowed bg-transparent border-none cursor-pointer p-0"
+                className="shrink-0 text-xs font-medium text-slate-500 hover:text-red-600 disabled:text-slate-300 disabled:cursor-not-allowed bg-transparent border-none cursor-pointer p-0"
               >
                 Clear all
               </button>
@@ -185,7 +186,7 @@ export function ColumnFiltersPopover({
           onPressEnter={submitTemplateName}
         />
         {templates.some((t) => t.name.toLowerCase() === templateName.trim().toLowerCase()) && (
-          <p className="mt-2 mb-0 text-xs text-amber-600">
+          <p className="mt-2 mb-0 text-xs text-amber-700">
             A template with this name exists — saving will overwrite it.
           </p>
         )}

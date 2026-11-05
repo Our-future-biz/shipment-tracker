@@ -111,7 +111,7 @@ export function QuotesTab({ customerId }: QuotesTabProps) {
         // Red goes with the status Expired, as in Sales: the date of a won or lost quote is no alarm.
         const expired = r.status === "expired";
         return (
-          <span className={expired ? "text-red-600" : "text-slate-600"}>
+          <span className={expired ? "text-red-600" : "text-slate-700"}>
             {formatDate(r.validUntil)}
             {expired ? " (expired)" : ""}
           </span>

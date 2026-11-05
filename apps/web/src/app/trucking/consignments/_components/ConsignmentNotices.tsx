@@ -30,7 +30,7 @@ export const ConsignmentNotices = ({ notices, clearReason, onClear }: Consignmen
           {notices.map((n) => (
             <li key={n.key} className="flex flex-wrap items-center justify-between gap-2 py-1">
               <span className="text-[13px] text-slate-700">
-                {n.text} <span className="text-[11px] text-slate-400">· {businessDateTime(n.at)}</span>
+                {n.text} <span className="text-[12px] text-slate-500">· {businessDateTime(n.at)}</span>
               </span>
               <Tooltip title={clearReason || undefined}>
                 <span className="inline-flex">

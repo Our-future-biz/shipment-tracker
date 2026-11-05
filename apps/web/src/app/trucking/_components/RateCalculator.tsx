@@ -6,6 +6,7 @@ import { CalculatorOutlined, CopyOutlined } from "@ant-design/icons";
 import { apiErrorMessage } from "@/lib/api";
 import { businessToday, businessDateTime } from "@/lib/date";
 import { useRate, useTruckingSettings, type RateRequest } from "@/hooks/useTrucking";
+import { CARD, CARD_BAR, CARD_TITLE, HINT } from "@/styles/ui";
 import { emptyRateForm, rateFormProblems, toRateRequest, type RateForm } from "../_lib/rateCalculator";
 import { RateCalculatorForm } from "./RateCalculatorForm";
 import { RateCopyToQuoteModal } from "./RateCopyToQuoteModal";
@@ -54,7 +55,7 @@ export const RateCalculator = ({ initial, initialCustomerName = null }: RateCalc
 
   return (
     <div className="flex flex-col gap-4">
-      <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
+      <section className={`${CARD} p-4`}>
         <RateCalculatorForm
           form={form}
           onChange={setForm}
@@ -73,17 +74,17 @@ export const RateCalculator = ({ initial, initialCustomerName = null }: RateCalc
           <Button onClick={handleClear} disabled={isRating}>
             Clear
           </Button>
-          {problems.length > 0 && <span className="text-xs text-slate-500">{problems.join(" · ")}</span>}
+          {problems.length > 0 && <span className={HINT}>{problems.join(" · ")}</span>}
         </div>
       </section>
 
       {error && <Alert type="error" showIcon message={`Could not price it — ${apiErrorMessage(error)}.`} />}
 
       {result && !error && (
-        <section className="bg-white border border-slate-200 rounded-xl shadow-sm">
-          <div className="flex flex-wrap items-center gap-3 px-4 py-2.5 border-b border-slate-100">
-            <h3 className="m-0 text-[13px] font-bold uppercase tracking-wider text-slate-800">Prices</h3>
-            <span className="text-[11.5px] text-slate-500">rated {businessDateTime(result.ratedAt)} · click a row for the price lines and every haulier</span>
+        <section className={`${CARD} overflow-hidden`}>
+          <div className={`${CARD_BAR} flex-wrap`}>
+            <h3 className={CARD_TITLE}>Prices</h3>
+            <span className={HINT}>rated {businessDateTime(result.ratedAt)} · click a row for the price lines and every haulier</span>
             <span className="ml-auto flex flex-wrap gap-2">
               <Tooltip title={changed ? "Calculate again first: the inputs changed" : undefined}>
                 <span>

@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { Button, InputNumber, Tag } from "antd";
+import { Button, InputNumber } from "antd";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import { SavedMeanwhile } from "@/app/warehouse-concept/_components/shipmentPart/JobExtras";
 import { Card } from "../tabs/shared";
 import { EMPTY_LINE, LINE_FIELDS, fieldInvalid, lineCbm, lineInvalid, linesTotals, parseLines, toNum, type LineField } from "../../_lib/cargoCompare";
 import type { JobDraft } from "./useJobDraft";
 import { useListKeys } from "@/hooks/useListKeys";
+import { Badge } from "@/components/Badge";
+import { EMPTY, LABEL_TEXT, TH } from "@/styles/ui";
 
 // Block C — the warehouse's remeasured lines. Number inputs with their units; Tab moves Qty → L →
 // W → H → kg along the line, Enter adds a new line and puts the cursor in its Qty. Saved with the
@@ -80,17 +82,17 @@ export function RemeasureLines({ draft, readOnly }: RemeasureLinesProps) {
         <SavedMeanwhile theirs={describe(draft.savedLines)} onUseTheirs={draft.linesUseTheirs} onKeepMine={draft.linesKeepMine} />
       )}
       <div className="overflow-x-auto">
-        <table ref={tableRef} className="w-full min-w-[640px] border-collapse text-xs">
+        <table ref={tableRef} className="w-full min-w-[640px] border-collapse text-[13px]">
           <thead>
-            <tr className="bg-slate-50 border-b border-slate-200">
-              <th className="w-[32px] text-left px-2 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-500">#</th>
+            <tr>
+              <th className={`${TH} w-[32px]`}>#</th>
               {LINE_FIELDS.map((f) => (
-                <th key={f} className="text-left px-2 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                <th key={f} className={TH}>
                   {INPUT[f].label}
                 </th>
               ))}
-              <th className="text-right px-2 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-500">Volume cbm</th>
-              <th className="w-[36px]" />
+              <th className={`${TH} !text-right`}>Volume cbm</th>
+              <th className={`${TH} w-[36px]`} />
             </tr>
           </thead>
           <tbody>
@@ -102,7 +104,7 @@ export function RemeasureLines({ draft, readOnly }: RemeasureLinesProps) {
                   return (
                     <td key={f} className="p-0.5 px-1" data-cell={`${idx}-${f}`}>
                       {readOnly ? (
-                        <span className={`block px-2 py-1 ${bad ? "text-red-600" : row[f] ? "text-slate-900" : "text-slate-300"}`}>
+                        <span className={`block px-2 py-1 ${bad ? "text-red-600" : row[f] ? "text-slate-900" : EMPTY}`}>
                           {row[f] ? `${row[f]} ${INPUT[f].suffix}` : "—"}
                         </span>
                       ) : (
@@ -130,11 +132,9 @@ export function RemeasureLines({ draft, readOnly }: RemeasureLinesProps) {
                     </td>
                   );
                 })}
-                <td className="p-0.5 px-2 text-right text-[11px] text-slate-500 tabular-nums">
+                <td className="p-0.5 px-2 text-right text-slate-700 tabular-nums">
                   {lineInvalid(row) ? (
-                    <Tag color="red" className="m-0 !text-[10px]">
-                      invalid — re-enter
-                    </Tag>
+                    <Badge tone="r">invalid — re-enter</Badge>
                   ) : lineCbm(row) > 0 ? (
                     lineCbm(row).toFixed(3)
                   ) : (
@@ -166,8 +166,8 @@ export function RemeasureLines({ draft, readOnly }: RemeasureLinesProps) {
           ["Total volume", totals.cbm > 0 ? `${totals.cbm.toFixed(3)} cbm` : "—"],
         ].map(([k, v]) => (
           <div key={k}>
-            <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{k}</div>
-            <div className="text-[15px] font-bold text-slate-900 mt-0.5 tabular-nums">{v}</div>
+            <div className={LABEL_TEXT}>{k}</div>
+            <div className="text-[14px] font-bold text-slate-900 mt-0.5 tabular-nums">{v}</div>
           </div>
         ))}
         {!readOnly && <span className="ml-auto text-[11px] text-slate-400">Tab moves along the line · Enter adds a line</span>}

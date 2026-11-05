@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
+import { KPI_TILE_CLASS } from "@/components/KpiTile";
 import { SectionCard } from "@/components/SectionCard";
+import { KPI_VALUE, LABEL_TEXT, LINK } from "@/styles/ui";
 import type { CustomerItem } from "@/hooks/useCustomers";
 import { useSupplierCosts } from "@/hooks/useSupplierCosts";
 import { chargeLabel } from "@/lib/chargeCodes";
@@ -41,7 +43,7 @@ export function SupplierOwedCard({ customer }: SupplierOwedCardProps) {
     title: "Job",
     key: "ref",
     render: (_: unknown, r: OwedItem) => (
-      <Link href={r.href} className={`${r.source === "cost" ? "font-mono" : ""} font-semibold whitespace-nowrap text-indigo-600 hover:underline`}>
+      <Link href={r.href} className={`${r.source === "cost" ? "tabular-nums" : ""} font-semibold whitespace-nowrap ${LINK}`}>
         {r.ref}
       </Link>
     ),
@@ -67,7 +69,7 @@ export function SupplierOwedCard({ customer }: SupplierOwedCardProps) {
       ) : (
         <span className="whitespace-nowrap tabular-nums">
           {fmtMoney(r.amount, r.currency)}
-          <span className="block text-[10.5px] text-slate-400">{VAT_LABEL[r.vat]}</span>
+          <span className="block text-[11px] text-slate-400">{VAT_LABEL[r.vat]}</span>
         </span>
       ),
   });
@@ -129,7 +131,7 @@ export function SupplierOwedCard({ customer }: SupplierOwedCardProps) {
 
           {(isLoading || owed.owed.length > 0) && (
             <div className="min-w-0">
-              <div className="mb-1 text-xs font-medium text-slate-600">
+              <div className={`${LABEL_TEXT} mb-1`}>
                 Owed · most overdue first{shownOf(owed.owed.length, owed.counts.owed)}
               </div>
               <Table<OwedItem>
@@ -147,7 +149,7 @@ export function SupplierOwedCard({ customer }: SupplierOwedCardProps) {
 
           {owed.expected.length > 0 && (
             <div className="min-w-0">
-              <div className="mb-1 text-xs font-medium text-slate-600">
+              <div className={`${LABEL_TEXT} mb-1`}>
                 Expected · {plural(owed.counts.expected, "cost", "costs")} with no invoice received yet, not in what we owe{shownOf(owed.expected.length, owed.counts.expected)}
               </div>
               <Table<OwedItem> size="small" rowKey="key" dataSource={owed.expected} columns={expectedColumns} pagination={TABLE_PAGINATION} scroll={{ x: "max-content" }} />
@@ -156,7 +158,7 @@ export function SupplierOwedCard({ customer }: SupplierOwedCardProps) {
 
           {owed.untracked.length > 0 && (
             <div className="min-w-0">
-              <div className="mb-1 text-xs font-medium text-slate-600">
+              <div className={`${LABEL_TEXT} mb-1`}>
                 Before payment tracking · {plural(owed.counts.untracked, "invoice", "invoices")} received or approved before payments were noted here, not counted
                 {shownOf(owed.untracked.length, owed.counts.untracked)}
               </div>
@@ -168,7 +170,7 @@ export function SupplierOwedCard({ customer }: SupplierOwedCardProps) {
           )}
 
           {costs.typedNames.length > 0 && (
-            <div className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
               Not counted:{" "}
               {costs.typedNames.map((n, i) => (
                 <span key={n.vendor}>
@@ -192,8 +194,8 @@ export function SupplierOwedCard({ customer }: SupplierOwedCardProps) {
  */
 function OwedTile({ total: t }: { total: OwedTotal }) {
   return (
-    <div className="min-w-[200px] space-y-1.5 rounded-lg border border-slate-200 px-3 py-2">
-      <div className="text-[11px] tracking-wide text-slate-400 uppercase">Owed · {t.currency}</div>
+    <div className={`${KPI_TILE_CLASS} !min-w-[200px] space-y-1.5`}>
+      <div className={LABEL_TEXT}>Owed · {t.currency}</div>
       {t.costs && <OwedFigure figures={t.costs} currency={t.currency} label="Shipment costs, without VAT" />}
       {t.invoices && <OwedFigure figures={t.invoices} currency={t.currency} label="Haulier invoices, with VAT" />}
       {t.costs && t.costs.expected > 0 && <div className="text-xs text-slate-500 tabular-nums">{fmtMoney(t.costs.expected, t.currency)} expected, without VAT</div>}
@@ -204,7 +206,7 @@ function OwedTile({ total: t }: { total: OwedTotal }) {
 function OwedFigure({ figures: f, currency, label }: { figures: OwedFigures; currency: string; label: string }) {
   return (
     <div>
-      <div className="text-lg font-semibold text-slate-800 tabular-nums">{fmtMoney(f.owed, currency)}</div>
+      <div className={KPI_VALUE}>{fmtMoney(f.owed, currency)}</div>
       <div className="text-[11px] text-slate-500">{label}</div>
       {f.overdue > 0 && <div className="text-xs font-medium text-red-600 tabular-nums">{fmtMoney(f.overdue, currency)} overdue</div>}
       {f.untracked > 0 && <div className="text-xs text-slate-400 tabular-nums">{fmtMoney(f.untracked, currency)} before payment tracking</div>}

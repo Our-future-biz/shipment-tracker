@@ -2,6 +2,7 @@
 
 import { Tooltip } from "antd";
 import type { ConsignmentCounts } from "@/hooks/useTruckingConsignments";
+import { KPI_VALUE, LABEL_TEXT } from "@/styles/ui";
 import { CONSIGNMENT_TILES } from "../_lib/consignments";
 
 export type ConsignmentTileId = (typeof CONSIGNMENT_TILES)[number]["id"];
@@ -13,7 +14,7 @@ interface ConsignmentTilesProps {
 }
 
 // The three tiles over the Consignments grid (same tiles as the Hauliers and Warehouse lists):
-// click to filter, again to clear. Counts come from the server.
+// click to filter, again to clear. Counts come from the server; the chosen tile shows in its indigo frame.
 export const ConsignmentTiles = ({ active, counts, onSelect }: ConsignmentTilesProps) => (
   <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
     {CONSIGNMENT_TILES.map((tile) => {
@@ -30,8 +31,8 @@ export const ConsignmentTiles = ({ active, counts, onSelect }: ConsignmentTilesP
             ].join(" ")}
           >
             <div className="flex items-baseline gap-2">
-              <span className={`text-[15px] font-bold uppercase tracking-wide ${on ? "text-indigo-600" : "text-slate-500"}`}>{tile.label}:</span>
-              <span className={`text-[22px] leading-tight font-bold tabular-nums ${on ? "text-indigo-700" : "text-slate-900"}`}>{counts ? counts[tile.id] : "—"}</span>
+              <span className={LABEL_TEXT}>{tile.label}:</span>
+              <span className={KPI_VALUE}>{counts ? counts[tile.id] : "—"}</span>
             </div>
           </button>
         </Tooltip>

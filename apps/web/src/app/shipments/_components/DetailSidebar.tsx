@@ -5,6 +5,7 @@ import { CollapsibleSidebar } from "@/components/CollapsibleSidebar";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useSidebarState } from "@/hooks/useSidebarState";
 import type { ShipmentItem } from "@/hooks/useShipments";
+import { LINK, MODAL_TITLE, REF } from "@/styles/ui";
 
 interface DetailSidebarProps {
   shipment: ShipmentItem;
@@ -45,13 +46,13 @@ export function DetailSidebar({ shipment, activeSection, onSelectSection }: Deta
       header={
         <div className="px-1">
           <div
-            className="text-xs text-indigo-500 cursor-pointer mb-3"
+            className={`${LINK} text-xs cursor-pointer mb-3`}
             onClick={() => router.push("/shipments")}
           >
             &larr; Back to Shipments
           </div>
           <div className="border-b border-slate-200 pb-3">
-            <div className="text-[15px] font-bold text-slate-800">{jobNumber}</div>
+            <div className={`${MODAL_TITLE} ${REF}`}>{jobNumber}</div>
             {status && <div className="mt-1"><StatusBadge status={status} /></div>}
           </div>
         </div>

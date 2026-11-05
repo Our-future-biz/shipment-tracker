@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Tag } from "antd";
 import { CheckCircleOutlined, WarningOutlined } from "@ant-design/icons";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { Pill } from "@/components/Pill";
 import { SectionCard } from "@/components/SectionCard";
+import { HINT } from "@/styles/ui";
 import { apiErrorMessage } from "@/lib/api";
 import { businessDateTime } from "@/lib/date";
 import { useToast } from "@/lib/toast";
@@ -57,7 +58,7 @@ export const TripLtlSections = ({ trip }: TripLtlSectionsProps) => {
             </button>
           </span>
         }
-        bodyClassName="p-0"
+        bodyClassName="px-2"
       >
         <TripLegsTable trip={trip} />
       </SectionCard>
@@ -66,7 +67,7 @@ export const TripLtlSections = ({ trip }: TripLtlSectionsProps) => {
         <SectionCard title={TERMS.fill}>
           <div className="flex flex-col gap-2">
             <TripFillBars fill={trip.fill} capacity={capacity} />
-            <div className="text-[11px] tabular-nums text-slate-500">
+            <div className={`${HINT} tabular-nums`}>
               {formatQty(trip.fill.palletPlaces)}
               {capacity ? ` of ${formatQty(capacity.palletPlaces)}` : ""} pallet places
             </div>
@@ -90,10 +91,11 @@ export const TripLtlSections = ({ trip }: TripLtlSectionsProps) => {
               const s = trip.stamps[kind];
               if (s) {
                 return (
-                  <Tag key={kind} color="success" icon={<CheckCircleOutlined />} className="m-0 !px-2 !py-1 !text-[12px]">
-                    <span className="font-semibold">{STAMP_LABEL[kind]}</span> <span className="font-mono">{businessDateTime(s.at)}</span>
+                  <Pill key={kind} tone="green">
+                    <CheckCircleOutlined />
+                    <span className="font-semibold">{STAMP_LABEL[kind]}</span> <span className="tabular-nums">{businessDateTime(s.at)}</span>
                     {s.by ? ` · ${s.by}` : ""}
-                  </Tag>
+                  </Pill>
                 );
               }
               return (
@@ -103,7 +105,7 @@ export const TripLtlSections = ({ trip }: TripLtlSectionsProps) => {
               );
             })}
           </div>
-          {trip.kind === "PICKUP_RUN" && <p className="mb-0 mt-2 text-[11px] text-slate-500">Arrived is not the gate-in: the warehouse stamps the gate-in, which starts the service-level clock.</p>}
+          {trip.kind === "PICKUP_RUN" && <p className={`mb-0 mt-2 ${HINT}`}>Arrived is not the gate-in: the warehouse stamps the gate-in, which starts the service-level clock.</p>}
         </SectionCard>
       </div>
 

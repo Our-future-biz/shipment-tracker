@@ -6,6 +6,7 @@ import type { DeliveryException, ExceptionCause, ExceptionCurrency, ExceptionDec
 import { CAUSE_LABELS, DECISION_LABELS, EXCEPTION_KIND_LABELS, decisionChoices, decisionState } from "../../_lib/exceptions";
 import { CURRENCIES } from "../../_lib/hauliers";
 import { TruckingField } from "../../_components/TruckingField";
+import { HINT } from "@/styles/ui";
 
 const CAUSE_OPTIONS = (Object.keys(CAUSE_LABELS) as ExceptionCause[]).map((k) => ({ value: k, label: CAUSE_LABELS[k] }));
 const CURRENCY_OPTIONS = CURRENCIES.map((c) => ({ value: c, label: c }));
@@ -77,11 +78,11 @@ export const ExceptionDecideModal = ({ exception, manager, internal, jobNumber, 
             </div>
           </TruckingField>
         </div>
-        <p className="m-0 text-[12px] text-slate-600">{effect[decision]}</p>
+        <p className="m-0 text-[13px] text-slate-600">{effect[decision]}</p>
         <TruckingField label="Reason">
           <Input.TextArea aria-label="Reason" autoSize={{ minRows: 2, maxRows: 5 }} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
         </TruckingField>
-        {!manager && <p className="m-0 text-[11.5px] text-slate-500">Charging the customer, claiming from the haulier or absorbing a cost above 0 is a manager&apos;s decision.</p>}
+        {!manager && <p className={`m-0 ${HINT}`}>Charging the customer, claiming from the haulier or absorbing a cost above 0 is a manager&apos;s decision.</p>}
         {!state.allowed && reason.trim().length >= 3 && <p className="m-0 text-[12px] text-red-600">{state.reason}</p>}
       </div>
     </Modal>

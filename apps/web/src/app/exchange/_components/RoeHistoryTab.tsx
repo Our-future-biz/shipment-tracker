@@ -3,7 +3,10 @@
 import { Alert, Spin } from "antd";
 import { useFxRoeHistory } from "@/hooks/useFx";
 import { formatDate, formatDateTime } from "@/lib/date";
-import { CELL, TH, fmtPct } from "./fxShared";
+import { Badge } from "@/components/Badge";
+import { Pill } from "@/components/Pill";
+import { EMPTY, HINT, TD, TH } from "@/styles/ui";
+import { fmtPct } from "./fxShared";
 
 export function RoeHistoryTab() {
   const { data, isLoading, isError } = useFxRoeHistory();
@@ -19,7 +22,7 @@ export function RoeHistoryTab() {
           <thead>
             <tr>
               <th className={TH}>Effective from</th>
-              <th className={`${TH} text-right`}>ROE %</th>
+              <th className={`${TH} !text-right`}>ROE %</th>
               <th className={TH}>Changed by</th>
               <th className={TH}>Changed at</th>
               <th className={TH}>Note</th>
@@ -28,28 +31,28 @@ export function RoeHistoryTab() {
           <tbody>
             {changes.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-[13.5px] text-slate-400">
+                <td colSpan={5} className="px-2 py-8 text-center text-[13px] text-slate-400">
                   Never changed — the company uses 100 % (the pure ČNB rate).
                 </td>
               </tr>
             )}
             {changes.map((c) => (
               <tr key={c.id} className={c.current ? "bg-indigo-50/60" : ""}>
-                <td className={CELL}>
+                <td className={TD}>
                   {formatDate(c.effectiveFrom)}
-                  {c.current && <span className="ml-2 text-[11.5px] font-semibold text-indigo-700">in force</span>}
-                  {c.scheduled && <span className="ml-2 text-[11.5px] font-semibold text-warn">scheduled</span>}
+                  {c.current && <Badge tone="i" className="ml-2">in force</Badge>}
+                  {c.scheduled && <Pill tone="amber" className="ml-2">scheduled</Pill>}
                 </td>
-                <td className={`${CELL} text-right tabular-nums font-semibold`}>{fmtPct(c.pct)}</td>
-                <td className={CELL}>{c.changedByName || "—"}</td>
-                <td className={`${CELL} text-slate-500`}>{formatDateTime(c.changedAt)}</td>
-                <td className={`${CELL} text-slate-600`}>{c.note}</td>
+                <td className={`${TD} text-right tabular-nums font-semibold`}>{fmtPct(c.pct)}</td>
+                <td className={TD}>{c.changedByName || <span className={EMPTY}>—</span>}</td>
+                <td className={`${TD} !text-slate-500`}>{formatDateTime(c.changedAt)}</td>
+                <td className={TD}>{c.note}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      <p className="text-[12.5px] text-slate-400 m-0">Changes are never edited or deleted. Only admins can change the %.</p>
+      <p className={`${HINT} m-0`}>Changes are never edited or deleted. Only admins can change the %.</p>
     </div>
   );
 }

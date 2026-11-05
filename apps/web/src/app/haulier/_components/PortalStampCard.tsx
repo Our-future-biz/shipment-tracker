@@ -4,8 +4,9 @@ import { useState } from "react";
 import { apiErrorMessage } from "@/lib/api";
 import { businessDateTime } from "@/lib/date";
 import { STAMP_LABEL, stampAt, stampKinds, stampProblem, type PortalOrder, type PortalStampKind } from "../_lib/portal";
-import { PORTAL_CARD, PORTAL_CARD_TITLE } from "../_lib/portalStyles";
+import { PORTAL_PRIMARY, PORTAL_SECONDARY } from "../_lib/portalStyles";
 import { Bi } from "./Bi";
+import { PortalCard } from "./PortalCard";
 
 interface PortalStampCardProps {
   order: PortalOrder;
@@ -31,10 +32,7 @@ export const PortalStampCard = ({ order, loadedAt, stampingKind, onStamp }: Port
   };
 
   return (
-    <section className={PORTAL_CARD}>
-      <h2 className={PORTAL_CARD_TITLE}>
-        <Bi text={{ cs: "Průběh jízdy", en: "Trip progress" }} />
-      </h2>
+    <PortalCard title={<Bi text={{ cs: "Průběh jízdy", en: "Trip progress" }} />}>
       <div className="flex flex-col gap-2">
         {kinds.map((kind) => {
           const problem = stampProblem(order, kind, businessDateTime);
@@ -46,7 +44,7 @@ export const PortalStampCard = ({ order, loadedAt, stampingKind, onStamp }: Port
                 type="button"
                 disabled={!!problem || !!refusal || !!stampingKind}
                 onClick={() => handleStamp(kind)}
-                className={`w-full rounded-lg px-4 py-3 text-[15px] font-semibold disabled:opacity-60 ${done ? "bg-emerald-50 text-emerald-800" : "bg-indigo-600 text-white"}`}
+                className={done ? PORTAL_SECONDARY : PORTAL_PRIMARY}
               >
                 {done && "✓ "}
                 <Bi text={STAMP_LABEL[kind]} />
@@ -59,6 +57,6 @@ export const PortalStampCard = ({ order, loadedAt, stampingKind, onStamp }: Port
           );
         })}
       </div>
-    </section>
+    </PortalCard>
   );
 };

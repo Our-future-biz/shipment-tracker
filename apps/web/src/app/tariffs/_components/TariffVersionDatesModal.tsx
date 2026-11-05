@@ -6,6 +6,7 @@ import { AppModal } from "@/components/AppModal";
 import type { VersionDatesChange } from "@/hooks/useSupplierTariffs";
 import { apiErrorMessage } from "@/lib/api";
 import { useToast } from "@/lib/toast";
+import { HINT } from "@/styles/ui";
 import { datesProblem } from "../_lib/railTariffs";
 import { DayField } from "./TariffFormParts";
 
@@ -53,7 +54,7 @@ export function TariffVersionDatesModal({ open, onClose, version, label, tariffN
       subtitle={tariffName}
       footer={
         <div className="flex items-center justify-end gap-2">
-          {problem && <span className="mr-auto text-[12.5px] text-slate-500">{problem}</span>}
+          {problem && <span className="mr-auto text-[13px] text-slate-500">{problem}</span>}
           <Button disabled={isSaving} onClick={onClose}>
             Cancel
           </Button>
@@ -68,7 +69,7 @@ export function TariffVersionDatesModal({ open, onClose, version, label, tariffN
           <DayField label="Valid from" value={draft.validFrom} onChange={(validFrom) => setDraft({ ...draft, validFrom })} disabled={isSaving} />
           <DayField label="Valid to" value={draft.validTo} onChange={(validTo) => setDraft({ ...draft, validTo })} disabled={isSaving} />
         </div>
-        <div className="text-[12px] text-slate-400">
+        <div className={HINT}>
           Leave “Valid to” empty for no end date. The tariff prices with the new dates straight away, also in “Tariffs available” on quotes. The dates may not overlap
           another active version of this tariff.
         </div>

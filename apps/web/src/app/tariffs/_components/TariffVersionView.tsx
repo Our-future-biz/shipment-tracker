@@ -8,6 +8,7 @@ import { CalendarOutlined, CheckOutlined, DeleteOutlined, DownloadOutlined } fro
 import { BackLink } from "@/components/BackLink";
 import { LINK_CLASS } from "@/components/linkClass";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { Pill } from "@/components/Pill";
 import type { SupplierTariffVersion, VersionDatesChange } from "@/hooks/useSupplierTariffs";
 import { apiErrorMessage, isNotFound } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
@@ -15,6 +16,7 @@ import { useCanManageTariffs } from "@/lib/auth/AuthContext";
 import { formatDate, formatDateTime } from "@/lib/date";
 import { downloadDataUrl, fileDataUrl } from "@/lib/files";
 import { useToast } from "@/lib/toast";
+import { PAGE_TITLE } from "@/styles/ui";
 import { LAYOUT_SOURCE_LABEL, STATUS_CHIP, validityText, versionLabel } from "../_lib/railTariffs";
 import { TariffVersionDatesModal } from "./TariffVersionDatesModal";
 import { TariffVersionFindings } from "./TariffVersionFindings";
@@ -167,10 +169,10 @@ export function TariffVersionView<V extends TariffVersionCore>({
         <div className="flex flex-wrap items-start gap-2 mt-1">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-[22px] font-bold text-slate-800 m-0">
+              <h1 className={PAGE_TITLE}>
                 {version.tariff.name} · {label}
               </h1>
-              <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${chip.className}`}>{chip.label}</span>
+              <Pill tone={chip.tone}>{chip.label}</Pill>
               {titleChips?.(version)}
             </div>
             <div className="text-xs text-slate-500 mt-1 flex flex-wrap gap-x-1">

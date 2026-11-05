@@ -5,7 +5,9 @@ import { Alert, Button, Input, InputNumber, Modal, Radio, Select, Spin } from "a
 import { PushpinFilled } from "@ant-design/icons";
 import { SupplierRatingStars } from "@/app/customers/_components/SupplierRatingStars";
 import { SUPPLIER_NOT_IN_USE } from "@/app/customers/_lib/supplierStatus";
+import { Badge } from "@/components/Badge";
 import { Pill } from "@/components/Pill";
+import { HINT, LABEL_TEXT } from "@/styles/ui";
 import { apiErrorMessage } from "@/lib/api";
 import { formatDate } from "@/lib/date";
 import { useHauliers, useRateQuery, useTruckingSettings, type RateRequest } from "@/hooks/useTrucking";
@@ -135,7 +137,7 @@ export const PlanTripModal = ({ c, onClose, onPlan }: PlanTripModalProps) => {
             <Radio key={b.ownerCustomerId ?? i} value={b.ownerCustomerId} className="!m-0 rounded-lg border border-slate-200 px-3 py-2">
               <span className="flex flex-wrap items-baseline gap-x-2">
                 {b.preferred && <PushpinFilled className="text-indigo-500" aria-label="Preferred lane" title="Preferred lane" />}
-                <span className="font-semibold text-slate-800">{b.ownerName ?? "Haulier"}</span>
+                <span className="font-semibold text-slate-900">{b.ownerName ?? "Haulier"}</span>
                 {b.ownerCustomerId && ratings.has(b.ownerCustomerId) && <SupplierRatingStars rating={ratings.get(b.ownerCustomerId) ?? null} />}
                 {b.ownerCustomerId && notInUse.has(b.ownerCustomerId) && <Pill tone="slate">{SUPPLIER_NOT_IN_USE}</Pill>}
                 <span className="tabular-nums">{formatMoney(b.total, b.currency)}</span>
@@ -143,23 +145,23 @@ export const PlanTripModal = ({ c, onClose, onPlan }: PlanTripModalProps) => {
                 <span className="text-[12px] text-slate-500">
                   {b.tariffName} {versionLabel(b)}
                 </span>
-                {i === 0 && <span className="rounded bg-indigo-50 px-1.5 text-[11px] font-semibold text-indigo-600">Suggested</span>}
+                {i === 0 && <Badge tone="i">Suggested</Badge>}
               </span>
             </Radio>
           ))}
           {!candidates.length && <div className="text-[13px] text-amber-700">No haulier has a buy tariff for this lane — plan it at an agreed price.</div>}
           <Radio value={AGREED} className="!m-0 rounded-lg border border-slate-200 px-3 py-2">
-            <span className="font-semibold text-slate-800">Another haulier at an agreed price</span>
+            <span className="font-semibold text-slate-900">Another haulier at an agreed price</span>
           </Radio>
         </Radio.Group>
       )}
 
       {excluded.length > 0 && (
         <div className="mt-3 rounded-lg border border-red-100 bg-red-50/50 px-3 py-2">
-          <div className="mb-1 text-[11px] font-bold uppercase tracking-wide text-red-700">Not offered — blocked</div>
+          <div className={`mb-1 ${LABEL_TEXT} !text-red-700`}>Not offered — blocked</div>
           {excluded.map((x) => (
             <div key={x.customerId} className="py-1">
-              <div className="text-[13px] font-semibold text-slate-700">{x.name}</div>
+              <div className="text-[13px] font-semibold text-slate-900">{x.name}</div>
               <HaulierIssueList issues={x.issues} limit={2} />
             </div>
           ))}
@@ -205,7 +207,7 @@ export const PlanTripModal = ({ c, onClose, onPlan }: PlanTripModalProps) => {
       <HaulierRatingNote customerId={pickedHaulier} rating={pickedRating} reason={pickedHaulier ? reasons.get(pickedHaulier) : ""} confirmed={confirmedFor === pickedHaulier} onConfirm={(on) => setConfirmedFor(on ? pickedHaulier : null)} />
 
       {!agreed && picked && candidates.length > 0 && picked !== candidates[0]?.ownerCustomerId && (
-        <div className="mt-2 text-[12px] text-slate-500">Not the suggested haulier — the change is logged on the trip.</div>
+        <div className={`mt-2 ${HINT}`}>Not the suggested haulier — the change is logged on the trip.</div>
       )}
 
       <div className="mt-5 flex justify-end gap-2">

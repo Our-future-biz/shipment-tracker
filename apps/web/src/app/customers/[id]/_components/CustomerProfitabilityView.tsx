@@ -13,6 +13,7 @@ import type { CustomerItem } from "@/hooks/useCustomers";
 import { CHART_COLORS } from "../../_lib/constants";
 import { fmtMoney, num } from "../../_lib/customerMoney";
 import { CustomerKpiTile, KPI_GRID_CLASS, profitTone } from "./CustomerKpiTile";
+import { EMPTY, LINK } from "@/styles/ui";
 
 const ISO_MONTH = /^\d{4}-\d{2}/;
 
@@ -69,7 +70,7 @@ const BAR_RADIUS: [number, number, number, number] = [4, 4, 0, 0];
 const MAX_BAR_SIZE = 24;
 const LINE_DOT = { r: 4, fill: CHART_COLORS.profit, stroke: CHART_COLORS.dotRing, strokeWidth: 2 };
 
-const renderLegendLabel = (value: string) => <span className="text-slate-600">{value}</span>;
+const renderLegendLabel = (value: string) => <span className="text-slate-700">{value}</span>;
 
 interface CustomerProfitabilityViewProps {
   customer: CustomerItem;
@@ -108,7 +109,7 @@ export function CustomerProfitabilityView({ customer, onSelectTab }: CustomerPro
         <CustomerKpiTile label="Total cost" value={fmtMoney(totalRevenue - totalProfit, currency)} />
         <CustomerKpiTile
           label="Avg profit / shipment"
-          value={avgProfit === null ? <span className="text-slate-300">—</span> : fmtMoney(avgProfit, currency)}
+          value={avgProfit === null ? <span className={EMPTY}>—</span> : fmtMoney(avgProfit, currency)}
           tone={avgProfit === null ? undefined : profitTone(avgProfit)}
         />
       </div>
@@ -181,7 +182,7 @@ export function CustomerProfitabilityView({ customer, onSelectTab }: CustomerPro
         <button
           type="button"
           onClick={handleViewShipments}
-          className="flex items-center gap-1 p-0 border-none bg-transparent text-[13px] font-semibold text-indigo-600 hover:underline cursor-pointer"
+          className={`flex items-center gap-1 p-0 border-none bg-transparent text-[13px] font-semibold cursor-pointer ${LINK}`}
         >
           View shipments
           <RightOutlined className="text-[10px]" />

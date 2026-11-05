@@ -43,7 +43,7 @@ export function QuoteContactField({ name, contactId, email, phone, customerLinke
       search: `${c.name} ${c.email} ${c.phone}`,
       label: (
         <div className="flex items-baseline gap-2 min-w-0">
-          <span className="font-medium text-slate-800 truncate">{c.name || "(unnamed)"}</span>
+          <span className="font-medium text-slate-900 truncate">{c.name || "(unnamed)"}</span>
           {c.role && <span className="text-[11px] text-slate-400 shrink-0">{c.role}</span>}
           <span className="ml-auto text-[11px] text-slate-400 truncate">{c.email || c.phone}</span>
         </div>

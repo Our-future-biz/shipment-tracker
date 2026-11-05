@@ -15,7 +15,7 @@ import { useMutation } from "@tanstack/react-query";
 import { useShipmentAttachments, type AttachmentItem } from "@/hooks/useShipmentAttachments";
 import { api, apiFileUrl } from "@/lib/api";
 import { fileToBase64 } from "@/lib/files";
-import { formatFileSize, docPlural } from "./docsShared";
+import { formatFileSize, docPlural, ExtBadge, CustomsPill } from "./docsShared";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { formatDate } from "@/lib/date";
 import {
@@ -31,81 +31,47 @@ import {
 import { CARD } from "../_components/detailStyles";
 import { RowActionsMenu } from "../../_components/RowActionsMenu";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { Pill } from "@/components/Pill";
+import { CountChip } from "@/components/SectionCard";
+import {
+  BTN,
+  BTN_PRIMARY,
+  CARD_BAR,
+  CARD_ICON,
+  CARD_TITLE,
+  EMPTY,
+  ICON_BTN_GHOST,
+  INPUT,
+  LABEL_TEXT,
+  LINK,
+  TD,
+  TH,
+} from "@/styles/ui";
 
 type AttachmentFile = AttachmentItem;
 
 // The Documents tab in the look of the Shipment Details cards, three cards one under another:
 // adding files, the required documents as milestones, and Documents (the app's light indigo bar
 // with the count and the search, then one table where each group is a band over its files). The
-// Customs section keeps its own look (docsShared), so the file badge and the customs pill here are
-// this tab's own.
+// file badge and the customs pill are the ones of the Customs section (docsShared).
 
-/** Focus ring for the tab's own buttons and links. */
+/** Focus ring for the tab's own links and milestones. */
 const FOCUS = "outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1";
-/** The column heads: bold black caps, as the field labels of the Shipment Details cards. */
-const TH = "text-left px-2 pb-2 text-[11px] leading-[14px] font-bold uppercase tracking-wide text-slate-900 border-b border-slate-200 whitespace-nowrap";
-const TD = "px-2 py-2 align-middle border-b border-slate-100";
-/** A small icon button of a row (Preview, Remove). */
-const ICON_BTN = `w-7 h-7 rounded-md grid place-items-center text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors ${FOCUS}`;
-/** A soft pill (as the check pills under the Cargo tables). */
-const PILL = "inline-flex items-center gap-1 whitespace-nowrap rounded-md px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide ring-1 ring-inset";
 
 /** Whether a drag carries files (not text or a link). */
 const isFileDrag = (e: React.DragEvent) => Array.from(e.dataTransfer.types).includes("Files");
 
-/** The app's card header (as SectionHeader in Shipment Details): a light indigo bar, icon, caps title. */
+/** The app's card header (styles/ui.ts, as SectionHeader in Shipment Details): a light indigo bar, icon, caps title. */
 function CardBar({ id, icon, title, right }: { id?: string; icon: React.ReactNode; title: string; right?: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-2.5 min-h-[42px] px-4 py-1.5 bg-indigo-50 border-b border-indigo-100">
-      <span aria-hidden className="text-indigo-500 text-[15px] leading-none shrink-0">{icon}</span>
-      <h3 id={id} className="m-0 min-w-0 text-[13px] leading-tight font-bold uppercase tracking-wider text-slate-800">
+    <div className={CARD_BAR}>
+      <span aria-hidden className={`${CARD_ICON} shrink-0`}>{icon}</span>
+      <h3 id={id} className={`${CARD_TITLE} min-w-0`}>
         {title}
       </h3>
       {right && <div className="ml-auto flex items-center gap-3">{right}</div>}
     </div>
   );
-}
-
-/** The file's extension in a small coloured chip. */
-function ExtChip({ fileName }: { fileName: string }) {
-  const ext = (fileName.split(".").pop() ?? "").toLowerCase();
-  const kind = ext === "pdf"
-    ? "pdf"
-    : ["xls", "xlsx", "csv"].includes(ext)
-      ? "xls"
-      : ["jpg", "jpeg", "png", "heic", "gif", "webp"].includes(ext)
-        ? "img"
-        : "other";
-  const cls = {
-    pdf: "bg-red-50 text-red-600 ring-red-200",
-    xls: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-    img: "bg-indigo-50 text-indigo-600 ring-indigo-200",
-    other: "bg-slate-50 text-slate-500 ring-slate-200",
-  }[kind];
-  return (
-    <span aria-hidden className={`flex-none w-8 h-7 rounded-md grid place-items-center text-[9px] font-bold tracking-tight ring-1 ring-inset ${cls}`}>
-      {ext.slice(0, 4).toUpperCase() || "FILE"}
-    </span>
-  );
-}
-
-/** Customs' verdict on a file: Approved / Declined / Awaiting review. */
-function ReviewPill({ status }: { status: string }) {
-  if (status === "approved")
-    return (
-      <span className={`${PILL} bg-emerald-50 text-emerald-700 ring-emerald-200`}>
-        <CheckOutlined aria-hidden className="text-[10px]" />
-        Approved
-      </span>
-    );
-  if (status === "declined")
-    return (
-      <span className={`${PILL} bg-red-50 text-red-700 ring-red-200`}>
-        <CloseOutlined aria-hidden className="text-[10px]" />
-        Declined
-      </span>
-    );
-  return <span className={`${PILL} bg-slate-50 text-slate-600 ring-slate-200`}>Awaiting review</span>;
 }
 
 /**
@@ -129,14 +95,14 @@ function RequiredMilestones({
   return (
     <div>
       <div className="flex items-center gap-2 mb-2.5">
-        <h3 id="req-docs-title" className="m-0 text-[11px] leading-[14px] font-bold uppercase tracking-wide text-slate-900">
+        <h3 id="req-docs-title" className={`m-0 ${LABEL_TEXT}`}>
           Required documents
         </h3>
         <span className="text-[12px] font-medium text-indigo-600 tabular-nums">
           {have} / {REQUIRED_DOCUMENT_TYPES.length}
         </span>
         {!loading && (
-          <span className={`ml-auto text-[12.5px] font-medium ${left ? "text-amber-700" : "text-emerald-700"}`}>
+          <span className={`ml-auto text-[13px] font-medium ${left ? "text-amber-700" : "text-emerald-700"}`}>
             {left
               ? left === 1
                 ? "1 required document is missing"
@@ -153,7 +119,7 @@ function RequiredMilestones({
           const body = (
             <>
               <span
-                className={`block truncate text-center text-[12.5px] leading-4 mb-1.5 ${
+                className={`block truncate text-center text-[13px] leading-4 mb-1.5 ${
                   done ? "text-slate-700" : "text-slate-900 font-medium group-hover:text-indigo-700"
                 }`}
               >
@@ -167,7 +133,7 @@ function RequiredMilestones({
               />
               {!loading && (
                 <span
-                  className={`mt-1 flex items-center justify-center gap-1 text-[10.5px] font-semibold uppercase tracking-wide ${
+                  className={`mt-1 flex items-center justify-center gap-1 text-[11px] font-semibold uppercase tracking-wide ${
                     done ? "text-emerald-700" : "text-amber-700"
                   }`}
                 >
@@ -384,7 +350,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                   e.stopPropagation();
                   openPicker();
                 }}
-                className={`inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-indigo-600 text-white text-[14px] font-medium border-0 cursor-pointer shadow-sm hover:bg-indigo-700 transition-colors ${FOCUS}`}
+                className={BTN_PRIMARY}
               >
                 Browse files
               </button>
@@ -406,14 +372,14 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                     key={`${p.name}-${i}`}
                     className="flex items-center gap-3 px-4 py-3 flex-wrap sm:flex-nowrap border-b border-indigo-100 last:border-b-0"
                   >
-                    <ExtChip fileName={p.name} />
+                    <ExtBadge fileName={p.name} className="w-8 h-7" />
                     <span className="min-w-[80px] flex-1 truncate text-[14px] font-medium text-slate-900" title={p.name}>
                       {p.name}
                     </span>
                     <span className="text-[13px] text-slate-500 tabular-nums whitespace-nowrap">{formatFileSize(p.size)}</span>
                     {p.guessed && p.type && (
                       <Tooltip title="Guessed from the file name">
-                        <span className={`${PILL} bg-emerald-50 text-emerald-700 ring-emerald-200`}>Guessed</span>
+                        <Pill tone="green">Guessed</Pill>
                       </Tooltip>
                     )}
                     <Select
@@ -435,7 +401,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                           type="button"
                           aria-label={`Remove ${p.name}`}
                           onClick={() => setPending((list) => list.filter((_, xi) => xi !== i))}
-                          className={`${ICON_BTN} border-0 bg-transparent cursor-pointer hover:!bg-red-50 hover:!text-red-600`}
+                          className={`${ICON_BTN_GHOST} hover:!bg-red-50 hover:!text-red-600`}
                         >
                           <CloseOutlined aria-hidden />
                         </button>
@@ -451,7 +417,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                         <button
                           type="button"
                           onClick={() => setPending([])}
-                          className={`h-9 px-4 rounded-lg border border-slate-200 bg-white text-[14px] font-medium text-slate-700 cursor-pointer hover:bg-slate-50 transition-colors ${FOCUS}`}
+                          className={BTN}
                         >
                           Cancel
                         </button>
@@ -459,7 +425,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                           type="button"
                           disabled={saving || pending.some((x) => !x.type)}
                           onClick={savePending}
-                          className={`h-9 px-4 rounded-lg bg-indigo-600 text-white text-[14px] font-medium border-0 cursor-pointer shadow-sm hover:bg-indigo-700 transition-colors disabled:opacity-45 disabled:cursor-not-allowed disabled:hover:bg-indigo-600 ${FOCUS}`}
+                          className={`${BTN_PRIMARY} disabled:hover:bg-indigo-600`}
                         >
                           {saving ? "Adding…" : "Add to list"}
                         </button>
@@ -487,9 +453,9 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
           title="Documents"
           right={
             <>
-              <span className="text-[12px] font-medium text-indigo-600 tabular-nums whitespace-nowrap">{docPlural(attachments.length)}</span>
+              <CountChip count={docPlural(attachments.length)} />
               {/* One search for all the groups below, in the card's bar. */}
-              <label className="flex items-center gap-2 h-8 w-[200px] sm:w-[240px] rounded-lg border border-slate-200 bg-white px-2.5 text-[13px] focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100 transition-colors">
+              <label className={`${INPUT} flex items-center gap-2 w-[200px] sm:w-[240px] focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-100`}>
                 <SearchOutlined aria-hidden className="text-slate-400" />
                 <input
                   value={search}
@@ -535,13 +501,11 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                       <th
                         scope="rowgroup"
                         colSpan={6}
-                        className="text-left px-3 py-2.5 bg-indigo-50 shadow-[inset_3px_0_0_#6366f1] text-[13px] leading-tight font-bold uppercase tracking-wide text-indigo-800 whitespace-nowrap"
+                        className={`text-left px-3 py-2.5 bg-indigo-50 shadow-[inset_3px_0_0_var(--color-indigo-500)] whitespace-nowrap ${CARD_TITLE}`}
                       >
                         <span className="inline-flex items-center gap-2">
                           {group.title}
-                          <span className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded-full bg-white text-[12px] font-semibold text-indigo-600 ring-1 ring-inset ring-indigo-200 tabular-nums">
-                            {all.length}
-                          </span>
+                          <CountChip count={all.length} />
                         </span>
                       </th>
                     </tr>
@@ -550,14 +514,14 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                         <tr key={file.id} className="hover:bg-slate-50 transition-colors">
                           <td className={TD}>
                             <div className="flex items-center gap-2.5 min-w-0">
-                              <ExtChip fileName={file.fileName} />
+                              <ExtBadge fileName={file.fileName} className="w-8 h-7" />
                               <span className="min-w-0 flex-1">
                                 <a
                                   href={apiFileUrl(file.contentUrl)}
                                   target="_blank"
                                   rel="noreferrer"
                                   title={file.fileName}
-                                  className={`block truncate text-[13px] font-medium text-indigo-600 hover:text-indigo-700 hover:underline rounded-sm ${FOCUS}`}
+                                  className={`block truncate text-[13px] font-medium rounded-sm ${LINK} ${FOCUS}`}
                                 >
                                   {file.fileName}
                                 </a>
@@ -593,9 +557,9 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                               {/* Commercial and customs documents go to customs for review; shipping ones do not. A file
                                   that was reviewed under another type still shows its verdict (and note). */}
                               {isReviewedDocumentType(file.documentType) || file.customsStatus ? (
-                                <ReviewPill status={file.customsStatus} />
+                                <CustomsPill status={file.customsStatus} />
                               ) : (
-                                <span className="text-slate-300" title="Not reviewed by customs">—</span>
+                                <span className={EMPTY} title="Not reviewed by customs">—</span>
                               )}
                               {file.customsStatus === "declined" && file.customsNote && (
                                 <span className="text-[12px] italic text-red-700/80 break-words max-w-full">
@@ -620,7 +584,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                                   target="_blank"
                                   rel="noreferrer"
                                   aria-label={`Preview ${file.fileName}`}
-                                  className={ICON_BTN}
+                                  className={`${ICON_BTN_GHOST} !text-slate-500 hover:!text-slate-900`}
                                 >
                                   <EyeOutlined aria-hidden />
                                 </a>
@@ -639,7 +603,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                       // An empty group is just its band (the count says 0); a line shows only while the
                       // list loads, or when the search hides the group's files.
                       <tr>
-                        <td colSpan={6} className="px-2 py-2 text-[12.5px] text-slate-400">
+                        <td colSpan={6} className="px-2 py-2 text-[13px] text-slate-400">
                           {isLoading ? (
                             <span aria-hidden className="block h-4 w-1/2 rounded bg-slate-100 animate-pulse" />
                           ) : (

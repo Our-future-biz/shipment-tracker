@@ -6,6 +6,7 @@ import { PlusOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { useToast } from "@/lib/toast";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { SectionCard } from "@/components/SectionCard";
 import { useDepartments } from "@/hooks/useOrgUnits";
 import type { Department } from "@/hooks/useOrgUnits";
 import { matchesSearch, sectionTitle, emptyText } from "../_lib/orgSearch";
@@ -72,23 +73,26 @@ export function DepartmentsManager({ search }: DepartmentsManagerProps) {
   ];
 
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl p-4">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-semibold text-slate-800">{sectionTitle("Departments", shown.length, departments.length)}</span>
-        <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => setEditing("new")}>
-          Add Department
-        </Button>
-      </div>
-
-      <Table<Department>
-        size="small"
-        rowKey="id"
-        loading={isLoading}
-        dataSource={shown}
-        columns={columns}
-        pagination={false}
-        locale={{ emptyText: emptyText(search, "No departments yet") }}
-      />
+    <>
+      <SectionCard
+        title={sectionTitle("Departments", shown.length, departments.length)}
+        bodyClassName="p-2"
+        extra={
+          <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => setEditing("new")}>
+            Add Department
+          </Button>
+        }
+      >
+        <Table<Department>
+          size="small"
+          rowKey="id"
+          loading={isLoading}
+          dataSource={shown}
+          columns={columns}
+          pagination={false}
+          locale={{ emptyText: emptyText(search, "No departments yet") }}
+        />
+      </SectionCard>
 
       <Modal
         open={!!editing}
@@ -121,6 +125,6 @@ export function DepartmentsManager({ search }: DepartmentsManagerProps) {
         confirmLabel="Remove"
         danger
       />
-    </div>
+    </>
   );
 }

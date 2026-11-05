@@ -94,7 +94,7 @@ export const QuoteRoadCard = ({ road, customerId, pricing, problems, onChange, o
         <RateCalculatorForm form={form} onChange={handleFormChange} />
         {problems.length > 0 && <div className="text-xs text-slate-500">To price it: {problems.join(" · ")}</div>}
         {pricing && (
-          <div className="rounded-lg border border-indigo-100 bg-indigo-50/50 px-3 py-2 text-[12.5px] text-slate-700">
+          <div className="rounded-lg border border-indigo-100 bg-indigo-50/50 px-3 py-2 text-[13px] text-slate-700">
             <div>
               <span className="font-semibold">Priced from tariff:</span> {pricing.serviceLabel} · sell {pricing.sell.tariffName} v{pricing.sell.versionNo},{" "}
               {formatMoney(pricing.sell.total, pricing.sell.currency)}
@@ -106,7 +106,7 @@ export const QuoteRoadCard = ({ road, customerId, pricing, problems, onChange, o
               <span className="font-semibold">Promised delivery:</span> {promisedLabel(pricing)}
               {pricing.promiseNote && <span className="text-slate-500"> — {pricing.promiseNote}</span>}
             </div>
-            <div className="text-[11.5px] text-slate-500">Rated {businessDateTime(pricing.ratedAt)}</div>
+            <div className="text-[12px] text-slate-500">Rated {businessDateTime(pricing.ratedAt)}</div>
           </div>
         )}
       </div>

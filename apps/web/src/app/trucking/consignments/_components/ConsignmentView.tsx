@@ -17,6 +17,8 @@ import { Badge } from "@/components/Badge";
 import { LifecycleStrip } from "@/app/warehouse-concept/_components/LifecycleStrip";
 import { useUrlParam } from "@/hooks/useUrlParam";
 import { btnDefault, btnPrimary } from "@/components/buttons";
+import { CARD, LABEL_TEXT, LINK, PAGE_SUBTITLE, PAGE_TITLE, REF } from "@/styles/ui";
+import { LINK_BTN, LINK_BTN_PRIMARY, LINK_ICON_BTN_GHOST } from "../../_lib/linkButtons";
 import { CONSIGNMENT_STATUS_CHIP, STAMP_LABELS, consignmentActions, consignmentLifecycle, reasonsBesideNotices, stampOf, statusRank, tripHref, type ActionState } from "../../_lib/consignments";
 import { isExceptionOpen } from "../../_lib/exceptions";
 import { consignmentInternalAmount, monthOf } from "../../_lib/internalBilling";
@@ -120,7 +122,7 @@ export const ConsignmentView = ({ consignmentId }: ConsignmentViewProps) => {
     return (
       <div className="p-10 text-center text-slate-500">
         {isNotFound(error) ? "Consignment not found." : `Could not load the consignment: ${apiErrorMessage(error)}.`}{" "}
-        <Link href={LIST_HREF} className="text-indigo-500">
+        <Link href={LIST_HREF} className={LINK}>
           Back to Consignments
         </Link>
       </div>
@@ -196,12 +198,12 @@ export const ConsignmentView = ({ consignmentId }: ConsignmentViewProps) => {
       <div className="bg-white border-b border-slate-200 px-6 pt-4 pb-0">
         <div className="flex flex-wrap items-start gap-4">
           <div className="flex min-w-[240px] flex-1 items-start gap-2">
-            <Link href={LIST_HREF} aria-label="Back to Consignments" className="mt-1 p-1 text-slate-400 hover:text-indigo-500">
+            <Link href={LIST_HREF} aria-label="Back to Consignments" className={LINK_ICON_BTN_GHOST}>
               <ArrowLeftOutlined />
             </Link>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className="m-0 font-mono text-[22px] font-bold text-slate-800">{c.ref}</h1>
+                <h1 className={`${PAGE_TITLE} ${REF}`}>{c.ref}</h1>
                 <TruckingStatusChip chip={CONSIGNMENT_STATUS_CHIP[c.status]} />
                 {c.internal && (
                   <Tooltip title={`Job ${c.jobNumber} belongs to another department: no customer price, one internal line priced from the ${TERMS.internalTariff.toLowerCase()}, billed in the monthly ${TERMS.internalStatement.toLowerCase()}.`}>
@@ -211,20 +213,20 @@ export const ConsignmentView = ({ consignmentId }: ConsignmentViewProps) => {
                   </Tooltip>
                 )}
               </div>
-              <div className="mt-0.5 flex flex-wrap items-baseline gap-x-4 gap-y-0.5 text-xs text-slate-500">
+              <div className={`mt-0.5 flex flex-wrap items-baseline gap-x-4 gap-y-0.5 ${PAGE_SUBTITLE}`}>
                 <span>
-                  Customer <span className="font-semibold text-slate-800">{c.customerName}</span>
+                  Customer <span className="font-semibold text-slate-900">{c.customerName}</span>
                 </span>
                 <span>
                   Job{" "}
-                  <Link href={`/shipments/${c.shipmentId}?tab=trucking`} className="font-mono font-semibold text-indigo-500 hover:underline">
+                  <Link href={`/shipments/${c.shipmentId}?tab=trucking`} className={`${LINK} ${REF} font-semibold`}>
                     {c.jobNumber}
                   </Link>
                 </span>
                 {liveTrip && (
                   <span>
                     {TERMS.trip}{" "}
-                    <Link href={tripHref(liveTrip.id)} className="font-mono font-semibold text-indigo-500 hover:underline">
+                    <Link href={tripHref(liveTrip.id)} className={`${LINK} ${REF} font-semibold`}>
                       {liveTrip.ref}
                     </Link>{" "}
                     · {liveTrip.haulierName}
@@ -237,7 +239,7 @@ export const ConsignmentView = ({ consignmentId }: ConsignmentViewProps) => {
           <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
             {ltl ? (
               <Tooltip title={actions.planTrip.reason}>
-                <Link href={planningHref(c.pickupDate)} className={c.status === "BOOKED" ? btnPrimary : btnDefault}>
+                <Link href={planningHref(c.pickupDate)} className={c.status === "BOOKED" ? LINK_BTN_PRIMARY : LINK_BTN}>
                   Planning
                 </Link>
               </Tooltip>
@@ -337,7 +339,7 @@ export const ConsignmentView = ({ consignmentId }: ConsignmentViewProps) => {
           (trip ? (
             <TripPanel trip={trip} actions={actions} manager={isTruckingManager(user)} linkToTrip onDialog={setTripDialog} />
           ) : (
-            <div className="flex flex-col items-center gap-3 rounded-xl border border-slate-200 bg-white px-8 py-10 text-center">
+            <div className={`${CARD} flex flex-col items-center gap-3 px-8 py-10 text-center`}>
               <p className="m-0 text-[13px] text-slate-500">
                 No trip yet. Plan one: the hauliers with a buy tariff for this lane are offered, preferred lane first, then cheapest.
               </p>
@@ -347,12 +349,12 @@ export const ConsignmentView = ({ consignmentId }: ConsignmentViewProps) => {
         {tab === "exceptions" && <ConsignmentExceptionsTab c={c} onCreate={() => setDialog({ kind: "exceptionCreate" })} onAction={handleExceptionAction} />}
         {tab === "documents" && <ConsignmentDocumentsTab c={c} documents={documents} isLoading={docsLoading} onUpload={() => setDialog({ kind: "upload" })} />}
         {tab === "history" && (
-          <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <section className={`${CARD} p-4`}>
             <TruckingSendAgain consignmentId={c.id} manager={isTruckingManager(user)} />
             <TruckingHistory events={c.events} />
             {trip && trip.events.length > 0 && (
               <>
-                <h3 className="mb-2 mt-5 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                <h3 className={`${LABEL_TEXT} mb-2 mt-5`}>
                   {TERMS.trip} {trip.ref}
                 </h3>
                 <TruckingHistory events={trip.events} />

@@ -1,15 +1,17 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Button, Spin, Tag } from "antd";
+import { Button, Spin } from "antd";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { Pill } from "@/components/Pill";
 import { PillTabs, SectionCard } from "@/components/SectionCard";
+import { EMPTY } from "@/styles/ui";
 import { useCustomerNotes } from "@/hooks/useCustomerNotes";
 import type { NoteItem } from "@/hooks/useCustomerNotes";
 import { formatDateTime } from "@/lib/date";
 import { useToast } from "@/lib/toast";
-import { NOTE_TYPES, noteTypeColor } from "../../_lib/constants";
+import { NOTE_TYPES } from "../../_lib/constants";
 import { CustomerCountChip } from "../_components/CustomerCountChip";
 import { CustomerNoteDialog } from "../_components/CustomerNoteDialog";
 import type { CustomerNoteFormValues } from "../_components/CustomerNoteDialog";
@@ -95,13 +97,11 @@ export function CommunicationTab({ customerId }: { customerId: string }) {
           return (
             <li key={note.id} className="border border-slate-200 rounded-lg px-3 py-2">
               <div className="flex items-center gap-2">
-                <Tag color={noteTypeColor(note.type)} className="!m-0">
-                  {note.type}
-                </Tag>
+                <Pill tone="slate">{note.type}</Pill>
                 {note.author ? (
-                  <span className="min-w-0 truncate text-xs font-medium text-slate-600">{note.author}</span>
+                  <span className="min-w-0 truncate text-xs font-medium text-slate-700">{note.author}</span>
                 ) : (
-                  <span className="text-slate-300">—</span>
+                  <span className={EMPTY}>—</span>
                 )}
                 {note.colleagues.length > 0 && (
                   <span className="min-w-0 truncate text-xs text-slate-500" title={note.colleagues.join(", ")}>

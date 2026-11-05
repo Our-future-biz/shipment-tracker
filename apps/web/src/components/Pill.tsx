@@ -4,13 +4,14 @@ import type { ComponentProps } from "react";
 // colours come from whoever draws the pill.
 export const PILL_CLASS = "inline-flex items-center gap-1 whitespace-nowrap rounded-xl text-[11px] font-medium px-2.5 py-0.5 leading-[18px]";
 
-type PillTone = "red" | "amber" | "green" | "slate";
+export type PillTone = "red" | "amber" | "green" | "indigo" | "slate";
 
 const TONE_CLASS: Record<PillTone, string> = {
   red: "bg-red-100 text-red-700",
   amber: "bg-amber-100 text-amber-700",
-  green: "bg-green-100 text-green-700",
-  slate: "bg-slate-100 text-slate-500",
+  green: "bg-emerald-100 text-emerald-700",
+  indigo: "bg-indigo-100 text-indigo-700",
+  slate: "bg-slate-100 text-slate-700",
 };
 
 interface PillProps {

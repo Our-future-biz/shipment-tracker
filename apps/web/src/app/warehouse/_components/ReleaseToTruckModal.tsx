@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Modal, Radio, Select } from "antd";
 import { useShipments } from "@/hooks/useShipments";
+import { HINT } from "@/styles/ui";
 
 // Asked when shipments are released from Stock (Vyskladnit): do they leave on a new truck
 // or on one that is already being loaded? A new truck gets the next TCZ reference when the
@@ -72,18 +73,18 @@ export function ReleaseToTruckModal({
       onOk={release}
       onCancel={onClose}
     >
-      <p className="mt-0 mb-3 text-[13px] text-slate-600">
+      <p className="mt-0 mb-3 text-[13px] text-slate-700">
         Release {count} shipment{count === 1 ? "" : "s"} to a new truck, or add {count === 1 ? "it" : "them"} to an existing one?
       </p>
       <Radio.Group value={mode} onChange={(e) => setMode(e.target.value)} className="flex flex-col gap-3 w-full">
         <div>
           <Radio value="new">New truck</Radio>
-          {mode === "new" && <p className="mt-1 mb-0 ml-6 text-xs text-slate-400">A new truck reference (TCZ) is created on release.</p>}
+          {mode === "new" && <p className={`mt-1 mb-0 ml-6 ${HINT}`}>A new truck reference (TCZ) is created on release.</p>}
         </div>
         <div>
           <Radio value="existing" disabled={trucks.length === 0}>
             Existing truck
-            {trucks.length === 0 && <span className="ml-2 text-xs text-slate-400">none yet</span>}
+            {trucks.length === 0 && <span className={`ml-2 ${HINT}`}>none yet</span>}
           </Radio>
           {mode === "existing" && (
             <div className="mt-2 ml-6">

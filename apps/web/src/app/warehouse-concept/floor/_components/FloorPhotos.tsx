@@ -85,14 +85,14 @@ export function TagPicker({ value, onChange, pieces }: { value: string; onChange
       </Chip>
       {pc && (
         <span className="flex items-center gap-1">
-          <button type="button" aria-label="Previous piece" className="h-11 w-11 rounded-xl border border-slate-300 bg-white text-[20px] cursor-pointer" onClick={() => onChange(`PC ${Math.max(1, n - 1)}`)}>
+          <button type="button" aria-label="Previous piece" className="h-11 w-11 rounded-xl border border-slate-300 bg-white text-[20px] font-bold text-slate-700 hover:bg-slate-50 active:bg-slate-100 cursor-pointer" onClick={() => onChange(`PC ${Math.max(1, n - 1)}`)}>
             −
           </button>
           <span className="w-14 text-center text-[16px] font-bold tabular-nums">PC {n}</span>
           <button
             type="button"
             aria-label="Next piece"
-            className="h-11 w-11 rounded-xl border border-slate-300 bg-white text-[20px] cursor-pointer"
+            className="h-11 w-11 rounded-xl border border-slate-300 bg-white text-[20px] font-bold text-slate-700 hover:bg-slate-50 active:bg-slate-100 cursor-pointer"
             onClick={() => onChange(`PC ${pieces > 0 ? Math.min(pieces, n + 1) : n + 1}`)}
           >
             +
@@ -146,12 +146,12 @@ export function FloorPhotos({ m, onBack }: { m: GateMovement; onBack: () => void
         </div>
       </FloorCard>
       <FloorCard title="On this position">
-        <div className="text-[15px] text-slate-700">
+        <div className="text-[14px] text-slate-700">
           {photos.length} photo{photos.length === 1 ? "" : "s"} stored
           {waiting ? ` · ${waiting} waiting to send` : ""}
         </div>
         {photos.length > 0 && (
-          <ul className="m-0 mt-2 list-none p-0 text-[14px] text-slate-600">
+          <ul className="m-0 mt-2 list-none p-0 text-[14px] text-slate-500">
             {photos.slice(-8).map((f) => (
               <li key={f.id} className="truncate py-0.5">
                 {f.tag ? `${f.tag} · ` : ""}
