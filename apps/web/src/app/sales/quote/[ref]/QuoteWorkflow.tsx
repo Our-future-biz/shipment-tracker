@@ -92,7 +92,7 @@ import { CostLinesEditor } from "./_components/CostLinesEditor";
 import { FclPricingEditor } from "./_components/FclPricingEditor";
 import { FclTruckingBlock } from "./_components/FclTruckingBlock";
 import { fclChanges, usesFclPricing, withFclPricing } from "../../_lib/fclPricing";
-import { linesToRecheck, rechecked, stampPricedFor, withPricedForNow } from "../../_lib/tariffRecheck";
+import { linesForOtherDirection, linesToRecheck, otherDirectionBlock, rechecked, stampDirection, stampPricedFor, withPricedForNow } from "../../_lib/tariffRecheck";
 import { QuoteAddressField } from "./_components/QuoteAddressField";
 import { QuoteContactField } from "./_components/QuoteContactField";
 import { QuoteRatesEditor } from "./_components/QuoteRatesEditor";
@@ -560,7 +560,9 @@ export function QuoteWorkflow() {
   }, [fclLayout, draft, exchange]);
   // Buying lines priced by a tariff for another cargo weight than Cargo details has now: marked, to recheck.
   const recheck = quoteClosed ? [] : linesToRecheck(draft);
-  const toRecheck = (index: number) => recheck.includes(index);
+  // And those priced from a tariff in another Trade Direction than the quote has now: picked again before sending.
+  const otherDirection = quoteClosed ? [] : linesForOtherDirection(draft);
+  const toRecheck = (index: number) => recheck.includes(index) || otherDirection.includes(index);
   // A warehouse approval from before the server put its fee to Pricing: the lines are added as the
   // quote opens (once per answer; autosave stores them). Not on a quote whose pricing is closed.
   const missingFee = quote && !quoteClosed ? missingWarehouseFee(draft) : null;
@@ -777,7 +779,10 @@ export function QuoteWorkflow() {
   // covers, or heavy pieces the warehouse has not approved (Council Outlay 6).
   // And a buying line linked to a new supplier that waits for a manager's approval, or was declined: the
   // server refuses the sending too, this says it beforehand.
-  const sendBlocked = quote.sendBlocked ?? (quoteClosed ? null : supplierSendBlock(draft.buyingLines ?? [], (id) => supplierDirectory.byId.get(id), supplierApprovals.declined));
+  // So does a line priced from a tariff in the other Trade Direction (a tariff prices only the directions it is for).
+  const sendBlocked =
+    quote.sendBlocked ??
+    (quoteClosed ? null : (supplierSendBlock(draft.buyingLines ?? [], (id) => supplierDirectory.byId.get(id), supplierApprovals.declined) ?? otherDirectionBlock(draft)));
   // E-mailing sends the quote only where Export PDF would close it - one that has not gone out yet
   // - and on the revision of a Won quote, whose new prices go to the customer. A quote that went
   // out is e-mailed again as it was sent, whatever its margin says now.
@@ -861,8 +866,9 @@ export function QuoteWorkflow() {
   const putPick = (pick: TariffPick) => {
     for (const i of [...pick.removed].sort((a, b) => b - a)) buyingKeys.remove(i);
     for (let k = 1; k < pick.count; k++) buyingKeys.insert(pick.at + k);
-    // The offer's lines are priced for the cargo weight the quote has now.
-    updateLines("buyingLines", stampPricedFor(pick.lines, Array.from({ length: pick.count }, (_, k) => pick.at + k), draft));
+    // The offer's lines are priced for the cargo weight and in the Trade Direction the quote has now.
+    const picked = Array.from({ length: pick.count }, (_, k) => pick.at + k);
+    updateLines("buyingLines", stampDirection(stampPricedFor(pick.lines, picked, draft), picked, draft));
   };
   // An offer picked under "Tariffs available" goes on the line it was opened from (see
   // withRailOffer); the rows keep their React keys. As when an amount is typed on a line that had
@@ -1562,6 +1568,14 @@ export function QuoteWorkflow() {
               problems={roadProblems}
               onChange={(next) => set({ road: next })}
               onPrice={() => setModal("roadPrice")}
+            />
+          )}
+          {otherDirection.length > 0 && (
+            <Alert
+              type="warning"
+              showIcon
+              message="The Trade Direction changed since these rates were priced"
+              description={`${otherDirectionBlock(draft)}. A tariff only prices the Trade Direction it is for (Import, Export or both, as set on Tariffs). The quote can't be sent until then.`}
             />
           )}
           {recheck.length > 0 && (

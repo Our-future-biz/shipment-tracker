@@ -95,6 +95,10 @@ export interface CostLine {
   // A line priced from a tariff that prices by weight (rail, collections): the cargo weight it was
   // priced for (tariffRecheck.ts), so a later change of the weight asks for the rate to be checked.
   pricedFor?: string;
+  // A line priced from a tariff for one direction (rail, ocean): the quote's Trade Direction it was
+  // priced in (tariffRecheck.ts). A tariff prices only the directions it is for, so a later change of
+  // the Trade Direction asks for the tariff to be picked again.
+  pricedDirection?: "import" | "export";
   // A line charged per container of one type only ("40' HC"): those containers are its quantity.
   // Without it a line charged per container counts all of the quote's containers.
   containerType?: string;

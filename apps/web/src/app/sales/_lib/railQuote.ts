@@ -3,7 +3,7 @@ import { containerType } from "@/lib/cargo";
 import { formatPostcode } from "@/lib/postcode";
 import { TARIFF_PORTS, portsText } from "@/app/tariffs/_lib/railTariffs";
 import { cargoReadyDay, isContainerQuote } from "./salesQuote";
-import { ADDRESS_POSTCODE, containerFreightLines, hasTariffRef, isChargeLine, tariffRefVersionId, withTariffLines, type TariffPick } from "./tariffQuote";
+import { ADDRESS_POSTCODE, containerFreightLines, hasTariffRef, isChargeLine, tariffRefVersionId, TRADE_DIRECTION_FIRST, tradeDirectionOf, withTariffLines, type TariffPick } from "./tariffQuote";
 import type { CostLine, SalesQuoteData } from "./types";
 
 // Pure helpers of rail tariffs on a quote (Pricing → "Tariffs available" on an inland container
@@ -37,6 +37,8 @@ export interface RailRoute {
   /** YYYY-MM-DD */
   date: string;
   containers: interfaces.RailOfferContainer[];
+  /** False while the quote has no Trade Direction: `direction` is then only a guess, and no tariff is asked. */
+  directionChosen?: boolean;
 }
 
 const LOCODE = /\(([A-Z]{2})([A-Z0-9]{3})\)\s*$/;
@@ -68,6 +70,7 @@ export function railRouteOf(data: SalesQuoteData, today: string): RailRoute {
   return {
     port: tariffPortOf(direction === "import" ? data.pod : data.pol),
     direction,
+    directionChosen: tradeDirectionOf(data) !== null,
     place: postcode ? formatPostcode(`${postcode[1]}${postcode[2]}`, country) : town.replace(PLACE_CODE, "").trim(),
     country,
     date: cargoReadyDay(data) || today,
@@ -85,6 +88,7 @@ export function railContainersOf(data: SalesQuoteData): interfaces.RailOfferCont
 
 /** What keeps the route from being asked for, in words; null when it can be. */
 export function railRouteProblem(route: RailRoute): string | null {
+  if (route.directionChosen === false) return TRADE_DIRECTION_FIRST;
   if (!route.containers.length) return "Add the containers in Cargo details first";
   if (!route.port) return `Choose the port (tariffs are for ${portsText(TARIFF_PORTS.map((p) => p.code))})`;
   if (!route.place.trim()) return "Type the inland place or its postcode";

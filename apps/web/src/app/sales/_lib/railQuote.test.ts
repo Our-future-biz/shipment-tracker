@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isInlandHaulageLine, railContainersOf, railDescription, railOffersRequest, railRouteOf, railRouteProblem, railVersionId, withRailOffer, type RailOffer } from "./railQuote";
+import { TRADE_DIRECTION_FIRST } from "./tariffQuote";
 import type { CostLine, SalesQuoteData } from "./types";
 
 const TODAY = "2026-10-28";
@@ -45,6 +46,7 @@ describe("railRouteOf", () => {
     expect(railRouteOf(QUOTE, TODAY)).toEqual({
       port: "DEHAM",
       direction: "import",
+      directionChosen: true,
       place: "602 00",
       country: "CZ",
       date: "2026-11-15",
@@ -87,6 +89,9 @@ describe("railRouteProblem", () => {
   it("asks for containers, a port and a place, in that order", () => {
     const route = railRouteOf(QUOTE, TODAY);
     expect(railRouteProblem({ ...route, containers: [] })).toContain("containers");
+    // A tariff is for import, export or both: none is asked before the quote has a Trade Direction.
+    expect(railRouteProblem(railRouteOf({ ...QUOTE, direction: undefined }, TODAY))).toBe(TRADE_DIRECTION_FIRST);
+    expect(railOffersRequest(railRouteOf({ ...QUOTE, direction: undefined }, TODAY))).toBeNull();
     expect(railRouteProblem({ ...route, port: null })).toContain("port");
     expect(railRouteProblem({ ...route, place: " " })).toContain("place");
     expect(railRouteProblem(route)).toBeNull();

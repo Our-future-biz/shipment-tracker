@@ -48,7 +48,8 @@ interface RailTariffsDrawerProps {
 
 // "Tariffs available": what every rail tariff asks for the quote's containers on its route, from
 // the most economic to the most expensive. The route starts as the quote has it - the port,
-// direction, inland place and containers - and can be corrected here; picking an offer puts it on
+// direction, inland place and containers - and can be corrected here, but for the direction: that
+// is the quote's Trade Direction, which a tariff must be for; picking an offer puts it on
 // the buying line. The options can be narrowed to the terminals the user wants the train to run
 // via; that choice stays while the quote is open.
 export const RailTariffsDrawer = ({ open, quote, quoteCurrency, toQuoteCurrency, onPick, onClose }: RailTariffsDrawerProps) => {
@@ -65,12 +66,6 @@ export const RailTariffsDrawer = ({ open, quote, quoteCurrency, toQuoteCurrency,
   const problem = railRouteProblem(route);
   const { result, isLoading, isFetching, error } = useRailOffers(open ? railOffersRequest(asked) : null);
   const set = (patch: Partial<RailRoute>) => setRoute((r) => ({ ...r, ...patch }));
-
-  // The direction decides which port and address of the quote the route is read from.
-  const setDirection = (direction: interfaces.RailDirection) => {
-    const fromQuote = railRouteOf({ ...quote, direction: direction === "export" ? "Export" : "Import" }, route.date);
-    setRoute({ ...fromQuote, date: route.date });
-  };
 
   const ranked = rankOffers(result?.offers ?? [], (o) => offerInQuoteCurrency(o, quoteCurrency, toQuoteCurrency));
   const offers = viaTerminals(ranked, terminals);
@@ -125,8 +120,9 @@ export const RailTariffsDrawer = ({ open, quote, quoteCurrency, toQuoteCurrency,
   const form = (
     <>
       <div className="grid grid-cols-2 md:grid-cols-[auto_1fr_1.2fr_64px_150px] gap-3 items-end">
-        <TariffDrawerField label="Direction" group>
-          <Segmented<interfaces.RailDirection> size="middle" aria-label="Direction" value={route.direction} options={DIRECTION_OPTIONS} onChange={setDirection} />
+        {/* The quote's Trade Direction: a tariff prices only the directions it is for, so it is not changed here. */}
+        <TariffDrawerField label="Trade Direction" group>
+          <Segmented<interfaces.RailDirection> size="middle" aria-label="Direction" value={route.direction} options={DIRECTION_OPTIONS} disabled />
         </TariffDrawerField>
         <TariffDrawerField label="Port">
           <Select aria-label="Port" placeholder="Port" value={route.port} options={PORT_OPTIONS} onChange={(port: interfaces.TariffPortCode) => set({ port })} />

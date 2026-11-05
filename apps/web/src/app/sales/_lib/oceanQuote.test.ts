@@ -12,6 +12,7 @@ import {
   withOceanOffer,
   type OceanOffer,
 } from "./oceanQuote";
+import { TRADE_DIRECTION_FIRST } from "./tariffQuote";
 import type { CostLine, SalesQuoteData } from "./types";
 
 const TODAY = "2026-10-28";
@@ -65,6 +66,7 @@ describe("oceanRouteOf", () => {
     expect(oceanRouteOf(QUOTE, TODAY)).toEqual({
       fcl: true,
       direction: "export",
+      directionChosen: true,
       pol: "Hamburg (DEHAM)",
       pod: "Shanghai (CNSHA)",
       comparePols: false,
@@ -94,6 +96,7 @@ describe("oceanRouteProblem and oceanOffersRequest", () => {
 
   it("asks for a Sea FCL quote, containers, a port of loading (unless compared) and a port of discharge", () => {
     expect(oceanRouteProblem({ ...route, fcl: false })).toContain("Sea FCL");
+    expect(oceanRouteProblem(oceanRouteOf({ ...QUOTE, direction: undefined }, TODAY))).toBe(TRADE_DIRECTION_FIRST);
     expect(oceanRouteProblem({ ...route, containers: [] })).toContain("containers");
     expect(oceanRouteProblem({ ...route, pol: "" })).toContain("port of loading");
     expect(oceanRouteProblem({ ...route, pol: "", comparePols: true })).toBeNull();
