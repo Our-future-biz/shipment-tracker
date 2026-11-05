@@ -30,6 +30,7 @@ import { customerIdOf, linkForSave, refreshCopies, withRefresh } from "../utils/
 import { tryCustomerRefs } from "../lib/customerRefs";
 import { linkedSupplierIds, supplierGate, type LinkedSupplierState } from "../utils/supplierApproval.utils";
 import { shippingTermsGateMessage } from "../utils/shippingTerms.utils";
+import { columnFiltersOf } from "../utils/quoteColumnFilters.utils";
 import { approvedPricing, inquiryGateMessage, MAX_INQUIRY_NOTE, MAX_INQUIRY_PIECES, MAX_PRICE_PER_PIECE, MIN_REJECT_REASON, readInquiry } from "../utils/warehouseInquiry.utils";
 import { fxWriteFor, mayStampFx, type StoredFx } from "../lib/quoteFx";
 import { approvalBasisOf, formatMargin, freightModeGateMessage, guardrailModeOf, marginGateMessage, roadMargin, type MarginContext } from "../lib/roadMargin";
@@ -107,6 +108,8 @@ export interface SalesQuoteListRequest {
   familyOf?: string;
   /** true: only quotes a shipment names; false: only quotes none does. */
   hasShipment?: boolean;
+  /** "Filter by column": a JSON list of { key, value } (quoteColumnFilters.utils). */
+  columnFilters?: string;
 }
 
 /** A pricing of a quote from the trucking tariffs as the API takes it. */
@@ -326,6 +329,7 @@ function filterOf(actor: Actor, request: SalesQuoteListRequest): SalesQuoteFilte
     family: request.familyOf?.trim() ? baseReference(request.familyOf.trim()) : undefined,
     hasShipment: request.hasShipment,
     search: searchTokens(request.search ?? ""),
+    columns: columnFiltersOf(request.columnFilters),
   };
 }
 

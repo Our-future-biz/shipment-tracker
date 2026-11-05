@@ -1757,6 +1757,7 @@ export namespace quotes {
             // Convert our params into the objects we need for the request
             const query = makeRecord<string, string | string[]>({
                 afterId:       params.afterId,
+                columnFilters: params.columnFilters,
                 createdFrom:   params.createdFrom,
                 createdTo:     params.createdTo,
                 customerId:    params.customerId,
@@ -8528,6 +8529,14 @@ export namespace controllers {
          * true: only the quotes a shipment names (shipmentJobNumber is set); false: only the quotes none does.
          */
         hasShipment?: boolean
+
+        /**
+         * "Filter by column": a JSON list of { "key", "value" }, every one kept. A quote is kept when its
+         * text in the column contains the value, case and diacritics aside (Incoterms: is the value). Columns:
+         * reference, customer, origin, destination, validity, shipment (the job number), incoterm,
+         * cargoReady, commodity, method, shippingTerms, sent; dates as DD.MM.YYYY. At most 10.
+         */
+        columnFilters?: string
     }
 
     export interface SalesQuoteListResponse {

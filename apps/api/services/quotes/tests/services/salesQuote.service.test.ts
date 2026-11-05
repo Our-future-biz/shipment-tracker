@@ -278,6 +278,7 @@ describe("list", () => {
         family: undefined,
         hasShipment: undefined,
         search: [],
+        columns: [],
       },
       page: { limit: 50, offset: 0, sortBy: "createdAt", sortDirection: "desc", afterId: undefined },
       // Today is the day in Prague; a follow-up is due on a last contact three days old.

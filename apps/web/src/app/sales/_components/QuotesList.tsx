@@ -57,6 +57,7 @@ import {
   builtinViewOf,
   filtersToQuery,
   hasFilters,
+  activeColumnFilters,
   listHref,
   readList,
   type Filters,
@@ -538,7 +539,8 @@ export function QuotesList() {
     const v = savedViews.find((s) => s.id === id);
     if (!v) return;
     const statuses = Array.isArray(v.filters?.statuses) ? v.filters.statuses.filter((status) => typeof status === "string") : [];
-    show({ filters: { ...EMPTY_FILTERS, ...v.filters, statuses }, search: typeof v.search === "string" ? v.search : "" });
+    const columns = activeColumnFilters(v.filters?.columns);
+    show({ filters: { ...EMPTY_FILTERS, ...v.filters, statuses, columns: columns.length ? columns : undefined }, search: typeof v.search === "string" ? v.search : "" });
   };
   const openSaveView = () => {
     setNewViewName("");

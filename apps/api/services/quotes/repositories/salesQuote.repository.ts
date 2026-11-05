@@ -20,6 +20,8 @@ import {
   type TimelineEntry,
 } from "../utils/quoteLifecycle.utils";
 import { COMBINING_MARKS, FINAL_SIGMA, FOLD_FROM, FOLD_TO, SIGMA, escapeLike } from "../utils/quoteSearch.utils";
+import { foldSql } from "../../../lib/db/textSearch";
+import type { QuoteColumnFilter, QuoteFilterColumn } from "../utils/quoteColumnFilters.utils";
 
 // What a sales quote is: a row whose status column is filled. Rows of the old quotes module
 // share the table and have none. This is the one place the rule is written; a sales quote
@@ -138,6 +140,29 @@ const searchedText = (today: string, owners: ListOwner[]) => {
       AS d("customerName" text, "serviceType" text, direction text, origin text, destination text, commodity text, incoterm text))`;
 };
 
+// A column's text as the list shows it, for "Filter by column": dates as DD.MM.YYYY, the sent date
+// on the day in Prague. A cargo readiness that is no date counts as empty, as the list shows it.
+const COLUMN_TEXT: Record<QuoteFilterColumn, SQL> = {
+  reference: sql`${quoteTable.quoteNumber}`,
+  customer: sql`${quoteTable.data}->>'customerName'`,
+  origin: sql`${quoteTable.data}->>'origin'`,
+  destination: sql`${quoteTable.data}->>'destination'`,
+  validity: sql`to_char(${quoteTable.validUntil}, 'DD.MM.YYYY')`,
+  shipment: sql`${quoteTable.shipmentJobNumber}`,
+  incoterm: sql`${quoteTable.data}->>'incoterm'`,
+  cargoReady: sql`CASE WHEN ${quoteTable.data}->>'readyDate' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN to_char((${quoteTable.data}->>'readyDate')::date, 'DD.MM.YYYY') END`,
+  commodity: sql`${quoteTable.data}->>'commodity'`,
+  method: sql`${quoteTable.data}->>'method'`,
+  shippingTerms: sql`${quoteTable.data}->>'shippingTerms'`,
+  sent: sql`to_char(${quoteTable.sentAt} AT TIME ZONE ${BUSINESS_TZ}::text, 'DD.MM.YYYY')`,
+};
+
+// A column filter as SQL: the column's folded text contains the value, or on an exact column is it.
+const columnMatches = (f: QuoteColumnFilter): SQL => {
+  const text = foldSql(sql`coalesce(${COLUMN_TEXT[f.key]}, '')`);
+  return f.exact ? sql`btrim(${text}) = ${f.value}` : sql`${text} LIKE ${`%${f.value}%`}`;
+};
+
 // What a list can be sorted by, and what each sort orders by: the whole of it - nothing a caller
 // sends ever becomes SQL, and a sort that is not listed here means the newest first. A text that
 // is empty counts as missing, and what is missing comes last in both directions. Status and owner
@@ -184,6 +209,8 @@ export interface SalesQuoteFilter {
   hasShipment?: boolean;
   /** Words that all have to occur in the quote's searched text, as searchTokens makes them. */
   search?: string[];
+  /** "Filter by column" rows, every one kept (quoteColumnFilters.utils). */
+  columns?: QuoteColumnFilter[];
 }
 
 /**
@@ -836,6 +863,7 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
       filter.search?.length
         ? sql`${searchedText(today, owners)} LIKE ALL (${textArray(filter.search.map((word) => `%${word}%`))})`
         : undefined,
+      ...(filter.columns ?? []).map(columnMatches),
     );
   }
 

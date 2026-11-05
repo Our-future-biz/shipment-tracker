@@ -3,7 +3,7 @@ import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from "@/components/DataTable";
 import type { SalesQuoteFilter } from "@/hooks/salesQueryKeys";
 import { addDays, businessToday } from "@/lib/date";
 import { isUuid } from "@/lib/uuid";
-import { OPEN_QUOTE_STATUSES, QUOTE_STATUSES } from "./types";
+import { INCOTERMS, OPEN_QUOTE_STATUSES, QUOTE_STATUSES } from "./types";
 
 // What narrows the Quotes list. Saved views store this object as it is, so its shape stays: the
 // server's filters are made from it (filtersToQuery), not the other way round.
@@ -25,7 +25,49 @@ export interface Filters {
   followUpDue?: boolean;
   /** The quotes of one user, by their id - or "none": the quotes that belong to no user. */
   owner?: string;
+  /** "Filter by column" rows: each keeps the quotes whose text in the column contains the value (QUOTE_FILTER_COLUMNS). */
+  columns?: ColumnFilter[];
 }
+
+/** One "Filter by column" row: a column of QUOTE_FILTER_COLUMNS and the text looked for in it. */
+export interface ColumnFilter {
+  key: string;
+  value: string;
+}
+
+/**
+ * The columns the server filters by (quotes utils/quoteColumnFilters.utils), with the list's titles;
+ * Incoterms is picked from its codes. Status, Sales owner, Freight mode, Trade direction and Created
+ * have filters of their own above.
+ */
+export const QUOTE_FILTER_COLUMNS: { key: string; title: string; options?: readonly string[] }[] = [
+  { key: "reference", title: "Reference" },
+  { key: "customer", title: "Customer" },
+  { key: "origin", title: "Origin" },
+  { key: "destination", title: "Destination" },
+  { key: "validity", title: "Valid until" },
+  { key: "shipment", title: "Shipment (job no.)" },
+  { key: "incoterm", title: "Incoterms", options: INCOTERMS },
+  { key: "cargoReady", title: "Cargo ready" },
+  { key: "commodity", title: "Cargo Description" },
+  { key: "method", title: "Method" },
+  { key: "shippingTerms", title: "Shipping terms" },
+  { key: "sent", title: "Sent Date" },
+];
+
+const isFilterColumn = (key: unknown): key is string => typeof key === "string" && QUOTE_FILTER_COLUMNS.some((c) => c.key === key);
+
+/** The rows that narrow anything, trimmed: a known column and a value. Anything else (a saved view of unknown age) is dropped. */
+export function activeColumnFilters(rows: unknown): ColumnFilter[] {
+  if (!Array.isArray(rows)) return [];
+  return rows.flatMap((row): ColumnFilter[] => {
+    const { key, value } = (row ?? {}) as { key?: unknown; value?: unknown };
+    return isFilterColumn(key) && typeof value === "string" && value.trim() ? [{ key, value: value.trim() }] : [];
+  });
+}
+
+// A column filter in the address: f.<column>=<value>, as the Shipments grid writes them.
+const COLUMN_PARAM = "f.";
 
 export interface SavedView {
   id: string;
@@ -57,6 +99,7 @@ export function filtersToQuery(filters: Filters): SalesQuoteFilter {
     validFrom: filters.validWithinDays ? today : undefined,
     validTo: filters.validWithinDays ? addDays(today, filters.validWithinDays) : undefined,
     followUp: filters.followUpDue ? "due" : undefined,
+    columnFilters: activeColumnFilters(filters.columns).length ? JSON.stringify(activeColumnFilters(filters.columns)) : undefined,
   };
 }
 
@@ -101,11 +144,20 @@ export function readList(params: URLSearchParams): ListState {
       owner: owner === NO_OWNER || isUuid(owner) ? owner : undefined,
       validWithinDays: Number.isInteger(validWithin) && validWithin > 0 && validWithin <= MAX_VALID_WITHIN_DAYS ? validWithin : undefined,
       followUpDue: params.get("followup") === "due" || undefined,
+      columns: columnsOfParams(params),
     },
     sort: params.get("sort") ?? "",
     page: Number.isInteger(page) && page > 0 ? page : 1,
     pageSize: PAGE_SIZE_OPTIONS.includes(pageSize) ? pageSize : DEFAULT_PAGE_SIZE,
   };
+}
+
+// The column filters an address carries, in its order; none is no list at all.
+function columnsOfParams(params: URLSearchParams): ColumnFilter[] | undefined {
+  const rows = activeColumnFilters(
+    Array.from(params.entries()).flatMap(([name, value]) => (name.startsWith(COLUMN_PARAM) ? [{ key: name.slice(COLUMN_PARAM.length), value }] : [])),
+  );
+  return rows.length ? rows : undefined;
 }
 
 // The filters as the address writes them: a filter that is off is an empty text.
@@ -138,11 +190,13 @@ export function listHref(pathname: string, current: URLSearchParams, list: ListS
     if (value) params.set(key, value);
     else params.delete(key);
   }
+  for (const name of Array.from(params.keys())) if (name.startsWith(COLUMN_PARAM)) params.delete(name);
+  for (const f of activeColumnFilters(list.filters.columns)) params.append(`${COLUMN_PARAM}${f.key}`, f.value);
   const qs = params.toString();
   return qs ? `${pathname}?${qs}` : pathname;
 }
 
-export const hasFilters = (filters: Filters) => Object.values(filterParams(filters)).some(Boolean);
+export const hasFilters = (filters: Filters) => Object.values(filterParams(filters)).some(Boolean) || activeColumnFilters(filters.columns).length > 0;
 
 // The views every user has, beside the title. Each filters exactly what its name says.
 export const BUILTIN_VIEWS: { id: string; label: string; apply: () => Filters }[] = [
@@ -155,7 +209,8 @@ export const BUILTIN_VIEWS: { id: string; label: string; apply: () => Filters }[
 
 // Two sets of filters find the same quotes when the address would write them the same, in
 // whatever order their statuses were ticked.
-const filtersKey = (filters: Filters) => JSON.stringify(filterParams({ ...filters, statuses: [...filters.statuses].sort() }));
+const filtersKey = (filters: Filters) =>
+  JSON.stringify([filterParams({ ...filters, statuses: [...filters.statuses].sort() }), activeColumnFilters(filters.columns)]);
 
 // The built-in view the filters are - exactly, with nothing added and nothing taken away - if
 // they are one. With one more filter on, the list is no longer what the view's name says.
