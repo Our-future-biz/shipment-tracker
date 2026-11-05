@@ -179,6 +179,10 @@ function useOpenRows() {
     const handleMouseDown = (e: MouseEvent) => {
       const target = e.target as Element | null;
       if (!target?.closest || target.closest(EDIT_ROW_AREAS)) return;
+      // The field being typed in is left first, so its own onBlur saves it: closing the row
+      // removes the field before the click would move the focus, and its last value was lost.
+      const typing = document.activeElement as HTMLElement | null;
+      if (typing?.closest?.("[data-edit-row]")) typing.blur();
       setRows(new Set());
     };
     document.addEventListener("mousedown", handleMouseDown);
