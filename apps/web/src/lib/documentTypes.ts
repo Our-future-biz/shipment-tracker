@@ -24,6 +24,13 @@ export const DOCUMENT_TYPES = [
 export const isKnownDocumentType = (documentType: string) =>
   (DOCUMENT_TYPES as readonly string[]).includes(documentType);
 
+/**
+ * The name a type is shown under. Stored types stay as they are (the server reads "Invoice" for
+ * the customs status); only the name on screen differs where the stored one is too short.
+ */
+const DOCUMENT_TYPE_LABELS: Record<string, string> = { Invoice: "Commercial Invoice" };
+export const documentTypeLabel = (documentType: string) => DOCUMENT_TYPE_LABELS[documentType] ?? documentType;
+
 /** Documents a shipment is expected to have — missing ones are flagged. */
 export const REQUIRED_DOCUMENT_TYPES = [
   "Invoice",
