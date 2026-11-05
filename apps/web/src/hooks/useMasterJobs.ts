@@ -21,6 +21,20 @@ export function useMasterJobs() {
   return { masterJobs: query.data?.data ?? [], isLoading: query.isLoading };
 }
 
+/**
+ * The shipments linked to a master job, read only while `enabled`. Kept under ["shipments"], so
+ * every write that refreshes the shipments (linking, unlinking, deleting, a master-job write)
+ * refreshes this too.
+ */
+export function useMasterJobShipments(id: string, enabled: boolean) {
+  const query = useQuery({
+    queryKey: ["shipments", "master-job", id],
+    queryFn: () => api.shipments.masterJobGet(id),
+    enabled,
+  });
+  return { shipments: query.data?.shipments ?? [], isLoading: query.isLoading, isError: query.isError };
+}
+
 // Master-job writes also change the linked shipments (synced fields, containers,
 // the "Master job" column), so both caches are refreshed after every write.
 export function useMasterJob(id: string | null) {

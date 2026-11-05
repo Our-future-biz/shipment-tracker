@@ -59,6 +59,7 @@ import { WarehouseTab } from "./tabs/WarehouseTab";
 import { CustomsTab } from "./tabs/CustomsTab";
 import { EditableCell, FreightModeContext, ShipmentCustomerContext, ShipmentCustomerPicContext, ShipmentEmailSubjectContext, TradeDirectionContext } from "./_components/EditableCell";
 import { shipmentEmailSubject } from "../_lib/shipmentEmail";
+import { MasterJobHoverCard } from "@/components/MasterJobHoverCard";
 import { FadeText } from "@/components/FadeText";
 import { CustomerLinkField } from "./_components/CustomerLinkField";
 import { PartyContactField } from "./_components/PartyContactField";
@@ -1213,9 +1214,17 @@ export function ShipmentDetailContent() {
                           {/* The app's link colour (antd's link), like Customer below. */}
                           {shipment.masterJobMczNumber ? (
                             <>
-                              <button onClick={() => setMasterJobOpen(true)} className={`${LINK} cursor-pointer bg-transparent border-none p-0`}>
-                                #{shipment.masterJobMczNumber}
-                              </button>
+                              {shipment.masterJobId ? (
+                                <MasterJobHoverCard masterJobId={shipment.masterJobId} mczNumber={String(shipment.masterJobMczNumber)}>
+                                  <button onClick={() => setMasterJobOpen(true)} className={`${LINK} cursor-pointer bg-transparent border-none p-0`}>
+                                    #{shipment.masterJobMczNumber}
+                                  </button>
+                                </MasterJobHoverCard>
+                              ) : (
+                                <button onClick={() => setMasterJobOpen(true)} className={`${LINK} cursor-pointer bg-transparent border-none p-0`}>
+                                  #{shipment.masterJobMczNumber}
+                                </button>
+                              )}
                               <button onClick={handleUnlinkMasterJob} className="text-[10px] text-slate-500 hover:text-red-600 cursor-pointer bg-transparent border-none p-0">
                                 unassign
                               </button>

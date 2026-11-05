@@ -38,6 +38,7 @@ import { NeedsAttentionTable } from "./NeedsAttentionTable";
 import { MasterJobDetailModal } from "./MasterJobDetailModal";
 import { DocumentsPanel } from "./DocumentsPanel";
 import { DimensionsModal } from "./DimensionsModal";
+import { MasterJobHoverCard } from "@/components/MasterJobHoverCard";
 import { ShipmentHoverCard } from "@/components/ShipmentHoverCard";
 import { CommercialInvoicesModal } from "./CommercialInvoicesModal";
 import { ShipmentChatDrawer } from "./ChatPanel";
@@ -483,7 +484,8 @@ export const ShipmentsTable = ({
         }
         // Master job \u2192 opens the master-job modal.
         if (col.key === "masterJob") {
-          return val ? (
+          if (!val) return <span className={EMPTY}>{"\u2014"}</span>;
+          const reference = (
             <button
               onClick={(e) => { e.stopPropagation(); setMczModal(val); }}
               className={`${cellLinkClass(textStyle?.color)} font-medium bg-transparent border-none p-0 cursor-pointer`}
@@ -491,8 +493,13 @@ export const ShipmentsTable = ({
             >
               {val}
             </button>
+          );
+          return record.masterJobId ? (
+            <MasterJobHoverCard masterJobId={record.masterJobId} mczNumber={val}>
+              {reference}
+            </MasterJobHoverCard>
           ) : (
-            <span className={EMPTY}>{"\u2014"}</span>
+            reference
           );
         }
         // Container Number / Type / Total TEU \u2192 open the shipment's Container Details tab.
