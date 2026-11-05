@@ -346,9 +346,10 @@ function StackabilityRow({ value, onPick }: StackabilityRowProps) {
         />
       ) : (
         <span
-          className="flex-1 min-w-0 cursor-pointer rounded px-1 -mx-1 hover:bg-slate-100 transition-colors text-slate-800 break-words"
           // Cargo that needs special handling stands out, like a Yes for Dangerous.
-          style={value === NOT_STACKABLE ? { backgroundColor: "rgba(234, 179, 8, 0.15)" } : undefined}
+          className={`flex-1 min-w-0 cursor-pointer rounded px-1 -mx-1 transition-colors text-slate-800 break-words ${
+            value === NOT_STACKABLE ? "bg-yellow-500/15" : "hover:bg-slate-100"
+          }`}
           title="Double-click to edit"
           onDoubleClick={() => setEditing(true)}
         >

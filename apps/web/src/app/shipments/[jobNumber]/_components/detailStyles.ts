@@ -17,7 +17,7 @@ export const ROW_TOP = ROW.replace("items-center", "items-start");
 
 /** The label width: 132px, 150px on a wide screen, or what a wrapper sets in --lw (the sidebar uses less). */
 export const LABEL_W = "w-[var(--lw,132px)] xl:w-[var(--lw,142px)] 2xl:w-[var(--lw,150px)]";
-/** The row label: small grey caps, as the summary bars and table headings have them. */
+/** The row label: small bold caps in black, the same on an empty row. */
 export const LABEL = `${LABEL_W} shrink-0 text-[11px] leading-[14px] font-bold uppercase text-slate-900`;
 /** For a label in a ROW_TOP row, so it lines up with the value's first line. */
 export const LABEL_TOP = `${LABEL} pt-[3px]`;

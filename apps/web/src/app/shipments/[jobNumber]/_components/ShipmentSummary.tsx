@@ -8,7 +8,7 @@ import { formatDate } from "@/lib/date";
 import { statusLabel, statusTagColor } from "@/lib/shipmentStatus";
 import { CopyButton } from "@/components/CopyButton";
 import { getActiveStageFromTasks, getTasksForDirection } from "./taskDefinitions";
-import { CARD, EMPTY } from "./detailStyles";
+import { EMPTY } from "./detailStyles";
 
 /* ── Stepper stages ── */
 const SHIPMENT_STAGES = [
@@ -136,7 +136,10 @@ export function ShipmentProgress({ shipment }: { shipment: ShipmentItem }) {
   const activeIndex = getActiveStageFromTasks(taskList, (key) => !!byKey.get(key)?.completed);
 
   return (
-    <ol className={`${CARD.replace("flex flex-col", "").replace("border-slate-200", "border-slate-300")} list-none grid grid-cols-3 md:grid-cols-6 gap-x-1 gap-y-3 px-5 pt-3 pb-3.5`}>
+    <ol
+      aria-label="Shipment progress"
+      className="bg-white border border-slate-300 rounded-xl shadow-sm list-none grid grid-cols-3 md:grid-cols-6 gap-x-1 gap-y-3 px-5 pt-3 pb-3.5"
+    >
       {SHIPMENT_STAGES.map((label, i) => {
         const done = i < activeIndex;
         const current = i === activeIndex;
@@ -148,14 +151,18 @@ export function ShipmentProgress({ shipment }: { shipment: ShipmentItem }) {
                 done ? "text-slate-700" : current ? "text-indigo-700 font-semibold" : "text-slate-500"
               }`}
             >
-              {/* The current stage carries a dot; the others start at their bar's left edge. */}
+              {/* The current stage carries a dot; every name sits centred over its bar. */}
               {current && (
                 <span aria-hidden className="relative flex h-4 w-2.5 shrink-0 items-center justify-center">
                   <span className="absolute size-2.5 rounded-full bg-indigo-100" />
                   <span className="relative size-1.5 rounded-full bg-indigo-600" />
                 </span>
               )}
-              <span className="min-w-0">{label}</span>
+              <span className="min-w-0">
+                {label}
+                {/* The bar's colour says it on screen; a screen reader is told in words. */}
+                <span className="sr-only">{done ? " (done)" : current ? " (in progress)" : ""}</span>
+              </span>
             </div>
             {/* Every segment is full length: solid = done, light indigo = in progress, grey = not yet. Never a fraction. */}
             <div
