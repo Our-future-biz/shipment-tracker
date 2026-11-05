@@ -30,14 +30,15 @@ import {
 } from "@/lib/documentTypes";
 import { CARD } from "../_components/detailStyles";
 import { RowActionsMenu } from "../../_components/RowActionsMenu";
+import { ConfirmModal } from "@/components/ConfirmModal";
 
 type AttachmentFile = AttachmentItem;
 
-// The Documents tab in the look of the Shipment Details cards: one Documents card with the app's
-// light indigo bar, adding files and the search on top, then one table where each group is a small
-// heading over its files; the required-documents checklist in a card of its own on the right, as
-// Tasks is. Only the look; every action and rule is as before. The Customs section keeps its own
-// look (docsShared), so the file badge and the customs pill here are this tab's own.
+// The Documents tab in the look of the Shipment Details cards, three cards one under another:
+// adding files, the required documents as milestones, and Documents (the app's light indigo bar
+// with the count and the search, then one table where each group is a band over its files). The
+// Customs section keeps its own look (docsShared), so the file badge and the customs pill here are
+// this tab's own.
 
 /** Focus ring for the tab's own buttons and links. */
 const FOCUS = "outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1";
@@ -227,14 +228,13 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
   // Type pre-selected by clicking a "Missing" row in the checklist.
   const presetRef = useRef<string | null>(null);
 
-  const addFiles = (list: FileList | File[] | null) => {
+  // preset: the type of the Missing milestone that opened the picker; files dropped have none.
+  const addFiles = (list: FileList | File[] | null, preset: string | null) => {
     if (!list || list.length === 0) return;
-    const preset = presetRef.current;
     const next = Array.from(list).map((f) => {
       const guess = preset || guessDocumentType(f.name);
       return { file: f, name: f.name, size: f.size, type: guess, guessed: !preset && !!guess };
     });
-    presetRef.current = null;
     setPending((p) => [...p, ...next]);
   };
 
@@ -243,16 +243,20 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
     fileInputRef.current?.click();
   };
 
+  // The file is removed from storage too, so Delete asks first.
+  const [confirmDelete, setConfirmDelete] = useState<AttachmentFile | null>(null);
   const deleteAttachment = useMutation({
     mutationFn: (attachmentId: string) => api.shipments.attachmentDelete(shipment.id, attachmentId),
     onSuccess: refreshDocuments,
+    onError: () => toast.error("Could not delete the document"),
   });
 
   // Uploads the whole classified queue in one go ("Add to list" in the mockup).
   const savePending = async () => {
     if (pending.length === 0 || pending.some((p) => !p.type)) return;
     setSaving(true);
-    const failed: string[] = [];
+    // The files that did not make it, kept by the file itself (two files may share a name).
+    const failed: { file: PendingFile; reason: string }[] = [];
     for (const p of pending) {
       try {
         const contentBase64 = await fileToBase64(p.file);
@@ -267,7 +271,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
         // Surface the real reason (size limit, network, server) instead of a
         // generic failure — a silent no-op is impossible to diagnose.
         console.error("Attachment upload failed", p.name, err);
-        failed.push(`${p.name}: ${err instanceof Error ? err.message : "unknown error"}`);
+        failed.push({ file: p, reason: `${p.name}: ${err instanceof Error ? err.message : "unknown error"}` });
       }
     }
     await refreshDocuments();
@@ -279,9 +283,9 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
       return;
     }
     // Keep the failed ones in the queue so the user can retry without re-picking.
-    toast.error(failed[0] ?? "Could not add the document", 8);
-    const failedNames = new Set(failed.map((f) => f.split(":")[0]));
-    setPending((list) => list.filter((p) => failedNames.has(p.name)));
+    toast.error(failed[0]?.reason ?? "Could not add the document", 8);
+    const failedFiles = new Set(failed.map((f) => f.file));
+    setPending((list) => list.filter((p) => failedFiles.has(p)));
   };
 
   // Assign a business document type. Separate from upload so a file can be
@@ -305,7 +309,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
     return m;
   }, [attachments]);
 
-  // Both cards take dropped files, so a drop that just misses the strip still lands. Only a drag
+  // Every card takes dropped files, so a drop that just misses the strip still lands. Only a drag
   // of files is taken - text dragged onto the search box goes in as usual.
   const dropProps = {
     onDragOver: (e: React.DragEvent<HTMLElement>) => {
@@ -322,7 +326,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
       if (!isFileDrag(e)) return;
       e.preventDefault();
       setDragOver(false);
-      addFiles(e.dataTransfer.files);
+      addFiles(e.dataTransfer.files, null);
     },
   };
 
@@ -330,6 +334,18 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
     // Adding files (with the required documents as milestones under it) and the list of files,
     // each in its own card.
     <div className="flex flex-col gap-3 min-w-0">
+      <ConfirmModal
+        open={!!confirmDelete}
+        danger
+        title="Delete document?"
+        description={confirmDelete ? `"${confirmDelete.fileName}" will be deleted, the file with it. It cannot be brought back.` : ""}
+        confirmLabel="Delete"
+        onClose={() => setConfirmDelete(null)}
+        onConfirm={() => {
+          if (confirmDelete) deleteAttachment.mutate(confirmDelete.id);
+          setConfirmDelete(null);
+        }}
+      />
       {/* Add documents, with no title bar (Browse says it): Browse, the drop strip (a click on it
           opens the picker too) and the files waiting for their type. */}
       <section aria-label="Add documents" className={CARD} {...dropProps}>
@@ -341,7 +357,8 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
             multiple
             hidden
             onChange={(e) => {
-              addFiles(e.target.files);
+              addFiles(e.target.files, presetRef.current);
+              presetRef.current = null;
               e.target.value = "";
             }}
           />
@@ -516,7 +533,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                         group stands apart at a glance. */}
                     <tr>
                       <th
-                        scope="colgroup"
+                        scope="rowgroup"
                         colSpan={6}
                         className="text-left px-3 py-2.5 bg-indigo-50 shadow-[inset_3px_0_0_#6366f1] text-[13px] leading-tight font-bold uppercase tracking-wide text-indigo-800 whitespace-nowrap"
                       >
@@ -557,16 +574,17 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                                 {documentTypeLabel(file.documentType)}
                               </span>
                             ) : (
-                              <Select
+                              // No value: the stored type is unknown, so it shows as the placeholder until one is picked.
+                              <Select<string>
                                 size="small"
-                                value={isKnownDocumentType(file.documentType) ? file.documentType : undefined}
+                                value={undefined}
                                 placeholder={file.documentType || "Select type"}
                                 options={DOCUMENT_TYPES.map((t) => ({ value: t, label: documentTypeLabel(t) }))}
                                 onChange={(v) => classify.mutate({ id: file.id, documentType: v })}
                                 disabled={classify.isPending && classify.variables?.id === file.id}
                                 loading={classify.isPending && classify.variables?.id === file.id}
                                 className="w-full max-w-[180px]"
-                                status={isKnownDocumentType(file.documentType) ? undefined : "warning"}
+                                status="warning"
                               />
                             )}
                           </td>
@@ -580,7 +598,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                                 <span className="text-slate-300" title="Not reviewed by customs">—</span>
                               )}
                               {file.customsStatus === "declined" && file.customsNote && (
-                                <span className="text-[12px] italic text-red-700/80 max-w-[210px]">
+                                <span className="text-[12px] italic text-red-700/80 break-words max-w-full">
                                   “{file.customsNote}”
                                 </span>
                               )}
@@ -611,7 +629,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                               <RowActionsMenu
                                 label={`Actions for ${file.fileName}`}
                                 downloadHref={apiFileUrl(file.contentUrl, true)}
-                                onDelete={() => deleteAttachment.mutate(file.id)}
+                                onDelete={() => setConfirmDelete(file)}
                               />
                             </div>
                           </td>

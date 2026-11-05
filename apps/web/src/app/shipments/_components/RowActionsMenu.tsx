@@ -25,12 +25,16 @@ export function RowActionsMenu({ onDelete, onCopy, downloadHref, label = "Row ac
         items: [
           ...(onCopy ? [{ key: "copy", label: "Copy", icon: <CopyOutlined /> }] : []),
           ...(downloadHref
-            ? [{ key: "download", label: <a href={downloadHref}>Download</a>, icon: <DownloadOutlined /> }]
+            ? [{ key: "download", label: "Download", icon: <DownloadOutlined /> }]
             : []),
           { key: "delete", label: "Delete", icon: <DeleteOutlined />, danger: true },
         ],
         onClick: ({ key }) => {
           if (key === "copy") onCopy?.();
+          // Handled for the whole item, not a link in its label, so a click on the icon or the
+          // item's edge downloads too. The address answers with the file as a download, so the
+          // page stays where it is.
+          if (key === "download" && downloadHref) window.location.assign(downloadHref);
           if (key === "delete") onDelete();
         },
       }}

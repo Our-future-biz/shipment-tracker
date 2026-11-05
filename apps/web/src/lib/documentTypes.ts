@@ -41,9 +41,6 @@ export const REQUIRED_DOCUMENT_TYPES = [
   "CMR / POD",
 ] as const;
 
-/** Nice to have, never flagged as missing. */
-export const OPTIONAL_DOCUMENT_TYPES = ["Insurance", "Certificate of origin"] as const;
-
 /**
  * Best-effort type guess from a file name, offered to the user as a
  * pre-filled suggestion — never applied silently.
@@ -72,8 +69,8 @@ export const SUPPLIER_INVOICE_TYPES = [
 ] as const;
 
 /**
- * The Documents tab lists a shipment's files in four tables, by document type. Commercial
- * is only ever invoices and packing lists; a type that is in none of the tables (Other, or
+ * The Documents tab lists a shipment's files in four groups, by document type. Commercial
+ * is only ever invoices and packing lists; a type that is in none of the groups (Other, or
  * not set yet) is listed with the shipping documents.
  */
 export const DOCUMENT_GROUPS = [
