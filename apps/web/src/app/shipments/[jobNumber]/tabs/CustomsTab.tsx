@@ -262,8 +262,9 @@ export function CustomsTab({
   shipment: ShipmentItem;
   onCommit: CommitFn;
   /**
-   * Documents are approved, declined and changed only in the Customs section. In the
-   * shipment's own Customs tab the review is shown, without the buttons.
+   * True in the Customs section, where documents are approved, declined and changed. Without
+   * it the documents show the review without the buttons. The shipment's own Customs tab
+   * shows only the Customs card (section "details"), with no documents.
    */
   canReview?: boolean;
   /** Shows only that part (the Customs section has them on separate tabs); left out, both. */

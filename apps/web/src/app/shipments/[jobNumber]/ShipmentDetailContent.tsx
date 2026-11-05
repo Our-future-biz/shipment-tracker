@@ -1627,7 +1627,8 @@ export function ShipmentDetailContent() {
           />
         )}
 
-        {activeTab === "customs" && <CustomsTab shipment={shipment} onCommit={handleCommit} />}
+        {/* Only the Customs card: the documents are in the Documents tab, and customs reviews them in the Customs section. */}
+        {activeTab === "customs" && <CustomsTab section="details" shipment={shipment} onCommit={handleCommit} />}
 
         {activeTab === "claim" && <ClaimsTab shipment={shipment} />}
 
