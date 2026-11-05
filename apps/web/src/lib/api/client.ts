@@ -114,6 +114,10 @@ export interface ClientOptions {
 export namespace lib {
     export interface AuthParams {
         authorization: string
+        /**
+         * A superadmin's company switcher: the company to work as (its id). Ignored for anyone else.
+         */
+        actingCompany?: string
     }
 }
 
@@ -264,7 +268,8 @@ export namespace auth {
         public async authMe(params: controllers.AuthMeRequest): Promise<controllers.AuthMeResponse> {
             // Convert our params into the objects we need for the request
             const headers = makeRecord<string, string>({
-                authorization: params.authorization,
+                authorization:      params.authorization,
+                "x-acting-company": params.actingCompany,
             })
 
             // Now make the actual call to the API
@@ -5839,10 +5844,19 @@ export namespace controllers {
      */
     export interface AuthMeRequest {
         authorization: string
+        /**
+         * A superadmin's company switcher: the company chosen to work as.
+         */
+        actingCompany?: string
     }
 
     export interface AuthMeResponse {
         user: services.SessionUser
+        /**
+         * The company the session works as: the user's own, or for a superadmin the one chosen in the
+         * header. A choice that is no company (deleted since) answers the user's own, so the web drops it.
+         */
+        company: services.WorkingCompany
     }
 
     export interface AutomationLogsResponse {
@@ -21189,6 +21203,18 @@ export namespace services {
     }
 
     export type StampKind = "gateIn" | "gateOut" | "impRelease" | "expDraft" | "expReceipt"
+
+    /**
+     * The company a session works as, and whether it is not the user's own (a superadmin's company switcher).
+     */
+    export interface WorkingCompany {
+        id: string
+        name: string
+        /**
+         * A superadmin working as another company than their own.
+         */
+        switched: boolean
+    }
 }
 
 export namespace utils {
@@ -21467,7 +21493,8 @@ class BaseClient {
             const data: CallParameters = {};
 
             data.headers = makeRecord<string, string>({
-                authorization: authData.authorization,
+                authorization:      authData.authorization,
+                "x-acting-company": authData.actingCompany,
             });
 
             return data;

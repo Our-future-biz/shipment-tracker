@@ -51,6 +51,16 @@ interface SessionState {
   tokenVersion: number;
 }
 const sessionCache = new Map<string, { at: number; state: SessionState | null }>();
+// The companies a superadmin may work as, by id with their name (null: no such company), re-read like the sessions.
+const companyCache = new Map<string, { at: number; name: string | null }>();
+
+/** The company a session works as, and whether it is not the user's own (a superadmin's company switcher). */
+export interface WorkingCompany {
+  id: string;
+  name: string;
+  /** A superadmin working as another company than their own. */
+  switched: boolean;
+}
 const forgetSession = (userId: string) => sessionCache.delete(userId);
 
 function assertPassword(password: string, email: string): void {
@@ -308,6 +318,42 @@ class AuthService {
     const state = await this.#sessionState(claims.userId);
     if (!state || state.tokenVersion !== claims.tokenVersion) throw APIError.unauthenticated("Invalid or expired token");
     return { userId: claims.userId, companyId: state.companyId, role: state.role };
+  }
+
+  /**
+   * The company a superadmin chose to work as (the web's company switcher, header X-Acting-Company):
+   * every endpoint then reads and writes that company, as one of its users would. Superadmins are
+   * the few platform users who may see and change every company. Nobody else can switch: for them
+   * the header is ignored. Null without a choice, or for the user's own company; a company that does
+   * not exist is refused, so a request never lands in another company than the one chosen.
+   */
+  async actingCompany(role: string, homeCompanyId: string, chosen: string | undefined): Promise<string | null> {
+    const id = (chosen ?? "").trim().toLowerCase();
+    if (role !== "superadmin" || !id || id === homeCompanyId.toLowerCase()) return null;
+    if (!isUuid(id) || (await this.#companyName(id)) === null) {
+      throw APIError.invalidArgument("The company chosen to work as does not exist - choose another in the header");
+    }
+    return id;
+  }
+
+  /** The company the user works as: their own, or for a superadmin the one chosen (unknown → their own). */
+  async workingCompany(user: SessionUser, chosen: string | undefined): Promise<WorkingCompany> {
+    const id = (chosen ?? "").trim().toLowerCase();
+    const switched = user.role === "superadmin" && !!id && id !== user.companyId.toLowerCase() && isUuid(id);
+    const name = switched ? await this.#companyName(id) : null;
+    if (switched && name !== null) return { id, name, switched: true };
+    return { id: user.companyId, name: (await this.#companyName(user.companyId)) ?? "", switched: false };
+  }
+
+  async #companyName(companyId: string): Promise<string | null> {
+    const now = Date.now();
+    const cached = companyCache.get(companyId);
+    if (cached && now - cached.at < SESSION_CACHE_MS) return cached.name;
+    const row = await companyRepository.getById(companyId);
+    const name = row?.name ?? null;
+    if (companyCache.size >= 1_000) companyCache.clear();
+    companyCache.set(companyId, { at: now, name });
+    return name;
   }
 
   async #sessionState(userId: string): Promise<SessionState | null> {

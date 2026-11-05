@@ -156,3 +156,38 @@ describe("a superadmin's account", () => {
     await expect(authService.deactivateUser("sa", "c1", { userID: "u1", role: "admin" })).rejects.toThrow("Only a superadmin");
   });
 });
+
+describe("a superadmin's company switcher", () => {
+  const HOME = "11111111-1111-4111-8111-111111111111";
+  const DEMO = "22222222-2222-4222-8222-222222222222";
+  const GONE = "33333333-3333-4333-8333-333333333333";
+  const byId = (id: string) => (id === DEMO ? { id: DEMO, name: "Demo s.r.o." } : id === HOME ? { id: HOME, name: "Platform" } : null);
+
+  it("works as the company a superadmin chose", async () => {
+    companies.getById.mockImplementation((async (id: string) => byId(id)) as never);
+    await expect(authService.actingCompany("superadmin", HOME, DEMO)).resolves.toBe(DEMO);
+    await expect(authService.actingCompany("superadmin", HOME, ` ${DEMO.toUpperCase()} `)).resolves.toBe(DEMO);
+  });
+
+  it("is nothing without a choice, for the user's own company, and for anyone but a superadmin", async () => {
+    await expect(authService.actingCompany("superadmin", HOME, undefined)).resolves.toBeNull();
+    await expect(authService.actingCompany("superadmin", HOME, HOME)).resolves.toBeNull();
+    for (const role of ["admin", "manager", "user"]) {
+      await expect(authService.actingCompany(role, HOME, DEMO)).resolves.toBeNull();
+    }
+  });
+
+  it("refuses a company that does not exist, so a request never lands in another one", async () => {
+    companies.getById.mockImplementation((async (id: string) => byId(id)) as never);
+    await expect(authService.actingCompany("superadmin", HOME, GONE)).rejects.toThrow("does not exist");
+    await expect(authService.actingCompany("superadmin", HOME, "not-a-company")).rejects.toThrow("does not exist");
+  });
+
+  it("tells the web which company the session works as, the user's own when the choice is gone", async () => {
+    companies.getById.mockImplementation((async (id: string) => byId(id)) as never);
+    const superadmin = { id: "u1", companyId: HOME, email: "s@x.cz", displayName: "S", role: "superadmin", departmentId: null, branchId: null, reportsToUserId: null };
+    await expect(authService.workingCompany(superadmin, DEMO)).resolves.toEqual({ id: DEMO, name: "Demo s.r.o.", switched: true });
+    await expect(authService.workingCompany(superadmin, GONE)).resolves.toEqual({ id: HOME, name: "Platform", switched: false });
+    await expect(authService.workingCompany({ ...superadmin, role: "admin" }, DEMO)).resolves.toEqual({ id: HOME, name: "Platform", switched: false });
+  });
+});

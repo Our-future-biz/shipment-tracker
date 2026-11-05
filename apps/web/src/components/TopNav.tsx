@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { NotificationBell } from "./NotificationBell";
+import { CompanySwitcher } from "./CompanySwitcher";
 
 export function TopNav() {
   const { user, logout } = useAuth();
@@ -68,6 +69,9 @@ export function TopNav() {
       </div>
 
       <div className="flex items-center gap-3 ml-auto">
+        {/* Superadmins: the company they work as. */}
+        <CompanySwitcher />
+
         {/* Date */}
         <span className="text-[13px] text-slate-500">{today}</span>
 
