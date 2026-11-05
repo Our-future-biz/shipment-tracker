@@ -21,6 +21,9 @@ import {
   fmtNum,
   fmtFixed,
   numberInput,
+  piecesOf,
+  perPieceText,
+  totalText,
   dimensionVolumePerPiece,
   dimensionTotals,
   hasAllSizes,
@@ -93,6 +96,19 @@ const dimLineKey = (l: CargoDimensionLine) => [
   l.adrLimitedQuantity === true,
 ];
 const dimsKey = (ls: CargoDimensionLine[]) => JSON.stringify(ls.filter((l) => !dimIsEmpty(l)).map(dimLineKey));
+
+// Weight and volume are typed and shown per piece, or for all the pieces of a line together. They
+// are always stored per piece (the server and every total count pieces × per piece); "All pieces"
+// only changes what is typed and shown. The choice is remembered in the browser.
+type Figures = "piece" | "total";
+const FIGURES_KEY = "cargoDimensions.figures";
+const readFigures = (): Figures => {
+  try {
+    return localStorage.getItem(FIGURES_KEY) === "total" ? "total" : "piece";
+  } catch {
+    return "piece";
+  }
+};
 
 // A line asked to be deleted from its row's "⋯", with the table it is in.
 type DeleteRequest = { table: "dims"; line: CargoDimensionLine } | { table: "items"; line: CargoItemLine };
@@ -243,6 +259,20 @@ export function CargoDetailsTab({
   // The container shown (its tab) and which of its tables: one at a time keeps the page short.
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [view, setView] = useState<"dims" | "desc">("dims");
+  // Weight and volume per piece or for all pieces (read after the first render: the browser's choice).
+  const [figures, setFigures] = useState<Figures>("piece");
+  useEffect(() => setFigures(readFigures()), []);
+  const chooseFigures = (f: Figures) => {
+    setFigures(f);
+    try {
+      localStorage.setItem(FIGURES_KEY, f);
+    } catch {
+      // Not remembered: it still applies until the page is left.
+    }
+  };
+  // A total being typed, as typed (by row key), so "3000." is not rewritten while typing; the line
+  // itself holds its per-piece share. Dropped when the field is left.
+  const [typedTotals, setTypedTotals] = useState<Record<string, { kg?: string; m3?: string }>>({});
   // Dimension lines (by row key) whose ADR box was ticked before any ADR detail was typed.
   const [adrOn, setAdrOn] = useState<Set<string>>(() => new Set());
   const itemsRef = useRef(items);
@@ -354,6 +384,31 @@ export function CargoDetailsTab({
   const patchDim = (idx: number, p: Partial<CargoDimensionLine>) => {
     openDims.open(idx);
     setDims((r) => r.map((l, j) => (j === idx ? withoutTypedVolumeWhenSized({ ...l, ...p }) : l)));
+  };
+
+  // "All pieces": a total typed for a line is stored as its per-piece share.
+  const patchTotal = (idx: number, line: CargoDimensionLine, field: "kg" | "m3", text: string) => {
+    setTypedTotals((t) => ({ ...t, [rowKey(line)]: { ...t[rowKey(line)], [field]: text } }));
+    const share = perPieceText(num(text), piecesOf(line));
+    patchDim(idx, field === "kg" ? { weightPerPcKg: share } : { volumePerPcM3: share });
+  };
+  const leaveTotal = (line: CargoDimensionLine) => {
+    setTypedTotals((t) => {
+      const rest = { ...t };
+      delete rest[rowKey(line)];
+      return rest;
+    });
+    persistDims();
+  };
+  // Pieces changed under "All pieces": the line's totals stay, so its per-piece share follows.
+  const patchPieces = (idx: number, line: CargoDimensionLine, pieces: string) => {
+    if (figures !== "total") return patchDim(idx, { pieces });
+    const before = piecesOf(line);
+    const after = Math.max(1, Math.floor(num(pieces)));
+    const p: Partial<CargoDimensionLine> = { pieces, weightPerPcKg: perPieceText(num(line.weightPerPcKg) * before, after) };
+    // A volume worked out from the sizes is per piece by nature; only a typed one is shared out.
+    if (!hasAllSizes(lineInCm(line))) p.volumePerPcM3 = perPieceText(num(line.volumePerPcM3) * before, after);
+    patchDim(idx, p);
   };
 
   // A line's ADR details show while its ADR box is ticked. Ticking only opens the fields (the
@@ -578,7 +633,30 @@ export function CargoDetailsTab({
                 <div className={`${DIM_GRID} px-1 ${GROUP_ROW}`}>
                   <span className="col-span-2" />
                   <span className="col-span-4 text-center bg-slate-100/70 rounded-t-lg pt-1.5 pb-0.5">Size</span>
-                  <span className="col-span-2 text-center bg-slate-100/70 rounded-t-lg pt-1.5 pb-0.5 border-l-4 border-white">Per piece</span>
+                  {/* The band's label is its switch: weight and volume per piece, or for all the pieces of a line. */}
+                  <span className="col-span-2 flex justify-center gap-0.5 bg-slate-100/70 rounded-t-lg pt-1 pb-0.5 border-l-4 border-white" role="radiogroup" aria-label="Weight and volume">
+                    {(
+                      [
+                        ["piece", "Per piece"],
+                        ["total", "All pieces"],
+                      ] as const
+                    ).map(([f, text]) => (
+                      <button
+                        key={f}
+                        type="button"
+                        role="radio"
+                        aria-checked={figures === f}
+                        onClick={() => chooseFigures(f)}
+                        title={f === "piece" ? "Weight and volume of one piece" : "Weight and volume of all the pieces of a line together"}
+                        className={[
+                          "px-1.5 rounded uppercase tracking-wider cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-indigo-400",
+                          figures === f ? "bg-indigo-600 text-white" : "text-slate-500 hover:text-slate-700",
+                        ].join(" ")}
+                      >
+                        {text}
+                      </button>
+                    ))}
+                  </span>
                   <span className="col-span-3" />
                 </div>
                 <div className={`${DIM_BANDS} px-1 text-[10px] font-bold text-slate-500 uppercase tracking-wide border-b border-slate-200 [&>*]:!pt-0 [&>*]:!pb-1.5`}>
@@ -613,10 +691,21 @@ export function CargoDetailsTab({
                         <span className="text-center tabular-nums">{l.widthCm || "—"}</span>
                         <span className="text-center tabular-nums">{l.heightCm || "—"}</span>
                         <span className="text-center text-xs font-semibold uppercase text-slate-500">{l.dimensionUnit === "in" ? "inch" : "cm"}</span>
-                        <span className="text-center tabular-nums">{l.weightPerPcKg || "—"}</span>
-                        <span className={`text-center tabular-nums ${sized ? "text-slate-500" : ""}`} title={vpc && !sized ? "Typed (no dimensions)" : undefined}>
-                          {vpc ? vpc.toFixed(3) : "—"}
-                        </span>
+                        {figures === "total" ? (
+                          <>
+                            <span className="text-center tabular-nums">{totalText(num(l.weightPerPcKg), piecesOf(l), 2) || "—"}</span>
+                            <span className={`text-center tabular-nums ${sized ? "text-slate-500" : ""}`} title={vpc && !sized ? "Typed (no dimensions)" : undefined}>
+                              {vpc ? (vpc * piecesOf(l)).toFixed(3) : "—"}
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-center tabular-nums">{l.weightPerPcKg || "—"}</span>
+                            <span className={`text-center tabular-nums ${sized ? "text-slate-500" : ""}`} title={vpc && !sized ? "Typed (no dimensions)" : undefined}>
+                              {vpc ? vpc.toFixed(3) : "—"}
+                            </span>
+                          </>
+                        )}
                         <span className="text-center leading-snug break-words" title={l.stackable || undefined}>{l.stackable || "—"}</span>
                         {/* The whole ADR summary, wrapping onto a second line rather than being cut. */}
                         <span className="text-center text-orange-600 font-medium leading-snug break-words" title={adrSummary(l)}>
@@ -641,7 +730,7 @@ export function CargoDetailsTab({
                       <div className={`${DIM_BANDS} px-1 [&>*]:!py-1`}>
                         {/* Numbers only, like the Dimensions modal: Pcs whole, the rest may take a decimal point; at most 4 digits (weight 5). */}
                         <div>
-                          <Input size="small" className={EDIT_FIELD} aria-label="Pieces" inputMode="numeric" value={l.pieces} onChange={(e) => patchDim(idx, { pieces: numberInput(e.target.value, false, 4) })} onBlur={persistDims} />
+                          <Input size="small" className={EDIT_FIELD} aria-label="Pieces" inputMode="numeric" value={l.pieces} onChange={(e) => patchPieces(idx, l, numberInput(e.target.value, false, 4))} onBlur={persistDims} />
                         </div>
                         <div>
                           <Select
@@ -681,12 +770,38 @@ export function CargoDetailsTab({
                             }}
                           />
                         </div>
+                        {/* Per piece, or under "All pieces" the line's total, stored as its per-piece share (a total may take a digit more). */}
                         <div>
-                          <Input size="small" className={EDIT_FIELD} aria-label="Weight per piece (kg)" inputMode="decimal" value={l.weightPerPcKg} onChange={(e) => patchDim(idx, { weightPerPcKg: numberInput(e.target.value, true, 5) })} onBlur={persistDims} />
+                          {figures === "total" ? (
+                            <Input
+                              size="small"
+                              className={EDIT_FIELD}
+                              aria-label="Weight of all pieces (kg)"
+                              inputMode="decimal"
+                              value={typedTotals[rowKey(l)]?.kg ?? totalText(num(l.weightPerPcKg), piecesOf(l), 2)}
+                              onChange={(e) => patchTotal(idx, l, "kg", numberInput(e.target.value, true, 6))}
+                              onBlur={() => leaveTotal(l)}
+                            />
+                          ) : (
+                            <Input size="small" className={EDIT_FIELD} aria-label="Weight per piece (kg)" inputMode="decimal" value={l.weightPerPcKg} onChange={(e) => patchDim(idx, { weightPerPcKg: numberInput(e.target.value, true, 5) })} onBlur={persistDims} />
+                          )}
                         </div>
                         {/* Worked out from the sizes, so plain text as in the read row; without all three it is typed (at most 4 digits before the point). */}
                         {sized ? (
-                          <span className="text-center text-[13px] tabular-nums text-slate-500">{vpc ? vpc.toFixed(3) : "—"}</span>
+                          <span className="text-center text-[13px] tabular-nums text-slate-500">{vpc ? (figures === "total" ? vpc * piecesOf(l) : vpc).toFixed(3) : "—"}</span>
+                        ) : figures === "total" ? (
+                          <div>
+                            <Input
+                              size="small"
+                              className={EDIT_FIELD}
+                              aria-label="Volume of all pieces (m³)"
+                              inputMode="decimal"
+                              placeholder="m³"
+                              value={typedTotals[rowKey(l)]?.m3 ?? totalText(num(l.volumePerPcM3), piecesOf(l), 3)}
+                              onChange={(e) => patchTotal(idx, l, "m3", numberInput(e.target.value, true, 5))}
+                              onBlur={() => leaveTotal(l)}
+                            />
+                          </div>
                         ) : (
                           <div>
                             <Input size="small" className={EDIT_FIELD} aria-label="Volume per piece (m³)" inputMode="decimal" placeholder="m³" value={l.volumePerPcM3 ?? ""} onChange={(e) => patchDim(idx, { volumePerPcM3: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />

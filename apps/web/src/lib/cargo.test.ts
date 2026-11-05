@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  piecesOf,
+  perPieceText,
+  totalText,
   checkConsistency,
   compareFigure,
   dimensionLineIsEmpty,
@@ -199,5 +202,25 @@ describe("a dimension line without its sizes", () => {
     expect(withoutTypedVolumeWhenSized({ ...line, lengthCm: "40", widthCm: "40", heightCm: "40", dimensionUnit: "in" as const }).volumePerPcM3).toBe("");
     const short = { ...line, lengthCm: "120", widthCm: "80" };
     expect(withoutTypedVolumeWhenSized(short)).toBe(short);
+  });
+});
+
+describe("All pieces: totals stored per piece", () => {
+  it("shares a total out per piece and shows it back as typed", () => {
+    // 20 pallets, 3,000 kg and 10 m³ in all.
+    expect([perPieceText(3000, 20), perPieceText(10, 20)]).toEqual(["150", "0.5"]);
+    expect([totalText(150, 20, 2), totalText(0.5, 20, 3)]).toEqual(["3000", "10"]);
+  });
+
+  it("keeps a total that does not share out evenly, as shown", () => {
+    const share = perPieceText(1000, 3);
+    expect(share).toBe("333.333333");
+    expect(totalText(Number(share), 3, 2)).toBe("1000");
+    expect(totalText(Number(perPieceText(10, 7)), 7, 3)).toBe("10");
+  });
+
+  it("counts a line without pieces as one, and nothing as nothing", () => {
+    expect([piecesOf({ pieces: "" }), piecesOf({ pieces: "0" }), piecesOf({ pieces: "12" })]).toEqual([1, 1, 12]);
+    expect([perPieceText(0, 5), totalText(0, 5, 2)]).toEqual(["", ""]);
   });
 });

@@ -139,6 +139,15 @@ export function numberInput(v: string, decimals = true, maxDigits = Infinity): s
   return rest.length ? `${w}.${rest.join("")}` : w;
 }
 
+// "All pieces" in Cargo Details: weight and volume typed for all the pieces of a dimension line are
+// stored per piece. A line's pieces count at least 1, so a total typed before the pieces is kept
+// as for one piece.
+export const piecesOf = (l: { pieces?: string | null }) => Math.max(1, Math.floor(num(l.pieces)));
+/** One piece's share of a total, as stored: up to 6 decimals, no trailing zeros ("150", "0.5"); "" for none. */
+export const perPieceText = (total: number, pieces: number) => (total > 0 ? String(Number((total / Math.max(1, pieces)).toFixed(6))) : "");
+/** A line's total from its per-piece value, rounded as shown (weight 2 decimals, volume 3); "" for none. */
+export const totalText = (perPiece: number, pieces: number, decimals: number) => (perPiece > 0 ? String(Number((perPiece * pieces).toFixed(decimals))) : "");
+
 // en-US thousands separators; integers plain, otherwise at most 2 decimals.
 export function fmtNum(n: number): string {
   return n % 1 === 0
