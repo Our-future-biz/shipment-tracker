@@ -56,7 +56,8 @@ function CustomerField({ value, onChange }: CustomerFieldProps) {
   // The request waits until typing pauses. A picked customer is not looked up again.
   const search = useDebounced(value.label, 300).trim();
   const searching = value.id === null && search.length >= MIN_SEARCH_LENGTH;
-  const { customers, isFetching, isError } = useCustomers({ search }, { enabled: searching });
+  // Only companies with the customer role, as on a quote; any other company can still be typed as text.
+  const { customers, isFetching, isError } = useCustomers({ search, role: "customer" }, { enabled: searching });
   // Only the answer to what is typed is listed. Until it is here the hook still holds what it
   // had last - an earlier search, or before the first one the whole Customer Database, left
   // behind by the Customers page - and a customer picked from that need not be one that was

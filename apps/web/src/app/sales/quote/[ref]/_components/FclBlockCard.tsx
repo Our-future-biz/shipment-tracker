@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { Checkbox, Input, Select } from "antd";
+import { SupplierPicker } from "@/components/SupplierPicker";
 import { PlusOutlined } from "@ant-design/icons";
 import type { ExchangeRates } from "@/lib/exchangeRates";
 import { chargeOptions, toChargeCode } from "@/lib/chargeCodes";
@@ -14,7 +15,7 @@ import type { CostLine, FclBlockProfit, SalesQuoteData } from "@/app/sales/_lib/
 import { FclProfitRow } from "./FclProfitRow";
 import { LockedAmountInput } from "./LockedAmountInput";
 import { MiniButton, RemoveLineButton } from "./QuoteButtons";
-import { LINE_TD_CLASS, LINE_TH_CLASS, LINE_TH_RIGHT_CLASS, LineBlock, LineBlockEmpty, LineTable } from "./LineBlock";
+import { LINE_TD_CLASS, LINE_TH_CHECK_CLASS, LINE_TH_CLASS, LINE_TH_RIGHT_CLASS, LineBlock, LineBlockEmpty, LineTable } from "./LineBlock";
 
 interface FclBlockCardProps {
   block: FclBlock;
@@ -85,7 +86,7 @@ export function FclBlockCard({
         <LineTable minWidthClass="min-w-[1080px]">
           <colgroup>
             <col className="w-14" />
-            <col className="w-16" />
+            <col className="w-20" />
             <col className="w-[150px]" />
             <col />
             <col className="w-[110px]" />
@@ -98,8 +99,8 @@ export function FclBlockCard({
           </colgroup>
           <thead>
             <tr>
-              <th scope="col" className={LINE_TH_CLASS}>All in</th>
-              <th scope="col" className={LINE_TH_CLASS} title="Profit basis">Profit basis</th>
+              <th scope="col" className={LINE_TH_CHECK_CLASS}>All in</th>
+              <th scope="col" className={LINE_TH_CHECK_CLASS}>Profit basis</th>
               <th scope="col" className={LINE_TH_CLASS}>Charge</th>
               <th scope="col" className={LINE_TH_CLASS}>Description</th>
               <th scope="col" className={LINE_TH_CLASS}>Supplier</th>
@@ -159,7 +160,12 @@ export function FclBlockCard({
                     )}
                   </td>
                   <td className={LINE_TD_CLASS}>
-                    <Input size="small" aria-label="Supplier" placeholder="Supplier" value={l.supplier ?? ""} onChange={(e) => onPatchLine(c.index, { supplier: e.target.value })} />
+                    {/* Picked from the Customer Database's suppliers (with their stars) or typed; a tariff's line keeps the tariff's supplier. */}
+                    <SupplierPicker
+                      value={{ name: l.supplier ?? "", supplierCustomerId: l.supplierCustomerId ?? null }}
+                      readOnly={!!l.tariffRef}
+                      onChange={(next) => onPatchLine(c.index, { supplier: next.name, supplierCustomerId: next.supplierCustomerId ?? undefined })}
+                    />
                   </td>
                   <td className={LINE_TD_CLASS}>
                     <Select

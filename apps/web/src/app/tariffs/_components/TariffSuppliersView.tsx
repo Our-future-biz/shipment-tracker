@@ -17,6 +17,8 @@ import type { interfaces } from "@/lib/api/client";
 import { useCanManageTariffs } from "@/lib/auth/AuthContext";
 import { formatDate } from "@/lib/date";
 import { muted } from "./TariffText";
+import { SupplierRatingStars } from "@/app/customers/_components/SupplierRatingStars";
+import { ratingRank } from "@/app/trucking/_lib/haulierRating";
 
 /** A supplier as a Tariffs section lists it: the Customer Database company and its tariffs at a glance. */
 interface TariffSupplierRow {
@@ -28,10 +30,19 @@ interface TariffSupplierRow {
   tariffCount: number;
   activeCount: number;
   draftCount: number;
-  activeUntil: string | null;
+  /** The last day its tariffs price without a gap, later versions counted; null when one never ends, or none prices today. */
+  coveredUntil: string | null;
+  /** From the Customer Database: 0–5 stars, null when not rated. */
+  rating: number | null;
 }
 
 const byText = (a: string, b: string) => a.localeCompare(b, "cs");
+
+// How far a supplier's tariffs reach, as its Customer Database page says it ("covered to"): no end
+// when one never ends; nothing while none prices today.
+const coveredText = (s: TariffSupplierRow) => (s.coveredUntil ? formatDate(s.coveredUntil) : s.activeCount ? "no end" : "");
+// Soonest first, no end last; a supplier with nothing pricing today before them all.
+const coveredKey = (s: TariffSupplierRow) => s.coveredUntil ?? (s.activeCount ? "9999" : "");
 
 function supplierColumns<T extends TariffSupplierRow>(nameTitle: string, href: (customerId: string) => string, forColumns: AppGridColumn<T>[]): AppGridColumn<T>[] {
   return [
@@ -45,6 +56,16 @@ function supplierColumns<T extends TariffSupplierRow>(nameTitle: string, href: (
           {s.companyName}
         </Link>
       ),
+    },
+    {
+      key: "rating",
+      title: "Rating",
+      text: (s) => (s.rating === null ? "Not rated" : `${s.rating}/5`),
+      // Best first on a descending sort: 5 down to 1, not rated, then 0.
+      sorter: (a, b) => ratingRank(a.rating) - ratingRank(b.rating),
+      // The first click puts the best first, as in the Customer Database (m26).
+      sortDirections: ["descend", "ascend"],
+      render: (_, s) => <SupplierRatingStars rating={s.rating} />,
     },
     { key: "ico", title: "IČO", text: (s) => s.ico, sorter: (a, b) => byText(a.ico, b.ico) },
     { key: "city", title: "City", text: (s) => s.city, sorter: (a, b) => byText(a.city, b.city) },
@@ -60,10 +81,10 @@ function supplierColumns<T extends TariffSupplierRow>(nameTitle: string, href: (
     },
     {
       key: "until",
-      title: "Valid until",
-      text: (s) => formatDate(s.activeUntil),
-      sorter: (a, b) => (a.activeUntil ?? "9999").localeCompare(b.activeUntil ?? "9999"),
-      render: (_, s) => formatDate(s.activeUntil) || muted("—"),
+      title: "Covered to",
+      text: coveredText,
+      sorter: (a, b) => coveredKey(a).localeCompare(coveredKey(b)),
+      render: (_, s) => (s.coveredUntil ? formatDate(s.coveredUntil) : muted(coveredText(s) || "—")),
     },
     {
       key: "drafts",

@@ -8,13 +8,19 @@ vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 vi.mock("~encore/clients", () => ({
   auth: { usersList: vi.fn() },
-  customers: { customerActivate: vi.fn(), _internalCustomerRefs: vi.fn() },
-  fx: { fxRatesOn: vi.fn(), fxResolve: vi.fn() },
-  shipments: { _internalShipmentsNamingQuote: vi.fn(), _internalShipmentsMoveQuote: vi.fn() },
+  customers: { customerActivate: vi.fn(), _internalCustomerRefs: vi.fn(), _internalSupplierApprovalStates: vi.fn() },
+  fx: { fxRatesOn: vi.fn() },
+  shipments: { _internalShipmentsNamingQuote: vi.fn(), _internalShipmentsMoveQuote: vi.fn(), _internalQuoteReferencesByJob: vi.fn() },
   trucking: { truckingRate: vi.fn(), _internalTruckingMarginFloor: vi.fn() },
 }));
 vi.mock("../../repositories/quoteAttachment.repository", () => ({ quoteAttachmentRepository: { deleteForQuote: vi.fn() } }));
 vi.mock("../../repositories/quoteComment.repository", () => ({ quoteCommentRepository: { createForCompany: vi.fn() } }));
+// The floors Sales sets: none stored, so the council's defaults (and Trucking's for Road).
+vi.mock("../../repositories/quoteGuardrail.repository", () => ({ quoteGuardrailRepository: { list: vi.fn(async () => []), save: vi.fn() } }));
+// The warehouse questions as table rows (Council Outlay 6, step 5): written with the quote, read by the lists.
+vi.mock("../../repositories/quoteInquiry.repository", () => ({ quoteInquiryRepository: { recordWarehouse: vi.fn(), listWarehouse: vi.fn(), warehouseAnswersFor: vi.fn(), withdrawOpenOf: vi.fn(), moveOpen: vi.fn(), pendingOf: vi.fn(async () => null), markWarehouseSeen: vi.fn() } }));
+// A rep's question waiting about a margin is closed by a direct approval (tested in marginInquiry.service.test).
+vi.mock("../../services/marginInquiry.service", () => ({ marginInquiryService: { closeByDirectApproval: vi.fn() } }));
 vi.mock("../../repositories/salesQuote.repository", () => ({
   salesQuoteRepository: {
     adoptions: vi.fn(),
@@ -31,8 +37,6 @@ vi.mock("../../repositories/salesQuote.repository", () => ({
     shipmentLinks: vi.fn(),
     customerFacts: vi.fn(),
     openCustomerQuotes: vi.fn(),
-    listWarehouseInquiries: vi.fn(),
-    listInquiryAnswersFor: vi.fn(),
   },
 }));
 
@@ -46,6 +50,8 @@ import type { SalesQuoteRecord } from "../../schemas/quote.schema";
 import type { PricedSide, RateLevelResult } from "../../../trucking/interfaces/interfaces";
 import type { QuoteRoadInput } from "../../interfaces/interfaces";
 import { salesQuoteService, type SalesQuoteListRequest } from "../../services/salesQuote.service";
+import { SHIPPING_TERMS_FIRST } from "../../utils/shippingTerms.utils";
+import { quoteInquiryRepository } from "../../repositories/quoteInquiry.repository";
 import { PROTECTED_KEYS } from "../../utils/quoteDocument.utils";
 import { columnsOf, stateOf } from "../../utils/quoteLifecycle.utils";
 
@@ -55,7 +61,6 @@ const chat = vi.mocked(quoteCommentRepository);
 const usersList = vi.mocked(auth.usersList);
 const fxRatesOn = vi.mocked(fx.fxRatesOn);
 const namingShipments = vi.mocked(shipments._internalShipmentsNamingQuote);
-const fxResolve = vi.mocked(fx.fxResolve);
 const truckingRate = vi.mocked(trucking.truckingRate);
 const marginFloor = vi.mocked(trucking._internalTruckingMarginFloor);
 const customerActivate = vi.mocked(customers.customerActivate);
@@ -80,6 +85,7 @@ const user = (id: string, displayName: string, email: string, role: string) => (
   role,
   departmentId: null,
   branchId: null,
+  reportsToUserId: null,
 });
 const USERS = [
   user(U_MANAGER, "Marie Manager", "marie@forwarder.cz", "manager"),
@@ -101,7 +107,7 @@ const quote = (over: Partial<SalesQuoteRecord> = {}): SalesQuoteRecord => ({
   id: "0b8d5a0e-6a43-4f4a-9a53-5d0d3a2b6c11",
   companyId: martin.companyID,
   quoteNumber: REF,
-  data: { reference: REF, quoteStatus: "draft", salesOwner: "martin@forwarder.cz", timeline: [], origin: "Praha" },
+  data: { reference: REF, quoteStatus: "draft", salesOwner: "martin@forwarder.cz", timeline: [], origin: "Praha", shippingTerms: "SEA EXPORT" },
   terms: "",
   createdAt: new Date("2026-09-15T08:00:00.000Z"),
   updatedAt: new Date("2026-10-02T09:30:00.456Z"),
@@ -248,6 +254,20 @@ describe("list", () => {
     return { companyId, filter, page, moment };
   };
 
+  it("finds a quote by any of its shipments' job numbers, asking the shipments service only for that filter", async () => {
+    const byJob = vi.mocked(shipments._internalQuoteReferencesByJob);
+    byJob.mockResolvedValue({ references: ["QCZ26110501", "QCZ26110502"] });
+    const { filter } = await asked({ columnFilters: JSON.stringify([{ key: "shipment", value: "CZ0042" }, { key: "customer", value: "Alza" }]) });
+    expect(byJob).toHaveBeenCalledWith({ jobNumber: "cz0042" });
+    expect(filter.columns).toEqual([
+      { key: "shipment", value: "cz0042", exact: false, text: "cz0042", references: ["QCZ26110501", "QCZ26110502"] },
+      { key: "customer", value: "alza", exact: false, text: "alza" },
+    ]);
+    byJob.mockClear();
+    await asked({ columnFilters: JSON.stringify([{ key: "customer", value: "Alza" }]) });
+    expect(byJob).not.toHaveBeenCalled();
+  });
+
   it("adopts what waits and matches the owner texts before it reads the list", async () => {
     await salesQuoteService.list(martin, {});
     const order = [repository.adoptPending, repository.unexaminedOwnerLabels, repository.list].map((step) => step.mock.invocationCallOrder[0]);
@@ -272,6 +292,7 @@ describe("list", () => {
         family: undefined,
         hasShipment: undefined,
         search: [],
+        columns: [],
       },
       page: { limit: 50, offset: 0, sortBy: "createdAt", sortDirection: "desc", afterId: undefined },
       // Today is the day in Prague; a follow-up is due on a last contact three days old.
@@ -610,6 +631,26 @@ describe("transition", () => {
     expect(repository.writeLifecycle.mock.calls[0]!.slice(0, 2)).toEqual([TX, stored]);
   });
 
+  it("refuses Ready to send and Quoted before a Shipping terms template is chosen, writing nothing; Lost is let", async () => {
+    stored = quote({ data: { reference: REF, quoteStatus: "draft", salesOwner: "martin@forwarder.cz", timeline: [], shippingTerms: " " } });
+    for (const to of ["ready_to_send", "quoted"] as const) {
+      await expect(salesQuoteService.transition(martin, REF, { to })).rejects.toMatchObject({ code: "failed_precondition", message: SHIPPING_TERMS_FIRST });
+    }
+    expect(repository.writeLifecycle).not.toHaveBeenCalled();
+    await expect(salesQuoteService.transition(martin, REF, { to: "lost", lostReason: "Price: too high" })).resolves.toMatchObject({ changed: true });
+  });
+
+  it("refuses a send while a rail or ocean line is priced in the other Trade Direction; Lost is let", async () => {
+    const data = { reference: REF, quoteStatus: "draft", salesOwner: "martin@forwarder.cz", timeline: [], shippingTerms: "Standard", direction: "Import", serviceType: "Sea FCL" };
+    stored = quote({ data: { ...data, buyingLines: [{ type: "Ocean freight", tariffRef: "ocean:v1", pricedDirection: "export" }] } });
+    await expect(salesQuoteService.transition(martin, REF, { to: "ready_to_send" })).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: expect.stringMatching(/^A buying line was priced from an export tariff, and the quote is now an import/),
+    });
+    expect(repository.writeLifecycle).not.toHaveBeenCalled();
+    await expect(salesQuoteService.transition(martin, REF, { to: "lost", lostReason: "Price: too high" })).resolves.toMatchObject({ changed: true });
+  });
+
   it("records the user id alone when the name cannot be resolved", async () => {
     usersList.mockRejectedValue(new Error("auth is unreachable"));
     await salesQuoteService.transition(martin, REF, { to: "ready_to_send" });
@@ -717,7 +758,7 @@ describe("transition", () => {
     beforeEach(() => fxRatesOn.mockResolvedValue(TODAY_FX as never));
 
     it("stamps today's ČNB rates and ROE % when the quote is sent", async () => {
-      stored = quote({ data: { reference: REF, quoteStatus: "draft", currency: "EUR" } });
+      stored = quote({ data: { reference: REF, quoteStatus: "draft", currency: "EUR", shippingTerms: "SEA EXPORT" } });
       await salesQuoteService.transition(martin, REF, { to: "quoted", validityDays: 15 });
       expect(written().document).toEqual({
         fx: { date: "2026-10-10", fixingDate: "2026-10-09", roePct: 102, rates: { EUR: 24.375, USD: 21.04 }, lockedAt: NOW.toISOString() },
@@ -1247,6 +1288,8 @@ describe("delete", () => {
     expect(repository.writeLifecycle.mock.calls[0]!.slice(0, 2)).toEqual([TX, stored]);
     expect(attachments.deleteForQuote).toHaveBeenCalledTimes(1);
     expect(attachments.deleteForQuote).toHaveBeenCalledWith(TX, REF, martin.companyID, NOW);
+    // What waited on it could never be answered: withdrawn in the same transaction.
+    expect(quoteInquiryRepository.withdrawOpenOf).toHaveBeenCalledWith(martin.companyID, stored!.id, U_MARTIN, NOW, TX);
   });
 
   it("lets a manager delete any quote: a colleague's, one that was sent, one that is decided", async () => {
@@ -1463,16 +1506,21 @@ const oldTrucking = (amount: number) => ({ type: "Road freight", description: "o
 const roadQuote = (selling: unknown[], buying: unknown[], over: Record<string, unknown> = {}, row: Partial<SalesQuoteRecord> = {}) =>
   quote({
     customerId: CUSTOMER,
-    data: { reference: REF, quoteStatus: "draft", salesOwner: "martin@forwarder.cz", timeline: [], serviceType: "Road", sellingLines: selling, buyingLines: buying, ...over },
+    data: { reference: REF, quoteStatus: "draft", salesOwner: "martin@forwarder.cz", timeline: [], serviceType: "Road", sellingLines: selling, buyingLines: buying, shippingTerms: "ROAD", ...over },
     ...row,
   });
+
+/** fx /fx/rates as it answers for 2026-10-10: these rates and ROE %. */
+const sheet = (rates: { currency: string; rate: number }[], roePct = 100) =>
+  ({ date: "2026-10-10", fixingDate: "2026-10-09", provisional: false, missing: false, roePct, rates }) as never;
 
 const APPROVAL = { byUserId: U_MANAGER, byName: "Marie Manager", at: SENT.toISOString(), reason: "Key account", marginCzk: 400, marginPercent: 4 };
 
 describe("road transport", () => {
   beforeEach(() => {
     marginFloor.mockResolvedValue({ percent: 8, minAmountCzk: 300 });
-    fxResolve.mockResolvedValue({ currency: "EUR", date: "2026-10-10", rate: 25, fixingDate: "2026-10-09", carried: false, provisional: false, missing: false, roePct: 100, reason: "" });
+    // Today's ČNB sheet and ROE %, the rates the editor prices with too.
+    fxRatesOn.mockResolvedValue(sheet([{ currency: "EUR", rate: 25 }]));
     truckingRate.mockResolvedValue({ request: {} as never, ratedAt: NOW.toISOString(), results: [levelResult()] });
     // The row after a write, document keys and all, as the statement leaves it.
     repository.writeLifecycle.mockImplementation(async (_tx, row, write) => {
@@ -1672,12 +1720,16 @@ describe("road transport", () => {
       expect(marginFloor).not.toHaveBeenCalled();
     });
 
-    it("asks today's ČNB rate for a currency the quote stored none for, and names a rate that is missing", async () => {
-      stored = roadQuote([manual(400, { currency: "EUR" })], [manual(9000)]);
+    it("reads today's ČNB sheet and ROE % for a currency the quote stored none for, and names a rate that is missing", async () => {
+      stored = roadQuote([manual(400, { currency: "EUR" })], [manual(9000)], { currency: "CZK" });
       expect((await salesQuoteService.get(martin, REF)).roadMargin).toMatchObject({ sellingCzk: 10000, marginCzk: 1000 });
-      expect(fxResolve).toHaveBeenCalledWith({ currency: "EUR", date: "2026-10-10" });
-      fxResolve.mockRejectedValue(new Error("fx is unreachable"));
-      expect((await salesQuoteService.get(martin, REF)).roadMargin).toMatchObject({ marginCzk: null, problem: "No ČNB rate for EUR on 2026-10-10" });
+      expect(fxRatesOn).toHaveBeenCalledWith({});
+      // A selling line in another currency carries today's ROE %, as the editor shows it (D4).
+      fxRatesOn.mockResolvedValue(sheet([{ currency: "EUR", rate: 25 }], 102));
+      expect((await salesQuoteService.get(martin, REF)).roadMargin).toMatchObject({ sellingCzk: 10200, marginCzk: 1200 });
+      fxRatesOn.mockRejectedValue(new Error("fx is unreachable"));
+      // The sheet could not be loaded at all: the margin says so, not that a rate is missing.
+      expect((await salesQuoteService.get(martin, REF)).roadMargin).toMatchObject({ marginCzk: null, problem: "Today's ČNB rates could not be loaded (EUR needed) - try again in a moment" });
     });
 
     it("tells whether the user may approve a margin", async () => {
@@ -1698,7 +1750,17 @@ describe("road transport", () => {
       const item = await salesQuoteService.approveMargin(manager, REF, "  Key account  ", 3);
       const { document, entries, state } = written();
       expect(document).toEqual({
-        marginApproval: { byUserId: U_MANAGER, byName: "marie@forwarder.cz", at: NOW.toISOString(), reason: "Key account", marginCzk: 400, marginPercent: 4 },
+        marginApproval: {
+          byUserId: U_MANAGER,
+          byName: "marie@forwarder.cz",
+          at: NOW.toISOString(),
+          reason: "Key account",
+          marginCzk: 400,
+          marginPercent: 4,
+          // What the quote was: a change of any of it ends the approval (D10).
+          // (This fixture keeps the customer on the row only; a stored quote has it in its document too.)
+          basis: { customerId: null, serviceType: "Road", containers: 0, salesOwner: "martin@forwarder.cz", validUntil: null },
+        },
       });
       expect(state).toEqual(stateOf(stored!));
       expect(entries).toEqual([
@@ -1715,8 +1777,8 @@ describe("road transport", () => {
       });
       stored = quote();
       await expect(salesQuoteService.approveMargin(manager, REF, "Key account", 3)).rejects.toMatchObject({ code: "failed_precondition" });
-      fxResolve.mockResolvedValue({ currency: "EUR", date: "2026-10-10", rate: null, fixingDate: null, carried: false, provisional: false, missing: true, roePct: 100, reason: "" });
-      stored = roadQuote([manual(400, { currency: "EUR" })], [manual(9000)]);
+      fxRatesOn.mockResolvedValue(sheet([]));
+      stored = roadQuote([manual(400, { currency: "EUR" })], [manual(9000)], { currency: "CZK" });
       await expect(salesQuoteService.approveMargin(manager, REF, "Key account", 3)).rejects.toMatchObject({
         code: "failed_precondition",
         message: "The margin cannot be worked out: No ČNB rate for EUR on 2026-10-10",
@@ -1733,7 +1795,7 @@ describe("road transport", () => {
   });
 
   describe("the margin gate", () => {
-    const BLOCKED = "The margin of 400 CZK (4 %) is below the floor of 8 % / 300 CZK. A manager must approve it before the quote is sent.";
+    const BLOCKED = "The margin of 400 CZK (4 %) is below the Road floor of 8 % / 300 CZK. A manager must approve it before the quote is sent.";
 
     it("refuses Ready to send and Quoted while the margin needs approval, writing nothing", async () => {
       stored = roadQuote([manual(10000)], [manual(9600)]);
@@ -1757,13 +1819,60 @@ describe("road transport", () => {
       stored = roadQuote([manual(10000)], [manual(9700)], { marginApproval: APPROVAL });
       await expect(salesQuoteService.transition(martin, REF, { to: "quoted" })).rejects.toMatchObject({
         code: "failed_precondition",
-        message: "The margin of 300 CZK (3 %) is below the floor of 8 % / 300 CZK. A manager must approve it before the quote is sent.",
+        message: "The margin of 300 CZK (3 %) is below the Road floor of 8 % / 300 CZK. A manager must approve it before the quote is sent.",
       });
     });
 
     it("lets a margin above the floor go without any approval", async () => {
       stored = roadQuote([manual(10000)], [manual(5000)]);
       await expect(salesQuoteService.transition(martin, REF, { to: "quoted" })).resolves.toMatchObject({ changed: true });
+    });
+
+    it("gates Won from a quote that never went out, not from one that was sent - expired since, or answered (D11)", async () => {
+      const SHIPMENT = "5e0c7c2a-4f1b-4d8e-9a6a-0b1c2d3e4f51";
+      stored = roadQuote([manual(10000)], [manual(9600)], { quoteStatus: "revised" }, { status: "revised" });
+      await expect(salesQuoteService.transition(martin, REF, { to: "won" })).rejects.toMatchObject({ code: "failed_precondition", message: BLOCKED });
+      // Sent at 4 % before there were guardrails, its validity over: the customer's yes is not refused.
+      const sent = { status: "quoted", sentAt: SENT, firstSentAt: SENT, validUntil: "2026-10-05", shipmentId: SHIPMENT };
+      stored = roadQuote([manual(10000)], [manual(9600)], { quoteStatus: "quoted" }, sent);
+      await expect(salesQuoteService.transition(martin, REF, { to: "won" })).resolves.toMatchObject({ changed: true });
+      // Sending a Feedback quote again: its prices are the ones it was sent with.
+      stored = roadQuote([manual(10000)], [manual(9600)], { quoteStatus: "feedback" }, { status: "feedback", sentAt: SENT, firstSentAt: SENT, validUntil: "2026-10-30" });
+      await expect(salesQuoteService.transition(martin, REF, { to: "quoted" })).resolves.toMatchObject({ changed: true });
+    });
+
+    it("holds a quote with prices and no Freight Mode: no floor would judge it", async () => {
+      stored = roadQuote([manual(10000)], [manual(9999)], { serviceType: undefined });
+      await expect(salesQuoteService.transition(martin, REF, { to: "ready_to_send" })).rejects.toMatchObject({
+        code: "failed_precondition",
+        message: "Choose the Freight Mode first: its margin floor decides whether the quote can be sent",
+      });
+      expect((await salesQuoteService.get(martin, REF)).sendBlocked).toBe("Choose the Freight Mode first: its margin floor decides whether the quote can be sent");
+      expect(repository.writeLifecycle).not.toHaveBeenCalled();
+    });
+
+    it("judges the approval on the validity the sending gives: a later one ends it (D10)", async () => {
+      const basis = { customerId: null, serviceType: "Road", containers: 0, salesOwner: "martin@forwarder.cz", validUntil: "2026-10-05" };
+      stored = roadQuote([manual(10000)], [manual(9600)], { marginApproval: { ...APPROVAL, basis }, validUntil: "2026-10-05" }, { validUntil: "2026-10-05" });
+      await expect(salesQuoteService.transition(martin, REF, { to: "quoted", validityDays: 30 })).rejects.toMatchObject({
+        code: "failed_precondition",
+        message: expect.stringContaining("The approval no longer covers it: the validity was extended past 2026-10-05."),
+      });
+      expect(repository.writeLifecycle).not.toHaveBeenCalled();
+    });
+
+    it("gives an approval recorded with no validity the one the quote is sent with, so a later one ends it", async () => {
+      const basis = { customerId: null, serviceType: "Road", containers: 0, salesOwner: "martin@forwarder.cz", validUntil: null };
+      stored = roadQuote([manual(10000)], [manual(9600)], { marginApproval: { ...APPROVAL, basis } });
+      await expect(salesQuoteService.transition(martin, REF, { to: "quoted", validityDays: 30 })).resolves.toMatchObject({ changed: true });
+      expect(written().serverKeys).toEqual({ marginApproval: { ...APPROVAL, basis: { ...basis, validUntil: "2026-11-09" } } });
+    });
+
+    it("does not hold a sent quote's Email or shipment for its margin: sendBlocked is for a quote that can still go out", async () => {
+      stored = roadQuote([manual(10000)], [manual(9600)], { quoteStatus: "quoted" }, { status: "quoted", sentAt: SENT, firstSentAt: SENT, validUntil: "2026-10-30" });
+      expect((await salesQuoteService.get(martin, REF)).sendBlocked).toBeNull();
+      stored = roadQuote([manual(10000)], [manual(9600)]);
+      expect((await salesQuoteService.get(martin, REF)).sendBlocked).toBe(BLOCKED);
     });
 
     it("never blocks another change of status, nor a save", async () => {
@@ -1903,7 +2012,32 @@ describe("the warehouse inquiry of pieces of 12.5 t or more", () => {
     await expect(salesQuoteService.transition(martin, REF, { to: "ready_to_send" })).rejects.toMatchObject({
       message: "The warehouse rejected the pieces of 12.5 t or more (too heavy for our crane) — change the cargo or ask the warehouse again",
     });
-    stored = withData({ warehouseInquiry: { ...pending, status: "approved", priceEurPerPiece: 400 } });
+    // Approved, with its fee on the buying (and sold well above the LCL floor): the quote may go.
+    fxRatesOn.mockResolvedValue(sheet([{ currency: "EUR", rate: 25 }]));
+    const fee = { type: "Handling", description: "Heavy Cargo Handling Fee", currency: "EUR", amount: 800, pairId: "heavy-cargo-warehouse" };
+    stored = withData({ warehouseInquiry: { ...pending, status: "approved", priceEurPerPiece: 400 }, buyingLines: [fee], sellingLines: [{ ...fee, amount: 2000 }] });
+    await expect(salesQuoteService.transition(martin, REF, { to: "ready_to_send" })).resolves.toMatchObject({ changed: true });
+  });
+
+  it("holds heavy pieces nobody asked about, more pieces than approved, and an approved fee taken off or lowered (Council Outlay 6)", async () => {
+    const approved = { ...pending, status: "approved", priceEurPerPiece: 400 };
+    const fee = (amount: number) => ({ type: "Handling", description: "Heavy Cargo Handling Fee", currency: "EUR", amount, pairId: "heavy-cargo-warehouse" });
+    fxRatesOn.mockResolvedValue(sheet([{ currency: "EUR", rate: 25 }]));
+    const refused = async (data: Record<string, unknown>, message: string) => {
+      // Priced, so only the heavy pieces can hold it: a freight line bought, the fee sold well above it.
+      stored = withData({ sellingLines: [fee(2000)], buyingLines: [{ type: "Ocean freight", description: "LCL", currency: "EUR", amount: 100 }], ...data });
+      await expect(salesQuoteService.transition(martin, REF, { to: "ready_to_send" })).rejects.toMatchObject({ code: "failed_precondition", message });
+    };
+    await refused({}, "Pieces of 12.5 t or more have no handling rate — ask the warehouse first (Inquire Warehouse in the heavy pieces)");
+    await refused({ warehouseInquiry: { ...approved, pieces: 1 }, buyingLines: [fee(400)] }, "The warehouse approved 1 piece of 12.5 t or more, the quote has 2 — ask the warehouse again");
+    const missing = "The warehouse's approved Heavy Cargo Handling Fee (EUR 800) is missing from the buying, lowered or no longer in EUR — put it back, or ask the warehouse again";
+    await refused({ warehouseInquiry: approved }, missing);
+    await refused({ warehouseInquiry: approved, buyingLines: [fee(500)] }, missing);
+    // The same figure in another currency is not the fee the warehouse approved.
+    await refused({ warehouseInquiry: approved, buyingLines: [{ ...fee(800), currency: "CZK" }] }, missing);
+    expect(repository.writeLifecycle).not.toHaveBeenCalled();
+    // Fewer heavy pieces than approved: the fee is for the pieces the quote has.
+    stored = withData({ sellingLines: [fee(2000)], buyingLines: [fee(400)], warehouseInquiry: approved, heavyPieces: { anyOver2t: true, pieces: { "12500": 1 } } });
     await expect(salesQuoteService.transition(martin, REF, { to: "ready_to_send" })).resolves.toMatchObject({ changed: true });
   });
 
@@ -1948,22 +2082,64 @@ describe("the warehouse inquiry of pieces of 12.5 t or more", () => {
     expect(written().serverKeys?.warehouseInquiry).toMatchObject({ answerSeenAt: NOW.toISOString() });
   });
 
-  it("lists the asker's answers not opened yet and those opened in the last 7 days", async () => {
-    repository.listInquiryAnswersFor.mockResolvedValue([]);
+  it("marks an answer the quote no longer holds by its row, so it can leave the bell", async () => {
+    const OLD = "7c1d4c2e-1b0a-4f43-8a52-2b7a1c9d0e99";
+    stored = withData({ warehouseInquiry: pending });
+    await salesQuoteService.markInquiryAnswerSeen(martin, REF, OLD);
+    expect(quoteInquiryRepository.markWarehouseSeen).toHaveBeenCalledWith(martin.companyID, OLD, U_MARTIN, NOW, TX);
+    expect(repository.writeLifecycle).not.toHaveBeenCalled();
+  });
+
+  // A warehouse question as its table row reads it, with its quote's facts.
+  const tableRow = (inquiry: Record<string, unknown>, recorded: unknown = inquiry) => ({
+    inquiry: {
+      id: inquiry.id,
+      status: inquiry.status,
+      requestedById: inquiry.requestedById,
+      requestedAt: new Date(String(inquiry.requestedAt)),
+      note: inquiry.note ?? "",
+      details: { pieces: inquiry.pieces, grossWeightKg: inquiry.grossWeightKg, priceEurPerPiece: inquiry.priceEurPerPiece ?? null },
+      decidedById: inquiry.decidedById ?? null,
+      decidedAt: inquiry.decidedAt ? new Date(String(inquiry.decidedAt)) : null,
+      comment: inquiry.comment ?? "",
+      answerSeenAt: null,
+    },
+    quote: { quoteNumber: REF, status: "draft", ownerUserId: U_MARTIN, ownerLabel: "", customerName: "Alza.cz a.s.", serviceType: "Sea LCL", from: "Hamburg", to: "Prague", recorded },
+  });
+
+  it("lists the asker's answers not opened yet and those opened in the last 7 days, from the table", async () => {
+    vi.mocked(quoteInquiryRepository.warehouseAnswersFor).mockResolvedValue([]);
     await salesQuoteService.myInquiryAnswers(martin);
-    expect(repository.listInquiryAnswersFor).toHaveBeenCalledWith(martin.companyID, U_MARTIN, new Date(NOW.getTime() - 7 * 86_400_000).toISOString());
+    expect(quoteInquiryRepository.warehouseAnswersFor).toHaveBeenCalledWith(martin.companyID, U_MARTIN, new Date(NOW.getTime() - 7 * 86_400_000), 1000);
   });
 
   it("names who asked and who answered by e-mail, also on an inquiry recorded by name - unless they are no longer users", async () => {
     const answered = { ...pending, status: "approved", priceEurPerPiece: 400, decidedById: U_MANAGER, decidedByName: "Marie Manager", decidedAt: NOW.toISOString() };
-    repository.listInquiryAnswersFor.mockResolvedValue([withData({ warehouseInquiry: answered })]);
+    vi.mocked(quoteInquiryRepository.warehouseAnswersFor).mockResolvedValue([tableRow(answered)] as never);
     const [item] = await salesQuoteService.myInquiryAnswers(martin);
-    expect(item!.inquiry).toMatchObject({ requestedByName: "martin@forwarder.cz", decidedByName: "marie@forwarder.cz" });
-    // Somebody who left keeps what was recorded.
+    expect(item!.inquiry).toMatchObject({ requestedByName: "martin@forwarder.cz", decidedByName: "marie@forwarder.cz", pieces: 2, priceEurPerPiece: 400 });
+    expect(item).toMatchObject({ quoteNumber: REF, customerName: "Alza.cz a.s.", from: "Hamburg", to: "Prague" });
+    // Somebody who left keeps what the quote recorded.
     const gone = randomUUID();
-    repository.listInquiryAnswersFor.mockResolvedValue([withData({ warehouseInquiry: { ...answered, requestedById: gone, decidedById: gone } })]);
+    const left = { ...answered, requestedById: gone, decidedById: gone };
+    vi.mocked(quoteInquiryRepository.warehouseAnswersFor).mockResolvedValue([tableRow(left)] as never);
     const [old] = await salesQuoteService.myInquiryAnswers(martin);
     expect(old!.inquiry).toMatchObject({ requestedByName: "Martin Koubek", decidedByName: "Marie Manager" });
+  });
+
+  it("keeps each warehouse question as a table row: asked, answered and opened, in the quote's transaction", async () => {
+    stored = withData({});
+    await salesQuoteService.inquireWarehouse(martin, REF, { pieces: 2, grossWeightKg: 26000, note: "crane?" });
+    expect(quoteInquiryRepository.recordWarehouse).toHaveBeenLastCalledWith(
+      expect.objectContaining({ kind: "warehouse_heavy", status: "pending", requestedById: U_MARTIN, note: "crane?", details: { pieces: 2, grossWeightKg: 26000, priceEurPerPiece: null } }),
+      TX,
+    );
+    stored = withData({ warehouseInquiry: pending });
+    await salesQuoteService.decideWarehouseInquiry(manager, REF, { inquiryId: INQ, approve: true, priceEurPerPiece: 400 });
+    expect(quoteInquiryRepository.recordWarehouse).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: INQ, status: "approved", decision: "approve", decidedById: U_MANAGER, details: expect.objectContaining({ priceEurPerPiece: 400 }) }),
+      TX,
+    );
   });
 
   it("says who answered already by e-mail", async () => {
@@ -2069,5 +2245,53 @@ describe("who a quote is for (the Customer Database)", () => {
     stored = quote({ data: { reference: REF, ...unlinked } });
     await salesQuoteService.save(martin, REF, { customerId: ACME, customerContact: "Petr", customerEmail: "private@mail.cz" }, 3);
     expect(repository.saveDocument.mock.calls[1]![2].data).toMatchObject({ customerContactId: "", customerContact: "Petr", customerEmail: "private@mail.cz" });
+  });
+});
+
+describe("the suppliers of the buying lines (Customer Database only, a new one approved by a manager)", () => {
+  const WAITS = "6f1c2b9e-1d3a-4c5b-8e7f-0a1b2c3d4e5f";
+  const supplierStates = vi.mocked(customers._internalSupplierApprovalStates);
+  // Priced well above the LCL floor, so only its suppliers can hold it.
+  const priced = (buyingLines: unknown[], over: Partial<SalesQuoteRecord> = {}) =>
+    quote({
+      data: { ...(quote().data as Record<string, unknown>), serviceType: "Sea LCL", sellingLines: [{ type: "Ocean freight", currency: "EUR", amount: 2000 }], buyingLines },
+      ...over,
+    });
+  const line = (supplier: string, supplierCustomerId?: string) => ({ type: "Ocean freight", description: "LCL", currency: "EUR", amount: 100, supplier, ...(supplierCustomerId ? { supplierCustomerId } : {}) });
+
+  beforeEach(() => fxRatesOn.mockResolvedValue(sheet([{ currency: "EUR", rate: 25 }])));
+
+  it("refuses to send a quote with a supplier only typed, naming its line, writing nothing; Lost is let", async () => {
+    stored = priced([line("DANGO"), { ...line("Rail Cargo"), type: "Rail freight", tariffRef: "rail:v1:r1" }]);
+    for (const to of ["ready_to_send", "quoted"] as const) {
+      await expect(salesQuoteService.transition(martin, REF, { to })).rejects.toMatchObject({
+        code: "failed_precondition",
+        message: "The supplier of the buying line Ocean freight (DANGO) is only typed — pick it from the Customer Database on Pricing (or add it there)",
+      });
+    }
+    expect(repository.writeLifecycle).not.toHaveBeenCalled();
+    await expect(salesQuoteService.transition(martin, REF, { to: "lost", lostReason: "Price: too high" })).resolves.toMatchObject({ changed: true });
+  });
+
+  it("holds a quote linked to a supplier waiting for a manager", async () => {
+    stored = priced([line("DANGO", WAITS)]);
+    supplierStates.mockResolvedValue({ states: [{ id: WAITS, companyName: "DANGO s.r.o.", status: "pending", comment: "" }] });
+    await expect(salesQuoteService.transition(martin, REF, { to: "ready_to_send" })).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringMatching(/^The new supplier DANGO s\.r\.o\. waits/) });
+    expect(supplierStates).toHaveBeenCalledWith({ ids: [WAITS] });
+  });
+
+  it("does not hold a quote sent before, nor ask where its suppliers stand: Quoted → Won", async () => {
+    stored = priced([line("DANGO"), line("Waits", WAITS)], { status: "quoted", sentAt: SENT, firstSentAt: SENT });
+    await expect(salesQuoteService.transition(martin, REF, { to: "won" })).resolves.toMatchObject({ changed: true });
+    expect(supplierStates).not.toHaveBeenCalled();
+  });
+
+  it("tries again when the quote became one to hold under the lock with a supplier nobody looked up", async () => {
+    // Read as Quoted (not held), then reopened as a draft by someone else before the lock.
+    const reopened = priced([line("Waits", WAITS)]);
+    stored = priced([line("Waits", WAITS)], { status: "quoted", sentAt: SENT, firstSentAt: SENT });
+    repository.withLockedQuote.mockImplementation(async (_companyId, _quoteNumber, change) => change(reopened, TX));
+    await expect(salesQuoteService.transition(martin, REF, { to: "ready_to_send" })).rejects.toMatchObject({ code: "aborted" });
+    expect(repository.writeLifecycle).not.toHaveBeenCalled();
   });
 });

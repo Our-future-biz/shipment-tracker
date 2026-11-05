@@ -53,13 +53,29 @@ interface PositionMarkSentRequest {
   note?: string;
 }
 
+interface PositionMarkSentResponse {
+  section: WarehouseConceptSectionItem;
+  /**
+   * Inform Operations of a position of a shipment: the e-mails tagged in the shipment's chat
+   * (Person in Charge, Holiday Cover; empty when nobody is set). Null for anything else, and for a
+   * stand-alone position (no shipment, no chat).
+   */
+  tagged: string[] | null;
+}
+
 // "Mark as sent" (VGM / survey / remeasurement sent outside the app) or "Inform Operations" for a
-// position. Nothing is e-mailed. A resend is allowed and kept in the history; logged.
+// position. Nothing is e-mailed. A resend is allowed and kept in the history; logged. Inform
+// Operations also posts "Cargo has been remeasured by the warehouse" to the shipment's chat, tagging
+// its Person in Charge and Holiday Cover - together with the record, or neither.
 export const warehousePositionMarkSent = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-concept/positions/:taskId/mark-sent" },
-  async ({ taskId, what, note }: PositionMarkSentRequest): Promise<{ section: WarehouseConceptSectionItem }> => {
+  async ({ taskId, what, note }: PositionMarkSentRequest): Promise<PositionMarkSentResponse> => {
     const { companyID, userID } = getAuthData()!;
-    return { section: sectionItem(await warehouseService.markSent(taskId, what, note ?? "", companyID, userID)) };
+    if (what === "inform_operations") {
+      const { row, tagged } = await warehouseService.informOperations(taskId, note ?? "", companyID, userID);
+      return { section: sectionItem(row), tagged };
+    }
+    return { section: sectionItem(await warehouseService.markSent(taskId, what, note ?? "", companyID, userID)), tagged: null };
   },
 );
 

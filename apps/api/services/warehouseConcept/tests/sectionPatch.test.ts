@@ -46,7 +46,7 @@ describe("Shipment Details saved field by field", () => {
     // A refused save writes nothing, not even its other fields.
     await expect(
       job(c, s, [
-        { key: "inform_operations_sent", value: "2026-10-14T11:00:00Z", expected: "" },
+        { key: "survey_sent", value: "2026-10-14T11:00:00Z", expected: "" },
         { key: "notes", value: "D", expected: "A" },
       ]),
     ).rejects.toThrow(/notes/);

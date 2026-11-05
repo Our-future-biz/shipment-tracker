@@ -205,6 +205,47 @@ export function isSeaQuote(data: Pick<SalesQuoteData, "serviceType">): boolean {
   return /^sea/i.test(data.serviceType ?? "");
 }
 
+// A sea quote's CY terms: at origin, then at destination, a container yard (CY) or the store door
+// (SD). In the order Sales asked for.
+export const CY_TERMS = ["CY/CY", "SD/CY", "SD/SD", "CY/SD"] as const;
+export type CyTerms = (typeof CY_TERMS)[number];
+
+/**
+ * A quote's CY terms, or undefined until they are answered. A quote saved while CY was a yes / no
+ * question reads "Yes" (through a container yard) as CY/CY and "No" as SD/SD.
+ */
+export function cyTermsOf(data: Pick<SalesQuoteData, "cy">): CyTerms | undefined {
+  const cy = data.cy;
+  if (cy === true) return "CY/CY";
+  if (cy === false) return "SD/SD";
+  return CY_TERMS.find((t) => t === cy);
+}
+
+/** Whether a quote's terms put a container yard at its origin, or at its destination. */
+export const cyAtOrigin = (terms: CyTerms | undefined) => terms?.startsWith("CY") === true;
+export const cyAtDestination = (terms: CyTerms | undefined) => terms?.endsWith("CY") === true;
+
+/**
+ * The places a quote's Routing needs before it is complete. An import on FOB starts at the port
+ * of loading, so it needs no Origin; an export on CFR ends at the port of discharge, so it needs
+ * no Destination.
+ */
+export function routingNeeds(data: Pick<SalesQuoteData, "direction" | "incoterm">): { origin: boolean; destination: boolean } {
+  const incoterm = (data.incoterm ?? "").trim().toUpperCase();
+  return {
+    origin: !(data.direction === "Import" && incoterm === "FOB"),
+    destination: !(data.direction === "Export" && incoterm === "CFR"),
+  };
+}
+
+/** The Routing places a quote still needs, "Origin" and / or "Destination". */
+export function routingMissing(data: Pick<SalesQuoteData, "direction" | "incoterm" | "origin" | "destination">): string[] {
+  const needs = routingNeeds(data);
+  return [needs.origin && !data.origin?.trim() && "Origin", needs.destination && !data.destination?.trim() && "Destination"].filter(
+    (x): x is string => !!x,
+  );
+}
+
 // Whether a container type is a reefer: RF, or HR (the high-cube reefer), of any size.
 export function isReeferType(type: string | undefined): boolean {
   // HR is the 40' high-cube reefer's former name, still on quotes saved before it was HRF.
@@ -428,6 +469,18 @@ export function sellingRoeFactor(currency: string, data: SalesQuoteData, live?: 
   return (currency || to) === to ? 1 : roeOf(data, live) / 100;
 }
 
+/**
+ * A line's value: its amount; qty × unit price only when it has none (an older document, or a line
+ * a tariff wrote without one) - the rule of the server's margin and gate (quotes lib/quoteMargin
+ * lineAmount, C4), so the two read one number.
+ */
+export function lineValue(line: CostLine): number {
+  const raw: unknown = line.amount;
+  const typed = typeof raw === "number" ? raw : typeof raw === "string" && raw.trim() !== "" ? Number(raw) : NaN;
+  if (Number.isFinite(typed)) return typed;
+  return typeof line.qty === "number" && Number.isFinite(line.qty) && typeof line.unitPrice === "number" && Number.isFinite(line.unitPrice) ? line.qty * line.unitPrice : 0;
+}
+
 // One cost line in the quote's currency, rounded to cents on its own, so the lines a screen shows
 // add up to exactly the total it shows. A selling line made in another currency also carries the
 // ROE % (the FX buffer); a buying line never does. Null when a rate it needs is missing.
@@ -439,7 +492,7 @@ export function convertLine(
 ): number | null {
   const to = quoteCurrency(data);
   const from = line.currency || to;
-  const amount = Number(line.amount) || 0;
+  const amount = lineValue(line);
   if (from === to) return roundCents(amount);
   const fromRate = rateOf(from, data, sheet);
   const toRate = rateOf(to, data, sheet);

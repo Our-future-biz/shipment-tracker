@@ -64,6 +64,8 @@ class CargoDimensionRepository extends TenantRepository<typeof cargoDimensionTab
         heightCm: l.heightCm,
         dimensionUnit: l.dimensionUnit === "in" ? "in" : "cm",
         weightPerPcKg: l.weightPerPcKg,
+        // As the write normalised it (normalizeCargoDimension): "" beside all three sizes.
+        volumePerPcM3: l.volumePerPcM3 ?? "",
         packageType: l.packageType,
         stackable: l.stackable,
         palletType: l.palletType ?? null,

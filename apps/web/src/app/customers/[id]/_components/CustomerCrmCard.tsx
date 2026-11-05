@@ -6,6 +6,7 @@ import type { CustomerItem } from "@/hooks/useCustomers";
 import type { interfaces } from "@/lib/api/client";
 import { useToast } from "@/lib/toast";
 import { CUSTOMER_LABELS, CUSTOMER_STATUSES, customerRoleOptions } from "../../_lib/constants";
+import { SUPPLIER_STATUS_OPTIONS, isSupplierOnly, supplierStatusValue } from "../../_lib/supplierStatus";
 import { CustomerInfoRow } from "./CustomerInfoRow";
 import { EditableText } from "./EditableText";
 import { SELECT_PROPS, SELECT_WRAPPER_CLASS } from "./inlineSelect";
@@ -34,6 +35,7 @@ export function CustomerCrmCard({ customer }: CustomerCrmCardProps) {
   // Roles the user cannot see (Haulier without the Trucking Concept) are kept as they are.
   const roleOptions = customerRoleOptions(canSeeConcepts);
   const shownRoles = shown.roles.filter((r) => roleOptions.some((o) => o.value === r));
+  const supplierOnly = isSupplierOnly(shown.roles);
   const hiddenRoles = shown.roles.filter((r) => !shownRoles.includes(r));
 
   // A company always has at least one role, so the last one cannot be removed.
@@ -66,28 +68,32 @@ export function CustomerCrmCard({ customer }: CustomerCrmCardProps) {
         </CustomerInfoRow>
         <CustomerInfoRow label="Status" narrow>
           <div className={SELECT_WRAPPER_CLASS}>
+            {/* A supplier only is no prospect: it is in use or not (stored as Active / Inactive). */}
             <Select
               {...SELECT_PROPS}
               aria-label="Status"
-              value={shown.status}
-              options={STATUS_OPTIONS}
+              value={supplierOnly ? supplierStatusValue(shown.status) : shown.status}
+              options={supplierOnly ? SUPPLIER_STATUS_OPTIONS : STATUS_OPTIONS}
               onChange={(value: interfaces.CustomerStatus) => save({ status: value })}
             />
           </div>
         </CustomerInfoRow>
-        <CustomerInfoRow label="Account type" narrow>
-          <div className={SELECT_WRAPPER_CLASS}>
-            <Select
-              {...SELECT_PROPS}
-              aria-label="Account type"
-              disabled={!canManage}
-              title={canManage ? undefined : "Only a manager can change the account type"}
-              value={shown.label}
-              options={ACCOUNT_TYPE_OPTIONS}
-              onChange={(value: interfaces.CustomerLabel) => save({ label: value })}
-            />
-          </div>
-        </CustomerInfoRow>
+        {/* A customer's account type (key account, target…): it says nothing of a supplier only. */}
+        {!supplierOnly && (
+          <CustomerInfoRow label="Account type" narrow>
+            <div className={SELECT_WRAPPER_CLASS}>
+              <Select
+                {...SELECT_PROPS}
+                aria-label="Account type"
+                disabled={!canManage}
+                title={canManage ? undefined : "Only a manager can change the account type"}
+                value={shown.label}
+                options={ACCOUNT_TYPE_OPTIONS}
+                onChange={(value: interfaces.CustomerLabel) => save({ label: value })}
+              />
+            </div>
+          </CustomerInfoRow>
+        )}
       </div>
 
       <CustomerInfoRow label="Website" narrow>

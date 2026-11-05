@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import Link from "next/link";
-import { InputNumber, Button, Tag, message } from "antd";
+import { InputNumber, Button, Tag, Tooltip, message } from "antd";
 import { DeleteOutlined, PlusOutlined, EditOutlined } from "@ant-design/icons";
 import type { MessageInstance } from "antd/es/message/interface";
 import { buildRowData, getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
 import { formatDateTime } from "@/lib/date";
-import { NOT_STACKABLE, STACKABLE, shipmentStackability } from "@/lib/cargo";
+import { NOT_STACKABLE, STACKABLE, dimensionVolumePerPiece, shipmentStackability } from "@/lib/cargo";
+import { loadTypeLabel } from "@/lib/enums";
 import { useWarehouseSection } from "@/hooks/useWarehouseConceptSection";
+import { informedText } from "@/lib/informOperations";
 import { SectionCard as Card, PillTabs } from "@/components/SectionCard";
 import { PickupSection } from "./PickupSection";
 import { JobNotes, ActionPushButtons, SaveStatus, SavedMeanwhile, sectionSaveError } from "./JobExtras";
@@ -97,7 +99,7 @@ export function WarehouseTab({ shipment, readOnly = false, pickupReadOnly = !rea
               <div>
                 <Row label="Container #" value={shipment.containerNumber} />
                 <Row label="Colli / PCS" value={shipment.pcs} />
-                <Row label="Load type" value={shipment.loadType} />
+                <Row label="Load type" value={loadTypeLabel(shipment.loadType, shipment.freightMode)} />
                 <Row label="Customs procedure" value={rowData["customsProcedure"]} />
               </div>
               <div>
@@ -199,7 +201,7 @@ function describeRows(json: string | undefined): string {
 }
 
 function DimensionsEditor({ shipment, messageApi, readOnly }: { shipment: ShipmentItem; messageApi: MessageInstance; readOnly: boolean }) {
-  const { data: jobSectionData, saveKeys, isSaving } = useWarehouseSection(shipment.id, "job");
+  const { data: jobSectionData, saveKeys, isSaving, informOperations: inform, isInforming } = useWarehouseSection(shipment.id, "job");
   const jobSection = asJobSection(jobSectionData);
   const informedAt = jobSection.inform_operations_sent;
   const saved = jobSection.remeasure_rows;
@@ -271,13 +273,11 @@ function DimensionsEditor({ shipment, messageApi, readOnly }: { shipment: Shipme
     let sColli = 0, sWeight = 0, sVolume = 0;
     for (const r of shipment.cargoDimensions ?? []) {
       const c = parseFloat(r.pieces) || 0;
-      const L = parseFloat(r.lengthCm) || 0;
-      const W = parseFloat(r.widthCm) || 0;
-      const H = parseFloat(r.heightCm) || 0;
       const w = parseFloat(r.weightPerPcKg) || 0;
       sColli += c;
       sWeight += c * w;
-      sVolume += (c * (L * W * H)) / 1_000_000;
+      // From the sizes, or the m³ typed for a line without them.
+      sVolume += c * dimensionVolumePerPiece(r);
     }
     return { colli: sColli, weightKg: sWeight, volumeCbm: sVolume };
   }, [shipment.cargoDimensions]);
@@ -287,12 +287,27 @@ function DimensionsEditor({ shipment, messageApi, readOnly }: { shipment: Shipme
   const hasMismatch = differs(shipmentDims.colli, totalColli) || differs(shipmentDims.weightKg, totalWeightKg) || differs(shipmentDims.volumeCbm, totalVolumeCbm);
   const hasData = totalColli > 0 || totalWeightKg > 0 || totalVolumeCbm > 0;
 
+  // Inform Operations: one request records when and posts "Cargo has been remeasured by the
+  // warehouse" with the SAVED lines' figures to the shipment's chat, tagging its Person in Charge and
+  // Holiday Cover (the server finds them) - both, or neither. Only with the lines saved and valid, so
+  // what is told is what is on screen; a second click while it runs is ignored.
+  const informingRef = useRef(false);
+  const informBlocked = invalidRows > 0
+    ? "Re-enter the invalid values and save the lines first"
+    : dirty || conflict
+      ? "Save the lines first — Operations are told the saved figures"
+      : null;
   const informOperations = async () => {
+    if (informingRef.current || informBlocked) return;
+    informingRef.current = true;
     try {
-      await saveKeys([{ key: "inform_operations_sent", value: new Date().toISOString(), expected: informedAt ?? "" }]);
-      messageApi.success("Operations informed");
+      const { tagged } = await inform("");
+      const told = informedText(tagged);
+      messageApi[told.level](told.text);
     } catch (e) {
-      messageApi.error(sectionSaveError(e, "Failed to inform Operations"));
+      messageApi.error(sectionSaveError(e, "Operations not informed — nothing was posted or recorded"));
+    } finally {
+      informingRef.current = false;
     }
   };
 
@@ -428,16 +443,23 @@ function DimensionsEditor({ shipment, messageApi, readOnly }: { shipment: Shipme
 
       {hasData && hasMismatch && (
         <div className="mt-4 flex items-center justify-between gap-3 rounded-md border border-red-200 bg-red-50 px-3.5 py-2.5">
-          <span className="text-xs text-red-600">
-            Remeasured values differ from the shipment values.
-            {informedAt && <span className="block text-[11px] text-red-400">Operations informed on {formatDateTime(informedAt)}</span>}
-          </span>
-          {!readOnly && <Button danger size="small" onClick={informOperations} loading={isSaving}>{informedAt ? "Inform Again" : "Inform Operations"}</Button>}
+          <span className="text-xs text-red-600">Remeasured values differ from the shipment values.</span>
+          {!readOnly && (
+            <Tooltip title={informBlocked ?? undefined}>
+              <span className="inline-flex">
+                <Button danger size="small" onClick={informOperations} loading={isInforming} disabled={!!informBlocked}>
+                  {informedAt ? "Inform Again" : "Inform Operations"}
+                </Button>
+              </span>
+            </Tooltip>
+          )}
         </div>
       )}
       {hasData && !hasMismatch && (
         <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-xs text-emerald-700">✓ All values match</div>
       )}
+      {/* Shown whatever the lines say now, e.g. for a shipment informed before its lines changed. */}
+      {informedAt && <div className="mt-2 text-[11px] text-slate-500">Operations informed on {formatDateTime(informedAt)}</div>}
     </Card>
   );
 }

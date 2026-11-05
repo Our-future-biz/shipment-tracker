@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { generatedInvoiceTable as t, type GeneratedInvoiceRecord } from "../schemas/generatedInvoice.schema";
@@ -15,6 +15,16 @@ class GeneratedInvoiceRepository extends TenantRepository<typeof t> {
       .from(t)
       .where(and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), isNull(t.deletedAt)))
       .orderBy(asc(t.createdAt));
+  }
+
+  /** Of the shipments, those the old generator made an invoice for (their numbers carry the job's reference too). */
+  async shipmentIdsWithInvoices(shipmentIds: string[], companyId: string): Promise<string[]> {
+    if (!shipmentIds.length) return [];
+    const rows = await this.db
+      .selectDistinct({ shipmentId: t.shipmentId })
+      .from(t)
+      .where(and(eq(t.companyId, companyId), isNull(t.deletedAt), inArray(t.shipmentId, shipmentIds)));
+    return rows.map((r) => r.shipmentId);
   }
 }
 

@@ -48,6 +48,10 @@ interface SalesQuoteListRequest {
   decidedFrom?: string;
   /** Won or lost on this day or earlier (YYYY-MM-DD, the day in Prague). */
   decidedTo?: string;
+  /** Valid until this day or later (YYYY-MM-DD). */
+  validFrom?: string;
+  /** Valid until this day or earlier (YYYY-MM-DD). */
+  validTo?: string;
   /** "me" (the signed-in user), "none" (quotes that belong to no user) or the id of a user. */
   owner?: string & MaxLen<36>;
   /** The id of the customer the quotes are for. */
@@ -58,6 +62,13 @@ interface SalesQuoteListRequest {
   familyOf?: string & MaxLen<50>;
   /** true: only the quotes a shipment names (shipmentJobNumber is set); false: only the quotes none does. */
   hasShipment?: boolean;
+  /**
+   * "Filter by column": a JSON list of { "key", "value" }, every one kept. A quote is kept when its
+   * text in the column contains the value, case and diacritics aside (Incoterms: is the value). Columns:
+   * reference, customer, origin, destination, validity, shipment (the job number), incoterm,
+   * cargoReady, commodity, method, shippingTerms, sent; dates as DD.MM.YYYY. At most 10.
+   */
+  columnFilters?: string & MaxLen<4000>;
 }
 
 interface SalesQuoteListResponse {

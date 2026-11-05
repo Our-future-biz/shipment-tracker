@@ -11,7 +11,9 @@ const repo = vi.hoisted(() => ({
   countOpenInvoices: vi.fn(),
   listOpenInvoicesWithSources: vi.fn(),
   invoicedSellingRowIds: vi.fn(),
+  shipmentIdsWithInvoices: vi.fn(),
 }));
+const generated = vi.hoisted(() => ({ shipmentIdsWithInvoices: vi.fn() }));
 const trucking = vi.hoisted(() => ({
   lock: vi.fn(async () => undefined),
   liveSellingIds: vi.fn(async (_tx: unknown, _c: string, _s: string, ids: string[]) => new Set(ids)),
@@ -24,10 +26,11 @@ const settings = vi.hoisted(() => ({ getByShipmentId: vi.fn(), listByCompany: vi
 const fxClient = vi.hoisted(() => ({ fxRatesOn: vi.fn() }));
 const clients = vi.hoisted(() => ({
   shipmentGet: vi.fn(), shipmentUpdate: vi.fn(), shipmentList: vi.fn(), customerGet: vi.fn(), invoiceCreate: vi.fn(),
-  invoiceMarkCredited: vi.fn(),
+  invoiceMarkCredited: vi.fn(), shipmentReferenceFinal: vi.fn(),
 }));
 
 vi.mock("../repositories/invoice.repository", () => ({ invoiceRepository: repo }));
+vi.mock("../repositories/generatedInvoice.repository", () => ({ generatedInvoiceRepository: generated }));
 vi.mock("../repositories/truckingLines.repository", () => ({
   truckingLinesLock: trucking.lock,
   truckingLinesRepository: { liveSellingIds: trucking.liveSellingIds },
@@ -36,7 +39,12 @@ vi.mock("../repositories/invoiceProfile.repository", () => ({ invoiceProfileRepo
 vi.mock("../repositories/sellingCost.repository", () => ({ sellingCostRepository: selling }));
 vi.mock("../repositories/billingSettings.repository", () => ({ billingSettingsRepository: settings }));
 vi.mock("~encore/clients", () => ({
-  shipments: { shipmentGet: clients.shipmentGet, shipmentUpdate: clients.shipmentUpdate, shipmentList: clients.shipmentList },
+  shipments: {
+    shipmentGet: clients.shipmentGet,
+    shipmentUpdate: clients.shipmentUpdate,
+    shipmentList: clients.shipmentList,
+    _internalShipmentReferenceFinal: clients.shipmentReferenceFinal,
+  },
   customers: { customerGet: clients.customerGet, invoiceCreate: clients.invoiceCreate, invoiceMarkCredited: clients.invoiceMarkCredited },
   fx: fxClient,
 }));
@@ -86,6 +94,7 @@ const sellRow = (over: Record<string, unknown>) => ({
 beforeEach(() => {
   vi.clearAllMocks();
   clients.shipmentGet.mockResolvedValue({ shipment });
+  clients.shipmentReferenceFinal.mockResolvedValue({ jobNumber: shipment.jobNumber });
   clients.customerGet.mockResolvedValue({ customer });
   clients.invoiceCreate.mockResolvedValue({});
   clients.invoiceMarkCredited.mockResolvedValue({ updated: 1 });
@@ -223,6 +232,25 @@ describe("issue", () => {
     }));
   });
 
+  it("numbers the invoice by the reference Shipments marks final under the shipment's write turn - with the letters an edit gave it meanwhile", async () => {
+    // Read as CZ00000028 when the invoice was prepared; a Load Type edit made it CZFCL… since.
+    clients.shipmentReferenceFinal.mockResolvedValue({ jobNumber: "CZFCL00000028" });
+    const inv = await invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, {});
+    expect(clients.shipmentReferenceFinal).toHaveBeenCalledWith({ shipmentId: SHIPMENT });
+    const [prefix, header] = repo.issue.mock.calls[0]!;
+    expect(prefix).toBe("INV2026CZFCL00000028-");
+    expect(header).toMatchObject({ shipment: { jobNumber: "CZFCL00000028" } });
+    expect(inv.number).toBe("INV2026CZFCL00000028-001");
+    // Marked final before the number is taken.
+    expect(clients.shipmentReferenceFinal.mock.invocationCallOrder[0]).toBeLessThan(repo.issue.mock.invocationCallOrder[0]!);
+  });
+
+  it("leaves the reference as it is when the invoice is refused before it is numbered", async () => {
+    profiles.getByCompany.mockResolvedValue(null);
+    await expect(invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, {})).rejects.toThrow(/invoicing details/);
+    expect(clients.shipmentReferenceFinal).not.toHaveBeenCalled();
+  });
+
   it("refuses to issue on a stale rate when the ČNB fixing of the tax date was not imported", async () => {
     fxClient.fxRatesOn.mockResolvedValue({ ...cnb, missing: true });
     const preview = await invoiceDocumentService.preview(SHIPMENT, COMPANY, {});
@@ -324,6 +352,21 @@ describe("issue", () => {
     clients.invoiceCreate.mockRejectedValue(new Error("customers down"));
     const inv = await invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, {});
     expect(inv.number).toBe("INV2026CZ00000028-001");
+  });
+});
+
+describe("shipmentsEverInvoiced", () => {
+  const A = "00000000-0000-0000-0000-0000000000a1";
+  const B = "00000000-0000-0000-0000-0000000000b1";
+  const C = "00000000-0000-0000-0000-0000000000c1";
+
+  it("counts the invoices issued here and the old generator's, each shipment once, in the caller's company", async () => {
+    repo.shipmentIdsWithInvoices.mockResolvedValue([A, B]);
+    generated.shipmentIdsWithInvoices.mockResolvedValue([B, C]);
+    await expect(invoiceDocumentService.shipmentsEverInvoiced([A, B, C, "not-an-id"], COMPANY)).resolves.toEqual([A, B, C]);
+    // What is no id is never asked about.
+    expect(repo.shipmentIdsWithInvoices).toHaveBeenCalledWith([A, B, C], COMPANY);
+    expect(generated.shipmentIdsWithInvoices).toHaveBeenCalledWith([A, B, C], COMPANY);
   });
 });
 

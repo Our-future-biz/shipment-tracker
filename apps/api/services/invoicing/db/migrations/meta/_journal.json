@@ -134,6 +134,34 @@
       "when": 1793625730540,
       "tag": "0018_master_job_costs",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1793770988819,
+      "tag": "0019_cost_supplier_link",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1793774632203,
+      "tag": "0020_cost_received_paid",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1793783189084,
+      "tag": "0021_cost_paid_by",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1793817304557,
+      "tag": "0022_supplier_cost_indexes",
+      "breakpoints": true
     }
   ]
 }

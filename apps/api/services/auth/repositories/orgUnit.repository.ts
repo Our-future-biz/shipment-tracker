@@ -104,20 +104,26 @@ class LocationRepository {
 
   /**
    * Places worldwide whose code or name starts with the text (or a word of the name does), for
-   * the place pickers. The exact code comes first, then names that start with the text.
+   * the place pickers. With `pickedBy`, the places that user picked most come first (location_pick);
+   * then the exact code, then names that start with the text.
    * `query` is ASCII-folded by the caller, matching `name_ascii`.
    */
-  async search(query: string, countryCode: string | null, limit: number) {
+  async search(query: string, countryCode: string | null, limit: number, pickedBy?: { companyId: string; userId: string }) {
     const prefix = `${query}%`;
     const inCountry = countryCode ? sql`AND country_code = ${countryCode}` : sql``;
+    const picks = pickedBy
+      ? sql`LEFT JOIN location_pick lp ON lp.code = p.code AND lp.company_id = ${pickedBy.companyId} AND lp.user_id = ${pickedBy.userId}`
+      : sql`LEFT JOIN (SELECT NULL::text AS code, 0 AS picks) lp ON false`;
     const result = await db.execute<Place & Record<string, unknown>>(sql`
-      SELECT code, country_code AS "countryCode", name, subdivision_name AS "subdivisionName" FROM (
+      SELECT p.code, p.country_code AS "countryCode", p.name, p.subdivision_name AS "subdivisionName" FROM (
         SELECT DISTINCT ON (code) code, country_code, name, name_ascii, subdivision_name FROM location
         WHERE (code ILIKE ${prefix} OR name_ascii ILIKE ${prefix} OR name_ascii ILIKE ${`% ${query}%`} OR name_ascii ILIKE ${`%(${query}%`}) ${inCountry}
         ORDER BY code, id
       ) p
-      ORDER BY CASE WHEN code ILIKE ${query} THEN 0 WHEN name_ascii ILIKE ${query} THEN 1 WHEN name_ascii ILIKE ${prefix} THEN 2 ELSE 3 END,
-        length(name), name
+      ${picks}
+      ORDER BY COALESCE(lp.picks, 0) DESC,
+        CASE WHEN p.code ILIKE ${query} THEN 0 WHEN p.name_ascii ILIKE ${query} THEN 1 WHEN p.name_ascii ILIKE ${prefix} THEN 2 ELSE 3 END,
+        length(p.name), p.name, p.code
       LIMIT ${limit}`);
     return result.rows;
   }

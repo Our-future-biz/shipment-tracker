@@ -114,6 +114,10 @@ export interface ClientOptions {
 export namespace lib {
     export interface AuthParams {
         authorization: string
+        /**
+         * A superadmin's company switcher: the company to work as (its id). Ignored for anyone else.
+         */
+        actingCompany?: string
     }
 }
 
@@ -158,6 +162,7 @@ export namespace auth {
             this.departmentList = this.departmentList.bind(this)
             this.departmentUpdate = this.departmentUpdate.bind(this)
             this.locationList = this.locationList.bind(this)
+            this.placePick = this.placePick.bind(this)
             this.placeSearch = this.placeSearch.bind(this)
             this.terminalSearch = this.terminalSearch.bind(this)
             this.userCreate = this.userCreate.bind(this)
@@ -263,7 +268,8 @@ export namespace auth {
         public async authMe(params: controllers.AuthMeRequest): Promise<controllers.AuthMeResponse> {
             // Convert our params into the objects we need for the request
             const headers = makeRecord<string, string>({
-                authorization: params.authorization,
+                authorization:      params.authorization,
+                "x-acting-company": params.actingCompany,
             })
 
             // Now make the actual call to the API
@@ -418,6 +424,14 @@ export namespace auth {
         }
 
         /**
+         * A place, airport or terminal picked in a location picker: counted for the user, whose pickers
+         * then list it sooner (most picked first).
+         */
+        public async placePick(params: controllers.PlacePickRequest): Promise<void> {
+            await this.baseClient.callTypedAPI("POST", `/auth/places/picks`, JSON.stringify(params))
+        }
+
+        /**
          * Places worldwide matching typed text, for the Origin / POL / POD / Destination / HUB / CFS pickers.
          */
         public async placeSearch(params: controllers.PlaceSearchRequest): Promise<controllers.PlaceListResponse> {
@@ -543,6 +557,7 @@ export namespace customers {
             this.customerSiteList = this.customerSiteList.bind(this)
             this.customerSiteUpdate = this.customerSiteUpdate.bind(this)
             this.customerUpdate = this.customerUpdate.bind(this)
+            this.customerViewCounts = this.customerViewCounts.bind(this)
             this.documentContent = this.documentContent.bind(this)
             this.documentCreate = this.documentCreate.bind(this)
             this.documentDelete = this.documentDelete.bind(this)
@@ -557,6 +572,14 @@ export namespace customers {
             this.noteCreate = this.noteCreate.bind(this)
             this.noteDelete = this.noteDelete.bind(this)
             this.noteList = this.noteList.bind(this)
+            this.supplierApprovalDecide = this.supplierApprovalDecide.bind(this)
+            this.supplierApprovalList = this.supplierApprovalList.bind(this)
+            this.supplierApprovalSeen = this.supplierApprovalSeen.bind(this)
+            this.supplierApprovalUndoDecline = this.supplierApprovalUndoDecline.bind(this)
+            this.supplierRatingHistory = this.supplierRatingHistory.bind(this)
+            this.supplierRatingSet = this.supplierRatingSet.bind(this)
+            this.supplierTermsCopyFromTrucking = this.supplierTermsCopyFromTrucking.bind(this)
+            this.supplierTermsSet = this.supplierTermsSet.bind(this)
         }
 
         public async addressCreate(customerId: string, params: controllers.AddressCreateRequest): Promise<controllers.AddressCreateResponse> {
@@ -678,10 +701,14 @@ export namespace customers {
             // Convert our params into the objects we need for the request
             const query = makeRecord<string, string | string[]>({
                 country: params.country,
+                kind:    params.kind === undefined ? undefined : String(params.kind),
                 label:   params.label === undefined ? undefined : String(params.label),
+                owner:   params.owner === undefined ? undefined : String(params.owner),
+                rating:  params.rating === undefined ? undefined : String(params.rating),
                 role:    params.role === undefined ? undefined : String(params.role),
                 search:  params.search,
                 status:  params.status === undefined ? undefined : String(params.status),
+                types:   params.types,
             })
 
             // Now make the actual call to the API
@@ -772,6 +799,15 @@ export namespace customers {
             return await resp.json() as controllers.CustomerUpdateResponse
         }
 
+        /**
+         * How many companies each view of the Customer Database list holds, for its view buttons (Council Review 5, m28).
+         */
+        public async customerViewCounts(): Promise<interfaces.CustomerViewCounts> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/customers/view-counts`)
+            return await resp.json() as interfaces.CustomerViewCounts
+        }
+
         public async documentContent(id: string): Promise<controllers.DocumentContentResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/customer-documents/${encodeURIComponent(id)}/content`)
@@ -859,6 +895,72 @@ export namespace customers {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/customers/${encodeURIComponent(customerId)}/notes`)
             return await resp.json() as controllers.NoteListResponse
+        }
+
+        /**
+         * Managers and admins only. Declined, the company is deleted (a manager can take the decline back: below).
+         */
+        public async supplierApprovalDecide(id: string, params: controllers.SupplierApprovalDecideRequest): Promise<controllers.SupplierApprovalDecideResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/customers/${encodeURIComponent(id)}/supplier-approval`, JSON.stringify(params))
+            return await resp.json() as controllers.SupplierApprovalDecideResponse
+        }
+
+        /**
+         * Sales → Managers → Company approval, and the bell: a manager is told what waits, the one who asked the answer.
+         */
+        public async supplierApprovalList(): Promise<controllers.SupplierApprovalListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/customers/supplier-approvals`)
+            return await resp.json() as controllers.SupplierApprovalListResponse
+        }
+
+        public async supplierApprovalSeen(params: controllers.SupplierApprovalSeenRequest): Promise<void> {
+            await this.baseClient.callTypedAPI("POST", `/customers/supplier-approvals/seen`, JSON.stringify(params))
+        }
+
+        /**
+         * Managers and admins only: a declined new supplier comes back and waits for a manager again.
+         */
+        public async supplierApprovalUndoDecline(id: string): Promise<controllers.SupplierApprovalDecideResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/customers/${encodeURIComponent(id)}/supplier-approval/undo-decline`)
+            return await resp.json() as controllers.SupplierApprovalDecideResponse
+        }
+
+        public async supplierRatingHistory(id: string): Promise<controllers.SupplierRatingHistoryResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/customers/${encodeURIComponent(id)}/supplier-rating/history`)
+            return await resp.json() as controllers.SupplierRatingHistoryResponse
+        }
+
+        /**
+         * Managers and admins only; who and when come from the login and the server's clock, never the request.
+         */
+        public async supplierRatingSet(id: string, params: controllers.SupplierRatingSetRequest): Promise<controllers.SupplierRatingSetResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/customers/${encodeURIComponent(id)}/supplier-rating`, JSON.stringify(params))
+            return await resp.json() as controllers.SupplierRatingSetResponse
+        }
+
+        /**
+         * The one-off copy of every haulier's payment terms and VAT / bank details from Trucking (Council Outlay 7,
+         * step 6b, E2), for one company. Only onto hauliers whose terms were never set here, so it can be run again.
+         * Superadmins only.
+         */
+        public async supplierTermsCopyFromTrucking(params: controllers.SupplierTermsCopyRequest): Promise<controllers.SupplierTermsCopyResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/customers/supplier-terms/copy-from-trucking`, JSON.stringify(params))
+            return await resp.json() as controllers.SupplierTermsCopyResponse
+        }
+
+        /**
+         * A supplier's payment terms and VAT / bank checks: managers and admins only; a haulier's are copied to Trucking in the same save.
+         */
+        public async supplierTermsSet(id: string, params: controllers.SupplierTermsSetRequest): Promise<controllers.SupplierTermsSetResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/customers/${encodeURIComponent(id)}/supplier-terms`, JSON.stringify(params))
+            return await resp.json() as controllers.SupplierTermsSetResponse
         }
     }
 }
@@ -1168,7 +1270,10 @@ export namespace invoicing {
             this.invoicingMasterJobCostDelete = this.invoicingMasterJobCostDelete.bind(this)
             this.invoicingMasterJobCostUpdate = this.invoicingMasterJobCostUpdate.bind(this)
             this.invoicingMasterJobCosts = this.invoicingMasterJobCosts.bind(this)
+            this.invoicingRestoreBuyingCost = this.invoicingRestoreBuyingCost.bind(this)
             this.invoicingSplitCost = this.invoicingSplitCost.bind(this)
+            this.invoicingSupplierCosts = this.invoicingSupplierCosts.bind(this)
+            this.invoicingSupplierUsage = this.invoicingSupplierUsage.bind(this)
             this.invoicingUpdateBuyingCost = this.invoicingUpdateBuyingCost.bind(this)
             this.invoicingUpdateCharge = this.invoicingUpdateCharge.bind(this)
             this.invoicingUpdateSellingCost = this.invoicingUpdateSellingCost.bind(this)
@@ -1356,6 +1461,15 @@ export namespace invoicing {
         }
 
         /**
+         * Undo of a delete: the line comes back as it was (when its invoice was received, its payment), not as a new one.
+         */
+        public async invoicingRestoreBuyingCost(shipmentId: string, costId: string, params: controllers.RestoreBuyingRequest): Promise<controllers.BuyingResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/buying/${encodeURIComponent(costId)}/restore`, JSON.stringify(params))
+            return await resp.json() as controllers.BuyingResponse
+        }
+
+        /**
          * Splits one vendor invoice over shipments by weight - a master job's invoice by each
          * shipment's freight tons - so the parts add up to the total to the cent, and posts each part
          * as the real cost of the shipment's line of the charge code. With `dryRun` it only answers the
@@ -1365,6 +1479,28 @@ export namespace invoicing {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/cost-split`, JSON.stringify(params))
             return await resp.json() as controllers.SplitCostResponse
+        }
+
+        /**
+         * What we owe a supplier of the Customer Database, from the shipments' Costs Breakdown: its buying
+         * lines not yet paid (received = owed, not received = expected) and the typed vendor names that name
+         * it without being linked (Council Outlay 7, step 6b); for a haulier, its approved Trucking invoices
+         * not yet paid, apart and only for those who see the Trucking Concept. Read by everyone who sees the
+         * supplier's page.
+         */
+        public async invoicingSupplierCosts(customerId: string): Promise<interfaces.SupplierCostsResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/invoicing/suppliers/${encodeURIComponent(customerId)}/costs`)
+            return await resp.json() as interfaces.SupplierCostsResponse
+        }
+
+        /**
+         * A supplier's open jobs and when it was last put on one (its page's "Open jobs" tile; Council Review 5, m21).
+         */
+        public async invoicingSupplierUsage(customerId: string): Promise<interfaces.SupplierUsageResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/invoicing/suppliers/${encodeURIComponent(customerId)}/usage`)
+            return await resp.json() as interfaces.SupplierUsageResponse
         }
 
         public async invoicingUpdateBuyingCost(shipmentId: string, costId: string, params: controllers.UpdateBuyingRequest): Promise<controllers.BuyingResponse> {
@@ -1443,6 +1579,8 @@ export namespace quotes {
             this.quoteCommentUnread = this.quoteCommentUnread.bind(this)
             this.quoteLinksNormalize = this.quoteLinksNormalize.bind(this)
             this.quotePeopleNormalize = this.quotePeopleNormalize.bind(this)
+            this.salesGuardrailsGet = this.salesGuardrailsGet.bind(this)
+            this.salesGuardrailsSet = this.salesGuardrailsSet.bind(this)
             this.salesQuoteCreate = this.salesQuoteCreate.bind(this)
             this.salesQuoteDelete = this.salesQuoteDelete.bind(this)
             this.salesQuoteDuplicate = this.salesQuoteDuplicate.bind(this)
@@ -1450,6 +1588,13 @@ export namespace quotes {
             this.salesQuoteGet = this.salesQuoteGet.bind(this)
             this.salesQuoteList = this.salesQuoteList.bind(this)
             this.salesQuoteMarginApprove = this.salesQuoteMarginApprove.bind(this)
+            this.salesQuoteMarginInquiryAsk = this.salesQuoteMarginInquiryAsk.bind(this)
+            this.salesQuoteMarginInquiryDecide = this.salesQuoteMarginInquiryDecide.bind(this)
+            this.salesQuoteMarginInquiryForMe = this.salesQuoteMarginInquiryForMe.bind(this)
+            this.salesQuoteMarginInquiryGet = this.salesQuoteMarginInquiryGet.bind(this)
+            this.salesQuoteMarginInquiryList = this.salesQuoteMarginInquiryList.bind(this)
+            this.salesQuoteMarginInquirySeen = this.salesQuoteMarginInquirySeen.bind(this)
+            this.salesQuoteMarginInquiryWithdraw = this.salesQuoteMarginInquiryWithdraw.bind(this)
             this.salesQuoteOwner = this.salesQuoteOwner.bind(this)
             this.salesQuoteRevise = this.salesQuoteRevise.bind(this)
             this.salesQuoteRoadPrice = this.salesQuoteRoadPrice.bind(this)
@@ -1564,6 +1709,18 @@ export namespace quotes {
             return await resp.json() as interfaces.QuotePeopleNormalizeResult
         }
 
+        public async salesGuardrailsGet(): Promise<controllers.GuardrailsResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/sales-guardrails`)
+            return await resp.json() as controllers.GuardrailsResponse
+        }
+
+        public async salesGuardrailsSet(params: controllers.GuardrailsSetRequest): Promise<controllers.GuardrailsResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/sales-guardrails`, JSON.stringify(params))
+            return await resp.json() as controllers.GuardrailsResponse
+        }
+
         public async salesQuoteCreate(params: controllers.SalesQuoteCreateRequest): Promise<controllers.SalesQuoteCreateResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/sales-quotes`, JSON.stringify(params))
@@ -1615,6 +1772,7 @@ export namespace quotes {
             // Convert our params into the objects we need for the request
             const query = makeRecord<string, string | string[]>({
                 afterId:       params.afterId,
+                columnFilters: params.columnFilters,
                 createdFrom:   params.createdFrom,
                 createdTo:     params.createdTo,
                 customerId:    params.customerId,
@@ -1632,6 +1790,8 @@ export namespace quotes {
                 sortBy:        params.sortBy,
                 sortDirection: params.sortDirection === undefined ? undefined : String(params.sortDirection),
                 statuses:      params.statuses,
+                validFrom:     params.validFrom,
+                validTo:       params.validTo,
             })
 
             // Now make the actual call to the API
@@ -1647,6 +1807,83 @@ export namespace quotes {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/sales-quotes/${encodeURIComponent(quoteNumber)}/margin-approval`, JSON.stringify(params))
             return await resp.json() as controllers.SalesQuoteMarginApproveResponse
+        }
+
+        public async salesQuoteMarginInquiryAsk(quoteNumber: string, params: controllers.AskRequest): Promise<{
+    inquiry: interfaces.QuoteMarginInquiryItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/sales-quotes/${encodeURIComponent(quoteNumber)}/margin-inquiry`, JSON.stringify(params))
+            return await resp.json() as {
+    inquiry: interfaces.QuoteMarginInquiryItem
+}
+        }
+
+        public async salesQuoteMarginInquiryDecide(quoteNumber: string, params: controllers.DecideRequest): Promise<{
+    inquiry: interfaces.QuoteMarginInquiryItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/sales-quotes/${encodeURIComponent(quoteNumber)}/margin-inquiry/decide`, JSON.stringify(params))
+            return await resp.json() as {
+    inquiry: interfaces.QuoteMarginInquiryItem
+}
+        }
+
+        /**
+         * The bell: questions the user is told about, and answers to their questions or quotes.
+         */
+        public async salesQuoteMarginInquiryForMe(): Promise<{
+    waiting: interfaces.QuoteMarginInquiryRow[]
+    answers: interfaces.QuoteMarginInquiryItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/sales-quote-margin-inquiries/for-me`)
+            return await resp.json() as {
+    waiting: interfaces.QuoteMarginInquiryRow[]
+    answers: interfaces.QuoteMarginInquiryItem[]
+}
+        }
+
+        /**
+         * The newest question of a quote, answered or not; null when it has none.
+         */
+        public async salesQuoteMarginInquiryGet(quoteNumber: string): Promise<{
+    inquiry: interfaces.QuoteMarginInquiryItem | null
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/sales-quotes/${encodeURIComponent(quoteNumber)}/margin-inquiry`)
+            return await resp.json() as {
+    inquiry: interfaces.QuoteMarginInquiryItem | null
+}
+        }
+
+        /**
+         * The managers' list: what waits, and what was answered in the last 30 days.
+         */
+        public async salesQuoteMarginInquiryList(): Promise<{
+    inquiries: interfaces.QuoteMarginInquiryRow[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/sales-quote-margin-inquiries`)
+            return await resp.json() as {
+    inquiries: interfaces.QuoteMarginInquiryRow[]
+}
+        }
+
+        public async salesQuoteMarginInquirySeen(params: {
+    ids: string[]
+}): Promise<void> {
+            await this.baseClient.callTypedAPI("POST", `/sales-quote-margin-inquiries/seen`, JSON.stringify(params))
+        }
+
+        public async salesQuoteMarginInquiryWithdraw(quoteNumber: string, params: controllers.InquiryRef): Promise<{
+    inquiry: interfaces.QuoteMarginInquiryItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/sales-quotes/${encodeURIComponent(quoteNumber)}/margin-inquiry/withdraw`, JSON.stringify(params))
+            return await resp.json() as {
+    inquiry: interfaces.QuoteMarginInquiryItem
+}
         }
 
         public async salesQuoteOwner(quoteNumber: string, params: controllers.SalesQuoteOwnerRequest): Promise<controllers.SalesQuoteOwnerResponse> {
@@ -1771,6 +2008,7 @@ export namespace sales {
             this.prefGet = this.prefGet.bind(this)
             this.prefSet = this.prefSet.bind(this)
             this.salesLinksNormalize = this.salesLinksNormalize.bind(this)
+            this.salesManagersCockpit = this.salesManagersCockpit.bind(this)
             this.salesPermissions = this.salesPermissions.bind(this)
             this.salesPipeline = this.salesPipeline.bind(this)
             this.termsCreate = this.termsCreate.bind(this)
@@ -1909,6 +2147,26 @@ export namespace sales {
         }
 
         /**
+         * Sales → Managers (Council Outlay 6): what the sales team needs from a manager today, counted
+         * over the company's quotes and follow-up tasks. For those who manage Sales (superadmin, admin,
+         * manager); the page polls it every minute.
+         */
+        public async salesManagersCockpit(params: controllers.SalesManagersCockpitRequest): Promise<{
+    cockpit: interfaces.SalesManagersCockpit
+}> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                mode: params.mode,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/sales/managers/cockpit`, undefined, {query})
+            return await resp.json() as {
+    cockpit: interfaces.SalesManagersCockpit
+}
+        }
+
+        /**
          * What the signed-in user may do in Sales beyond a single quote: the screens show, hide and lock
          * their controls by these flags and hold no rule about roles themselves. The endpoints refuse by
          * the same policy, whatever a screen shows.
@@ -2015,6 +2273,7 @@ export namespace shipments {
             this.shipmentPeopleNormalize = this.shipmentPeopleNormalize.bind(this)
             this.shipmentQuoteLink = this.shipmentQuoteLink.bind(this)
             this.shipmentQuoteLinksSync = this.shipmentQuoteLinksSync.bind(this)
+            this.shipmentReferencesNormalize = this.shipmentReferencesNormalize.bind(this)
             this.shipmentReleaseHouseBol = this.shipmentReleaseHouseBol.bind(this)
             this.shipmentTileCounts = this.shipmentTileCounts.bind(this)
             this.shipmentUnlinkMasterJob = this.shipmentUnlinkMasterJob.bind(this)
@@ -2368,6 +2627,17 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/shipment-quote-links/sync`, JSON.stringify(params))
             return await resp.json() as controllers.ShipmentQuoteLinksSyncResponse
+        }
+
+        /**
+         * The one-off rename after Internal References got the letters of their Freight Mode and Load Type
+         * (owner decision, 3 Nov 2026): CZ00000023 by sea, full load → CZFCL00000023, the number kept.
+         * Shipments that have had an invoice keep their reference. Safe to run again. Superadmins only.
+         */
+        public async shipmentReferencesNormalize(): Promise<interfaces.ReferenceNormalizeResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/references/normalize`)
+            return await resp.json() as interfaces.ReferenceNormalizeResult
         }
 
         /**
@@ -2913,7 +3183,9 @@ export namespace trucking {
             this.truckingHaulierInvoiceFile = this.truckingHaulierInvoiceFile.bind(this)
             this.truckingHaulierInvoiceGet = this.truckingHaulierInvoiceGet.bind(this)
             this.truckingHaulierInvoiceList = this.truckingHaulierInvoiceList.bind(this)
+            this.truckingHaulierInvoicePaid = this.truckingHaulierInvoicePaid.bind(this)
             this.truckingHaulierInvoiceReject = this.truckingHaulierInvoiceReject.bind(this)
+            this.truckingHaulierInvoiceUnpaid = this.truckingHaulierInvoiceUnpaid.bind(this)
             this.truckingHaulierInvoiceUpdate = this.truckingHaulierInvoiceUpdate.bind(this)
             this.truckingHaulierList = this.truckingHaulierList.bind(this)
             this.truckingHaulierUnblock = this.truckingHaulierUnblock.bind(this)
@@ -3469,11 +3741,29 @@ export namespace trucking {
         }
 
         /**
+         * Manager; an approved invoice only (Council Outlay 7, step 6b).
+         */
+        public async truckingHaulierInvoicePaid(id: string, params: controllers.HaulierInvoicePaidRequest): Promise<controllers.HaulierInvoiceResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/haulier-invoices/${encodeURIComponent(id)}/paid`, JSON.stringify(params))
+            return await resp.json() as controllers.HaulierInvoiceResponse
+        }
+
+        /**
          * Manager.
          */
         public async truckingHaulierInvoiceReject(id: string, params: controllers.HaulierInvoiceReasonRequest): Promise<controllers.HaulierInvoiceResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/trucking/haulier-invoices/${encodeURIComponent(id)}/reject`, JSON.stringify(params))
+            return await resp.json() as controllers.HaulierInvoiceResponse
+        }
+
+        /**
+         * Manager, with a reason: a payment noted by mistake.
+         */
+        public async truckingHaulierInvoiceUnpaid(id: string, params: controllers.HaulierInvoiceReasonRequest): Promise<controllers.HaulierInvoiceResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/haulier-invoices/${encodeURIComponent(id)}/unpaid`, JSON.stringify(params))
             return await resp.json() as controllers.HaulierInvoiceResponse
         }
 
@@ -3512,7 +3802,8 @@ export namespace trucking {
         }
 
         /**
-         * Saves a haulier's trucking profile (any user; the VAT and bank fields a manager only). The block is changed only by block / unblock.
+         * Saves a haulier's trucking profile (any user; its payment terms and VAT / bank details are kept, they are edited in the
+         * Customer Database). The block is changed only by block / unblock.
          */
         public async truckingHaulierUpdate(customerId: string, params: controllers.TruckingHaulierUpdateRequest): Promise<interfaces.TruckingHaulierResponse> {
             // Now make the actual call to the API
@@ -3999,8 +4290,10 @@ export namespace warehouse {
             this.warehouseCreate = this.warehouseCreate.bind(this)
             this.warehouseDelete = this.warehouseDelete.bind(this)
             this.warehouseEnsureRefs = this.warehouseEnsureRefs.bind(this)
+            this.warehouseInformOperations = this.warehouseInformOperations.bind(this)
             this.warehouseList = this.warehouseList.bind(this)
             this.warehouseSectionGet = this.warehouseSectionGet.bind(this)
+            this.warehouseSectionPatch = this.warehouseSectionPatch.bind(this)
             this.warehouseSectionUpsert = this.warehouseSectionUpsert.bind(this)
             this.warehouseTruckCreate = this.warehouseTruckCreate.bind(this)
             this.warehouseUpdate = this.warehouseUpdate.bind(this)
@@ -4028,6 +4321,17 @@ export namespace warehouse {
             return await resp.json() as controllers.EnsureRefsResponse
         }
 
+        /**
+         * Inform Operations: records when, and posts "Cargo has been remeasured by the warehouse" with the
+         * shipment's and the saved remeasured figures to the shipment's chat, tagging its Person in Charge
+         * and Holiday Cover - together, or neither.
+         */
+        public async warehouseInformOperations(shipmentId: string, params: controllers.WarehouseInformOperationsRequest): Promise<controllers.WarehouseInformOperationsResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse/inform-operations/${encodeURIComponent(shipmentId)}`, JSON.stringify(params))
+            return await resp.json() as controllers.WarehouseInformOperationsResponse
+        }
+
         public async warehouseList(params: controllers.WarehouseListRequest): Promise<controllers.WarehouseListResponse> {
             // Convert our params into the objects we need for the request
             const query = makeRecord<string, string | string[]>({
@@ -4043,6 +4347,17 @@ export namespace warehouse {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/warehouse/sections/${encodeURIComponent(shipmentId)}/${encodeURIComponent(section)}`)
             return await resp.json() as controllers.WarehouseSectionGetResponse
+        }
+
+        /**
+         * Saves changed fields of Shipment Details (notes, remeasured lines, "sent" marks). A field sent
+         * with the value the client last saw is refused with "Changed meanwhile … reload" (aborted) when
+         * someone else changed it since; different fields saved at the same time both stay.
+         */
+        public async warehouseSectionPatch(shipmentId: string, section: string, params: controllers.WarehouseSectionFieldsRequest): Promise<controllers.WarehouseSectionFieldsResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse/sections/${encodeURIComponent(shipmentId)}/${encodeURIComponent(section)}`, JSON.stringify(params))
+            return await resp.json() as controllers.WarehouseSectionFieldsResponse
         }
 
         public async warehouseSectionUpsert(shipmentId: string, section: string, params: controllers.WarehouseSectionUpsertRequest): Promise<controllers.WarehouseSectionUpsertResponse> {
@@ -4121,6 +4436,7 @@ export namespace warehouseConcept {
             this.warehouseClaimDelete = this.warehouseClaimDelete.bind(this)
             this.warehouseClaimList = this.warehouseClaimList.bind(this)
             this.warehouseClaimUpdate = this.warehouseClaimUpdate.bind(this)
+            this.warehouseConceptInformOperations = this.warehouseConceptInformOperations.bind(this)
             this.warehouseContainerAddPositions = this.warehouseContainerAddPositions.bind(this)
             this.warehouseContainerCreate = this.warehouseContainerCreate.bind(this)
             this.warehouseContainerDelete = this.warehouseContainerDelete.bind(this)
@@ -4620,6 +4936,18 @@ export namespace warehouseConcept {
         }
 
         /**
+         * Inform Operations by shipment (a shipment's warehouse part): its live position's when it has
+         * one, else the shipment's own Shipment Details. Records when (with a history) and posts "Cargo has
+         * been remeasured by the warehouse" to the shipment's chat, tagging its Person in Charge and Holiday
+         * Cover - together, or neither.
+         */
+        public async warehouseConceptInformOperations(shipmentId: string, params: controllers.WarehouseConceptInformOperationsRequest): Promise<controllers.WarehouseConceptInformOperationsResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/inform-operations/${encodeURIComponent(shipmentId)}`, JSON.stringify(params))
+            return await resp.json() as controllers.WarehouseConceptInformOperationsResponse
+        }
+
+        /**
          * Adds positions as houses. Export: inbound (příjem) positions in the warehouse, not on hold;
          * import: outbound (výdej) positions not received yet. A position is in at most one container.
          */
@@ -4897,16 +5225,14 @@ export namespace warehouseConcept {
 
         /**
          * "Mark as sent" (VGM / survey / remeasurement sent outside the app) or "Inform Operations" for a
-         * position. Nothing is e-mailed. A resend is allowed and kept in the history; logged.
+         * position. Nothing is e-mailed. A resend is allowed and kept in the history; logged. Inform
+         * Operations also posts "Cargo has been remeasured by the warehouse" to the shipment's chat, tagging
+         * its Person in Charge and Holiday Cover - together with the record, or neither.
          */
-        public async warehousePositionMarkSent(taskId: string, params: controllers.PositionMarkSentRequest): Promise<{
-    section: interfaces.WarehouseConceptSectionItem
-}> {
+        public async warehousePositionMarkSent(taskId: string, params: controllers.PositionMarkSentRequest): Promise<controllers.PositionMarkSentResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/positions/${encodeURIComponent(taskId)}/mark-sent`, JSON.stringify(params))
-            return await resp.json() as {
-    section: interfaces.WarehouseConceptSectionItem
-}
+            return await resp.json() as controllers.PositionMarkSentResponse
         }
 
         /**
@@ -5012,8 +5338,8 @@ export namespace warehouseConcept {
         }
 
         /**
-         * Saves changed fields of a section (Shipment Details: notes, remeasured lines, "sent" marks,
-         * operations informed). A field someone else changed since the client read it is refused with
+         * Saves changed fields of a section (Shipment Details: notes, remeasured lines, "sent" marks;
+         * Operations informed only through Inform Operations, which also tells them). A field someone else changed since the client read it is refused with
          * "Changed meanwhile … reload" (aborted); different fields saved at the same time both stay.
          */
         public async warehouseSectionPatch(shipmentId: string, section: string, params: controllers.WarehouseSectionPatchRequest): Promise<controllers.WarehouseSectionPatchResponse> {
@@ -5237,6 +5563,16 @@ export namespace controllers {
         description?: string
 
         vendor?: string
+        /**
+         * the Customer Database supplier the vendor names; "" clears it (a vendor typed by hand)
+         */
+        supplierCustomerId?: string
+
+        /**
+         * the day the received invoice was paid, yyyy-mm-dd; "" takes it back
+         */
+        paidOn?: string
+
         estQty?: string
         estAmount?: string
         estCurrency?: string
@@ -5428,6 +5764,22 @@ export namespace controllers {
         tooMany: boolean
     }
 
+    export interface AskRequest {
+        /**
+         * One of the reasons offered (lib/marginInquiry INQUIRY_REASONS).
+         */
+        reason: string
+
+        note?: string
+        /**
+         * When the customer needs the answer (ISO date-time).
+         */
+        needsBy?: string | null
+
+        competitorPrice?: string
+        volume?: string
+    }
+
     /**
      * Assign a business document type (Invoice, Packing list, …) to an uploaded file.
      */
@@ -5492,10 +5844,19 @@ export namespace controllers {
      */
     export interface AuthMeRequest {
         authorization: string
+        /**
+         * A superadmin's company switcher: the company chosen to work as.
+         */
+        actingCompany?: string
     }
 
     export interface AuthMeResponse {
         user: services.SessionUser
+        /**
+         * The company the session works as: the user's own, or for a superadmin the one chosen in the
+         * header. A choice that is no company (deleted since) answers the user's own, so the web drops it.
+         */
+        company: services.WorkingCompany
     }
 
     export interface AutomationLogsResponse {
@@ -6068,6 +6429,12 @@ export namespace controllers {
          * ["customer"] when left out.
          */
         roles?: interfaces.CustomerRole[]
+
+        /**
+         * A supplier added from this quote's Pricing (its Sales Reference). Any user may add one so: unless the
+         * user is a manager, it waits for a manager's approval on Sales → Managers → Company approval.
+         */
+        fromQuote?: string
     }
 
     export interface CustomerCreateManualResponse {
@@ -6084,6 +6451,12 @@ export namespace controllers {
          * ["customer"] when left out.
          */
         roles?: interfaces.CustomerRole[]
+
+        /**
+         * A supplier added from this quote's Pricing (its Sales Reference). Any user may add one so: unless the
+         * user is a manager, it waits for a manager's approval on Sales → Managers → Company approval.
+         */
+        fromQuote?: string
 
         /**
          * The contact person, created as the customer's main contact.
@@ -6106,8 +6479,32 @@ export namespace controllers {
         data: interfaces.DeletedCustomerItem[]
     }
 
+    /**
+     * The response keeps its name: the web app reads it as CustomerGetResponse.
+     */
     export interface CustomerGetResponse {
         customer: interfaces.CustomerItem
+        /**
+         * Whether the signed-in user may set this company's supplier rating: a manager, and the company is a supplier.
+         */
+        canRateSupplier: boolean
+
+        /**
+         * Whether the signed-in user may change its payment terms and VAT / bank details: a manager, and the company is a supplier.
+         */
+        canEditSupplierTerms: boolean
+
+        /**
+         * The haulier's terms were never saved here, so `customer.supplierTerms` are Trucking's copy (until the
+         * one-off copy, or the first save here, keeps them in the Customer Database).
+         */
+        supplierTermsFromTrucking: boolean
+
+        /**
+         * The haulier's terms were never saved here and Trucking's copy could not be read: `customer.supplierTerms`
+         * may be emptier than Trucking's, so they are not to be edited until a reload can read them.
+         */
+        supplierTermsUnavailable: boolean
     }
 
     export interface CustomerListPrefGetResponse {
@@ -6141,6 +6538,26 @@ export namespace controllers {
          * Only companies with this role, e.g. ?role=haulier
          */
         role?: interfaces.CustomerRole
+
+        /**
+         * Only customers, or only suppliers (any role but customer); a company that is both is in each.
+         */
+        kind?: interfaces.CustomerListKind
+
+        /**
+         * Only the signed-in user's companies as their Sales Owner ("mine"), or those with no Sales Owner ("none").
+         */
+        owner?: interfaces.CustomerOwnerFilter
+
+        /**
+         * Only suppliers of these types: supplier roles, comma separated (?types=haulier,shipping_line).
+         */
+        types?: string
+
+        /**
+         * Only suppliers rated 4 ★ and up ("4"), 3 ★ and up ("3"), 0–2 ★ ("low"), or not rated ("none").
+         */
+        rating?: interfaces.CustomerRatingFilter
     }
 
     export interface CustomerListResponse {
@@ -6317,6 +6734,17 @@ export namespace controllers {
         retired: interfaces.RetiredCurrencyItem[]
     }
 
+    export interface DecideRequest {
+        decision: "approve" | "counter" | "reject"
+        /**
+         * For a counter: the lowest margin in CZK the manager accepts.
+         */
+        counterMarginCzk?: number | null
+
+        comment?: string
+        inquiryId: string
+    }
+
     export interface DeleteBuyingResponse {
         ok: boolean
     }
@@ -6392,6 +6820,10 @@ export namespace controllers {
         fileType?: string
         fileSize?: number
         fileData?: string
+        /**
+         * yyyy-mm-dd it is valid to (a supplier's insurance, licence, certificate); "" or absent when it does not end.
+         */
+        validTo?: string
     }
 
     export interface DocumentCreateResponse {
@@ -6953,6 +7385,39 @@ export namespace controllers {
         profile: interfaces.InvoiceProfileItem
     }
 
+    export interface GuardrailRow {
+        serviceType: string
+        percent: number
+        minAmountCzk: number
+        /**
+         * The CZK minimum is per container.
+         */
+        perContainer: boolean
+
+        /**
+         * Where it is set: Sales, or Trucking (Road).
+         */
+        setIn: "sales" | "trucking"
+
+        /**
+         * Changed from the starting floor of the council (a stored row).
+         */
+        changed: boolean
+    }
+
+    export interface GuardrailsResponse {
+        guardrails: GuardrailRow[]
+        canEdit: boolean
+    }
+
+    export interface GuardrailsSetRequest {
+        guardrails: {
+            serviceType: string
+            percent: number
+            minAmountCzk: number
+        }[]
+    }
+
     export interface HaulierInvoiceBody {
         haulierCustomerId: string
         invoiceNumber: string
@@ -7004,6 +7469,17 @@ export namespace controllers {
 
     export interface HaulierInvoiceListResponse {
         invoices: interfaces.HaulierInvoice[]
+    }
+
+    export interface HaulierInvoicePaidRequest {
+        /**
+         * The day it was paid, YYYY-MM-DD; today when left out
+         */
+        paidOn?: string
+    }
+
+    export interface HaulierInvoiceReasonRequest {
+        reason: string
     }
 
     export interface HaulierInvoiceReasonRequest {
@@ -7096,6 +7572,10 @@ export namespace controllers {
 
     export interface ImportRunsResponse {
         runs: interfaces.ImportRunItem[]
+    }
+
+    export interface InquiryRef {
+        inquiryId: string
     }
 
     export interface InvoiceCreateRequest {
@@ -7300,6 +7780,10 @@ export namespace controllers {
     export interface NoteCreateRequest {
         type?: interfaces.NoteType
         content: string
+        /**
+         * The colleagues who went on a visit with the signed-in user, by e-mail; refused for another type.
+         */
+        colleagues?: string[]
     }
 
     export interface NoteCreateResponse {
@@ -7503,6 +7987,13 @@ export namespace controllers {
         places: services.PlaceInfo[]
     }
 
+    export interface PlacePickRequest {
+        /**
+         * The code of the place, airport or terminal picked: "DEHAM", "PVG", "DEHAMCTB", "DE-IT116".
+         */
+        code: string
+    }
+
     export interface PlaceSearchRequest {
         q: string
         countryCode?: string
@@ -7635,6 +8126,16 @@ export namespace controllers {
         what: string
 
         note?: string
+    }
+
+    export interface PositionMarkSentResponse {
+        section: interfaces.WarehouseConceptSectionItem
+        /**
+         * Inform Operations of a position of a shipment: the e-mails tagged in the shipment's chat
+         * (Person in Charge, Holiday Cover; empty when nobody is set). Null for anything else, and for a
+         * stand-alone position (no shipment, no chat).
+         */
+        tagged: string[] | null
     }
 
     export interface PositionSectionPatchRequest {
@@ -7893,6 +8394,13 @@ export namespace controllers {
         date: IsoDate
     }
 
+    export interface RestoreBuyingRequest {
+        /**
+         * position in the list it comes back at (undo keeps a line where it was)
+         */
+        sortOrder?: number
+    }
+
     export interface RoeListResponse {
         changes: interfaces.RoeChange[]
     }
@@ -7905,6 +8413,13 @@ export namespace controllers {
 
     export interface RoeSetResponse {
         changes: interfaces.RoeChange[]
+    }
+
+    export interface SalesManagersCockpitRequest {
+        /**
+         * One freight mode (Sea = FCL, LCL and Break Bulk), or all of them when left out.
+         */
+        mode?: string
     }
 
     export interface SalesPipelineRequest {
@@ -8049,6 +8564,16 @@ export namespace controllers {
         decidedTo?: string
 
         /**
+         * Valid until this day or later (YYYY-MM-DD).
+         */
+        validFrom?: string
+
+        /**
+         * Valid until this day or earlier (YYYY-MM-DD).
+         */
+        validTo?: string
+
+        /**
          * "me" (the signed-in user), "none" (quotes that belong to no user) or the id of a user.
          */
         owner?: string
@@ -8072,6 +8597,14 @@ export namespace controllers {
          * true: only the quotes a shipment names (shipmentJobNumber is set); false: only the quotes none does.
          */
         hasShipment?: boolean
+
+        /**
+         * "Filter by column": a JSON list of { "key", "value" }, every one kept. A quote is kept when its
+         * text in the column contains the value, case and diacritics aside (Incoterms: is the value). Columns:
+         * reference, customer, origin, destination, validity, shipment (the job number), incoterm,
+         * cargoReady, commodity, method, shippingTerms, sent; dates as DD.MM.YYYY. At most 10.
+         */
+        columnFilters?: string
     }
 
     export interface SalesQuoteListResponse {
@@ -9017,6 +9550,105 @@ export namespace controllers {
         marks?: string
     }
 
+    export interface SupplierApprovalDecideRequest {
+        decision: "approve" | "decline"
+        /**
+         * Why it is declined (needed), or a note with an approval.
+         */
+        comment?: string
+    }
+
+    export interface SupplierApprovalDecideResponse {
+        approval: interfaces.SupplierApprovalItem
+    }
+
+    export interface SupplierApprovalListResponse {
+        /**
+         * What waits for a manager, and what was answered in the last 30 days; newest request first.
+         */
+        approvals: interfaces.SupplierApprovalItem[]
+    }
+
+    export interface SupplierApprovalSeenRequest {
+        /**
+         * Companies whose answers the user has opened.
+         */
+        ids: string[]
+    }
+
+    export interface SupplierRatingHistoryResponse {
+        data: interfaces.SupplierRatingEntry[]
+    }
+
+    export interface SupplierRatingSetRequest {
+        /**
+         * 0–5 whole stars (0 the worst), or null to clear the rating.
+         */
+        rating: number | null
+
+        /**
+         * Why; needed for 0, 1 or 2 stars.
+         */
+        reason?: string
+    }
+
+    export interface SupplierRatingSetResponse {
+        customer: interfaces.CustomerItem
+    }
+
+    export interface SupplierTermsCopyRequest {
+        /**
+         * The company whose hauliers are copied (a superadmin belongs to the platform company, not to it).
+         */
+        companyId: string
+    }
+
+    export interface SupplierTermsCopyResponse {
+        /**
+         * Hauliers whose terms were copied from Trucking.
+         */
+        copied: number
+
+        /**
+         * Those left as they are: their terms were already set here, or Trucking's profile names no live haulier.
+         */
+        skipped: number
+    }
+
+    export interface SupplierTermsSetRequest {
+        /**
+         * Days we have to pay the supplier, 0–365; null while not set (a haulier needs them).
+         */
+        paymentDays: number | null
+
+        /**
+         * The currency it is paid in (ISO code), "" while not set; a haulier's CZK or EUR.
+         */
+        currency: string
+
+        vatUnreliable: boolean
+        bankAccountPublished: boolean
+        /**
+         * yyyy-mm-dd of the last VAT register check, or ""
+         */
+        vatCheckedAt: string
+
+        /**
+         * The published accounts, the whole list (a Czech account or an IBAN each).
+         */
+        bankAccounts: string[]
+
+        /**
+         * The editor started from Trucking's copy (GET /customers/:id said supplierTermsFromTrucking). A first save of
+         * a haulier whose terms Trucking holds is refused without it: it was made from values the page did not show.
+         */
+        fromTrucking?: boolean
+    }
+
+    export interface SupplierTermsSetResponse {
+        customer: interfaces.CustomerItem
+    }
+
     export interface TaskListResponse {
         tasks: interfaces.TaskItem[]
     }
@@ -9919,9 +10551,19 @@ export namespace controllers {
         invoiceNumber?: string
         received?: boolean
         /**
+         * the day the received invoice was paid, yyyy-mm-dd; "" takes it back
+         */
+        paidOn?: string
+
+        /**
          * a Customer Database company id; "" clears it
          */
         haulierId?: string
+
+        /**
+         * the Customer Database supplier the vendor names; "" clears it (a vendor typed by hand)
+         */
+        supplierCustomerId?: string
 
         /**
          * position in the list (undo / re-insert keeps a line where it was)
@@ -10075,6 +10717,10 @@ export namespace controllers {
         departmentId?: string | null
 
         branchId?: string | null
+        /**
+         * The manager the user reports to (a manager or admin of the company); null clears it.
+         */
+        reportsToUserId?: string | null
     }
 
     export interface UserUpdateResponse {
@@ -10108,6 +10754,21 @@ export namespace controllers {
 
     export interface WarehouseConceptDeleteResponse {
         ok: boolean
+    }
+
+    export interface WarehouseConceptInformOperationsRequest {
+        /**
+         * Goes with the record and the chat message; optional.
+         */
+        note?: string
+    }
+
+    export interface WarehouseConceptInformOperationsResponse {
+        section: interfaces.WarehouseConceptSectionItem
+        /**
+         * E-mails of the people tagged in the shipment's chat (Person in Charge, Holiday Cover); empty when nobody is set.
+         */
+        tagged: string[] | null
     }
 
     export interface WarehouseConceptListRequest {
@@ -10179,6 +10840,21 @@ export namespace controllers {
          * One result per shipment, in the order sent.
          */
         results: interfaces.WarehouseImportResult[]
+    }
+
+    export interface WarehouseInformOperationsRequest {
+        /**
+         * When Operations were last informed, as the client saw it ("" = never); a changed one is refused.
+         */
+        expected: string
+    }
+
+    export interface WarehouseInformOperationsResponse {
+        section: interfaces.WarehouseSectionItem
+        /**
+         * E-mails of the people tagged in the shipment's chat (Person in Charge, Holiday Cover); empty when nobody is set.
+         */
+        tagged: string[]
     }
 
     export interface WarehouseInquiryAskRequest {
@@ -10284,6 +10960,17 @@ export namespace controllers {
          * Required when the position's gate record has stamps (manager only). Sent in the body, so it stays out of URLs and logs.
          */
         reason?: string
+    }
+
+    export interface WarehouseSectionFieldsRequest {
+        /**
+         * The fields to save (1–10). Fields not listed are left as stored.
+         */
+        changes: interfaces.WarehouseSectionChange[]
+    }
+
+    export interface WarehouseSectionFieldsResponse {
+        section: interfaces.WarehouseSectionItem
     }
 
     export interface WarehouseSectionGetResponse {
@@ -10741,6 +11428,12 @@ export namespace interfaces {
         dimensionUnit?: DimensionUnit
 
         weightPerPcKg: string
+        /**
+         * m³ of one piece as typed, for a line whose length, width and height are not all known;
+         * with all three the volume is worked out from them and this is "". Absent on a write means "".
+         */
+        volumePerPcM3?: string
+
         packageType: string
         stackable: string
         /**
@@ -11011,6 +11704,16 @@ export namespace interfaces {
          * The soonest end of an active version, YYYY-MM-DD; null when none ends
          */
         activeUntil: string | null
+
+        /**
+         * The last day it has a tariff pricing without a gap, later versions counted; null when one never ends, or none prices today (K12)
+         */
+        coveredUntil: string | null
+
+        /**
+         * The supplier rating from the Customer Database, 0–5 stars, null when not rated
+         */
+        rating: number | null
     }
 
     /**
@@ -11119,6 +11822,11 @@ export namespace interfaces {
         tariffName: string
         supplierCustomerId: string
         supplierName: string
+        /**
+         * The supplier's rating, 0–5 stars, null when not rated: shown beside the price, breaks only an exact tie.
+         */
+        supplierRating: number | null
+
         /**
          * The version's last day; null when open
          */
@@ -11802,7 +12510,7 @@ export namespace interfaces {
         updatedAt: string
     }
 
-    export type ContactRole = "Purchasing / Procurement" | "Customer Service" | "Logistics Manager" | "Warehouse" | "Finance / Accounting" | "Sales" | "Management" | "Owner"
+    export type ContactRole = "Purchasing / Procurement" | "Customer Service" | "Logistics Manager" | "Warehouse" | "Finance / Accounting" | "Sales" | "Management" | "Owner" | "Dispatch / Operations" | "Claims" | "Pricing / Tariffs" | "Accounts payable"
 
     export interface ContainerLine {
         /**
@@ -12026,11 +12734,56 @@ export namespace interfaces {
          */
         roles: CustomerRole[]
 
+        /**
+         * A supplier's rating, 0–5 whole stars set by a manager (0 the worst); null when not rated.
+         */
+        supplierRating: number | null
+
+        /**
+         * Why it was given; "" when none was.
+         */
+        supplierRatingReason: string
+
+        /**
+         * The e-mail of who set it; "" when not rated.
+         */
+        supplierRatingBy: string
+
+        /**
+         * When it was set (ISO); null when not rated.
+         */
+        supplierRatingAt: string | null
+
+        /**
+         * Only in the list: when the latest Communication entry was made (ISO), null when there is none.
+         */
+        lastContactAt?: string | null
+
+        /**
+         * A supplier's terms and checks (what we pay it, and the VAT register checks); defaults for a company that is none.
+         */
+        supplierTerms: SupplierTerms
+
+        /**
+         * "pending" for a new supplier waiting for a manager's approval; "" otherwise.
+         */
+        approvalStatus: SupplierApprovalStatus
+
         createdAt: string
         updatedAt: string
     }
 
     export type CustomerLabel = "KEY ACCOUNT" | "STANDARD" | "TARGET CUSTOMER" | "RISK"
+
+    /**
+     * Which companies a list holds: those with the customer role, or those with any supplier role. A company that is both is in each.
+     */
+    export type CustomerListKind = "customers" | "suppliers"
+
+    /**
+     * The list's Sales Owner filter: the signed-in user's companies, or those with no Sales Owner.
+     */
+    export type CustomerOwnerFilter = "mine" | "none"
 
     /**
      * What a run of POST /customers/people/normalize did to the company's live customers and notes.
@@ -12055,6 +12808,11 @@ export namespace interfaces {
             count: number
         }[]
     }
+
+    /**
+     * The list's rating filter: 4 ★ and up, 3 ★ and up, 0–2 ★, or not rated.
+     */
+    export type CustomerRatingFilter = "4" | "3" | "low" | "none"
 
     /**
      * What a company is to us. A customer buys our services; a haulier is a trucking subcontractor; a rail operator sells us rail
@@ -12144,6 +12902,19 @@ export namespace interfaces {
      * literal unions so Encore validates requests against them and the web client gets them.
      */
     export type CustomerStatus = "Active" | "Prospect" | "Inactive"
+
+    /**
+     * How many live companies each view of the list holds.
+     */
+    export interface CustomerViewCounts {
+        customers: number
+        /**
+         * Any role but customer; a company that is both is counted in each
+         */
+        suppliers: number
+
+        all: number
+    }
 
     /**
      * Line of the Invoicing tab in Customs
@@ -12415,11 +13186,19 @@ export namespace interfaces {
         fileName: string
         fileType: string
         fileSize: number
+        /**
+         * yyyy-mm-dd the document is valid to (insurance, licence, certificate…), or "" when it does not end.
+         */
+        validTo: string
+
         createdAt: string
         updatedAt: string
     }
 
-    export type DocumentType = "Contract" | "NDA" | "Power of attorney" | "Customs" | "Other"
+    /**
+     * The last four are a supplier's papers, each with the date it is valid to.
+     */
+    export type DocumentType = "Contract" | "NDA" | "Power of attorney" | "Customs" | "Other" | "Carrier liability insurance" | "Transport licence" | "Framework agreement" | "Certificate"
 
     /**
      * The addresses a user emailed quotations to, the latest first: their own list to pick To, CC and BCC from.
@@ -13434,6 +14213,21 @@ export namespace interfaces {
             at: string
             reason: string
         } | null
+        /**
+         * When it was paid (YYYY-MM-DD), who noted it and when; null while unpaid. Only an approved invoice is paid.
+         */
+        payment: {
+            paidOn: string
+            byName: string
+            at: string
+        } | null
+
+        /**
+         * False for an approved invoice not paid here that was approved before payments were noted in this system
+         * (Council Review 5, K2): it may have been paid already, so What we owe lists it apart instead of counting it.
+         */
+        paymentTracked: boolean
+
         fileName: string | null
         createdAt: string
         createdBy: string
@@ -13534,6 +14328,20 @@ export namespace interfaces {
         adrCapable: boolean
         vehicleTypes: string[]
         preferredLaneCount: number
+        /**
+         * The supplier rating from the Customer Database, 0–5 stars, null when not rated. Staff only: HaulierDetail, which the portal reads, has none.
+         */
+        rating: number | null
+
+        /**
+         * Why it was rated so, from the Customer Database ("" when none). Staff only, as the rating.
+         */
+        ratingReason: string
+
+        /**
+         * False when the Customer Database has it "Not in use": left out where a haulier is picked, still listed (D16).
+         */
+        inUse: boolean
     }
 
     export interface HaulierProfile {
@@ -13863,11 +14671,32 @@ export namespace interfaces {
 
         invoiceNumber: string
         received: boolean
+        /**
+         * when Received was ticked (ISO), null while not received
+         */
+        receivedAt: string | null
+
+        /**
+         * the day the received invoice was paid (yyyy-mm-dd), "" while unpaid
+         */
+        paidOn: string
+
+        /**
+         * who noted it paid (e-mail) and when (ISO); "" / null while unpaid or for a payment noted before they were kept
+         */
+        paidBy: string
+
+        paidAt: string | null
         vendor: string
         /**
          * the haulier the cost is owed to (a Customer Database company), or null
          */
         haulierId: string | null
+
+        /**
+         * the supplier `vendor` names when it was picked from the Customer Database; null for a vendor only typed
+         */
+        supplierCustomerId: string | null
 
         sortOrder: number
         /**
@@ -14603,6 +15432,11 @@ export namespace interfaces {
          */
         author: string
 
+        /**
+         * The colleagues who went on a visit with the author, by e-mail; empty for every other type.
+         */
+        colleagues: string[]
+
         createdAt: string
         updatedAt: string
     }
@@ -14651,6 +15485,11 @@ export namespace interfaces {
         tariffName: string
         supplierCustomerId: string
         supplierName: string
+        /**
+         * The supplier's rating, 0–5 stars, null when not rated: shown beside the price, breaks only an exact tie.
+         */
+        supplierRating: number | null
+
         /**
          * The version's last day; null when open
          */
@@ -14987,6 +15826,14 @@ export namespace interfaces {
              * Sent quotes of the customers under Proposal that have no sent date: they count from the day they were created.
              */
             sentQuotesWithoutDate: number
+
+            /**
+             * Sent quotes and shipments whose company has no Customer role (a supplier only): left off the board, and
+             * said so, so its totals do not look complete when they are not (Council Review 5, K13).
+             */
+            quotesOfNonCustomers: number
+
+            shipmentsOfNonCustomers: number
         }
     }
 
@@ -15641,6 +16488,113 @@ export namespace interfaces {
         marginCzk: number
 
         marginPercent: number | null
+        /**
+         * What the quote was when approved: a change of any of these ends the approval (Council Outlay 6
+         * D10). Absent on approvals given before it was recorded, which only the margin ends.
+         */
+        basis?: QuoteMarginApprovalBasis
+    }
+
+    export interface QuoteMarginApprovalBasis {
+        customerId: string | null
+        serviceType: string
+        containers: number
+        /**
+         * The Sales Owner as the quote mirrors it (data.salesOwner).
+         */
+        salesOwner: string
+
+        /**
+         * The quote's Valid until then; a later one needs a new approval.
+         */
+        validUntil: string | null
+    }
+
+    /**
+     * A rep's question to a manager about a margin below the floor, as the API hands it out (Council Outlay 6, step 3).
+     */
+    export interface QuoteMarginInquiryItem {
+        id: string
+        quoteNumber: string
+        status: "pending" | "approved" | "rejected" | "withdrawn"
+        reason: string
+        note: string
+        /**
+         * When the customer needs the answer (ISO); null when not said.
+         */
+        needsBy: string | null
+
+        competitorPrice: string
+        volume: string
+        requestedById: string
+        /**
+         * The one who asked, by e-mail as the users have it now.
+         */
+        requestedByName: string
+
+        requestedAt: string
+        /**
+         * The quote's margin when they asked.
+         */
+        snapshot: {
+            sellingCzk: number
+            buyingCzk: number
+            marginCzk: number | null
+            marginPercent: number | null
+            floorPercent: number
+            floorMinCzk: number
+        }
+
+        /**
+         * The owner's manager who is told; "" when nobody is set and the admins are told.
+         */
+        notifyName: string
+
+        /**
+         * Waiting long enough, or close enough to "needs it by", that the admins are told too.
+         */
+        escalated: boolean
+
+        /**
+         * Office minutes (08:00-17:00 on working days) it has waited, or waited until it was answered.
+         */
+        waitedOfficeMinutes: number
+
+        decision: "approve" | "counter" | "reject" | null
+        decidedByName: string
+        decidedAt: string | null
+        /**
+         * The margin the approval covers (that one or better); null for none.
+         */
+        approvedMarginCzk: number | null
+
+        approvedMarginPercent: number | null
+        comment: string
+        /**
+         * The manager who answered had asked, or owns the quote (allowed and shown).
+         */
+        selfDecision: boolean
+
+        answerSeenAt: string | null
+    }
+
+    /**
+     * A question in the managers' Quote Inquiries list, with the quote it is about as it is now.
+     */
+    export interface QuoteMarginInquiryRow {
+        inquiry: QuoteMarginInquiryItem
+        customer: string
+        ownerName: string
+        serviceType: string
+        /**
+         * The quote's status as shown; "" when the quote is gone.
+         */
+        quoteStatus: string
+
+        /**
+         * The quote's road margin as it is now; null when the quote is gone or has none.
+         */
+        margin: RoadMargin | null
     }
 
     /**
@@ -15946,6 +16900,11 @@ export namespace interfaces {
         tariffName: string
         supplierCustomerId: string
         supplierName: string
+        /**
+         * The supplier's rating, 0–5 stars, null when not rated: shown beside the price, breaks only an exact tie.
+         */
+        supplierRating: number | null
+
         currency: string
         place: string
         postcode: string
@@ -16036,6 +16995,16 @@ export namespace interfaces {
          * The soonest end of an active version, YYYY-MM-DD; null when none ends
          */
         activeUntil: string | null
+
+        /**
+         * The last day it has a tariff pricing without a gap, later versions counted; null when one never ends, or none prices today (K12)
+         */
+        coveredUntil: string | null
+
+        /**
+         * The supplier rating from the Customer Database, 0–5 stars, null when not rated
+         */
+        rating: number | null
     }
 
     /**
@@ -16274,6 +17243,27 @@ export namespace interfaces {
         retired: RetiredCurrencyItem[]
     }
 
+    /**
+     * What the reference backfill (the letters of the Freight Mode and Load Type) did to the company's live shipments.
+     */
+    export interface ReferenceNormalizeResult {
+        /**
+         * Live shipments looked at.
+         */
+        checked: number
+
+        /**
+         * References that took the letters of their Freight Mode and Load Type.
+         */
+        renamed: number
+
+        /**
+         * References kept as they are because they are final (they would need letters): the shipment has
+         * had an invoice, Invoicing is numbering one, or it is marked Invoiced.
+         */
+        keptInvoiced: string[]
+    }
+
     export interface ResolvedRate {
         currency: string
         date: string
@@ -16304,6 +17294,11 @@ export namespace interfaces {
      * The margin of a road quote against the Trucking margin floor. Amounts in CZK.
      */
     export interface RoadMargin {
+        /**
+         * The freight mode whose guardrail the quote is judged against ("Road", "Sea FCL", ...).
+         */
+        mode: string
+
         sellingCzk: number
         buyingCzk: number
         /**
@@ -16334,6 +17329,16 @@ export namespace interfaces {
          * Why the margin cannot be worked out, e.g. "No ČNB rate for EUR on 2026-10-15".
          */
         problem: string | null
+
+        /**
+         * Selling with no buying lines: the margin cannot be judged, so it needs approval (D5).
+         */
+        noBuying: boolean
+
+        /**
+         * Why an approval no longer covers the quote, beyond the margin getting worse; null when it does or there is none.
+         */
+        approvalEnded: string | null
     }
 
     export interface RoeChange {
@@ -16353,6 +17358,180 @@ export namespace interfaces {
         changedByName: string
         changedAt: string | null
         note: string
+    }
+
+    /**
+     * The audit line: what managers were asked about margins, and how they answered (H2).
+     */
+    export interface SalesCockpitAudit {
+        days: number
+        asked: number
+        approved: number
+        /**
+         * Approved down to a margin the manager set.
+         */
+        counter: number
+
+        rejected: number
+        withdrawn: number
+        /**
+         * Answered by the manager who asked or owns the quote (allowed and shown, D9).
+         */
+        selfApprovals: number
+
+        /**
+         * Waiting now with the admins told too (D14).
+         */
+        escalated: number
+
+        /**
+         * Median office minutes from the ask to the answer; null with no answers.
+         */
+        medianOfficeMinutesToDecide: number | null
+
+        /**
+         * Open quotes whose approval no longer covers them (now, not in the last days).
+         */
+        approvalsLapsed: number
+    }
+
+    export interface SalesCockpitList {
+        /**
+         * Every row of the card; `rows` holds at most COCKPIT_LIST_LIMIT of them.
+         */
+        total: number
+
+        rows: SalesCockpitRow[]
+    }
+
+    /**
+     * Which quotes the Sales managers' cockpit counts: all, or one freight mode (Sea = FCL, LCL and Break Bulk).
+     */
+    export type SalesCockpitMode = "all" | "sea" | "air" | "rail" | "road"
+
+    /**
+     * A row of a cockpit card: a quote, or a follow-up task that belongs to no quote listed.
+     */
+    export interface SalesCockpitRow {
+        kind: "quote" | "task"
+        /**
+         * The Sales Reference of a quote; the id of a task.
+         */
+        id: string
+
+        /**
+         * What the row is called: the Sales Reference, or the task's customer.
+         */
+        ref: string
+
+        /**
+         * The quote's status as shown; the task's type (Call, Email, Visit).
+         */
+        status: string
+
+        /**
+         * The quote's freight mode; "" for a task.
+         */
+        serviceType: string
+
+        customer: string
+        /**
+         * The quote's Sales Owner, or the task's assignee, by e-mail; "" for nobody.
+         */
+        ownerName: string
+
+        /**
+         * The quote's selling in CZK; null for a task.
+         */
+        sellingCzk: number | null
+
+        /**
+         * Every signal of the row, the urgent ones first.
+         */
+        tags: SalesCockpitTag[]
+    }
+
+    export interface SalesCockpitTag {
+        text: string
+        urgent: boolean
+    }
+
+    /**
+     * The team line (H3).
+     */
+    export interface SalesCockpitTeam {
+        days: number
+        won: number
+        lost: number
+        /**
+         * Won ÷ (Won + Lost), %; null with nothing decided.
+         */
+        hitRatePercent: number | null
+
+        /**
+         * Quotes first sent in the days.
+         */
+        sent: number
+
+        medianHoursToFirstSent: number | null
+        /**
+         * Lost quotes by the category of their reason, the most first.
+         */
+        lostByCategory: {
+            category: string
+            count: number
+        }[]
+
+        /**
+         * Margin questions asked ÷ quotes sent, %; null with nothing sent.
+         */
+        neededApprovalPercent: number | null
+
+        /**
+         * Approved ÷ answered, %; null with no answers.
+         */
+        approvalRatePercent: number | null
+
+        /**
+         * "rubber stamp" above APPROVAL_RUBBER_STAMP_PERCENT, "too strict" below APPROVAL_TOO_STRICT_PERCENT, with enough answers.
+         */
+        approvalWarning: "rubber_stamp" | "too_strict" | null
+    }
+
+    export interface SalesCockpitTiles {
+        /**
+         * Draft to Revised, as shown.
+         */
+        openQuotes: number
+
+        /**
+         * Their selling in CZK (quotes whose rate is missing count what converts).
+         */
+        openSellingCzk: number
+
+        followUpDue: number
+        /**
+         * Drafts never sent.
+         */
+        draftsToFinish: number
+
+        /**
+         * Open quotes whose validity ends within VALID_UNTIL_TILE_DAYS.
+         */
+        validSoon: number
+
+        /**
+         * Open quotes with no Sales Owner.
+         */
+        noOwner: number
+
+        /**
+         * Margin questions waiting for a manager (Quote inquiries).
+         */
+        awaitingApproval: number
+
+        wonThisMonth: number
+        lostThisMonth: number
     }
 
     /**
@@ -16377,6 +17556,59 @@ export namespace interfaces {
             value: string
             count: number
         }[]
+    }
+
+    /**
+     * Sales → Managers: what the sales team needs from a manager today (Council Outlay 6).
+     */
+    export interface SalesManagersCockpit {
+        /**
+         * ISO time the figures were made.
+         */
+        asOf: string
+
+        /**
+         * YYYY-MM-DD, Prague: the day the figures count from.
+         */
+        today: string
+
+        mode: SalesCockpitMode
+        tiles: SalesCockpitTiles
+        /**
+         * Act today.
+         */
+        urgent: SalesCockpitList
+
+        /**
+         * Within 48 hours, or it becomes urgent.
+         */
+        attention: SalesCockpitList
+
+        health: {
+            /**
+             * Open quotes whose margin cannot be worked out (a ČNB rate is missing).
+             */
+            marginUnknown: number
+
+            /**
+             * Open quotes sent to a customer that is not in the customer records.
+             */
+            sentNoCustomer: number
+
+            /**
+             * More quotes matched than the cockpit reads: the figures are of part of them.
+             */
+            capped: boolean
+        }
+        /**
+         * Margin questions of the last days, company-wide (H2); null when the quotes service did not say.
+         */
+        audit: SalesCockpitAudit | null
+
+        /**
+         * How the team sold over the last days, company-wide (H3); null when the quotes service did not say.
+         */
+        team: SalesCockpitTeam | null
     }
 
     /**
@@ -16473,6 +17705,13 @@ export namespace interfaces {
          * null for any other quote.
          */
         roadMargin: RoadMargin | null
+
+        /**
+         * Why the quote cannot go out (Ready to Send, Quoted) or be Won without going out, as it is now:
+         * a margin below its floor no approval covers, or heavy pieces the warehouse has not approved.
+         * Null when nothing holds it. Shipments and Invoicing ask it before making the quote binding.
+         */
+        sendBlocked: string | null
 
         /**
          * What the signed-in user may do with this quote.
@@ -17121,6 +18360,173 @@ export namespace interfaces {
         estimatedCzk: number
     }
 
+    /**
+     * A manager's answer to a new supplier; "" until one is given.
+     */
+    export type SupplierApprovalDecision = "" | "approved" | "declined"
+
+    /**
+     * A new supplier on Sales → Managers → Company approval: waiting, or answered lately.
+     */
+    export interface SupplierApprovalItem {
+        customerId: string
+        companyName: string
+        ico: string
+        dic: string
+        registeredAddress: string
+        city: string
+        country: string
+        /**
+         * ARES, or Manual for a company typed in by hand.
+         */
+        dataSource: string
+
+        roles: CustomerRole[]
+        /**
+         * "pending" while it waits; "" once approved; "declined" once declined (the company is deleted).
+         */
+        status: SupplierApprovalStatus
+
+        /**
+         * The main contact given with it.
+         */
+        contactName: string
+
+        contactEmail: string
+        contactPhone: string
+        /**
+         * Who asked, by e-mail as a person is recorded, and the user.
+         */
+        requestedBy: string
+
+        requestedByUserId: string | null
+        /**
+         * ISO.
+         */
+        requestedAt: string
+
+        /**
+         * The quote it was added from.
+         */
+        quoteNumber: string
+
+        decision: SupplierApprovalDecision
+        decidedBy: string
+        decidedAt: string | null
+        /**
+         * Why it was declined (or a note with an approval); "" when none.
+         */
+        comment: string
+
+        /**
+         * Whether the one who asked has opened the answer.
+         */
+        answerSeen: boolean
+    }
+
+    /**
+     * Whether a new supplier is approved: "" (approved, or never needed approval), "pending" (added from a
+     * quote by a user who is no manager, waiting on Sales → Managers → Company approval) or "declined"
+     * (a manager declined it: the company is deleted).
+     */
+    export type SupplierApprovalStatus = "" | "pending" | "declined"
+
+    /**
+     * A buying cost line of a shipment's Costs Breakdown owed to a supplier and not yet paid (Council Outlay 7,
+     * step 6b "What we owe"): linked to the supplier's company, entered here (Trucking's and a master job's rows
+     * are left out: Trucking's money is in its haulier invoices). Amounts are as typed in Costs Breakdown.
+     */
+    export interface SupplierCostLine {
+        id: string
+        shipmentId: string
+        jobNumber: string
+        category: string
+        description: string
+        invoiceNumber: string
+        /**
+         * owed: received, and since when is known. expected: not received yet. untracked: ticked Received before
+         * that day was kept (before payments were noted here), so it may have been paid already: listed, not counted (K2).
+         */
+        kind: "owed" | "expected" | "untracked"
+
+        /**
+         * when Received was ticked (ISO); null when not received, or received before it was kept
+         */
+        receivedAt: string | null
+
+        /**
+         * its due day (received day + the supplier's payment days), yyyy-mm-dd; "" when not known
+         */
+        dueOn: string
+
+        /**
+         * days past the due day; 0 when not overdue or not known
+         */
+        overdueDays: number
+
+        /**
+         * owed: the real cost (null when not entered). Expected: the real cost once entered, else the estimate
+         */
+        amount: number | null
+
+        currency: string
+    }
+
+    /**
+     * What we owe a supplier in one currency, over every open line (not only those listed).
+     */
+    export interface SupplierCostTotal {
+        currency: string
+        owed: number
+        overdue: number
+        expected: number
+        untracked: number
+    }
+
+    export interface SupplierCostsResponse {
+        /**
+         * most overdue first, then oldest received (at most 300)
+         */
+        owed: SupplierCostLine[]
+
+        /**
+         * of the lines entered last (at most 200), the newest job first
+         */
+        expected: SupplierCostLine[]
+
+        /**
+         * of the lines entered last (at most 200), the newest job first
+         */
+        untracked: SupplierCostLine[]
+
+        /**
+         * each currency over every open line, without VAT (as typed)
+         */
+        totals: SupplierCostTotal[]
+
+        /**
+         * how many there are of each, and of the owed: without a real cost, with no known due day
+         */
+        counts: {
+            owed: number
+            expected: number
+            untracked: number
+            withoutAmount: number
+            dueUnknown: number
+        }
+
+        /**
+         * the supplier's payment days the due days were worked out with; null when not set
+         */
+        paymentDays: number | null
+
+        typedNames: SupplierTypedName[]
+        /**
+         * a haulier's approved Trucking invoices not yet paid, apart: their totals are with VAT
+         */
+        haulierInvoices: SupplierHaulierInvoices
+    }
+
     export interface SupplierEmailAttachmentItem {
         fileId: string
         fileName: string
@@ -17169,6 +18575,111 @@ export namespace interfaces {
         vgm: SupplierRecipientsItem
         survey: SupplierRecipientsItem
         remeasurement: SupplierRecipientsItem
+    }
+
+    /**
+     * An approved Trucking invoice of a haulier not yet paid, in What we owe (Council Review 5, C-1).
+     */
+    export interface SupplierHaulierInvoiceLine {
+        id: string
+        invoiceNumber: string
+        /**
+         * owed: approved and its payment noted here. untracked: approved before payments were noted here, so it may have been paid already: listed, not counted (K2)
+         */
+        kind: "owed" | "untracked"
+
+        /**
+         * yyyy-mm-dd
+         */
+        issueDate: string
+
+        /**
+         * its due day in Trucking, yyyy-mm-dd; "" when it has none
+         */
+        dueOn: string
+
+        /**
+         * days past the due day; 0 when not overdue, not known or untracked
+         */
+        overdueDays: number
+
+        /**
+         * the invoice's total, with VAT
+         */
+        amount: number
+
+        currency: string
+    }
+
+    /**
+     * What we owe a haulier on its Trucking invoices in one currency, with VAT, over all of them (not only those listed).
+     */
+    export interface SupplierHaulierInvoiceTotal {
+        currency: string
+        owed: number
+        overdue: number
+        untracked: number
+    }
+
+    export interface SupplierHaulierInvoices {
+        status: SupplierHaulierInvoicesStatus
+        /**
+         * most overdue first, then by due day (none last) (at most 300)
+         */
+        owed: SupplierHaulierInvoiceLine[]
+
+        /**
+         * the newest issued first (at most 200)
+         */
+        untracked: SupplierHaulierInvoiceLine[]
+
+        /**
+         * with VAT, never added to the shipment costs' totals (without VAT)
+         */
+        totals: SupplierHaulierInvoiceTotal[]
+
+        /**
+         * how many there are of each, and of the owed: with no due day
+         */
+        counts: {
+            owed: number
+            untracked: number
+            dueUnknown: number
+        }
+
+        /**
+         * more unpaid invoices than Trucking hands at once (10,000): the totals leave the latest due out
+         */
+        truncated: boolean
+    }
+
+    /**
+     * Whether a haulier's Trucking invoices are in What we owe. included: they are; hidden: the caller does not see the
+     * Trucking Concept (superadmins only), so they are left out; unavailable: Trucking could not be read; none: the
+     * supplier is no haulier.
+     */
+    export type SupplierHaulierInvoicesStatus = "included" | "hidden" | "unavailable" | "none"
+
+    /**
+     * One change of a supplier's rating, as it was made.
+     */
+    export interface SupplierRatingEntry {
+        id: string
+        /**
+         * 0–5 stars, or null when the rating was cleared.
+         */
+        rating: number | null
+
+        reason: string
+        /**
+         * The e-mail of who set it.
+         */
+        setBy: string
+
+        /**
+         * When (ISO).
+         */
+        setAt: string
     }
 
     export interface SupplierRecipientsItem {
@@ -17248,6 +18759,72 @@ export namespace interfaces {
         datesChangedAt: string | null
 
         datesChangedBy: string | null
+    }
+
+    /**
+     * A supplier's payment terms to us and the VAT register checks before we pay it (Council Outlay 7, step 6b).
+     */
+    export interface SupplierTerms {
+        /**
+         * Days we have to pay it; null until set.
+         */
+        paymentDays: number | null
+
+        /**
+         * The currency it is paid in (ISO code); null until set. A haulier's is CZK or EUR.
+         */
+        currency: string | null
+
+        vatUnreliable: boolean
+        /**
+         * Its account is published in the VAT register.
+         */
+        bankAccountPublished: boolean
+
+        /**
+         * yyyy-mm-dd of the last VAT register check; "" when never.
+         */
+        vatCheckedAt: string
+
+        /**
+         * The published accounts, normalised (a Czech account or an IBAN).
+         */
+        bankAccounts: string[]
+
+        /**
+         * When an account was last added (ISO), and by whom (e-mail); null / "" when never.
+         */
+        bankAccountsChangedAt: string | null
+
+        bankAccountsChangedBy: string
+    }
+
+    /**
+     * Cost lines whose vendor only names the supplier as typed text: not counted, only named (E10).
+     */
+    export interface SupplierTypedName {
+        vendor: string
+        lines: number
+    }
+
+    /**
+     * How a supplier is used on the shipments (Council Review 5, m21): its open jobs, and when it was last put on one.
+     */
+    export interface SupplierUsageResponse {
+        /**
+         * jobs with a cost line linked to it that are neither billed nor cancelled
+         */
+        openJobs: number
+
+        /**
+         * more jobs than are read: openJobs counts only the newest
+         */
+        capped: boolean
+
+        /**
+         * when a cost line linked to it was last entered (ISO); null when never
+         */
+        lastUsedAt: string | null
     }
 
     export type SurchargeCalc = "PCT" | "FLAT" | "PER_KG" | "PER_PALLET" | "PER_HOUR" | "PCT_OF_VALUE" | "FUEL_INDEX"
@@ -18871,6 +20448,22 @@ export namespace interfaces {
         updatedAt: string
     }
 
+    /**
+     * One field of a section to save (Shipment Details is saved field by field).
+     */
+    export interface WarehouseSectionChange {
+        key: string
+        /**
+         * The new text; "" clears the field.
+         */
+        value: string
+
+        /**
+         * The text the client last saw ("" = not set); when given, the save is refused if it changed since.
+         */
+        expected?: string
+    }
+
     export interface WarehouseSectionItem {
         id: string
         shipmentId: string
@@ -19294,6 +20887,10 @@ export namespace services {
         role: string
         departmentId: string | null
         branchId: string | null
+        /**
+         * The manager the user reports to; null for none.
+         */
+        reportsToUserId: string | null
     }
 
     export interface BranchInfo {
@@ -19593,9 +21190,31 @@ export namespace services {
          * The soonest end of an active version, YYYY-MM-DD; null when none ends
          */
         activeUntil: string | null
+
+        /**
+         * The last day it has a tariff pricing without a gap, later versions counted; null when one never ends, or none prices today (K12)
+         */
+        coveredUntil: string | null
+
+        /**
+         * The supplier rating from the Customer Database, 0–5 stars, null when not rated
+         */
+        rating: number | null
     }
 
     export type StampKind = "gateIn" | "gateOut" | "impRelease" | "expDraft" | "expReceipt"
+
+    /**
+     * The company a session works as, and whether it is not the user's own (a superadmin's company switcher).
+     */
+    export interface WorkingCompany {
+        id: string
+        name: string
+        /**
+         * A superadmin working as another company than their own.
+         */
+        switched: boolean
+    }
 }
 
 export namespace utils {
@@ -19874,7 +21493,8 @@ class BaseClient {
             const data: CallParameters = {};
 
             data.headers = makeRecord<string, string>({
-                authorization: authData.authorization,
+                authorization:      authData.authorization,
+                "x-acting-company": authData.actingCompany,
             });
 
             return data;

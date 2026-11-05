@@ -5,7 +5,7 @@ import { customers, fx, shipments, trucking } from "~encore/clients";
 import { businessDay, isRealYmd } from "../../../lib/businessDate";
 import type { PaginatedResponse } from "../../../lib/db/interface";
 import type { Actor } from "../../../lib/rbac";
-import { canApproveMargin, canSetOwner, quoteDeletePermission } from "../../../lib/salesPolicy";
+import { canApproveMargin, canDecideQuoteInquiry, canSetOwner, quoteDeletePermission } from "../../../lib/salesPolicy";
 import { baseReference, formatReference, nextRevision, nextSequence, nextVariant, revisionRoot, salesPrefix } from "../../../lib/salesReference";
 import { isUuid } from "../../../lib/uuid";
 import type { RateLevelResult, ServiceLevelCode } from "../../trucking/interfaces/interfaces";
@@ -28,9 +28,17 @@ import { matchOwnerLabel } from "../utils/ownerMatch.utils";
 import { carryKeys, closedCarryKeys, isPlainObject, isWonRevision, newDocument } from "../utils/quoteDocument.utils";
 import { customerIdOf, linkForSave, refreshCopies, withRefresh } from "../utils/customerLinks.utils";
 import { tryCustomerRefs } from "../lib/customerRefs";
+import { linkedSupplierIds, supplierGate, type LinkedSupplierState } from "../utils/supplierApproval.utils";
+import { shippingTermsGateMessage } from "../utils/shippingTerms.utils";
+import { tariffDirectionGateMessage } from "../utils/tariffDirection.utils";
+import { columnFiltersOf } from "../utils/quoteColumnFilters.utils";
 import { approvedPricing, inquiryGateMessage, MAX_INQUIRY_NOTE, MAX_INQUIRY_PIECES, MAX_PRICE_PER_PIECE, MIN_REJECT_REASON, readInquiry } from "../utils/warehouseInquiry.utils";
 import { fxWriteFor, mayStampFx, type StoredFx } from "../lib/quoteFx";
-import { currenciesToResolve, formatMargin, marginGateMessage, roadMargin, roadMarginApplies, type MarginContext } from "../lib/roadMargin";
+import { approvalBasisOf, formatMargin, freightModeGateMessage, guardrailModeOf, marginGateMessage, roadMargin, type MarginContext } from "../lib/roadMargin";
+import { marginsFor } from "./marginRates";
+import { marginInquiryService } from "./marginInquiry.service";
+import { quoteInquiryRepository, type WarehouseInquiryWithQuote } from "../repositories/quoteInquiry.repository";
+import type { NewQuoteInquiryRecord } from "../schemas/quoteInquiry.schema";
 import { choosePricing, pricedComment, rateRequestOf, replaceTruckingLines, roadPricingOf, truckingLines } from "../lib/roadPricing";
 import {
   LifecycleError,
@@ -91,6 +99,8 @@ export interface SalesQuoteListRequest {
   createdTo?: string;
   decidedFrom?: string;
   decidedTo?: string;
+  validFrom?: string;
+  validTo?: string;
   /** "me", "none" (no owner user) or the id of a user. */
   owner?: string;
   customerId?: string;
@@ -99,6 +109,8 @@ export interface SalesQuoteListRequest {
   familyOf?: string;
   /** true: only quotes a shipment names; false: only quotes none does. */
   hasShipment?: boolean;
+  /** "Filter by column": a JSON list of { key, value } (quoteColumnFilters.utils). */
+  columnFilters?: string;
 }
 
 /** A pricing of a quote from the trucking tariffs as the API takes it. */
@@ -111,19 +123,39 @@ export interface RoadPriceRequest {
 }
 
 const DEFAULT_LIMIT = 50;
-// The statuses a quote is sent with: a margin below the floor must be approved before them.
-const MARGIN_GATED_STATUSES: readonly string[] = ["ready_to_send", "quoted"];
+// The statuses a quote is sent with, and Won: a margin below the floor must be approved before them.
+const MARGIN_GATED_STATUSES: readonly string[] = ["ready_to_send", "quoted", "won"];
+/**
+ * Whether moving a quote from `shown` to `to` must pass the margin and warehouse gates: only from a
+ * status its prices are open in (a draft, ready to send, a revision - one reopened as a draft too).
+ * One made Won straight from them never passed the gate, so Won is gated too (Council Outlay 6
+ * D11). From Quoted, Feedback or Expired it is not, nor is sending again: those passed it when they
+ * were sent - or were sent before there were guardrails - and their prices are closed since.
+ */
+const isGatedMove = (shown: string, to: string) => MARGIN_GATED_STATUSES.includes(to) && !PRICING_CLOSED.includes(shown);
 // A won or lost quote is decided: it is not priced again.
 const DECIDED_STATUSES: readonly string[] = ["won", "lost"];
 // Whether a quote's prices are closed: it went out or is decided (PRICING_CLOSED) - except the
 // revision of a Won quote, which stays Won with its validity and prices open (isWonRevision).
 const pricingClosed = (quote: SalesQuoteRecord): boolean => PRICING_CLOSED.includes(quote.status) && !isWonRevision(quote.status, quote.data);
+
+/**
+ * The quote's margin approval with the validity it is now given, when it recorded none (it was
+ * approved on a quote with no validity yet); null when there is nothing to stamp. From then on a
+ * later validity ends it, as it does any other (D10).
+ */
+function approvalWithValidity(data: unknown, validUntil: string | null): Record<string, unknown> | null {
+  if (!validUntil || !isPlainObject(data) || !isPlainObject(data.marginApproval)) return null;
+  const approval = data.marginApproval;
+  if (!isPlainObject(approval.basis) || approval.basis.validUntil) return null;
+  return { ...approval, basis: { ...approval.basis, validUntil } };
+}
 /** How long the bell keeps a warehouse answer after it was opened. */
 const READ_ANSWER_KEEP_DAYS = 7;
 /** How far back the warehouse's list shows answered inquiries. */
 const INQUIRY_HISTORY_DAYS = 30;
-/** Who answers the warehouse inquiries: the warehouse managers (the supervisor roles). */
-const canDecideInquiry = (role: string) => role === "superadmin" || role === "admin" || role === "manager";
+/** Rows the warehouse's list and the bell read at most (an index serves them; none is cut silently below this). */
+const INQUIRY_LIST_LIMIT = 1000;
 
 export interface WarehouseInquiryRequest {
   pieces: number;
@@ -168,6 +200,66 @@ function inquiryItem(quote: SalesQuoteRecord, emails: Map<string, string>): Quot
     to: docText(data, "pod") || docText(data, "destination"),
     ownerName: (quote.ownerUserId ? emails.get(quote.ownerUserId) : undefined) || quote.ownerLabel || "",
     inquiry,
+  };
+}
+
+// The row of the quote_inquiry table a warehouse question is kept as (Council Outlay 6, step 5): the
+// lists and the bell read those rows, while the quote keeps the question it is held by.
+function warehouseRow(quote: SalesQuoteRecord, i: QuoteWarehouseInquiry): NewQuoteInquiryRecord & { id: string } {
+  const at = (iso: string | null) => (iso ? new Date(iso) : null);
+  return {
+    id: i.id,
+    companyId: quote.companyId,
+    quoteId: quote.id,
+    quoteNumber: quote.quoteNumber,
+    kind: "warehouse_heavy",
+    status: i.status,
+    requestedById: i.requestedById,
+    requestedByName: i.requestedByName,
+    requestedAt: at(i.requestedAt) ?? new Date(),
+    note: i.note,
+    details: { pieces: i.pieces, grossWeightKg: i.grossWeightKg, priceEurPerPiece: i.priceEurPerPiece },
+    decision: i.status === "approved" ? "approve" : i.status === "rejected" ? "reject" : null,
+    decidedById: i.decidedById,
+    decidedByName: i.decidedByName ?? "",
+    decidedAt: at(i.decidedAt),
+    comment: i.comment,
+    answerSeenAt: at(i.answerSeenAt),
+  };
+}
+
+// A warehouse question as the lists show it, from its row and its quote; null when the quote is gone.
+function warehouseItem(r: WarehouseInquiryWithQuote, emails: Map<string, string>): QuoteWarehouseInquiryItem | null {
+  if (!r.quote) return null;
+  const i = r.inquiry;
+  const d = i.details ?? { pieces: 0, grossWeightKg: 0, priceEurPerPiece: null };
+  // Names as the quote recorded them, for somebody no longer among the users.
+  const held = readInquiry({ warehouseInquiry: r.quote.recorded });
+  const recorded = held?.id === i.id ? held : null;
+  return {
+    quoteNumber: r.quote.quoteNumber,
+    quoteStatus: r.quote.status ?? "",
+    customerName: r.quote.customerName,
+    serviceType: r.quote.serviceType,
+    from: r.quote.from,
+    to: r.quote.to,
+    ownerName: (r.quote.ownerUserId ? emails.get(r.quote.ownerUserId) : undefined) || r.quote.ownerLabel || "",
+    inquiry: {
+      id: i.id,
+      status: i.status === "approved" || i.status === "rejected" ? i.status : "pending",
+      pieces: d.pieces,
+      grossWeightKg: d.grossWeightKg,
+      note: i.note,
+      requestedById: i.requestedById,
+      requestedByName: emails.get(i.requestedById) || i.requestedByName || recorded?.requestedByName || "",
+      requestedAt: i.requestedAt.toISOString(),
+      decidedById: i.decidedById,
+      decidedByName: (i.decidedById && emails.get(i.decidedById)) || i.decidedByName || recorded?.decidedByName || null,
+      decidedAt: i.decidedAt?.toISOString() ?? null,
+      priceEurPerPiece: d.priceEurPerPiece,
+      comment: i.comment,
+      answerSeenAt: i.answerSeenAt?.toISOString() ?? null,
+    },
   };
 }
 
@@ -229,6 +321,8 @@ function filterOf(actor: Actor, request: SalesQuoteListRequest): SalesQuoteFilte
     createdTo: dayOf(request.createdTo, "createdTo"),
     decidedFrom: dayOf(request.decidedFrom, "decidedFrom"),
     decidedTo: dayOf(request.decidedTo, "decidedTo"),
+    validFrom: dayOf(request.validFrom, "validFrom"),
+    validTo: dayOf(request.validTo, "validTo"),
     ownerUserId,
     customerId: request.customerId ? idOf(request.customerId, "customerId must be the id of a customer") : undefined,
     followUpDue: request.followUp === "due",
@@ -236,6 +330,7 @@ function filterOf(actor: Actor, request: SalesQuoteListRequest): SalesQuoteFilte
     family: request.familyOf?.trim() ? baseReference(request.familyOf.trim()) : undefined,
     hasShipment: request.hasShipment,
     search: searchTokens(request.search ?? ""),
+    columns: columnFiltersOf(request.columnFilters),
   };
 }
 
@@ -280,6 +375,25 @@ async function activateCustomer(companyId: string, customerId: string | null): P
   }
 }
 const conflict = () => APIError.aborted("the quote was changed by someone else since it was loaded");
+
+// A "Shipment (job no.)" column filter finds a quote by any shipment that names it: the quote keeps
+// only its first shipment's job number, so the shipments service says which quotes the others name.
+async function withShipmentReferences(filter: SalesQuoteFilter): Promise<SalesQuoteFilter> {
+  if (!filter.columns?.some((f) => f.key === "shipment")) return filter;
+  const columns = await Promise.all(
+    filter.columns.map(async (f) =>
+      f.key === "shipment" ? { ...f, references: (await shipments._internalQuoteReferencesByJob({ jobNumber: f.text })).references } : f,
+    ),
+  );
+  return { ...filter, columns };
+}
+
+// Where the suppliers a quote is linked to stand, by id (the caller's company: the request's login).
+async function linkedSupplierStates(ids: string[]): Promise<Map<string, LinkedSupplierState>> {
+  if (!ids.length) return new Map();
+  const { states } = await customers._internalSupplierApprovalStates({ ids });
+  return new Map(states.map((s) => [s.id, { companyName: s.companyName, status: s.status, comment: s.comment }]));
+}
 
 // The rules refuse in words meant for the user; the API adds what kind of refusal it is.
 function ruled<T>(run: () => T): T {
@@ -329,27 +443,6 @@ async function todaysFx(): Promise<StoredFx> {
   };
 }
 
-// What the road margins of these quotes are judged with: the Trucking margin floor and today's ČNB
-// rates of the currencies a quote has no stored rate for. Undefined - and nothing is asked - when
-// the margin rule applies to none of them. A rate the fx service cannot give is missing: the
-// margin then says so instead of the read failing. Read before any row lock (see todaysFx).
-async function marginsFor(rows: { data: unknown }[], at: Date): Promise<MarginContext | undefined> {
-  const applying = rows.filter((row) => roadMarginApplies(row.data));
-  if (!applying.length) return undefined;
-  const today = businessDay(at);
-  const currencies = [...new Set(applying.flatMap((row) => currenciesToResolve(row.data)))];
-  const [floor, rates] = await Promise.all([
-    trucking._internalTruckingMarginFloor(),
-    Promise.all(
-      currencies.map((currency) =>
-        /^[A-Z]{3}$/.test(currency)
-          ? fx.fxResolve({ currency, date: today }).then((r) => r.rate, () => null)
-          : Promise.resolve(null),
-      ),
-    ),
-  ]);
-  return { floor, today, rates: Object.fromEntries(currencies.map((currency, i) => [currency, rates[i] ?? null])) };
-}
 
 class SalesQuoteService {
   // What every read of sales quotes starts with: quotes written by code from before the server
@@ -370,7 +463,7 @@ class SalesQuoteService {
       await ownerBackfillService.matchOwners(actor.companyID);
       stored = (await salesQuoteRepository.loadSales(actor.companyID, quote.quoteNumber)) ?? quote;
     }
-    return toItem(stored, people.emails, actor, at, await marginsFor([stored], at));
+    return toItem(stored, people.emails, actor, at, await marginsFor(actor.companyID, [stored], at));
   }
 
   // The sales quotes of the company: one page of a filtered, sorted list, or - with afterId -
@@ -378,7 +471,7 @@ class SalesQuoteService {
   // same moment by the filter (in SQL) and by what it is handed out with (status shown,
   // follow-up flag), so the two cannot disagree. The total is the real number of matches.
   async list(actor: Actor, request: SalesQuoteListRequest): Promise<PaginatedResponse<SalesQuoteItem>> {
-    const filter = filterOf(actor, request);
+    const filter = await withShipmentReferences(filterOf(actor, request));
     const page = pageOf(request);
     await this.catchUp(actor.companyID);
     const at = new Date();
@@ -392,7 +485,7 @@ class SalesQuoteService {
       { today: businessDay(at), dueBefore: followUpDueBefore(at) },
       people.users,
     );
-    const margins = await marginsFor(rows, at);
+    const margins = await marginsFor(actor.companyID, rows, at);
     return {
       pagination: { total, offset: page.offset, limit: page.limit },
       data: rows.map((row) => toItem(row, people.emails, actor, at, margins)),
@@ -419,7 +512,7 @@ class SalesQuoteService {
       (existing) => formatReference(prefix, nextSequence(prefix, existing)),
       newRow(contextOf(actor, at, people), document),
     );
-    return toItem(quote, people.emails, actor, at, await marginsFor([quote], at));
+    return toItem(quote, people.emails, actor, at, await marginsFor(actor.companyID, [quote], at));
   }
 
   // A variant of an existing quote: its reference with the next free -2, -3, ... The content is
@@ -440,7 +533,7 @@ class SalesQuoteService {
       (existing) => nextVariant(base, existing),
       newRow(contextOf(actor, at, people), document),
     );
-    return toItem(quote, people.emails, actor, at, await marginsFor([quote], at));
+    return toItem(quote, people.emails, actor, at, await marginsFor(actor.companyID, [quote], at));
   }
 
   // A save of the document by the Sales editor. Written only while the document is still the
@@ -483,8 +576,15 @@ class SalesQuoteService {
     const ctx = contextOf(actor, at, people);
     // Only a status the quote may be sent with can need them; read before the lock (see todaysFx).
     const today = mayStampFx(request.to) ? await todaysFx() : undefined;
-    // So is what a road margin is judged with, for the statuses a margin below the floor blocks.
-    const margins = MARGIN_GATED_STATUSES.includes(request.to) ? await this.marginsOf(actor.companyID, quoteNumber, at) : undefined;
+    // So is what a margin is judged with, for the moves a margin below the floor blocks: worked out
+    // from the quote as it is before the lock - its freight mode is checked again under it.
+    const before = MARGIN_GATED_STATUSES.includes(request.to) ? await salesQuoteRepository.loadSales(actor.companyID, quoteNumber) : null;
+    const margins = before ? await marginsFor(actor.companyID, [before], at) : undefined;
+    // And where its linked suppliers stand: a new one waiting for a manager, or declined, holds the quote.
+    // Asked only for a move the gates hold (not Quoted → Won); one that turns out gated under the lock
+    // with a linked supplier nobody looked up is tried again (supplierGate's unknown).
+    const gatedBefore = (q: SalesQuoteRecord) => isGatedMove(effectiveStatus(stateOf(q).status, q.validUntil, ctx.today), request.to);
+    const suppliers = before && gatedBefore(before) ? await linkedSupplierStates(linkedSupplierIds(before.data)) : undefined;
     const result = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
       if (request.expectedDataVersion !== undefined && request.expectedDataVersion !== quote.dataVersion) throw conflict();
       const state = stateOf(quote);
@@ -493,12 +593,34 @@ class SalesQuoteService {
         return applyTransition(state, request, ctx);
       });
       if (!change.changed) return { quote, changed: false };
-      // A margin below the Trucking floor goes out only with a manager's approval that covers it.
-      const margin = margins ? roadMargin(quote.data, margins) : null;
-      if (margin?.needsApproval) throw APIError.failedPrecondition(marginGateMessage(margin));
-      // Pieces of 12.5 t or more go out only once the warehouse approved them.
-      const inquiryGate = inquiryGateMessage(quote.data, request.to);
-      if (inquiryGate) throw APIError.failedPrecondition(inquiryGate);
+      // A margin below its mode's floor goes out - or is Won without going out - only with a
+      // manager's approval that covers it; pieces of 12.5 t or more only once the warehouse approved them.
+      let serverKeys: Record<string, unknown> | undefined;
+      if (isGatedMove(effectiveStatus(state.status, state.validUntil, ctx.today), request.to)) {
+        // A mode chosen since the rates were read is judged against a floor nobody read: try again.
+        if (guardrailModeOf(quote.data) !== guardrailModeOf(before?.data)) throw conflict();
+        const modeGate = freightModeGateMessage(quote.data);
+        if (modeGate) throw APIError.failedPrecondition(modeGate);
+        // Its Shipping terms come from a template, chosen before it goes on.
+        const termsGate = shippingTermsGateMessage(quote.data);
+        if (termsGate) throw APIError.failedPrecondition(termsGate);
+        // A rail or ocean tariff prices only its Trade Direction: a line priced in the other is priced again first.
+        const directionGate = tariffDirectionGateMessage(quote.data);
+        if (directionGate) throw APIError.failedPrecondition(directionGate);
+        // Judged as the quote will be once moved: a validity the sending sets is part of what an approval covers (D10).
+        const judged = isPlainObject(quote.data) ? { ...quote.data, validUntil: change.state.validUntil ?? undefined } : quote.data;
+        const margin = margins ? roadMargin(judged, margins) : null;
+        if (margin?.needsApproval) throw APIError.failedPrecondition(marginGateMessage(margin));
+        const inquiryGate = inquiryGateMessage(quote.data, "ready_to_send");
+        if (inquiryGate) throw APIError.failedPrecondition(inquiryGate);
+        // A supplier linked since they were read is judged by nobody: try again. A supplier only typed holds it too.
+        const supplierCheck = supplierGate(quote.data, suppliers ?? new Map());
+        if (supplierCheck.unknown) throw conflict();
+        if (supplierCheck.message) throw APIError.failedPrecondition(supplierCheck.message);
+        // An approval given before the quote had a validity covers the one it is sent with, and no later one.
+        const stamped = approvalWithValidity(quote.data, change.state.validUntil);
+        if (stamped) serverKeys = { marginApproval: stamped };
+      }
       // The customer is given totals worked out with the ČNB rates and ROE % of the moment it is
       // sent: they are stored then and never change; back in a draft status they are dropped
       // (see lib/quoteFx). That writes the document, hence a new version of it - and only then.
@@ -507,6 +629,7 @@ class SalesQuoteService {
         state: change.state,
         entries: [change.entry],
         document,
+        ...(serverKeys ? { serverKeys } : {}),
       });
       return { quote: written, changed: true };
     });
@@ -563,6 +686,9 @@ class SalesQuoteService {
         // The quote names its revision, for the screens that lead from the one to the other.
         write: { state: replaced.state, entries: [replaced.entry], document: { replacedBy: reference } },
       };
+    }, async (tx, quote, revision) => {
+      // A question still waiting goes with the prices to the revision: there it can be answered.
+      await quoteInquiryRepository.moveOpen(actor.companyID, quote.id, { id: revision.id, quoteNumber: revision.quoteNumber }, tx);
     });
     if (!result) throw notFound();
     let warning: string | undefined;
@@ -580,7 +706,7 @@ class SalesQuoteService {
         warning = `The shipments of ${revised.quoteNumber} could not be moved to ${revision.quoteNumber} - change their Sales Reference to ${revision.quoteNumber}`;
       }
     }
-    const margins = await marginsFor([revised, revision], at);
+    const margins = await marginsFor(actor.companyID, [revised, revision], at);
     return {
       quote: toItem(revised, people.emails, actor, at, margins),
       revision: toItem(revision, people.emails, actor, at, margins),
@@ -593,7 +719,7 @@ class SalesQuoteService {
   // a missing rate, never as converted at 1.
   private async marginsOf(companyId: string, quoteNumber: string, at: Date): Promise<MarginContext | undefined> {
     const quote = await salesQuoteRepository.loadSales(companyId, quoteNumber);
-    return quote ? marginsFor([quote], at) : undefined;
+    return quote ? marginsFor(companyId, [quote], at) : undefined;
   }
 
   // Prices the road transport of a quote from the trucking tariffs: the customer's sell price (or
@@ -670,8 +796,15 @@ class SalesQuoteService {
         reason: why,
         marginCzk: margin.marginCzk,
         marginPercent: margin.marginPercent,
+        // What the quote is now: a change of customer, mode, containers, owner or validity ends it (D10).
+        basis: approvalBasisOf(quote.data),
       };
-      const comment = `Margin approved: ${formatMargin(margin.marginCzk, margin.marginPercent)} - ${why}`;
+      // A rep's question waiting about this margin is answered by the approval, in the same transaction.
+      const pending = await quoteInquiryRepository.pendingOf(actor.companyID, quote.id, tx);
+      // Approving one's own quote - or one's own question - is allowed, and the history says so (owner decision D9).
+      const self = quote.ownerUserId === actor.userID || pending?.requestedById === actor.userID ? " (self-approval)" : "";
+      const comment = `Margin approved: ${formatMargin(margin.marginCzk, margin.marginPercent)} - ${why}${self}`;
+      if (pending) await marginInquiryService.closeByDirectApproval(actor, quote, pending, approval, tx);
       return salesQuoteRepository.writeLifecycle(tx, quote, {
         state: stateOf(quote),
         entries: [pricingEntry("margin_approval", comment, ctx)],
@@ -722,6 +855,7 @@ class SalesQuoteService {
         comment: "",
         answerSeenAt: null,
       };
+      await quoteInquiryRepository.recordWarehouse(warehouseRow(quote, inquiry), tx);
       return salesQuoteRepository.writeLifecycle(tx, quote, { state: stateOf(quote), entries: [pricingEntry("warehouse_inquiry", comment, ctx)], serverKeys: { warehouseInquiry: inquiry } });
     });
     if (!written) throw notFound();
@@ -732,16 +866,16 @@ class SalesQuoteService {
   // The warehouse's questions from Sales (the Warehouse Concept Managers page): those waiting and
   // those answered in the last 30 days. Managers only.
   async listWarehouseInquiries(actor: Actor): Promise<QuoteWarehouseInquiryItem[]> {
-    if (!canDecideInquiry(actor.role)) throw APIError.permissionDenied("only a warehouse manager answers the warehouse inquiries");
-    const since = new Date(Date.now() - INQUIRY_HISTORY_DAYS * 86_400_000).toISOString();
-    const [rows, people] = await Promise.all([salesQuoteRepository.listWarehouseInquiries(actor.companyID, since), companyPeople()]);
-    return rows.map((r) => inquiryItem(r, people.emails)).filter((i): i is QuoteWarehouseInquiryItem => i !== null);
+    if (!canDecideQuoteInquiry(actor.role)) throw APIError.permissionDenied("only a warehouse manager answers the warehouse inquiries");
+    const since = new Date(Date.now() - INQUIRY_HISTORY_DAYS * 86_400_000);
+    const [rows, people] = await Promise.all([quoteInquiryRepository.listWarehouse(actor.companyID, since, INQUIRY_LIST_LIMIT), companyPeople()]);
+    return rows.map((r) => warehouseItem(r, people.emails)).filter((i): i is QuoteWarehouseInquiryItem => i !== null);
   }
 
   // A warehouse manager answers: approved with the extra handling per piece (EUR), or rejected
   // with a reason. The answer goes to the one who asked (the bell) and into the quote's history.
   async decideWarehouseInquiry(actor: Actor, quoteNumber: string, request: WarehouseInquiryDecision): Promise<QuoteWarehouseInquiryItem> {
-    if (!canDecideInquiry(actor.role)) throw APIError.permissionDenied("only a warehouse manager answers the warehouse inquiries");
+    if (!canDecideQuoteInquiry(actor.role)) throw APIError.permissionDenied("only a warehouse manager answers the warehouse inquiries");
     const comment = (request.comment ?? "").trim();
     if (comment.length > MAX_INQUIRY_NOTE) throw APIError.invalidArgument(`The comment is too long (at most ${MAX_INQUIRY_NOTE} characters)`);
     let price: number | null = null;
@@ -776,6 +910,7 @@ class SalesQuoteService {
         comment,
         answerSeenAt: null,
       };
+      await quoteInquiryRepository.recordWarehouse(warehouseRow(quote, decided), tx);
       const what = `${inquiry.pieces} piece${inquiry.pieces === 1 ? "" : "s"} of 12.5 t or more`;
       line = request.approve ? `Warehouse approved ${what}: EUR ${price} per piece${comment ? ` - ${comment}` : ""}` : `Warehouse rejected ${what}: ${comment}`;
       // Approved on a quote still open for pricing: the fee goes to Pricing at once - a new version
@@ -799,9 +934,9 @@ class SalesQuoteService {
   // The answers to the signed-in user's own inquiries (the bell): not opened yet, and opened in the
   // last READ_ANSWER_KEEP_DAYS days (answerSeenAt says which).
   async myInquiryAnswers(actor: Actor): Promise<QuoteWarehouseInquiryItem[]> {
-    const seenSince = new Date(Date.now() - READ_ANSWER_KEEP_DAYS * 86_400_000).toISOString();
-    const [rows, people] = await Promise.all([salesQuoteRepository.listInquiryAnswersFor(actor.companyID, actor.userID, seenSince), companyPeople()]);
-    return rows.map((r) => inquiryItem(r, people.emails)).filter((i): i is QuoteWarehouseInquiryItem => i !== null);
+    const seenSince = new Date(Date.now() - READ_ANSWER_KEEP_DAYS * 86_400_000);
+    const [rows, people] = await Promise.all([quoteInquiryRepository.warehouseAnswersFor(actor.companyID, actor.userID, seenSince, INQUIRY_LIST_LIMIT), companyPeople()]);
+    return rows.map((r) => warehouseItem(r, people.emails)).filter((i): i is QuoteWarehouseInquiryItem => i !== null);
   }
 
   // The one who asked opened the answer: it leaves the bell. Only theirs; nothing else changes.
@@ -809,8 +944,15 @@ class SalesQuoteService {
     const at = new Date();
     const written = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
       const inquiry = readInquiry(quote.data);
+      // An answer the quote no longer holds - a newer question replaced it - is still in the bell: its row is marked.
+      if (isUuid(inquiryId) && inquiry?.id !== inquiryId) {
+        await quoteInquiryRepository.markWarehouseSeen(actor.companyID, inquiryId, actor.userID, at, tx);
+        return quote;
+      }
       if (!inquiry || inquiry.id !== inquiryId || inquiry.requestedById !== actor.userID || inquiry.status === "pending" || inquiry.answerSeenAt) return quote;
-      return salesQuoteRepository.writeLifecycle(tx, quote, { state: stateOf(quote), entries: [], serverKeys: { warehouseInquiry: { ...inquiry, answerSeenAt: at.toISOString() } } });
+      const seen = { ...inquiry, answerSeenAt: at.toISOString() };
+      await quoteInquiryRepository.recordWarehouse(warehouseRow(quote, seen), tx);
+      return salesQuoteRepository.writeLifecycle(tx, quote, { state: stateOf(quote), entries: [], serverKeys: { warehouseInquiry: seen } });
     });
     if (!written) throw notFound();
   }
@@ -991,6 +1133,8 @@ class SalesQuoteService {
       }
       await salesQuoteRepository.writeLifecycle(tx, quote, { state, entries: [deletionEntry(ctx)], deleted: { by: actor.userID, at } });
       await quoteAttachmentRepository.deleteForQuote(tx, quote.quoteNumber, quote.companyId, at);
+      // A question waiting on it could never be answered: it is withdrawn with it.
+      await quoteInquiryRepository.withdrawOpenOf(quote.companyId, quote.id, actor.userID, at, tx);
       return true;
     });
     if (!deleted) throw notFound();

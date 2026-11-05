@@ -8,7 +8,7 @@ vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn() } })
 vi.mock("~encore/clients", () => ({
   auth: { usersList: vi.fn(), userLookup: vi.fn() },
   customers: { customerUpdate: vi.fn(), customerGet: vi.fn(), addressList: vi.fn(), contactList: vi.fn() },
-  invoicing: { invoicingImportQuote: vi.fn(), openInvoiceCount: vi.fn(), _internalShipmentBillingStart: vi.fn() },
+  invoicing: { invoicingImportQuote: vi.fn(), openInvoiceCount: vi.fn(), _internalShipmentBillingStart: vi.fn(), _internalInvoicedShipments: vi.fn() },
   quotes: { salesQuoteGet: vi.fn() },
 }));
 // A shipment's write turn: its work runs at once, handed this stand-in for the transaction.
@@ -29,6 +29,10 @@ vi.mock("../../repositories/shipment.repository", () => ({
     peopleOf: vi.fn(),
     rewritePeople: vi.fn(),
     setTruckPlate: vi.fn(),
+    referencesOf: vi.fn(),
+    referenceInTurn: vi.fn(),
+    renameJobNumber: vi.fn(),
+    markJobNumberFinal: vi.fn(),
     writeTurn: vi.fn(async (_shipmentId: string, _companyId: string, work: (tx: unknown) => Promise<unknown>) => work(TX)),
   },
 }));
@@ -133,8 +137,25 @@ beforeEach(() => {
     return updated;
   });
   repository.softDeleteForCompany.mockImplementation(async (id) => stored.get(id) ?? null);
+  // The reference writes, against the shipments held: a rename only while the row still reads what it was worked out from.
+  repository.referencesOf.mockImplementation(async () => [...stored.values()]);
+  repository.referenceInTurn.mockImplementation(async (_tx, id) => stored.get(id) ?? null);
+  repository.renameJobNumber.mockImplementation(async (_tx, _companyId, from, to) => {
+    const current = stored.get(from.id);
+    if (!current || current.jobNumber !== from.jobNumber || current.freightMode !== from.freightMode || current.loadType !== from.loadType) return null;
+    const renamed = { ...current, jobNumber: to };
+    stored.set(from.id, renamed);
+    return renamed;
+  });
+  repository.markJobNumberFinal.mockImplementation(async (_tx, id) => {
+    const current = stored.get(id);
+    if (!current) return null;
+    stored.set(id, { ...current, jobNumberFinal: true });
+    return current.jobNumber;
+  });
   vi.mocked(shipmentAttachmentRepository.documentTypesByShipmentIds).mockResolvedValue([]);
   vi.mocked(invoicing.openInvoiceCount).mockResolvedValue({ count: 0 });
+  vi.mocked(invoicing._internalInvoicedShipments).mockResolvedValue({ shipmentIds: [] });
   vi.mocked(containerRepository.listByShipmentId).mockResolvedValue([]);
   vi.mocked(cargoItemRepository.listByShipmentId).mockResolvedValue([]);
   vi.mocked(cargoDimensionRepository.listByShipmentId).mockResolvedValue([]);
@@ -409,6 +430,103 @@ describe("Created by", () => {
 
 describe("update", () => {
   const update = (data: Record<string, unknown>) => shipmentService.update(SHIPMENT, COMPANY, data as never, USER);
+
+  describe("the Internal Reference's letters", () => {
+    const renamedTo = () => repository.renameJobNumber.mock.calls.map((call) => call[3]);
+    // The shipment row as the write in the turn finds it: `meanwhile` was saved by a parallel write
+    // after this update read the shipment.
+    const savedMeanwhile = (meanwhile: Record<string, unknown>) =>
+      repository.updateForCompany.mockImplementationOnce(async (id, _companyId, data) => {
+        const updated = { ...stored.get(id)!, ...meanwhile, ...(data as Record<string, unknown>) } as ShipmentRecord;
+        stored.set(id, updated);
+        return updated;
+      });
+
+    it("follow a changed Freight Mode or Load Type, the number kept, in the write turn, and the quote is told", async () => {
+      stored.set(SHIPMENT, row({ jobNumber: "CZ00000101", freightMode: "Sea Freight", loadType: "", salesNumber: REF }));
+      await update({ loadType: "Full Load" });
+      expect(repository.updateForCompany.mock.calls[0]![2]).toMatchObject({ loadType: "Full Load" });
+      expect(repository.updateForCompany.mock.calls[0]![2]).not.toHaveProperty("jobNumber");
+      expect(repository.renameJobNumber).toHaveBeenCalledWith(
+        TX,
+        COMPANY,
+        expect.objectContaining({ id: SHIPMENT, jobNumber: "CZ00000101", freightMode: "Sea Freight", loadType: "Full Load" }),
+        "CZFCL00000101",
+      );
+      expect(vi.mocked(shipmentAuditRepository.create)).toHaveBeenCalledWith(
+        expect.objectContaining({ field: "jobNumber", oldValue: "CZ00000101", newValue: "CZFCL00000101" }),
+        TX,
+      );
+      expect(stored.get(SHIPMENT)!.jobNumber).toBe("CZFCL00000101");
+      // The quote keeps its shipment's reference too.
+      expect(links.syncReference).toHaveBeenCalledWith(COMPANY, REF);
+
+      await update({ freightMode: "Air Freight" });
+      expect(renamedTo()).toEqual(["CZFCL00000101", "CZAIR00000101"]);
+    });
+
+    it("are worked out from the row as the write turn finds it: an edit of the other field saved meanwhile counts", async () => {
+      // Read as Sea Freight, Full Load; meanwhile another edit made it Air Freight (CZAIR…).
+      stored.set(SHIPMENT, row({ jobNumber: "CZFCL00000101", freightMode: "Sea Freight", loadType: "Full Load" }));
+      savedMeanwhile({ freightMode: "Air Freight", jobNumber: "CZAIR00000101" });
+      await update({ loadType: "Consolidation" });
+      // Air Freight with a Consolidation stays CZAIR - not the CZLCL the read alone would give.
+      expect(renamedTo()).toEqual([]);
+      expect(stored.get(SHIPMENT)).toMatchObject({ jobNumber: "CZAIR00000101", freightMode: "Air Freight", loadType: "Consolidation" });
+
+      // Read as Sea Freight, Full Load; meanwhile another edit made it a Consolidation (CZLCL…).
+      stored.set(SHIPMENT, row({ jobNumber: "CZFCL00000101", freightMode: "Sea Freight", loadType: "Full Load" }));
+      savedMeanwhile({ loadType: "Project Shipment", jobNumber: "CZPROJECT00000101" });
+      await update({ freightMode: "Rail Freight" });
+      expect(renamedTo()).toEqual([]);
+      expect(stored.get(SHIPMENT)!.jobNumber).toBe("CZPROJECT00000101");
+    });
+
+    it("stay once Invoicing took the reference for an invoice number - also when it did while the edit was on its way", async () => {
+      stored.set(SHIPMENT, row({ jobNumber: "CZFCL00000101", freightMode: "Sea Freight", loadType: "Full Load", salesNumber: REF }));
+      savedMeanwhile({ jobNumberFinal: true });
+      await update({ loadType: "Consolidation" });
+      expect(repository.renameJobNumber).not.toHaveBeenCalled();
+      expect(stored.get(SHIPMENT)!.jobNumber).toBe("CZFCL00000101");
+      expect(links.syncReference).not.toHaveBeenCalled();
+    });
+
+    it("stay on a job whose row says the reference is final, without asking Invoicing", async () => {
+      for (const over of [{ jobNumberFinal: true }, { invoicingStatus: "Invoiced" }]) {
+        stored.set(SHIPMENT, row({ jobNumber: "CZFCL00000101", freightMode: "Sea Freight", loadType: "Full Load", ...over }));
+        await update({ loadType: "Consolidation" });
+      }
+      expect(repository.renameJobNumber).not.toHaveBeenCalled();
+      expect(invoicing._internalInvoicedShipments).not.toHaveBeenCalled();
+    });
+
+    it("stay on a job marked Invoiced by hand in the same edit", async () => {
+      stored.set(SHIPMENT, row({ jobNumber: "CZFCL00000101", freightMode: "Sea Freight", loadType: "Full Load", invoicingStatus: "Not Invoiced" }));
+      await update({ loadType: "Consolidation", invoicingStatus: "Invoiced" });
+      expect(repository.renameJobNumber).not.toHaveBeenCalled();
+    });
+
+    it("stay once the job has had an invoice - one issued before the shipment kept its own flag", async () => {
+      stored.set(SHIPMENT, row({ jobNumber: "CZFCL00000101", freightMode: "Sea Freight", loadType: "Full Load" }));
+      vi.mocked(invoicing._internalInvoicedShipments).mockResolvedValue({ shipmentIds: [SHIPMENT] });
+      await update({ loadType: "Consolidation" });
+      expect(invoicing._internalInvoicedShipments).toHaveBeenCalledWith({ shipmentIds: [SHIPMENT] });
+      // Asked before the write turn, not under its lock.
+      expect(vi.mocked(invoicing._internalInvoicedShipments).mock.invocationCallOrder[0]).toBeLessThan(repository.writeTurn.mock.invocationCallOrder[0]!);
+      expect(repository.updateForCompany.mock.calls[0]![2]).toMatchObject({ loadType: "Consolidation" });
+      expect(repository.renameJobNumber).not.toHaveBeenCalled();
+      expect(links.syncReference).not.toHaveBeenCalled();
+    });
+
+    it("are not looked at by an edit that changes neither, nor on a reference that is no CZ number", async () => {
+      stored.set(SHIPMENT, row({ jobNumber: "CZ00000101", freightMode: "Air Freight", loadType: "" }));
+      await update({ pol: "Shanghai" });
+      stored.set(SHIPMENT, row({ jobNumber: "IMPORT-1", freightMode: "Sea Freight", loadType: "" }));
+      await update({ loadType: "Full Load" });
+      expect(repository.renameJobNumber).not.toHaveBeenCalled();
+      expect(invoicing._internalInvoicedShipments).not.toHaveBeenCalled();
+    });
+  });
 
   it("tells the new quote and the old one when the Sales Number changes, after the shipment is written", async () => {
     stored.set(SHIPMENT, row({ salesNumber: REF, salesPerson: "martin@firma.cz" }));
@@ -709,6 +827,123 @@ describe("normalizePeople", () => {
     vi.mocked(auth.usersList).mockRejectedValue(new Error("auth is unreachable"));
     await expect(shipmentService.normalizePeople(COMPANY)).rejects.toThrow("auth is unreachable");
     expect(repository.rewritePeople).not.toHaveBeenCalled();
+  });
+});
+
+describe("finalizeReference", () => {
+  it("marks the reference final under the shipment's write turn and gives it back as it is now", async () => {
+    stored.set(SHIPMENT, row({ jobNumber: "CZFCL00000101" }));
+    await expect(shipmentService.finalizeReference(SHIPMENT, COMPANY)).resolves.toBe("CZFCL00000101");
+    expect(repository.writeTurn).toHaveBeenCalledWith(SHIPMENT, COMPANY, expect.any(Function));
+    expect(repository.markJobNumberFinal).toHaveBeenCalledWith(TX, SHIPMENT, COMPANY);
+    expect(stored.get(SHIPMENT)!.jobNumberFinal).toBe(true);
+  });
+
+  it("answers not found for a shipment the company does not have, and for what is no id without reading", async () => {
+    await expect(shipmentService.finalizeReference(SHIPMENT, COMPANY)).rejects.toMatchObject({ code: "not_found" });
+    await expect(shipmentService.finalizeReference("CZ00000101", COMPANY)).rejects.toMatchObject({ code: "not_found" });
+    expect(repository.writeTurn).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the letters from then on", async () => {
+    stored.set(SHIPMENT, row({ jobNumber: "CZFCL00000101", freightMode: "Sea Freight", loadType: "Full Load" }));
+    await shipmentService.finalizeReference(SHIPMENT, COMPANY);
+    await shipmentService.update(SHIPMENT, COMPANY, { loadType: "Consolidation" } as never, USER);
+    expect(repository.renameJobNumber).not.toHaveBeenCalled();
+    expect(stored.get(SHIPMENT)!.jobNumber).toBe("CZFCL00000101");
+  });
+});
+
+describe("normalizeReferences", () => {
+  const renamedJobs = () => repository.renameJobNumber.mock.calls.map((call) => call[3]);
+  const put = (id: string, over: Record<string, unknown>) => stored.set(id, row({ id, invoicingStatus: "Not Invoiced", jobNumberFinal: false, ...over }));
+  const normalize = () => shipmentService.normalizeReferences(COMPANY, USER);
+  const asked = () => vi.mocked(invoicing._internalInvoicedShipments).mock.calls.map(([req]) => req.shipmentIds);
+
+  it("gives each live shipment the letters of its Freight Mode and Load Type, audited as the user who ran it, and tells each quote once", async () => {
+    put("s-1", { jobNumber: "CZ00000001", freightMode: "Sea Freight", loadType: "Full Load", salesNumber: REF });
+    put("s-2", { jobNumber: "CZ00000002", freightMode: "Air Freight", loadType: "", salesNumber: ` ${REF}` });
+    // Letters that can't be told yet, and letters it has already: nothing to do.
+    put("s-3", { jobNumber: "CZ00000003", freightMode: "Sea Freight", loadType: "" });
+    put("s-4", { jobNumber: "CZRAIL00000004", freightMode: "Rail Freight", loadType: "" });
+    await expect(normalize()).resolves.toEqual({ checked: 4, renamed: 2, keptInvoiced: [] });
+    expect(stored.get("s-1")!.jobNumber).toBe("CZFCL00000001");
+    expect(stored.get("s-2")!.jobNumber).toBe("CZAIR00000002");
+    expect(shipmentAuditRepository.create).toHaveBeenCalledWith(
+      { companyId: COMPANY, shipmentId: "s-1", userId: USER, field: "jobNumber", oldValue: "CZ00000001", newValue: "CZFCL00000001" },
+      TX,
+    );
+    expect(shipmentAuditRepository.create).toHaveBeenCalledTimes(2);
+    expect(links.syncReference.mock.calls).toEqual([[COMPANY, REF]]);
+    // Invoicing is asked about those that need letters only.
+    expect(asked()).toEqual([["s-1", "s-2"]]);
+  });
+
+  it("keeps the reference of a job that is final: one Invoicing numbered, one marked Invoiced (by hand too), one with an invoice", async () => {
+    put("s-1", { jobNumber: "CZ00000001", freightMode: "Air Freight", jobNumberFinal: true });
+    put("s-2", { jobNumber: "CZ00000002", freightMode: "Air Freight", invoicingStatus: "Invoiced" });
+    put("s-3", { jobNumber: "CZ00000003", freightMode: "Air Freight" });
+    put("s-4", { jobNumber: "CZ00000004", freightMode: "Air Freight" });
+    vi.mocked(invoicing._internalInvoicedShipments).mockResolvedValue({ shipmentIds: ["s-3"] });
+    await expect(normalize()).resolves.toEqual({ checked: 4, renamed: 1, keptInvoiced: ["CZ00000001", "CZ00000002", "CZ00000003"] });
+    // What the shipment row already says is final is not asked about.
+    expect(asked()).toEqual([["s-3", "s-4"]]);
+    expect(renamedJobs()).toEqual(["CZAIR00000004"]);
+  });
+
+  it("works each rename out again under the shipment's write turn, from the row as it is then", async () => {
+    put("s-1", { jobNumber: "CZ00000001", freightMode: "Air Freight" });
+    put("s-2", { jobNumber: "CZ00000002", freightMode: "Air Freight" });
+    put("s-3", { jobNumber: "CZ00000003", freightMode: "Sea Freight", loadType: "Full Load" });
+    put("s-4", { jobNumber: "CZ00000004", freightMode: "Air Freight" });
+    // After the backfill read the shipments: Invoicing numbered s-1, an edit made s-2 a Project
+    // Shipment, one gave s-3 its letters already, and s-4 was deleted.
+    vi.mocked(invoicing._internalInvoicedShipments).mockImplementationOnce(async () => {
+      stored.set("s-1", { ...stored.get("s-1")!, jobNumberFinal: true });
+      stored.set("s-2", { ...stored.get("s-2")!, loadType: "Project Shipment" });
+      stored.set("s-3", { ...stored.get("s-3")!, loadType: "Consolidation", jobNumber: "CZLCL00000003" });
+      stored.delete("s-4");
+      return { shipmentIds: [] };
+    });
+    await expect(normalize()).resolves.toEqual({ checked: 4, renamed: 1, keptInvoiced: ["CZ00000001"] });
+    expect(renamedJobs()).toEqual(["CZPROJECT00000002"]);
+    expect(stored.get("s-3")!.jobNumber).toBe("CZLCL00000003");
+    expect(repository.referenceInTurn).toHaveBeenCalledWith(TX, "s-1", COMPANY);
+  });
+
+  it("counts, audits and tells nothing the guarded rename did not write", async () => {
+    put("s-1", { jobNumber: "CZ00000001", freightMode: "Air Freight", salesNumber: REF });
+    repository.renameJobNumber.mockResolvedValueOnce(null);
+    await expect(normalize()).resolves.toEqual({ checked: 1, renamed: 0, keptInvoiced: [] });
+    expect(shipmentAuditRepository.create).not.toHaveBeenCalled();
+    expect(links.syncReference).not.toHaveBeenCalled();
+  });
+
+  it("is safe to run again: a second run renames nothing and asks Invoicing nothing", async () => {
+    put("s-1", { jobNumber: "CZ00000001", freightMode: "Sea Freight", loadType: "Consolidation", salesNumber: REF });
+    await expect(normalize()).resolves.toEqual({ checked: 1, renamed: 1, keptInvoiced: [] });
+    await expect(normalize()).resolves.toEqual({ checked: 1, renamed: 0, keptInvoiced: [] });
+    expect(stored.get("s-1")!.jobNumber).toBe("CZLCL00000001");
+    expect(invoicing._internalInvoicedShipments).toHaveBeenCalledTimes(1);
+    expect(shipmentAuditRepository.create).toHaveBeenCalledTimes(1);
+    expect(links.syncReference).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks Invoicing a few shipments at a time, right before renaming them", async () => {
+    for (let n = 1; n <= 120; n++) put(`s-${n}`, { jobNumber: `CZ${String(n).padStart(8, "0")}`, freightMode: "Air Freight" });
+    const done: string[] = [];
+    vi.mocked(invoicing._internalInvoicedShipments).mockImplementation(async ({ shipmentIds }) => {
+      done.push(`ask ${shipmentIds.length}`);
+      return { shipmentIds: [] };
+    });
+    const rename = repository.renameJobNumber.getMockImplementation()!;
+    repository.renameJobNumber.mockImplementation(async (...args) => {
+      done.push("rename");
+      return rename(...args);
+    });
+    await expect(normalize()).resolves.toMatchObject({ renamed: 120 });
+    const renames = (n: number) => Array.from({ length: n }, () => "rename");
+    expect(done).toEqual(["ask 50", ...renames(50), "ask 50", ...renames(50), "ask 20", ...renames(20)]);
   });
 });
 
@@ -1149,6 +1384,26 @@ describe("cargo lines and containers", () => {
     containers(A, B);
     await update({ cargoDimensions: [dim(A), dim("0b8e1d2c-0000-4000-8000-0000000000ff")] });
     expect(vi.mocked(cargoDimensionRepository.replaceForShipment).mock.calls[0]![2]).toMatchObject([dim(A)]);
+  });
+
+  it("stores the volume typed for a piece as a plain number, and none beside all three sizes", async () => {
+    containers(A);
+    const unsized = { ...dim(A), heightCm: "", volumePerPcM3: "0,50" };
+    await update({ cargoDimensions: [unsized, { ...dim(A), volumePerPcM3: "4" }] });
+    expect(vi.mocked(cargoDimensionRepository.replaceForShipment).mock.calls[0]![2]).toMatchObject([
+      { heightCm: "", volumePerPcM3: "0.5" },
+      { heightCm: "1", volumePerPcM3: "" },
+    ]);
+  });
+
+  it("refuses a typed volume that is no plain number of m³ and writes nothing", async () => {
+    containers(A);
+    await expect(update({ cargoDimensions: [dim(A), { ...dim(A), heightCm: "", volumePerPcM3: "-2" }] })).rejects.toMatchObject({
+      code: "invalid_argument",
+      message: "Cargo line 2: volume per piece cannot be negative",
+    });
+    await expect(update({ cargoDimensions: [{ ...dim(A), heightCm: "", volumePerPcM3: "0.5 m3" }] })).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(cargoDimensionRepository.replaceForShipment).not.toHaveBeenCalled();
   });
 });
 

@@ -4,7 +4,8 @@ import { useState } from "react";
 import { Input, Button, Space, Tag, Modal, Upload } from "antd";
 import { InboxOutlined } from "@ant-design/icons";
 import type { MessageInstance } from "antd/es/message/interface";
-import { useWarehouseSection } from "@/hooks/useWarehouseSection";
+import { SectionChangedError, useWarehouseSection } from "@/hooks/useWarehouseSection";
+import { apiErrorMessage } from "@/lib/api";
 import { SectionCard as Card } from "@/components/SectionCard";
 
 interface JobSectionData {
@@ -20,9 +21,14 @@ function asJob(data: unknown): JobSectionData {
   return data && typeof data === "object" ? (data as JobSectionData) : {};
 }
 
+// Shipment Details are saved field by field: a save writes its own field only, and only while it
+// still holds what this page showed - so the notes, the remeasured lines and the "sent" marks never
+// take each other back. Refused, the section reloads and shows what was saved meanwhile.
+const saveFailed = (e: unknown) => (e instanceof SectionChangedError ? e.message : `Failed to save: ${apiErrorMessage(e)}`);
+
 // ─── Job Notes ──────────────────────────────────────────────────
 export function JobNotes({ ownerId, messageApi }: { ownerId: string; messageApi: MessageInstance }) {
-  const { data, save, isSaving } = useWarehouseSection(ownerId, "job");
+  const { data, saveKeys, isSaving } = useWarehouseSection(ownerId, "job");
   const section = asJob(data);
   const savedNotes = section.notes ?? "";
   // What is typed belongs to the saved text it was typed over; a newly saved text replaces it.
@@ -36,7 +42,16 @@ export function JobNotes({ ownerId, messageApi }: { ownerId: string; messageApi:
       title="Notes"
       extra={
         dirty && (
-          <Button size="small" type="primary" loading={isSaving} onClick={() => save({ ...section, notes }).then(() => messageApi.success("Saved")).catch(() => messageApi.error("Failed to save"))}>
+          <Button
+            size="small"
+            type="primary"
+            loading={isSaving}
+            onClick={() =>
+              saveKeys([{ key: "notes", value: notes, expected: savedNotes }])
+                .then(() => messageApi.success("Saved"))
+                .catch((e) => messageApi.error(saveFailed(e)))
+            }
+          >
             Save
           </Button>
         )
@@ -71,18 +86,19 @@ function parseActionData(val: string | undefined): { timestamp: string; note?: s
 }
 
 export function ActionPushButtons({ ownerId, messageApi }: { ownerId: string; messageApi: MessageInstance }) {
-  const { data, save, isSaving } = useWarehouseSection(ownerId, "job");
+  const { data, saveKeys, isSaving } = useWarehouseSection(ownerId, "job");
   const section = asJob(data);
   const [modalState, setModalState] = useState<ActionModalState | null>(null);
 
   const handleSend = async () => {
     if (!modalState) return;
+    const key = modalState.actionKey;
     try {
-      await save({ ...section, [modalState.actionKey]: JSON.stringify({ timestamp: new Date().toISOString(), note: modalState.note }) });
+      await saveKeys([{ key, value: JSON.stringify({ timestamp: new Date().toISOString(), note: modalState.note }), expected: section[key] ?? "" }]);
       setModalState(null);
       messageApi.success("Sent");
-    } catch {
-      messageApi.error("Failed to save");
+    } catch (e) {
+      messageApi.error(saveFailed(e));
     }
   };
 

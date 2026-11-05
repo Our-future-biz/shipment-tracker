@@ -10,6 +10,7 @@ import dayjs from "dayjs";
 import { DataTable } from "@/components/DataTable";
 import { DROPDOWN_OPTIONS } from "@/lib/columnConfig";
 import { formatDate } from "@/lib/date";
+import { LOAD_TYPE_FILTER_OPTIONS, loadTypeLabel } from "@/lib/enums";
 import type { MasterJobItem } from "@/hooks/useMasterJobs";
 
 interface MasterJobsListProps {
@@ -71,7 +72,7 @@ export function MasterJobsList({ masterJobs, isLoading, creating, onCreate }: Ma
             .toLowerCase();
           if (!haystack.includes(q)) return false;
         }
-        if (load && m.loadType !== load) return false;
+        if (load && loadTypeLabel(m.loadType, m.freightMode) !== load) return false;
         if (dir && m.tradeDirection !== dir) return false;
         if (line && m.shippingLine.trim() !== line) return false;
         if (etdFrom && (!m.estimatedDeparture || m.estimatedDeparture < etdFrom)) return false;
@@ -94,7 +95,8 @@ export function MasterJobsList({ masterJobs, isLoading, creating, onCreate }: Ma
       ),
     },
     { title: "Master BoL Number", dataIndex: "masterBolNumber", width: 160, sorter: (a, b) => byText(a.masterBolNumber, b.masterBolNumber) },
-    { title: "Load Type", dataIndex: "loadType", width: 130 },
+    // By air a Full Load reads Single Shipment (and is filtered as one).
+    { title: "Load Type", dataIndex: "loadType", width: 130, render: (v: string, m) => loadTypeLabel(v, m.freightMode) },
     { title: "Direction", dataIndex: "tradeDirection", width: 100 },
     { title: "Shipping line / Coloader", dataIndex: "shippingLine", width: 180, sorter: (a, b) => byText(a.shippingLine, b.shippingLine) },
     {
@@ -156,7 +158,7 @@ export function MasterJobsList({ masterJobs, isLoading, creating, onCreate }: Ma
           className="w-[170px]"
           placeholder="Load Type"
           value={load || undefined}
-          options={(DROPDOWN_OPTIONS["Load Type"] ?? []).map((v) => ({ value: v, label: v }))}
+          options={LOAD_TYPE_FILTER_OPTIONS.map((v) => ({ value: v, label: v }))}
           onChange={(v) => setFilter("load", v ?? "")}
         />
         <Select

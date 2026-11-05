@@ -54,6 +54,15 @@ export const LOAD_TYPES = ["Full Load", "Consolidation", "Project Shipment"] as 
 export type LoadType = (typeof LOAD_TYPES)[number];
 /** The load type whose master job reads its containers from the linked shipments. */
 export const FULL_LOAD: LoadType = "Full Load";
+/** By air a Full Load is called a Single Shipment; it is still stored as "Full Load". */
+export const SINGLE_SHIPMENT = "Single Shipment";
+/** What a Load Type filter offers: the stored load types and the air name of a Full Load. */
+export const LOAD_TYPE_FILTER_OPTIONS: string[] = [...LOAD_TYPES, SINGLE_SHIPMENT];
+
+/** A load type as shown: "Single Shipment" for an Air Freight Full Load, otherwise as stored. */
+export function loadTypeLabel(loadType: string | null | undefined, freightMode: string | null | undefined): string {
+  return loadType === FULL_LOAD && /^air/i.test(freightMode ?? "") ? SINGLE_SHIPMENT : (loadType ?? "");
+}
 
 export const BOL_TYPES = ["OBL", "SWB", "TLX", "Express"] as const;
 export type BolType = (typeof BOL_TYPES)[number];

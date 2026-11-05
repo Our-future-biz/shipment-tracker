@@ -7,6 +7,9 @@ import { toChargeCode } from "../../../lib/chargeCodes";
 import { quoteCostCopyRefusal } from "../../../lib/salesPolicy";
 import { isSalesReference } from "../../../lib/salesReference";
 import { isUuid } from "../../../lib/uuid";
+import { businessDay, isRealYmd } from "../../../lib/businessDate";
+import { userEmailOf } from "../../../lib/companyUsers";
+import { constraintOf } from "../../../lib/db/errors";
 import { definedOnly, toDecimal } from "../lib/amounts";
 import { splitAmount } from "../lib/costSplit";
 import { invoiceCostRepository } from "../repositories/invoiceCost.repository";
@@ -21,7 +24,7 @@ import { quoteCostImportRepository } from "../repositories/quoteCostImport.repos
 import { quoteFixedChanged } from "../utils/quoteCostImport.utils";
 import { truckingLinesRepository } from "../repositories/truckingLines.repository";
 import { sameCostCodes } from "../utils/truckingLines.utils";
-import { quoteLinesToCostRows } from "../utils/quoteCostImport.utils";
+import { quoteLinesToCostRows, type QuoteBuyingRow } from "../utils/quoteCostImport.utils";
 import type { InvoiceCostRecord, NewInvoiceCostRecord } from "../schemas/invoiceCost.schema";
 import type { InvoiceSellingCostRecord, NewInvoiceSellingCostRecord } from "../schemas/invoiceSellingCost.schema";
 import type {
@@ -67,8 +70,13 @@ const toCostItem = (r: InvoiceCostRecord): InvoiceCostItem => ({
   unit: r.unit,
   invoiceNumber: r.invoiceNumber,
   received: r.received,
+  receivedAt: r.receivedAt ? r.receivedAt.toISOString() : null,
+  paidOn: r.paidOn ?? "",
+  paidBy: r.paidOn ? (r.paidBy ?? "") : "",
+  paidAt: r.paidOn && r.paidAt ? r.paidAt.toISOString() : null,
   vendor: r.vendor,
   haulierId: r.haulierId,
+  supplierCustomerId: r.supplierCustomerId,
   sortOrder: r.sortOrder,
   sourceTruckingRef: r.sourceTruckingRef,
   sourceMasterJobRef: r.sourceMasterJobRef,
@@ -134,20 +142,113 @@ const toInvoiceItem = (r: GeneratedInvoiceRecord): GeneratedInvoiceItem => ({
 // A category is stored as its charge code, however the caller wrote it ("Road freight").
 const chargeCodeOf = (category: string | undefined) => (category === undefined ? undefined : toChargeCode(category));
 
-// "" clears the haulier; anything else must be a company id.
-function haulierIdOf(value: string | undefined): string | null | undefined {
+// "" clears the company; anything else must be a company id.
+function companyIdOf(value: string | undefined, field: string): string | null | undefined {
   if (value === undefined) return undefined;
   const id = value.trim();
   if (id === "") return null;
-  if (!isUuid(id)) throw APIError.invalidArgument("haulierId must be a company id");
+  if (!isUuid(id)) throw APIError.invalidArgument(`${field} must be a company id`);
   return id;
+}
+
+// "" takes the payment back; anything else must be a real date.
+function paidOnOf(value: string | undefined): string | null | undefined {
+  if (value === undefined) return undefined;
+  const day = value.trim();
+  if (day === "") return null;
+  if (!isRealYmd(day)) throw APIError.invalidArgument("paidOn must be a date (yyyy-mm-dd)");
+  return day;
+}
+
+/**
+ * When the vendor's invoice came and when it was paid (Council Outlay 7, step 6b): ticking Received stamps
+ * the moment (its due day is that plus the supplier's payment days), unticking it clears both, and a cost
+ * is paid only once its invoice was received, on a day neither after today nor before the (Prague) day it was
+ * received - not checked for a line received before that day was kept. `current` is the stored line (null
+ * for a new one).
+ */
+export function receiptChanges(
+  current: { received: boolean; receivedAt: Date | null; paidOn: string | null } | null,
+  changes: Partial<NewInvoiceCostRecord>,
+  now: Date,
+  today: string,
+  by: { userId: string; email: string } | null = null,
+): Partial<NewInvoiceCostRecord> {
+  const out: Partial<NewInvoiceCostRecord> = {};
+  const unpaid = { paidOn: null, paidAt: null, paidByUserId: null, paidBy: null };
+  if (changes.received === true && !current?.received) out.receivedAt = now;
+  if (changes.received === false) Object.assign(out, { receivedAt: null }, unpaid);
+  const received = changes.received ?? current?.received ?? false;
+  if (changes.paidOn) {
+    if (!received) throw APIError.invalidArgument("Tick Received first: a cost is paid once its invoice came");
+    if (changes.paidOn > today) throw APIError.invalidArgument("The day it was paid cannot be after today");
+    const receivedAt = out.receivedAt ?? current?.receivedAt ?? null;
+    const receivedOn = receivedAt ? businessDay(receivedAt) : "";
+    if (changes.paidOn < receivedOn) throw APIError.invalidArgument(`The day it was paid cannot be before its invoice was received (${receivedOn})`);
+    // Who noted it and when (K6): Paid is what takes a cost off the supplier's What we owe.
+    Object.assign(out, { paidAt: now, paidByUserId: by?.userId || null, paidBy: by?.email || null });
+  } else if (changes.paidOn === null) {
+    Object.assign(out, unpaid);
+  }
+  return out;
+}
+
+/** Who sets a paid day, looked up only when one is set. */
+async function payer(changes: Partial<NewInvoiceCostRecord>, actorUserId: string) {
+  return changes.paidOn ? { userId: actorUserId, email: await userEmailOf(actorUserId) } : null;
+}
+
+/**
+ * A line links only a live company of the Customer Database with a supplier role (m8): read as the user, so
+ * one they cannot open is refused too. Only a link that changes is checked.
+ */
+async function assertSupplierCompany(id: string | null | undefined, current: string | null): Promise<void> {
+  if (!id || id === current) return;
+  let roles: string[];
+  try {
+    roles = (await customers.customerGet({ id })).customer.roles;
+  } catch (err) {
+    if (err instanceof APIError && err.code === ErrCode.NotFound) throw APIError.invalidArgument("The supplier is not a company of the Customer Database");
+    throw err;
+  }
+  if (!roles.some((r) => r !== "customer")) throw APIError.invalidArgument("The company picked is no supplier: give it a supplier role in the Customer Database first");
+}
+
+/**
+ * A vendor written without a link names no company any more: the line's link goes with the old text (C-7), as
+ * typing over a picked name unlinks it in Costs Breakdown. The same text sent again keeps it.
+ */
+function unlinkOnVendorChange(current: { vendor: string } | null, changes: Partial<NewInvoiceCostRecord>): Partial<NewInvoiceCostRecord> {
+  if (changes.vendor === undefined || changes.supplierCustomerId !== undefined || changes.vendor === current?.vendor) return {};
+  return { supplierCustomerId: null };
+}
+
+// The supplier roles of the Customer Database: every role but customer.
+type CompanyRole = Parameters<typeof customers._internalCompaniesWithRole>[0]["role"];
+const SUPPLIER_ROLES: readonly CompanyRole[] = ["haulier", "rail_operator", "first_last_mile_haulier", "shipping_line", "co_loader"];
+
+/**
+ * A quote's buying rows with only the links that name a live supplier of the Customer Database (C-7): the quote's
+ * document comes from browsers, so an id that is no supplier of this company is dropped and the name stays, typed.
+ */
+async function withLiveSuppliers(rows: QuoteBuyingRow[]): Promise<QuoteBuyingRow[]> {
+  const ids = [...new Set(rows.flatMap((r) => (r.supplierCustomerId ? [r.supplierCustomerId.toLowerCase()] : [])))];
+  if (!ids.length) return rows;
+  const found = await Promise.all(SUPPLIER_ROLES.map((role) => customers._internalCompaniesWithRole({ role, ids })));
+  const live = new Set(found.flatMap((f) => f.companies.map((c) => c.id.toLowerCase())));
+  return rows.map((r) => {
+    const id = r.supplierCustomerId?.toLowerCase() ?? null;
+    return { ...r, supplierCustomerId: id && live.has(id) ? id : null };
+  });
 }
 
 export function buyingChanges(input: BuyingCostInput): Partial<NewInvoiceCostRecord> {
   return definedOnly({
     ...input,
+    paidOn: paidOnOf(input.paidOn),
     category: chargeCodeOf(input.category),
-    haulierId: haulierIdOf(input.haulierId),
+    haulierId: companyIdOf(input.haulierId, "haulierId"),
+    supplierCustomerId: companyIdOf(input.supplierCustomerId, "supplierCustomerId"),
     estQty: toDecimal(input.estQty, "estQty"),
     estAmount: toDecimal(input.estAmount, "estAmount"),
     realQty: toDecimal(input.realQty, "realQty"),
@@ -258,9 +359,11 @@ class InvoicingService {
   // ── Buying costs: free lines of the Costs Breakdown ──
   // Once a shipment holds buying lines copied from a quote, the estimate is the quote's alone: a
   // line added by hand carries a real cost only (setsEstimate / quoteEstimateOnly).
-  async addBuyingCost(shipmentId: string, companyId: string, input: BuyingCostInput): Promise<InvoiceCostItem> {
-    const values = { shipmentId, category: "", ...buyingChanges(input) };
+  async addBuyingCost(shipmentId: string, companyId: string, input: BuyingCostInput, actorUserId = ""): Promise<InvoiceCostItem> {
+    const changes = buyingChanges(input);
+    const values = { shipmentId, category: "", ...changes, ...receiptChanges(null, changes, new Date(), businessDay(new Date()), await payer(changes, actorUserId)) };
     await assertShipmentExists(shipmentId);
+    await assertSupplierCompany(changes.supplierCustomerId, null);
     if (setsEstimate(values) && (await invoiceCostRepository.hasQuoteRows(companyId, shipmentId))) throw quoteEstimateOnly();
     return toCostItem(await invoiceCostRepository.createForCompany(companyId, values));
   }
@@ -268,15 +371,29 @@ class InvoicingService {
   // A row copied from a quote keeps the quote's charge, words and estimate (QUOTE_FIXED_FIELDS):
   // a change to them is refused, the same value sent back with the rest of the row is not one.
   // Which quote a row came from is set when it is copied and never changes afterwards.
-  async updateBuyingCost(id: string, companyId: string, shipmentId: string, input: BuyingCostInput): Promise<InvoiceCostItem> {
+  async updateBuyingCost(id: string, companyId: string, shipmentId: string, input: BuyingCostInput, actorUserId = ""): Promise<InvoiceCostItem> {
     const changes = buyingChanges(input);
     const current = await invoiceCostRepository.findLine(id, companyId, shipmentId);
     if (!current) throw APIError.notFound("Buying cost not found");
+    await assertSupplierCompany(changes.supplierCustomerId, current.supplierCustomerId);
     if (current.sourceQuoteNumber && quoteFixedChanged(current, changes).length) {
       throw APIError.failedPrecondition(`this cost was copied from ${current.sourceQuoteNumber}: its category, description and estimate stay as the quote has them`);
     }
     if (!current.sourceQuoteNumber && setsEstimate(changes) && (await invoiceCostRepository.hasQuoteRows(companyId, shipmentId))) throw quoteEstimateOnly();
-    const row = await invoiceCostRepository.updateLine(id, companyId, shipmentId, changes);
+    const now = new Date();
+    const receipt = receiptChanges(current, changes, now, businessDay(now), await payer(changes, actorUserId));
+    // Ticking Received is stamped by the database, from the row as it is when written: the line read above may
+    // have been unticked meanwhile (C-5).
+    const stamp = changes.received === true ? now : undefined;
+    if (stamp) delete receipt.receivedAt;
+    let row: InvoiceCostRecord | null;
+    try {
+      row = await invoiceCostRepository.updateLine(id, companyId, shipmentId, { ...changes, ...unlinkOnVendorChange(current, changes), ...receipt }, stamp);
+    } catch (err) {
+      // The database refused a paid day on a line someone unticked Received on meanwhile.
+      if (constraintOf(err) === "invoice_cost_paid_check") throw APIError.failedPrecondition("Its invoice is no longer ticked Received: reload, then mark it paid again");
+      throw err;
+    }
     if (!row) throw APIError.notFound("Buying cost not found");
     return toCostItem(row);
   }
@@ -289,6 +406,21 @@ class InvoicingService {
       throw APIError.failedPrecondition(`this cost was copied from ${current.sourceQuoteNumber}: it stays as the quote has it`);
     }
     if (!(await invoiceCostRepository.softDeleteLine(id, companyId, shipmentId))) throw APIError.notFound("Buying cost not found");
+  }
+
+  /**
+   * Undo of a delete (C-6): the line comes back as it was - when its invoice was received, its payment and who
+   * noted it - at `sortOrder` when given, not as a new line. One with an estimate of its own is refused once the
+   * shipment's estimate is its quote's.
+   */
+  async restoreBuyingCost(id: string, companyId: string, shipmentId: string, sortOrder?: number): Promise<InvoiceCostItem> {
+    await assertShipmentExists(shipmentId);
+    const deleted = await invoiceCostRepository.findDeletedLine(id, companyId, shipmentId);
+    if (!deleted) throw APIError.notFound("Deleted buying cost not found");
+    if (!deleted.sourceQuoteNumber && setsEstimate(deleted) && (await invoiceCostRepository.hasQuoteRows(companyId, shipmentId))) throw quoteEstimateOnly();
+    const row = await invoiceCostRepository.restoreLine(id, companyId, shipmentId, sortOrder);
+    if (!row) throw APIError.notFound("Deleted buying cost not found");
+    return toCostItem(row);
   }
 
   /**
@@ -309,7 +441,7 @@ class InvoicingService {
       const quoted = existing?.sourceQuoteNumber || (await invoiceCostRepository.hasQuoteRows(companyId, shipmentId));
       const kept = quoted ? definedOnly({ ...changes, estAmount: undefined, estCurrency: undefined }) : changes;
       if (existing) {
-        const row = await invoiceCostRepository.updateLine(existing.id, companyId, shipmentId, kept);
+        const row = await invoiceCostRepository.updateLine(existing.id, companyId, shipmentId, { ...kept, ...unlinkOnVendorChange(existing, kept) });
         if (!row) throw APIError.notFound("Buying cost not found");
         return toCostItem(row);
       }
@@ -404,9 +536,14 @@ class InvoicingService {
     // Only a Won quote's costs. A quote a shipment is created from is Won by now: it is told first.
     const refusal = quoteCostCopyRefusal(quote.effectiveStatus);
     if (refusal) throw APIError.failedPrecondition(`${quote.quoteNumber} - ${refusal}`);
+    // The revision of a Won quote stays Won while its prices are changed, so no send gate sees
+    // them: costs below its floor are not copied until a manager approved them (Council Outlay 6).
+    const wonRevision = typeof quote.data === "object" && quote.data !== null && "wonRevisionOf" in quote.data;
+    if (wonRevision && quote.roadMargin?.needsApproval) throw APIError.failedPrecondition(`${quote.quoteNumber} - ${quote.sendBlocked ?? "its margin is below the floor and not approved"}`);
     // A job with a Trucking consignment gets its road freight from Trucking: the quote's trucking lines are left out.
     const skipTrucking = await truckingLinesRepository.hasConsignmentRows(companyId, shipmentId);
     const rows = quoteLinesToCostRows(quote.data, { skipTrucking });
+    const buying = target === "sell" ? undefined : await withLiveSuppliers(rows.buying);
     // The copy makes the shipment's billing settings when it has none: billed in its customer's default.
     const billingCurrency = (await billingSettingsRepository.getByShipmentId(shipmentId, companyId))
       ? undefined
@@ -415,7 +552,7 @@ class InvoicingService {
       companyId,
       shipmentId,
       quote.quoteNumber,
-      { buying: target === "sell" ? undefined : rows.buying, selling: target === "buy" ? undefined : rows.selling },
+      { buying, selling: target === "buy" ? undefined : rows.selling },
       force,
       billingCurrency,
     );

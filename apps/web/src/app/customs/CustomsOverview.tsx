@@ -6,6 +6,7 @@ import { PartyContactLink } from "@/app/shipments/[jobNumber]/_components/PartyC
 import { DetailCard } from "@/app/shipments/[jobNumber]/ShipmentDetailContent";
 import { type ShipmentItem } from "@/hooks/useShipments";
 import { formatDate, formatDateTime } from "@/lib/date";
+import { loadTypeLabel } from "@/lib/enums";
 import { CUSTOMS_DOCUMENT_TYPES } from "@/lib/documentTypes";
 import { customsDeadlineAt } from "@/lib/customsDeadline";
 import { RECEIVED_TICKS } from "@/lib/customsReceived";
@@ -149,7 +150,7 @@ export function CustomsSummary({ shipment }: { shipment: ShipmentItem }) {
         value={formatDate(shipment.etaWarehouse)}
         note={shipment.warehouseReceivedDate && `Received ${formatDate(shipment.warehouseReceivedDate)}`}
       />
-      <Tile label="Load Type" value={shipment.loadType} />
+      <Tile label="Load Type" value={loadTypeLabel(shipment.loadType, shipment.freightMode)} />
       <Tile
         label="Documents"
         value={missing.length === 0 ? "Received" : "Missing"}
@@ -187,7 +188,7 @@ export function CustomsShipmentInfo({ shipment }: { shipment: ShipmentItem }) {
         columns={[ROUTE, REFERENCES]}
         shipment={shipment}
         onCommit={noCommit}
-        renderAfter={{ houseBolNumber: <InfoRow label="Incoterm">{customsIncoterm(shipment)}</InfoRow> }}
+        renderAfter={{ houseBolNumber: <InfoRow label="Incoterms">{customsIncoterm(shipment)}</InfoRow> }}
       />
       {/* The same card as in the shipment (party as a link to its customer page, contact, address), read-only. */}
       <DetailCard icon={<EnvironmentOutlined />} title="Commercial Parties" columns={[[]]} shipment={shipment} onCommit={noCommit}>

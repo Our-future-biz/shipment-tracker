@@ -14,6 +14,8 @@ import { useGateLog, type GateMovement } from "@/hooks/useGateLog";
 import { useStockLines } from "@/hooks/useWarehouseRecords";
 import { useToast } from "@/lib/toast";
 import { formatDate } from "@/lib/date";
+import { loadTypeLabel } from "@/lib/enums";
+import { compareJobNumbers } from "@/lib/jobNumber";
 import { toSalesQuote } from "@/app/sales/_lib/salesQuote";
 import type { SalesQuoteData } from "@/app/sales/_lib/types";
 import type { controllers, interfaces } from "@/lib/api/client";
@@ -84,7 +86,8 @@ const POSITION_COLUMNS: AppGridColumn<PositionRow>[] = [
     title: TERMS.jobNo,
     width: 170,
     text: (r) => r.m?.jobNumber ?? "",
-    sorter: byText((r) => r.m?.jobNumber ?? ""),
+    // By number, whatever the letters (CZFCL00000023 next to CZ00000024); a position without one last.
+    sorter: (a, b) => compareJobNumbers(a.m?.jobNumber ?? "", b.m?.jobNumber ?? ""),
     render: (_, r) => (
       <Link
         href={positionRemeasurementHref(r.task.id)}
@@ -108,7 +111,11 @@ const POSITION_COLUMNS: AppGridColumn<PositionRow>[] = [
     render: (_, r) => dim(r.m ? directionOf(r.m) : ""),
   },
   textCol("freightMode", "Freight Mode", 130),
-  textCol("loadType", "Load Type", 140),
+  // By air a Full Load reads "Single Shipment" (lib/enums); the filter and export follow what is shown.
+  textCol("loadType", "Load Type", 140, {
+    text: (r) => loadTypeLabel(r.m?.loadType, r.m?.freightMode),
+    render: (_, r) => dim(loadTypeLabel(r.m?.loadType, r.m?.freightMode)),
+  }),
   textCol("status", TERMS.warehouseStatus, 150),
   // Where the position is in its in-and-out lifecycle (from its stamps, the tally and the stuffing).
   {

@@ -21,17 +21,35 @@ import { DataTable } from "@/components/DataTable";
 import { ListCapNotice } from "@/components/ListCapNotice";
 import { DraggableHeaderCell } from "@/components/DraggableHeaderCell";
 import { PillTabs } from "@/components/SectionCard";
-import { useCustomers, type CustomerItem } from "@/hooks/useCustomers";
+import { useCustomerViewCounts, useCustomers, type CustomerItem } from "@/hooks/useCustomers";
 import { useCustomerListPref } from "@/hooks/useCustomerListPref";
 import { useDebounced } from "@/hooks/useDebounced";
-import { CUSTOMER_LABELS, CUSTOMER_STATUSES, customerRoleOptions } from "../_lib/constants";
-import { CustomerHaulierBadge } from "./CustomerHaulierBadge";
+import { CUSTOMER_LABELS, CUSTOMER_ROLE_LABELS, CUSTOMER_STATUSES } from "../_lib/constants";
+import {
+  LIST_VIEWS,
+  OWNER_FILTERS,
+  RATING_FILTERS,
+  SUPPLIER_ROLES,
+  VIEW_COLUMNS_PREF,
+  VIEW_DEFAULT_SORT,
+  VIEW_KIND,
+  VIEW_WORDS,
+  hasSupplierRole,
+  listViewFrom,
+  ownerFilterFrom,
+  ratingFilterFrom,
+  ratingRank,
+  statusRank,
+  supplierTypesFrom,
+  type ListView,
+} from "../_lib/customerListViews";
+import { shownStatus } from "../_lib/supplierStatus";
 import { rememberCustomerListQuery } from "../_lib/customerListHref";
 import { marginPct } from "../_lib/customerMoney";
 import {
   CUSTOMER_COLUMN_MAP,
   CUSTOMER_LIST_COLUMNS,
-  DEFAULT_CUSTOMER_COLUMNS,
+  DEFAULT_VIEW_COLUMNS,
   NAME_COLUMN_KEY,
   SORT_KEYS,
   customerCellText,
@@ -39,25 +57,29 @@ import {
   type SortKey,
 } from "../_lib/customerListColumns";
 import { AddCustomerModal } from "./AddCustomerModal";
+import { AlsoChip } from "./AlsoChip";
 import { CustomerColumnPicker, type ColumnTemplate } from "./CustomerColumnPicker";
 import { CustomerFiltersPopover, type FilterTemplate, type StoredFilter } from "./CustomerFiltersPopover";
 import { TOOLBAR_BUTTON_CLASS, matchesGridFilters, storedGridFilters, withFilterId, type GridFilter } from "@/components/gridFilters";
 import { filtersFromSearchParams, writeFiltersToSearchParams } from "../_lib/customerListFilters";
-import { useAuth, useCanSeeConcepts } from "@/lib/auth/AuthContext";
+import { useAuth } from "@/lib/auth/AuthContext";
 import { canDeleteCustomerRecords } from "../_lib/customerPermissions";
 import { DeletedCustomersPanel } from "./DeletedCustomersPanel";
 import { apiFileUrl } from "@/lib/api";
 
+// Superadmins also get the deleted companies, to restore one (?view=deleted).
+const DELETED_PILL = { key: "deleted", label: "Deleted" };
+
+// Inside the Customers view: the customer's status, as the list was filtered before it had views.
 const STATUS_PILLS = [
   { key: "all", label: "All" },
   ...CUSTOMER_STATUSES.map((status) => ({ key: status, label: status })),
 ];
 
-// Superadmins also get the deleted customers, to restore one (?view=deleted).
-const DELETED_PILL = { key: "deleted", label: "Deleted" };
-const PILLS_WITH_DELETED = [...STATUS_PILLS, DELETED_PILL];
-
 const ACCOUNT_TYPE_OPTIONS = CUSTOMER_LABELS.map((label) => ({ value: label, label }));
+// Every role, hauliers included for everyone (Council Outlay 7, D3): they are real suppliers.
+const ROLE_OPTIONS = (Object.keys(CUSTOMER_ROLE_LABELS) as (keyof typeof CUSTOMER_ROLE_LABELS)[]).map((role) => ({ value: role, label: CUSTOMER_ROLE_LABELS[role] }));
+const SUPPLIER_TYPE_OPTIONS = SUPPLIER_ROLES.map((role) => ({ value: role, label: CUSTOMER_ROLE_LABELS[role] }));
 
 // The page used to be filtered by ?tab=. The old values are still read when neither ?status=
 // nor ?type= is present, so a bookmark from that time opens the same list.
@@ -68,7 +90,10 @@ const LEGACY_TAB_FILTERS: Record<string, { status?: string; type?: string }> = {
   risk: { type: "RISK" },
 };
 
-type ListParam = "q" | "status" | "type" | "role" | "sort" | "view";
+type ListParam = "q" | "kind" | "status" | "type" | "owner" | "types" | "rating" | "role" | "sort" | "view";
+
+// What a view's own filters write; a change of view clears them, so a filter never hides rows unseen.
+const VIEW_FILTER_PARAMS: Partial<Record<ListParam, string>> = { status: "", type: "", owner: "", types: "", rating: "", role: "", sort: "" };
 
 type SortDirection = "ascend" | "descend";
 
@@ -80,6 +105,11 @@ const COMPARE: Record<SortKey, (a: CustomerItem, b: CustomerItem) => number> = {
   margin: (a, b) =>
     marginPct(a.totalRevenue, a.totalProfit) - marginPct(b.totalRevenue, b.totalProfit),
   activity: (a, b) => (a.lastActivityDate || "").localeCompare(b.lastActivityDate || ""),
+  status: (a, b) => statusRank(shownStatus(a)) - statusRank(shownStatus(b)),
+  owner: (a, b) => a.salesOwner.localeCompare(b.salesOwner, "cs", { sensitivity: "base" }),
+  rating: (a, b) => ratingRank(a) - ratingRank(b),
+  lastContact: (a, b) => (a.lastContactAt || "").localeCompare(b.lastContactAt || ""),
+  created: (a, b) => a.createdAt.localeCompare(b.createdAt),
 };
 
 // The columns a "Filter by column" row can be set on: every column of the list, with its values to pick where it has a fixed set.
@@ -120,8 +150,8 @@ function upsertByName<T extends { id: string; name: string }>(list: T[], item: O
 }
 
 export function CustomersView() {
-  const canSeeConcepts = useCanSeeConcepts();
-  const canSeeDeleted = canDeleteCustomerRecords(useAuth().user);
+  const { user } = useAuth();
+  const canSeeDeleted = canDeleteCustomerRecords(user);
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -130,18 +160,25 @@ export function CustomersView() {
   // Search, both filters and the sort live in the URL, so the list is the same after opening
   // a customer and coming back.
   const urlQuery = searchParams.get("q") ?? "";
+  const view: ListView = listViewFrom(searchParams);
+  const words = VIEW_WORDS[view];
   const rawStatus = searchParams.get("status");
   const rawType = searchParams.get("type");
   const legacy =
     rawStatus === null && rawType === null
       ? LEGACY_TAB_FILTERS[searchParams.get("tab") ?? ""]
       : undefined;
-  const status = CUSTOMER_STATUSES.find((s) => s === (rawStatus ?? legacy?.status)) ?? "";
-  const accountType = CUSTOMER_LABELS.find((l) => l === (rawType ?? legacy?.type)) ?? "";
-  // Only a role the user is offered in the role box filters the list (?role=haulier without the Trucking Concept does not).
-  const roleOptions = customerRoleOptions(canSeeConcepts);
-  const role = roleOptions.find((o) => o.value === searchParams.get("role"))?.value ?? "";
-  const rawSort = searchParams.get("sort") ?? "";
+  // Each view reads only its own filters: status, account type and owner are the Customers view's,
+  // supplier types and rating the Suppliers view's, any role the All view's.
+  const inCustomers = view === "customers";
+  const status = inCustomers ? (CUSTOMER_STATUSES.find((s) => s === (rawStatus ?? legacy?.status)) ?? "") : "";
+  const accountType = inCustomers ? (CUSTOMER_LABELS.find((l) => l === (rawType ?? legacy?.type)) ?? "") : "";
+  const owner = inCustomers ? ownerFilterFrom(searchParams.get("owner")) : "";
+  const supplierTypes = useMemo(() => (view === "suppliers" ? supplierTypesFrom(searchParams) : []), [view, searchParams]);
+  const ratingFilter = view === "suppliers" ? ratingFilterFrom(searchParams.get("rating")) : "";
+  const role = view === "all" ? (ROLE_OPTIONS.find((o) => o.value === searchParams.get("role"))?.value ?? "") : "";
+  // A view's own order unless the address names one (?sort=, "none" for the newest first).
+  const rawSort = searchParams.get("sort") ?? VIEW_DEFAULT_SORT[view];
   const showDeleted = canSeeDeleted && searchParams.get("view") === DELETED_PILL.key;
   const sortKey = SORT_KEYS.find((key) => key === rawSort.replace(/^-/, ""));
   const sortDirection: SortDirection = rawSort.startsWith("-") ? "descend" : "ascend";
@@ -163,6 +200,15 @@ export function CustomersView() {
   }, [urlQuery]);
   const debouncedSearch = useDebounced(urlQuery, 300).trim();
 
+  // The views of the list: Customers (the default), Suppliers, All (?kind=), each with how many it holds (m28).
+  // A company that is both is in Customers and in Suppliers, so the two add up to more than All.
+  const viewCounts = useCustomerViewCounts();
+  const viewPills = LIST_VIEWS.map((v) => ({
+    key: v,
+    label: viewCounts ? `${VIEW_WORDS[v].pill} (${viewCounts[v]})` : VIEW_WORDS[v].pill,
+    title: v === "all" ? undefined : "A company that is both a customer and a supplier is counted in each",
+  }));
+
   const { customers, total, isFetching, isError, createCustomer, createManualCustomer, isCreating } =
     useCustomers(
       {
@@ -170,6 +216,11 @@ export function CustomersView() {
         status: status || undefined,
         label: accountType || undefined,
         role: role || undefined,
+        kind: VIEW_KIND[view],
+        // The view's own filters are the server's too, so they cover every company, not only the newest 2000.
+        owner: owner || undefined,
+        types: supplierTypes,
+        rating: ratingFilter || undefined,
       },
       // The Deleted view lists other rows; the live ones are read again when it is left.
       { enabled: !showDeleted },
@@ -192,9 +243,10 @@ export function CustomersView() {
   const activeFilters = useMemo(() => storedGridFilters(shownFilters), [shownFilters]);
 
   // The user's own set-up of this list, kept in the customers service (not shared with the shipment grids).
+  // Each view keeps its own columns, so laying out the suppliers never changes a rep's customer columns.
   const columnPref = useCustomerListPref<string[]>(
-    "columns",
-    DEFAULT_CUSTOMER_COLUMNS,
+    VIEW_COLUMNS_PREF[view],
+    DEFAULT_VIEW_COLUMNS[view],
     isStringList,
   );
   const filterTemplates = useCustomerListPref(
@@ -222,33 +274,49 @@ export function CustomersView() {
   const rows = useMemo(() => {
     // After a failed request the rows still in memory may be out of date; the error is shown instead.
     if (isError) return [];
-    const kept = activeFilters.length
-      ? customers.filter((c) => matchesGridFilters(c, activeFilters, customerCellText))
-      : customers;
+    // The column filters narrow what the server returned.
+    const kept = activeFilters.length ? customers.filter((c) => matchesGridFilters(c, activeFilters, customerCellText)) : customers;
     if (!sortKey) return kept;
     const direction = sortDirection === "ascend" ? 1 : -1;
-    return [...kept].sort((a, b) => direction * COMPARE[sortKey](a, b));
+    // Equal ones by name, whichever way the column is sorted.
+    return [...kept].sort((a, b) => direction * COMPARE[sortKey](a, b) || COMPARE.name(a, b));
   }, [customers, isError, sortKey, sortDirection, activeFilters]);
 
-  const hasFilters = !!debouncedSearch || !!status || !!accountType || !!role || activeFilters.length > 0;
-  let emptyText = "No customers yet — add one from the Czech ARES registry";
-  if (hasFilters) emptyText = "No customers match these filters.";
-  if (isFetching) emptyText = "Loading customers…";
-  if (isError) emptyText = "Could not load customers.";
+  const hasFilters =
+    !!debouncedSearch || !!status || !!accountType || !!owner || supplierTypes.length > 0 || !!ratingFilter || !!role || activeFilters.length > 0;
+  let emptyText =
+    view === "suppliers"
+      ? "No suppliers yet. Add one, or give a company a supplier role in its CRM card."
+      : `No ${words.many} yet — add one from the Czech ARES registry`;
+  if (hasFilters) emptyText = `No ${words.many} match these filters.`;
+  if (isFetching) emptyText = `Loading ${words.many}…`;
+  if (isError) emptyText = `Could not load ${words.many}.`;
 
-  const replaceParams = (patch: Partial<Record<ListParam, string>>) => {
+  const replaceParams = (patch: Partial<Record<ListParam, string>>, { dropColumnFilters = false }: { dropColumnFilters?: boolean } = {}) => {
     const next: Record<ListParam, string> = {
       q: search,
+      // Customers is the view of a plain address.
+      kind: view === "customers" ? "" : view,
       status,
       type: accountType,
+      owner,
+      types: supplierTypes.join(","),
+      rating: ratingFilter,
       role,
-      sort: sortKey ? rawSort : "",
+      // The view's own order is not written; "none" keeps the newest first in a view that sorts by default.
+      sort: rawSort === VIEW_DEFAULT_SORT[view] ? "" : sortKey ? rawSort : "none",
       view: showDeleted ? DELETED_PILL.key : "",
       ...patch,
     };
-    const params = new URLSearchParams(searchParams.toString());
+    let params = new URLSearchParams(searchParams.toString());
     // A legacy ?tab= is already part of status / type above, so it is replaced by them.
     params.delete("tab");
+    // A change of view drops the column filters too: a filter on one view's values would empty another (m27).
+    if (dropColumnFilters) {
+      params = writeFiltersToSearchParams(params, []);
+      writtenFilters.current = "[]";
+      setShownFilters([]);
+    }
     for (const [key, value] of Object.entries(next)) {
       if (value) params.set(key, value);
       else params.delete(key);
@@ -263,12 +331,20 @@ export function CustomersView() {
     replaceParams({ q: e.target.value });
   };
 
-  const handleStatusChange = (key: string) =>
+  const handleViewChange = (key: string) =>
     key === DELETED_PILL.key
-      ? replaceParams({ status: "", view: DELETED_PILL.key })
-      : replaceParams({ status: key === "all" ? "" : key, view: "" });
+      ? replaceParams({ ...VIEW_FILTER_PARAMS, view: DELETED_PILL.key }, { dropColumnFilters: true })
+      : replaceParams({ ...VIEW_FILTER_PARAMS, kind: key === "customers" ? "" : key, view: "" }, { dropColumnFilters: true });
+
+  const handleStatusChange = (key: string) => replaceParams({ status: key === "all" ? "" : key });
 
   const handleAccountTypeChange = (value?: string) => replaceParams({ type: value ?? "" });
+
+  const handleOwnerChange = (value?: string) => replaceParams({ owner: value ?? "" });
+
+  const handleSupplierTypesChange = (values: string[]) => replaceParams({ types: values.join(",") });
+
+  const handleRatingChange = (value?: string) => replaceParams({ rating: value ?? "" });
 
   const handleRoleChange = (value?: string) => replaceParams({ role: value ?? "" });
 
@@ -279,9 +355,9 @@ export function CustomersView() {
   ) => {
     const active = Array.isArray(sorter) ? sorter[0] : sorter;
     const key = SORT_KEYS.find((k) => k === active?.columnKey);
-    replaceParams({
-      sort: key && active?.order ? `${active.order === "descend" ? "-" : ""}${key}` : "",
-    });
+    const next = key && active?.order ? `${active.order === "descend" ? "-" : ""}${key}` : "";
+    // Back to the view's own order is a plain address; off it, in a view that sorts by default, "none".
+    replaceParams({ sort: next === VIEW_DEFAULT_SORT[view] ? "" : next || (VIEW_DEFAULT_SORT[view] ? "none" : "") });
   };
 
   // A change of the filter rows: shown at once, and the ones that filter copied to the URL.
@@ -348,7 +424,7 @@ export function CustomersView() {
 
   // The name column keeps its logo and link; the others come from the column list, in the order the user chose.
   const nameColumn: ColumnsType<CustomerItem>[number] = {
-    title: "Customer",
+    title: words.one,
     dataIndex: "companyName",
     fixed: "left",
     width: 230,
@@ -374,7 +450,9 @@ export function CustomersView() {
         >
           {name || record.ico}
         </Link>
-        <CustomerHaulierBadge roles={record.roles} />
+        {/* A company that is both: said in the view that shows only one side of it. */}
+        {view === "customers" && hasSupplierRole(record.roles) && <AlsoChip>also supplier</AlsoChip>}
+        {view === "suppliers" && record.roles.includes("customer") && <AlsoChip>also customer</AlsoChip>}
       </div>
     ),
   };
@@ -401,11 +479,11 @@ export function CustomersView() {
       <div className="max-w-[1400px] mx-auto flex flex-col gap-5">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <h1 className="text-2xl font-bold text-slate-900">Customer Database</h1>
-          <div role="group" aria-label="Filter by status">
+          <div role="group" aria-label="Customers or suppliers">
             <PillTabs
-              tabs={canSeeDeleted ? PILLS_WITH_DELETED : STATUS_PILLS}
-              active={showDeleted ? DELETED_PILL.key : status || "all"}
-              onChange={handleStatusChange}
+              tabs={canSeeDeleted ? [...viewPills, DELETED_PILL] : viewPills}
+              active={showDeleted ? DELETED_PILL.key : view}
+              onChange={handleViewChange}
             />
           </div>
         </div>
@@ -424,13 +502,18 @@ export function CustomersView() {
                   <PlusOutlined />
                   Add Customer / Supplier
                 </button>
+                {inCustomers && (
+                  <div role="group" aria-label="Filter by status">
+                    <PillTabs tabs={STATUS_PILLS} active={status || "all"} onChange={handleStatusChange} />
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-3 shrink-0 ml-auto">
                 {/* antd gives the input width: 100% outside Tailwind's cascade layers, where a plain
                     w-60 cannot override it — hence the important flag. */}
                 <Input
-                  placeholder="Search customers..."
-                  aria-label="Search customers"
+                  placeholder={`Search ${words.many}...`}
+                  aria-label={`Search ${words.many}`}
                   prefix={<SearchOutlined className="text-slate-400" />}
                   value={search}
                   onChange={handleSearchChange}
@@ -438,26 +521,67 @@ export function CustomersView() {
                   className="!w-60"
                 />
                 <div className="w-px h-6 bg-slate-200 shrink-0" />
-                <Select
-                  value={accountType || undefined}
-                  onChange={handleAccountTypeChange}
-                  options={ACCOUNT_TYPE_OPTIONS}
-                  placeholder="All account types"
-                  aria-label="Account type"
-                  allowClear
-                  className="w-44"
-                />
-                <Select
-                  value={role || undefined}
-                  onChange={handleRoleChange}
-                  options={roleOptions}
-                  placeholder="All roles"
-                  aria-label="Role"
-                  allowClear
-                  // "First / last mile haulier" is longer than the box: the list shows it whole.
-                  popupMatchSelectWidth={false}
-                  className="w-44"
-                />
+                {inCustomers && (
+                  <>
+                    <Select
+                      value={accountType || undefined}
+                      onChange={handleAccountTypeChange}
+                      options={ACCOUNT_TYPE_OPTIONS}
+                      placeholder="All account types"
+                      aria-label="Account type"
+                      allowClear
+                      className="w-44"
+                    />
+                    <Select
+                      value={owner || undefined}
+                      onChange={handleOwnerChange}
+                      options={[...OWNER_FILTERS]}
+                      placeholder="Any Sales Owner"
+                      aria-label="Sales Owner"
+                      allowClear
+                      className="w-40"
+                    />
+                  </>
+                )}
+                {view === "suppliers" && (
+                  <>
+                    <Select
+                      mode="multiple"
+                      value={supplierTypes}
+                      onChange={handleSupplierTypesChange}
+                      options={SUPPLIER_TYPE_OPTIONS}
+                      placeholder="All supplier types"
+                      aria-label="Supplier type"
+                      allowClear
+                      maxTagCount="responsive"
+                      // "First / last mile haulier" is longer than the box: the list shows it whole.
+                      popupMatchSelectWidth={false}
+                      className="w-52"
+                    />
+                    <Select
+                      value={ratingFilter || undefined}
+                      onChange={handleRatingChange}
+                      options={[...RATING_FILTERS]}
+                      placeholder="Any rating"
+                      aria-label="Rating"
+                      allowClear
+                      className="w-36"
+                    />
+                  </>
+                )}
+                {view === "all" && (
+                  <Select
+                    value={role || undefined}
+                    onChange={handleRoleChange}
+                    options={ROLE_OPTIONS}
+                    placeholder="All roles"
+                    aria-label="Role"
+                    allowClear
+                    // "First / last mile haulier" is longer than the box: the list shows it whole.
+                    popupMatchSelectWidth={false}
+                    className="w-44"
+                  />
+                )}
                 <CustomerFiltersPopover
                   filters={shownFilters}
                   onChange={handleFiltersChange}
@@ -497,12 +621,12 @@ export function CustomersView() {
 
             {reordering && (
               <div className="-mt-2 rounded-lg bg-indigo-50 px-4 py-2 text-[13px] text-indigo-700">
-                Drag the column headers to change their order. Customer stays first. Click the pencil
+                Drag the column headers to change their order. {words.one} stays first. Click the pencil
                 again when you are done.
               </div>
             )}
 
-            <ListCapNotice shown={customers.length} total={total} noun="customers" />
+            <ListCapNotice shown={customers.length} total={total} noun={words.many} />
 
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
               <SortableContext items={visibleColumns} strategy={horizontalListSortingStrategy}>
@@ -514,7 +638,7 @@ export function CustomersView() {
                   rowKey="id"
                   loading={isFetching}
                   scroll={{ x: "max-content" }}
-                  resetKey={`${debouncedSearch}|${status}|${accountType}|${role}|${sortKey ?? ""}|${sortDirection}|${JSON.stringify(activeFilters)}`}
+                  resetKey={`${view}|${debouncedSearch}|${status}|${accountType}|${owner}|${supplierTypes.join(",")}|${ratingFilter}|${role}|${sortKey ?? ""}|${sortDirection}|${JSON.stringify(activeFilters)}`}
                   locale={{ emptyText }}
                   onChange={handleTableChange}
                   onRow={(record) => ({

@@ -195,6 +195,10 @@ export interface RailOperatorItem {
   draftCount: number;
   /** The soonest end of an active version, YYYY-MM-DD; null when none ends */
   activeUntil: string | null;
+  /** The last day it has a tariff pricing without a gap, later versions counted; null when one never ends, or none prices today (K12) */
+  coveredUntil: string | null;
+  /** The supplier rating from the Customer Database, 0–5 stars, null when not rated */
+  rating: number | null;
 }
 
 export interface TariffFile {
@@ -246,6 +250,8 @@ export interface RailOffer {
   tariffName: string;
   supplierCustomerId: string;
   supplierName: string;
+  /** The supplier's rating, 0–5 stars, null when not rated: shown beside the price, breaks only an exact tie. */
+  supplierRating: number | null;
   currency: string;
   place: string;
   postcode: string;
@@ -481,6 +487,10 @@ export interface CollectionHaulierItem {
   draftCount: number;
   /** The soonest end of an active version, YYYY-MM-DD; null when none ends */
   activeUntil: string | null;
+  /** The last day it has a tariff pricing without a gap, later versions counted; null when one never ends, or none prices today (K12) */
+  coveredUntil: string | null;
+  /** The supplier rating from the Customer Database, 0–5 stars, null when not rated */
+  rating: number | null;
 }
 
 export interface CollectionTariffItem {
@@ -533,6 +543,8 @@ export interface CollectionOffer extends CollectionPrice {
   tariffName: string;
   supplierCustomerId: string;
   supplierName: string;
+  /** The supplier's rating, 0–5 stars, null when not rated: shown beside the price, breaks only an exact tie. */
+  supplierRating: number | null;
   /** The version's last day; null when open */
   validTo: string | null;
   /** The places the tariff's own list names for our hub and the customer's postcode; empty by postcode area */
@@ -719,6 +731,8 @@ export interface OceanOffer {
   tariffName: string;
   supplierCustomerId: string;
   supplierName: string;
+  /** The supplier's rating, 0–5 stars, null when not rated: shown beside the price, breaks only an exact tie. */
+  supplierRating: number | null;
   /** The version's last day; null when open */
   validTo: string | null;
   tableLabel: string;

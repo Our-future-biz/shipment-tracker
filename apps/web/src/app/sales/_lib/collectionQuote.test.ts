@@ -40,6 +40,7 @@ const offer = (over: Partial<CollectionOffer> = {}): CollectionOffer => ({
   tariffName: "TOPTRANS – CZ / SK",
   supplierCustomerId: "toptrans",
   supplierName: "TOPTRANS EU, a.s.",
+  supplierRating: null,
   validTo: null,
   hubPlace: "Dobrovíz",
   customerPlace: "Brno",

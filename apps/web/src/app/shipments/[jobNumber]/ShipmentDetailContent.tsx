@@ -102,7 +102,7 @@ interface SectionHeaderProps {
   onCommit?: CommitFn;
   styleFor?: StyleFor;
   /** Vlastni vykresleni pro pole, ktera nejsou obycejny FieldRow
-   *  (Master Job s odkazem, Incoterm, propojeni zakazniku). */
+   *  (Master Job s odkazem, Incoterms, propojeni zakazniku). */
   renderField?: Record<string, React.ReactNode>;
 }
 
@@ -1180,7 +1180,7 @@ export function ShipmentDetailContent() {
                     { key: "consignee", label: "Consignee", ro: true },
                     { key: "personInCharge", label: "Handled By" },
                     { key: "salesPerson", label: "Sales Person", ro: true },
-                    { key: "incoterm", label: "Incoterm Origin/Destination", ro: true },
+                    { key: "incoterm", label: "Incoterms Origin/Destination", ro: true },
                     { key: "freeComments", label: "Free Comments" },
                     { key: "freightPayableAt", label: "Freight Payable At" },
                   ];
@@ -1229,7 +1229,7 @@ export function ShipmentDetailContent() {
                       </div>
                     ),
                     customer: (
-                      <CustomerLinkField label="Customer" name={shipment.customer} customerId={shipment.customerId} onChange={(n, id) => linkParty("customer", n, id)} />
+                      <CustomerLinkField label="Customer" customersOnly name={shipment.customer} customerId={shipment.customerId} onChange={(n, id) => linkParty("customer", n, id)} />
                     ),
                     shipper: (
                       <CustomerLinkField label="Shipper" name={shipment.shipper} customerId={shipment.shipperId} onChange={(n, id) => linkParty("shipper", n, id)} />
@@ -1249,7 +1249,7 @@ export function ShipmentDetailContent() {
                     ),
                     incoterm: (
                       <div className={ROW}>
-                        <span className={LABEL}>Incoterm Origin/Destination</span>
+                        <span className={LABEL}>Incoterms Origin/Destination</span>
                         <FadeText className="flex-1 text-slate-800">
                           {shipment.incotermOrigin || shipment.incotermDestination
                             ? `${shipment.incotermOrigin || "—"}/${shipment.incotermDestination || "—"}`

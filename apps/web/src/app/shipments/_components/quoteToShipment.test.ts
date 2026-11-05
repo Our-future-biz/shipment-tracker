@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { computeCargo } from "@/app/sales/_lib/salesQuote";
 import type { interfaces } from "@/lib/api/client";
 import type { ExchangeRates } from "@/lib/exchangeRates";
 import { quoteToCreateRequest, shipmentToQuoteData } from "./quoteToShipment";
@@ -95,6 +96,43 @@ describe("quote → shipment totals", () => {
     const req = quoteToCreateRequest("QCZ1", { packages: [{ qty: 1, type: "Pallets", length: 100, width: 100, height: 100, weight: 500 }], weight: 999, cbm: 9 }, NO_RATES);
     expect(req.totalWeightTons).toBeUndefined();
     expect(req.totalVolumeCbm).toBeUndefined();
+  });
+});
+
+describe("shipment → quote volume", () => {
+  const dim = (over: Partial<interfaces.CargoDimensionLine>): interfaces.CargoDimensionLine => ({
+    pieces: "2",
+    lengthCm: "120",
+    widthCm: "80",
+    heightCm: "100",
+    weightPerPcKg: "300",
+    volumePerPcM3: "",
+    packageType: "Pallet(s)",
+    stackable: "",
+    ...over,
+  });
+  const quoteOf = (cargoDimensions: interfaces.CargoDimensionLine[], totalVolumeM3: string) =>
+    shipmentToQuoteData({ cargoDimensions, totalVolumeM3 } as unknown as interfaces.ShipmentItem);
+
+  it("keeps the sizes of the packages when every row has them, the quote working out its volume from them", () => {
+    const data = quoteOf([dim({})], "1.92");
+    expect(data.packages).toEqual([{ qty: 2, type: "Pallets", length: 120, width: 80, height: 100, weight: 300, stackable: undefined }]);
+    expect(computeCargo(data)).toMatchObject({ cbm: 1.92, cbmFromLines: true });
+  });
+
+  it("takes the shipment's volume, typed rows counted, when a row has an m³ typed instead of its sizes", () => {
+    // 2 × 1.92 m³ worked out + 4 × 0.6 m³ typed = 4.32 m³, the shipment's total.
+    const data = quoteOf([dim({}), dim({ pieces: "4", lengthCm: "", widthCm: "", heightCm: "", volumePerPcM3: "0.6" })], "4.32");
+    expect(data.packages?.map((p) => [p.qty, p.length, p.width, p.height, p.weight])).toEqual([
+      [2, undefined, undefined, undefined, 300],
+      [4, undefined, undefined, undefined, 300],
+    ]);
+    expect(computeCargo(data)).toMatchObject({ cbm: 4.32, cbmFromLines: false, totalPackages: 6, grossWeight: 1800 });
+  });
+
+  it("goes by the sizes where a typed m³ sits beside all three", () => {
+    const data = quoteOf([dim({ volumePerPcM3: "9" })], "1.92");
+    expect(data.packages?.[0]).toMatchObject({ length: 120, width: 80, height: 100 });
   });
 });
 

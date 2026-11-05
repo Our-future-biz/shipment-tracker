@@ -27,6 +27,7 @@ import { ReleaseReadiness } from "../remeasurement/ReleaseReadiness";
 import { Worklist } from "../remeasurement/Worklist";
 import { useJobDraft } from "../remeasurement/useJobDraft";
 import { useWarehouseShipment } from "@/hooks/useWarehouseShipment";
+import { informedText } from "@/lib/informOperations";
 
 // Remeasurement / Release: the warehouse's work on one POSITION — linked to a shipment or
 // stand-alone. Opened from the Job no. in Positions (?position=<task id>), from "Shipment Details"
@@ -108,10 +109,15 @@ function PositionPart({ task, onBack }: { task: interfaces.WarehouseConceptTaskI
     }
   };
 
+  // Inform Operations also posts the notice to the shipment's chat; the answer says whom it tagged.
   const mark = (what: SentWhat, note: string) =>
     section
       .markSent({ what, note })
-      .then(() => toast.success(what === "inform_operations" ? "Operations informed — logged" : `${SENT_LABEL[what]} marked as sent — logged`))
+      .then((res) => {
+        if (what !== "inform_operations") return toast.success(`${SENT_LABEL[what]} marked as sent — logged`);
+        const told = informedText(res.tagged);
+        return told.level === "warning" ? toast.warning(told.text) : toast.success(told.text);
+      })
       .catch((e) => {
         toast.error(errorMessage(e, "Failed to record it"));
         throw e;

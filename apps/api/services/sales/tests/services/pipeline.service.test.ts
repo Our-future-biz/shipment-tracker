@@ -16,7 +16,7 @@ const customerList = vi.mocked(customers._internalCustomerPipelineList);
 const quoteFacts = vi.mocked(quotes._internalSalesQuoteCustomerFacts);
 const shipmentFacts = vi.mocked(shipments._internalShipmentCustomerFacts);
 
-const customer = (id: string, status: "Active" | "Prospect" | "Inactive", createdAt: string) => ({ id, companyName: `${id} s.r.o.`, status, label: "STANDARD" as const, salesOwner: "Martin", createdAt });
+const customer = (id: string, status: "Active" | "Prospect" | "Inactive", createdAt: string) => ({ id, companyName: `${id} s.r.o.`, status, label: "STANDARD" as const, salesOwner: "Martin", roles: ["customer" as const], createdAt });
 const prospects = (n: number) => Array.from({ length: n }, (_, i) => customer(`p${String(i).padStart(3, "0")}`, "Prospect", new Date(Date.UTC(2026, 0, 1 + i)).toISOString()));
 
 beforeEach(() => {
@@ -50,7 +50,7 @@ describe("board", () => {
     expect(board.cards.proposal.map((card) => card.companyName)).toEqual(["ittec s.r.o."]);
     expect(board.cards.prospect.map((card) => card.companyName)).toEqual(["vp s.r.o."]);
     expect(board.cards.proposal[0]!.openQuotes.map((quote) => quote.quoteNumber)).toEqual(["QCZ20261010001"]);
-    expect(board.notes).toEqual({ shipmentsWithoutCustomer: 19, quotesWithoutCustomer: 0, quotesOfMissingCustomers: 0, sentQuotesWithoutDate: 0 });
+    expect(board.notes).toEqual({ shipmentsWithoutCustomer: 19, quotesWithoutCustomer: 0, quotesOfMissingCustomers: 0, sentQuotesWithoutDate: 0, quotesOfNonCustomers: 0, shipmentsOfNonCustomers: 0 });
   });
 
   it("limits the Won column to the period asked for and leaves the other columns alone", async () => {

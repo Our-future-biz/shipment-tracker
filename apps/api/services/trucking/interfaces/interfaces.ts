@@ -185,6 +185,12 @@ export interface HaulierListItem {
   adrCapable: boolean;
   vehicleTypes: string[];
   preferredLaneCount: number;
+  /** The supplier rating from the Customer Database, 0–5 stars, null when not rated. Staff only: HaulierDetail, which the portal reads, has none. */
+  rating: number | null;
+  /** Why it was rated so, from the Customer Database ("" when none). Staff only, as the rating. */
+  ratingReason: string;
+  /** False when the Customer Database has it "Not in use": left out where a haulier is picked, still listed (D16). */
+  inUse: boolean;
 }
 
 export interface HaulierDetail {
@@ -210,6 +216,20 @@ export interface PreferredLaneInput {
   note: string;
 }
 
+/**
+ * A haulier's payment terms and VAT / bank details as the Customer Database keeps them (Council Outlay 7,
+ * step 6b): edited there only, and Trucking's copy updated on every save there. A profile save here keeps them.
+ */
+export interface HaulierTerms {
+  paymentDays: number;
+  currency: HaulierCurrency;
+  vatUnreliable: boolean;
+  bankAccountPublished: boolean;
+  /** YYYY-MM-DD */
+  vatCheckedAt: string | null;
+  bankAccounts: string[];
+}
+
 /** What a profile save may change (block, version and the customer are managed by the server). */
 export interface HaulierProfileInput {
   insurer: string;
@@ -222,13 +242,16 @@ export interface HaulierProfileInput {
   licenceUnlimited: boolean;
   adrCapable: boolean;
   vehicleTypes: string[];
+  /**
+   * paymentDays, currency, vatUnreliable, bankAccountPublished, vatCheckedAt and bankAccounts are the Customer
+   * Database's (step 6b): a profile save here keeps them as stored, whatever it sends.
+   */
   paymentDays: number;
   currency: HaulierCurrency;
-  /** vatUnreliable, bankAccountPublished, vatCheckedAt and bankAccounts: a manager only (another user's save must send them as stored) */
   vatUnreliable: boolean;
   bankAccountPublished: boolean;
   vatCheckedAt: string | null;
-  /** Phase 6: the published accounts (the whole list); left out = kept as saved */
+  /** The published accounts (the whole list) */
   bankAccounts?: string[];
   costSplitBasis: CostSplitBasis;
   notes: string;

@@ -9,23 +9,23 @@ import type {
   HaulierProfile,
   HaulierProfileInput,
   HaulierStatus,
+  HaulierTerms,
 } from "../interfaces/interfaces";
 import type { TruckingEventKind } from "../schemas/truckingEvent.schema";
+import type { TruckingHaulierProfileRecord } from "../schemas/truckingHaulier.schema";
 import { businessDay } from "../../../lib/businessDate";
 import { isUuid } from "../../../lib/uuid";
 import {
-  bankAccountAdded,
   bankHoldUntil,
   cleanProfileInput,
   defaultProfile,
   haulierIssues,
   haulierStatus,
   managerOnlyChanges,
-  managerOnlyRefusal,
   NO_PROFILE_ISSUES,
   profileChanges,
 } from "../lib/haulierRules";
-import { isManager, requireManager } from "../lib/roles";
+import { requireManager } from "../lib/roles";
 import { userName } from "../lib/users";
 import { settingsService } from "./settings.service";
 import type { Actor } from "../../../lib/rbac";
@@ -33,6 +33,52 @@ import type { Actor } from "../../../lib/rbac";
 type CallAs = Pick<Actor, "userID" | "companyID" | "role">;
 
 export const HAULIER_CONFLICT = "The haulier was changed by someone else. Reload and try again.";
+
+/** The fields the Customer Database keeps for a haulier (HaulierTerms): never changed by a profile save in Trucking. */
+const termsOf = (p: HaulierTerms): HaulierTerms => ({
+  paymentDays: p.paymentDays,
+  currency: p.currency,
+  vatUnreliable: p.vatUnreliable,
+  bankAccountPublished: p.bankAccountPublished,
+  vatCheckedAt: p.vatCheckedAt,
+  bankAccounts: p.bankAccounts,
+});
+
+/** The terms of a stored profile row, with when and by whom an account was last added. */
+const storedTerms = (r: TruckingHaulierProfileRecord): HaulierTerms & { bankAccountsChange: BankAccountsChange | null } => ({
+  paymentDays: r.paymentDays,
+  currency: r.currency,
+  vatUnreliable: r.vatUnreliable,
+  bankAccountPublished: r.bankAccountPublished,
+  vatCheckedAt: r.vatCheckedAt,
+  bankAccounts: r.bankAccounts ?? [],
+  bankAccountsChange: r.bankAccountsChangedAt ? { at: r.bankAccountsChangedAt.toISOString(), byUserId: r.bankAccountsChangedByUserId, by: r.bankAccountsChangedBy ?? "" } : null,
+});
+
+/** A stored profile as the input of a save, every field as it is. */
+const inputOf = (p: HaulierProfile): HaulierProfileInput => ({
+  insurer: p.insurer,
+  insurancePolicyNo: p.insurancePolicyNo,
+  insuranceLimit: p.insuranceLimit,
+  insuranceCurrency: p.insuranceCurrency,
+  insuranceValidTo: p.insuranceValidTo,
+  licenceNo: p.licenceNo,
+  licenceValidTo: p.licenceValidTo,
+  licenceUnlimited: p.licenceUnlimited,
+  adrCapable: p.adrCapable,
+  vehicleTypes: p.vehicleTypes,
+  ...termsOf(p),
+  costSplitBasis: p.costSplitBasis,
+  notes: p.notes,
+  preferredLanes: p.preferredLanes,
+});
+
+/** Who changed a haulier's published accounts and when, as the Customer Database stamped it. */
+export interface BankAccountsChange {
+  at: string;
+  byUserId: string | null;
+  by: string;
+}
 const MAX_REASON = 500;
 
 /** A haulier company as the Customer Database gives it. */
@@ -157,6 +203,9 @@ class HaulierService {
         adrCapable: profile?.adrCapable ?? false,
         vehicleTypes: profile?.vehicleTypes ?? [],
         preferredLaneCount: stored?.laneCount ?? 0,
+        rating: h.rating,
+        ratingReason: h.ratingReason,
+        inUse: h.inUse,
       };
     });
     return items
@@ -178,41 +227,76 @@ class HaulierService {
   }
 
   // Any user. The whole profile is sent with the version read (0 when none is saved yet); the
-  // block stays as it is. Refused when someone saved, blocked or unblocked meanwhile. The VAT and
-  // bank fields (MANAGER_ONLY_FIELDS) are a manager's: another user's save that changes any of them
-  // is refused as a whole (nothing is saved), so nobody believes a change was kept that was not.
-  // An added bank account is stamped with when and by whom (the invoice auto-approval hold).
-  async update(companyId: string, userId: string, role: string, customerId: string, input: HaulierProfileInput, version: number): Promise<HaulierDetail> {
+  // block stays as it is. Refused when someone saved, blocked or unblocked meanwhile. The payment
+  // terms and VAT / bank details are not changed here: they are the Customer Database's (step 6b).
+  async update(companyId: string, userId: string, customerId: string, input: HaulierProfileInput, version: number): Promise<HaulierDetail> {
     if (!Number.isInteger(version) || version < 0) throw APIError.invalidArgument("version must be the version you read (0 when none is saved yet)");
     const company = await this.company(customerId);
     const stored = await haulierRepository.find(companyId, customerId);
     const cur = stored ? toProfile(stored) : defaultProfile(customerId);
-    // A save that leaves the published bank accounts out (an older page) keeps them as saved.
-    const withAccounts = { ...input, bankAccounts: input.bankAccounts ?? cur.bankAccounts };
-    const next = cleanProfileInput(withAccounts, await settingsService.vehicleCodes(companyId), today());
+    // The payment terms and VAT / bank details are the Customer Database's (step 6b): kept as they are here,
+    // whatever the page sends back. They are left out of the checks too, so a value the Customer Database
+    // allows and Trucking's own rules would not never stops the rest of the profile from being saved.
+    const checked = cleanProfileInput({ ...input, ...termsOf(defaultProfile(customerId)) }, await settingsService.vehicleCodes(companyId), today());
+    const next = { ...checked, ...termsOf(cur) };
     if (cur.version !== version) throw APIError.aborted(HAULIER_CONFLICT);
     const changes = profileChanges(cur, next);
-    const vatBank = managerOnlyChanges(changes);
-    if (vatBank.length && !isManager(role)) throw APIError.permissionDenied(managerOnlyRefusal(vatBank));
     if (stored && !Object.keys(changes).length) return this.detail(company, stored);
     const by = await userName(userId);
     const { preferredLanes, ...values } = next;
-    const bankStamp = bankAccountAdded(cur.bankAccounts, next.bankAccounts ?? [])
-      ? { bankAccountsChangedAt: new Date(), bankAccountsChangedByUserId: userId || null, bankAccountsChangedBy: by || null }
-      : {};
-    const saved = await haulierRepository.save(companyId, customerId, version, { ...values, ...bankStamp }, preferredLanes, {
+    const saved = await haulierRepository.save(companyId, customerId, version, values, preferredLanes, {
       kind: stored ? "profile_updated" : "profile_created",
       byUserId: userId || null,
       byName: by,
-      payload: {
-        changes,
-        ...(vatBank.length
-          ? { summary: `VAT and bank details changed: ${vatBank.join(", ")}`, facts: { vatBankChanged: vatBank, bankAccountAdded: "bankAccountsChangedAt" in bankStamp } }
-          : {}),
-      },
+      payload: { changes },
     });
     if (!saved) throw APIError.aborted(HAULIER_CONFLICT);
     return this.get(companyId, customerId);
+  }
+
+  /**
+   * Trucking's copy of what the Customer Database keeps for a haulier, updated on every save there (the
+   * caller checked who may). Written with the profile's event, as any change of a profile; a save of
+   * someone else in between is tried again once.
+   */
+  async setTermsFromCustomers(companyId: string, customerId: string, terms: HaulierTerms, bankChange: BankAccountsChange | null, by: { userId: string; name: string }): Promise<void> {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const stored = await haulierRepository.find(companyId, customerId);
+      const cur = stored ? toProfile(stored) : defaultProfile(customerId);
+      const next: HaulierProfileInput = { ...inputOf(cur), ...terms };
+      const changes = profileChanges(cur, next);
+      // Nothing new - unless the save brings an account's hold stamp Trucking does not have yet (a retry
+      // after the Customer Database's own write failed, or the haulier role given again).
+      const stampKnown = !bankChange || cur.bankAccountsChangedAt === new Date(bankChange.at).toISOString();
+      if (stored && !Object.keys(changes).length && stampKnown) return;
+      const { preferredLanes: _lanes, ...values } = next;
+      const stamp = bankChange ? { bankAccountsChangedAt: new Date(bankChange.at), bankAccountsChangedByUserId: bankChange.byUserId, bankAccountsChangedBy: bankChange.by || null } : {};
+      const vatBank = managerOnlyChanges(changes);
+      const saved = await haulierRepository.save(companyId, customerId, cur.version, { ...values, ...stamp }, null, {
+        kind: stored ? "profile_updated" : "profile_created",
+        byUserId: by.userId || null,
+        byName: by.name,
+        payload: {
+          changes,
+          summary: `Payment terms and VAT / bank details changed in the Customer Database${vatBank.length ? `: ${vatBank.join(", ")}` : ""}`,
+          facts: { fromCustomerDatabase: true, ...(vatBank.length ? { vatBankChanged: vatBank, bankAccountAdded: !!bankChange } : {}) },
+        },
+      });
+      if (saved) return;
+    }
+    throw APIError.aborted(HAULIER_CONFLICT);
+  }
+
+  /** What Trucking holds for one haulier, or null when it has no saved profile: the Customer Database's first save of it starts from this. */
+  async termsFor(companyId: string, customerId: string): Promise<(HaulierTerms & { bankAccountsChange: BankAccountsChange | null }) | null> {
+    const stored = await haulierRepository.find(companyId, customerId);
+    return stored ? storedTerms(stored.profile) : null;
+  }
+
+  /** What Trucking holds for each haulier it has a profile of: the Customer Database copies it once (step 6b, E2). */
+  async termsList(companyId: string): Promise<(HaulierTerms & { customerId: string; bankAccountsChange: BankAccountsChange | null })[]> {
+    const profiles = await haulierRepository.listWithLaneCounts(companyId);
+    return profiles.map(({ profile: r }) => ({ customerId: r.customerId, ...storedTerms(r) }));
   }
 
   /** Manager only: keeps the haulier off trips until unblocked, with the reason. */

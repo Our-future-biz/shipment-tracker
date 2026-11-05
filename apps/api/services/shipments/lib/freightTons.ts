@@ -2,12 +2,16 @@
 // weight and volume from its cargo dimensions when they have any, else its typed totals, and the
 // greater of tons and cbm. A master job's costs are split by it, so both sides must agree.
 
+import { dimensionVolumePerPiece } from "./cargoProjection";
+
 interface DimensionLine {
   pieces: string;
   lengthCm: string;
   widthCm: string;
   heightCm: string;
   weightPerPcKg: string;
+  /** m³ of one piece as typed, when the sizes are not all known. */
+  volumePerPcM3?: string;
 }
 
 const num = (v: string | null | undefined) => parseFloat(v ?? "") || 0;
@@ -21,7 +25,7 @@ export function freightTons(
   for (const d of dimensions) {
     const pieces = num(d.pieces);
     weightKg += pieces * num(d.weightPerPcKg);
-    volumeCbm += (pieces * num(d.lengthCm) * num(d.widthCm) * num(d.heightCm)) / 1_000_000;
+    volumeCbm += pieces * dimensionVolumePerPiece(d);
   }
   const tons = weightKg > 0 ? weightKg / 1000 : num(totals.totalWeightTons);
   const cbm = volumeCbm > 0 ? volumeCbm : num(totals.totalVolumeCbm);

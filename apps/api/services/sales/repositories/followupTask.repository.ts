@@ -128,6 +128,26 @@ class FollowupTaskRepository extends TenantRepository<typeof followupTaskTable> 
     return rows.length;
   }
 
+  /**
+   * The company's open tasks the Sales managers' cockpit shows: assigned to nobody, or due on
+   * `dueBy` or earlier. At most `limit`, the oldest due first.
+   */
+  async cockpitTasks(companyId: string, dueBy: string, limit: number): Promise<FollowupTaskRecord[]> {
+    return this.db
+      .select()
+      .from(followupTaskTable)
+      .where(
+        and(
+          eq(followupTaskTable.companyId, companyId),
+          isNull(followupTaskTable.deletedAt),
+          isNull(followupTaskTable.doneAt),
+          sql`(${followupTaskTable.assigneeUserId} IS NULL OR ${followupTaskTable.dueDate} <= ${dueBy}::date)`,
+        ),
+      )
+      .orderBy(sql`${followupTaskTable.dueDate} asc nulls last`, asc(followupTaskTable.id))
+      .limit(limit);
+  }
+
   /** The customers the company's live tasks are linked to, by the name each task has, with how many tasks. */
   async customerLinks(companyId: string): Promise<{ customerId: string; customerLabel: string; count: number }[]> {
     const rows = await this.db

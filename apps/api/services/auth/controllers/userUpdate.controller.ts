@@ -11,6 +11,8 @@ interface UserUpdateRequest {
   // null unassigns.
   departmentId?: string | null;
   branchId?: string | null;
+  /** The manager the user reports to (a manager or admin of the company); null clears it. */
+  reportsToUserId?: string | null;
 }
 
 interface UserUpdateResponse {

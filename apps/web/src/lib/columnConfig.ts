@@ -2,7 +2,7 @@ import type { GeoKind } from "./places";
 import { CANCELLED_STATUS, LOAD_TYPES, STATUS_COLORS } from "./enums";
 import { INCOTERMS } from "./incoterms";
 import { formatDateTime } from "./date";
-import { lineInUnit, unitLabel, type DimensionUnit } from "./cargo";
+import { dimensionVolumePerPiece, hasAllSizes, lineInUnit, unitLabel, type DimensionUnit } from "./cargo";
 
 // "place" / "country" / "countryCode" are picked from the location database (see lib/places.ts).
 // "user" is a person: one of the company's users, picked with the UserPicker and kept by e-mail.
@@ -67,8 +67,8 @@ export const DROPDOWN_OPTIONS: Record<string, string[]> = {
   "Trade Direction": ["Import", "Export", "Domestic"],
   "Freight Mode": ["Air Freight", "Sea Freight", "Sea Break Bulk", "Rail Freight", "Road Freight"],
   "Service Type": ["Direct", "In-Direct/Nominated"],
-  "Incoterm Origin": INCOTERMS,
-  "Incoterm Destination": INCOTERMS,
+  "Incoterms Origin": INCOTERMS,
+  "Incoterms Destination": INCOTERMS,
   "Insurance": ["Yes", "Pending", "No"],
   "Credit Check": ["Green", "Yellow", "Red"],
   "Freight Payable At": ["Origin", "Destination"],
@@ -142,7 +142,7 @@ export const COMPUTED_COLUMNS = new Set([
 
 export const COLUMNS: ColumnDef[] = [
   // Internal Reference is locked (always first); Master job is an ordinary column
-  { key: "jobNumber", title: "Internal Reference", width: 140, type: "text", fixed: true, readonly: true, apiField: "jobNumber" },
+  { key: "jobNumber", title: "Internal Reference", width: 170, type: "text", fixed: true, readonly: true, apiField: "jobNumber" },
   { key: "masterJob", title: "Master job", width: 140, type: "text", readonly: true, apiField: "masterJobMczNumber" },
 
   // Meta
@@ -199,8 +199,8 @@ export const COLUMNS: ColumnDef[] = [
   { key: "agentPic", title: "Agent's PIC", width: 170, type: "text", apiField: "agentPic" },
   { key: "shippingLine", title: "Shipping line / Coloader", width: 180, type: "text", apiField: "shippingLine" },
   { key: "serviceType", title: "Service Type", width: 160, type: "dropdown", options: DROPDOWN_OPTIONS["Service Type"], apiField: "serviceType" },
-  { key: "incotermOrigin", title: "Incoterm Origin", width: 120, type: "dropdown", options: DROPDOWN_OPTIONS["Incoterm Origin"], apiField: "incotermOrigin" },
-  { key: "incotermDestination", title: "Incoterm Dest.", width: 120, type: "dropdown", options: DROPDOWN_OPTIONS["Incoterm Destination"], apiField: "incotermDestination" },
+  { key: "incotermOrigin", title: "Incoterms Origin", width: 120, type: "dropdown", options: DROPDOWN_OPTIONS["Incoterms Origin"], apiField: "incotermOrigin" },
+  { key: "incotermDestination", title: "Incoterms Dest.", width: 120, type: "dropdown", options: DROPDOWN_OPTIONS["Incoterms Destination"], apiField: "incotermDestination" },
   { key: "insurance", title: "Insurance", width: 100, type: "dropdown", options: DROPDOWN_OPTIONS["Insurance"], apiField: "insurance" },
 
   // Dates
@@ -569,7 +569,7 @@ export function getCellConditionalStyle(
 // ─── Computed Column Calculators ──────────────────────────────────────
 
 // Shape of a cargo_dimension row as served by the API (volume per piece is
-// always derived from L×W×H, never stored).
+// derived from L×W×H, or typed for a line whose sizes are not all known).
 export interface DimensionRow {
   pieces: string;
   lengthCm: string;
@@ -578,6 +578,8 @@ export interface DimensionRow {
   // The unit the sizes were typed in; the sizes above are always cm.
   dimensionUnit?: DimensionUnit;
   weightPerPcKg: string;
+  /** m³ of one piece as typed, when the sizes are not all known. */
+  volumePerPcM3?: string;
 }
 
 export function computeDimensionTotals(dimensions: unknown): {
@@ -593,10 +595,9 @@ export function computeDimensionTotals(dimensions: unknown): {
       const pieces = parseFloat(r.pieces || "0") || 0;
       const L = parseFloat(r.lengthCm || "0") || 0;
       const W = parseFloat(r.widthCm || "0") || 0;
-      const H = parseFloat(r.heightCm || "0") || 0;
       const wPiece = parseFloat(r.weightPerPcKg || "0") || 0;
       weightKg += pieces * wPiece;
-      volumeCbm += pieces * (L * W * H) / 1_000_000;
+      volumeCbm += pieces * dimensionVolumePerPiece(r);
       surface += pieces * (L * W) / 10_000;
     }
     return { weightKg, volumeCbm, surface };
@@ -605,18 +606,22 @@ export function computeDimensionTotals(dimensions: unknown): {
   }
 }
 
-/** The dimension lines as text: pieces × L×W×H in each line's unit (cm or in), lines separated by commas. */
+/** The dimension lines as text: pieces × L×W×H in each line's unit (cm or in), or pieces × the m³ typed for a line without its sizes; lines separated by commas. */
 export function summarizeDimensions(dimensions: unknown): string {
   if (!dimensions) return "";
   try {
     const rows: DimensionRow[] = Array.isArray(dimensions) ? dimensions : JSON.parse(String(dimensions));
     const num = (v: string) => String(parseFloat(v || "0") || 0);
+    // The m³ typed for a piece of a line without its sizes, read as its volume is (a comma is a point).
+    const typed = (r: DimensionRow) => (hasAllSizes(r) ? 0 : dimensionVolumePerPiece(r));
     return rows
-      .filter((r) => [r.lengthCm, r.widthCm, r.heightCm].some((v) => parseFloat(v || "0") > 0))
+      .filter((r) => [r.lengthCm, r.widthCm, r.heightCm].some((v) => parseFloat(v || "0") > 0) || typed(r) > 0)
       .map((r) => {
+        const pcs = num(r.pieces) === "0" ? "1" : num(r.pieces);
+        if (typed(r) > 0) return `${pcs}\u00d7 ${typed(r)} m\u00b3`;
         // A line typed in inches shows in inches, as typed (the same conversion as Cargo Details).
         const shown = lineInUnit(r);
-        return `${num(r.pieces) === "0" ? "1" : num(r.pieces)}\u00d7 ${num(shown.lengthCm)}\u00d7${num(shown.widthCm)}\u00d7${num(shown.heightCm)} ${unitLabel(r.dimensionUnit)}`;
+        return `${pcs}\u00d7 ${num(shown.lengthCm)}\u00d7${num(shown.widthCm)}\u00d7${num(shown.heightCm)} ${unitLabel(r.dimensionUnit)}`;
       })
       .join(", ");
   } catch {

@@ -1,5 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { checkConsistency, compareFigure, dimensionLineIsEmpty, lineInCm, lineInUnit, CONTAINER_TYPES, containerType, NOT_STACKABLE, numberInput, STACKABLE, shipmentStackability, withShipmentStackability } from "./cargo";
+import {
+  piecesOf,
+  perPieceText,
+  totalText,
+  lineTotal,
+  plainDecimal,
+  checkConsistency,
+  compareFigure,
+  dimensionLineIsEmpty,
+  dimensionLineVolume,
+  dimensionTotals,
+  lineInCm,
+  lineInUnit,
+  CONTAINER_TYPES,
+  containerType,
+  NOT_STACKABLE,
+  numberInput,
+  STACKABLE,
+  shipmentStackability,
+  withShipmentStackability,
+  withoutTypedVolumeWhenSized,
+} from "./cargo";
 import { containerTypeFrom } from "@/app/documents/_lib/extraction";
 
 describe("CONTAINER_TYPES", () => {
@@ -142,5 +163,101 @@ describe("dimension units", () => {
   it("converts a row holding only the sizes and their unit, keeping its other fields", () => {
     const row = { pieces: "1", lengthCm: "25.4", widthCm: "50.8", heightCm: "", weightPerPcKg: "3", dimensionUnit: "in" as const };
     expect(lineInUnit(row)).toEqual({ ...row, lengthCm: "10", widthCm: "20" });
+  });
+});
+
+describe("a dimension line without its sizes", () => {
+  const line = { containerId: null, pieces: "4", lengthCm: "", widthCm: "", heightCm: "", dimensionUnit: "cm" as const, weightPerPcKg: "250", volumePerPcM3: "0.6", packageType: "", stackable: "" };
+
+  it("keeps the volume typed for it and adds it to the container's check", () => {
+    expect(dimensionLineIsEmpty({ ...line, pieces: "", weightPerPcKg: "" })).toBe(false);
+    const c = { containerNumber: "", sealNumber: "", type: "", teu: "", packages: "4", packageType: "", grossWeight: "1000", volume: "2.4" };
+    const check = checkConsistency(c, [line]);
+    expect(check.matched).toBe(true);
+    expect(check.m3.sum).toBeCloseTo(2.4, 6);
+  });
+
+  // What the warehouse's Dimensions / Remeasurement card lists for each line and adds up, on both
+  // sides: a line nobody remeasured counts the same, so it never reads as a difference.
+  it("counts its typed volume in the line's m³ and the totals, beside a sized line", () => {
+    const sized = { ...line, pieces: "2", lengthCm: "100", widthCm: "100", heightCm: "100", volumePerPcM3: "" };
+    expect(dimensionLineVolume(line)).toBeCloseTo(2.4, 6);
+    expect(dimensionLineVolume(sized)).toBe(2);
+    const t = dimensionTotals([sized, line]);
+    expect(t.pcs).toBe(6);
+    expect(t.kg).toBe(1500);
+    expect(t.m3).toBeCloseTo(4.4, 6);
+  });
+
+  it("reads a decimal comma as a point, and a typed volume or pieces that are no number as none", () => {
+    expect(dimensionLineVolume({ ...line, volumePerPcM3: "0,5" })).toBe(2);
+    expect(dimensionLineVolume({ ...line, volumePerPcM3: "abc" })).toBe(0);
+    expect(dimensionLineVolume({ ...line, pieces: "" })).toBe(0);
+    expect(dimensionTotals([{ ...line, pieces: "x" }])).toEqual({ pcs: 0, kg: 0, m3: 0 });
+  });
+
+  it("loses its typed volume once a change gives it all three sizes, so it cannot come back when one is cleared", () => {
+    const sized = withoutTypedVolumeWhenSized({ ...line, lengthCm: "120", widthCm: "80", heightCm: "100" });
+    expect(sized.volumePerPcM3).toBe("");
+    expect(dimensionLineVolume({ ...sized, heightCm: "" })).toBe(0);
+    // Inches are sizes too; a line still short of a size keeps what was typed.
+    expect(withoutTypedVolumeWhenSized({ ...line, lengthCm: "40", widthCm: "40", heightCm: "40", dimensionUnit: "in" as const }).volumePerPcM3).toBe("");
+    const short = { ...line, lengthCm: "120", widthCm: "80" };
+    expect(withoutTypedVolumeWhenSized(short)).toBe(short);
+  });
+});
+
+describe("All pieces: totals stored per piece", () => {
+  it("shares a total out per piece and shows it back as typed", () => {
+    // 20 pallets, 3,000 kg and 10 m³ in all.
+    expect([perPieceText(3000, 20), perPieceText(10, 20)]).toEqual(["150", "0.5"]);
+    expect([totalText(150, 20, 2), totalText(0.5, 20, 3)]).toEqual(["3000", "10"]);
+  });
+
+  it("keeps a total that does not share out evenly, as shown", () => {
+    const share = perPieceText(1000, 3);
+    expect(share).toBe("333.333333333");
+    expect(totalText(Number(share), 3, 2)).toBe("1000");
+    expect(totalText(Number(perPieceText(10, 7)), 7, 3)).toBe("10");
+  });
+
+  it("gives a total back over thousands of pieces - and a declared container matches it", () => {
+    // 7 m³ over 3,000 pieces: 0.002333 a piece would be 6.999 m³ and a Volume Mismatch.
+    const share = perPieceText(7, 3000);
+    expect(share).toBe("0.00233333333333");
+    expect(totalText(Number(share), 3000, 3)).toBe("7");
+    const line = { containerId: "c1", pieces: "3000", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: perPieceText(4500, 3000), volumePerPcM3: share, packageType: "", stackable: "" };
+    expect(compareFigure(dimensionTotals([line]).m3, 7, 3).ok).toBe(true);
+    expect(compareFigure(dimensionTotals([line]).kg, 4500, 2).ok).toBe(true);
+    // A tiny volume over many pieces is not lost to rounding, and stays a plain number the server takes.
+    expect(perPieceText(0.001, 3000)).toBe("0.000000333333333333");
+    expect(totalText(Number(perPieceText(0.001, 3000)), 3000, 3)).toBe("0.001");
+    for (const [total, pieces] of [[7, 9999], [12345.67, 1234], [0.5, 4321]] as const) {
+      expect(perPieceText(total, pieces)).toMatch(/^\d+(\.\d+)?$/);
+      expect(Number(totalText(Number(perPieceText(total, pieces)), pieces, 3))).toBe(Number(total.toFixed(3)));
+    }
+  });
+
+  it("shares a total out again from the total, so changing Pcs keystroke after keystroke does not drift", () => {
+    // Typing 3000 pieces over a 7 m³ line: 3 → 30 → 300 → 3000, each step from the line's total.
+    let pieces = 1;
+    let share = perPieceText(7, pieces);
+    for (const next of [3, 30, 300, 3000, 1, 2999]) {
+      share = perPieceText(lineTotal(Number(share), pieces), next);
+      pieces = next;
+      expect(lineTotal(Number(share), pieces)).toBe(7);
+    }
+    expect(lineTotal(Number(perPieceText(3000.555, 7)), 7)).toBe(3000.555);
+  });
+
+  it("writes a share as a plain decimal, never with an exponent", () => {
+    expect([plainDecimal(150), plainDecimal(0.5), plainDecimal(1 / 3), plainDecimal(3.333e-7)]).toEqual(["150", "0.5", "0.333333333333", "0.0000003333"]);
+    expect([plainDecimal(0), plainDecimal(-1), plainDecimal(Number.NaN)]).toEqual(["", "", ""]);
+  });
+
+  it("counts a line without pieces as none: it has no totals, as the totals row and the server count it", () => {
+    expect([piecesOf({ pieces: "" }), piecesOf({ pieces: "0" }), piecesOf({ pieces: "12" })]).toEqual([0, 0, 12]);
+    expect([perPieceText(3000, 0), totalText(150, 0, 2), lineTotal(150, 0)]).toEqual(["", "", 0]);
+    expect([perPieceText(0, 5), totalText(0, 5, 2)]).toEqual(["", ""]);
   });
 });

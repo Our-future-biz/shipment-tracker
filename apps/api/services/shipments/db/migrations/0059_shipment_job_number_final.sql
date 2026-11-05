@@ -1,0 +1,1 @@
+ALTER TABLE "shipment" ADD COLUMN "job_number_final" boolean DEFAULT false NOT NULL;

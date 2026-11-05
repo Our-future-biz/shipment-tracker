@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, uuid, bigint, index, check } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, bigint, date, index, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 import { customerTable } from "./customer.schema";
 import type { DocumentType } from "../interfaces/interfaces";
@@ -19,6 +19,8 @@ export const customerDocumentTable = pgTable(
     fileSize: bigint("file_size", { mode: "number" }).notNull().default(0),
     // File bytes stored as base64 data URL in Postgres (per storage decision)
     fileData: text("file_data").notNull().default(""),
+    // The day it is valid to (a supplier's insurance, licence, certificate); null when it does not end.
+    validTo: date("valid_to", { mode: "string" }),
   },
   (table) => [
     ...defaultTableIndexes("customer_document", table),
@@ -26,7 +28,7 @@ export const customerDocumentTable = pgTable(
     index("customer_document_customer_id_idx").on(table.customerId),
     check(
       "customer_document_type_check",
-      sql`${table.type} IN ('Contract', 'NDA', 'Power of attorney', 'Customs', 'Other')`,
+      sql`${table.type} IN ('Contract', 'NDA', 'Power of attorney', 'Customs', 'Other', 'Carrier liability insurance', 'Transport licence', 'Framework agreement', 'Certificate')`,
     ),
   ],
 );

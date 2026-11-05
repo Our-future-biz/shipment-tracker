@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cargoWeightKey, linesToRecheck, rechecked, stampPricedFor, withPricedForNow } from "./tariffRecheck";
+import { cargoWeightKey, linesForOtherDirection, linesToRecheck, otherDirectionBlock, rechecked, stampDirection, stampPricedFor, withPricedForNow } from "./tariffRecheck";
 import type { CostLine, SalesQuoteData } from "./types";
 
 const rail: CostLine = { type: "Inland container haulage", chargeCode: "inland_haulage", description: "Rail Ostrava → Bremerhaven", currency: "EUR", amount: 1073, tariffRef: "rail:v1:r1", pairId: "r" };
@@ -42,5 +42,27 @@ describe("a rate to recheck", () => {
     expect(opened.buyingLines!.map((l) => l.pricedFor)).toEqual(["20' DC 8000 kg, 40' HC 20000 kg", undefined]);
     expect(linesToRecheck({ ...fcl(24000), buyingLines: opened.buyingLines })).toEqual([0]);
     expect(withPricedForNow({ ...fcl(20000), buyingLines: opened.buyingLines }, {})).toEqual({});
+  });
+});
+
+describe("a rate priced in another Trade Direction", () => {
+  const exportQuote: SalesQuoteData = { ...fcl(20000), direction: "Export" };
+  it("is remembered for rail and ocean lines, in the quote's Trade Direction", () => {
+    expect(stampDirection([rail, ocean, typed], [0, 1, 2], exportQuote).map((l) => l.pricedDirection)).toEqual(["export", "export", undefined]);
+    // Without a Trade Direction nothing is priced from a tariff, so nothing is remembered.
+    expect(stampDirection([rail], [0], fcl(20000))[0]?.pricedDirection).toBeUndefined();
+  });
+
+  it("is marked, and holds the quote, once the Trade Direction changes", () => {
+    const buyingLines = stampDirection([rail, ocean, typed], [0, 1], exportQuote);
+    expect(linesForOtherDirection({ ...exportQuote, buyingLines })).toEqual([]);
+    expect(otherDirectionBlock({ ...exportQuote, buyingLines })).toBeNull();
+    const nowImport = { ...exportQuote, direction: "Import", buyingLines };
+    expect(linesForOtherDirection(nowImport)).toEqual([0, 1]);
+    expect(otherDirectionBlock(nowImport)).toBe(
+      "2 buying lines were priced from an export tariff, and the quote is now an import — pick the tariff again under Tariffs available, or remove the lines",
+    );
+    // A line priced before the direction was remembered is not known.
+    expect(linesForOtherDirection({ ...nowImport, buyingLines: [rail] })).toEqual([]);
   });
 });

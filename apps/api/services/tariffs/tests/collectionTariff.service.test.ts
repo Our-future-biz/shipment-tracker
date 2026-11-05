@@ -37,7 +37,7 @@ import { railTariffService } from "../services/railTariff.service";
 
 const COMPANY = "company-1";
 const ACTOR = { userID: "user-1", companyID: COMPANY, role: "manager" };
-const TOPTRANS = { id: "11111111-1111-4111-8111-111111111111", companyName: "TOPTRANS EU, a.s.", ico: "", dic: "", city: "Brno", country: "CZ" };
+const TOPTRANS = { id: "11111111-1111-4111-8111-111111111111", companyName: "TOPTRANS EU, a.s.", ico: "", dic: "", city: "Brno", country: "CZ", rating: null, ratingReason: "", inUse: true };
 const OTHER = { ...TOPTRANS, id: "22222222-2222-4222-8222-222222222222", companyName: "Rychlá doprava s.r.o." };
 const TARIFF_ID = "55555555-5555-4555-8555-555555555555";
 const VERSION_ID = "44444444-4444-4444-8444-444444444444";
@@ -162,6 +162,20 @@ describe("offers", () => {
       ["TOPTRANS EU, a.s.", "300 km", 206, 1435, "Dobrovíz", "Brno"],
     ]);
     expect(result.notes).toEqual([]);
+  });
+
+  it("at the same price puts the better rated haulier first, then goes by name, whatever order the tariffs come in", async () => {
+    repo.collectionRates.mockResolvedValue([rate(0, 150, [1200, 1200])]);
+    const order = async () => (await ask()).offers.map((o) => [o.supplierName, o.total]);
+    expect(await order()).toEqual([
+      ["Rychlá doprava s.r.o.", 1200],
+      ["TOPTRANS EU, a.s.", 1200],
+    ]);
+    companiesWithRole.mockImplementation(async ({ ids }) => ({ companies: [{ ...TOPTRANS, rating: 5 }, { ...OTHER, rating: 2 }].filter((c) => !ids || ids.includes(c.id)) }));
+    expect(await order()).toEqual([
+      ["TOPTRANS EU, a.s.", 1200],
+      ["Rychlá doprava s.r.o.", 1200],
+    ]);
   });
 
   it("says why a tariff has no price, and what is missing", async () => {

@@ -1,4 +1,4 @@
-import type { controllers } from "@/lib/api/client";
+import type { controllers, interfaces } from "@/lib/api/client";
 
 /** Which sales quotes a complete load covers (see useAllSalesQuotes). */
 export type SalesQuoteFilter = Omit<controllers.SalesQuoteListRequest, "limit" | "offset" | "afterId" | "sortBy" | "sortDirection">;
@@ -32,6 +32,18 @@ export const quoteShipmentsKeys = {
 export const customerQuotesKeys = {
   all: ["customer-quotes"] as const,
   of: (customerId: string) => ["customer-quotes", customerId] as const,
+};
+
+/** Sales → Managers: the cockpit, one copy per freight mode. */
+export const salesManagersKeys = {
+  /** Every mode's copy: out of date with a margin question asked, answered or withdrawn, and with the guardrails. */
+  cockpit: ["sales", "managers-cockpit"] as const,
+  cockpitOf: (mode: interfaces.SalesCockpitMode) => ["sales", "managers-cockpit", mode] as const,
+};
+
+/** Sales Settings → Guardrails: the margin floor of each freight mode. */
+export const salesGuardrailKeys = {
+  all: ["sales-guardrails"] as const,
 };
 
 /** Manual follow-up tasks. */

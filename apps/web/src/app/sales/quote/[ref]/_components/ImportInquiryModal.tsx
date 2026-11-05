@@ -25,7 +25,7 @@ const FIELD_LABELS: Record<keyof InquiryData, string> = {
   customerContact: "Contact",
   direction: "Direction",
   serviceType: "Freight Mode",
-  incoterm: "Incoterm",
+  incoterm: "Incoterms",
   readyDate: "Ready date",
   origin: "Origin",
   destination: "Destination",

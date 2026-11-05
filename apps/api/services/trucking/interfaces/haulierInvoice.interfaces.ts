@@ -45,10 +45,34 @@ export interface HaulierInvoice {
   /** Why an exact match was not approved automatically (NEEDS_APPROVAL): a recent bank-account change, the same user, a repriced trip; a manager decides */
   holdReasons: string[];
   approval: { byName: string; at: string; reason: string } | null;
+  /** When it was paid (YYYY-MM-DD), who noted it and when; null while unpaid. Only an approved invoice is paid. */
+  payment: { paidOn: string; byName: string; at: string } | null;
+  /**
+   * False for an approved invoice not paid here that was approved before payments were noted in this system
+   * (Council Review 5, K2): it may have been paid already, so What we owe lists it apart instead of counting it.
+   */
+  paymentTracked: boolean;
   fileName: string | null;
   createdAt: string;
   createdBy: string;
   version: number;
+}
+
+/**
+ * An approved invoice not noted as paid, as the Customer Database's What we owe reads it (Council Review 5, C-1):
+ * no lines, only what is owed and when.
+ */
+export interface UnpaidHaulierInvoice {
+  id: string;
+  invoiceNumber: string;
+  /** YYYY-MM-DD */
+  issueDate: string;
+  dueDate: string | null;
+  /** With VAT */
+  totalGross: number;
+  currency: "CZK" | "EUR";
+  /** False when it was approved before payments were noted here: it may have been paid already (K2) */
+  paymentTracked: boolean;
 }
 
 /** A line as entered: the trip or partner delivery and what the haulier invoiced for it. */

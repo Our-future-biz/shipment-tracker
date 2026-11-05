@@ -8,6 +8,7 @@
 // ticked "invoice". An amount whose currency has no average is left out and reported.
 
 import { isDeliveryDated, qtyOrOne } from "./invoiceCalc";
+import { compareJobNumbers } from "../../../lib/jobNumber";
 import type { JobProfitRow } from "../interfaces/interfaces";
 
 export type { JobProfitRow };
@@ -138,6 +139,7 @@ export function buildJobProfit(
       unconverted: [...unconverted].sort(),
     });
   }
-  rows.sort((a, b) => (a.date === b.date ? a.jobNumber.localeCompare(b.jobNumber) : b.date.localeCompare(a.date)));
+  // The newest date first; on one day by reference number, whatever the letters (CZAIR… before CZ…).
+  rows.sort((a, b) => (a.date === b.date ? compareJobNumbers(a.jobNumber, b.jobNumber) : b.date.localeCompare(a.date)));
   return { rows, undated };
 }

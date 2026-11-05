@@ -7,6 +7,7 @@ import { SectionCard } from "@/components/SectionCard";
 import { useCustomerShipments } from "@/hooks/useCustomerShipments";
 import type { ShipmentItem } from "@/hooks/useCustomerShipments";
 import { statusLabel, statusTagColor } from "@/lib/shipmentStatus";
+import { loadTypeLabel } from "@/lib/enums";
 import { EMPTY_CELL } from "../../_lib/customerTable";
 
 const RECENT_COUNT = 5;
@@ -18,7 +19,8 @@ const COLUMNS: ColumnsType<ShipmentItem> = [
   {
     title: "Job no.",
     dataIndex: "jobNumber",
-    width: 130,
+    // Fits the longest reference, CZPROJECT00000023, as the Shipments grid does.
+    width: 170,
     // The shipment page is addressed by the shipment ID, not by the job number.
     render: (v: string, r) => (
       <Link href={`/shipments/${r.id}`} className="font-mono font-semibold text-indigo-600 hover:underline whitespace-nowrap">
@@ -41,7 +43,7 @@ const COLUMNS: ColumnsType<ShipmentItem> = [
       ),
   },
   { title: "Freight mode", dataIndex: "freightMode", width: 130, render: (v: string) => v || EMPTY_CELL },
-  { title: "Load type", dataIndex: "loadType", width: 130, render: (v: string) => v || EMPTY_CELL },
+  { title: "Load type", dataIndex: "loadType", width: 130, render: (v: string, r) => loadTypeLabel(v, r.freightMode) || EMPTY_CELL },
 ];
 
 interface CustomerRecentShipmentsCardProps {

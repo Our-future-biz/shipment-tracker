@@ -72,7 +72,8 @@ export interface CostLine {
   chargeCode?: string;
   description: string;
   supplier?: string;
-  // The haulier (a customer) a line priced from a trucking tariff is bought from.
+  // The Customer Database company `supplier` names: picked on the line, or the supplier of the tariff
+  // the line was priced from. Absent for a supplier only typed. Goes with the line into Costs Breakdown.
   supplierCustomerId?: string;
   currency: string;
   // The whole line; with qty and unitPrice it is their product.
@@ -94,6 +95,10 @@ export interface CostLine {
   // A line priced from a tariff that prices by weight (rail, collections): the cargo weight it was
   // priced for (tariffRecheck.ts), so a later change of the weight asks for the rate to be checked.
   pricedFor?: string;
+  // A line priced from a tariff for one direction (rail, ocean): the quote's Trade Direction it was
+  // priced in (tariffRecheck.ts). A tariff prices only the directions it is for, so a later change of
+  // the Trade Direction asks for the tariff to be picked again.
+  pricedDirection?: "import" | "export";
   // A line charged per container of one type only ("40' HC"): those containers are its quantity.
   // Without it a line charged per container counts all of the quote's containers.
   containerType?: string;
@@ -122,6 +127,9 @@ export interface FclBlockProfit extends FclProfit {
 // the buying lines and these.
 export interface FclPricing {
   blocks: Record<string, FclBlockProfit>;
+  // Each block's selling (per container, or per shipment) is rounded up to full 5s (fclPricing.ts
+  // SELLING_ROUNDS_TO). Set as an open quote is priced; a quote sent before keeps its prices as sent.
+  roundUp?: boolean;
 }
 
 // One exchange rate an older quote kept for itself (the weekly Exchange sheet's, or typed). Read
@@ -233,9 +241,11 @@ export interface SalesQuoteData {
   serviceType?: string; // Air / Sea (FCL/LCL) / Rail / Road
   incoterm?: string;
   readyDate?: string;
-  // A sea quote: whether the cargo goes through a container yard (CY). Only with "yes" do Routing's
-  // Origin and Destination also offer the ocean terminals. Absent until it is answered.
-  cy?: boolean;
+  // A sea quote's CY terms: "CY/CY", "SD/CY", "SD/SD" or "CY/SD" - a container yard (CY) or the
+  // store door (SD) at origin / at destination. Routing's Origin, and its Destination, offer the
+  // ocean terminals where it is CY. Absent until it is answered; a quote saved while this was a
+  // yes / no question holds true or false (read by cyTermsOf).
+  cy?: string | boolean;
   // Routing
   origin?: string;
   destination?: string;

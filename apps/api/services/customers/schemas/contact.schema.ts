@@ -25,7 +25,7 @@ export const contactTable = pgTable(
     ...defaultTableIndexes("contact", table),
     tenantIndex("contact", table),
     index("contact_customer_id_idx").on(table.customerId),
-    check("contact_role_check", sql`${table.role} IN ('Purchasing / Procurement', 'Customer Service', 'Logistics Manager', 'Warehouse', 'Finance / Accounting', 'Sales', 'Management', 'Owner')`),
+    check("contact_role_check", sql`${table.role} IN ('Purchasing / Procurement', 'Customer Service', 'Logistics Manager', 'Warehouse', 'Finance / Accounting', 'Sales', 'Management', 'Owner', 'Dispatch / Operations', 'Claims', 'Pricing / Tariffs', 'Accounts payable')`),
   ],
 );
 

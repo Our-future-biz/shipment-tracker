@@ -7,6 +7,7 @@ import { apiErrorMessage } from "@/lib/api";
 import { formatDate } from "@/lib/date";
 import { formatFileSize } from "@/lib/files";
 import { useHaulier, useHauliers } from "@/hooks/useTrucking";
+import { HaulierOptionLabel } from "../../_components/HaulierOptionLabel";
 import { useInvoiceCandidates, type HaulierInvoiceCreate, type InvoiceCandidate } from "@/hooks/useTruckingMoney";
 import { normaliseBankAccount } from "../../_lib/bankAccounts";
 import { CURRENCIES } from "../../_lib/hauliers";
@@ -161,7 +162,9 @@ export const HaulierInvoiceEntryModal = ({ onClose, onCreate }: HaulierInvoiceEn
             optionFilterProp="label"
             placeholder="Choose the haulier who sent the invoice"
             value={haulierId}
-            options={hauliers.map((h) => ({ value: h.customerId, label: h.ico ? `${h.companyName} · IČO ${h.ico}` : h.companyName }))}
+            // Whoever sent the invoice: by name, with the stars only to see.
+            options={hauliers.map((h) => ({ value: h.customerId, label: h.ico ? `${h.companyName} · IČO ${h.ico}` : h.companyName, rating: h.rating }))}
+            optionRender={(o) => <HaulierOptionLabel label={o.label} rating={o.data.rating} />}
             onChange={handleHaulier}
           />
         </TruckingField>

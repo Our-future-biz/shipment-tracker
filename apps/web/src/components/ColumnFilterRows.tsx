@@ -10,11 +10,16 @@ interface ColumnFilterRowsProps {
   onChange: (next: GridFilter[]) => void;
   /** Focus the first value box (a row offered ready to type into). */
   autoFocusFirst?: boolean;
+  /** The most rows the list takes (its server's limit): "Add filter" is off at it. */
+  maxRows?: number;
+  /** The longest value the list takes. */
+  maxLength?: number;
 }
 
 // The rows of a "Filter by column" panel (column + value, remove) and the "Add filter" button,
 // shared by AppGrid and the Customer Database list.
-export function ColumnFilterRows({ rows, columns, onChange, autoFocusFirst }: ColumnFilterRowsProps) {
+export function ColumnFilterRows({ rows, columns, onChange, autoFocusFirst, maxRows, maxLength }: ColumnFilterRowsProps) {
+  const full = maxRows !== undefined && rows.length >= maxRows;
   const columnByKey = new Map(columns.map((c) => [c.key, c]));
   const columnOptions = columns.map((c) => ({ value: c.key, label: c.title }));
   const update = (id: string, patch: Partial<GridFilter>) => onChange(rows.map((f) => (f.id === id ? { ...f, ...patch } : f)));
@@ -58,6 +63,7 @@ export function ColumnFilterRows({ rows, columns, onChange, autoFocusFirst }: Co
                       placeholder="Enter value"
                       value={f.value}
                       onChange={(e) => update(f.id, { value: e.target.value })}
+                      maxLength={maxLength}
                       size="small"
                       allowClear
                     />
@@ -79,7 +85,9 @@ export function ColumnFilterRows({ rows, columns, onChange, autoFocusFirst }: Co
       <button
         type="button"
         onClick={() => onChange([...rows, { id: newFilterId(), key: "", value: "" }])}
-        className="mt-2.5 w-full flex items-center justify-center gap-1.5 h-8 rounded-lg border border-dashed border-slate-300 text-xs font-medium text-slate-500 hover:border-indigo-400 hover:text-indigo-500 hover:bg-indigo-50/40 bg-transparent cursor-pointer transition-colors"
+        disabled={full}
+        title={full ? `At most ${maxRows} filters` : undefined}
+        className="mt-2.5 w-full flex items-center justify-center gap-1.5 h-8 rounded-lg border border-dashed border-slate-300 text-xs font-medium text-slate-500 hover:border-indigo-400 hover:text-indigo-500 hover:bg-indigo-50/40 bg-transparent cursor-pointer transition-colors disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-slate-300 disabled:hover:text-slate-500 disabled:hover:bg-transparent"
       >
         <PlusOutlined className="text-[10px]" /> Add filter
       </button>

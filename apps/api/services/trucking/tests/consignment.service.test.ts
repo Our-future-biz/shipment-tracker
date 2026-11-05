@@ -516,6 +516,20 @@ describe("list", () => {
     expect((await consignmentService.list(user, { search: "nothing" })).consignments).toHaveLength(0);
   });
 
+  it("finds a consignment by its job's reference whatever the letters: the copy keeps what it was given, the job's letters follow its Freight Mode", async () => {
+    await seed({});
+    await seed({ jobNumber: "CZROAD00000077" });
+    const found = async (search: string) => (await consignmentService.list(user, { search })).consignments.map((c) => c.jobNumber);
+    // The consignment that copied CZ00000042 by the job's reference now, and while it is typed.
+    expect(await found("CZROAD00000042")).toEqual(["CZ00000042"]);
+    expect(await found("czroad0000004")).toEqual(["CZ00000042"]);
+    // And the other way: one that copied the letters by the plain reference.
+    expect(await found("CZ00000077")).toEqual(["CZROAD00000077"]);
+    expect(await found("CZROAD00000043")).toEqual([]);
+    // Letters that are no job's (a quote's CZQ…) find nothing by the number.
+    expect(await found("CZQ00000042")).toEqual([]);
+  });
+
   it("opens exactly the booked FTL consignments the 'Open FTL without haulier' tile counts", async () => {
     const ftl = await seed({});
     await seed({ scope: "LTL" });

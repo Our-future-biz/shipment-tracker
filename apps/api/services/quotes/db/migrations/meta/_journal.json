@@ -85,6 +85,34 @@
       "when": 1792787419223,
       "tag": "0011_warehouse_inquiry_chat",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1793715448038,
+      "tag": "0012_quote_inquiry",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1793716590664,
+      "tag": "0013_quote_guardrail",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1793717406104,
+      "tag": "0014_quote_inquiry_warehouse",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1793730296145,
+      "tag": "0015_quote_inquiry_names",
+      "breakpoints": true
     }
   ]
 }

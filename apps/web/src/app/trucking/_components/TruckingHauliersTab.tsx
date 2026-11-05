@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { SupplierRatingStars } from "@/app/customers/_components/SupplierRatingStars";
+import { ratingRank } from "../_lib/haulierRating";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Tooltip } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
@@ -38,6 +40,15 @@ const buildColumns = (vehicleLabel: (code: string) => string): AppGridColumn<Hau
         {h.companyName}
       </Link>
     ),
+  },
+  {
+    key: "rating",
+    title: "Rating",
+    text: (h) => (h.rating === null ? "Not rated" : `${h.rating}/5`),
+    // Best first on a descending sort: 5 down to 1, not rated, then 0; the first click sorts so (m26).
+    sorter: (a, b) => ratingRank(a.rating) - ratingRank(b.rating),
+    sortDirections: ["descend", "ascend"],
+    render: (_, h) => <SupplierRatingStars rating={h.rating} />,
   },
   { key: "ico", title: "IČO", text: (h) => h.ico, sorter: (a, b) => byText(a.ico, b.ico) },
   { key: "city", title: "City", text: (h) => h.city, sorter: (a, b) => byText(a.city, b.city) },

@@ -3,6 +3,7 @@
 import { createContext, useContext, useState, useCallback, useEffect } from "react";
 import type { ReactNode } from "react";
 import { API_BASE } from "@/lib/api";
+import { actingCompanyId, setActingCompanyId, withActingCompany } from "@/lib/actingCompany";
 import { canSeeConcepts } from "@/lib/concepts";
 
 
@@ -16,8 +17,18 @@ export interface AuthUser {
   branchId: string | null;
 }
 
+/** The company the session works as: the user's own, or the one a superadmin chose (lib/actingCompany). */
+export interface WorkingCompany {
+  id: string;
+  name: string;
+  /** A superadmin working as another company than their own. */
+  switched: boolean;
+}
+
 interface AuthContextValue {
   user: AuthUser | null;
+  /** Known once the session is restored; null right after a sign-in (the user's own company). */
+  company: WorkingCompany | null;
   token: string | null;
   isLoading: boolean;
   loginError: string | null;
@@ -28,6 +39,7 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue>({
   user: null,
+  company: null,
   token: null,
   isLoading: true,
   loginError: null,
@@ -44,6 +56,7 @@ interface AuthProviderProps {
 
 export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [company, setCompany] = useState<WorkingCompany | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -68,7 +81,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     }, 5000);
 
     fetch(`${API_BASE}/auth/me`, {
-      headers: { Authorization: `Bearer ${savedToken}` },
+      headers: withActingCompany(new Headers({ Authorization: `Bearer ${savedToken}` })),
       signal: controller.signal,
     })
       .then((res) => {
@@ -76,7 +89,11 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         return res.json();
       })
       .then((data) => {
+        // A company chosen to work as that is no longer one (or a user who is no superadmin any
+        // more): the server answered the user's own, and the choice is dropped.
+        if (actingCompanyId() && !data.company?.switched) setActingCompanyId(null);
         setUser(data.user);
+        setCompany(data.company ?? null);
         setToken(savedToken);
       })
       .catch(() => {
@@ -110,6 +127,9 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         throw new Error(data.message || data.error || "Invalid email or password");
       }
       const data = await res.json();
+      // A new session starts in the user's own company, whatever was chosen in this browser before.
+      setActingCompanyId(null);
+      setCompany(null);
       setUser(data.user);
       setToken(data.token);
       localStorage.setItem("auth_token", data.token);
@@ -124,14 +144,16 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
   const logout = useCallback(() => {
     setUser(null);
+    setCompany(null);
     setToken(null);
     localStorage.removeItem("auth_token");
+    setActingCompanyId(null);
     // Navigate to login — use window.location for clean state reset
     window.location.href = "/login";
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, loginError, isLoggingIn, login, logout }}>
+    <AuthContext.Provider value={{ user, company, token, isLoading, loginError, isLoggingIn, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

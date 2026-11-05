@@ -14,6 +14,7 @@ import { ContactHoverCard } from "@/components/ContactHoverCard";
 import { UnlinkedPersonMark } from "@/app/shipments/_components/UnlinkedPersonMark";
 import { formatDate } from "@/lib/date";
 import { statusLabel } from "@/lib/shipmentStatus";
+import { loadTypeLabel } from "@/lib/enums";
 import { personChange, splitPersonStamp } from "@/app/shipments/_lib/personFields";
 import { contactLinks, type ContactLinks } from "@/app/shipments/_lib/parties";
 import { DateTimeEditor } from "./DateTimeEditor";
@@ -143,6 +144,9 @@ export function EditableCell({
   // (no Trade Direction yet) the suffix is what tells the "Billing"s apart.
   const statusLabels =
     fieldKey === "status" && ["[IMP]", "[EXP]", "[DOM]"].filter((t) => options.some((o) => o.endsWith(t))).length <= 1;
+  // By air a Full Load reads (and is picked as) Single Shipment; "Full Load" is what is saved.
+  const optionLabel = (o: string) =>
+    statusLabels ? statusLabel(o) : fieldKey === "loadType" ? loadTypeLabel(o, freightMode) : o;
 
   const startEditing = () => {
     cancelledRef.current = false;
@@ -170,7 +174,9 @@ export function EditableCell({
     const hasValue = original.length > 0;
     // Dates are stored as ISO but shown in the unified DD.MM.YYYY display format (a kept time after it).
     const shown = hasValue
-      ? isDate ? (col?.timeField ? shownDate(original) : formatDate(original)) : fieldKey === "status" ? statusLabel(original) : original
+      ? isDate
+        ? col?.timeField ? shownDate(original) : formatDate(original)
+        : fieldKey === "status" ? statusLabel(original) : fieldKey === "loadType" ? loadTypeLabel(original, freightMode) : original
       : placeholder;
     const textClass = hasValue ? displayClassName : (emptyClassName ?? displayClassName);
     const textStyle = hasValue ? displayStyle : undefined;
@@ -328,7 +334,7 @@ export function EditableCell({
           defaultOpen
           className="w-full min-w-[140px]"
           defaultValue={original || undefined}
-          options={options.map((o) => ({ value: o, label: statusLabels ? statusLabel(o) : o }))}
+          options={options.map((o) => ({ value: o, label: optionLabel(o) }))}
           onChange={(v) => commit(v)}
           onBlur={() => setEditing(false)}
         />

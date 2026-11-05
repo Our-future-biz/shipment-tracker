@@ -32,6 +32,11 @@ export function countryCodeOf(value: string, kind: GeoKind): string | null {
   return code && COUNTRY_BY_CODE.has(code) ? code : null;
 }
 
+/** The code in brackets of a stored place ("Hamburg (DEHAM)" → "DEHAM"), else null. */
+export function placeCodeOf(value: string | null | undefined): string | null {
+  return PLACE_RE.exec((value ?? "").trim())?.[1] ?? null;
+}
+
 /** True when a non-empty value is not in the database's form, so the screen flags it. */
 export function isUnmatched(kind: GeoKind, value: string | null | undefined): boolean {
   const v = (value ?? "").trim();

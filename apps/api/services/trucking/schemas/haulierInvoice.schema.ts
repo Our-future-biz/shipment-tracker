@@ -43,6 +43,12 @@ export const truckingHaulierInvoiceTable = pgTable(
     rejectedByUserId: uuid("rejected_by_user_id"),
     rejectedBy: text("rejected_by"),
     rejectReason: text("reject_reason"),
+    // When an approved invoice was paid (the day the payment went), and who noted it (Council Outlay 7, step 6b);
+    // null while unpaid. A field beside the status, so the approval rules stay as they are.
+    paidOn: date("paid_on", { mode: "string" }),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    paidByUserId: uuid("paid_by_user_id"),
+    paidBy: text("paid_by"),
     fileName: text("file_name"),
     fileContentType: text("file_content_type"),
     fileSizeBytes: integer("file_size_bytes"),
@@ -66,6 +72,8 @@ export const truckingHaulierInvoiceTable = pgTable(
     // Payment is never approved while blocked (ručení za DPH): an approved invoice has no block reason.
     check("trucking_haulier_invoice_approved_check", sql`${table.status} <> 'APPROVED' OR (${table.approvedAt} IS NOT NULL AND ${table.blockReasons} = '[]'::jsonb)`),
     check("trucking_haulier_invoice_rejected_check", sql`(${table.status} = 'REJECTED') = (${table.rejectedAt} IS NOT NULL)`),
+    // Only an approved invoice is paid: payment is never noted on one that may not be paid.
+    check("trucking_haulier_invoice_paid_check", sql`${table.paidOn} IS NULL OR ${table.status} = 'APPROVED'`),
   ],
 );
 

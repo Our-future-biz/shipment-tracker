@@ -9,6 +9,7 @@ import { userRefs } from "../../../lib/userNames";
 import { isUuid } from "../../../lib/uuid";
 import type { SheetPreview, SupplierTariffMode, SupplierTariffVersion, TariffFile, TariffFinding } from "../interfaces/interfaces";
 import { findingTotals } from "../lib/railConvert";
+import { coveredUntil } from "../lib/tariffCoverage";
 import { readSheets, type ReadOptions, type Sheet } from "../lib/sheet";
 import { tariffRepository, type DraftRows, type DraftTariff, type TariffFields, type VersionDates } from "../repositories/tariff.repository";
 import type { TariffLayout, TariffRecord, TariffVersionRecord } from "../schemas/tariff.schema";
@@ -93,7 +94,20 @@ export interface SupplierGlance {
   draftCount: number;
   /** The soonest end of a version pricing on the day, YYYY-MM-DD; null when none ends */
   activeUntil: string | null;
+  /**
+   * The last day the supplier has a tariff pricing without a gap from the day on, versions that start later
+   * counted, YYYY-MM-DD; null when one of them never ends, or none prices on the day (Council Review 5, K12).
+   */
+  coveredUntil: string | null;
+  /** The supplier rating, 0–5 stars, null when not rated */
+  rating: number | null;
 }
+
+/**
+ * The order of "best first" (Council Outlay 7, D14): 5 down to 1 star, then not rated, then 0. Offers stay
+ * cheapest first; this only settles an exact tie on price (D13).
+ */
+export const ratingRank = (rating: number | null): number => (rating === null ? 0.5 : rating === 0 ? -1 : rating);
 
 export function supplierGlance({ company, tariffs, versions }: SupplierTariffs, day: string): SupplierGlance {
   const pricing = versions.filter((v) => pricesOn(v, day));
@@ -108,6 +122,8 @@ export function supplierGlance({ company, tariffs, versions }: SupplierTariffs, 
     activeCount: pricing.length,
     draftCount: versions.filter((v) => v.status === "draft").length,
     activeUntil: ends.length ? ends.sort()[0]! : null,
+    coveredUntil: pricing.length ? coveredUntil(versions, day) : null,
+    rating: company.rating,
   };
 }
 

@@ -17,8 +17,8 @@ interface WarehouseSectionPatchResponse {
   section: WarehouseConceptSectionItem;
 }
 
-// Saves changed fields of a section (Shipment Details: notes, remeasured lines, "sent" marks,
-// operations informed). A field someone else changed since the client read it is refused with
+// Saves changed fields of a section (Shipment Details: notes, remeasured lines, "sent" marks;
+// Operations informed only through Inform Operations, which also tells them). A field someone else changed since the client read it is refused with
 // "Changed meanwhile … reload" (aborted); different fields saved at the same time both stay.
 export const warehouseSectionPatch = api(
   { expose: true, auth: true, method: "PATCH", path: "/warehouse-concept/sections/:shipmentId/:section" },

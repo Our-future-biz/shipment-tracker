@@ -4,14 +4,22 @@ import { TenantRepository } from "../../../lib/db/repository";
 import { db, type Tx } from "../db/db";
 import { shipmentTable, type NewShipmentRecord, type ShipmentRecord } from "../schemas/shipment.schema";
 import { CANCELLED_STATUS } from "../lib/fieldDefaults";
-import { shipmentRefCounterRepository } from "./shipmentRefCounter.repository";
+import { shipmentRefCounterRepository, type Tx as CounterTx } from "./shipmentRefCounter.repository";
+import { jobNumberFor } from "../lib/jobNumber";
 import { masterJobTable } from "../schemas/masterJob.schema";
 import { containerTable } from "../schemas/container.schema";
-import { containsAllWords } from "../../../lib/db/textSearch";
+import { containsAllWords, escapeLike, foldDiacritics, foldSql } from "../../../lib/db/textSearch";
+import { JOB_NUMBER_PATTERN, referenceSearchDigits } from "../../../lib/jobNumber";
 import type { PeopleRewrite, ShipmentPeople } from "../lib/people";
 
 /** A new shipment's own fields; the repository sets the company and the job number. */
 export type NewShipmentData = Omit<NewShipmentRecord, "companyId" | "jobNumber">;
+
+/** What decides a shipment's reference letters (lib/jobNumber), whether they are final, and the quote it names. */
+export type ShipmentReference = Pick<
+  ShipmentRecord,
+  "id" | "jobNumber" | "freightMode" | "loadType" | "salesNumber" | "jobNumberFinal" | "invoicingStatus"
+>;
 
 /**
  * Predicates behind the Shipments overview tiles. Shared by the list filter and
@@ -62,12 +70,18 @@ const SEARCHED_TEXT = [
   containerText(containerTable.containerNumber),
 ];
 
+// The Load Type as the grid shows it: by Air Freight a Full Load reads "Single Shipment" (it is
+// still stored as Full Load), the web's loadTypeLabel.
+const LOAD_TYPE_TEXT = sql`CASE WHEN ${shipmentTable.loadType} = 'Full Load' AND ${shipmentTable.freightMode} ~* '^air'
+  THEN 'Single Shipment' ELSE ${shipmentTable.loadType} END`;
+
 const SHIPMENT_COLUMNS: Record<string, PgColumn> = getTableColumns(shipmentTable);
-/** Grid columns whose text is not a shipment column of the same name. */
+/** Grid columns whose text is not a shipment column of the same name, or not as it is stored. */
 const RELATED_TEXT: Record<string, SQL> = {
   masterJob: MCZ_TEXT,
   containerNumber: containerText(containerTable.containerNumber),
   sealNumber: containerText(containerTable.sealNumber),
+  loadType: LOAD_TYPE_TEXT,
 };
 
 /**
@@ -93,6 +107,25 @@ export function searchedColumns(keys: string[]): (PgColumn | SQL)[] {
     else if (type.startsWith("numeric") || type === "integer") text.push(sql`${column}::text`);
   }
   return text;
+}
+
+// The digits of a shipment's reference, whatever its letters (lib/jobNumber); null for other text.
+const JOB_NUMBER_DIGITS = sql`substring(${shipmentTable.jobNumber} from ${sql.raw(`'${JOB_NUMBER_PATTERN}'`)})`;
+
+// A word typed as a reference also finds the job by its number, whatever its letters are now: the
+// letters follow the Freight Mode and Load Type, so CZ00000023 finds CZFCL00000023, and CZFCL…
+// finds the job that is CZLCL… since. Digits still being typed find the numbers they start.
+const sameJobNumber = (word: string): SQL | undefined => {
+  const digits = referenceSearchDigits(word);
+  return digits === null ? undefined : sql`${JOB_NUMBER_DIGITS} LIKE ${`${digits}%`}`;
+};
+
+/**
+ * The Shipments search: every word typed, in the chosen grid columns (searchedColumns) or else in
+ * SEARCHED_TEXT, without regard to diacritics or case - a reference also by its number.
+ */
+export function searchMatch(search: string, columnKeys?: string[]): SQL | undefined {
+  return containsAllWords(columnKeys?.length ? searchedColumns(columnKeys) : SEARCHED_TEXT, search, sameJobNumber);
 }
 
 const TODAY = sql`(now() AT TIME ZONE 'Europe/Prague')::date`;
@@ -282,6 +315,23 @@ export interface CustomerShipmentFactsRow {
 // spaces around it.
 const SALES_NUMBER = sql<string>`btrim(${shipmentTable.salesNumber})`;
 
+// The columns of a ShipmentReference.
+const REFERENCE_FIELDS = {
+  id: shipmentTable.id,
+  jobNumber: shipmentTable.jobNumber,
+  freightMode: shipmentTable.freightMode,
+  loadType: shipmentTable.loadType,
+  salesNumber: shipmentTable.salesNumber,
+  jobNumberFinal: shipmentTable.jobNumberFinal,
+  invoicingStatus: shipmentTable.invoicingStatus,
+};
+
+// The company's next CZ number, with the letters of the new job's Freight Mode and Load Type
+// (CZAIR00000023, lib/jobNumber).
+async function nextJobNumber(tx: CounterTx, companyId: string, data: NewShipmentData): Promise<string> {
+  return jobNumberFor(await shipmentRefCounterRepository.allocate(tx, companyId, "CZ"), data.freightMode, data.loadType);
+}
+
 class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
   constructor() {
     super(db, shipmentTable, "shipment");
@@ -346,6 +396,29 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
       .orderBy(asc(shipmentTable.createdAt), asc(shipmentTable.id));
   }
 
+  /**
+   * The quote references (Sales Number) of the live shipments whose job number contains `text`,
+   * case and diacritics aside, each once - at most `limit`. For the Quotes list's "Shipment (job no.)"
+   * filter, which finds a quote by any of its shipments.
+   */
+  async salesNumbersByJobNumber(companyId: string, text: string, limit: number): Promise<string[]> {
+    const folded = foldDiacritics(text.trim());
+    if (!folded) return [];
+    const rows = await this.db
+      .selectDistinct({ reference: SALES_NUMBER })
+      .from(shipmentTable)
+      .where(
+        and(
+          eq(shipmentTable.companyId, companyId),
+          isNull(shipmentTable.deletedAt),
+          sql`${SALES_NUMBER} <> ''`,
+          sql`${foldSql(sql`coalesce(${shipmentTable.jobNumber}, '')`)} LIKE ${`%${escapeLike(folded)}%`}`,
+        ),
+      )
+      .limit(limit);
+    return rows.map((r) => r.reference);
+  }
+
   /** Every company that has shipments, deleted ones included (a deleted shipment can leave a quote to unlink). */
   async companyIds(): Promise<string[]> {
     const rows = await this.db.selectDistinct({ companyId: shipmentTable.companyId }).from(shipmentTable);
@@ -388,7 +461,7 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
     return this.db.transaction(async (tx) => {
       const [existing] = await this.lockLiveBySalesNumber(tx, companyId, reference);
       if (existing && !allowSecond) return { existing };
-      const jobNumber = await shipmentRefCounterRepository.allocate(tx, companyId, "CZ");
+      const jobNumber = await nextJobNumber(tx, companyId, data);
       const [created] = await tx
         .insert(shipmentTable)
         .values({ ...data, jobNumber, companyId, salesNumber: reference, createdFromQuote: true })
@@ -403,7 +476,7 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
    */
   async createWithJobNumber(companyId: string, data: NewShipmentData): Promise<ShipmentRecord> {
     return this.db.transaction(async (tx) => {
-      const jobNumber = await shipmentRefCounterRepository.allocate(tx, companyId, "CZ");
+      const jobNumber = await nextJobNumber(tx, companyId, data);
       const [created] = await tx.insert(shipmentTable).values({ ...data, jobNumber, companyId }).returning();
       return created!;
     });
@@ -573,7 +646,7 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
     }
     // Every word typed, anywhere in these columns, without regard to diacritics or case.
     if (f.search) {
-      const match = containsAllWords(f.searchColumns?.length ? searchedColumns(f.searchColumns) : SEARCHED_TEXT, f.search);
+      const match = searchMatch(f.search, f.searchColumns);
       if (match) clauses.push(match);
     }
     const where = and(...clauses);
@@ -684,6 +757,68 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
       .update(shipmentTable)
       .set({ plateNumber, updatedAt: new Date() })
       .where(and(eq(shipmentTable.companyId, companyId), eq(shipmentTable.warehouseTruck, truck), isNull(shipmentTable.deletedAt)));
+  }
+
+  /** The reference fields (ShipmentReference) of the company's live shipments: what the reference backfill reads. */
+  async referencesOf(companyId: string): Promise<ShipmentReference[]> {
+    return this.db
+      .select(REFERENCE_FIELDS)
+      .from(shipmentTable)
+      .where(and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt)));
+  }
+
+  /**
+   * One live shipment's reference fields, read inside its write turn: what every write before the
+   * turn was taken has left. Null when there is no such shipment.
+   */
+  async referenceInTurn(tx: Tx, id: string, companyId: string): Promise<ShipmentReference | null> {
+    const [row] = await tx
+      .select(REFERENCE_FIELDS)
+      .from(shipmentTable)
+      .where(and(eq(shipmentTable.id, id), eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt)));
+    return row ?? null;
+  }
+
+  /**
+   * Renames a live shipment's reference to `to` inside a write turn - only while it still reads
+   * what `to` was worked out from (`from`: its reference, Freight Mode and Load Type), so a write
+   * made since wins. Null when nothing was renamed.
+   */
+  async renameJobNumber(
+    tx: Tx,
+    companyId: string,
+    from: Pick<ShipmentReference, "id" | "jobNumber" | "freightMode" | "loadType">,
+    to: string,
+  ): Promise<ShipmentRecord | null> {
+    const [row] = await tx
+      .update(shipmentTable)
+      .set({ jobNumber: to, updatedAt: new Date() })
+      .where(
+        and(
+          eq(shipmentTable.id, from.id),
+          eq(shipmentTable.companyId, companyId),
+          isNull(shipmentTable.deletedAt),
+          eq(shipmentTable.jobNumber, from.jobNumber),
+          eq(shipmentTable.freightMode, from.freightMode),
+          eq(shipmentTable.loadType, from.loadType),
+        ),
+      )
+      .returning();
+    return row ?? null;
+  }
+
+  /**
+   * Marks a live shipment's reference final inside its write turn and gives it back as it is now:
+   * what Invoicing makes the invoice number of. updatedAt stays - nothing a user sees changed.
+   * Null when there is no such shipment.
+   */
+  async markJobNumberFinal(tx: Tx, id: string, companyId: string): Promise<string | null> {
+    const [row] = await tx
+      .update(shipmentTable)
+      .set({ jobNumberFinal: true })
+      .where(and(eq(shipmentTable.id, id), eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt)))
+      .returning({ jobNumber: shipmentTable.jobNumber });
+    return row?.jobNumber ?? null;
   }
 
   /** The columns that name people, of the company's live shipments: what the people backfill reads. */

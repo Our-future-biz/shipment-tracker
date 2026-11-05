@@ -2,7 +2,14 @@
 
 import { useMemo, useState } from "react";
 import { Alert, Button, Modal, Radio, Select, Spin } from "antd";
-import { StarFilled, WarningOutlined } from "@ant-design/icons";
+import { PushpinFilled, WarningOutlined } from "@ant-design/icons";
+import { SupplierRatingStars } from "@/app/customers/_components/SupplierRatingStars";
+import { SUPPLIER_NOT_IN_USE } from "@/app/customers/_lib/supplierStatus";
+import { Pill } from "@/components/Pill";
+import { HaulierListError } from "./HaulierListError";
+import { HaulierOptionLabel } from "./HaulierOptionLabel";
+import { HaulierRatingNote } from "./HaulierRatingNote";
+import { bestFirst, needsConfirmation, notInUseOf, pickable, pickName, ratingsOf, reasonsOf } from "../_lib/haulierRating";
 import { apiErrorMessage } from "@/lib/api";
 import { formatDate } from "@/lib/date";
 import { useHauliers, useRateQuery, useTruckingSettings } from "@/hooks/useTrucking";
@@ -35,12 +42,14 @@ export const NewLtlTripModal = ({ kind, date, legs, hubPostcode, onClose, onCrea
   const [request] = useState(() => ltlTripRateRequest(kind, legs, hubPostcode, date));
   const { isRating, result, error } = useRateQuery(request, round);
   const { settings } = useTruckingSettings();
-  const { hauliers } = useHauliers();
+  const { hauliers, isLoading: hauliersLoading, isError: hauliersError, refetch: refetchHauliers } = useHauliers();
   const [choice, setChoice] = useState<string | null>(null);
   const [otherHaulier, setOtherHaulier] = useState<string | null>(null);
   const [otherPrice, setOtherPrice] = useState<PriceForm>(emptyPriceForm);
   const [vehicle, setVehicle] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // The 0-star haulier the user said to use anyway; another pick asks again.
+  const [confirmedFor, setConfirmedFor] = useState<string | null>(null);
 
   const level = result?.results[0] ?? null;
   const candidates = useMemo(() => level?.buy ?? [], [level]);
@@ -48,7 +57,13 @@ export const NewLtlTripModal = ({ kind, date, legs, hubPostcode, onClose, onCrea
   const picked = choice ?? candidates[0]?.ownerCustomerId ?? (result || error ? OTHER : null);
   const other = picked === OTHER;
   const haulierId = other ? otherHaulier : picked;
-  const usable = hauliers.filter((h) => h.status !== "blocked");
+  // Picked by name: best first. The priced candidates keep the engine's order (preferred, then cheapest).
+  // "Not in use" hauliers are left out (D16), except the one already picked, which says so (as a priced one does).
+  const usable = bestFirst(pickable(hauliers.filter((h) => h.status !== "blocked"), haulierId));
+  const notInUse = notInUseOf(hauliers);
+  const ratings = ratingsOf(hauliers);
+  const reasons = reasonsOf(hauliers);
+  const pickedRating = haulierId ? ratings.get(haulierId) : undefined;
   const vehicles = (settings?.vehicleTypes ?? []).filter((v) => v.active);
   const vehicleType = vehicles.find((v) => v.code === vehicle) ?? null;
   const haulier = hauliers.find((h) => h.customerId === haulierId) ?? null;
@@ -58,7 +73,15 @@ export const NewLtlTripModal = ({ kind, date, legs, hubPostcode, onClose, onCrea
     haulierAdr: haulier ? haulier.adrCapable : null,
     tripDate: date,
   });
-  const problems = [...(haulierId ? [] : [`Pick the ${TERMS.haulier.toLowerCase()}`]), ...(vehicle ? [] : [`Pick the ${TERMS.vehicleType.toLowerCase()}`]), ...(other ? priceProblems(otherPrice) : [])];
+  const problems = [
+    ...(haulierId ? [] : [`Pick the ${TERMS.haulier.toLowerCase()}`]),
+    // Until the hauliers are read a rating is not known: nothing is saved before it can be confirmed (m24).
+    ...(hauliersLoading ? [`Wait for the ${TERMS.haulier.toLowerCase()} list`] : []),
+    ...(hauliersError ? [`Read the ${TERMS.haulier.toLowerCase()} list again`] : []),
+    ...(needsConfirmation(pickedRating) && confirmedFor !== haulierId ? [`Confirm the 0-star ${TERMS.haulier.toLowerCase()}`] : []),
+    ...(vehicle ? [] : [`Pick the ${TERMS.vehicleType.toLowerCase()}`]),
+    ...(other ? priceProblems(otherPrice) : []),
+  ];
 
   const handleCreate = async () => {
     if (!haulierId || !vehicle) return;
@@ -94,8 +117,10 @@ export const NewLtlTripModal = ({ kind, date, legs, hubPostcode, onClose, onCrea
           {candidates.map((b, i) => (
             <Radio key={b.ownerCustomerId ?? i} value={b.ownerCustomerId} className="!m-0 rounded-lg border border-slate-200 px-3 py-2">
               <span className="flex flex-wrap items-baseline gap-x-2">
-                {b.preferred && <StarFilled className="text-amber-500" aria-label="Preferred lane" />}
+                {b.preferred && <PushpinFilled className="text-indigo-500" aria-label="Preferred lane" title="Preferred lane" />}
                 <span className="font-semibold text-slate-800">{b.ownerName ?? TERMS.haulier}</span>
+                {b.ownerCustomerId && ratings.has(b.ownerCustomerId) && <SupplierRatingStars rating={ratings.get(b.ownerCustomerId) ?? null} />}
+                {b.ownerCustomerId && notInUse.has(b.ownerCustomerId) && <Pill tone="slate">{SUPPLIER_NOT_IN_USE}</Pill>}
                 <span className="tabular-nums">{formatMoney(b.total, b.currency)}</span>
                 <span className="text-[12px] text-slate-500">
                   {b.tariffName} {versionLabel(b)}
@@ -131,7 +156,8 @@ export const NewLtlTripModal = ({ kind, date, legs, hubPostcode, onClose, onCrea
               aria-label="Haulier"
               optionFilterProp="label"
               value={otherHaulier ?? undefined}
-              options={usable.map((h) => ({ value: h.customerId, label: `${h.companyName}${h.status === "warning" ? " (warning)" : ""}` }))}
+              options={usable.map((h) => ({ value: h.customerId, label: `${pickName(h)}${h.status === "warning" ? " (warning)" : ""}`, rating: h.rating }))}
+              optionRender={(o) => <HaulierOptionLabel label={o.label} rating={o.data.rating} />}
               onChange={setOtherHaulier}
             />
           </TruckingField>
@@ -161,6 +187,9 @@ export const NewLtlTripModal = ({ kind, date, legs, hubPostcode, onClose, onCrea
           <li className="mt-1 text-[11px] text-amber-700">Warnings do not stop the trip.</li>
         </ul>
       )}
+
+      {hauliersError && <HaulierListError onRetry={() => refetchHauliers()} />}
+      <HaulierRatingNote customerId={haulierId} rating={pickedRating} reason={haulierId ? reasons.get(haulierId) : ""} confirmed={confirmedFor === haulierId} onConfirm={(on) => setConfirmedFor(on ? haulierId : null)} />
 
       {problems.length > 0 && (result || error) && (
         <div className="mt-3 text-[12px] text-amber-700">

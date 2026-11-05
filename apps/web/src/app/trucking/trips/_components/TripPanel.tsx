@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Tooltip } from "antd";
-import { StarFilled } from "@ant-design/icons";
+import { PushpinFilled } from "@ant-design/icons";
 import { SectionCard } from "@/components/SectionCard";
 import type { TripDetail } from "@/hooks/useTruckingConsignments";
 import { formatDate, businessDateTime } from "@/lib/date";
@@ -137,7 +137,7 @@ export const TripPanel = ({ trip, actions, manager, linkToTrip = false, onDialog
             <tbody>
               {trip.buyCandidates.map((b, i) => (
                 <tr key={`${b.ownerCustomerId}-${i}`} className={`border-b border-slate-50 ${b.ownerCustomerId === trip.haulierCustomerId ? "font-semibold" : ""}`}>
-                  <td className="px-2 py-1 w-5">{b.preferred && <StarFilled className="text-amber-500" aria-label="Preferred lane" />}</td>
+                  <td className="px-2 py-1 w-5">{b.preferred && <PushpinFilled className="text-indigo-500" aria-label="Preferred lane" />}</td>
                   <td className="px-2 py-1 text-slate-800">
                     {b.ownerName}
                     {i === 0 ? <span className="ml-1.5 text-[11px] font-normal text-indigo-600">suggested</span> : null}

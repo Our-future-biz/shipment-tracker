@@ -12,8 +12,12 @@ import { useCustomer } from "@/hooks/useCustomers";
 import type { CustomerItem } from "@/hooks/useCustomers";
 import { useToast } from "@/lib/toast";
 import { CustomerAccountTypeBadge } from "../../_components/CustomerAccountTypeBadge";
-import { CustomerHaulierBadge } from "../../_components/CustomerHaulierBadge";
+import { CustomerRoleBadges } from "../../_components/CustomerRoleBadges";
+import { hasSupplierRole } from "../../_lib/customerListViews";
+import { isSupplierOnly } from "../../_lib/supplierStatus";
+import { SupplierRatingBox } from "./SupplierRatingBox";
 import { statusDotClass } from "../../_lib/constants";
+import { shownStatus } from "../../_lib/supplierStatus";
 import { CustomerSalesOwnerSelect } from "./CustomerSalesOwnerSelect";
 import { useCustomerListHref } from "../../_lib/customerListHref";
 import { canDeleteCustomerRecords } from "../../_lib/customerPermissions";
@@ -32,6 +36,8 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
   const toast = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
   const listHref = useCustomerListHref();
+  // A supplier only is called a supplier on its own page (Council Review 5, m20).
+  const noun = isSupplierOnly(customer.roles) ? "supplier" : "customer";
   const { user } = useAuth();
   const canDelete = canDeleteCustomerRecords(user);
   const { deleteCustomer, uploadLogo, deleteLogo } = useCustomer(customer.id);
@@ -63,11 +69,11 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
     setDeleting(true);
     try {
       await deleteCustomer();
-      toast.success("Customer deleted");
+      toast.success(noun === "supplier" ? "Supplier deleted" : "Customer deleted");
       // Replace, so Back does not return to the page of a customer that no longer exists.
       router.replace(listHref);
     } catch {
-      toast.error("Failed to delete the customer");
+      toast.error(`Failed to delete the ${noun}`);
       setDeleting(false);
     }
   };
@@ -77,7 +83,7 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
     ...(customer.logoUrl ? [{ key: "remove-logo", label: "Remove logo", onClick: handleRemoveLogo }] : []),
     // Superadmins only (the API refuses everyone else).
     ...(canDelete
-      ? [{ type: "divider" as const }, { key: "delete", label: "Delete customer", danger: true, onClick: () => setDeleteOpen(true) }]
+      ? [{ type: "divider" as const }, { key: "delete", label: `Delete ${noun}`, danger: true, onClick: () => setDeleteOpen(true) }]
       : []),
   ];
 
@@ -98,8 +104,9 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
           <div className="min-w-0">
             <div className="flex items-center gap-3 flex-wrap">
               <h1 className="text-[22px] font-bold text-slate-800 m-0">{customer.companyName}</h1>
-              <CustomerAccountTypeBadge label={customer.label} />
-              <CustomerHaulierBadge roles={customer.roles} />
+              {/* A customer's account type; a supplier only shows what it supplies instead. */}
+              {!isSupplierOnly(customer.roles) && <CustomerAccountTypeBadge label={customer.label} />}
+              <CustomerRoleBadges roles={customer.roles} />
             </div>
             {/* Only where the customer is; IČO, DIČ and the rest of the registry record are in the Registry card. */}
             {customer.city && (
@@ -111,19 +118,37 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-4 shrink-0">
-          <CustomerSalesOwnerSelect key={customer.id} customer={customer} />
-          <span aria-hidden className="h-8 w-px bg-slate-200" />
-          {/* Read-only here: the status is changed in the CRM card, and a won quote makes the customer Active. */}
+        {/* Wraps on a narrow screen (a company that is both shows owner, status and rating side by side). */}
+        <div className="flex min-w-0 max-w-full flex-wrap items-center gap-4">
+          {/* Customer side: who owns it. Supplier side: its rating. A company that is both shows the two. */}
+          {!isSupplierOnly(customer.roles) && (
+            <>
+              <CustomerSalesOwnerSelect key={customer.id} customer={customer} />
+              <span aria-hidden className="h-8 w-px bg-slate-200" />
+            </>
+          )}
+          {hasSupplierRole(customer.roles) && isSupplierOnly(customer.roles) && (
+            <>
+              <SupplierRatingBox key={customer.id} customer={customer} />
+              <span aria-hidden className="h-8 w-px bg-slate-200" />
+            </>
+          )}
+          {/* Read-only here: the status is changed in the CRM card, and a won quote makes the customer Active. A supplier only reads In use / Not in use. */}
           <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3.5 py-1.5 text-[13px] font-medium text-slate-600">
-            <span aria-hidden className={`h-2.5 w-2.5 rounded-full ${statusDotClass(customer.status)}`} />
-            {customer.status}
+            <span aria-hidden className={`h-2.5 w-2.5 rounded-full ${statusDotClass(shownStatus(customer))}`} />
+            {shownStatus(customer)}
           </span>
+          {hasSupplierRole(customer.roles) && !isSupplierOnly(customer.roles) && (
+            <>
+              <span aria-hidden className="h-8 w-px bg-slate-200" />
+              <SupplierRatingBox key={customer.id} customer={customer} />
+            </>
+          )}
           <span aria-hidden className="h-8 w-px bg-slate-200" />
           <Dropdown menu={{ items: actionItems }} trigger={["click"]} placement="bottomRight">
             <button
               type="button"
-              aria-label="Customer actions"
+              aria-label={noun === "supplier" ? "Supplier actions" : "Customer actions"}
               className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 cursor-pointer transition-colors hover:bg-slate-50 hover:text-slate-900"
             >
               <EllipsisOutlined className="text-[18px]" />
@@ -137,7 +162,7 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
         open={deleteOpen}
         onClose={() => setDeleteOpen(false)}
         onConfirm={handleDelete}
-        title="Delete customer"
+        title={`Delete ${noun}`}
         description={`Delete ${customer.companyName}? It is hidden from everyone together with its contacts, addresses, sites, invoices, documents and notes. Its shipments and quotes are kept, and the record stays in the database: restore it under Customer Database → Deleted.`}
         confirmLabel="Delete"
         danger

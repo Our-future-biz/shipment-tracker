@@ -8,7 +8,7 @@ import { ArrowLeftOutlined, LockOutlined, UnlockOutlined } from "@ant-design/ico
 import { SectionCard } from "@/components/SectionCard";
 import { apiErrorMessage, isNotFound } from "@/lib/api";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { businessToday, formatDate, businessDateTime } from "@/lib/date";
+import { formatDate, businessDateTime } from "@/lib/date";
 import { useToast } from "@/lib/toast";
 import { useHaulier, useTruckingSettings, type HaulierDetail, type HaulierUpdate } from "@/hooks/useTrucking";
 import { useUnsavedGuard } from "@/app/warehouse-concept/_lib/useUnsavedGuard";
@@ -279,32 +279,33 @@ export const HaulierView = ({ customerId }: HaulierViewProps) => {
           <div id="vat-register" className="scroll-mt-4">
             <SectionCard title="VAT register">
               <div className="flex flex-col gap-3">
-                {!canBlock && (
-                  <Alert
-                    type="info"
-                    showIcon
-                    icon={<LockOutlined />}
-                    message="Only a manager can change the VAT register and bank-account details. Every change is logged with before and after."
-                  />
-                )}
+                {/* Kept in the Customer Database (Council Outlay 7, step 6b): shown here, changed there by a manager, and copied here on every save. */}
+                <Alert
+                  type="info"
+                  showIcon
+                  icon={<LockOutlined />}
+                  message={
+                    <>
+                      The VAT register details, bank accounts and payment terms are kept in the Customer Database.{" "}
+                      <Link href={`/customers/${customerId}?tab=finance`} className="font-semibold">
+                        Change them there
+                      </Link>
+                    </>
+                  }
+                />
                 <div className="flex items-center gap-2">
-                  <Switch size="small" checked={draft.vatUnreliable} disabled={!canBlock} aria-label={TERMS.unreliableVatPayer} onChange={(on) => set("vatUnreliable", on)} />
+                  <Switch size="small" checked={draft.vatUnreliable} disabled aria-label={TERMS.unreliableVatPayer} />
                   <span className={`text-[13px] ${draft.vatUnreliable ? "font-semibold text-red-700" : "text-slate-700"}`}>{TERMS.unreliableVatPayer}</span>
                   {draft.vatUnreliable && <span className="text-[11px] text-red-600">— blocks the haulier</span>}
                 </div>
                 <div className="flex items-center gap-2">
-                  <Switch size="small" checked={draft.bankAccountPublished} disabled={!canBlock} aria-label="Bank account published" onChange={(on) => set("bankAccountPublished", on)} />
+                  <Switch size="small" checked={draft.bankAccountPublished} disabled aria-label="Bank account published" />
                   <span className="text-[13px] text-slate-700">Bank account published in the VAT register</span>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 text-[13px] text-slate-700">
                   <span>Last checked: {draft.vatCheckedAt ? formatDate(draft.vatCheckedAt) : "never"}</span>
-                  {canBlock && (
-                    <Button size="small" onClick={() => set("vatCheckedAt", businessToday())} disabled={draft.vatCheckedAt === businessToday()}>
-                      Mark checked today
-                    </Button>
-                  )}
                 </div>
-                <HaulierBankAccounts accounts={draft.bankAccounts ?? []} onChange={(v) => set("bankAccounts", v)} readOnly={!canBlock} />
+                <HaulierBankAccounts accounts={draft.bankAccounts ?? []} onChange={() => undefined} readOnly />
                 {bankHold && (
                   <Alert
                     type="warning"
@@ -341,11 +342,11 @@ export const HaulierView = ({ customerId }: HaulierViewProps) => {
                   />
                 </TruckingField>
               </div>
-              <TruckingField label="Payment days">
-                <InputNumber aria-label="Payment days" min={0} precision={0} value={draft.paymentDays} onChange={(v) => set("paymentDays", v ?? 0)} className="w-full" />
+              <TruckingField label="Payment days" hint="Kept in the Customer Database">
+                <InputNumber aria-label="Payment days" min={0} precision={0} value={draft.paymentDays} disabled className="w-full" />
               </TruckingField>
-              <TruckingField label="Currency">
-                <Select aria-label="Currency" value={draft.currency} options={CURRENCY_OPTIONS} onChange={(v) => set("currency", v)} className="w-full" />
+              <TruckingField label="Currency" hint="Kept in the Customer Database">
+                <Select aria-label="Currency" value={draft.currency} options={CURRENCY_OPTIONS} disabled className="w-full" />
               </TruckingField>
               <div className="col-span-2">
                 <TruckingField label={TERMS.costSplit} hint="How its price for a whole trip is shared across the consignments on it.">

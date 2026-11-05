@@ -32,14 +32,17 @@ function useRefreshInvoices() {
       queryClient.invalidateQueries({ queryKey: truckingKeys.haulierInvoices() }),
       // The real cost lands on the jobs: margins, costs, billing and the lists move.
       invalidateAfterTruckingWrite(queryClient),
+      // …and the haulier's What we owe (approving, Mark paid and Take back payment move it).
+      queryClient.invalidateQueries({ queryKey: ["supplier-costs"] }),
     ]);
 }
 
-export function useHaulierInvoices(filters: HaulierInvoiceListRequest = {}) {
+export function useHaulierInvoices(filters: HaulierInvoiceListRequest = {}, { enabled = true }: { enabled?: boolean } = {}) {
   const query = useQuery({
     queryKey: truckingKeys.haulierInvoiceList({ status: filters.status, haulierCustomerId: filters.haulierCustomerId }),
     queryFn: () => api.trucking.truckingHaulierInvoiceList(filters),
     placeholderData: keepPreviousData,
+    enabled,
   });
   return { invoices: query.data?.invoices ?? NO_INVOICES, isLoading: query.isLoading, isError: query.isError };
 }
@@ -82,6 +85,9 @@ export function useHaulierInvoice(id: string) {
   };
   const approve = useMutation({ mutationFn: (reason: string) => api.trucking.truckingHaulierInvoiceApprove(id, { reason }), onSuccess: onChanged });
   const reject = useMutation({ mutationFn: (reason: string) => api.trucking.truckingHaulierInvoiceReject(id, { reason }), onSuccess: onChanged });
+  // Council Outlay 7, step 6b: an approved invoice noted as paid, and that taken back with a reason.
+  const markPaid = useMutation({ mutationFn: (paidOn: string) => api.trucking.truckingHaulierInvoicePaid(id, { paidOn }), onSuccess: onChanged });
+  const markUnpaid = useMutation({ mutationFn: (reason: string) => api.trucking.truckingHaulierInvoiceUnpaid(id, { reason }), onSuccess: onChanged });
   return {
     invoice: query.data?.invoice ?? null,
     isLoading: query.isLoading,
@@ -89,6 +95,8 @@ export function useHaulierInvoice(id: string) {
     reload: query.refetch,
     approve: approve.mutateAsync,
     reject: reject.mutateAsync,
+    markPaid: markPaid.mutateAsync,
+    markUnpaid: markUnpaid.mutateAsync,
   };
 }
 

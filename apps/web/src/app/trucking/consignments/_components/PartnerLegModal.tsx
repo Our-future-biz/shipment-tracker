@@ -12,6 +12,10 @@ import { depotSites, emptyPriceForm, priceInput, priceProblems, type PriceForm }
 import { formatMoney } from "../../_lib/tariffs";
 import { TruckingField } from "../../_components/TruckingField";
 import { TruckingPriceFields } from "../../_components/TruckingPriceFields";
+import { HaulierOptionLabel } from "../../_components/HaulierOptionLabel";
+import { HaulierListError } from "../../_components/HaulierListError";
+import { HaulierRatingNote } from "../../_components/HaulierRatingNote";
+import { bestFirst, needsConfirmation, pickable, pickName } from "../../_lib/haulierRating";
 
 const AT_HUB = "__hub__";
 
@@ -27,7 +31,7 @@ interface PartnerLegModalProps {
 // depots (its Customer Database delivery sites, or it collects at our warehouse — then no line haul)
 // and the price — the partner's buy tariff (scope LTL) per consignment, or agreed with a reason.
 export const PartnerLegModal = ({ c, leg, onClose, onSave }: PartnerLegModalProps) => {
-  const { hauliers } = useHauliers();
+  const { hauliers, isLoading: hauliersLoading, isError: hauliersError, refetch: refetchHauliers } = useHauliers();
   const [haulierId, setHaulierId] = useState<string | null>(leg.haulierCustomerId ?? c.partnerHaulierCustomerId);
   // A partner already set with no depot collects at our warehouse.
   const [depot, setDepot] = useState<string | null>(leg.depotSiteId ?? (leg.haulierCustomerId ? AT_HUB : null));
@@ -35,11 +39,25 @@ export const PartnerLegModal = ({ c, leg, onClose, onSave }: PartnerLegModalProp
     leg.buy?.source === "MANUAL" ? { source: "MANUAL", total: leg.buy.total, currency: leg.buy.currency, reason: leg.buy.overrideReason ?? "" } : emptyPriceForm(),
   );
   const [busy, setBusy] = useState(false);
+  // The 0-star partner the user said to use anyway; another pick asks again.
+  const [confirmedFor, setConfirmedFor] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
   const { sites, isLoading: sitesLoading } = useCustomerSites(haulierId ?? "");
   const depots = useMemo(() => depotSites(sites), [sites]);
-  const partners = hauliers.filter((h) => h.status !== "blocked" || h.customerId === haulierId);
-  const problems = [...(haulierId ? [] : ["Pick the partner haulier"]), ...(depot ? [] : ["Pick the depot"]), ...priceProblems(price)];
+  // Picked by name: best first.
+  // "Not in use" partners are left out (D16), except the one already picked, which says so.
+  const partners = bestFirst(pickable(hauliers.filter((h) => h.status !== "blocked" || h.customerId === haulierId), haulierId));
+  const picked = haulierId ? hauliers.find((h) => h.customerId === haulierId) : undefined;
+  const pickedRating = picked?.rating;
+  const problems = [
+    ...(haulierId ? [] : ["Pick the partner haulier"]),
+    // Until the hauliers are read a rating is not known: nothing is saved before it can be confirmed (m24).
+    ...(hauliersLoading ? ["Wait for the haulier list"] : []),
+    ...(hauliersError ? ["Read the haulier list again"] : []),
+    ...(needsConfirmation(pickedRating) && confirmedFor !== haulierId ? ["Confirm the 0-star partner"] : []),
+    ...(depot ? [] : ["Pick the depot"]),
+    ...priceProblems(price),
+  ];
 
   const handleSave = async () => {
     if (!haulierId || !depot) return;
@@ -73,13 +91,16 @@ export const PartnerLegModal = ({ c, leg, onClose, onSave }: PartnerLegModalProp
             aria-label="Partner haulier"
             optionFilterProp="label"
             value={haulierId ?? undefined}
-            options={partners.map((h) => ({ value: h.customerId, label: `${h.companyName}${h.status === "warning" ? " (warning)" : ""}` }))}
+            options={partners.map((h) => ({ value: h.customerId, label: `${pickName(h)}${h.status === "warning" ? " (warning)" : ""}`, rating: h.rating }))}
+            optionRender={(o) => <HaulierOptionLabel label={o.label} rating={o.data.rating} />}
             onChange={(id) => {
               setHaulierId(id);
               setDepot(null);
             }}
           />
         </TruckingField>
+        {hauliersError && <HaulierListError onRetry={() => refetchHauliers()} />}
+        <HaulierRatingNote customerId={haulierId} rating={pickedRating} reason={picked?.ratingReason} confirmed={confirmedFor === haulierId} onConfirm={(on) => setConfirmedFor(on ? haulierId : null)} />
         <TruckingField label="Depot" hint="The partner's delivery sites in the Customer Database">
           <Select
             aria-label="Depot"

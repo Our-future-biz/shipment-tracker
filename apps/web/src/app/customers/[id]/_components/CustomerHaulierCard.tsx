@@ -6,6 +6,7 @@ import { useHaulier } from "@/hooks/useTrucking";
 import { formatDate } from "@/lib/date";
 import { HaulierIssueList } from "@/app/trucking/_components/HaulierIssueList";
 import { HaulierStatusChip } from "@/app/trucking/_components/HaulierStatusChip";
+import { useCanSeeConcepts } from "@/lib/auth/AuthContext";
 
 interface CustomerHaulierCardProps {
   customerId: string;
@@ -17,7 +18,9 @@ const TOP_ISSUES = 3;
 // that leads to the haulier page in Trucking, where its profile is kept — not a list of its own.
 export function CustomerHaulierCard({ customerId }: CustomerHaulierCardProps) {
   const { haulier, isLoading, error } = useHaulier(customerId);
-  const link = (
+  // Trucking itself is a concept module: the way there only for those who see it.
+  const canSeeConcepts = useCanSeeConcepts();
+  const link = canSeeConcepts && (
     <Link href={`/trucking/hauliers/${customerId}`} className="text-xs font-semibold text-indigo-600 whitespace-nowrap hover:underline">
       Open in Trucking
     </Link>

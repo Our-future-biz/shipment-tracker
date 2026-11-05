@@ -29,6 +29,15 @@ export interface WarehouseSectionItem {
   updatedAt: string;
 }
 
+/** One field of a section to save (Shipment Details is saved field by field). */
+export interface WarehouseSectionChange {
+  key: string;
+  /** The new text; "" clears the field. */
+  value: string;
+  /** The text the client last saw ("" = not set); when given, the save is refused if it changed since. */
+  expected?: string;
+}
+
 export interface WarehouseRef {
   shipmentId: string;
   reference: string;

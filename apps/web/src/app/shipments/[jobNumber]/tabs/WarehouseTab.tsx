@@ -1,22 +1,26 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { Input, Button, message } from "antd";
+import { useEffect, useRef, useState, useMemo } from "react";
+import { Input, Button, Tooltip, message } from "antd";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import type { MessageInstance } from "antd/es/message/interface";
-import { useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
 import { buildRowData, getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
 import type { interfaces } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/date";
-import { NOT_STACKABLE, STACKABLE, numberInput, shipmentStackability } from "@/lib/cargo";
-import { useWarehouseSection } from "@/hooks/useWarehouseSection";
+import { loadTypeLabel } from "@/lib/enums";
+import { NOT_STACKABLE, STACKABLE, dimensionLineVolume, dimensionTotals, numberInput, shipmentStackability } from "@/lib/cargo";
+import { SectionChangedError, useWarehouseSection } from "@/hooks/useWarehouseSection";
+import { apiErrorMessage } from "@/lib/api";
+import { informedText } from "@/lib/informOperations";
 import { SectionCard as Card, PillTabs } from "@/components/SectionCard";
 import { PickupSection } from "./warehouse/PickupSection";
 import { JobNotes, ActionPushButtons } from "./warehouse/JobExtras";
 
 interface JobSectionData {
   inform_operations_sent?: string;
+  // The warehouse's own remeasured lines (JSON of DimensionRow[]), kept apart from the
+  // shipment's cargo dimensions.
+  remeasure_rows?: string;
   [key: string]: string | undefined;
 }
 function asJobSection(data: unknown): JobSectionData {
@@ -64,7 +68,7 @@ export function WarehouseTab({ shipment }: { shipment: ShipmentItem }) {
               <div>
                 <Row label="Container #" value={shipment.containerNumber} />
                 <Row label="Colli / PCS" value={shipment.pcs} />
-                <Row label="Load type" value={shipment.loadType} />
+                <Row label="Load type" value={loadTypeLabel(shipment.loadType, shipment.freightMode)} />
                 <Row label="Customs procedure" value={rowData["customsProcedure"]} />
               </div>
               <div>
@@ -108,27 +112,48 @@ function StackabilityBadge({ shipment }: { shipment: ShipmentItem }) {
 }
 
 // ─── Dimensions / Remeasurement Editor (shipment-specific) ──────
-// Edits the shipment's cargo_dimension rows (the same rows the Cargo Details
-// tab manages per container). Rows keep their containerId when remeasured here;
-// rows added here belong to the shipment directly (containerId null).
+// The warehouse's own remeasured lines, kept in its job section (remeasure_rows, the same
+// JSON as in Warehouse Concept) and compared with the shipment's cargo dimensions, which
+// stay as Cargo Details holds them: the difference is what the customer is told about.
 
-type DimensionRow = interfaces.CargoDimensionLine;
+const DIM_FIELDS = ["pieces", "lengthCm", "widthCm", "heightCm", "weightPerPcKg"] as const;
+type DimensionRow = Record<(typeof DIM_FIELDS)[number], string>;
 
-const EMPTY_DIM: DimensionRow = { containerId: null, pieces: "", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "", packageType: "", stackable: "" };
+const EMPTY_DIM: DimensionRow = { pieces: "", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "" };
+
+function parseRemeasure(json: string | undefined): DimensionRow[] {
+  try {
+    const arr: unknown = JSON.parse(json || "[]");
+    return Array.isArray(arr) ? arr.map((r) => ({ ...EMPTY_DIM, ...(r as Partial<DimensionRow>) })) : [];
+  } catch {
+    return [];
+  }
+}
+
+// The lines as stored: only the filled ones, each field as typed.
+const serializeRows = (rows: DimensionRow[]) =>
+  JSON.stringify(rows.filter((r) => DIM_FIELDS.some((f) => r[f].trim())).map((r) => Object.fromEntries(DIM_FIELDS.map((f) => [f, r[f].trim()]))));
+
+// A remeasured line counted as a cargo dimension line (lib/cargo): its volume from its sizes.
+const asLine = (r: DimensionRow): interfaces.CargoDimensionLine => ({ containerId: null, packageType: "", stackable: "", volumePerPcM3: "", ...r });
 
 function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; messageApi: MessageInstance }) {
-  const queryClient = useQueryClient();
-  const { data: jobSectionData, save: saveJobSection, isSaving: isInforming } = useWarehouseSection(shipment.id, "job");
+  const { data: jobSectionData, saveKeys, isSaving, informOperations: inform, isInforming } = useWarehouseSection(shipment.id, "job");
   const jobSection = asJobSection(jobSectionData);
   const informedAt = jobSection.inform_operations_sent;
+  const saved = jobSection.remeasure_rows;
 
-  const initial: DimensionRow[] = (() => {
-    const arr = shipment.cargoDimensions ?? [];
-    return arr.length > 0 ? arr : [{ ...EMPTY_DIM }];
-  })();
-
-  const [rows, setRows] = useState<DimensionRow[]>(initial);
+  const [rows, setRows] = useState<DimensionRow[]>([{ ...EMPTY_DIM }]);
   const [dirty, setDirty] = useState(false);
+  // The saved lines the edit started from: a save replaces exactly those, or is refused.
+  const [base, setBase] = useState(saved ?? "");
+  // The saved lines fill the table while it holds no unsaved edit.
+  useEffect(() => {
+    if (dirty) return;
+    const parsed = parseRemeasure(saved);
+    setRows(parsed.length > 0 ? parsed : [{ ...EMPTY_DIM }]);
+    setBase(saved ?? "");
+  }, [saved, dirty]);
 
   const updateRow = (idx: number, field: keyof DimensionRow, value: string) => {
     setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
@@ -137,46 +162,29 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
   const addRow = () => { setRows((prev) => [...prev, { ...EMPTY_DIM }]); setDirty(true); };
   const deleteRow = (idx: number) => { setRows((prev) => prev.filter((_, i) => i !== idx)); setDirty(true); };
 
+  // Only the lines of the warehouse's job section are written (notes saved meanwhile stay); the
+  // shipment's cargo dimensions are not touched.
   const save = async () => {
-    const filtered = rows.filter((r) => r.pieces || r.lengthCm || r.widthCm || r.heightCm || r.weightPerPcKg);
     try {
-      await api.shipments.shipmentUpdate(shipment.id, { cargoDimensions: filtered });
-      queryClient.invalidateQueries({ queryKey: ["shipments"] });
+      await saveKeys([{ key: "remeasure_rows", value: serializeRows(rows), expected: base }]);
       setDirty(false);
       messageApi.success("Saved");
-    } catch {
-      messageApi.error("Failed to save");
+    } catch (e) {
+      if (e instanceof SectionChangedError) {
+        // Someone else saved the lines meanwhile: theirs show, as a note saved meanwhile does.
+        setDirty(false);
+        messageApi.warning("Someone else saved the remeasured lines meanwhile — theirs are shown; enter your changes again");
+      } else messageApi.error(`Failed to save: ${apiErrorMessage(e)}`);
     }
   };
 
-  const rowCbms: number[] = [];
-  let totalColli = 0, totalWeightKg = 0, totalVolumeCbm = 0;
-  for (const r of rows) {
-    const c = parseFloat(r.pieces) || 0;
-    const L = parseFloat(r.lengthCm) || 0;
-    const W = parseFloat(r.widthCm) || 0;
-    const H = parseFloat(r.heightCm) || 0;
-    const w = parseFloat(r.weightPerPcKg) || 0;
-    const cbm = (c * (L * W * H)) / 1_000_000;
-    rowCbms.push(cbm);
-    totalColli += c;
-    totalWeightKg += c * w;
-    totalVolumeCbm += cbm;
-  }
+  const lines = rows.map(asLine);
+  const rowCbms = lines.map(dimensionLineVolume);
+  const { pcs: totalColli, kg: totalWeightKg, m3: totalVolumeCbm } = dimensionTotals(lines);
 
   const shipmentDims = useMemo(() => {
-    let sColli = 0, sWeight = 0, sVolume = 0;
-    for (const r of shipment.cargoDimensions ?? []) {
-      const c = parseFloat(r.pieces) || 0;
-      const L = parseFloat(r.lengthCm) || 0;
-      const W = parseFloat(r.widthCm) || 0;
-      const H = parseFloat(r.heightCm) || 0;
-      const w = parseFloat(r.weightPerPcKg) || 0;
-      sColli += c;
-      sWeight += c * w;
-      sVolume += (c * (L * W * H)) / 1_000_000;
-    }
-    return { colli: sColli, weightKg: sWeight, volumeCbm: sVolume };
+    const t = dimensionTotals(shipment.cargoDimensions ?? []);
+    return { colli: t.pcs, weightKg: t.kg, volumeCbm: t.m3 };
   }, [shipment.cargoDimensions]);
 
   const mismatchCls = (a: number, b: number) => (a !== b && a > 0 && b > 0 ? "bg-amber-500/15 px-1.5 py-0.5 rounded" : "");
@@ -184,12 +192,23 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
   const hasMismatch = differs(shipmentDims.colli, totalColli) || differs(shipmentDims.weightKg, totalWeightKg) || differs(shipmentDims.volumeCbm, totalVolumeCbm);
   const hasData = totalColli > 0 || totalWeightKg > 0 || totalVolumeCbm > 0;
 
+  // Inform Operations: one request records when and posts "Cargo has been remeasured by the
+  // warehouse" with the SAVED lines' figures to the shipment's chat, tagging its Person in Charge and
+  // Holiday Cover (the server finds them) - both, or neither. Only with the lines saved, so what is
+  // told is what is on screen; a second click while it runs is ignored.
+  const informingRef = useRef(false);
+  const informBlocked = dirty ? "Save the lines first — Operations are told the saved figures" : null;
   const informOperations = async () => {
+    if (informingRef.current || informBlocked) return;
+    informingRef.current = true;
     try {
-      await saveJobSection({ ...jobSection, inform_operations_sent: new Date().toISOString() });
-      messageApi.success("Operations informed");
-    } catch {
-      messageApi.error("Failed to inform Operations");
+      const { tagged } = await inform(informedAt ?? "");
+      const told = informedText(tagged);
+      messageApi[told.level](told.text);
+    } catch (e) {
+      messageApi.error(e instanceof SectionChangedError ? e.message : `Operations not informed: ${apiErrorMessage(e)}`);
+    } finally {
+      informingRef.current = false;
     }
   };
 
@@ -202,7 +221,7 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
             Row
           </Button>
           {dirty && (
-            <Button size="small" type="primary" onClick={save}>
+            <Button size="small" type="primary" onClick={save} loading={isSaving}>
               Save
             </Button>
           )}
@@ -237,6 +256,7 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
                   />
                 </td>
               ))}
+              {/* Worked out from the sizes, so text. */}
               <td className="p-0.5 px-1 text-right text-[11px] text-slate-500">
                 {(rowCbms[idx] ?? 0) > 0 ? rowCbms[idx]!.toFixed(4) : "—"}
               </td>
@@ -282,16 +302,21 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
 
       {hasData && hasMismatch && (
         <div className="mt-4 flex items-center justify-between gap-3 rounded-md border border-red-200 bg-red-50 px-3.5 py-2.5">
-          <span className="text-xs text-red-600">
-            Remeasured values differ from the shipment values.
-            {informedAt && <span className="block text-[11px] text-red-400">Operations informed on {formatDateTime(informedAt)}</span>}
-          </span>
-          <Button danger size="small" onClick={informOperations} loading={isInforming}>{informedAt ? "Inform Again" : "Inform Operations"}</Button>
+          <span className="text-xs text-red-600">Remeasured values differ from the shipment values.</span>
+          <Tooltip title={informBlocked ?? undefined}>
+            <span className="inline-flex">
+              <Button danger size="small" onClick={informOperations} loading={isInforming} disabled={!!informBlocked}>
+                {informedAt ? "Inform Again" : "Inform Operations"}
+              </Button>
+            </span>
+          </Tooltip>
         </div>
       )}
       {hasData && !hasMismatch && (
         <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-xs text-emerald-700">✓ All values match</div>
       )}
+      {/* Shown whatever the lines say now, e.g. for a shipment informed before its lines changed. */}
+      {informedAt && <div className="mt-2 text-[11px] text-slate-500">Operations informed on {formatDateTime(informedAt)}</div>}
     </Card>
   );
 }

@@ -21,10 +21,11 @@ import type {
   HaulierInvoiceLineInput,
   HaulierInvoiceStatus,
   HaulierInvoiceTargetKind,
+  UnpaidHaulierInvoice,
 } from "../interfaces/haulierInvoice.interfaces";
 import type { Actor } from "../../../lib/rbac";
 import { isUuid } from "../../../lib/uuid";
-import { businessDay } from "../../../lib/businessDate";
+import { businessDay, isRealYmd } from "../../../lib/businessDate";
 import { isUniqueViolation } from "../../../lib/db/errors";
 import { servedFileType } from "../../../lib/fileType";
 import {
@@ -85,10 +86,20 @@ interface ResolvedLine {
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+/** At most this many of a haulier's unpaid invoices are handed to What we owe at once. */
+const MAX_UNPAID = 10_000;
+
+/**
+ * Whether an invoice's payment is noted here (Council Review 5, K2): one approved before payments were noted in
+ * this system and not marked paid since may have been paid already.
+ */
+const paymentTracked = (r: Pick<TruckingHaulierInvoiceRecord, "paidOn" | "approvedAt">, since: Date | null) =>
+  !!r.paidOn || !r.approvedAt || !since || r.approvedAt >= since;
+
 const targetKey = (kind: HaulierInvoiceTargetKind, id: string) => `${kind}:${id}`;
 
 /** The invoice as shown: an open one with its status and block reasons worked out against the haulier's profile now. */
-function toInvoice({ invoice: r, lines }: StoredInvoice, profile: HaulierProfile | null): HaulierInvoice {
+function toInvoice({ invoice: r, lines }: StoredInvoice, profile: HaulierProfile | null, trackingSince: Date | null): HaulierInvoice {
   const open = OPEN_STATUSES.includes(r.status);
   const blockReasons = open ? invoiceBlockReasons(profile, r.bankAccount) : r.blockReasons;
   const status = currentStatus(r.status, r.totalNet, lines, blockReasons);
@@ -121,11 +132,20 @@ function toInvoice({ invoice: r, lines }: StoredInvoice, profile: HaulierProfile
     blockReasons,
     holdReasons: open || r.status === "APPROVED" ? (r.holdReasons ?? []) : [],
     approval: r.approvedAt ? { byName: r.approvedBy ?? "", at: r.approvedAt.toISOString(), reason: r.approvalReason ?? "" } : null,
+    payment: r.paidOn ? { paidOn: r.paidOn, byName: r.paidBy ?? "", at: r.paidAt ? r.paidAt.toISOString() : "" } : null,
+    paymentTracked: paymentTracked(r, trackingSince),
     fileName: r.fileName,
     createdAt: r.createdAt.toISOString(),
     createdBy: r.createdBy,
     version: r.version,
   };
+}
+
+/** The day an invoice was paid as sent: a real calendar date, YYYY-MM-DD. */
+function paidOnDay(value: unknown): string {
+  const day = typeof value === "string" ? value.trim() : "";
+  if (!isRealYmd(day)) throw APIError.invalidArgument("The day it was paid must be a date (YYYY-MM-DD)");
+  return day;
 }
 
 class HaulierInvoiceService {
@@ -458,7 +478,7 @@ class HaulierInvoiceService {
       }),
     ));
     await this.deliver(owed);
-    return toInvoice(await this.load(companyId, saved.invoice.id), profile);
+    return toInvoice(await this.load(companyId, saved.invoice.id), profile, await haulierInvoiceRepository.paymentTrackingSince());
   }
 
   /** Any user. Saves the whole invoice again (DRAFT, NEEDS_APPROVAL or BLOCKED) with the version read; the status is worked out again. */
@@ -506,7 +526,7 @@ class HaulierInvoiceService {
       }),
     ));
     await this.deliver(owed);
-    return toInvoice(await this.load(companyId, cur.invoice.id), profile);
+    return toInvoice(await this.load(companyId, cur.invoice.id), profile, await haulierInvoiceRepository.paymentTrackingSince());
   }
 
   /**
@@ -560,7 +580,52 @@ class HaulierInvoiceService {
       return owed;
     });
     await this.deliver(owed);
-    return toInvoice(await this.load(companyId, cur.invoice.id), profile);
+    return toInvoice(await this.load(companyId, cur.invoice.id), profile, await haulierInvoiceRepository.paymentTrackingSince());
+  }
+
+  /**
+   * Manager only. Notes that an approved invoice was paid, on `paidOn` (a day not after today nor before the
+   * invoice's issue day; today when not given). There is no accounting link yet: this is what "paid" means
+   * (Council Outlay 7, step 6b, E7).
+   */
+  async markPaid(actor: Actor, id: string, paidOn: unknown): Promise<HaulierInvoice> {
+    requireManager(actor.role, "note a haulier invoice as paid");
+    const companyId = actor.companyID;
+    const today = businessDay(new Date());
+    const day = paidOn === undefined || paidOn === null || paidOn === "" ? today : paidOnDay(paidOn);
+    if (day > today) throw APIError.invalidArgument("The day it was paid cannot be after today");
+    const cur = await this.load(companyId, id);
+    if (cur.invoice.status !== "APPROVED") throw APIError.failedPrecondition("Only an approved invoice can be paid");
+    if (cur.invoice.paidOn) throw APIError.failedPrecondition(`The invoice was already noted as paid on ${cur.invoice.paidOn}`);
+    if (day < cur.invoice.issueDate) throw APIError.invalidArgument(`The day it was paid cannot be before the invoice was issued (${cur.invoice.issueDate})`);
+    const by = await userName(actor.userID);
+    await inTx(async (tx) => {
+      const row = await haulierInvoiceRepository.update(tx, companyId, cur.invoice.id, cur.invoice.version, ["APPROVED"], {
+        paidOn: day,
+        paidAt: new Date(),
+        paidByUserId: actor.userID || null,
+        paidBy: by,
+      });
+      if (!row) throw APIError.aborted(INVOICE_CONFLICT);
+      await this.event(tx, companyId, actor, by, "haulier_invoice_paid", row, `Haulier invoice ${row.invoiceNumber} paid on ${day}: ${row.totalGross.toFixed(2)} ${row.currency}`);
+    });
+    return this.get(actor, id);
+  }
+
+  /** Manager only, with a reason: takes back a payment noted by mistake. */
+  async markUnpaid(actor: Actor, id: string, reason: unknown): Promise<HaulierInvoice> {
+    requireManager(actor.role, "take back a haulier invoice's payment");
+    const why = cleanReason(reason, "taking the payment back");
+    const companyId = actor.companyID;
+    const cur = await this.load(companyId, id);
+    if (!cur.invoice.paidOn) throw APIError.failedPrecondition("The invoice is not noted as paid");
+    const by = await userName(actor.userID);
+    await inTx(async (tx) => {
+      const row = await haulierInvoiceRepository.update(tx, companyId, cur.invoice.id, cur.invoice.version, ["APPROVED"], { paidOn: null, paidAt: null, paidByUserId: null, paidBy: null });
+      if (!row) throw APIError.aborted(INVOICE_CONFLICT);
+      await this.event(tx, companyId, actor, by, "haulier_invoice_unpaid", row, `Haulier invoice ${row.invoiceNumber}: the payment of ${cur.invoice.paidOn} taken back`, why);
+    });
+    return this.get(actor, id);
   }
 
   /** Manager only, with a reason. The invoice is not paid; its trips and deliveries may go on another invoice. */
@@ -585,7 +650,7 @@ class HaulierInvoiceService {
       await this.event(tx, companyId, actor, by, "haulier_invoice_rejected", row, `Haulier invoice ${row.invoiceNumber} rejected`, why);
     });
     const profile = await this.profile(companyId, cur.invoice.haulierCustomerId);
-    return toInvoice(await this.load(companyId, cur.invoice.id), profile);
+    return toInvoice(await this.load(companyId, cur.invoice.id), profile, await haulierInvoiceRepository.paymentTrackingSince());
   }
 
   // A unique index refused the write (a save at the same moment got there first).
@@ -602,7 +667,7 @@ class HaulierInvoiceService {
 
   async get(actor: Actor, id: string): Promise<HaulierInvoice> {
     const stored = await this.load(actor.companyID, id);
-    return toInvoice(stored, await this.profile(actor.companyID, stored.invoice.haulierCustomerId));
+    return toInvoice(stored, await this.profile(actor.companyID, stored.invoice.haulierCustomerId), await haulierInvoiceRepository.paymentTrackingSince());
   }
 
   async list(actor: Actor, filter: { status?: HaulierInvoiceStatus; haulierCustomerId?: string }): Promise<HaulierInvoice[]> {
@@ -615,8 +680,32 @@ class HaulierInvoiceService {
     const stored = await haulierInvoiceRepository.list(actor.companyID, { statuses, haulierCustomerId });
     const profiles = await haulierRepository.findMany(actor.companyID, [...new Set(stored.map((s) => s.invoice.haulierCustomerId))]);
     const profileOf = new Map(profiles.map((p) => [p.profile.customerId, toProfile(p)]));
-    const invoices = stored.map((s) => toInvoice(s, profileOf.get(s.invoice.haulierCustomerId) ?? null));
+    const since = await haulierInvoiceRepository.paymentTrackingSince();
+    const invoices = stored.map((s) => toInvoice(s, profileOf.get(s.invoice.haulierCustomerId) ?? null, since));
     return status ? invoices.filter((i) => i.status === status) : invoices;
+  }
+
+  /**
+   * A haulier's approved invoices not noted as paid, for the Customer Database's What we owe (Council Review 5,
+   * C-1): every one of them up to 10,000 (the soonest due first), without lines, each saying whether its
+   * payment is noted here.
+   */
+  async unpaidOf(companyId: string, haulierCustomerId: string): Promise<{ invoices: UnpaidHaulierInvoice[]; truncated: boolean }> {
+    if (typeof haulierCustomerId !== "string" || !isUuid(haulierCustomerId)) throw bad("Unknown haulier");
+    const [rows, since] = await Promise.all([
+      haulierInvoiceRepository.unpaidApproved(companyId, haulierCustomerId, MAX_UNPAID + 1),
+      haulierInvoiceRepository.paymentTrackingSince(),
+    ]);
+    const invoices = rows.slice(0, MAX_UNPAID).map((r) => ({
+      id: r.id,
+      invoiceNumber: r.invoiceNumber,
+      issueDate: r.issueDate,
+      dueDate: r.dueDate,
+      totalGross: r.totalGross,
+      currency: r.currency,
+      paymentTracked: paymentTracked({ paidOn: null, approvedAt: r.approvedAt }, since),
+    }));
+    return { invoices, truncated: rows.length > MAX_UNPAID };
   }
 
   /**

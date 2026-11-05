@@ -5,22 +5,28 @@ import { customerRepository } from "../repositories/customer.repository";
 import type { CustomerListFilters } from "../repositories/customer.repository";
 import type { CustomerRecord, NewCustomerRecord } from "../schemas/customer.schema";
 import type {
+  CustomerDetail,
   CustomerItem,
   CustomerLabel,
+  CustomerOwnerFilter,
   CustomerPipelineItem,
+  CustomerRatingFilter,
   CustomerRole,
   CustomerRollups,
   CustomerStatus,
+  CustomerViewCounts,
   DeletedCustomerItem,
   NewCustomerContact,
   RoleCompanyItem,
   RiskLevelOverride,
 } from "../interfaces/interfaces";
+import { isSupplier, SUPPLIER_ROLES } from "../interfaces/interfaces";
 import type { NewContactRecord } from "../schemas/contact.schema";
 import { iso } from "../../../lib/db/serialize";
-import { canManageSales } from "../../../lib/salesPolicy";
+import { canManageSales, canManageSupplierTerms, canRateSupplier } from "../../../lib/salesPolicy";
 import { isUniqueViolation } from "../../../lib/db/errors";
 import { isUuid } from "../../../lib/uuid";
+import { isSalesReference } from "../../../lib/salesReference";
 import { storedEmail } from "../../../lib/personPick";
 import { dateInput } from "../lib/dates";
 import { toCustomerItem } from "../lib/mappers";
@@ -32,6 +38,7 @@ import { contactChanged, customerChanged } from "../topics";
 import { contactRepository } from "../repositories/contact.repository";
 import { seatText } from "../lib/seat";
 import { billingCurrencies } from "../lib/billingCurrencies";
+import { supplierTermsService } from "./supplierTerms.service";
 
 /** A company outside the Czech Republic, typed in by hand: there is no registry to read it from. */
 export interface ManualCustomerInput {
@@ -113,13 +120,80 @@ const requireRoles = (roles: CustomerRole[]): CustomerRole[] => {
  * A new company with a supplier role (any role but Customer: haulier, rail operator, first / last mile haulier,
  * shipping line) is a manager's decision, as changing the roles later is.
  */
-export function assertMayGiveRoles(actorRole: string, roles: CustomerRole[] | undefined): void {
-  if (roles?.some((r) => r !== "customer") && !canManageSales(actorRole)) {
+export function assertMayGiveRoles(actorRole: string, roles: CustomerRole[] | undefined, forApproval = false): void {
+  if (forApproval) {
+    if (!roles || !isSupplier(roles)) throw APIError.invalidArgument("A new supplier needs a supplier role");
+    // Added from a quote it is a supplier only: a customer (one the quote customer picker offers) is added
+    // in the Customer Database, where giving it supplier roles too is a manager's decision.
+    if (roles.includes("customer")) throw APIError.invalidArgument("A supplier added from a quote can't be a customer too: add the customer in the Customer Database");
+    return;
+  }
+  if (roles && isSupplier(roles) && !canManageSales(actorRole)) {
     throw APIError.permissionDenied("Only a manager can add a supplier (a company with a role other than Customer)");
   }
 }
 
+/** A supplier added from a quote's Pricing: who adds it and from which quote. */
+export interface NewSupplierRequest {
+  userId: string;
+  quoteNumber: string;
+}
+
+/**
+ * The request a create carries when it adds a supplier from a quote; none without a quote. The quote is
+ * named by its Sales Reference (QCZ…): the managers' list and the bell lead to it.
+ */
+export function supplierRequestOf(userId: string, fromQuote: string | undefined): NewSupplierRequest | undefined {
+  const quoteNumber = fromQuote?.trim() ?? "";
+  if (!quoteNumber) return undefined;
+  if (!isSalesReference(quoteNumber)) throw APIError.invalidArgument("A new supplier is added from a quote: fromQuote is its Sales Reference (QCZ…)");
+  return { userId, quoteNumber };
+}
+
+/**
+ * The approval columns of a new company. A supplier a user who is no manager adds from a quote waits
+ * for a manager (Sales → Managers → Company approval); a manager's own is approved at once, as adding a
+ * supplier is already a manager's right. Anything else needs no approval.
+ */
+async function approvalOf(actorRole: string, request: NewSupplierRequest | undefined): Promise<Partial<NewCustomerRecord>> {
+  if (!request || canManageSales(actorRole)) return {};
+  const quoteNumber = request.quoteNumber.trim();
+  if (!quoteNumber) throw APIError.invalidArgument("A new supplier names the quote it is added from");
+  const { users } = await auth.userLookup({ ids: [request.userId] });
+  const user = users.find((u) => u.id === request.userId);
+  return {
+    approvalStatus: "pending",
+    approvalRequestedBy: user ? storedEmail(user.email) : "",
+    approvalRequestedByUserId: request.userId,
+    approvalRequestedAt: new Date(),
+    approvalQuoteNumber: quoteNumber,
+  };
+}
+
 const today = () => new Date().toISOString().slice(0, 10);
+
+const NOT_DECLINED = "This supplier is no longer declined: another manager took the decline back, or it was restored";
+
+/**
+ * A deleted customer back with what was deleted together with it (a restore, or a decline taken back).
+ * Refused while a live customer has the same registration number. Null when it is not deleted (as asked)
+ * any more: somebody brought it back in this very moment.
+ */
+async function bringBack(id: string, deleted: CustomerRecord, companyId: string, as: "restore" | "undoDecline"): Promise<CustomerRecord | null> {
+  const clash = deleted.ico ? await customerRepository.findByIco(deleted.ico, companyId) : null;
+  if (clash) {
+    throw APIError.alreadyExists(
+      `${clash.companyName} already has the registration number ${deleted.ico}, so ${deleted.companyName} can't be restored`,
+    );
+  }
+  try {
+    return await customerRepository.restoreWithChildren(id, companyId, as);
+  } catch (err) {
+    // Another customer with the same registration number was added in the meantime.
+    if (isUniqueViolation(err)) throw APIError.alreadyExists("A customer with this registration number already exists");
+    throw err;
+  }
+}
 
 // Only the fields actually sent are written.
 function definedOnly<T extends object>(patch: T): Partial<T> {
@@ -182,16 +256,60 @@ async function insertUnique<T>(insert: () => Promise<T>, what: string): Promise<
 }
 
 class CustomerService {
+  /**
+   * The list as a user asks for it: their own companies for "mine", the supplier types and the rating filter
+   * as the repository takes them. Filtered here, on the server, so they cover every company and not only the
+   * newest 2000 the list holds.
+   */
+  async listFor(
+    companyId: string,
+    userId: string,
+    req: Omit<CustomerListFilters, "salesOwner" | "anyRole" | "rating" | "limit"> & { owner?: CustomerOwnerFilter; types?: string; rating?: CustomerRatingFilter },
+  ): Promise<{ data: CustomerItem[]; total: number }> {
+    const { owner, types, rating, ...filters } = req;
+    const anyRole = (types ?? "").split(",").map((t) => t.trim()).filter(Boolean);
+    const unknown = anyRole.find((t) => !SUPPLIER_ROLES.includes(t as CustomerRole));
+    if (unknown) throw APIError.invalidArgument(`"${unknown}" is not a supplier type`);
+    return this.list(companyId, {
+      ...filters,
+      ...(owner ? { salesOwner: owner === "none" ? "none" : userId } : {}),
+      ...(anyRole.length ? { anyRole: anyRole as CustomerRole[] } : {}),
+      ...(rating ? { rating: rating === "none" ? "unrated" : rating === "low" ? { max: 2 } : { min: Number(rating) } } : {}),
+    });
+  }
+
   /** The newest matching customers (at most 2000) and how many match in all. */
   async list(companyId: string, filters: CustomerListFilters = {}): Promise<{ data: CustomerItem[]; total: number }> {
     const { rows, total } = await customerRepository.listFiltered(companyId, filters);
-    return { data: rows.map(toCustomerItem), total };
+    return { data: rows.map((row) => ({ ...toCustomerItem(row), lastContactAt: row.lastContactAt ? iso(row.lastContactAt) : null })), total };
   }
 
   async get(id: string, companyId: string): Promise<CustomerItem> {
     const row = await customerRepository.getItemForCompany(id, companyId);
     if (!row) throw APIError.notFound("Customer not found");
     return toCustomerItem(row);
+  }
+
+  /**
+   * A company as its page reads it: a haulier's terms as they are shown (Trucking's copy while none were saved
+   * here), and what the signed-in user (`role`) may do with it.
+   */
+  async detail(id: string, companyId: string, role: string): Promise<CustomerDetail> {
+    const customer = await this.get(id, companyId);
+    const supplier = isSupplier(customer.roles);
+    const { terms, fromTrucking, truckingUnavailable } = await supplierTermsService.shown(customer);
+    return {
+      customer: { ...customer, supplierTerms: terms },
+      canRateSupplier: canRateSupplier(role) && supplier,
+      canEditSupplierTerms: canManageSupplierTerms(role) && supplier,
+      supplierTermsFromTrucking: fromTrucking,
+      supplierTermsUnavailable: truckingUnavailable,
+    };
+  }
+
+  /** How many live companies each view of the list holds: customers, suppliers (any other role), all. */
+  async viewCounts(companyId: string): Promise<CustomerViewCounts> {
+    return customerRepository.viewCounts(companyId);
   }
 
   /** The live customer of this company (for writes under it); notFound otherwise. */
@@ -224,15 +342,18 @@ class CustomerService {
     ico: string,
     contact: NewCustomerContact,
     roles: CustomerRole[] = ["customer"],
+    supplierRequest?: NewSupplierRequest,
   ): Promise<CustomerItem> {
-    assertMayGiveRoles(actorRole, roles);
+    assertMayGiveRoles(actorRole, roles, !!supplierRequest);
     const checkedRoles = requireRoles(roles);
     const mainContact = firstContact(contact);
     if (await customerRepository.findByIco(ico, companyId)) {
       throw APIError.alreadyExists("A customer with this IČO already exists");
     }
     const ares = await aresService.lookup(ico);
+    const approval = await approvalOf(actorRole, supplierRequest);
     const values: Omit<NewCustomerRecord, "companyId"> = {
+      ...approval,
       ico: ares.ico,
       dic: ares.dic,
       companyName: ares.companyName,
@@ -257,8 +378,8 @@ class CustomerService {
     return toCustomerItem(row);
   }
 
-  async createManual(companyId: string, actorRole: string, input: ManualCustomerInput): Promise<CustomerItem> {
-    assertMayGiveRoles(actorRole, input.roles);
+  async createManual(companyId: string, actorRole: string, input: ManualCustomerInput, supplierRequest?: NewSupplierRequest): Promise<CustomerItem> {
+    assertMayGiveRoles(actorRole, input.roles, !!supplierRequest);
     const mainContact = firstContact(input.contact);
     const checkedRoles = requireRoles(input.roles ?? ["customer"]);
     const country = input.country.trim().toUpperCase();
@@ -272,7 +393,9 @@ class CustomerService {
     const street = input.street.trim();
     const city = input.city.trim();
     const postalCode = input.postalCode.trim();
+    const approval = await approvalOf(actorRole, supplierRequest);
     const values: Omit<NewCustomerRecord, "companyId"> = {
+      ...approval,
       // The column holds the IČO of a Czech customer and the registration number of a foreign one.
       ico: registrationNumber,
       dic: (input.vatId ?? "").trim(),
@@ -293,7 +416,7 @@ class CustomerService {
     return toCustomerItem(row);
   }
 
-  async update(id: string, companyId: string, role: string, patch: CustomerPatch): Promise<CustomerItem> {
+  async update(id: string, companyId: string, role: string, patch: CustomerPatch, actorUserId = ""): Promise<CustomerItem> {
     const restricted = managerFieldsIn(patch);
     if (restricted.length && !canManageSales(role)) {
       throw APIError.permissionDenied(`Only a manager can change: ${restricted.join(", ")}`);
@@ -306,11 +429,6 @@ class CustomerService {
       if (!values.companyName) throw APIError.invalidArgument("The company name can't be empty");
     }
     if (values.roles) values.roles = requireRoles(values.roles);
-    if (values.currency !== undefined || values.secondaryCurrencies !== undefined) {
-      const current = await customerRepository.getItemForCompany(id, companyId);
-      if (!current) throw APIError.notFound("Customer not found");
-      Object.assign(values, billingCurrencies(values.currency ?? current.currency, values.secondaryCurrencies ?? current.secondaryCurrencies));
-    }
     // A date column: "" clears it, anything but a date is refused.
     const regDate = dateInput(registrationDate, "registrationDate");
     if (regDate !== undefined) values.registrationDate = regDate;
@@ -318,7 +436,30 @@ class CustomerService {
       if (values[key] !== undefined) values[key] = values[key]!.trim();
     }
     if (salesOwnerUserId !== undefined) Object.assign(values, await salesOwnerOf(salesOwnerUserId));
-    const row = await customerRepository.updateForCompany(id, companyId, values);
+    // What depends on the row as it is now is worked out with the row locked, after every check above: a change
+    // of roles may write to Trucking first (K3), and it then runs one after the other with a save of the terms.
+    const fromCurrent = values.roles !== undefined || values.currency !== undefined || values.secondaryCurrencies !== undefined;
+    const row = fromCurrent
+      ? await customerRepository.updateLocked(id, companyId, async (current) => {
+          const locked = { ...values };
+          if (locked.currency !== undefined || locked.secondaryCurrencies !== undefined) {
+            Object.assign(locked, billingCurrencies(locked.currency ?? current.currency, locked.secondaryCurrencies ?? current.secondaryCurrencies));
+          }
+          if (locked.roles) {
+            const wasCustomer = current.roles.includes("customer");
+            const isCustomer = locked.roles.includes("customer");
+            // A supplier only that is made a customer starts as a Prospect: its stored status meant "In use" /
+            // "Not in use" until now (Council Review 5, K14). A status sent with the change is kept.
+            if (!wasCustomer && isCustomer && patch.status === undefined) locked.status = "Prospect";
+            // And the other way: a customer stored Inactive (it stopped buying) that is now a supplier only is still
+            // in use as one - its Inactive said nothing of its supply - unless a status comes with the change.
+            if (wasCustomer && !isCustomer && current.status === "Inactive" && patch.status === undefined) locked.status = "Active";
+            // A supplier with terms set here that becomes a haulier: Trucking gets them first (K3), the last step.
+            Object.assign(locked, await supplierTermsService.beforeRolesChange(current, locked.roles, actorUserId));
+          }
+          return locked;
+        })
+      : await customerRepository.updateForCompany(id, companyId, values);
     if (!row) throw APIError.notFound("Customer not found");
     await announce(companyId, row, false);
     return toCustomerItem(row);
@@ -347,18 +488,32 @@ class CustomerService {
   async softDelete(id: string, companyId: string): Promise<void> {
     const row = await customerRepository.softDeleteWithChildren(id, companyId);
     if (!row) throw APIError.notFound("Customer not found");
+    await this.announceDeleted(companyId, row);
+  }
+
+  /**
+   * Tells the copies that a customer was deleted (here, or by a manager's decline of a new supplier).
+   * The delete is done and can't be done again, so nothing here fails the request: it is only logged.
+   */
+  async announceDeleted(companyId: string, row: CustomerRecord): Promise<void> {
     await announceLogged(companyId, row, true);
     // Its contacts were hidden with it: each gets its own delete event with its last name, so a
     // rename of one whose event is handled after this delete still reaches the copies.
-    if (row.deletedAt) {
-      for (const contact of await contactRepository.hiddenWithCustomer(companyId, id, row.deletedAt)) {
-        try {
-          await contactChanged.publish({
-            companyId, customerId: id, contactId: contact.id, name: contact.name, email: contact.email, phone: contact.phone, deleted: true,
-          });
-        } catch (err) {
-          log.error(err, "contact delete not published", { companyId, customerId: id, contactId: contact.id });
-        }
+    if (!row.deletedAt) return;
+    let hidden: Awaited<ReturnType<typeof contactRepository.hiddenWithCustomer>>;
+    try {
+      hidden = await contactRepository.hiddenWithCustomer(companyId, row.id, row.deletedAt);
+    } catch (err) {
+      log.error(err, "contacts of a deleted customer not read", { companyId, customerId: row.id });
+      return;
+    }
+    for (const contact of hidden) {
+      try {
+        await contactChanged.publish({
+          companyId, customerId: row.id, contactId: contact.id, name: contact.name, email: contact.email, phone: contact.phone, deleted: true,
+        });
+      } catch (err) {
+        log.error(err, "contact delete not published", { companyId, customerId: row.id, contactId: contact.id });
       }
     }
   }
@@ -376,23 +531,24 @@ class CustomerService {
   async restore(id: string, companyId: string): Promise<CustomerItem> {
     const deleted = await customerRepository.getDeletedForCompany(id, companyId);
     if (!deleted) throw APIError.notFound("Deleted customer not found");
-    const clash = deleted.ico ? await customerRepository.findByIco(deleted.ico, companyId) : null;
-    if (clash) {
-      throw APIError.alreadyExists(
-        `${clash.companyName} already has the registration number ${deleted.ico}, so ${deleted.companyName} can't be restored`,
-      );
-    }
-    let row: CustomerRecord | null;
-    try {
-      row = await customerRepository.restoreWithChildren(id, companyId);
-    } catch (err) {
-      // Another customer with the same registration number was added in the meantime.
-      if (isUniqueViolation(err)) throw APIError.alreadyExists("A customer with this registration number already exists");
-      throw err;
-    }
+    // A declined new supplier brought back is a company like any other: its decline ends there.
+    const row = await bringBack(id, deleted, companyId, "restore");
     if (!row) throw APIError.notFound("Deleted customer not found");
     await announceLogged(companyId, row, false);
     return toCustomerItem(row);
+  }
+
+  /**
+   * A manager takes back the decline of a new supplier: it comes back with what was deleted with it, and
+   * waits for a manager again (Sales → Managers → Company approval) - its quote stays held until it is
+   * answered. Only a supplier declined so and still deleted; a second try is refused.
+   */
+  async undoDecline(id: string, companyId: string): Promise<void> {
+    const deleted = await customerRepository.getDeletedForCompany(id, companyId);
+    if (!deleted || deleted.approvalDecision !== "declined") throw APIError.failedPrecondition(NOT_DECLINED);
+    const row = await bringBack(id, deleted, companyId, "undoDecline");
+    if (!row) throw APIError.failedPrecondition(NOT_DECLINED);
+    await announceLogged(companyId, row, false);
   }
 
   async uploadLogo(id: string, companyId: string, dataUrl: string): Promise<CustomerItem> {

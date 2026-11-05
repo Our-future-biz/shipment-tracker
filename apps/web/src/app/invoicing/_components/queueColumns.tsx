@@ -16,6 +16,7 @@ import {
 } from "@/lib/columnConfig";
 import { formatDate } from "@/lib/date";
 import { moneyCz } from "@/lib/money";
+import { compareJobNumbers } from "@/lib/jobNumber";
 import {
   invoicingStatusOf,
   serviceDateKey,
@@ -131,7 +132,8 @@ interface QueueColumnsArgs {
 // open (a card of about 1114px) without scrolling sideways. Longer names and statuses are cut
 // with an ellipsis and keep the full text as their title.
 const W = {
-  job: 140,
+  // CZPROJECT00000023 in bold monospace, as on Shipments.
+  job: 170,
   customer: 150,
   direction: 105,
   date: 110,
@@ -156,7 +158,7 @@ export function queueColumns({
       width: W.job,
       fixed: "left",
       ellipsis: true,
-      sorter: (a, b) => a.jobNumber.localeCompare(b.jobNumber),
+      sorter: (a, b) => compareJobNumbers(a.jobNumber, b.jobNumber),
       onCell: tint("jobNumber", (r) => r.jobNumber, info),
       render: (_, r) => {
         const s = styleOf("jobNumber", r.jobNumber, info, r);

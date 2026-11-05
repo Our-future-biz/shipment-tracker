@@ -16,6 +16,7 @@ import { warehouseService } from "./warehouse.service";
 import { settingsService } from "./settings.service";
 import { activeRecipients, SUPPLIER_KIND_LABEL, SUPPLIER_KINDS, type SupplierKind } from "./settingsRules";
 import { sendMail, type MailAttachment } from "../../../lib/email";
+import { dimensionVolumePerPiece } from "../../../lib/cargoVolume";
 import { emailSubject, emailText, pickAttachments, type EmailContent, type EmailFiles, type EmailPosition, type EmailRemeasureLine, type EmailTotals } from "./emailCompose";
 import { needsReweigh } from "./reweigh";
 import { remeasureTotals } from "./remeasure";
@@ -83,7 +84,8 @@ async function declaredTotals(shipmentId: string | null): Promise<EmailTotals | 
     const dims = (s.cargoDimensions ?? []).reduce(
       (a, d) => {
         const n = numOf(d.pieces);
-        return { pieces: a.pieces + n, kg: a.kg + n * numOf(d.weightPerPcKg), cbm: a.cbm + (n * numOf(d.lengthCm) * numOf(d.widthCm) * numOf(d.heightCm)) / 1_000_000 };
+        // A piece's volume by the rule Shipments counts it by: from its sizes when all three are known, else its typed m³.
+        return { pieces: a.pieces + n, kg: a.kg + n * numOf(d.weightPerPcKg), cbm: a.cbm + n * dimensionVolumePerPiece(d) };
       },
       { pieces: 0, kg: 0, cbm: 0 },
     );

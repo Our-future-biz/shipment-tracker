@@ -35,11 +35,12 @@ interface TruckingHaulierUpdateRequest {
   version: number;
 }
 
-// Saves a haulier's trucking profile (any user; the VAT and bank fields a manager only). The block is changed only by block / unblock.
+// Saves a haulier's trucking profile (any user; its payment terms and VAT / bank details are kept, they are edited in the
+// Customer Database). The block is changed only by block / unblock.
 export const truckingHaulierUpdate = api(
   { expose: true, auth: true, method: "PUT", path: "/trucking/hauliers/:customerId" },
   async ({ customerId, version, ...input }: TruckingHaulierUpdateRequest): Promise<TruckingHaulierResponse> => {
-    const { userID, companyID, role } = getAuthData()!;
-    return { haulier: await haulierService.update(companyID, userID, role, customerId, input, version) };
+    const { userID, companyID } = getAuthData()!;
+    return { haulier: await haulierService.update(companyID, userID, customerId, input, version) };
   },
 );

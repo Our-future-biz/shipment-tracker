@@ -15,11 +15,15 @@ export const customerNoteTable = pgTable(
     type: text("type").$type<NoteType>().notNull().default("Note"),
     content: text("content").notNull(),
     author: text("author").notNull().default(""),
+    /** The other users who went on a visit with the author, by e-mail; never the author, empty for other types. */
+    colleagues: text("colleagues").array().notNull().default(sql`'{}'::text[]`),
   },
   (table) => [
     ...defaultTableIndexes("customer_note", table),
     tenantIndex("customer_note", table),
     index("customer_note_customer_id_idx").on(table.customerId),
+    // The customer list's Last contact: the newest live entry of each company.
+    index("customer_note_last_contact_idx").on(table.customerId, table.createdAt).where(sql`${table.deletedAt} IS NULL`),
     check("customer_note_type_check", sql`${table.type} IN ('Note', 'Email', 'Call', 'Follow-up', 'Visit')`),
   ],
 );

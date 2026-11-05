@@ -69,6 +69,7 @@ describe("normalizeCargoDimension", () => {
   it("stores a line without road-freight fields with them empty", () => {
     expect(normalizeCargoDimension(line(), 1)).toEqual({
       ...line(),
+      volumePerPcM3: "",
       palletType: null,
       adrUn: null,
       adrClass: null,
@@ -97,5 +98,50 @@ describe("normalizeCargoDimension", () => {
 
   it("leaves a write without lines alone", () => {
     expect(normalizeCargoDimensions(undefined)).toBeUndefined();
+  });
+
+  describe("the volume typed for a piece", () => {
+    const unsized = (volumePerPcM3: string) => line({ lengthCm: "120", widthCm: "", heightCm: "", volumePerPcM3 });
+    const stored = (volumePerPcM3: string) => normalizeCargoDimension(unsized(volumePerPcM3), 1).volumePerPcM3;
+
+    it("is not kept beside all three sizes, nor read then", () => {
+      expect(normalizeCargoDimension(line({ volumePerPcM3: "0.5" }), 1).volumePerPcM3).toBe("");
+      expect(normalizeCargoDimension(line({ volumePerPcM3: "-2 m3" }), 1).volumePerPcM3).toBe("");
+    });
+
+    it("is stored as a plain number with a point, blank as empty", () => {
+      expect(stored("0.5")).toBe("0.5");
+      expect(stored(" 0,50 ")).toBe("0.5");
+      expect(stored(".5")).toBe("0.5");
+      expect(stored("007")).toBe("7");
+      expect(stored("2.")).toBe("2");
+      expect(stored("0")).toBe("0");
+      expect(stored("1000")).toBe("1000");
+      expect(stored("  ")).toBe("");
+      expect(normalizeCargoDimension(line({ heightCm: "" }), 1).volumePerPcM3).toBe("");
+    });
+
+    it("refuses a negative number, one with a unit or an exponent, and more than 1000 m³ - naming the line", () => {
+      expect(() => normalizeCargoDimensions([line(), unsized("-2")])).toThrow("Cargo line 2: volume per piece cannot be negative");
+      expect(() => stored("0.5 m3")).toThrow("Cargo line 1: volume per piece must be a number of m³");
+      expect(() => stored("1e5")).toThrow("must be a number of m³");
+      expect(() => stored("abc")).toThrow("must be a number of m³");
+      expect(() => stored(".")).toThrow("must be a number of m³");
+      expect(() => stored("1,000.5")).toThrow("must be a number of m³");
+      expect(() => stored("Infinity")).toThrow("must be a number of m³");
+      expect(() => stored("1000.01")).toThrow("Cargo line 1: volume per piece cannot be more than 1000 m³");
+    });
+
+    it("says, when refused, what one piece and what all the line's pieces hold - a volume typed for all pieces is stored per piece", () => {
+      // 5,000 m³ typed for 2 pieces in Cargo Details' "All pieces" is 2,500 m³ a piece.
+      const refused = () => normalizeCargoDimension({ ...unsized("2500"), pieces: "2" }, 3);
+      expect(refused).toThrow("Cargo line 3: volume per piece cannot be more than 1000 m³ (2500 m³ for one piece, 5000 m³ for its 2 pieces together) — check the volume and the pieces");
+      expect(() => normalizeCargoDimension({ ...unsized("1200.123456789"), pieces: "" }, 1)).toThrow("(1200.12 m³ for one piece) — check");
+    });
+
+    it("keeps the share of a total spread over many pieces exactly as sent, long as it is", () => {
+      expect(stored("0.00233333333333")).toBe("0.00233333333333");
+      expect(stored("0.000000333333333333")).toBe("0.000000333333333333");
+    });
   });
 });

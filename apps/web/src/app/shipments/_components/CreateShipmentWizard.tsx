@@ -10,6 +10,7 @@ import { api, apiErrorMessage, ErrCode, isAPIError } from "@/lib/api";
 import { COLUMN_MAP } from "@/lib/columnConfig";
 import { useCurrentExchangeRates } from "@/hooks/useExchangeRates";
 import { useNextJobNumber } from "@/hooks/useNextJobNumber";
+import { compareJobNumbers } from "@/lib/jobNumber";
 import { useSalesQuoteByRef } from "@/hooks/useSalesQuote";
 import { invalidateQuoteLists } from "@/hooks/useSalesQuotes";
 import { getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
@@ -151,7 +152,7 @@ export const CreateShipmentWizard = ({
     () =>
       existingShipments
         .filter((s) => s.jobNumber)
-        .sort((a, b) => (b.jobNumber ?? "").localeCompare(a.jobNumber ?? ""))
+        .sort((a, b) => compareJobNumbers(b.jobNumber ?? "", a.jobNumber ?? ""))
         .map((s) => ({ value: s.id, label: s.jobNumber })),
     [existingShipments],
   );

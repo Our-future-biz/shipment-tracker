@@ -53,6 +53,9 @@ export type TruckingEventKind =
   | "haulier_invoice_updated"
   | "haulier_invoice_approved"
   | "haulier_invoice_rejected"
+  // Council Outlay 7, step 6b: an approved invoice noted as paid, and that taken back (with a reason)
+  | "haulier_invoice_paid"
+  | "haulier_invoice_unpaid"
   // Phase 6: avizace, delivery exceptions and internal billing
   | "avizace_recorded"
   | "exception_created"

@@ -25,7 +25,7 @@ describe("storedMaxSql", () => {
   it("reads the highest CZ number of the company over all its shipments, archived ones too - CZQ… and other text count as none", () => {
     const { sql, params } = sent(storedMaxSql(COMPANY, "CZ"));
     expect(flat(sql)).toBe(
-      `(SELECT coalesce(max(substring("shipment"."job_number" from '^CZ([0-9]{1,12})([^0-9]|$)')::bigint), 0) FROM "shipment" WHERE "shipment"."company_id" = $1 AND "shipment"."job_number" LIKE 'CZ%')`,
+      `(SELECT coalesce(max(substring("shipment"."job_number" from '^CZ(?:PROJECT|RAIL|ROAD|AIR|FCL|LCL|BB)?([0-9]{1,12})([^0-9]|$)')::bigint), 0) FROM "shipment" WHERE "shipment"."company_id" = $1 AND "shipment"."job_number" LIKE 'CZ%')`,
     );
     expect(sql).not.toContain("deleted_at");
     expect(params).toEqual([COMPANY]);
@@ -37,6 +37,14 @@ describe("storedMaxSql", () => {
     expect(pattern.exec("CZ00000123-A")?.[1]).toBe("00000123");
     expect(pattern.exec("CZ1234567890123456789")).toBeNull();
     expect(pattern.exec("CZQ1")).toBeNull();
+  });
+
+  it("reads the number after the letters of the job's freight mode too", () => {
+    const pattern = new RegExp(/from '([^']+)'/.exec(sent(storedMaxSql(COMPANY, "CZ")).sql)![1]!);
+    for (const ref of ["CZAIR00000123", "CZFCL00000123", "CZLCL00000123", "CZBB00000123", "CZPROJECT00000123", "CZRAIL00000123", "CZROAD00000123"]) {
+      expect(pattern.exec(ref)?.[1]).toBe("00000123");
+    }
+    expect(pattern.exec("CZXYZ00000123")).toBeNull();
   });
 
   it("reads the highest MCZ number of the company over all its master jobs", () => {

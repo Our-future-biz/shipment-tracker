@@ -6,6 +6,7 @@ import { TenantRepository } from "../../../lib/db/repository";
 import type { StoredFx } from "../lib/quoteFx";
 import { db } from "../db/db";
 import { quoteTable, type NewQuoteRecord, type QuoteRecord, type SalesQuoteRecord } from "../schemas/quote.schema";
+import { quoteInquiryTable } from "../schemas/quoteInquiry.schema";
 import { isPlainObject } from "../utils/quoteDocument.utils";
 import {
   AWAITING,
@@ -19,6 +20,8 @@ import {
   type TimelineEntry,
 } from "../utils/quoteLifecycle.utils";
 import { COMBINING_MARKS, FINAL_SIGMA, FOLD_FROM, FOLD_TO, SIGMA, escapeLike } from "../utils/quoteSearch.utils";
+import { foldSql } from "../../../lib/db/textSearch";
+import type { QuoteColumnFilter, QuoteFilterColumn } from "../utils/quoteColumnFilters.utils";
 
 // What a sales quote is: a row whose status column is filled. Rows of the old quotes module
 // share the table and have none. This is the one place the rule is written; a sales quote
@@ -137,6 +140,32 @@ const searchedText = (today: string, owners: ListOwner[]) => {
       AS d("customerName" text, "serviceType" text, direction text, origin text, destination text, commodity text, incoterm text))`;
 };
 
+// A column's text as the list shows it, for "Filter by column": dates as DD.MM.YYYY, the sent date
+// on the day in Prague. A cargo readiness that is no date counts as empty, as the list shows it.
+const COLUMN_TEXT: Record<QuoteFilterColumn, SQL> = {
+  reference: sql`${quoteTable.quoteNumber}`,
+  customer: sql`${quoteTable.data}->>'customerName'`,
+  origin: sql`${quoteTable.data}->>'origin'`,
+  destination: sql`${quoteTable.data}->>'destination'`,
+  validity: sql`to_char(${quoteTable.validUntil}, 'DD.MM.YYYY')`,
+  shipment: sql`${quoteTable.shipmentJobNumber}`,
+  incoterm: sql`${quoteTable.data}->>'incoterm'`,
+  // Rearranged as text, not cast: a stored "2026-02-30" must not fail the whole list.
+  cargoReady: sql`CASE WHEN ${quoteTable.data}->>'readyDate' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN concat_ws('.', substr(${quoteTable.data}->>'readyDate', 9, 2), substr(${quoteTable.data}->>'readyDate', 6, 2), substr(${quoteTable.data}->>'readyDate', 1, 4)) END`,
+  commodity: sql`${quoteTable.data}->>'commodity'`,
+  method: sql`${quoteTable.data}->>'method'`,
+  shippingTerms: sql`${quoteTable.data}->>'shippingTerms'`,
+  sent: sql`to_char(${quoteTable.sentAt} AT TIME ZONE ${BUSINESS_TZ}::text, 'DD.MM.YYYY')`,
+};
+
+// A column filter as SQL: the column's folded text contains the value, or on an exact column is it.
+// A "shipment" filter also keeps the quotes named by any of their shipments whose job number has it.
+const columnMatches = (f: QuoteColumnFilter): SQL => {
+  const text = foldSql(sql`coalesce(${COLUMN_TEXT[f.key]}, '')`);
+  const matches = f.exact ? sql`btrim(${text}) = ${f.value}` : sql`${text} LIKE ${`%${f.value}%`}`;
+  return f.references?.length ? or(matches, inArray(quoteTable.quoteNumber, f.references))! : matches;
+};
+
 // What a list can be sorted by, and what each sort orders by: the whole of it - nothing a caller
 // sends ever becomes SQL, and a sort that is not listed here means the newest first. A text that
 // is empty counts as missing, and what is missing comes last in both directions. Status and owner
@@ -169,6 +198,9 @@ export interface SalesQuoteFilter {
   /** Won or lost on these business days. */
   decidedFrom?: string;
   decidedTo?: string;
+  /** Valid until these days (YYYY-MM-DD), either end open; a quote with no validity is left out. */
+  validFrom?: string;
+  validTo?: string;
   /** The user the quotes belong to; null = the quotes that belong to no user. */
   ownerUserId?: string | null;
   customerId?: string;
@@ -180,6 +212,8 @@ export interface SalesQuoteFilter {
   hasShipment?: boolean;
   /** Words that all have to occur in the quote's searched text, as searchTokens makes them. */
   search?: string[];
+  /** "Filter by column" rows, every one kept (quoteColumnFilters.utils). */
+  columns?: QuoteColumnFilter[];
 }
 
 /**
@@ -324,55 +358,6 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
       found = await find();
     }
     return found?.row ?? null;
-  }
-
-  /**
-   * Live sales quotes with a warehouse inquiry (the document's `warehouseInquiry`): those waiting
-   * for the warehouse and those answered since `answeredSince` (ISO), newest question first. For
-   * the Warehouse Concept Managers page; at most 500.
-   */
-  async listWarehouseInquiries(companyId: string, answeredSince: string): Promise<SalesQuoteRecord[]> {
-    const inquiry = sql`${quoteTable.data}->'warehouseInquiry'`;
-    const rows = await db
-      .select()
-      .from(quoteTable)
-      .where(
-        and(
-          eq(quoteTable.companyId, companyId),
-          isNull(quoteTable.deletedAt),
-          isSalesQuote,
-          sql`jsonb_typeof(${inquiry}) = 'object'`,
-          sql`(${inquiry}->>'status' = 'pending' OR coalesce(${inquiry}->>'decidedAt', '') >= ${answeredSince})`,
-        ),
-      )
-      .orderBy(sql`${inquiry}->>'requestedAt' desc`)
-      .limit(500);
-    return salesRows(rows);
-  }
-
-  /**
-   * Live sales quotes whose warehouse inquiry `userId` asked and the warehouse answered: not opened
-   * yet, or opened since `seenSince` (ISO) — the bell keeps a read answer for a while.
-   */
-  async listInquiryAnswersFor(companyId: string, userId: string, seenSince: string): Promise<SalesQuoteRecord[]> {
-    const inquiry = sql`${quoteTable.data}->'warehouseInquiry'`;
-    const rows = await db
-      .select()
-      .from(quoteTable)
-      .where(
-        and(
-          eq(quoteTable.companyId, companyId),
-          isNull(quoteTable.deletedAt),
-          isSalesQuote,
-          sql`jsonb_typeof(${inquiry}) = 'object'`,
-          sql`${inquiry}->>'requestedById' = ${userId}`,
-          sql`${inquiry}->>'status' IN ('approved', 'rejected')`,
-          sql`(coalesce(${inquiry}->>'answerSeenAt', '') = '' OR ${inquiry}->>'answerSeenAt' >= ${seenSince})`,
-        ),
-      )
-      .orderBy(sql`${inquiry}->>'decidedAt' desc`)
-      .limit(100);
-    return salesRows(rows);
   }
 
   /** A live sales quote by its reference; null when it is missing, deleted or a row of the old quotes module. */
@@ -614,6 +599,84 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
     return rows.flatMap((r) => (r.customerId && r.status ? [{ ...r, customerId: r.customerId, status: r.status, fx: r.fx ?? null }] : []));
   }
 
+  /**
+   * The quotes the Sales managers' cockpit judges (Council Outlay 6): open ones as shown on
+   * `today`; Won ones with no shipment yet, or decided since `wonSince`; ones shown Expired whose
+   * validity ended on `expiredSince` or later; Won or Lost ones decided since `decidedSince`
+   * (the month's counts); the revisions of Won quotes changed since `wonSince` (they keep the
+   * decision and the shipment of the deal, however old); and every quote a margin question waits
+   * on. At most `limit`, the newest first; `capped` says more matched.
+   */
+  async managersRows(
+    companyId: string,
+    moment: { today: string; expiredSince: string; wonSince: string; decidedSince: string },
+    limit: number,
+  ): Promise<{ rows: SalesQuoteRecord[]; capped: boolean }> {
+    const shown = shownStatus(moment.today);
+    const found = await db
+      .select()
+      .from(quoteTable)
+      .where(
+        and(
+          eq(quoteTable.companyId, companyId),
+          isNull(quoteTable.deletedAt),
+          isSalesQuote,
+          or(
+            inArray(shown, [...OPEN]),
+            and(eq(quoteTable.status, "won"), or(isNull(quoteTable.shipmentId), onBusinessDays(quoteTable.decidedAt, moment.wonSince))),
+            and(sql`${shown} = 'expired'`, gte(quoteTable.validUntil, moment.expiredSince)),
+            and(inArray(quoteTable.status, ["won", "lost"]), onBusinessDays(quoteTable.decidedAt, moment.decidedSince)),
+            and(eq(quoteTable.status, "won"), sql`${quoteTable.data}->>'wonRevisionOf' IS NOT NULL`, onBusinessDays(quoteTable.updatedAt, moment.wonSince)),
+            inArray(
+              quoteTable.id,
+              db
+                .select({ id: quoteInquiryTable.quoteId })
+                .from(quoteInquiryTable)
+                .where(and(eq(quoteInquiryTable.companyId, companyId), eq(quoteInquiryTable.kind, "margin"), eq(quoteInquiryTable.status, "pending"), isNull(quoteInquiryTable.deletedAt))),
+            ),
+          ),
+        ),
+      )
+      .orderBy(desc(quoteTable.createdAt), desc(quoteTable.id))
+      .limit(limit + 1);
+    return { rows: salesRows(found.slice(0, limit)), capped: found.length > limit };
+  }
+
+  /**
+   * The team's figures since `since`, for the Sales managers' cockpit: quotes Won and Lost (decided
+   * since), quotes first sent since and the median hours from creation to that first sending, and
+   * the Lost ones by reason. The revision of a Won quote keeps the deal's first sending, so it is
+   * not a sending of its own.
+   */
+  async teamFacts(companyId: string, since: Date): Promise<{ won: number; lost: number; sent: number; medianHoursToFirstSent: number | null; lostReasons: { reason: string; count: number }[] }> {
+    const live = and(eq(quoteTable.companyId, companyId), isNull(quoteTable.deletedAt), isSalesQuote);
+    const at = since.toISOString();
+    const [[totals], reasons] = await Promise.all([
+      db
+        .select({
+          won: sql<number>`count(*) FILTER (WHERE ${quoteTable.status} = 'won' AND ${quoteTable.decidedAt} >= ${at}::timestamptz)::int`,
+          lost: sql<number>`count(*) FILTER (WHERE ${quoteTable.status} = 'lost' AND ${quoteTable.decidedAt} >= ${at}::timestamptz)::int`,
+          sent: sql<number>`count(*) FILTER (WHERE ${quoteTable.firstSentAt} >= ${at}::timestamptz AND ${quoteTable.data}->>'wonRevisionOf' IS NULL)::int`,
+          median: sql<number | null>`percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM ${quoteTable.firstSentAt} - ${quoteTable.createdAt}) / 3600) FILTER (WHERE ${quoteTable.firstSentAt} >= ${at}::timestamptz AND ${quoteTable.data}->>'wonRevisionOf' IS NULL AND ${quoteTable.firstSentAt} >= ${quoteTable.createdAt})`,
+        })
+        .from(quoteTable)
+        .where(live),
+      db
+        .select({ reason: sql<string>`coalesce(${quoteTable.lostReason}, '')`, count: sql<number>`count(*)::int` })
+        .from(quoteTable)
+        .where(and(live, eq(quoteTable.status, "lost"), sql`${quoteTable.decidedAt} >= ${at}::timestamptz`))
+        .groupBy(sql`coalesce(${quoteTable.lostReason}, '')`),
+    ]);
+    const median = totals?.median;
+    return {
+      won: totals?.won ?? 0,
+      lost: totals?.lost ?? 0,
+      sent: totals?.sent ?? 0,
+      medianHoursToFirstSent: median === null || median === undefined ? null : Math.round(Number(median) * 10) / 10,
+      lostReasons: reasons.map((r) => ({ reason: r.reason, count: Number(r.count) })),
+    };
+  }
+
   /** The owner texts of the company's sales quotes that nobody compared with the users yet. */
   async unexaminedOwnerLabels(companyId: string): Promise<string[]> {
     const rows = await db.selectDistinct({ ownerLabel: quoteTable.ownerLabel }).from(quoteTable).where(this.unexaminedOwner(companyId));
@@ -753,6 +816,8 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
     quoteNumber: string,
     prefix: string,
     plan: (quote: SalesQuoteRecord, existing: string[]) => { reference: string; row: NewSalesQuote; write: LifecycleWrite },
+    // What else moves from the quote to its revision, in the same transaction.
+    carryOver?: (tx: QuoteTransaction, quote: SalesQuoteRecord, revision: SalesQuoteRecord) => Promise<void>,
   ): Promise<{ quote: SalesQuoteRecord; revision: SalesQuoteRecord } | null> {
     const adoptions = this.adoptions(companyId);
     const result = await this.withReferences(companyId, prefix, async (tx, existing) => {
@@ -760,6 +825,7 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
       if (!quote) return null;
       const { reference, row, write } = plan(quote, existing);
       const revision = await this.insertQuote(tx, companyId, reference, row);
+      if (carryOver) await carryOver(tx, quote, revision);
       return { quote: await this.writeLifecycle(tx, quote, write), revision };
     });
     // As in withLockedQuote: an adoption made inside the transaction counts once it is committed.
@@ -783,6 +849,8 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
       filter.direction ? sql`${quoteTable.data}->>'direction' = ${filter.direction}` : undefined,
       onBusinessDays(quoteTable.createdAt, filter.createdFrom, filter.createdTo),
       onBusinessDays(quoteTable.decidedAt, filter.decidedFrom, filter.decidedTo),
+      filter.validFrom ? sql`${quoteTable.validUntil} >= ${filter.validFrom}::date` : undefined,
+      filter.validTo ? sql`${quoteTable.validUntil} <= ${filter.validTo}::date` : undefined,
       filter.ownerUserId === undefined
         ? undefined
         : filter.ownerUserId === null
@@ -798,6 +866,7 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
       filter.search?.length
         ? sql`${searchedText(today, owners)} LIKE ALL (${textArray(filter.search.map((word) => `%${word}%`))})`
         : undefined,
+      ...(filter.columns ?? []).map(columnMatches),
     );
   }
 

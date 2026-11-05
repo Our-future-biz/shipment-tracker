@@ -1,6 +1,8 @@
 "use client";
 
-import { StarFilled } from "@ant-design/icons";
+import { PushpinFilled } from "@ant-design/icons";
+import { SUPPLIER_NOT_IN_USE } from "@/app/customers/_lib/supplierStatus";
+import { Pill } from "@/components/Pill";
 import type { RateLevelResult } from "@/hooks/useTrucking";
 import { isPriced, isUnpriced } from "../_lib/tariffs";
 import { HaulierIssueList } from "./HaulierIssueList";
@@ -10,11 +12,13 @@ import { RateUnpricedNote } from "./RateUnpricedNote";
 interface RateResultDetailProps {
   result: RateLevelResult;
   includeBuy: boolean;
+  /** The hauliers the Customer Database set "Not in use", by id: marked where they are priced (D16). */
+  notInUse: ReadonlySet<string>;
 }
 
 // The expanded row of a service level: the sell price line by line, every haulier that can run
 // it (best first), the blocked ones left out and why, and the internal price.
-export const RateResultDetail = ({ result, includeBuy }: RateResultDetailProps) => (
+export const RateResultDetail = ({ result, includeBuy, notInUse }: RateResultDetailProps) => (
   <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 py-1">
     <div className="flex flex-col gap-3">
       {isPriced(result.sell) && <RatePricedSide title="Sell" side={result.sell} />}
@@ -31,11 +35,12 @@ export const RateResultDetail = ({ result, includeBuy }: RateResultDetailProps) 
             side={b}
             title={
               <span className="inline-flex items-center gap-1.5">
-                {i === 0 && <span className="rounded bg-indigo-50 px-1.5 text-[10.5px] font-bold uppercase text-indigo-600">Best</span>}
+                {i === 0 && <span className="rounded bg-indigo-50 px-1.5 text-[10.5px] font-bold uppercase text-indigo-600">Suggested</span>}
                 {b.ownerName ?? "Haulier"}
+                {b.ownerCustomerId && notInUse.has(b.ownerCustomerId) && <Pill tone="slate">{SUPPLIER_NOT_IN_USE}</Pill>}
                 {b.preferred && (
-                  <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-600">
-                    <StarFilled aria-hidden /> preferred lane
+                  <span className="inline-flex items-center gap-1 text-[11px] font-medium text-indigo-600">
+                    <PushpinFilled aria-hidden /> preferred lane
                   </span>
                 )}
               </span>

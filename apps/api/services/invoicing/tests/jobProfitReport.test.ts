@@ -61,6 +61,23 @@ describe("buildJobProfit", () => {
     expect(rows.map((r) => [r.jobNumber, r.revenueCzk])).toEqual([["B", 2440], ["A", 2430]]);
   });
 
+  it("puts the jobs of one day in the order of their reference numbers, whatever their letters", () => {
+    const { rows } = buildJobProfit(
+      [
+        ship({ id: "a", jobNumber: "CZROAD00000025", actualArrival: "2026-10-15" }),
+        ship({ id: "b", jobNumber: "CZ00000024", actualArrival: "2026-10-15" }),
+        ship({ id: "c", jobNumber: "CZAIR00000103", actualArrival: "2026-10-15" }),
+        ship({ id: "d", jobNumber: "CZFCL00000023", actualArrival: "2026-10-15" }),
+      ],
+      [],
+      [],
+      AVG,
+      "2026-10",
+      "2026-10",
+    );
+    expect(rows.map((r) => r.jobNumber)).toEqual(["CZFCL00000023", "CZ00000024", "CZROAD00000025", "CZAIR00000103"]);
+  });
+
   it("leaves out and reports a currency with no average, never counting it at 1", () => {
     const { rows } = buildJobProfit([ship({ actualArrival: "2026-10-01" })], [], [{ shipmentId: "s1", qty: null, amount: "100", currency: "XYZ", invoice: true }], AVG, "2026-10", "2026-10");
     expect(rows[0]).toMatchObject({ revenueCzk: 0, unconverted: ["XYZ"] });

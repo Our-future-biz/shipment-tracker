@@ -45,6 +45,6 @@ describe("pipelineList", () => {
 
   it("selects only what the pipeline shows of a customer: the logo, an image in the row, is not read", async () => {
     await customerRepository.pipelineList(COMPANY);
-    expect(Object.keys(fake.state.reads[0]!.fields)).toEqual(["id", "companyName", "status", "label", "salesOwner", "createdAt"]);
+    expect(Object.keys(fake.state.reads[0]!.fields)).toEqual(["id", "companyName", "status", "label", "salesOwner", "roles", "createdAt"]);
   });
 });

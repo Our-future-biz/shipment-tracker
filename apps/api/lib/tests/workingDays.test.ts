@@ -7,7 +7,9 @@ import {
   isWorkingDay,
   nextWorkingDay,
   previousWorkingDay,
+  workingDaysAfter,
 } from "../workingDays";
+import { addDays } from "../businessDate";
 
 describe("Czech public holidays", () => {
   it("finds Easter and its Good Friday and Easter Monday", () => {
@@ -104,5 +106,27 @@ describe("effectiveStartDate", () => {
   it("refuses a time that is not HH:MM", () => {
     expect(() => effectiveStartDate({ date: "2026-10-14", time: "9am" }, "12:00")).toThrow();
     expect(() => effectiveStartDate({ date: "2026-10-14", time: "09:00" }, "25:00")).toThrow();
+  });
+});
+
+describe("workingDaysAfter", () => {
+  // The plain count, day by day, that it must equal.
+  const slow = (from: string, to: string) => {
+    let n = 0;
+    for (let d = addDays(from, 1); d <= to; d = addDays(d, 1)) if (isWorkingDay(d)) n++;
+    return n;
+  };
+
+  it("counts the working days after `from` up to and including `to`", () => {
+    expect(workingDaysAfter("2026-11-02", "2026-11-03")).toBe(1);
+    // Fri 13 Nov → Mon 16 Nov: the weekend is skipped; Tue 17 Nov is a holiday.
+    expect(workingDaysAfter("2026-11-13", "2026-11-17")).toBe(1);
+    expect(workingDaysAfter("2026-11-03", "2026-11-03")).toBe(0);
+    expect(workingDaysAfter("2026-11-03", "2026-11-01")).toBe(0);
+  });
+
+  it("agrees with a day-by-day count over spans of years, Easter and Christmas included", () => {
+    const starts = ["2024-03-28", "2024-12-23", "2025-01-01", "2025-04-17", "2026-05-07", "2026-11-03"];
+    for (const from of starts) for (const span of [1, 6, 7, 8, 30, 365, 800]) expect(workingDaysAfter(from, addDays(from, span))).toBe(slow(from, addDays(from, span)));
   });
 });

@@ -19,8 +19,11 @@ export const SALES_PAGES = {
   report: { label: "Sales Report", path: "/sales/report" },
   // Job profit in CZK at the month's ČNB average; the page keeps the old Shipment Reports address.
   jobProfit: { label: "Job Profit", path: "/sales/shipments" },
-  // Not daily work: only managers and admins see it and open it (the page says so to anybody else).
-  settings: { label: "Settings", path: "/sales/settings", managersOnly: true, divided: true },
+  // The managers' pages, set apart by one line: what the team needs from a manager today
+  // (Council Outlay 6), then the settings all of Sales shares - not daily work. Only managers and
+  // admins see them and open them (the pages say so to anybody else).
+  managers: { label: "Managers", path: "/sales/managers", managersOnly: true, divided: true },
+  settings: { label: "Settings", path: "/sales/settings", managersOnly: true },
 } satisfies Record<string, SalesNavItem>;
 
 // The Sales submenu of the sidebar, in the order a salesperson needs the pages.
@@ -30,8 +33,20 @@ export const SALES_NAV: SalesNavItem[] = Object.values(SALES_PAGES);
 export const SALES_SETTINGS_TABS = [
   { key: "company", label: "Company details" },
   { key: "terms", label: "Terms & Conditions" },
+  { key: "guardrails", label: "Guardrails" },
 ] as const;
 
 export type SalesSettingsTab = (typeof SALES_SETTINGS_TABS)[number]["key"];
 
 export const salesSettingsHref = (tab: SalesSettingsTab) => `${SALES_PAGES.settings.path}?tab=${tab}`;
+
+// Sales → Managers keeps its tab (?tab=inquiries, ?tab=approvals) and freight mode (?mode=) in the
+// address; the cockpit over all modes, where the page opens, needs neither.
+export type SalesManagersTab = "cockpit" | "inquiries" | "approvals";
+export function salesManagersHref({ tab = "cockpit", mode = "all" }: { tab?: SalesManagersTab; mode?: string } = {}): string {
+  const params = new URLSearchParams();
+  if (tab !== "cockpit") params.set("tab", tab);
+  if (mode !== "all") params.set("mode", mode);
+  const qs = params.toString();
+  return qs ? `${SALES_PAGES.managers.path}?${qs}` : SALES_PAGES.managers.path;
+}

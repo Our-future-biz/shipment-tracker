@@ -3,6 +3,7 @@ import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
 import { customers, fx, shipments } from "~encore/clients";
 import { invoiceRepository, type InvoiceLineInput } from "../repositories/invoice.repository";
+import { generatedInvoiceRepository } from "../repositories/generatedInvoice.repository";
 import { invoiceProfileRepository } from "../repositories/invoiceProfile.repository";
 import { sellingCostRepository } from "../repositories/sellingCost.repository";
 import { truckingLinesLock, truckingLinesRepository } from "../repositories/truckingLines.repository";
@@ -36,6 +37,7 @@ import { buildBillingQueue, countInvoicedLines, type QueueEntry } from "../lib/b
 import { statusesAfterCredit, statusesAfterIssue, type StatusPatch } from "../lib/shipmentStatus";
 import { invoiceBucket } from "../storage/invoiceBucket";
 import { isUniqueViolation } from "../../../lib/db/errors";
+import { isUuid } from "../../../lib/uuid";
 
 /**
  * Issuing tax documents. Everything is computed on the server from stored data: the
@@ -442,8 +444,12 @@ class InvoiceDocumentService {
       const ctx = await loadContext(shipmentId, companyId, params);
       if (ctx.problems.length) throw APIError.failedPrecondition(ctx.problems.join("; "));
 
+      // The invoice number carries the job's Internal Reference, so from here on the reference is
+      // final. Shipments marks it so under the shipment's write turn and gives it back as it is now:
+      // an edit of the job's Freight Mode or Load Type made meanwhile renamed it before, or keeps it.
+      const { jobNumber } = await shipments._internalShipmentReferenceFinal({ shipmentId });
       const shipmentSnapshot: ShipmentSnapshot = {
-        jobNumber: ctx.shipment.jobNumber,
+        jobNumber,
         jobYear: jobYear(ctx.shipment.createdAt),
         tradeDirection: ctx.shipment.tradeDirection,
         shipper: ctx.shipment.shipper,
@@ -590,6 +596,19 @@ class InvoiceDocumentService {
       const stored = await storePdfQuietly(invoice, lines, companyId);
       return { ...toDocItem(invoice, lines), hasPdf: stored };
     });
+  }
+
+  /**
+   * Of the shipments, those an invoice was ever issued for - a credited one too, and one the old
+   * generator made: their numbers carry the job's Internal Reference, which is final from then on.
+   */
+  async shipmentsEverInvoiced(shipmentIds: string[], companyId: string): Promise<string[]> {
+    const ids = shipmentIds.filter(isUuid);
+    const [issued, generated] = await Promise.all([
+      invoiceRepository.shipmentIdsWithInvoices(ids, companyId),
+      generatedInvoiceRepository.shipmentIdsWithInvoices(ids, companyId),
+    ]);
+    return [...new Set([...issued, ...generated])];
   }
 
   /** Issued, not credited invoices of a job (its tax date is final while there is one). */

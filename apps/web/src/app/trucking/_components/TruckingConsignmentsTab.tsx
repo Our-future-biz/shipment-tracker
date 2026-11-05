@@ -10,6 +10,7 @@ import { Badge } from "@/components/Badge";
 import { useTruckingSettings } from "@/hooks/useTrucking";
 import { useConsignments, type ConsignmentListItem, type ConsignmentStatus } from "@/hooks/useTruckingConsignments";
 import { formatDate } from "@/lib/date";
+import { compareJobNumbers } from "@/lib/jobNumber";
 import {
   CONSIGNMENT_CHIPS,
   CONSIGNMENT_STATUS_CHIP,
@@ -76,7 +77,8 @@ const buildColumns = (levelLabel: (code: string | null) => string): AppGridColum
     key: "job",
     title: "Job no.",
     text: (c) => c.jobNumber,
-    sorter: (a, b) => byText(a.jobNumber, b.jobNumber),
+    // By number, whatever the letters (a copied CZ00000023 next to CZROAD00000024).
+    sorter: (a, b) => compareJobNumbers(a.jobNumber, b.jobNumber),
     render: (_, c) => (
       <Link href={`/shipments/${c.shipmentId}?tab=trucking`} onClick={stop} className="font-mono text-indigo-600 hover:underline">
         {c.jobNumber}

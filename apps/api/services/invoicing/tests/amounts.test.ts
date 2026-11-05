@@ -17,7 +17,7 @@ vi.mock("../repositories/quoteCostImport.repository", () => ({ quoteCostImportRe
 vi.mock("../../../lib/shipmentRefs", () => ({ assertShipmentExists: vi.fn() }));
 
 import { definedOnly, toDecimal } from "../lib/amounts";
-import { buyingChanges, sellingChanges, setsEstimate } from "../services/invoicing.service";
+import { buyingChanges, receiptChanges, sellingChanges, setsEstimate } from "../services/invoicing.service";
 
 describe("toDecimal", () => {
   it("keeps undefined, clears blanks, keeps decimals", () => {
@@ -44,6 +44,53 @@ describe("write changes", () => {
   it("carry sortOrder (undo keeps a line where it was) and clear blank amounts", () => {
     expect(buyingChanges({ sortOrder: 3, estAmount: "" })).toEqual({ sortOrder: 3, estAmount: null });
     expect(sellingChanges({ sortOrder: 0, qty: "2" })).toEqual({ sortOrder: 0, qty: "2" });
+  });
+
+  it("link the vendor to a picked supplier by its company id, clear it with \"\", and refuse anything else", () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    expect(buyingChanges({ vendor: "Maersk A/S", supplierCustomerId: id })).toEqual({ vendor: "Maersk A/S", supplierCustomerId: id });
+    expect(buyingChanges({ vendor: "Typed", supplierCustomerId: "" })).toEqual({ vendor: "Typed", supplierCustomerId: null });
+    expect(() => buyingChanges({ supplierCustomerId: "Maersk" })).toThrow(/supplierCustomerId must be a company id/);
+  });
+});
+
+describe("received and paid (Council Outlay 7, step 6b)", () => {
+  const now = new Date("2026-11-04T09:00:00Z");
+  const today = "2026-11-04";
+  const stored = (over = {}) => ({ received: false, receivedAt: null, paidOn: null, ...over });
+
+  it("stamp when Received is ticked, keep the first stamp, and clear both when it is unticked", () => {
+    expect(receiptChanges(stored(), { received: true }, now, today)).toEqual({ receivedAt: now });
+    expect(receiptChanges(stored({ received: true, receivedAt: new Date("2026-10-01T08:00:00Z") }), { received: true }, now, today)).toEqual({});
+    expect(receiptChanges(stored({ received: true, paidOn: "2026-10-20" }), { received: false }, now, today)).toEqual({ receivedAt: null, paidOn: null, paidAt: null, paidByUserId: null, paidBy: null });
+    expect(receiptChanges(null, { received: true }, now, today)).toEqual({ receivedAt: now });
+  });
+
+  it("pay only a received cost, on a real day not after today, and take the payment back with \"\"", () => {
+    expect(() => receiptChanges(stored(), buyingChanges({ paidOn: "2026-11-01" }), now, today)).toThrow(/Tick Received first/);
+    expect(receiptChanges(stored({ received: true }), buyingChanges({ paidOn: "2026-11-01" }), now, today)).toEqual({ paidAt: now, paidByUserId: null, paidBy: null });
+    // Who noted it and when are kept with the day (K6); taking it back clears them.
+    expect(receiptChanges(stored({ received: true }), buyingChanges({ paidOn: "2026-11-01" }), now, today, { userId: "u1", email: "jana@ourfuture.biz" })).toEqual({
+      paidAt: now,
+      paidByUserId: "u1",
+      paidBy: "jana@ourfuture.biz",
+    });
+    expect(receiptChanges(stored({ received: true, paidOn: "2026-11-01" }), buyingChanges({ paidOn: "" }), now, today)).toEqual({ paidOn: null, paidAt: null, paidByUserId: null, paidBy: null });
+    expect(() => receiptChanges(stored({ received: true }), buyingChanges({ paidOn: "2026-11-05" }), now, today)).toThrow(/after today/);
+    expect(receiptChanges(null, buyingChanges({ received: true, paidOn: "2026-11-04" } as never), now, today)).toEqual({ receivedAt: now, paidAt: now, paidByUserId: null, paidBy: null });
+    expect(() => buyingChanges({ paidOn: "4.11.2026" })).toThrow(/paidOn must be a date/);
+    expect(() => buyingChanges({ paidOn: "2026-02-30" })).toThrow(/paidOn must be a date/);
+    expect(buyingChanges({ paidOn: "" })).toEqual({ paidOn: null });
+  });
+
+  it("pay no earlier than the Prague day the invoice was received; a line received before that was kept on any day (C-8)", () => {
+    // 23:30 UTC on 1 Nov is 2 Nov in Prague.
+    const received = stored({ received: true, receivedAt: new Date("2026-11-01T23:30:00Z") });
+    expect(() => receiptChanges(received, buyingChanges({ paidOn: "2026-11-01" }), now, today)).toThrow("The day it was paid cannot be before its invoice was received (2026-11-02)");
+    expect(receiptChanges(received, buyingChanges({ paidOn: "2026-11-02" }), now, today)).toMatchObject({ paidAt: now });
+    // Ticked and paid at once: received today.
+    expect(() => receiptChanges(stored(), buyingChanges({ received: true, paidOn: "2026-11-03" } as never), now, today)).toThrow(/before its invoice was received/);
+    expect(receiptChanges(stored({ received: true }), buyingChanges({ paidOn: "2020-01-01" }), now, today)).toMatchObject({ paidAt: now });
   });
 });
 

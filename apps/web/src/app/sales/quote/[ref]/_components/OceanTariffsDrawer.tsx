@@ -38,7 +38,8 @@ interface OceanTariffsDrawerProps {
 // "Tariffs available" on the Ocean freight line of a Sea FCL quote: every way the shipping lines'
 // approved tariffs take the quote's containers from port to port, with freight and surcharges,
 // from the most economic to the most expensive all-in. The route starts as the quote has it and
-// can be corrected here, other ports of loading compared and the transshipment ports narrowed;
+// can be corrected here (but for the direction: the quote's Trade Direction, which a tariff must be
+// for), other ports of loading compared and the transshipment ports narrowed;
 // picking an offer puts the freight and its surcharges on the buying lines.
 export const OceanTariffsDrawer = ({ open, quote, quoteCurrency, toQuoteCurrency, onPick, onClose }: OceanTariffsDrawerProps) => {
   const [route, setRoute] = useState<OceanRoute>(() => oceanRouteOf(quote, businessToday()));
@@ -150,8 +151,9 @@ export const OceanTariffsDrawer = ({ open, quote, quoteCurrency, toQuoteCurrency
   const form = (
     <>
       <div className="grid grid-cols-2 md:grid-cols-[auto_1fr_1fr_150px] gap-3 items-end">
-        <TariffDrawerField label="Direction" group>
-          <Segmented<interfaces.RailDirection> size="middle" aria-label="Direction" value={route.direction} options={DIRECTION_OPTIONS} onChange={(direction) => set({ direction })} />
+        {/* The quote's Trade Direction: a tariff prices only the directions it is for, so it is not changed here. */}
+        <TariffDrawerField label="Trade Direction" group>
+          <Segmented<interfaces.RailDirection> size="middle" aria-label="Direction" value={route.direction} options={DIRECTION_OPTIONS} disabled />
         </TariffDrawerField>
         <TariffDrawerField label="Port of loading">
           <GeoSelect kind="place" className="w-full" placeholder="Port of loading" value={route.pol} onChange={(v) => set({ pol: v })} />

@@ -86,6 +86,7 @@ const buying = (category: string): QuoteBuyingRow => ({
   category,
   description: "",
   vendor: "Maersk",
+  supplierCustomerId: null,
   estQty: "1",
   estAmount: "2000.00",
   estCurrency: "USD",

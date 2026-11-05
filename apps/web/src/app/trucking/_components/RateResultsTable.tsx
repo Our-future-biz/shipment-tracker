@@ -2,10 +2,12 @@
 
 import { Table, Tooltip } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { StarFilled, WarningOutlined } from "@ant-design/icons";
+import { PushpinFilled, WarningOutlined } from "@ant-design/icons";
+import { SUPPLIER_NOT_IN_USE } from "@/app/customers/_lib/supplierStatus";
 import { Pill } from "@/components/Pill";
 import type { interfaces } from "@/lib/api/client";
-import type { RateLevelResult } from "@/hooks/useTrucking";
+import { useHauliers, type RateLevelResult } from "@/hooks/useTrucking";
+import { notInUseOf } from "../_lib/haulierRating";
 import { bestBuy, promisedLabel } from "../_lib/rateCalculator";
 import { formatMoney, formatPercent, isPriced } from "../_lib/tariffs";
 import { RateResultDetail } from "./RateResultDetail";
@@ -40,6 +42,9 @@ interface RateResultsTableProps {
 // One row per service level: when it arrives, sell, best buy, margin and internal; a row opens
 // to the price lines, every haulier and the ones left out.
 export const RateResultsTable = ({ results, includeBuy, includeInternal, marginFloor }: RateResultsTableProps) => {
+  // The engine prices every haulier with a tariff; one the Customer Database set "Not in use" says so (D16).
+  const { hauliers } = useHauliers();
+  const notInUse = notInUseOf(hauliers);
   const floorText = marginFloor ? `The margin floor is ${formatPercent(marginFloor.percent)} and ${formatMoney(marginFloor.minAmountCzk, "CZK")}.` : "";
   const columns: ColumnsType<RateLevelResult> = [
     { key: "level", title: "Service level", render: (_, r) => <span className="font-semibold text-slate-800 whitespace-nowrap">{r.label}</span> },
@@ -74,10 +79,15 @@ export const RateResultsTable = ({ results, includeBuy, includeInternal, marginF
             <span className="block text-[12px] text-slate-600 whitespace-nowrap">
               {best.preferred && (
                 <Tooltip title="Preferred lane of this haulier">
-                  <StarFilled className="mr-1 text-amber-500" aria-label="Preferred lane" />
+                  <PushpinFilled className="mr-1 text-indigo-500" aria-label="Preferred lane" />
                 </Tooltip>
               )}
               {best.ownerName ?? "Haulier"}
+              {best.ownerCustomerId && notInUse.has(best.ownerCustomerId) && (
+                <Pill tone="slate" className="ml-1">
+                  {SUPPLIER_NOT_IN_USE}
+                </Pill>
+              )}
               {r.buy.length > 1 && <span className="ml-1 text-slate-400">+{r.buy.length - 1}</span>}
             </span>
             <PriceCell side={best} />
@@ -122,7 +132,7 @@ export const RateResultsTable = ({ results, includeBuy, includeInternal, marginF
       rowClassName={(r) => (r.belowFloor ? "bg-red-50/40" : "")}
       expandable={{
         expandRowByClick: true,
-        expandedRowRender: (r) => <RateResultDetail result={r} includeBuy={includeBuy} />,
+        expandedRowRender: (r) => <RateResultDetail result={r} includeBuy={includeBuy} notInUse={notInUse} />,
       }}
     />
   );

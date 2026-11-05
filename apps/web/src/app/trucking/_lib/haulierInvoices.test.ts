@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { differenceText, entryProblems, entrySummary, invoiceDecisionState, lineDifference, vatBlockers, type EntryHeader, type EntryLine } from "./haulierInvoices";
+import { paymentState, differenceText, entryProblems, entrySummary, invoiceDecisionState, lineDifference, vatBlockers, type EntryHeader, type EntryLine } from "./haulierInvoices";
 
 const target = (id: string, expected: number, currency: "CZK" | "EUR" = "CZK") => ({ kind: "TRIP" as const, id, ref: `LCZ${id}`, date: "2026-10-01", expected, claimed: 0, currency, alreadyInvoiced: false });
 const header: EntryHeader = { invoiceNumber: "FV-1", issueDate: "2026-10-10", currency: "CZK", totalNet: 15000, vatAmount: 3150, totalGross: 18150, bankAccount: "19-2000145399/0800" };
@@ -68,5 +68,15 @@ describe("approve / reject", () => {
     expect(invoiceDecisionState({ status: "BLOCKED" }, true).approve).toMatch(/nobody can approve/);
     expect(invoiceDecisionState({ status: "BLOCKED" }, true).reject).toBeNull();
     expect(invoiceDecisionState({ status: "APPROVED" }, true).approve).toBe("Already decided");
+  });
+});
+
+describe("paymentState (Council Outlay 7, step 6b)", () => {
+  it("lets a manager note an approved invoice as paid, and take a payment back; nobody pays an invoice not approved", () => {
+    const paid = { paidOn: "2026-10-20", byName: "Jana", at: "2026-10-20T09:00:00Z" };
+    expect(paymentState({ status: "APPROVED", payment: null }, true)).toEqual({ pay: null, unpay: "Not paid" });
+    expect(paymentState({ status: "APPROVED", payment: null }, false).pay).toMatch(/Only a manager/);
+    expect(paymentState({ status: "APPROVED", payment: paid }, true)).toEqual({ pay: "Already paid", unpay: null });
+    expect(paymentState({ status: "NEEDS_APPROVAL", payment: null }, true).pay).toMatch(/Only an approved invoice/);
   });
 });

@@ -35,7 +35,7 @@ import { oceanTariffService } from "../services/oceanTariff.service";
 
 const COMPANY = "company-1";
 const ACTOR = { userID: "user-1", companyID: COMPANY, role: "manager" };
-const OOCL = { id: "11111111-1111-4111-8111-111111111111", companyName: "OOCL (Deutschland) GmbH", ico: "", dic: "", city: "Hamburg", country: "DE" };
+const OOCL = { id: "11111111-1111-4111-8111-111111111111", companyName: "OOCL (Deutschland) GmbH", ico: "", dic: "", city: "Hamburg", country: "DE", rating: null, ratingReason: "", inUse: true };
 const TARIFF_ID = "55555555-5555-4555-8555-555555555555";
 const VERSION_ID = "44444444-4444-4444-8444-444444444444";
 
@@ -255,6 +255,29 @@ describe("offers", () => {
       "1 rate has no price for one of the containers and is left out",
       "Only on a booking or B/L made by hand, not added: DOC",
       "Origin and destination local charges are not included: see the shipping line's own tariff",
+    ]);
+  });
+
+  it("at the same price puts the better rated shipping line first, then goes by name, whatever order the rates come in", async () => {
+    const HAPAG = { ...OOCL, id: "22222222-2222-4222-8222-222222222222", companyName: "Hapag-Lloyd AG" };
+    const HAPAG_VERSION = "66666666-6666-4666-8666-666666666666";
+    repo.oceanCandidates.mockResolvedValue([
+      { version: version({ status: "active" }), tariff: tariff() },
+      { version: version({ id: HAPAG_VERSION, status: "active" }), tariff: tariff({ id: "t-hapag", supplierCustomerId: HAPAG.id, name: "Hapag FAK" }) },
+    ]);
+    repo.oceanRoute.mockResolvedValue([rate({ id: "oocl" }), rate({ id: "hapag", versionId: HAPAG_VERSION })]);
+    const lines = (oocl: number | null) =>
+      vi.mocked(customers._internalCompaniesWithRole).mockImplementation(async ({ ids }) => ({ companies: [{ ...OOCL, rating: oocl }, HAPAG].filter((c) => !ids || ids.includes(c.id)) }));
+    const order = async () => (await ask()).offers.map((o) => [o.rateId, o.totals[0]!.amount]);
+    lines(null);
+    expect(await order()).toEqual([
+      ["hapag", 330],
+      ["oocl", 330],
+    ]);
+    lines(4);
+    expect(await order()).toEqual([
+      ["oocl", 330],
+      ["hapag", 330],
     ]);
   });
 

@@ -2,7 +2,7 @@ import type { controllers, interfaces } from "@/lib/api/client";
 import { containerType } from "@/lib/cargo";
 import { chargeLabel } from "@/lib/chargeCodes";
 import { cargoReadyDay, isContainerQuote } from "./salesQuote";
-import { containerFreightLines, hasTariffRef, isChargeLine, tariffRefVersionId, withTariffLines, type ToQuoteCurrency, type TariffPick } from "./tariffQuote";
+import { containerFreightLines, hasTariffRef, isChargeLine, tariffRefVersionId, TRADE_DIRECTION_FIRST, tradeDirectionOf, withTariffLines, type ToQuoteCurrency, type TariffPick } from "./tariffQuote";
 import type { CostLine, SalesQuoteData } from "./types";
 
 // Pure helpers of shipping lines' ocean tariffs on a quote (Pricing → "Tariffs available" on the
@@ -41,6 +41,8 @@ export interface OceanRoute {
   date: string;
   containers: { type: string; qty: number }[];
   dangerous: boolean;
+  /** False while the quote has no Trade Direction: no tariff is asked (railQuote TRADE_DIRECTION_FIRST). */
+  directionChosen?: boolean;
 }
 
 const LOCODE = /\(([A-Z]{2}[A-Z0-9]{3})\)\s*$/;
@@ -66,6 +68,7 @@ export function oceanRouteOf(data: SalesQuoteData, today: string): OceanRoute {
   return {
     fcl: data.serviceType === "Sea FCL",
     direction: data.direction === "Import" ? "import" : "export",
+    directionChosen: tradeDirectionOf(data) !== null,
     pol: oceanPlaceCode(data.pol) ? (data.pol ?? "").trim() : "",
     pod: oceanPlaceCode(data.pod) ? (data.pod ?? "").trim() : "",
     comparePols: false,
@@ -77,6 +80,7 @@ export function oceanRouteOf(data: SalesQuoteData, today: string): OceanRoute {
 
 /** What keeps the route from being asked for, in words; null when it can be. */
 export function oceanRouteProblem(route: OceanRoute): string | null {
+  if (route.directionChosen === false) return TRADE_DIRECTION_FIRST;
   if (!route.fcl) return "Shipping lines' tariffs price Sea FCL quotes";
   if (!route.containers.length) return "Add the containers in Cargo details first";
   if (!route.comparePols && !oceanPlaceCode(route.pol)) return "Choose the port of loading";

@@ -1,4 +1,5 @@
 import Client, { ErrCode, isAPIError } from "./client";
+import { withActingCompany } from "@/lib/actingCompany";
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4001";
 
@@ -22,11 +23,15 @@ function endSession(): void {
 }
 
 // Attach the logged-in user's bearer token so authenticated endpoints can
-// derive the actor (e.g. who deleted a shipment) server-side.
+// derive the actor (e.g. who deleted a shipment) server-side - and a superadmin's choice of the
+// company to work as (lib/actingCompany), which the server ignores for anyone else.
 const authFetcher: typeof fetch = async (input, init) => {
   const headers = new Headers(init?.headers);
   const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
-  if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+    withActingCompany(headers);
+  }
   const res = await fetch(input, { ...init, headers });
   if (res.status === 401 && token) endSession();
   return res;

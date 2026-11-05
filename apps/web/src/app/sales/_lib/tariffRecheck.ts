@@ -1,6 +1,8 @@
 import { containerType } from "@/lib/cargo";
 import { isCollectionLine } from "./collectionQuote";
+import { isOceanLine } from "./oceanQuote";
 import { isRailLine } from "./railQuote";
+import { tradeDirectionOf } from "./tariffQuote";
 import { computeCargo, isContainerQuote } from "./salesQuote";
 import type { CostLine, SalesQuoteData } from "./types";
 
@@ -28,6 +30,39 @@ export function stampPricedFor(lines: CostLine[], indexes: Iterable<number>, dat
   const at = new Set(indexes);
   const key = cargoWeightKey(data);
   return lines.map((l, i) => (at.has(i) && pricedByWeight(l) ? { ...l, pricedFor: key } : l));
+}
+
+/** Whether a line was priced from a tariff that is for one direction or both: rail and ocean (collections have none). */
+export const pricedByDirection = (line: CostLine): boolean => isRailLine(line) || isOceanLine(line);
+
+/** The buying lines with those at `indexes` marked as priced in the quote's Trade Direction. */
+export function stampDirection(lines: CostLine[], indexes: Iterable<number>, data: SalesQuoteData): CostLine[] {
+  const at = new Set(indexes);
+  const direction = tradeDirectionOf(data);
+  if (!direction) return lines;
+  return lines.map((l, i) => (at.has(i) && pricedByDirection(l) ? { ...l, pricedDirection: direction } : l));
+}
+
+/**
+ * The indexes of the buying lines priced from a tariff in another Trade Direction than the quote has
+ * now: an import tariff does not price an export, nor the other way round. Their tariff is picked again
+ * (or the lines go) before the quote is sent. Lines priced before the direction was remembered are not known.
+ */
+export function linesForOtherDirection(data: SalesQuoteData): number[] {
+  const direction = tradeDirectionOf(data);
+  return (data.buyingLines ?? []).flatMap((l, i) =>
+    pricedByDirection(l) && l.pricedDirection !== undefined && l.pricedDirection !== direction ? [i] : [],
+  );
+}
+
+/** Why the quote can't be sent for its lines priced in another Trade Direction; null when none is. */
+export function otherDirectionBlock(data: SalesQuoteData): string | null {
+  const lines = linesForOtherDirection(data);
+  if (!lines.length) return null;
+  const was = data.buyingLines?.[lines[0]!]?.pricedDirection;
+  return `${lines.length === 1 ? "A buying line was" : `${lines.length} buying lines were`} priced from ${was === "import" ? "an import" : "an export"} tariff, and the quote is ${
+    tradeDirectionOf(data) ? `now an ${tradeDirectionOf(data)}` : "without a Trade Direction"
+  } — pick the tariff again under Tariffs available, or remove the line${lines.length === 1 ? "" : "s"}`;
 }
 
 /** The indexes of the buying lines priced for another cargo weight than the quote has now. */

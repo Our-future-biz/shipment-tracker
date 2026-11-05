@@ -82,8 +82,8 @@ export const SHIPMENT_FIELD_MAP: Record<string, ShipmentTextField> = {
   "Estimated Arrival": "estimatedArrival",
   "Trade Direction": "tradeDirection",
   Agent: "agent",
-  "Incoterm Origin": "incotermOrigin",
-  "Incoterm Destination": "incotermDestination",
+  "Incoterms Origin": "incotermOrigin",
+  "Incoterms Destination": "incotermDestination",
   "Commercial Invoice Value": "commercialInvoiceValue",
   "Freight Mode": "freightMode",
 };
@@ -465,8 +465,8 @@ export const MBL_TO_MASTER_JOB: Record<string, MasterJobTextField> = {
   "Load Type": "loadType",
   "Trade Direction": "tradeDirection",
   "Freight Mode": "freightMode",
-  "Incoterm Origin": "incotermOrigin",
-  "Incoterm Destination": "incotermDestination",
+  "Incoterms Origin": "incotermOrigin",
+  "Incoterms Destination": "incotermDestination",
   "Master BoL Number": "masterBolNumber",
   "Master BoL Type": "masterBolType",
   Shipper: "shipper",
@@ -561,8 +561,8 @@ const MBL_OPTION_LISTS: Record<string, string> = {
   "Trade Direction": "Trade Direction",
   "Freight Mode": "Freight Mode",
   "Master BoL Type": "Master BoL Type",
-  "Incoterm Origin": "Incoterm Origin",
-  "Incoterm Destination": "Incoterm Destination",
+  "Incoterms Origin": "Incoterms Origin",
+  "Incoterms Destination": "Incoterms Destination",
 };
 
 /**

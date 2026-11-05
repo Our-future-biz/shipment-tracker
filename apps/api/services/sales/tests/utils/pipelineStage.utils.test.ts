@@ -39,6 +39,7 @@ const customer = (id: string, status: string, createdAt: string, over: Partial<P
   status,
   label: "STANDARD",
   salesOwner: "Martin",
+  roles: ["customer"],
   createdAt,
   ...over,
 });
@@ -246,6 +247,24 @@ describe("buildBoard", () => {
       expect(board.notes.shipmentsWithoutCustomer).toBe(19);
     });
 
+    it("leaves a supplier only off the board, a supplier that is also a customer on it, and counts neither as missing", () => {
+      const board = buildBoard(
+        [
+          customer("maersk", "Prospect", "2026-09-01T08:00:00.000Z", { roles: ["shipping_line"] }),
+          customer("metrans", "Prospect", "2026-09-02T08:00:00.000Z", { roles: ["rail_operator", "customer"] }),
+          customer("kovo", "Active", "2026-09-03T08:00:00.000Z", { roles: ["haulier"] }),
+        ],
+        quotes({ customers: [quoted("kovo", { sentQuotes: 2 })], openQuotes: [] }),
+        shipments({ customers: [shipped("maersk", { shipmentCount: 3 })], shipmentsWithoutCustomer: 0 }),
+        ALL,
+      );
+      expect(ids(board.cards.prospect)).toEqual(["metrans"]);
+      expect(board.totals).toEqual({ prospect: 1, proposal: 0, won: 0 });
+      expect(board.notes.quotesOfMissingCustomers).toBe(0);
+      // What the supplier-only companies were quoted or shipped is said, not counted (K13).
+      expect(board.notes).toMatchObject({ quotesOfNonCustomers: 2, shipmentsOfNonCustomers: 3, shipmentsWithoutCustomer: 0 });
+    });
+
     it("does not count the shipments of a customer the period leaves off the board: it is in the customer list", () => {
       const board = buildBoard(
         [customer("ravak", "Active", "2026-01-10T08:00:00.000Z")],
@@ -259,7 +278,7 @@ describe("buildBoard", () => {
 
     it("passes on what the services counted: quotes and shipments that name no customer record", () => {
       const board = buildBoard([], quotes({ quotesWithoutCustomer: 2 }), shipments({ shipmentsWithoutCustomer: 19 }), ALL);
-      expect(board.notes).toEqual({ shipmentsWithoutCustomer: 19, quotesWithoutCustomer: 2, quotesOfMissingCustomers: 0, sentQuotesWithoutDate: 0 });
+      expect(board.notes).toEqual({ shipmentsWithoutCustomer: 19, quotesWithoutCustomer: 2, quotesOfMissingCustomers: 0, sentQuotesWithoutDate: 0, quotesOfNonCustomers: 0, shipmentsOfNonCustomers: 0 });
       expect(board.totals).toEqual({ prospect: 0, proposal: 0, won: 0 });
       expect(board.cards).toEqual({ prospect: [], proposal: [], won: [] });
     });

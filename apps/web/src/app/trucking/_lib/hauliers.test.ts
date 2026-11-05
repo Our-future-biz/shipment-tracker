@@ -67,6 +67,9 @@ describe("quick filters", () => {
     adrCapable: false,
     vehicleTypes: [],
     preferredLaneCount: 0,
+    rating: null,
+    ratingReason: "",
+    inUse: true,
   };
   const chip = (id: string) => HAULIER_CHIPS.find((c) => c.id === id)!;
 

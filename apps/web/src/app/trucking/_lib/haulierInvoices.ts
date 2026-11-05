@@ -117,6 +117,14 @@ export function invoiceDecisionState(invoice: Pick<HaulierInvoice, "status">, ma
   return { approve: null, reject: null };
 }
 
+/** Whether the invoice can be noted as paid, or its payment taken back, and why not (Council Outlay 7, step 6b). */
+export function paymentState(invoice: Pick<HaulierInvoice, "status" | "payment">, manager: boolean): { pay: string | null; unpay: string | null } {
+  const notManager = "Only a manager notes a haulier invoice as paid";
+  if (invoice.payment) return { pay: "Already paid", unpay: manager ? null : notManager };
+  if (invoice.status !== "APPROVED") return { pay: "Only an approved invoice is paid", unpay: "Not paid" };
+  return { pay: manager ? null : notManager, unpay: "Not paid" };
+}
+
 export const haulierInvoiceHref = (id: string) => `/trucking/haulier-invoices/${id}`;
 
 /** The haulier page at its VAT register card, where the block reasons are fixed. */

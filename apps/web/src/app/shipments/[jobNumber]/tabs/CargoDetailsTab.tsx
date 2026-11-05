@@ -21,14 +21,21 @@ import {
   fmtNum,
   fmtFixed,
   numberInput,
+  piecesOf,
+  perPieceText,
+  totalText,
+  lineTotal,
+  MAX_VOLUME_PER_PIECE_M3,
   dimensionVolumePerPiece,
   dimensionTotals,
+  hasAllSizes,
   lineInCm,
   lineInUnit,
   unitLabel,
   DIMENSION_UNITS,
   type DimensionUnit,
   dimensionLineIsEmpty,
+  withoutTypedVolumeWhenSized,
   checkConsistency,
   compareFigure,
   civByCurrency,
@@ -61,6 +68,7 @@ const emptyDim = (containerId: string | null, dimensionUnit: DimensionUnit = "cm
   heightCm: "",
   dimensionUnit,
   weightPerPcKg: "",
+  volumePerPcM3: "",
   packageType: "",
   stackable: "",
 });
@@ -79,7 +87,10 @@ const itemsKey = (ls: CargoItemLine[]) => JSON.stringify(ls.filter((l) => !itemI
 // so a saved line compares equal to what was sent.
 const blankToNull = (v: string | null | undefined) => (v == null || !String(v).trim() ? null : String(v).trim());
 const dimLineKey = (l: CargoDimensionLine) => [
-  l.containerId ?? null, l.pieces, l.lengthCm, l.widthCm, l.heightCm, l.dimensionUnit === "in" ? "in" : "cm", l.weightPerPcKg, l.packageType, l.stackable,
+  l.containerId ?? null, l.pieces, l.lengthCm, l.widthCm, l.heightCm, l.dimensionUnit === "in" ? "in" : "cm", l.weightPerPcKg,
+  // The server keeps a typed volume only while the sizes are not all known.
+  hasAllSizes(lineInCm(l)) ? "" : (l.volumePerPcM3 ?? "").trim(),
+  l.packageType, l.stackable,
   blankToNull(l.palletType)?.toUpperCase() ?? null,
   blankToNull(l.adrUn)?.replace(/^UN\s*/i, "") ?? null,
   blankToNull(l.adrClass),
@@ -87,6 +98,22 @@ const dimLineKey = (l: CargoDimensionLine) => [
   l.adrLimitedQuantity === true,
 ];
 const dimsKey = (ls: CargoDimensionLine[]) => JSON.stringify(ls.filter((l) => !dimIsEmpty(l)).map(dimLineKey));
+
+// Weight and volume are typed and shown per piece, or for all the pieces of a line together. They
+// are always stored per piece (the server and every total count pieces × per piece); "All pieces"
+// only changes what is typed and shown. The choice is remembered in the browser.
+type Figures = "piece" | "total";
+const FIGURES_KEY = "cargoDimensions.figures";
+const readFigures = (): Figures => {
+  try {
+    return localStorage.getItem(FIGURES_KEY) === "total" ? "total" : "piece";
+  } catch {
+    return "piece";
+  }
+};
+
+// Why "All pieces" shows no total for a line, and its fields wait: the totals are shared out over Pcs.
+const NO_PIECES_HINT = "Type Pcs first — a total is for all the pieces of the line";
 
 // A line asked to be deleted from its row's "⋯", with the table it is in.
 type DeleteRequest = { table: "dims"; line: CargoDimensionLine } | { table: "items"; line: CargoItemLine };
@@ -173,6 +200,10 @@ function useOpenRows() {
     const handleMouseDown = (e: MouseEvent) => {
       const target = e.target as Element | null;
       if (!target?.closest || target.closest(EDIT_ROW_AREAS)) return;
+      // The field being typed in is left first, so its own onBlur saves it: closing the row
+      // removes the field before the click would move the focus, and its last value was lost.
+      const typing = document.activeElement as HTMLElement | null;
+      if (typing?.closest?.("[data-edit-row]")) typing.blur();
       setRows(new Set());
     };
     document.addEventListener("mousedown", handleMouseDown);
@@ -233,6 +264,20 @@ export function CargoDetailsTab({
   // The container shown (its tab) and which of its tables: one at a time keeps the page short.
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [view, setView] = useState<"dims" | "desc">("dims");
+  // Weight and volume per piece or for all pieces (read after the first render: the browser's choice).
+  const [figures, setFigures] = useState<Figures>("piece");
+  useEffect(() => setFigures(readFigures()), []);
+  const chooseFigures = (f: Figures) => {
+    setFigures(f);
+    try {
+      localStorage.setItem(FIGURES_KEY, f);
+    } catch {
+      // Not remembered: it still applies until the page is left.
+    }
+  };
+  // A total being typed, as typed (by row key), so "3000." is not rewritten while typing; the line
+  // itself holds its per-piece share. Dropped when the field is left.
+  const [typedTotals, setTypedTotals] = useState<Record<string, { kg?: string; m3?: string }>>({});
   // Dimension lines (by row key) whose ADR box was ticked before any ADR detail was typed.
   const [adrOn, setAdrOn] = useState<Set<string>>(() => new Set());
   const itemsRef = useRef(items);
@@ -339,9 +384,56 @@ export function CargoDetailsTab({
     openItems.open(idx);
     setItems((r) => r.map((l, j) => (j === idx ? { ...l, ...p } : l)));
   };
+  // A change that gives the line all three sizes clears the volume typed for it, so it cannot
+  // come back from hiding when a size is cleared later.
   const patchDim = (idx: number, p: Partial<CargoDimensionLine>) => {
     openDims.open(idx);
-    setDims((r) => r.map((l, j) => (j === idx ? { ...l, ...p } : l)));
+    setDims((r) => r.map((l, j) => (j === idx ? withoutTypedVolumeWhenSized({ ...l, ...p }) : l)));
+  };
+
+  // "All pieces": a total typed for a line is stored as its per-piece share. Only once the line has
+  // its pieces (the fields wait for them): without them there is nothing to share it over.
+  const patchTotal = (idx: number, line: CargoDimensionLine, field: "kg" | "m3", text: string) => {
+    const pieces = piecesOf(line);
+    if (!pieces) return;
+    setTypedTotals((t) => ({ ...t, [rowKey(line)]: { ...t[rowKey(line)], [field]: text } }));
+    const share = perPieceText(num(text), pieces);
+    patchDim(idx, field === "kg" ? { weightPerPcKg: share } : { volumePerPcM3: share });
+  };
+  const leaveTotal = (line: CargoDimensionLine) => {
+    setTypedTotals((t) => {
+      const rest = { ...t };
+      delete rest[rowKey(line)];
+      return rest;
+    });
+    persistDims();
+  };
+  // Line totals (by row key) kept while the line's Pcs is cleared to type another number: shared
+  // out over the new pieces once they are typed, so the totals survive retyping Pcs.
+  const keptTotals = useRef<Record<string, { kg: number; m3: number }>>({});
+  // Pieces changed under "All pieces": the line's totals stay, so its per-piece share follows -
+  // worked out each time from the total (lineTotal), never from the last share, so it cannot drift.
+  // A volume worked out from the sizes is per piece by nature; only a typed one is shared out.
+  const patchPieces = (idx: number, line: CargoDimensionLine, pieces: string) => {
+    if (figures !== "total") return patchDim(idx, { pieces });
+    const key = rowKey(line);
+    const before = piecesOf(line);
+    const after = Math.max(0, Math.floor(num(pieces)));
+    const typedVolume = !hasAllSizes(lineInCm(line));
+    const totals = before
+      ? { kg: lineTotal(num(line.weightPerPcKg), before), m3: typedVolume ? lineTotal(num(line.volumePerPcM3), before) : 0 }
+      : keptTotals.current[key];
+    if (!after) {
+      // No pieces: the shares stay as they are (the line counts nothing) and the totals are kept.
+      if (totals) keptTotals.current[key] = totals;
+      return patchDim(idx, { pieces });
+    }
+    delete keptTotals.current[key];
+    // A line that never had pieces has no totals yet: its per-piece values are its own.
+    if (!totals) return patchDim(idx, { pieces });
+    const p: Partial<CargoDimensionLine> = { pieces, weightPerPcKg: perPieceText(totals.kg, after) };
+    if (typedVolume) p.volumePerPcM3 = perPieceText(totals.m3, after);
+    patchDim(idx, p);
   };
 
   // A line's ADR details show while its ADR box is ticked. Ticking only opens the fields (the
@@ -566,7 +658,30 @@ export function CargoDetailsTab({
                 <div className={`${DIM_GRID} px-1 ${GROUP_ROW}`}>
                   <span className="col-span-2" />
                   <span className="col-span-4 text-center bg-slate-100/70 rounded-t-lg pt-1.5 pb-0.5">Size</span>
-                  <span className="col-span-2 text-center bg-slate-100/70 rounded-t-lg pt-1.5 pb-0.5 border-l-4 border-white">Per piece</span>
+                  {/* The band's label is its switch: weight and volume per piece, or for all the pieces of a line. */}
+                  <span className="col-span-2 flex justify-center gap-0.5 bg-slate-100/70 rounded-t-lg pt-1 pb-0.5 border-l-4 border-white" role="radiogroup" aria-label="Weight and volume">
+                    {(
+                      [
+                        ["piece", "Per piece"],
+                        ["total", "All pieces"],
+                      ] as const
+                    ).map(([f, text]) => (
+                      <button
+                        key={f}
+                        type="button"
+                        role="radio"
+                        aria-checked={figures === f}
+                        onClick={() => chooseFigures(f)}
+                        title={f === "piece" ? "Weight and volume of one piece" : "Weight and volume of all the pieces of a line together"}
+                        className={[
+                          "px-1.5 rounded uppercase tracking-wider cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-indigo-400",
+                          figures === f ? "bg-indigo-600 text-white" : "text-slate-500 hover:text-slate-700",
+                        ].join(" ")}
+                      >
+                        {text}
+                      </button>
+                    ))}
+                  </span>
                   <span className="col-span-3" />
                 </div>
                 <div className={`${DIM_BANDS} px-1 text-[10px] font-bold text-slate-500 uppercase tracking-wide border-b border-slate-200 [&>*]:!pt-0 [&>*]:!pb-1.5`}>
@@ -585,6 +700,8 @@ export function CargoDetailsTab({
 
                 {panelDims.map(({ l, idx }) => {
                   const vpc = dimensionVolumePerPiece(lineInCm(l));
+                  // With length, width and height the volume is worked out; without them it is typed.
+                  const sized = hasAllSizes(lineInCm(l));
                   if (!dimIsOpen(idx)) {
                     return (
                       <div
@@ -599,8 +716,27 @@ export function CargoDetailsTab({
                         <span className="text-center tabular-nums">{l.widthCm || "—"}</span>
                         <span className="text-center tabular-nums">{l.heightCm || "—"}</span>
                         <span className="text-center text-xs font-semibold uppercase text-slate-500">{l.dimensionUnit === "in" ? "inch" : "cm"}</span>
-                        <span className="text-center tabular-nums">{l.weightPerPcKg || "—"}</span>
-                        <span className="text-center tabular-nums text-slate-500">{vpc ? vpc.toFixed(3) : "—"}</span>
+                        {figures === "total" ? (
+                          // Without pieces a line has no totals (it counts nothing): "—", and why.
+                          <>
+                            <span className="text-center tabular-nums" title={!piecesOf(l) && num(l.weightPerPcKg) ? NO_PIECES_HINT : undefined}>
+                              {totalText(num(l.weightPerPcKg), piecesOf(l), 2) || "—"}
+                            </span>
+                            <span
+                              className={`text-center tabular-nums ${sized ? "text-slate-500" : ""}`}
+                              title={!piecesOf(l) && vpc ? NO_PIECES_HINT : vpc && !sized ? "Typed (no dimensions)" : undefined}
+                            >
+                              {vpc && piecesOf(l) ? (vpc * piecesOf(l)).toFixed(3) : "—"}
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-center tabular-nums">{l.weightPerPcKg || "—"}</span>
+                            <span className={`text-center tabular-nums ${sized ? "text-slate-500" : ""}`} title={vpc && !sized ? "Typed (no dimensions)" : undefined}>
+                              {vpc ? vpc.toFixed(3) : "—"}
+                            </span>
+                          </>
+                        )}
                         <span className="text-center leading-snug break-words" title={l.stackable || undefined}>{l.stackable || "—"}</span>
                         {/* The whole ADR summary, wrapping onto a second line rather than being cut. */}
                         <span className="text-center text-orange-600 font-medium leading-snug break-words" title={adrSummary(l)}>
@@ -625,7 +761,7 @@ export function CargoDetailsTab({
                       <div className={`${DIM_BANDS} px-1 [&>*]:!py-1`}>
                         {/* Numbers only, like the Dimensions modal: Pcs whole, the rest may take a decimal point; at most 4 digits (weight 5). */}
                         <div>
-                          <Input size="small" className={EDIT_FIELD} aria-label="Pieces" inputMode="numeric" value={l.pieces} onChange={(e) => patchDim(idx, { pieces: numberInput(e.target.value, false, 4) })} onBlur={persistDims} />
+                          <Input size="small" className={EDIT_FIELD} aria-label="Pieces" inputMode="numeric" value={l.pieces} onChange={(e) => patchPieces(idx, l, numberInput(e.target.value, false, 4))} onBlur={persistDims} />
                         </div>
                         <div>
                           <Select
@@ -665,11 +801,58 @@ export function CargoDetailsTab({
                             }}
                           />
                         </div>
+                        {/* Per piece, or under "All pieces" the line's total, stored as its per-piece share (a total may take a digit more). */}
                         <div>
-                          <Input size="small" className={EDIT_FIELD} aria-label="Weight per piece (kg)" inputMode="decimal" value={l.weightPerPcKg} onChange={(e) => patchDim(idx, { weightPerPcKg: numberInput(e.target.value, true, 5) })} onBlur={persistDims} />
+                          {figures === "total" ? (
+                            <Input
+                              size="small"
+                              className={EDIT_FIELD}
+                              aria-label="Weight of all pieces (kg)"
+                              inputMode="decimal"
+                              disabled={!piecesOf(l)}
+                              placeholder={piecesOf(l) ? undefined : "Pcs first"}
+                              title={piecesOf(l) ? undefined : NO_PIECES_HINT}
+                              value={typedTotals[rowKey(l)]?.kg ?? totalText(num(l.weightPerPcKg), piecesOf(l), 2)}
+                              onChange={(e) => patchTotal(idx, l, "kg", numberInput(e.target.value, true, 6))}
+                              onBlur={() => leaveTotal(l)}
+                            />
+                          ) : (
+                            <Input size="small" className={EDIT_FIELD} aria-label="Weight per piece (kg)" inputMode="decimal" value={l.weightPerPcKg} onChange={(e) => patchDim(idx, { weightPerPcKg: numberInput(e.target.value, true, 5) })} onBlur={persistDims} />
+                          )}
                         </div>
-                        {/* Computed, so plain text as in the read row. */}
-                        <span className="text-center text-[13px] tabular-nums text-slate-500">{vpc ? vpc.toFixed(3) : "—"}</span>
+                        {/* Worked out from the sizes, so plain text as in the read row; without all three it is typed (at most 4 digits before the point). */}
+                        {sized ? (
+                          <span className="text-center text-[13px] tabular-nums text-slate-500">
+                            {vpc && (figures !== "total" || piecesOf(l)) ? (figures === "total" ? vpc * piecesOf(l) : vpc).toFixed(3) : "—"}
+                          </span>
+                        ) : figures === "total" ? (
+                          <div>
+                            {/* More than the server takes per piece shows here, before the save is refused. */}
+                            <Input
+                              size="small"
+                              className={EDIT_FIELD}
+                              aria-label="Volume of all pieces (m³)"
+                              inputMode="decimal"
+                              disabled={!piecesOf(l)}
+                              placeholder={piecesOf(l) ? "m³" : "Pcs first"}
+                              status={num(l.volumePerPcM3) > MAX_VOLUME_PER_PIECE_M3 ? "error" : undefined}
+                              title={
+                                !piecesOf(l)
+                                  ? NO_PIECES_HINT
+                                  : num(l.volumePerPcM3) > MAX_VOLUME_PER_PIECE_M3
+                                    ? `At most ${MAX_VOLUME_PER_PIECE_M3} m³ per piece: ${piecesOf(l)} pcs hold at most ${fmtNum(MAX_VOLUME_PER_PIECE_M3 * piecesOf(l))} m³`
+                                    : undefined
+                              }
+                              value={typedTotals[rowKey(l)]?.m3 ?? totalText(num(l.volumePerPcM3), piecesOf(l), 3)}
+                              onChange={(e) => patchTotal(idx, l, "m3", numberInput(e.target.value, true, 5))}
+                              onBlur={() => leaveTotal(l)}
+                            />
+                          </div>
+                        ) : (
+                          <div>
+                            <Input size="small" className={EDIT_FIELD} aria-label="Volume per piece (m³)" inputMode="decimal" placeholder="m³" value={l.volumePerPcM3 ?? ""} onChange={(e) => patchDim(idx, { volumePerPcM3: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
+                          </div>
+                        )}
                         <div>
                           <Select
                             size="small"

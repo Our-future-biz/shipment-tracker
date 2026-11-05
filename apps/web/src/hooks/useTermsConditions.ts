@@ -51,6 +51,8 @@ export const useTermsConditions = () => {
   return {
     terms: query.data?.data ?? NO_TERMS,
     isLoading: query.isLoading,
+    /** The list was read: a name not in it is no template (not one still loading). */
+    isLoaded: query.isSuccess,
     // Reads the list again and resolves with what the read gave.
     reload: query.refetch,
     createTerms: createMutation.mutateAsync,

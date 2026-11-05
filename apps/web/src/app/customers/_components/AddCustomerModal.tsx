@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AutoComplete, Button, Checkbox, Form, Input, Modal, Select } from "antd";
 import type { RefSelectProps } from "antd";
@@ -39,7 +39,7 @@ const NEW_CONTACT: ContactValues = {
 interface AddCustomerModalProps {
   open: boolean;
   onClose: () => void;
-  onCreated: (customerId: string) => void;
+  onCreated: (customerId: string, customer: interfaces.CustomerItem) => void;
   // Passed in by the list page, so the dialog does not start a customers query of its own.
   createCustomer: (
     params: controllers.CustomerCreateRequest,
@@ -50,9 +50,15 @@ interface AddCustomerModalProps {
   isCreating: boolean;
   /** Roles ticked when the dialog opens (Trucking adds hauliers). */
   defaultRoles?: interfaces.CustomerRole[];
+  /**
+   * A supplier added from a quote's Pricing: the name typed there to look up, and the quote. Every user
+   * picks its supplier roles; unless a manager adds it, it waits for a manager's approval.
+   */
+  newSupplier?: { name: string; quoteNumber: string };
 }
 
 const CUSTOMER_ONLY: interfaces.CustomerRole[] = ["customer"];
+const NO_ROLES: interfaces.CustomerRole[] = [];
 
 // The API says what went wrong ("A customer with this IČO already exists", "ARES registry
 // unavailable"). The fixed text covers failures without such a message: no connection, or a
@@ -70,11 +76,16 @@ export function AddCustomerModal({
   createCustomer,
   createManualCustomer,
   isCreating,
-  defaultRoles = CUSTOMER_ONLY,
+  defaultRoles: givenRoles = CUSTOMER_ONLY,
+  newSupplier,
 }: AddCustomerModalProps) {
   const canSeeConcepts = useCanSeeConcepts();
-  // A supplier role is a manager's decision; the server refuses anyone else.
-  const canGiveRoles = useCanManageCustomers();
+  const isManager = useCanManageCustomers();
+  // A supplier role is a manager's decision; the server refuses anyone else - but for a supplier added
+  // from a quote, which then waits for a manager's approval.
+  const canGiveRoles = isManager || !!newSupplier;
+  const defaultRoles = newSupplier ? NO_ROLES : givenRoles;
+  const roleOptions = customerRoleOptions(canSeeConcepts).filter((o) => !newSupplier || o.value !== "customer");
   const toast = useToast();
   const submitting = useRef(false);
   const [manualForm] = Form.useForm<ManualCustomerValues>();
@@ -92,6 +103,13 @@ export function AddCustomerModal({
   // Number of the latest lookup. A response that carries an older number is dropped, so a
   // slow earlier request can never replace the result of a newer one.
   const lookupSeq = useRef(0);
+
+  // A supplier typed on a quote is looked up by what was typed (in ARES, or as the name of a foreign one).
+  const prefill = open ? newSupplier?.name.trim() ?? "" : "";
+  useEffect(() => {
+    if (!prefill) return;
+    setQuery(/^\d+$/.test(prefill) ? prefill.slice(0, ICO_LENGTH) : prefill);
+  }, [prefill]);
 
   const fromRegistry = country === REGISTRY_COUNTRY;
   const isIco = /^\d+$/.test(query);
@@ -166,8 +184,12 @@ export function AddCustomerModal({
   };
 
   const created = (customer: interfaces.CustomerItem) => {
-    toast.success(`${customer.companyName} added`);
-    onCreated(customer.id);
+    toast.success(
+      customer.approvalStatus === "pending"
+        ? `${customer.companyName} added - waiting for a manager's approval`
+        : `${customer.companyName} added`,
+    );
+    onCreated(customer.id, customer);
   };
 
   // The contact person as sent: trimmed, and without what was left empty.
@@ -207,8 +229,9 @@ export function AddCustomerModal({
     }
     try {
       let res: { customer: interfaces.CustomerItem };
-      if (fromRegistry && preview) res = await createCustomer({ ico: preview.ico, contact, roles });
-      else if (company) res = await createManualCustomer({ ...company, country, contact, roles });
+      const fromQuote = newSupplier?.quoteNumber;
+      if (fromRegistry && preview) res = await createCustomer({ ico: preview.ico, contact, roles, fromQuote });
+      else if (company) res = await createManualCustomer({ ...company, country, contact, roles, fromQuote });
       else return;
       created(res.customer);
     } catch (err) {
@@ -263,7 +286,7 @@ export function AddCustomerModal({
       open={open}
       onCancel={handleCancel}
       afterClose={handleAfterClose}
-      title={<span className="text-lg font-semibold text-slate-800">Add Customer / Supplier</span>}
+      title={<span className="text-lg font-semibold text-slate-800">{newSupplier ? "Add supplier" : "Add Customer / Supplier"}</span>}
       width={560}
       destroyOnHidden
       footer={
@@ -277,7 +300,7 @@ export function AddCustomerModal({
             loading={isCreating}
             disabled={(fromRegistry && !preview) || roles.length === 0}
           >
-            Create customer / Supplier
+            {newSupplier ? "Create supplier" : "Create customer / Supplier"}
           </Button>
         </div>
       }
@@ -306,10 +329,18 @@ export function AddCustomerModal({
             help={roles.length === 0 ? "Choose at least one role" : undefined}
             className="!mb-3"
           >
-            <Checkbox.Group options={customerRoleOptions(canSeeConcepts)} value={roles} onChange={setRoles} disabled={isCreating} />
+            <Checkbox.Group options={roleOptions} value={roles} onChange={setRoles} disabled={isCreating} />
           </Form.Item>
         )}
       </Form>
+
+      {newSupplier && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-[13px] text-amber-900">
+          {newSupplier.name.trim() ? <><b>{newSupplier.name.trim()}</b> is not in the Customer Database. </> : null}
+          Fill in the company&apos;s details to add it as a supplier.
+          {!isManager && " A manager approves it on Sales → Managers → Company approval; until then the quote can't be sent."}
+        </div>
+      )}
 
       <div className="flex items-center gap-2 rounded-lg bg-indigo-50 px-3 py-2.5 mb-4 text-[13px] text-slate-600">
         <InfoCircleOutlined aria-hidden className="text-indigo-500" />
@@ -384,7 +415,7 @@ export function AddCustomerModal({
           )}
         </>
       ) : (
-        <Form form={manualForm} layout="vertical" requiredMark={false} disabled={isCreating}>
+        <Form form={manualForm} layout="vertical" requiredMark={false} disabled={isCreating} initialValues={prefill ? { companyName: prefill } : undefined}>
           <Form.Item
             name="companyName"
             label={<RequiredLabel>Company name</RequiredLabel>}

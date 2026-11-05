@@ -20,7 +20,7 @@ const U = "00000000-0000-0000-0000-000000000002";
 const H = "00000000-0000-0000-0000-0000000000a1";
 const H2 = "00000000-0000-0000-0000-0000000000a2";
 const haulierList = vi.mocked(customers._internalHaulierList);
-const company = (id: string, companyName: string) => ({ id, companyName, ico: "12345678", dic: "CZ12345678", city: "Brno", country: "CZ" });
+const company = (id: string, companyName: string) => ({ id, companyName, ico: "12345678", dic: "CZ12345678", city: "Brno", country: "CZ", rating: null, ratingReason: "", inUse: true });
 
 const record = (over: Record<string, unknown> = {}) => ({
   id: "p1",
@@ -119,30 +119,30 @@ describe("haulier list and detail", () => {
 describe("haulier profile save", () => {
   it("refuses a stale version with 409", async () => {
     repo.find.mockResolvedValue({ profile: record(), lanes: [] });
-    await expect(haulierService.update(C, U, "user", H, input({ notes: "x" }), 3)).rejects.toMatchObject({
+    await expect(haulierService.update(C, U, H, input({ notes: "x" }), 3)).rejects.toMatchObject({
       code: "aborted",
       message: "The haulier was changed by someone else. Reload and try again.",
     });
     repo.save.mockResolvedValue(null);
-    await expect(haulierService.update(C, U, "user", H, input({ notes: "x" }), 4)).rejects.toMatchObject({ code: "aborted" });
+    await expect(haulierService.update(C, U, H, input({ notes: "x" }), 4)).rejects.toMatchObject({ code: "aborted" });
   });
 
   it("saves the changed fields as one event, with normalised lanes", async () => {
     repo.find.mockResolvedValue({ profile: record(), lanes: [] });
     repo.save.mockResolvedValue(record({ version: 5 }));
     const lane = { originPostcodeFrom: "110 00", originPostcodeTo: "19999", destPostcodeFrom: "60000", destPostcodeTo: "69999", serviceKind: "FTL" as const, note: "" };
-    await haulierService.update(C, U, "user", H, input({ paymentDays: 45, preferredLanes: [lane] }), 4);
+    await haulierService.update(C, U, H, input({ notes: "Night runs", preferredLanes: [lane] }), 4);
     const [, , version, values, lanes, event] = repo.save.mock.calls[0];
     expect(version).toBe(4);
     expect(values).not.toHaveProperty("blocked");
     expect(lanes).toEqual([{ ...lane, originPostcodeFrom: "11000" }]);
-    expect(event).toMatchObject({ kind: "profile_updated", byName: "Jana Nováková", payload: { changes: { paymentDays: { before: 30, after: 45 } } } });
-    expect(Object.keys(event.payload.changes).sort()).toEqual(["paymentDays", "preferredLanes"]);
+    expect(event).toMatchObject({ kind: "profile_updated", byName: "Jana Nováková", payload: { changes: { notes: { before: "", after: "Night runs" } } } });
+    expect(Object.keys(event.payload.changes).sort()).toEqual(["notes", "preferredLanes"]);
   });
 
   it("refuses a lane whose postcodes run backwards", async () => {
     const lane = { originPostcodeFrom: "19999", originPostcodeTo: "11000", destPostcodeFrom: "60000", destPostcodeTo: "69999", serviceKind: "ANY" as const, note: "" };
-    await expect(haulierService.update(C, U, "user", H, input({ preferredLanes: [lane] }), 0)).rejects.toMatchObject({ code: "invalid_argument" });
+    await expect(haulierService.update(C, U, H, input({ preferredLanes: [lane] }), 0)).rejects.toMatchObject({ code: "invalid_argument" });
   });
 });
 
@@ -200,23 +200,23 @@ describe("block and unblock", () => {
 });
 
 describe("published bank accounts (Phase 6)", () => {
-  it("saves the list normalised, as one change; a save without the list keeps it", async () => {
+  it("keeps the list as the Customer Database has it, whatever a profile save here sends", async () => {
     repo.find.mockResolvedValue({ profile: record({ bankAccounts: ["19-2000145399/0800"] }), lanes: [] });
     repo.save.mockResolvedValue(record({ version: 5 }));
-    await haulierService.update(C, U, "manager", H, input({ bankAccounts: ["CZ65 0800 0000 1920 0014 5399", "de89 3704 0044 0532 0130 00"] }), 4);
+    await haulierService.update(C, U, H, input({ notes: "x", bankAccounts: ["DE89 3704 0044 0532 0130 00"] }), 4);
     const [, , , values, , event] = repo.save.mock.calls[0];
-    expect(values.bankAccounts).toEqual(["19-2000145399/0800", "DE89370400440532013000"]);
-    expect(Object.keys(event.payload.changes)).toEqual(["bankAccounts"]);
-
-    repo.save.mockClear();
-    await haulierService.update(C, U, "user", H, input({ notes: "x" }), 4);
-    expect(repo.save.mock.calls[0][3].bankAccounts).toEqual(["19-2000145399/0800"]);
+    expect(values.bankAccounts).toEqual(["19-2000145399/0800"]);
+    expect(Object.keys(event.payload.changes)).toEqual(["notes"]);
   });
 
-  it("refuses an account that is neither a Czech account nor an IBAN", async () => {
-    repo.find.mockResolvedValue({ profile: record(), lanes: [] });
-    await expect(haulierService.update(C, U, "user", H, input({ bankAccounts: ["123/45"] }), 4)).rejects.toMatchObject({ code: "invalid_argument" });
-    expect(repo.save).not.toHaveBeenCalled();
+  it("ignores the terms a profile save sends back, even ones Trucking's own checks would refuse: they are the Customer Database's", async () => {
+    repo.find.mockResolvedValue({ profile: record({ bankAccounts: ["19-2000145399/0800"] }), lanes: [] });
+    repo.save.mockResolvedValue({ profile: record({ notes: "Calls ahead", bankAccounts: ["19-2000145399/0800"] }), lanes: [] });
+    await haulierService.update(C, U, H, input({ bankAccounts: ["123/45"], vatCheckedAt: "2099-01-01", notes: "Calls ahead" }), 4);
+    expect(repo.save).toHaveBeenCalledTimes(1);
+    const values = repo.save.mock.calls[0]![3] as Record<string, unknown>;
+    expect(values.bankAccounts).toEqual(["19-2000145399/0800"]);
+    expect(values.vatCheckedAt).not.toBe("2099-01-01");
   });
 
   it("shows the accounts on the profile", async () => {
@@ -225,38 +225,76 @@ describe("published bank accounts (Phase 6)", () => {
   });
 });
 
-describe("VAT and bank fields are a manager's (owner decision 6)", () => {
-  it("refuses a user's save that changes any of them, saving nothing; equal values pass", async () => {
+describe("Trucking's copy of the Customer Database's terms (Council Outlay 7, step 6b)", () => {
+  const terms = { paymentDays: 30, currency: "CZK" as const, vatUnreliable: false, bankAccountPublished: true, vatCheckedAt: "2026-10-10", bankAccounts: ["19-2000145399/0800"] };
+
+  it("a profile save here keeps payment terms, VAT and bank details as they are, whoever saves: they are edited in the Customer Database", async () => {
     repo.find.mockResolvedValue({ profile: record({ bankAccounts: ["19-2000145399/0800"] }), lanes: [] });
     repo.save.mockResolvedValue(record({ version: 5 }));
-    for (const over of [{ vatUnreliable: true }, { bankAccountPublished: false }, { vatCheckedAt: "2026-10-14" }, { bankAccounts: ["19-2000145399/0800", "DE89370400440532013000"] }]) {
-      await expect(haulierService.update(C, U, "user", H, input({ notes: "x", ...over }), 4)).rejects.toMatchObject({
-        code: "permission_denied",
-        message: expect.stringContaining("Only a manager can change the VAT and bank details"),
-      });
-    }
-    expect(repo.save).not.toHaveBeenCalled();
-    await haulierService.update(C, U, "user", H, input({ notes: "x", bankAccounts: ["19-2000145399/0800"] }), 4);
-    expect(repo.save).toHaveBeenCalledTimes(1);
+    await haulierService.update(C, U, H, input({ notes: "x", paymentDays: 60, currency: "EUR", vatUnreliable: true, vatCheckedAt: "2026-10-14" }), 4);
+    const [, , , values, , event] = repo.save.mock.calls[0];
+    expect(values).toMatchObject({ paymentDays: 30, currency: "CZK", vatUnreliable: false, vatCheckedAt: "2026-10-10" });
+    expect(values).not.toHaveProperty("bankAccountsChangedAt");
+    expect(Object.keys(event.payload.changes)).toEqual(["notes"]);
   });
 
-  it("a manager's change is saved with before / after; an added account is stamped with when and by whom", async () => {
+  it("takes the Customer Database's save with before / after, and the stamp of an added account as it was made there", async () => {
     repo.find.mockResolvedValue({ profile: record({ bankAccounts: ["19-2000145399/0800"] }), lanes: [] });
     repo.save.mockResolvedValue(record({ version: 5 }));
-    await haulierService.update(C, U, "manager", H, input({ vatUnreliable: true, bankAccounts: ["19-2000145399/0800", "DE89370400440532013000"] }), 4);
-    const [, , , values, , event] = repo.save.mock.calls[0];
-    expect(values).toMatchObject({ bankAccountsChangedAt: new Date("2026-10-15T10:00:00Z"), bankAccountsChangedByUserId: U, bankAccountsChangedBy: "Jana Nováková" });
-    expect(event.payload).toMatchObject({
-      changes: { vatUnreliable: { before: false, after: true }, bankAccounts: { before: ["19-2000145399/0800"], after: ["19-2000145399/0800", "DE89370400440532013000"] } },
-      facts: { vatBankChanged: ["vatUnreliable", "bankAccounts"], bankAccountAdded: true },
+    const change = { at: "2026-10-15T09:00:00.000Z", byUserId: U, by: "jana@ourfuture.biz" };
+    await haulierService.setTermsFromCustomers(C, H, { ...terms, paymentDays: 45, vatUnreliable: true, bankAccounts: ["19-2000145399/0800", "DE89370400440532013000"] }, change, { userId: U, name: "jana@ourfuture.biz" });
+    const [, , version, values, lanes, event] = repo.save.mock.calls[0];
+    expect(version).toBe(4);
+    // The lanes are not sent again: kept as they are.
+    expect(lanes).toBeNull();
+    expect(values).toMatchObject({ paymentDays: 45, vatUnreliable: true, bankAccountsChangedAt: new Date(change.at), bankAccountsChangedByUserId: U, bankAccountsChangedBy: "jana@ourfuture.biz" });
+    expect(event).toMatchObject({
+      kind: "profile_updated",
+      byName: "jana@ourfuture.biz",
+      payload: {
+        changes: { paymentDays: { before: 30, after: 45 }, vatUnreliable: { before: false, after: true } },
+        summary: expect.stringContaining("changed in the Customer Database"),
+        facts: { fromCustomerDatabase: true, vatBankChanged: ["vatUnreliable", "bankAccounts"], bankAccountAdded: true },
+      },
     });
   });
 
-  it("removing an account or changing a flag does not start the hold", async () => {
-    repo.find.mockResolvedValue({ profile: record({ bankAccounts: ["19-2000145399/0800", "DE89370400440532013000"] }), lanes: [] });
+  it("writes nothing when nothing changed, makes the profile of a haulier that has none, and tries again once after a save in between", async () => {
+    repo.find.mockResolvedValue({ profile: record({ bankAccounts: ["19-2000145399/0800"] }), lanes: [] });
+    await haulierService.setTermsFromCustomers(C, H, terms, null, { userId: U, name: "x" });
+    expect(repo.save).not.toHaveBeenCalled();
+
+    repo.find.mockResolvedValue(null);
+    repo.save.mockResolvedValue(record({ version: 1 }));
+    await haulierService.setTermsFromCustomers(C, H, { ...terms, currency: "EUR" }, null, { userId: U, name: "x" });
+    expect(repo.save.mock.calls[0][2]).toBe(0);
+    expect(repo.save.mock.calls[0][5].kind).toBe("profile_created");
+
+    repo.save.mockReset();
+    repo.find.mockResolvedValue({ profile: record({ bankAccounts: ["19-2000145399/0800"] }), lanes: [] });
+    repo.save.mockResolvedValueOnce(null).mockResolvedValueOnce(record({ version: 6 }));
+    await haulierService.setTermsFromCustomers(C, H, { ...terms, paymentDays: 14 }, null, { userId: U, name: "x" });
+    expect(repo.save).toHaveBeenCalledTimes(2);
+  });
+
+  it("takes an account's hold stamp it does not have yet even when the values are the same (a retry, or the haulier role given again)", async () => {
+    repo.find.mockResolvedValue({ profile: record({ bankAccounts: ["19-2000145399/0800"] }), lanes: [] });
     repo.save.mockResolvedValue(record({ version: 5 }));
-    await haulierService.update(C, U, "admin", H, input({ vatCheckedAt: "2026-10-15", bankAccounts: ["19-2000145399/0800"] }), 4);
-    expect(repo.save.mock.calls[0][3]).not.toHaveProperty("bankAccountsChangedAt");
+    const stamp = { at: "2026-11-04T09:00:00.000Z", byUserId: U, by: "anna@example.com" };
+    await haulierService.setTermsFromCustomers(C, H, terms, stamp, { userId: U, name: "x" });
+    expect(repo.save.mock.calls[0][3]).toMatchObject({ bankAccountsChangedAt: new Date(stamp.at), bankAccountsChangedBy: "anna@example.com" });
+
+    repo.save.mockReset();
+    repo.find.mockResolvedValue({ profile: record({ bankAccounts: ["19-2000145399/0800"], bankAccountsChangedAt: new Date(stamp.at) }), lanes: [] });
+    await haulierService.setTermsFromCustomers(C, H, terms, stamp, { userId: U, name: "x" });
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it("lists what it holds of each haulier, for the one-off copy into the Customer Database", async () => {
+    repo.listWithLaneCounts.mockResolvedValue([{ profile: record({ bankAccounts: ["19-2000145399/0800"], bankAccountsChangedAt: new Date("2026-10-01T08:00:00Z"), bankAccountsChangedBy: "Petr", bankAccountsChangedByUserId: U }), laneCount: 0 }]);
+    expect(await haulierService.termsList(C)).toEqual([
+      { customerId: H, ...terms, bankAccountsChange: { at: "2026-10-01T08:00:00.000Z", byUserId: U, by: "Petr" } },
+    ]);
   });
 
   it("shows the change and the end of the 30-day hold on the profile", async () => {

@@ -36,6 +36,7 @@ vi.mock("encore.dev/api", () => ({
     invalidArgument: (msg: string) => new Error(msg),
     alreadyExists: (msg: string) => new Error(msg),
     permissionDenied: (msg: string) => new Error(msg),
+    failedPrecondition: (msg: string) => Object.assign(new Error(msg), { code: "failed_precondition" }),
   },
 }));
 
@@ -292,7 +293,7 @@ describe("deleted customers", () => {
     customers.restoreWithChildren.mockResolvedValue(deletedRow({ deletedAt: null }));
     const item = await customerService.restore("c1", COMPANY);
     expect(customers.findByIco).toHaveBeenCalledWith("12345678", COMPANY);
-    expect(customers.restoreWithChildren).toHaveBeenCalledWith("c1", COMPANY);
+    expect(customers.restoreWithChildren).toHaveBeenCalledWith("c1", COMPANY, "restore");
     expect(item.id).toBe("c1");
   });
 
@@ -316,6 +317,43 @@ describe("deleted customers", () => {
     customers.restoreWithChildren.mockResolvedValue(deletedRow({ ico: "", deletedAt: null }));
     await customerService.restore("c1", COMPANY);
     expect(customers.findByIco).not.toHaveBeenCalled();
+  });
+});
+
+describe("a declined new supplier taken back", () => {
+  const declined = (over: Record<string, unknown> = {}) => ({
+    id: "c1", companyId: COMPANY, ico: "12345678", companyName: "DANGO s.r.o.", label: "TARGET CUSTOMER", roles: ["haulier"], registrationDate: null,
+    lastActivityDate: null, logoData: "", createdAt: now, updatedAt: now, deletedAt: now, approvalStatus: "declined", approvalDecision: "declined", ...over,
+  });
+
+  it("comes back with what was deleted with it, waiting again, and the copies are told", async () => {
+    customers.getDeletedForCompany.mockResolvedValue(declined());
+    customers.findByIco.mockResolvedValue(null);
+    customers.restoreWithChildren.mockResolvedValue(declined({ deletedAt: null, approvalStatus: "pending", approvalDecision: "" }));
+    await customerService.undoDecline("c1", COMPANY);
+    expect(customers.restoreWithChildren).toHaveBeenCalledWith("c1", COMPANY, "undoDecline");
+    expect(topics.customerChanged.publish).toHaveBeenCalledWith(expect.objectContaining({ customerId: "c1", deleted: false }));
+  });
+
+  it("only for a company a manager declined and still deleted; a second click is refused", async () => {
+    for (const found of [null, declined({ approvalStatus: "", approvalDecision: "" })]) {
+      customers.getDeletedForCompany.mockResolvedValue(found);
+      await expect(customerService.undoDecline("c1", COMPANY)).rejects.toMatchObject({ code: "failed_precondition" });
+    }
+    expect(customers.restoreWithChildren).not.toHaveBeenCalled();
+    // Taken back by another manager in this very moment: the conditional write finds nothing.
+    customers.getDeletedForCompany.mockResolvedValue(declined());
+    customers.findByIco.mockResolvedValue(null);
+    customers.restoreWithChildren.mockResolvedValue(null);
+    await expect(customerService.undoDecline("c1", COMPANY)).rejects.toMatchObject({ code: "failed_precondition" });
+    expect(topics.customerChanged.publish).not.toHaveBeenCalled();
+  });
+
+  it("is refused while a live company has its registration number", async () => {
+    customers.getDeletedForCompany.mockResolvedValue(declined());
+    customers.findByIco.mockResolvedValue({ companyName: "DANGO nová s.r.o." });
+    await expect(customerService.undoDecline("c1", COMPANY)).rejects.toThrow("DANGO nová s.r.o. already has the registration number 12345678, so DANGO s.r.o. can't be restored");
+    expect(customers.restoreWithChildren).not.toHaveBeenCalled();
   });
 });
 
@@ -375,6 +413,14 @@ describe("customer change events (shipments, quotes, follow-ups and trucking kee
     expect(topics.contactChanged.publish).toHaveBeenCalledWith({
       companyId: COMPANY, customerId: "c1", contactId: "k1", name: "Petr Masák", email: "p@alfa.cz", phone: "+420 777 111 222", deleted: true,
     });
+  });
+
+  it("a delete done is not failed by its announcement: a contacts read that fails is only logged", async () => {
+    customers.softDeleteWithChildren.mockResolvedValue(saved({ deletedAt: now }));
+    contacts.hiddenWithCustomer.mockRejectedValueOnce(new Error("db down"));
+    await expect(customerService.softDelete("c1", COMPANY)).resolves.toBeUndefined();
+    expect(topics.customerChanged.publish).toHaveBeenCalledWith(expect.objectContaining({ customerId: "c1", deleted: true }));
+    expect(logger.error).toHaveBeenCalled();
   });
 
   it("a restore is sent with deleted: false; one refused for a clashing registration number is not", async () => {

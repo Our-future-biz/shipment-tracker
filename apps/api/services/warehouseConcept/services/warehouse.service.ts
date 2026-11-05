@@ -11,6 +11,9 @@ import { kgText, needsReweigh } from "./reweigh";
 import { gateAdminService } from "./gateAdmin.service";
 import { pickedUserFromRequest } from "./pickedUser";
 import { companyUsers } from "../../../lib/companyUsers";
+import { tellOperations, type ComparedWith } from "../../../lib/operationsNotice";
+import { remeasureTotals } from "./remeasure";
+import { inputMessage } from "./inputError";
 import type { NewWarehouseTaskRecord, WarehouseTaskRecord } from "../schemas/warehouseTask.schema";
 import type { WarehouseSectionRecord } from "../schemas/warehouseSection.schema";
 import type { Tx } from "../repositories/warehouseSection.repository";
@@ -28,13 +31,14 @@ export { formatWarehouseRef, warehouseRefYear } from "./warehouseRef";
 /** Sections saved field by field (PATCH); pick-up keeps its own rows-only save. */
 export const KEYED_SECTIONS = ["job", "customs", "invoicing"] as const;
 
-// Keys of the Shipment Details ("job") section and the longest text each may hold.
+// Keys of the Shipment Details ("job") section and the longest text each may hold. When Operations
+// were informed is not among them: only Inform Operations writes it (informOperations), which also
+// tells them in the shipment's chat - a field save could record it without telling anyone.
 const JOB_KEYS: Record<string, number> = {
   notes: 10_000,
   vgm_sent: 2_000,
   survey_sent: 2_000,
   remeasurement_sent: 2_000,
-  inform_operations_sent: 2_000,
   remeasure_rows: 100_000,
 };
 const MAX_REMEASURE_ROWS = 200;
@@ -97,8 +101,27 @@ export interface MarkSentOptions {
   entry?: Record<string, string>;
   /** History text instead of the field label, e.g. "VGM e-mailed to a@x.cz (3 photos)". */
   logLabel?: string;
-  /** Runs in the same transaction, after the section is marked and the History line added. */
-  after?: (tx: Tx) => Promise<void>;
+  /** Runs in the same transaction, after the section is marked and the History line added; an error undoes both. */
+  after?: (tx: Tx, row: WarehouseSectionRecord) => Promise<void>;
+}
+
+/** Inform Operations: the section as saved, and who was tagged in the shipment's chat (null: no shipment, no chat). */
+export interface InformedOperations {
+  row: WarehouseSectionRecord;
+  tagged: string[] | null;
+}
+
+// The notice of Inform Operations: the saved remeasured lines' totals (none is "—"), read strictly -
+// lines that cannot be read are refused rather than told as 0.
+async function tellAboutLines(shipmentId: string, data: unknown, comparedWith: ComparedWith, note: string): Promise<string[]> {
+  const d = data && typeof data === "object" && !Array.isArray(data) ? (data as Record<string, unknown>) : {};
+  let t;
+  try {
+    t = remeasureTotals(d.remeasure_rows ?? "[]");
+  } catch (err) {
+    throw APIError.failedPrecondition(`The remeasured lines cannot be read: ${inputMessage(err, "they cannot be read")} — correct them first`);
+  }
+  return tellOperations(shipmentId, { colli: t.pieces, weightKg: t.weightKg, volumeCbm: t.cbm }, comparedWith, note);
 }
 
 function checkChanges(section: string, changes: SectionKeyChange[]) {
@@ -293,8 +316,55 @@ class WarehouseService {
   // its history (`<field>_history`), logged on the position's gate records. The supplier e-mail
   // (emailSupplier.service) records its sends through here too, with `opts`: the recipients and
   // attachments in the entry, its own History text and its attempt settled in the same transaction.
-  async markSent(taskId: string, what: string, note: string, companyId: string, userId: string, opts: MarkSentOptions = {}) {
+  async markSent(taskId: string, what: string, note: string, companyId: string, userId: string, opts: MarkSentOptions = {}): Promise<WarehouseSectionRecord> {
     if (!(SENT_KINDS as readonly string[]).includes(what)) throw APIError.invalidArgument(`What was sent must be one of: ${SENT_KINDS.join(", ")}`);
+    // Operations informed is also told in the shipment's chat, never recorded alone.
+    if (what === "inform_operations") return (await this.informOperations(taskId, note, companyId, userId)).row;
+    return this.recordSent(taskId, what, note, companyId, userId, opts);
+  }
+
+  /**
+   * Inform Operations for a position. Recorded as a send (time, who, note, History) and, for a
+   * position of a shipment, posted to the shipment's chat: "Cargo has been remeasured by the
+   * warehouse", what the shipment declares against the saved remeasured lines - what Cargo
+   * comparison compares - and the note, tagging the shipment's Person in Charge and Holiday Cover.
+   * Both in one transaction: a notice that could not be posted records nothing (an error), so the
+   * time never says Operations were told when they were not. A stand-alone position has no
+   * shipment and no chat: it is only recorded (tagged null).
+   */
+  async informOperations(taskId: string, note: string, companyId: string, userId: string): Promise<InformedOperations> {
+    let tagged: string[] | null = null;
+    const row = await this.recordSent(taskId, "inform_operations", note, companyId, userId, {
+      after: async (_tx, saved) => {
+        if (saved.shipmentId) tagged = await tellAboutLines(saved.shipmentId, saved.data, "declared", (note ?? "").trim());
+      },
+    });
+    return { row, tagged };
+  }
+
+  /**
+   * Inform Operations by shipment id (a shipment's warehouse part in Warehouse Concept): its live
+   * position's when it has one; else the shipment's own section, with the shipment's notice compared
+   * with its cargo dimension lines, as that screen compares them. The same one transaction.
+   */
+  async informOperationsByShipment(shipmentId: string, note: string, companyId: string, userId: string): Promise<InformedOperations> {
+    if (!UUID.test(shipmentId)) throw APIError.invalidArgument("Not a shipment id");
+    const text = (note ?? "").trim();
+    if (text.length > MAX_SENT_NOTE) throw APIError.invalidArgument(`The note is too long (at most ${MAX_SENT_NOTE} characters)`);
+    const task = await warehouseTaskRepository.findLiveForShipment(companyId, shipmentId);
+    if (task) return this.informOperations(task.id, text, companyId, userId);
+    const by = await userName(userId);
+    const at = new Date().toISOString();
+    let tagged: string[] = [];
+    // The notice is posted as the shipment's own: a shipment that is no live shipment of the
+    // company is refused there (not found), and nothing is recorded.
+    const row = await warehouseSectionRepository.markSent({ kind: "shipment", shipmentId }, "job", companyId, "inform_operations_sent", at, { at, note: text, by }, async (_tx, saved) => {
+      tagged = await tellAboutLines(shipmentId, saved.data, "dimensions", text);
+    });
+    return { row, tagged };
+  }
+
+  private async recordSent(taskId: string, what: string, note: string, companyId: string, userId: string, opts: MarkSentOptions = {}): Promise<WarehouseSectionRecord> {
     const text = (note ?? "").trim();
     if (text.length > MAX_SENT_NOTE) throw APIError.invalidArgument(`The note is too long (at most ${MAX_SENT_NOTE} characters)`);
     const task = await this.liveTask(taskId, companyId);
@@ -329,14 +399,14 @@ class WarehouseService {
       key,
       value,
       { at, note: text, by, ...weighed, ...extra },
-      async (tx) => {
+      async (tx, row) => {
         await gateMovementRepository.appendEventsForTask(
           task.id,
           companyId,
           [{ kind: "sectionSent", label: `Shipment Details: ${label}${vgmNote ? ` (${vgmNote})` : ""}`, at, by, ...(text ? { detail: text } : {}) }],
           tx,
         );
-        await opts.after?.(tx);
+        await opts.after?.(tx, row);
       },
     );
   }

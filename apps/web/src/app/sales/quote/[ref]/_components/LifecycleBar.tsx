@@ -167,7 +167,7 @@ export function LifecycleBar({ quote, sendBlocked, onChange, hrefOf, changingOwn
     const blocked = sendBlocked && SENDING_STATUSES.includes(key);
     const label = blocked ? (
       <Tooltip title={sendBlocked} placement="left">
-        <span>{targetLabels[i]} <span className="text-[11px] text-red-600">· margin needs approval</span></span>
+        <span>{targetLabels[i]} <span className="text-[11px] text-red-600">· can&apos;t be sent yet</span></span>
       </Tooltip>
     ) : (
       targetLabels[i]

@@ -39,7 +39,7 @@ const REF = "QCZ20261010001";
 const U_MARTIN = "0d5f0a43-52a1-4d0e-9a39-0c6f3b1f6a02";
 const U_JANA = "0d5f0a43-52a1-4d0e-9a39-0c6f3b1f6a03";
 const U_NOBODY = "0d5f0a43-52a1-4d0e-9a39-0c6f3b1f6aff";
-const user = (id: string, displayName: string, email: string) => ({ id, companyId: "", email, displayName, role: "user", departmentId: null, branchId: null });
+const user = (id: string, displayName: string, email: string) => ({ id, companyId: "", email, displayName, role: "user", departmentId: null, branchId: null, reportsToUserId: null });
 const USERS = [user(U_MARTIN, "Martin Koubek", "martin@forwarder.cz"), user(U_JANA, "", "jana@forwarder.cz")];
 
 // A company of its own for every test: what the service remembers about the import of one must

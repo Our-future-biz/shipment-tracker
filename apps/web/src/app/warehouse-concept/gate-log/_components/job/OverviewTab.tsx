@@ -15,6 +15,7 @@ import {
 import type { GateMovement } from "@/hooks/useGateLog";
 import type { controllers, interfaces } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/date";
+import { loadTypeLabel } from "@/lib/enums";
 import { figureFromTrip, tripLabel } from "@/lib/tripSource";
 import { TripMarker } from "@/components/TripMarker";
 import { TERMS, directionOfHandling } from "@/app/warehouse-concept/_lib/glossary";
@@ -232,6 +233,7 @@ export function OverviewTab({
                   <InlineSelect
                     value={m.loadType}
                     options={LOAD_TYPES}
+                    labels={(v) => loadTypeLabel(v, m.freightMode)}
                     onSave={(v) => save({ loadType: v })}
                   />
                 </FieldRow>

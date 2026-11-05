@@ -1,3 +1,5 @@
+import { SALES_PAGES } from "./tabs";
+
 // Where a quote was opened from, when that is not the Quotes list. It travels in the quote's
 // address, so the quote page can lead back there (useQuoteOrigin) also after a reload or in a new
 // tab. A quote opened from the list, from a shipment or by a typed address has no origin: its
@@ -13,6 +15,10 @@ export function quoteHref(quoteNumber: string, origin?: QuoteOrigin | null): str
   if (origin.from === "customer") query.set("customer", origin.customerId);
   return `${path}?${query}`;
 }
+
+// The Quotes list with a quote's chat open (?chat=<Sales Reference>): where a notification about a
+// quote, or a manager asking back about one, leads.
+export const quoteChatHref = (quoteNumber: string) => `${SALES_PAGES.quotes.path}?chat=${encodeURIComponent(quoteNumber)}`;
 
 // The origin an address carries. Anything else than the two known ones is no origin.
 export function quoteOriginOf(query: Pick<URLSearchParams, "get">): QuoteOrigin | null {

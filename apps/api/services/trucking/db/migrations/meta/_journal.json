@@ -85,6 +85,20 @@
       "when": 1793054426874,
       "tag": "0011_customer_name_links",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1793774528698,
+      "tag": "0012_haulier_invoice_paid",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1793783189619,
+      "tag": "0013_payment_tracking",
+      "breakpoints": true
     }
   ]
 }

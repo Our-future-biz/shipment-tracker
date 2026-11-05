@@ -179,17 +179,6 @@ export function marginState(m: Pick<RoadMargin, "belowFloor" | "approvalValid" |
   return "ok";
 }
 
-/**
- * Why the quote cannot be sent or marked Ready to send, in the server's words: the margin below
- * the floor without a valid approval. Null when nothing blocks it.
- */
-export function sendBlockedText(m: RoadMargin | null | undefined): string | null {
-  if (!m?.needsApproval) return null;
-  // No margin to approve when a rate is missing: only the rate or CZK lines unblock the quote.
-  if (m.problem) return `The margin cannot be worked out: ${m.problem.replace(/\.$/, "")}. The quote can be sent once the rate is available or its lines are in CZK.`;
-  return `The margin of ${marginText(m.marginCzk, m.marginPercent)} is below the floor of ${floorText(m)}. A manager must approve it before the quote is sent.`;
-}
-
 export const APPROVAL_REASON_MIN = 3;
 export const APPROVAL_REASON_MAX = 500;
 

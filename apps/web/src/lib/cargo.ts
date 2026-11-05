@@ -139,6 +139,43 @@ export function numberInput(v: string, decimals = true, maxDigits = Infinity): s
   return rest.length ? `${w}.${rest.join("")}` : w;
 }
 
+// "All pieces" in Cargo Details: weight and volume typed for all the pieces of a dimension line are
+// stored per piece. A line without pieces has no totals - there is nothing to share one over - so
+// its pieces count 0, as the totals row and the server count them.
+export const piecesOf = (l: { pieces?: string | null }) => Math.max(0, Math.floor(num(l.pieces)));
+
+/** The most m³ one piece may hold (the server refuses more: a slip of the keyboard, not a piece). */
+export const MAX_VOLUME_PER_PIECE_M3 = 1000;
+
+/**
+ * A number as a plain decimal with `significant` digits and no trailing zeros ("150", "0.5",
+ * "0.000000333333333333") - never "3.3e-7", which the server does not take; "" for none.
+ */
+export function plainDecimal(n: number, significant = 12): string {
+  if (!Number.isFinite(n) || n <= 0) return "";
+  const decimals = Math.min(100, Math.max(0, significant - 1 - Math.floor(Math.log10(n))));
+  const fixed = n.toFixed(decimals);
+  return fixed.includes(".") ? fixed.replace(/\.?0+$/, "") : fixed;
+}
+
+/**
+ * One piece's share of a total, as stored: 12 significant digits, so pieces × share gives the total
+ * back as typed even over thousands of pieces (7 m³ over 3,000 pieces is 0.00233333333333, not
+ * 0.002333 = 6.999 m³); "" for none or without pieces.
+ */
+export const perPieceText = (total: number, pieces: number) => (total > 0 && pieces > 0 ? plainDecimal(total / pieces) : "");
+
+/** A line's total from its per-piece value, rounded as shown (weight 2 decimals, volume 3); "" for none or without pieces. */
+export const totalText = (perPiece: number, pieces: number, decimals: number) =>
+  perPiece > 0 && pieces > 0 ? String(Number((perPiece * pieces).toFixed(decimals))) : "";
+
+/**
+ * The total a line's per-piece share was made from: pieces × share to 10 significant digits, which
+ * undoes the share's own rounding - so sharing it out again over other pieces, keystroke after
+ * keystroke, never drifts away from what was typed. 0 for none.
+ */
+export const lineTotal = (perPiece: number, pieces: number) => (perPiece > 0 && pieces > 0 ? Number((perPiece * pieces).toPrecision(10)) : 0);
+
 // en-US thousands separators; integers plain, otherwise at most 2 decimals.
 export function fmtNum(n: number): string {
   return n % 1 === 0
@@ -157,9 +194,28 @@ export type CargoDimensionLine = interfaces.CargoDimensionLine;
 export type CargoItemLine = interfaces.CargoItemLine;
 export type ContainerLine = interfaces.ContainerLine;
 
-// Volume of one piece in m³ (cm³ → m³); derived live, never stored.
-export function dimensionVolumePerPiece(d: CargoDimensionLine): number {
-  return (num(d.lengthCm) * num(d.widthCm) * num(d.heightCm)) / 1e6;
+// The sizes of a piece (in cm) and the volume typed for it: what its volume is worked out from.
+type VolumeSource = Pick<CargoDimensionLine, "lengthCm" | "widthCm" | "heightCm" | "volumePerPcM3">;
+
+/** Whether all three sizes of a piece are known (each above 0): then its volume is worked out from them. */
+export const hasAllSizes = (d: VolumeSource): boolean => num(d.lengthCm) > 0 && num(d.widthCm) > 0 && num(d.heightCm) > 0;
+
+// Volume of one piece in m³: from its sizes in cm (cm³ → m³) when all three are known, else the
+// volume typed for it, as the sizes are not always known. The same rule as the server's.
+export function dimensionVolumePerPiece(d: VolumeSource): number {
+  return hasAllSizes(d) ? (num(d.lengthCm) * num(d.widthCm) * num(d.heightCm)) / 1e6 : num(d.volumePerPcM3);
+}
+
+/** The m³ of a whole dimension line: its pieces × the volume of one (sizes in cm). */
+export const dimensionLineVolume = (d: VolumeSource & Pick<CargoDimensionLine, "pieces">): number => num(d.pieces) * dimensionVolumePerPiece(d);
+
+/**
+ * An edited line once a change gave it all three sizes: without the volume typed for it, as the
+ * server keeps none beside them - so a hidden old value cannot come back when a size is cleared
+ * again. Either unit: a size above 0 is above 0 in both.
+ */
+export function withoutTypedVolumeWhenSized<L extends VolumeSource>(l: L): L {
+  return hasAllSizes(l) && l.volumePerPcM3 ? { ...l, volumePerPcM3: "" } : l;
 }
 
 export interface DimensionTotals {
@@ -206,7 +262,7 @@ export const unitLabel = (u?: DimensionUnit | null) => (u === "in" ? "in" : "cm"
 // Dimensions dialog, which does not show them.
 export function dimensionLineIsEmpty(l: CargoDimensionLine): boolean {
   return (
-    !l.pieces && !l.lengthCm && !l.widthCm && !l.heightCm && !l.weightPerPcKg && !l.packageType && !l.stackable &&
+    !l.pieces && !l.lengthCm && !l.widthCm && !l.heightCm && !l.weightPerPcKg && !l.volumePerPcM3?.trim() && !l.packageType && !l.stackable &&
     !l.palletType?.trim() && !l.adrUn?.trim() && !l.adrClass?.trim() && !l.adrPackingGroup?.trim() && !l.adrLimitedQuantity
   );
 }
@@ -217,7 +273,7 @@ export function dimensionTotals(dims: CargoDimensionLine[]): DimensionTotals {
       const q = num(d.pieces);
       t.pcs += q;
       t.kg += q * num(d.weightPerPcKg);
-      t.m3 += q * dimensionVolumePerPiece(d);
+      t.m3 += dimensionLineVolume(d);
       return t;
     },
     { pcs: 0, kg: 0, m3: 0 },

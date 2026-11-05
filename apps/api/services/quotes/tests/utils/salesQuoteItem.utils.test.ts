@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SalesQuoteRecord } from "../../schemas/quote.schema";
 import { toItem } from "../../utils/salesQuoteItem.utils";
+import { SHIPPING_TERMS_FIRST, shippingTermsGateMessage } from "../../utils/shippingTerms.utils";
 
 // 10 October 2026, noon in Prague.
 const NOW = new Date("2026-10-10T10:00:00.000Z");
@@ -86,6 +87,8 @@ describe("toItem", () => {
       shipmentId: null,
       shipmentJobNumber: null,
       roadMargin: null,
+      // A new draft has no Shipping terms template yet.
+      sendBlocked: SHIPPING_TERMS_FIRST,
       permissions: { canChangeOwner: "own", canDelete: true, canApproveMargin: false },
     });
   });
@@ -270,5 +273,14 @@ describe("toItem", () => {
     it("carries no reason when the quote may be deleted", () => {
       expect(permissions({ ownerUserId: "user-1" }, martin)).not.toHaveProperty("deleteBlockedReason");
     });
+  });
+});
+
+describe("shippingTermsGateMessage", () => {
+  it("holds a quote until a Shipping terms template is chosen", () => {
+    expect(shippingTermsGateMessage({})).toBe(SHIPPING_TERMS_FIRST);
+    expect(shippingTermsGateMessage({ shippingTerms: "  " })).toBe(SHIPPING_TERMS_FIRST);
+    expect(shippingTermsGateMessage(null)).toBe(SHIPPING_TERMS_FIRST);
+    expect(shippingTermsGateMessage({ shippingTerms: "AIR EXPORT" })).toBeNull();
   });
 });

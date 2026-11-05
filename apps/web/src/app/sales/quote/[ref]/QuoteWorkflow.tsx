@@ -38,12 +38,17 @@ import { useCompanyDetails } from "@/hooks/useSalesPrefs";
 import { useCustomer, useCustomers, type CustomerItem } from "@/hooks/useCustomers";
 import { useDebounced } from "@/hooks/useDebounced";
 import { useTermsConditions } from "@/hooks/useTermsConditions";
-import { api } from "@/lib/api";
+import { api, apiErrorMessage } from "@/lib/api";
+import { useQuoteMarginInquiry } from "@/hooks/useMarginInquiries";
 import { businessToday } from "@/lib/date";
 import { fmtMoney, moneyInputParser } from "@/lib/money";
 import { useToast } from "@/lib/toast";
 import { CustomerAccountTypeBadge } from "@/app/customers/_components/CustomerAccountTypeBadge";
 import { GeoFlag, GeoSelect } from "@/components/GeoSelect";
+import { NewSupplierFromQuote } from "@/components/SupplierPicker";
+import { useSupplierApprovals } from "@/hooks/useSupplierApprovals";
+import { useSupplierDirectory } from "@/hooks/useSupplierDirectory";
+import { supplierSendBlock } from "../../_lib/supplierApproval";
 import type { SalesQuoteData, PackageLine, QuoteContainerLine, CostLine } from "../../_lib/types";
 import type { QuoteProblem } from "../../_lib/quoteProblem";
 import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, PACKING_TYPES, serviceTypeLabel } from "../../_lib/types";
@@ -51,7 +56,7 @@ import { createShipmentHint, shipmentFromQuoteBlockedText } from "../../_lib/shi
 import { CURRENCIES } from "@/lib/enums";
 import { CONTAINER_KINDS, CONTAINER_KINDS_BY_SIZE, CONTAINER_SIZES, containerType, teuForType } from "@/lib/cargo";
 import { useListKeys } from "@/hooks/useListKeys";
-import { asData, cargoReadyDay, computeTotals, computeCargo, convertLine, documentBlock, fxNote, hasReefer, isContainerQuote, isSeaQuote, isWonRevision, reeferMissing, revisionRoot, stripProtected, withLineBasis, type QuoteTotals } from "../../_lib/salesQuote";
+import { asData, cargoReadyDay, computeTotals, computeCargo, convertLine, cyAtDestination, cyAtOrigin, cyTermsOf, CY_TERMS, documentBlock, fxNote, hasReefer, isContainerQuote, isSeaQuote, isWonRevision, reeferMissing, revisionRoot, routingMissing, stripProtected, withLineBasis, type CyTerms, type QuoteTotals } from "../../_lib/salesQuote";
 import { PRINT_WINDOW_BLOCKED, exportClosesQuote } from "../../_lib/exportClose";
 import { ExportCloseDialog } from "../../_components/ExportCloseDialog";
 import {
@@ -65,7 +70,7 @@ import { useQuoteOrigin } from "../../_lib/useQuoteOrigin";
 import { printQuote } from "../../_lib/printQuote";
 import { transitionRequest, type StatusChange } from "../../_lib/statusChange";
 import { salesSettingsHref } from "../../_lib/tabs";
-import { isRoadQuote, lineTariffTag, roadInputDefaults, roadInputProblems, sendBlockedText, sideOverridden, type LineTariffTag, type RatePick } from "../../_lib/roadQuote";
+import { isRoadQuote, lineTariffTag, roadInputDefaults, roadInputProblems, sideOverridden, type LineTariffTag, type RatePick } from "../../_lib/roadQuote";
 import { formatAmount as formatMoney } from "@/lib/money";
 import { CustomerLink } from "../../_components/CustomerLink";
 import { DeleteQuoteModal } from "../../_components/DeleteQuoteModal";
@@ -87,7 +92,8 @@ import { CostLinesEditor } from "./_components/CostLinesEditor";
 import { FclPricingEditor } from "./_components/FclPricingEditor";
 import { FclTruckingBlock } from "./_components/FclTruckingBlock";
 import { fclChanges, usesFclPricing, withFclPricing } from "../../_lib/fclPricing";
-import { linesToRecheck, rechecked, stampPricedFor, withPricedForNow } from "../../_lib/tariffRecheck";
+import { templateTerms, termsDifferFromTemplate } from "../../_lib/shippingTerms";
+import { linesForOtherDirection, linesToRecheck, otherDirectionBlock, rechecked, stampDirection, stampPricedFor, withPricedForNow } from "../../_lib/tariffRecheck";
 import { QuoteAddressField } from "./_components/QuoteAddressField";
 import { QuoteContactField } from "./_components/QuoteContactField";
 import { QuoteRatesEditor } from "./_components/QuoteRatesEditor";
@@ -140,10 +146,11 @@ import {
 } from "../../_lib/oceanQuote";
 import { QuoteMarginPanel } from "./_components/QuoteMarginPanel";
 import { QuoteMarginApproveDialog } from "./_components/QuoteMarginApproveDialog";
+import { AskMarginApprovalDialog } from "./_components/AskMarginApprovalDialog";
 import { QuoteShipmentsDialog } from "./_components/QuoteShipmentsDialog";
 import { QuotePriceTile } from "./_components/QuotePriceTile";
 import { useQuoteShipments } from "@/hooks/useQuoteShipments";
-import { useCanSeeConcepts } from "@/lib/auth/AuthContext";
+import { useAuth, useCanSeeConcepts } from "@/lib/auth/AuthContext";
 import { limitCzechPhone } from "@/lib/phone";
 
 // A new package has no dimensions and no weight: made-up ones would print as real cargo and drive
@@ -190,13 +197,14 @@ const CONTACT_FOLLOWS_TITLE = "From the contact in the Customer Database - chang
 
 // What the question before Routing is saved without its Origin or Destination asks.
 function blankRoutingTitle(data: SalesQuoteData): string {
-  const blank = [!data.origin?.trim() && "Origin", !data.destination?.trim() && "Destination"].filter(Boolean);
+  const blank = routingMissing(data);
   return blank.length === 2 ? "Keep Origin and Destination blank?" : `Keep ${blank[0] ?? "Origin"} blank?`;
 }
 
 export function QuoteWorkflow() {
   const canSeeConcepts = useCanSeeConcepts();
   const truckingOn = canSeeConcepts;
+  const { user } = useAuth();
   const { ref } = useParams<{ ref: string }>();
   const router = useRouter();
   const pathname = usePathname();
@@ -219,6 +227,20 @@ export function QuoteWorkflow() {
   // `draft` is the document being edited; `quote` is the quote as the server last returned it,
   // with everything the server owns - status, validity, owner - and what may be done with them.
   const { draft, quote, change, follow, act, load, reload, discard, save, syncedAt, saveNow, pending, reapply, dismissPending } = useSalesQuoteDraft(ref);
+  // The newest question to a manager about the margin, while the quote has a road margin to ask about.
+  const marginAsk = useQuoteMarginInquiry(ref, !!quote?.roadMargin);
+  // The newest question changed while the quote is open - asked, withdrawn, or answered by a
+  // manager: the quote is read again (what was typed is saved first, and the version this page is
+  // based on is not touched), so its history, approval and send gate show what the server holds.
+  // The first answer of the server is only remembered: the quote was read with it already.
+  const seenInquiry = useRef<string | null>(null);
+  useEffect(() => {
+    if (!marginAsk.loaded) return;
+    const i = marginAsk.inquiry;
+    const key = i ? `${i.id}:${i.status}` : "";
+    if (seenInquiry.current !== null && seenInquiry.current !== key) void act(() => api.quotes.salesQuoteGet(ref));
+    seenInquiry.current = key;
+  }, [marginAsk.loaded, marginAsk.inquiry, act, ref]);
   const { deleteQuote } = useSalesQuotes();
   const exchange = useCurrentExchangeRates();
   const company = useCompanyDetails();
@@ -241,6 +263,8 @@ export function QuoteWorkflow() {
   const { terms } = useTermsConditions();
   // Sales Settings, where the templates are kept, is for managers and admins only.
   const { canManageSales } = useSalesPermissions();
+  const supplierDirectory = useSupplierDirectory();
+  const supplierApprovals = useSupplierApprovals();
 
   // The step "Save & continue" goes to once the out-of-gauge cargo is confirmed, while that is asked.
   const [confirmCargoTo, setConfirmCargoTo] = useState<SectionKey | null>(null);
@@ -254,11 +278,10 @@ export function QuoteWorkflow() {
   const [overweightAsk, setOverweightAsk] = useState<{ to?: SectionKey; save?: boolean; removing?: number } | null>(null);
   const [feeChange, setFeeChange] = useState<{ index: number; amount: number; before: number; currency: string; reason?: string; removing?: LineSide } | null>(null);
   const [modal, setModal] = useState<
-    null | "import" | "copyQuote" | "copyShipment" | "duplicate" | "preview" | "email" | "delete" | "replaceSelling" | "allIn" | "closeQuote" | "revise" | "roadPrice" | "approveMargin" | "shipments"
+    null | "import" | "copyQuote" | "copyShipment" | "duplicate" | "preview" | "email" | "delete" | "replaceSelling" | "allIn" | "closeQuote" | "revise" | "roadPrice" | "approveMargin" | "askMargin" | "shipments"
   >(null);
   // The template chosen under Shipping terms while the user is asked whether its text may replace
   // what the quote says; null when no question is open.
-  const [templateAsked, setTemplateAsked] = useState<string | null>(null);
   // A buying line that just got its amount (and its place), offered to selling as well with a markup.
   const [toSelling, setToSelling] = useState<{ line: CostLine; index: number } | null>(null);
   // The buying line "Tariffs available" was opened from: for rail, collections, or ocean freight.
@@ -323,7 +346,8 @@ export function QuoteWorkflow() {
     const overweight = withOverweight(next) ?? {};
     const based = { ...overweight, ...withLineBasis({ ...next, ...overweight }) };
     const priced = { ...next, ...based };
-    const fcl = usesFclPricing(priced, false) ? withFclPricing(priced, exchange.rates, exchange) : null;
+    // An open quote's blocks are sold at full fives (fclPricing.ts SELLING_ROUNDS_TO).
+    const fcl = usesFclPricing(priced, false) ? withFclPricing(priced, exchange.rates, exchange, { roundUp: true }) : null;
     return fcl ? { ...based, ...fclChanges(fcl, priced) } : based;
   };
   const set = (patch: Partial<SalesQuoteData>) => {
@@ -392,8 +416,34 @@ export function QuoteWorkflow() {
   };
 
   // A manager accepts the margin below the floor; the approval is the server's, like the status.
-  const approveMargin = (reason: string) =>
-    act((expectedDataVersion) => api.quotes.salesQuoteMarginApprove(ref, { reason, expectedDataVersion }), { versioned: true });
+  const approveMargin = async (reason: string) => {
+    const refused = await act((expectedDataVersion) => api.quotes.salesQuoteMarginApprove(ref, { reason, expectedDataVersion }), { versioned: true });
+    // A question waiting about the margin is answered by the approval.
+    if (!refused) void marginAsk.refresh();
+    return refused;
+  };
+
+  // Anybody else asks a manager to approve it (Council Outlay 6): the question and its answer are
+  // the server's, without a new version of the document, so this page's draft goes on. The
+  // history line the server writes with an ask or a withdrawal comes with the quote read again
+  // once the question has changed (above).
+  const askMargin = async (input: { reason: string; note: string; needsBy: string | null; competitorPrice: string; volume: string }) => {
+    try {
+      await marginAsk.ask.mutateAsync(input);
+      toast.success("Sent to a manager — the answer comes to your notifications");
+      return null;
+    } catch (err) {
+      return apiErrorMessage(err);
+    }
+  };
+  const withdrawMargin = async (inquiryId: string) => {
+    try {
+      await marginAsk.withdraw.mutateAsync(inquiryId);
+      toast.success("Question withdrawn");
+    } catch (err) {
+      toast.error(`${ref} - ${apiErrorMessage(err)}`);
+    }
+  };
 
   // Validity and owner are changed at once, each by its own request. Their controls show what the
   // server stored, so a refusal leaves them as they were and is told here.
@@ -511,7 +561,9 @@ export function QuoteWorkflow() {
   }, [fclLayout, draft, exchange]);
   // Buying lines priced by a tariff for another cargo weight than Cargo details has now: marked, to recheck.
   const recheck = quoteClosed ? [] : linesToRecheck(draft);
-  const toRecheck = (index: number) => recheck.includes(index);
+  // And those priced from a tariff in another Trade Direction than the quote has now: picked again before sending.
+  const otherDirection = quoteClosed ? [] : linesForOtherDirection(draft);
+  const toRecheck = (index: number) => recheck.includes(index) || otherDirection.includes(index);
   // A warehouse approval from before the server put its fee to Pricing: the lines are added as the
   // quote opens (once per answer; autosave stores them). Not on a quote whose pricing is closed.
   const missingFee = quote && !quoteClosed ? missingWarehouseFee(draft) : null;
@@ -601,8 +653,11 @@ export function QuoteWorkflow() {
     const blocked = printQuote(ref, sent ?? draft, exchange, company, people, target);
     if (blocked) toast.error(blocked);
   };
+  // A quote that can't go out is not e-mailed either: the server never sees a mail, so it is
+  // stopped here (Council Outlay 6 D11) - see emailBlocked.
   const openEmail = () => {
     if (documentBlocked) toast.error(documentBlocked);
+    else if (emailBlocked) toast.error(`${ref} - ${emailBlocked}`);
     else setModal("email");
   };
   // The user's word that the quotation went out. Resolves like changeStatus: a refusal is shown
@@ -635,9 +690,10 @@ export function QuoteWorkflow() {
     customer: !!draft.customerName,
     // A sea quote also says whether the cargo goes through a CY.
     // Not asked of one closed before it was asked: it cannot be answered there.
-    shipment: !!(draft.direction && draft.serviceType && draft.incoterm) && (!isSeaQuote(draft) || draft.cy !== undefined || quoteClosed),
+    shipment: !!(draft.direction && draft.serviceType && draft.incoterm) && (!isSeaQuote(draft) || cyTermsOf(draft) !== undefined || quoteClosed),
+    // Origin and Destination, but not an FOB import's Origin or a CFR export's Destination (routingNeeds).
     // Or left blank on purpose: confirmed as the step was saved without them.
-    routing: !!(draft.origin && draft.destination) || !!draft.routingBlank,
+    routing: routingMissing(draft).length === 0 || !!draft.routingBlank,
     // A reefer box needs its set-point, an open top or flat rack the in-gauge answer (and the
     // measures of cargo that is not), before the cargo is complete.
     cargo: !!(draft.commodity || packages.length || containers.length) && !reeferMissing(draft) && !oogMissing(draft),
@@ -706,10 +762,12 @@ export function QuoteWorkflow() {
   const shownValidity = pendingValidity === undefined ? quote.validUntil : pendingValidity;
 
   const airFreight = draft.serviceType === "Air";
-  // By sea (FCL, LCL, Break Bulk) through a CY ("CY: Yes" in Shipment details), Origin and
-  // Destination also offer the ocean terminals.
+  // By sea (FCL, LCL, Break Bulk), Origin offers the ocean terminals when the CY terms (Shipment
+  // details) start with CY, and Destination when they end with CY.
   const seaFreight = isSeaQuote(draft);
-  const cyTerminals = seaFreight && draft.cy === true;
+  const cyTerms = cyTermsOf(draft);
+  const originTerminals = seaFreight && cyAtOrigin(cyTerms);
+  const destinationTerminals = seaFreight && cyAtDestination(cyTerms);
 
   // Road transport: the card shows on a Road quote and on any quote with lines priced from a tariff.
   // Road pricing from the trucking tariffs only while the company has the Trucking Concept.
@@ -718,7 +776,18 @@ export function QuoteWorkflow() {
   const roadProblems = roadInputProblems(road, businessToday());
   const roadMargin = quote.roadMargin ?? null;
   // Why the quote may not be sent or marked Ready to send: its margin waits for a manager.
-  const sendBlocked = sendBlockedText(roadMargin);
+  // Why the quote can't go out, in the server's words: a margin below its mode's floor no approval
+  // covers, or heavy pieces the warehouse has not approved (Council Outlay 6).
+  // And a buying line linked to a new supplier that waits for a manager's approval, or was declined, or
+  // with a supplier only typed: the server refuses the sending too, this says it beforehand.
+  // So does a line priced from a tariff in the other Trade Direction (a tariff prices only the directions it is for).
+  const sendBlocked =
+    quote.sendBlocked ??
+    (quoteClosed ? null : (supplierSendBlock(draft.buyingLines ?? [], (id) => supplierDirectory.byId.get(id), supplierApprovals.byId) ?? otherDirectionBlock(draft)));
+  // E-mailing sends the quote only where Export PDF would close it - one that has not gone out yet
+  // - and on the revision of a Won quote, whose new prices go to the customer. A quote that went
+  // out is e-mailed again as it was sent, whatever its margin says now.
+  const emailBlocked = exportClosesQuote(quote.status) || wonRevision ? sendBlocked : null;
   // "Tariff vN" on a line priced from a tariff, and "Override" when it was changed by hand since.
   const buyingTag = (line: CostLine) => {
     if (isRailLine(line)) return <SupplierTariffTag line={line} label="Rail tariff" versionId={railVersionId(line)} versionHref={railVersionHref} />;
@@ -798,8 +867,9 @@ export function QuoteWorkflow() {
   const putPick = (pick: TariffPick) => {
     for (const i of [...pick.removed].sort((a, b) => b - a)) buyingKeys.remove(i);
     for (let k = 1; k < pick.count; k++) buyingKeys.insert(pick.at + k);
-    // The offer's lines are priced for the cargo weight the quote has now.
-    updateLines("buyingLines", stampPricedFor(pick.lines, Array.from({ length: pick.count }, (_, k) => pick.at + k), draft));
+    // The offer's lines are priced for the cargo weight and in the Trade Direction the quote has now.
+    const picked = Array.from({ length: pick.count }, (_, k) => pick.at + k);
+    updateLines("buyingLines", stampDirection(stampPricedFor(pick.lines, picked, draft), picked, draft));
   };
   // An offer picked under "Tariffs available" goes on the line it was opened from (see
   // withRailOffer); the rows keep their React keys. As when an amount is typed on a line that had
@@ -871,30 +941,13 @@ export function QuoteWorkflow() {
     setRemoving(null);
   };
 
-  // What choosing a template puts on the quote: its name, and its text where it has any - a
-  // field the template leaves empty keeps what the quote says.
-  const templatePatch = (name: string): Partial<SalesQuoteData> => {
-    const template = terms.find((t) => t.name === name);
-    return {
-      shippingTerms: name,
-      shippingIncludes: template?.includes?.trim() ? template.includes : draft.shippingIncludes,
-      shippingExcludes: template?.excludes?.trim() ? template.excludes : draft.shippingExcludes,
-      shippingSubjectTo: template?.subjectTo?.trim() ? template.subjectTo : draft.shippingSubjectTo,
-    };
-  };
-  // Text the quote already has is replaced only after a question; without such text the template
-  // fills the quote at once.
-  const chooseTemplate = (name: string) => {
-    const next = templatePatch(name);
-    const replaces = (own?: string, text?: string) => !!own?.trim() && own !== text;
-    if (
-      replaces(draft.shippingIncludes, next.shippingIncludes) ||
-      replaces(draft.shippingExcludes, next.shippingExcludes) ||
-      replaces(draft.shippingSubjectTo, next.shippingSubjectTo)
-    )
-      setTemplateAsked(name);
-    else set(next);
-  };
+  // What choosing a template puts on the quote: its name and its texts, word for word - a text the
+  // template leaves empty is empty here too. The Shipping terms are not typed on the quote; only the
+  // validity is the quote's own. The quote is not made Ready to Send (or sent) before one is chosen.
+  const chooseTemplate = (name: string) => set(templateTerms(name, terms));
+  // The template was changed since its texts were put on this quote (or they were copied from an
+  // older quote): choosing the same template again changes nothing in the picker, so it is offered.
+  const termsOutdated = !quoteClosed && termsDifferFromTemplate(draft, terms);
 
   // While a shipment carries the quote nobody may delete it, and the way there is not obvious:
   // the server's sentence stands under the actions. A user who may not delete the quote for want
@@ -1056,7 +1109,7 @@ export function QuoteWorkflow() {
     {
       key: "shipment",
       title: "Shipment details",
-      subtitle: "Direction, freight mode and incoterm",
+      subtitle: "Direction, freight mode and Incoterms",
       content: (
         <div className={FIELD_COLUMNS_CLASS}>
           <div className="min-w-0">
@@ -1086,23 +1139,20 @@ export function QuoteWorkflow() {
                   size="small"
                   className="w-full"
                   aria-label="CY"
-                  placeholder="Through a container yard?"
-                  value={draft.cy === undefined ? undefined : draft.cy ? "yes" : "no"}
-                  onChange={(v) => set({ cy: v === "yes" })}
-                  options={[
-                    { value: "yes", label: "Yes" },
-                    { value: "no", label: "No" },
-                  ]}
+                  placeholder="CY or store door, origin / destination"
+                  value={cyTerms}
+                  onChange={(v: CyTerms) => set({ cy: v })}
+                  options={CY_TERMS.map((t) => ({ value: t, label: t }))}
                 />
               </InfoRow>
             )}
           </div>
           <div className="min-w-0">
-            <InfoRow label="Incoterm">
+            <InfoRow label="Incoterms">
               <Select
                 size="small"
                 className="w-full"
-                aria-label="Incoterm"
+                aria-label="Incoterms"
                 value={draft.incoterm}
                 onChange={(v) => set({ incoterm: v })}
                 options={INCOTERMS.map((d) => ({ value: d, label: d }))}
@@ -1132,7 +1182,7 @@ export function QuoteWorkflow() {
           <div className="min-w-0">
             <InfoRow label="Origin">
               <span className="flex items-center">
-                <GeoSelect kind="place" airports={airFreight} terminals={cyTerminals} size="small" className="w-full" value={draft.origin} onChange={(v) => set({ origin: v })} />
+                <GeoSelect kind="place" airports={airFreight} terminals={originTerminals} size="small" className="w-full" value={draft.origin} onChange={(v) => set({ origin: v })} />
                 <GeoFlag kind="place" value={draft.origin} />
               </span>
             </InfoRow>
@@ -1150,7 +1200,7 @@ export function QuoteWorkflow() {
           <div className="min-w-0">
             <InfoRow label="Destination">
               <span className="flex items-center">
-                <GeoSelect kind="place" airports={airFreight} terminals={cyTerminals} size="small" className="w-full" value={draft.destination} onChange={(v) => set({ destination: v })} />
+                <GeoSelect kind="place" airports={airFreight} terminals={destinationTerminals} size="small" className="w-full" value={draft.destination} onChange={(v) => set({ destination: v })} />
                 <GeoFlag kind="place" value={draft.destination} />
               </span>
             </InfoRow>
@@ -1477,6 +1527,8 @@ export function QuoteWorkflow() {
       title: "Pricing",
       subtitle: "Buying & selling breakdown with margin",
       content: (
+        // A supplier is taken from the Customer Database only; one that is not there is added (and waits for a manager).
+        <NewSupplierFromQuote.Provider value={quoteClosed ? null : ref}>
         <div className="flex flex-col gap-3">
           <div className="flex items-center gap-2.5 min-h-6">
             <span className={FIELD_LABEL_CLASS}>Currency</span>
@@ -1500,6 +1552,14 @@ export function QuoteWorkflow() {
               problems={roadProblems}
               onChange={(next) => set({ road: next })}
               onPrice={() => setModal("roadPrice")}
+            />
+          )}
+          {otherDirection.length > 0 && (
+            <Alert
+              type="warning"
+              showIcon
+              message="The Trade Direction changed since these rates were priced"
+              description={`${otherDirectionBlock(draft)}. A tariff only prices the Trade Direction it is for (Import, Export or both, as set on Tariffs). The quote can't be sent until then.`}
             />
           )}
           {recheck.length > 0 && (
@@ -1629,8 +1689,20 @@ export function QuoteWorkflow() {
               tone={marginTone(totals)}
             />
           </div>
-          {roadMargin && truckingOn && (
-            <QuoteMarginPanel margin={roadMargin} canApprove={quote.permissions.canApproveMargin} onApprove={() => setModal("approveMargin")} />
+          {/* Shown to everybody the gate applies to: a quote below the floor can't be sent by anyone,
+              so the reason is on screen for all (Council Outlay 6), not only where Trucking is on. */}
+          {roadMargin && (
+            <QuoteMarginPanel
+              margin={roadMargin}
+              canApprove={quote.permissions.canApproveMargin}
+              onApprove={() => setModal("approveMargin")}
+              inquiry={marginAsk.inquiry}
+              onAsk={quoteClosed ? undefined : () => setModal("askMargin")}
+              // The server lets only the one who asked, or a manager, take a question back.
+              onWithdraw={
+                marginAsk.inquiry && (marginAsk.inquiry.requestedById === user?.id || quote.permissions.canApproveMargin) ? (id) => void withdrawMargin(id) : undefined
+              }
+            />
           )}
           {/* Which rates the totals use: stored on the quote once sent, today's until then. */}
           <div className="text-[12.5px] text-slate-500">{fxNote(totals)}</div>
@@ -1640,6 +1712,7 @@ export function QuoteWorkflow() {
             </div>
           )}
         </div>
+        </NewSupplierFromQuote.Provider>
       ),
     },
     {
@@ -1654,7 +1727,7 @@ export function QuoteWorkflow() {
                 size="small"
                 className="flex-1 min-w-0"
                 aria-label="Template"
-                placeholder="Select a T&C template…"
+                placeholder="Select a T&C template (needed before Ready to Send)…"
                 value={draft.shippingTerms}
                 onChange={chooseTemplate}
                 options={terms.map((t) => ({ value: t.name, label: t.name }))}
@@ -1667,15 +1740,40 @@ export function QuoteWorkflow() {
               )}
             </div>
           </InfoRow>
-          <InfoRow label="Rate offer includes">
-            <Input.TextArea size="small" aria-label="Rate offer includes" rows={4} value={draft.shippingIncludes ?? ""} onChange={(e) => set({ shippingIncludes: e.target.value })} />
-          </InfoRow>
-          <InfoRow label="Rate offer excludes">
-            <Input.TextArea size="small" aria-label="Rate offer excludes" rows={4} value={draft.shippingExcludes ?? ""} onChange={(e) => set({ shippingExcludes: e.target.value })} />
-          </InfoRow>
-          <InfoRow label="Subject to">
-            <Input.TextArea size="small" aria-label="Subject to" rows={3} value={draft.shippingSubjectTo ?? ""} onChange={(e) => set({ shippingSubjectTo: e.target.value })} />
-          </InfoRow>
+          {termsOutdated && (
+            <Alert
+              type="info"
+              showIcon
+              className="!mb-3"
+              message="The template's texts are not the ones on this quote"
+              description="It was changed since they were put on the quote, or they came from an older quote."
+              action={
+                <Button size="small" onClick={() => chooseTemplate(draft.shippingTerms!)}>
+                  {"Use the template's texts"}
+                </Button>
+              }
+            />
+          )}
+          {/* The template's texts: read here, changed only on the template (Sales Settings → Terms & Conditions). */}
+          {(
+            [
+              ["Rate offer includes", draft.shippingIncludes, 4],
+              ["Rate offer excludes", draft.shippingExcludes, 4],
+              ["Subject to", draft.shippingSubjectTo, 3],
+            ] as const
+          ).map(([label, text, rows]) => (
+            <InfoRow key={label} label={label}>
+              <Input.TextArea
+                size="small"
+                aria-label={label}
+                rows={rows}
+                readOnly
+                value={text ?? ""}
+                placeholder={draft.shippingTerms ? "Nothing in the template" : "Choose a template above"}
+                className="!bg-slate-50 !text-slate-700 cursor-default"
+              />
+            </InfoRow>
+          ))}
           {/* The quote's one validity date, as the lifecycle band and the document show it. It decides
               when the quote expires, so the server keeps it: picking or clearing it here changes it at
               once, and on a quote the customer already has that goes into its history. A closed quote
@@ -1709,9 +1807,9 @@ export function QuoteWorkflow() {
       setOverweightAsk({ to, save: true });
       return;
     }
-    // Routing saved without its Origin or Destination asks whether they stay blank; confirmed, the
-    // step is complete without them.
-    if (activeSection === "routing" && !quoteClosed && !draft.routingBlank && (!draft.origin?.trim() || !draft.destination?.trim())) {
+    // Routing saved without an Origin or Destination its terms need asks whether they stay blank;
+    // confirmed, the step is complete without them.
+    if (activeSection === "routing" && !quoteClosed && !draft.routingBlank && routingMissing(draft).length > 0) {
       setBlankRoutingTo(to);
       return;
     }
@@ -1797,7 +1895,7 @@ export function QuoteWorkflow() {
               <ToolbarButton icon={<EyeOutlined />} onClick={() => setModal("preview")}>
                 Preview
               </ToolbarButton>
-              <Tooltip title={sendBlocked}>
+              <Tooltip title={emailBlocked}>
                 <span>
                   <ToolbarButton icon={<MailOutlined />} onClick={openEmail}>
                     Email
@@ -2069,7 +2167,7 @@ export function QuoteWorkflow() {
         data={draft}
         validUntil={quote.validUntil}
         allowedTransitions={quote.allowedTransitions}
-        sendBlocked={sendBlocked}
+        sendBlocked={emailBlocked}
         onExportPdf={exportPdf}
         onMarkSent={markSent}
         onClose={() => setModal(null)}
@@ -2109,6 +2207,7 @@ export function QuoteWorkflow() {
         onPick={pickOceanOffer}
         onClose={() => setOceanLine(null)}
       />
+      {modal === "askMargin" && roadMargin && <AskMarginApprovalDialog quoteNumber={ref} margin={roadMargin} onAsk={askMargin} onClose={() => setModal(null)} />}
       {modal === "approveMargin" && roadMargin && (
         <QuoteMarginApproveDialog quoteNumber={ref} margin={roadMargin} onApprove={approveMargin} onClose={() => setModal(null)} />
       )}
@@ -2189,21 +2288,6 @@ export function QuoteWorkflow() {
           confirmLabel="Quote as all-in"
         />
       )}
-      {/* Cancel leaves the quote as it was, the template it names included. */}
-      {templateAsked !== null && (
-        <ConfirmModal
-          open
-          onClose={() => setTemplateAsked(null)}
-          onConfirm={() => {
-            set(templatePatch(templateAsked));
-            setTemplateAsked(null);
-          }}
-          title={`Template: ${templateAsked}`}
-          description="Replace Includes, Excludes and Subject to with the template's text?"
-          confirmLabel="Replace"
-          danger
-        />
-      )}
     </div>
   );
 }
@@ -2232,7 +2316,8 @@ function CustomerSelect({
   // The request waits until typing pauses.
   const search = useDebounced(wanted, 300);
   const searching = wanted.length >= MIN_CUSTOMER_SEARCH && search.length >= MIN_CUSTOMER_SEARCH;
-  const { customers, isFetching, isError } = useCustomers({ search }, { enabled: searching });
+  // Only companies with the customer role: a supplier only (a haulier, a shipping line) is not quoted to.
+  const { customers, isFetching, isError } = useCustomers({ search, role: "customer" }, { enabled: searching });
   // Only the answer to what is typed is listed. Until it is here the hook still holds what it
   // had last - an earlier search, or before the first one the whole Customer Database, left
   // behind by the Customers page - and a customer picked from that need not be one that was
@@ -2240,7 +2325,7 @@ function CustomerSelect({
   const answered = searching && search === wanted && !isFetching;
   const found = answered ? customers.slice(0, CUSTOMER_LIMIT) : [];
 
-  let emptyText = "No customers match";
+  let emptyText = "No customers match (a supplier shows here once it has the Customer role)";
   if (wanted.length < MIN_CUSTOMER_SEARCH) emptyText = `Type at least ${MIN_CUSTOMER_SEARCH} letters to search the Customer Database`;
   else if (!answered) emptyText = "Searching…";
   else if (isError) emptyText = "The Customer Database could not be searched";

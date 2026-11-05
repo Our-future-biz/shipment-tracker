@@ -8,6 +8,7 @@ import * as orgUnitSchema from "../schemas/orgUnit.schema";
 import * as announcementSchema from "../schemas/announcement.schema";
 import * as locationSchema from "../schemas/location.schema";
 import * as loginThrottleSchema from "../schemas/loginThrottle.schema";
+import * as locationPickSchema from "../schemas/locationPick.schema";
 
 export const DB = new SQLDatabase("auth", {
   migrations: { path: "migrations", source: "drizzle" },
@@ -15,4 +16,4 @@ export const DB = new SQLDatabase("auth", {
 
 const pool = servicePool(DB.connectionString);
 
-export const db = drizzle(pool, { schema: { ...companySchema, ...userSchema, ...columnTemplateSchema, ...orgUnitSchema, ...announcementSchema, ...locationSchema, ...loginThrottleSchema } });
+export const db = drizzle(pool, { schema: { ...companySchema, ...userSchema, ...columnTemplateSchema, ...orgUnitSchema, ...announcementSchema, ...locationSchema, ...loginThrottleSchema, ...locationPickSchema } });

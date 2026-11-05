@@ -5,6 +5,7 @@ import { secret } from "encore.dev/config";
 import { SignJWT, jwtVerify } from "jose";
 import { isLocked, passwordRefusal, throttleKey, type FailureRule } from "../../../lib/loginRules";
 import { isCompanyRole, isAdminLevel } from "../../../lib/rbac";
+import { isUuid } from "../../../lib/uuid";
 import { loginThrottleRepository } from "../repositories/loginThrottle.repository";
 import { userRepository, type UserPatch } from "../repositories/user.repository";
 import { companyRepository } from "../repositories/company.repository";
@@ -50,6 +51,16 @@ interface SessionState {
   tokenVersion: number;
 }
 const sessionCache = new Map<string, { at: number; state: SessionState | null }>();
+// The companies a superadmin may work as, by id with their name (null: no such company), re-read like the sessions.
+const companyCache = new Map<string, { at: number; name: string | null }>();
+
+/** The company a session works as, and whether it is not the user's own (a superadmin's company switcher). */
+export interface WorkingCompany {
+  id: string;
+  name: string;
+  /** A superadmin working as another company than their own. */
+  switched: boolean;
+}
 const forgetSession = (userId: string) => sessionCache.delete(userId);
 
 function assertPassword(password: string, email: string): void {
@@ -73,6 +84,8 @@ export interface AuthUserInfo {
   role: string;
   departmentId: string | null;
   branchId: string | null;
+  /** The manager the user reports to; null for none. */
+  reportsToUserId: string | null;
 }
 
 // A superadmin's account (password, role, deactivation) is changed only by a superadmin, never by
@@ -87,17 +100,20 @@ export function assertNotSelf(targetId: string, actorId: string): void {
 }
 
 /** What #toInfo reads of a user row. */
-type UserFields = Pick<AuthUserInfo, "id" | "companyId" | "email" | "displayName" | "role" | "departmentId" | "branchId">;
+type UserFields = Pick<AuthUserInfo, "id" | "companyId" | "email" | "displayName" | "role" | "departmentId" | "branchId" | "reportsToUserId">;
 
 /** The signed-in user (login, /auth/me). */
 export type SessionUser = AuthUserInfo;
 
 const userNotFound = () => APIError.notFound("User not found");
+// Who a user may report to: the company's managers and admins.
+const MANAGES: readonly string[] = ["superadmin", "admin", "manager"];
 
 // Org placement of a user; null clears it, undefined leaves it untouched.
 interface OrgPlacement {
   departmentId?: string | null;
   branchId?: string | null;
+  reportsToUserId?: string | null;
 }
 
 class AuthService {
@@ -200,7 +216,7 @@ class AuthService {
       throw APIError.permissionDenied("Managers can only modify standard users");
     }
     assertSuperadminTouchedBySuperadmin(target.role, actor.role);
-    const changes: UserPatch = { ...(await this.#checkPlacement(companyId, patch)) };
+    const changes: UserPatch = { ...(await this.#checkPlacement(companyId, patch, id)) };
     if (patch.displayName !== undefined) changes.displayName = patch.displayName;
     if (patch.role !== undefined) changes.role = patch.role;
     if (patch.password) {
@@ -210,6 +226,8 @@ class AuthService {
     }
     const updated = await userRepository.updateInCompany(id, companyId, changes);
     if (!updated) throw userNotFound();
+    // A manager made a standard user is no longer whom anybody reports to.
+    if (MANAGES.includes(target.role) && !MANAGES.includes(updated.role)) await userRepository.clearReportsTo(companyId, id);
     forgetSession(id);
     return this.#toInfo(updated);
   }
@@ -223,6 +241,8 @@ class AuthService {
     }
     assertSuperadminTouchedBySuperadmin(target.role, actor.role);
     if (!(await userRepository.softDeleteInCompany(id, companyId))) throw userNotFound();
+    // Nobody reports to a user who left: their questions go to the admins at once.
+    await userRepository.clearReportsTo(companyId, id);
     forgetSession(id);
   }
 
@@ -300,6 +320,42 @@ class AuthService {
     return { userId: claims.userId, companyId: state.companyId, role: state.role };
   }
 
+  /**
+   * The company a superadmin chose to work as (the web's company switcher, header X-Acting-Company):
+   * every endpoint then reads and writes that company, as one of its users would. Superadmins are
+   * the few platform users who may see and change every company. Nobody else can switch: for them
+   * the header is ignored. Null without a choice, or for the user's own company; a company that does
+   * not exist is refused, so a request never lands in another company than the one chosen.
+   */
+  async actingCompany(role: string, homeCompanyId: string, chosen: string | undefined): Promise<string | null> {
+    const id = (chosen ?? "").trim().toLowerCase();
+    if (role !== "superadmin" || !id || id === homeCompanyId.toLowerCase()) return null;
+    if (!isUuid(id) || (await this.#companyName(id)) === null) {
+      throw APIError.invalidArgument("The company chosen to work as does not exist - choose another in the header");
+    }
+    return id;
+  }
+
+  /** The company the user works as: their own, or for a superadmin the one chosen (unknown → their own). */
+  async workingCompany(user: SessionUser, chosen: string | undefined): Promise<WorkingCompany> {
+    const id = (chosen ?? "").trim().toLowerCase();
+    const switched = user.role === "superadmin" && !!id && id !== user.companyId.toLowerCase() && isUuid(id);
+    const name = switched ? await this.#companyName(id) : null;
+    if (switched && name !== null) return { id, name, switched: true };
+    return { id: user.companyId, name: (await this.#companyName(user.companyId)) ?? "", switched: false };
+  }
+
+  async #companyName(companyId: string): Promise<string | null> {
+    const now = Date.now();
+    const cached = companyCache.get(companyId);
+    if (cached && now - cached.at < SESSION_CACHE_MS) return cached.name;
+    const row = await companyRepository.getById(companyId);
+    const name = row?.name ?? null;
+    if (companyCache.size >= 1_000) companyCache.clear();
+    companyCache.set(companyId, { at: now, name });
+    return name;
+  }
+
   async #sessionState(userId: string): Promise<SessionState | null> {
     const now = Date.now();
     const cached = sessionCache.get(userId);
@@ -313,7 +369,7 @@ class AuthService {
   }
 
   // A user can only be placed in a department/branch of their own company.
-  async #checkPlacement(companyId: string, input: OrgPlacement): Promise<OrgPlacement> {
+  async #checkPlacement(companyId: string, input: OrgPlacement, userId?: string): Promise<OrgPlacement> {
     const placement: OrgPlacement = {};
     if (input.departmentId !== undefined) {
       if (input.departmentId && !(await departmentRepository.getByIdForCompany(input.departmentId, companyId))) {
@@ -327,6 +383,18 @@ class AuthService {
       }
       placement.branchId = input.branchId || null;
     }
+    if (input.reportsToUserId !== undefined) {
+      let reportsTo: string | null = null;
+      if (input.reportsToUserId) {
+        if (!isUuid(input.reportsToUserId)) throw APIError.invalidArgument("Reports to must be a user id");
+        const manager = await userRepository.getByIdInCompany(input.reportsToUserId, companyId);
+        if (!manager || !MANAGES.includes(manager.role)) throw APIError.invalidArgument("Reports to must be a manager or admin of the company");
+        // Compared as the database found them: an id in other letters is still the same user.
+        if (manager.id === userId) throw APIError.invalidArgument("A user cannot report to themselves");
+        reportsTo = manager.id;
+      }
+      placement.reportsToUserId = reportsTo;
+    }
     return placement;
   }
 
@@ -339,6 +407,7 @@ class AuthService {
       role: u.role,
       departmentId: u.departmentId,
       branchId: u.branchId,
+      reportsToUserId: u.reportsToUserId,
     };
   }
 

@@ -3,8 +3,12 @@ import type { CustomerItem } from "@/hooks/useCustomers";
 import { businessDayOf, formatDate } from "@/lib/date";
 import { CustomerAccountTypeBadge } from "../_components/CustomerAccountTypeBadge";
 import { CustomerStatusDot } from "../_components/CustomerStatusDot";
+import { CustomerRoleBadges } from "../_components/CustomerRoleBadges";
+import { SupplierRatingStars } from "../_components/SupplierRatingStars";
+import { SUPPLIER_STATUSES, shownStatus } from "./supplierStatus";
 import { SalesOwnerText } from "../_components/SalesOwnerText";
-import { CUSTOMER_LABELS, CUSTOMER_STATUSES, PAYMENT_TERMS } from "./constants";
+import { CUSTOMER_LABELS, CUSTOMER_ROLE_LABELS, CUSTOMER_STATUSES, PAYMENT_TERMS } from "./constants";
+import { hasSupplierRole, type ListView } from "./customerListViews";
 import { fmtMoney, marginPct } from "./customerMoney";
 import { EMPTY_CELL } from "./customerTable";
 
@@ -13,7 +17,7 @@ import { EMPTY_CELL } from "./customerTable";
 // pick from. Only this list uses them: nothing here is shared with the shipment grids.
 
 /** The keys the list can be sorted by (?sort=, a leading "-" for descending). */
-export const SORT_KEYS = ["name", "revenue", "margin", "activity"] as const;
+export const SORT_KEYS = ["name", "status", "owner", "rating", "revenue", "margin", "activity", "lastContact", "created"] as const;
 export type SortKey = (typeof SORT_KEYS)[number];
 
 export interface CustomerListColumn {
@@ -32,6 +36,10 @@ const money = (value: number, currency: string) => (
   <span className="text-slate-600 tabular-nums">{fmtMoney(value, currency)}</span>
 );
 const plain = (value: string) => value || EMPTY_CELL;
+// A timestamp as its day on the company's (Prague) calendar, not the viewer's.
+const day = (iso: string | null | undefined) => (iso ? formatDate(businessDayOf(iso)) : "");
+// Who rated a supplier and on which day.
+const ratedBy = (c: CustomerItem) => (c.supplierRatingBy ? `${c.supplierRatingBy} · ${day(c.supplierRatingAt)}` : "");
 
 /** Always shown, first: the customer's name, which opens its page. Rendered by the list itself. */
 export const NAME_COLUMN_KEY = "companyName";
@@ -69,9 +77,43 @@ export const CUSTOMER_LIST_COLUMNS: CustomerListColumn[] = [
   },
   { key: "city", title: "City", width: 120, render: (c) => plain(c.city), text: (c) => c.city },
   {
+    key: "roles",
+    title: "Roles",
+    width: 170,
+    render: (c) => <CustomerRoleBadges roles={c.roles} withCustomer />,
+    text: (c) => c.roles.map((role) => CUSTOMER_ROLE_LABELS[role]).join(", "),
+    options: Object.values(CUSTOMER_ROLE_LABELS),
+  },
+  {
+    key: "supplierRating",
+    title: "Rating",
+    width: 120,
+    // Best first on the first click: 5 down to 1, not rated, then 0 (customerListViews.ratingRank).
+    sort: { key: "rating", firstClick: "descend" },
+    // A company that is no supplier has no rating: an empty cell, not "Not rated".
+    render: (c) => (hasSupplierRole(c.roles) ? <SupplierRatingStars rating={c.supplierRating} /> : EMPTY_CELL),
+    text: (c) => (!hasSupplierRole(c.roles) ? "" : c.supplierRating === null ? "Not rated" : `${c.supplierRating}/5`),
+    options: ["5/5", "4/5", "3/5", "2/5", "1/5", "0/5", "Not rated"],
+  },
+  {
+    key: "supplierRatingBy",
+    title: "Rated",
+    width: 200,
+    render: (c) => (ratedBy(c) ? <span className="text-xs text-slate-500">{ratedBy(c)}</span> : EMPTY_CELL),
+    text: ratedBy,
+  },
+  {
+    key: "supplierRatingReason",
+    title: "Rating reason",
+    width: 220,
+    render: (c) => plain(c.supplierRatingReason),
+    text: (c) => c.supplierRatingReason,
+  },
+  {
     key: "salesOwner",
     title: "Sales Owner",
     width: 130,
+    sort: { key: "owner", firstClick: "ascend" },
     // The owner user's e-mail; a typed name no user was matched to is marked, so it is picked again.
     render: (c) => (c.salesOwner.trim() ? <SalesOwnerText owner={c.salesOwner} linked={!!c.salesOwnerUserId} /> : EMPTY_CELL),
     text: (c) => c.salesOwner,
@@ -88,9 +130,10 @@ export const CUSTOMER_LIST_COLUMNS: CustomerListColumn[] = [
     key: "status",
     title: "Status",
     width: 100,
-    render: (c) => <CustomerStatusDot status={c.status} />,
-    text: (c) => c.status,
-    options: CUSTOMER_STATUSES,
+    sort: { key: "status", firstClick: "ascend" },
+    render: (c) => <CustomerStatusDot status={shownStatus(c)} />,
+    text: (c) => shownStatus(c),
+    options: [...CUSTOMER_STATUSES, ...SUPPLIER_STATUSES],
   },
   {
     key: "paymentTerms",
@@ -158,20 +201,30 @@ export const CUSTOMER_LIST_COLUMNS: CustomerListColumn[] = [
     text: (c) => String(c.totalShipments),
   },
   {
+    // The latest shipment of the customer (its ETA, else when it was created), which is what it measures.
     key: "lastActivityDate",
-    title: "Last activity",
+    title: "Last shipment",
     width: 118,
     sort: { key: "activity", firstClick: "descend" },
     render: (c) => formatDate(c.lastActivityDate) || EMPTY_CELL,
     text: (c) => formatDate(c.lastActivityDate),
   },
   {
+    key: "lastContactAt",
+    title: "Last contact",
+    width: 118,
+    sort: { key: "lastContact", firstClick: "descend" },
+    // The newest entry of the company's Communication tab.
+    render: (c) => day(c.lastContactAt) || EMPTY_CELL,
+    text: (c) => day(c.lastContactAt),
+  },
+  {
     key: "createdAt",
     title: "Created",
     width: 110,
-    // A timestamp: its day on the company's (Prague) calendar, not the viewer's.
-    render: (c) => formatDate(businessDayOf(c.createdAt)) || EMPTY_CELL,
-    text: (c) => formatDate(businessDayOf(c.createdAt)),
+    sort: { key: "created", firstClick: "descend" },
+    render: (c) => day(c.createdAt) || EMPTY_CELL,
+    text: (c) => day(c.createdAt),
   },
   {
     key: "companyWebsite",
@@ -184,7 +237,7 @@ export const CUSTOMER_LIST_COLUMNS: CustomerListColumn[] = [
 
 export const CUSTOMER_COLUMN_MAP = new Map(CUSTOMER_LIST_COLUMNS.map((c) => [c.key, c]));
 
-/** The columns a user sees until they choose their own (as Martin laid the list out on 2026-10-15). */
+/** The columns a user sees in the Customers view until they choose their own (as Martin laid the list out on 2026-10-15, with Last contact). */
 export const DEFAULT_CUSTOMER_COLUMNS = [
   NAME_COLUMN_KEY,
   "country",
@@ -194,10 +247,19 @@ export const DEFAULT_CUSTOMER_COLUMNS = [
   "city",
   "totalShipments",
   "lastActivityDate",
+  "lastContactAt",
   "paymentTerms",
   "totalProfit",
   "createdAt",
 ];
+
+/** The columns of each view until the user chooses their own (Council Outlay 7). */
+export const DEFAULT_VIEW_COLUMNS: Record<ListView, string[]> = {
+  customers: DEFAULT_CUSTOMER_COLUMNS,
+  // Status shows "In use" / "Not in use", so the suppliers not picked any more are told apart (K15).
+  suppliers: [NAME_COLUMN_KEY, "roles", "status", "supplierRating", "supplierRatingBy", "country", "city", "lastContactAt"],
+  all: [NAME_COLUMN_KEY, "roles", "status", "supplierRating", "country", "city", "salesOwner", "lastActivityDate"],
+};
 
 /** A stored column list as the list uses it: known keys only, each once, the name first. */
 export function normalizeCustomerColumns(keys: readonly string[]): string[] {

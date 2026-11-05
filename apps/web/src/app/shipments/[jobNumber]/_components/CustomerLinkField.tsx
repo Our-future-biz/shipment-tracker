@@ -13,19 +13,23 @@ interface CustomerLinkFieldProps {
   name: string;
   customerId?: string | null;
   onChange: (name: string, customerId: string | null) => void;
+  /** Offer only companies with the Customer role (the shipment's Customer; a typed name stays allowed). */
+  customersOnly?: boolean;
 }
 
 // A shipment party field (Customer / Shipper / Consignee) linked to the customer
 // database: type to search, pick a customer, and the name renders as a link to
 // that customer. Free text (a party not in the CRM) is still allowed — it just
 // won't be linked.
-export function CustomerLinkField({ label, name, customerId, onChange }: CustomerLinkFieldProps) {
+export function CustomerLinkField({ label, name, customerId, onChange, customersOnly = false }: CustomerLinkFieldProps) {
   const { customers } = useCustomers();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(name);
   const justSelected = useRef(false);
 
-  const options = customers
+  // The shipment's Customer is someone with the Customer role (K13); a shipper or consignee may be anyone.
+  const linkable = customersOnly ? customers.filter((c) => c.roles.includes("customer")) : customers;
+  const options = linkable
     .filter((c) => c.companyName.toLowerCase().includes(draft.trim().toLowerCase()))
     .slice(0, 8)
     .map((c) => ({ value: c.companyName, id: c.id, label: c.companyName }));
@@ -42,9 +46,12 @@ export function CustomerLinkField({ label, name, customerId, onChange }: Custome
       setEditing(false);
       return;
     }
-    const match = customers.find((c) => c.companyName.toLowerCase() === draft.trim().toLowerCase());
-    const id = match ? match.id : draft === name ? customerId ?? null : null;
-    onChange(draft.trim(), id);
+    const typed = draft.trim();
+    // The name as it was keeps its link, also to a company since left without the Customer role (K13). A
+    // typed name links only a company that could have been picked: never a supplier as the Customer.
+    const match = linkable.find((c) => c.companyName.toLowerCase() === typed.toLowerCase());
+    const id = typed === name.trim() && customerId ? customerId : match ? match.id : null;
+    onChange(typed, id);
     setEditing(false);
   };
 

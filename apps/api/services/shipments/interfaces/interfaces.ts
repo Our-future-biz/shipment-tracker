@@ -51,6 +51,9 @@ export interface CargoDimensionLine {
    * only says how to show and edit them. Absent means "cm". */
   dimensionUnit?: DimensionUnit;
   weightPerPcKg: string & MaxLen<200>;
+  /** m³ of one piece as typed, for a line whose length, width and height are not all known;
+   * with all three the volume is worked out from them and this is "". Absent on a write means "". */
+  volumePerPcM3?: string & MaxLen<200>;
   packageType: string & MaxLen<200>;
   stackable: string & MaxLen<200>;
   // Road freight. Optional on writes: a line sent without them is stored without them.
@@ -466,6 +469,20 @@ export interface CommentUnreadItem {
   unread: number;
 }
 
+/** Pieces, gross kg and CBM, as the warehouse's remeasurement notice states them. */
+export interface RemeasureFigures {
+  colli: number;
+  weightKg: number;
+  volumeCbm: number;
+}
+
+/** The warehouse's "Cargo has been remeasured" notice, as posted to a shipment's chat. */
+export interface RemeasureNoticeResult {
+  commentId: string;
+  /** E-mails of the people tagged (Person in Charge, Holiday Cover); empty when nobody is set. */
+  tagged: string[];
+}
+
 export interface TaskItem {
   id: string;
   shipmentId: string;
@@ -686,6 +703,19 @@ export interface UnmatchedPerson {
   value: string;
   /** How many shipments hold it there. */
   count: number;
+}
+
+/** What the reference backfill (the letters of the Freight Mode and Load Type) did to the company's live shipments. */
+export interface ReferenceNormalizeResult {
+  /** Live shipments looked at. */
+  checked: number;
+  /** References that took the letters of their Freight Mode and Load Type. */
+  renamed: number;
+  /**
+   * References kept as they are because they are final (they would need letters): the shipment has
+   * had an invoice, Invoicing is numbering one, or it is marked Invoiced.
+   */
+  keptInvoiced: string[];
 }
 
 /** What the people backfill did to the company's live shipments. */

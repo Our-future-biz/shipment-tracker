@@ -9,6 +9,7 @@ import { useSalesPermissions } from "@/hooks/useSalesPermissions";
 import { CompanyDetailsCard } from "../_components/CompanyDetailsCard";
 import { SalesPage } from "../_components/SalesPage";
 import { TermsTab } from "../_components/TermsTab";
+import { GuardrailsTab } from "../_components/GuardrailsTab";
 import { SALES_PAGES, SALES_SETTINGS_TABS } from "../_lib/tabs";
 
 const DEFAULT_TAB = SALES_SETTINGS_TABS[0].key;
@@ -81,7 +82,7 @@ function SalesSettingsTabs() {
         onChange={handleSelectTab}
         className="border-b border-slate-200"
       />
-      {/* Both tabs stay mounted and the other one is only hidden: company details that were typed
+      {/* The tabs stay mounted and the others are only hidden: company details that were typed
           and not saved yet, and a template change still on its way to the server, must not be
           lost by looking at the other tab. */}
       <div hidden={activeTab !== "company"}>
@@ -89,6 +90,9 @@ function SalesSettingsTabs() {
       </div>
       <div hidden={activeTab !== "terms"}>
         <TermsTab />
+      </div>
+      <div hidden={activeTab !== "guardrails"}>
+        <GuardrailsTab />
       </div>
     </SalesPage>
   );

@@ -2,11 +2,12 @@
 
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
-import { Alert, Spin, Tooltip } from "antd";
+import { Alert, DatePicker, Modal, Spin, Tooltip } from "antd";
+import dayjs, { type Dayjs } from "dayjs";
 import { ArrowLeftOutlined, DownloadOutlined } from "@ant-design/icons";
 import { apiErrorMessage, isNotFound } from "@/lib/api";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { formatDate, businessDateTime } from "@/lib/date";
+import { formatDate, businessDateTime, businessToday } from "@/lib/date";
 import { useToast } from "@/lib/toast";
 import { useHaulier } from "@/hooks/useTrucking";
 import { fetchHaulierInvoiceFile, useHaulierInvoice, type HaulierInvoiceLine } from "@/hooks/useTruckingMoney";
@@ -15,7 +16,7 @@ import { downloadDataUrl } from "@/lib/files";
 import { formatBankAccount } from "../../_lib/bankAccounts";
 import { tripHref } from "../../_lib/consignments";
 import { TERMS } from "../../_lib/glossary";
-import { INVOICE_STATUS_CHIP, TARGET_KIND_LABELS, differenceText, haulierVatCardHref, invoiceDecisionState, vatBlockers } from "../../_lib/haulierInvoices";
+import { INVOICE_STATUS_CHIP, TARGET_KIND_LABELS, differenceText, haulierVatCardHref, invoiceDecisionState, paymentState, vatBlockers } from "../../_lib/haulierInvoices";
 import { isTruckingManager } from "../../_lib/roles";
 import { formatMoney } from "../../_lib/tariffs";
 import { fileDataUrl } from "../../_lib/tariffUpload";
@@ -54,9 +55,12 @@ interface HaulierInvoiceViewProps {
 export const HaulierInvoiceView = ({ invoiceId }: HaulierInvoiceViewProps) => {
   const toast = useToast();
   const { user } = useAuth();
-  const { invoice: inv, isLoading, error, approve, reject } = useHaulierInvoice(invoiceId);
-  const { haulier } = useHaulier(inv?.haulierCustomerId ?? "", { enabled: inv?.status === "BLOCKED" });
-  const [dialog, setDialog] = useState<"approve" | "reject" | null>(null);
+  const { invoice: inv, isLoading, error, approve, reject, markPaid, markUnpaid } = useHaulierInvoice(invoiceId);
+  // Read for a blocked invoice (what to fix) and for an approved one (whether the haulier is now an unreliable VAT payer, K16).
+  const { haulier } = useHaulier(inv?.haulierCustomerId ?? "", { enabled: inv?.status === "BLOCKED" || inv?.status === "APPROVED" });
+  const [paying, setPaying] = useState(false);
+  const [dialog, setDialog] = useState<"approve" | "reject" | "pay" | "unpay" | null>(null);
+  const [paidOn, setPaidOn] = useState<Dayjs | null>(null);
 
   if (isLoading) {
     return (
@@ -77,10 +81,15 @@ export const HaulierInvoiceView = ({ invoiceId }: HaulierInvoiceViewProps) => {
   }
 
   const decision = invoiceDecisionState(inv, isTruckingManager(user));
-  const fixes = haulier ? vatBlockers(haulier.profile, inv.bankAccount) : [];
+  const payment = paymentState(inv, isTruckingManager(user));
+  const fixes = haulier && inv.status === "BLOCKED" ? vatBlockers(haulier.profile, inv.bankAccount) : [];
   const check = inv.bankAccountCheck;
-  const fail = (what: string) => (e: unknown) => {
+  const report = (what: string) => (e: unknown) => {
     toast.error(`${what}: ${apiErrorMessage(e)}`);
+  };
+  // TruckingTextModal stays open on a rejection, so its submits pass the error on after the toast.
+  const fail = (what: string) => (e: unknown) => {
+    report(what)(e);
     throw e;
   };
   const handleDownload = async () => {
@@ -125,6 +134,20 @@ export const HaulierInvoiceView = ({ invoiceId }: HaulierInvoiceViewProps) => {
             )}
             <GuardedButton reason={decision.reject} label="Reject…" onClick={() => setDialog("reject")} />
             <GuardedButton reason={decision.approve} label="Approve…" primary onClick={() => setDialog("approve")} />
+            {inv.status === "APPROVED" &&
+              (inv.payment ? (
+                <GuardedButton reason={payment.unpay} label="Take back payment…" onClick={() => setDialog("unpay")} />
+              ) : (
+                <GuardedButton
+                  reason={payment.pay}
+                  label="Mark paid…"
+                  primary
+                  onClick={() => {
+                    setPaidOn(dayjs(businessToday()));
+                    setDialog("pay");
+                  }}
+                />
+              ))}
           </div>
         </div>
 
@@ -185,6 +208,14 @@ export const HaulierInvoiceView = ({ invoiceId }: HaulierInvoiceViewProps) => {
             type={inv.status === "REJECTED" ? "error" : "success"}
             showIcon
             message={`${inv.status === "REJECTED" ? "Rejected" : "Approved"} by ${inv.approval.byName} on ${businessDateTime(inv.approval.at)}${inv.approval.reason ? `: “${inv.approval.reason}”` : ""}`}
+          />
+        )}
+        {inv.payment && (
+          <Alert
+            className="mt-3"
+            type="success"
+            showIcon
+            message={`Paid on ${formatDate(inv.payment.paidOn)}${inv.payment.byName ? `, noted by ${inv.payment.byName}` : ""}${inv.payment.at ? ` on ${businessDateTime(inv.payment.at)}` : ""}`}
           />
         )}
 
@@ -288,6 +319,67 @@ export const HaulierInvoiceView = ({ invoiceId }: HaulierInvoiceViewProps) => {
             approve(reason)
               .then(() => toast.success(`${inv.invoiceNumber} approved`))
               .catch(fail("Could not approve the invoice"))
+          }
+        />
+      )}
+      {dialog === "pay" && (
+        <Modal
+          open
+          title={`Mark ${inv.invoiceNumber} paid`}
+          okText="Mark paid"
+          onCancel={() => setDialog(null)}
+          okButtonProps={{ disabled: !paidOn }}
+          // Sent once: a second click while it saves does nothing (m11).
+          confirmLoading={paying}
+          onOk={() => {
+            if (paying) return;
+            setPaying(true);
+            markPaid(paidOn!.format("YYYY-MM-DD"))
+              .then(() => {
+                setDialog(null);
+                toast.success(`${inv.invoiceNumber} noted as paid`);
+              })
+              // The dialog stays open by itself: only the toast, nothing thrown into an unhandled rejection.
+              .catch(report("Could not note the payment"))
+              .finally(() => setPaying(false));
+          }}
+        >
+          {haulier?.profile.vatUnreliable && (
+            // The payment is made outside this system, so it is not refused; paying an unreliable VAT payer
+            // can make us liable for its VAT (ručení za DPH, K16).
+            <Alert
+              type="error"
+              showIcon
+              className="mb-3"
+              message={`${inv.haulierName} is now an unreliable VAT payer`}
+              description="Paying it can make us liable for its VAT. Check the VAT register again before you note this payment."
+            />
+          )}
+          <p className="mt-0 text-[13px] text-slate-600">
+            {formatMoney(inv.totalGross, inv.currency)} to {inv.haulierName}. The day the payment went; your name and the time are kept.
+          </p>
+          <DatePicker
+            aria-label="Paid on"
+            format="DD.MM.YYYY"
+            value={paidOn}
+            onChange={setPaidOn}
+            disabledDate={(d) => d.isAfter(dayjs(businessToday()), "day")}
+            allowClear={false}
+          />
+        </Modal>
+      )}
+      {dialog === "unpay" && (
+        <TruckingTextModal
+          title={`Take back the payment of ${inv.invoiceNumber}`}
+          hint="For a payment noted by mistake. The invoice stays approved; the reason is kept."
+          placeholder="Reason (required)"
+          okText="Take it back"
+          danger
+          onClose={() => setDialog(null)}
+          onSubmit={(reason) =>
+            markUnpaid(reason)
+              .then(() => toast.success(`${inv.invoiceNumber}: payment taken back`))
+              .catch(fail("Could not take the payment back"))
           }
         />
       )}

@@ -2,7 +2,10 @@
 
 import { useMemo, useState } from "react";
 import { Alert, Button, Input, InputNumber, Modal, Radio, Select, Spin } from "antd";
-import { StarFilled } from "@ant-design/icons";
+import { PushpinFilled } from "@ant-design/icons";
+import { SupplierRatingStars } from "@/app/customers/_components/SupplierRatingStars";
+import { SUPPLIER_NOT_IN_USE } from "@/app/customers/_lib/supplierStatus";
+import { Pill } from "@/components/Pill";
 import { apiErrorMessage } from "@/lib/api";
 import { formatDate } from "@/lib/date";
 import { useHauliers, useRateQuery, useTruckingSettings, type RateRequest } from "@/hooks/useTrucking";
@@ -12,6 +15,10 @@ import { TERMS } from "../../_lib/glossary";
 import { formatMoney, versionLabel } from "../../_lib/tariffs";
 import { HaulierIssueList } from "../../_components/HaulierIssueList";
 import { TruckingField } from "../../_components/TruckingField";
+import { HaulierOptionLabel } from "../../_components/HaulierOptionLabel";
+import { HaulierListError } from "../../_components/HaulierListError";
+import { HaulierRatingNote } from "../../_components/HaulierRatingNote";
+import { bestFirst, needsConfirmation, notInUseOf, pickable, pickName, ratingsOf, reasonsOf } from "../../_lib/haulierRating";
 
 /** The lane of a consignment as the rate engine prices it: FTL, its level, buy side only. */
 export const planRateRequest = (c: ConsignmentDetail): RateRequest => ({
@@ -59,7 +66,7 @@ export const PlanTripModal = ({ c, onClose, onPlan }: PlanTripModalProps) => {
   const [request] = useState(() => planRateRequest(c));
   const { isRating, result, error } = useRateQuery(request, round);
   const { settings } = useTruckingSettings();
-  const { hauliers } = useHauliers();
+  const { hauliers, isLoading: hauliersLoading, isError: hauliersError, refetch: refetchHauliers } = useHauliers();
   const [choice, setChoice] = useState<string | null>(null);
   const [agreedHaulier, setAgreedHaulier] = useState<string | null>(null);
   const [agreedTotal, setAgreedTotal] = useState<number | null>(null);
@@ -67,16 +74,28 @@ export const PlanTripModal = ({ c, onClose, onPlan }: PlanTripModalProps) => {
   const [agreedReason, setAgreedReason] = useState("");
   const [vehicle, setVehicle] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // The 0-star haulier the user said to use anyway; another pick asks again.
+  const [confirmedFor, setConfirmedFor] = useState<string | null>(null);
 
   const level = result?.results[0] ?? null;
   const candidates = useMemo(() => level?.buy ?? [], [level]);
   const excluded = level?.excluded ?? [];
   const picked = choice ?? (candidates[0]?.ownerCustomerId ?? (result ? AGREED : null));
   const agreed = picked === AGREED;
-  const usable = hauliers.filter((h) => h.status !== "blocked");
+  // Picked by name: best first. The priced candidates above keep the engine's order (preferred, then cheapest).
+  // "Not in use" hauliers are left out (D16), except the one already picked, which says so (as a priced one does).
+  const usable = bestFirst(pickable(hauliers.filter((h) => h.status !== "blocked"), agreedHaulier));
+  const notInUse = notInUseOf(hauliers);
+  const ratings = ratingsOf(hauliers);
+  const reasons = reasonsOf(hauliers);
   const vehicles = (settings?.vehicleTypes ?? []).filter((v) => v.active);
+  const pickedHaulier = agreed ? agreedHaulier : picked;
+  const pickedRating = pickedHaulier ? ratings.get(pickedHaulier) : undefined;
+  // Until the hauliers are read a rating is not known: nothing is saved before it can be confirmed (m24),
+  // nor while they could not be read.
+  const confirmed = !hauliersLoading && !hauliersError && (!needsConfirmation(pickedRating) || confirmedFor === pickedHaulier);
 
-  const ready = agreed ? !!agreedHaulier && (agreedTotal ?? 0) > 0 && agreedReason.trim().length >= 3 : !!picked;
+  const ready = (agreed ? !!agreedHaulier && (agreedTotal ?? 0) > 0 && agreedReason.trim().length >= 3 : !!picked) && confirmed;
 
   const handleOk = async () => {
     setBusy(true);
@@ -115,8 +134,10 @@ export const PlanTripModal = ({ c, onClose, onPlan }: PlanTripModalProps) => {
           {candidates.map((b, i) => (
             <Radio key={b.ownerCustomerId ?? i} value={b.ownerCustomerId} className="!m-0 rounded-lg border border-slate-200 px-3 py-2">
               <span className="flex flex-wrap items-baseline gap-x-2">
-                {b.preferred && <StarFilled className="text-amber-500" aria-label="Preferred lane" />}
+                {b.preferred && <PushpinFilled className="text-indigo-500" aria-label="Preferred lane" title="Preferred lane" />}
                 <span className="font-semibold text-slate-800">{b.ownerName ?? "Haulier"}</span>
+                {b.ownerCustomerId && ratings.has(b.ownerCustomerId) && <SupplierRatingStars rating={ratings.get(b.ownerCustomerId) ?? null} />}
+                {b.ownerCustomerId && notInUse.has(b.ownerCustomerId) && <Pill tone="slate">{SUPPLIER_NOT_IN_USE}</Pill>}
                 <span className="tabular-nums">{formatMoney(b.total, b.currency)}</span>
                 {b.currency !== "CZK" && <span className="text-[12px] text-slate-500">({formatMoney(b.totalCzk, "CZK")})</span>}
                 <span className="text-[12px] text-slate-500">
@@ -153,7 +174,8 @@ export const PlanTripModal = ({ c, onClose, onPlan }: PlanTripModalProps) => {
               aria-label="Haulier"
               optionFilterProp="label"
               value={agreedHaulier ?? undefined}
-              options={usable.map((h) => ({ value: h.customerId, label: `${h.companyName}${h.status === "warning" ? " (warning)" : ""}` }))}
+              options={usable.map((h) => ({ value: h.customerId, label: `${pickName(h)}${h.status === "warning" ? " (warning)" : ""}`, rating: h.rating }))}
+              optionRender={(o) => <HaulierOptionLabel label={o.label} rating={o.data.rating} />}
               onChange={setAgreedHaulier}
             />
           </TruckingField>
@@ -178,6 +200,9 @@ export const PlanTripModal = ({ c, onClose, onPlan }: PlanTripModalProps) => {
           <Select allowClear aria-label={TERMS.vehicleType} placeholder="Any" value={vehicle ?? undefined} options={vehicles.map((v) => ({ value: v.code, label: v.label }))} onChange={(v) => setVehicle(v ?? null)} />
         </TruckingField>
       </div>
+
+      {hauliersError && <HaulierListError onRetry={() => refetchHauliers()} />}
+      <HaulierRatingNote customerId={pickedHaulier} rating={pickedRating} reason={pickedHaulier ? reasons.get(pickedHaulier) : ""} confirmed={confirmedFor === pickedHaulier} onConfirm={(on) => setConfirmedFor(on ? pickedHaulier : null)} />
 
       {!agreed && picked && candidates.length > 0 && picked !== candidates[0]?.ownerCustomerId && (
         <div className="mt-2 text-[12px] text-slate-500">Not the suggested haulier — the change is logged on the trip.</div>

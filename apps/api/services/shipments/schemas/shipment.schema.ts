@@ -208,6 +208,10 @@ export const shipmentTable = pgTable(
     // Set only by the server when the shipment is created from the quote in salesNumber: the one
     // fact that lets a later retry mark that quote Won (shipmentQuoteLink, markWon).
     createdFromQuote: boolean("created_from_quote").notNull().default(false),
+    // Set only by the server, under the shipment's write turn, when Invoicing takes the Internal
+    // Reference for an invoice number: from then on its letters no longer follow the Freight Mode
+    // and Load Type (lib/jobNumber). Never cleared - a credited invoice keeps its number.
+    jobNumberFinal: boolean("job_number_final").notNull().default(false),
     // Money as exact numeric rather than text. Drizzle's default string mode keeps the
     // API type a string (matching the rest of the money handling) while letting Postgres
     // SUM/compare these properly.

@@ -63,7 +63,7 @@ function contactItem(notes: NoteItem[], now: number): AttentionItem | null {
       key: "no-interaction",
       severity: "warning",
       title: "No interaction logged",
-      detail: "Nothing has been recorded with this customer yet.",
+      detail: "Nothing has been recorded with this company yet.",
       tab: "communication",
     };
   }
@@ -97,6 +97,9 @@ export function buildCustomerAttention(input: AttentionInput): AttentionItem[] {
   const { customer, invoices, contacts, documents, notes, rates, now = Date.now() } = input;
   const { creditLimit, currency } = customer;
   const items: AttentionItem[] = [];
+  // A supplier only is no customer: no owner, credit, customer papers or prepayment advice is asked of it
+  // (supplierAttention has its own rules). What it owes us is still said, from the invoices.
+  const isCustomer = customer.roles.includes("customer");
 
   // Critical.
   // The same summary the Finance tab shows, so the count and the amount match its Overdue tile.
@@ -142,7 +145,7 @@ export function buildCustomerAttention(input: AttentionInput): AttentionItem[] {
   }
 
   // An owner is a user; a name typed before owners were users counts as none, but is named so it can be found.
-  if (!customer.salesOwnerUserId) {
+  if (isCustomer && !customer.salesOwnerUserId) {
     const typed = customer.salesOwner.trim();
     items.push({
       key: "no-sales-owner",
@@ -158,12 +161,12 @@ export function buildCustomerAttention(input: AttentionInput): AttentionItem[] {
       key: "no-contact-person",
       severity: "warning",
       title: "No contact person",
-      detail: "Add who to call or write to at this customer.",
+      detail: "Add who to call or write to at this company.",
       tab: "contacts",
     });
   }
 
-  if (!(creditLimit > 0)) {
+  if (isCustomer && !(creditLimit > 0)) {
     items.push({
       key: "no-credit-limit",
       severity: "warning",
@@ -175,7 +178,7 @@ export function buildCustomerAttention(input: AttentionInput): AttentionItem[] {
 
   const typesOnFile = new Set(documents.map((document) => documentTypeKey(document.type)));
   const missingTypes = ATTENTION_RULES.requiredDocumentTypes.map(documentTypeKey).filter((type) => !typesOnFile.has(type));
-  if (missingTypes.length > 0) {
+  if (isCustomer && missingTypes.length > 0) {
     items.push({
       key: "documents-missing",
       severity: "warning",
@@ -188,7 +191,7 @@ export function buildCustomerAttention(input: AttentionInput): AttentionItem[] {
   const contact = contactItem(notes, now);
   if (contact) items.push(contact);
 
-  if (isNewCompany(customer.registrationDate, now)) {
+  if (isCustomer && isNewCompany(customer.registrationDate, now)) {
     items.push({
       key: "new-company",
       severity: "warning",
@@ -200,7 +203,7 @@ export function buildCustomerAttention(input: AttentionInput): AttentionItem[] {
   // A risk level or industry set by hand (company analysis) wins over the one read from the NACE codes.
   const { primary } = getNaceInfo(parseNaceCodes(customer.nace));
   const risk = customer.riskLevel || primary?.risk || "";
-  if (risk === "High") {
+  if (isCustomer && risk === "High") {
     const industry = customer.industry.trim() || primary?.label || "";
     items.push({
       key: "high-risk-industry",

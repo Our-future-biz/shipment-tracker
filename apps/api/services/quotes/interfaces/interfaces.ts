@@ -51,6 +51,12 @@ export interface SalesQuoteItem {
    * null for any other quote.
    */
   roadMargin: RoadMargin | null;
+  /**
+   * Why the quote cannot go out (Ready to Send, Quoted) or be Won without going out, as it is now:
+   * a margin below its floor no approval covers, or heavy pieces the warehouse has not approved.
+   * Null when nothing holds it. Shipments and Invoicing ask it before making the quote binding.
+   */
+  sendBlocked: string | null;
   /** What the signed-in user may do with this quote. */
   permissions: {
     /** any: reassign freely. own: hand over or give up. claim: take for themselves. none: nothing. */
@@ -128,6 +134,21 @@ export interface QuoteMarginApproval {
   /** The margin that was approved. */
   marginCzk: number;
   marginPercent: number | null;
+  /**
+   * What the quote was when approved: a change of any of these ends the approval (Council Outlay 6
+   * D10). Absent on approvals given before it was recorded, which only the margin ends.
+   */
+  basis?: QuoteMarginApprovalBasis;
+}
+
+export interface QuoteMarginApprovalBasis {
+  customerId: string | null;
+  serviceType: string;
+  containers: number;
+  /** The Sales Owner as the quote mirrors it (data.salesOwner). */
+  salesOwner: string;
+  /** The quote's Valid until then; a later one needs a new approval. */
+  validUntil: string | null;
 }
 
 /**
@@ -179,6 +200,8 @@ export interface QuoteWarehouseInquiryItem {
 
 /** The margin of a road quote against the Trucking margin floor. Amounts in CZK. */
 export interface RoadMargin {
+  /** The freight mode whose guardrail the quote is judged against ("Road", "Sea FCL", ...). */
+  mode: string;
   sellingCzk: number;
   buyingCzk: number;
   /** null when a line could not be converted to CZK (see problem). */
@@ -195,6 +218,10 @@ export interface RoadMargin {
   needsApproval: boolean;
   /** Why the margin cannot be worked out, e.g. "No ČNB rate for EUR on 2026-10-15". */
   problem: string | null;
+  /** Selling with no buying lines: the margin cannot be judged, so it needs approval (D5). */
+  noBuying: boolean;
+  /** Why an approval no longer covers the quote, beyond the margin getting worse; null when it does or there is none. */
+  approvalEnded: string | null;
 }
 
 /** What the shipments service knows about one quote reference. */
@@ -239,6 +266,147 @@ export interface CustomerQuoteFacts {
   sentQuotesWithoutDate: number;
   /** The last write of any quote for this customer. */
   lastActivityAt: string;
+}
+
+/** A rep's question to a manager about a margin below the floor, as the API hands it out (Council Outlay 6, step 3). */
+export interface QuoteMarginInquiryItem {
+  id: string;
+  quoteNumber: string;
+  status: "pending" | "approved" | "rejected" | "withdrawn";
+  reason: string;
+  note: string;
+  /** When the customer needs the answer (ISO); null when not said. */
+  needsBy: string | null;
+  competitorPrice: string;
+  volume: string;
+  requestedById: string;
+  /** The one who asked, by e-mail as the users have it now. */
+  requestedByName: string;
+  requestedAt: string;
+  /** The quote's margin when they asked. */
+  snapshot: { sellingCzk: number; buyingCzk: number; marginCzk: number | null; marginPercent: number | null; floorPercent: number; floorMinCzk: number };
+  /** The owner's manager who is told; "" when nobody is set and the admins are told. */
+  notifyName: string;
+  /** Waiting long enough, or close enough to "needs it by", that the admins are told too. */
+  escalated: boolean;
+  /** Office minutes (08:00-17:00 on working days) it has waited, or waited until it was answered. */
+  waitedOfficeMinutes: number;
+  decision: "approve" | "counter" | "reject" | null;
+  decidedByName: string;
+  decidedAt: string | null;
+  /** The margin the approval covers (that one or better); null for none. */
+  approvedMarginCzk: number | null;
+  approvedMarginPercent: number | null;
+  comment: string;
+  /** The manager who answered had asked, or owns the quote (allowed and shown). */
+  selfDecision: boolean;
+  answerSeenAt: string | null;
+}
+
+/** A question in the managers' Quote Inquiries list, with the quote it is about as it is now. */
+export interface QuoteMarginInquiryRow {
+  inquiry: QuoteMarginInquiryItem;
+  customer: string;
+  ownerName: string;
+  serviceType: string;
+  /** The quote's status as shown; "" when the quote is gone. */
+  quoteStatus: string;
+  /** The quote's road margin as it is now; null when the quote is gone or has none. */
+  margin: RoadMargin | null;
+}
+
+/** One quote as the Sales managers' cockpit judges it (the sales service reads these, Council Outlay 6). */
+export interface SalesManagersQuoteFact {
+  quoteNumber: string;
+  /** The status as stored, and as shown (Expired once the validity of a Quoted / Feedback quote passed). */
+  status: string;
+  shownStatus: string;
+  /** The freight mode as the quote stores it ("Sea FCL", "Air", "Road"…); "" when none. */
+  serviceType: string;
+  customer: string;
+  customerId: string | null;
+  ownerUserId: string | null;
+  /** The owner's e-mail as the users have it now, else the label stored; "" for no owner. */
+  ownerName: string;
+  createdAt: string;
+  firstSentAt: string | null;
+  decidedAt: string | null;
+  validUntil: string | null;
+  /** When the customer last heard from us: the last contact, else the sending, else the creation. */
+  lastContactAt: string | null;
+  followUpDue: boolean;
+  shipmentId: string | null;
+  /** The cargo ready date (YYYY-MM-DD) the quote names; null for none. */
+  readyDate: string | null;
+  /** The quote's selling and margin in CZK, worked out as the editor does (lib/quoteMargin). */
+  sellingCzk: number;
+  marginCzk: number | null;
+  marginPercent: number | null;
+  /** Why the margin cannot be worked out (a ČNB rate missing); null when it can. */
+  marginProblem: string | null;
+  /** A margin below its freight mode's floor that no approval covers: the quote cannot be sent. */
+  belowFloor: boolean;
+  /** The revision of a Won quote (it stays Won while its prices are changed). */
+  wonRevision: boolean;
+  /** When the quote got the status it has now (its history), else when it was created. */
+  statusSince: string;
+  /** When a manager approved the margin, while that approval covers it; null otherwise. */
+  approvalAt: string | null;
+  /** Why an approval on the quote no longer covers it ("the customer changed", "the margin got worse"); null when none or it does. */
+  approvalLapsed: string | null;
+  /** What the customer owes, when it is a customer record: overdue invoices, and how far unpaid ones exceed the credit limit. */
+  credit: { overdueCount: number; oldestOverdueDue: string | null; overLimitCzk: number | null } | null;
+  /** The warehouse's heavy-piece question on the quote, when there is one. */
+  warehouseInquiry: { status: "pending" | "approved" | "rejected"; requestedAt: string } | null;
+  /** A rep's question to a manager about the margin that waits for an answer, when there is one. */
+  marginInquiry: {
+    requestedAt: string;
+    needsBy: string | null;
+    /** The admins are told too (no manager set, 4 office hours passed, or "needs it by" close). */
+    escalated: boolean;
+    waitedOfficeMinutes: number;
+    /** The margin in CZK the rep asked about. */
+    askedMarginCzk: number | null;
+  } | null;
+}
+
+export interface SalesManagersFacts {
+  /** YYYY-MM-DD, Prague: the business day the facts are judged on. */
+  today: string;
+  quotes: SalesManagersQuoteFact[];
+  /** More quotes matched than were read: the cockpit says so. */
+  capped: boolean;
+  /** The margin questions of the last AUDIT_DAYS days (the cockpit's audit line). */
+  audit: {
+    days: number;
+    asked: number;
+    approved: number;
+    counter: number;
+    rejected: number;
+    withdrawn: number;
+    selfApprovals: number;
+    /** Waiting now with the admins told (no manager set, 4 office hours, or "needs it by" close). */
+    escalated: number;
+    /** Median office minutes from asking to the answer; null when none was answered. */
+    medianOfficeMinutesToDecide: number | null;
+  };
+  /** The team's figures of the last TEAM_DAYS days (the cockpit's team line). */
+  team: {
+    days: number;
+    won: number;
+    lost: number;
+    sent: number;
+    medianHoursToFirstSent: number | null;
+    lostReasons: { reason: string; count: number }[];
+    /** Margin questions asked, and how many were approved and rejected, in the same days. */
+    asked: number;
+    approved: number;
+    rejected: number;
+  };
+  /** Margin questions waiting on a quote that can no longer be sent (deleted, Quoted, Lost, …): Sales References. */
+  inquiriesOnClosedQuotes: string[];
+  /** Answers of the last 30 days nobody opened whose asker left and whose quote has no Sales Owner who is a user: Sales References. */
+  answersNobodyReceived: string[];
 }
 
 /** An open quote of a customer: not decided and not expired. Its value is worked out by the web, from these parts of its document. */

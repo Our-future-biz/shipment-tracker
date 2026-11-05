@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, integer, numeric, date, index, uniqueIndex, check, uuid } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, smallint, numeric, date, index, uniqueIndex, check, uuid, timestamp, boolean } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
-import type { CustomerLabel, CustomerRole, CustomerStatus, RiskLevelOverride } from "../interfaces/interfaces";
+import type { CustomerLabel, CustomerRole, CustomerStatus, RiskLevelOverride, SupplierApprovalDecision, SupplierApprovalStatus } from "../interfaces/interfaces";
 
 export const customerTable = pgTable(
   "customer",
@@ -49,6 +49,50 @@ export const customerTable = pgTable(
     // haulier trucks containers to and from ports and terminals, a shipping line sells ocean freight. Existing rows become customers.
     roles: text("roles").array().$type<CustomerRole[]>().notNull().default(sql`'{customer}'::text[]`),
 
+    // — Supplier rating (a company with a supplier role) —
+    // 0–5 whole stars set by hand by a manager; null = not rated (0 is a rating: the worst). Who set it,
+    // when and why go with it; every change is also kept in customer_supplier_rating.
+    supplierRating: smallint("supplier_rating"),
+    supplierRatingReason: text("supplier_rating_reason").notNull().default(""),
+    // The e-mail of who set it, as a person is recorded, and the user (another database, so no foreign key).
+    supplierRatingBy: text("supplier_rating_by").notNull().default(""),
+    supplierRatingByUserId: uuid("supplier_rating_by_user_id"),
+    supplierRatingAt: timestamp("supplier_rating_at", { withTimezone: true }),
+
+    // — A supplier's terms and checks (step 6b): what we pay it, and the VAT register checks before we do —
+    // The one place they are edited; a haulier's are also copied to Trucking on every save, whose rules run on them.
+    // Payment days and currency are null until set: a customer's paymentTerms are our terms to it, not these.
+    supplierPaymentDays: integer("supplier_payment_days"),
+    supplierCurrency: text("supplier_currency"),
+    supplierVatUnreliable: boolean("supplier_vat_unreliable").notNull().default(false),
+    supplierBankAccountPublished: boolean("supplier_bank_account_published").notNull().default(false),
+    supplierVatCheckedAt: date("supplier_vat_checked_at", { mode: "string" }),
+    // Normalised (lib/bankAccount.ts). When one was last added, and by whom: a haulier's exact-match
+    // invoice is not approved automatically for 30 days after (Trucking).
+    supplierBankAccounts: text("supplier_bank_accounts").array().notNull().default(sql`'{}'::text[]`),
+    supplierBankAccountsChangedAt: timestamp("supplier_bank_accounts_changed_at", { withTimezone: true }),
+    supplierBankAccountsChangedByUserId: uuid("supplier_bank_accounts_changed_by_user_id"),
+    supplierBankAccountsChangedBy: text("supplier_bank_accounts_changed_by").notNull().default(""),
+
+    // — A new supplier waiting for a manager (Sales → Managers → Company approval) —
+    // A user who is no manager adds a supplier from a quote's Pricing: the company is in the Customer
+    // Database at once, "pending" until a manager approves it ("" again) or declines it ("declined": it is
+    // deleted, and can be restored). A quote linked to a pending or declined supplier is not sent.
+    approvalStatus: text("approval_status").$type<SupplierApprovalStatus>().notNull().default(""),
+    // Who asked (e-mail as a person is recorded, and the user) and from which quote.
+    approvalRequestedBy: text("approval_requested_by").notNull().default(""),
+    approvalRequestedByUserId: uuid("approval_requested_by_user_id"),
+    approvalRequestedAt: timestamp("approval_requested_at", { withTimezone: true }),
+    approvalQuoteNumber: text("approval_quote_number").notNull().default(""),
+    // The manager's answer: who, when, and why a decline.
+    approvalDecision: text("approval_decision").$type<SupplierApprovalDecision>().notNull().default(""),
+    approvalDecidedBy: text("approval_decided_by").notNull().default(""),
+    approvalDecidedByUserId: uuid("approval_decided_by_user_id"),
+    approvalDecidedAt: timestamp("approval_decided_at", { withTimezone: true }),
+    approvalComment: text("approval_comment").notNull().default(""),
+    // When the one who asked opened the answer in their bell.
+    approvalAnswerSeenAt: timestamp("approval_answer_seen_at", { withTimezone: true }),
+
     // — Logo + website (logo stored as base64 data URL in Postgres) —
     companyWebsite: text("company_website").notNull().default(""),
     logoData: text("logo_data").notNull().default(""),
@@ -79,6 +123,12 @@ export const customerTable = pgTable(
       "customer_label_check",
       sql`${table.label} IN ('KEY ACCOUNT', 'STANDARD', 'TARGET CUSTOMER', 'RISK')`,
     ),
+    check("customer_supplier_rating_check", sql`${table.supplierRating} BETWEEN 0 AND 5`),
+    check("customer_approval_status_check", sql`${table.approvalStatus} IN ('', 'pending', 'declined')`),
+    check("customer_approval_decision_check", sql`${table.approvalDecision} IN ('', 'approved', 'declined')`),
+    // The Company approval list: what waits, and what was answered lately.
+    index("customer_approval_idx").on(table.companyId, table.approvalRequestedAt).where(sql`approval_requested_at IS NOT NULL`),
+    check("customer_supplier_payment_days_check", sql`${table.supplierPaymentDays} BETWEEN 0 AND 365`),
     // At least one role, and only known ones.
     check(
       "customer_roles_check",

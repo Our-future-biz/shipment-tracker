@@ -194,7 +194,7 @@ interface PlaceListResponse {
 export const placeSearch = api(
   { expose: true, auth: true, method: "GET", path: "/auth/places" },
   async (req: PlaceSearchRequest): Promise<PlaceListResponse> => {
-    return { places: await orgUnitService.searchPlaces(req.q, req.countryCode) };
+    return { places: await orgUnitService.searchPlaces(req.q, req.countryCode, picker()) };
   },
 );
 
@@ -209,7 +209,7 @@ interface AirportListResponse {
 export const airportSearch = api(
   { expose: true, auth: true, method: "GET", path: "/auth/airports" },
   async (req: AirportSearchRequest): Promise<AirportListResponse> => {
-    return { airports: orgUnitService.searchAirports(req.q) };
+    return { airports: await orgUnitService.searchAirports(req.q, picker()) };
   },
 );
 
@@ -226,9 +226,29 @@ interface TerminalListResponse {
 export const terminalSearch = api(
   { expose: true, auth: true, method: "GET", path: "/auth/terminals" },
   async (req: TerminalSearchRequest): Promise<TerminalListResponse> => {
-    return orgUnitService.searchTerminals(req.q);
+    return orgUnitService.searchTerminals(req.q, picker());
   },
 );
+
+interface PlacePickRequest {
+  /** The code of the place, airport or terminal picked: "DEHAM", "PVG", "DEHAMCTB", "DE-IT116". */
+  code: string & MaxLen<20>;
+}
+
+// A place, airport or terminal picked in a location picker: counted for the user, whose pickers
+// then list it sooner (most picked first).
+export const placePick = api(
+  { expose: true, auth: true, method: "POST", path: "/auth/places/picks" },
+  async (req: PlacePickRequest): Promise<void> => {
+    await orgUnitService.recordPick(req.code, picker());
+  },
+);
+
+// The signed-in user, whose picks rank the place, airport and terminal lists.
+function picker() {
+  const auth = getAuthData()!;
+  return { companyId: auth.companyID, userId: auth.userID };
+}
 
 interface PlaceLookupRequest {
   codes: string[];

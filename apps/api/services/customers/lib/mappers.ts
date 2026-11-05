@@ -5,7 +5,8 @@ import type { CustomerItemRow, CustomerRecord } from "../schemas/customer.schema
 import type { CustomerInvoiceRecord } from "../schemas/customerInvoice.schema";
 import type { CustomerNoteRecord } from "../schemas/customerNote.schema";
 import type { CustomerSiteRecord } from "../schemas/customerSite.schema";
-import type { AddressItem, ContactItem, CustomerItem, CustomerSiteItem, DocumentItem, InvoiceItem, NoteItem } from "../interfaces/interfaces";
+import type { CustomerSupplierRatingRecord } from "../schemas/customerSupplierRating.schema";
+import type { AddressItem, ContactItem, CustomerItem, CustomerSiteItem, DocumentItem, InvoiceItem, NoteItem, SupplierRatingEntry, SupplierTerms } from "../interfaces/interfaces";
 import { dateOutput } from "./dates";
 import { customerLogoUrl } from "./logoUrl";
 
@@ -50,8 +51,33 @@ export const toCustomerItem = (r: CustomerItemRow | CustomerRecord): CustomerIte
   totalShipments: r.totalShipments,
   lastActivityDate: dateOutput(r.lastActivityDate),
   roles: r.roles,
+  supplierRating: r.supplierRating,
+  supplierRatingReason: r.supplierRatingReason,
+  supplierRatingBy: r.supplierRatingBy,
+  supplierRatingAt: r.supplierRatingAt ? iso(r.supplierRatingAt) : null,
+  supplierTerms: toSupplierTerms(r),
+  approvalStatus: r.approvalStatus,
   createdAt: iso(r.createdAt),
   updatedAt: iso(r.updatedAt),
+});
+
+export const toSupplierTerms = (r: CustomerItemRow | CustomerRecord): SupplierTerms => ({
+  paymentDays: r.supplierPaymentDays,
+  currency: r.supplierCurrency,
+  vatUnreliable: r.supplierVatUnreliable,
+  bankAccountPublished: r.supplierBankAccountPublished,
+  vatCheckedAt: dateOutput(r.supplierVatCheckedAt),
+  bankAccounts: r.supplierBankAccounts,
+  bankAccountsChangedAt: r.supplierBankAccountsChangedAt ? iso(r.supplierBankAccountsChangedAt) : null,
+  bankAccountsChangedBy: r.supplierBankAccountsChangedBy,
+});
+
+export const toSupplierRatingEntry = (r: CustomerSupplierRatingRecord): SupplierRatingEntry => ({
+  id: r.id,
+  rating: r.rating,
+  reason: r.reason,
+  setBy: r.setBy,
+  setAt: iso(r.createdAt),
 });
 
 export const toCustomerSiteItem = (r: CustomerSiteRecord): CustomerSiteItem => ({
@@ -97,12 +123,15 @@ export const toNoteItem = (r: CustomerNoteRecord): NoteItem => ({
   type: r.type,
   content: r.content,
   author: r.author,
+  colleagues: r.colleagues,
   createdAt: iso(r.createdAt),
   updatedAt: iso(r.updatedAt),
 });
 
 /** Document metadata only: never the file bytes. */
-export const toDocumentItem = (r: Omit<DocumentItem, "createdAt" | "updatedAt"> & { createdAt: Date; updatedAt: Date }): DocumentItem => ({
+export const toDocumentItem = (
+  r: Omit<DocumentItem, "createdAt" | "updatedAt" | "validTo"> & { validTo: string | null; createdAt: Date; updatedAt: Date },
+): DocumentItem => ({
   id: r.id,
   customerId: r.customerId,
   name: r.name,
@@ -110,6 +139,7 @@ export const toDocumentItem = (r: Omit<DocumentItem, "createdAt" | "updatedAt"> 
   fileName: r.fileName,
   fileType: r.fileType,
   fileSize: r.fileSize,
+  validTo: dateOutput(r.validTo),
   createdAt: iso(r.createdAt),
   updatedAt: iso(r.updatedAt),
 });

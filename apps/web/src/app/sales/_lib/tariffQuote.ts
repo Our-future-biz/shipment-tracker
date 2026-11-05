@@ -106,3 +106,14 @@ export function withTariffLines(lines: CostLine[], index: number, prefix: string
   const after = lines.slice(index + 1).filter((_, i) => kept(index + 1 + i));
   return { lines: [...before, ...offerLines, ...after], removed, at: before.length, count: offerLines.length };
 }
+
+/**
+ * A tariff is for import, export or both (Tariffs): it prices a quote only in the quote's Trade
+ * Direction, so the tariffs are not asked before the quote has one.
+ */
+export const TRADE_DIRECTION_FIRST = "Choose the Trade Direction in Shipment details first: each tariff is for import, export or both";
+
+/** The quote's Trade Direction as the tariffs take it; null while the quote has none. */
+export function tradeDirectionOf(data: Pick<SalesQuoteData, "direction">): "import" | "export" | null {
+  return data.direction === "Import" ? "import" : data.direction === "Export" ? "export" : null;
+}

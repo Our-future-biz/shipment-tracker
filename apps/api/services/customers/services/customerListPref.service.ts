@@ -2,7 +2,8 @@ import { APIError } from "encore.dev/api";
 import { customerListPrefRepository } from "../repositories/customerListPref.repository";
 
 // The keys a user may store for the Customer Database list.
-export const CUSTOMER_LIST_PREF_KEYS = ["columns", "filter-templates", "column-templates"] as const;
+// "columns" is the Customers view's (as it was before the list had views), the other two views have their own.
+export const CUSTOMER_LIST_PREF_KEYS = ["columns", "columns-suppliers", "columns-all", "filter-templates", "column-templates"] as const;
 export type CustomerListPrefKey = (typeof CUSTOMER_LIST_PREF_KEYS)[number];
 
 const isKnownKey = (prefKey: string): prefKey is CustomerListPrefKey =>

@@ -11,6 +11,7 @@
 		}
 	},
 	"global_cors": {
+		"allow_headers": ["X-Acting-Company"],
 		"allow_origins_with_credentials": [
 			"https://shipment-tracker-web.vercel.app",
 			"https://*.vercel.app"

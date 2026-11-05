@@ -4,10 +4,10 @@ import { useMemo, useRef, useState, type ReactNode } from "react";
 import { Select, Tooltip } from "antd";
 import { ExclamationCircleOutlined } from "@ant-design/icons";
 import { useDebounced } from "@/hooks/useDebounced";
-import { useAirportSearch, usePlaceSearch, useTerminalSearch } from "@/hooks/usePlaceSearch";
+import { useAirportSearch, usePlaceSearch, useRecordPlacePick, useTerminalSearch } from "@/hooks/usePlaceSearch";
 import { COUNTRIES } from "@/lib/countries";
 import type { geo } from "@/lib/api/client";
-import { countryCodeOf, countryLabel, countryMatches, countryValue, isUnmatched, UNMATCHED_HINT, type GeoKind } from "@/lib/places";
+import { countryCodeOf, countryLabel, countryMatches, countryValue, isUnmatched, placeCodeOf, UNMATCHED_HINT, type GeoKind } from "@/lib/places";
 
 const COUNTRY_OPTIONS = COUNTRIES.map((c) => ({ code: c.code, label: countryLabel(c.code) }));
 
@@ -60,7 +60,8 @@ const codedOption = (code: string, name: string, where: (string | null | undefin
 
 /**
  * Picks a place (UN/LOCODE, searched worldwide; with `airports`, also an IATA airport; with
- * `terminals`, also an ocean or inland terminal) or a country from the database. A value not in the database's form (older data, or what the AI
+ * `terminals`, also an ocean or inland terminal) or a country from the database. Places, airports
+ * and terminals are listed with the ones the user picks most first. A value not in the database's form (older data, or what the AI
  * could not match) is kept and offered as the search text, so the matching places show up
  * straight away.
  */
@@ -93,6 +94,9 @@ export function GeoSelect({
   const places = usePlaceSearch(debounced, kind === "place");
   const airportList = useAirportSearch(debounced, kind === "place" && airports);
   const terminalList = useTerminalSearch(debounced, kind === "place" && terminals);
+  // Each place picked is counted for the user: the lists show the ones they pick most first
+  // (sorted by the server, before it cuts a list).
+  const recordPick = useRecordPlacePick();
 
   const options = useMemo((): (GeoOption | { label: ReactNode; options: GeoOption[] })[] => {
     if (kind !== "place") {
@@ -162,7 +166,11 @@ export function GeoSelect({
           : (input, option) => countryMatches((option as { code?: string } | undefined)?.code ?? "", input)
       }
       notFoundContent={notFound()}
-      onChange={(v) => onChange(v ?? "")}
+      onChange={(v) => {
+        onChange(v ?? "");
+        const code = kind === "place" && v && v !== current ? placeCodeOf(v) : null;
+        if (code) void recordPick(code);
+      }}
       onBlur={onBlur}
       popupMatchSelectWidth={kind === "place" ? (airports || terminals ? 420 : 340) : true}
     />

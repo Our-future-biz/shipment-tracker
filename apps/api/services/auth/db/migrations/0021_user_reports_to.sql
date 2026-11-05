@@ -1,0 +1,1 @@
+ALTER TABLE "app_user" ADD COLUMN "reports_to_user_id" uuid;

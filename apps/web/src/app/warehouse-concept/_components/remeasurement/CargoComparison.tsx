@@ -45,6 +45,7 @@ export function CargoComparison({
   shipment: interfaces.ShipmentItem | null;
   /** The lines as currently typed. */
   rows: RemeasureLine[];
+  /** Lines typed and not saved: Inform Operations waits for them (the saved ones are told). */
   linesUnsaved: boolean;
   data: Record<string, unknown>;
   sectionVersion: number;
@@ -182,9 +183,14 @@ export function CargoComparison({
               </span>
             }
             action={
-              <Button size="small" danger onClick={onInform} loading={informing}>
-                {informed ? "Inform again" : "Inform Operations"}
-              </Button>
+              // The shipment's chat is told the SAVED lines' figures, so not while others are typed.
+              <Tooltip title={linesUnsaved ? "Save the lines first — Operations are told the saved figures" : undefined}>
+                <span className="inline-flex">
+                  <Button size="small" danger onClick={onInform} loading={informing} disabled={linesUnsaved}>
+                    {informed ? "Inform again" : "Inform Operations"}
+                  </Button>
+                </span>
+              </Tooltip>
             }
           />
         ) : hasAny(remeasured) || (declared && hasAny(gate)) || (reweighed && reweighVar.pct != null) ? (

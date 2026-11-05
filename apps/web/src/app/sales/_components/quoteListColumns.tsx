@@ -166,7 +166,7 @@ export const QUOTE_COLUMNS: QuoteColumn[] = [
     render: (q) => <QuoteShipmentsCell quote={q} />,
   },
   { key: "service", title: "Freight Mode", width: 104, render: (q) => q.data.serviceType || EMPTY_CELL },
-  { key: "incoterm", title: "Incoterm", width: 80, render: (q) => q.data.incoterm || EMPTY_CELL },
+  { key: "incoterm", title: "Incoterms", width: 80, render: (q) => q.data.incoterm || EMPTY_CELL },
   { key: "cargoReady", title: "Cargo ready", width: 100, render: (q) => formatDate(cargoReadyDay(q.data)) || EMPTY_CELL },
   { key: "created", title: "Created", width: 110, sortBy: "createdAt", firstSort: "descend", render: (q) => dayOf(q.createdAt) },
   { key: "direction", title: "Trade Direction", width: 130, render: (q) => q.data.direction || EMPTY_CELL },
