@@ -50,6 +50,7 @@ import type { SalesQuoteRecord } from "../../schemas/quote.schema";
 import type { PricedSide, RateLevelResult } from "../../../trucking/interfaces/interfaces";
 import type { QuoteRoadInput } from "../../interfaces/interfaces";
 import { salesQuoteService, type SalesQuoteListRequest } from "../../services/salesQuote.service";
+import { SHIPPING_TERMS_FIRST } from "../../utils/shippingTerms.utils";
 import { quoteInquiryRepository } from "../../repositories/quoteInquiry.repository";
 import { PROTECTED_KEYS } from "../../utils/quoteDocument.utils";
 import { columnsOf, stateOf } from "../../utils/quoteLifecycle.utils";
@@ -106,7 +107,7 @@ const quote = (over: Partial<SalesQuoteRecord> = {}): SalesQuoteRecord => ({
   id: "0b8d5a0e-6a43-4f4a-9a53-5d0d3a2b6c11",
   companyId: martin.companyID,
   quoteNumber: REF,
-  data: { reference: REF, quoteStatus: "draft", salesOwner: "martin@forwarder.cz", timeline: [], origin: "Praha" },
+  data: { reference: REF, quoteStatus: "draft", salesOwner: "martin@forwarder.cz", timeline: [], origin: "Praha", shippingTerms: "SEA EXPORT" },
   terms: "",
   createdAt: new Date("2026-09-15T08:00:00.000Z"),
   updatedAt: new Date("2026-10-02T09:30:00.456Z"),
@@ -615,6 +616,15 @@ describe("transition", () => {
     expect(repository.writeLifecycle.mock.calls[0]!.slice(0, 2)).toEqual([TX, stored]);
   });
 
+  it("refuses Ready to send and Quoted before a Shipping terms template is chosen, writing nothing; Lost is let", async () => {
+    stored = quote({ data: { reference: REF, quoteStatus: "draft", salesOwner: "martin@forwarder.cz", timeline: [], shippingTerms: " " } });
+    for (const to of ["ready_to_send", "quoted"] as const) {
+      await expect(salesQuoteService.transition(martin, REF, { to })).rejects.toMatchObject({ code: "failed_precondition", message: SHIPPING_TERMS_FIRST });
+    }
+    expect(repository.writeLifecycle).not.toHaveBeenCalled();
+    await expect(salesQuoteService.transition(martin, REF, { to: "lost", lostReason: "Price: too high" })).resolves.toMatchObject({ changed: true });
+  });
+
   it("records the user id alone when the name cannot be resolved", async () => {
     usersList.mockRejectedValue(new Error("auth is unreachable"));
     await salesQuoteService.transition(martin, REF, { to: "ready_to_send" });
@@ -722,7 +732,7 @@ describe("transition", () => {
     beforeEach(() => fxRatesOn.mockResolvedValue(TODAY_FX as never));
 
     it("stamps today's ČNB rates and ROE % when the quote is sent", async () => {
-      stored = quote({ data: { reference: REF, quoteStatus: "draft", currency: "EUR" } });
+      stored = quote({ data: { reference: REF, quoteStatus: "draft", currency: "EUR", shippingTerms: "SEA EXPORT" } });
       await salesQuoteService.transition(martin, REF, { to: "quoted", validityDays: 15 });
       expect(written().document).toEqual({
         fx: { date: "2026-10-10", fixingDate: "2026-10-09", roePct: 102, rates: { EUR: 24.375, USD: 21.04 }, lockedAt: NOW.toISOString() },
@@ -1470,7 +1480,7 @@ const oldTrucking = (amount: number) => ({ type: "Road freight", description: "o
 const roadQuote = (selling: unknown[], buying: unknown[], over: Record<string, unknown> = {}, row: Partial<SalesQuoteRecord> = {}) =>
   quote({
     customerId: CUSTOMER,
-    data: { reference: REF, quoteStatus: "draft", salesOwner: "martin@forwarder.cz", timeline: [], serviceType: "Road", sellingLines: selling, buyingLines: buying, ...over },
+    data: { reference: REF, quoteStatus: "draft", salesOwner: "martin@forwarder.cz", timeline: [], serviceType: "Road", sellingLines: selling, buyingLines: buying, shippingTerms: "ROAD", ...over },
     ...row,
   });
 

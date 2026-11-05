@@ -2,6 +2,7 @@ import { businessDay } from "../../../lib/businessDate";
 import { canApproveMargin, ownerChangeRight, quoteDeletePermission, type OwnerChangeRight } from "../../../lib/salesPolicy";
 import { freightModeGateMessage, marginGateMessage, roadMargin, type MarginContext } from "../lib/roadMargin";
 import { inquiryGateMessage } from "./warehouseInquiry.utils";
+import { shippingTermsGateMessage } from "./shippingTerms.utils";
 import type { RoadMargin, SalesQuoteItem } from "../interfaces/interfaces";
 import type { SalesQuoteRecord } from "../schemas/quote.schema";
 import { isPlainObject, isWonRevision } from "./quoteDocument.utils";
@@ -18,6 +19,8 @@ function sendBlockedOf(row: SalesQuoteRecord, shown: string, margin: RoadMargin 
   if (PRICING_CLOSED.includes(shown) && !isWonRevision(row.status, row.data)) return null;
   const mode = freightModeGateMessage(row.data);
   if (mode) return mode;
+  const terms = shippingTermsGateMessage(row.data);
+  if (terms) return terms;
   return margin?.needsApproval ? marginGateMessage(margin) : inquiryGateMessage(row.data, "ready_to_send");
 }
 

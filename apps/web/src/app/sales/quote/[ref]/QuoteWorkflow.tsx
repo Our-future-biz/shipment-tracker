@@ -281,7 +281,6 @@ export function QuoteWorkflow() {
   >(null);
   // The template chosen under Shipping terms while the user is asked whether its text may replace
   // what the quote says; null when no question is open.
-  const [templateAsked, setTemplateAsked] = useState<string | null>(null);
   // A buying line that just got its amount (and its place), offered to selling as well with a markup.
   const [toSelling, setToSelling] = useState<{ line: CostLine; index: number } | null>(null);
   // The buying line "Tariffs available" was opened from: for rail, collections, or ocean freight.
@@ -943,27 +942,16 @@ export function QuoteWorkflow() {
 
   // What choosing a template puts on the quote: its name, and its text where it has any - a
   // field the template leaves empty keeps what the quote says.
-  const templatePatch = (name: string): Partial<SalesQuoteData> => {
-    const template = terms.find((t) => t.name === name);
-    return {
-      shippingTerms: name,
-      shippingIncludes: template?.includes?.trim() ? template.includes : draft.shippingIncludes,
-      shippingExcludes: template?.excludes?.trim() ? template.excludes : draft.shippingExcludes,
-      shippingSubjectTo: template?.subjectTo?.trim() ? template.subjectTo : draft.shippingSubjectTo,
-    };
-  };
-  // Text the quote already has is replaced only after a question; without such text the template
-  // fills the quote at once.
+  // The Shipping terms are the template's, word for word: they are not typed on the quote. Only the
+  // validity is the quote's own. The quote is not made Ready to Send (or sent) before one is chosen.
   const chooseTemplate = (name: string) => {
-    const next = templatePatch(name);
-    const replaces = (own?: string, text?: string) => !!own?.trim() && own !== text;
-    if (
-      replaces(draft.shippingIncludes, next.shippingIncludes) ||
-      replaces(draft.shippingExcludes, next.shippingExcludes) ||
-      replaces(draft.shippingSubjectTo, next.shippingSubjectTo)
-    )
-      setTemplateAsked(name);
-    else set(next);
+    const template = terms.find((t) => t.name === name);
+    set({
+      shippingTerms: name,
+      shippingIncludes: template?.includes ?? "",
+      shippingExcludes: template?.excludes ?? "",
+      shippingSubjectTo: template?.subjectTo ?? "",
+    });
   };
 
   // While a shipment carries the quote nobody may delete it, and the way there is not obvious:
@@ -1744,7 +1732,7 @@ export function QuoteWorkflow() {
                 size="small"
                 className="flex-1 min-w-0"
                 aria-label="Template"
-                placeholder="Select a T&C template…"
+                placeholder="Select a T&C template (needed before Ready to Send)…"
                 value={draft.shippingTerms}
                 onChange={chooseTemplate}
                 options={terms.map((t) => ({ value: t.name, label: t.name }))}
@@ -1757,15 +1745,26 @@ export function QuoteWorkflow() {
               )}
             </div>
           </InfoRow>
-          <InfoRow label="Rate offer includes">
-            <Input.TextArea size="small" aria-label="Rate offer includes" rows={4} value={draft.shippingIncludes ?? ""} onChange={(e) => set({ shippingIncludes: e.target.value })} />
-          </InfoRow>
-          <InfoRow label="Rate offer excludes">
-            <Input.TextArea size="small" aria-label="Rate offer excludes" rows={4} value={draft.shippingExcludes ?? ""} onChange={(e) => set({ shippingExcludes: e.target.value })} />
-          </InfoRow>
-          <InfoRow label="Subject to">
-            <Input.TextArea size="small" aria-label="Subject to" rows={3} value={draft.shippingSubjectTo ?? ""} onChange={(e) => set({ shippingSubjectTo: e.target.value })} />
-          </InfoRow>
+          {/* The template's texts: read here, changed only on the template (Sales Settings → Terms & Conditions). */}
+          {(
+            [
+              ["Rate offer includes", draft.shippingIncludes, 4],
+              ["Rate offer excludes", draft.shippingExcludes, 4],
+              ["Subject to", draft.shippingSubjectTo, 3],
+            ] as const
+          ).map(([label, text, rows]) => (
+            <InfoRow key={label} label={label}>
+              <Input.TextArea
+                size="small"
+                aria-label={label}
+                rows={rows}
+                readOnly
+                value={text ?? ""}
+                placeholder={draft.shippingTerms ? "Nothing in the template" : "Choose a template above"}
+                className="!bg-slate-50 !text-slate-700 cursor-default"
+              />
+            </InfoRow>
+          ))}
           {/* The quote's one validity date, as the lifecycle band and the document show it. It decides
               when the quote expires, so the server keeps it: picking or clearing it here changes it at
               once, and on a quote the customer already has that goes into its history. A closed quote
@@ -2278,21 +2277,6 @@ export function QuoteWorkflow() {
           title="Quote as all-in"
           description={`Do you intend to quote this as an all-in rate? The customer's quotation will show one price of ${fmtMoney(totals.selling, totals.currency)}, without the selling lines. The lines stay here.`}
           confirmLabel="Quote as all-in"
-        />
-      )}
-      {/* Cancel leaves the quote as it was, the template it names included. */}
-      {templateAsked !== null && (
-        <ConfirmModal
-          open
-          onClose={() => setTemplateAsked(null)}
-          onConfirm={() => {
-            set(templatePatch(templateAsked));
-            setTemplateAsked(null);
-          }}
-          title={`Template: ${templateAsked}`}
-          description="Replace Includes, Excludes and Subject to with the template's text?"
-          confirmLabel="Replace"
-          danger
         />
       )}
     </div>

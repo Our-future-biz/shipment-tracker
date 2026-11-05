@@ -29,6 +29,7 @@ import { carryKeys, closedCarryKeys, isPlainObject, isWonRevision, newDocument }
 import { customerIdOf, linkForSave, refreshCopies, withRefresh } from "../utils/customerLinks.utils";
 import { tryCustomerRefs } from "../lib/customerRefs";
 import { linkedSupplierIds, supplierGate, type LinkedSupplierState } from "../utils/supplierApproval.utils";
+import { shippingTermsGateMessage } from "../utils/shippingTerms.utils";
 import { approvedPricing, inquiryGateMessage, MAX_INQUIRY_NOTE, MAX_INQUIRY_PIECES, MAX_PRICE_PER_PIECE, MIN_REJECT_REASON, readInquiry } from "../utils/warehouseInquiry.utils";
 import { fxWriteFor, mayStampFx, type StoredFx } from "../lib/quoteFx";
 import { approvalBasisOf, formatMargin, freightModeGateMessage, guardrailModeOf, marginGateMessage, roadMargin, type MarginContext } from "../lib/roadMargin";
@@ -580,6 +581,9 @@ class SalesQuoteService {
         if (guardrailModeOf(quote.data) !== guardrailModeOf(before?.data)) throw conflict();
         const modeGate = freightModeGateMessage(quote.data);
         if (modeGate) throw APIError.failedPrecondition(modeGate);
+        // Its Shipping terms come from a template, chosen before it goes on.
+        const termsGate = shippingTermsGateMessage(quote.data);
+        if (termsGate) throw APIError.failedPrecondition(termsGate);
         // Judged as the quote will be once moved: a validity the sending sets is part of what an approval covers (D10).
         const judged = isPlainObject(quote.data) ? { ...quote.data, validUntil: change.state.validUntil ?? undefined } : quote.data;
         const margin = margins ? roadMargin(judged, margins) : null;
