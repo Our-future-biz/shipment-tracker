@@ -27,6 +27,13 @@ export const ALL_CONTAINERS = "*";
 /** The block of the charges per shipment. */
 export const PER_SHIPMENT = "";
 
+/**
+ * A block's selling - per container in a container block, else per shipment - is rounded up to full
+ * fives of the quote's currency (6,278.74 → 6,280, 6,273 → 6,275): what it takes is more profit, on the
+ * charge the rounding cents go to (the ocean freight, else the dearest), one in the quote's currency first.
+ */
+export const SELLING_ROUNDS_TO = 5;
+
 /** The highest profit % a charge can take: at 100 % of the selling price there is no price. */
 export const MAX_PROFIT_PERCENT = 99;
 
@@ -177,18 +184,13 @@ export function priceFclBlock(data: SalesQuoteData, sheet: ExchangeRates, block:
     const profit = setting.mode === "sum" ? roundCents(Number(setting.value) || 0) : percentProfit(buying, Number(setting.value) || 0);
     allocate(profit, taking, lines);
   }
-  for (const c of charges) {
-    if (c.buying === null) continue;
-    const sold = roundCents(c.buying + c.profit);
-    c.roe = roundCents(sold * (sellingRoeFactor(lines[c.index]!.currency, data, live) - 1));
-    c.selling = roundCents(sold + c.roe);
-    c.percent = wholePercent(c.profit, sold);
-  }
+  for (const c of charges) if (c.buying !== null) sell(c, lines[c.index]!, data, live);
+  const blockSetsProfit = setting.perCharge || (Number(setting.value) || 0) !== 0;
+  if (data.fclPricing?.roundUp && blockSetsProfit) roundSellingUp(charges, taking, lines, data, live);
   const sum = (pick: (c: FclChargePrice) => number | null) => roundCents(charges.reduce((s, c) => s + (pick(c) ?? 0), 0));
   const profit = sum((c) => c.profit);
   const roe = sum((c) => c.roe);
   const selling = sum((c) => c.selling);
-  const blockSetsProfit = setting.perCharge || (Number(setting.value) || 0) !== 0;
   return {
     charges,
     buying: sum((c) => c.buying),
@@ -198,6 +200,34 @@ export function priceFclBlock(data: SalesQuoteData, sheet: ExchangeRates, block:
     percent: wholePercent(profit, roundCents(selling - roe)),
     profitUnplaced: blockSetsProfit && taking.length === 0,
   };
+}
+
+// A charge's selling from its buying and profit: the ROE % on a charge in another currency than the quote's.
+function sell(c: FclChargePrice, line: CostLine, data: SalesQuoteData, live?: LivePricing) {
+  const sold = roundCents(c.buying! + c.profit);
+  c.roe = roundCents(sold * (sellingRoeFactor(line.currency, data, live) - 1));
+  c.selling = roundCents(sold + c.roe);
+  c.percent = wholePercent(c.profit, sold);
+}
+
+// The block's selling up to full fives (SELLING_ROUNDS_TO), the difference put on the charge the rounding
+// cents go to as more profit; with the ROE % on it, the cents it rounds to are made up one at a time.
+function roundSellingUp(charges: FclChargePrice[], taking: FclChargePrice[], lines: readonly CostLine[], data: SalesQuoteData, live?: LivePricing) {
+  if (!taking.length) return;
+  const total = () => roundCents(charges.reduce((s, c) => s + (c.selling ?? 0), 0));
+  // In whole cents, so 6,275.01 goes to 6,280 and 6,275.00 stays.
+  const target = (Math.ceil(Math.round(total() * 100) / (SELLING_ROUNDS_TO * 100)) * SELLING_ROUNDS_TO);
+  if (total() >= target) return;
+  const inQuoteCurrency = taking.filter((c) => sellingRoeFactor(lines[c.index]!.currency, data, live) === 1);
+  const pool = inQuoteCurrency.length ? inQuoteCurrency : taking;
+  const anchor = pool.find((c) => codeOf(lines[c.index]!) === "ocean_freight") ?? pool.reduce((best, c) => (c.buying! > best.buying! ? c : best), pool[0]!);
+  const line = lines[anchor.index]!;
+  anchor.profit = roundCents(anchor.profit + (target - total()) / sellingRoeFactor(line.currency, data, live));
+  sell(anchor, line, data, live);
+  for (let cents = 0; total() < target && cents < 100; cents++) {
+    anchor.profit = roundCents(anchor.profit + 0.01);
+    sell(anchor, line, data, live);
+  }
 }
 
 // The block's profit on the charges that take it, pro rata to their buying, each to the cent; what
@@ -301,10 +331,12 @@ export function withFclPricing(
   data: SalesQuoteData,
   sheet: ExchangeRates,
   live?: LivePricing,
+  { roundUp = false }: { roundUp?: boolean } = {},
 ): Pick<SalesQuoteData, "buyingLines" | "sellingLines" | "fclPricing"> | null {
   const start = data.fclPricing || !(data.sellingLines ?? []).some(priceable) ? data : fromTypedSelling(data, sheet, live);
   if (!start) return null;
-  const fclPricing = start.fclPricing ?? { blocks: {} };
+  // An open quote priced now has its selling rounded up to full fives; a quote shown as it was sent keeps what it had.
+  const fclPricing = { ...(start.fclPricing ?? { blocks: {} }), ...(roundUp ? { roundUp: true } : {}) };
   const lines = fclLines({ ...start, fclPricing }, sheet);
   return lines && { ...lines, fclPricing };
 }

@@ -125,6 +125,64 @@ describe("a block's profit", () => {
   });
 });
 
+describe("a block's selling, rounded up to full fives", () => {
+  const rounded = (over: Partial<SalesQuoteData>, key = "20' DC") => {
+    const data = quote(over);
+    const withRound = { ...data, fclPricing: { ...data.fclPricing!, roundUp: true } };
+    return priceFclBlock(withRound, SHEET, block(withRound, key));
+  };
+
+  it("goes up to the next 5, the difference more profit on the ocean freight", () => {
+    // 10 % on 1,500 bought: 1,966.67 per container → 1,970.
+    const priced = rounded({ fclPricing: { blocks: { "20' DC": { mode: "percent", value: 10 } } } });
+    expect([priced.selling, priced.profit]).toEqual([1970, 170]);
+    expect(priced.charges.map((c) => c.profit)).toEqual([114.44, 0, 0, 55.56]);
+  });
+
+  it("stays at a selling already on a five, and goes on from a cent above one", () => {
+    // 100 profit on 1,800: 1,900.
+    expect(rounded({ fclPricing: { blocks: { "20' DC": { mode: "sum", value: 100 } } } }).selling).toBe(1900);
+    expect(rounded({ fclPricing: { blocks: { "20' DC": { mode: "sum", value: 100.01 } } } }).selling).toBe(1905);
+    // 6,273 → 6,275; 6,278.74 → 6,280.
+    const at = (sum: number) => rounded({ fclPricing: { blocks: { "20' DC": { mode: "sum", value: sum } } } }).selling;
+    expect(at(6273 - 1800)).toBe(6275);
+    expect(at(6278.74 - 1800)).toBe(6280);
+  });
+
+  it("puts the difference on a charge in the quote's currency first, so the ROE does not move it", () => {
+    // The quote in EUR: the ocean freight in USD, the IHI in EUR.
+    const lines = quote().buyingLines!.map((l, i) => (i === 3 ? { ...l, currency: "EUR" } : l));
+    const over: Partial<SalesQuoteData> = {
+      currency: "EUR",
+      fx: { date: "2026-11-05", fixingDate: "2026-11-05", roePct: 103, rates: SHEET },
+      buyingLines: lines,
+      fclPricing: { blocks: { "20' DC": { mode: "percent", value: 10 } } },
+    };
+    const priced = rounded(over);
+    expect(Math.round(priced.selling * 100) % 500).toBe(0);
+    const unrounded = priceFclBlock(quote(over), SHEET, block(quote(over), "20' DC"));
+    const profitOf = (p: typeof priced, i: number) => p.charges.find((c) => c.index === i)!.profit;
+    // The IHI (EUR) takes the difference; the ocean freight (USD, sold at the ROE) keeps its profit.
+    expect(profitOf(priced, 3)).toBeGreaterThan(profitOf(unrounded, 3));
+    expect(profitOf(priced, 0)).toBe(profitOf(unrounded, 0));
+  });
+
+  it("is not done without a profit set, nor on a quote priced before (it keeps its prices as sent)", () => {
+    expect(rounded({ fclPricing: { blocks: {} } }).selling).toBe(1800);
+    const data = quote({ fclPricing: { blocks: { "20' DC": { mode: "percent", value: 10 } } } });
+    expect(priceFclBlock(data, SHEET, block(data, "20' DC")).selling).toBe(1966.67);
+  });
+
+  it("is asked for when an open quote is priced, and its selling lines follow", () => {
+    const data = quote({ fclPricing: { blocks: { "20' DC": { mode: "percent", value: 10 } } } });
+    const priced = withFclPricing(data, SHEET, undefined, { roundUp: true })!;
+    expect(priced.fclPricing?.roundUp).toBe(true);
+    const ocean20 = priced.sellingLines!.find((l) => l.chargeCode === "ocean_freight" && l.containerType === "20' DC")!;
+    expect(ocean20.unitPrice).toBe(1114.44);
+    expect(withFclPricing(data, SHEET)!.fclPricing?.roundUp).toBeUndefined();
+  });
+});
+
 describe("the selling lines of an FCL-priced quote", () => {
   it("are the buying lines with their profit, per container, in each charge's own currency", () => {
     const lines = quote().buyingLines!.map((l, i) => (i === 3 ? { ...l, currency: "EUR" } : l));

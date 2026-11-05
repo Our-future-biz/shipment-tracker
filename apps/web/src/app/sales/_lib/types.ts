@@ -127,6 +127,9 @@ export interface FclBlockProfit extends FclProfit {
 // the buying lines and these.
 export interface FclPricing {
   blocks: Record<string, FclBlockProfit>;
+  // Each block's selling (per container, or per shipment) is rounded up to full 5s (fclPricing.ts
+  // SELLING_ROUNDS_TO). Set as an open quote is priced; a quote sent before keeps its prices as sent.
+  roundUp?: boolean;
 }
 
 // One exchange rate an older quote kept for itself (the weekly Exchange sheet's, or typed). Read

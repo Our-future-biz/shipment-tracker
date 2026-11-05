@@ -346,7 +346,8 @@ export function QuoteWorkflow() {
     const overweight = withOverweight(next) ?? {};
     const based = { ...overweight, ...withLineBasis({ ...next, ...overweight }) };
     const priced = { ...next, ...based };
-    const fcl = usesFclPricing(priced, false) ? withFclPricing(priced, exchange.rates, exchange) : null;
+    // An open quote's blocks are sold at full fives (fclPricing.ts SELLING_ROUNDS_TO).
+    const fcl = usesFclPricing(priced, false) ? withFclPricing(priced, exchange.rates, exchange, { roundUp: true }) : null;
     return fcl ? { ...based, ...fclChanges(fcl, priced) } : based;
   };
   const set = (patch: Partial<SalesQuoteData>) => {
