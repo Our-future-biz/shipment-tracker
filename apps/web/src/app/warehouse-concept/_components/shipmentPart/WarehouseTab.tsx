@@ -10,6 +10,7 @@ import { formatDateTime } from "@/lib/date";
 import { NOT_STACKABLE, STACKABLE, dimensionVolumePerPiece, shipmentStackability } from "@/lib/cargo";
 import { loadTypeLabel } from "@/lib/enums";
 import { useWarehouseSection } from "@/hooks/useWarehouseConceptSection";
+import { useRemeasureNotice } from "@/hooks/useRemeasureNotice";
 import { SectionCard as Card, PillTabs } from "@/components/SectionCard";
 import { PickupSection } from "./PickupSection";
 import { JobNotes, ActionPushButtons, SaveStatus, SavedMeanwhile, sectionSaveError } from "./JobExtras";
@@ -286,12 +287,26 @@ function DimensionsEditor({ shipment, messageApi, readOnly }: { shipment: Shipme
   const hasMismatch = differs(shipmentDims.colli, totalColli) || differs(shipmentDims.weightKg, totalWeightKg) || differs(shipmentDims.volumeCbm, totalVolumeCbm);
   const hasData = totalColli > 0 || totalWeightKg > 0 || totalVolumeCbm > 0;
 
+  // Records when Operations was told, then tells them: a message in the shipment's chat tagging
+  // its Person in Charge and Holiday Cover.
+  const postNotice = useRemeasureNotice();
   const informOperations = async () => {
     try {
       await saveKeys([{ key: "inform_operations_sent", value: new Date().toISOString(), expected: informedAt ?? "" }]);
-      messageApi.success("Operations informed");
     } catch (e) {
       messageApi.error(sectionSaveError(e, "Failed to inform Operations"));
+      return;
+    }
+    try {
+      const tagged = await postNotice(
+        shipment,
+        { colli: shipmentDims.colli, weightKg: shipmentDims.weightKg, volumeCbm: shipmentDims.volumeCbm },
+        { colli: totalColli, weightKg: totalWeightKg, volumeCbm: totalVolumeCbm },
+      );
+      if (tagged > 0) messageApi.success("Operations informed in the shipment's chat");
+      else messageApi.warning("Posted in the shipment's chat, but no one else is set as Person in Charge or Holiday Cover to notify");
+    } catch {
+      messageApi.error("Could not post the message to the shipment's chat");
     }
   };
 

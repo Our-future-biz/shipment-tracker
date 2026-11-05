@@ -1,33 +1,25 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Input, Button, message } from "antd";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import type { MessageInstance } from "antd/es/message/interface";
-import { useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
 import { buildRowData, getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
 import type { interfaces } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/date";
 import { loadTypeLabel } from "@/lib/enums";
-import {
-  NOT_STACKABLE,
-  STACKABLE,
-  dimensionLineIsEmpty,
-  dimensionLineVolume,
-  dimensionTotals,
-  hasAllSizes,
-  numberInput,
-  shipmentStackability,
-  withoutTypedVolumeWhenSized,
-} from "@/lib/cargo";
+import { NOT_STACKABLE, STACKABLE, dimensionLineVolume, dimensionTotals, numberInput, shipmentStackability } from "@/lib/cargo";
 import { useWarehouseSection } from "@/hooks/useWarehouseSection";
+import { useRemeasureNotice } from "@/hooks/useRemeasureNotice";
 import { SectionCard as Card, PillTabs } from "@/components/SectionCard";
 import { PickupSection } from "./warehouse/PickupSection";
 import { JobNotes, ActionPushButtons } from "./warehouse/JobExtras";
 
 interface JobSectionData {
   inform_operations_sent?: string;
+  // The warehouse's own remeasured lines (JSON of DimensionRow[]), kept apart from the
+  // shipment's cargo dimensions.
+  remeasure_rows?: string;
   [key: string]: string | undefined;
 }
 function asJobSection(data: unknown): JobSectionData {
@@ -119,42 +111,57 @@ function StackabilityBadge({ shipment }: { shipment: ShipmentItem }) {
 }
 
 // ─── Dimensions / Remeasurement Editor (shipment-specific) ──────
-// Edits the shipment's cargo_dimension rows (the same rows the Cargo Details
-// tab manages per container). Rows keep their containerId when remeasured here;
-// rows added here belong to the shipment directly (containerId null).
+// The warehouse's own remeasured lines, kept in its job section (remeasure_rows, the same
+// JSON as in Warehouse Concept) and compared with the shipment's cargo dimensions, which
+// stay as Cargo Details holds them: the difference is what the customer is told about.
 
-type DimensionRow = interfaces.CargoDimensionLine;
+const DIM_FIELDS = ["pieces", "lengthCm", "widthCm", "heightCm", "weightPerPcKg"] as const;
+type DimensionRow = Record<(typeof DIM_FIELDS)[number], string>;
 
-const EMPTY_DIM: DimensionRow = { containerId: null, pieces: "", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "", volumePerPcM3: "", packageType: "", stackable: "" };
+const EMPTY_DIM: DimensionRow = { pieces: "", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "" };
+
+function parseRemeasure(json: string | undefined): DimensionRow[] {
+  try {
+    const arr: unknown = JSON.parse(json || "[]");
+    return Array.isArray(arr) ? arr.map((r) => ({ ...EMPTY_DIM, ...(r as Partial<DimensionRow>) })) : [];
+  } catch {
+    return [];
+  }
+}
+
+// The lines as stored: only the filled ones, each field as typed.
+const serializeRows = (rows: DimensionRow[]) =>
+  JSON.stringify(rows.filter((r) => DIM_FIELDS.some((f) => r[f].trim())).map((r) => Object.fromEntries(DIM_FIELDS.map((f) => [f, r[f].trim()]))));
+
+// A remeasured line counted as a cargo dimension line (lib/cargo): its volume from its sizes.
+const asLine = (r: DimensionRow): interfaces.CargoDimensionLine => ({ containerId: null, packageType: "", stackable: "", volumePerPcM3: "", ...r });
 
 function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; messageApi: MessageInstance }) {
-  const queryClient = useQueryClient();
-  const { data: jobSectionData, save: saveJobSection, isSaving: isInforming } = useWarehouseSection(shipment.id, "job");
+  const { data: jobSectionData, save: saveJobSection, isSaving } = useWarehouseSection(shipment.id, "job");
   const jobSection = asJobSection(jobSectionData);
   const informedAt = jobSection.inform_operations_sent;
+  const saved = jobSection.remeasure_rows;
 
-  const initial: DimensionRow[] = (() => {
-    const arr = shipment.cargoDimensions ?? [];
-    return arr.length > 0 ? arr : [{ ...EMPTY_DIM }];
-  })();
-
-  const [rows, setRows] = useState<DimensionRow[]>(initial);
+  const [rows, setRows] = useState<DimensionRow[]>([{ ...EMPTY_DIM }]);
   const [dirty, setDirty] = useState(false);
+  // The saved lines fill the table while it holds no unsaved edit.
+  useEffect(() => {
+    if (dirty) return;
+    const parsed = parseRemeasure(saved);
+    setRows(parsed.length > 0 ? parsed : [{ ...EMPTY_DIM }]);
+  }, [saved, dirty]);
 
-  // A line given all three sizes here loses the volume typed for it in Cargo Details (the server keeps none beside them).
   const updateRow = (idx: number, field: keyof DimensionRow, value: string) => {
-    setRows((prev) => prev.map((r, i) => (i === idx ? withoutTypedVolumeWhenSized({ ...r, [field]: value }) : r)));
+    setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
     setDirty(true);
   };
   const addRow = () => { setRows((prev) => [...prev, { ...EMPTY_DIM }]); setDirty(true); };
   const deleteRow = (idx: number) => { setRows((prev) => prev.filter((_, i) => i !== idx)); setDirty(true); };
 
+  // Only the warehouse's job section is written; the shipment's cargo dimensions are not touched.
   const save = async () => {
-    // Only a line with nothing in it is left out: one holding just its typed volume or ADR is kept, as in Cargo Details.
-    const filtered = rows.filter((r) => !dimensionLineIsEmpty(r));
     try {
-      await api.shipments.shipmentUpdate(shipment.id, { cargoDimensions: filtered });
-      queryClient.invalidateQueries({ queryKey: ["shipments"] });
+      await saveJobSection({ ...jobSection, remeasure_rows: serializeRows(rows) });
       setDirty(false);
       messageApi.success("Saved");
     } catch {
@@ -162,10 +169,9 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
     }
   };
 
-  // Both sides count a line alike (lib/cargo): its volume from the sizes, or the m³ typed for a line
-  // without them, so a line nobody remeasured never reads as a difference.
-  const rowCbms = rows.map(dimensionLineVolume);
-  const { pcs: totalColli, kg: totalWeightKg, m3: totalVolumeCbm } = dimensionTotals(rows);
+  const lines = rows.map(asLine);
+  const rowCbms = lines.map(dimensionLineVolume);
+  const { pcs: totalColli, kg: totalWeightKg, m3: totalVolumeCbm } = dimensionTotals(lines);
 
   const shipmentDims = useMemo(() => {
     const t = dimensionTotals(shipment.cargoDimensions ?? []);
@@ -177,12 +183,26 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
   const hasMismatch = differs(shipmentDims.colli, totalColli) || differs(shipmentDims.weightKg, totalWeightKg) || differs(shipmentDims.volumeCbm, totalVolumeCbm);
   const hasData = totalColli > 0 || totalWeightKg > 0 || totalVolumeCbm > 0;
 
+  // Records when Operations was told, then tells them: a message in the shipment's chat tagging
+  // its Person in Charge and Holiday Cover.
+  const postNotice = useRemeasureNotice();
   const informOperations = async () => {
     try {
       await saveJobSection({ ...jobSection, inform_operations_sent: new Date().toISOString() });
-      messageApi.success("Operations informed");
     } catch {
       messageApi.error("Failed to inform Operations");
+      return;
+    }
+    try {
+      const tagged = await postNotice(
+        shipment,
+        { colli: shipmentDims.colli, weightKg: shipmentDims.weightKg, volumeCbm: shipmentDims.volumeCbm },
+        { colli: totalColli, weightKg: totalWeightKg, volumeCbm: totalVolumeCbm },
+      );
+      if (tagged > 0) messageApi.success("Operations informed in the shipment's chat");
+      else messageApi.warning("Posted in the shipment's chat, but no one else is set as Person in Charge or Holiday Cover to notify");
+    } catch {
+      messageApi.error("Could not post the message to the shipment's chat");
     }
   };
 
@@ -195,7 +215,7 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
             Row
           </Button>
           {dirty && (
-            <Button size="small" type="primary" onClick={save}>
+            <Button size="small" type="primary" onClick={save} loading={isSaving}>
               Save
             </Button>
           )}
@@ -230,11 +250,8 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
                   />
                 </td>
               ))}
-              {/* Worked out, so text: from the sizes, or for a line without them from the m³ per piece typed in Cargo Details. */}
-              <td
-                className="p-0.5 px-1 text-right text-[11px] text-slate-500"
-                title={!hasAllSizes(row) && (rowCbms[idx] ?? 0) > 0 ? `Typed in Cargo Details: ${row.volumePerPcM3} m³ per piece` : undefined}
-              >
+              {/* Worked out from the sizes, so text. */}
+              <td className="p-0.5 px-1 text-right text-[11px] text-slate-500">
                 {(rowCbms[idx] ?? 0) > 0 ? rowCbms[idx]!.toFixed(4) : "—"}
               </td>
               <td className="p-0.5 px-1">
@@ -283,7 +300,7 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
             Remeasured values differ from the shipment values.
             {informedAt && <span className="block text-[11px] text-red-400">Operations informed on {formatDateTime(informedAt)}</span>}
           </span>
-          <Button danger size="small" onClick={informOperations} loading={isInforming}>{informedAt ? "Inform Again" : "Inform Operations"}</Button>
+          <Button danger size="small" onClick={informOperations} loading={isSaving}>{informedAt ? "Inform Again" : "Inform Operations"}</Button>
         </div>
       )}
       {hasData && !hasMismatch && (
