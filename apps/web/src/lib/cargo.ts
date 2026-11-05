@@ -280,6 +280,18 @@ export function dimensionTotals(dims: CargoDimensionLine[]): DimensionTotals {
   );
 }
 
+/**
+ * A shipment's total weight in kg, as Total Weight In Tons is worked out: the sum of its dimension
+ * lines when they carry a weight, else its stored tons × 1000 (free text: a comma is a decimal
+ * point). Summed straight from the lines, so it agrees with the Cargo Details total to 0.01 kg -
+ * the tons figure is rounded to whole kg. Null when there is neither.
+ */
+export function shipmentWeightKg(s: { cargoDimensions?: CargoDimensionLine[] | null; totalWeightTons?: string | null }): number | null {
+  const fromLines = dimensionTotals(s.cargoDimensions ?? []).kg;
+  if (fromLines > 0) return fromLines;
+  return s.totalWeightTons?.trim() ? Math.round(num(s.totalWeightTons) * 1_000_000) / 1000 : null;
+}
+
 // Compare a container's declared Pieces/Gross Weight/Volume against the sums of
 // its dimension lines, at the precision the totals are shown in (pcs 0, kg 2, m³ 3
 // decimals), so the colour always agrees with the figures on screen. A metric
