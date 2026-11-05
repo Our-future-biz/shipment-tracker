@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { Tag } from "antd";
-import { CheckOutlined } from "@ant-design/icons";
 import { getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
 import { useShipmentTasks } from "@/hooks/useShipmentTasks";
 import { formatDate } from "@/lib/date";
@@ -128,8 +127,8 @@ export function ShipmentFacts({ shipment }: { shipment: ShipmentItem }) {
 /**
  * The shipment's progress through the six stages, driven by the completed tasks. Every segment is
  * full length - solid indigo done, light indigo in progress, grey not yet - so none reads as a
- * percentage. The names sit above the bars: a check for done, a dot for the current stage, nothing
- * for the rest; the bars line up even when a name wraps.
+ * percentage. The names sit centred above the bars, the current one with a dot; the bars line up even when
+ * a name wraps.
  */
 export function ShipmentProgress({ shipment }: { shipment: ShipmentItem }) {
   const { byKey } = useShipmentTasks(shipment.id);
@@ -145,20 +144,17 @@ export function ShipmentProgress({ shipment }: { shipment: ShipmentItem }) {
           <li key={label} className="min-w-0 flex flex-col justify-end" aria-current={current ? "step" : undefined}>
             <div
               title={label}
-              className={`mb-1.5 flex items-start gap-1 text-[12px] leading-4 ${
+              className={`mb-1.5 flex items-start justify-center gap-1 text-center text-[12px] leading-4 ${
                 done ? "text-slate-700" : current ? "text-indigo-700 font-semibold" : "text-slate-500"
               }`}
             >
-              {/* One fixed marker slot so all six labels share a left edge: check = done, dot = here, empty = not yet. */}
-              <span aria-hidden className="relative flex h-4 w-2.5 shrink-0 items-center justify-center">
-                {done && <CheckOutlined className="text-[10px] text-indigo-500" />}
-                {current && (
-                  <>
-                    <span className="absolute size-2.5 rounded-full bg-indigo-100" />
-                    <span className="relative size-1.5 rounded-full bg-indigo-600" />
-                  </>
-                )}
-              </span>
+              {/* The current stage carries a dot; the others start at their bar's left edge. */}
+              {current && (
+                <span aria-hidden className="relative flex h-4 w-2.5 shrink-0 items-center justify-center">
+                  <span className="absolute size-2.5 rounded-full bg-indigo-100" />
+                  <span className="relative size-1.5 rounded-full bg-indigo-600" />
+                </span>
+              )}
               <span className="min-w-0">{label}</span>
             </div>
             {/* Every segment is full length: solid = done, light indigo = in progress, grey = not yet. Never a fraction. */}
