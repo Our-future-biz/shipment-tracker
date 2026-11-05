@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CostLine, SalesQuoteData } from "./types";
 import type { QuoteTotals } from "./salesQuote";
-import { baseRef, computeCargo, fxNote, hasReefer, isReeferType, reeferMissing, followStored, followUpLines, quoteProfitIn, quoteFamily, lineRate, revisionRoot, withoutPricing, withLineBasis, withRate, CONTAINER_UNIT, WM_UNIT, type SalesQuote } from "./salesQuote";
+import { baseRef, computeCargo, cyAtDestination, cyAtOrigin, cyTermsOf, fxNote, hasReefer, isReeferType, reeferMissing, followStored, followUpLines, quoteProfitIn, quoteFamily, lineRate, revisionRoot, withoutPricing, withLineBasis, withRate, CONTAINER_UNIT, WM_UNIT, type SalesQuote } from "./salesQuote";
 
 const quote = (quoteNumber: string): SalesQuote => ({ quoteNumber }) as SalesQuote;
 
@@ -243,5 +243,25 @@ describe("lineRate / withRate", () => {
     expect(lineRate({ ...base, amount: undefined as unknown as number })).toBe(0);
     expect(withRate({ ...base, basis: "wm" }, 40, 7.551)).toMatchObject({ unitPrice: 40, qty: 7.551, amount: 302.04 });
     expect(withRate(base, 50, 7.551)).toEqual({ ...base, amount: 50 });
+  });
+});
+
+describe("CY terms", () => {
+  it("reads the four terms, and a quote answered yes / no before as CY/CY / SD/SD", () => {
+    expect(["CY/CY", "SD/CY", "SD/SD", "CY/SD"].map((cy) => cyTermsOf({ cy }))).toEqual(["CY/CY", "SD/CY", "SD/SD", "CY/SD"]);
+    expect(cyTermsOf({ cy: true })).toBe("CY/CY");
+    expect(cyTermsOf({ cy: false })).toBe("SD/SD");
+    expect(cyTermsOf({})).toBeUndefined();
+    expect(cyTermsOf({ cy: "yes" })).toBeUndefined();
+  });
+
+  it("puts a container yard at origin for CY/…, at destination for …/CY", () => {
+    expect(["CY/CY", "SD/CY", "SD/SD", "CY/SD"].map((t) => [cyAtOrigin(cyTermsOf({ cy: t })), cyAtDestination(cyTermsOf({ cy: t }))])).toEqual([
+      [true, true],
+      [false, true],
+      [false, false],
+      [true, false],
+    ]);
+    expect([cyAtOrigin(undefined), cyAtDestination(undefined)]).toEqual([false, false]);
   });
 });

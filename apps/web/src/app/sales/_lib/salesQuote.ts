@@ -205,6 +205,26 @@ export function isSeaQuote(data: Pick<SalesQuoteData, "serviceType">): boolean {
   return /^sea/i.test(data.serviceType ?? "");
 }
 
+// A sea quote's CY terms: at origin, then at destination, a container yard (CY) or the store door
+// (SD). In the order Sales asked for.
+export const CY_TERMS = ["CY/CY", "SD/CY", "SD/SD", "CY/SD"] as const;
+export type CyTerms = (typeof CY_TERMS)[number];
+
+/**
+ * A quote's CY terms, or undefined until they are answered. A quote saved while CY was a yes / no
+ * question reads "Yes" (through a container yard) as CY/CY and "No" as SD/SD.
+ */
+export function cyTermsOf(data: Pick<SalesQuoteData, "cy">): CyTerms | undefined {
+  const cy = data.cy;
+  if (cy === true) return "CY/CY";
+  if (cy === false) return "SD/SD";
+  return CY_TERMS.find((t) => t === cy);
+}
+
+/** Whether a quote's terms put a container yard at its origin, or at its destination. */
+export const cyAtOrigin = (terms: CyTerms | undefined) => terms?.startsWith("CY") === true;
+export const cyAtDestination = (terms: CyTerms | undefined) => terms?.endsWith("CY") === true;
+
 // Whether a container type is a reefer: RF, or HR (the high-cube reefer), of any size.
 export function isReeferType(type: string | undefined): boolean {
   // HR is the 40' high-cube reefer's former name, still on quotes saved before it was HRF.

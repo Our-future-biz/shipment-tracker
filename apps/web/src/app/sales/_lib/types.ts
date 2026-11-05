@@ -234,9 +234,11 @@ export interface SalesQuoteData {
   serviceType?: string; // Air / Sea (FCL/LCL) / Rail / Road
   incoterm?: string;
   readyDate?: string;
-  // A sea quote: whether the cargo goes through a container yard (CY). Only with "yes" do Routing's
-  // Origin and Destination also offer the ocean terminals. Absent until it is answered.
-  cy?: boolean;
+  // A sea quote's CY terms: "CY/CY", "SD/CY", "SD/SD" or "CY/SD" - a container yard (CY) or the
+  // store door (SD) at origin / at destination. Routing's Origin, and its Destination, offer the
+  // ocean terminals where it is CY. Absent until it is answered; a quote saved while this was a
+  // yes / no question holds true or false (read by cyTermsOf).
+  cy?: string | boolean;
   // Routing
   origin?: string;
   destination?: string;

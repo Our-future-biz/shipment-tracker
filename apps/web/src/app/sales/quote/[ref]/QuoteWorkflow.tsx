@@ -52,7 +52,7 @@ import { createShipmentHint, shipmentFromQuoteBlockedText } from "../../_lib/shi
 import { CURRENCIES } from "@/lib/enums";
 import { CONTAINER_KINDS, CONTAINER_KINDS_BY_SIZE, CONTAINER_SIZES, containerType, teuForType } from "@/lib/cargo";
 import { useListKeys } from "@/hooks/useListKeys";
-import { asData, cargoReadyDay, computeTotals, computeCargo, convertLine, documentBlock, fxNote, hasReefer, isContainerQuote, isSeaQuote, isWonRevision, reeferMissing, revisionRoot, stripProtected, withLineBasis, type QuoteTotals } from "../../_lib/salesQuote";
+import { asData, cargoReadyDay, computeTotals, computeCargo, convertLine, cyAtDestination, cyAtOrigin, cyTermsOf, CY_TERMS, documentBlock, fxNote, hasReefer, isContainerQuote, isSeaQuote, isWonRevision, reeferMissing, revisionRoot, stripProtected, withLineBasis, type CyTerms, type QuoteTotals } from "../../_lib/salesQuote";
 import { PRINT_WINDOW_BLOCKED, exportClosesQuote } from "../../_lib/exportClose";
 import { ExportCloseDialog } from "../../_components/ExportCloseDialog";
 import {
@@ -681,7 +681,7 @@ export function QuoteWorkflow() {
     customer: !!draft.customerName,
     // A sea quote also says whether the cargo goes through a CY.
     // Not asked of one closed before it was asked: it cannot be answered there.
-    shipment: !!(draft.direction && draft.serviceType && draft.incoterm) && (!isSeaQuote(draft) || draft.cy !== undefined || quoteClosed),
+    shipment: !!(draft.direction && draft.serviceType && draft.incoterm) && (!isSeaQuote(draft) || cyTermsOf(draft) !== undefined || quoteClosed),
     // Or left blank on purpose: confirmed as the step was saved without them.
     routing: !!(draft.origin && draft.destination) || !!draft.routingBlank,
     // A reefer box needs its set-point, an open top or flat rack the in-gauge answer (and the
@@ -752,10 +752,12 @@ export function QuoteWorkflow() {
   const shownValidity = pendingValidity === undefined ? quote.validUntil : pendingValidity;
 
   const airFreight = draft.serviceType === "Air";
-  // By sea (FCL, LCL, Break Bulk) through a CY ("CY: Yes" in Shipment details), Origin and
-  // Destination also offer the ocean terminals.
+  // By sea (FCL, LCL, Break Bulk), Origin offers the ocean terminals when the CY terms (Shipment
+  // details) start with CY, and Destination when they end with CY.
   const seaFreight = isSeaQuote(draft);
-  const cyTerminals = seaFreight && draft.cy === true;
+  const cyTerms = cyTermsOf(draft);
+  const originTerminals = seaFreight && cyAtOrigin(cyTerms);
+  const destinationTerminals = seaFreight && cyAtDestination(cyTerms);
 
   // Road transport: the card shows on a Road quote and on any quote with lines priced from a tariff.
   // Road pricing from the trucking tariffs only while the company has the Trucking Concept.
@@ -1138,13 +1140,10 @@ export function QuoteWorkflow() {
                   size="small"
                   className="w-full"
                   aria-label="CY"
-                  placeholder="Through a container yard?"
-                  value={draft.cy === undefined ? undefined : draft.cy ? "yes" : "no"}
-                  onChange={(v) => set({ cy: v === "yes" })}
-                  options={[
-                    { value: "yes", label: "Yes" },
-                    { value: "no", label: "No" },
-                  ]}
+                  placeholder="CY or store door, origin / destination"
+                  value={cyTerms}
+                  onChange={(v: CyTerms) => set({ cy: v })}
+                  options={CY_TERMS.map((t) => ({ value: t, label: t }))}
                 />
               </InfoRow>
             )}
@@ -1184,7 +1183,7 @@ export function QuoteWorkflow() {
           <div className="min-w-0">
             <InfoRow label="Origin">
               <span className="flex items-center">
-                <GeoSelect kind="place" airports={airFreight} terminals={cyTerminals} size="small" className="w-full" value={draft.origin} onChange={(v) => set({ origin: v })} />
+                <GeoSelect kind="place" airports={airFreight} terminals={originTerminals} size="small" className="w-full" value={draft.origin} onChange={(v) => set({ origin: v })} />
                 <GeoFlag kind="place" value={draft.origin} />
               </span>
             </InfoRow>
@@ -1202,7 +1201,7 @@ export function QuoteWorkflow() {
           <div className="min-w-0">
             <InfoRow label="Destination">
               <span className="flex items-center">
-                <GeoSelect kind="place" airports={airFreight} terminals={cyTerminals} size="small" className="w-full" value={draft.destination} onChange={(v) => set({ destination: v })} />
+                <GeoSelect kind="place" airports={airFreight} terminals={destinationTerminals} size="small" className="w-full" value={draft.destination} onChange={(v) => set({ destination: v })} />
                 <GeoFlag kind="place" value={draft.destination} />
               </span>
             </InfoRow>
