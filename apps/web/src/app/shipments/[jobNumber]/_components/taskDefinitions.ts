@@ -47,7 +47,11 @@ export function getTasksForDirection(tradeDirection?: string | null): TaskDef[] 
   return tradeDirection === "Export" ? EXPORT_TASKS : IMPORT_TASKS;
 }
 
-/** Active stage = the furthest stage reached by any completed task (0 if none). */
+/**
+ * Active stage = the furthest stage reached by any completed task (0 if none). Once every task
+ * of that stage is done, the stage counts as done and the next one is active; with every task
+ * done this returns the number of stages, so all of them show as done.
+ */
 export function getActiveStageFromTasks(
   taskList: TaskDef[],
   isCompleted: (taskKey: string) => boolean,
@@ -56,5 +60,7 @@ export function getActiveStageFromTasks(
   for (const t of taskList) {
     if (isCompleted(t.key) && t.stage > active) active = t.stage;
   }
+  const stageTasks = taskList.filter((t) => t.stage === active);
+  if (stageTasks.length > 0 && stageTasks.every((t) => isCompleted(t.key))) active += 1;
   return active;
 }

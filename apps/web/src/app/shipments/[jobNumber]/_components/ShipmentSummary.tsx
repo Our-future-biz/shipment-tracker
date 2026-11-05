@@ -56,7 +56,7 @@ export function ShipmentFacts({ shipment }: { shipment: ShipmentItem }) {
   return (
     // Two rows of six on a wide screen; the columns line up across both rows. The second row
     // always reads POL, ETD, POD, ETA. The status gets the widest column, so it stays on one line.
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,0.85fr)_minmax(0,0.9fr)_minmax(0,1.45fr)] 2xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.05fr)_minmax(0,0.8fr)_minmax(0,1.25fr)_minmax(0,1.35fr)] gap-x-6 gap-y-3 lg:[&>*:nth-child(n+7)]:pt-3 lg:[&>*:nth-child(n+7)]:border-t lg:[&>*:nth-child(n+7)]:border-indigo-100">
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,0.85fr)_minmax(0,0.9fr)_minmax(0,1.45fr)] 2xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.05fr)_minmax(0,0.8fr)_minmax(0,1.25fr)_minmax(0,1.35fr)] gap-x-6 gap-y-3 lg:gap-y-1.5 lg:[&>*:nth-child(n+7)]:pt-1.5 lg:[&>*:nth-child(n+7)]:border-t lg:[&>*:nth-child(n+7)]:border-indigo-100">
       <Fact label="Job">
         <span className="flex items-center gap-1 min-w-0">
           <span className="truncate text-[16px] leading-6 font-bold text-slate-900 tabular-nums" title={job}>
@@ -126,8 +126,10 @@ export function ShipmentFacts({ shipment }: { shipment: ShipmentItem }) {
 }
 
 /**
- * The shipment's progress through the six stages, driven by the completed tasks: done stages
- * filled, the current one half-filled and in bold, the rest grey. On top of Shipment Details.
+ * The shipment's progress through the six stages, driven by the completed tasks. Every segment is
+ * full length - solid indigo done, light indigo in progress, grey not yet - so none reads as a
+ * percentage. The names sit above the bars: a check for done, a dot for the current stage, nothing
+ * for the rest; the bars line up even when a name wraps.
  */
 export function ShipmentProgress({ shipment }: { shipment: ShipmentItem }) {
   const { byKey } = useShipmentTasks(shipment.id);
@@ -135,27 +137,39 @@ export function ShipmentProgress({ shipment }: { shipment: ShipmentItem }) {
   const activeIndex = getActiveStageFromTasks(taskList, (key) => !!byKey.get(key)?.completed);
 
   return (
-    <div className={`${CARD} grid grid-cols-3 md:grid-cols-6 gap-x-1.5 gap-y-3 px-5 pt-3.5 pb-3`}>
+    <ol className={`${CARD.replace("flex flex-col", "").replace("border-slate-200", "border-slate-300")} list-none grid grid-cols-3 md:grid-cols-6 gap-x-1 gap-y-3 px-5 pt-3 pb-3.5`}>
       {SHIPMENT_STAGES.map((label, i) => {
         const done = i < activeIndex;
         const current = i === activeIndex;
         return (
-          <div key={label} className="min-w-0">
-            <div className="h-1.5 rounded-full bg-slate-200 overflow-hidden">
-              <div className={`h-full rounded-full ${done ? "w-full bg-indigo-500" : current ? "w-1/2 bg-indigo-500" : "w-0"}`} />
-            </div>
+          <li key={label} className="min-w-0 flex flex-col justify-end" aria-current={current ? "step" : undefined}>
             <div
               title={label}
-              className={`mt-1.5 flex items-start gap-1 text-[12px] leading-4 ${
-                done ? "text-indigo-600" : current ? "text-indigo-700 font-semibold" : "text-slate-500"
+              className={`mb-1.5 flex items-start gap-1 text-[12px] leading-4 ${
+                done ? "text-slate-700" : current ? "text-indigo-700 font-semibold" : "text-slate-500"
               }`}
             >
-              {done && <CheckOutlined className="text-[10px] mt-[3px] shrink-0" />}
+              {/* One fixed marker slot so all six labels share a left edge: check = done, dot = here, empty = not yet. */}
+              <span aria-hidden className="relative flex h-4 w-2.5 shrink-0 items-center justify-center">
+                {done && <CheckOutlined className="text-[10px] text-indigo-500" />}
+                {current && (
+                  <>
+                    <span className="absolute size-2.5 rounded-full bg-indigo-100" />
+                    <span className="relative size-1.5 rounded-full bg-indigo-600" />
+                  </>
+                )}
+              </span>
               <span className="min-w-0">{label}</span>
             </div>
-          </div>
+            {/* Every segment is full length: solid = done, light indigo = in progress, grey = not yet. Never a fraction. */}
+            <div
+              className={`h-1.5 w-full rounded-full ${
+                done ? "bg-indigo-500" : current ? "bg-indigo-300" : "bg-slate-200"
+              }`}
+            />
+          </li>
         );
       })}
-    </div>
+    </ol>
   );
 }
