@@ -96,8 +96,8 @@ describe("normalizeQuoteFields", () => {
     ["free on board", undefined],
     ["CIF or FOB", undefined],
     ["XYZ", undefined],
-  ])("Incoterm %s -> %s", (read, stored) => {
-    expect(one("Incoterm", read)).toBe(stored);
+  ])("Incoterms %s -> %s", (read, stored) => {
+    expect(one("Incoterms", read)).toBe(stored);
   });
 
   it.each([
@@ -203,7 +203,7 @@ describe("the quote's lists and the web's", () => {
 
     const ofKind = (kind: string) => rows.filter((r) => r.kind === kind).map((r) => r.label);
     expect(ofKind("number")).toEqual(["Gross weight (kg)", "Volume (cbm)"]);
-    expect(ofKind("option")).toEqual(["Trade Direction", "Freight Mode", "Incoterm"]);
+    expect(ofKind("option")).toEqual(["Trade Direction", "Freight Mode", "Incoterms"]);
     expect(ofKind("date")).toEqual(["Cargo Readiness Date"]);
   });
 

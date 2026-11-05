@@ -30,7 +30,7 @@ export const QUOTE_READING_FIELDS: readonly QuoteReadingField[] = [
   { label: "Phone", key: "customerPhone", kind: "text" },
   { label: "Trade Direction", key: "direction", kind: "option", options: DIRECTIONS },
   { label: "Freight Mode", key: "serviceType", kind: "option", options: SERVICE_TYPES },
-  { label: "Incoterm", key: "incoterm", kind: "option", options: INCOTERMS },
+  { label: "Incoterms", key: "incoterm", kind: "option", options: INCOTERMS },
   { label: "Cargo Readiness Date", key: "readyDate", kind: "date" },
   { label: "Origin", key: "origin", kind: "text" },
   { label: "Pickup", key: "pickup", kind: "text" },

@@ -67,8 +67,8 @@ export const DROPDOWN_OPTIONS: Record<string, string[]> = {
   "Trade Direction": ["Import", "Export", "Domestic"],
   "Freight Mode": ["Air Freight", "Sea Freight", "Sea Break Bulk", "Rail Freight", "Road Freight"],
   "Service Type": ["Direct", "In-Direct/Nominated"],
-  "Incoterm Origin": INCOTERMS,
-  "Incoterm Destination": INCOTERMS,
+  "Incoterms Origin": INCOTERMS,
+  "Incoterms Destination": INCOTERMS,
   "Insurance": ["Yes", "Pending", "No"],
   "Credit Check": ["Green", "Yellow", "Red"],
   "Freight Payable At": ["Origin", "Destination"],
@@ -199,8 +199,8 @@ export const COLUMNS: ColumnDef[] = [
   { key: "agentPic", title: "Agent's PIC", width: 170, type: "text", apiField: "agentPic" },
   { key: "shippingLine", title: "Shipping line / Coloader", width: 180, type: "text", apiField: "shippingLine" },
   { key: "serviceType", title: "Service Type", width: 160, type: "dropdown", options: DROPDOWN_OPTIONS["Service Type"], apiField: "serviceType" },
-  { key: "incotermOrigin", title: "Incoterm Origin", width: 120, type: "dropdown", options: DROPDOWN_OPTIONS["Incoterm Origin"], apiField: "incotermOrigin" },
-  { key: "incotermDestination", title: "Incoterm Dest.", width: 120, type: "dropdown", options: DROPDOWN_OPTIONS["Incoterm Destination"], apiField: "incotermDestination" },
+  { key: "incotermOrigin", title: "Incoterms Origin", width: 120, type: "dropdown", options: DROPDOWN_OPTIONS["Incoterms Origin"], apiField: "incotermOrigin" },
+  { key: "incotermDestination", title: "Incoterms Dest.", width: 120, type: "dropdown", options: DROPDOWN_OPTIONS["Incoterms Destination"], apiField: "incotermDestination" },
   { key: "insurance", title: "Insurance", width: 100, type: "dropdown", options: DROPDOWN_OPTIONS["Insurance"], apiField: "insurance" },
 
   // Dates

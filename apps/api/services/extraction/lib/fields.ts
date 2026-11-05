@@ -12,7 +12,7 @@ export const SHIPMENT_FIELDS = [
   "Cargo Origin", "Country code", "Origin",
   "Estimated Departure", "Estimated Arrival",
   "Trade Direction", "Agent",
-  "Incoterm Origin", "Incoterm Destination",
+  "Incoterms Origin", "Incoterms Destination",
   "Commercial Invoice Value",
 ];
 
@@ -22,7 +22,7 @@ export const SHIPMENT_FIELDS = [
 // any the model returns.
 export const QUOTE_FIELDS = [
   "Customer", "Contact person", "Email", "Phone",
-  "Trade Direction", "Freight Mode", "Incoterm", "Cargo Readiness Date",
+  "Trade Direction", "Freight Mode", "Incoterms", "Cargo Readiness Date",
   "Origin", "Pickup", "Destination", "Delivery",
   "Cargo Description", "Gross weight (kg)", "Volume (cbm)",
 ];

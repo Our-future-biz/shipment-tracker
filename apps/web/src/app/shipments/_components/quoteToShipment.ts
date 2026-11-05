@@ -158,7 +158,7 @@ export function quotePreview(data: SalesQuoteData, sheet: ExchangeRates): { labe
     { label: "Customer", value: data.customerName ?? "" },
     { label: "Direction", value: data.direction ?? "" },
     { label: "Service", value: data.serviceType ?? "" },
-    { label: "Incoterm", value: data.incoterm ?? "" },
+    { label: "Incoterms", value: data.incoterm ?? "" },
     { label: "POL", value: data.origin ?? "" },
     { label: "POD", value: data.destination ?? "" },
     { label: "Commodity", value: data.commodity ?? "" },

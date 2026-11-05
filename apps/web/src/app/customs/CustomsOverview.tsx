@@ -187,7 +187,7 @@ export function CustomsShipmentInfo({ shipment }: { shipment: ShipmentItem }) {
         columns={[ROUTE, REFERENCES]}
         shipment={shipment}
         onCommit={noCommit}
-        renderAfter={{ houseBolNumber: <InfoRow label="Incoterm">{customsIncoterm(shipment)}</InfoRow> }}
+        renderAfter={{ houseBolNumber: <InfoRow label="Incoterms">{customsIncoterm(shipment)}</InfoRow> }}
       />
       {/* The same card as in the shipment (party as a link to its customer page, contact, address), read-only. */}
       <DetailCard icon={<EnvironmentOutlined />} title="Commercial Parties" columns={[[]]} shipment={shipment} onCommit={noCommit}>

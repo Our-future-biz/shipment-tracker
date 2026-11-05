@@ -1114,7 +1114,7 @@ export function QuoteWorkflow() {
     {
       key: "shipment",
       title: "Shipment details",
-      subtitle: "Direction, freight mode and incoterm",
+      subtitle: "Direction, freight mode and Incoterms",
       content: (
         <div className={FIELD_COLUMNS_CLASS}>
           <div className="min-w-0">
@@ -1153,11 +1153,11 @@ export function QuoteWorkflow() {
             )}
           </div>
           <div className="min-w-0">
-            <InfoRow label="Incoterm">
+            <InfoRow label="Incoterms">
               <Select
                 size="small"
                 className="w-full"
-                aria-label="Incoterm"
+                aria-label="Incoterms"
                 value={draft.incoterm}
                 onChange={(v) => set({ incoterm: v })}
                 options={INCOTERMS.map((d) => ({ value: d, label: d }))}

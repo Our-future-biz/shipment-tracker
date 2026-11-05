@@ -89,7 +89,7 @@ const READERS: Record<string, (text: string) => string | undefined> = {
   Phone: (text) => ((text.match(/\d/g) ?? []).length >= 6 ? text.slice(0, MAX_PHONE) : undefined),
   "Trade Direction": direction,
   "Freight Mode": freightMode,
-  Incoterm: incoterm,
+  Incoterms: incoterm,
   "Cargo Readiness Date": day,
   "Gross weight (kg)": weight,
   "Volume (cbm)": (text) => amount(text, /\s*(?:cbm|m3|m³)$/i),

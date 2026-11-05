@@ -167,7 +167,7 @@ interface SectionHeaderProps {
   onCommit?: CommitFn;
   styleFor?: StyleFor;
   /** Vlastni vykresleni pro pole, ktera nejsou obycejny FieldRow
-   *  (Master Job s odkazem, Incoterm, propojeni zakazniku). */
+   *  (Master Job s odkazem, Incoterms, propojeni zakazniku). */
   renderField?: Record<string, React.ReactNode>;
 }
 
@@ -1292,7 +1292,7 @@ export function ShipmentDetailContent() {
                     { key: "consignee", label: "Consignee", ro: true },
                     { key: "personInCharge", label: "Handled By" },
                     { key: "salesPerson", label: "Sales Person", ro: true },
-                    { key: "incoterm", label: "Incoterm Origin/Destination", ro: true },
+                    { key: "incoterm", label: "Incoterms Origin/Destination", ro: true },
                     { key: "freeComments", label: "Free Comments" },
                     { key: "freightPayableAt", label: "Freight Payable At" },
                   ];
@@ -1361,7 +1361,7 @@ export function ShipmentDetailContent() {
                     ),
                     incoterm: (
                       <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100">
-                        <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Incoterm Origin/Destination</span>
+                        <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Incoterms Origin/Destination</span>
                         <FadeText className="flex-1 text-slate-900 font-medium">
                           {shipment.incotermOrigin || shipment.incotermDestination
                             ? `${shipment.incotermOrigin || "—"}/${shipment.incotermDestination || "—"}`

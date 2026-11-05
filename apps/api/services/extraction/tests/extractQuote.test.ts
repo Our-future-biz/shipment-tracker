@@ -51,7 +51,7 @@ describe("reading a customer's request for a quote", () => {
         Customer: " ACME s.r.o. ",
         "Trade Direction": "EXP",
         "Freight Mode": "LCL",
-        Incoterm: "fob Shanghai",
+        Incoterms: "fob Shanghai",
         "Cargo Readiness Date": "2026-11-20",
         Origin: "DEHAM",
         Destination: "Nowhere, Atlantis",
@@ -74,7 +74,7 @@ describe("reading a customer's request for a quote", () => {
       Customer: "ACME s.r.o.",
       "Trade Direction": "Export",
       "Freight Mode": "Sea LCL",
-      Incoterm: "FOB",
+      Incoterms: "FOB",
       "Cargo Readiness Date": "2026-11-20",
       Origin: "Hamburg (DEHAM)",
       Destination: "Nowhere, Atlantis",
@@ -84,7 +84,7 @@ describe("reading a customer's request for a quote", () => {
       "Customer",
       "Trade Direction",
       "Freight Mode",
-      "Incoterm",
+      "Incoterms",
       "Cargo Readiness Date",
       "Origin",
       "Destination",
@@ -131,9 +131,9 @@ describe("reading a customer's request for a quote", () => {
 
     create.mockReset();
     pdfText.value = "";
-    create.mockResolvedValueOnce(reply({ Incoterm: "DAP" }));
+    create.mockResolvedValueOnce(reply({ Incoterms: "DAP" }));
     const fromPages = await extractQuoteFromFile("AAAA", "scan.pdf");
-    expect(fromPages).toMatchObject({ extracted: { Incoterm: "DAP" }, method: "vision" });
+    expect(fromPages).toMatchObject({ extracted: { Incoterms: "DAP" }, method: "vision" });
     expect(create.mock.calls[0]![0].messages[0].content[0].type).toBe("document");
   });
 
