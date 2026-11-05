@@ -9,16 +9,10 @@ import { apiErrorMessage } from "@/lib/api";
 import { fmtMoney } from "@/lib/money";
 import { formatQty } from "@/lib/number";
 import { postcodeText } from "../../_lib/collectionTariffs";
-
-const Field = ({ label, children }: { label: string; children: ReactNode }) => (
-  <label className="flex flex-col gap-1 text-[12px] font-semibold text-slate-600 min-w-0">
-    {label}
-    {children}
-  </label>
-);
+import { Field } from "../../_components/TariffFormParts";
 
 const Line = ({ label, children, strong }: { label: string; children: ReactNode; strong?: boolean }) => (
-  <div className={`flex justify-between gap-4 py-1 border-b border-slate-100 last:border-0 ${strong ? "font-semibold text-slate-800" : ""}`}>
+  <div className={`flex justify-between gap-4 py-1 border-b border-slate-100 last:border-0 ${strong ? "font-semibold text-slate-900" : ""}`}>
     <span className="text-slate-500">{label}</span>
     <span className="text-right tabular-nums">{children}</span>
   </div>
@@ -65,7 +59,7 @@ export const CollectionTryRoute = ({ version }: { version: CollectionTariffVersi
   const price = result?.price;
   return (
     <SectionCard title="Try a route">
-      <p className="mt-0 mb-3 text-[13px] text-slate-600">Price a consignment with this version as a quote would, and compare it with the haulier&apos;s own calculator.</p>
+      <p className="mt-0 mb-3 text-[13px] text-slate-700">Price a consignment with this version as a quote would, and compare it with the haulier&apos;s own calculator.</p>
       <div className="grid grid-cols-2 md:grid-cols-[1fr_1fr_110px_100px_120px_auto] gap-3 items-end">
         <Field label={hub?.label ? `Our hub (${hub.label})` : "Our hub's postcode"}>
           <Input aria-label="Our hub's postcode" placeholder="252 61" value={from} maxLength={6} onChange={(e) => setHubPostcode(e.target.value)} />

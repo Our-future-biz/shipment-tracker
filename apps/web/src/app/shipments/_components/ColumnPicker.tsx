@@ -6,6 +6,7 @@ import { SettingOutlined, CloseOutlined } from "@ant-design/icons";
 import { COLUMNS, FIXED_COLUMN_KEYS, isFixedColumn } from "@/lib/columnConfig";
 import type { ColumnTemplate } from "@/hooks/useColumnTemplates";
 import { useToast } from "@/lib/toast";
+import { BTN, BTN_GHOST, BTN_SM, HINT, ICON_BTN } from "@/styles/ui";
 
 // All pickable columns (exclude the dimensions popup, which has no flat value).
 const PICKABLE = COLUMNS.filter((c) => c.type !== "popup");
@@ -85,7 +86,7 @@ export function ColumnPicker({
   const content = (
     <div className="w-[340px]">
       <div className="flex items-center gap-3 pb-2.5 mb-2.5 border-b border-slate-100">
-        <span className="text-[13px] font-semibold text-slate-800 shrink-0">Columns</span>
+        <span className="text-[13px] font-semibold text-slate-900 shrink-0">Columns</span>
         <Select
           size="small"
           placeholder="Templates"
@@ -95,7 +96,7 @@ export function ColumnPicker({
           value={activeTemplate?.id}
           onChange={(id) => (id ? onApplyTemplate(id) : onDeactivate())}
           options={templates.map((t) => ({ value: t.id, label: t.name }))}
-          notFoundContent={<span className="text-xs text-slate-400">No templates yet — pick columns and press Save.</span>}
+          notFoundContent={<span className={HINT}>No templates yet — pick columns and press Save.</span>}
           optionRender={(option) => (
             <span className="flex items-center justify-between gap-2">
               <span className="truncate">{option.label}</span>
@@ -115,14 +116,14 @@ export function ColumnPicker({
         />
         <button
           onClick={openName}
-          className="shrink-0 text-xs font-medium text-indigo-600 hover:text-indigo-700 bg-transparent border-none cursor-pointer p-0"
+          className={`${BTN} ${BTN_SM}`}
         >
           Save
         </button>
       </div>
 
       {activeTemplate && isDirty && (
-        <p className="mt-0 mb-2 text-[11px] text-amber-600">
+        <p className="mt-0 mb-2 text-[12px] text-amber-600">
           Unsaved changes in <span className="font-medium">{activeTemplate.name}</span> — press Save to keep them.
         </p>
       )}
@@ -137,7 +138,7 @@ export function ColumnPicker({
       />
 
       <div className="max-h-[320px] overflow-y-auto pr-1 flex flex-col gap-1">
-        {filtered.length === 0 && <div className="text-xs text-slate-400 py-2">No columns found.</div>}
+        {filtered.length === 0 && <div className={`${HINT} py-2`}>No columns found.</div>}
         {filtered.map((col) => {
           const fixed = isFixedColumn(col.key);
           return (
@@ -157,16 +158,16 @@ export function ColumnPicker({
         })}
       </div>
 
-      <div className="flex items-center gap-3 mt-2 pt-2 border-t border-slate-100">
+      <div className="flex items-center gap-1 mt-2 pt-2 border-t border-slate-100">
         <button
           onClick={() => onChange(ALL_KEYS)}
-          className="text-[11px] text-indigo-500 hover:underline bg-transparent border-none p-0 cursor-pointer"
+          className={`${BTN_GHOST} ${BTN_SM}`}
         >
           Select all
         </button>
         <button
           onClick={() => onChange([...FIXED_COLUMN_KEYS])}
-          className="text-[11px] text-slate-400 hover:underline bg-transparent border-none p-0 cursor-pointer"
+          className={`${BTN_GHOST} ${BTN_SM}`}
         >
           Clear
         </button>
@@ -174,12 +175,12 @@ export function ColumnPicker({
           <button
             onClick={onResetWidths}
             title="Put every column back to its default width"
-            className="text-[11px] text-slate-400 hover:underline bg-transparent border-none p-0 cursor-pointer"
+            className={`${BTN_GHOST} ${BTN_SM}`}
           >
             Reset widths
           </button>
         )}
-        <span className="ml-auto text-[11px] text-slate-400">{visible.length} shown</span>
+        <span className={`${HINT} ml-auto`}>{visible.length} shown</span>
       </div>
     </div>
   );
@@ -199,7 +200,7 @@ export function ColumnPicker({
         <Tooltip title="Columns">
           <button
             aria-label="Columns"
-            className="flex items-center justify-center shrink-0 rounded-lg border border-slate-300 bg-white w-8 h-8 p-0 text-slate-700 hover:bg-slate-50 transition-colors"
+            className={ICON_BTN}
           >
             <SettingOutlined />
           </button>

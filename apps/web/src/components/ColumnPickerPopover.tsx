@@ -6,6 +6,7 @@ import { CloseOutlined, SettingOutlined } from "@ant-design/icons";
 import { useToast } from "@/lib/toast";
 import { ColumnChecklist } from "@/components/ColumnChecklist";
 import { TOOLBAR_BUTTON_CLASS } from "@/components/gridFilters";
+import { HINT } from "@/styles/ui";
 
 /** A named set of columns a user saved. */
 export interface ColumnTemplate {
@@ -80,7 +81,7 @@ export function ColumnPickerPopover({
   const content = (
     <div className="w-[340px]">
       <div className="flex items-center gap-3 pb-2.5 mb-2.5 border-b border-slate-100">
-        <span className="text-[13px] font-semibold text-slate-800 shrink-0">Columns</span>
+        <span className="text-[13px] font-semibold text-slate-900 shrink-0">Columns</span>
         <Select
           size="small"
           placeholder="Templates"
@@ -94,7 +95,7 @@ export function ColumnPickerPopover({
           }}
           options={templates.map((t) => ({ value: t.id, label: t.name }))}
           notFoundContent={
-            <span className="text-xs text-slate-400">
+            <span className={HINT}>
               No templates yet — pick columns and press Save.
             </span>
           }
@@ -108,7 +109,7 @@ export function ColumnPickerPopover({
                   e.stopPropagation();
                   setToDelete({ id: String(option.value), name: String(option.label) });
                 }}
-                className="shrink-0 flex items-center justify-center w-5 h-5 rounded text-slate-400 hover:text-red-500 hover:bg-red-50 bg-transparent border-none cursor-pointer"
+                className="shrink-0 flex items-center justify-center w-5 h-5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 bg-transparent border-none cursor-pointer"
               >
                 <CloseOutlined className="text-[10px]" />
               </button>
@@ -177,7 +178,7 @@ export function ColumnPickerPopover({
           onPressEnter={handleSaveTemplate}
         />
         {templates.some((t) => t.name.toLowerCase() === templateName.trim().toLowerCase()) && (
-          <p className="mt-2 mb-0 text-xs text-amber-600">
+          <p className="mt-2 mb-0 text-xs text-amber-700">
             A template with this name exists — saving will overwrite it.
           </p>
         )}

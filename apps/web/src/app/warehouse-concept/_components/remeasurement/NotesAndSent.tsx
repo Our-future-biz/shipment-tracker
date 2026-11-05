@@ -14,6 +14,7 @@ import type { JobDraft } from "./useJobDraft";
 import type { SupplierKind } from "@/hooks/useWarehouseSettings";
 import { mayHaveGoneOut, sentNotRecorded, type SupplierEmail } from "@/hooks/useSupplierEmail";
 import { SEND_LABEL } from "./SendToSupplierModal";
+import { EMPTY, HINT, LABEL_TEXT, LINK } from "@/styles/ui";
 
 // Block D — warehouse notes (saved with the lines from the "Save changes" bar) and "Sent to
 // suppliers" for VGM, survey and remeasurement. A type that is on in Warehouse settings (with a
@@ -127,7 +128,7 @@ export function NotesAndSent({
       <Card
         title="Sent to suppliers"
         extra={
-          <Link href={SETTINGS_HREF} className="text-indigo-500">
+          <Link href={SETTINGS_HREF} className={LINK}>
             {anyEmailed ? "E-mailed to the recipients in Warehouse settings" : "Recorded only — set recipients in Warehouse settings"}
           </Link>
         }
@@ -182,7 +183,7 @@ function SentRow({
   const rw = m?.reweigh;
   const weight = what === "vgm" && m ? (
     rw ? (
-      <span className="block text-[11px] text-slate-600">
+      <span className="block text-[11px] text-slate-500">
         Re-weighed {kg(rw.weighedKg)} · {formatDateTime(rw.weighedAt)}
         {rw.weighedBy ? ` · ${rw.weighedBy}` : ""}
         {last?.weighedKg && last.weighedKg !== rw.weighedKg ? <span className="text-amber-700"> — re-weighed again since the last send</span> : null}
@@ -193,8 +194,8 @@ function SentRow({
   ) : null;
   return (
     <div className="border-b border-slate-100 last:border-b-0 pb-2 last:pb-0">
-      <div className="flex items-center gap-3 text-xs">
-        <span className="w-[130px] shrink-0 text-[11px] font-bold uppercase tracking-wide text-slate-500">{SENT_LABEL[what]}</span>
+      <div className="flex items-center gap-3 text-[13px]">
+        <span className={`w-[130px] shrink-0 ${LABEL_TEXT}`}>{SENT_LABEL[what]}</span>
         <span className="flex-1 min-w-0">
           {last ? (
             <>
@@ -212,7 +213,7 @@ function SentRow({
               {last.note && <span className="block text-[11px] text-slate-500 break-words">{last.note}</span>}
             </>
           ) : (
-            <span className="text-slate-300">{what === "inform_operations" ? "not informed" : "not sent"}</span>
+            <span className={EMPTY}>{what === "inform_operations" ? "not informed" : "not sent"}</span>
           )}
           {weight}
           {failedNow && notRecorded && (
@@ -228,7 +229,7 @@ function SentRow({
           )}
           {onMark && !onSend && what !== "inform_operations" && (
             <span className="block text-[11px] text-slate-400">
-              <Link href={SETTINGS_HREF} className="text-slate-400 hover:text-indigo-500">
+              <Link href={SETTINGS_HREF} className={LINK}>
                 {RECORDED_ONLY_NOTE}
               </Link>
             </span>
@@ -236,7 +237,7 @@ function SentRow({
           {onSend && recipients && <span className="block text-[11px] text-slate-500 break-words">Sends to {recipients.to.join(", ")}{recipients.cc.length ? ` · Cc ${recipients.cc.join(", ")}` : ""}</span>}
         </span>
         {history.length > 1 && (
-          <button type="button" className="text-[11px] text-indigo-500 bg-transparent border-none p-0 cursor-pointer" onClick={() => setOpen(!open)} aria-expanded={open}>
+          <button type="button" className={`text-[11px] bg-transparent border-0 p-0 cursor-pointer ${LINK}`} onClick={() => setOpen(!open)} aria-expanded={open}>
             {open ? "Hide" : `History (${history.length})`}
           </button>
         )}
@@ -257,7 +258,7 @@ function SentRow({
         )}
       </div>
       {open && (
-        <ul className="list-none m-0 mt-1.5 ml-[142px] p-0 text-[11px] text-slate-600">
+        <ul className="list-none m-0 mt-1.5 ml-[142px] p-0 text-[11px] text-slate-500">
           {history.map((e, i) => (
             <li key={`${e.at}-${i}`} className="py-0.5">
               <span className="tabular-nums">{formatDateTime(e.at)}</span>
@@ -309,7 +310,7 @@ export function MarkSentModal({
       }
       destroyOnHidden
     >
-      <p className="text-xs text-slate-500 mt-0 mb-3">
+      <p className={`${HINT} mt-0 mb-3`}>
         {inform
           ? "Records that Operations were told about the difference (who and when are logged) and posts it to the shipment's chat — the saved remeasured figures and your note — tagging its Person in Charge and Holiday Cover. Nothing is e-mailed."
           : "Nothing is e-mailed — this records that it was sent outside the app (recorded only — set recipients in Warehouse settings to e-mail it). Sending again is allowed; every send is kept in the history."}

@@ -1,12 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { Button, Form, Input, InputNumber, Spin, Switch, Select, Tag } from "antd";
+import { Button, Form, Input, InputNumber, Spin, Switch, Select } from "antd";
 import { PlusOutlined, DeleteOutlined, UploadOutlined, SearchOutlined } from "@ant-design/icons";
 import { api } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { czechPhoneRule, limitCzechPhone } from "@/lib/phone";
 import { useInvoiceProfile, type InvoiceProfile, type InvoiceProfileInput } from "@/hooks/useInvoiceProfile";
+import { Pill } from "@/components/Pill";
+import { SectionCard } from "@/components/SectionCard";
+import { BTN, BTN_SM, CARD, HINT, LABEL_TEXT } from "@/styles/ui";
 
 const CURRENCIES = ["CZK", "EUR", "USD", "GBP", "CHF", "PLN"];
 
@@ -29,7 +32,7 @@ interface GroupProps {
 
 const Group = ({ title, children }: GroupProps) => (
   <fieldset className="border-0 p-0 m-0 mb-4">
-    <legend className="text-[12px] font-bold uppercase tracking-[.04em] text-slate-500 mb-2">{title}</legend>
+    <legend className={`${LABEL_TEXT} mb-2`}>{title}</legend>
     {children}
   </fieldset>
 );
@@ -45,7 +48,7 @@ export function InvoiceProfileManager() {
   // after a save it already holds what was saved.
   if (!profile) {
     return (
-      <div className="bg-white border border-slate-200 rounded-2xl p-4 flex justify-center">
+      <div className={`${CARD} p-4 flex justify-center`}>
         <Spin />
       </div>
     );
@@ -127,13 +130,14 @@ function InvoiceProfileForm({ profile }: InvoiceProfileFormProps) {
   const missing = profile.missingForIssue;
 
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl p-4">
-      <div className="flex items-center justify-between gap-3 mb-1">
-        <span className="text-sm font-semibold text-slate-800">Invoicing details</span>
-        {(missing.length === 0
-          ? <Tag color="green" bordered={false}>Ready for invoicing</Tag>
-          : <Tag color="orange" bordered={false}>Missing: {missing.join(", ")}</Tag>)}
-      </div>
+    <SectionCard
+      title="Invoicing details"
+      extra={
+        missing.length === 0
+          ? <Pill tone="green">Ready for invoicing</Pill>
+          : <Pill tone="amber">Missing: {missing.join(", ")}</Pill>
+      }
+    >
       <p className="text-[13px] text-slate-500 mt-0 mb-4">
         Printed on every invoice as the issuer. Issued invoices keep their own copy, so changes apply to new invoices only.
       </p>
@@ -245,7 +249,7 @@ function InvoiceProfileForm({ profile }: InvoiceProfileFormProps) {
               // eslint-disable-next-line @next/next/no-img-element -- a data URL, nothing for next/image to optimise
               <img src={logo} alt="Invoice logo" className="h-12 max-w-[180px] object-contain border border-slate-200 rounded-md p-1" />
             ) : (
-              <span className="text-[13px] text-slate-500">No logo</span>
+              <span className={HINT}>No logo</span>
             )}
             <label className="inline-flex">
               <input
@@ -254,7 +258,7 @@ function InvoiceProfileForm({ profile }: InvoiceProfileFormProps) {
                 className="sr-only"
                 onChange={(e) => { void pickLogo(e.target.files?.[0]); e.target.value = ""; }}
               />
-              <span className="inline-flex items-center gap-1.5 h-7 px-3 text-[13px] border border-slate-300 rounded-md cursor-pointer hover:border-indigo-400">
+              <span className={`${BTN} ${BTN_SM}`}>
                 <UploadOutlined /> {logo ? "Change logo" : "Upload logo"}
               </span>
             </label>
@@ -266,6 +270,6 @@ function InvoiceProfileForm({ profile }: InvoiceProfileFormProps) {
           <Button type="primary" loading={isSaving} onClick={handleSave}>Save invoicing details</Button>
         </div>
       </Form>
-    </div>
+    </SectionCard>
   );
 }

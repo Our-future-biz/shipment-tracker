@@ -10,7 +10,7 @@ export const KPI_TONE_CLASS: Record<KpiTone, string> = {
   amber: "text-amber-600",
 };
 
-export const KPI_TILE_CLASS = "bg-white border border-slate-200 rounded-xl px-3 py-2.5 min-w-0";
+export const KPI_TILE_CLASS = "bg-white border border-slate-200 rounded-xl shadow-sm px-3 py-2.5 min-w-0";
 
 interface KpiTileProps {
   label: string;

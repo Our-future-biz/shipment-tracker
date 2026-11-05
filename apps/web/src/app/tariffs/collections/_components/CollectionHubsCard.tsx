@@ -9,7 +9,9 @@ import { useCollectionHubs, useCollectionTariffActions, type CollectionFreightMo
 import { apiErrorMessage } from "@/lib/api";
 import { useCanManageTariffs } from "@/lib/auth/AuthContext";
 import { useToast } from "@/lib/toast";
+import { LABEL_TEXT } from "@/styles/ui";
 import { COLLECTION_FREIGHT_MODES, postcodeText } from "../../_lib/collectionTariffs";
+import { Field } from "../../_components/TariffFormParts";
 import { muted } from "../../_components/TariffText";
 
 // What keeps a hub from being saved, in words; null when it can be.
@@ -51,8 +53,8 @@ export const CollectionHubsCard = () => {
           return (
             <div key={value} className="flex items-center gap-3 rounded-lg border border-slate-200 px-3 py-2">
               <div className="min-w-0 flex-1">
-                <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{label}</div>
-                <div className="text-[13px] text-slate-800">
+                <div className={LABEL_TEXT}>{label}</div>
+                <div className="text-[13px] text-slate-900">
                   {hub ? (
                     <>
                       {hub.label || muted("No name")} · {postcodeText(hub.postcode)} {hub.country}
@@ -100,19 +102,16 @@ export const CollectionHubsCard = () => {
       >
         {editing && (
           <div className="flex flex-col gap-3">
-            <label className="flex flex-col gap-1 text-[12px] font-semibold text-slate-600">
-              Name
+            <Field label="Name">
               <Input aria-label="Hub name" placeholder="CFS Jeneč" value={editing.label} maxLength={100} disabled={isSettingHub} onChange={(e) => setEditing({ ...editing, label: e.target.value })} />
-            </label>
+            </Field>
             <div className="grid grid-cols-[1fr_80px] gap-3">
-              <label className="flex flex-col gap-1 text-[12px] font-semibold text-slate-600">
-                Postcode
+              <Field label="Postcode">
                 <Input aria-label="Hub postcode" placeholder="252 61" value={editing.postcode} maxLength={6} disabled={isSettingHub} onChange={(e) => setEditing({ ...editing, postcode: e.target.value })} />
-              </label>
-              <label className="flex flex-col gap-1 text-[12px] font-semibold text-slate-600">
-                Country
+              </Field>
+              <Field label="Country">
                 <Input aria-label="Hub country" value={editing.country} maxLength={2} disabled={isSettingHub} onChange={(e) => setEditing({ ...editing, country: e.target.value.toUpperCase() })} />
-              </label>
+              </Field>
             </div>
           </div>
         )}

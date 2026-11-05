@@ -108,7 +108,7 @@ export function TariffUploadModal({ open, onClose, onUploaded, supplierName, tar
 
         {isNew && (
           <div className="flex flex-col gap-2">
-            <div className="text-[13px] text-slate-600">{newTariff.question}</div>
+            <div className="text-[13px] text-slate-700">{newTariff.question}</div>
             {newTariff.fields}
           </div>
         )}
@@ -131,7 +131,7 @@ export function TariffUploadModal({ open, onClose, onUploaded, supplierName, tar
         </Upload.Dragger>
 
         {isUploading && (
-          <div className="flex items-center gap-3 text-[13px] text-slate-600">
+          <div className="flex items-center gap-3 text-[13px] text-slate-700">
             <Spin size="small" /> Reading {fileName}: {texts.reading}
           </div>
         )}

@@ -3,11 +3,12 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Alert, Button, Modal, Spin, Table, Tabs, Tag } from "antd";
+import { Alert, Button, Modal, Spin, Table, Tabs } from "antd";
 import { WarningFilled } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { PillTabs } from "@/components/SectionCard";
 import { LINK_CLASS } from "@/components/linkClass";
+import { Pill } from "@/components/Pill";
 import { formatAmount } from "@/lib/money";
 import { useSalesPermissions } from "@/hooks/useSalesPermissions";
 import { useSalesManagersCockpit, type SalesCockpitMode, type SalesCockpitRow, type SalesManagersCockpit as Cockpit } from "@/hooks/useSalesManagersCockpit";
@@ -22,6 +23,7 @@ import { COCKPIT_MODES, cockpitModeOf, inCockpitMode } from "../_lib/cockpitMode
 import { SalesQuoteInquiries } from "./SalesQuoteInquiries";
 import { SalesCompanyApprovals } from "./SalesCompanyApprovals";
 import { useSupplierApprovals } from "@/hooks/useSupplierApprovals";
+import { BTN, CARD, CARD_BAR, CARD_TITLE, HINT, LABEL_TEXT, MODAL_TITLE } from "@/styles/ui";
 
 // Sales → Managers (Council Outlay 6, step 2): what the sales team needs from a manager today.
 // Tiles over the company's quotes, then what to act on today (URGENT) and within 48 hours
@@ -52,7 +54,7 @@ const CARDS: Record<CardKey, { title: string; window: string; linkLabel: string;
     linkLabel: "Click here to show ATTENTION quotes",
     empty: "Nothing to watch within 48 hours.",
     dialog: "ATTENTION quotes",
-    tone: { border: "border-amber-200", header: "bg-amber-50", icon: "text-amber-500", link: "text-orange-500" },
+    tone: { border: "border-amber-200", header: "bg-amber-50", icon: "text-amber-500", link: "text-amber-600" },
   },
 };
 
@@ -91,7 +93,7 @@ const refColumn = {
   width: 180,
   render: (_: unknown, r: SalesCockpitRow) => (
     <div className="flex flex-col items-start gap-1 min-w-0">
-      <Link href={rowHref(r)} className={`${r.kind === "quote" ? "tabular-nums" : ""} font-bold text-indigo-600 hover:underline`}>
+      <Link href={rowHref(r)} className={`${r.kind === "quote" ? "tabular-nums" : ""} font-semibold ${LINK_CLASS}`}>
         {r.ref}
       </Link>
       {r.kind === "quote" && !r.status ? (
@@ -112,9 +114,9 @@ const refColumn = {
 const tagList = (r: SalesCockpitRow) => (
   <div className="flex flex-wrap gap-1.5">
     {r.tags.map((t, i) => (
-      <Tag key={i} color={t.urgent ? "red" : "orange"} className="m-0 max-w-full !whitespace-normal break-words">
+      <Pill key={i} tone={t.urgent ? "red" : "amber"} className="max-w-full !whitespace-normal break-words">
         {t.text}
-      </Tag>
+      </Pill>
     ))}
   </div>
 );
@@ -160,7 +162,7 @@ function Tiles({ cockpit, isLoading, isError, service, mode }: { cockpit: Cockpi
             key={t.key}
             href={t.href(service, mode)}
             aria-label={`${t.label}: ${value}`}
-            className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-200 bg-white text-[13px] !text-slate-600 hover:border-slate-300 hover:bg-slate-50 transition-colors"
+            className={`${BTN} !text-slate-700 hover:!text-slate-900`}
           >
             <span className="font-medium">{t.label}:</span>
             <span className={`font-bold tabular-nums ${hot ? "text-red-600" : "text-slate-900"}`}>{value}</span>
@@ -201,8 +203,8 @@ const pct = (v: number | null) => (v === null ? "–" : `${v} %`);
 
 function Line({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs text-slate-600">
-      <span className="font-bold uppercase tracking-wider text-[11px] text-slate-500">{label}</span>
+    <div className={`flex flex-wrap items-baseline gap-x-5 gap-y-1 ${CARD} px-4 py-2 text-xs text-slate-700`}>
+      <span className={LABEL_TEXT}>{label}</span>
       {children}
     </div>
   );
@@ -332,17 +334,18 @@ function SalesManagersCockpit() {
     const total = list?.total ?? 0;
     const hot = total > 0;
     return (
-      <section aria-label={`${title} — ${window}`} className={`bg-white border rounded-2xl overflow-hidden ${hot ? tone.border : "border-slate-200"}`}>
-        <div className={`flex items-center gap-2 px-4 py-2.5 ${hot ? tone.header : "bg-slate-50"}`}>
+      <section aria-label={`${title} — ${window}`} className={`bg-white border rounded-xl shadow-sm overflow-hidden ${hot ? tone.border : "border-slate-200"}`}>
+        {/* The card's bar (CARD_BAR), in the card's own warning colour while it holds something. */}
+        <div className={hot ? `flex items-center gap-2.5 min-h-[42px] px-4 py-2 border-b ${tone.border} ${tone.header}` : CARD_BAR}>
           <WarningFilled className={hot ? tone.icon : "text-slate-300"} />
-          <span className="text-[13px] font-bold uppercase tracking-wider text-slate-800">{title}</span>
+          <span className={CARD_TITLE}>{title}</span>
           <span
             aria-label={isError ? "Count unavailable" : plural(total, "item")}
             className={`min-w-6 h-6 px-1.5 rounded-full flex items-center justify-center bg-white text-[13px] font-bold tabular-nums ${hot ? tone.link : "text-slate-500"}`}
           >
             {isError ? "–" : isLoading ? "…" : total}
           </span>
-          <span className="text-[13px] text-slate-600">{window}</span>
+          <span className="text-[13px] text-slate-500">{window}</span>
         </div>
         <Table<SalesCockpitRow>
           size="small"
@@ -381,7 +384,7 @@ function SalesManagersCockpit() {
       extra={
         <span className="flex items-center gap-3 text-xs text-slate-500">
           {cockpit && <span>Updated {PRAGUE_TIME.format(new Date(cockpit.asOf))} · Prague time</span>}
-          <Link href={SALES_PAGES.report.path} className="text-indigo-600 hover:underline">
+          <Link href={SALES_PAGES.report.path} className={LINK_CLASS}>
             Sales Report
           </Link>
         </span>
@@ -398,7 +401,11 @@ function SalesManagersCockpit() {
             label: (
               <span className="whitespace-nowrap">
                 Quote inquiries
-                {inquiriesWaiting > 0 && <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-px text-[11px] font-semibold text-amber-700">{inquiriesWaiting}</span>}
+                {inquiriesWaiting > 0 && (
+                  <Pill tone="amber" className="ml-1.5 tabular-nums">
+                    {inquiriesWaiting}
+                  </Pill>
+                )}
               </span>
             ),
           },
@@ -407,7 +414,11 @@ function SalesManagersCockpit() {
             label: (
               <span className="whitespace-nowrap">
                 Company approval
-                {suppliersWaiting > 0 && <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-px text-[11px] font-semibold text-amber-700">{suppliersWaiting}</span>}
+                {suppliersWaiting > 0 && (
+                  <Pill tone="amber" className="ml-1.5 tabular-nums">
+                    {suppliersWaiting}
+                  </Pill>
+                )}
               </span>
             ),
           },
@@ -451,8 +462,8 @@ function SalesManagersCockpit() {
         title={
           openCard && (
             <div>
-              <div className="text-base font-semibold">{CARDS[openCard].dialog}</div>
-              <div className="text-xs text-slate-500 font-normal mt-0.5">
+              <div className={MODAL_TITLE}>{CARDS[openCard].dialog}</div>
+              <div className={`${HINT} font-normal mt-0.5`}>
                 {plural(openList?.total ?? 0, "item")} — {CARDS[openCard].window}
                 {openList && openList.total > openList.rows.length ? ` · the first ${openList.rows.length} are listed` : ""}
               </div>

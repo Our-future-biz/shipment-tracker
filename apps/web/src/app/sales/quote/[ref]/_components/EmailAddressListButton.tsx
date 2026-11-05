@@ -46,7 +46,7 @@ export function EmailAddressListButton({ label, icon, title, entries, empty, onA
               shown.map((e) => (
                 <div key={e.address} className="flex items-center gap-1 py-1 border-b border-slate-100 last:border-0">
                   <span className="flex-1 min-w-0 truncate text-[13px]" title={e.name ? `${e.name} <${e.address}>` : e.address}>
-                    {e.name && <span className="text-slate-800">{e.name} </span>}
+                    {e.name && <span className="text-slate-900">{e.name} </span>}
                     <span className={e.name ? "text-slate-500" : undefined}>{e.address}</span>
                   </span>
                   {(["to", "cc", "bcc"] as const).map((field) => (

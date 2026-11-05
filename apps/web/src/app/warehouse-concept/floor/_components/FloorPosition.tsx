@@ -7,6 +7,8 @@ import { useGateLog, useGateMovement, type GateMovement, type GateStampKind, use
 import { useToast } from "@/lib/toast";
 import { formatDateTime } from "@/lib/date";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { KpiTile } from "@/components/KpiTile";
+import { CARD, LABEL_TEXT, LINK, PAGE_TITLE, REF } from "@/styles/ui";
 import { TERMS, directionOf } from "@/app/warehouse-concept/_lib/glossary";
 import { dockSlotText, exceptionText, isOnHold } from "@/app/warehouse-concept/_lib/worklist";
 import { useUrlParam } from "@/hooks/useUrlParam";
@@ -14,7 +16,7 @@ import { Badge, CUSTOMS_STATUS_TONE, STATUS_TONE, errorMessage, hasSurvey, hhmm,
 import { cargoLeg, gateSteps, isOutbound, isQueueableStamp, leavesByRelease, stampConfirmText, stampPrecheck, type GateStep } from "@/app/warehouse-concept/gate-log/_lib/steps";
 import { useFloorQueue } from "../_lib/useFloorQueue";
 import { applyPending, pendingStamps, uuid } from "../_lib/queue";
-import { FloorCard, NeedsConnection, bigPrimary } from "./floorUi";
+import { FloorCard, NeedsConnection, bigPrimary, bigPrimaryLink } from "./floorUi";
 import { FloorSurvey } from "./FloorSurvey";
 import { FloorException } from "./FloorException";
 import { FloorPhotos } from "./FloorPhotos";
@@ -124,12 +126,7 @@ export function FloorPosition({ id }: { id: string }) {
   if (view === "release") return <FloorReadiness m={m} onBack={back} />;
   if (view === "reweigh") return <FloorReweigh m={m} onBack={back} />;
 
-  const tile = (label: string, value: string) => (
-    <div className="rounded-lg bg-slate-50 px-2 py-2 text-center">
-      <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{label}</div>
-      <div className="text-[18px] font-bold tabular-nums text-slate-900">{value}</div>
-    </div>
-  );
+  const tile = (label: string, value: string) => <KpiTile centered label={label} value={value} />;
   const reweighDue = m.needsReweigh && !m.reweigh;
   const menu: { key: View; label: string; hint?: string; alert?: boolean; show: boolean }[] = [
     {
@@ -153,39 +150,29 @@ export function FloorPosition({ id }: { id: string }) {
       <FloorCard>
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
-            <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{TERMS.warehouseRef}</div>
-            <div className="break-all tabular-nums text-[22px] font-bold leading-tight text-slate-900">{m.positionRef || m.gateRef}</div>
+            <div className={LABEL_TEXT}>{TERMS.warehouseRef}</div>
+            <div className={`break-all ${PAGE_TITLE} ${REF}`}>{m.positionRef || m.gateRef}</div>
           </div>
           <div className="flex flex-col items-end gap-1">
-            <Badge tone={STATUS_TONE[m.status] ?? ""} className="!text-[12px]">
-              {m.status}
-            </Badge>
+            <Badge tone={STATUS_TONE[m.status] ?? ""}>{m.status}</Badge>
             <LifecycleChip l={m.lifecycle} />
             <CustomsDeadlineChip clock={movementCustomsClock(m)} empty="" />
           </div>
         </div>
-        <div className="mt-1 text-[14px] text-slate-800">{m.customer || "—"}</div>
+        <div className="mt-1 text-[14px] text-slate-900">{m.customer || "—"}</div>
         <div className="mt-2 flex flex-wrap items-center gap-2 text-[13px]">
           {m.jobNumber && (
-            <span className="text-slate-600">
-              {TERMS.jobNo} <span className="tabular-nums font-semibold text-slate-900">{m.jobNumber}</span>
+            <span className="text-slate-500">
+              {TERMS.jobNo} <span className={`${REF} font-semibold text-slate-900`}>{m.jobNumber}</span>
             </span>
           )}
-          <Badge tone={out ? "i" : "b"} className="!text-[12px]">
-            {directionOf(m)}
-          </Badge>
-          <Badge tone={CUSTOMS_STATUS_TONE[m.customsStatus] ?? ""} className="!text-[12px]">
-            {m.customsStatus || "Customs not set"}
-          </Badge>
+          <Badge tone={out ? "i" : "b"}>{directionOf(m)}</Badge>
+          <Badge tone={CUSTOMS_STATUS_TONE[m.customsStatus] ?? ""}>{m.customsStatus || "Customs not set"}</Badge>
           {isOnHold(m) && (
-            <Badge tone="r" className="!text-[12px]">
-              {exceptionText(m)}
-            </Badge>
+            <Badge tone="r">{exceptionText(m)}</Badge>
           )}
           {archived && (
-            <Badge tone="a" className="!text-[12px]">
-              {TERMS.archived}
-            </Badge>
+            <Badge tone="a">{TERMS.archived}</Badge>
           )}
         </div>
         <div className="mt-3 grid grid-cols-3 gap-2">
@@ -207,8 +194,8 @@ export function FloorPosition({ id }: { id: string }) {
           {(leg?.plate || m.plate) && (
             <div>
               <span className="text-slate-500">{TERMS.plate} </span>
-              <span className="tabular-nums font-semibold">{leg?.plate || m.plate}</span>
-              {(leg?.driver || m.driver) && <span className="text-slate-600"> · {leg?.driver || m.driver}</span>}
+              <span className={`${REF} font-semibold`}>{leg?.plate || m.plate}</span>
+              {(leg?.driver || m.driver) && <span className="text-slate-500"> · {leg?.driver || m.driver}</span>}
             </div>
           )}
         </div>
@@ -217,12 +204,12 @@ export function FloorPosition({ id }: { id: string }) {
       {m.container && (
         <Link
           href={`/warehouse-concept/floor/container/${m.container.id}`}
-          className="flex min-h-[56px] items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 active:bg-slate-50"
+          className={`${CARD} flex min-h-[56px] items-center gap-3 px-4 hover:bg-slate-50 active:bg-slate-50`}
         >
           <span className="flex-1">
-            <span className="block text-[11px] font-bold uppercase tracking-wide text-slate-500">Container · {m.container.status}</span>
-            <span className="block tabular-nums text-[16px] font-bold text-slate-900">{m.container.number}</span>
-            <span className="block text-[13px] text-slate-600">
+            <span className={`block ${LABEL_TEXT}`}>Container · {m.container.status}</span>
+            <span className={`block ${REF} text-[16px] font-bold text-slate-900`}>{m.container.number}</span>
+            <span className="block text-[13px] text-slate-500">
               {m.container.kind === "export"
                 ? m.container.stuffedAt
                   ? `Stuffed ${formatDateTime(m.container.stuffedAt)}`
@@ -232,7 +219,7 @@ export function FloorPosition({ id }: { id: string }) {
                   : "Not tallied yet"}
             </span>
           </span>
-          <RightOutlined className="text-slate-400" />
+          <RightOutlined className="!text-slate-400" />
         </Link>
       )}
 
@@ -276,7 +263,7 @@ export function FloorPosition({ id }: { id: string }) {
               key={x.key}
               type="button"
               onClick={() => setView(x.key)}
-              className="flex min-h-[56px] w-full items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 text-left cursor-pointer active:bg-slate-50"
+              className={`${CARD} flex min-h-[56px] w-full items-center gap-3 px-4 text-left cursor-pointer hover:bg-slate-50 active:bg-slate-50`}
             >
               <span className="flex-1">
                 <span className={`block text-[16px] font-semibold ${x.alert ? "text-red-600" : "text-slate-900"}`}>
@@ -290,7 +277,7 @@ export function FloorPosition({ id }: { id: string }) {
           ))}
         <Link
           href={`/warehouse-concept/gate-log/${m.id}`}
-          className="flex min-h-[48px] items-center justify-center rounded-xl text-[14px] font-semibold text-indigo-600 underline"
+          className={`${LINK} flex min-h-[48px] items-center justify-center rounded-xl text-[14px] font-semibold`}
         >
           Open full gate job
         </Link>
@@ -311,7 +298,7 @@ export function FloorPosition({ id }: { id: string }) {
                     {TERMS.reweigh}
                   </button>
                 ) : next.state === "blocked" && (next.needs === "tally" || next.needs === "container") && m.container ? (
-                  <Link href={`/warehouse-concept/floor/container/${m.container.id}`} className={`${bigPrimary} flex items-center justify-center`}>
+                  <Link href={`/warehouse-concept/floor/container/${m.container.id}`} className={bigPrimaryLink}>
                     Open container {m.container.number}
                   </Link>
                 ) : (

@@ -4,14 +4,9 @@ import { Alert, Spin } from "antd";
 import { useFxImportRuns } from "@/hooks/useFx";
 import { formatDate, formatDateTime } from "@/lib/date";
 import type { interfaces } from "@/lib/api/client";
-import { CELL, TH } from "./fxShared";
-
-const STATUS: Record<interfaces.ImportRunStatus, string> = {
-  ok: "text-emerald-700",
-  no_new_data: "text-slate-500",
-  failed: "text-red-600 font-semibold",
-  running: "text-indigo-600",
-};
+import { Badge } from "@/components/Badge";
+import { Pill } from "@/components/Pill";
+import { TD, TH } from "@/styles/ui";
 
 const STATUS_LABEL: Record<interfaces.ImportRunStatus, string> = {
   ok: "New rates stored",
@@ -19,6 +14,13 @@ const STATUS_LABEL: Record<interfaces.ImportRunStatus, string> = {
   failed: "Failed",
   running: "Running",
 };
+
+// A run's result as a status pill; one still running in the app's indigo.
+function StatusMark({ status }: { status: interfaces.ImportRunStatus }) {
+  if (status === "running") return <Badge tone="i">{STATUS_LABEL[status]}</Badge>;
+  const tone = status === "ok" ? "green" : status === "failed" ? "red" : "slate";
+  return <Pill tone={tone}>{STATUS_LABEL[status]}</Pill>;
+}
 
 export function ImportLogTab() {
   const { data, isLoading, isError } = useFxImportRuns();
@@ -34,7 +36,7 @@ export function ImportLogTab() {
             <th className={TH}>Started</th>
             <th className={TH}>Trigger</th>
             <th className={TH}>Result</th>
-            <th className={`${TH} text-right`}>Rates added</th>
+            <th className={`${TH} !text-right`}>Rates added</th>
             <th className={TH}>Newest ČNB fixing</th>
             <th className={TH}>Error</th>
           </tr>
@@ -42,17 +44,17 @@ export function ImportLogTab() {
         <tbody>
           {runs.length === 0 && (
             <tr>
-              <td colSpan={6} className="px-4 py-8 text-center text-[14px] text-slate-400">No imports yet.</td>
+              <td colSpan={6} className="px-2 py-8 text-center text-[13px] text-slate-400">No imports yet.</td>
             </tr>
           )}
           {runs.map((r) => (
             <tr key={r.id}>
-              <td className={`${CELL} whitespace-nowrap`}>{formatDateTime(r.startedAt)}</td>
-              <td className={`${CELL} text-slate-600`}>{r.trigger}</td>
-              <td className={`${CELL} ${STATUS[r.status]}`}>{STATUS_LABEL[r.status]}</td>
-              <td className={`${CELL} text-right tabular-nums`}>{r.rowsAdded}</td>
-              <td className={CELL}>{formatDate(r.latestValidDate)}</td>
-              <td className={`${CELL} text-[13px] text-red-600 max-w-[360px] truncate`} title={r.error}>{r.error}</td>
+              <td className={`${TD} whitespace-nowrap`}>{formatDateTime(r.startedAt)}</td>
+              <td className={TD}>{r.trigger}</td>
+              <td className={TD}><StatusMark status={r.status} /></td>
+              <td className={`${TD} text-right tabular-nums`}>{r.rowsAdded}</td>
+              <td className={TD}>{formatDate(r.latestValidDate)}</td>
+              <td className={`${TD} !text-red-600 max-w-[360px] truncate`} title={r.error}>{r.error}</td>
             </tr>
           ))}
         </tbody>

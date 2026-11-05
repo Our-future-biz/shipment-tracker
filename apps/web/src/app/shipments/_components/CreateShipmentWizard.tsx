@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Select, Button, Checkbox, Segmented, Tag } from "antd";
+import { Alert, Select, Button, Checkbox, Segmented } from "antd";
 import { useQueryClient } from "@tanstack/react-query";
 import { AppModal } from "@/components/AppModal";
+import { Badge } from "@/components/Badge";
+import { BTN_GHOST, BTN_SM, EMPTY, HINT, LABEL_TEXT, REF } from "@/styles/ui";
 import { useToast } from "@/lib/toast";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { api, apiErrorMessage, ErrCode, isAPIError } from "@/lib/api";
@@ -437,7 +439,7 @@ export const CreateShipmentWizard = ({
     <AppModal open={open} onClose={resetAndClose} title={title} subtitle={subtitle} size="medium" footer={footer}>
       {step === "ask-copy" && (
         <>
-          <p className="text-xs text-slate-600 mb-4">Would you like to copy data from a previous shipment or a quote?</p>
+          <p className="text-[13px] text-slate-700 mb-4">Would you like to copy data from a previous shipment or a quote?</p>
 
           <Segmented
             block
@@ -456,7 +458,7 @@ export const CreateShipmentWizard = ({
 
           {copyMode === "shipment" ? (
             <>
-              <label className="block text-[11px] text-slate-500 mb-1">Copy from Job Number</label>
+              <label className={`block ${LABEL_TEXT} mb-1`}>Copy from Job Number</label>
               <Select
                 showSearch
                 allowClear
@@ -470,24 +472,24 @@ export const CreateShipmentWizard = ({
             </>
           ) : (
             <>
-              <label className="block text-[11px] text-slate-500 mb-1">Copy from Quote Number</label>
+              <label className={`block ${LABEL_TEXT} mb-1`}>Copy from Quote Number</label>
               {/* Open, expired and Won quotes: the shipment makes one not Won yet Won. */}
               <QuotePicker value={selectedQuote} onChange={pickQuote} statuses={SHIPMENT_SOURCE_STATUSES.join(",")} />
-              {preset.loading && <div className="mt-2 text-xs text-slate-400">Loading {fromQuote}…</div>}
+              {preset.loading && <div className={`${HINT} mt-2`}>Loading {fromQuote}…</div>}
               {preset.error && <Alert className="mt-3" type="error" showIcon message={`${fromQuote} - ${preset.error}`} />}
 
               {selectedQuote && (
                 <div className="mt-4 border border-slate-200 bg-slate-50 rounded-xl px-4 py-3.5">
                   <div className="flex items-center gap-2 mb-3">
-                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Data to transfer</span>
-                    <Tag color="geekblue" className="!m-0 tabular-nums">{selectedQuote.quoteNumber}</Tag>
+                    <span className={LABEL_TEXT}>Data to transfer</span>
+                    <Badge tone="i" className={REF}>{selectedQuote.quoteNumber}</Badge>
                     <QuoteStatusPill status={selectedQuote.status} />
                   </div>
                   <div className="grid grid-cols-2 gap-x-6 gap-y-2">
                     {quotePreview(selectedQuote.data, exchange.rates).map((item) => (
                       <div key={item.label}>
-                        <div className="text-[11px] text-slate-400">{item.label}</div>
-                        <div className="text-xs font-semibold text-slate-800">{item.value}</div>
+                        <div className={LABEL_TEXT}>{item.label}</div>
+                        <div className="text-[13px] font-semibold text-slate-900">{item.value}</div>
                       </div>
                     ))}
                   </div>
@@ -532,8 +534,8 @@ export const CreateShipmentWizard = ({
 
       {step === "created" && created && (
         <>
-          <p className="text-xs text-slate-600 mb-3">
-            Shipment <strong className="text-slate-700">{created.shipment.jobNumber}</strong> was created from{" "}
+          <p className="text-[13px] text-slate-700 mb-3">
+            Shipment <strong className="text-slate-900">{created.shipment.jobNumber}</strong> was created from{" "}
             {selectedQuote?.quoteNumber}
             {[createdQuote, createdCosts].some(Boolean) && ` - ${[createdQuote, createdCosts].filter(Boolean).join(", ")}`}.
           </p>
@@ -568,16 +570,16 @@ export const CreateShipmentWizard = ({
 
       {step === "select-fields" && (
         <>
-          <div className="flex gap-3 mb-2 pb-2 border-b border-slate-100">
+          <div className="flex gap-1 mb-2 pb-2 border-b border-slate-100">
             <button
               onClick={() => setSelectedFields(new Set(COPYABLE_FIELDS))}
-              className="text-[11px] text-indigo-500 hover:underline bg-transparent border-none p-0 cursor-pointer"
+              className={`${BTN_GHOST} ${BTN_SM}`}
             >
               Select All
             </button>
             <button
               onClick={() => setSelectedFields(new Set())}
-              className="text-[11px] text-slate-400 hover:underline bg-transparent border-none p-0 cursor-pointer"
+              className={`${BTN_GHOST} ${BTN_SM}`}
             >
               Deselect All
             </button>
@@ -593,9 +595,9 @@ export const CreateShipmentWizard = ({
                   className="flex items-center gap-3 px-1 py-1.5 rounded-md cursor-pointer hover:bg-slate-50"
                 >
                   <Checkbox checked={selectedFields.has(key)} onChange={() => toggleField(key)} />
-                  <span className="text-xs text-slate-600 w-36 shrink-0">{label}</span>
-                  <span className="text-xs text-slate-400 truncate flex-1 min-w-0">
-                    {val || <span className="italic text-slate-300">empty</span>}
+                  <span className="text-xs text-slate-700 w-36 shrink-0">{label}</span>
+                  <span className="text-xs text-slate-500 truncate flex-1 min-w-0">
+                    {val || <span className={`italic ${EMPTY}`}>empty</span>}
                   </span>
                 </label>
               );
@@ -606,19 +608,19 @@ export const CreateShipmentWizard = ({
 
       {step === "confirm-costs" && (
         <>
-          <p className="text-xs text-slate-600 mb-4">
-            Would you like to also copy the estimated costs from <strong className="text-slate-700">{sourceJob}</strong>{" "}
+          <p className="text-[13px] text-slate-700 mb-4">
+            Would you like to also copy the estimated costs from <strong className="text-slate-900">{sourceJob}</strong>{" "}
             to the Invoicing tab of the new shipment?
           </p>
-          <label className="flex items-start gap-3 px-3 py-3 rounded-md border border-slate-200 cursor-pointer hover:bg-slate-50">
+          <label className="flex items-start gap-3 px-3 py-3 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50">
             <Checkbox
               checked={copyEstimatedCosts}
               onChange={(e) => setCopyEstimatedCosts(e.target.checked)}
               className="mt-0.5"
             />
             <span>
-              <span className="block text-xs font-medium text-slate-700">Yes, copy estimated costs</span>
-              <span className="block text-[11px] text-slate-400 mt-0.5">
+              <span className="block text-[13px] font-medium text-slate-900">Yes, copy estimated costs</span>
+              <span className={`block ${HINT} mt-0.5`}>
                 Estimated amounts will be copied to the new shipment&apos;s Invoicing tab
               </span>
             </span>

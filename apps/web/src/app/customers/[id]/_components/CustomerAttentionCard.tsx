@@ -16,6 +16,7 @@ import { buildCustomerAttention } from "../../_lib/customerAttention";
 import { buildSupplierAttention } from "../../_lib/supplierAttention";
 import { useSupplierTariffs } from "./useSupplierTariffs";
 import type { AttentionItem, AttentionSeverity } from "../../_lib/customerAttention";
+import { CARD_TITLE, LINK } from "@/styles/ui";
 
 // The list opens with its most serious rows; the rest unfolds on demand, so a long list does not push the page down.
 const VISIBLE_ROWS = 6;
@@ -159,9 +160,9 @@ export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAtten
         </span>
         <span className="flex-1 min-w-0 [overflow-wrap:anywhere]">
           <span className="sr-only">{style.label}</span> <span className={`font-semibold ${style.title}`}>{item.title}</span>
-          {item.detail && <span className="text-slate-600"> {item.detail}</span>}
+          {item.detail && <span className="text-slate-700"> {item.detail}</span>}
         </span>
-        {item.meta && <span className="shrink-0 whitespace-nowrap font-semibold tabular-nums text-slate-800">{item.meta}</span>}
+        {item.meta && <span className="shrink-0 whitespace-nowrap font-semibold tabular-nums text-slate-900">{item.meta}</span>}
         {(tab || field) && (
           <span className="flex h-5 shrink-0 items-center text-[10px] text-slate-400">
             <RightOutlined aria-hidden />
@@ -194,7 +195,7 @@ export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAtten
         <span className={`flex shrink-0 ${tone.icon}`}>
           <WarningFilled aria-hidden />
         </span>
-        <h3 className="m-0 text-[13px] font-bold uppercase tracking-wider text-slate-800">Needs Attention</h3>
+        <h3 className={CARD_TITLE}>Needs Attention</h3>
         <span className={`${COUNT_CLASS} ${tone.count}`}>
           {items.length}
           <span className="sr-only"> {items.length === 1 ? "item" : "items"}</span>
@@ -214,7 +215,7 @@ export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAtten
             type="button"
             aria-expanded={expanded}
             onClick={handleToggleExpanded}
-            className="bg-transparent border-0 p-0 text-xs font-semibold text-indigo-600 cursor-pointer hover:underline"
+            className={`bg-transparent border-0 p-0 text-xs font-semibold cursor-pointer ${LINK}`}
           >
             {expanded ? "Show fewer" : `Show all ${items.length}`}
           </button>

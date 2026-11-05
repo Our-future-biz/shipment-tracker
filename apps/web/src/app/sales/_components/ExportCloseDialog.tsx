@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button, Form, Modal, Select } from "antd";
 import { formatDate } from "@/lib/date";
+import { MODAL_TITLE } from "@/styles/ui";
 import { businessToday, validUntilAfter } from "../_lib/salesQuote";
 import { DEFAULT_VALIDITY_DAYS, asksValidity } from "../_lib/statusChange";
 import { VALIDITY_OPTIONS } from "../_lib/types";
@@ -39,8 +40,8 @@ export function ExportCloseDialog({ quoteNumber, validUntil, validityDays: lastD
 
   return (
     <Modal open onCancel={onClose} footer={null} width={420} closable={false} destroyOnHidden>
-      <div className="text-[14px] font-semibold text-slate-800 mb-1">{EXPORT_CLOSE_TITLE}</div>
-      <div className="text-sm text-slate-500 leading-relaxed">{exportCloseDescription(quoteNumber)}</div>
+      <div className={`${MODAL_TITLE} mb-1`}>{EXPORT_CLOSE_TITLE}</div>
+      <div className="text-[13px] text-slate-600 leading-relaxed">{exportCloseDescription(quoteNumber)}</div>
       {askDays && (
         <Form layout="vertical" disabled={busy} className="mt-4">
           <Form.Item label="Validity (days)" extra={`Valid until ${formatDate(validUntilAfter(today, days))}`}>

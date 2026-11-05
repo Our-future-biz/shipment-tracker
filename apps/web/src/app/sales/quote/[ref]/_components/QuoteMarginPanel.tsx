@@ -7,6 +7,7 @@ import { formatAmount as formatMoney } from "@/lib/money";
 import { floorText, marginState, marginText, type RoadMargin } from "../../../_lib/roadQuote";
 import { MiniButton } from "./QuoteButtons";
 import type { MarginInquiryItem } from "@/hooks/useMarginInquiries";
+import { LABEL_TEXT } from "@/styles/ui";
 
 interface QuoteMarginPanelProps {
   margin: RoadMargin;
@@ -22,8 +23,8 @@ interface QuoteMarginPanelProps {
 
 const Figure = ({ label, value }: { label: string; value: string }) => (
   <div className="min-w-0">
-    <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{label}</div>
-    <div className="text-[13px] font-semibold text-slate-800 tabular-nums whitespace-nowrap">{value}</div>
+    <div className={LABEL_TEXT}>{label}</div>
+    <div className="text-[13px] font-semibold text-slate-900 tabular-nums whitespace-nowrap">{value}</div>
   </div>
 );
 
@@ -37,10 +38,10 @@ export const QuoteMarginPanel = ({ margin, canApprove, onApprove, inquiry, onAsk
   const rejected = state === "needsApproval" && inquiry?.status === "rejected" ? inquiry : null;
   // Anybody below the floor may ask a manager (Council Outlay 6); a manager may also approve at once.
   const canAsk = state === "needsApproval" && !margin.problem && !waiting && !canApprove && !!onAsk;
-  const tone = state === "needsApproval" ? "border-red-200 bg-red-50/60" : state === "approved" ? "border-green-200 bg-green-50/60" : "border-slate-200 bg-white";
+  const tone = state === "needsApproval" ? "border-red-200 bg-red-50/60" : state === "approved" ? "border-emerald-200 bg-emerald-50/60" : "border-slate-200 bg-white";
 
   return (
-    <div className={`rounded-lg border px-3 py-2.5 ${tone}`}>
+    <div className={`rounded-xl border px-3 py-2.5 ${tone}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-2">
           <Figure label="Selling (CZK)" value={formatMoney(margin.sellingCzk, "CZK")} />
@@ -98,7 +99,7 @@ export const QuoteMarginPanel = ({ margin, canApprove, onApprove, inquiry, onAsk
         </div>
       )}
       {state === "approved" && margin.approval && (
-        <div className="mt-2 flex items-start gap-1.5 text-[13px] text-green-800">
+        <div className="mt-2 flex items-start gap-1.5 text-[13px] text-emerald-800">
           <CheckCircleFilled className="mt-0.5" aria-hidden />
           <span>
             Approved by {margin.approval.byName} on {businessDateTime(margin.approval.at)}: {margin.approval.reason}

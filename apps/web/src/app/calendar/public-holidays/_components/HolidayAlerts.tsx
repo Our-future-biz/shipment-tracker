@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Modal, Table, Tag } from "antd";
+import { Modal, Table } from "antd";
 import { CalendarFilled } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
+import { Pill } from "@/components/Pill";
 import { formatDate } from "@/lib/date";
+import { CARD_TITLE, HINT, LINK } from "@/styles/ui";
 import { type Occurrence, overlaps, thisWeek, todayIso } from "../_lib/holidays";
 import { dash } from "./holidayCells";
 
@@ -13,18 +15,20 @@ const VISIBLE_ROWS = 3;
 
 type CardKey = "today" | "week";
 
-const CARDS: Record<CardKey, { title: string; empty: string; linkLabel: string; tone: { border: string; header: string; icon: string; link: string } }> = {
+// A card with a holiday in it takes its tone (red today, amber this week) in its frame, its
+// header and the count; otherwise it is grey.
+const CARDS: Record<CardKey, { title: string; empty: string; linkLabel: string; tone: { border: string; header: string; icon: string; count: string } }> = {
   today: {
     title: "Today's Holidays",
     empty: "No public holiday today.",
     linkLabel: "Click here to show all of today's holidays",
-    tone: { border: "border-red-200", header: "bg-red-50", icon: "text-red-500", link: "text-red-600" },
+    tone: { border: "border-red-200", header: "bg-red-50", icon: "text-red-500", count: "text-red-600" },
   },
   week: {
     title: "This Week's Holidays",
     empty: "No public holiday this week.",
     linkLabel: "Click here to show all of this week's holidays",
-    tone: { border: "border-amber-200", header: "bg-amber-50", icon: "text-amber-500", link: "text-orange-500" },
+    tone: { border: "border-amber-200", header: "bg-amber-50", icon: "text-amber-500", count: "text-amber-600" },
   },
 };
 
@@ -35,7 +39,7 @@ const countryColumn = {
   dataIndex: "country",
   width: 190,
   render: (_: unknown, o: Occurrence) => (
-    <span className="font-semibold text-slate-800">
+    <span className="font-semibold text-slate-900">
       {o.country || o.countryCode}
       {o.country && o.countryCode && <span className="ml-1.5 text-[11px] tabular-nums text-slate-400">{o.countryCode}</span>}
     </span>
@@ -47,10 +51,8 @@ const holidayColumn = {
   dataIndex: "name",
   render: (_: unknown, o: Occurrence) => (
     <div className="flex flex-wrap items-center gap-1.5">
-      <span className="text-slate-800">{o.name}</span>
-      <Tag color={o.kind === "National" ? "red" : "orange"} className="m-0">
-        {o.kind === "National" ? "National" : `Regional${o.regions ? `: ${o.regions}` : ""}`}
-      </Tag>
+      <span className="text-slate-900">{o.name}</span>
+      <Pill tone={o.kind === "National" ? "red" : "amber"}>{o.kind === "National" ? "National" : `Regional${o.regions ? `: ${o.regions}` : ""}`}</Pill>
     </div>
   ),
 };
@@ -59,7 +61,7 @@ const dateColumn = {
   title: "Date",
   dataIndex: "start",
   width: 200,
-  render: (_: unknown, o: Occurrence) => <span className="text-slate-600 tabular-nums">{dateLabel(o)}</span>,
+  render: (_: unknown, o: Occurrence) => <span className="text-slate-700 tabular-nums">{dateLabel(o)}</span>,
 };
 
 const COLUMNS: ColumnsType<Occurrence> = [countryColumn, holidayColumn, dateColumn];
@@ -91,18 +93,18 @@ export function HolidayAlerts({ items, loading }: HolidayAlertsProps) {
     const list = lists[key];
     const any = list.length > 0;
     return (
-      <section className={`bg-white border rounded-2xl overflow-hidden ${any ? tone.border : "border-slate-200"}`}>
-        <div className={`flex items-center gap-2 px-4 py-2.5 ${any ? tone.header : "bg-slate-50"}`}>
+      <section className={`bg-white border rounded-xl shadow-sm overflow-hidden ${any ? tone.border : "border-slate-200"}`}>
+        <div className={`flex items-center gap-2.5 min-h-[42px] px-4 py-2 ${any ? tone.header : "bg-slate-50"}`}>
           <CalendarFilled className={any ? tone.icon : "text-slate-300"} />
-          <span className="text-[13px] font-bold uppercase tracking-wider text-slate-800">{title}</span>
+          <h3 className={CARD_TITLE}>{title}</h3>
           <span
             className={`min-w-6 h-6 px-1.5 rounded-full flex items-center justify-center bg-white text-[13px] font-bold tabular-nums ${
-              any ? tone.link : "text-slate-500"
+              any ? tone.count : "text-slate-500"
             }`}
           >
             {list.length}
           </span>
-          <span className="text-[13px] text-slate-600">
+          <span className={HINT}>
             {key === "today" ? formatDate(today) : `${formatDate(week.from)} – ${formatDate(week.to)}`}
           </span>
         </div>
@@ -118,7 +120,7 @@ export function HolidayAlerts({ items, loading }: HolidayAlertsProps) {
                   <button
                     type="button"
                     onClick={() => setOpenCard(key)}
-                    className={`p-0 border-none bg-transparent text-[13px] font-semibold cursor-pointer hover:underline ${tone.link}`}
+                    className={`${LINK} p-0 border-none bg-transparent text-[13px] font-semibold cursor-pointer`}
                   >
                     {linkLabel}
                   </button>

@@ -4,6 +4,7 @@ import { Form, Input, Button, Alert } from "antd";
 import { LockOutlined, MailOutlined } from "@ant-design/icons";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useRouter } from "next/navigation";
+import { CARD, HINT, LABEL_TEXT, PAGE_SUBTITLE, PAGE_TITLE } from "@/styles/ui";
 
 export const LoginPage = () => {
   const { login, loginError, isLoggingIn } = useAuth();
@@ -22,16 +23,16 @@ export const LoginPage = () => {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
-      <div className="w-full max-w-[380px] bg-white rounded-xl border border-slate-200 p-8 shadow-[0_4px_24px_rgba(0,0,0,0.06)]">
+      <div className={`w-full max-w-[380px] ${CARD} p-8`}>
         {/* Logo + Title */}
         <div className="text-center mb-7">
-          <div className="w-11 h-11 bg-indigo-500 rounded-lg inline-flex items-center justify-center text-white font-bold text-base mb-3.5">
+          <div className="w-11 h-11 bg-indigo-600 rounded-lg inline-flex items-center justify-center text-white font-bold text-base mb-3.5">
             ST
           </div>
-          <div className="text-xl font-bold text-slate-800 mb-1">
+          <h1 className={`${PAGE_TITLE} mb-1`}>
             Shipment Tracker
-          </div>
-          <div className="text-sm text-slate-500">Sign in to your account</div>
+          </h1>
+          <div className={PAGE_SUBTITLE}>Sign in to your account</div>
         </div>
 
         {loginError && (
@@ -39,14 +40,14 @@ export const LoginPage = () => {
             message={loginError}
             type="error"
             showIcon
-            className="mb-5 rounded-lg"
+            className="mb-5"
           />
         )}
 
         <Form form={form} layout="vertical" onFinish={handleSubmit} requiredMark={false}>
           <Form.Item
             name="email"
-            label={<span className="text-xs font-medium text-slate-500">Email</span>}
+            label={<span className={LABEL_TEXT}>Email</span>}
             rules={[{ required: true, message: "Please enter your email" }, { type: "email", message: "Invalid email" }]}
           >
             <Input
@@ -60,7 +61,7 @@ export const LoginPage = () => {
 
           <Form.Item
             name="password"
-            label={<span className="text-xs font-medium text-slate-500">Password</span>}
+            label={<span className={LABEL_TEXT}>Password</span>}
             rules={[{ required: true, message: "Please enter your password" }]}
           >
             <Input.Password
@@ -78,14 +79,13 @@ export const LoginPage = () => {
               loading={isLoggingIn}
               block
               size="large"
-              className="font-medium"
             >
               Sign In
             </Button>
           </Form.Item>
         </Form>
 
-        <div className="text-center mt-5 text-[11px] text-slate-400">
+        <div className={`text-center mt-5 ${HINT}`}>
           Shipment Operations System
         </div>
       </div>

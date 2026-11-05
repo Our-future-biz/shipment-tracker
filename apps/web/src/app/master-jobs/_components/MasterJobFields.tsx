@@ -4,16 +4,18 @@ import { useState } from "react";
 import { Select, Tooltip } from "antd";
 import { SyncOutlined } from "@ant-design/icons";
 import { EditableCell } from "@/app/shipments/[jobNumber]/_components/EditableCell";
+import { LABEL, ROW } from "@/app/shipments/[jobNumber]/_components/detailStyles";
+import { CARD, CARD_BAR, CARD_ICON, CARD_TITLE, EMPTY } from "@/styles/ui";
 import { INCOTERM_NAMES, incotermLabel } from "@/lib/incoterms";
 
 // Rows and cards of the master-job detail. They mirror the shipment detail's
 // DetailCard / FieldRow markup, which is bound to ShipmentItem, so the master
-// job gets the same look over its own record.
+// job gets the same look over its own record: the app's card with its indigo
+// title bar (styles/ui.ts), and the shipment detail's own row and label.
 
 export type MasterJobCommit = (fieldKey: string, value: string) => void;
 
-export const ROW = "flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0";
-const LABEL = "w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide";
+export { ROW };
 
 interface CardProps {
   /** Anchor for the summary tiles that jump to this card. */
@@ -26,13 +28,13 @@ interface CardProps {
 
 export function MasterJobCard({ id, icon, title, actions, children }: CardProps) {
   return (
-    <div id={id} data-jump="card" className="scroll-mt-4 bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-      <div className="-mx-4 -mt-4 mb-4 px-4 py-2.5 flex items-center gap-2.5 bg-indigo-50 border-b border-indigo-100 rounded-t-xl">
-        <span className="text-indigo-500 text-base leading-none">{icon}</span>
-        <span className="text-[13px] font-bold uppercase tracking-wider text-slate-700">{title}</span>
+    <div id={id} data-jump="card" className={`scroll-mt-4 ${CARD}`}>
+      <div className={`${CARD_BAR} rounded-t-xl`}>
+        <span className={CARD_ICON}>{icon}</span>
+        <h3 className={CARD_TITLE}>{title}</h3>
         {actions && <span className="ml-auto flex items-center gap-1.5">{actions}</span>}
       </div>
-      {children}
+      <div className="p-4">{children}</div>
     </div>
   );
 }
@@ -73,6 +75,7 @@ export function FieldRow({ label, fieldKey, value, onCommit, synced, id }: Field
         onCommit={onCommit}
         placeholder="—"
         displayClassName="text-slate-900 font-medium"
+        emptyClassName={EMPTY}
       />
     </div>
   );
@@ -82,7 +85,7 @@ export function ReadOnlyRow({ label, value }: { label: string; value?: React.Rea
   return (
     <div className={ROW}>
       <span className={LABEL}>{label}</span>
-      <span className="flex-1 min-w-0 text-slate-500 font-medium">{value || "—"}</span>
+      <span className="flex-1 min-w-0 text-slate-500 font-medium">{value || <span className={EMPTY}>—</span>}</span>
     </div>
   );
 }
@@ -117,7 +120,7 @@ export function IncotermRow({ label, fieldKey, value, onCommit }: FieldRowProps)
           title="Double-click to edit"
           onDoubleClick={() => setEditing(true)}
         >
-          {incotermLabel(code) || "—"}
+          {incotermLabel(code) || <span className={EMPTY}>—</span>}
         </span>
       )}
     </div>

@@ -25,6 +25,8 @@ import { useUrlParam } from "@/hooks/useUrlParam";
 import { useWarehouseSettings } from "@/hooks/useWarehouseSettings";
 import { Card, ExpiryTag, Kpi, RecordFormModal, StatusTag, SubTabs, daysUntil, dim, type FieldDef } from "./shared";
 import { addDays, businessToday } from "@/lib/date";
+import type { Tone } from "@/components/Badge";
+import { BTN, BTN_PRIMARY, LINK, REF } from "@/styles/ui";
 
 type Sub = "schedule" | "yard" | "resources";
 
@@ -34,7 +36,7 @@ const DEFAULT_DOCKS = ["Dock 1", "Dock 2", "Dock 3", "Dock 4"];
 const DEFAULT_OPENS = "06:00";
 const DEFAULT_CLOSES = "19:00";
 const SLOT_STATUSES = ["Booked", "In progress", "Completed", "Overdue", "Cancelled"];
-const SLOT_COLORS: Record<string, string> = { Completed: "green", "In progress": "orange", Booked: "default", Overdue: "red", Cancelled: "default" };
+const SLOT_TONES: Record<string, Tone> = { Completed: "g", "In progress": "a", Booked: "", Overdue: "r", Cancelled: "" };
 const SLOT_CELL: Record<string, string> = {
   Completed: "bg-emerald-50 border-emerald-200",
   "In progress": "bg-amber-50 border-amber-200",
@@ -42,13 +44,13 @@ const SLOT_CELL: Record<string, string> = {
   Overdue: "bg-red-50 border-red-200",
 };
 const YARD_STATUSES = ["On site", "Return due", "Gate-out today", "Overdue return"];
-const YARD_COLORS: Record<string, string> = { "On site": "default", "Return due": "orange", "Gate-out today": "blue", "Overdue return": "red" };
+const YARD_TONES: Record<string, Tone> = { "On site": "", "Return due": "a", "Gate-out today": "b", "Overdue return": "r" };
 const EQUIPMENT_STATUSES = ["Available", "In use", "Maintenance"];
-const EQUIPMENT_COLORS: Record<string, string> = { Available: "green", "In use": "blue", Maintenance: "red" };
-const STAFF_COLORS: Record<string, string> = { "On shift": "green", Booked: "blue" };
-
-const btnPrimary =
-  "flex items-center gap-1.5 shrink-0 rounded-lg bg-indigo-600 px-3 h-8 text-[13px] font-semibold text-white hover:bg-indigo-700 transition-colors";
+const EQUIPMENT_TONES: Record<string, Tone> = { Available: "g", "In use": "b", Maintenance: "r" };
+const STAFF_TONES: Record<string, Tone> = { "On shift": "g", Booked: "b" };
+const DIRECTION_TONES: Record<string, Tone> = { IN: "b", OUT: "i" };
+// A toolbar toggle: a plain button, indigo while it is on.
+const toggleBtn = (on: boolean) => (on ? `${BTN} !border-indigo-500 !bg-indigo-50 !text-indigo-700` : BTN);
 
 const pad = (n: number) => String(n).padStart(2, "0");
 // Slot dates are days on the warehouse's calendar (Prague), not the device's.
@@ -232,11 +234,11 @@ function DockSchedule() {
 
   const gateLink = (s: DockSlot) =>
     s.movementId ? (
-      <Link href={`/warehouse-concept/gate-log/${s.movementId}`} onClick={(e) => e.stopPropagation()} className="tabular-nums font-bold text-indigo-500 hover:underline">
+      <Link href={`/warehouse-concept/gate-log/${s.movementId}`} onClick={(e) => e.stopPropagation()} className={`${LINK} ${REF} font-bold`}>
         {s.positionRef || s.reference || "Position"}
       </Link>
     ) : s.reference ? (
-      <span className="tabular-nums font-bold text-slate-600">{s.reference}</span>
+      <span className={`${REF} font-bold text-slate-700`}>{s.reference}</span>
     ) : (
       dim("")
     );
@@ -244,11 +246,11 @@ function DockSchedule() {
   const columns: AppGridColumn<DockSlot>[] = [
     { key: "time", title: "Time", width: 110, text: (s) => `${s.time}${s.end ? `–${s.end}` : ""}`, render: (_, s) => <span className="tabular-nums text-slate-700">{s.time}{s.end ? `–${s.end}` : ""}</span> },
     { key: "dock", title: "Dock", width: 100, text: (s) => s.dock, filterOptions: docks, render: (_, s) => dim(s.dock) },
-    { key: "direction", title: "Direction", width: 100, text: (s) => s.direction, filterOptions: ["IN", "OUT"], render: (_, s) => <StatusTag value={s.direction} colors={{ IN: "blue", OUT: "purple" }} /> },
+    { key: "direction", title: "Direction", width: 100, text: (s) => s.direction, filterOptions: ["IN", "OUT"], render: (_, s) => <StatusTag value={s.direction} tones={DIRECTION_TONES} /> },
     { key: "reference", title: "Position", width: 170, text: (s) => s.positionRef || s.reference, render: (_, s) => gateLink(s) },
     { key: "party", title: "Party", width: 180, text: (s) => s.party, render: (_, s) => dim(s.party) },
     { key: "vehicle", title: "Vehicle", width: 120, text: (s) => s.vehicle, render: (_, s) => dim(s.vehicle) },
-    { key: "status", title: "Status", width: 120, text: (s) => s.status, filterOptions: SLOT_STATUSES, render: (_, s) => <StatusTag value={s.status} colors={SLOT_COLORS} /> },
+    { key: "status", title: "Status", width: 120, text: (s) => s.status, filterOptions: SLOT_STATUSES, render: (_, s) => <StatusTag value={s.status} tones={SLOT_TONES} /> },
   ];
 
   const gridCols = `80px repeat(${HOURS.length}, minmax(0, 1fr))`;
@@ -275,7 +277,7 @@ function DockSchedule() {
             <div className="grid gap-1 mb-1" style={{ gridTemplateColumns: gridCols }}>
               <div />
               {HOURS.map((h) => (
-                <div key={h} className="text-[11px] text-slate-400 text-center">
+                <div key={h} className="text-[11px] text-slate-500 text-center">
                   {h}:00
                 </div>
               ))}
@@ -309,7 +311,7 @@ function DockSchedule() {
                         style={{ gridColumn: `${col + 2} / span ${span}`, gridRow: lane + 1 }}
                         className={`relative z-[1] text-left border rounded-md px-1.5 py-1 overflow-hidden cursor-pointer ${SLOT_CELL[s.status] ?? SLOT_CELL.Booked}`}
                       >
-                        <div className="text-[10px] font-semibold leading-tight text-slate-800 truncate">
+                        <div className="text-[10px] font-semibold leading-tight text-slate-900 truncate">
                           {s.direction} {s.time}–{s.end}
                         </div>
                         <div className="text-[10px] text-slate-500 truncate">{s.positionRef || s.reference || s.party || "—"}</div>
@@ -399,7 +401,7 @@ function YardPark() {
   ];
 
   const columns: AppGridColumn<WarehouseContainer>[] = [
-    { key: "number", title: "Container", width: 160, text: (c) => c.number, render: (_, c) => <span className="tabular-nums font-bold text-indigo-500">{c.number}</span> },
+    { key: "number", title: "Container", width: 160, text: (c) => c.number, render: (_, c) => <span className={`${REF} font-bold text-indigo-600`}>{c.number}</span> },
     { key: "carrier", title: "Carrier", width: 140, text: (c) => c.carrier, render: (_, c) => dim(c.carrier) },
     { key: "equipment", title: "Type", width: 100, text: (c) => c.equipment, filterOptions: CONTAINER_TYPES, render: (_, c) => dim(c.equipment) },
     { key: "yardState", title: "State", width: 190, text: (c) => c.yardState, render: (_, c) => dim(c.yardState) },
@@ -419,7 +421,7 @@ function YardPark() {
               e.stopPropagation();
               router.push(c.movementId ? `/warehouse-concept/gate-log/${c.movementId}` : `/warehouse-concept/${c.warehouseTaskId}`);
             }}
-            className="tabular-nums font-bold text-indigo-500 hover:underline cursor-pointer"
+            className={`${LINK} ${REF} font-bold cursor-pointer`}
           >
             {c.positionRef}
           </span>
@@ -427,7 +429,7 @@ function YardPark() {
           dim("")
         ),
     },
-    { key: "yardStatus", title: "Status", width: 140, text: (c) => c.yardStatus, filterOptions: YARD_STATUSES, render: (_, c) => <StatusTag value={c.yardStatus} colors={YARD_COLORS} /> },
+    { key: "yardStatus", title: "Status", width: 140, text: (c) => c.yardStatus, filterOptions: YARD_STATUSES, render: (_, c) => <StatusTag value={c.yardStatus} tones={YARD_TONES} /> },
   ];
 
   return (
@@ -441,23 +443,13 @@ function YardPark() {
         searchPlaceholder="Search container, carrier…"
         actions={
           <>
-            <button className={btnPrimary} onClick={() => setEditing({})}>
+            <button type="button" className={BTN_PRIMARY} onClick={() => setEditing({})}>
               <PlusOutlined /> Gate-in container
             </button>
-            <button
-              onClick={() => setFilter(filter === "empties" ? null : "empties")}
-              className={`flex items-center gap-1.5 shrink-0 rounded-lg border px-3 h-8 text-[13px] font-medium transition-colors ${
-                filter === "empties" ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-              }`}
-            >
+            <button type="button" onClick={() => setFilter(filter === "empties" ? null : "empties")} className={toggleBtn(filter === "empties")}>
               Plan empty returns
             </button>
-            <button
-              onClick={() => setFilter(filter === "risk" ? null : "risk")}
-              className={`flex items-center gap-1.5 shrink-0 rounded-lg border px-3 h-8 text-[13px] font-medium transition-colors ${
-                filter === "risk" ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-              }`}
-            >
+            <button type="button" onClick={() => setFilter(filter === "risk" ? null : "risk")} className={toggleBtn(filter === "risk")}>
               Detention risk
             </button>
           </>
@@ -498,16 +490,16 @@ function Resources() {
   const [editingEquipment, setEditingEquipment] = useState<{ item?: Equipment } | null>(null);
 
   const staffColumns: AppGridColumn<StaffMember>[] = [
-    { key: "name", title: "Name", width: 160, text: (s) => s.name, render: (_, s) => <span className="font-medium text-slate-800">{s.name}</span> },
+    { key: "name", title: "Name", width: 160, text: (s) => s.name, render: (_, s) => <span className="font-medium text-slate-900">{s.name}</span> },
     { key: "role", title: "Role", width: 180, text: (s) => s.role, render: (_, s) => dim(s.role) },
     { key: "shift", title: "Shift", width: 130, text: (s) => s.shift, render: (_, s) => dim(s.shift) },
     { key: "area", title: "Area", width: 120, text: (s) => s.area, render: (_, s) => dim(s.area) },
-    { key: "status", title: "Status", width: 130, text: (s) => s.status, render: (_, s) => <StatusTag value={s.status} colors={STAFF_COLORS} /> },
+    { key: "status", title: "Status", width: 130, text: (s) => s.status, render: (_, s) => <StatusTag value={s.status} tones={STAFF_TONES} /> },
   ];
   const equipmentColumns: AppGridColumn<Equipment>[] = [
-    { key: "code", title: "ID", width: 100, text: (e) => e.code, render: (_, e) => <span className="tabular-nums font-bold text-indigo-500">{e.code}</span> },
+    { key: "code", title: "ID", width: 100, text: (e) => e.code, render: (_, e) => <span className={`${REF} font-bold text-indigo-600`}>{e.code}</span> },
     { key: "kind", title: "Equipment", width: 190, text: (e) => e.kind, render: (_, e) => dim(e.kind) },
-    { key: "status", title: "Status", width: 120, text: (e) => e.status, filterOptions: EQUIPMENT_STATUSES, render: (_, e) => <StatusTag value={e.status} colors={EQUIPMENT_COLORS} /> },
+    { key: "status", title: "Status", width: 120, text: (e) => e.status, filterOptions: EQUIPMENT_STATUSES, render: (_, e) => <StatusTag value={e.status} tones={EQUIPMENT_TONES} /> },
     { key: "operator", title: "Operator", width: 140, text: (e) => e.operator, render: (_, e) => dim(e.operator) },
     { key: "note", title: "Note", width: 240, text: (e) => e.note, render: (_, e) => dim(e.note) },
   ];
@@ -518,7 +510,7 @@ function Resources() {
         <AppGrid<StaffMember>
           searchPlaceholder="Search name, role, area…"
           actions={
-            <button className={btnPrimary} onClick={() => setEditingStaff({})}>
+            <button type="button" className={BTN_PRIMARY} onClick={() => setEditingStaff({})}>
               <PlusOutlined /> Person
             </button>
           }
@@ -536,7 +528,7 @@ function Resources() {
         <AppGrid<Equipment>
           searchPlaceholder="Search ID, equipment, operator…"
           actions={
-            <button className={btnPrimary} onClick={() => setEditingEquipment({})}>
+            <button type="button" className={BTN_PRIMARY} onClick={() => setEditingEquipment({})}>
               <PlusOutlined /> Equipment
             </button>
           }

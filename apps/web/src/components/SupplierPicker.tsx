@@ -189,7 +189,7 @@ export function SupplierPicker({
       }}
       suffixIcon={
         linked ? (
-          <LinkOutlined className="text-indigo-500" aria-label="Linked to the Customer Database" />
+          <LinkOutlined className="text-indigo-600" aria-label="Linked to the Customer Database" />
         ) : plain ? null : undefined
       }
     />

@@ -40,9 +40,9 @@ export function PartyContactField({ label, value, contactId, customerId, onChang
       contactId: c.id,
       label: (
         <div className="flex items-baseline gap-2">
-          <span className="font-medium text-slate-800">{c.name || "(unnamed)"}</span>
-          {c.role && <span className="text-[11px] text-slate-400">{c.role}</span>}
-          <span className="ml-auto text-[11px] text-slate-400 truncate">{c.email || c.phone}</span>
+          <span className="font-medium text-slate-900">{c.name || "(unnamed)"}</span>
+          {c.role && <span className="text-[11px] text-slate-500">{c.role}</span>}
+          <span className="ml-auto text-[11px] text-slate-500 truncate">{c.email || c.phone}</span>
         </div>
       ),
     }));

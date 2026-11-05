@@ -12,14 +12,12 @@ import { CONTAINER_STATUSES, CONTAINER_STATUS_TONE, KIND_LABEL, containerKind, f
 import { ContainerFormModal, type ContainerFormMode } from "../container/containerForm";
 import { FillBar } from "../container/FillBar";
 import { BulkDeleteButton, dim, nf } from "./shared";
+import { BTN_PRIMARY, REF } from "@/styles/ui";
 
 // Containers: one container, many positions (houses). An import container (Unloading) is stripped
 // and its houses tallied; an export container (Loading) is stuffed from a plan of inbound
 // positions. The list shows each container with its houses' totals against its capacity; a row
 // opens the container page (houses, stamps, log).
-
-const btnPrimary =
-  "flex items-center gap-1.5 shrink-0 rounded-lg bg-indigo-600 px-3 h-8 text-[13px] font-semibold text-white hover:bg-indigo-700 transition-colors";
 
 /** The yard date of a stamp, or the typed date from before the stamps. */
 const yardDate = (at: string | null, typed: string) => (at ? formatDateTime(at) : formatDate(typed));
@@ -38,7 +36,7 @@ export function ContainersTab() {
       width: 160,
       text: (c) => c.number,
       sorter: (a, b) => a.number.localeCompare(b.number),
-      render: (_, c) => <span className="tabular-nums font-bold text-indigo-500">{c.number}</span>,
+      render: (_, c) => <span className={`${REF} font-bold text-indigo-600`}>{c.number}</span>,
     },
     {
       key: "kind",
@@ -64,7 +62,7 @@ export function ContainersTab() {
       align: "right",
       text: (c) => String(c.positions.length),
       sorter: (a, b) => a.positions.length - b.positions.length,
-      render: (_, c) => (c.positions.length ? <span className="tabular-nums font-semibold text-slate-800">{c.positions.length}</span> : dim("")),
+      render: (_, c) => (c.positions.length ? <span className="tabular-nums font-semibold text-slate-900">{c.positions.length}</span> : dim("")),
     },
     {
       key: "housesList",
@@ -178,7 +176,7 @@ export function ContainersTab() {
       <AppGrid<WarehouseContainer>
         searchPlaceholder="Search container, seal, position, vessel, booking…"
         actions={
-          <button className={btnPrimary} onClick={() => setCreating("register")}>
+          <button type="button" className={BTN_PRIMARY} onClick={() => setCreating("register")}>
             <PlusOutlined /> Container
           </button>
         }

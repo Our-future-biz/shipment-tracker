@@ -12,6 +12,7 @@ import { businessDateTime, businessDayOf, businessToday, formatDate } from "@/li
 import { CURRENCIES } from "@/lib/enums";
 import { useToast } from "@/lib/toast";
 import { HaulierBankAccounts } from "@/app/trucking/hauliers/_components/HaulierBankAccounts";
+import { LABEL_TEXT } from "@/styles/ui";
 
 interface SupplierTermsCardProps {
   customer: CustomerItem;
@@ -113,8 +114,8 @@ export function SupplierTermsCard({ customer }: SupplierTermsCardProps) {
           <Alert type="info" showIcon icon={<LockOutlined />} message="Only a manager can change a supplier's payment terms and VAT / bank details." />
         )}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <label className="flex flex-col gap-1 text-[12px] text-slate-500">
-            Payment days (we pay within)
+          <label className="flex flex-col gap-1">
+            <span className={LABEL_TEXT}>Payment days (we pay within)</span>
             {editing ? (
               <InputNumber
                 aria-label="Payment days"
@@ -128,11 +129,11 @@ export function SupplierTermsCard({ customer }: SupplierTermsCardProps) {
                 className="!w-full"
               />
             ) : (
-              <span className="text-[14px] text-slate-800">{terms.paymentDays === null ? "Not set" : `${terms.paymentDays} days`}</span>
+              <span className="text-[14px] text-slate-900">{terms.paymentDays === null ? "Not set" : `${terms.paymentDays} days`}</span>
             )}
           </label>
-          <label className="flex flex-col gap-1 text-[12px] text-slate-500">
-            Paid in{haulier ? " (a haulier: CZK or EUR)" : ""}
+          <label className="flex flex-col gap-1">
+            <span className={LABEL_TEXT}>Paid in{haulier ? " (a haulier: CZK or EUR)" : ""}</span>
             {editing ? (
               <Select
                 aria-label="Currency"
@@ -146,13 +147,13 @@ export function SupplierTermsCard({ customer }: SupplierTermsCardProps) {
                 className="w-full"
               />
             ) : (
-              <span className="text-[14px] text-slate-800">{terms.currency ?? "Not set"}</span>
+              <span className="text-[14px] text-slate-900">{terms.currency ?? "Not set"}</span>
             )}
           </label>
         </div>
 
         <div className="flex flex-col gap-2 border-t border-slate-100 pt-3">
-          <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">VAT register</span>
+          <span className={LABEL_TEXT}>VAT register</span>
           <div className="flex items-center gap-2">
             <Switch size="small" checked={shown.vatUnreliable} disabled={!editing} aria-label="Unreliable VAT payer" onChange={(on) => set("vatUnreliable", on)} />
             <span className={`text-[13px] ${shown.vatUnreliable ? "font-semibold text-red-700" : "text-slate-700"}`}>Unreliable VAT payer</span>

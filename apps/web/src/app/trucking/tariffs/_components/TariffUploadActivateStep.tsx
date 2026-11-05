@@ -56,7 +56,7 @@ export const TariffUploadActivateStep = ({ version, activating, onActivate, onKe
               className="w-full"
             />
           </TruckingField>
-          <p className="m-0 text-[13px] text-slate-600">
+          <p className="m-0 text-[13px] text-slate-700">
             {validFrom === today ? "It prices consignments from today." : `It is scheduled and prices consignments from ${formatDate(validFrom)}.`}
             {version.warningCount > 0 && ` It has ${version.warningCount} warning${version.warningCount === 1 ? "" : "s"}, accepted by activating.`}
           </p>

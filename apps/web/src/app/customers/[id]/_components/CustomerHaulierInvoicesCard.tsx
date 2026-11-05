@@ -11,6 +11,7 @@ import { fmtMoney } from "@/lib/money";
 import { TruckingStatusChip } from "@/app/trucking/_components/TruckingStatusChip";
 import { INVOICE_STATUS_CHIP } from "@/app/trucking/_lib/haulierInvoices";
 import { EMPTY_CELL, TABLE_PAGINATION } from "../../_lib/customerTable";
+import { LINK } from "@/styles/ui";
 
 interface CustomerHaulierInvoicesCardProps {
   customerId: string;
@@ -26,7 +27,7 @@ export function CustomerHaulierInvoicesCard({ customerId }: CustomerHaulierInvoi
       title: "Invoice",
       dataIndex: "invoiceNumber",
       render: (v: string, r) => (
-        <Link href={`/trucking/haulier-invoices/${r.id}`} className="font-medium text-indigo-600 hover:underline">
+        <Link href={`/trucking/haulier-invoices/${r.id}`} className={`font-medium ${LINK}`}>
           {v || EMPTY_CELL}
         </Link>
       ),

@@ -122,7 +122,7 @@ export function DashboardView() {
               value={filters.search}
               onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
               allowClear
-              className="!w-80 !py-0.5 !ml-112"
+              className="!w-80 !ml-112"
             />
           }
           toolbar={<NoticeFiltersBar value={filters} onChange={setFilters} shown={shownNotices.length} total={announcements.length} />}

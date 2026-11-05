@@ -6,14 +6,15 @@ import { useToast } from "@/lib/toast";
 import { TERMS } from "@/app/warehouse-concept/_lib/glossary";
 import { errorMessage } from "@/app/warehouse-concept/gate-log/_lib/gate";
 import { MAX_PIN_TRIES, PICKUP_PIN_GATE, pinCheckMessage, type PinCheckResult } from "@/app/warehouse-concept/gate-log/_lib/steps";
+import { LABEL_TEXT, REF } from "@/styles/ui";
 import { useFloorQueue } from "../_lib/useFloorQueue";
 import { FloorCard, NeedsConnection, bigPrimary } from "./floorUi";
 import { FloorBack } from "./FloorBack";
 
 const TONE_BOX = {
-  g: "bg-emerald-50 text-green-800 border-emerald-200",
-  a: "bg-orange-50 text-orange-800 border-orange-200",
-  r: "bg-red-50 text-red-800 border-red-200",
+  g: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  a: "bg-amber-50 text-amber-700 border-amber-200",
+  r: "bg-red-50 text-red-700 border-red-200",
 } as const;
 
 // The pick-up PIN check on the phone: compare the truck with the pick-up from Shipments
@@ -31,7 +32,7 @@ export function FloorPinCheck({ m, onBack }: { m: GateMovement; onBack: () => vo
       <div className="flex flex-col gap-4">
         <FloorBack onBack={onBack} title={TERMS.pickupPin} />
         <FloorCard>
-          <div className="text-[14px] text-slate-600">No pick-up from Shipments on this position.</div>
+          <div className="text-[14px] text-slate-500">No pick-up from Shipments on this position.</div>
         </FloorCard>
       </div>
     );
@@ -57,8 +58,8 @@ export function FloorPinCheck({ m, onBack }: { m: GateMovement; onBack: () => vo
 
   const row = (k: string, v: string, mono = false) => (
     <div className="flex items-baseline gap-2 py-1 text-[14px]">
-      <span className="w-28 shrink-0 text-slate-500">{k}</span>
-      <span className={`min-w-0 flex-1 break-words font-semibold ${mono ? "tabular-nums" : ""}`}>{v || "—"}</span>
+      <span className={`w-28 shrink-0 ${LABEL_TEXT}`}>{k}</span>
+      <span className={`min-w-0 flex-1 break-words font-semibold ${mono ? REF : ""}`}>{v || "—"}</span>
     </div>
   );
 
@@ -101,7 +102,7 @@ export function FloorPinCheck({ m, onBack }: { m: GateMovement; onBack: () => vo
               disabled={!p.pinSet || p.locked || verifyPin.isPending}
               onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
               onKeyDown={(e) => e.key === "Enter" && check()}
-              className="h-14 rounded-xl border border-slate-300 px-4 text-center tabular-nums text-[24px] tracking-[0.4em]"
+              className="h-14 rounded-xl border border-slate-300 px-4 text-center tabular-nums text-[22px] tracking-[0.4em] outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
             />
             <button type="button" className={bigPrimary} disabled={!canCheck} onClick={check}>
               {verifyPin.isPending ? "Checking…" : "Check PIN"}

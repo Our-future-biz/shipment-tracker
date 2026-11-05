@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Tooltip } from "antd";
 import { SettingOutlined } from "@ant-design/icons";
+import { ICON_BTN_GHOST } from "@/styles/ui";
 
 /** The gear in the Warehouse header: opens Warehouse settings (supplier e-mail, docks). */
 export function SettingsLink() {
@@ -11,7 +12,7 @@ export function SettingsLink() {
       <Link
         href="/warehouse-concept/settings"
         aria-label="Warehouse settings"
-        className="inline-flex h-6 w-6 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 hover:text-indigo-600 transition-colors"
+        className={ICON_BTN_GHOST}
       >
         <SettingOutlined />
       </Link>

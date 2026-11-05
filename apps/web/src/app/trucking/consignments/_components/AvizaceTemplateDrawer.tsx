@@ -5,6 +5,8 @@ import { CopyOutlined } from "@ant-design/icons";
 import { apiErrorMessage } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { useAvizaceTemplate } from "@/hooks/useTruckingControl";
+import { SectionCard } from "@/components/SectionCard";
+import { LABEL_TEXT } from "@/styles/ui";
 import { avizaceCopyText } from "../../_lib/avizace";
 import { TERMS } from "../../_lib/glossary";
 
@@ -49,21 +51,25 @@ export const AvizaceTemplateDrawer = ({ consignmentId, open, onClose, onRecord }
             E-mail sending is off: copy the text into your phone, SMS or e-mail, then <b>record</b> how the delivery was agreed. The {TERMS.pickupPin} is never part of it.
           </p>
           <div className="flex flex-col gap-0.5">
-            <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">To</span>
-            <span className="font-semibold text-slate-800">{template.to || "No contact on the delivery stop"}</span>
+            <span className={LABEL_TEXT}>To</span>
+            <span className="font-semibold text-slate-900">{template.to || "No contact on the delivery stop"}</span>
           </div>
           {LANGUAGES.map(({ key, label }) => {
             const text = avizaceCopyText(template, key);
             return (
-              <section key={key} className="rounded-lg border border-slate-200">
-                <header className="flex items-center gap-2 border-b border-slate-100 bg-slate-50 px-3 py-1.5">
-                  <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{label}</span>
-                  <Button size="small" icon={<CopyOutlined />} className="ml-auto" onClick={() => handleCopy(text, label)}>
+              <SectionCard
+                key={key}
+                title={label}
+                dense
+                bodyClassName="px-4 py-3"
+                extra={
+                  <Button size="small" icon={<CopyOutlined />} onClick={() => handleCopy(text, label)}>
                     Copy {label}
                   </Button>
-                </header>
-                <pre className="m-0 whitespace-pre-wrap break-words px-3 py-2 font-sans text-[13px] text-slate-700">{text}</pre>
-              </section>
+                }
+              >
+                <pre className="m-0 whitespace-pre-wrap break-words font-sans text-[13px] text-slate-700">{text}</pre>
+              </SectionCard>
             );
           })}
           <div>

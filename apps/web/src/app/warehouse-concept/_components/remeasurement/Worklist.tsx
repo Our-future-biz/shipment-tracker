@@ -2,8 +2,9 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Segmented } from "antd";
 import { AppGrid, type AppGridColumn } from "@/components/AppGrid";
+import { PillTabs } from "@/components/SectionCard";
+import { EMPTY, REF } from "@/styles/ui";
 import { useWarehouse } from "@/hooks/useWarehouse";
 import { useGateLog, type GateMovement } from "@/hooks/useGateLog";
 import { useWarehouseSectionSummary } from "@/hooks/useWarehouseConceptSection";
@@ -59,10 +60,10 @@ export function Worklist() {
       width: 150,
       text: (r) => r.m.positionRef || r.task.taskId,
       sorter: (a, b) => (a.m.positionRef || a.task.taskId).localeCompare(b.m.positionRef || b.task.taskId),
-      render: (_, r) => <span className="tabular-nums font-bold text-indigo-500">{r.m.positionRef || r.task.taskId}</span>,
+      render: (_, r) => <span className={`${REF} font-bold text-indigo-600`}>{r.m.positionRef || r.task.taskId}</span>,
     },
-    { key: "jobNumber", title: TERMS.jobNo, width: 150, text: (r) => r.m.jobNumber, render: (_, r) => <span className="tabular-nums text-slate-600">{r.m.jobNumber || "—"}</span> },
-    { key: "customer", title: "Customer", width: 200, text: (r) => r.m.customer, render: (_, r) => <span className="text-slate-600">{r.m.customer || "—"}</span> },
+    { key: "jobNumber", title: TERMS.jobNo, width: 150, text: (r) => r.m.jobNumber, render: (_, r) => (r.m.jobNumber ? <span className={`${REF} text-slate-700`}>{r.m.jobNumber}</span> : <span className={EMPTY}>—</span>) },
+    { key: "customer", title: "Customer", width: 200, text: (r) => r.m.customer, render: (_, r) => (r.m.customer ? <span className="text-slate-700">{r.m.customer}</span> : <span className={EMPTY}>—</span>) },
     { key: "direction", title: TERMS.direction, width: 110, text: (r) => directionOf(r.m) },
     {
       key: "waiting",
@@ -87,7 +88,7 @@ export function Worklist() {
       align: "right",
       text: (r) => (r.m.storage.started ? String(r.m.storage.daysInWarehouse) : ""),
       sorter: (a, b) => a.m.storage.daysInWarehouse - b.m.storage.daysInWarehouse,
-      render: (_, r) => (r.m.storage.started ? <span className="tabular-nums">{r.m.storage.daysInWarehouse}</span> : <span className="text-slate-300">—</span>),
+      render: (_, r) => (r.m.storage.started ? <span className="tabular-nums">{r.m.storage.daysInWarehouse}</span> : <span className={EMPTY}>—</span>),
     },
     {
       key: "freeTime",
@@ -104,11 +105,11 @@ export function Worklist() {
       text: (r) => releaseGatesText(r.m),
       render: (_, r) =>
         !leavesByRelease(r.m) ? (
-          <span className="text-slate-300">n/a — inbound</span>
+          <span className={EMPTY}>n/a — inbound</span>
         ) : r.m.armed ? (
           <span className="font-medium text-emerald-600">{TERMS.clear}</span>
         ) : (
-          <span className="text-red-500" title={waitingGates(r.m).join(", ")}>
+          <span className="text-red-600" title={waitingGates(r.m).join(", ")}>
             {TERMS.blocked} — {waitingGates(r.m).join(", ") || "—"}
           </span>
         ),
@@ -119,13 +120,13 @@ export function Worklist() {
     <AppGrid<Item>
       title="Waiting for remeasurement or release"
       headerExtra={
-        <Segmented
-          value={filter}
-          onChange={(v) => setFilter(v as Filter)}
-          options={[
-            { value: "all", label: `All (${items.length})` },
-            { value: "remeasure", label: `Remeasurement (${count("remeasure")})` },
-            { value: "release", label: `Release (${count("release")})` },
+        <PillTabs<Filter>
+          active={filter}
+          onChange={setFilter}
+          tabs={[
+            { key: "all", label: `All (${items.length})` },
+            { key: "remeasure", label: `Remeasurement (${count("remeasure")})` },
+            { key: "release", label: `Release (${count("release")})` },
           ]}
         />
       }

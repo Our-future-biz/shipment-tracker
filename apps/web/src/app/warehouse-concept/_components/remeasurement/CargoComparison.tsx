@@ -10,6 +10,8 @@ import { nf } from "../../gate-log/_lib/gate";
 import { declaredTotals, linesTotals, parseLines, pctText, reweighVariance, TOLERANCE, variance, wm, type CargoTotals, type RemeasureLine } from "../../_lib/cargoCompare";
 import { Card } from "../tabs/shared";
 import { sentHistory } from "./NotesAndSent";
+import { Badge } from "@/components/Badge";
+import { EMPTY, HINT, LABEL_TEXT, TD, TH } from "@/styles/ui";
 
 // Block B — the cargo side by side: declared on the shipment, received at the gate (the gate
 // figures) and remeasured by the warehouse (the lines below, as typed). A difference is flagged
@@ -109,21 +111,23 @@ export function CargoComparison({
               ? "The gate figures already match the remeasurement"
               : null;
 
-  const cell = "px-3 py-2 text-right tabular-nums";
+  const cell = `${TD} text-right tabular-nums`;
+  // A row's label, in the first column.
+  const rowHead = `text-left px-2 py-2 border-b border-slate-100 ${LABEL_TEXT}`;
   return (
     <Card title="Cargo comparison" extra={`Tolerance: any piece difference, or more than ${TOLERANCE * 100} % on weight / volume`}>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[620px] border-collapse text-xs">
+        <table className="w-full min-w-[620px] border-collapse">
           <thead>
-            <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wide text-slate-500">
-              <th className="text-left px-3 py-2" />
-              <th className="text-right px-3 py-2">Declared (shipment)</th>
-              <th className="text-right px-3 py-2">Received at gate</th>
-              <th className="text-right px-3 py-2">
+            <tr>
+              <th className={TH} />
+              <th className={`${TH} !text-right`}>Declared (shipment)</th>
+              <th className={`${TH} !text-right`}>Received at gate</th>
+              <th className={`${TH} !text-right`}>
                 Remeasured{linesUnsaved ? <span className="ml-1 normal-case font-semibold text-amber-600">(unsaved)</span> : null}
               </th>
-              {(reweighed || m?.needsReweigh) && <th className="text-right px-3 py-2">Re-weighed</th>}
-              <th className="text-left px-3 py-2">Variance</th>
+              {(reweighed || m?.needsReweigh) && <th className={`${TH} !text-right`}>Re-weighed</th>}
+              <th className={TH}>Variance</th>
             </tr>
           </thead>
           <tbody>
@@ -132,20 +136,20 @@ export function CargoComparison({
               const x = flag(remVsRef, r.key);
               const show = (t: CargoTotals | null) => {
                 const v = valueOf(t, r.key);
-                return v ? nf(v, r.digits) : <span className="text-slate-300">—</span>;
+                return v ? nf(v, r.digits) : <span className={EMPTY}>—</span>;
               };
               return (
-                <tr key={r.key} className="border-b border-slate-100 last:border-b-0">
-                  <th scope="row" className="text-left px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                <tr key={r.key} className="[&:last-child>*]:border-b-0">
+                  <th scope="row" className={rowHead}>
                     {r.label}
                   </th>
-                  <td className={cell}>{declared ? show(declared) : <span className="text-slate-300">{r.key === "pieces" ? "stand-alone" : "—"}</span>}</td>
-                  <td className={`${cell} ${g ? "text-amber-700 font-semibold" : ""}`}>{show(gate)}</td>
-                  <td className={`${cell} ${x ? "text-amber-700 font-semibold" : ""}`}>{show(remeasured)}</td>
+                  <td className={cell}>{declared ? show(declared) : <span className={EMPTY}>{r.key === "pieces" ? "stand-alone" : "—"}</span>}</td>
+                  <td className={`${cell} ${g ? "!text-amber-700 font-semibold" : ""}`}>{show(gate)}</td>
+                  <td className={`${cell} ${x ? "!text-amber-700 font-semibold" : ""}`}>{show(remeasured)}</td>
                   {(reweighed || m?.needsReweigh) && (
-                    <td className={`${cell} ${r.key === "kg" && reweighVar.flagged ? "text-amber-700 font-semibold" : ""}`}>
+                    <td className={`${cell} ${r.key === "kg" && reweighVar.flagged ? "!text-amber-700 font-semibold" : ""}`}>
                       {r.key !== "kg" ? (
-                        <span className="text-slate-300">—</span>
+                        <span className={EMPTY}>—</span>
                       ) : reweighed ? (
                         <Tooltip title={`${formatDateTime(reweighed.weighedAt)}${reweighed.weighedBy ? ` · ${reweighed.weighedBy}` : ""}`}>
                           <span>{nf(reweighed.weighedKg, r.digits)}</span>
@@ -155,13 +159,13 @@ export function CargoComparison({
                       )}
                     </td>
                   )}
-                  <td className="px-3 py-2">
+                  <td className={TD}>
                     <span className="flex flex-wrap gap-1.5">
                       {r.key === "kg" && reweighVar.flagged && <VarTag label={`re-weighed ${pctText(reweighVar.pct)}${declared ? "" : " vs gate"}`} />}
                       {g && <VarTag label={`gate ${diffText(declared, gate, r.key, r.digits)}`} />}
                       {x && <VarTag label={`remeasured ${diffText(reference, remeasured, r.key, r.digits)}${declared ? "" : " vs gate"}`} />}
                       {!g && !x && flag(remVsGate, r.key) && <VarTag label={`remeasured vs gate ${diffText(gate, remeasured, r.key, r.digits)}`} />}
-                      {!g && !x && !flag(remVsGate, r.key) && !(r.key === "kg" && reweighVar.flagged) && <span className="text-slate-300">—</span>}
+                      {!g && !x && !flag(remVsGate, r.key) && !(r.key === "kg" && reweighVar.flagged) && <span className={EMPTY}>—</span>}
                     </span>
                   </td>
                 </tr>
@@ -194,7 +198,7 @@ export function CargoComparison({
             }
           />
         ) : hasAny(remeasured) || (declared && hasAny(gate)) || (reweighed && reweighVar.pct != null) ? (
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-xs text-emerald-700">Within tolerance</div>
+          <Alert type="success" showIcon message={<span className="text-xs">Within tolerance</span>} />
         ) : null}
 
         {wmChanged && !sentSinceSave && (
@@ -222,7 +226,7 @@ export function CargoComparison({
               </Button>
             </span>
           </Tooltip>
-          <span className="text-[11px] text-slate-400">Changes the gate figures only — the shipment&rsquo;s cargo is not changed.</span>
+          <span className="text-[11px] text-slate-500">Changes the gate figures only — the shipment&rsquo;s cargo is not changed.</span>
         </div>
       </div>
 
@@ -239,12 +243,12 @@ export function CargoComparison({
         }
         destroyOnHidden
       >
-        <p className="text-xs text-slate-500 mt-0">
+        <p className={`${HINT} mt-0`}>
           The gate figures of {m?.positionRef || m?.gateRef} become the totals of the saved remeasured lines. Logged on the gate record. The shipment&apos;s cargo
           is not changed.
         </p>
         {gate && savedRemeasured && (
-          <table className="w-full text-xs border-collapse">
+          <table className="w-full border-collapse">
             <tbody>
               {(
                 [
@@ -253,13 +257,13 @@ export function CargoComparison({
                   [TERMS.volumeCbm, nf(gate.cbm, 3), nf(savedRemeasured.cbm, 3)],
                 ] as const
               ).map(([k, from, to]) => (
-                <tr key={k} className="border-b border-slate-100">
-                  <th scope="row" className="text-left py-1.5 text-[11px] uppercase text-slate-500">
+                <tr key={k}>
+                  <th scope="row" className={rowHead}>
                     {k}
                   </th>
-                  <td className="py-1.5 text-right tabular-nums">{from}</td>
-                  <td className="py-1.5 px-2 text-center text-slate-400">→</td>
-                  <td className="py-1.5 tabular-nums font-semibold">{to}</td>
+                  <td className={`${TD} text-right tabular-nums`}>{from}</td>
+                  <td className={`${TD} text-center !text-slate-400`}>→</td>
+                  <td className={`${TD} tabular-nums font-semibold !text-slate-900`}>{to}</td>
                 </tr>
               ))}
             </tbody>
@@ -271,5 +275,5 @@ export function CargoComparison({
 }
 
 function VarTag({ label }: { label: string }) {
-  return <span className="inline-block rounded-[5px] bg-orange-50 px-2 py-[2px] text-[11px] font-semibold text-orange-700 whitespace-nowrap">{label}</span>;
+  return <Badge tone="a">{label}</Badge>;
 }

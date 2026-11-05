@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import type { ChangeEvent } from "react";
 import Link from "next/link";
-import { Button, Input, Select, Table, Tag, Tooltip } from "antd";
+import { Button, Input, Select, Table, Tooltip } from "antd";
 import { DeleteOutlined, SearchOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { ConfirmModal } from "@/components/ConfirmModal";
@@ -16,12 +16,14 @@ import { useCanDeleteShipments } from "@/lib/auth/AuthContext";
 import type { ShipmentFinancials } from "@/hooks/useCustomerShipmentFinancials";
 import { formatDate } from "@/lib/date";
 import { isCompletedStatus } from "@/lib/enums";
-import { statusLabel, statusTagColor } from "@/lib/shipmentStatus";
+import { StatusBadge } from "@/components/StatusBadge";
+import { statusLabel } from "@/lib/shipmentStatus";
 import { useToast } from "@/lib/toast";
 import { fmtMoney, marginPct } from "../../_lib/customerMoney";
 import { CustomerCountChip } from "../_components/CustomerCountChip";
 import { CustomerKpiTile, KPI_GRID_CLASS } from "../_components/CustomerKpiTile";
 import { EMPTY_CELL, TABLE_PAGINATION } from "../../_lib/customerTable";
+import { LINK } from "@/styles/ui";
 
 interface ShipmentsTabProps {
   customerId: string;
@@ -36,7 +38,7 @@ function distinctOptions(values: string[]): { value: string; label: string }[] {
 }
 
 function profitClassName(profit: number): string | undefined {
-  if (profit > 0) return "text-green-600";
+  if (profit > 0) return "text-emerald-600";
   if (profit < 0) return "text-red-600";
   return undefined;
 }
@@ -140,7 +142,7 @@ export function ShipmentsTab({ customerId }: ShipmentsTabProps) {
       width: 170,
       // The shipment page is addressed by the shipment ID, not by the job number.
       render: (v: string, r) => (
-        <Link href={`/shipments/${r.id}`} className="tabular-nums font-semibold text-indigo-600 hover:underline">
+        <Link href={`/shipments/${r.id}`} className={`tabular-nums font-semibold ${LINK}`}>
           {v}
         </Link>
       ),
@@ -154,7 +156,7 @@ export function ShipmentsTab({ customerId }: ShipmentsTabProps) {
       render: (_: unknown, r) => {
         if (!r.pol && !r.pod) return EMPTY_CELL;
         return (
-          <span className="text-slate-600">
+          <span className="text-slate-700">
             {r.pol || "—"} <span className="text-slate-300">→</span> {r.pod || "—"}
           </span>
         );
@@ -166,9 +168,7 @@ export function ShipmentsTab({ customerId }: ShipmentsTabProps) {
       width: 140,
       render: (v: string) =>
         v ? (
-          <Tag color={statusTagColor(v)} className="!m-0">
-            {statusLabel(v)}
-          </Tag>
+          <StatusBadge status={v} />
         ) : (
           EMPTY_CELL
         ),

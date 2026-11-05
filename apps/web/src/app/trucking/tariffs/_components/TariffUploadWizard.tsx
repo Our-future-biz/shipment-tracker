@@ -11,6 +11,8 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { fileToBase64 } from "@/lib/files";
 import { useToast } from "@/lib/toast";
 import { useTariff, useTariffImport, useTruckingSettings, type TariffImportResult } from "@/hooks/useTrucking";
+import { HINT, LINK, PAGE_SUBTITLE, PAGE_TITLE } from "@/styles/ui";
+import { LINK_ICON_BTN_GHOST } from "../../_lib/linkButtons";
 import { isTruckingManager } from "../../_lib/roles";
 import { DISCOUNT_NO_FILE, UPLOAD_STEPS, tariffFileProblem } from "../../_lib/tariffUpload";
 import { countErrors, versionLabel } from "../../_lib/tariffs";
@@ -67,7 +69,7 @@ export const TariffUploadWizard = ({ tariffId }: TariffUploadWizardProps) => {
     return (
       <div className="p-10 text-center text-slate-500">
         {isNotFound(error) ? "This tariff does not exist." : `Could not load the tariff: ${apiErrorMessage(error)}.`}{" "}
-        <Link href="/trucking?tab=tariffs" className="text-indigo-500">
+        <Link href="/trucking?tab=tariffs" className={LINK}>
           Back to Tariffs
         </Link>
       </div>
@@ -122,12 +124,12 @@ export const TariffUploadWizard = ({ tariffId }: TariffUploadWizardProps) => {
     <div className="bg-slate-50 min-h-full">
       <div className="bg-white border-b border-slate-200 px-6 py-4">
         <div className="flex flex-wrap items-start gap-2">
-          <Link href={tariffHref} aria-label="Back to the tariff" className="mt-1 text-slate-400 hover:text-indigo-500 p-1">
+          <Link href={tariffHref} aria-label="Back to the tariff" className={LINK_ICON_BTN_GHOST}>
             <ArrowLeftOutlined />
           </Link>
           <div className="min-w-0 flex-1">
-            <h1 className="text-[22px] font-bold text-slate-800 m-0">Upload a tariff file · {tariff.name}</h1>
-            <div className="text-xs text-slate-500 mt-1">
+            <h1 className={PAGE_TITLE}>Upload a tariff file · {tariff.name}</h1>
+            <div className={`${PAGE_SUBTITLE} mt-1`}>
               {version
                 ? `Saved as draft ${versionLabel(version)}. Leaving the wizard keeps it as a draft on the tariff page.`
                 : "The file is saved as a draft from step 2 on; leaving the wizard keeps it."}
@@ -153,7 +155,7 @@ export const TariffUploadWizard = ({ tariffId }: TariffUploadWizardProps) => {
               }))}
             />
             <SectionCard title={shown.title}>
-              <p className="mt-0 mb-4 text-[12px] text-slate-500">{STEP_HINTS[current]}</p>
+              <p className={`mt-0 mb-4 ${HINT}`}>{STEP_HINTS[current]}</p>
               {body}
             </SectionCard>
             <div className="flex flex-wrap items-center gap-2">

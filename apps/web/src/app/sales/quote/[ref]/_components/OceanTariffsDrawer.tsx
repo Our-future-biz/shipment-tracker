@@ -128,7 +128,7 @@ export const OceanTariffsDrawer = ({ open, quote, quoteCurrency, toQuoteCurrency
         return (
           <div className="whitespace-nowrap tabular-nums">
             {o.totals.map((t) => (
-              <div key={t.currency} className="font-semibold text-slate-800">
+              <div key={t.currency} className="font-semibold text-slate-900">
                 {fmtMoney(t.amount, t.currency)}
               </div>
             ))}
@@ -172,12 +172,12 @@ export const OceanTariffsDrawer = ({ open, quote, quoteCurrency, toQuoteCurrency
           />
         </TariffDrawerField>
       </div>
-      <label className="flex items-center gap-2 text-[13px] text-slate-600 cursor-pointer w-fit">
+      <label className="flex items-center gap-2 text-[13px] text-slate-700 cursor-pointer w-fit">
         <Switch size="small" checked={route.comparePols} onChange={(comparePols) => set({ comparePols })} />
         Compare other ports of loading
       </label>
 
-      <div className="text-[13px] text-slate-600">
+      <div className="text-[13px] text-slate-700">
         {containersText || "No containers"}
         {route.dangerous && <span className="text-amber-700"> · dangerous goods: IMO surcharges apply</span>}
         <div className="text-[12px] text-slate-400">

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { TruckingCostTag } from "@/lib/truckingCosts";
+import { LINK } from "@/styles/ui";
 
 interface TruckingCostTagLinkProps {
   tag: TruckingCostTag;
@@ -10,7 +11,7 @@ interface TruckingCostTagLinkProps {
 // company has Trucking hidden.
 export const TruckingCostTagLink = ({ tag }: TruckingCostTagLinkProps) =>
   tag.href ? (
-    <Link href={tag.href} title={tag.title} className="block px-[7px] text-[11px] font-semibold text-indigo-600 hover:underline">
+    <Link href={tag.href} title={tag.title} className={`block px-[7px] text-[11px] font-semibold ${LINK}`}>
       {tag.label}
     </Link>
   ) : (

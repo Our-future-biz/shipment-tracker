@@ -8,6 +8,7 @@ import { AppGrid, type AppGridColumn } from "@/components/AppGrid";
 import { useTruckingSettings } from "@/hooks/useTrucking";
 import { useTrips, type TripListItem, type TripStatus } from "@/hooks/useTruckingConsignments";
 import { useAvizacePending } from "@/hooks/useTruckingControl";
+import { LINK, REF } from "@/styles/ui";
 import { avizaceWarning } from "../_lib/avizace";
 import { businessDateTime, businessToday, formatDate } from "@/lib/date";
 import { TRIP_STATUS_CHIP, tripHref } from "../_lib/consignments";
@@ -52,7 +53,7 @@ const buildColumns = (
     text: (t) => t.ref,
     sorter: (a, b) => byText(a.ref, b.ref),
     render: (_, t) => (
-      <Link href={tripHref(t.id)} onClick={(e) => e.stopPropagation()} className="tabular-nums font-semibold text-indigo-600 hover:underline">
+      <Link href={tripHref(t.id)} onClick={(e) => e.stopPropagation()} className={`${LINK} ${REF} font-semibold`}>
         {t.ref}
       </Link>
     ),
@@ -72,7 +73,7 @@ const buildColumns = (
     filterOptions: KIND_LABELS,
     sorter: (a, b) => KIND_LABELS.indexOf(TRIP_KIND_LABEL[a.kind]) - KIND_LABELS.indexOf(TRIP_KIND_LABEL[b.kind]),
   },
-  { key: "consignments", title: "Consignments", text: (t) => t.consignmentRefs.join(", "), render: (_, t) => <span className="tabular-nums">{t.consignmentRefs.join(", ")}</span> },
+  { key: "consignments", title: "Consignments", text: (t) => t.consignmentRefs.join(", "), render: (_, t) => <span className={REF}>{t.consignmentRefs.join(", ")}</span> },
   { key: "haulier", title: "Haulier", text: (t) => t.haulierName, sorter: (a, b) => byText(a.haulierName, b.haulierName) },
   {
     key: "haulierStatus",
@@ -83,7 +84,7 @@ const buildColumns = (
   },
   { key: "pickup", title: "Planned pick-up", text: (t) => formatDate(t.plannedPickupDate), sorter: (a, b) => byText(a.plannedPickupDate, b.plannedPickupDate) },
   { key: "vehicle", title: "Vehicle", text: (t) => vehicleLabel(t.vehicleTypeCode) },
-  { key: "tractor", title: "Tractor plate", text: (t) => t.tractorPlate, render: (_, t) => (t.tractorPlate ? <span className="tabular-nums">{t.tractorPlate}</span> : dash) },
+  { key: "tractor", title: "Tractor plate", text: (t) => t.tractorPlate, render: (_, t) => (t.tractorPlate ? <span className={REF}>{t.tractorPlate}</span> : dash) },
   {
     key: "fill",
     title: "Fill",

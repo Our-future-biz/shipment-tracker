@@ -7,6 +7,7 @@ import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import type { interfaces } from "@/lib/api/client";
 import { CURRENCIES } from "@/lib/cargo";
+import { HINT, LABEL_TEXT } from "@/styles/ui";
 
 // The Commercial Invoice number(s) / value cells open this: the shipment's commercial
 // invoices (number, value, currency), edited as a whole like the Dimensions dialog —
@@ -30,7 +31,7 @@ const currencyOptions = (query: string) => {
     value: c.code,
     label: (
       <span>
-        {c.code} <span className="text-slate-400 text-xs">{c.name}</span>
+        {c.code} <span className={HINT}>{c.name}</span>
       </span>
     ),
   }));
@@ -112,7 +113,7 @@ export function CommercialInvoicesModal({
         </div>
       }
     >
-      <div className={`${COLS} px-1 pb-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wide border-b border-slate-200`}>
+      <div className={`${COLS} px-1 pb-1.5 ${LABEL_TEXT} border-b border-slate-200`}>
         <span className="text-center truncate">Commercial Invoice Number</span>
         <span className="text-center truncate">Value</span>
         <span className="text-center truncate">Currency</span>
@@ -143,7 +144,7 @@ export function CommercialInvoicesModal({
       ))}
 
       {/* The values add up per currency, under the Value column. */}
-      <div className={`${COLS} px-1 pt-2.5 mt-1 border-t border-slate-200 text-[11px] font-bold text-slate-700`}>
+      <div className={`${COLS} px-1 pt-2.5 mt-1 border-t-2 border-slate-200 text-[13px] font-semibold text-slate-900`}>
         <span className="text-center tabular-nums">
           {lines.filter((l) => !isEmpty(l)).length} INVOICE{lines.filter((l) => !isEmpty(l)).length === 1 ? "" : "S"}
         </span>

@@ -48,6 +48,7 @@ import { LOAD_TYPE_FILTER_OPTIONS, loadTypeLabel } from "@/lib/enums";
 import { downloadCsv } from "@/lib/csv";
 import { businessToday } from "@/lib/date";
 import { foldIncludes } from "@/lib/fold";
+import { BTN, BTN_GHOST, BTN_PRIMARY, BTN_SM, CARD, EMPTY, HINT, ICON_BTN, ICON_BTN_GHOST, LINK, PAGE_TITLE } from "@/styles/ui";
 
 // --- Props ---
 
@@ -133,6 +134,10 @@ function exportShipmentsCsv(rows: ShipmentItem[], visibleKeys: string[]): void {
 }
 
 const MAX_RECENT_SEARCHES = 5;
+
+// A cell that leads somewhere is a link (LINK) - unless a conditional-format rule colours it: then
+// its own colour (an inline style) shows, which LINK's "!" colour would beat.
+const cellLinkClass = (color: string | undefined) => (color ? "hover:!underline" : LINK);
 
 export const ShipmentsTable = ({
   shipments,
@@ -466,7 +471,7 @@ export const ShipmentsTable = ({
             <ShipmentHoverCard shipment={record} jobNumberColor={cellStyle?.color}>
               <span
                 onClick={() => router.push(detailHref.replace(":id", record.id))}
-                className={`tabular-nums hover:underline cursor-pointer ${cellStyle?.color ? "" : "text-indigo-500"} ${cellStyle?.fontWeight ? "" : "font-bold"}`}
+                className={`tabular-nums cursor-pointer ${cellLinkClass(cellStyle?.color)} ${cellStyle?.fontWeight ? "" : "font-bold"}`}
                 // Conditional formatting rules set these per row; without one the classes apply.
                 style={{ color: cellStyle?.color, fontWeight: cellStyle?.fontWeight }}
               >
@@ -480,13 +485,13 @@ export const ShipmentsTable = ({
           return val ? (
             <button
               onClick={(e) => { e.stopPropagation(); setMczModal(val); }}
-              className="text-link hover:underline font-medium bg-transparent border-none p-0 cursor-pointer"
+              className={`${cellLinkClass(textStyle?.color)} font-medium bg-transparent border-none p-0 cursor-pointer`}
               style={textStyle}
             >
               {val}
             </button>
           ) : (
-            <span className="text-slate-300">{"\u2014"}</span>
+            <span className={EMPTY}>{"\u2014"}</span>
           );
         }
         // Container Number / Type / Total TEU \u2192 open the shipment's Container Details tab.
@@ -494,13 +499,13 @@ export const ShipmentsTable = ({
           return val ? (
             <button
               onClick={(e) => { e.stopPropagation(); router.push(`/shipments/${record.id}?tab=container`); }}
-              className="text-link hover:underline font-medium bg-transparent border-none p-0 cursor-pointer text-left"
+              className={`${cellLinkClass(textStyle?.color)} font-medium bg-transparent border-none p-0 cursor-pointer text-left`}
               style={textStyle}
             >
               {val}
             </button>
           ) : (
-            <span className="text-slate-300">{"\u2014"}</span>
+            <span className={EMPTY}>{"\u2014"}</span>
           );
         }
         // Dimensions \u2192 a link to the dimension lines, shown and edited in a dialog.
@@ -508,7 +513,7 @@ export const ShipmentsTable = ({
           return (
             <button
               onClick={(e) => { e.stopPropagation(); setDimsShipmentId(record.id); }}
-              className="text-link hover:underline font-medium bg-transparent border-none p-0 cursor-pointer"
+              className={`${cellLinkClass(textStyle?.color)} font-medium bg-transparent border-none p-0 cursor-pointer`}
               style={textStyle}
             >
               Click for Preview
@@ -555,7 +560,7 @@ export const ShipmentsTable = ({
           return (
             <button
               onClick={(e) => { e.stopPropagation(); setInvoicesShipmentId(record.id); }}
-              className={`hover:underline bg-transparent border-none p-0 cursor-pointer text-left ${shown ? "text-slate-600" : "text-slate-300"}`}
+              className={`hover:underline bg-transparent border-none p-0 cursor-pointer text-left ${shown ? "text-slate-700" : EMPTY}`}
               style={shown ? textStyle : undefined}
             >
               {shown || "\u2014"}
@@ -565,7 +570,7 @@ export const ShipmentsTable = ({
         // Read-only columns (computed, createdBy\u2026) \u2014 plain text.
         if (col.readonly || viewReadonly?.includes(col.key)) {
           const shown = col.key === "loadType" ? loadTypeLabel(val, record.freightMode) : val;
-          return shown ? <span className="text-slate-600" style={textStyle}>{shown}</span> : <span className="text-slate-300">{"\u2014"}</span>;
+          return shown ? <span className="text-slate-700" style={textStyle}>{shown}</span> : <span className={EMPTY}>{"\u2014"}</span>;
         }
         // Everything else \u2014 inline editable (double-click). Text/dropdown/date per column config.
         // The row's Freight Mode lets an air shipment's POL and POD offer airports.
@@ -579,8 +584,8 @@ export const ShipmentsTable = ({
               contactId={record.customerPicContactId ?? null}
               onCommit={(fieldKey, value, links) => updateField(record.id, fieldKey, value, record, links)}
               placeholder={"\u2014"}
-              displayClassName="text-slate-600"
-              emptyClassName="text-slate-300"
+              displayClassName="text-slate-700"
+              emptyClassName={EMPTY}
               displayStyle={textStyle}
             />
           </FreightModeContext.Provider>
@@ -600,7 +605,7 @@ export const ShipmentsTable = ({
         <Tooltip title="Documents">
           <button
             onClick={(e) => { e.stopPropagation(); setDocsShipment(record); }}
-            className="text-slate-400 hover:text-indigo-500 bg-transparent border-none cursor-pointer p-1"
+            className="text-slate-400 hover:text-indigo-600 bg-transparent border-none cursor-pointer p-1"
           >
             <FileTextOutlined />
           </button>
@@ -625,7 +630,7 @@ export const ShipmentsTable = ({
             <Badge count={unread} size="small" color="#ef4444" offset={[0, 2]}>
               <button
                 onClick={(e) => { e.stopPropagation(); setChatShipment(record); }}
-                className={`bg-transparent border-none cursor-pointer p-1 ${unread ? "text-red-500 hover:text-red-600" : "text-slate-400 hover:text-indigo-500"}`}
+                className={`bg-transparent border-none cursor-pointer p-1 ${unread ? "text-red-500 hover:text-red-600" : "text-slate-400 hover:text-indigo-600"}`}
               >
                 <MessageOutlined />
               </button>
@@ -635,7 +640,7 @@ export const ShipmentsTable = ({
       },
     });
 
-    // Warning triangle: yellow by default, orange / red as ETD or ETA gets close while the
+    // Warning triangle: grey by default, amber / red as ETD or ETA gets close while the
     // shipment has not reached its "ready" status (rules in getShipmentUrgency).
     cols.push({
       key: "__alert",
@@ -645,7 +650,7 @@ export const ShipmentsTable = ({
       onCell: () => ({ className: "!pl-0 !pr-1.5" }),
       render: (_: unknown, record: ShipmentItem) => {
         const { level, reason, readyStatus } = getShipmentUrgency(buildRowData(record));
-        const tone = level === "critical" ? "text-red-500" : level === "warning" ? "text-orange-500" : "text-yellow-400";
+        const tone = level === "critical" ? "text-red-500" : level === "warning" ? "text-amber-500" : "text-slate-400";
         return (
           <Tooltip title={reason ? <>{reason} <strong>{readyStatus}</strong></> : "No deadline warning"}>
             <span role="img" aria-label={reason ? `${reason} ${readyStatus}` : "No deadline warning"} className={`inline-flex p-1 ${tone}`}>
@@ -679,7 +684,7 @@ export const ShipmentsTable = ({
       {/* Header */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">{view?.title ?? "Shipments"}</h1>
+          <h1 className={PAGE_TITLE}>{view?.title ?? "Shipments"}</h1>
         </div>
         {!view && <OverviewTiles active={activeTile} onSelect={setActiveTile} />}
       </div>
@@ -687,14 +692,14 @@ export const ShipmentsTable = ({
       {!view && <NeedsAttentionTable />}
 
       {/* Filters Row */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3">
+      <div className={`${CARD} flex flex-wrap items-center justify-between gap-3 px-4 py-3`}>
         {/* Actions on the left, search/status/filters/columns/export on the right; wraps on narrow screens */}
         <div className="flex items-center gap-3 min-w-0">
           {toolbarLead}
           {onCreateClick && (
             <button
               onClick={onCreateClick}
-              className="flex items-center gap-1.5 shrink-0 rounded-lg bg-indigo-600 px-3 h-8 text-[13px] font-semibold text-white hover:bg-indigo-700 transition-colors"
+              className={BTN_PRIMARY}
             >
               <PlusOutlined />
               New Shipment
@@ -707,11 +712,7 @@ export const ShipmentsTable = ({
                 action.onClick(selectedKeys.map(String));
                 setSelectedKeys([]);
               }}
-              className={`flex items-center gap-1.5 shrink-0 rounded-lg px-3 h-8 text-[13px] transition-colors ${
-                action.secondary
-                  ? "border border-slate-300 bg-white font-medium text-slate-700 hover:bg-slate-50"
-                  : "bg-indigo-600 font-semibold text-white hover:bg-indigo-700"
-              }`}
+              className={action.secondary ? BTN : BTN_PRIMARY}
             >
               {!action.secondary && <PlusOutlined />}
               {action.label}
@@ -724,7 +725,7 @@ export const ShipmentsTable = ({
                 // The dialog takes the selection over from here.
                 setSelectedKeys([]);
               }}
-              className="flex items-center gap-1.5 shrink-0 rounded-lg border border-slate-300 bg-white px-3 h-8 text-[13px] font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+              className={BTN}
             >
               Add to Master Job
             </button>
@@ -777,7 +778,7 @@ export const ShipmentsTable = ({
             content={
               <div className="w-[430px] -m-1">
                 <div className="flex items-center gap-3 px-1 pb-2.5 mb-2.5 border-b border-slate-100">
-                  <span className="text-[13px] font-semibold text-slate-800 shrink-0">Filter by column</span>
+                  <span className="text-[13px] font-semibold text-slate-900 shrink-0">Filter by column</span>
                   <Select
                     size="small"
                     placeholder="Templates"
@@ -789,7 +790,7 @@ export const ShipmentsTable = ({
                       if (t) applyFilters(t.filters);
                     }}
                     options={filterTemplates.map((t) => ({ value: t.id, label: t.name }))}
-                    notFoundContent={<span className="text-xs text-slate-400">No templates yet — set filters and press Save.</span>}
+                    notFoundContent={<span className={HINT}>No templates yet — set filters and press Save.</span>}
                     optionRender={(option) => (
                       <span className="flex items-center justify-between gap-2">
                         <span className="truncate">{option.label}</span>
@@ -810,20 +811,20 @@ export const ShipmentsTable = ({
                   <button
                     onClick={openTemplateName}
                     disabled={activeFilters.length === 0}
-                    className="shrink-0 text-xs font-medium text-indigo-600 hover:text-indigo-700 disabled:text-slate-300 disabled:cursor-not-allowed bg-transparent border-none cursor-pointer p-0"
+                    className={`${BTN} ${BTN_SM}`}
                   >
                     Save
                   </button>
                   <button
                     onClick={() => applyFilters([])}
                     disabled={filters.length === 0}
-                    className="shrink-0 text-xs font-medium text-slate-400 hover:text-red-500 disabled:text-slate-300 disabled:cursor-not-allowed bg-transparent border-none cursor-pointer p-0"
+                    className={`${BTN_GHOST} ${BTN_SM}`}
                   >
                     Clear all
                   </button>
                 </div>
                 {filters.length === 0 ? (
-                  <div className="text-xs text-slate-400 text-center py-4 bg-slate-50 rounded-lg">
+                  <div className={`${HINT} text-center py-4 bg-slate-50 rounded-lg`}>
                     No filters yet — add one to narrow the list.
                   </div>
                 ) : (
@@ -870,7 +871,7 @@ export const ShipmentsTable = ({
                           <button
                             onClick={() => removeFilter(i)}
                             aria-label="Remove filter"
-                            className="shrink-0 flex items-center justify-center w-6 h-6 rounded text-slate-400 hover:text-red-500 hover:bg-red-50 bg-transparent border-none cursor-pointer transition-colors"
+                            className={ICON_BTN_GHOST}
                           >
                             <CloseOutlined className="text-[11px]" />
                           </button>
@@ -881,7 +882,7 @@ export const ShipmentsTable = ({
                 )}
                 <button
                   onClick={addFilter}
-                  className="mt-2.5 w-full flex items-center justify-center gap-1.5 h-8 rounded-lg border border-dashed border-slate-300 text-xs font-medium text-slate-500 hover:border-indigo-400 hover:text-indigo-500 hover:bg-indigo-50/40 bg-transparent cursor-pointer transition-colors"
+                  className={`${BTN} mt-2.5 w-full border-dashed`}
                 >
                   <PlusOutlined className="text-[10px]" /> Add filter
                 </button>
@@ -892,7 +893,7 @@ export const ShipmentsTable = ({
               <Badge count={activeFilters.length} size="small" color="#4f46e5" offset={[-4, 4]}>
                 <button
                   aria-label="Filters"
-                  className="flex items-center justify-center shrink-0 rounded-lg border border-slate-300 bg-white w-8 h-8 p-0 text-slate-700 hover:bg-slate-50 transition-colors"
+                  className={ICON_BTN}
                 >
                   <FilterOutlined />
                 </button>
@@ -914,7 +915,7 @@ export const ShipmentsTable = ({
           <button
             onClick={() => exportShipmentsCsv(filtered, visible)}
             title="Export the filtered shipments (visible columns) to CSV"
-            className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 h-8 text-[13px] font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+            className={BTN}
           >
             <DownloadOutlined />
             Export
@@ -924,8 +925,8 @@ export const ShipmentsTable = ({
 
       {/* Bulk action bar (shown when rows are selected) */}
       {selectedKeys.length > 0 && (
-        <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 rounded-2xl px-4 py-2.5">
-          <span className="text-sm text-indigo-700 font-medium">{selectedKeys.length} selected</span>
+        <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-2.5">
+          <span className="text-[13px] text-indigo-700 font-medium">{selectedKeys.length} selected</span>
           <Button
             size="small"
             icon={<DownloadOutlined />}
@@ -945,7 +946,7 @@ export const ShipmentsTable = ({
       {cap && <ListCapNotice shown={cap.shown} total={cap.total} noun="shipments" />}
 
       {/* Table */}
-      <div className="shipments-table bg-white border border-slate-200 rounded-2xl overflow-hidden">
+      <div className={`shipments-table ${CARD} overflow-hidden`}>
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
           <SortableContext items={visible} strategy={horizontalListSortingStrategy}>
             <Table<ShipmentItem>
@@ -1029,7 +1030,7 @@ export const ShipmentsTable = ({
         onClose={() => setDocsShipment(null)}
         width={480}
         destroyOnHidden
-        styles={{ body: { padding: 0 } }}
+        classNames={{ body: "!p-0" }}
         title={docsShipment ? `Documents — ${docsShipment.jobNumber ?? docsShipment.id}` : "Documents"}
       >
         {docsShipment && <DocumentsPanel shipmentId={docsShipment.id} />}

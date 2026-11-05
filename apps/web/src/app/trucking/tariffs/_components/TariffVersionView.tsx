@@ -14,6 +14,8 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { businessDateTime } from "@/lib/date";
 import { useToast } from "@/lib/toast";
 import { fetchTariffTemplate, fetchTariffVersionSource, useTariff, useTariffVersion, useTruckingSettings } from "@/hooks/useTrucking";
+import { HINT, LINK, PAGE_SUBTITLE, PAGE_TITLE } from "@/styles/ui";
+import { LINK_ICON_BTN_GHOST } from "../../_lib/linkButtons";
 import { isTruckingManager } from "../../_lib/roles";
 import { buildLevelMatrices, countErrors, formatMoney, formatQty, validityLabel, versionLabel, type ServiceLevelCode } from "../../_lib/tariffs";
 import { TariffVersionStatusChip } from "../../_components/TariffVersionStatusChip";
@@ -63,7 +65,7 @@ export const TariffVersionView = ({ tariffId, versionId }: TariffVersionViewProp
     return (
       <div className="p-10 text-center text-slate-500">
         {version || isNotFound(error) ? "This version does not exist." : `Could not load the version: ${apiErrorMessage(error)}.`}{" "}
-        <Link href={tariffHref} className="text-indigo-500">
+        <Link href={tariffHref} className={LINK}>
           Back to the tariff
         </Link>
       </div>
@@ -97,23 +99,23 @@ export const TariffVersionView = ({ tariffId, versionId }: TariffVersionViewProp
     <div className="bg-slate-50 min-h-full">
       <div className="bg-white border-b border-slate-200 px-6 py-4">
         <div className="flex flex-wrap items-start gap-2">
-          <Link href={tariffHref} aria-label="Back to the tariff" className="mt-1 text-slate-400 hover:text-indigo-500 p-1">
+          <Link href={tariffHref} aria-label="Back to the tariff" className={LINK_ICON_BTN_GHOST}>
             <ArrowLeftOutlined />
           </Link>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-[22px] font-bold text-slate-800 m-0">
+              <h1 className={PAGE_TITLE}>
                 {tariff?.name ?? "Tariff"} · {versionLabel(version)}
               </h1>
               <TariffVersionStatusChip status={version.status} />
               {errors > 0 && <Pill tone="red">{`${errors} error${errors === 1 ? "" : "s"}`}</Pill>}
             </div>
-            <div className="text-xs text-slate-500 mt-1">
+            <div className={`${PAGE_SUBTITLE} mt-1`}>
               Valid {validityLabel(version.validFrom, version.validTo)} · created {businessDateTime(version.createdAt)}
               {version.createdBy ? ` by ${version.createdBy}` : ""}
               {version.activatedAt ? ` · activated ${businessDateTime(version.activatedAt)}${version.activatedBy ? ` by ${version.activatedBy}` : ""}` : ""}
             </div>
-            <div className="flex flex-wrap items-center gap-2 mt-2 text-xs text-slate-500">
+            <div className={`flex flex-wrap items-center gap-2 mt-2 ${PAGE_SUBTITLE}`}>
               <span>{version.sourceFileName ? `Uploaded from ${version.sourceFileName}` : "Not uploaded from a file"}</span>
               {version.sourceFileName && (
                 <TariffDownloadButton size="small" load={() => fetchTariffVersionSource(version.id)} ariaLabel={`Download ${version.sourceFileName}`}>
@@ -124,7 +126,7 @@ export const TariffVersionView = ({ tariffId, versionId }: TariffVersionViewProp
                 Download as template
               </TariffDownloadButton>
               {comparable && (
-                <a href="#compare" className="text-indigo-600 hover:underline">
+                <a href="#compare" className={LINK}>
                   Compare with active
                 </a>
               )}
@@ -177,7 +179,7 @@ export const TariffVersionView = ({ tariffId, versionId }: TariffVersionViewProp
                 <PillTabs tabs={matrices.map((m) => ({ key: m.level, label: levelLabel(m.level) }))} active={shown.level} onChange={setLevel} />
               </div>
               <TariffMatrix matrix={shown} currency={currency} />
-              <p className="m-0 px-4 py-2 text-[11px] text-slate-400">Darker cells are dearer. * remote area. Hover a zone for its postcodes.</p>
+              <p className={`m-0 px-4 py-2 ${HINT}`}>Darker cells are dearer. * remote area. Hover a zone for its postcodes.</p>
             </>
           ) : (
             <p className="m-0 p-4 text-[13px] text-slate-500">This version has no prices.</p>

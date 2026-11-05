@@ -25,6 +25,7 @@ import { CustomerLink } from "./CustomerLink";
 import { ExchangeRatesError } from "./ExchangeRatesError";
 import { SalesPage } from "./SalesPage";
 import { ToolbarButton } from "./ToolbarButton";
+import { CARD, LABEL_TEXT } from "@/styles/ui";
 
 // The columns of the board: the three stages a customer can stand on. Where a customer stands is
 // the server's answer; this is only how its column is titled and what the page says the stage means.
@@ -161,7 +162,7 @@ function CustomerCard({ card, sheet, live }: CustomerCardProps) {
   return (
     <li
       onClick={() => router.push(`/customers/${card.customerId}`)}
-      className="bg-white border border-slate-200 rounded-lg px-3 py-2.5 cursor-pointer transition-colors hover:border-indigo-300 hover:bg-indigo-50/40"
+      className={`${CARD} px-3 py-2.5 cursor-pointer transition-colors hover:border-indigo-300 hover:bg-indigo-50/40`}
     >
       <div className="flex items-center gap-2.5">
         <span aria-hidden className="w-7 h-7 shrink-0 rounded-md bg-slate-100 border border-slate-200 flex items-center justify-center text-[11px] font-semibold text-slate-400">
@@ -186,7 +187,7 @@ function CustomerCard({ card, sheet, live }: CustomerCardProps) {
       <div className="mt-2 pt-2 border-t border-slate-100 flex flex-col gap-0.5 text-xs tabular-nums">
         {fact && <div className="text-slate-500">{fact}</div>}
         <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5">
-          <span className={won || card.openQuotes.length ? "text-slate-600" : "text-slate-500"}>
+          <span className={won || card.openQuotes.length ? "text-slate-700" : "text-slate-500"}>
             {won ? `${plural(card.shipmentCount, "shipment", "shipments")} · ${openQuotes}` : openQuotes}
           </span>
           {(open.text || open.incomplete) && (
@@ -292,7 +293,7 @@ export function PipelineTab() {
     content = (
       <div className="flex flex-col items-center justify-center gap-3 py-16">
         <Spin />
-        <span className="text-sm text-slate-500">Loading the pipeline…</span>
+        <span className="text-[13px] text-slate-500">Loading the pipeline…</span>
       </div>
     );
   } else {
@@ -335,7 +336,7 @@ export function PipelineTab() {
       subtitle={STAGE_MEANINGS}
       extra={
         <div className="flex items-center gap-2">
-          <label htmlFor={PERIOD_SELECT_ID} className="text-[13px] font-medium text-slate-600 whitespace-nowrap">
+          <label htmlFor={PERIOD_SELECT_ID} className={`${LABEL_TEXT} whitespace-nowrap`}>
             Won in
           </label>
           <Select<Period> id={PERIOD_SELECT_ID} className="w-44" value={period} onChange={setPeriod} options={PERIOD_OPTIONS} />

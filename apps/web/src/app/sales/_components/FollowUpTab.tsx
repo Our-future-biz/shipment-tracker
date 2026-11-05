@@ -123,7 +123,7 @@ export function FollowUpTab() {
         return (
           <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
             {/* Without a sent date nobody knows when the customer got the quote; it is counted from its creation. */}
-            <span className={overdue ? "font-bold text-red-600" : "text-slate-600"}>{lastContactAgo(r.lastContactAt) ?? "no contact recorded"}</span>
+            <span className={overdue ? "font-bold text-red-600" : "text-slate-700"}>{lastContactAgo(r.lastContactAt) ?? "no contact recorded"}</span>
             {overdue && <Pill tone="red">Follow up</Pill>}
           </span>
         );
@@ -139,7 +139,7 @@ export function FollowUpTab() {
       className: "tabular-nums !pr-5",
       render: (_: unknown, r) => {
         const days = daysOpen(r);
-        return days === null ? EMPTY_CELL : <span className="text-slate-600">{days}</span>;
+        return days === null ? EMPTY_CELL : <span className="text-slate-700">{days}</span>;
       },
     },
     {
@@ -147,7 +147,7 @@ export function FollowUpTab() {
       key: "valid",
       width: 104,
       // No quote in this list is expired: one whose date has passed is not with the customer any more.
-      render: (_: unknown, r) => (r.validUntil ? <span className="text-slate-600 tabular-nums">{formatDate(r.validUntil)}</span> : EMPTY_CELL),
+      render: (_: unknown, r) => (r.validUntil ? <span className="text-slate-700 tabular-nums">{formatDate(r.validUntil)}</span> : EMPTY_CELL),
     },
     {
       title: <span className="sr-only">Action</span>,

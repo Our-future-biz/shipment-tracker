@@ -64,12 +64,12 @@ export const RailVersionRates = ({ version }: RailVersionRatesProps) => {
           );
         },
       },
-      { key: "place", title: "Place", render: (_, r) => <span className="font-medium text-slate-800">{r.place}</span> },
+      { key: "place", title: "Place", render: (_, r) => <span className="font-medium text-slate-900">{r.place}</span> },
       { key: "region", title: "Region", render: (_, r) => textOr(r.region) },
       { key: "via", title: "Via", render: (_, r) => textOr(r.via) },
       { key: "depot", title: "Empty depot", render: (_, r) => textOr(r.emptyDepot) },
       ...bands,
-      { key: "note", title: "Note", render: (_, r) => (r.note ? <span className="text-xs text-slate-600">{r.note}</span> : EMPTY_CELL) },
+      { key: "note", title: "Note", render: (_, r) => (r.note ? <span className="text-xs text-slate-500">{r.note}</span> : EMPTY_CELL) },
       ...(hasDates
         ? ([
             { key: "from", title: "Valid from", render: (_, r) => (r.validFrom ? formatDate(r.validFrom) : EMPTY_CELL) },

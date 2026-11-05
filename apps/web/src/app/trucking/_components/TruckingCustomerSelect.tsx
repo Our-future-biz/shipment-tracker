@@ -34,7 +34,7 @@ export const TruckingCustomerSelect = ({ value, valueName, onChange, ariaLabel, 
     label: (
       <span>
         {c.companyName}
-        <span className="ml-2 text-xs text-slate-400">{[c.city, c.ico].filter(Boolean).join(" · ")}</span>
+        <span className="ml-2 text-xs text-slate-500">{[c.city, c.ico].filter(Boolean).join(" · ")}</span>
       </span>
     ),
   }));

@@ -3,7 +3,7 @@
 import { Fragment, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Alert, Dropdown, Spin, Tabs, Tag, Tooltip } from "antd";
+import { Alert, Dropdown, Spin, Tabs, Tooltip } from "antd";
 import { ArrowLeftOutlined, CheckCircleOutlined, DownOutlined, PrinterOutlined, ReloadOutlined, RightOutlined } from "@ant-design/icons";
 import { useGateMovement, type GateMovement, type GateStampKind } from "@/hooks/useGateLog";
 import { useToast } from "@/lib/toast";
@@ -29,6 +29,8 @@ import { ReasonModal } from "./ReleaseGatesPanel";
 import { HistoryTab } from "./HistoryTab";
 import { ReweighModal } from "./ReweighSection";
 import { LifecycleStrip } from "@/app/warehouse-concept/_components/LifecycleStrip";
+import { Badge } from "@/components/Badge";
+import { CARD, EMPTY, HINT, ICON_BTN_GHOST, LABEL_TEXT, LINK, PAGE_TITLE, REF } from "@/styles/ui";
 
 // The job's tab lives in the URL (?tab=survey), so refresh, Back and shared links keep it.
 const TABS = ["overview", "survey", "shipman", "history"] as const;
@@ -36,7 +38,6 @@ type Tab = (typeof TABS)[number];
 // The Gate Log list, now a tab of the Warehouse page.
 const GATE_LOG_HREF = "/warehouse-concept?tab=gatelog";
 
-const cardLabel = "text-[11px] font-bold text-slate-500 uppercase tracking-wide";
 /** Dock & Yard → Dock Schedule with the booking form open for this position. */
 export const dockBookingHref = (movementId: string) => `/warehouse-concept?tab=dock&book=${encodeURIComponent(movementId)}`;
 
@@ -48,7 +49,7 @@ function StatusCards({ m, onRefreshCustoms, refreshing }: { m: GateMovement; onR
   const storage = !s.started
     ? {
         value: "—",
-        tone: "text-slate-400",
+        tone: EMPTY,
         sub: !isOutbound(m)
           ? "Not started — starts at the gate-in"
           : m.container?.tallyRequired
@@ -67,9 +68,9 @@ function StatusCards({ m, onRefreshCustoms, refreshing }: { m: GateMovement; onR
   const stampAt = out ? m.gateOut : m.gateIn;
   const gateTime = leg?.gateTime ? formatDateTime(leg.gateTime) : stampAt ? formatDateTime(stampAt) : "";
 
-  const card = "bg-white border border-slate-200 rounded-xl shadow-sm px-4 py-3 min-w-0";
+  const card = `${CARD} px-4 py-3 min-w-0`;
   const line = (k: string, v: string, mono = false) => (
-    <div className="flex items-baseline gap-2 text-xs">
+    <div className="flex items-baseline gap-2 text-[13px]">
       <span className="text-slate-500 shrink-0">{k}</span>
       <span className={`ml-auto text-right font-semibold text-slate-900 break-words ${mono ? "tabular-nums" : ""}`}>{v || "—"}</span>
     </div>
@@ -79,13 +80,13 @@ function StatusCards({ m, onRefreshCustoms, refreshing }: { m: GateMovement; onR
     <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
       <div className={card}>
         <div className="flex items-center gap-2">
-          <span className={cardLabel}>Customs status</span>
+          <span className={LABEL_TEXT}>Customs status</span>
           {onRefreshCustoms && (
             <Tooltip title="Read the customs status from the shipment now">
               <button
                 type="button"
                 aria-label="Read the customs status from the shipment now"
-                className="ml-auto text-slate-400 hover:text-indigo-500 cursor-pointer bg-transparent border-none p-0"
+                className={`${ICON_BTN_GHOST} ml-auto -my-1.5`}
                 onClick={onRefreshCustoms}
                 disabled={refreshing}
               >
@@ -103,20 +104,20 @@ function StatusCards({ m, onRefreshCustoms, refreshing }: { m: GateMovement; onR
         )}
         {/* A linked record follows its shipment's customs status until the cargo is released. */}
         {m.shipmentId && !m.impRelease && (
-          <div className="mt-0.5 text-[11px] text-slate-500">
+          <div className={`mt-0.5 ${HINT}`}>
             Follows the shipment{m.shipmentCheckedAt ? ` · read ${formatDateTime(m.shipmentCheckedAt)}` : ""}
           </div>
         )}
       </div>
       <Tooltip title={storageHint(s)}>
         <div className={card}>
-          <div className={cardLabel}>Storage{s.stopped ? " · stopped" : ""}</div>
-          <div className={`mt-1 text-[26px] leading-tight font-bold tabular-nums ${storage.tone}`}>{storage.value}</div>
-          <div className="text-[11px] text-slate-500">{storage.sub}</div>
+          <div className={LABEL_TEXT}>Storage{s.stopped ? " · stopped" : ""}</div>
+          <div className={`mt-1 text-[20px] leading-7 font-bold tabular-nums ${storage.tone}`}>{storage.value}</div>
+          <div className={HINT}>{storage.sub}</div>
         </div>
       </Tooltip>
       <div className={card}>
-        <div className={cardLabel}>Vehicle · {out ? "outgoing truck" : "incoming truck"}</div>
+        <div className={LABEL_TEXT}>Vehicle · {out ? "outgoing truck" : "incoming truck"}</div>
         <div className="mt-1.5 flex flex-col gap-0.5">
           {line(TERMS.driver, driver)}
           {line(TERMS.plate, plate, true)}
@@ -126,7 +127,7 @@ function StatusCards({ m, onRefreshCustoms, refreshing }: { m: GateMovement; onR
             <Fragment key={d.id}>{line("Dock slot", dockSlotText(d))}</Fragment>
           ))}
           {!m.archivedAt && (
-            <Link href={dockBookingHref(m.id)} className="self-end text-[11px] font-semibold text-indigo-500 hover:underline">
+            <Link href={dockBookingHref(m.id)} className={`self-end text-[12px] font-semibold ${LINK}`}>
               {m.dockSlots.length ? "Book another dock slot" : "Book dock slot"}
             </Link>
           )}
@@ -136,23 +137,25 @@ function StatusCards({ m, onRefreshCustoms, refreshing }: { m: GateMovement; onR
   );
 }
 
-// One step of the gate action bar: a green tag (time + user) once stamped; otherwise a button,
+// One step of the gate action bar: a green mark (time + user) once stamped; otherwise a button,
 // primary for the next step and disabled with the reason for the others.
 // Managers can void a done step (with a reason) from its menu; `voidReason` says why not, when blocked.
 function StepItem({ step, onPick, onVoid, voidReason }: { step: GateStep; onPick: () => void; onVoid?: () => void; voidReason?: string | null }) {
   if (step.state === "done") {
     const tag = (
-      <Tag
-        color={step.legacy ? "default" : "success"}
-        icon={step.legacy ? undefined : <CheckCircleOutlined />}
-        className={`m-0 !px-2 !py-1 !text-[12px] ${step.legacy ? "opacity-70" : ""} ${onVoid ? "cursor-pointer" : ""}`}
-      >
+      <Badge tone={step.legacy ? "" : "g"} className={`${step.legacy ? "opacity-70" : ""} ${onVoid ? "cursor-pointer" : ""}`}>
+        {!step.legacy && <CheckCircleOutlined />}
         <span className="font-semibold">{step.label}</span> <span className="tabular-nums">{formatDateTime(step.at)}</span>
         {step.by ? ` · ${step.by}` : ""}
         {onVoid && <DownOutlined className="ml-1 text-[10px]" />}
-      </Tag>
+      </Badge>
     );
-    if (!onVoid) return <Tooltip title={step.note}>{tag}</Tooltip>;
+    if (!onVoid)
+      return (
+        <Tooltip title={step.note}>
+          <span className="inline-flex">{tag}</span>
+        </Tooltip>
+      );
     return (
       <Dropdown
         trigger={["click"]}
@@ -242,7 +245,7 @@ export function GateJobView({ id }: { id: string }) {
     return (
       <div className="p-10 text-center text-slate-500">
         Movement not found.{" "}
-        <Link href={GATE_LOG_HREF} className="text-indigo-500">
+        <Link href={GATE_LOG_HREF} className={LINK}>
           Back to Gate Log
         </Link>
       </div>
@@ -352,32 +355,32 @@ export function GateJobView({ id }: { id: string }) {
             <button
               onClick={() => router.push(GATE_LOG_HREF)}
               aria-label="Back to Gate Log"
-              className="mt-1 text-slate-400 hover:text-indigo-500 cursor-pointer bg-transparent border-none p-1"
+              className={ICON_BTN_GHOST}
             >
               <ArrowLeftOutlined />
             </button>
             <div className="min-w-0">
-              <h1 className="text-[22px] font-bold text-slate-800 m-0 tabular-nums">{m.gateRef}</h1>
-              <div className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5 text-xs text-slate-500 mt-0.5">
+              <h1 className={`${PAGE_TITLE} ${REF}`}>{m.gateRef}</h1>
+              <div className={`flex flex-wrap items-baseline gap-x-4 gap-y-0.5 ${HINT} mt-0.5`}>
                 <span>
-                  Customer <span className="font-semibold text-slate-800">{m.customer || "—"}</span>
+                  Customer <span className="font-semibold text-slate-900">{m.customer || "—"}</span>
                 </span>
                 {/* The shipment it came from: its job, and its warehouse part (Remeasurement / Release). */}
                 {m.jobNumber && (
                   <span>
                     {TERMS.jobNo}{" "}
                     {m.shipmentId ? (
-                      <Link href={`/shipments/${m.shipmentId}`} className="tabular-nums font-semibold text-indigo-500 hover:underline">
+                      <Link href={`/shipments/${m.shipmentId}`} className={`${REF} font-semibold ${LINK}`}>
                         {m.jobNumber}
                       </Link>
                     ) : (
-                      <span className="tabular-nums font-semibold text-slate-800">{m.jobNumber}</span>
+                      <span className={`${REF} font-semibold text-slate-900`}>{m.jobNumber}</span>
                     )}
                   </span>
                 )}
                 {/* Every position — linked or stand-alone — has its Shipment Details (Remeasurement / Release). */}
                 {m.warehouseTaskId && (
-                  <Link href={positionRemeasurementHref(m.warehouseTaskId)} className="font-semibold text-indigo-500 hover:underline">
+                  <Link href={positionRemeasurementHref(m.warehouseTaskId)} className={`font-semibold ${LINK}`}>
                     Shipment Details
                   </Link>
                 )}

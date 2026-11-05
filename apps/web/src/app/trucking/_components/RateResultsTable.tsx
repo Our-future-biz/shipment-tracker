@@ -7,6 +7,7 @@ import { SUPPLIER_NOT_IN_USE } from "@/app/customers/_lib/supplierStatus";
 import { Pill } from "@/components/Pill";
 import type { interfaces } from "@/lib/api/client";
 import { useHauliers, type RateLevelResult } from "@/hooks/useTrucking";
+import { EMPTY } from "@/styles/ui";
 import { notInUseOf } from "../_lib/haulierRating";
 import { bestBuy, promisedLabel } from "../_lib/rateCalculator";
 import { formatMoney, formatPercent, isPriced } from "../_lib/tariffs";
@@ -14,7 +15,7 @@ import { RateResultDetail } from "./RateResultDetail";
 
 /** A priced side's total, with CZK under it when the tariff is in another currency; "Unpriced" with the reason otherwise. */
 const PriceCell = ({ side }: { side: interfaces.PricedSide | interfaces.Unpriced | null }) => {
-  if (!side) return <span className="text-slate-400">—</span>;
+  if (!side) return <span className={EMPTY}>—</span>;
   if (!isPriced(side)) {
     return (
       <span className="block max-w-[220px]">
@@ -47,7 +48,7 @@ export const RateResultsTable = ({ results, includeBuy, includeInternal, marginF
   const notInUse = notInUseOf(hauliers);
   const floorText = marginFloor ? `The margin floor is ${formatPercent(marginFloor.percent)} and ${formatMoney(marginFloor.minAmountCzk, "CZK")}.` : "";
   const columns: ColumnsType<RateLevelResult> = [
-    { key: "level", title: "Service level", render: (_, r) => <span className="font-semibold text-slate-800 whitespace-nowrap">{r.label}</span> },
+    { key: "level", title: "Service level", render: (_, r) => <span className="font-semibold text-slate-900 whitespace-nowrap">{r.label}</span> },
     {
       key: "promised",
       title: "Delivered",
@@ -76,7 +77,7 @@ export const RateResultsTable = ({ results, includeBuy, includeInternal, marginF
         }
         return (
           <span className="block">
-            <span className="block text-[12px] text-slate-600 whitespace-nowrap">
+            <span className="block text-[12px] text-slate-500 whitespace-nowrap">
               {best.preferred && (
                 <Tooltip title="Preferred lane of this haulier">
                   <PushpinFilled className="mr-1 text-indigo-500" aria-label="Preferred lane" />
@@ -88,7 +89,7 @@ export const RateResultsTable = ({ results, includeBuy, includeInternal, marginF
                   {SUPPLIER_NOT_IN_USE}
                 </Pill>
               )}
-              {r.buy.length > 1 && <span className="ml-1 text-slate-400">+{r.buy.length - 1}</span>}
+              {r.buy.length > 1 && <span className="ml-1">+{r.buy.length - 1}</span>}
             </span>
             <PriceCell side={best} />
           </span>
@@ -100,10 +101,10 @@ export const RateResultsTable = ({ results, includeBuy, includeInternal, marginF
       title: "Margin",
       align: "right",
       render: (_, r) => {
-        if (r.marginCzk == null) return <span className="text-slate-400">—</span>;
+        if (r.marginCzk == null) return <span className={EMPTY}>—</span>;
         return (
           <span className="block text-right tabular-nums whitespace-nowrap">
-            <span className={`font-semibold ${r.marginCzk < 0 ? "text-red-700" : "text-slate-900"}`}>{formatMoney(r.marginCzk, "CZK")}</span>
+            <span className={`font-semibold ${r.marginCzk < 0 ? "text-red-600" : "text-slate-900"}`}>{formatMoney(r.marginCzk, "CZK")}</span>
             <span className="block text-[12px] text-slate-500">{formatPercent(r.marginPercent)}</span>
             {r.belowFloor && (
               <Tooltip title={floorText}>

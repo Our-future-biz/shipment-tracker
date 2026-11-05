@@ -5,6 +5,7 @@ import { EditOutlined } from "@ant-design/icons";
 import { fmtMoney, moneyInputParser, roundCents } from "@/lib/money";
 import { MAX_PROFIT_PERCENT, type FclBlock, type FclBlockPrice } from "@/app/sales/_lib/fclPricing";
 import type { FclBlockProfit, FclProfit } from "@/app/sales/_lib/types";
+import { HINT, LABEL_TEXT } from "@/styles/ui";
 import { FCL_NOTE_CLASS, FCL_PROFIT_MODES } from "../_lib/fclPricingUi";
 
 interface FclProfitRowProps {
@@ -24,8 +25,8 @@ export function FclProfitRow({ block, priced, setting, currency, closed, onSetti
   const many = block.perContainer && block.units > 1;
   const times = (amount: number) => fmtMoney(roundCents(amount * block.units), currency);
   const figure = (label: string, amount: number, strong = false) => (
-    <div className="flex flex-col items-end min-w-[120px] px-3 py-1.5 rounded-md border border-slate-200 bg-white">
-      <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+    <div className="flex flex-col items-end min-w-[120px] px-3 py-1.5 rounded-lg border border-slate-200 bg-white">
+      <span className={LABEL_TEXT}>
         {label}
         {per}
       </span>
@@ -36,9 +37,9 @@ export function FclProfitRow({ block, priced, setting, currency, closed, onSetti
   return (
     <div className="flex flex-col gap-1.5 px-3 py-2.5 border-t border-slate-200 bg-slate-50/60">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600">Profit</span>
+        <span className={LABEL_TEXT}>Profit</span>
         {setting.perCharge ? (
-          <span className="text-[12px] text-slate-600">Set per charge</span>
+          <span className={HINT}>Set per charge</span>
         ) : (
           <>
             <Select
@@ -74,7 +75,7 @@ export function FclProfitRow({ block, priced, setting, currency, closed, onSetti
         </div>
       </div>
       {priced.roe !== 0 && (
-        <span className="text-[11px] text-slate-500">
+        <span className={HINT}>
           Total selling includes {fmtMoney(priced.roe, currency)}{per} of ROE (the FX buffer) on the charges in another currency than {currency}, as the quotation and the totals do.
         </span>
       )}

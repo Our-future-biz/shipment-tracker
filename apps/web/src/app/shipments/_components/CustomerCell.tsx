@@ -7,6 +7,7 @@ import { EditableLink } from "@/components/EditableLink";
 import { CustomerHoverCard } from "@/components/CustomerHoverCard";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { EMPTY, LINK } from "@/styles/ui";
 
 // Minimum characters before the customer database is queried — typing one or two
 // letters would match most of the database and isn't worth a round trip.
@@ -109,17 +110,18 @@ export function CustomerCell({ name, customerId, textStyle, onChange }: Customer
             <EditableLink
               href={`/customers/${customerId}`}
               onEdit={startEdit}
-              className="text-indigo-500 hover:underline font-medium"
+              // A conditional-format colour (textStyle) shows instead of the link's own, which "!" would beat.
+              className={`${textStyle?.color ? "hover:!underline" : LINK} font-medium`}
               style={textStyle}
             >
               {name}
             </EditableLink>
           </CustomerHoverCard>
         ) : (
-          <span className="text-slate-600" style={textStyle}>{name}</span>
+          <span className="text-slate-700" style={textStyle}>{name}</span>
         )
       ) : (
-        <span className="text-slate-300">—</span>
+        <span className={EMPTY}>—</span>
       )}
     </span>
   );

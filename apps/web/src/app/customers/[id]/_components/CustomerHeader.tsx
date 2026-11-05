@@ -23,6 +23,8 @@ import { useCustomerListHref } from "../../_lib/customerListHref";
 import { canDeleteCustomerRecords } from "../../_lib/customerPermissions";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { apiFileUrl } from "@/lib/api";
+import { Pill } from "@/components/Pill";
+import { CARD, ICON_BTN, PAGE_TITLE } from "@/styles/ui";
 
 const MAX_LOGO_BYTES = 2 * 1024 * 1024;
 
@@ -91,19 +93,19 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
     <>
       <BackLink href={listHref} className="mb-2">Customer Database</BackLink>
 
-      <div className="flex flex-wrap items-center justify-between gap-4 mb-2 bg-white border border-slate-200 rounded-xl shadow-sm px-5 py-4">
+      <div className={`flex flex-wrap items-center justify-between gap-4 mb-2 ${CARD} px-5 py-4`}>
         <div className="flex items-center gap-4 min-w-0">
           <div className="w-14 h-14 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center overflow-hidden shrink-0">
             {customer.logoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={apiFileUrl(customer.logoUrl)} alt="" className="w-full h-full object-contain" />
             ) : (
-              <span className="text-lg font-semibold text-indigo-500">{customer.companyName.slice(0, 2).toUpperCase()}</span>
+              <span className="text-[16px] font-semibold text-indigo-600">{customer.companyName.slice(0, 2).toUpperCase()}</span>
             )}
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-[22px] font-bold text-slate-800 m-0">{customer.companyName}</h1>
+              <h1 className={PAGE_TITLE}>{customer.companyName}</h1>
               {/* A customer's account type; a supplier only shows what it supplies instead. */}
               {!isSupplierOnly(customer.roles) && <CustomerAccountTypeBadge label={customer.label} />}
               <CustomerRoleBadges roles={customer.roles} />
@@ -134,10 +136,10 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
             </>
           )}
           {/* Read-only here: the status is changed in the CRM card, and a won quote makes the customer Active. A supplier only reads In use / Not in use. */}
-          <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3.5 py-1.5 text-[13px] font-medium text-slate-600">
-            <span aria-hidden className={`h-2.5 w-2.5 rounded-full ${statusDotClass(shownStatus(customer))}`} />
+          <Pill tone="slate">
+            <span aria-hidden className={`h-2 w-2 rounded-full ${statusDotClass(shownStatus(customer))}`} />
             {shownStatus(customer)}
-          </span>
+          </Pill>
           {hasSupplierRole(customer.roles) && !isSupplierOnly(customer.roles) && (
             <>
               <span aria-hidden className="h-8 w-px bg-slate-200" />
@@ -149,9 +151,9 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
             <button
               type="button"
               aria-label={noun === "supplier" ? "Supplier actions" : "Customer actions"}
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 cursor-pointer transition-colors hover:bg-slate-50 hover:text-slate-900"
+              className={ICON_BTN}
             >
-              <EllipsisOutlined className="text-[18px]" />
+              <EllipsisOutlined className="text-[16px]" />
             </button>
           </Dropdown>
         </div>

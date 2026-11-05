@@ -10,6 +10,7 @@ interface HaulierQuickChipsProps {
 }
 
 // Quick filters of the Hauliers worklist (?view=), with live counts; one at a time, combined with the tiles.
+// The look of the Shipments overview tiles (PillTabs).
 export const HaulierQuickChips = ({ active, counts, onSelect }: HaulierQuickChipsProps) => (
   <div role="group" aria-label="Quick filters" className="flex flex-wrap gap-2 mt-3">
     {HAULIER_CHIPS.map((c) => {
@@ -22,12 +23,12 @@ export const HaulierQuickChips = ({ active, counts, onSelect }: HaulierQuickChip
             aria-pressed={on}
             onClick={() => onSelect(on ? null : c.id)}
             className={[
-              "inline-flex items-center gap-1.5 rounded-full border px-3 h-7 text-[13px] font-medium transition-colors cursor-pointer",
-              on ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
+              "inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border text-[13px] font-medium transition-colors cursor-pointer",
+              on ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
             ].join(" ")}
           >
             {c.label}
-            <span className={`tabular-nums font-semibold ${c.danger && n > 0 ? "text-red-600" : on ? "text-indigo-700" : "text-slate-500"}`}>{n}</span>
+            <span className={`font-bold tabular-nums ${c.danger && n > 0 ? "text-red-600" : on ? "text-indigo-700" : "text-slate-900"}`}>{n}</span>
           </button>
         </Tooltip>
       );

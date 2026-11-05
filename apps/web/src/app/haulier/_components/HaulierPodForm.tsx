@@ -6,7 +6,9 @@ import { formatFileSize } from "@/lib/files";
 import type { PublicPod } from "@/hooks/useTruckingConsignments";
 import { POD_ACCEPT, readUpload, uploadProblem } from "@/app/trucking/_lib/uploads";
 import { localInputToIso, podProblem, toLocalInput } from "../_lib/publicOrder";
+import { PORTAL_INPUT, PORTAL_LABEL, PORTAL_PRIMARY, PORTAL_SECONDARY } from "../_lib/portalStyles";
 import { Bi } from "./Bi";
+import { PortalCard } from "./PortalCard";
 
 interface HaulierPodFormProps {
   busy: boolean;
@@ -16,8 +18,6 @@ interface HaulierPodFormProps {
   /** Adds a "Take a photo" button that opens the phone's camera straight away. */
   withCamera?: boolean;
 }
-
-const input = "w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-[16px] text-slate-900 focus:border-indigo-500 focus:outline-none";
 
 // The signed CMR or delivery note (photo or PDF, up to 10 MB) with who took the goods and when.
 export const HaulierPodForm = ({ busy, onUpload, accept = POD_ACCEPT, withCamera = false }: HaulierPodFormProps) => {
@@ -39,21 +39,18 @@ export const HaulierPodForm = ({ busy, onUpload, accept = POD_ACCEPT, withCamera
   };
 
   return (
-    <section className="rounded-xl border-2 border-indigo-200 bg-white p-4">
-      <h2 className="m-0 mb-1 text-[14px] font-bold text-slate-900">
-        <Bi text={{ cs: "Nahrát doklad o doručení (POD)", en: "Upload the proof of delivery (POD)" }} />
-      </h2>
+    <PortalCard title={<Bi text={{ cs: "Nahrát doklad o doručení (POD)", en: "Upload the proof of delivery (POD)" }} />}>
       <p className="mb-3 mt-0 text-[13px] text-slate-500">
         <Bi text={{ cs: "Fotka nebo PDF podepsaného CMR / dodacího listu, max. 10 MB.", en: "A photo or PDF of the signed CMR / delivery note, up to 10 MB." }} />
       </p>
       <label className="block">
-        <span className="mb-1 block text-[13px] font-semibold text-slate-600">
+        <span className={PORTAL_LABEL}>
           <Bi text={{ cs: "Soubor", en: "File" }} />
         </span>
         <input type="file" accept={accept} className="block w-full text-[14px]" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
       </label>
       {withCamera && (
-        <label className="mt-2 block cursor-pointer rounded-lg border border-indigo-300 bg-indigo-50 px-4 py-2.5 text-center text-[14px] font-semibold text-indigo-700">
+        <label className={`${PORTAL_SECONDARY} mt-2`}>
           <Bi text={{ cs: "Vyfotit doklad", en: "Take a photo" }} />
           <input type="file" accept="image/*" capture="environment" className="sr-only" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
         </label>
@@ -65,16 +62,16 @@ export const HaulierPodForm = ({ busy, onUpload, accept = POD_ACCEPT, withCamera
         </p>
       )}
       <label className="mt-3 block">
-        <span className="mb-1 block text-[13px] font-semibold text-slate-600">
+        <span className={PORTAL_LABEL}>
           <Bi text={{ cs: "Jméno příjemce", en: "Receiver's name" }} />
         </span>
-        <input className={input} value={receiver} onChange={(e) => setReceiver(e.target.value)} />
+        <input className={PORTAL_INPUT} value={receiver} onChange={(e) => setReceiver(e.target.value)} />
       </label>
       <label className="mt-3 block">
-        <span className="mb-1 block text-[13px] font-semibold text-slate-600">
+        <span className={PORTAL_LABEL}>
           <Bi text={{ cs: "Doručeno", en: "Delivered at" }} />
         </span>
-        <input type="datetime-local" className={input} value={deliveredAt} onChange={(e) => setDeliveredAt(e.target.value)} />
+        <input type="datetime-local" className={PORTAL_INPUT} value={deliveredAt} onChange={(e) => setDeliveredAt(e.target.value)} />
       </label>
       {problem && file && (
         <p className="mb-0 mt-2 text-[13px] text-red-600">
@@ -86,10 +83,10 @@ export const HaulierPodForm = ({ busy, onUpload, accept = POD_ACCEPT, withCamera
         type="button"
         disabled={busy || !!problem || !!fileProblem}
         onClick={handleSubmit}
-        className="mt-4 w-full rounded-lg bg-indigo-600 px-4 py-3 text-[14px] font-semibold text-white disabled:opacity-50"
+        className={`${PORTAL_PRIMARY} mt-4`}
       >
         {busy ? <Bi text={{ cs: "Nahrávám…", en: "Uploading…" }} /> : <Bi text={{ cs: "Odeslat POD", en: "Send POD" }} />}
       </button>
-    </section>
+    </PortalCard>
   );
 };

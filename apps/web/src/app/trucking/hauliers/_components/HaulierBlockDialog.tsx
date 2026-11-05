@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Button, Input, Modal } from "antd";
+import { LABEL_TEXT, MODAL_TITLE } from "@/styles/ui";
 
 const MIN_REASON = 3;
 const MAX_REASON = 500;
@@ -30,14 +31,14 @@ export const HaulierBlockDialog = ({ open, mode, companyName, loading, onClose, 
           {block ? "⛔" : "ℹ️"}
         </div>
         <div className="min-w-0 flex-1 [overflow-wrap:anywhere]">
-          <div className="text-[14px] font-semibold text-slate-800 mb-1">{block ? `Block ${companyName}?` : `Unblock ${companyName}?`}</div>
-          <div className="text-sm text-slate-500 leading-relaxed mb-3">
+          <div className={`${MODAL_TITLE} mb-1`}>{block ? `Block ${companyName}?` : `Unblock ${companyName}?`}</div>
+          <div className="text-[13px] text-slate-600 leading-relaxed mb-3">
             {block
               ? "A blocked haulier cannot be put on a trip until a manager unblocks it."
               : "The haulier can be put on trips again, unless its insurance, licence or VAT status still blocks it."}
           </div>
           <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Reason (required)</span>
+            <span className={LABEL_TEXT}>Reason (required)</span>
             <Input.TextArea
               aria-label={block ? "Reason for blocking" : "Reason for unblocking"}
               autoFocus

@@ -1,12 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { Input, Button, Space, Tag, Modal, Upload } from "antd";
+import { Input, Button, Space, Modal, Upload } from "antd";
 import { InboxOutlined } from "@ant-design/icons";
 import type { MessageInstance } from "antd/es/message/interface";
 import { SectionChangedError, useWarehouseSection } from "@/hooks/useWarehouseSection";
 import { apiErrorMessage } from "@/lib/api";
 import { SectionCard as Card } from "@/components/SectionCard";
+import { Pill } from "@/components/Pill";
 
 interface JobSectionData {
   notes?: string;
@@ -108,10 +109,11 @@ export function ActionPushButtons({ ownerId, messageApi }: { ownerId: string; me
         {ACTIONS.map((action) => {
           const parsed = parseActionData(section[action.key]);
           return parsed ? (
-            <Tag key={action.key} color="green" className="text-[11px]">
+            // The note, if any, on a second line of the pill.
+            <Pill key={action.key} tone="green" className="flex-col !items-start">
               {action.label} — {new Date(parsed.timestamp).toLocaleDateString()}
               {parsed.note && <span className="block text-[10px] text-slate-500">{parsed.note}</span>}
-            </Tag>
+            </Pill>
           ) : (
             <Button key={action.key} size="small" onClick={() => setModalState({ actionKey: action.key, label: action.label, note: "", fileList: [] })}>
               Send {action.label}

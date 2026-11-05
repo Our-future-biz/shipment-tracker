@@ -22,6 +22,7 @@ import { whoDid } from "@/app/sales/_lib/whoDid";
 import { useUsers } from "@/hooks/useUsers";
 import { formatDateTime } from "@/lib/date";
 import { fmtQuantity } from "../_lib/fmtQuantity";
+import { TD, TD_TOTAL, TH } from "@/styles/ui";
 
 const eur = (n: number) => `EUR ${n.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
 
@@ -47,7 +48,7 @@ function InquiryCell({ pieces, inquiry, onAsk }: { pieces: number; inquiry?: Quo
   const { users } = useUsers();
   const ask = (label: string) =>
     onAsk ? (
-      <Button size="small" className="!border-amber-400 !text-amber-700 hover:!bg-amber-50" onClick={onAsk}>
+      <Button size="small" onClick={onAsk}>
         {label}
       </Button>
     ) : (
@@ -91,7 +92,7 @@ function InquiryCell({ pieces, inquiry, onAsk }: { pieces: number; inquiry?: Quo
   return (
     <span className="inline-flex flex-col items-end gap-1 text-right">
       <span className="font-semibold text-red-600">Rejected by the warehouse</span>
-      {inquiry.comment && <span className="block max-w-[220px] text-[11px] text-slate-600">{inquiry.comment}</span>}
+      {inquiry.comment && <span className="block max-w-[220px] text-[11px] text-slate-700">{inquiry.comment}</span>}
       {who(inquiry.decidedById, inquiry.decidedByName, inquiry.decidedAt)}
       {ask("Ask again")}
     </span>
@@ -178,7 +179,7 @@ export function QuoteHeavyPiecesDialogs({ open, grossWeight, initial, onCancel, 
           </>
         }
       >
-        <p className="m-0 text-sm text-slate-600">No saves the cargo as it is. Yes asks how many pieces there are by weight.</p>
+        <p className="m-0 text-[13px] text-slate-700">No saves the cargo as it is. Yes asks how many pieces there are by weight.</p>
       </SalesDialog>
     );
   }
@@ -205,13 +206,13 @@ export function QuoteHeavyPiecesDialogs({ open, grossWeight, initial, onCancel, 
           </>
         }
       >
-        <table className="w-full border-collapse text-sm">
+        <table className="w-full border-collapse text-[13px]">
           <thead>
-            <tr className="border-b border-slate-200 text-xs text-slate-500">
-              <th className="text-left font-semibold py-2">Weight per piece</th>
-              <th className="text-left font-semibold py-2 w-[110px]">Pieces</th>
-              <th className="text-right font-semibold py-2 w-[150px]">Rate</th>
-              <th className="text-left font-semibold py-2 pl-4 w-[190px]">Extra handling (EUR)</th>
+            <tr>
+              <th className={TH}>Weight per piece</th>
+              <th className={`${TH} w-[110px]`}>Pieces</th>
+              <th className={`${TH} !text-right w-[150px]`}>Rate</th>
+              <th className={`${TH} !pl-4 w-[190px]`}>Extra handling (EUR)</th>
             </tr>
           </thead>
           <tbody>
@@ -223,9 +224,9 @@ export function QuoteHeavyPiecesDialogs({ open, grossWeight, initial, onCancel, 
               const differs = pieces > 0 && band.rate !== null && typed !== undefined && typed !== atRate;
               return (
                 <Fragment key={band.key}>
-                <tr className="border-b border-slate-100 last:border-b-0">
-                  <td className="py-2 text-slate-800">{band.label}</td>
-                  <td className="py-2">
+                <tr>
+                  <td className={`${TD} !text-slate-900`}>{band.label}</td>
+                  <td className={TD}>
                     <InputNumber
                       size="small"
                       className="!w-[90px]"
@@ -237,18 +238,18 @@ export function QuoteHeavyPiecesDialogs({ open, grossWeight, initial, onCancel, 
                       onChange={(v) => setPieces(band.key, v)}
                     />
                   </td>
-                  <td className="py-2 text-right text-slate-500">
+                  <td className={`${TD} text-right`}>
                     {band.rate === null ? (
                       <InquiryCell pieces={pieces} inquiry={inquiry} onAsk={onInquire && inquiry?.status !== "pending" ? () => setAsking(true) : undefined} />
                     ) : (
-                      `EUR ${band.rate} per piece`
+                      <span className="text-slate-500">{`EUR ${band.rate} per piece`}</span>
                     )}
                   </td>
-                  <td className="py-2 pl-4">
+                  <td className={`${TD} !pl-4`}>
                     {band.rate === null ? (
                       // The warehouse's fee is no figure to type: its approval posts it to Pricing.
                       pieces > 0 && standing === "approved" && inquiry ? (
-                        <span className="text-slate-800">
+                        <span className="text-slate-900">
                           {eur(approvedFee(inquiry))}
                           <span className="block text-[11px] text-slate-400">Heavy Cargo Handling Fee in Pricing</span>
                         </span>
@@ -258,7 +259,7 @@ export function QuoteHeavyPiecesDialogs({ open, grossWeight, initial, onCancel, 
                     ) : pieces > 0 ? (
                       <InputNumber
                         size="small"
-                        className={`!w-[150px] ${differs ? "!bg-yellow-100 !border-yellow-400" : ""}`}
+                        className={`!w-[150px] ${differs ? "!bg-amber-100 !border-amber-400" : ""}`}
                         min={0}
                         aria-label={`Extra handling for ${band.label} in EUR`}
                         value={bandSurcharge(band, heavy)}
@@ -307,11 +308,11 @@ export function QuoteHeavyPiecesDialogs({ open, grossWeight, initial, onCancel, 
             })}
           </tbody>
           <tfoot>
-            <tr className="border-t border-slate-200 font-semibold text-slate-800">
-              <td className="py-2" colSpan={3}>
+            <tr>
+              <td className={TD_TOTAL} colSpan={3}>
                 Extra handling in all
               </td>
-              <td className="py-2 pl-4">{eur(heavyTotal(heavy))}</td>
+              <td className={`${TD_TOTAL} !pl-4`}>{eur(heavyTotal(heavy))}</td>
             </tr>
           </tfoot>
         </table>
@@ -347,7 +348,7 @@ export function QuoteHeavyPiecesDialogs({ open, grossWeight, initial, onCancel, 
         </>
       }
     >
-      <ul className="mt-0 mb-3 pl-4 text-sm text-slate-700">
+      <ul className="mt-0 mb-3 pl-4 text-[13px] text-slate-700">
         {changed.map((band) => {
           const pieces = heavy.pieces?.[band.key] ?? 0;
           const atRate = rateSurcharge(band, pieces);

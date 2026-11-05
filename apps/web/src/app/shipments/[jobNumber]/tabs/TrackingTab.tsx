@@ -4,6 +4,7 @@ import type { ShipmentItem } from "@/hooks/useShipments";
 import { useShipmentTasks } from "@/hooks/useShipmentTasks";
 import { getTasksForDirection } from "../_components/taskDefinitions";
 import { formatDateTime } from "@/lib/date";
+import { CARD, HINT } from "@/styles/ui";
 
 export function TrackingTab({ shipment }: { shipment: ShipmentItem }) {
   const taskList = getTasksForDirection(shipment.tradeDirection);
@@ -15,14 +16,14 @@ export function TrackingTab({ shipment }: { shipment: ShipmentItem }) {
 
   if (completedTasks.length === 0) {
     return (
-      <div className="bg-white rounded-lg border border-slate-200 p-5">
-        <p className="text-center text-slate-400 text-sm py-8">No tracking events yet</p>
+      <div className={`${CARD} p-5`}>
+        <p className={`text-center ${HINT} py-8`}>No tracking events yet</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-white rounded-lg border border-slate-200 p-5">
+    <div className={`${CARD} p-5`}>
       <div className="relative pl-6">
         <div className="absolute left-[7px] top-2 bottom-2 w-0.5 bg-slate-200 rounded-sm" />
         {completedTasks.map((task, i) => {
@@ -33,18 +34,18 @@ export function TrackingTab({ shipment }: { shipment: ShipmentItem }) {
               <div
                 className={`absolute -left-[18px] top-1 w-3 h-3 rounded-full border-2 ${
                   isLatest
-                    ? "border-indigo-500 bg-indigo-500"
+                    ? "border-indigo-600 bg-indigo-600"
                     : "border-slate-300 bg-white"
                 }`}
               />
               <div>
-                <p className={`text-sm font-medium ${isLatest ? "text-indigo-500" : "text-slate-700"}`}>
+                <p className={`text-[13px] font-medium ${isLatest ? "text-indigo-600" : "text-slate-900"}`}>
                   {def?.label || task.taskKey}
                 </p>
                 {def?.description && (
-                  <p className="text-xs text-slate-500">{def.description}</p>
+                  <p className={HINT}>{def.description}</p>
                 )}
-                <p className="text-[11px] text-slate-400">
+                <p className="text-[11px] text-slate-500">
                   {formatDateTime(task.completedAt!)}
                 </p>
               </div>

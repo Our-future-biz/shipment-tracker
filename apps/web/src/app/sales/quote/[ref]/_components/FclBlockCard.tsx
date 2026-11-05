@@ -75,7 +75,7 @@ export function FclBlockCard({
       }
     >
       {block.weights.length > 0 && (
-        <div className="px-3 pt-2 text-[12px] text-slate-600">
+        <div className="px-3 pt-2 text-[12px] text-slate-500">
           Cargo weight{" "}
           <span className="font-semibold">{block.weights.map((w) => `${fmtQuantity(w)} kgs`).join(", ")}</span> per container
         </div>
@@ -189,18 +189,18 @@ export function FclBlockCard({
                       onChange={(rate) => onRate(c.index, rate)}
                     />
                   </td>
-                  <td className={`${LINE_TD_CLASS} text-right tabular-nums whitespace-nowrap ${c.buying === null ? "text-red-600" : "text-slate-600"}`}>
+                  <td className={`${LINE_TD_CLASS} text-right tabular-nums whitespace-nowrap ${c.buying === null ? "!text-red-600" : ""}`}>
                     {c.buying === null ? "no rate" : fmtMoney(c.buying, currency)}
                   </td>
-                  <td className={`${LINE_TD_CLASS} text-right tabular-nums whitespace-nowrap ${c.takesProfit ? "text-slate-700" : "text-slate-400"}`}>
+                  <td className={`${LINE_TD_CLASS} text-right tabular-nums whitespace-nowrap ${c.takesProfit ? "" : "!text-slate-400"}`}>
                     {c.takesProfit ? fmtMoney(c.profit, currency) : "at cost"}
                     {c.takesProfit && c.percent !== null && <span className="block text-[11px] text-slate-400">{c.percent} %</span>}
                   </td>
-                  <td className={`${LINE_TD_CLASS} text-right font-semibold tabular-nums whitespace-nowrap text-slate-800`}>
+                  <td className={`${LINE_TD_CLASS} text-right font-semibold tabular-nums whitespace-nowrap !text-slate-900`}>
                     {c.selling === null ? "—" : fmtMoney(c.selling, currency)}
                     {c.roe !== 0 && <span className="block text-[11px] font-normal text-slate-400">incl. ROE {fmtMoney(c.roe, currency)}</span>}
                   </td>
-                  <td className={`${LINE_TD_CLASS} pl-0`}>
+                  <td className={`${LINE_TD_CLASS} !pl-0`}>
                     <RemoveLineButton label={`Remove charge ${l.description || l.type}`} onClick={() => onRemove(c.index)} />
                   </td>
                 </tr>

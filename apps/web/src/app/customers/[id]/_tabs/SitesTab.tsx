@@ -1,16 +1,17 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Button, Table, Tag } from "antd";
+import { Button, Table } from "antd";
 import { DeleteOutlined, EditOutlined, PlusOutlined, StarFilled } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { Pill } from "@/components/Pill";
 import { SectionCard } from "@/components/SectionCard";
 import { useCustomerSites } from "@/hooks/useCustomerSites";
 import type { CustomerSiteItem } from "@/hooks/useCustomerSites";
 import { apiErrorMessage, ErrCode, isAPIError } from "@/lib/api";
 import { useToast } from "@/lib/toast";
-import { CUSTOMER_SITE_KIND_COLORS, CUSTOMER_SITE_KIND_LABELS } from "../../_lib/constants";
+import { CUSTOMER_SITE_KIND_LABELS } from "../../_lib/constants";
 import { siteAddressLine } from "../../_lib/customerSites";
 import { CustomerSiteDialog } from "../_components/CustomerSiteDialog";
 import type { CustomerSiteFormValues } from "../_components/CustomerSiteDialog";
@@ -81,7 +82,7 @@ export function SitesTab({ customerId }: { customerId: string }) {
       title: "Name",
       dataIndex: "label",
       render: (v: string, r) => (
-        <span className="inline-flex items-center gap-1.5 font-semibold text-slate-800">
+        <span className="inline-flex items-center gap-1.5 font-semibold text-slate-900">
           {v}
           {r.isDefault && (
             <span role="img" aria-label="Default site" title="Default site" className="text-xs text-amber-400">
@@ -96,9 +97,7 @@ export function SitesTab({ customerId }: { customerId: string }) {
       dataIndex: "kind",
       width: 150,
       render: (v: CustomerSiteItem["kind"]) => (
-        <Tag color={CUSTOMER_SITE_KIND_COLORS[v] ?? "default"} className="!m-0">
-          {CUSTOMER_SITE_KIND_LABELS[v] ?? v}
-        </Tag>
+        <Pill tone="slate">{CUSTOMER_SITE_KIND_LABELS[v] ?? v}</Pill>
       ),
     },
     { title: "Address", key: "address", render: (_: unknown, r) => siteAddressLine(r) || EMPTY_CELL },

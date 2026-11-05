@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Input, Select, Table, Tag, Tooltip } from "antd";
+import { Button, Input, Select, Table, Tooltip } from "antd";
 import { SearchOutlined } from "@ant-design/icons";
 import { useImportMasterJobDetails, useImportMasterJobs, useImportShipmentSearch } from "@/hooks/useWarehouseImport";
 import { formatDate } from "@/lib/date";
 import type { interfaces } from "@/lib/api/client";
 import { TERMS } from "../_lib/glossary";
+import { Badge } from "@/components/Badge";
+import { EMPTY, LABEL_TEXT } from "@/styles/ui";
 
 // One shipment offered for import, whichever list it came from.
 type ImportRow = {
@@ -24,11 +26,11 @@ type Results = Record<string, ImportResult>;
 
 // Outcome of one shipment in the last import.
 export function ImportOutcomeTag({ result }: { result: ImportResult }) {
-  if (result.outcome === "created") return <Tag color="green" className="m-0">Created {result.ref}</Tag>;
-  if (result.outcome === "already") return <Tag className="m-0">Already in warehouse {result.ref}</Tag>;
+  if (result.outcome === "created") return <Badge tone="g">Created {result.ref}</Badge>;
+  if (result.outcome === "already") return <Badge>Already in warehouse {result.ref}</Badge>;
   return (
     <Tooltip title={result.reason}>
-      <Tag color="red" className="m-0">Failed</Tag>
+      <Badge tone="r">Failed</Badge>
     </Tooltip>
   );
 }
@@ -81,13 +83,13 @@ const columns = (withMaster: boolean, inWarehouse: Set<string>, results?: Result
     width: 210,
     render: (v: string, r: ImportRow) => (
       <span className="font-medium">
-        {v || "—"}
+        {v || <span className={EMPTY}>—</span>}
         {results?.[r.id] ? (
           <span className="ml-2">
             <ImportOutcomeTag result={results[r.id]!} />
           </span>
         ) : (
-          inWarehouse.has(r.id) && <Tag className="ml-2">In warehouse</Tag>
+          inWarehouse.has(r.id) && <Badge className="ml-2">In warehouse</Badge>
         )}
       </span>
     ),
@@ -198,7 +200,7 @@ function MasterJobsList({ inWarehouse, selected, onChange, results }: ListProps)
 
   return (
     <>
-      <label className="block text-[11px] text-slate-500 mb-1">Master Jobs</label>
+      <label className={`block ${LABEL_TEXT} mb-1`}>Master Jobs</label>
       <Select
         mode="multiple"
         allowClear

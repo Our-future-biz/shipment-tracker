@@ -2,6 +2,7 @@
 
 import { Tooltip } from "antd";
 import type { interfaces } from "@/lib/api/client";
+import { EMPTY, TD, TH } from "@/styles/ui";
 import { formatQty, heatStep, pscRangeLabel, type LevelMatrix, type MatrixCell } from "../../_lib/tariffs";
 
 // Cheapest to dearest within a price type; the number is always there, the tint only helps the eye.
@@ -26,15 +27,15 @@ export const TariffMatrix = ({ matrix, currency }: TariffMatrixProps) => {
   if (!matrix.rows.length) return <p className="m-0 p-4 text-[13px] text-slate-500">No prices for this service level.</p>;
   return (
     <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-[13px] tabular-nums">
+      <table className="w-full border-collapse tabular-nums">
         <caption className="sr-only">Prices in {currency}: bands down, zones across</caption>
         <thead>
-          <tr className="border-b border-slate-200 text-[11px] uppercase tracking-wide text-slate-500">
-            <th scope="col" className="sticky left-0 bg-white px-3 py-2 text-left font-semibold whitespace-nowrap">
+          <tr>
+            <th scope="col" className={`${TH} sticky left-0 bg-white`}>
               Band · {currency}
             </th>
             {matrix.zones.map((z) => (
-              <th key={z.code} scope="col" className="px-3 py-2 text-right font-semibold whitespace-nowrap">
+              <th key={z.code} scope="col" className={`${TH} !text-right`}>
                 <Tooltip title={`${z.label} · ${pscRangeLabel(z.postcodeFrom, z.postcodeTo)}${z.remote ? " · remote area" : ""}`}>
                   <span>
                     {z.code}
@@ -47,31 +48,31 @@ export const TariffMatrix = ({ matrix, currency }: TariffMatrixProps) => {
         </thead>
         <tbody>
           {matrix.rows.map((row) => (
-            <tr key={row.band.id} className="border-b border-slate-100">
-              <th scope="row" className="sticky left-0 bg-white px-3 py-1.5 text-left font-medium text-slate-700 whitespace-nowrap">
+            <tr key={row.band.id}>
+              <th scope="row" className={`${TD} sticky left-0 bg-white text-left font-medium whitespace-nowrap`}>
                 {row.label}
               </th>
               {row.cells.map((cell, i) => (
-                <td key={matrix.zones[i]!.code} className={`px-3 py-1.5 text-right whitespace-nowrap ${cell ? HEAT_CLASS[heatStep(cell.amount, matrix.ranges[cell.priceType])] : ""}`}>
+                <td key={matrix.zones[i]!.code} className={`${TD} text-right whitespace-nowrap ${cell ? HEAT_CLASS[heatStep(cell.amount, matrix.ranges[cell.priceType])] : ""}`}>
                   {cell ? (
                     <>
                       {formatQty(cell.amount)}
                       {cellSuffix(cell, row.band.basis) && <span className="ml-0.5 text-[11px] text-slate-500">{cellSuffix(cell, row.band.basis)}</span>}
                     </>
                   ) : (
-                    <span className="text-slate-300">—</span>
+                    <span className={EMPTY}>—</span>
                   )}
                 </td>
               ))}
             </tr>
           ))}
           <tr className="bg-slate-50">
-            <th scope="row" className="sticky left-0 bg-slate-50 px-3 py-1.5 text-left font-semibold text-slate-700">
+            <th scope="row" className={`${TD} sticky left-0 bg-slate-50 text-left font-semibold`}>
               Minimum
             </th>
             {matrix.minRow.map((min, i) => (
-              <td key={matrix.zones[i]!.code} className="px-3 py-1.5 text-right font-semibold text-slate-700">
-                {min != null ? formatQty(min) : <span className="font-normal text-slate-300">—</span>}
+              <td key={matrix.zones[i]!.code} className={`${TD} text-right font-semibold`}>
+                {min != null ? formatQty(min) : <span className={`font-normal ${EMPTY}`}>—</span>}
               </td>
             ))}
           </tr>

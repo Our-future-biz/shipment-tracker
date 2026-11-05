@@ -71,7 +71,7 @@ function CustomerField({ value, onChange }: CustomerFieldProps) {
   else if (value.label.trim()) hint = "Kept as typed. Pick a customer from the list to link the task to it.";
 
   return (
-    <Form.Item label="Customer" extra={hint && <span className={value.id ? "text-green-600" : undefined}>{hint}</span>}>
+    <Form.Item label="Customer" extra={hint && <span className={value.id ? "text-emerald-600" : undefined}>{hint}</span>}>
       <AutoComplete
         allowClear
         className="w-full"

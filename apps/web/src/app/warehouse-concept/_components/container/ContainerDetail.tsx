@@ -3,13 +3,15 @@
 import { Fragment, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Alert, Dropdown, Input, Modal, Spin, Tag, Tooltip } from "antd";
+import { Alert, Dropdown, Input, Modal, Spin, Tooltip } from "antd";
 import { ArrowLeftOutlined, CheckCircleOutlined, DownOutlined, MobileOutlined, RightOutlined } from "@ant-design/icons";
 import { useWarehouseContainer, useWarehouseContainers, type ContainerStampKind, type WarehouseContainer } from "@/hooks/useWarehouseRecords";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useToast } from "@/lib/toast";
 import { formatDateTime } from "@/lib/date";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { KPI_TILE_CLASS, KpiTile } from "@/components/KpiTile";
+import { HINT, ICON_BTN_GHOST, LABEL_TEXT, LINK, PAGE_TITLE, REF } from "@/styles/ui";
 import { TERMS } from "@/app/warehouse-concept/_lib/glossary";
 import {
   CONTAINER_STAMP_LABEL,
@@ -70,7 +72,7 @@ export function ContainerDetail({ id }: { id: string }) {
     return (
       <div className="p-10 text-center text-slate-500">
         Container not found.{" "}
-        <Link href={CONTAINERS_HREF} className="text-indigo-500">
+        <Link href={CONTAINERS_HREF} className={LINK}>
           Back to Containers
         </Link>
       </div>
@@ -98,39 +100,35 @@ export function ContainerDetail({ id }: { id: string }) {
       <div className="bg-white border-b border-slate-200 px-6 py-4">
         <div className="flex flex-wrap items-start gap-4">
           <div className="flex items-start gap-2 flex-1 min-w-[260px]">
-            <button
-              onClick={() => router.push(CONTAINERS_HREF)}
-              aria-label="Back to Containers"
-              className="mt-1 text-slate-400 hover:text-indigo-500 cursor-pointer bg-transparent border-none p-1"
-            >
+            <button type="button" onClick={() => router.push(CONTAINERS_HREF)} aria-label="Back to Containers" className={ICON_BTN_GHOST}>
               <ArrowLeftOutlined />
             </button>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-[22px] font-bold text-slate-800 m-0 tabular-nums">{c.number}</h1>
+                <h1 className={`${PAGE_TITLE} ${REF}`}>{c.number}</h1>
                 <Badge tone={kind === "export" ? "i" : "b"}>{KIND_LABEL[kind]}</Badge>
                 <Badge tone={CONTAINER_STATUS_TONE[c.status] ?? ""}>{c.status}</Badge>
               </div>
-              <div className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5 text-xs text-slate-500 mt-1">
+              <div className={`flex flex-wrap items-baseline gap-x-4 gap-y-0.5 ${HINT} mt-1`}>
                 <span>
-                  Type <span className="font-semibold text-slate-800">{c.equipment || "—"}</span>
+                  Type <span className="font-semibold text-slate-900">{c.equipment || "—"}</span>
                 </span>
                 <span>
-                  Seal <span className="tabular-nums font-semibold text-slate-800">{c.seal || "—"}</span>
+                  Seal <span className={`${REF} font-semibold text-slate-900`}>{c.seal || "—"}</span>
                 </span>
                 {(c.vessel || c.voyage) && (
                   <span>
-                    Vessel <span className="font-semibold text-slate-800">{[c.vessel, c.voyage].filter(Boolean).join(" / ")}</span>
+                    Vessel <span className="font-semibold text-slate-900">{[c.vessel, c.voyage].filter(Boolean).join(" / ")}</span>
                   </span>
                 )}
                 {(c.bookingNumber || c.mblNumber) && (
                   <span>
-                    Booking / MBL <span className="tabular-nums font-semibold text-slate-800">{[c.bookingNumber, c.mblNumber].filter(Boolean).join(" / ")}</span>
+                    Booking / MBL <span className={`${REF} font-semibold text-slate-900`}>{[c.bookingNumber, c.mblNumber].filter(Boolean).join(" / ")}</span>
                   </span>
                 )}
                 {c.plate && (
                   <span>
-                    {TERMS.plate} <span className="tabular-nums font-semibold text-slate-800">{c.plate}</span>
+                    {TERMS.plate} <span className={`${REF} font-semibold text-slate-900`}>{c.plate}</span>
                   </span>
                 )}
                 {c.daysOnYard != null && <span>{c.daysOnYard} days on the yard</span>}
@@ -281,11 +279,14 @@ export function ContainerDetail({ id }: { id: string }) {
 
 function StampTag({ label, at, by, onVoid, voidReason }: { label: string; at: string; by: string; onVoid?: () => void; voidReason: string | null }) {
   const tag = (
-    <Tag color="success" icon={<CheckCircleOutlined />} className={`m-0 !px-2 !py-1 !text-[12px] ${onVoid ? "cursor-pointer" : ""}`}>
-      <span className="font-semibold">{label}</span> <span className="tabular-nums">{formatDateTime(at)}</span>
-      {by ? ` · ${by}` : ""}
-      {onVoid && <DownOutlined className="ml-1 text-[10px]" />}
-    </Tag>
+    <Badge tone="g" className={onVoid ? "cursor-pointer" : ""}>
+      <CheckCircleOutlined />
+      <span>
+        <span className="font-semibold">{label}</span> <span className="tabular-nums">{formatDateTime(at)}</span>
+        {by ? ` · ${by}` : ""}
+      </span>
+      {onVoid && <DownOutlined className="text-[10px]" />}
+    </Badge>
   );
   if (!onVoid) return tag;
   return (
@@ -337,9 +338,9 @@ function SealPlateModal({
       onOk={() => onSubmit(close ? { seal: value.trim() } : { plate: value.trim() })}
       destroyOnHidden
     >
-      <p className="text-xs text-slate-500 mt-0">{containerStampWrites(c, kind, close ? "" : value.trim())} The stamp needs a connection and is logged; only a manager can void it.</p>
-      <label className="flex flex-col gap-1 text-xs">
-        <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{close ? "Seal number (required)" : `Truck ${TERMS.plate.toLowerCase()} (optional)`}</span>
+      <p className={`${HINT} mt-0`}>{containerStampWrites(c, kind, close ? "" : value.trim())} The stamp needs a connection and is logged; only a manager can void it.</p>
+      <label className="flex flex-col gap-1">
+        <span className={LABEL_TEXT}>{close ? "Seal number (required)" : `Truck ${TERMS.plate.toLowerCase()} (optional)`}</span>
         <Input autoFocus value={value} maxLength={close ? 50 : 30} className="tabular-nums" onChange={(e) => setValue(e.target.value)} />
       </label>
     </Modal>
@@ -348,21 +349,15 @@ function SealPlateModal({
 
 function Totals({ c }: { c: WarehouseContainer }) {
   const t = c.totals;
-  const tile = (label: string, value: string, sub?: string) => (
-    <div className="bg-white border border-slate-200 rounded-xl shadow-sm px-4 py-3 min-w-0">
-      <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">{label}</div>
-      <div className="mt-1 text-[22px] leading-tight font-bold text-slate-900 tabular-nums">{value}</div>
-      {sub && <div className="text-[11px] text-slate-500">{sub}</div>}
-    </div>
-  );
+  const tile = (label: string, value: string, sub?: string) => <KpiTile label={label} value={value} hint={sub} />;
   return (
     <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
       {tile("Houses", String(c.positions.length))}
       {tile(TERMS.pieces, nf(t.pieces))}
       {tile(TERMS.weightKg, nf(t.kg), t.capacityKg ? `of ${nf(t.capacityKg)} kg` : undefined)}
       {tile(TERMS.volumeCbm, nf(t.cbm, 2), t.capacityCbm ? `of ${nf(t.capacityCbm)} cbm` : undefined)}
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm px-4 py-3 min-w-0 col-span-2 md:col-span-1">
-        <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wide mb-2">{TERMS.capacity}</div>
+      <div className={`${KPI_TILE_CLASS} col-span-2 md:col-span-1`}>
+        <div className={`${LABEL_TEXT} mb-2`}>{TERMS.capacity}</div>
         <FillBar totals={t} />
         {t.overCapacity && <div className="mt-1 text-[11px] font-semibold text-red-600">Over capacity — check before stuffing</div>}
       </div>
@@ -381,7 +376,7 @@ function ContainerHistory({ c }: { c: WarehouseContainer }) {
           {events.map((e, i) => (
             <li key={`${e.at}-${i}`} className="py-1.5 border-b border-slate-100 last:border-b-0 text-xs flex flex-wrap gap-x-3">
               <span className="tabular-nums text-slate-500 w-[120px] shrink-0">{formatDateTime(e.at)}</span>
-              <span className="font-semibold text-slate-800">{e.label}</span>
+              <span className="font-semibold text-slate-900">{e.label}</span>
               {e.by && <span className="text-slate-500">{e.by}</span>}
               {e.detail && <span className="basis-full pl-[132px] text-[11px] text-slate-500 break-words">{e.detail}</span>}
             </li>

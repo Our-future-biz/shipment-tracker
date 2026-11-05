@@ -5,6 +5,9 @@ import { Tooltip } from "antd";
 import type { ConsignmentDetail, TripDetail } from "@/hooks/useTruckingConsignments";
 import { formatDate, businessDateTime } from "@/lib/date";
 import { btnInline } from "@/components/buttons";
+import { Pill } from "@/components/Pill";
+import { SectionCard } from "@/components/SectionCard";
+import { EMPTY } from "@/styles/ui";
 import { buyLabel, marginBlocks, marginText, type ActionState } from "../../_lib/consignments";
 import { promisedText } from "../../_lib/planning";
 import { TERMS } from "../../_lib/glossary";
@@ -13,13 +16,13 @@ import { formatMoney, formatQty } from "../../_lib/tariffs";
 
 type Stop = ConsignmentDetail["pickup"];
 
-const card = "bg-white border border-slate-200 rounded-xl shadow-sm px-4 py-3 min-w-0";
-const cardLabel = "text-[11px] font-bold text-slate-500 uppercase tracking-wide";
+// The body of each card: its rows under the card's title bar.
+const BODY = "px-4 py-3";
 
 const Line = ({ k, v, tone = "" }: { k: string; v: ReactNode; tone?: string }) => (
   <div className="flex items-baseline gap-2 text-xs">
     <span className="shrink-0 text-slate-500">{k}</span>
-    <span className={`ml-auto text-right font-semibold break-words ${tone || "text-slate-900"}`}>{v || "—"}</span>
+    <span className={`ml-auto text-right font-semibold break-words ${tone || "text-slate-900"}`}>{v || <span className={EMPTY}>—</span>}</span>
   </div>
 );
 
@@ -44,9 +47,8 @@ export const ConsignmentStatusCards = ({ c, trip, levelLabel, approveMargin, onA
   const ltl = c.scope === "LTL";
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
-      <div className={card}>
-        <div className={cardLabel}>Route · {levelLabel}</div>
-        <div className="mt-1.5 flex flex-col gap-0.5">
+      <SectionCard title={`Route · ${levelLabel}`} dense bodyClassName={BODY}>
+        <div className="flex flex-col gap-0.5">
           <Line k="Pick-up" v={`${c.pickup.name} · ${place(c.pickup)}`} />
           <Line k="Planned" v={`${formatDate(c.pickupDate)}${windowText(c.pickup) ? ` · ${windowText(c.pickup)}` : ""}`} />
           <Line k="Delivery" v={`${c.delivery.name} · ${place(c.delivery)}`} />
@@ -56,7 +58,7 @@ export const ConsignmentStatusCards = ({ c, trip, levelLabel, approveMargin, onA
               promised.estimated ? (
                 <Tooltip title={promised.note}>
                   <span>
-                    {promised.text} <span className="rounded bg-amber-50 px-1 text-[11px] text-amber-700">Estimated</span>
+                    {promised.text} <Pill tone="amber">Estimated</Pill>
                   </span>
                 </Tooltip>
               ) : (
@@ -72,10 +74,9 @@ export const ConsignmentStatusCards = ({ c, trip, levelLabel, approveMargin, onA
             <Line k={TERMS.haulier} v={trip ? `${trip.haulierName}${trip.tractorPlate ? ` · ${trip.tractorPlate}` : ""}` : "No trip yet"} tone={trip ? "" : "text-amber-700"} />
           )}
         </div>
-      </div>
-      <div className={card}>
-        <div className={cardLabel}>Load · {ltl ? TERMS.ltl : TERMS.ftl}</div>
-        <div className="mt-1.5 flex flex-col gap-0.5">
+      </SectionCard>
+      <SectionCard title={`Load · ${ltl ? TERMS.ltl : TERMS.ftl}`} dense bodyClassName={BODY}>
+        <div className="flex flex-col gap-0.5">
           <Line k="Pieces" v={formatQty(l.pieces)} />
           <Line k={TERMS.palletPlaces} v={formatQty(l.palletPlaces)} />
           <Line k={TERMS.ldm} v={formatQty(l.ldm)} />
@@ -91,10 +92,9 @@ export const ConsignmentStatusCards = ({ c, trip, levelLabel, approveMargin, onA
             tone={l.adr ? "text-amber-700" : ""}
           />
         </div>
-      </div>
-      <div className={card}>
-        <div className={cardLabel}>Money</div>
-        <div className="mt-1.5 flex flex-col gap-0.5">
+      </SectionCard>
+      <SectionCard title="Money" dense bodyClassName={BODY}>
+        <div className="flex flex-col gap-0.5">
           {c.internal ? (
             <Line
               k="Internal price"
@@ -131,7 +131,7 @@ export const ConsignmentStatusCards = ({ c, trip, levelLabel, approveMargin, onA
             )}
           </div>
         )}
-      </div>
+      </SectionCard>
     </div>
   );
 };

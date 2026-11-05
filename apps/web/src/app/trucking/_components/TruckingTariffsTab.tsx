@@ -11,6 +11,7 @@ import { PillTabs } from "@/components/SectionCard";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { formatDate } from "@/lib/date";
 import { useTariffs, type TariffListItem, type TariffSide, type TariffVersionSummary } from "@/hooks/useTrucking";
+import { BTN_PRIMARY, EMPTY, LINK } from "@/styles/ui";
 import { isTruckingManager, managerOnlyReason } from "../_lib/roles";
 import { SCOPE_LABELS, TARIFF_SIDES, ZONE_BY_LABELS, modeLabel, ownerLabel, tariffListStatus, validityLabel, versionLabel } from "../_lib/tariffs";
 import { TariffCreateModal } from "./TariffCreateModal";
@@ -23,10 +24,10 @@ const DEFAULT_SIDE: TariffSide = "SELL";
 
 
 const VersionCell = ({ version }: { version: TariffVersionSummary | null }) => {
-  if (!version) return <span className="text-slate-400">—</span>;
+  if (!version) return <span className={EMPTY}>—</span>;
   return (
     <span className="whitespace-nowrap">
-      <span className="font-semibold text-slate-800">{versionLabel(version)}</span>
+      <span className="font-semibold text-slate-900">{versionLabel(version)}</span>
       <span className="ml-1.5 text-[12px] text-slate-500">{validityLabel(version.validFrom, version.validTo)}</span>
     </span>
   );
@@ -39,7 +40,7 @@ const COLUMNS: AppGridColumn<TariffListItem>[] = [
     text: (t) => t.name,
     sorter: (a, b) => byText(a.name, b.name),
     render: (_, t) => (
-      <Link href={tariffHref(t.id)} onClick={(e) => e.stopPropagation()} className="font-semibold text-indigo-600 hover:underline">
+      <Link href={tariffHref(t.id)} onClick={(e) => e.stopPropagation()} className={`${LINK} font-semibold`}>
         {t.name}
       </Link>
     ),
@@ -62,11 +63,11 @@ const COLUMNS: AppGridColumn<TariffListItem>[] = [
     render: (_, t) =>
       t.nextVersion ? (
         <span className="whitespace-nowrap">
-          <span className="font-semibold text-slate-800">{versionLabel(t.nextVersion)}</span>
+          <span className="font-semibold text-slate-900">{versionLabel(t.nextVersion)}</span>
           <span className="ml-1.5 text-[12px] text-slate-500">from {formatDate(t.nextVersion.validFrom)}</span>
         </span>
       ) : (
-        <span className="text-slate-400">—</span>
+        <span className={EMPTY}>—</span>
       ),
   },
   {
@@ -74,7 +75,7 @@ const COLUMNS: AppGridColumn<TariffListItem>[] = [
     title: "Drafts",
     text: (t) => String(t.draftCount),
     sorter: (a, b) => a.draftCount - b.draftCount,
-    render: (_, t) => (t.draftCount ? <span className="tabular-nums">{t.draftCount}</span> : <span className="text-slate-400">0</span>),
+    render: (_, t) => (t.draftCount ? <span className="tabular-nums">{t.draftCount}</span> : <span className="text-slate-500">0</span>),
   },
   {
     key: "status",
@@ -143,7 +144,7 @@ export const TruckingTariffsTab = () => {
               type="button"
               disabled={!!createReason}
               onClick={() => setCreateOpen(true)}
-              className="flex items-center gap-1.5 shrink-0 rounded-lg bg-indigo-600 px-3 h-8 text-[13px] font-semibold text-white hover:bg-indigo-700 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+              className={BTN_PRIMARY}
             >
               <PlusOutlined />
               New tariff

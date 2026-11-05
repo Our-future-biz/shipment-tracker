@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { LINK_CLASS } from "@/components/linkClass";
+import { LABEL_TEXT } from "@/styles/ui";
 
 // How the Tariffs pages write a missing value, a fact of a layout and a layout's terms.
 
@@ -14,8 +15,8 @@ interface FactProps {
 /** A fact of how a file was read, as those who cannot change it see it. */
 export const Fact = ({ label, children }: FactProps) => (
   <div className="min-w-0">
-    <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{label}</div>
-    <div className="text-[13px] text-slate-800 mt-0.5">{children}</div>
+    <div className={LABEL_TEXT}>{label}</div>
+    <div className="text-[13px] text-slate-900 mt-0.5">{children}</div>
   </div>
 );
 

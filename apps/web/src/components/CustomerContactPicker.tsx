@@ -97,7 +97,7 @@ export function CustomerContactPicker({ customerId, value, contactId, onChange, 
       allowClear
       loading={isLoading}
       // The field keeps its own colours inside a grid row coloured by a rule (e.g. red for overdue).
-      className={`${rest.className ?? ""} [&_.ant-select-selection-search-input]:!text-slate-800 [&_.ant-select-selection-item]:!text-slate-800`}
+      className={`${rest.className ?? ""} [&_.ant-select-selection-search-input]:!text-slate-900 [&_.ant-select-selection-item]:!text-slate-900`}
       disabled={!customerId && !current}
       placeholder={customerId ? "Pick a contact" : "Link the customer first"}
       value={known ? known.id : current || undefined}
@@ -107,7 +107,7 @@ export function CustomerContactPicker({ customerId, value, contactId, onChange, 
       filterOption={(input, option) => fold(`${option?.label ?? ""} ${option?.reach ?? ""}`).includes(fold(input.trim()))}
       optionRender={(option) => (
         <span className="flex flex-col leading-tight py-0.5 min-w-0">
-          <span className="text-[13px] font-medium text-slate-800 truncate">{option.data.label}</span>
+          <span className="text-[13px] font-medium text-slate-900 truncate">{option.data.label}</span>
           {/* The position only; the e-mail still finds the contact when typed. */}
           {option.data.role && <span className="text-[11px] text-slate-500 truncate">{option.data.role}</span>}
         </span>

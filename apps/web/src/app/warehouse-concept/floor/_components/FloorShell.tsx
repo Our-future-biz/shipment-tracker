@@ -6,23 +6,26 @@ import { usePathname } from "next/navigation";
 import { Drawer, Modal } from "antd";
 import { ArrowLeftOutlined, CloseOutlined, CloudSyncOutlined } from "@ant-design/icons";
 import { formatDateTime } from "@/lib/date";
+import { Badge, type Tone } from "@/components/Badge";
+import { Pill } from "@/components/Pill";
+import { MODAL_TITLE, REF } from "@/styles/ui";
 import { TERMS } from "@/app/warehouse-concept/_lib/glossary";
 import { useFloorQueue } from "../_lib/useFloorQueue";
 import type { ItemStatus, QueueItem } from "../_lib/queue";
-import { bigDefault, bigPrimary } from "./floorUi";
+import { bigDanger, bigDefault, bigPrimary } from "./floorUi";
 
 // Floor mode's frame on the phone. The app's sidebar and top bar are global (AppShell) and made
 // for a desk, so floor mode hides them while it is open and shows a full-screen layer of its own
 // (below antd dialogs and messages, which sit at 1000+): a 56 px header with Back, the connection and "Exit floor
 // mode", and — while writes wait — a "Waiting to send (n)" bar that opens the queue.
 
-const STATE_TEXT: Record<ItemStatus["state"], { text: string; tone: string }> = {
-  waiting: { text: "Waiting to send", tone: "bg-amber-50 text-amber-800" },
-  sending: { text: "Sending…", tone: "bg-indigo-50 text-indigo-700" },
-  failed: { text: "Not sent", tone: "bg-red-50 text-red-700" },
-  too_old: { text: "Too old to send", tone: "bg-red-50 text-red-700" },
-  held_user: { text: "Another user's", tone: "bg-slate-100 text-slate-700" },
-  blocked: { text: "Waiting for an earlier one", tone: "bg-slate-100 text-slate-700" },
+const STATE_TEXT: Record<ItemStatus["state"], { text: string; tone: Tone }> = {
+  waiting: { text: "Waiting to send", tone: "a" },
+  sending: { text: "Sending…", tone: "i" },
+  failed: { text: "Not sent", tone: "r" },
+  too_old: { text: "Too old to send", tone: "r" },
+  held_user: { text: "Another user's", tone: "" },
+  blocked: { text: "Waiting for an earlier one", tone: "" },
 };
 
 function QueueRow({ item }: { item: QueueItem }) {
@@ -37,9 +40,11 @@ function QueueRow({ item }: { item: QueueItem }) {
     <li className="border-b border-slate-100 py-3 last:border-b-0">
       {modalHolder}
       <div className="flex flex-wrap items-center gap-2">
-        <span className="tabular-nums text-[14px] font-bold text-indigo-600">{item.ref}</span>
-        <span className="text-[14px] font-semibold text-slate-800">{item.label}</span>
-        <span className={`ml-auto rounded-md px-2 py-0.5 text-[12px] font-semibold ${s.tone}`}>{s.text}</span>
+        <span className={`${REF} text-[14px] font-bold text-indigo-600`}>{item.ref}</span>
+        <span className="text-[14px] font-semibold text-slate-900">{item.label}</span>
+        <Badge tone={s.tone} className="ml-auto">
+          {s.text}
+        </Badge>
       </div>
       <div className="mt-0.5 text-[13px] text-slate-500">
         Made {formatDateTime(item.recordedAt)} · {item.userName}
@@ -58,7 +63,7 @@ function QueueRow({ item }: { item: QueueItem }) {
           {canDiscard && (
             <button
               type="button"
-              className={`${bigDefault} !text-red-600 !border-red-300`}
+              className={bigDanger}
               onClick={() =>
                 modal.confirm({
                   title: `Discard “${item.label}” of ${item.ref}?`,
@@ -92,18 +97,16 @@ export function FloorShell({ children }: { children: ReactNode }) {
         {home ? (
           <span className="w-12" aria-hidden />
         ) : (
-          <Link href="/warehouse-concept/floor" aria-label="Back to the scan screen" className="flex h-12 w-12 items-center justify-center text-[18px] text-slate-600">
+          <Link href="/warehouse-concept/floor" aria-label="Back to the scan screen" className="flex h-12 w-12 items-center justify-center text-[18px] !text-slate-500 hover:!text-slate-900">
             <ArrowLeftOutlined />
           </Link>
         )}
-        <h1 className="m-0 flex-1 truncate text-[16px] font-bold">{TERMS.floorMode}</h1>
-        <span
-          role="status"
-          className={`rounded-full px-2.5 py-1 text-[12px] font-bold ${q.online ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}
-        >
+        {/* The title of a phone's app bar: the sub-page size, not the desk page title's. */}
+        <h1 className={`${MODAL_TITLE} flex-1 truncate`}>{TERMS.floorMode}</h1>
+        <Pill role="status" tone={q.online ? "green" : "red"}>
           {q.online ? "Online" : "Offline"}
-        </span>
-        <Link href="/warehouse-concept?tab=gatelog" aria-label="Exit floor mode" title="Exit floor mode" className="flex h-12 w-12 items-center justify-center text-[18px] text-slate-600">
+        </Pill>
+        <Link href="/warehouse-concept?tab=gatelog" aria-label="Exit floor mode" title="Exit floor mode" className="flex h-12 w-12 items-center justify-center text-[18px] !text-slate-500 hover:!text-slate-900">
           <CloseOutlined />
         </Link>
       </header>
@@ -112,7 +115,7 @@ export function FloorShell({ children }: { children: ReactNode }) {
           type="button"
           onClick={() => setSheet(true)}
           className={`flex min-h-[48px] w-full shrink-0 items-center gap-2 border-none px-4 text-left text-[14px] font-semibold cursor-pointer ${
-            q.authPaused ? "bg-red-50 text-red-800" : "bg-amber-50 text-amber-900"
+            q.authPaused ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700"
           }`}
         >
           <CloudSyncOutlined spin={q.sending} />
@@ -121,7 +124,7 @@ export function FloorShell({ children }: { children: ReactNode }) {
         </button>
       )}
       {q.notSaved && (
-        <div role="alert" className="shrink-0 bg-red-50 px-4 py-2.5 text-[14px] font-semibold text-red-800">
+        <div role="alert" className="shrink-0 bg-red-50 px-4 py-2.5 text-[14px] font-semibold text-red-700">
           Not saved on this phone — writes are held only while this page stays open. Don&apos;t close or reload it until everything is sent.
         </div>
       )}

@@ -13,6 +13,7 @@ import { Pill } from "@/components/Pill";
 import { SectionCard } from "@/components/SectionCard";
 import { ManagersOnlyNote } from "./ManagersOnlyNote";
 import { SalesDialog } from "./SalesDialog";
+import { LABEL_TEXT } from "@/styles/ui";
 
 // A change is sent once the user has stopped typing for this long.
 const AUTOSAVE_DELAY_MS = 600;
@@ -424,7 +425,7 @@ export function TermsTab() {
     if (copy.saving) saveLabel = { text: "Saving…", tone: "text-slate-500" };
     else if (refused) saveLabel = { text: `Not saved - ${refused}`, tone: "text-red-600" };
     else if (changesOf(copy)) saveLabel = { text: "Unsaved changes", tone: "text-slate-400" };
-    else if (savedId === copy.stored.id) saveLabel = { text: "Saved", tone: "text-green-600" };
+    else if (savedId === copy.stored.id) saveLabel = { text: "Saved", tone: "text-emerald-600" };
   }
 
   return (
@@ -470,7 +471,7 @@ export function TermsTab() {
                     aria-pressed={chosen}
                     onClick={() => choose(t.id)}
                     className={`w-full text-left px-3 py-2 rounded-lg cursor-pointer text-[13px] transition-colors ${
-                      chosen ? "bg-indigo-50 text-indigo-700 font-medium" : "bg-transparent text-slate-600 hover:bg-slate-50"
+                      chosen ? "bg-indigo-50 text-indigo-700 font-medium" : "bg-transparent text-slate-700 hover:bg-slate-50"
                     }`}
                   >
                     <div className="truncate">{t.name}</div>
@@ -549,8 +550,8 @@ export function TermsTab() {
               </div>
 
               <div>
-                <label className="flex items-center gap-2 text-[13px] font-medium text-slate-700 mb-1">
-                  <span className="w-2 h-2 rounded-full bg-green-500" />
+                <label className={`flex items-center gap-2 ${LABEL_TEXT} mb-1`}>
+                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
                   Rate offer includes
                 </label>
                 <Input.TextArea
@@ -563,7 +564,7 @@ export function TermsTab() {
               </div>
 
               <div>
-                <label className="flex items-center gap-2 text-[13px] font-medium text-slate-700 mb-1">
+                <label className={`flex items-center gap-2 ${LABEL_TEXT} mb-1`}>
                   <span className="w-2 h-2 rounded-full bg-red-500" />
                   Rate offer excludes
                 </label>
@@ -577,7 +578,7 @@ export function TermsTab() {
               </div>
 
               <div>
-                <label className="flex items-center gap-2 text-[13px] font-medium text-slate-700 mb-1">
+                <label className={`flex items-center gap-2 ${LABEL_TEXT} mb-1`}>
                   <span className="w-2 h-2 rounded-full bg-amber-500" />
                   Subject to
                 </label>

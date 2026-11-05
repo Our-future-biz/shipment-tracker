@@ -9,6 +9,7 @@ import { useToast } from "@/lib/toast";
 import { COMPANY_DETAIL_FIELDS, asCompanyDetails, type CompanyDetails } from "../_lib/companyDetails";
 import { quoteProblem } from "../_lib/quoteProblem";
 import { ManagersOnlyNote } from "./ManagersOnlyNote";
+import { LABEL_TEXT } from "@/styles/ui";
 
 // Who quotes are from. The details go on every quote of the company, so typing alone
 // stores nothing: only Save writes. The form cannot be edited before the stored details are on
@@ -53,7 +54,7 @@ export function CompanyDetailsCard() {
     };
     return (
       <label className="block">
-        <span className="block text-[13px] font-medium text-slate-700 mb-1">{label}</span>
+        <span className={`block ${LABEL_TEXT} mb-1`}>{label}</span>
         {rows ? <Input.TextArea rows={rows} {...props} /> : <Input {...props} />}
       </label>
     );

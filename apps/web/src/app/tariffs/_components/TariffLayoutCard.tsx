@@ -57,7 +57,7 @@ export function TariffLayoutCard<L>({ version, editable, isRelayouting, onRelayo
     <SectionCard title="How the file was read" extra={<span className="text-xs text-slate-500">{LAYOUT_SOURCE_LABEL[version.layoutSource]}</span>}>
       {editable ? (
         <>
-          <p className="mt-0 mb-4 text-[13px] text-slate-600">{intro}</p>
+          <p className="mt-0 mb-4 text-[13px] text-slate-700">{intro}</p>
           {renderForm(form, setForm)}
           <div className="flex flex-wrap items-center gap-3 mt-5">
             <Button type="primary" icon={<ReloadOutlined />} loading={isRelayouting} disabled={!dirty || problems.length > 0} onClick={handleRelayout}>

@@ -47,7 +47,7 @@ export function ConfirmModal({
           <div className={`${MODAL_TITLE} mb-1`}>
             {title}
           </div>
-          <div className="text-[13px] text-slate-600 leading-relaxed">{description}</div>
+          <div className="text-[13px] text-slate-700 leading-relaxed">{description}</div>
         </div>
       </div>
       <div className="flex justify-end gap-2 mt-5">

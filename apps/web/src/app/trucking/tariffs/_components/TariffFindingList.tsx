@@ -2,6 +2,7 @@
 
 import { ExclamationCircleOutlined, StopOutlined } from "@ant-design/icons";
 import type { interfaces } from "@/lib/api/client";
+import { HINT } from "@/styles/ui";
 import { sortFindings } from "../../_lib/tariffs";
 
 interface TariffFindingListProps {
@@ -26,7 +27,7 @@ export const TariffFindingList = ({ findings, limit }: TariffFindingListProps) =
             <span className="min-w-0">
               <span className="sr-only">{error ? "Error: " : "Warning: "}</span>
               {f.message}
-              {f.where && <span className="block text-[12px] text-slate-500">{f.where}</span>}
+              {f.where && <span className={`block ${HINT}`}>{f.where}</span>}
             </span>
           </li>
         );

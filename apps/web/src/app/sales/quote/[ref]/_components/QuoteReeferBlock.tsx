@@ -5,6 +5,7 @@ import { Checkbox, InputNumber, Radio, Select } from "antd";
 import { moneyInputParser } from "@/lib/money";
 import type { QuoteReefer } from "../../../_lib/types";
 import { LineBlock } from "./LineBlock";
+import { HINT, LABEL_TEXT } from "@/styles/ui";
 
 interface QuoteReeferBlockProps {
   value: QuoteReefer | undefined;
@@ -29,7 +30,7 @@ const SHORE_POWER_OPTIONS = [
 function Group({ n, title, children }: { n: number; title: string; children: ReactNode }) {
   return (
     <div className="space-y-2">
-      <div className="text-[11px] font-bold text-slate-600 uppercase tracking-wide">
+      <div className={LABEL_TEXT}>
         {n}. {title}
       </div>
       {children}
@@ -41,10 +42,10 @@ function Group({ n, title, children }: { n: number; title: string; children: Rea
 function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
     <div className="flex items-start gap-3 text-xs">
-      <span className="w-[150px] shrink-0 pt-1 text-slate-500 font-medium">{label}</span>
+      <span className={`w-[150px] shrink-0 pt-1 ${LABEL_TEXT}`}>{label}</span>
       <div className="flex-1 min-w-0">
         {children}
-        {hint && <div className="mt-0.5 text-[11px] text-slate-400">{hint}</div>}
+        {hint && <div className={`mt-0.5 ${HINT}`}>{hint}</div>}
       </div>
     </div>
   );

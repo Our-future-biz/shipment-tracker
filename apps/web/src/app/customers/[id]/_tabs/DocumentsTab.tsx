@@ -1,18 +1,20 @@
 "use client";
 
 import { useState } from "react";
-import { Button, Table, Tag } from "antd";
+import { Button, Table } from "antd";
 import { DeleteOutlined, DownloadOutlined, PlusOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { Pill } from "@/components/Pill";
 import { PillTabs, SectionCard } from "@/components/SectionCard";
+import { LINK } from "@/styles/ui";
 import { useCustomerDocuments } from "@/hooks/useCustomerDocuments";
 import type { DocumentItem } from "@/hooks/useCustomerDocuments";
 import { api } from "@/lib/api";
 import { businessToday, formatDate } from "@/lib/date";
 import { downloadDataUrl, formatFileSize } from "@/lib/files";
 import { useToast } from "@/lib/toast";
-import { DOCUMENT_TYPES, documentTypeColor } from "../../_lib/constants";
+import { DOCUMENT_TYPES } from "../../_lib/constants";
 import { CustomerCountChip } from "../_components/CustomerCountChip";
 import { CustomerDocumentDialog } from "../_components/CustomerDocumentDialog";
 import type { CustomerDocumentInput } from "../_components/CustomerDocumentDialog";
@@ -93,7 +95,7 @@ export function DocumentsTab({ customerId }: DocumentsTabProps) {
           type="button"
           title="Download"
           onClick={() => handleDownload(r)}
-          className="p-0 border-none bg-transparent text-left text-indigo-600 hover:underline cursor-pointer"
+          className={`p-0 border-none bg-transparent text-left cursor-pointer ${LINK}`}
         >
           {v}
         </button>
@@ -103,9 +105,7 @@ export function DocumentsTab({ customerId }: DocumentsTabProps) {
       title: "Type",
       dataIndex: "type",
       render: (v: string) => (
-        <Tag color={documentTypeColor(v)} className="!m-0">
-          {v}
-        </Tag>
+        <Pill tone="slate">{v}</Pill>
       ),
     },
     { title: "File", dataIndex: "fileName", render: (v: string) => v || EMPTY_CELL },

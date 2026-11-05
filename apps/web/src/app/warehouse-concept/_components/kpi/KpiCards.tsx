@@ -5,6 +5,7 @@ import { InfoCircleOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import type { interfaces } from "@/lib/api/client";
 import { useToast } from "@/lib/toast";
+import { CARD, EMPTY, HINT, KPI_VALUE, LABEL_TEXT } from "@/styles/ui";
 import { KPI_MAX_DAYS, KPI_PRESETS, KPI_PRESET_LABEL, daysIn, kpiValueText, periodText, type KpiPreset, type KpiRange } from "./kpiPeriod";
 
 export type Kpi = interfaces.WarehouseKpi;
@@ -14,13 +15,13 @@ export type Kpi = interfaces.WarehouseKpi;
 export function KpiCard({ kpi, tone }: { kpi: Kpi; tone?: "amber" | "red" }) {
   const measured = kpi.value != null;
   const valueText = measured ? kpiValueText(kpi.value, kpi.unit) : "Not measured";
-  const color = !measured ? "text-slate-400" : tone === "red" ? "text-red-600" : tone === "amber" ? "text-amber-600" : "text-slate-900";
+  const color = !measured ? "!text-slate-400" : tone === "red" ? "!text-red-600" : tone === "amber" ? "!text-amber-600" : "";
   const parts = kpi.breakdown.filter((p) => p.value != null || p.n > 0);
   return (
-    <section className="bg-white border border-slate-200 rounded-xl shadow-sm px-4 py-3 min-w-0 flex flex-col gap-1.5" aria-label={kpi.label}>
-      <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">{kpi.label}</div>
-      <div className={`text-[24px] leading-tight font-bold ${color}`}>{valueText}</div>
-      <div className="text-[11px] text-slate-500">
+    <section className={`${CARD} px-4 py-3 min-w-0 flex flex-col gap-1.5`} aria-label={kpi.label}>
+      <div className={LABEL_TEXT}>{kpi.label}</div>
+      <div className={`${KPI_VALUE} ${color}`}>{valueText}</div>
+      <div className={HINT}>
         {kpi.n} record{kpi.n === 1 ? "" : "s"} counted
       </div>
       {kpi.notMeasured && <div className="text-xs text-amber-700">{measured ? kpi.notMeasured : `Not measured: ${kpi.notMeasured}`}</div>}
@@ -31,14 +32,14 @@ export function KpiCard({ kpi, tone }: { kpi: Kpi; tone?: "amber" | "red" }) {
               <dt className="text-slate-500 truncate" title={p.label}>
                 {p.label}
               </dt>
-              <dd className="m-0 text-right font-semibold tabular-nums text-slate-700">{p.value == null ? <span className="text-slate-300">—</span> : kpiValueText(p.value, p.unit)}</dd>
+              <dd className="m-0 text-right font-semibold tabular-nums text-slate-700">{p.value == null ? <span className={EMPTY}>—</span> : kpiValueText(p.value, p.unit)}</dd>
             </div>
           ))}
         </dl>
       )}
-      <p className="m-0 mt-1 border-t border-slate-100 pt-1.5 text-[11px] leading-snug text-slate-500">
+      <p className={`m-0 mt-1 border-t border-slate-100 pt-1.5 leading-snug ${HINT}`}>
         <InfoCircleOutlined className="mr-1 text-slate-400" />
-        <b className="text-slate-600">How it is measured:</b> {kpi.measured}
+        <b className="text-slate-700">How it is measured:</b> {kpi.measured}
       </p>
     </section>
   );
@@ -70,7 +71,7 @@ export function KpiPeriodBar({
   const toast = useToast();
   return (
     <div className="flex flex-wrap items-center gap-3">
-      <span className="text-xs font-semibold text-slate-600">Period</span>
+      <span className={LABEL_TEXT}>Period</span>
       <Segmented<KpiPreset> size="small" value={preset} onChange={onPreset} options={KPI_PRESETS.map((p) => ({ value: p, label: KPI_PRESET_LABEL[p] }))} />
       {preset === "custom" && (
         <DatePicker.RangePicker
@@ -88,7 +89,7 @@ export function KpiPeriodBar({
           }}
         />
       )}
-      <span className="text-xs text-slate-500">
+      <span className={HINT}>
         {periodText(range)} · Prague days{busy ? " · updating…" : ""}
       </span>
     </div>

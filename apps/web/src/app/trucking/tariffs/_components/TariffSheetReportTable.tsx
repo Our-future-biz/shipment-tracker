@@ -4,6 +4,7 @@ import { Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { Pill } from "@/components/Pill";
 import type { ImportSheetReport } from "@/hooks/useTrucking";
+import { EMPTY } from "@/styles/ui";
 
 const READ_CHIP: Record<ImportSheetReport["read"], { label: string; tone: "green" | "slate" | "amber" }> = {
   used: { label: "Used", tone: "green" },
@@ -26,7 +27,7 @@ export const TariffSheetReportTable = ({ sheets }: TariffSheetReportTableProps) 
       render: (_, s) => <Pill tone={READ_CHIP[s.read].tone}>{READ_CHIP[s.read].label}</Pill>,
     },
     { key: "rows", title: "Rows", align: "right", render: (_, s) => <span className="tabular-nums">{s.rows}</span> },
-    { key: "note", title: "Note", render: (_, s) => s.note || <span className="text-slate-400">—</span> },
+    { key: "note", title: "Note", render: (_, s) => s.note || <span className={EMPTY}>—</span> },
   ];
 
   return (

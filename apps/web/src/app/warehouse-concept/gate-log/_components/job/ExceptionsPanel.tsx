@@ -8,6 +8,7 @@ import { useToast } from "@/lib/toast";
 import { formatDateTime } from "@/lib/date";
 import { Badge, errorMessage, surveyPhaseKey } from "../../_lib/gate";
 import { btnDefault, btnInline, Section } from "./fields";
+import { HINT, LABEL_TEXT, LINK, REF } from "@/styles/ui";
 
 // Damage / short / over (OS&D) exceptions of a movement. Recorded from a survey or by hand (type,
 // pieces, a note, photos of this movement); while one is open the cargo is ON HOLD — the release
@@ -37,7 +38,7 @@ export function FileLink({ movementId, file }: { movementId: string; file: GateF
   return (
     <button
       type="button"
-      className="text-[11px] text-indigo-500 hover:underline bg-transparent border-none p-0 cursor-pointer max-w-[180px] truncate"
+      className={`${LINK} text-[12px] bg-transparent border-none p-0 cursor-pointer max-w-[180px] truncate`}
       title={`Open ${file.fileName}`}
       onClick={() => {
         if (url) window.open(url, "_blank", "noopener");
@@ -58,20 +59,20 @@ export function ExceptionList({ m, onResolve }: { m: GateMovement; onResolve?: (
   const { files } = useGateFiles(m.id);
   const byId = new Map(files.map((f) => [f.id, f]));
   const list = [...m.exceptions].sort((a, b) => (a.status === b.status ? b.createdAt.localeCompare(a.createdAt) : a.status === "open" ? -1 : 1));
-  if (!list.length) return <div className="text-xs text-slate-400">No damage, short or over recorded.</div>;
+  if (!list.length) return <div className={HINT}>No damage, short or over recorded.</div>;
   return (
     <ul className="list-none m-0 p-0">
       {list.map((e) => {
         const open = e.status === "open";
         const photos = e.fileIds.map((id) => byId.get(id)).filter((f): f is GateFile => !!f);
         return (
-          <li key={e.id} className="py-2 border-b border-slate-100 last:border-b-0 text-xs">
+          <li key={e.id} className="py-2 border-b border-slate-100 last:border-b-0 text-[13px]">
             <div className="flex flex-wrap items-center gap-2">
               <Badge tone={TYPE_TONE[e.type as keyof typeof TYPE_TONE] ?? ""}>{e.type}</Badge>
-              <span className="font-semibold text-slate-800 tabular-nums">
+              <span className="font-semibold text-slate-900 tabular-nums">
                 {e.pieces} pc{e.pieces === 1 ? "" : "s"}
               </span>
-              {e.container && <span className="tabular-nums text-slate-500">{e.container}</span>}
+              {e.container && <span className={`${REF} text-slate-500`}>{e.container}</span>}
               <Badge tone={open ? "r" : "g"}>{open ? "Open — on hold" : "Resolved"}</Badge>
               {open && onResolve && (
                 <button type="button" className={`${btnInline} ml-auto`} onClick={() => onResolve(e)}>
@@ -80,7 +81,7 @@ export function ExceptionList({ m, onResolve }: { m: GateMovement; onResolve?: (
               )}
             </div>
             {e.note && <div className="mt-1 text-slate-700 whitespace-pre-wrap break-words">{e.note}</div>}
-            <div className="mt-0.5 text-[11px] text-slate-400">
+            <div className={`mt-0.5 ${HINT}`}>
               {e.source === "survey" ? `From the ${e.surveyPhase ? `${surveyPhaseKey(e.surveyPhase)} ` : ""}survey` : e.source === "tally" ? "Found at the stripping tally" : "Recorded by hand"} · {formatDateTime(e.createdAt)}
               {e.createdBy ? ` · ${e.createdBy}` : ""}
             </div>
@@ -92,10 +93,10 @@ export function ExceptionList({ m, onResolve }: { m: GateMovement; onResolve?: (
               </div>
             )}
             {e.fileIds.length > photos.length && (
-              <div className="text-[11px] text-slate-400">{e.fileIds.length - photos.length} photo(s) no longer stored</div>
+              <div className={HINT}>{e.fileIds.length - photos.length} photo(s) no longer stored</div>
             )}
             {!open && (
-              <div className="mt-1 rounded bg-emerald-50 px-2 py-1 text-[11px] text-emerald-800">
+              <div className="mt-1 rounded-lg bg-emerald-50 px-2 py-1 text-[12px] text-emerald-700">
                 Resolved {e.resolvedAt ? formatDateTime(e.resolvedAt) : ""}
                 {e.resolvedBy ? ` by ${e.resolvedBy}` : ""}
                 {e.resolutionNote ? ` — ${e.resolutionNote}` : ""}
@@ -143,7 +144,7 @@ export function ExceptionsPanel({
       extra={openCount > 0 ? <Badge tone="r">On hold — {openCount} open</Badge> : m.exceptions.length ? <Badge tone="g">None open</Badge> : undefined}
     >
       {offers.length > 0 && (
-        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 flex flex-wrap items-center gap-2">
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-700 flex flex-wrap items-center gap-2">
           <span>This survey found:</span>
           {offers.map((o) => (
             <button
@@ -255,22 +256,22 @@ function CreateExceptionModal({
       destroyOnHidden
       width={560}
     >
-      <p className="text-xs text-slate-500 mt-0">
+      <p className={`${HINT} mt-0`}>
         While it is open the cargo is on hold: the release gate &ldquo;{EXCEPTION_GATE}&rdquo; is Blocked and the WH release is refused until someone resolves it with a
         note.
       </p>
-      <div className="grid grid-cols-2 gap-3 text-xs">
+      <div className="grid grid-cols-2 gap-3">
         <label className="flex flex-col gap-1">
-          <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Type</span>
+          <span className={LABEL_TEXT}>Type</span>
           <Select value={type} onChange={setType} options={EXCEPTION_TYPES.map((t) => ({ value: t, label: t }))} />
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Pieces</span>
+          <span className={LABEL_TEXT}>Pieces</span>
           <InputNumber min={1} precision={0} value={pieces} onChange={(v) => setPieces(v == null ? null : Number(v))} suffix="pcs" className="!w-full" />
         </label>
         {m.containers.length > 0 && (
           <label className="flex flex-col gap-1 col-span-2">
-            <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Container</span>
+            <span className={LABEL_TEXT}>Container</span>
             <Select
               value={container}
               onChange={setContainer}
@@ -279,18 +280,18 @@ function CreateExceptionModal({
           </label>
         )}
         <label className="flex flex-col gap-1 col-span-2">
-          <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Note</span>
+          <span className={LABEL_TEXT}>Note</span>
           <Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} value={note} placeholder="What was found…" onChange={(e) => setNote(e.target.value)} />
         </label>
       </div>
       <div className="mt-3">
-        <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-1">Photos of this movement ({fileIds.length} chosen)</div>
+        <div className={`${LABEL_TEXT} mb-1`}>Photos of this movement ({fileIds.length} chosen)</div>
         {photos.length === 0 ? (
-          <div className="text-xs text-slate-400">No photos yet — add them in the Survey tab, then record the exception.</div>
+          <div className={HINT}>No photos yet — add them in the Survey tab, then record the exception.</div>
         ) : (
           <Checkbox.Group value={fileIds} onChange={(v) => setFileIds((v as string[]).slice(0, 20))} className="!flex !flex-col max-h-[180px] overflow-y-auto">
             {photos.map((f) => (
-              <Checkbox key={f.id} value={f.id} className="!text-xs">
+              <Checkbox key={f.id} value={f.id}>
                 {f.tag ? `${f.tag} · ` : ""}
                 {f.fileName}
                 {f.container ? <span className="text-slate-400"> · {f.container}</span> : null}
@@ -334,7 +335,7 @@ function ResolveModal({
       }
       destroyOnHidden
     >
-      <p className="text-xs text-slate-500 mt-0">How was it settled? The note, who and when are logged. When no exception is left open, the hold is cleared.</p>
+      <p className={`${HINT} mt-0`}>How was it settled? The note, who and when are logged. When no exception is left open, the hold is cleared.</p>
       <Input.TextArea autoFocus autoSize={{ minRows: 3, maxRows: 6 }} placeholder="Resolution note (required)" value={note} onChange={(e) => setNote(e.target.value)} />
     </Modal>
   );

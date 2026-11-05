@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
+import { LABEL_TEXT } from "@/styles/ui";
 
-const FIELD_CLASS = "flex flex-col gap-1 text-[12px] font-semibold text-slate-600 min-w-0";
+const FIELD_CLASS = "flex flex-col gap-1 min-w-0";
 
 interface TariffDrawerFieldProps {
   label: string;
@@ -18,14 +19,14 @@ export const TariffDrawerField = ({ label, group, children }: TariffDrawerFieldP
   if (group) {
     return (
       <div className={FIELD_CLASS}>
-        <span>{label}</span>
+        <span className={LABEL_TEXT}>{label}</span>
         {children}
       </div>
     );
   }
   return (
     <label className={FIELD_CLASS}>
-      {label}
+      <span className={LABEL_TEXT}>{label}</span>
       {children}
     </label>
   );

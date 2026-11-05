@@ -3,7 +3,10 @@
 import Link from "next/link";
 import { Tooltip } from "antd";
 import { PushpinFilled } from "@ant-design/icons";
+import { Badge } from "@/components/Badge";
+import { Pill } from "@/components/Pill";
 import { SectionCard } from "@/components/SectionCard";
+import { EMPTY, LABEL_TEXT, LINK, REF, TD } from "@/styles/ui";
 import type { TripDetail } from "@/hooks/useTruckingConsignments";
 import { formatDate, businessDateTime } from "@/lib/date";
 import { btnDefault, btnPrimary } from "@/components/buttons";
@@ -20,9 +23,9 @@ import { pragueDate } from "../../_lib/format";
 import { RECORDED_AS_SENT, recordAsSentLabel } from "../../_lib/transportOrder";
 
 const Line = ({ k, v }: { k: string; v: string }) => (
-  <div className="flex items-baseline gap-2 border-b border-slate-100 py-1 text-xs last:border-b-0">
-    <span className="w-[150px] shrink-0 text-[11px] font-bold uppercase tracking-wide text-slate-500">{k}</span>
-    <span className={`min-w-0 flex-1 font-medium ${v ? "text-slate-900" : "text-slate-300"}`}>{v || "—"}</span>
+  <div className="flex items-baseline gap-2 border-b border-slate-100 py-1.5 text-[13px] last:border-b-0">
+    <span className={`w-[150px] shrink-0 ${LABEL_TEXT}`}>{k}</span>
+    <span className={`min-w-0 flex-1 ${v ? "text-slate-900" : EMPTY}`}>{v || "—"}</span>
   </div>
 );
 
@@ -78,11 +81,11 @@ export const TripPanel = ({ trip, actions, manager, linkToTrip = false, onDialog
         extra={
           <span className="flex items-center gap-2">
             {linkToTrip ? (
-              <Link href={tripHref(trip.id)} className="tabular-nums text-xs font-semibold text-indigo-600 hover:underline">
+              <Link href={tripHref(trip.id)} className={`${LINK} ${REF} text-xs font-semibold`}>
                 {trip.ref}
               </Link>
             ) : (
-              <span className="tabular-nums text-xs font-semibold text-slate-700">{trip.ref}</span>
+              <span className={`${REF} text-xs font-semibold text-slate-900`}>{trip.ref}</span>
             )}
             <TruckingStatusChip chip={TRIP_STATUS_CHIP[trip.status]} />
           </span>
@@ -90,7 +93,7 @@ export const TripPanel = ({ trip, actions, manager, linkToTrip = false, onDialog
       >
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2">
-            <Link href={`/trucking/hauliers/${trip.haulierCustomerId}`} className="text-[14px] font-semibold text-indigo-600 hover:underline">
+            <Link href={`/trucking/hauliers/${trip.haulierCustomerId}`} className={`${LINK} text-[14px] font-semibold`}>
               {trip.haulierName}
             </Link>
             <HaulierStatusChip status={trip.haulierStatus} />
@@ -133,20 +136,28 @@ export const TripPanel = ({ trip, actions, manager, linkToTrip = false, onDialog
 
       {trip.buyCandidates.length > 0 && (
         <SectionCard title="Hauliers offered when planned">
-          <table className="w-full border-collapse text-[12px]">
-            <tbody>
+          <table className="w-full border-collapse">
+            <tbody className="[&>tr:last-child>td]:border-b-0">
               {trip.buyCandidates.map((b, i) => (
-                <tr key={`${b.ownerCustomerId}-${i}`} className={`border-b border-slate-50 ${b.ownerCustomerId === trip.haulierCustomerId ? "font-semibold" : ""}`}>
-                  <td className="px-2 py-1 w-5">{b.preferred && <PushpinFilled className="text-indigo-500" aria-label="Preferred lane" />}</td>
-                  <td className="px-2 py-1 text-slate-800">
+                <tr key={`${b.ownerCustomerId}-${i}`} className={b.ownerCustomerId === trip.haulierCustomerId ? "font-semibold" : ""}>
+                  <td className={`${TD} w-5`}>{b.preferred && <PushpinFilled className="text-indigo-500" aria-label="Preferred lane" />}</td>
+                  <td className={`${TD} !text-slate-900`}>
                     {b.ownerName}
-                    {i === 0 ? <span className="ml-1.5 text-[11px] font-normal text-indigo-600">suggested</span> : null}
-                    {b.ownerCustomerId === trip.haulierCustomerId ? <span className="ml-1.5 text-[11px] font-normal text-emerald-700">chosen</span> : null}
+                    {i === 0 ? (
+                      <Badge tone="i" className="ml-1.5">
+                        suggested
+                      </Badge>
+                    ) : null}
+                    {b.ownerCustomerId === trip.haulierCustomerId ? (
+                      <Pill tone="green" className="ml-1.5">
+                        chosen
+                      </Pill>
+                    ) : null}
                   </td>
-                  <td className="px-2 py-1 text-slate-500">
+                  <td className={`${TD} !text-slate-500`}>
                     {b.tariffName} {versionLabel(b)}
                   </td>
-                  <td className="px-2 py-1 text-right tabular-nums">{formatMoney(b.total, b.currency)}</td>
+                  <td className={`${TD} text-right tabular-nums`}>{formatMoney(b.total, b.currency)}</td>
                 </tr>
               ))}
             </tbody>

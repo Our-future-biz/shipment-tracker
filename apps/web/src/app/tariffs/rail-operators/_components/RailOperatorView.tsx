@@ -1,5 +1,6 @@
 "use client";
 
+import { Badge } from "@/components/Badge";
 import { useRailOperator, useRailTariffActions, type RailTariffItem } from "@/hooks/useRailTariffs";
 import { DIRECTIONS, TARIFF_PORTS, portsAndDirectionsProblem, railVersionHref } from "../../_lib/railTariffs";
 import { TARIFF_PAGES } from "../../_lib/tariffPages";
@@ -7,21 +8,19 @@ import { TariffSupplierView } from "../../_components/TariffSupplierView";
 import { RailTariffPortsFields, type PortsAndDirections } from "./RailTariffPortsFields";
 import { RailUploadModal } from "./RailUploadModal";
 
-const CHIP = "inline-block rounded-full border px-2 py-0.5 text-[12px] font-medium";
-
 // What a tariff is for, above its versions: its ports, then import / export.
 const RailTariffFor = ({ tariff }: { tariff: RailTariffItem }) => (
   <>
     {TARIFF_PORTS.filter((p) => tariff.ports.includes(p.code)).map((p) => (
-      <span key={p.code} className={`${CHIP} bg-indigo-50 text-indigo-700 border-indigo-200`}>
+      <Badge key={p.code} tone="i">
         {p.name}
-      </span>
+      </Badge>
     ))}
     <span aria-hidden className="mx-1 h-4 w-px bg-slate-200" />
     {DIRECTIONS.filter((d) => tariff.directions.includes(d.value)).map((d) => (
-      <span key={d.value} className={`${CHIP} bg-slate-100 text-slate-600 border-slate-200`}>
+      <Badge key={d.value}>
         {d.label}
-      </span>
+      </Badge>
     ))}
   </>
 );

@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Alert, Button, Input, InputNumber, Modal, Radio, Select } from "antd";
 import { apiErrorMessage } from "@/lib/api";
 import { useHauliers, type TariffCreate, type TariffSide } from "@/hooks/useTrucking";
+import { HINT } from "@/styles/ui";
 import { HaulierOptionLabel } from "./HaulierOptionLabel";
 import { bestFirst, pickable, pickName } from "../_lib/haulierRating";
 import { TERMS } from "../_lib/glossary";
@@ -245,7 +246,7 @@ export const TariffCreateModal = ({ open, side, onClose, create, isCreating, onC
       </div>
 
       <div className="flex flex-wrap items-center justify-end gap-2 mt-5">
-        {problems.length > 0 && <span className="mr-auto text-xs text-slate-500">{problems.join(" · ")}</span>}
+        {problems.length > 0 && <span className={`mr-auto ${HINT}`}>{problems.join(" · ")}</span>}
         <Button onClick={onClose} disabled={isCreating}>
           Cancel
         </Button>

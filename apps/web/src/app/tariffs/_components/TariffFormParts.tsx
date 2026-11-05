@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { DatePicker, Input } from "antd";
 import dayjs from "dayjs";
+import { HINT, LABEL_TEXT } from "@/styles/ui";
 
 // The parts the "How the file was read" forms of every kind of tariff are built of: a labelled
 // field, a sub-heading, a date, the terms, and a list typed as text.
@@ -14,14 +15,14 @@ interface FieldProps {
 }
 
 export const Field = ({ label, children, hint }: FieldProps) => (
-  <label className="flex flex-col gap-1 text-[12px] font-semibold text-slate-600 min-w-0">
-    {label}
+  <label className="flex flex-col gap-1 min-w-0">
+    <span className={LABEL_TEXT}>{label}</span>
     {children}
-    {hint && <span className="text-[11px] font-normal text-slate-400">{hint}</span>}
+    {hint && <span className={HINT}>{hint}</span>}
   </label>
 );
 
-export const SubTitle = ({ children }: { children: ReactNode }) => <div className="text-[12px] font-bold uppercase tracking-wider text-slate-500 mt-1">{children}</div>;
+export const SubTitle = ({ children }: { children: ReactNode }) => <div className={`${LABEL_TEXT} mt-1`}>{children}</div>;
 
 interface DayFieldProps {
   label: string;

@@ -10,6 +10,7 @@ import type { LivePricing } from "@/app/sales/_lib/salesQuote";
 import type { FclProfit, SalesQuoteData } from "@/app/sales/_lib/types";
 import { FCL_PROFIT_MODES } from "../_lib/fclPricingUi";
 import { LINE_TD_CLASS, LINE_TH_CLASS, LINE_TH_RIGHT_CLASS, LineTable } from "./LineBlock";
+import { TD_TOTAL } from "@/styles/ui";
 
 interface FclPerChargeModalProps {
   block: FclBlock;
@@ -136,15 +137,15 @@ export function FclPerChargeModal({ block, quote, sheet, live, currency, onClose
         </tbody>
         <tfoot>
           <tr>
-            <td className={LINE_TD_CLASS} colSpan={2}>
-              <span className="font-bold text-slate-700">Block</span>
+            <td className={TD_TOTAL} colSpan={2}>
+              Block
             </td>
-            <td className={`${LINE_TD_CLASS} font-semibold tabular-nums`}>
+            <td className={`${TD_TOTAL} tabular-nums`}>
               {fmtMoney(preview.profit, currency)}
               {preview.percent !== null && <span className="text-slate-400 font-normal"> · {preview.percent} %</span>}
             </td>
-            <td className={`${LINE_TD_CLASS} text-right tabular-nums`}>{fmtMoney(preview.buying, currency)}</td>
-            <td className={`${LINE_TD_CLASS} text-right font-bold tabular-nums`}>{fmtMoney(preview.selling, currency)}</td>
+            <td className={`${TD_TOTAL} text-right tabular-nums`}>{fmtMoney(preview.buying, currency)}</td>
+            <td className={`${TD_TOTAL} text-right tabular-nums`}>{fmtMoney(preview.selling, currency)}</td>
           </tr>
         </tfoot>
       </LineTable>

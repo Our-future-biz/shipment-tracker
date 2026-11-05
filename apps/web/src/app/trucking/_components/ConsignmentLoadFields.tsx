@@ -2,6 +2,7 @@
 
 import { Checkbox, Input, InputNumber, Select } from "antd";
 import type { LoadInput } from "@/hooks/useTruckingConsignments";
+import { LABEL_TEXT } from "@/styles/ui";
 import { TERMS } from "../_lib/glossary";
 import { TruckingField } from "./TruckingField";
 
@@ -27,7 +28,7 @@ export const ConsignmentLoadFields = ({ load, onChange, disabled = false }: Cons
   const set = <K extends keyof LoadInput>(key: K, value: LoadInput[K]) => onChange({ ...load, [key]: value });
   return (
     <fieldset className="m-0 flex min-w-0 flex-col gap-3 rounded-xl border border-slate-200 p-3">
-      <legend className="px-1 text-[12px] font-bold uppercase tracking-wide text-slate-600">Load</legend>
+      <legend className={`px-1 ${LABEL_TEXT}`}>Load</legend>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         {MEASURES.map((m) => (
           <TruckingField key={m.key} label={m.label}>

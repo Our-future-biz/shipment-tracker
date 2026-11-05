@@ -1,7 +1,9 @@
 "use client";
 
-const inputClass =
-  "w-full bg-white border border-slate-200 rounded text-[11px] px-1.5 py-[3px] text-slate-700 outline-none focus:border-indigo-400";
+import { INPUT, LABEL_TEXT } from "@/styles/ui";
+
+// The app's hand-drawn field (INPUT), as wide as its grid column.
+const inputClass = `${INPUT} w-full`;
 
 export function GridInput({
   value,
@@ -55,7 +57,7 @@ export function GridHeader({ columns, template }: { columns: string[]; template:
   return (
     <div className={`grid ${template} items-center gap-1 pb-1 mb-1 border-b border-slate-200`}>
       {columns.map((c, i) => (
-        <span key={i} className="text-[10px] font-medium text-slate-400 uppercase tracking-wider px-1">
+        <span key={i} className={`${LABEL_TEXT} px-1`}>
           {c}
         </span>
       ))}

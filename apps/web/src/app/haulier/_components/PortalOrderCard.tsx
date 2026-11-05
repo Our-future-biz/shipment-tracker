@@ -1,8 +1,9 @@
 import Link from "next/link";
+import { Badge } from "@/components/Badge";
 import { formatDate } from "@/lib/date";
+import { CARD, REF } from "@/styles/ui";
 import { formatMoney, formatQty } from "@/app/trucking/_lib/tariffs";
 import { ORDER_KIND, needsActionText, orderStatusText, type PortalOrderItem } from "../_lib/portal";
-import { PORTAL_TONE } from "../_lib/portalStyles";
 import { Bi } from "./Bi";
 
 interface PortalOrderCardProps {
@@ -14,28 +15,28 @@ interface PortalOrderCardProps {
 export const PortalOrderCard = ({ order }: PortalOrderCardProps) => {
   const action = needsActionText(order.needsAction);
   return (
-    <Link href={`/haulier/portal/orders/${encodeURIComponent(order.id)}`} className="block rounded-xl border border-slate-200 bg-white p-4 text-slate-900 no-underline hover:border-indigo-300">
+    <Link href={`/haulier/portal/orders/${encodeURIComponent(order.id)}`} className={`${CARD} block p-4 !text-slate-900 hover:!text-slate-900 no-underline transition-colors hover:border-indigo-300`}>
       <div className="flex flex-wrap items-center gap-2">
-        <span className="tabular-nums text-[14px] font-bold">{order.ref}</span>
+        <span className={`${REF} text-[14px] font-bold`}>{order.ref}</span>
         <span className="text-[13px] text-slate-500">
           <Bi text={ORDER_KIND[order.kind]} />
         </span>
-        <span className={`ml-auto rounded-full px-2.5 py-0.5 text-[12px] font-semibold ${PORTAL_TONE.slate}`}>
+        <Badge className="ml-auto">
           <Bi text={orderStatusText(order.status)} />
-        </span>
+        </Badge>
       </div>
       <div className="mt-1 text-[14px]">
         {formatDate(order.date)} · {order.from} → {order.to}
       </div>
-      <div className="mt-1 text-[13px] text-slate-600">
+      <div className="mt-1 text-[13px] text-slate-500">
         {order.stops} <Bi text={{ cs: "zast.", en: "stops" }} /> · {formatQty(order.palletPlaces)} <Bi text={{ cs: "pal. míst", en: "pallet places" }} /> ·{" "}
         {formatQty(order.weightKg)} kg
         {order.agreedPrice ? ` · ${formatMoney(order.agreedPrice.total, order.agreedPrice.currency)}` : ""}
       </div>
       {action && (
-        <div className={`mt-2 inline-block rounded-full px-3 py-1 text-[13px] font-semibold ${PORTAL_TONE.amber}`}>
+        <Badge tone="a" className="mt-2">
           <Bi text={action} />
-        </div>
+        </Badge>
       )}
     </Link>
   );

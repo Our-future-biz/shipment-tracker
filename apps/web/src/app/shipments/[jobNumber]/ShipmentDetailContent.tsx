@@ -67,6 +67,21 @@ import type { controllers } from "@/lib/api/client";
 import { TasksPanel } from "./_components/TasksPanel";
 import { ShipmentFacts, ShipmentProgress } from "./_components/ShipmentSummary";
 import { CARD, CARD_BODY, COLS2, EMPTY, HEADER_BTN, HEADER_ICON_BTN, LABEL, LABEL_TOP, LABEL_W, REF_KEYS, REF_VALUE, ROW, ROW_TOP, VALUE } from "./_components/detailStyles";
+import {
+  BTN,
+  BTN_GHOST,
+  BTN_PRIMARY,
+  BTN_SM,
+  CARD as APP_CARD,
+  CARD_BAR,
+  CARD_ICON,
+  CARD_TITLE,
+  HINT,
+  ICON_BTN_GHOST,
+  LABEL_TEXT,
+  LINK,
+  MODAL_TITLE,
+} from "@/styles/ui";
 import { MasterJobDetailModal } from "../_components/MasterJobDetailModal";
 import { MasterJobDialog } from "../_components/MasterJobDialog";
 import { AttachmentsPanel } from "../_components/AttachmentsPanel";
@@ -144,28 +159,22 @@ function SectionHeader({
     <>
       {/* The app's card header (Master Jobs, Warehouse, Claims): a light indigo bar with the
           icon, the title in caps and the card's tools. */}
-      <div className="flex items-center gap-2.5 min-h-[42px] px-4 py-1.5 bg-indigo-50 border-b border-indigo-100">
-        <span className="text-indigo-500 text-[14px] leading-none shrink-0">{icon}</span>
-        <h3 className="m-0 min-w-0 text-[13px] leading-tight font-bold uppercase tracking-wider text-slate-800">
+      <div className={CARD_BAR}>
+        <span className={`${CARD_ICON} shrink-0`}>{icon}</span>
+        <h3 className={`${CARD_TITLE} min-w-0`}>
           {title}
         </h3>
 
         {hasTools && (
           <span className="ml-auto flex items-center gap-0.5 shrink-0">
-            <button
-              onClick={() => setShowAll(true)}
-              className="h-7 px-2 rounded-md border-0 bg-transparent text-[12px] font-medium text-slate-500
-                         tabular-nums whitespace-nowrap cursor-pointer hover:bg-indigo-100 hover:text-slate-800 transition-colors"
-            >
+            <button onClick={() => setShowAll(true)} className={`${BTN_GHOST} ${BTN_SM} tabular-nums`}>
               Show all ({allKeys.length})
             </button>
             <Tooltip title="Choose which fields appear in this card">
               <button
                 onClick={() => setPicking(true)}
-                className={`w-7 h-7 grid place-items-center rounded-md border-0 cursor-pointer transition-colors ${
-                  isCustomised(cardId!)
-                    ? "bg-white text-indigo-600 ring-1 ring-inset ring-indigo-200"
-                    : "bg-transparent text-slate-400 hover:bg-indigo-100 hover:text-indigo-600"
+                className={`${ICON_BTN_GHOST} ${
+                  isCustomised(cardId!) ? "!bg-white !text-indigo-600 ring-1 ring-inset ring-indigo-200" : ""
                 }`}
               >
                 <ControlOutlined className="text-[13px]" />
@@ -185,8 +194,8 @@ function SectionHeader({
           title={
             <span className="flex items-center gap-2">
               <span className="text-slate-400">{icon}</span>
-              <span className="text-[14px] font-semibold text-slate-800">{title}</span>
-              <span className="ml-2 text-[12px] font-normal text-slate-400">
+              <span className={MODAL_TITLE}>{title}</span>
+              <span className={`ml-2 ${HINT} font-normal`}>
                 {allKeys.length} fields
               </span>
             </span>
@@ -205,31 +214,23 @@ function SectionHeader({
           title={
             <span className="flex items-center gap-2">
               <span className="text-slate-400">{icon}</span>
-              <span className="text-[14px] font-semibold text-slate-800">
+              <span className={MODAL_TITLE}>
                 {title} — choose fields
               </span>
-              <span className="ml-2 text-[12px] font-normal text-slate-400">
+              <span className={`ml-2 ${HINT} font-normal`}>
                 {shownCount} of {allKeys.length} in card
               </span>
             </span>
           }
           footer={
             <div className="flex items-center gap-3">
-              <span className="text-[12px] text-slate-500 mr-auto text-left">
+              <span className={`${HINT} mr-auto text-left`}>
                 Unchecked fields stay available under “Show all”.
               </span>
-              <button
-                onClick={() => resetCard(cardId!)}
-                className="h-8 px-3 text-[13px] font-semibold rounded-md border border-line-soft
-                           bg-white text-slate-600 cursor-pointer hover:bg-surface-2"
-              >
+              <button onClick={() => resetCard(cardId!)} className={BTN}>
                 Show all fields
               </button>
-              <button
-                onClick={() => setPicking(false)}
-                className="h-8 px-3 text-[13px] font-semibold rounded-md border border-indigo-500
-                           bg-indigo-500 text-white cursor-pointer hover:brightness-110"
-              >
+              <button onClick={() => setPicking(false)} className={BTN_PRIMARY}>
                 Done
               </button>
             </div>
@@ -347,8 +348,8 @@ function StackabilityRow({ value, onPick }: StackabilityRowProps) {
       ) : (
         <span
           // Cargo that needs special handling stands out, like a Yes for Dangerous.
-          className={`flex-1 min-w-0 cursor-pointer rounded px-1 -mx-1 transition-colors text-slate-800 break-words ${
-            value === NOT_STACKABLE ? "bg-yellow-500/15" : "hover:bg-slate-100"
+          className={`flex-1 min-w-0 cursor-pointer rounded px-1 -mx-1 transition-colors text-slate-900 break-words ${
+            value === NOT_STACKABLE ? "bg-amber-500/15" : "hover:bg-slate-100"
           }`}
           title="Double-click to edit"
           onDoubleClick={() => setEditing(true)}
@@ -387,7 +388,7 @@ function MemberRow({
           if (next !== null) onCommit(fieldKey, next);
         }}
       />
-      {when && <span className="shrink-0 text-[11px] text-slate-400 whitespace-nowrap">{when}</span>}
+      {when && <span className="shrink-0 text-[11px] text-slate-500 whitespace-nowrap">{when}</span>}
     </div>
   );
 }
@@ -425,7 +426,7 @@ function InvoiceRow({
         type="button"
         onClick={() => setOpen(true)}
         className={`flex-1 min-w-0 text-left bg-transparent border-none p-0 cursor-pointer hover:underline ${
-          value ? "text-slate-800" : EMPTY
+          value ? "text-slate-900" : EMPTY
         }`}
         style={value ? styleFor?.(fieldKey, value) ?? undefined : undefined}
       >
@@ -614,11 +615,7 @@ function HouseBolReleaseRow({ releasedAt, onRelease }: HouseBolReleaseRowProps) 
             <CheckCircleOutlined /> Released by {releasedAt}
           </span>
         ) : (
-          <Button
-            size="small"
-            onClick={onRelease}
-            className="!h-6 !px-2.5 !text-[12px] !font-semibold !text-indigo-600 !border-indigo-200 !bg-white hover:!bg-indigo-50 hover:!border-indigo-300"
-          >
+          <Button size="small" onClick={onRelease}>
             RELEASE BoL
           </Button>
         )}
@@ -651,7 +648,7 @@ function OpeningHoursRow({
       <div className="flex-1 min-w-0">
         <TimePicker.RangePicker
           size="small"
-          className="w-full !border-slate-300 hover:!border-indigo-400 [&_input::placeholder]:!text-slate-400"
+          className="w-full"
           format="HH:mm"
           minuteStep={15}
           value={[parse(from), parse(to)]}
@@ -815,7 +812,7 @@ function CargoRow({
           className={`flex-1 min-w-0 ${
             value
               ? field.highlight
-                ? "text-slate-900 bg-ok-softer px-1.5 py-px rounded"
+                ? "text-slate-900 bg-emerald-50 px-1.5 py-px rounded"
                 : "text-slate-900"
               : EMPTY
           }`}
@@ -837,7 +834,7 @@ function CargoRow({
         placeholder="—"
         displayClassName={
           field.highlight
-            ? "text-slate-900 bg-ok-softer px-1.5 py-px rounded"
+            ? "text-slate-900 bg-emerald-50 px-1.5 py-px rounded"
             : "text-slate-900"
         }
         emptyClassName={EMPTY}
@@ -969,7 +966,7 @@ export function ShipmentDetailContent() {
             </Button>
           </>
         )}{" "}
-        <Link href="/shipments" className="text-indigo-500">
+        <Link href="/shipments" className={LINK}>
           Back to list
         </Link>
       </div>
@@ -1113,7 +1110,7 @@ export function ShipmentDetailContent() {
         </div>
 
         {/* The shipment at a glance - its job number first - above the tabs, on every tab */}
-        <div className="mt-3 rounded-xl border border-indigo-200 bg-indigo-50/20 shadow-sm px-5 pt-3 pb-2.5">
+        <div className={`${APP_CARD} mt-3 px-5 pt-3 pb-2.5`}>
           <ShipmentFacts shipment={shipment} />
         </div>
 
@@ -1128,10 +1125,11 @@ export function ShipmentDetailContent() {
                 setCargoFocusId(null);
                 setActiveTab(tab.key);
               }}
-              className={`px-[9px] min-[1400px]:px-3.5 2xl:px-4 py-3 text-[14px] min-[1400px]:text-[14px] whitespace-nowrap cursor-pointer transition-colors duration-150 border-b-2 ${
+              // RecordTabs' look; its own strip for the Alerts count and the Cargo jump reset.
+              className={`px-[9px] min-[1400px]:px-3.5 2xl:px-4 py-2.5 text-[13px] whitespace-nowrap cursor-pointer transition-colors border-b-2 ${
                 activeTab === tab.key
                   ? "font-semibold text-indigo-600 border-indigo-600"
-                  : "font-medium text-slate-500 border-transparent hover:text-slate-800"
+                  : "font-medium text-slate-500 border-transparent hover:text-slate-900"
               }`}
             >
               {tab.key === "alerts" && newAlerts > 0 ? (
@@ -1214,15 +1212,15 @@ export function ShipmentDetailContent() {
                           {/* The app's link colour (antd's link), like Customer below. */}
                           {shipment.masterJobMczNumber ? (
                             <>
-                              <button onClick={() => setMasterJobOpen(true)} className="text-link hover:underline cursor-pointer bg-transparent border-none p-0">
+                              <button onClick={() => setMasterJobOpen(true)} className={`${LINK} cursor-pointer bg-transparent border-none p-0`}>
                                 #{shipment.masterJobMczNumber}
                               </button>
-                              <button onClick={handleUnlinkMasterJob} className="text-[10px] text-slate-400 hover:text-red-500 cursor-pointer bg-transparent border-none p-0">
+                              <button onClick={handleUnlinkMasterJob} className="text-[10px] text-slate-500 hover:text-red-600 cursor-pointer bg-transparent border-none p-0">
                                 unassign
                               </button>
                             </>
                           ) : (
-                            <button onClick={() => setAssignOpen(true)} className="text-link hover:underline cursor-pointer bg-transparent border-none p-0 text-left">
+                            <button onClick={() => setAssignOpen(true)} className={`${LINK} cursor-pointer bg-transparent border-none p-0 text-left`}>
                               + Assign to master job
                             </button>
                           )}
@@ -1251,7 +1249,7 @@ export function ShipmentDetailContent() {
                     incoterm: (
                       <div className={ROW}>
                         <span className={LABEL}>Incoterms Origin/Destination</span>
-                        <FadeText className="flex-1 text-slate-800">
+                        <FadeText className="flex-1 text-slate-900">
                           {shipment.incotermOrigin || shipment.incotermDestination
                             ? `${shipment.incotermOrigin || "—"}/${shipment.incotermDestination || "—"}`
                             : <span className={EMPTY}>—</span>}
@@ -1572,7 +1570,7 @@ export function ShipmentDetailContent() {
               <div className={CARD}>
                 <SectionHeader icon={<CheckSquareOutlined />} title="Tasks" />
                 <div className="px-4 pt-2.5 pb-2 min-h-0 overflow-y-auto">
-                  <div className="text-[11px] uppercase tracking-[.03em] text-slate-500 font-medium mb-1">
+                  <div className={`${LABEL_TEXT} mb-1`}>
                     {shipment.tradeDirection === "Export" ? "Export Workflow" : "Import Workflow"}
                   </div>
                   <TasksPanel shipment={shipment} />
@@ -1655,7 +1653,7 @@ export function ShipmentDetailContent() {
         onClose={() => setAttachmentsOpen(false)}
         width={301}
         closable={false}
-        styles={{ body: { padding: 0 } }}
+        classNames={{ body: "!p-0" }}
       >
         <AttachmentsPanel
           shipmentId={shipment.id}

@@ -25,6 +25,7 @@ import {
   type CargoDimensionLine,
   type ContainerLine,
 } from "@/lib/cargo";
+import { CARD, EMPTY, HINT, ICON_BTN_GHOST, MODAL_TITLE, REF, TD as APP_TD, TD_TOTAL, TH } from "@/styles/ui";
 
 // The Dimensions cell of a grid opens this: the shipment's dimension lines in a table that
 // works like the Cargo Dimensions card of Cargo Details (same columns, same lines), but
@@ -38,26 +39,23 @@ import {
 // no tabs.
 
 // Looks like the app's other line tables (Quote LineTable, Costs tab): a framed table with a
-// fixed column layout, 11px uppercase headers on a slate-50 band, read-only values as plain
-// text, a quiet delete icon and a slate-50 totals band.
+// fixed column layout, the app's table heads (TH) on a slate-50 band, read-only values as plain
+// text, a quiet delete icon and a slate-50 totals band. Paddings narrower than a plain table's
+// ("!": the same property as in TH / TD, which Tailwind's own order would otherwise decide).
 //
 // The number columns are only as wide as their fields (which fit their most digits): the unit
 // of a header goes on a second line, and header, field, volume and total are centred in the
 // column, so they stand in one line under each other. Packages and Stackability are left-
 // aligned; antd's Select text sits 11px inside the field, hence 17px on the header.
-const TH =
-  "py-2 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wide leading-tight align-bottom";
-const TH_NUM = `${TH} text-center px-[4px]`;
-const TH_TXT = `${TH} text-left pl-[17px] pr-[6px] whitespace-nowrap`;
-const TD = "px-[6px] py-1.5 border-b border-slate-100 align-middle";
-const TD_NUM = "px-[4px] py-1.5 border-b border-slate-100 align-middle";
+const TH_NUM = `${TH} !text-center !px-[4px]`;
+const TH_TXT = `${TH} pl-[17px] pr-[6px]`;
+const TD = `${APP_TD} !px-[6px] !py-1.5`;
+const TD_NUM = `${APP_TD} !px-[4px] !py-1.5`;
 const READ_NUM = "block text-center text-[13px] tabular-nums text-slate-500";
-const TOTAL = "py-2 px-[4px] text-center text-[13px] font-bold tabular-nums text-slate-900";
+const TOTAL = `${TD_TOTAL} !px-[4px] text-center tabular-nums`;
 // A total stays on one line; its unit sits under it, like the unit under each header.
-const UNIT = "block text-[11px] font-semibold text-slate-500";
-const DELETE_BTN =
-  "w-[26px] h-[26px] rounded-md inline-grid place-items-center text-slate-400 hover:bg-danger-soft hover:text-danger " +
-  "border-0 bg-transparent cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-500";
+const UNIT = "block text-[10px] font-semibold text-slate-500";
+const DELETE_BTN = `${ICON_BTN_GHOST} hover:!bg-red-50 hover:!text-red-600`;
 
 // The most digits a number field takes before the decimal point: 9999 pcs or cm, 99999 kg.
 const maxDigits = (key: string) => (key === "weightPerPcKg" ? 5 : 4);
@@ -188,8 +186,8 @@ export function DimensionsModal({
     <Modal
       open={!!shipment}
       title={
-        <span className="text-sm">
-          Dimensions · <span className="tabular-nums text-slate-500">{shipment?.jobNumber ?? ""}</span>
+        <span className={MODAL_TITLE}>
+          Dimensions · <span className={`${REF} font-normal text-slate-500`}>{shipment?.jobNumber ?? ""}</span>
         </span>
       }
       width={1108}
@@ -207,7 +205,7 @@ export function DimensionsModal({
     >
       <div className="pt-2 pb-2">
         {/* Framed like the Cargo Dimensions card of Cargo Details. */}
-        <div className="border border-slate-200 rounded-xl overflow-hidden">
+        <div className={`${CARD} overflow-hidden`}>
           {containers.length > 0 && (
             // The containers as tabs on the card's top edge (also a single one, so the dialog
             // always says whose lines these are). A container's dot shows once it has lines.
@@ -310,7 +308,7 @@ export function DimensionsModal({
                         {/* Worked out from the sizes, so shown as text; without all three it is typed. */}
                         {hasAllSizes(lineInCm(l)) ? (
                           <span className={READ_NUM}>
-                            {vpc ? vpc.toFixed(3) : <span className="text-slate-300">—</span>}
+                            {vpc ? vpc.toFixed(3) : <span className={EMPTY}>—</span>}
                           </span>
                         ) : (
                           field(idx, "volumePerPcM3")
@@ -360,7 +358,7 @@ export function DimensionsModal({
               </tbody>
               {/* The chosen container's figures under the columns they sum. */}
               <tfoot>
-                <tr className="bg-slate-50 [&>td]:border-t [&>td]:border-slate-200">
+                <tr className="bg-slate-50 [&>td]:border-t-2 [&>td]:border-slate-200">
                   {total(activeSum.pcs, 0, "PCS")}
                   <td />
                   <td />
@@ -389,10 +387,10 @@ export function DimensionsModal({
               <span />
             )}
             {tabs.length > 1 && (
-              <span className="text-xs text-slate-500 tabular-nums whitespace-nowrap">
-                All containers <span className="font-semibold text-slate-700">{fmtFixed(totals.pcs, 0)} pcs</span> ·{" "}
-                <span className="font-semibold text-slate-700">{fmtFixed(totals.kg, 2)} kg</span> ·{" "}
-                <span className="font-semibold text-slate-700">{fmtFixed(totals.m3, 3)} m³</span>
+              <span className={`${HINT} tabular-nums whitespace-nowrap`}>
+                All containers <span className="font-semibold text-slate-900">{fmtFixed(totals.pcs, 0)} pcs</span> ·{" "}
+                <span className="font-semibold text-slate-900">{fmtFixed(totals.kg, 2)} kg</span> ·{" "}
+                <span className="font-semibold text-slate-900">{fmtFixed(totals.m3, 3)} m³</span>
               </span>
             )}
           </div>

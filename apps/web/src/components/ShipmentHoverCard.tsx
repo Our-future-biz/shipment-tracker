@@ -6,6 +6,7 @@ import type { ShipmentItem } from "@/hooks/useShipments";
 import { dimensionTotals, num } from "@/lib/cargo";
 import { loadTypeLabel } from "@/lib/enums";
 import { HoverCard } from "./HoverCard";
+import { EMPTY, REF } from "@/styles/ui";
 
 // ── Pure summary helpers (unit-tested in ShipmentHoverCard.test.ts) ──
 
@@ -99,14 +100,14 @@ export function ShipmentHoverCard({ shipment, jobNumberColor, children }: Shipme
   const content = (
     // As wide as its content, between 240 and 420px.
     <div className="w-max min-w-[240px] max-w-[420px]">
-      <div className={`tabular-nums text-[13px] font-bold ${jobNumberColor ? "" : "text-indigo-500"}`} style={{ color: jobNumberColor }}>
+      <div className={`${REF} text-[13px] font-bold ${jobNumberColor ? "" : "text-indigo-600"}`} style={jobNumberColor ? { color: jobNumberColor } : undefined}>
         {shipment.jobNumber || "—"}
       </div>
       <dl className="mt-2.5 mb-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 border-t border-slate-100 pt-2.5 text-xs">
         {rows.map(([label, value]) => (
           <Fragment key={label}>
             <dt className="text-slate-500">{label}</dt>
-            <dd className="m-0 text-slate-800 tabular-nums">{value || <span className="text-slate-300">—</span>}</dd>
+            <dd className="m-0 text-slate-900 tabular-nums">{value || <span className={EMPTY}>—</span>}</dd>
           </Fragment>
         ))}
       </dl>

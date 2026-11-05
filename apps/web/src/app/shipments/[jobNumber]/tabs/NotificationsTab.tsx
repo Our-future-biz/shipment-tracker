@@ -8,6 +8,7 @@ import type { ShipmentItem } from "@/hooks/useShipments";
 import { useShipmentAlerts } from "@/hooks/useShipmentAlerts";
 import { CountChip, SectionCard } from "@/components/SectionCard";
 import { formatDateTime } from "@/lib/date";
+import { BTN_GHOST, BTN_SM, HINT } from "@/styles/ui";
 import { CustomsPill } from "./docsShared";
 import { ShipmentChatDrawer, initials, shipmentChatQuery, toneFor } from "../../_components/ChatPanel";
 
@@ -33,7 +34,7 @@ export function NotificationsTab({ shipment, onOpen }: NotificationsTabProps) {
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
       <SectionCard title="Alerts" bodyClassName="p-2" extra={reviewed.length > 0 && <CountChip count={reviewed.length} />}>
         {reviewed.length === 0 ? (
-          <p className="text-center text-slate-400 text-sm py-8">{empty}</p>
+          <p className={`text-center ${HINT} py-8`}>{empty}</p>
         ) : (
           <ul className="divide-y divide-slate-100">
             {reviewed.map((doc) => (
@@ -45,10 +46,10 @@ export function NotificationsTab({ shipment, onOpen }: NotificationsTabProps) {
                 >
                   <CustomsPill status={doc.customsStatus} />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[14px] text-slate-800">
+                    <span className="block truncate text-[14px] text-slate-900">
                       Customs {doc.customsStatus} <span className="font-semibold">{doc.fileName}</span>
                     </span>
-                    <span className="block truncate text-[12px] text-slate-500">
+                    <span className={`block truncate ${HINT}`}>
                       {[doc.documentType, doc.customsReviewedByName, formatDateTime(doc.customsReviewedAt)].filter(Boolean).join(" · ")}
                     </span>
                   </span>
@@ -94,7 +95,7 @@ function CommunicationCard({ shipment }: { shipment: ShipmentItem }) {
             <button
               type="button"
               onClick={() => setChatOpen(true)}
-              className="inline-flex items-center gap-1.5 p-0 border-0 bg-transparent cursor-pointer text-[13px] font-semibold text-indigo-600 hover:text-indigo-700"
+              className={`${BTN_GHOST} ${BTN_SM}`}
             >
               <MessageOutlined aria-hidden /> Open chat
             </button>
@@ -102,7 +103,7 @@ function CommunicationCard({ shipment }: { shipment: ShipmentItem }) {
         }
       >
         {messages.length === 0 ? (
-          <p className="text-center text-slate-400 text-sm py-8">{empty}</p>
+          <p className={`text-center ${HINT} py-8`}>{empty}</p>
         ) : (
           // About ten messages tall; older ones scroll inside the card, under its bar.
           <ul className="divide-y divide-slate-100 max-h-[560px] overflow-y-auto overscroll-contain">
@@ -120,7 +121,7 @@ function CommunicationCard({ shipment }: { shipment: ShipmentItem }) {
                     <span className="ml-auto shrink-0 text-[12px] text-slate-500 tabular-nums">{formatDateTime(m.createdAt)}</span>
                   </div>
                   {m.message && (
-                    <p className="m-0 mt-0.5 text-[14px] leading-5 text-slate-800 whitespace-pre-wrap break-words">{m.message}</p>
+                    <p className="m-0 mt-0.5 text-[13px] leading-5 text-slate-700 whitespace-pre-wrap break-words">{m.message}</p>
                   )}
                   {m.attachments.length > 0 && (
                     <div className="mt-1.5 flex flex-wrap gap-1.5">

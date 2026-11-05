@@ -14,6 +14,7 @@ import { fileToBase64 } from "@/lib/files";
 import { Badge, errorMessage, nf } from "../../_lib/gate";
 import { FileLink } from "./ExceptionsPanel";
 import { btnDefault, btnInline, btnPrimary, Section } from "./fields";
+import { HINT, LABEL_TEXT } from "@/styles/ui";
 
 // Re-weighing ("VGM" as the warehouse uses the word): every LCL shipment is weighed on receipt —
 // inbound cargo before its Receipt stamp, import cargo before its house is ticked off at the
@@ -65,20 +66,20 @@ export function ReweighSection({ m, informHref }: { m: GateMovement; /** Shipmen
       extra={due ? <Badge tone="r">Required before the {m.visit === "výdej" ? "tick-off" : TERMS.receipt.toLowerCase()}</Badge> : r ? <ReweighTag r={r} /> : undefined}
     >
       {r ? (
-        <div className="text-xs">
+        <div className="text-[13px]">
           <div className="font-semibold text-slate-900">{reweighLine(r)}</div>
-          <div className="text-[11px] text-slate-500 mt-0.5">
+          <div className={`${HINT} mt-0.5`}>
             {formatDateTime(r.weighedAt)}
             {r.weighedBy ? ` · ${r.weighedBy}` : ""}
             {r.note ? ` — ${r.note}` : ""}
           </div>
           {r.fileIds.length > 0 && (
             <div className="mt-1 flex flex-wrap gap-x-3">
-              {r.fileIds.map((id) => byId.get(id)).map((f, i) => (f ? <FileLink key={f.id} movementId={m.id} file={f} /> : <span key={i} className="text-[11px] text-slate-400">photo no longer stored</span>))}
+              {r.fileIds.map((id) => byId.get(id)).map((f, i) => (f ? <FileLink key={f.id} movementId={m.id} file={f} /> : <span key={i} className={HINT}>photo no longer stored</span>))}
             </div>
           )}
           {r.flagged && (
-            <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800 flex flex-wrap items-center gap-2">
+            <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-700 flex flex-wrap items-center gap-2">
               <span>More than 5 % off the declared weight.</span>
               {informHref && (
                 <Link href={informHref} className={btnInline}>
@@ -89,7 +90,7 @@ export function ReweighSection({ m, informHref }: { m: GateMovement; /** Shipmen
           )}
         </div>
       ) : (
-        <div className="text-xs text-slate-500">
+        <div className={HINT}>
           LCL cargo is re-weighed on receipt —{" "}
           {m.visit === "výdej" ? "before its house is ticked off at the stripping tally." : `before the ${TERMS.receipt} stamp.`}
         </div>
@@ -107,7 +108,7 @@ export function ReweighSection({ m, informHref }: { m: GateMovement; /** Shipmen
         )}
       </div>
       {showHistory && (
-        <ul className="list-none m-0 mt-2 p-0 text-[11px] text-slate-600">
+        <ul className="list-none m-0 mt-2 p-0 text-[12px] text-slate-700">
           {m.reweighs.map((x, i) => (
             <li key={x.id} className={`py-1 border-b border-slate-100 last:border-b-0 ${i > 0 ? "text-slate-400" : ""}`}>
               <span className="tabular-nums">{formatDateTime(x.weighedAt)}</span> · {reweighLine(x)}
@@ -184,12 +185,12 @@ export function ReweighModal({
       destroyOnHidden
       width={520}
     >
-      <p className="text-xs text-slate-500 mt-0">
+      <p className={`${HINT} mt-0`}>
         The weighed gross weight of the whole position. It is compared with the shipment&rsquo;s declared weight (more than 5 % off is a variance). A correction is a new
         re-weigh: the history is kept and the latest counts.
       </p>
-      <label className="flex flex-col gap-1 text-xs">
-        <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Weighed gross kg</span>
+      <label className="flex flex-col gap-1">
+        <span className={LABEL_TEXT}>Weighed gross kg</span>
         <InputNumber
           autoFocus
           min={0}
@@ -204,13 +205,13 @@ export function ReweighModal({
           placeholder={declaredKg ? `gate figure ${nf(declaredKg)} kg` : undefined}
         />
       </label>
-      <label className="flex flex-col gap-1 text-xs mt-3">
-        <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Note</span>
+      <label className="flex flex-col gap-1 mt-3">
+        <span className={LABEL_TEXT}>Note</span>
         <Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} maxLength={2000} value={note} placeholder="Scale, pallets weighed…" onChange={(e) => setNote(e.target.value)} />
       </label>
       <div className="mt-3">
         <div className="flex items-center gap-2 mb-1">
-          <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Scale photo ({fileIds.length} chosen)</span>
+          <span className={LABEL_TEXT}>Scale photo ({fileIds.length} chosen)</span>
           <button type="button" className={`${btnInline} ml-auto`} disabled={upload.isPending} onClick={() => input.current?.click()}>
             {upload.isPending ? "Uploading…" : "Upload photo"}
           </button>
@@ -234,11 +235,11 @@ export function ReweighModal({
           />
         </div>
         {photos.length === 0 ? (
-          <div className="text-xs text-slate-400">No photos on this position yet.</div>
+          <div className={HINT}>No photos on this position yet.</div>
         ) : (
           <Checkbox.Group value={fileIds} onChange={(v) => setFileIds((v as string[]).slice(0, 20))} className="!flex !flex-col max-h-[160px] overflow-y-auto">
             {photos.map((f) => (
-              <Checkbox key={f.id} value={f.id} className="!text-xs">
+              <Checkbox key={f.id} value={f.id}>
                 {f.tag ? `${f.tag} · ` : ""}
                 {f.fileName}
               </Checkbox>

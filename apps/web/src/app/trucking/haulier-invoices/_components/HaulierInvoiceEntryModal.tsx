@@ -7,6 +7,7 @@ import { apiErrorMessage } from "@/lib/api";
 import { formatDate } from "@/lib/date";
 import { formatFileSize } from "@/lib/files";
 import { useHaulier, useHauliers } from "@/hooks/useTrucking";
+import { EMPTY, HINT, REF } from "@/styles/ui";
 import { HaulierOptionLabel } from "../../_components/HaulierOptionLabel";
 import { useInvoiceCandidates, type HaulierInvoiceCreate, type InvoiceCandidate } from "@/hooks/useTruckingMoney";
 import { normaliseBankAccount } from "../../_lib/bankAccounts";
@@ -111,14 +112,14 @@ export const HaulierInvoiceEntryModal = ({ onClose, onCreate }: HaulierInvoiceEn
 
   const columns = [
     { key: "kind", title: "Kind", render: (_: unknown, t: InvoiceCandidate) => TARGET_KIND_LABELS[t.kind] },
-    { key: "ref", title: "Trip / leg", render: (_: unknown, t: InvoiceCandidate) => <span className="tabular-nums font-semibold">{t.ref}</span> },
+    { key: "ref", title: "Trip / leg", render: (_: unknown, t: InvoiceCandidate) => <span className={`${REF} font-semibold`}>{t.ref}</span> },
     { key: "date", title: "Date", render: (_: unknown, t: InvoiceCandidate) => formatDate(t.date) },
     { key: "expected", title: "Expected", align: "right" as const, render: (_: unknown, t: InvoiceCandidate) => formatMoney(t.expected, t.currency) },
     {
       key: "claimed",
       title: "Our claims",
       align: "right" as const,
-      render: (_: unknown, t: InvoiceCandidate) => (t.claimed ? <span className="text-amber-700">{formatMoney(t.claimed, t.currency)}</span> : <span className="text-slate-400">—</span>),
+      render: (_: unknown, t: InvoiceCandidate) => (t.claimed ? <span className="text-amber-700">{formatMoney(t.claimed, t.currency)}</span> : <span className={EMPTY}>—</span>),
     },
     {
       key: "invoiced",
@@ -196,7 +197,7 @@ export const HaulierInvoiceEntryModal = ({ onClose, onCreate }: HaulierInvoiceEn
               Invoiced <b>{formatMoney(summary.invoiced, header.currency)}</b>
             </span>
             <span className={diffClass(summary.difference)}>Difference {differenceText(summary.difference, header.currency)}</span>
-            <span className="ml-auto text-xs text-slate-500">
+            <span className={`ml-auto ${HINT}`}>
               {summary.exact ? "Exact match — approved by itself once saved (unless blocked)" : "Not an exact match — it will wait for a manager's approval with a reason"}
             </span>
           </div>
@@ -256,7 +257,7 @@ export const HaulierInvoiceEntryModal = ({ onClose, onCreate }: HaulierInvoiceEn
           />
         )}
         {error && <Alert type="error" showIcon message={`Could not save the invoice: ${error}`} />}
-        {problems.length > 0 && (haulierId || header.invoiceNumber) && <div className="text-[12px] text-slate-500">To save: {problems.join(" · ")}</div>}
+        {problems.length > 0 && (haulierId || header.invoiceNumber) && <div className={HINT}>To save: {problems.join(" · ")}</div>}
       </div>
     </Modal>
   );

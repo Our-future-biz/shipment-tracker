@@ -1,6 +1,7 @@
 "use client";
 
 import { Tooltip } from "antd";
+import { KPI_VALUE, LABEL_TEXT } from "@/styles/ui";
 import { TRIP_TILES, type TripView } from "../_lib/trips";
 
 interface TripTilesProps {
@@ -10,7 +11,7 @@ interface TripTilesProps {
 }
 
 // The work queues over the Trips grid (same tiles as the Consignments list): click to filter, again
-// to clear. A queue that needs the haulier chased shows its count red.
+// to clear. A queue that needs the haulier chased shows its count red; the chosen tile shows in its indigo frame.
 export const TripTiles = ({ active, counts, onSelect }: TripTilesProps) => (
   <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
     {TRIP_TILES.map((tile) => {
@@ -28,8 +29,8 @@ export const TripTiles = ({ active, counts, onSelect }: TripTilesProps) => (
             ].join(" ")}
           >
             <div className="flex items-baseline gap-2">
-              <span className={`text-[14px] font-bold uppercase tracking-wide ${on ? "text-indigo-600" : "text-slate-500"}`}>{tile.label}:</span>
-              <span className={`text-[22px] leading-tight font-bold tabular-nums ${tile.danger && n ? "text-red-600" : on ? "text-indigo-700" : "text-slate-900"}`}>{n ?? "—"}</span>
+              <span className={LABEL_TEXT}>{tile.label}:</span>
+              <span className={`${KPI_VALUE} ${tile.danger && n ? "!text-red-600" : ""}`}>{n ?? "—"}</span>
             </div>
           </button>
         </Tooltip>

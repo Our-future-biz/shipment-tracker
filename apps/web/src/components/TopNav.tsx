@@ -56,7 +56,6 @@ export function TopNav() {
         <Input
           prefix={<SearchOutlined className="text-slate-400" />}
           placeholder="Search shipments, jobs, customers..."
-          className="rounded-xl"
           size="large"
           allowClear
           value={q}
@@ -80,10 +79,10 @@ export function TopNav() {
         {/* User menu */}
         <Dropdown menu={{ items: userMenuItems }} trigger={["click"]} placement="bottomRight">
           <div className="flex items-center gap-2 cursor-pointer px-2.5 py-1.5 rounded-md hover:bg-slate-50">
-            <div className="w-8 h-8 bg-indigo-100 text-indigo-500 rounded-full flex items-center justify-center text-[12px] font-semibold">
+            <div className="w-8 h-8 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center text-[12px] font-semibold">
               {initials ?? <UserOutlined />}
             </div>
-            <span className="text-[13px] text-slate-600 font-medium">
+            <span className="text-[13px] text-slate-700 font-medium">
               {user?.displayName ?? "User"}
             </span>
           </div>

@@ -6,6 +6,7 @@ import { ArrowLeftOutlined } from "@ant-design/icons";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { usePlatformCompanies, usePlatformCompanyUsers } from "@/hooks/useUserAdmin";
 import { useDepartments, useBranches } from "@/hooks/useOrgUnits";
+import { PAGE_SUBTITLE, PAGE_TITLE } from "@/styles/ui";
 import { UsersManager } from "../../../settings/_components/UsersManager";
 
 export default function PlatformCompanyUsersPage() {
@@ -30,8 +31,8 @@ export default function PlatformCompanyUsersPage() {
       <Button type="text" size="small" icon={<ArrowLeftOutlined />} className="mb-2 -ml-2" onClick={() => router.push("/platform/companies")}>
         Companies
       </Button>
-      <h1 className="text-xl font-semibold text-slate-800 mb-1">{company?.name ?? "Company"} — Users</h1>
-      <p className="text-sm text-slate-500 mb-4">Manage users for this company as a platform administrator.</p>
+      <h1 className={`${PAGE_TITLE} mb-1`}>{company?.name ?? "Company"} — Users</h1>
+      <p className={`${PAGE_SUBTITLE} mb-4`}>Manage users for this company as a platform administrator.</p>
       <UsersManager
         users={cu.users}
         isLoading={cu.isLoading}

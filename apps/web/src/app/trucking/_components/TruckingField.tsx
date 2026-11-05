@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { HINT, LABEL_TEXT } from "@/styles/ui";
 
 interface TruckingFieldProps {
   label: string;
@@ -8,11 +9,11 @@ interface TruckingFieldProps {
   children: ReactNode;
 }
 
-// A labelled control on the Trucking settings and haulier pages.
+// A labelled control on the Trucking settings and haulier pages: the app's field label over it, a hint under it.
 export const TruckingField = ({ label, hint, children }: TruckingFieldProps) => (
   <label className="flex min-w-0 flex-col gap-1">
-    <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{label}</span>
+    <span className={LABEL_TEXT}>{label}</span>
     {children}
-    {hint && <span className="text-[11px] text-slate-400">{hint}</span>}
+    {hint && <span className={HINT}>{hint}</span>}
   </label>
 );

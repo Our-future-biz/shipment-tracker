@@ -18,7 +18,7 @@ export const TariffSheetPreview = ({ preview, headerRow, firstDataRow, priceColu
   const letters = [...columnHeadings(preview, headerRow).keys()];
   const prices = new Set(priceColumns);
 
-  const rowClass = (rowNo: number) => (rowNo === headerRow ? "bg-indigo-50 font-semibold text-slate-800" : rowNo === firstDataRow ? "bg-emerald-50" : "");
+  const rowClass = (rowNo: number) => (rowNo === headerRow ? "bg-indigo-50 font-semibold text-slate-900" : rowNo === firstDataRow ? "bg-emerald-50" : "");
 
   return (
     <div>

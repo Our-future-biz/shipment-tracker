@@ -33,10 +33,10 @@ interface UserOptionLabelProps {
 
 /** How an option is listed (optionRender): the name with the e-mail under it, or the label alone. */
 export function UserOptionLabel({ label, name }: UserOptionLabelProps) {
-  if (!name) return <span className="text-slate-800">{label}</span>;
+  if (!name) return <span className="text-slate-900">{label}</span>;
   return (
     <span className="flex flex-col leading-tight py-0.5 min-w-0">
-      <span className="text-slate-800 truncate">{name}</span>
+      <span className="text-slate-900 truncate">{name}</span>
       <span className="text-[11px] text-slate-500 truncate">{label}</span>
     </span>
   );

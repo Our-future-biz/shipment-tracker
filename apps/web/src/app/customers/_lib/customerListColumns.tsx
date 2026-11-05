@@ -33,7 +33,7 @@ export interface CustomerListColumn {
 }
 
 const money = (value: number, currency: string) => (
-  <span className="text-slate-600 tabular-nums">{fmtMoney(value, currency)}</span>
+  <span className="text-slate-700 tabular-nums">{fmtMoney(value, currency)}</span>
 );
 const plain = (value: string) => value || EMPTY_CELL;
 // A timestamp as its day on the company's (Prague) calendar, not the viewer's.
@@ -186,7 +186,7 @@ export const CUSTOMER_LIST_COLUMNS: CustomerListColumn[] = [
     align: "right",
     sort: { key: "margin", firstClick: "descend" },
     render: (c) => (
-      <span className="text-slate-600 tabular-nums">
+      <span className="text-slate-700 tabular-nums">
         {marginPct(c.totalRevenue, c.totalProfit)}%
       </span>
     ),

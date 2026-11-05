@@ -25,6 +25,7 @@ import { CustomerHaulierInvoicesCard } from "./_components/CustomerHaulierInvoic
 import { SupplierTermsCard } from "./_components/SupplierTermsCard";
 import { SupplierOwedCard } from "./_components/SupplierOwedCard";
 import { hasSupplierRole } from "../_lib/customerListViews";
+import { LINK } from "@/styles/ui";
 
 const DEFAULT_TAB = "overview";
 
@@ -89,7 +90,7 @@ export function CustomerDetailContent() {
     return (
       <div className="p-10 text-center text-slate-500">
         Company not found.{" "}
-        <Link href={listHref} className="text-indigo-500">
+        <Link href={listHref} className={LINK}>
           Back to list
         </Link>
       </div>

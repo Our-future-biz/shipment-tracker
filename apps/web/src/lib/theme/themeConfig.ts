@@ -74,6 +74,8 @@ export const lightTheme: ThemeConfig = {
       borderColor: "#f1f5f9",
       rowHoverBg: "#f8fafc",
       cellFontSize: 13,
+      // Cells in slate-700, as a plain table's TD.
+      colorText: "#334155",
     },
     Modal: {
       titleFontSize: 16,

@@ -13,7 +13,7 @@ export function QuotesLoading({ progress }: QuotesLoadingProps) {
   return (
     <div className="flex flex-col items-center justify-center gap-3 py-16">
       <Spin />
-      <span className="text-sm text-slate-500">
+      <span className="text-[13px] text-slate-500">
         {progress ? `Loading quotes ${progress.loaded.toLocaleString("en-US")} of ${progress.total.toLocaleString("en-US")}` : "Loading quotes…"}
       </span>
     </div>

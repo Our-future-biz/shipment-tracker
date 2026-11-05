@@ -1,4 +1,5 @@
 import { Select } from "antd";
+import { LABEL_TEXT } from "@/styles/ui";
 import { offerTerminals } from "../../../_lib/tariffQuote";
 
 interface TariffViaFilterProps {
@@ -19,7 +20,7 @@ export const TariffViaFilter = ({ label, placeholder, noneLabel, offers, chosen,
   const options = offerTerminals(offers).map((t) => ({ value: t.via, label: `${t.via || noneLabel} (${t.count})` }));
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <span className="text-[12px] font-semibold text-slate-600">{label}</span>
+      <span className={LABEL_TEXT}>{label}</span>
       <Select
         mode="multiple"
         allowClear

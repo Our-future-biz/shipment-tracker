@@ -19,6 +19,7 @@ import { useWarehouseInquiryAnswers, type WarehouseInquiryItem } from "@/hooks/u
 import { useMarginInquiryBell, type MarginInquiryItem, type MarginInquiryRow } from "@/hooks/useMarginInquiries";
 import { useSalesPermissions } from "@/hooks/useSalesPermissions";
 import { useSupplierApprovals, type SupplierApprovalItem } from "@/hooks/useSupplierApprovals";
+import { HINT, ICON_BTN_GHOST, LABEL_TEXT } from "@/styles/ui";
 
 const formatTime = (iso: string) =>
   new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
@@ -291,12 +292,12 @@ export function NotificationBell() {
     go(`/sales/quote/${encodeURIComponent(a.quoteNumber)}`);
   };
   const rowClass = "block w-full text-left px-4 py-2.5 border-b border-slate-100 last:border-b-0 bg-white hover:bg-slate-50 cursor-pointer";
-  const headingClass = "px-4 py-2 border-b border-slate-200 bg-slate-50 text-[11px] font-semibold uppercase tracking-wider text-slate-500";
+  const headingClass = `px-4 py-2 border-b border-slate-200 bg-slate-50 ${LABEL_TEXT}`;
 
   const panel = (
-    <div className="w-80 max-h-96 overflow-y-auto rounded-lg bg-white shadow-lg border border-slate-200">
+    <div className="w-80 max-h-96 overflow-y-auto rounded-xl bg-white shadow-lg border border-slate-200">
       <div className="sticky top-0 z-10 flex items-center justify-between gap-2 px-4 py-2 border-b border-slate-200 bg-white">
-        <span className="text-[13px] font-semibold text-slate-700">Notifications</span>
+        <span className="text-[13px] font-semibold text-slate-900">Notifications</span>
         <span className="flex rounded-md bg-slate-100 p-0.5">
           {(["unread", "all"] as const).map((v) => (
             <button
@@ -304,8 +305,8 @@ export function NotificationBell() {
               type="button"
               aria-pressed={view === v}
               onClick={() => setView(v)}
-              className={`px-2.5 py-0.5 rounded border-none text-[12px] font-medium cursor-pointer ${
-                view === v ? "bg-white text-slate-800 shadow-sm" : "bg-transparent text-slate-500 hover:text-slate-700"
+              className={`px-2.5 py-0.5 rounded-md border-none text-[12px] font-medium cursor-pointer ${
+                view === v ? "bg-white text-slate-900 shadow-sm" : "bg-transparent text-slate-500 hover:text-slate-900"
               }`}
             >
               {v === "unread" ? `Unread${total ? ` (${total})` : ""}` : `Last ${READ_KEEP_DAYS} days`}
@@ -329,12 +330,12 @@ export function NotificationBell() {
         <button key={a.id} type="button" onClick={() => go("/exchange")} className={rowClass}>
           <span className="flex items-center gap-2">
             <span role="img" aria-label="Unresolved" className="shrink-0 w-2 h-2 rounded-full bg-red-500" />
-            <span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-800 truncate">
+            <span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-900 truncate">
               ČNB rates missing for {formatDate(a.fixingDate)}
             </span>
             <NoticeSeverityTag severity="critical" />
           </span>
-          <span className="text-[12px] line-clamp-2 text-slate-600">{a.reason}</span>
+          <span className="text-[12px] line-clamp-2 text-slate-700">{a.reason}</span>
           <span className="block text-[11px] text-slate-400 mt-0.5">System · {formatTime(a.raisedAt)}</span>
         </button>
       ))}
@@ -343,9 +344,9 @@ export function NotificationBell() {
         <button key={`w:${r.inquiry.id}`} type="button" onClick={() => go(salesManagersHref({ tab: "inquiries" }))} className={rowClass}>
           <span className="flex items-center gap-2">
             <span role="img" aria-label="Waiting" className={`shrink-0 w-2 h-2 rounded-full ${r.inquiry.escalated ? "bg-red-500" : "bg-amber-500"}`} />
-            <span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-800 truncate">{waitingTitle(r)}</span>
+            <span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-900 truncate">{waitingTitle(r)}</span>
           </span>
-          <span className="text-[12px] text-slate-600 line-clamp-2">{waitingText(r)}</span>
+          <span className="text-[12px] text-slate-700 line-clamp-2">{waitingText(r)}</span>
           <span className="block text-[11px] text-slate-400 mt-0.5">{formatTime(r.inquiry.requestedAt)}</span>
         </button>
       ))}
@@ -354,9 +355,9 @@ export function NotificationBell() {
         <button key={`a:${a.id}`} type="button" onClick={() => openMarginAnswer(a)} className={rowClass}>
           <span className="flex items-center gap-2">
             {!a.answerSeenAt && <span role="img" aria-label="Unread" className={`shrink-0 w-2 h-2 rounded-full ${a.status === "approved" ? "bg-emerald-500" : "bg-red-500"}`} />}
-            <span className={`min-w-0 flex-1 text-[13px] truncate ${a.answerSeenAt ? "font-medium text-slate-500" : "font-semibold text-slate-800"}`}>{marginAnswerTitle(a)}</span>
+            <span className={`min-w-0 flex-1 text-[13px] truncate ${a.answerSeenAt ? "font-medium text-slate-500" : "font-semibold text-slate-900"}`}>{marginAnswerTitle(a)}</span>
           </span>
-          <span className="text-[12px] text-slate-600 line-clamp-2">{marginAnswerText(a)}</span>
+          <span className="text-[12px] text-slate-700 line-clamp-2">{marginAnswerText(a)}</span>
           <span className="block text-[11px] text-slate-400 mt-0.5">
             {a.decidedByName || "A manager"} · {a.decidedAt ? formatTime(a.decidedAt) : ""}
           </span>
@@ -367,9 +368,9 @@ export function NotificationBell() {
         <button key={`sw:${a.customerId}`} type="button" onClick={() => go(salesManagersHref({ tab: "approvals" }))} className={rowClass}>
           <span className="flex items-center gap-2">
             <span role="img" aria-label="Waiting" className="shrink-0 w-2 h-2 rounded-full bg-amber-500" />
-            <span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-800 truncate">{supplierWaitingTitle(a)}</span>
+            <span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-900 truncate">{supplierWaitingTitle(a)}</span>
           </span>
-          <span className="text-[12px] text-slate-600 line-clamp-2">{supplierWaitingText(a)}</span>
+          <span className="text-[12px] text-slate-700 line-clamp-2">{supplierWaitingText(a)}</span>
           <span className="block text-[11px] text-slate-400 mt-0.5">{a.requestedAt ? formatTime(a.requestedAt) : ""}</span>
         </button>
       ))}
@@ -378,9 +379,9 @@ export function NotificationBell() {
         <button key={`sa:${a.customerId}`} type="button" onClick={() => openSupplierAnswer(a)} className={rowClass}>
           <span className="flex items-center gap-2">
             {!a.answerSeen && <span role="img" aria-label="Unread" className={`shrink-0 w-2 h-2 rounded-full ${a.decision === "approved" ? "bg-emerald-500" : "bg-red-500"}`} />}
-            <span className={`min-w-0 flex-1 text-[13px] truncate ${a.answerSeen ? "font-medium text-slate-500" : "font-semibold text-slate-800"}`}>{supplierAnswerTitle(a)}</span>
+            <span className={`min-w-0 flex-1 text-[13px] truncate ${a.answerSeen ? "font-medium text-slate-500" : "font-semibold text-slate-900"}`}>{supplierAnswerTitle(a)}</span>
           </span>
-          <span className="text-[12px] text-slate-600 line-clamp-2">{supplierAnswerText(a)}</span>
+          <span className="text-[12px] text-slate-700 line-clamp-2">{supplierAnswerText(a)}</span>
           <span className="block text-[11px] text-slate-400 mt-0.5">
             {a.decidedBy || "A manager"} · {a.decidedAt ? formatTime(a.decidedAt) : ""}
           </span>
@@ -393,17 +394,17 @@ export function NotificationBell() {
             {!a.inquiry.answerSeenAt && (
               <span role="img" aria-label="Unread" className={`shrink-0 w-2 h-2 rounded-full ${a.inquiry.status === "approved" ? "bg-emerald-500" : "bg-red-500"}`} />
             )}
-            <span className={`min-w-0 flex-1 text-[13px] truncate ${a.inquiry.answerSeenAt ? "font-medium text-slate-500" : "font-semibold text-slate-800"}`}>{answerTitle(a)}</span>
+            <span className={`min-w-0 flex-1 text-[13px] truncate ${a.inquiry.answerSeenAt ? "font-medium text-slate-500" : "font-semibold text-slate-900"}`}>{answerTitle(a)}</span>
             <span className="shrink-0 text-[11px] tabular-nums text-slate-500">{a.quoteNumber}</span>
           </span>
-          <span className="text-[12px] text-slate-600 line-clamp-2">{answerText(a)}</span>
+          <span className="text-[12px] text-slate-700 line-clamp-2">{answerText(a)}</span>
           <span className="block text-[11px] text-slate-400 mt-0.5">
             {a.inquiry.decidedByName || "Warehouse"} · {a.inquiry.decidedAt ? formatTime(a.inquiry.decidedAt) : ""}
           </span>
         </button>
       ))}
       {listed.length + mentions.length + fxShown.length + answersShown.length + marginWaitingShown.length + marginAnswersShown.length + supplierWaitingShown.length + supplierAnswersShown.length === 0 && (
-        <p className="px-4 py-6 text-center text-xs text-slate-400">
+        <p className={`px-4 py-6 text-center ${HINT}`}>
           {query.trim() ? `Nothing matches “${query.trim()}”.` : view === "unread" ? "Nothing new." : `Nothing in the last ${READ_KEEP_DAYS} days.`}
         </p>
       )}
@@ -412,12 +413,12 @@ export function NotificationBell() {
         <button key={a.id} type="button" onClick={() => go(`/dashboard?notice=${a.id}`)} className={rowClass}>
           <span className="flex items-center gap-2">
             {a.unread && <span role="img" aria-label="Unread" className="shrink-0 w-2 h-2 rounded-full bg-red-500" />}
-            <span className={`min-w-0 flex-1 text-[13px] truncate ${a.unread ? "font-semibold text-slate-800" : "font-medium text-slate-500"}`}>
+            <span className={`min-w-0 flex-1 text-[13px] truncate ${a.unread ? "font-semibold text-slate-900" : "font-medium text-slate-500"}`}>
               {a.title}
             </span>
             <NoticeSeverityTag severity={a.severity} />
           </span>
-          {a.body && <span className={`text-[12px] line-clamp-2 ${a.unread ? "text-slate-600" : "text-slate-400"}`}>{a.body}</span>}
+          {a.body && <span className={`text-[12px] line-clamp-2 ${a.unread ? "text-slate-700" : "text-slate-400"}`}>{a.body}</span>}
           <span className="block text-[11px] text-slate-400 mt-0.5">
             {a.authorName} · {a.target} · {formatTime(a.createdAt)}
           </span>
@@ -428,10 +429,10 @@ export function NotificationBell() {
         <button key={m.key} type="button" onClick={() => go(m.href)} className={rowClass}>
           <span className="flex items-center justify-between gap-2">
             {m.unread && <span role="img" aria-label="Unread" className="shrink-0 w-2 h-2 rounded-full bg-red-500" />}
-            <span className={`min-w-0 flex-1 text-[13px] truncate ${m.unread ? "font-semibold text-slate-800" : "font-medium text-slate-500"}`}>{m.authorName || "Unknown"}</span>
+            <span className={`min-w-0 flex-1 text-[13px] truncate ${m.unread ? "font-semibold text-slate-900" : "font-medium text-slate-500"}`}>{m.authorName || "Unknown"}</span>
             <span className="shrink-0 text-[11px] tabular-nums text-slate-500">{m.ref}</span>
           </span>
-          <span className={`text-[12px] line-clamp-2 ${m.unread ? "text-slate-600" : "text-slate-400"}`}>{m.message}</span>
+          <span className={`text-[12px] line-clamp-2 ${m.unread ? "text-slate-700" : "text-slate-400"}`}>{m.message}</span>
           <span className="block text-[11px] text-slate-400 mt-0.5">{formatTime(m.createdAt)}</span>
         </button>
       ))}
@@ -443,7 +444,7 @@ export function NotificationBell() {
       <button
         type="button"
         aria-label={total ? `Notifications — ${total} unread` : "Notifications"}
-        className="flex items-center justify-center w-9 h-9 rounded-md bg-transparent border-none cursor-pointer text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+        className={`${ICON_BTN_GHOST} !w-9 !h-9`}
       >
         <Badge count={total} size="small" color="red">
           <BellOutlined className="text-[18px]" />

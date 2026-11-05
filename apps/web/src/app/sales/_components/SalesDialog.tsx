@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { Modal } from "antd";
+import { HINT, MODAL_TITLE } from "@/styles/ui";
 
 // A dialog that is filled in, and one that shows a document.
 const WIDTH = { form: 520, reading: 820 } as const;
@@ -37,14 +38,10 @@ export function SalesDialog({ open, onClose, title, subtitle, size = "form", bus
       keyboard={!busy}
       width={WIDTH[size]}
       title={
-        subtitle ? (
-          <>
-            {title}
-            <div className="mt-0.5 text-xs font-normal text-slate-500">{subtitle}</div>
-          </>
-        ) : (
-          title
-        )
+        <>
+          <div className={MODAL_TITLE}>{title}</div>
+          {subtitle && <div className={`${HINT} font-normal mt-0.5`}>{subtitle}</div>}
+        </>
       }
       footer={<div className="-mx-6 px-6 pt-4 border-t border-slate-200 flex justify-end gap-2">{footer}</div>}
       destroyOnHidden

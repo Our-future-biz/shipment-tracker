@@ -7,6 +7,7 @@ import { useConsignments } from "@/hooks/useTruckingConsignments";
 import { formatDate } from "@/lib/date";
 import { CONSIGNMENT_STATUS_CHIP, consignmentHref } from "@/app/trucking/_lib/consignments";
 import { TruckingStatusChip } from "@/app/trucking/_components/TruckingStatusChip";
+import { LINK } from "@/styles/ui";
 
 const SHOWN = 20;
 
@@ -33,11 +34,11 @@ export const CustomerConsignmentsCard = ({ customerId, companyName }: CustomerCo
         <div>
           {own.slice(0, SHOWN).map((c) => (
             <div key={c.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-slate-100 py-2 text-[13px] last:border-b-0">
-              <Link href={consignmentHref(c.id)} className="tabular-nums font-semibold text-indigo-600 hover:underline">
+              <Link href={consignmentHref(c.id)} className={`tabular-nums font-semibold ${LINK}`}>
                 {c.ref}
               </Link>
               <TruckingStatusChip chip={CONSIGNMENT_STATUS_CHIP[c.status]} />
-              <span className="text-slate-600">
+              <span className="text-slate-700">
                 {c.pickupCity} → {c.deliveryCity}
               </span>
               <span className="text-slate-500">Pick-up {formatDate(c.pickupDate)}</span>

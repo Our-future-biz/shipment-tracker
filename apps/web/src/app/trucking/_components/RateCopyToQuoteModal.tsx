@@ -13,6 +13,7 @@ import { RoadPricePicker } from "@/app/sales/_components/RoadPricePicker";
 import { quoteHref } from "@/app/sales/_lib/quoteHref";
 import { defaultPick, rateFormToRoad, type RatePick } from "@/app/sales/_lib/roadQuote";
 import type { SalesQuote } from "@/app/sales/_lib/salesQuote";
+import { HINT } from "@/styles/ui";
 import type { RateForm } from "../_lib/rateCalculator";
 import { TruckingField } from "./TruckingField";
 
@@ -119,7 +120,7 @@ export const RateCopyToQuoteModal = ({ form, customerName, results, onClose }: R
           </div>
         )}
 
-        <div className="text-xs text-slate-500">The quote&apos;s lines priced from a tariff are replaced; lines typed by hand stay. The quote opens when it is done.</div>
+        <div className={HINT}>The quote&apos;s lines priced from a tariff are replaced; lines typed by hand stay. The quote opens when it is done.</div>
 
         {refusal && (
           <Alert

@@ -14,6 +14,8 @@ import type { LtlTripKind, PlanningLeg, PlanningTrip, TripAssignLegs, TripDetail
 import { usePlanningBoard } from "@/hooks/useTruckingPlanning";
 import { useUrlParam } from "@/hooks/useUrlParam";
 import { btnDefault, btnPrimary } from "@/components/buttons";
+import { CountChip } from "@/components/SectionCard";
+import { CARD, CARD_BAR, CARD_TITLE, ICON_BTN, LINK } from "@/styles/ui";
 import { TERMS } from "../_lib/glossary";
 import { PLANNING_CONFLICT_TEXT, TRIP_KIND_LABEL, TRIP_KIND_OPTIONS, addLegsWarnings, groupLegsByZone, openTrips, planningDayOf, warningSummary } from "../_lib/planning";
 import { isVersionConflict } from "../_lib/saveConflict";
@@ -135,13 +137,13 @@ export const TruckingPlanningTab = () => {
 
   return (
     <div className="flex flex-col gap-4">
-      <section className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm" aria-label="Day and kind">
+      <section className={`${CARD} flex flex-wrap items-center gap-3 px-4 py-3`} aria-label="Day and kind">
         <span className="inline-flex items-center gap-1">
-          <button type="button" className={btnDefault} aria-label="Previous day" onClick={() => handleDate(addDays(date, -1))}>
+          <button type="button" className={ICON_BTN} aria-label="Previous day" onClick={() => handleDate(addDays(date, -1))}>
             <LeftOutlined />
           </button>
           <DatePicker aria-label="Day" format="DD.MM.YYYY" allowClear={false} value={dayjs(date)} onChange={(d) => d && handleDate(d.format("YYYY-MM-DD"))} />
-          <button type="button" className={btnDefault} aria-label="Next day" onClick={() => handleDate(addDays(date, 1))}>
+          <button type="button" className={ICON_BTN} aria-label="Next day" onClick={() => handleDate(addDays(date, 1))}>
             <RightOutlined />
           </button>
           <button type="button" className={btnDefault} onClick={() => handleDate(businessToday())}>
@@ -149,7 +151,7 @@ export const TruckingPlanningTab = () => {
           </button>
         </span>
         <Segmented<LtlTripKind> aria-label="Trip kind" options={TRIP_KIND_OPTIONS} value={kind} onChange={handleKind} />
-        <button type="button" className={`${btnDefault} ml-auto`} aria-label="Reload the board" onClick={() => void reload()}>
+        <button type="button" className={`${ICON_BTN} ml-auto`} aria-label="Reload the board" onClick={() => void reload()}>
           <ReloadOutlined spin={isFetching} />
         </button>
       </section>
@@ -161,7 +163,9 @@ export const TruckingPlanningTab = () => {
           message={HUB_MISSING_TEXT}
           description={
             <span>
-              Every {TERMS.ltl} trip starts or ends at our warehouse. <Link href="/trucking/settings">Open Trucking settings</Link>
+              Every {TERMS.ltl} trip starts or ends at our warehouse. <Link href="/trucking/settings" className={LINK}>
+                Open Trucking settings
+              </Link>
             </span>
           }
         />
@@ -174,10 +178,10 @@ export const TruckingPlanningTab = () => {
         </div>
       ) : (
         <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[400px_minmax(0,1fr)]">
-          <section className="rounded-xl border border-slate-200 bg-white shadow-sm" aria-label={`Open ${TERMS.leg.toLowerCase()}s`}>
-            <div className="flex items-center gap-2 border-b border-slate-200 px-3 py-2">
-              <h2 className="m-0 text-[12px] font-bold uppercase tracking-wide text-slate-600">Open {TERMS.leg.toLowerCase()}s</h2>
-              <span className="text-[11px] text-slate-500">{unplanned.length}</span>
+          <section className={`${CARD} overflow-hidden`} aria-label={`Open ${TERMS.leg.toLowerCase()}s`}>
+            <div className={CARD_BAR}>
+              <h2 className={CARD_TITLE}>Open {TERMS.leg.toLowerCase()}s</h2>
+              <CountChip count={unplanned.length} />
               <button
                 type="button"
                 className={`${btnPrimary} ml-auto`}

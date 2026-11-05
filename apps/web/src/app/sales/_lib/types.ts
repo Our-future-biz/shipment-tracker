@@ -340,7 +340,8 @@ export type KnownQuoteStatus = "draft" | "ready_to_send" | "quoted" | "feedback"
 /** A status as stored: one of the known ones, or one a newer version wrote that this one can't name. */
 export type QuoteStatus = KnownQuoteStatus | (string & {});
 
-/** Tailwind classes a status is drawn with: the pill, its dot, and its text on white. */
+/** Tailwind classes a status is drawn with: the pill, its dot, and its text on white. The pill
+ * colours are the app's status tones (Pill / Badge: slate, indigo, sky, amber, emerald, red). */
 export interface QuoteStatusTone {
   pill: string;
   dot: string;
@@ -361,15 +362,16 @@ export const NEUTRAL_STATUS_TONE: QuoteStatusTone = { pill: "bg-slate-100 text-s
 // comes with the statuses it may be set to (allowedTransitions).
 export const QUOTE_STATUSES: QuoteStatusDef[] = [
   { key: "draft", label: "Draft", winProbability: 10, tone: NEUTRAL_STATUS_TONE },
-  { key: "ready_to_send", label: "Ready to Send", winProbability: 20, tone: { pill: "bg-indigo-100 text-indigo-600", dot: "bg-indigo-600", text: "text-indigo-600" } },
-  { key: "quoted", label: "Quoted", winProbability: 30, tone: { pill: "bg-blue-100 text-blue-700", dot: "bg-blue-700", text: "text-blue-700" } },
-  { key: "feedback", label: "Feedback", winProbability: 60, tone: { pill: "bg-amber-100 text-amber-600", dot: "bg-amber-600", text: "text-amber-600" } },
-  { key: "revised", label: "Revised", winProbability: 50, tone: { pill: "bg-violet-100 text-violet-600", dot: "bg-violet-600", text: "text-violet-600" } },
-  { key: "won", label: "Won", winProbability: 100, tone: { pill: "bg-green-100 text-green-600", dot: "bg-green-600", text: "text-green-600" } },
-  { key: "lost", label: "Lost", winProbability: 0, tone: { pill: "bg-red-100 text-red-600", dot: "bg-red-600", text: "text-red-600" } },
+  { key: "ready_to_send", label: "Ready to Send", winProbability: 20, tone: { pill: "bg-indigo-100 text-indigo-700", dot: "bg-indigo-600", text: "text-indigo-600" } },
+  { key: "quoted", label: "Quoted", winProbability: 30, tone: { pill: "bg-sky-100 text-sky-700", dot: "bg-sky-600", text: "text-sky-700" } },
+  { key: "feedback", label: "Feedback", winProbability: 60, tone: { pill: "bg-amber-100 text-amber-700", dot: "bg-amber-600", text: "text-amber-600" } },
+  // Violet, the one colour outside the tones: Revised has to be told apart from Ready to Send and Quoted in the pipeline.
+  { key: "revised", label: "Revised", winProbability: 50, tone: { pill: "bg-violet-100 text-violet-700", dot: "bg-violet-600", text: "text-violet-600" } },
+  { key: "won", label: "Won", winProbability: 100, tone: { pill: "bg-emerald-100 text-emerald-700", dot: "bg-emerald-600", text: "text-emerald-600" } },
+  { key: "lost", label: "Lost", winProbability: 0, tone: { pill: "bg-red-100 text-red-700", dot: "bg-red-600", text: "text-red-600" } },
   { key: "expired", label: "Expired", winProbability: 0, tone: NEUTRAL_STATUS_TONE },
   // Revised as a new quote (QCZ…-R1), which took its place.
-  { key: "replaced", label: "Replaced", winProbability: 0, tone: { pill: "bg-slate-200 text-slate-600", dot: "bg-slate-400", text: "text-slate-600" } },
+  { key: "replaced", label: "Replaced", winProbability: 0, tone: { pill: "bg-slate-200 text-slate-700", dot: "bg-slate-400", text: "text-slate-700" } },
 ];
 
 export const QUOTE_STATUS_MAP: Record<string, QuoteStatusDef> = Object.fromEntries(
@@ -429,9 +431,9 @@ export const VALIDITY_OPTIONS = [7, 10, 15, 21, 30] as const;
 
 /** Background class of the win-probability bar. */
 export function winProbClass(p: number): string {
-  if (p >= 80) return "bg-green-600";
+  if (p >= 80) return "bg-emerald-600";
   if (p >= 50) return "bg-amber-600";
-  if (p >= 20) return "bg-blue-600";
+  if (p >= 20) return "bg-indigo-600";
   return "bg-red-600";
 }
 

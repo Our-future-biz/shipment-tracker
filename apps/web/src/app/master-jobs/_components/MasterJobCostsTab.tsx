@@ -11,6 +11,8 @@ import { CURRENCIES } from "@/lib/cargo";
 import { chargeLabel, chargeOptions } from "@/lib/chargeCodes";
 import { normaliseAmount } from "@/lib/money";
 import { ProfitVsEstimate } from "@/components/ProfitVsEstimate";
+import { EMPTY_CELL } from "@/components/EmptyCell";
+import { HINT, LINK, REF, TD, TD_TOTAL, TH } from "@/styles/ui";
 import { MasterJobCard } from "./MasterJobFields";
 
 type View = interfaces.MasterJobCostsView;
@@ -20,8 +22,8 @@ type Patch = controllers.UpdateMasterJobCostRequest;
 // Under "master-jobs": linking or unlinking a shipment (which refreshes those) shows the new split too.
 const costsKey = (masterJobId: string) => ["master-jobs", masterJobId, "costs"] as const;
 
-const TH = "px-2 py-2 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500 whitespace-nowrap";
-const CELL = "px-2 py-1.5 align-middle";
+// The line between the estimate and the real cost.
+const SPLIT_LINE = "border-l border-l-slate-200";
 const CURRENCY_OPTIONS = CURRENCIES.map(({ code }) => ({ value: code, label: code }));
 const SPLIT_OPTIONS = [
   { value: "wm", label: "W/M" },
@@ -136,13 +138,13 @@ export function MasterJobCostsTab({ masterJob }: Props) {
           </Button>
         }
       >
-        <p className="mt-0 mb-3 text-xs text-slate-500">
+        <p className={`mt-0 mb-3 ${HINT}`}>
           Each line is split over the {houses.length} linked shipment{houses.length === 1 ? "" : "s"} and appears in their Costs
           Breakdown, read-only there. Split by W/M (freight tons) or the same part for each shipment.
         </p>
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-[13px]">
-            <thead className="border-b border-slate-200">
+          <table className="w-full border-collapse">
+            <thead>
               <tr>
                 <th className={TH}>Category</th>
                 <th className={TH}>Description</th>
@@ -150,7 +152,7 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                 <th className={TH}>Est. qty</th>
                 <th className={TH}>Est. amount</th>
                 <th className={TH}>Cur</th>
-                <th className={`${TH} border-l border-slate-300`}>Qty</th>
+                <th className={`${TH} ${SPLIT_LINE}`}>Qty</th>
                 <th className={TH}>Real cost</th>
                 <th className={TH}>Cur</th>
                 <th className={TH}>Invoice number</th>
@@ -163,14 +165,14 @@ export function MasterJobCostsTab({ masterJob }: Props) {
             <tbody>
               {lines.length === 0 && (
                 <tr>
-                  <td colSpan={14} className="px-2 py-6 text-center text-xs text-slate-400">
+                  <td colSpan={14} className={`px-2 py-6 text-center ${HINT}`}>
                     No buying costs yet - add one and it is split over the linked shipments.
                   </td>
                 </tr>
               )}
               {lines.map((line) => (
-                <tr key={line.id} className="border-b border-slate-100">
-                  <td className={`${CELL} min-w-[170px]`}>
+                <tr key={line.id}>
+                  <td className={`${TD} min-w-[170px]`}>
                     <Select
                       size="small"
                       className="w-full"
@@ -183,43 +185,43 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                       aria-label="Category"
                     />
                   </td>
-                  <td className={`${CELL} min-w-[140px]`}>
+                  <td className={`${TD} min-w-[140px]`}>
                     <Input size="small" key={`d${line.description}`} defaultValue={line.description} onBlur={(e) => saveText(line, "description", e.target.value)} aria-label="Description" />
                   </td>
-                  <td className={`${CELL} min-w-[120px]`}>
+                  <td className={`${TD} min-w-[120px]`}>
                     <Input size="small" key={`v${line.vendor}`} defaultValue={line.vendor} onBlur={(e) => saveText(line, "vendor", e.target.value)} aria-label="Vendor" />
                   </td>
-                  <td className={`${CELL} w-[70px]`}>
+                  <td className={`${TD} w-[70px]`}>
                     <Input size="small" key={`eq${line.estQty}`} defaultValue={line.estQty ?? ""} onBlur={(e) => saveAmount(line, "estQty", e.target.value)} className="text-right" aria-label="Estimated quantity" />
                   </td>
-                  <td className={`${CELL} w-[100px]`}>
+                  <td className={`${TD} w-[100px]`}>
                     <Input size="small" key={`ea${line.estAmount}`} defaultValue={line.estAmount ?? ""} onBlur={(e) => saveAmount(line, "estAmount", e.target.value)} className="text-right" aria-label="Estimated amount" />
                   </td>
-                  <td className={`${CELL} w-[86px]`}>
+                  <td className={`${TD} w-[86px]`}>
                     <Select size="small" className="w-full" showSearch value={line.estCurrency} options={CURRENCY_OPTIONS} onChange={(v: string) => save(line, { estCurrency: v })} aria-label="Estimated currency" />
                   </td>
-                  <td className={`${CELL} w-[70px] border-l border-slate-300`}>
+                  <td className={`${TD} w-[70px] ${SPLIT_LINE}`}>
                     <Input size="small" key={`rq${line.realQty}`} defaultValue={line.realQty ?? ""} onBlur={(e) => saveAmount(line, "realQty", e.target.value)} className="text-right" aria-label="Real quantity" />
                   </td>
-                  <td className={`${CELL} w-[100px]`}>
+                  <td className={`${TD} w-[100px]`}>
                     <Input size="small" key={`ra${line.realAmount}`} defaultValue={line.realAmount ?? ""} onBlur={(e) => saveAmount(line, "realAmount", e.target.value)} className="text-right" aria-label="Real cost" />
                   </td>
-                  <td className={`${CELL} w-[86px]`}>
+                  <td className={`${TD} w-[86px]`}>
                     <Select size="small" className="w-full" showSearch value={line.realCurrency} options={CURRENCY_OPTIONS} onChange={(v: string) => save(line, { realCurrency: v })} aria-label="Real currency" />
                   </td>
-                  <td className={`${CELL} min-w-[120px]`}>
+                  <td className={`${TD} min-w-[120px]`}>
                     <Input size="small" key={`in${line.invoiceNumber}`} defaultValue={line.invoiceNumber} onBlur={(e) => saveText(line, "invoiceNumber", e.target.value)} aria-label="Invoice number" />
                   </td>
-                  <td className={`${CELL} text-center`}>
+                  <td className={`${TD} text-center`}>
                     <Checkbox checked={line.received} onChange={(e) => save(line, { received: e.target.checked })} aria-label="Supplier invoice received" />
                   </td>
-                  <td className={CELL}>
+                  <td className={TD}>
                     {(() => {
                       const vs = vsEstimate[line.id];
-                      return vs ? <ProfitVsEstimate delta={vs.delta} currency={vs.currency} /> : <span className="text-slate-300">—</span>;
+                      return vs ? <ProfitVsEstimate delta={vs.delta} currency={vs.currency} /> : EMPTY_CELL;
                     })()}
                   </td>
-                  <td className={CELL}>
+                  <td className={TD}>
                     <Segmented
                       size="small"
                       value={line.splitMethod}
@@ -228,7 +230,7 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                       aria-label="Split"
                     />
                   </td>
-                  <td className={CELL}>
+                  <td className={TD}>
                     <Tooltip title="Delete - it leaves the shipments too">
                       <Button size="small" type="text" danger icon={<DeleteOutlined />} disabled={busy} onClick={() => remove.mutate(line.id)} aria-label="Delete cost" />
                     </Tooltip>
@@ -238,11 +240,11 @@ export function MasterJobCostsTab({ masterJob }: Props) {
             </tbody>
             {totalVs && (
               <tfoot>
-                <tr className="border-t border-slate-200">
-                  <td className={`${CELL} text-[11px] font-bold uppercase tracking-wide text-slate-500`} colSpan={11}>
+                <tr>
+                  <td className={TD_TOTAL} colSpan={11}>
                     Against the estimates
                   </td>
-                  <td className={CELL} colSpan={3}>
+                  <td className={TD_TOTAL} colSpan={3}>
                     <ProfitVsEstimate delta={totalVs.delta} currency={totalVs.currency} />
                   </td>
                 </tr>
@@ -254,11 +256,11 @@ export function MasterJobCostsTab({ masterJob }: Props) {
 
       <MasterJobCard icon={<DollarOutlined />} title="Split over the shipments">
         {houses.length === 0 ? (
-          <p className="m-0 text-xs text-slate-500">No shipments are linked yet - the costs are split once there are some (MBL Details → Linked shipments).</p>
+          <p className={`m-0 ${HINT}`}>No shipments are linked yet - the costs are split once there are some (MBL Details → Linked shipments).</p>
         ) : (
           <>
             {anyWm && noWm.length > 0 && (
-              <div className="mb-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-800">
                 <WarningOutlined className="mt-0.5" />
                 <span>
                   {noWm.map((h) => h.jobNumber).join(", ")} {noWm.length === 1 ? "has" : "have"} no weight or volume, so{" "}
@@ -268,13 +270,13 @@ export function MasterJobCostsTab({ masterJob }: Props) {
               </div>
             )}
             <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-[13px]">
-                <thead className="border-b border-slate-200">
+              <table className="w-full border-collapse">
+                <thead>
                   <tr>
                     <th className={TH}>Shipment</th>
-                    <th className={`${TH} text-right`}>W/M</th>
+                    <th className={`${TH} !text-right`}>W/M</th>
                     {lines.map((l) => (
-                      <th key={l.id} className={`${TH} text-right`} title={l.description}>
+                      <th key={l.id} className={`${TH} !text-right`} title={l.description}>
                         {l.category ? chargeLabel(l.category) : "Cost"}
                         <span className="block font-normal normal-case text-slate-400">{l.splitMethod === "wm" ? "by W/M" : "per shipment"}</span>
                       </th>
@@ -283,22 +285,22 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                 </thead>
                 <tbody>
                   {houses.map((h) => (
-                    <tr key={h.shipmentId} className="border-b border-slate-100">
-                      <td className={CELL}>
-                        <Link href={`/shipments/${h.shipmentId}`} className="font-medium text-indigo-600 hover:underline">
+                    <tr key={h.shipmentId}>
+                      <td className={TD}>
+                        <Link href={`/shipments/${h.shipmentId}`} className={`${REF} font-semibold ${LINK}`}>
                           {h.jobNumber}
                         </Link>
                       </td>
-                      <td className={`${CELL} text-right tabular-nums ${h.freightTon > 0 ? "text-slate-700" : "text-amber-600"}`}>
-                        {h.freightTon > 0 ? h.freightTon.toFixed(3) : "—"}
+                      <td className={`${TD} text-right tabular-nums`}>
+                        {h.freightTon > 0 ? h.freightTon.toFixed(3) : <span className="text-amber-600">—</span>}
                       </td>
                       {lines.map((l) => {
                         const s = shareOf(l.id, h.shipmentId);
                         const real = s?.real != null ? `${amountOf(Number(s.real))} ${l.realCurrency}` : null;
                         const est = s?.est != null ? `${amountOf(Number(s.est))} ${l.estCurrency}` : null;
                         return (
-                          <td key={l.id} className={`${CELL} text-right tabular-nums`}>
-                            {real ?? est ?? <span className="text-slate-300">—</span>}
+                          <td key={l.id} className={`${TD} text-right tabular-nums`}>
+                            {real ?? est ?? EMPTY_CELL}
                             {real && est && <span className="block text-[11px] text-slate-400">est. {est}</span>}
                           </td>
                         );
@@ -307,16 +309,16 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                   ))}
                 </tbody>
                 <tfoot>
-                  <tr className="border-t border-slate-200 font-semibold">
-                    <td className={CELL} colSpan={2}>
+                  <tr>
+                    <td className={TD_TOTAL} colSpan={2}>
                       Line total
                     </td>
                     {lines.map((l) => {
                       const real = lineTotal(l.realAmount, l.realQty);
                       const est = lineTotal(l.estAmount, l.estQty);
                       return (
-                        <td key={l.id} className={`${CELL} text-right tabular-nums`}>
-                          {real != null ? `${amountOf(real)} ${l.realCurrency}` : est != null ? `${amountOf(est)} ${l.estCurrency}` : "—"}
+                        <td key={l.id} className={`${TD_TOTAL} text-right tabular-nums`}>
+                          {real != null ? `${amountOf(real)} ${l.realCurrency}` : est != null ? `${amountOf(est)} ${l.estCurrency}` : EMPTY_CELL}
                         </td>
                       );
                     })}

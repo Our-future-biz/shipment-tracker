@@ -14,6 +14,8 @@ import { downloadDataUrl } from "@/lib/files";
 import { useToast } from "@/lib/toast";
 import { fetchInternalMonthExport, fetchInternalStatementPdf, useInternalCharges, type InternalCharge, type InternalMonth } from "@/hooks/useTruckingMoney";
 import { btnDefault, btnPrimary } from "@/components/buttons";
+import { LINK, MODAL_TITLE, REF } from "@/styles/ui";
+import { LINK_ICON_BTN_GHOST } from "../_lib/linkButtons";
 import { consignmentHref } from "../_lib/consignments";
 import { TERMS } from "../_lib/glossary";
 import { CHARGE_KIND_LABELS, MONTH_STATUS_CHIP, closeMonthState, isNotPriced, monthLabel, monthTotal } from "../_lib/internalBilling";
@@ -33,7 +35,7 @@ const COLUMNS: AppGridColumn<InternalCharge>[] = [
     text: (c) => c.consignmentRef,
     sorter: (a, b) => byText(a.consignmentRef, b.consignmentRef),
     render: (_, c) => (
-      <Link href={consignmentHref(c.consignmentId)} onClick={stop} className="tabular-nums font-semibold text-indigo-600 hover:underline">
+      <Link href={consignmentHref(c.consignmentId)} onClick={stop} className={`${LINK} ${REF} font-semibold`}>
         {c.consignmentRef}
       </Link>
     ),
@@ -45,7 +47,7 @@ const COLUMNS: AppGridColumn<InternalCharge>[] = [
     // By number, whatever the letters (a copied CZ00000023 next to CZROAD00000024).
     sorter: (a, b) => compareJobNumbers(a.jobNumber, b.jobNumber),
     render: (_, c) => (
-      <Link href={`/shipments/${c.shipmentId}?tab=trucking`} onClick={stop} className="tabular-nums text-indigo-600 hover:underline">
+      <Link href={`/shipments/${c.shipmentId}?tab=trucking`} onClick={stop} className={`${LINK} ${REF}`}>
         {c.jobNumber}
       </Link>
     ),
@@ -108,10 +110,10 @@ export const InternalMonthDetail = ({ month }: InternalMonthDetailProps) => {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-3">
-        <Link href="/trucking?tab=internalBilling" aria-label="All months" className="p-1 text-slate-400 hover:text-indigo-500">
+        <Link href="/trucking?tab=internalBilling" aria-label="All months" className={LINK_ICON_BTN_GHOST}>
           <ArrowLeftOutlined />
         </Link>
-        <h2 className="m-0 text-[18px] font-bold text-slate-800">{label}</h2>
+        <h2 className={MODAL_TITLE}>{label}</h2>
         <TruckingStatusChip chip={MONTH_STATUS_CHIP[month.status]} />
         <span className="text-xs text-slate-500">
           {formatMoney(monthTotal(month), "CZK")}

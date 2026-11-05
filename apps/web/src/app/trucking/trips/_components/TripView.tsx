@@ -5,9 +5,11 @@ import Link from "next/link";
 import { Spin } from "antd";
 import { ArrowLeftOutlined } from "@ant-design/icons";
 import { SectionCard } from "@/components/SectionCard";
+import { LINK, PAGE_SUBTITLE, PAGE_TITLE, REF } from "@/styles/ui";
 import { apiErrorMessage, isNotFound } from "@/lib/api";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useConsignment, useConsignmentDocuments, useTrip } from "@/hooks/useTruckingConsignments";
+import { LINK_ICON_BTN_GHOST } from "../../_lib/linkButtons";
 import { CONSIGNMENT_STATUS_CHIP, TRIP_STATUS_CHIP, consignmentActions, consignmentHref } from "../../_lib/consignments";
 import { TERMS } from "../../_lib/glossary";
 import { TRIP_KIND_LABEL, ltlTripOrderActions, type TripOrderActions } from "../../_lib/planning";
@@ -49,7 +51,7 @@ export const TripView = ({ tripId }: TripViewProps) => {
     return (
       <div className="p-10 text-center text-slate-500">
         {isNotFound(error) ? "Trip not found." : `Could not load the trip: ${apiErrorMessage(error)}.`}{" "}
-        <Link href={LIST_HREF} className="text-indigo-500">
+        <Link href={LIST_HREF} className={LINK}>
           Back to Trips
         </Link>
       </div>
@@ -64,15 +66,15 @@ export const TripView = ({ tripId }: TripViewProps) => {
     <div className="bg-slate-50 min-h-full">
       <div className="bg-white border-b border-slate-200 px-6 py-4">
         <div className="flex flex-wrap items-start gap-2">
-          <Link href={LIST_HREF} aria-label="Back to Trips" className="mt-1 p-1 text-slate-400 hover:text-indigo-500">
+          <Link href={LIST_HREF} aria-label="Back to Trips" className={LINK_ICON_BTN_GHOST}>
             <ArrowLeftOutlined />
           </Link>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="m-0 tabular-nums text-[22px] font-bold text-slate-800">{trip.ref}</h1>
+              <h1 className={`${PAGE_TITLE} ${REF}`}>{trip.ref}</h1>
               <TruckingStatusChip chip={TRIP_STATUS_CHIP[trip.status]} />
             </div>
-            <div className="mt-0.5 text-xs text-slate-500">
+            <div className={`mt-0.5 ${PAGE_SUBTITLE}`}>
               {ftl ? `${TERMS.ftl} ${TERMS.trip.toLowerCase()}` : TRIP_KIND_LABEL[trip.kind]} · {trip.haulierName}
             </div>
           </div>
@@ -84,15 +86,15 @@ export const TripView = ({ tripId }: TripViewProps) => {
           <SectionCard title={TERMS.consignment}>
             {consignment ? (
               <div className="flex flex-wrap items-center gap-3 text-[13px]">
-                <Link href={consignmentHref(consignment.id)} className="tabular-nums font-semibold text-indigo-600 hover:underline">
+                <Link href={consignmentHref(consignment.id)} className={`${LINK} ${REF} font-semibold`}>
                   {consignment.ref}
                 </Link>
                 <TruckingStatusChip chip={CONSIGNMENT_STATUS_CHIP[consignment.status]} />
-                <span className="text-slate-600">{consignment.customerName}</span>
+                <span className="text-slate-700">{consignment.customerName}</span>
                 <span className="text-slate-500">
                   {consignment.pickupCity} → {consignment.deliveryCity}
                 </span>
-                <Link href={`/shipments/${consignment.shipmentId}?tab=trucking`} className="tabular-nums text-indigo-600 hover:underline">
+                <Link href={`/shipments/${consignment.shipmentId}?tab=trucking`} className={`${LINK} ${REF}`}>
                   {consignment.jobNumber}
                 </Link>
               </div>

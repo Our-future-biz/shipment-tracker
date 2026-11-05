@@ -33,18 +33,18 @@ export const TariffVersionFindings = ({ findings, isDraft }: TariffVersionFindin
           {isDraft && hasErrors && (
             <p className="m-0 text-[13px] text-red-700">Errors stop the draft from being approved. Correct the layout below, or fix the file and upload it again.</p>
           )}
-          {isDraft && !hasErrors && <p className="m-0 text-[13px] text-slate-600">Only warnings: check them; the draft can still be approved.</p>}
+          {isDraft && !hasErrors && <p className="m-0 text-[13px] text-slate-700">Only warnings: check them; the draft can still be approved.</p>}
           <ul className="m-0 p-0 list-none flex flex-col gap-1.5">
             {sorted.map((f) => (
               <li key={`${f.code}-${f.column ?? ""}`} className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-[13px] ${LEVEL[f.level].rowClass}`}>
                 <span className={`mt-0.5 ${LEVEL[f.level].className}`}>{LEVEL[f.level].icon}</span>
                 <div className="min-w-0">
-                  <div className="text-slate-800">
+                  <div className="text-slate-900">
                     {f.message}
                     {f.column && <span className="ml-1.5 text-slate-500">(column {f.column})</span>}
                   </div>
                   {(f.count > 1 || f.rows.length > 0) && (
-                    <div className="text-xs text-slate-500 mt-0.5">
+                    <div className="text-[12px] text-slate-500 mt-0.5">
                       {f.count > 1 && <span className="tabular-nums">{f.count} rows</span>}
                       {f.count > 1 && f.rows.length > 0 && <span> · </span>}
                       {f.rows.length > 0 && <span className="tabular-nums">{findingRowsText(f)}</span>}

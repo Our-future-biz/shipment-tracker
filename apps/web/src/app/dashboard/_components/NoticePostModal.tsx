@@ -7,6 +7,7 @@ import type { ReactNode } from "react";
 import { formatFileSize } from "@/lib/files";
 import { useToast } from "@/lib/toast";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { HINT, LABEL_TEXT } from "@/styles/ui";
 import { useBranches, useCountries, useDepartments } from "@/hooks/useOrgUnits";
 import type { Announcement, NewAnnouncementInput, UpdateAnnouncementInput } from "@/hooks/useNoticeboard";
 import { SEVERITIES } from "../_lib/boards";
@@ -42,10 +43,10 @@ interface NoticeFormValues {
   body?: string;
 }
 
-// The priority pills: tinted like the tags on the board, with their icon. The chosen one is
-// filled stronger and outlined in its own colour; keyboard focus is a ring in that colour too.
+// The priority pills: tinted like the pills on the board (slate, amber, red), with their icon. The
+// chosen one is filled stronger and outlined in its own colour; keyboard focus is a ring in that colour too.
 const SEVERITY_PILL: Record<string, { idle: string; chosen: string; icon: ReactNode }> = {
-  info: { idle: "bg-blue-50 text-blue-600 focus-visible:ring-blue-500", chosen: "border-blue-500 bg-blue-100 text-blue-700 shadow-sm", icon: <InfoCircleFilled className="!text-blue-500" /> },
+  info: { idle: "bg-slate-50 text-slate-600 focus-visible:ring-slate-500", chosen: "border-slate-500 bg-slate-100 text-slate-700 shadow-sm", icon: <InfoCircleFilled className="!text-slate-500" /> },
   warning: {
     idle: "bg-amber-50 text-amber-600 focus-visible:ring-amber-500",
     chosen: "border-amber-500 bg-amber-100 text-amber-700 shadow-sm",
@@ -58,12 +59,12 @@ const SEVERITY_PILL: Record<string, { idle: string; chosen: string; icon: ReactN
   critical: { idle: "bg-red-50 text-red-600 focus-visible:ring-red-500", chosen: "border-red-500 bg-red-100 text-red-700 shadow-sm", icon: <ExclamationCircleFilled className="!text-red-500" /> },
 };
 
-// Field labels: small and dark, a required one marked with a red asterisk after the name.
-const fieldLabel = (text: string) => <span className="text-[13px] font-semibold text-slate-800">{text}</span>;
+// Field labels: the app's small bold caps (LABEL_TEXT), a required one marked with a red asterisk after the name.
+const fieldLabel = (text: string) => <span className={LABEL_TEXT}>{text}</span>;
 const requiredMark = (label: ReactNode, { required }: { required: boolean }) => (
   <>
     {label}
-    {required && <span className="ml-0.5 text-[13px] font-semibold text-red-500">*</span>}
+    {required && <span className="ml-0.5 text-[11px] font-bold text-red-500">*</span>}
   </>
 );
 
@@ -122,10 +123,10 @@ function DocumentRow({ fileName, fileType, fileSize, disabled, onRemove }: { fil
     <li className="flex items-center gap-3 rounded-lg bg-slate-50 px-3 py-2">
       <span className="shrink-0 text-[20px] leading-none">{fileIcon(fileName, fileType)}</span>
       <span className="min-w-0 flex-1">
-        <span title={fileName} className="block truncate text-[13px] font-medium text-slate-800">
+        <span title={fileName} className="block truncate text-[13px] font-medium text-slate-900">
           {fileName}
         </span>
-        <span className="block text-[11px] text-slate-500">{formatFileSize(fileSize)}</span>
+        <span className={`block ${HINT}`}>{formatFileSize(fileSize)}</span>
       </span>
       <Button type="text" size="small" icon={<CloseOutlined />} aria-label={`Remove ${fileName}`} disabled={disabled} onClick={onRemove} />
     </li>
@@ -281,7 +282,7 @@ export function NoticePostModal({ target, onClose, onCreate, onUpdate, onAddAtta
       closable={!saving}
       maskClosable={!saving}
       keyboard={!saving}
-      title={<span className="text-[20px] font-bold text-slate-900">{editing ? "Edit Notice" : "Post a Notice"}</span>}
+      title={editing ? "Edit Notice" : "Post a Notice"}
       // The drop zone for documents sits beside the buttons; picked documents are listed above it.
       footer={
         <div className="-mx-6 px-6 pt-4 border-t border-slate-200 flex items-center justify-between gap-4">
@@ -316,8 +317,8 @@ export function NoticePostModal({ target, onClose, onCreate, onUpdate, onAddAtta
           >
             <PaperClipOutlined className="shrink-0 !text-[20px] !text-slate-500" />
             <span className="min-w-0">
-              <span className="block text-[13px] font-medium text-slate-800">Add documents</span>
-              <span className="block truncate text-[11px] text-slate-500">PDF, DOC, XLS, PNG and more · Max 10 MB each</span>
+              <span className="block text-[13px] font-medium text-slate-900">Add documents</span>
+              <span className={`block truncate ${HINT}`}>PDF, DOC, XLS, PNG and more · Max 10 MB each</span>
             </span>
           </button>
           <div className="flex shrink-0 gap-2">
@@ -336,7 +337,7 @@ export function NoticePostModal({ target, onClose, onCreate, onUpdate, onAddAtta
       <Form form={form} layout="vertical" requiredMark={requiredMark} className="pt-2" preserve={false} initialValues={initialValues} disabled={saving} onValuesChange={handleValuesChange}>
         {locked ? (
           <Form.Item label={fieldLabel("For")} className="!mb-4">
-            <div className="flex items-center gap-2 h-9 px-3 rounded-lg bg-slate-100 text-[13px] text-slate-600">
+            <div className="flex items-center gap-2 h-8 px-3 rounded-lg bg-slate-100 text-[13px] text-slate-700">
               <TeamOutlined className="text-slate-500" />
               <span className="min-w-0 flex-1 truncate">{lockedLabel}</span>
               <LockOutlined className="!text-slate-400" title="Whom the notice is for cannot be changed" />

@@ -116,7 +116,7 @@ export function PillTabs<K extends string>({ tabs, active, onChange }: PillTabsP
             onClick={() => onChange(t.key)}
             className={[
               "flex items-center h-8 px-3 rounded-lg border text-[13px] font-medium transition-colors cursor-pointer",
-              on ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
+              on ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
             ].join(" ")}
           >
             {t.label}

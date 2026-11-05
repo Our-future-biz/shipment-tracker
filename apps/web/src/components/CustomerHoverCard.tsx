@@ -6,6 +6,7 @@ import { Spin } from "antd";
 import { useCustomer } from "@/hooks/useCustomers";
 import { flagOf } from "@/lib/countries";
 import { CustomerAccountTypeBadge } from "@/app/customers/_components/CustomerAccountTypeBadge";
+import { EMPTY, HINT } from "@/styles/ui";
 import { HoverCard } from "./HoverCard";
 
 interface CustomerHoverCardProps {
@@ -23,13 +24,13 @@ export function CustomerHoverCard({ customerId, children }: CustomerHoverCardPro
 
   const content =
     isLoading || !customer ? (
-      <div className="flex justify-center px-6 py-3">{isLoading ? <Spin size="small" /> : <span className="text-xs text-slate-400">Not found</span>}</div>
+      <div className="flex justify-center px-6 py-3">{isLoading ? <Spin size="small" /> : <span className={HINT}>Not found</span>}</div>
     ) : (
       // As wide as its content (a long address stays on one line), between 280 and 480px.
       <div className="w-max min-w-[280px] max-w-[480px]">
         {/* The country sits in the top right corner, beside the name. */}
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0 text-[13px] font-semibold text-slate-800">{customer.companyName}</div>
+          <div className="min-w-0 text-[13px] font-semibold text-slate-900">{customer.companyName}</div>
           {customer.country && (
             <span className="shrink-0 whitespace-nowrap text-xs text-slate-500">
               {flagOf(customer.country)} {customer.country}
@@ -44,13 +45,13 @@ export function CustomerHoverCard({ customerId, children }: CustomerHoverCardPro
         )}
         <dl className="mt-2.5 mb-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 border-t border-slate-100 pt-2.5 text-xs">
           <dt className="text-slate-500">Address</dt>
-          <dd className="m-0 text-slate-800">
-            {customer.registeredAddress || customer.city || <span className="text-slate-300">—</span>}
+          <dd className="m-0 text-slate-900">
+            {customer.registeredAddress || customer.city || <span className={EMPTY}>—</span>}
           </dd>
           <dt className="text-slate-500">Sales Owner</dt>
-          <dd className="m-0 text-slate-800 break-all">{customer.salesOwner || <span className="text-slate-300">—</span>}</dd>
+          <dd className="m-0 text-slate-900 break-all">{customer.salesOwner || <span className={EMPTY}>—</span>}</dd>
           <dt className="text-slate-500">Payment Terms</dt>
-          <dd className="m-0 text-slate-800">{customer.paymentTerms || <span className="text-slate-300">—</span>}</dd>
+          <dd className="m-0 text-slate-900">{customer.paymentTerms || <span className={EMPTY}>—</span>}</dd>
         </dl>
       </div>
     );

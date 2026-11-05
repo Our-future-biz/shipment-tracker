@@ -25,6 +25,7 @@ import {
   marginText,
   tripHref,
 } from "../_lib/consignments";
+import { BTN_PRIMARY, LINK, REF } from "@/styles/ui";
 import { formatMoney, formatQty } from "../_lib/tariffs";
 import { ConsignmentCreateModal } from "./ConsignmentCreateModal";
 import { ConsignmentQuickChips } from "./ConsignmentQuickChips";
@@ -43,7 +44,7 @@ const buildColumns = (levelLabel: (code: string | null) => string): AppGridColum
     text: (c) => c.ref,
     sorter: (a, b) => byText(a.ref, b.ref),
     render: (_, c) => (
-      <Link href={consignmentHref(c.id)} onClick={stop} className="tabular-nums font-semibold text-indigo-600 hover:underline">
+      <Link href={consignmentHref(c.id)} onClick={stop} className={`${LINK} ${REF} font-semibold`}>
         {c.ref}
       </Link>
     ),
@@ -80,7 +81,7 @@ const buildColumns = (levelLabel: (code: string | null) => string): AppGridColum
     // By number, whatever the letters (a copied CZ00000023 next to CZROAD00000024).
     sorter: (a, b) => compareJobNumbers(a.jobNumber, b.jobNumber),
     render: (_, c) => (
-      <Link href={`/shipments/${c.shipmentId}?tab=trucking`} onClick={stop} className="tabular-nums text-indigo-600 hover:underline">
+      <Link href={`/shipments/${c.shipmentId}?tab=trucking`} onClick={stop} className={`${LINK} ${REF}`}>
         {c.jobNumber}
       </Link>
     ),
@@ -128,7 +129,7 @@ const buildColumns = (levelLabel: (code: string | null) => string): AppGridColum
     text: (c) => c.tripRef ?? "",
     render: (_, c) =>
       c.tripId && c.tripRef ? (
-        <Link href={tripHref(c.tripId)} onClick={stop} className="tabular-nums text-indigo-600 hover:underline">
+        <Link href={tripHref(c.tripId)} onClick={stop} className={`${LINK} ${REF}`}>
           {c.tripRef}
         </Link>
       ) : (
@@ -148,7 +149,7 @@ const buildColumns = (levelLabel: (code: string | null) => string): AppGridColum
       ) : (
         <Tooltip title={buyLabel(c)}>
           <span>
-            {formatMoney(c.buyCzk, "CZK")} <span className={`text-[11px] ${c.buyReal ? "text-emerald-700" : "text-slate-400"}`}>{buySource(c)}</span>
+            {formatMoney(c.buyCzk, "CZK")} <span className={`text-[11px] ${c.buyReal ? "text-emerald-700" : "text-slate-500"}`}>{buySource(c)}</span>
           </span>
         </Tooltip>
       ),
@@ -228,11 +229,11 @@ export const TruckingConsignmentsTab = () => {
             <ConsignmentTiles active={activeTile} counts={counts} onSelect={handleTile} />
             <ConsignmentQuickChips active={chipView} counts={counts} onSelect={(id) => setFilter({ view: id, status: null })} />
             {job && (
-              <div className="mt-3 flex flex-wrap items-center gap-2 text-[13px] text-slate-600">
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-[13px] text-slate-500">
                 <span>
-                  Only the consignments of job <span className="tabular-nums font-semibold text-slate-800">{jobNumber ?? "…"}</span>
+                  Only the consignments of job <span className={`${REF} font-semibold text-slate-900`}>{jobNumber ?? "…"}</span>
                 </span>
-                <button type="button" className="font-semibold text-indigo-600 hover:underline" onClick={() => setFilter({ job: null })}>
+                <button type="button" className={`${LINK} font-semibold cursor-pointer`} onClick={() => setFilter({ job: null })}>
                   Show all consignments
                 </button>
               </div>
@@ -259,7 +260,7 @@ export const TruckingConsignmentsTab = () => {
             <button
               type="button"
               onClick={() => setCreateOpen(true)}
-              className="flex items-center gap-1.5 shrink-0 rounded-lg bg-indigo-600 px-3 h-8 text-[13px] font-semibold text-white hover:bg-indigo-700 transition-colors"
+              className={BTN_PRIMARY}
             >
               <PlusOutlined />
               Create new

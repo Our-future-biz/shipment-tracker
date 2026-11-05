@@ -22,6 +22,7 @@ import {
   withoutTable,
 } from "../../_lib/oceanLayoutForm";
 import { OCEAN_EQUIPMENT } from "../../_lib/oceanTariffs";
+import { HINT, LABEL_TEXT } from "@/styles/ui";
 
 type Table = interfaces.OceanTable;
 type PriceColumn = interfaces.OceanPriceColumn;
@@ -135,7 +136,7 @@ export const OceanVersionLayoutForm = ({ form, onChange, preview, disabled }: Oc
               </Field>
             </div>
             <div className="flex flex-col gap-2">
-              <div className="text-[12px] font-semibold text-slate-600">Price columns</div>
+              <div className={LABEL_TEXT}>Price columns</div>
               {t.prices.map((p, k) => (
                 <div key={k} className="grid grid-cols-[1.4fr_120px_1fr_32px] gap-2 items-center">
                   <Select
@@ -222,14 +223,14 @@ export const OceanVersionLayoutForm = ({ form, onChange, preview, disabled }: Oc
                   <Select aria-label={`${name} when`} size="small" value={s.condition} disabled={disabled} options={CONDITION_OPTIONS} popupMatchSelectWidth={false} onChange={(v: interfaces.OceanSurchargeCondition) => setSurcharge(i, { condition: v })} />
                 </Field>
                 <fieldset className="m-0 p-0 border-0 flex flex-col gap-1 min-w-0">
-                  <legend className="text-[12px] font-semibold text-slate-600 mb-1 p-0">Containers</legend>
+                  <legend className={`${LABEL_TEXT} mb-1 p-0`}>Containers</legend>
                   <Checkbox.Group aria-label={`${name} containers`} options={EQUIPMENT_KIND_OPTIONS} value={s.equipment} disabled={disabled} onChange={(equipment) => setSurcharge(i, { equipment })} />
-                  <span className="text-[11px] text-slate-400">None ticked: both</span>
+                  <span className={HINT}>None ticked: both</span>
                 </fieldset>
                 <fieldset className="m-0 p-0 border-0 flex flex-col gap-1 min-w-0">
-                  <legend className="text-[12px] font-semibold text-slate-600 mb-1 p-0">Rate tables</legend>
+                  <legend className={`${LABEL_TEXT} mb-1 p-0`}>Rate tables</legend>
                   <Checkbox.Group aria-label={`${name} rate tables`} options={tableOptions} value={s.tables} disabled={disabled} onChange={(tables) => setSurcharge(i, { tables: [...tables].sort((a, b) => a - b) })} />
-                  <span className="text-[11px] text-slate-400">None ticked: every table</span>
+                  <span className={HINT}>None ticked: every table</span>
                 </fieldset>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">

@@ -5,6 +5,7 @@ import type { interfaces } from "@/lib/api/client";
 import { formatDate, formatDateTime } from "@/lib/date";
 import { isDayOnly, lifecycleText, stageLabel, stageTone } from "../_lib/lifecycle";
 import { Badge } from "../gate-log/_lib/gate";
+import { EMPTY } from "@/styles/ui";
 
 // The position's in-and-out lifecycle (derived by the server from its stamps, the stripping tally
 // and the stuffing): a chip for grids and headers, and a strip of every step with its time.
@@ -14,7 +15,7 @@ type Lifecycle = interfaces.GatePositionLifecycle;
 const when = (at: string | null) => (!at ? "" : isDayOnly(at) ? formatDate(at) : formatDateTime(at));
 
 export function LifecycleChip({ l, className = "" }: { l: Lifecycle | null | undefined; className?: string }) {
-  if (!l) return <span className="text-slate-300">—</span>;
+  if (!l) return <span className={EMPTY}>—</span>;
   return (
     <span className={`inline-flex items-center gap-1 ${className}`} title={l.at ? `Since ${when(l.at)}` : undefined}>
       <Badge tone={stageTone(l.stage)}>{stageLabel(l.stage, l.label)}</Badge>

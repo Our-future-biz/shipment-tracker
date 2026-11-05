@@ -10,6 +10,7 @@ import { MAX_COLUMN_FILTERS, MAX_COLUMN_FILTER_VALUE, NO_OWNER, QUOTE_FILTER_COL
 import { DIRECTIONS, QUOTE_STATUSES, SERVICE_TYPES } from "../_lib/types";
 import { toolbarButtonClass } from "./ToolbarButton";
 import { matchesUserOption, UserOptionLabel, type UserIdOption } from "../_lib/userOptions";
+import { LABEL_TEXT } from "@/styles/ui";
 
 interface QuoteListFiltersProps {
   filters: Filters;
@@ -84,7 +85,7 @@ interface FieldProps {
 function Field({ label, children }: FieldProps) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-xs font-medium text-slate-500">{label}</span>
+      <span className={LABEL_TEXT}>{label}</span>
       {children}
     </label>
   );
@@ -92,7 +93,7 @@ function Field({ label, children }: FieldProps) {
 
 function SetFilter({ label, onRemove }: { label: string; onRemove: () => void }) {
   return (
-    <div className="flex items-center justify-between text-xs text-slate-600">
+    <div className="flex items-center justify-between text-xs text-slate-700">
       <span>{label}</span>
       <button type="button" onClick={onRemove} className="text-xs font-medium text-slate-400 hover:text-red-500 bg-transparent border-none cursor-pointer p-0">
         Remove
@@ -115,7 +116,7 @@ export function QuoteListFilters({ filters, onChange, onClear, userOptions }: Qu
   const panel = (
     <div role="group" aria-label="Filters" className="w-[340px] -m-1">
       <div className="flex items-center justify-between px-1 pb-2.5 mb-3 border-b border-slate-100">
-        <span className="text-[13px] font-semibold text-slate-800">Filters</span>
+        <span className="text-[13px] font-semibold text-slate-900">Filters</span>
         <button
           type="button"
           onClick={onClear}
@@ -185,7 +186,7 @@ export function QuoteListFilters({ filters, onChange, onClear, userOptions }: Qu
         {filters.followUpDue && <SetFilter label="Follow-up due" onRemove={() => onChange({ followUpDue: undefined })} />}
         {/* Any of the list's columns, as many rows as needed: each keeps the quotes whose text in the column contains the value, on every page. */}
         <div className="pt-2.5 border-t border-slate-100">
-          <span className="block text-xs font-medium text-slate-500 mb-1.5">Filter by column</span>
+          <span className={`block ${LABEL_TEXT} mb-1.5`}>Filter by column</span>
           <ColumnFilterRows
             rows={columnRows.rows}
             columns={QUOTE_FILTER_COLUMNS}

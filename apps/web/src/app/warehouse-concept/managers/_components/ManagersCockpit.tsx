@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Modal, Table, Tabs, Tag, Tooltip } from "antd";
+import { Modal, Table, Tabs, Tooltip } from "antd";
 import { WarningFilled } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { PageHeader } from "@/components/PageHeader";
@@ -14,6 +14,7 @@ import { CHIPS, type ChipId } from "../../_lib/worklist";
 import { HealthLine } from "../../_components/tabs/ReportsTab";
 import { useWarehouseInquiries } from "@/hooks/useWarehouseInquiries";
 import { QuoteInquiries } from "./QuoteInquiries";
+import { CARD_TITLE, EMPTY, HINT, LINK, MODAL_TITLE, REF } from "@/styles/ui";
 
 // The warehouse managers' cockpit (Council Outlay 5, steps 1 to 3): the Positions quick filters as
 // tiles, then what to act on today (URGENT) and within 48 hours (ATTENTION), the link with
@@ -27,14 +28,14 @@ const VISIBLE_ROWS = 3;
 
 type CardKey = "urgent" | "attention";
 
-const CARDS: Record<CardKey, { title: string; window: string; linkLabel: string; empty: string; dialog: string; tone: { border: string; header: string; icon: string; link: string } }> = {
+const CARDS: Record<CardKey, { title: string; window: string; linkLabel: string; empty: string; dialog: string; tone: { border: string; header: string; icon: string; count: string } }> = {
   urgent: {
     title: "Urgent",
     window: "act today",
     linkLabel: "Click here to show URGENT positions",
     empty: "Nothing urgent in the warehouse.",
     dialog: "URGENT positions",
-    tone: { border: "border-red-200", header: "bg-red-50", icon: "text-red-500", link: "text-red-600" },
+    tone: { border: "border-red-200", header: "bg-red-50", icon: "text-red-500", count: "text-red-600" },
   },
   attention: {
     title: "Attention",
@@ -42,7 +43,7 @@ const CARDS: Record<CardKey, { title: string; window: string; linkLabel: string;
     linkLabel: "Click here to show ATTENTION positions",
     empty: "Nothing to watch within 48 hours.",
     dialog: "ATTENTION positions",
-    tone: { border: "border-amber-200", header: "bg-amber-50", icon: "text-amber-500", link: "text-orange-500" },
+    tone: { border: "border-amber-200", header: "bg-amber-50", icon: "text-amber-500", count: "text-amber-600" },
   },
 };
 
@@ -61,7 +62,7 @@ const tileLabel = (key: TileKey, chip: ChipId) => (key === "needsAttention" ? TE
 
 const rowHref = (r: CockpitRow) => (r.kind === "container" ? `/warehouse-concept/containers/${r.id}` : `/warehouse-concept/gate-log/${r.id}`);
 const plural = (n: number, word: string, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
-const dash = <span className="text-slate-300">—</span>;
+const dash = <span className={EMPTY}>—</span>;
 
 const PRAGUE_TIME = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Prague", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 
@@ -71,10 +72,10 @@ const refColumn = {
   width: 170,
   render: (_: unknown, r: CockpitRow) => (
     <div className="min-w-0">
-      <Link href={rowHref(r)} className="tabular-nums font-bold text-indigo-600 hover:underline">
+      <Link href={rowHref(r)} className={`${REF} font-bold ${LINK}`}>
         {r.ref}
       </Link>
-      {r.sub && <div className="tabular-nums text-[11px] text-slate-500 truncate">{r.sub}</div>}
+      {r.sub && <div className={`tabular-nums ${HINT} truncate`}>{r.sub}</div>}
     </div>
   ),
 };
@@ -92,9 +93,9 @@ const signalsColumn = {
   render: (_: unknown, r: CockpitRow) => (
     <div className="flex flex-wrap gap-1.5">
       {r.tags.map((t, i) => (
-        <Tag key={i} color={t.urgent ? "red" : "orange"} className="m-0 max-w-full !whitespace-normal break-words">
+        <Badge key={i} tone={t.urgent ? "r" : "a"} className="max-w-full !whitespace-normal break-words">
           {t.text}
-        </Tag>
+        </Badge>
       ))}
     </div>
   ),
@@ -160,7 +161,7 @@ function DeliveryLine({ cockpit }: { cockpit: Cockpit }) {
   const d = cockpit.delivery;
   const failed = d.truckingFailed + d.supplierEmailsFailed > 0;
   const waiting = d.shipmentUpdatesWaiting + d.truckingWaiting > 0;
-  const tone = failed ? "border-red-200 bg-red-50 text-red-700" : waiting ? "border-amber-200 bg-amber-50 text-amber-800" : "border-slate-200 bg-white text-slate-600";
+  const tone = failed ? "border-red-200 bg-red-50 text-red-700" : waiting ? "border-amber-200 bg-amber-50 text-amber-700" : "border-slate-200 bg-white text-slate-700";
   return (
     <div role="status" className={`flex flex-wrap items-center gap-x-6 gap-y-1 rounded-xl border px-4 py-2 text-xs ${tone}`}>
       <span>
@@ -172,7 +173,7 @@ function DeliveryLine({ cockpit }: { cockpit: Cockpit }) {
       <span>
         <b>Supplier e-mails failed</b> (last {d.supplierEmailDays} days): {plural(d.supplierEmailsFailed, "position")}
         {d.supplierEmailsFailed > 0 && (
-          <Link href="/warehouse-concept?tab=remeasurement" className="ml-2 font-semibold underline">
+          <Link href="/warehouse-concept?tab=remeasurement" className={`${LINK} ml-2 font-semibold`}>
             Open Remeasurement / Release
           </Link>
         )}
@@ -192,11 +193,11 @@ function AuditLine({ cockpit }: { cockpit: Cockpit }) {
   ];
   const any = a.overrides + a.voids + a.refusals + a.archivedWithStamps + a.shipmentsDeleted > 0;
   return (
-    <div role="status" className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs text-slate-600">
+    <div role="status" className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs text-slate-700">
       <b>Last {a.days} days:</b>
       <span>{parts.join(" · ")}</span>
       {any && (
-        <Link href="/warehouse-concept?tab=gatelog" className="ml-2 font-semibold underline">
+        <Link href="/warehouse-concept?tab=gatelog" className={`${LINK} ml-2 font-semibold`}>
           Open the Gate Log
         </Link>
       )}
@@ -231,17 +232,17 @@ export function ManagersCockpit() {
     const total = list?.total ?? 0;
     const hot = total > 0;
     return (
-      <section aria-label={`${title} — ${window}`} className={`bg-white border rounded-2xl overflow-hidden ${hot ? tone.border : "border-slate-200"}`}>
-        <div className={`flex items-center gap-2 px-4 py-2.5 ${hot ? tone.header : "bg-slate-50"}`}>
+      <section aria-label={`${title} — ${window}`} className={`bg-white border rounded-xl shadow-sm overflow-hidden ${hot ? tone.border : "border-slate-200"}`}>
+        <div className={`flex items-center gap-2.5 min-h-[42px] px-4 py-2 ${hot ? tone.header : "bg-slate-50"}`}>
           <WarningFilled className={hot ? tone.icon : "text-slate-300"} />
-          <span className="text-[13px] font-bold uppercase tracking-wider text-slate-800">{title}</span>
+          <span className={CARD_TITLE}>{title}</span>
           <span
             aria-label={isError ? "Count unavailable" : plural(total, "item")}
-            className={`min-w-6 h-6 px-1.5 rounded-full flex items-center justify-center bg-white text-[13px] font-bold tabular-nums ${hot ? tone.link : "text-slate-500"}`}
+            className={`min-w-6 h-6 px-1.5 rounded-full flex items-center justify-center bg-white text-[13px] font-bold tabular-nums ${hot ? tone.count : "text-slate-500"}`}
           >
             {isError ? "–" : isLoading ? "…" : total}
           </span>
-          <span className="text-[13px] text-slate-600">{window}</span>
+          <span className={HINT}>{window}</span>
         </div>
         {/* No header row: the card's own header already says what the list is. */}
         <Table<CockpitRow>
@@ -250,7 +251,7 @@ export function ManagersCockpit() {
           showHeader={false}
           loading={isLoading}
           locale={{
-            emptyText: isError ? <span className="text-[13px] text-red-500">Could not load the warehouse.</span> : <span className="text-[13px] text-slate-400">{empty}</span>,
+            emptyText: isError ? <span className="text-[13px] text-red-600">Could not load the warehouse.</span> : <span className="text-[13px] text-slate-400">{empty}</span>,
           }}
           footer={
             hot
@@ -258,7 +259,7 @@ export function ManagersCockpit() {
                   <button
                     type="button"
                     onClick={() => setOpenCard(key)}
-                    className={`p-0 border-none bg-transparent text-[13px] font-semibold cursor-pointer hover:underline ${tone.link}`}
+                    className={`${LINK} p-0 border-none bg-transparent text-[13px] font-semibold cursor-pointer`}
                   >
                     {linkLabel}
                   </button>
@@ -284,14 +285,14 @@ export function ManagersCockpit() {
         <PageHeader
           title="Managers"
           breadcrumb={
-            <Link href="/warehouse-concept" className="text-slate-500 hover:text-indigo-600">
+            <Link href="/warehouse-concept" className={LINK}>
               Warehouse Concept
             </Link>
           }
           extra={
             <span className="flex items-center gap-3 text-xs text-slate-500">
               {cockpit && <span>Updated {PRAGUE_TIME.format(new Date(cockpit.asOf))} · Prague time</span>}
-              <Link href="/warehouse-concept?tab=reports" className="text-indigo-600 hover:underline">
+              <Link href="/warehouse-concept?tab=reports" className={LINK}>
                 Reports
               </Link>
             </span>
@@ -309,7 +310,11 @@ export function ManagersCockpit() {
               label: (
                 <span className="whitespace-nowrap">
                   Quote inquiries
-                  {inquiriesWaiting > 0 && <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-px text-[11px] font-semibold text-amber-700">{inquiriesWaiting}</span>}
+                  {inquiriesWaiting > 0 && (
+                    <Badge tone="a" className="ml-1.5">
+                      {inquiriesWaiting}
+                    </Badge>
+                  )}
                 </span>
               ),
             },
@@ -345,8 +350,8 @@ export function ManagersCockpit() {
         title={
           openCard && (
             <div>
-              <div className="text-base font-semibold">{CARDS[openCard].dialog}</div>
-              <div className="text-xs text-slate-500 font-normal mt-0.5">
+              <div className={MODAL_TITLE}>{CARDS[openCard].dialog}</div>
+              <div className={`${HINT} font-normal mt-0.5`}>
                 {plural(openList?.total ?? 0, "item")} — {CARDS[openCard].window}
                 {openList && openList.total > openList.rows.length ? ` · the first ${openList.rows.length} are listed` : ""}
               </div>

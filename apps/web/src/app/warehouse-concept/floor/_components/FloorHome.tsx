@@ -10,6 +10,7 @@ import { expectedBecause, expectedSortKey, isExpectedToday, pragueToday } from "
 import { useScanOpen } from "@/app/warehouse-concept/_lib/useWedgeScanner";
 import { ScanBox } from "@/app/warehouse-concept/gate-log/_components/ScanBox";
 import { Badge, VISIT_TONE } from "@/app/warehouse-concept/gate-log/_lib/gate";
+import { REF } from "@/styles/ui";
 import { CameraScan, cameraScanSupported } from "./CameraScan";
 import { FloorCard } from "./floorUi";
 
@@ -64,7 +65,7 @@ export function FloorHome() {
     [open, movements, toast],
   );
 
-  const sideBtn = "h-14 shrink-0 rounded-xl border border-slate-300 bg-white px-3 text-[14px] font-semibold text-slate-700 cursor-pointer";
+  const sideBtn = "h-14 shrink-0 rounded-xl border border-slate-300 bg-white px-3 text-[14px] font-semibold text-slate-700 hover:bg-slate-50 active:bg-slate-100 cursor-pointer";
 
   return (
     <div className="flex flex-col gap-4">
@@ -75,7 +76,7 @@ export function FloorHome() {
         scannerMode={!keyboard}
         extra={
           <>
-            <button type="button" className={`${sideBtn} ${keyboard ? "!border-indigo-500 !text-indigo-700" : ""}`} aria-pressed={keyboard} onClick={toggleKeyboard}>
+            <button type="button" className={`${sideBtn} ${keyboard ? "!border-indigo-500 !bg-indigo-50 !text-indigo-700" : ""}`} aria-pressed={keyboard} onClick={toggleKeyboard}>
               Keyboard
             </button>
             {canCamera && (
@@ -98,13 +99,13 @@ export function FloorHome() {
               <li key={m.id} className="border-t border-slate-100 first:border-t-0">
                 <Link href={`/warehouse-concept/floor/${m.id}`} className="flex min-h-[56px] min-w-0 flex-col justify-center px-4 py-2 active:bg-slate-50">
                   <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-                    <span className="tabular-nums text-[14px] font-bold text-indigo-600">{m.positionRef || m.gateRef}</span>
+                    <span className={`${REF} text-[14px] font-bold text-indigo-600`}>{m.positionRef || m.gateRef}</span>
                     <Badge tone={VISIT_TONE[m.visit] ?? ""}>{directionOf(m)}</Badge>
-                    <span className="ml-auto min-w-0 max-w-full truncate text-[13px] font-semibold text-slate-600">{expectedBecause(m, today)}</span>
+                    <span className="ml-auto min-w-0 max-w-full truncate text-[13px] font-semibold text-slate-500">{expectedBecause(m, today)}</span>
                   </span>
                   <span className="truncate text-[14px] text-slate-700">
                     {m.customer || "—"}
-                    {m.plate ? <span className="ml-2 tabular-nums text-slate-500">{m.plate}</span> : null}
+                    {m.plate ? <span className={`ml-2 ${REF} text-slate-500`}>{m.plate}</span> : null}
                   </span>
                 </Link>
               </li>

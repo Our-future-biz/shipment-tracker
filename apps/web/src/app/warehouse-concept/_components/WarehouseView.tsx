@@ -43,6 +43,7 @@ import { positionRemeasurementHref } from "./remeasurementLinks";
 import { reportBulk, runBulk } from "./tabs/shared";
 import { LifecycleChip } from "./LifecycleStrip";
 import { LIFECYCLE_VALUES, lifecycleText, stageOrder } from "../_lib/lifecycle";
+import { BTN, BTN_PRIMARY, BTN_SM, EMPTY, HINT, KPI_VALUE, LABEL_TEXT, LINK, PAGE_TITLE, REF } from "@/styles/ui";
 
 // The Warehouse module works with its own data: a position (WCZ reference) and the record
 // on its gate movement. "Create new" either copies job or quote values in once (a position
@@ -53,9 +54,9 @@ type WarehouseTask = interfaces.WarehouseConceptTaskItem;
 type PositionRow = { task: WarehouseTask; m: GateMovement | undefined };
 type LoadFilter = "fcl" | "lcl";
 
-const dim = (v: string | undefined) => (v ? <span className="text-slate-600">{v}</span> : <span className="text-slate-300">—</span>);
-const mono = (v: string | undefined) => (v ? <span className="text-slate-600 tabular-nums">{v}</span> : <span className="text-slate-300">—</span>);
-const numCell = (v: string) => (v ? <span className="text-slate-600 tabular-nums">{v}</span> : <span className="text-slate-300">—</span>);
+const dim = (v: string | undefined) => (v ? <span className="text-slate-700">{v}</span> : <span className={EMPTY}>—</span>);
+const mono = (v: string | undefined) => (v ? <span className={`text-slate-700 ${REF}`}>{v}</span> : <span className={EMPTY}>—</span>);
+const numCell = (v: string) => (v ? <span className="text-slate-700 tabular-nums">{v}</span> : <span className={EMPTY}>—</span>);
 const textCol = (key: keyof GateMovement & string, title: string, width: number, extra: Partial<AppGridColumn<PositionRow>> = {}): AppGridColumn<PositionRow> => ({
   key,
   title,
@@ -78,7 +79,7 @@ const POSITION_COLUMNS: AppGridColumn<PositionRow>[] = [
     width: 150,
     text: (r) => r.task.taskId,
     sorter: byText((r) => r.task.taskId),
-    render: (_, r) => <span className="tabular-nums font-bold text-indigo-500">{r.task.taskId}</span>,
+    render: (_, r) => <span className={`${REF} font-bold text-indigo-600`}>{r.task.taskId}</span>,
   },
   // Every position — imported or stand-alone — opens its Remeasurement / Release.
   {
@@ -92,7 +93,7 @@ const POSITION_COLUMNS: AppGridColumn<PositionRow>[] = [
       <Link
         href={positionRemeasurementHref(r.task.id)}
         onClick={(e) => e.stopPropagation()}
-        className={r.m?.jobNumber ? "tabular-nums font-semibold text-indigo-500 hover:underline" : "text-[11px] text-indigo-400 hover:underline"}
+        className={r.m?.jobNumber ? `${LINK} ${REF} font-semibold` : `${LINK} text-[12px]`}
         title="Open Remeasurement / Release"
       >
         {r.m?.jobNumber || "Remeasure"}
@@ -139,7 +140,7 @@ const POSITION_COLUMNS: AppGridColumn<PositionRow>[] = [
         <Link
           href={`/warehouse-concept/containers/${r.m.container.id}`}
           onClick={(e) => e.stopPropagation()}
-          className="tabular-nums font-semibold text-indigo-500 hover:underline"
+          className={`${LINK} ${REF} font-semibold`}
           title={`${r.m.container.status}${r.m.container.stuffedAt ? " · stuffed" : r.m.container.tallyOutcome ? ` · ${r.m.container.tallyOutcome.replace("_", " ")}` : ""}`}
         >
           {r.m.container.number}
@@ -306,7 +307,8 @@ function ModuleTabs({
             <Tooltip title="Floor mode — for phones and handheld scanners: scan, stamp, survey and photos, also offline">
               <Link
                 href="/warehouse-concept/floor"
-                className="inline-flex h-6 items-center gap-1 rounded-md border border-slate-300 bg-white px-2 text-[13px] text-slate-700 hover:border-indigo-400 hover:text-indigo-600 transition-colors"
+                // "!" on the text colour: antd colours every <a> in unlayered CSS.
+                className={`${BTN} ${BTN_SM} !text-slate-700 hover:!text-slate-900`}
               >
                 <MobileOutlined /> Floor mode
               </Link>
@@ -385,8 +387,8 @@ function FilterBubbles({ active, counts, onSelect }: { active: BubbleId | null; 
               ].join(" ")}
             >
               <div className="flex items-baseline gap-2">
-                <span className={`text-[14px] font-bold uppercase tracking-wide ${on ? "text-indigo-600" : "text-slate-500"}`}>{b.label}:</span>
-                <span className={`text-[22px] leading-tight font-bold tabular-nums ${on ? "text-indigo-700" : "text-slate-900"}`}>{counts[b.id]}</span>
+                <span className={`${LABEL_TEXT} ${on ? "!text-indigo-600" : ""}`}>{b.label}:</span>
+                <span className={`${KPI_VALUE} ${on ? "!text-indigo-700" : ""}`}>{counts[b.id]}</span>
               </div>
             </button>
           </Tooltip>
@@ -411,8 +413,9 @@ function QuickChips({ active, counts, onSelect }: { active: ChipId | null; count
               aria-pressed={on}
               onClick={() => onSelect(on ? null : c.id)}
               className={[
-                "inline-flex items-center gap-1.5 rounded-full border px-3 h-7 text-[13px] font-medium transition-colors cursor-pointer",
-                on ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
+                // The look of the app's pill toggles (PillTabs).
+                "inline-flex items-center gap-1.5 rounded-lg border px-3 h-8 text-[13px] font-medium transition-colors cursor-pointer",
+                on ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
               ].join(" ")}
             >
               {c.label}
@@ -572,7 +575,7 @@ export const WarehouseView = () => {
       <div className="bg-slate-50 min-h-full px-8 py-6">
         <div className="max-w-[1400px] mx-auto flex flex-col gap-5">
           <div>
-            <h1 className="text-2xl font-bold text-slate-900">Warehouse Concept</h1>
+            <h1 className={PAGE_TITLE}>Warehouse Concept</h1>
             {moduleTabs}
           </div>
           {activeTab === "remeasurement" && (
@@ -625,10 +628,7 @@ export const WarehouseView = () => {
           resetKey={`${activeBubble?.id ?? ""}|${activeChip ?? ""}|${load ?? ""}`}
           actions={
             <>
-              <button
-                onClick={() => setCreateOpen(true)}
-                className="flex items-center gap-1.5 shrink-0 rounded-lg bg-indigo-600 px-3 h-8 text-[13px] font-semibold text-white hover:bg-indigo-700 transition-colors"
-              >
+              <button type="button" onClick={() => setCreateOpen(true)} className={BTN_PRIMARY}>
                 <PlusOutlined />
                 Create new
               </button>
@@ -681,7 +681,7 @@ export const WarehouseView = () => {
           width={460}
           destroyOnHidden
         >
-          <p className="text-sm text-slate-600 mt-0">
+          <p className="text-[13px] text-slate-700 mt-0">
             Remove {removeRows?.rows.length ?? 0} position{removeRows?.rows.length === 1 ? "" : "s"} from the warehouse? Their warehouse references are retired and
             not reused. Their Gate Log records are archived with them (kept, and a manager can restore them). Shipments are not affected.
           </p>
@@ -914,7 +914,7 @@ const NewPositionModal = ({ open, onClose, tasks }: { open: boolean; onClose: ()
         </div>
       }
     >
-      <p className="text-xs text-slate-600 mb-4">
+      <p className={`${HINT} mb-4`}>
         {importing
           ? "Each checked shipment becomes its own warehouse position with a WCZ reference, linked to the shipment: gate-in and release update the shipment's warehouse dates."
           : "Would you like to copy data from a job or a quote? The values are only copied — the new warehouse position gets its own WCZ reference and stays separate from Shipments and Sales."}
@@ -945,7 +945,7 @@ const NewPositionModal = ({ open, onClose, tasks }: { open: boolean; onClose: ()
         </>
       ) : source === "job" ? (
         <>
-          <label className="block text-[11px] text-slate-500 mb-1">Copy from {TERMS.jobNo}</label>
+          <label className={`block ${LABEL_TEXT} mb-1`}>Copy from {TERMS.jobNo}</label>
           <Select
             showSearch
             allowClear
@@ -969,7 +969,7 @@ const NewPositionModal = ({ open, onClose, tasks }: { open: boolean; onClose: ()
         </>
       ) : (
         <>
-          <label className="block text-[11px] text-slate-500 mb-1">Copy from Quote Number</label>
+          <label className={`block ${LABEL_TEXT} mb-1`}>Copy from Quote Number</label>
           <Select
             showSearch
             allowClear
@@ -1004,7 +1004,7 @@ function ImportResults({ results }: { results: ImportResult[] }) {
           .map((r) => (
             <li key={r.shipmentId} className="flex items-baseline gap-2 py-0.5 text-xs">
               <ImportOutcomeTag result={r} />
-              <span className="font-medium text-slate-800">{r.jobNumber || r.shipmentId}</span>
+              <span className="font-medium text-slate-900">{r.jobNumber || r.shipmentId}</span>
               {r.outcome === "failed" && <span className="text-red-600 break-words">{r.reason}</span>}
             </li>
           ))}

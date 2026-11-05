@@ -9,16 +9,19 @@ import { formatDate, todayIso } from "@/lib/date";
 import { useJobProfitReport } from "@/hooks/useJobProfitReport";
 import { fmtMoney } from "@/lib/money";
 import { DataTable } from "@/components/DataTable";
+import { KpiTile, profitTone } from "@/components/KpiTile";
+import { Pill } from "@/components/Pill";
 import { StatusBadge } from "@/components/StatusBadge";
 import type { interfaces } from "@/lib/api/client";
 import { periodBasisLabel, provisionalText } from "../_lib/jobPeriod";
+import { CARD, LABEL_TEXT, REF } from "@/styles/ui";
 
 type Report = interfaces.JobProfitReport;
 type Row = Report["rows"][number];
 type Month = Report["months"][number];
 
 const czk = (v: number) => fmtMoney(v, "CZK", true);
-const tone = (v: number) => (v >= 0 ? "text-green-600" : "text-red-600");
+const tone = (v: number) => (v >= 0 ? "text-emerald-600" : "text-red-600");
 
 // Job profit from Costs Breakdown, in CZK at each month's fixed ČNB average (mean of the
 // month's fixing days, without the ROE %). A job falls in the month of its ATA (import) /
@@ -61,7 +64,7 @@ export function ShipmentReportsTab() {
     {
       title: "Internal Reference",
       dataIndex: "jobNumber",
-      render: (v: string) => <span className="tabular-nums text-xs text-indigo-500">{v}</span>,
+      render: (v: string) => <span className={REF}>{v}</span>,
     },
     { title: "Customer", dataIndex: "customer", render: (v: string) => v || <span className="text-slate-300">—</span> },
     { title: "Freight Mode", dataIndex: "freightMode", render: (v: string) => v || <span className="text-slate-300">—</span> },
@@ -77,7 +80,7 @@ export function ShipmentReportsTab() {
           </span>
           {r.provisional && (
             <Tooltip title={provisionalText(r.basis)}>
-              <span className="ml-1.5 text-[11px] font-semibold text-warn bg-warn-soft rounded px-1.5 py-0.5">provisional</span>
+              <Pill tone="amber" className="ml-1.5">provisional</Pill>
             </Tooltip>
           )}
         </span>
@@ -114,7 +117,7 @@ export function ShipmentReportsTab() {
       render: (_: unknown, m) => (
         <span className="text-slate-500 text-[13px] whitespace-nowrap">
           {m.averages.map((a) => `${a.currency} ${a.average.toFixed(3)}`).join(" · ") || "—"}
-          {!m.final && <span className="ml-1.5 text-[11px] font-semibold text-warn">provisional</span>}
+          {!m.final && <Pill tone="amber" className="ml-1.5">provisional</Pill>}
         </span>
       ),
     },
@@ -122,23 +125,16 @@ export function ShipmentReportsTab() {
 
   return (
     <div>
-      <span className="block text-sm font-semibold text-slate-800 mb-3">Shipment Reports</span>
+      <span className={`block ${LABEL_TEXT} mb-3`}>Shipment Reports</span>
 
       <div className="grid grid-cols-4 gap-3 mb-4">
-        {[
-          ["Jobs", String(totals.count), ""],
-          ["Revenue", czk(totals.revenue), ""],
-          ["Profit", czk(totals.profit), tone(totals.profit)],
-          ["Margin", `${totals.margin}%`, ""],
-        ].map(([label, value, cls]) => (
-          <div key={label} className="bg-white border border-slate-200 rounded-xl px-3 py-2.5">
-            <div className="text-[11px] uppercase tracking-wide text-slate-400">{label}</div>
-            <div className={`text-lg font-semibold text-slate-800 ${cls}`}>{value}</div>
-          </div>
-        ))}
+        <KpiTile label="Jobs" value={String(totals.count)} />
+        <KpiTile label="Revenue" value={czk(totals.revenue)} />
+        <KpiTile label="Profit" value={czk(totals.profit)} tone={profitTone(totals.profit)} />
+        <KpiTile label="Margin" value={`${totals.margin}%`} />
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3 mb-4">
+      <div className={`flex flex-wrap items-center gap-3 ${CARD} px-4 py-3 mb-4`}>
         <DatePicker.RangePicker
           picker="month"
           allowClear={false}

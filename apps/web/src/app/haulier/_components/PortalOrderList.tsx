@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Spin } from "antd";
 import { apiErrorMessage } from "@/lib/api";
 import { usePortalOrders } from "@/hooks/useHaulierPortal";
+import { BTN_GHOST } from "@/styles/ui";
 import type { BiText } from "../_lib/publicOrder";
 import { PortalSignedOutError } from "../_lib/portalClient";
 import { Bi } from "./Bi";
@@ -31,13 +32,17 @@ export const PortalOrderList = () => {
             type="button"
             aria-pressed={view === v.key}
             onClick={() => setView(v.key)}
-            className={`rounded-lg border px-3 py-2 text-[14px] font-semibold ${view === v.key ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-300 bg-white text-slate-600"}`}
+            className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border text-[13px] font-medium transition-colors cursor-pointer ${
+              view === v.key ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+            }`}
           >
-            <Bi text={v.label} />
-            {v.key === "open" && view === "open" && needing > 0 && <span className="ml-1.5 rounded-full bg-amber-500 px-1.5 text-[12px] text-white">{needing}</span>}
+            <span>
+              <Bi text={v.label} />
+            </span>
+            {v.key === "open" && view === "open" && needing > 0 && <span className="font-bold tabular-nums text-red-600">{needing}</span>}
           </button>
         ))}
-        <button type="button" disabled={isFetching} onClick={() => reload()} className="ml-auto rounded-lg px-2 py-2 text-[13px] font-semibold text-indigo-600 disabled:opacity-50">
+        <button type="button" disabled={isFetching} onClick={() => reload()} className={`${BTN_GHOST} ml-auto`}>
           <Bi text={{ cs: "Obnovit", en: "Refresh" }} />
         </button>
       </div>

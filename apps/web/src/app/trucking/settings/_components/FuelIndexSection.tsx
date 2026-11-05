@@ -8,6 +8,7 @@ import { apiErrorMessage } from "@/lib/api";
 import { businessToday } from "@/lib/date";
 import { useToast } from "@/lib/toast";
 import { useFuelIndex } from "@/hooks/useTrucking";
+import { HINT, TD, TH } from "@/styles/ui";
 import { formatPercent } from "../../_lib/tariffs";
 import { TruckingField } from "../../_components/TruckingField";
 
@@ -47,18 +48,18 @@ export const FuelIndexSection = ({ canEdit }: FuelIndexSectionProps) => {
           {!isLoading && !isError && !months.length && <p className="m-0 text-[13px] text-slate-500">No month set yet — tariffs with a fuel-index surcharge add 0 %.</p>}
           {months.length > 0 && (
             <div className="max-h-[260px] overflow-y-auto">
-              <table className="w-full border-collapse text-[13px]">
+              <table className="w-full border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-200 text-left text-[11px] uppercase tracking-wide text-slate-500">
-                    <th className="py-1.5 pr-3 font-semibold">Month</th>
-                    <th className="py-1.5 text-right font-semibold">Fuel surcharge</th>
+                  <tr>
+                    <th className={TH}>Month</th>
+                    <th className={`${TH} !text-right`}>Fuel surcharge</th>
                   </tr>
                 </thead>
                 <tbody>
                   {months.map((m) => (
-                    <tr key={m.month} className="border-b border-slate-100 last:border-b-0">
-                      <td className="py-1.5 pr-3 text-slate-700">{monthLabel(m.month)}</td>
-                      <td className="py-1.5 text-right font-semibold tabular-nums text-slate-900">{formatPercent(m.percent)}</td>
+                    <tr key={m.month} className="[&:last-child>td]:border-b-0">
+                      <td className={TD}>{monthLabel(m.month)}</td>
+                      <td className={`${TD} text-right font-semibold tabular-nums`}>{formatPercent(m.percent)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -92,7 +93,7 @@ export const FuelIndexSection = ({ canEdit }: FuelIndexSectionProps) => {
           </div>
         )}
       </div>
-      <p className="mt-3 mb-0 text-[11px] text-slate-400">
+      <p className={`mt-3 mb-0 ${HINT}`}>
         A consignment uses the month of its pick-up date; when that month is not set, the latest earlier month is used and the price line says so.
       </p>
     </SectionCard>

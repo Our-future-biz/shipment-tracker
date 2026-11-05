@@ -1,7 +1,8 @@
 "use client";
 
-import { DatePicker, Select, Tag } from "antd";
+import { DatePicker, Select } from "antd";
 import dayjs from "dayjs";
+import { Pill } from "@/components/Pill";
 import { SectionCard } from "@/components/SectionCard";
 import type { CustomerItem } from "@/hooks/useCustomers";
 import type { interfaces } from "@/lib/api/client";
@@ -12,7 +13,7 @@ import {
   getNaceInfo,
   isNewCompany,
   parseNaceCodes,
-  RISK_CLASS,
+  RISK_TONE,
 } from "../../_lib/companyAnalysis";
 import type { RiskLevel } from "../../_lib/companyAnalysis";
 import { CustomerInfoRow } from "./CustomerInfoRow";
@@ -30,13 +31,7 @@ interface CustomerCompanyAnalysisCardProps {
 const RISK_LEVELS: RiskLevel[] = ["Low", "Medium", "High"];
 
 function RiskPill({ level }: { level: RiskLevel }) {
-  return (
-    <span
-      className={`inline-flex rounded-xl text-[11px] font-medium px-2.5 py-0.5 leading-[18px] ${RISK_CLASS[level]}`}
-    >
-      {level}
-    </span>
-  );
+  return <Pill tone={RISK_TONE[level]}>{level}</Pill>;
 }
 
 // What the registry data says about the company: what it trades in on the left, how established and how
@@ -98,9 +93,9 @@ export function CustomerCompanyAnalysisCard({ customer }: CustomerCompanyAnalysi
             <CustomerInfoRow label="Secondary activities">
               <div className="flex flex-wrap gap-1.5">
                 {secondaryLabels.map((label) => (
-                  <Tag key={label} className="!m-0 !whitespace-normal">
+                  <Pill key={label} tone="slate" className="!whitespace-normal">
                     {label}
-                  </Tag>
+                  </Pill>
                 ))}
               </div>
             </CustomerInfoRow>
@@ -125,9 +120,7 @@ export function CustomerCompanyAnalysisCard({ customer }: CustomerCompanyAnalysi
               <span className="inline-flex items-center gap-1.5 flex-wrap">
                 {age.label}
                 {isNewCompany(shown.registrationDate) && (
-                  <Tag color="gold" className="!m-0">
-                    NEW
-                  </Tag>
+                  <Pill tone="amber">NEW</Pill>
                 )}
               </span>
             ) : null}

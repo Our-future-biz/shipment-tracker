@@ -5,6 +5,7 @@ import { SectionCard } from "@/components/SectionCard";
 import { useSupplierRating } from "@/hooks/useSupplierRating";
 import { businessDateTime } from "@/lib/date";
 import { SupplierRatingStars } from "../../_components/SupplierRatingStars";
+import { LINK } from "@/styles/ui";
 
 interface CustomerSupplierRatingHistoryCardProps {
   customerId: string;
@@ -38,7 +39,7 @@ export function CustomerSupplierRatingHistoryCard({ customerId }: CustomerSuppli
         </ol>
       )}
       {history.length > SHOWN && (
-        <button type="button" onClick={() => setAll((on) => !on)} className="mt-2 cursor-pointer border-0 bg-transparent p-0 text-xs font-semibold text-indigo-600 hover:underline">
+        <button type="button" onClick={() => setAll((on) => !on)} className={`mt-2 cursor-pointer border-0 bg-transparent p-0 text-xs font-semibold ${LINK}`}>
           {all ? "Show the latest only" : `Show all ${history.length}`}
         </button>
       )}

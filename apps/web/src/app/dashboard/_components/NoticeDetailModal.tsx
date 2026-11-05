@@ -11,12 +11,14 @@ import { useToast } from "@/lib/toast";
 import type { Announcement } from "@/hooks/useNoticeboard";
 import { NoticeAttachmentList } from "./NoticeAttachmentList";
 import { NoticeSeverityTag } from "./NoticeSeverityTag";
+import { Pill } from "@/components/Pill";
+import { HINT, LABEL_TEXT, MODAL_TITLE } from "@/styles/ui";
 
 interface NoticeDetailModalProps {
   post: Announcement | null;
   // Closes a notice that is not waiting to be confirmed (the Close button, Escape, a click outside).
   onClose: () => void;
-  // The reader confirms having read the notice (the green Read button): it is marked read and the
+  // The reader confirms having read the notice (the Read button): it is marked read and the
   // dialog closes. An unread notice can be left no other way - no close icon, Escape or outside click.
   onConfirmRead: (post: Announcement) => Promise<unknown>;
 }
@@ -140,8 +142,7 @@ export function NoticeDetailModal({ post, onClose, onConfirmRead }: NoticeDetail
           <div className="flex justify-end pt-1">
             {shown.unread ? (
               <Button
-                color="green"
-                variant="solid"
+                type="primary"
                 icon={<CheckOutlined />}
                 loading={confirmingId === shown.id}
                 onClick={async () => {
@@ -179,11 +180,11 @@ export function NoticeDetailModal({ post, onClose, onConfirmRead }: NoticeDetail
           <div className="pb-4 border-b border-slate-200 font-normal">
             <div className="flex items-center gap-2.5">
               <NoticeSeverityTag severity={shown.severity} />
-              <span className="min-w-0 flex-1 truncate border-l border-slate-200 pl-2.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              <span className={`min-w-0 flex-1 truncate border-l border-slate-200 pl-2.5 ${LABEL_TEXT}`}>
                 {addressee}
               </span>
             </div>
-            <h2 className="mt-3 mb-2 text-[22px] leading-tight font-bold text-slate-800 [overflow-wrap:anywhere]">{shown.title}</h2>
+            <h2 className={`${MODAL_TITLE} mt-3 mb-2 [overflow-wrap:anywhere]`}>{shown.title}</h2>
             <div className="flex items-center gap-2 text-[13px] text-slate-500">
               <span aria-hidden className="shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-indigo-100 text-[10px] font-semibold text-indigo-700">
                 {initials}
@@ -202,7 +203,7 @@ export function NoticeDetailModal({ post, onClose, onConfirmRead }: NoticeDetail
           </p>
           {shown.attachments.length > 0 && (
             <section className="mt-5 pt-4 border-t border-slate-200">
-              <h3 className="mt-0 mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+              <h3 className={`${LABEL_TEXT} mt-0 mb-2`}>
                 Attachments ({shown.attachments.length})
               </h3>
               <NoticeAttachmentList
@@ -222,7 +223,7 @@ export function NoticeDetailModal({ post, onClose, onConfirmRead }: NoticeDetail
           )}
           {shown.canEdit && receipts && receipts.read.length + receipts.unread.length > 0 && (
             <section className="mt-5 pt-4 border-t border-slate-200">
-              <h3 className="mt-0 mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+              <h3 className={`${LABEL_TEXT} mt-0 mb-2`}>
                 Read by {receipts.read.length} of {receipts.read.length + receipts.unread.length}
               </h3>
               <Progress
@@ -230,19 +231,21 @@ export function NoticeDetailModal({ post, onClose, onConfirmRead }: NoticeDetail
                 percent={Math.round((receipts.read.length / (receipts.read.length + receipts.unread.length)) * 100)}
                 showInfo={false}
                 size={{ height: 6 }}
-                // Tailwind's emerald-500 / indigo-500.
-                strokeColor={receipts.unread.length === 0 ? "#10b981" : "#6366f1"}
+                // Tailwind's emerald-500 / indigo-600 (the app's accent).
+                strokeColor={receipts.unread.length === 0 ? "#10b981" : "#4f46e5"}
                 className="m-0"
               />
               {receipts.unread.length === 0 ? (
                 <p className="mt-2 mb-0 text-[13px] text-emerald-700">Everyone it is addressed to has read it.</p>
               ) : (
                 <div className="mt-2.5 flex items-baseline gap-2">
-                  <span className="shrink-0 w-16 text-xs text-slate-500">Not yet</span>
+                  <span className={`shrink-0 w-16 ${HINT}`}>Not yet</span>
                   <ul className="m-0 p-0 list-none flex flex-wrap gap-1.5">
                     {receipts.unread.map((u, i) => (
-                      <li key={i} className="rounded-md bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 [overflow-wrap:anywhere]">
-                        {u.name}
+                      <li key={i} className="min-w-0">
+                        <Pill tone="amber" className="!whitespace-normal [overflow-wrap:anywhere]">
+                          {u.name}
+                        </Pill>
                       </li>
                     ))}
                   </ul>
@@ -250,11 +253,13 @@ export function NoticeDetailModal({ post, onClose, onConfirmRead }: NoticeDetail
               )}
               {receipts.read.length > 0 && (
                 <div className="mt-2 flex items-baseline gap-2">
-                  <span className="shrink-0 w-16 text-xs text-slate-500">Read</span>
+                  <span className={`shrink-0 w-16 ${HINT}`}>Read</span>
                   <ul className="m-0 p-0 list-none flex flex-wrap gap-1.5">
                     {receipts.read.map((u, i) => (
-                      <li key={i} title={`Read ${formatDateTime(u.readAt)}`} className="rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-600 [overflow-wrap:anywhere]">
-                        {u.name}
+                      <li key={i} className="min-w-0">
+                        <Pill tone="slate" title={`Read ${formatDateTime(u.readAt)}`} className="!whitespace-normal [overflow-wrap:anywhere]">
+                          {u.name}
+                        </Pill>
                       </li>
                     ))}
                   </ul>

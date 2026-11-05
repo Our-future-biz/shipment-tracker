@@ -4,6 +4,7 @@ import { Button, Checkbox, Popover, Tooltip } from "antd";
 import { DownOutlined, SettingOutlined, UpOutlined } from "@ant-design/icons";
 import { toolbarButtonClass } from "./ToolbarButton";
 import { DEFAULT_QUOTE_COLUMNS, QUOTE_COLUMNS } from "./quoteListColumns";
+import { LINK } from "@/styles/ui";
 
 interface QuoteColumnPickerProps {
   // The columns the list shows, in their order.
@@ -36,7 +37,7 @@ export function QuoteColumnPicker({ visible, onChange, status, onRetry }: QuoteC
 
   const panel = (
     <div className="w-64">
-      <div className="pb-2.5 mb-2.5 border-b border-slate-100 text-[13px] font-semibold text-slate-800">Columns</div>
+      <div className="pb-2.5 mb-2.5 border-b border-slate-100 text-[13px] font-semibold text-slate-900">Columns</div>
       {status === "loading" && <div className="mb-2 text-xs text-slate-500">Loading the company&apos;s columns…</div>}
       {status === "error" && (
         <div role="alert" className="mb-2 text-xs text-red-600">
@@ -85,7 +86,7 @@ export function QuoteColumnPicker({ visible, onChange, status, onRetry }: QuoteC
           type="button"
           disabled={locked}
           onClick={() => onChange(DEFAULT_QUOTE_COLUMNS)}
-          className="text-[11px] text-indigo-500 hover:underline bg-transparent border-none p-0 cursor-pointer disabled:text-slate-400 disabled:no-underline disabled:cursor-not-allowed"
+          className={`text-[12px] ${LINK} bg-transparent border-none p-0 cursor-pointer disabled:!text-slate-400 disabled:!no-underline disabled:cursor-not-allowed`}
         >
           Reset to default
         </button>

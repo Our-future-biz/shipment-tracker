@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { Progress } from "antd";
+import { KPI_TONE_CLASS } from "@/components/KpiTile";
 import { SectionCard } from "@/components/SectionCard";
 import { useCustomerInvoices } from "@/hooks/useCustomerInvoices";
 import { useCustomer } from "@/hooks/useCustomers";
@@ -9,14 +10,7 @@ import { useLatestRates } from "@/lib/fx";
 import { summarizeInvoices } from "../../_lib/customerInvoices";
 import { fmtMoney, roundCents } from "../../_lib/customerMoney";
 import { BAR_COLOR, utilizationTone } from "./CustomerCreditCard";
-import type { KpiTone } from "./CustomerKpiTile";
-
-// The colours of the Finance tab: its credit bar and the figure of its Utilization tile.
-const FIGURE_CLASS: Record<KpiTone, string> = {
-  red: "text-red-600",
-  amber: "text-amber-600",
-  green: "text-green-600",
-};
+import { LINK } from "@/styles/ui";
 
 interface CustomerCreditSummaryCardProps {
   customerId: string;
@@ -44,7 +38,7 @@ export function CustomerCreditSummaryCard({ customerId, onSelectTab }: CustomerC
     content = (
       <div className="text-[13px]">
         <p className="m-0 text-slate-400">No credit limit set.</p>
-        {outstanding > 0 && <p className="m-0 mt-1 text-slate-600">{fmtMoney(outstanding, currency)} outstanding</p>}
+        {outstanding > 0 && <p className="m-0 mt-1 text-slate-700">{fmtMoney(outstanding, currency)} outstanding</p>}
       </div>
     );
   } else {
@@ -63,7 +57,7 @@ export function CustomerCreditSummaryCard({ customerId, onSelectTab }: CustomerC
           strokeColor={BAR_COLOR[tone ?? "green"]}
           className="m-0"
         />
-        <div className={`mt-2 text-[13px] font-bold ${tone ? FIGURE_CLASS[tone] : "text-slate-800"}`}>{`${utilization}% used`}</div>
+        <div className={`mt-2 text-[13px] font-bold ${tone ? KPI_TONE_CLASS[tone] : "text-slate-900"}`}>{`${utilization}% used`}</div>
         <div className="text-xs text-slate-500">{`${fmtMoney(outstanding, currency)} of ${fmtMoney(creditLimit, currency)}`}</div>
         {excess > 0 && <div className="mt-1 text-xs font-medium text-red-600">{`Over the limit by ${fmtMoney(excess, currency)}`}</div>}
       </div>
@@ -77,7 +71,7 @@ export function CustomerCreditSummaryCard({ customerId, onSelectTab }: CustomerC
         <button
           type="button"
           onClick={() => onSelectTab("finance")}
-          className="bg-transparent border-0 p-0 text-xs font-semibold text-indigo-600 whitespace-nowrap cursor-pointer hover:underline"
+          className={`bg-transparent border-0 p-0 text-xs font-semibold whitespace-nowrap cursor-pointer ${LINK}`}
         >
           Open finance
         </button>

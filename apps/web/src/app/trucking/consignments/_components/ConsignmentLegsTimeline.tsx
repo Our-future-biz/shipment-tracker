@@ -8,6 +8,8 @@ import { SectionCard } from "@/components/SectionCard";
 import type { ConsignmentDetail, Leg } from "@/hooks/useTruckingConsignments";
 import { businessDateTime } from "@/lib/date";
 import { btnInline } from "@/components/buttons";
+import { Pill } from "@/components/Pill";
+import { HINT, LINK, REF } from "@/styles/ui";
 import { tripHref } from "../../_lib/consignments";
 import { TERMS } from "../../_lib/glossary";
 import { legTimeline, promisedText, type LegTimelineState } from "../../_lib/planning";
@@ -44,14 +46,16 @@ export const ConsignmentLegsTimeline = ({ c, onPartner }: ConsignmentLegsTimelin
     <SectionCard
       title={`${TERMS.leg}s`}
       extra={
-        <span className="flex items-center gap-1.5 text-xs text-slate-600">
+        <span className="flex items-center gap-1.5 text-xs text-slate-500">
           Promised <b className="text-slate-900">{promised.text}</b>
           {promised.estimated ? (
             <Tooltip title={promised.note}>
-              <span className="rounded bg-amber-50 px-1.5 text-[11px] font-semibold text-amber-700">Estimated</span>
+              <span className="inline-flex">
+                <Pill tone="amber">Estimated</Pill>
+              </span>
             </Tooltip>
           ) : (
-            c.promisedDate && <span className="rounded bg-emerald-50 px-1.5 text-[11px] font-semibold text-emerald-700">Final</span>
+            c.promisedDate && <Pill tone="green">Final</Pill>
           )}
         </span>
       }
@@ -61,13 +65,13 @@ export const ConsignmentLegsTimeline = ({ c, onPartner }: ConsignmentLegsTimelin
           <Fragment key={s.key}>
             {i > 0 && <RightOutlined className="self-center text-[10px] text-slate-300" aria-hidden />}
             <li className={`flex min-w-[170px] flex-1 flex-col gap-0.5 rounded-lg border px-3 py-2 text-xs ${STATE_CLASS[s.state]}`}>
-              <span className="flex items-center gap-1.5 font-semibold text-slate-800">
+              <span className="flex items-center gap-1.5 font-semibold text-slate-900">
                 <StateIcon state={s.state} /> {s.label}
               </span>
-              <span className="text-slate-600">{s.detail}</span>
-              {s.at && <span className="tabular-nums text-[11px] text-slate-700">{businessDateTime(s.at)}</span>}
+              <span className="text-slate-500">{s.detail}</span>
+              {s.at && <span className="tabular-nums text-slate-700">{businessDateTime(s.at)}</span>}
               {s.tripId && (
-                <Link href={tripHref(s.tripId)} className="font-semibold text-indigo-600 hover:underline">
+                <Link href={tripHref(s.tripId)} className={`${LINK} font-semibold ${s.tripRef ? REF : ""}`}>
                   {s.tripRef ?? `Open ${TERMS.trip.toLowerCase()}`}
                 </Link>
               )}
@@ -85,7 +89,7 @@ export const ConsignmentLegsTimeline = ({ c, onPartner }: ConsignmentLegsTimelin
           </Fragment>
         ))}
       </ol>
-      {promised.estimated && <p className="mb-0 mt-2 text-[11px] text-slate-500">{promised.note}: the planned pick-up counts as the gate-in day until then.</p>}
+      {promised.estimated && <p className={`mb-0 mt-2 ${HINT}`}>{promised.note}: the planned pick-up counts as the gate-in day until then.</p>}
     </SectionCard>
   );
 };

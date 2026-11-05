@@ -8,8 +8,9 @@ import { useToast } from "@/lib/toast";
 import { formatDateTime } from "@/lib/date";
 import { INNER_FLAGS, OUTER_PACKINGS, VISUAL_FLAGS, hasSurvey, requiredSurveyPhase, surveyPhaseKey, surveyTargets, type SurveyPhaseKey } from "@/app/warehouse-concept/gate-log/_lib/gate";
 import { blankLine, blankSurvey, lineFilled, pickInput, surveyPhotoCheck, type SurveyInput, type SurveyLine } from "@/app/warehouse-concept/gate-log/_lib/survey";
+import { LABEL_TEXT, REF } from "@/styles/ui";
 import { useFloorQueue } from "../_lib/useFloorQueue";
-import { Chip, FloorCard, Stepper, bigDefault, bigPrimary } from "./floorUi";
+import { Chip, FloorCard, Stepper, bigDanger, bigDefault, bigPrimary } from "./floorUi";
 import { FloorBack } from "./FloorBack";
 import { CameraButton, useTakePhoto } from "./FloorPhotos";
 
@@ -38,7 +39,7 @@ export function FloorSurvey({ m, onBack, onRecordException }: FloorSurveyProps) 
       <div className="flex flex-col gap-4">
         <FloorBack onBack={onBack} title="Survey" />
         <FloorCard>
-          <div className="text-[14px] text-slate-600">The survey starts once the cargo has arrived (gate-in).</div>
+          <div className="text-[14px] text-slate-500">The survey starts once the cargo has arrived (gate-in).</div>
         </FloorCard>
       </div>
     );
@@ -130,10 +131,10 @@ function FloorSurveyForm({ m, phase, targets, container, onContainer, stored, sa
           ))}
         </div>
       )}
-      <div className="text-[14px] text-slate-600">
+      <div className="text-[14px] text-slate-500">
         {container ? (
           <>
-            Container <span className="tabular-nums font-semibold text-slate-900">{container}</span>
+            Container <span className={`${REF} font-semibold text-slate-900`}>{container}</span>
           </>
         ) : (
           "Position level (no container recorded)"
@@ -146,7 +147,7 @@ function FloorSurveyForm({ m, phase, targets, container, onContainer, stored, sa
           <div className="flex flex-col gap-3">
             <Stepper label="Number" value={l.qty ?? 0} onChange={(v) => setLine(i, { qty: v })} />
             <div>
-              <div className="mb-1 text-[13px] font-bold uppercase tracking-wide text-slate-500">Outer packing</div>
+              <div className={`mb-1.5 ${LABEL_TEXT}`}>Outer packing</div>
               <div className="flex flex-wrap gap-2">
                 {OUTER_PACKINGS.map((p) => (
                   <Chip key={p} on={l.outerPacking === p} onClick={() => setLine(i, { outerPacking: l.outerPacking === p ? "" : p })}>
@@ -156,7 +157,7 @@ function FloorSurveyForm({ m, phase, targets, container, onContainer, stored, sa
               </div>
             </div>
             <div>
-              <div className="mb-1 text-[13px] font-bold uppercase tracking-wide text-slate-500">Visual condition</div>
+              <div className={`mb-1.5 ${LABEL_TEXT}`}>Visual condition</div>
               <div className="flex flex-wrap gap-2">
                 {VISUAL_FLAGS.map((f) => (
                   <Chip key={f} tone="red" on={l.visual.includes(f)} onClick={() => setLine(i, { visual: toggle(l.visual, f) })}>
@@ -166,7 +167,7 @@ function FloorSurveyForm({ m, phase, targets, container, onContainer, stored, sa
               </div>
             </div>
             <div>
-              <div className="mb-1 text-[13px] font-bold uppercase tracking-wide text-slate-500">Inner content</div>
+              <div className={`mb-1.5 ${LABEL_TEXT}`}>Inner content</div>
               <div className="flex flex-wrap gap-2">
                 {INNER_FLAGS.map((f) => (
                   <Chip key={f} on={l.inner.includes(f)} onClick={() => setLine(i, { inner: toggle(l.inner, f) })}>
@@ -176,7 +177,7 @@ function FloorSurveyForm({ m, phase, targets, container, onContainer, stored, sa
               </div>
             </div>
             {draft.lines.length > 1 && (
-              <button type="button" className={`${bigDefault} !text-red-600`} onClick={() => {
+              <button type="button" className={bigDanger} onClick={() => {
                   lineKeys.remove(i);
                   setDraft({ ...draft, lines: draft.lines.filter((_, idx) => idx !== i) });
                 }}>
@@ -192,7 +193,7 @@ function FloorSurveyForm({ m, phase, targets, container, onContainer, stored, sa
 
       {photoCheck.short && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-          <div className="text-[14px] text-amber-900">{photoCheck.text}</div>
+          <div className="text-[14px] text-amber-700">{photoCheck.text}</div>
           <div className="mt-2">
             <CameraButton
               busy={shooting}
@@ -238,7 +239,7 @@ function FloorSurveyForm({ m, phase, targets, container, onContainer, stored, sa
 
       {saved && (draft.damaged > 0 || draft.lost > 0) && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-          <div className="text-[14px] text-amber-900">
+          <div className="text-[14px] text-amber-700">
             This survey found {draft.damaged > 0 ? `${draft.damaged} damaged` : ""}
             {draft.damaged > 0 && draft.lost > 0 ? " and " : ""}
             {draft.lost > 0 ? `${draft.lost} missing` : ""} — record it as an exception (the cargo is then on hold).

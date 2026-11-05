@@ -4,10 +4,11 @@ import dayjs from "dayjs";
 import { Checkbox, DatePicker, Input, Select } from "antd";
 import type { CustomerSiteItem } from "@/hooks/useCustomerSites";
 import type { StopInput } from "@/hooks/useTruckingConsignments";
+import { limitCzechPhone } from "@/lib/phone";
+import { LABEL_TEXT } from "@/styles/ui";
 import { stopFromSite } from "../_lib/consignmentForm";
 import { formatPsc, pscDigits } from "../_lib/hauliers";
 import { TruckingField } from "./TruckingField";
-import { limitCzechPhone } from "@/lib/phone";
 
 interface ConsignmentStopFieldsProps {
   title: string;
@@ -29,7 +30,7 @@ export const ConsignmentStopFields = ({ title, stop, sites, onChange, limited = 
 
   return (
     <fieldset className="m-0 flex min-w-0 flex-col gap-3 rounded-xl border border-slate-200 p-3">
-      <legend className="px-1 text-[12px] font-bold uppercase tracking-wide text-slate-600">{title}</legend>
+      <legend className={`px-1 ${LABEL_TEXT}`}>{title}</legend>
       <TruckingField label="Customer site" hint={sites.length ? "Fills the address and the avizace contact; anything can be typed instead" : "The customer has no sites — type the address"}>
         <Select
           allowClear

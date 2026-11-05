@@ -29,10 +29,10 @@ export function TasksPanel({ shipment }: { shipment: ShipmentItem }) {
                 checked={completed}
                 disabled={completed}
                 onChange={() => setCompleted(def.key, true, user?.id)}
-                className="w-4 h-4 shrink-0 rounded border-slate-300 accent-indigo-500 cursor-pointer disabled:cursor-default"
+                className="w-4 h-4 shrink-0 rounded border-slate-300 accent-indigo-600 cursor-pointer disabled:cursor-default"
               />
             </Tooltip>
-            <span className={completed ? "text-slate-400 line-through" : i === nextIdx ? "text-slate-900 font-semibold" : "text-slate-600"}>
+            <span className={completed ? "text-slate-400 line-through" : i === nextIdx ? "text-slate-900 font-semibold" : "text-slate-700"}>
               {def.label}
             </span>
             {completed && state?.completedAt && (

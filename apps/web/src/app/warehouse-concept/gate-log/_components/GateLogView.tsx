@@ -21,13 +21,14 @@ import { ScanBox } from "./ScanBox";
 import { gateSteps } from "../_lib/steps";
 import { shipmentOwnerOf } from "../_lib/owner";
 import { OwnerCell } from "./OwnerCell";
+import { BTN, BTN_PRIMARY, EMPTY, LABEL_TEXT, REF } from "@/styles/ui";
 
 type BubbleId = "attention" | "lcl" | "fcl";
 
 // Cells render like the Shipments grid: plain slate text, a light "—" when empty, the
-// reference in bold indigo mono, and status colour as a light cell tint (same rules).
-const dim = (v: string) => (v ? <span className="text-slate-600">{v}</span> : <span className="text-slate-300">—</span>);
-const num = (v: string) => <span className="text-slate-600 tabular-nums">{v}</span>;
+// reference in bold indigo with even figures (REF), and status colour as a light cell tint (same rules).
+const dim = (v: string) => (v ? <span className="text-slate-700">{v}</span> : <span className={EMPTY}>—</span>);
+const num = (v: string) => <span className="text-slate-700 tabular-nums">{v}</span>;
 const tint = (column: string, value: string) => {
   const bg = getCellConditionalStyle(column, value, {})?.backgroundColor;
   return bg ? { style: { backgroundImage: `linear-gradient(${bg}, ${bg})` } } : {};
@@ -39,7 +40,7 @@ const mrnMissing = (r: GateMovement) =>
 const RELEASE_TEXT_TONE: Record<string, string> = {
   [TERMS.clear]: "font-medium text-emerald-600",
   [TERMS.released]: "font-medium text-emerald-600",
-  [TERMS.blocked]: "font-medium text-red-500",
+  [TERMS.blocked]: "font-medium text-red-600",
 };
 
 // A stamp whose shipment update has not gone through yet (retrying) or stopped (failed).
@@ -82,7 +83,7 @@ const COLUMNS: AppGridColumn<GateMovement>[] = [
     text: (r) => r.gateRef,
     render: (_, r) => (
       <span className="inline-flex items-center gap-1.5">
-        <span className="tabular-nums font-bold text-indigo-500">{r.gateRef}</span>
+        <span className={`${REF} font-bold text-indigo-600`}>{r.gateRef}</span>
         <ShipmentUpdateBadge m={r} />
       </span>
     ),
@@ -112,9 +113,9 @@ const COLUMNS: AppGridColumn<GateMovement>[] = [
     text: (r) => r.mrn,
     render: (_, r) =>
       r.mrn.trim() && r.mrn !== "—" ? (
-        <span className="text-slate-600 tabular-nums">{r.mrn}</span>
+        <span className={`${REF} text-slate-700`}>{r.mrn}</span>
       ) : mrnMissing(r) ? (
-        <span className="text-red-500 font-medium">missing</span>
+        <span className="text-red-600 font-medium">missing</span>
       ) : (
         dim("")
       ),
@@ -135,7 +136,7 @@ const COLUMNS: AppGridColumn<GateMovement>[] = [
     width: 140,
     text: releaseGatesText,
     filterOptions: RELEASE_GATES_VALUES,
-    render: (_, r) => <span className={RELEASE_TEXT_TONE[releaseGatesText(r)] ?? "text-slate-300"}>{releaseGatesText(r)}</span>,
+    render: (_, r) => <span className={RELEASE_TEXT_TONE[releaseGatesText(r)] ?? EMPTY}>{releaseGatesText(r)}</span>,
   },
   // Linked outbound rows show the pick-up PIN from Shipments; the PIN itself never reaches the list.
   {
@@ -145,7 +146,7 @@ const COLUMNS: AppGridColumn<GateMovement>[] = [
     text: (r) => (r.pinLocked ? "locked" : r.hasPin ? "set" : ""),
     render: (_, r) =>
       r.pinLocked ? (
-        <span className="text-[11px] font-semibold text-red-600">locked</span>
+        <Badge tone="r">locked</Badge>
       ) : r.hasPin ? (
         <span className="tabular-nums tracking-[2px] text-slate-400">••••</span>
       ) : (
@@ -250,7 +251,7 @@ export function GateLogView({ embedded, header }: { embedded?: boolean; header?:
 
   // One button per stamp, in the same order and style as the gate job header.
   const archivedSwitch = (
-    <label className="flex items-center gap-1.5 shrink-0 text-[13px] text-slate-600 cursor-pointer">
+    <label className="flex items-center gap-1.5 shrink-0 text-[13px] text-slate-700 cursor-pointer">
       <Switch size="small" checked={archived} onChange={(on) => setArchivedParam(on ? "1" : "0")} />
       Show archived
     </label>
@@ -265,12 +266,7 @@ export function GateLogView({ embedded, header }: { embedded?: boolean; header?:
           key={a.kind}
           type="button"
           onClick={() => pick(a)}
-          className={[
-            "flex items-center shrink-0 rounded-lg px-3 h-8 text-[13px] transition-colors",
-            a.primary
-              ? "bg-indigo-600 text-white font-semibold hover:bg-indigo-700 border-none"
-              : "border border-slate-300 bg-white font-medium text-slate-700 hover:bg-slate-50",
-          ].join(" ")}
+          className={a.primary ? BTN_PRIMARY : BTN}
         >
           {a.label}
         </button>
@@ -278,7 +274,7 @@ export function GateLogView({ embedded, header }: { embedded?: boolean; header?:
       <button
         type="button"
         onClick={() => (selection.rows.length ? setPrintOpen(true) : toast.info("Tick the movements in the grid first, then print their labels."))}
-        className="flex items-center gap-1.5 shrink-0 rounded-lg px-3 h-8 text-[13px] border border-slate-300 bg-white font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+        className={BTN}
       >
         <PrinterOutlined /> Print labels
       </button>
@@ -286,7 +282,7 @@ export function GateLogView({ embedded, header }: { embedded?: boolean; header?:
       {!embedded && (
         <Link
           href="/warehouse-concept/floor"
-          className="flex items-center gap-1.5 shrink-0 rounded-lg px-3 h-8 text-[13px] border border-slate-300 bg-white font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+          className={BTN}
         >
           <MobileOutlined /> Floor mode
         </Link>
@@ -294,8 +290,8 @@ export function GateLogView({ embedded, header }: { embedded?: boolean; header?:
     </div>
   );
 
-  // Filter tiles across the page width, in the card style of the warehouse job: the label
-  // with its count beside it ("NEED ATTENTION: 1").
+  // Filter tiles across the page width, in the card style of the warehouse job: the label in
+  // small bold caps with its count beside it as a KPI figure ("NEED ATTENTION: 1").
   const bubbles = (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
       {BUBBLES.map((b) => {
@@ -313,9 +309,9 @@ export function GateLogView({ embedded, header }: { embedded?: boolean; header?:
               ].join(" ")}
             >
               <div className="flex items-baseline gap-2">
-                <span className={`text-[14px] font-bold uppercase tracking-wide ${on ? "text-indigo-600" : "text-slate-500"}`}>{b.label}:</span>
+                <span className={LABEL_TEXT}>{b.label}:</span>
                 <span
-                  className={`text-[22px] leading-tight font-bold tabular-nums ${
+                  className={`text-[20px] leading-7 font-bold tabular-nums ${
                     b.danger && count > 0 ? "text-red-600" : on ? "text-indigo-700" : "text-slate-900"
                   }`}
                 >

@@ -7,6 +7,7 @@ import { ContainerOutlined, DeleteOutlined, PlusOutlined } from "@ant-design/ico
 import { CONTAINER_TYPES, containerType } from "@/lib/cargo";
 import { containerNumberInput, isValidContainerNumber } from "@/lib/container";
 import type { MasterJobContainerLine, MasterJobShipmentItem } from "@/hooks/useMasterJobs";
+import { HINT, TD, TH } from "@/styles/ui";
 import { MasterJobCard } from "./MasterJobFields";
 
 interface MasterJobContainersProps {
@@ -20,8 +21,6 @@ interface MasterJobContainersProps {
 }
 
 const emptyLine = (): MasterJobContainerLine => ({ containerNumber: "", sealNumber: "", type: "", shipmentIds: [] });
-
-const TH = "px-2 py-2 text-left text-[11px] font-bold text-slate-500 uppercase tracking-wide";
 
 // The containers on the master BL, each assigned to the houses whose cargo it
 // carries. Edited as one list and saved together; a save copies every house's
@@ -81,25 +80,25 @@ export function MasterJobContainers({ id, fromShipments, containers, shipments, 
         </div>
       )}
       {draft.length === 0 ? (
-        <div className="py-4 text-center text-xs text-slate-400">
+        <div className={`py-4 text-center ${HINT}`}>
           {fromShipments ? "The linked shipments have no containers yet." : "No containers on this master job yet."}
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead className="border-b border-slate-200">
+          <table className="w-full">
+            <thead>
               <tr>
                 <th className={`${TH} w-[170px]`}>Container Number</th>
                 <th className={`${TH} w-[150px]`}>Seal Number</th>
                 <th className={`${TH} w-[140px]`}>Type</th>
                 <th className={TH}>Assigned shipments</th>
-                <th className="w-10" />
+                <th className={`${TH} w-10`} />
               </tr>
             </thead>
             <tbody>
               {draft.map((c, i) => (
-                <tr key={c.id ?? rowKey(c)} className="border-b border-slate-100 last:border-b-0">
-                  <td className="px-2 py-1.5">
+                <tr key={c.id ?? rowKey(c)}>
+                  <td className={TD}>
                     <Input
                       size="small"
                       placeholder="MSKU1234567"
@@ -110,7 +109,7 @@ export function MasterJobContainers({ id, fromShipments, containers, shipments, 
                       onChange={(e) => handleChange(i, { containerNumber: containerNumberInput(e.target.value) })}
                     />
                   </td>
-                  <td className="px-2 py-1.5">
+                  <td className={TD}>
                     <Input
                       size="small"
                       value={c.sealNumber}
@@ -118,7 +117,7 @@ export function MasterJobContainers({ id, fromShipments, containers, shipments, 
                       onChange={(e) => handleChange(i, { sealNumber: e.target.value })}
                     />
                   </td>
-                  <td className="px-2 py-1.5">
+                  <td className={TD}>
                     <Select
                       size="small"
                       className="w-full"
@@ -129,7 +128,7 @@ export function MasterJobContainers({ id, fromShipments, containers, shipments, 
                       onChange={(type) => handleChange(i, { type })}
                     />
                   </td>
-                  <td className="px-2 py-1.5">
+                  <td className={TD}>
                     <Select
                       size="small"
                       mode="multiple"
@@ -141,7 +140,7 @@ export function MasterJobContainers({ id, fromShipments, containers, shipments, 
                       onChange={(shipmentIds) => handleChange(i, { shipmentIds })}
                     />
                   </td>
-                  <td className="px-2 py-1.5 text-right">
+                  <td className={`${TD} text-right`}>
                     <Button
                       size="small"
                       type="text"
@@ -158,7 +157,6 @@ export function MasterJobContainers({ id, fromShipments, containers, shipments, 
       )}
       <Button
         size="small"
-        type="dashed"
         icon={<PlusOutlined />}
         className="mt-3"
         onClick={() => setDraft((rows) => [...rows, emptyLine()])}

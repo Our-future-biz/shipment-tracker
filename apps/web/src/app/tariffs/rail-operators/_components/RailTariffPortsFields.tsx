@@ -2,6 +2,7 @@
 
 import { Checkbox } from "antd";
 import type { interfaces } from "@/lib/api/client";
+import { LABEL_TEXT } from "@/styles/ui";
 import { DIRECTIONS, TARIFF_PORTS } from "../../_lib/railTariffs";
 
 export interface PortsAndDirections {
@@ -29,7 +30,7 @@ const DIRECTION_OPTIONS = DIRECTIONS.map((d) => ({
   ),
 }));
 
-const LEGEND = "text-[12px] font-semibold text-slate-600 mb-1.5 p-0";
+const LEGEND = `${LABEL_TEXT} mb-1.5 p-0`;
 
 interface RailTariffPortsFieldsProps {
   value: PortsAndDirections;

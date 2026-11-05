@@ -10,6 +10,7 @@ import { formatDate } from "@/lib/date";
 import { deadlineDayColor, deadlineDayLabel, deadlineLabel } from "@/lib/shipmentDeadlines";
 import { useShipmentsNeedingAttention } from "@/hooks/useShipmentsNeedingAttention";
 import type { ShipmentDueItem } from "@/hooks/useShipmentsNeedingAttention";
+import { CARD_TITLE, EMPTY, HINT, MODAL_TITLE, REF } from "@/styles/ui";
 
 // A card lists only its soonest few; the count shows the total and the link opens them all.
 const VISIBLE_ROWS = 3;
@@ -31,17 +32,17 @@ const CARDS: Record<CardKey, CardDef> = {
   within48h: {
     window: "48 hours",
     linkLabel: "Click here to show Needs Attention shipment",
-    tone: { border: "border-amber-200", header: "bg-amber-50", icon: "text-amber-500", link: "text-orange-500" },
+    tone: { border: "border-amber-200", header: "bg-amber-50", icon: "text-amber-500", link: "text-amber-600" },
   },
 };
 
-const dash = <span className="text-slate-300">—</span>;
+const dash = <span className={EMPTY}>—</span>;
 
 const referenceColumn = {
   title: "Internal Reference",
   dataIndex: "jobNumber",
   width: 170,
-  render: (v: string) => <span className="tabular-nums font-semibold text-indigo-600">{v}</span>,
+  render: (v: string) => <span className={`${REF} font-semibold text-indigo-600`}>{v}</span>,
 };
 
 const deadlinesColumn = {
@@ -93,10 +94,11 @@ export function NeedsAttentionTable() {
     );
 
     return (
-      <section className={`bg-white border rounded-2xl overflow-hidden ${urgent ? tone.border : "border-slate-200"}`}>
-        <div className={`flex items-center gap-2 px-4 py-2.5 ${urgent ? tone.header : "bg-slate-50"}`}>
+      // A card (CARD's corners and shadow) in the colour of its warning while it lists anything.
+      <section className={`bg-white border rounded-xl shadow-sm overflow-hidden ${urgent ? tone.border : "border-slate-200"}`}>
+        <div className={`flex items-center gap-2.5 min-h-[42px] px-4 py-2 ${urgent ? tone.header : "bg-slate-50"}`}>
           <WarningFilled className={urgent ? tone.icon : "text-slate-300"} />
-          <span className="text-[13px] font-bold uppercase tracking-wider text-slate-800">Needs Attention</span>
+          <h3 className={CARD_TITLE}>Needs Attention</h3>
           <span
             aria-label={lists.isError ? "Count unavailable" : `${shipments.length} shipments`}
             className={`min-w-6 h-6 px-1.5 rounded-full flex items-center justify-center bg-white text-[13px] font-bold tabular-nums ${
@@ -105,7 +107,7 @@ export function NeedsAttentionTable() {
           >
             {lists.isError ? "–" : shipments.length}
           </span>
-          <span className="text-[13px] text-slate-600">within {window}</span>
+          <span className="text-[13px] text-slate-500">within {window}</span>
         </div>
         {/* No header row: the card's own header already says what the list is. */}
         <Table<ShipmentDueItem>
@@ -115,9 +117,9 @@ export function NeedsAttentionTable() {
           loading={lists.isLoading}
           locale={{
             emptyText: lists.isError ? (
-              <span className="text-[13px] text-red-500">Could not load the deadlines.</span>
+              <span className="text-[13px] text-red-600">Could not load the deadlines.</span>
             ) : (
-              <span className="text-[13px] text-slate-400">Nothing due within {window}.</span>
+              <span className="text-[13px] text-slate-500">Nothing due within {window}.</span>
             ),
           }}
           footer={urgent ? () => showAllLink : undefined}
@@ -146,9 +148,9 @@ export function NeedsAttentionTable() {
         onCancel={() => setOpenCard(null)}
         title={
           <div>
-            <div className="text-base font-semibold">{openCard === "within24h" ? "URGENT shipments" : "Needs Attention shipments"}</div>
+            <div className={MODAL_TITLE}>{openCard === "within24h" ? "URGENT shipments" : "Needs Attention shipments"}</div>
             {openCard && (
-              <div className="text-xs text-slate-500 font-normal mt-0.5">
+              <div className={`${HINT} font-normal mt-0.5`}>
                 {openList.length} to finish within {CARDS[openCard].window}
               </div>
             )}

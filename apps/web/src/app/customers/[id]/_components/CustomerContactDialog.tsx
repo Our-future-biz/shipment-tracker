@@ -6,6 +6,7 @@ import type { interfaces } from "@/lib/api/client";
 import { CONTACT_ROLES } from "../../_lib/constants";
 import { czechPhoneRule } from "@/lib/phone";
 import { ContactPhoneInput, isPossiblePhone } from "./ContactPhoneInput";
+import { HINT, MODAL_TITLE } from "@/styles/ui";
 
 export interface CustomerContactFormValues {
   firstName: string;
@@ -72,8 +73,8 @@ export function CustomerContactDialog({ open, contact, saving, onCancel, onSubmi
       destroyOnHidden
       title={
         <div>
-          <div className="text-lg font-semibold text-slate-800">{contact ? "Edit Contact" : "Add Contact"}</div>
-          <div className="mt-1 text-[13px] font-normal text-slate-500">
+          <div className={MODAL_TITLE}>{contact ? "Edit Contact" : "Add Contact"}</div>
+          <div className={`${HINT} font-normal mt-0.5`}>
             {contact ? "Update the details of this contact." : "Add a new contact for this company."}
           </div>
         </div>
@@ -124,7 +125,7 @@ export function CustomerContactDialog({ open, contact, saving, onCancel, onSubmi
         </Form.Item>
         <div className="flex items-start justify-between gap-4 mb-2">
           <div>
-            <div className="text-sm font-medium text-slate-800">Main contact</div>
+            <div className="text-sm font-medium text-slate-900">Main contact</div>
             <div className="text-[13px] text-slate-500">
               Use this contact by default for quotes and shipments.
               {!contact?.isMain && " Turning it on replaces the current main contact."}

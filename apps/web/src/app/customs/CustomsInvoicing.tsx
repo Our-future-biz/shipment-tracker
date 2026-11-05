@@ -9,6 +9,7 @@ import { AppCard } from "@/components/AppCard";
 import { GridHeader, GridInput, GridSelect } from "@/app/invoicing/_components/gridControls";
 import { type ShipmentItem } from "@/hooks/useShipments";
 import { type CustomsInvoiceLineItem, useCustomsInvoicing } from "@/hooks/useCustomsInvoicing";
+import { EMPTY, HINT, ICON_BTN_GHOST, INPUT, LABEL_TEXT } from "@/styles/ui";
 import { CustomsInvoicePreview } from "./CustomsInvoicePreview";
 import { type CustomsInvoiceLine, fmt, parseAmount, totalsByCurrency } from "./_lib/customsInvoice";
 
@@ -17,8 +18,8 @@ const CUSTOMS_CATEGORIES = ["Customs clearance", "Duty", "VAT", "T1 document", "
 
 const TEMPLATE = "grid-cols-[minmax(180px,2fr)_84px_minmax(110px,1fr)_32px]";
 
-const inputClass =
-  "w-full bg-white border border-slate-200 rounded text-[11px] px-1.5 py-[3px] text-slate-700 outline-none focus:border-indigo-400";
+// The category field, in the look of the grid's own fields beside it (GridInput, GridSelect): INPUT.
+const inputClass = `${INPUT} w-full`;
 
 interface LineRow {
   id: string;
@@ -148,7 +149,7 @@ export function CustomsInvoicing({ shipment }: CustomsInvoicingProps) {
         }
       >
         {rows.length === 0 ? (
-          <p className="text-xs text-slate-400 m-0">No lines yet. Add one with “Add line”.</p>
+          <p className={`${HINT} m-0`}>No lines yet. Add one with “Add line”.</p>
         ) : (
           <section>
             <datalist id="customs-invoice-categories">
@@ -186,15 +187,16 @@ export function CustomsInvoicing({ shipment }: CustomsInvoicingProps) {
                   placeholder="0.00"
                   className={parseAmount(row.value) === null ? "!border-red-400 !text-red-600" : ""}
                 />
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<DeleteOutlined />}
+                <button
+                  type="button"
+                  aria-label="Delete line"
                   onClick={() => {
                     deleteLine(row.id, { onSuccess: () => dropDraft(row.id) });
                   }}
-                  className="!text-slate-400 hover:!text-red-500"
-                />
+                  className={`${ICON_BTN_GHOST} hover:!text-red-600 hover:!bg-red-50`}
+                >
+                  <DeleteOutlined />
+                </button>
               </div>
             ))}
           </section>
@@ -203,7 +205,7 @@ export function CustomsInvoicing({ shipment }: CustomsInvoicingProps) {
 
       <AppCard title="Issued Invoice">
         <div className="flex items-center gap-3 flex-wrap">
-          <label className="text-xs text-slate-500">Issued Invoice Number:</label>
+          <label className={LABEL_TEXT}>Issued Invoice Number:</label>
           <input
             value={issuedNumber}
             onChange={(e) => setNumberDraft(e.target.value)}
@@ -212,21 +214,21 @@ export function CustomsInvoicing({ shipment }: CustomsInvoicingProps) {
               if (e.key === "Enter") (e.target as HTMLInputElement).blur();
             }}
             placeholder="—"
-            className="bg-white border border-slate-200 rounded-md text-xs px-2 py-1 w-56 text-slate-700 outline-none focus:border-indigo-400"
+            className={`${INPUT} w-56`}
           />
-          <div className="ml-auto flex items-center gap-4 text-xs">
+          <div className="ml-auto flex items-center gap-4 text-[13px]">
             <span className="text-slate-500">Total:</span>
             {totals.length === 0 ? (
-              <span className="text-slate-400">—</span>
+              <span className={EMPTY}>—</span>
             ) : (
               totals.map(([cur, sum]) => (
-                <span key={cur} className="text-indigo-600 font-semibold">
+                <span key={cur} className="text-slate-900 font-semibold tabular-nums">
                   {cur} {fmt(sum)}
                 </span>
               ))
             )}
             {unreadable > 0 && (
-              <span className="text-red-500">
+              <span className="text-red-600">
                 ({unreadable} {unreadable === 1 ? "amount" : "amounts"} not readable, left out)
               </span>
             )}

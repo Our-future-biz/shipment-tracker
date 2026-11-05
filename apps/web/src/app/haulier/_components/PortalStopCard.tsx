@@ -2,11 +2,12 @@
 
 import { businessDateTime } from "@/lib/date";
 import { formatQty } from "@/app/trucking/_lib/tariffs";
+import { HINT, LABEL_TEXT, REF } from "@/styles/ui";
 import type { BiText } from "../_lib/publicOrder";
 import { canUploadStopPod, deliveredProblem, POD_RULE, stopAddress, type PortalOrder, type PortalStop } from "../_lib/portal";
-import { PORTAL_CARD } from "../_lib/portalStyles";
 import { Bi } from "./Bi";
 import { HaulierPodForm } from "./HaulierPodForm";
+import { PortalCard } from "./PortalCard";
 import { PortalDeliveredForm } from "./PortalDeliveredForm";
 
 interface PortalStopCardProps {
@@ -21,7 +22,7 @@ interface PortalStopCardProps {
 const Row = ({ label, value }: { label: BiText; value: string }) =>
   value ? (
     <div className="py-1">
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+      <div className={LABEL_TEXT}>
         <Bi text={label} />
       </div>
       <div className="whitespace-pre-wrap break-words text-[14px] text-slate-900">{value}</div>
@@ -36,14 +37,15 @@ export const PortalStopCard = ({ order, stop, index, busy, onDelivered, onUpload
   const load = stop.load;
 
   return (
-    <section className={PORTAL_CARD}>
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[13px] font-bold uppercase tracking-wide text-indigo-700">
+    <PortalCard
+      title={
+        <>
           {index + 1}. <Bi text={isDelivery ? { cs: "Vykládka", en: "Delivery" } : { cs: "Nakládka", en: "Pick-up" }} />
-        </span>
-        <span className="tabular-nums text-[12px] text-slate-500">{stop.consignmentRef}</span>
-      </div>
-      <div className="mt-1 text-[16px] font-semibold text-slate-900">{stop.name}</div>
+        </>
+      }
+      extra={<span className={`${REF} ${HINT}`}>{stop.consignmentRef}</span>}
+    >
+      <div className="text-[14px] font-semibold text-slate-900">{stop.name}</div>
       <Row label={{ cs: "Adresa", en: "Address" }} value={stopAddress(stop)} />
       <Row label={{ cs: "Časové okno", en: "Time window" }} value={stop.windowText} />
       <Row label={{ cs: "Kontakt", en: "Contact" }} value={stop.contact} />
@@ -55,7 +57,7 @@ export const PortalStopCard = ({ order, stop, index, busy, onDelivered, onUpload
       <Row label={{ cs: "Reference", en: "Reference" }} value={stop.reference} />
       <Row label={{ cs: "Poznámka", en: "Notes" }} value={stop.notes} />
 
-      <div className="mt-2 grid grid-cols-2 gap-1 text-[14px] text-slate-800">
+      <div className="mt-2 grid grid-cols-2 gap-1 text-[14px] text-slate-900">
         <div>
           <Bi text={{ cs: "Kusy", en: "Pieces" }} />: <b>{formatQty(load.pieces)}</b>
         </div>
@@ -79,12 +81,12 @@ export const PortalStopCard = ({ order, stop, index, busy, onDelivered, onUpload
       {isDelivery && (
         <div className="mt-3 border-t border-slate-100 pt-3">
           {stop.deliveredAt && (
-            <div className="text-[14px] font-semibold text-emerald-800">
+            <div className="text-[14px] font-semibold text-emerald-700">
               ✓ <Bi text={{ cs: `Doručeno ${businessDateTime(stop.deliveredAt)}`, en: `Delivered ${businessDateTime(stop.deliveredAt)}` }} />
             </div>
           )}
           {stop.podUploaded && (
-            <div className="text-[14px] font-semibold text-emerald-800">
+            <div className="text-[14px] font-semibold text-emerald-700">
               ✓ <Bi text={{ cs: "POD nahrán", en: "POD uploaded" }} />
             </div>
           )}
@@ -95,12 +97,12 @@ export const PortalStopCard = ({ order, stop, index, busy, onDelivered, onUpload
             </div>
           )}
           {!stop.podUploaded && (
-            <p className="mt-2 text-[13px] text-slate-600">
+            <p className="mb-0 mt-2 text-[13px] text-slate-500">
               <Bi text={POD_RULE} />
             </p>
           )}
         </div>
       )}
-    </section>
+    </PortalCard>
   );
 };

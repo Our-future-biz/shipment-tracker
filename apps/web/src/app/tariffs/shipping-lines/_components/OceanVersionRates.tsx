@@ -16,7 +16,7 @@ const SEARCH_DELAY_MS = 300;
 
 const Port = ({ name, code }: { name: string; code: string | null }) => (
   <span className="whitespace-nowrap">
-    <span className="font-medium text-slate-800">{name}</span>
+    <span className="font-medium text-slate-900">{name}</span>
     {code ? <span className="ml-1.5 text-xs text-slate-400 tabular-nums">{code}</span> : <span className="ml-1.5 text-xs text-amber-600">not matched</span>}
   </span>
 );
@@ -49,14 +49,14 @@ export const OceanVersionRates = ({ version }: OceanVersionRatesProps) => {
     return [
       { key: "row", title: "Row", width: 64, render: (_, r) => <span className="text-slate-400 tabular-nums">{r.rowNo}</span> },
       ...(tables.length > 1
-        ? ([{ key: "table", title: "Table", render: (_, r) => <span className="text-xs text-slate-600">{tables[r.table]?.label ?? "—"}</span> }] satisfies TableColumnsType<OceanRateView>)
+        ? ([{ key: "table", title: "Table", render: (_, r) => <span className="text-xs text-slate-500">{tables[r.table]?.label ?? "—"}</span> }] satisfies TableColumnsType<OceanRateView>)
         : []),
       { key: "pol", title: "POL", render: (_, r) => <Port name={r.polName} code={r.polCode} /> },
       { key: "pod", title: "POD", render: (_, r) => <Port name={r.podName} code={r.podCode} /> },
       { key: "via", title: "Via", render: (_, r) => r.via || EMPTY_CELL },
       ...prices,
       { key: "currency", title: "Currency", render: (_, r) => r.currency },
-      { key: "note", title: "Note", render: (_, r) => (r.note ? <span className="text-xs text-slate-600">{r.note}</span> : EMPTY_CELL) },
+      { key: "note", title: "Note", render: (_, r) => (r.note ? <span className="text-xs text-slate-500">{r.note}</span> : EMPTY_CELL) },
     ];
   }, [tables]);
 

@@ -6,6 +6,7 @@ import { apiErrorMessage } from "@/lib/api";
 import { useSalesQuote } from "@/hooks/useSalesQuote";
 import { useToast } from "@/lib/toast";
 import { HEADER_BTN } from "./detailStyles";
+import { PAGE_SUBTITLE } from "@/styles/ui";
 
 // The sales quote a shipment names in its Sales Number, in the shipment's header: a link to the
 // quote's page when there is such a quote, the bare reference when there is none - a typed
@@ -38,7 +39,7 @@ export function SalesQuoteLink({ shipmentId, quoteNumber }: SalesQuoteLinkProps)
   const label = `Quote ${quoteNumber}`;
   if (!quote) {
     return (
-      <span className="text-[13px] text-slate-500 whitespace-nowrap" title={notFound ? "There is no sales quote with this number" : undefined}>
+      <span className={`${PAGE_SUBTITLE} whitespace-nowrap`} title={notFound ? "There is no sales quote with this number" : undefined}>
         {label}
       </span>
     );

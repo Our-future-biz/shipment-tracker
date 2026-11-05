@@ -34,7 +34,7 @@ export function StopPlaceRow({ postcode, country, onSave }: StopPlaceRowProps) {
       <div className="flex-1 min-w-0 flex gap-2">
         <Input
           size="small"
-          className="flex-1 min-w-0 !border-slate-300 hover:!border-indigo-400 placeholder:!text-slate-400"
+          className="flex-1 min-w-0"
           placeholder="Postcode"
           aria-label="Postcode"
           maxLength={12}
@@ -45,7 +45,7 @@ export function StopPlaceRow({ postcode, country, onSave }: StopPlaceRowProps) {
         />
         <Input
           size="small"
-          className="!w-14 !border-slate-300 hover:!border-indigo-400 placeholder:!text-slate-400"
+          className="!w-14"
           placeholder="CZ"
           aria-label="Country (two-letter code)"
           maxLength={2}

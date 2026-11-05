@@ -18,6 +18,7 @@ import { ReasonModal } from "@/app/warehouse-concept/gate-log/_components/job/Re
 import { ReweighModal } from "@/app/warehouse-concept/gate-log/_components/job/ReweighSection";
 import { Card } from "../tabs/shared";
 import { warehouseRecordKeys } from "@/hooks/warehouseKeys";
+import { EMPTY, HINT, ICON_BTN, LINK, REF, TD, TH } from "@/styles/ui";
 
 // The stripping tally of an import container: after its gate-in each house is counted (pieces,
 // condition, location) and ticked off. Ticking a house off RECEIVES it — its "Received in
@@ -29,8 +30,8 @@ import { warehouseRecordKeys } from "@/hooks/warehouseKeys";
 type Api = ReturnType<typeof useWarehouseContainer>;
 type Draft = { pieces: number | null; condition: string; location: string; note: string };
 
-const th = "text-left px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-500 whitespace-nowrap";
-const td = "px-3 py-1.5 align-middle";
+// The last row's cells lose their bottom line: the card's edge is the line there.
+const ROW = "[&:last-child>td]:border-b-0";
 
 export function StrippingTally({ c, api, manager }: { c: WarehouseContainer; api: Api; manager: boolean }) {
   const toast = useToast();
@@ -124,18 +125,18 @@ export function StrippingTally({ c, api, manager }: { c: WarehouseContainer; api
           <div className="p-4 text-xs text-slate-400">No houses in this container yet — add the outbound positions it brings.</div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1040px] border-collapse text-xs">
+            <table className="w-full min-w-[1040px] border-collapse">
               <thead>
-                <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className={th}>{TERMS.warehouseRef}</th>
-                  <th className={th}>Customer</th>
-                  <th className={`${th} !text-right`}>Expected</th>
-                  <th className={th}>Counted</th>
-                  <th className={th}>Condition</th>
-                  <th className={th}>Location</th>
-                  <th className={th}>{TERMS.reweigh}</th>
-                  <th className={th}>Tally</th>
-                  <th className={th} aria-label="Actions" />
+                <tr>
+                  <th className={TH}>{TERMS.warehouseRef}</th>
+                  <th className={TH}>Customer</th>
+                  <th className={`${TH} !text-right`}>Expected</th>
+                  <th className={TH}>Counted</th>
+                  <th className={TH}>Condition</th>
+                  <th className={TH}>Location</th>
+                  <th className={TH}>{TERMS.reweigh}</th>
+                  <th className={TH}>Tally</th>
+                  <th className={TH} aria-label="Actions" />
                 </tr>
               </thead>
               <tbody>
@@ -149,9 +150,9 @@ export function StrippingTally({ c, api, manager }: { c: WarehouseContainer; api
                   const inputsBlocked = tallyBlocked ?? exempt;
                   const tickBlocked = inputsBlocked ?? (needsWeigh ? "LCL cargo is re-weighed before the tick-off — re-weigh it first" : null);
                   return (
-                    <tr key={h.id} className={`border-b border-slate-100 last:border-b-0 ${done ? "bg-slate-50/60" : ""}`}>
-                      <td className={td}>
-                        <Link href={`/warehouse-concept/gate-log/${h.movementId}`} className="tabular-nums font-bold text-indigo-500 hover:underline">
+                    <tr key={h.id} className={`${ROW} ${done ? "bg-slate-50/60" : ""}`}>
+                      <td className={TD}>
+                        <Link href={`/warehouse-concept/gate-log/${h.movementId}`} className={`${REF} font-bold ${LINK}`}>
                           {ref}
                         </Link>
                         <div>
@@ -159,22 +160,22 @@ export function StrippingTally({ c, api, manager }: { c: WarehouseContainer; api
                         </div>
                         {exempt && <div className="text-[11px] text-slate-500 max-w-[220px] whitespace-normal">Not tallied. {exempt}</div>}
                       </td>
-                      <td className={`${td} text-slate-700`}>{h.customer || "—"}</td>
-                      <td className={`${td} text-right tabular-nums`}>
+                      <td className={TD}>{h.customer || <span className={EMPTY}>—</span>}</td>
+                      <td className={`${TD} text-right tabular-nums`}>
                         {nf(h.pieces)} pcs
                         <div className="text-[11px] text-slate-400">{nf(h.weightKg)} kg</div>
                       </td>
                       {done ? (
                         <>
-                          <td className={`${td} tabular-nums ${h.tallyPieces != null && h.tallyPieces !== h.pieces ? "text-amber-700 font-semibold" : ""}`}>
-                            {h.tallyPieces != null ? `${nf(h.tallyPieces)} pcs` : "—"}
+                          <td className={`${TD} tabular-nums ${h.tallyPieces != null && h.tallyPieces !== h.pieces ? "!text-amber-700 font-semibold" : ""}`}>
+                            {h.tallyPieces != null ? `${nf(h.tallyPieces)} pcs` : <span className={EMPTY}>—</span>}
                           </td>
-                          <td className={`${td} text-slate-600`}>{h.tallyCondition || "—"}</td>
-                          <td className={`${td} text-slate-600`}>{h.tallyLocation || "—"}</td>
+                          <td className={TD}>{h.tallyCondition || <span className={EMPTY}>—</span>}</td>
+                          <td className={TD}>{h.tallyLocation || <span className={EMPTY}>—</span>}</td>
                         </>
                       ) : (
                         <>
-                          <td className={td}>
+                          <td className={TD}>
                             <InputNumber
                               size="small"
                               min={0}
@@ -186,7 +187,7 @@ export function StrippingTally({ c, api, manager }: { c: WarehouseContainer; api
                               aria-label={`${ref}: pieces counted`}
                             />
                           </td>
-                          <td className={td}>
+                          <td className={TD}>
                             <Select
                               size="small"
                               value={d.condition}
@@ -197,7 +198,7 @@ export function StrippingTally({ c, api, manager }: { c: WarehouseContainer; api
                               aria-label={`${ref}: condition`}
                             />
                           </td>
-                          <td className={td}>
+                          <td className={TD}>
                             <Input
                               size="small"
                               value={d.location}
@@ -211,13 +212,13 @@ export function StrippingTally({ c, api, manager }: { c: WarehouseContainer; api
                           </td>
                         </>
                       )}
-                      <td className={td}>
+                      <td className={TD}>
                         {h.reweighKg != null ? (
                           <Badge tone={h.reweighFlagged ? "a" : "g"}>{nf(h.reweighKg)} kg{h.reweighFlagged ? " · variance" : ""}</Badge>
                         ) : h.needsReweigh ? (
                           <Badge tone="r">Missing</Badge>
                         ) : (
-                          <span className="text-slate-300">Not needed</span>
+                          <span className={EMPTY}>Not needed</span>
                         )}
                         {h.needsReweigh && !gone && h.stage !== "left" && c.gateInAt && (
                           <button type="button" className={`${btnInline} ml-1`} onClick={() => setReweighFor(h)}>
@@ -225,7 +226,7 @@ export function StrippingTally({ c, api, manager }: { c: WarehouseContainer; api
                           </button>
                         )}
                       </td>
-                      <td className={`${td} whitespace-nowrap`}>
+                      <td className={`${TD} whitespace-nowrap`}>
                         {done ? (
                           <div>
                             <Badge tone={TALLY_TONE[h.tallyOutcome] ?? ""}>{TALLY_LABEL[h.tallyOutcome] ?? h.tallyOutcome}</Badge>
@@ -254,14 +255,14 @@ export function StrippingTally({ c, api, manager }: { c: WarehouseContainer; api
                                 ],
                               }}
                             >
-                              <button type="button" className={btnDefault} disabled={!!inputsBlocked} aria-label={`${ref}: short or not arrived`}>
+                              <button type="button" className={ICON_BTN} disabled={!!inputsBlocked} aria-label={`${ref}: short or not arrived`}>
                                 <DownOutlined className="text-[10px]" />
                               </button>
                             </Dropdown>
                           </span>
                         )}
                       </td>
-                      <td className={`${td} whitespace-nowrap text-right`}>
+                      <td className={`${TD} whitespace-nowrap text-right`}>
                         {done ? (
                           manager &&
                           !gone && (
@@ -274,7 +275,7 @@ export function StrippingTally({ c, api, manager }: { c: WarehouseContainer; api
                             <Tooltip title="Take out of this container">
                               <button
                                 type="button"
-                                className={btnDefault}
+                                className={ICON_BTN}
                                 aria-label={`Take ${ref} out of the container`}
                                 disabled={api.removePosition.isPending}
                                 onClick={() =>
@@ -378,11 +379,11 @@ function AddHouses({
           }}
           destroyOnHidden
         >
-          <p className="text-xs text-slate-500 mt-0">Outbound positions not received yet and not in another container.</p>
+          <p className={`${HINT} mt-0`}>Outbound positions not received yet and not in another container.</p>
           <div className="max-h-[360px] overflow-y-auto">
             {candidates.map((m) => (
               <div key={m.id} className="py-1 border-b border-slate-100 last:border-b-0">
-                <Checkbox checked={picked.includes(m.id)} onChange={(e) => setPicked((p) => (e.target.checked ? [...p, m.id] : p.filter((x) => x !== m.id)))} className="!text-xs">
+                <Checkbox checked={picked.includes(m.id)} onChange={(e) => setPicked((p) => (e.target.checked ? [...p, m.id] : p.filter((x) => x !== m.id)))}>
                   <span className="tabular-nums font-semibold">{m.positionRef || m.gateRef}</span> · {m.customer || "—"} · {nf(m.colli)} pcs · {nf(m.weightKg)} kg
                 </Checkbox>
               </div>

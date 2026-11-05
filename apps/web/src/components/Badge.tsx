@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { PILL_CLASS } from "./Pill";
 
-// Badge tones: g green · a amber · r red · b blue · i indigo · "" grey.
+// Badge tones: g green (emerald) · a amber · r red · b sky (in progress, information) · i indigo · "" grey (slate).
 export type Tone = "g" | "a" | "r" | "b" | "i" | "";
 
 // The tones of Pill, so a badge and a pill side by side are one kind of mark.
@@ -11,7 +11,7 @@ const TONE_CLASS: Record<Tone, string> = {
   r: "bg-red-100 text-red-700",
   b: "bg-sky-100 text-sky-700",
   i: "bg-indigo-100 text-indigo-700",
-  "": "bg-slate-100 text-slate-600",
+  "": "bg-slate-100 text-slate-700",
 };
 
 // A status mark of the Warehouse and Trucking screens ("Released", "Internal"), in the shape of every pill (PILL_CLASS).

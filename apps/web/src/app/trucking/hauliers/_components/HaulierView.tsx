@@ -6,12 +6,14 @@ import dayjs from "dayjs";
 import { Alert, Button, DatePicker, Input, InputNumber, Select, Spin, Switch, Tooltip } from "antd";
 import { ArrowLeftOutlined, LockOutlined, UnlockOutlined } from "@ant-design/icons";
 import { SectionCard } from "@/components/SectionCard";
+import { HINT, LINK, PAGE_SUBTITLE, PAGE_TITLE } from "@/styles/ui";
 import { apiErrorMessage, isNotFound } from "@/lib/api";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { formatDate, businessDateTime } from "@/lib/date";
 import { useToast } from "@/lib/toast";
 import { useHaulier, useTruckingSettings, type HaulierDetail, type HaulierUpdate } from "@/hooks/useTrucking";
 import { useUnsavedGuard } from "@/app/warehouse-concept/_lib/useUnsavedGuard";
+import { LINK_ICON_BTN_GHOST } from "../../_lib/linkButtons";
 import { TERMS } from "../../_lib/glossary";
 import { COST_SPLIT_LABELS, CURRENCIES, profileProblems, type LaneDraft } from "../../_lib/hauliers";
 import { isTruckingManager, managerOnlyReason } from "../../_lib/roles";
@@ -128,7 +130,7 @@ export const HaulierView = ({ customerId }: HaulierViewProps) => {
     return (
       <div className="p-10 text-center text-slate-500">
         {isNotFound(error) ? "This company is not a haulier. Give it the Haulier role in the Customer Database first." : `Could not load the haulier: ${apiErrorMessage(error)}.`}{" "}
-        <Link href="/trucking?tab=hauliers" className="text-indigo-500">
+        <Link href="/trucking?tab=hauliers" className={LINK}>
           Back to Hauliers
         </Link>
       </div>
@@ -174,22 +176,22 @@ export const HaulierView = ({ customerId }: HaulierViewProps) => {
     <div className="bg-slate-50 min-h-full">
       <div className="bg-white border-b border-slate-200 px-6 py-4">
         <div className="flex flex-wrap items-start gap-2">
-          <Link href="/trucking?tab=hauliers" aria-label="Back to Hauliers" className="mt-1 text-slate-400 hover:text-indigo-500 p-1">
+          <Link href="/trucking?tab=hauliers" aria-label="Back to Hauliers" className={LINK_ICON_BTN_GHOST}>
             <ArrowLeftOutlined />
           </Link>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-[22px] font-bold text-slate-800 m-0">{haulier.companyName}</h1>
+              <h1 className={PAGE_TITLE}>{haulier.companyName}</h1>
               <HaulierStatusChip status={haulier.status} />
             </div>
-            <div className="text-xs text-slate-500 mt-1">
+            <div className={`${PAGE_SUBTITLE} mt-1`}>
               {TERMS.haulier} · IČO {haulier.ico || "—"}
               {haulier.dic ? ` · DIČ ${haulier.dic}` : ""}
               {haulier.city ? ` · ${haulier.city}` : ""}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Link href={`/customers/${customerId}`} className="text-[13px] font-semibold text-indigo-600 hover:underline">
+            <Link href={`/customers/${customerId}`} className={`${LINK} text-[13px] font-semibold`}>
               Open in Customer Database
             </Link>
             <Tooltip title={blockReason || undefined}>
@@ -208,7 +210,7 @@ export const HaulierView = ({ customerId }: HaulierViewProps) => {
         <div className="mt-3 max-w-[900px]">
           <HaulierIssueList issues={haulier.issues} />
           {p.blocked && (
-            <p className="mt-1 mb-0 text-xs text-slate-500">
+            <p className={`mt-1 mb-0 ${HINT}`}>
               Blocked{p.blockedBy ? ` by ${p.blockedBy}` : ""}
               {p.blockedAt ? ` on ${businessDateTime(p.blockedAt)}` : ""}
               {p.blockReason ? `: “${p.blockReason}”` : ""}
@@ -271,7 +273,7 @@ export const HaulierView = ({ customerId }: HaulierViewProps) => {
               <div className="col-span-2 flex items-center gap-2">
                 <Switch size="small" checked={draft.licenceUnlimited} aria-label="Licence has no end date" onChange={(on) => set("licenceUnlimited", on)} />
                 <span className="text-[13px] text-slate-700">No end date</span>
-                <span className="text-[11px] text-slate-400">— a Czech licence (koncese) is usually issued without one</span>
+                <span className={HINT}>— a Czech licence (koncese) is usually issued without one</span>
               </div>
             </div>
           </SectionCard>
@@ -287,7 +289,7 @@ export const HaulierView = ({ customerId }: HaulierViewProps) => {
                   message={
                     <>
                       The VAT register details, bank accounts and payment terms are kept in the Customer Database.{" "}
-                      <Link href={`/customers/${customerId}?tab=finance`} className="font-semibold">
+                      <Link href={`/customers/${customerId}?tab=finance`} className={`${LINK} font-semibold`}>
                         Change them there
                       </Link>
                     </>
@@ -296,7 +298,7 @@ export const HaulierView = ({ customerId }: HaulierViewProps) => {
                 <div className="flex items-center gap-2">
                   <Switch size="small" checked={draft.vatUnreliable} disabled aria-label={TERMS.unreliableVatPayer} />
                   <span className={`text-[13px] ${draft.vatUnreliable ? "font-semibold text-red-700" : "text-slate-700"}`}>{TERMS.unreliableVatPayer}</span>
-                  {draft.vatUnreliable && <span className="text-[11px] text-red-600">— blocks the haulier</span>}
+                  {draft.vatUnreliable && <span className="text-[12px] text-red-600">— blocks the haulier</span>}
                 </div>
                 <div className="flex items-center gap-2">
                   <Switch size="small" checked={draft.bankAccountPublished} disabled aria-label="Bank account published" />
@@ -314,7 +316,7 @@ export const HaulierView = ({ customerId }: HaulierViewProps) => {
                     description={`Until ${businessDateTime(bankHold)} an invoice from this haulier is never approved automatically, even on an exact match: a manager approves it.`}
                   />
                 )}
-                <p className="m-0 text-[11px] text-slate-400">
+                <p className={`m-0 ${HINT}`}>
                   Checked by hand in the VAT register for now; a check older than 30 days shows a warning. A haulier invoice is blocked while the haulier is an unreliable VAT
                   payer, its account is not published, or the invoice&apos;s account is not one listed here. For 30 days after an account is added - and always when the
                   user who added it enters the invoice - an exact match waits for a manager&apos;s approval.

@@ -9,12 +9,17 @@ import type { ConsignmentDetail } from "@/hooks/useTruckingConsignments";
 import { businessDateTime } from "@/lib/date";
 import { remeasurementHref } from "@/app/warehouse-concept/_components/remeasurementLinks";
 import { btnDefault, btnPrimary } from "@/components/buttons";
+import { SectionCard } from "@/components/SectionCard";
+import { CARD, EMPTY, HINT, LINK, TD, TH } from "@/styles/ui";
 import { CAUSE_LABELS, DECISION_LABELS, EXCEPTION_KIND_LABELS, FAILED_REASON_LABELS, closeState, decideState, exceptionChip } from "../../_lib/exceptions";
 import type { ActionState } from "../../_lib/consignments";
 import { formatMoney } from "../../_lib/tariffs";
 import { TruckingStatusChip } from "../../_components/TruckingStatusChip";
 
 export type ExceptionAction = "decide" | "close" | "photo";
+
+// A cell of the Warehouse exceptions table: a note may run onto several lines, so the row keeps to the top.
+const CELL = `${TD} !align-top`;
 
 const ActionButton = ({ state, label, onClick, icon }: { state: ActionState; label: string; onClick: () => void; icon?: ReactNode }) => (
   <Tooltip title={state.allowed ? undefined : state.reason}>
@@ -28,21 +33,21 @@ const ActionButton = ({ state, label, onClick, icon }: { state: ActionState; lab
 
 const Fact = ({ k, v }: { k: string; v: ReactNode }) => (
   <span>
-    <span className="text-slate-500">{k}</span> <span className="font-semibold text-slate-800">{v}</span>
+    <span className="text-slate-500">{k}</span> <span className="font-semibold text-slate-900">{v}</span>
   </span>
 );
 
 const ExceptionCard = ({ e, legText, onAction }: { e: DeliveryException; legText: string | null; onAction: (e: DeliveryException, action: ExceptionAction) => void }) => {
   const open = !e.closedAt;
   return (
-    <article className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <article className={`${CARD} p-4`}>
       <header className="flex flex-wrap items-center gap-2">
         <TruckingStatusChip chip={exceptionChip(e)} />
-        <span className="text-[14px] font-semibold text-slate-800">
+        <span className="text-[14px] font-semibold text-slate-900">
           {EXCEPTION_KIND_LABELS[e.kind]}
           {e.failedReason ? ` — ${FAILED_REASON_LABELS[e.failedReason]}` : ""}
         </span>
-        <span className="text-xs text-slate-400">
+        <span className={HINT}>
           raised {businessDateTime(e.createdAt)}
           {e.createdBy ? ` by ${e.createdBy}` : ""}
         </span>
@@ -69,7 +74,7 @@ const ExceptionCard = ({ e, legText, onAction }: { e: DeliveryException; legText
       {e.photos.length > 0 && (
         <ul className="mt-2 mb-0 flex list-none flex-wrap gap-2 p-0">
           {e.photos.map((p) => (
-            <li key={p.id} className="inline-flex items-center gap-1 rounded-md bg-slate-50 px-2 py-0.5 text-[12px] text-slate-600">
+            <li key={p.id} className="inline-flex items-center gap-1 rounded-md bg-slate-50 px-2 py-0.5 text-[12px] text-slate-700">
               <PaperClipOutlined aria-hidden /> {p.fileName}
             </li>
           ))}
@@ -107,45 +112,46 @@ export const ConsignmentExceptionsTab = ({ c, onCreate, onAction }: ConsignmentE
       </div>
 
       {c.exceptions.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-200 bg-white px-6 py-8 text-center text-[13px] text-slate-400">No exceptions on this consignment.</div>
+        <div className={`${CARD} px-6 py-8 text-center text-[13px] text-slate-500`}>No exceptions on this consignment.</div>
       ) : (
         c.exceptions.map((e) => <ExceptionCard key={e.id} e={e} legText={legText(e.legId)} onAction={onAction} />)
       )}
 
-      <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-wrap items-center gap-2">
-          <h3 className="m-0 text-[11px] font-bold uppercase tracking-wide text-slate-500">Warehouse exceptions (read-only)</h3>
-          <Link href={remeasurementHref(c.shipmentId)} className="ml-auto text-[12px] font-semibold text-indigo-600 hover:underline">
+      <SectionCard
+        title="Warehouse exceptions (read-only)"
+        extra={
+          <Link href={remeasurementHref(c.shipmentId)} className={`${LINK} text-[12px] font-semibold`}>
             Open in Warehouse
           </Link>
-        </div>
+        }
+      >
         {c.warehouseExceptions.length === 0 ? (
-          <p className="mt-2 mb-0 text-[13px] text-slate-400">None recorded at our warehouse for job {c.jobNumber}.</p>
+          <p className="m-0 text-[13px] text-slate-500">None recorded at our warehouse for job {c.jobNumber}.</p>
         ) : (
-          <table className="mt-2 w-full border-collapse text-xs">
+          <table className="w-full border-collapse">
             <thead>
-              <tr className="border-b border-slate-200 text-left text-[11px] uppercase tracking-wide text-slate-500">
-                <th className="py-1.5 pr-3">Kind</th>
-                <th className="py-1.5 pr-3">Pieces</th>
-                <th className="py-1.5 pr-3">Note</th>
-                <th className="py-1.5 pr-3">Status</th>
-                <th className="py-1.5">Recorded</th>
+              <tr>
+                <th className={TH}>Kind</th>
+                <th className={TH}>Pieces</th>
+                <th className={TH}>Note</th>
+                <th className={TH}>Status</th>
+                <th className={TH}>Recorded</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="[&>tr:last-child>td]:border-b-0">
               {c.warehouseExceptions.map((w) => (
-                <tr key={w.id} className="border-b border-slate-100 last:border-b-0 align-top">
-                  <td className="py-1.5 pr-3 font-semibold text-slate-800">{w.kind}</td>
-                  <td className="py-1.5 pr-3 tabular-nums">{w.pieces ?? "—"}</td>
-                  <td className="py-1.5 pr-3">{w.note || "—"}</td>
-                  <td className="py-1.5 pr-3">{w.status}</td>
-                  <td className="py-1.5">{businessDateTime(w.createdAt)}</td>
+                <tr key={w.id}>
+                  <td className={`${CELL} font-semibold text-slate-900`}>{w.kind}</td>
+                  <td className={`${CELL} tabular-nums`}>{w.pieces ?? <span className={EMPTY}>—</span>}</td>
+                  <td className={CELL}>{w.note || <span className={EMPTY}>—</span>}</td>
+                  <td className={CELL}>{w.status}</td>
+                  <td className={CELL}>{businessDateTime(w.createdAt)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
-      </section>
+      </SectionCard>
     </div>
   );
 };

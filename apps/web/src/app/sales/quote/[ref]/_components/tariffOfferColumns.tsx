@@ -38,7 +38,7 @@ export const tariffColumn = <T extends TariffOfferSource>(title: string, version
   title,
   render: (_, o) => (
     <div className="min-w-0">
-      <div className="flex flex-wrap items-center gap-x-2 font-semibold text-slate-800">
+      <div className="flex flex-wrap items-center gap-x-2 font-semibold text-slate-900">
         {o.supplierName}
         {o.supplierRating !== undefined && <SupplierRatingStars rating={o.supplierRating} />}
       </div>
@@ -59,7 +59,7 @@ export const totalColumn = <T extends { total: number; currency: string }>(quote
     const converted = offerInQuoteCurrency(o, quoteCurrency, toQuoteCurrency);
     return (
       <div className="whitespace-nowrap tabular-nums">
-        <div className="font-semibold text-slate-800">{fmtMoney(o.total, o.currency)}</div>
+        <div className="font-semibold text-slate-900">{fmtMoney(o.total, o.currency)}</div>
         {o.currency !== quoteCurrency && <div className="text-[12px] text-slate-400">{converted === null ? "no rate" : fmtMoney(converted, quoteCurrency)}</div>}
       </div>
     );

@@ -25,7 +25,13 @@
  *   lines  slate-200 frames and heads · slate-100 between rows
  *   accent indigo-600 primary buttons, links, active tabs (hover indigo-700) · indigo-50 / -100
  *          its soft bars and borders
- *   status emerald done/ok · amber warning · red error/danger · slate neutral (Pill tones)
+ *   status emerald done/ok · amber warning · red error/danger · sky on its way (a shipment in
+ *          transit) · indigo in progress · slate neutral (Pill / Badge tones)
+ *
+ * Composing: `${TH} w-[120px]` adds to a constant. To change something the constant already sets
+ * (its alignment, colour, weight, size), the new class needs "!": Tailwind orders classes by its
+ * own sort, not by their order in className, so `${TH} text-center` stays left - write
+ * `${TH} !text-center`.
  */
 
 /** The title of a page (its h1): one size, weight and colour on every page. */
@@ -55,7 +61,7 @@ export const REF = "tabular-nums slashed-zero tracking-wide";
 /** A KPI figure. */
 export const KPI_VALUE = "text-[20px] leading-7 font-bold text-slate-900 tabular-nums";
 
-/** A plain table's head cell (antd tables get the same from globals.css). */
+/** A plain table's head cell: on white over a slate-200 line, no band (antd tables get the same from globals.css). */
 export const TH = `text-left align-bottom px-2 py-2 ${LABEL_TEXT} border-b border-slate-200 whitespace-nowrap`;
 /** A plain table's body cell. */
 export const TD = "px-2 py-2 align-middle text-[13px] text-slate-700 border-b border-slate-100";
@@ -64,6 +70,12 @@ export const TD_TOTAL = "px-2 py-2 text-[13px] font-semibold text-slate-900 bord
 
 /** A text link: indigo, underlined on hover ("!" beats antd's own <a> colour). */
 export const LINK = "!text-indigo-600 hover:!text-indigo-700 hover:!underline";
+/** A link whose colour may come from data (a conditional-format colour on its cell): LINK without the "!". */
+export const LINK_PLAIN = "text-indigo-600 hover:text-indigo-700 hover:underline";
+/** A heading inside a popover or a panel ("Filter by column"). */
+export const HEADING = "m-0 text-[13px] leading-5 font-semibold text-slate-900";
+/** The line an empty list or table shows ("No documents yet"). */
+export const EMPTY_STATE = "py-8 text-center text-[13px] text-slate-400";
 
 const BTN_BASE =
   "inline-flex items-center justify-center gap-1.5 shrink-0 rounded-lg h-8 px-3 text-[13px] font-medium whitespace-nowrap transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1";
@@ -74,7 +86,7 @@ export const BTN_PRIMARY = `${BTN_BASE} border border-transparent bg-indigo-600 
 /** A destructive action: red. The same as antd's danger primary Button. */
 export const BTN_DANGER = `${BTN_BASE} border border-transparent bg-red-600 text-white hover:bg-red-700`;
 /** A quiet button with no frame (Cancel beside a form, an action in a toolbar). */
-export const BTN_GHOST = `${BTN_BASE} border border-transparent bg-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900`;
+export const BTN_GHOST = `${BTN_BASE} border border-transparent bg-transparent text-slate-700 hover:bg-slate-100 hover:text-slate-900`;
 /** The smaller size of any button above: add after it. */
 export const BTN_SM = "!h-7 !px-2.5 !text-[12px]";
 /** A square icon-only button. */
@@ -84,6 +96,14 @@ export const ICON_BTN =
 export const ICON_BTN_GHOST =
   "inline-flex items-center justify-center shrink-0 w-7 h-7 rounded-md border-0 bg-transparent text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500";
 
+/** A chip that switches on and off (a filter among several): PillTabs' shape. Add CHIP_ON when on. */
+export const CHIP =
+  "inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-200 bg-white text-[13px] font-medium text-slate-700 hover:border-slate-300 hover:bg-slate-50 transition-colors cursor-pointer";
+export const CHIP_ON = "!border-indigo-500 !bg-indigo-50 !text-indigo-700";
+
 /** A text field or select drawn by hand (antd's Input/Select already look like this). */
 export const INPUT =
   "h-8 rounded-lg border border-slate-300 bg-white px-2.5 text-[13px] text-slate-900 placeholder:text-slate-400 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-colors";
+/** A multi-line text field drawn by hand (antd's TextArea already looks like this). */
+export const TEXTAREA =
+  "rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-[13px] leading-5 text-slate-900 placeholder:text-slate-400 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-colors";

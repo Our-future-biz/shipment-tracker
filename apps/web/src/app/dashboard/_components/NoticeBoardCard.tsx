@@ -6,6 +6,9 @@ import { PlusOutlined, EditOutlined, DeleteOutlined, EllipsisOutlined, PaperClip
 import { useAuth } from "@/lib/auth/AuthContext";
 import type { ColumnsType } from "antd/es/table";
 import { SectionCard } from "@/components/SectionCard";
+import { Pill } from "@/components/Pill";
+import { Badge } from "@/components/Badge";
+import { EMPTY } from "@/styles/ui";
 import { formatDateTime } from "@/lib/date";
 import type { Announcement } from "@/hooks/useNoticeboard";
 import { NoticeSeverityTag } from "./NoticeSeverityTag";
@@ -24,9 +27,9 @@ const UNREAD_ROW = [
   "[&>td]:!bg-indigo-50/70",
   "[&:hover>td]:!bg-indigo-100/60",
   "[&>td]:!border-b-2 [&>td]:!border-b-white",
-  "[&>td]:!shadow-[inset_0_1px_0_#e0e7ff,inset_0_-1px_0_#e0e7ff]",
-  "[&>td:first-child]:!shadow-[inset_1px_1px_0_#e0e7ff,inset_0_-1px_0_#e0e7ff]",
-  "[&>td:last-child]:!shadow-[inset_-1px_1px_0_#e0e7ff,inset_0_-1px_0_#e0e7ff]",
+  "[&>td]:!shadow-[inset_0_1px_0_var(--color-indigo-100),inset_0_-1px_0_var(--color-indigo-100)]",
+  "[&>td:first-child]:!shadow-[inset_1px_1px_0_var(--color-indigo-100),inset_0_-1px_0_var(--color-indigo-100)]",
+  "[&>td:last-child]:!shadow-[inset_-1px_1px_0_var(--color-indigo-100),inset_0_-1px_0_var(--color-indigo-100)]",
   "[&>td:first-child]:!rounded-l-lg [&>td:last-child]:!rounded-r-lg",
 ].join(" ");
 
@@ -93,9 +96,9 @@ export function NoticeBoardCard({
             sorter: byText((a) => a.target ?? ""),
             render: (v: string | null | undefined) =>
               v ? (
-                <span title={v} className="inline-block max-w-full truncate align-middle rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
-                  {v}
-                </span>
+                <Pill tone="slate" title={v} className="max-w-full align-middle">
+                  <span className="truncate">{v}</span>
+                </Pill>
               ) : null,
           },
         ]
@@ -113,7 +116,7 @@ export function NoticeBoardCard({
             type="button"
             className="min-w-0 p-0 border-none bg-transparent text-left cursor-pointer rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
           >
-            <span className="text-[14px] leading-tight font-semibold text-slate-800 [overflow-wrap:anywhere] line-clamp-2">{v}</span>
+            <span className="text-[14px] leading-tight font-semibold text-slate-900 [overflow-wrap:anywhere] line-clamp-2">{v}</span>
           </button>
           {r.attachments.length > 0 && (
             <span className="shrink-0 flex items-center gap-0.5 text-xs text-slate-400" title="Documents attached">
@@ -129,7 +132,7 @@ export function NoticeBoardCard({
       dataIndex: "authorName",
       sorter: byText((a) => a.authorName),
       width: 160,
-      render: (v: string) => <span className="block truncate text-slate-600" title={v}>{v}</span>,
+      render: (v: string) => <span className="block truncate text-slate-700" title={v}>{v}</span>,
     },
     {
       title: "Date",
@@ -151,18 +154,15 @@ export function NoticeBoardCard({
         const state = readState(r, user?.id);
         return state === "yours" ? (
           // Indigo, the app's own colour (as on the author's initials), apart from green Read and amber Unread.
-          <span className="inline-flex items-center rounded-md bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">Yours</span>
+          <Badge tone="i">Yours</Badge>
         ) : state === "unread" ? (
-          <span className="inline-flex items-center rounded-md bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">Unread</span>
+          <Pill tone="amber">Unread</Pill>
         ) : state === "read" ? (
-          <span
-            title={r.readAt ? `Read ${formatDateTime(r.readAt)}` : undefined}
-            className="inline-flex items-center rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700"
-          >
+          <Pill tone="green" title={r.readAt ? `Read ${formatDateTime(r.readAt)}` : undefined}>
             Read
-          </span>
+          </Pill>
         ) : (
-          <span className="text-slate-400" title="Not addressed to you">
+          <span className={EMPTY} title="Not addressed to you">
             —
           </span>
         );
@@ -193,7 +193,6 @@ export function NoticeBoardCard({
                       size="small"
                       icon={<EllipsisOutlined className="!text-[20px]" />}
                       aria-label={`Actions for ${r.title}`}
-                      className="!text-slate-600 hover:!text-slate-900"
                     />
                   </Dropdown>
                 </div>
@@ -224,7 +223,6 @@ export function NoticeBoardCard({
         tableLayout="fixed"
         // On a narrow screen the table scrolls sideways rather than squeeze the titles.
         scroll={{ x: 940 }}
-        className="[&_.ant-table-tbody_.ant-table-cell]:!py-1"
         loading={isLoading}
         dataSource={ordered}
         columns={columns}

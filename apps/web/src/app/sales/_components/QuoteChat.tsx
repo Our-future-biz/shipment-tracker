@@ -7,6 +7,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { fileToBase64 } from "@/lib/files";
 import { ChatThread, type ChatSource } from "@/app/shipments/_components/ChatPanel";
+import { HINT } from "@/styles/ui";
 
 // A quote's chat: the same panel as a shipment's, filed under the original Sales Reference. A
 // revision (QCZ…001-R1) opens the thread of the quote it revises (QCZ…001), so every revision
@@ -78,12 +79,12 @@ export function QuoteChatDrawer({ quoteNumber, onClose }: { quoteNumber: string 
       onClose={onClose}
       width={460}
       destroyOnHidden
-      styles={{ body: { padding: 0 } }}
+      classNames={{ body: "!p-0" }}
       title={
         quoteNumber ? (
           <span>
             Chat — {quoteNumber}
-            {thread !== quoteNumber && <span className="block text-[11px] font-normal text-slate-500">Shared with {thread} and all its revisions</span>}
+            {thread !== quoteNumber && <span className={`block ${HINT} font-normal`}>Shared with {thread} and all its revisions</span>}
           </span>
         ) : (
           "Chat"
@@ -100,13 +101,13 @@ export function QuoteChatButton({ quoteNumber, unread, onOpen, label }: { quoteN
   const title = unread ? `Chat — ${unread} unread` : "Chat";
   return (
     <Tooltip title={label ? undefined : title}>
-      <Badge count={unread} size="small" color="#ef4444" offset={label ? [-4, 2] : [0, 2]}>
+      <Badge count={unread} size="small" offset={label ? [-4, 2] : [0, 2]}>
         <Button
           size={label ? "middle" : "small"}
           type={label ? "default" : "text"}
           icon={<MessageOutlined />}
           aria-label={`${title} of ${quoteNumber}`}
-          className={unread ? "!text-red-500" : undefined}
+          className={unread ? "!text-red-600" : undefined}
           onClick={onOpen}
         >
           {label}

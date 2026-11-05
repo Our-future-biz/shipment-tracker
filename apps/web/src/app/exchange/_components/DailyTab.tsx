@@ -6,7 +6,8 @@ import { LeftOutlined, RightOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { formatDate } from "@/lib/date";
 import { useFxDaily } from "@/hooks/useFx";
-import { CELL, TH, fmtRate, type DailyResponse } from "./fxShared";
+import { HINT, TD, TH } from "@/styles/ui";
+import { fmtRate, type DailyResponse } from "./fxShared";
 
 type Day = DailyResponse["days"][number];
 
@@ -72,8 +73,8 @@ export function DailyTab({ initialMonth }: { initialMonth: string }) {
             <thead>
               <tr>
                 <th className={TH}>Date</th>
-                {currencies.map((c) => <th key={c} className={`${TH} text-right`}>{c}</th>)}
-                {!all && showRoe && currencies.map((c) => <th key={`roe-${c}`} className={`${TH} text-right`}>{c} pricing</th>)}
+                {currencies.map((c) => <th key={c} className={`${TH} !text-right`}>{c}</th>)}
+                {!all && showRoe && currencies.map((c) => <th key={`roe-${c}`} className={`${TH} !text-right`}>{c} pricing</th>)}
                 <th className={TH}>Source</th>
               </tr>
             </thead>
@@ -82,14 +83,14 @@ export function DailyTab({ initialMonth }: { initialMonth: string }) {
                 const quiet = d.kind !== "fixing";
                 return (
                   <tr key={d.date} className={quiet ? "bg-slate-50/60" : ""}>
-                    <td className={`${CELL} whitespace-nowrap`}>
+                    <td className={`${TD} whitespace-nowrap`}>
                       {formatDate(d.date)} <span className="text-slate-400 text-[13px]">{dayjs(d.date).format("ddd")}</span>
                     </td>
                     {currencies.map((c) => {
                       const r = d.rates.find((x) => x.currency === c);
                       const lastFixing = retired.get(c);
                       return (
-                        <td key={c} className={`${CELL} text-right tabular-nums ${quiet ? "text-slate-400" : "text-slate-900"}`}>
+                        <td key={c} className={`${TD} text-right tabular-nums ${quiet ? "!text-slate-400" : "!text-slate-900"}`}>
                           {!r && lastFixing && d.date > lastFixing ? (
                             <Tooltip title={`No longer published by ČNB — last fixing ${formatDate(lastFixing)}`}>
                               <span className="text-slate-400 text-[13px]">not published</span>
@@ -103,12 +104,12 @@ export function DailyTab({ initialMonth }: { initialMonth: string }) {
                     {!all && showRoe && currencies.map((c) => {
                       const r = d.rates.find((x) => x.currency === c);
                       return (
-                        <td key={`roe-${c}`} className={`${CELL} text-right tabular-nums text-slate-500`}>
+                        <td key={`roe-${c}`} className={`${TD} text-right tabular-nums !text-slate-500`}>
                           {fmtRate(r ? (r.rate * d.roePct) / 100 : null)}
                         </td>
                       );
                     })}
-                    <td className={`${CELL} text-[13px] ${d.kind === "missing" ? "text-red-600 font-semibold" : "text-slate-500"}`}>
+                    <td className={`${TD} ${d.kind === "missing" ? "!text-red-600 font-semibold" : "!text-slate-500"}`}>
                       {d.kind === "missing" || d.kind === "pending" ? KIND[d.kind].label : sourceText(d)}
                     </td>
                   </tr>
@@ -119,12 +120,12 @@ export function DailyTab({ initialMonth }: { initialMonth: string }) {
         </div>
       )}
       {retired.size > 0 && (
-        <p className="text-[13px] text-slate-500 m-0">
+        <p className={`${HINT} m-0`}>
           No longer published by ČNB:{" "}
           {[...retired].map(([c, last]) => `${c} (last fixing ${formatDate(last)})`).join(", ")}. They have no rate after that day.
         </p>
       )}
-      <p className="text-[13px] text-slate-400 m-0">
+      <p className={`${HINT} m-0`}>
         A fixing applies to its day and any following weekend or public holiday (ČNB rule). Rates are CZK per 1 unit.
       </p>
     </div>

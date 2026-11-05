@@ -12,6 +12,8 @@ import { escapeHtml } from "@/lib/html";
 import { formatDateTime } from "@/lib/date";
 import { containerNumberInput, isValidContainerNumber, normalizeContainerNumber } from "@/lib/container";
 import type { interfaces } from "@/lib/api/client";
+import { Badge } from "@/components/Badge";
+import { HINT, LABEL_TEXT, REF, TD, TH } from "@/styles/ui";
 import {
   CONTAINER_TYPES,
   EXPECTED_FILE_BYTES,
@@ -39,8 +41,6 @@ const PHASE_OPTIONS = [
 const isImage = (f: GateFile) => f.fileType.startsWith("image/");
 
 const readBase64 = fileToBase64;
-
-const label = "text-[11px] font-bold text-slate-500 uppercase tracking-wide";
 
 interface SurveyTabProps {
   m: GateMovement;
@@ -153,9 +153,9 @@ export function SurveyTab({ m, saveSurvey }: SurveyTabProps) {
         {/* container */}
         <div className="flex items-center gap-3 flex-wrap px-4 py-3 border-b border-slate-100">
           <div className="inline-flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5">
-            <span className={label}>Container</span>
-            <span className="tabular-nums font-semibold text-[13px] text-slate-900">{container || "Position level"}</span>
-            <span className="text-xs text-slate-400">
+            <span className={LABEL_TEXT}>Container</span>
+            <span className={`${REF} font-semibold text-[13px] text-slate-900`}>{container || "Position level"}</span>
+            <span className="text-[12px] text-slate-400">
               {m.containers.length ? `· ${surveyedCount} of ${m.containers.length} surveyed on ${phase}` : "· no container recorded"}
             </span>
           </div>
@@ -174,28 +174,28 @@ export function SurveyTab({ m, saveSurvey }: SurveyTabProps) {
 
         {/* survey result */}
         <div className="px-4 py-3 border-b border-slate-100">
-          <div className={`${label} mb-2`}>Survey result</div>
+          <div className={`${LABEL_TEXT} mb-2`}>Survey result</div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <div className="text-xs text-slate-500 mb-1">Damaged pieces</div>
+              <div className={`${HINT} mb-1`}>Damaged pieces</div>
               <PieceInput value={draft.damaged} max={pieces} onSave={(v) => persist({ ...draft, damaged: v })} />
             </div>
             <div>
-              <div className="text-xs text-slate-500 mb-1">Lost / missing pieces</div>
+              <div className={`${HINT} mb-1`}>Lost / missing pieces</div>
               <PieceInput value={draft.lost} max={pieces} onSave={(v) => persist({ ...draft, lost: v })} />
             </div>
             <div>
-              <div className="text-xs text-slate-500 mb-1">Survey pass</div>
-              <div className="text-xs font-semibold text-slate-800 py-1">{draft.phase}</div>
+              <div className={`${HINT} mb-1`}>Survey pass</div>
+              <div className="text-[13px] font-semibold text-slate-900 py-1">{draft.phase}</div>
             </div>
           </div>
         </div>
 
         {/* survey lines */}
         <div className="px-4 py-3 border-b border-slate-100">
-          <div className={`${label} mb-2`}>Survey lines</div>
+          <div className={`${LABEL_TEXT} mb-2`}>Survey lines</div>
           <div className="overflow-x-auto border border-slate-200 rounded-lg">
-            <table className="w-full min-w-[820px] border-collapse text-xs">
+            <table className="w-full min-w-[820px] border-collapse">
               <colgroup>
                 <col className="w-[90px]" />
                 <col className="w-[180px]" />
@@ -204,13 +204,13 @@ export function SurveyTab({ m, saveSurvey }: SurveyTabProps) {
                 <col className="w-[44px]" />
               </colgroup>
               <thead>
-                <tr className="bg-slate-50 border-b border-slate-200">
+                <tr>
                   {["Number", "Outer packing", "Visual condition", "Inner content"].map((h) => (
-                    <th key={h} className="text-left px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                    <th key={h} className={TH}>
                       {h}
                     </th>
                   ))}
-                  <th className="px-2 py-1 text-right">
+                  <th className={`${TH} !text-right`}>
                     <Button
                       size="small"
                       type="text"
@@ -223,10 +223,10 @@ export function SurveyTab({ m, saveSurvey }: SurveyTabProps) {
                   </th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="[&>tr:last-child>td]:border-b-0">
                 {draft.lines.map((l, i) => (
-                  <tr key={lineKeys.keys[i]} className="border-b border-slate-100 last:border-b-0">
-                    <td className="px-3 py-1.5">
+                  <tr key={lineKeys.keys[i]}>
+                    <td className={TD}>
                       <InputNumber
                         size="small"
                         min={0}
@@ -239,7 +239,7 @@ export function SurveyTab({ m, saveSurvey }: SurveyTabProps) {
                         onBlur={() => persist(draft)}
                       />
                     </td>
-                    <td className="px-3 py-1.5">
+                    <td className={TD}>
                       <Select
                         size="small"
                         allowClear
@@ -251,13 +251,13 @@ export function SurveyTab({ m, saveSurvey }: SurveyTabProps) {
                         onChange={(v) => setLine(i, { outerPacking: v ?? "" })}
                       />
                     </td>
-                    <td className="px-3 py-1.5">
+                    <td className={TD}>
                       <FlagSelect value={l.visual} options={VISUAL_FLAGS} tone="red" onChange={(v) => setLine(i, { visual: v })} />
                     </td>
-                    <td className="px-3 py-1.5">
+                    <td className={TD}>
                       <FlagSelect value={l.inner} options={INNER_FLAGS} tone="blue" onChange={(v) => setLine(i, { inner: v })} />
                     </td>
-                    <td className="px-2 py-1.5 text-right">
+                    <td className={`${TD} text-right`}>
                       <Button
                         size="small"
                         type="text"
@@ -277,7 +277,7 @@ export function SurveyTab({ m, saveSurvey }: SurveyTabProps) {
               </tbody>
             </table>
           </div>
-          <p className="text-xs text-slate-500 mt-2 mb-0">
+          <p className={`${HINT} mt-2 mb-0`}>
             {flagCount === 0
               ? "No condition flags — the survey can be closed as clean."
               : `${flagCount} flag${flagCount > 1 ? "s" : ""} selected — each flag requires at least one photo before the survey can be printed.`}
@@ -286,10 +286,10 @@ export function SurveyTab({ m, saveSurvey }: SurveyTabProps) {
 
         {/* notes */}
         <div className="px-4 py-3">
-          <div className={`${label} mb-2`}>Notes</div>
+          <div className={`${LABEL_TEXT} mb-2`}>Notes</div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <div className="text-xs text-slate-500 mb-1">Driver&apos;s note related to survey</div>
+              <div className={`${HINT} mb-1`}>Driver&apos;s note related to survey</div>
               <Input.TextArea
                 autoSize={{ minRows: 3, maxRows: 8 }}
                 value={draft.driverNote}
@@ -298,7 +298,7 @@ export function SurveyTab({ m, saveSurvey }: SurveyTabProps) {
               />
             </div>
             <div>
-              <div className="text-xs text-slate-500 mb-1">Warehouse note</div>
+              <div className={`${HINT} mb-1`}>Warehouse note</div>
               <Input.TextArea
                 autoSize={{ minRows: 3, maxRows: 8 }}
                 value={draft.warehouseNote}
@@ -424,7 +424,7 @@ function PieceInput({ value, max, onSave }: PieceInputProps) {
           if (capped !== value) onSave(capped);
         }}
       />
-      <span className="text-xs text-slate-400">{known ? `of ${max} piece${max === 1 ? "" : "s"}` : "pieces unknown"}</span>
+      <span className={HINT}>{known ? `of ${max} piece${max === 1 ? "" : "s"}` : "pieces unknown"}</span>
     </span>
   );
 }
@@ -498,7 +498,7 @@ function PhotosSection({
           type="button"
           disabled={uploading}
           onClick={() => inputRef.current?.click()}
-          className="min-h-[120px] border-[1.5px] border-dashed border-slate-300 rounded-lg bg-transparent text-xs font-semibold text-slate-400 hover:border-indigo-400 hover:text-indigo-500 cursor-pointer"
+          className="min-h-[120px] border-[1.5px] border-dashed border-slate-300 rounded-lg bg-transparent text-xs font-semibold text-slate-400 hover:border-indigo-400 hover:text-indigo-600 cursor-pointer"
         >
           + Add photo
           <br />
@@ -521,7 +521,7 @@ function PhotosSection({
         <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
           <div className="h-full rounded-full bg-indigo-500" style={{ width: `${Math.min(100, Math.round((total / EXPECTED_FILE_BYTES) * 100))}%` }} />
         </div>
-        <div className="flex justify-between gap-2 flex-wrap text-[11px] text-slate-400 mt-1.5">
+        <div className={`flex justify-between gap-2 flex-wrap ${HINT} mt-1.5`}>
           <span>{fmtSize(total)} used of the 20 MB expected per shipment</span>
           <span className="tabular-nums">jpg ≈ 400 kB · pdf / tiff / png</span>
         </div>
@@ -564,9 +564,7 @@ function FileCard({ movementId, file, onDelete }: { movementId: string; file: Ga
         }`}
       >
         {file.tag && (
-          <span className="absolute top-1.5 left-1.5 z-10 text-[10px] font-bold tracking-wide bg-white border border-slate-200 rounded px-1.5 text-slate-600">
-            {file.tag}
-          </span>
+          <Badge className="absolute top-1.5 left-1.5 z-10">{file.tag}</Badge>
         )}
         {image && url ? (
           // Local object URL of the stored bytes — next/image can't optimise it.
@@ -576,8 +574,8 @@ function FileCard({ movementId, file, onDelete }: { movementId: string; file: Ga
           ext
         )}
       </div>
-      <div className="px-2 py-1.5 text-[11px]">
-        <div className="font-semibold text-slate-800 truncate" title={file.fileName}>
+      <div className="px-2 py-1.5 text-[12px]">
+        <div className="font-semibold text-slate-900 truncate" title={file.fileName}>
           {file.fileName.replace(/\.[^.]+$/, "")}
         </div>
         <div className="tabular-nums text-slate-400">{fmtSize(file.fileSize)}</div>
@@ -590,7 +588,7 @@ function FileCard({ movementId, file, onDelete }: { movementId: string; file: Ga
           e.stopPropagation();
           onDelete();
         }}
-        className="absolute top-1.5 right-1.5 z-10 w-5 h-5 rounded-full border border-slate-200 bg-white text-slate-400 text-xs leading-none grid place-items-center p-0 cursor-pointer opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-red-500 hover:border-red-400"
+        className="absolute top-1.5 right-1.5 z-10 w-5 h-5 rounded-full border border-slate-200 bg-white text-slate-400 text-xs leading-none grid place-items-center p-0 cursor-pointer opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-red-600 hover:border-red-400"
       >
         ×
       </button>
@@ -645,19 +643,19 @@ function ContainerDialog({
       onOk={() => onOpen(picked)}
     >
       <div className="flex flex-col -mx-2 max-h-[50vh] overflow-auto">
-        {containers.length === 0 && <div className="py-6 text-center text-xs text-slate-400">No containers recorded on this movement yet.</div>}
+        {containers.length === 0 && <div className={`py-6 text-center ${HINT}`}>No containers recorded on this movement yet.</div>}
         {containers.map((c) => (
           <button
             key={c.number}
             type="button"
             aria-current={picked === c.number}
             onClick={() => setPicked(c.number)}
-            className={`flex items-center gap-3 px-3 py-2.5 rounded-md border-0 text-left cursor-pointer ${
+            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border-0 text-left cursor-pointer ${
               picked === c.number ? "bg-indigo-50" : "bg-transparent hover:bg-slate-50"
             }`}
           >
-            <span className="tabular-nums font-semibold text-[13px] flex-1 text-slate-900">{c.number}</span>
-            <span className="text-xs text-slate-400">
+            <span className={`${REF} font-semibold text-[13px] flex-1 text-slate-900`}>{c.number}</span>
+            <span className={HINT}>
               {c.type} · {phase} {surveyed(c.number) ? "surveyed" : "survey pending"}
             </span>
           </button>

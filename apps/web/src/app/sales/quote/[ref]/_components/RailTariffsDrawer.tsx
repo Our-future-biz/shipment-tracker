@@ -145,7 +145,7 @@ export const RailTariffsDrawer = ({ open, quote, quoteCurrency, toQuoteCurrency,
         </TariffDrawerField>
       </div>
 
-      <div className="text-[13px] text-slate-600 flex flex-col gap-0.5">
+      <div className="text-[13px] text-slate-700 flex flex-col gap-0.5">
         {/* The quote's container lines, in their order (two can be alike). */}
         {result ? result.containers.map((c, i) => <span key={i}>{containerText(c)}</span>) : route.containers.map((c, i) => <span key={i}>{`${c.qty} × ${c.type}`}</span>)}
         <span className="text-[12px] text-slate-400">

@@ -111,7 +111,7 @@ export function LockedAmountInput({ value, onChange, "aria-label": label, curren
         aria-label={disabled ? `${label}: ${value.toFixed(2)}` : `${label}: ${value.toFixed(2)}, double-click to change`}
         title={disabled ? undefined : "Double-click to change"}
         // Looks like the small input it stands for; no text selection on the double-click.
-        className={`flex items-center h-6 w-full px-[7px] rounded-md border border-slate-200 text-sm tabular-nums cursor-default select-none ${
+        className={`flex items-center h-7 w-full px-[7px] rounded-md border border-slate-300 text-[13px] tabular-nums cursor-default select-none ${
           disabled ? "bg-slate-50 text-slate-400" : "bg-white hover:border-slate-300"
         }`}
         onDoubleClick={requestEdit}

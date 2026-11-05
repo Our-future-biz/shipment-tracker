@@ -4,6 +4,7 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { useCompanyUsers } from "@/hooks/useUserAdmin";
 import { useDepartments, useBranches } from "@/hooks/useOrgUnits";
 import { UsersManager } from "../_components/UsersManager";
+import { PAGE_SUBTITLE, PAGE_TITLE } from "@/styles/ui";
 
 export default function CompanyUsersPage() {
   const { user } = useAuth();
@@ -21,8 +22,8 @@ export default function CompanyUsersPage() {
 
   return (
     <div className="p-6 max-w-5xl">
-      <h1 className="text-xl font-semibold text-slate-800 mb-1">Users</h1>
-      <p className="text-sm text-slate-500 mb-4">Manage the people who can access your company&apos;s workspace.</p>
+      <h1 className={`${PAGE_TITLE} mb-1`}>Users</h1>
+      <p className={`${PAGE_SUBTITLE} mb-4`}>Manage the people who can access your company&apos;s workspace.</p>
       <UsersManager
         users={cu.users}
         isLoading={cu.isLoading}

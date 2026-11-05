@@ -5,6 +5,7 @@ import { useBranches, useCountries, useDepartments } from "@/hooks/useOrgUnits";
 import { SEVERITIES } from "../_lib/boards";
 import { branchFitsCountry, branchOptions } from "../_lib/branches";
 import { hasFilters } from "../_lib/noticeFilters";
+import { HINT } from "@/styles/ui";
 import type { NoticeFilters } from "../_lib/noticeFilters";
 
 interface NoticeFiltersBarProps {
@@ -71,7 +72,7 @@ export function NoticeFiltersBar({ value, onChange, shown, total }: NoticeFilter
       />
       {hasFilters(value) && (
         <>
-          <span className="text-xs text-slate-500">
+          <span className={HINT}>
             {shown} of {total}
           </span>
           <Button type="link" size="small" onClick={() => onChange({})}>

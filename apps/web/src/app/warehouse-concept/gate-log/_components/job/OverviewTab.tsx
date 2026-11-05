@@ -18,6 +18,7 @@ import { formatDateTime } from "@/lib/date";
 import { loadTypeLabel } from "@/lib/enums";
 import { figureFromTrip, tripLabel } from "@/lib/tripSource";
 import { TripMarker } from "@/components/TripMarker";
+import { EMPTY, HINT, LABEL_TEXT, LINK, REF, TD, TH } from "@/styles/ui";
 import { TERMS, directionOfHandling } from "@/app/warehouse-concept/_lib/glossary";
 import {
   Badge,
@@ -96,6 +97,9 @@ const CHECK_STYLE: Record<string, { box: string; text: string }> = {
   r: { box: "border-red-500 bg-red-50 text-red-600", text: "text-red-600" },
 };
 
+// A transport table cell: the app's TD, with the card's 16px inset on the outer columns.
+const LEG_TD = `${TD} first:pl-4 last:pr-4`;
+
 // Two columns on wide screens: main cards on the left, the gate checklist on the right.
 const overviewGrid = "grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_400px] gap-5 items-start";
 
@@ -139,7 +143,7 @@ export function OverviewTab({
   const lastMrnRequest = lastOf("mrnRequested");
   const askedAt = (e: { at: string; by: string } | undefined) =>
     e ? (
-      <span className="text-[11px] text-slate-400">
+      <span className={HINT}>
         asked {formatDateTime(e.at)}
         {e.by ? ` · ${e.by}` : ""}
       </span>
@@ -203,14 +207,14 @@ export function OverviewTab({
               <div>
                 {/* This job is the position's page, so its reference is plain text. */}
                 <FieldRow label={TERMS.warehouseRef}>
-                  <span className="tabular-nums font-semibold text-slate-900">{m.gateRef}</span>
+                  <span className={`${REF} font-semibold text-slate-900`}>{m.gateRef}</span>
                 </FieldRow>
                 {/* Saves the stored handling (Import / Export / Domestic), shown as Outbound / Inbound / Domestic; the server
                     moves the gate visit with it. Locked once anything is stamped. */}
                 <FieldRow label={TERMS.direction}>
                   {m.gateIn || m.gateOut || m.impRelease || m.expDraft || m.expReceipt || m.container ? (
                     <Tooltip title={m.container ? `Direction is locked while the position is a house of container ${m.container.number}` : "Direction is locked once a gate stamp is recorded"}>
-                      <span className="text-xs font-medium text-slate-900">{directionOfHandling(m.handling)}</span>
+                      <span className="font-medium text-slate-900">{directionOfHandling(m.handling)}</span>
                     </Tooltip>
                   ) : (
                     <InlineSelect
@@ -264,7 +268,7 @@ export function OverviewTab({
                     <Badge tone={release.tone} className="self-start">
                       {release.label}
                     </Badge>
-                    {release.detail && <span className="text-[11px] text-slate-500 break-words">{release.detail} · see {TERMS.releaseGates}</span>}
+                    {release.detail && <span className={`${HINT} break-words`}>{release.detail} · see {TERMS.releaseGates}</span>}
                   </div>
                 </FieldRow>
                 <FieldRow label="Ask for release">
@@ -395,9 +399,9 @@ export function OverviewTab({
 
           {/* ============ transport ============ */}
           <Section title="Transport" icon={<CarOutlined />} bodyClassName="overflow-x-auto">
-            <table className="w-full min-w-[780px] border-collapse text-xs">
+            <table className="w-full min-w-[780px] border-collapse">
               <thead>
-                <tr className="bg-slate-50 border-b border-slate-200">
+                <tr>
                   {[
                     "Leg",
                     "Transport company",
@@ -407,50 +411,47 @@ export function OverviewTab({
                     "Gate date",
                     "Gate time",
                   ].map((h) => (
-                    <th
-                      key={h}
-                      className="text-left px-4 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-500"
-                    >
+                    <th key={h} className={`${TH} first:pl-4 last:pr-4`}>
                       {h}
                     </th>
                   ))}
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="[&>tr:last-child>td]:border-b-0">
                 {m.transportLegs
                   .filter((l) => l.leg !== "CFS")
                   .map((l) => {
                     // Filled by a Trucking trip: read-only here, changed only by the trip.
                     if (tripLabel(l)) {
-                      const shown = (v: string, cls = "") => <span className={`block py-1 ${v ? "text-slate-900" : "text-slate-300"} ${cls}`}>{v || "—"}</span>;
+                      const shown = (v: string, cls = "") => <span className={`block py-1 ${v ? "text-slate-900" : EMPTY} ${cls}`}>{v || "—"}</span>;
                       const stamp = parseStamp(gateTimeOf(l));
                       return (
-                        <tr key={l.leg} className="border-b border-slate-100 last:border-b-0 bg-sky-50/40">
-                          <td className="px-4 py-1.5">
+                        <tr key={l.leg} className="bg-indigo-50/40">
+                          <td className={LEG_TD}>
                             <span className="inline-flex items-center gap-2 font-bold tracking-wide text-slate-700">
                               <i className={`w-2 h-2 rounded-sm ${LEG_DOT[l.leg]}`} />
                               {l.leg}
                             </span>
                             <TripMarker x={l} className="ml-2" />
                           </td>
-                          <td className="px-4 py-1.5">{shown(l.company)}</td>
-                          <td className="px-4 py-1.5">{shown(l.plate, "tabular-nums")}</td>
-                          <td className="px-4 py-1.5">{shown(l.driver)}</td>
-                          <td className="px-4 py-1.5">{shown(l.phone, "!text-slate-500")}</td>
-                          <td className="px-4 py-1.5">{shown(stamp ? stamp.format("YYYY-MM-DD") : "", "!text-slate-500")}</td>
-                          <td className="px-4 py-1.5">{shown(stamp ? stamp.format("HH:mm") : "", "!text-slate-500")}</td>
+                          <td className={LEG_TD}>{shown(l.company)}</td>
+                          <td className={LEG_TD}>{shown(l.plate, "tabular-nums")}</td>
+                          <td className={LEG_TD}>{shown(l.driver)}</td>
+                          <td className={LEG_TD}>{shown(l.phone, "!text-slate-500")}</td>
+                          <td className={LEG_TD}>{shown(stamp ? stamp.format("YYYY-MM-DD") : "", "!text-slate-500")}</td>
+                          <td className={LEG_TD}>{shown(stamp ? stamp.format("HH:mm") : "", "!text-slate-500")}</td>
                         </tr>
                       );
                     }
                     return (
-                    <tr key={l.leg} className="border-b border-slate-100 last:border-b-0">
-                      <td className="px-4 py-1.5">
+                    <tr key={l.leg}>
+                      <td className={LEG_TD}>
                         <span className="inline-flex items-center gap-2 font-bold tracking-wide text-slate-700">
                           <i className={`w-2 h-2 rounded-sm ${LEG_DOT[l.leg]}`} />
                           {l.leg}
                         </span>
                       </td>
-                      <td className="px-4 py-1.5">
+                      <td className={LEG_TD}>
                         <InlineText
                           value={l.company}
                           placeholder="not assigned"
@@ -458,31 +459,31 @@ export function OverviewTab({
                           onSave={(v) => setLeg(l.leg, { company: v })}
                         />
                       </td>
-                      <td className="px-4 py-1.5">
+                      <td className={LEG_TD}>
                         <InlineText
                           value={l.plate}
                           mono
                           onSave={(v) => setLeg(l.leg, { plate: v })}
                         />
                       </td>
-                      <td className="px-4 py-1.5">
+                      <td className={LEG_TD}>
                         <InlineText value={l.driver} onSave={(v) => setLeg(l.leg, { driver: v })} />
                       </td>
-                      <td className="px-4 py-1.5">
+                      <td className={LEG_TD}>
                         <InlineText
                           value={l.phone}
                           className="!text-slate-500"
                           onSave={(v) => setLeg(l.leg, { phone: v })}
                         />
                       </td>
-                      <td className="px-4 py-1.5">
+                      <td className={LEG_TD}>
                         <InlineDate
                           value={gateTimeOf(l)}
                           className="!text-slate-500"
                           onSave={(v) => setLegStamp(l, { date: v })}
                         />
                       </td>
-                      <td className="px-4 py-1.5">
+                      <td className={LEG_TD}>
                         <InlineTime
                           value={gateTimeOf(l)}
                           className="!text-slate-500"
@@ -554,7 +555,7 @@ export function OverviewTab({
                         ))}
                       </svg>
                     </span>
-                    <span className="text-[10px] font-bold uppercase tracking-wide text-slate-600">
+                    <span className={LABEL_TEXT}>
                       {c.label}
                     </span>
                     <span className={`text-[11px] ${style.text}`}>{CHECK_TEXT[st]}</span>
@@ -571,7 +572,7 @@ export function OverviewTab({
               icon={<CarOutlined />}
               bodyClassName="overflow-x-auto"
             >
-              <table className="w-full border-collapse text-xs">
+              <table className="w-full border-collapse text-[13px]">
                 <tbody>
                   {[
                     {
@@ -657,7 +658,7 @@ export function OverviewTab({
                     },
                   ].map((row) => (
                     <tr key={row.label} className="border-b border-slate-100 last:border-b-0">
-                      <th className="text-left px-4 py-1.5 w-[170px] text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                      <th className={`text-left px-4 py-1.5 w-[170px] ${LABEL_TEXT}`}>
                         {row.label}
                       </th>
                       <td className="px-4 py-1.5">{row.cell}</td>
@@ -683,7 +684,7 @@ function UnNumberInput({ value, onSave }: { value: string; onSave: (v: string) =
       maxLength={12}
       defaultValue={value}
       placeholder="e.g. UN 1263"
-      className="!text-xs -ml-[7px] hover:!bg-slate-50 tabular-nums font-medium w-[160px]"
+      className="!text-[13px] -ml-[7px] hover:!bg-slate-50 tabular-nums font-medium w-[160px]"
       onBlur={(e) => e.target.value.trim() !== value && onSave(e.target.value.trim())}
       onPressEnter={(e) => e.currentTarget.blur()}
     />
@@ -702,14 +703,14 @@ function StorageSection({ m, save }: { m: GateMovement; save: Save }) {
   return (
     <Section title="Storage" icon={<FieldTimeOutlined />}>
       <FieldRow label="Clock">
-        <span className="text-xs font-medium text-slate-900">
+        <span className="font-medium text-slate-900">
           <StorageLine s={s} />
         </span>
       </FieldRow>
       {outbound && (m.receivedAt || m.container?.tallyRequired) ? (
         // An import house is received by its tick-off at the stripping tally: the date follows it.
         <FieldRow label="Received in warehouse">
-          <span className="text-xs text-slate-700">
+          <span className="text-slate-700">
             {m.receivedAt ? `${dayjs(m.receivedAt).format("DD.MM.YYYY HH:mm")} — ` : "Not yet — "}
             set by the stripping tally{m.container ? ` of container ${m.container.number}` : ""}
           </span>
@@ -720,12 +721,12 @@ function StorageSection({ m, save }: { m: GateMovement; save: Save }) {
         </FieldRow>
       ) : (
         <FieldRow label="Received">
-          <span className="text-xs text-slate-700">{s.startDate ? `${dayjs(s.startDate).format("DD.MM.YYYY")} — the gate-in` : "at the gate-in"}</span>
+          <span className="text-slate-700">{s.startDate ? `${dayjs(s.startDate).format("DD.MM.YYYY")} — the gate-in` : "at the gate-in"}</span>
         </FieldRow>
       )}
       {m.leftAt && (
         <FieldRow label="Left">
-          <span className="text-xs text-slate-700">
+          <span className="text-slate-700">
             {dayjs(m.leftAt).format("DD.MM.YYYY HH:mm")} — in container {m.container?.number ?? ""} (its gate-out stopped the clock)
           </span>
         </FieldRow>
@@ -735,10 +736,10 @@ function StorageSection({ m, save }: { m: GateMovement; save: Save }) {
       </FieldRow>
       {s.started && (
         <FieldRow label="Last free day">
-          <span className="text-xs text-slate-700">{dayjs(s.lastFreeDay).format("DD.MM.YYYY")}</span>
+          <span className="text-slate-700">{dayjs(s.lastFreeDay).format("DD.MM.YYYY")}</span>
         </FieldRow>
       )}
-      <p className="text-[11px] text-slate-400 mt-2 mb-0">
+      <p className={`${HINT} mt-2 mb-0`}>
         The receipt day is day 1; calendar days in Prague time. After the free days CZK 22 per W/M a day, at least CZK 120.
       </p>
     </Section>
@@ -761,14 +762,14 @@ function FreeDaysInput({ value, onSave }: { value: number | null; onSave: (v: nu
         placeholder="7 (default)"
         aria-label="Free days"
         value={draft}
-        className="!text-xs -ml-[7px] hover:!bg-slate-50 w-[110px] tabular-nums font-medium"
+        className="!text-[13px] -ml-[7px] hover:!bg-slate-50 w-[110px] tabular-nums font-medium"
         onChange={(v) => setDraft(v == null ? null : Number(v))}
         onBlur={() => {
           if (draft !== value) onSave(draft);
         }}
         onPressEnter={(e) => (e.target as HTMLInputElement).blur()}
       />
-      <span className="text-slate-400 text-xs">days</span>
+      <span className="text-slate-400">days</span>
     </span>
   );
 }
@@ -783,55 +784,55 @@ function ContainerCard({ m }: { m: GateMovement }) {
       title="Container"
       icon={<ContainerOutlined />}
       extra={
-        <Link href={`/warehouse-concept/containers/${c.id}`} className="font-semibold text-indigo-500 hover:underline">
+        <Link href={`/warehouse-concept/containers/${c.id}`} className={`font-semibold ${LINK}`}>
           Open container
         </Link>
       }
     >
       <FieldRow label="Container">
         <span className="flex flex-wrap items-center gap-2">
-          <span className="tabular-nums font-semibold text-slate-900">{c.number}</span>
+          <span className={`${REF} font-semibold text-slate-900`}>{c.number}</span>
           <Badge tone={kind === "export" ? "i" : "b"}>{KIND_LABEL[kind]}</Badge>
           <Badge tone={CONTAINER_STATUS_TONE[c.status] ?? ""}>{c.status}</Badge>
         </span>
       </FieldRow>
       {(c.equipment || c.seal) && (
         <FieldRow label="Type · seal">
-          <span className="text-xs text-slate-700">
+          <span className="text-slate-700">
             {c.equipment || "—"} · <span className="tabular-nums">{c.seal || "no seal yet"}</span>
           </span>
         </FieldRow>
       )}
       <FieldRow label={TERMS.containerGateIn}>
-        <span className="text-xs text-slate-700">{c.gateInAt ? formatDateTime(c.gateInAt) : "Not yet"}</span>
+        <span className="text-slate-700">{c.gateInAt ? formatDateTime(c.gateInAt) : "Not yet"}</span>
       </FieldRow>
       {kind === "export" ? (
         <FieldRow label={TERMS.stuffed}>
           {c.stuffedAt ? (
-            <span className="text-xs text-slate-700">
+            <span className="text-slate-700">
               <Badge tone="i">Stuffed</Badge> {formatDateTime(c.stuffedAt)}
               {c.stuffedBy ? ` · ${c.stuffedBy}` : ""}
             </span>
           ) : (
-            <span className="text-xs text-slate-500">Planned — not stuffed yet</span>
+            <span className="text-slate-500">Planned — not stuffed yet</span>
           )}
         </FieldRow>
       ) : (
         <FieldRow label="Tally">
           {c.tallyOutcome ? (
-            <span className="text-xs text-slate-700">
+            <span className="text-slate-700">
               <Badge tone={TALLY_TONE[c.tallyOutcome] ?? ""}>{TALLY_LABEL[c.tallyOutcome] ?? c.tallyOutcome}</Badge>
               {c.tallyPieces != null ? ` ${c.tallyPieces} of ${m.colli} pcs` : ""}
               {c.tickedAt ? ` · ${formatDateTime(c.tickedAt)}` : ""}
               {c.tickedBy ? ` · ${c.tickedBy}` : ""}
             </span>
           ) : (
-            <span className="text-xs text-slate-500">{c.tallyRequired ? "Not tallied yet — received when ticked off at the stripping tally" : "Registered before the stripping tally — received by the date on Storage"}</span>
+            <span className="text-slate-500">{c.tallyRequired ? "Not tallied yet — received when ticked off at the stripping tally" : "Registered before the stripping tally — received by the date on Storage"}</span>
           )}
         </FieldRow>
       )}
       <FieldRow label={TERMS.containerGateOut}>
-        <span className="text-xs text-slate-700">{c.gateOutAt ? formatDateTime(c.gateOutAt) : "Not yet"}</span>
+        <span className="text-slate-700">{c.gateOutAt ? formatDateTime(c.gateOutAt) : "Not yet"}</span>
       </FieldRow>
     </Section>
   );

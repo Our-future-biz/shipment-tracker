@@ -9,6 +9,7 @@ import { EditOutlined, UploadOutlined } from "@ant-design/icons";
 import { AppModal } from "@/components/AppModal";
 import { BackLink } from "@/components/BackLink";
 import { LINK_CLASS } from "@/components/linkClass";
+import { Pill } from "@/components/Pill";
 import { SectionCard } from "@/components/SectionCard";
 import { CUSTOMER_ROLE_LABELS } from "@/app/customers/_lib/constants";
 import type { SupplierTariffVersion } from "@/hooks/useSupplierTariffs";
@@ -17,6 +18,7 @@ import type { interfaces } from "@/lib/api/client";
 import { useCanManageTariffs } from "@/lib/auth/AuthContext";
 import { businessToday, formatDate, formatDateTime } from "@/lib/date";
 import { useToast } from "@/lib/toast";
+import { CARD, HINT, LABEL_TEXT, PAGE_TITLE } from "@/styles/ui";
 import { STATUS_CHIP, pricesOn, validityText, versionLabel } from "../_lib/railTariffs";
 import { muted } from "./TariffText";
 
@@ -50,7 +52,7 @@ function versionColumns(customerId: string, today: string, versionHref: (custome
       title: "Status",
       render: (_, v) => (
         <span className="inline-flex items-center gap-1.5">
-          <span className={`inline-block rounded-full border px-2 py-0.5 text-[12px] font-medium ${STATUS_CHIP[v.status].className}`}>{STATUS_CHIP[v.status].label}</span>
+          <Pill tone={STATUS_CHIP[v.status].tone}>{STATUS_CHIP[v.status].label}</Pill>
           {v.status === "active" && !pricesOn(v, today) && muted((v.validFrom ?? "") > today ? "starts later" : "ended")}
         </span>
       ),
@@ -195,7 +197,7 @@ export function TariffSupplierView<T extends SupplierTariff, F extends object>({
         <BackLink href={section.path}>{section.label}</BackLink>
         <div className="flex flex-wrap items-start gap-2 mt-1">
           <div className="min-w-0 flex-1">
-            <h1 className="text-[22px] font-bold text-slate-800 m-0">{supplier.companyName}</h1>
+            <h1 className={PAGE_TITLE}>{supplier.companyName}</h1>
             <div className="text-xs text-slate-500 mt-1 flex flex-wrap gap-x-1">
               <span>{CUSTOMER_ROLE_LABELS[role]}</span>
               {supplier.ico && <span>· IČO {supplier.ico}</span>}
@@ -216,7 +218,7 @@ export function TariffSupplierView<T extends SupplierTariff, F extends object>({
 
       <div className="px-6 py-5 max-w-[1400px] mx-auto flex flex-col gap-5">
         {tariffs.length === 0 && (
-          <div className="bg-white border border-slate-200 rounded-xl px-6 py-14 text-center text-slate-500 text-sm">
+          <div className={`${CARD} px-6 py-14 text-center text-slate-500 text-[13px]`}>
             No tariffs yet. {canManage ? uploadHint : "A manager uploads them."}
           </div>
         )}
@@ -285,12 +287,12 @@ export function TariffSupplierView<T extends SupplierTariff, F extends object>({
       >
         {editing && (
           <div className="flex flex-col gap-4">
-            <label className="flex flex-col gap-1 text-[12px] font-semibold text-slate-600">
-              Name
+            <label className="flex flex-col gap-1">
+              <span className={LABEL_TEXT}>Name</span>
               <Input aria-label="Tariff name" value={editing.name} maxLength={200} disabled={edit.isSaving} onChange={(e) => setEditing({ ...editing, name: e.target.value })} />
             </label>
             {edit.renderFields(editing.fields, (fields) => setEditing({ ...editing, fields }), edit.isSaving)}
-            <div className="text-[12px] text-slate-400">{edit.footnote}</div>
+            <div className={HINT}>{edit.footnote}</div>
           </div>
         )}
       </AppModal>

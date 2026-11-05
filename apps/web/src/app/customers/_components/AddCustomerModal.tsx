@@ -15,6 +15,7 @@ import { ContactPhoneInput, isPossiblePhone } from "../[id]/_components/ContactP
 import { CustomerInfoRow } from "../[id]/_components/CustomerInfoRow";
 import { CONTACT_ROLES, customerRoleOptions } from "../_lib/constants";
 import { useCanManageCustomers, useCanSeeConcepts } from "@/lib/auth/AuthContext";
+import { LABEL_TEXT, MODAL_TITLE } from "@/styles/ui";
 
 const ICO_LENGTH = 8;
 // ARES is searched by name from this many characters, once typing has paused.
@@ -258,7 +259,7 @@ export function AddCustomerModal({
     value: company.ico,
     label: (
       <div className="py-0.5">
-        <div className="font-medium text-slate-800 truncate">{company.companyName}</div>
+        <div className="font-medium text-slate-900 truncate">{company.companyName}</div>
         <div className="text-xs text-slate-500 truncate">
           IČO {company.ico}
           {company.address && ` · ${company.address}`}
@@ -286,7 +287,7 @@ export function AddCustomerModal({
       open={open}
       onCancel={handleCancel}
       afterClose={handleAfterClose}
-      title={<span className="text-lg font-semibold text-slate-800">{newSupplier ? "Add supplier" : "Add Customer / Supplier"}</span>}
+      title={<span className={MODAL_TITLE}>{newSupplier ? "Add supplier" : "Add Customer / Supplier"}</span>}
       width={560}
       destroyOnHidden
       footer={
@@ -342,7 +343,7 @@ export function AddCustomerModal({
         </div>
       )}
 
-      <div className="flex items-center gap-2 rounded-lg bg-indigo-50 px-3 py-2.5 mb-4 text-[13px] text-slate-600">
+      <div className="flex items-center gap-2 rounded-lg bg-indigo-50 px-3 py-2.5 mb-4 text-[13px] text-slate-700">
         <InfoCircleOutlined aria-hidden className="text-indigo-500" />
         {fromRegistry
           ? "Company data will be retrieved from the Czech ARES registry."
@@ -393,15 +394,15 @@ export function AddCustomerModal({
           {preview && (
             <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 mb-2">
               <div className="flex items-center justify-between gap-2 mb-2">
-                <span className="inline-flex items-center gap-2 text-[13px] font-medium text-green-700">
-                  <CheckCircleFilled aria-hidden className="text-green-600" />
+                <span className="inline-flex items-center gap-2 text-[13px] font-medium text-emerald-700">
+                  <CheckCircleFilled aria-hidden className="text-emerald-600" />
                   Company found in ARES
                 </span>
                 <Button size="small" onClick={handleChangeCompany} disabled={isCreating}>
                   Change
                 </Button>
               </div>
-              <div className="text-[14px] font-semibold text-slate-800 mb-1">
+              <div className="text-[14px] font-semibold text-slate-900 mb-1">
                 {preview.companyName || "—"}
               </div>
               <CustomerInfoRow label="IČO">
@@ -462,7 +463,7 @@ export function AddCustomerModal({
           shows the section once it is found in ARES, so the person is entered for the right company. */}
       {(!fromRegistry || preview) && (
         <div className="border-t border-slate-200 pt-4 mt-2">
-          <div className="text-sm font-semibold text-slate-800 mb-3">Contact person</div>
+          <div className={`${LABEL_TEXT} mb-3`}>Contact person</div>
           <Form
             form={contactForm}
             layout="vertical"

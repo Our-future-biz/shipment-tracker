@@ -3,6 +3,7 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Spin } from "antd";
 import { useInternalMonths, type InternalMonth } from "@/hooks/useTruckingMoney";
+import { CARD, EMPTY, REF, TD, TH } from "@/styles/ui";
 import { MONTH_STATUS_CHIP, monthCount, monthLabel, monthTotal } from "../_lib/internalBilling";
 import { formatMoney } from "../_lib/tariffs";
 import { InternalMonthDetail } from "./InternalMonthDetail";
@@ -33,22 +34,22 @@ export const TruckingInternalBillingTab = () => {
   if (chosen) return <InternalMonthDetail month={chosen} />;
 
   return (
-    <section className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-      <table className="w-full border-collapse text-[13px]">
+    <section className={`${CARD} overflow-x-auto`}>
+      <table className="w-full border-collapse">
         <thead>
-          <tr className="border-b border-slate-200 bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
-            <th className="px-4 py-2">Month</th>
-            <th className="px-4 py-2">Status</th>
-            <th className="px-4 py-2 text-right">Consignments</th>
-            <th className="px-4 py-2">Per department</th>
-            <th className="px-4 py-2 text-right">Total</th>
-            <th className="px-4 py-2">Statements</th>
+          <tr>
+            <th className={TH}>Month</th>
+            <th className={TH}>Status</th>
+            <th className={`${TH} !text-right`}>Consignments</th>
+            <th className={TH}>Per department</th>
+            <th className={`${TH} !text-right`}>Total</th>
+            <th className={TH}>Statements</th>
           </tr>
         </thead>
         <tbody>
           {months.length === 0 && (
             <tr>
-              <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
+              <td colSpan={6} className="px-2 py-8 text-center text-[13px] text-slate-500">
                 {isError ? "The months could not be loaded." : "No months yet."}
               </td>
             </tr>
@@ -65,16 +66,16 @@ export const TruckingInternalBillingTab = () => {
                   handleOpen(m);
                 }
               }}
-              className="cursor-pointer border-b border-slate-100 align-top last:border-b-0 hover:bg-slate-50 focus:bg-indigo-50 focus:outline-none"
+              className="cursor-pointer [&>td]:align-top [&:last-child>td]:border-b-0 hover:bg-slate-50 focus:bg-indigo-50 focus:outline-none"
             >
-              <td className="px-4 py-2 font-semibold text-indigo-600">{monthLabel(m.month)}</td>
-              <td className="px-4 py-2">
+              <td className={`${TD} font-semibold !text-indigo-600`}>{monthLabel(m.month)}</td>
+              <td className={TD}>
                 <TruckingStatusChip chip={MONTH_STATUS_CHIP[m.status]} />
               </td>
-              <td className="px-4 py-2 text-right tabular-nums">{monthCount(m)}</td>
-              <td className="px-4 py-2 text-slate-600">{m.totals.map((t) => `${t.department} ${formatMoney(t.amount, "CZK")} (${t.count})`).join(" · ") || "—"}</td>
-              <td className="px-4 py-2 text-right font-semibold tabular-nums">{formatMoney(monthTotal(m), "CZK")}</td>
-              <td className="px-4 py-2 tabular-nums text-[12px] text-slate-600">{m.statementNumbers.join(", ") || "—"}</td>
+              <td className={`${TD} text-right tabular-nums`}>{monthCount(m)}</td>
+              <td className={TD}>{m.totals.map((t) => `${t.department} ${formatMoney(t.amount, "CZK")} (${t.count})`).join(" · ") || <span className={EMPTY}>—</span>}</td>
+              <td className={`${TD} text-right font-semibold tabular-nums`}>{formatMoney(monthTotal(m), "CZK")}</td>
+              <td className={`${TD} ${REF}`}>{m.statementNumbers.join(", ") || <span className={EMPTY}>—</span>}</td>
             </tr>
           ))}
         </tbody>

@@ -8,6 +8,9 @@ import {
   type MasterInvoiceRow,
   type SplitMethod,
 } from "../_lib/masterInvoice";
+import { EMPTY, HINT, LABEL_TEXT, TD, TD_TOTAL, TH } from "@/styles/ui";
+
+const DASH = <span className={EMPTY}>—</span>;
 
 export interface MasterInvoiceShipment extends MasterInvoiceRow {
   /** Shipper, else consignee, so the user can tell the shipments apart. */
@@ -59,7 +62,7 @@ export function MasterInvoiceShipments({
 
   return (
     <div>
-      <div className="text-xs font-medium text-slate-500 mb-1.5">
+      <div className={`${LABEL_TEXT} mb-1.5`}>
         Split the invoice <span className="text-red-500">*</span>
       </div>
       <Radio.Group value={method} onChange={(e) => onMethod(e.target.value)} className="mb-3">
@@ -83,24 +86,24 @@ export function MasterInvoiceShipments({
           </span>
         </div>
         {rows.length === 0 ? (
-          <p className="m-0 px-3 py-4 text-xs text-slate-400">This master job has no shipments.</p>
+          <p className={`m-0 px-3 py-4 ${HINT}`}>This master job has no shipments.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] border-collapse text-xs">
+            <table className="w-full min-w-[720px] border-collapse">
               <thead>
-                <tr className="border-b border-slate-100 text-slate-500">
-                  <th className="w-8" />
-                  <th className="text-left font-semibold p-2">Internal Reference</th>
-                  <th className="text-left font-semibold p-2">Shipper / Consignee</th>
-                  <th className="text-right font-semibold p-2">Weight (t)</th>
-                  <th className="text-right font-semibold p-2">Volume (cbm)</th>
-                  <th className="text-right font-semibold p-2">W/M</th>
+                <tr>
+                  <th className={`${TH} w-8`} />
+                  <th className={TH}>Internal Reference</th>
+                  <th className={TH}>Shipper / Consignee</th>
+                  <th className={`${TH} !text-right`}>Weight (t)</th>
+                  <th className={`${TH} !text-right`}>Volume (cbm)</th>
+                  <th className={`${TH} !text-right`}>W/M</th>
                   {showParts && (
-                    <th className="text-right font-semibold p-2">
+                    <th className={`${TH} !text-right`}>
                       Part{currency ? ` (${currency})` : ""}
                     </th>
                   )}
-                  {showParts && <th className="text-left font-semibold p-2">Real cost now</th>}
+                  {showParts && <th className={TH}>Real cost now</th>}
                 </tr>
               </thead>
               <tbody>
@@ -108,36 +111,35 @@ export function MasterInvoiceShipments({
                   const on = ticked.has(r.shipmentId);
                   const had = existing?.[r.shipmentId];
                   const part = parts?.[r.shipmentId];
+                  // An unticked shipment is greyed out ("!": TD's own colour would win otherwise).
+                  const td = on ? TD : `${TD} !text-slate-400`;
                   return (
-                    <tr
-                      key={r.shipmentId}
-                      className={`border-b border-slate-100 last:border-b-0 ${on ? "" : "text-slate-400"}`}
-                    >
-                      <td className="pl-3">
+                    <tr key={r.shipmentId}>
+                      <td className={`${td} pl-3`}>
                         <Checkbox
                           checked={on}
                           onChange={(e) => onTick(r.shipmentId, e.target.checked)}
                           aria-label={`Tick ${r.jobNumber}`}
                         />
                       </td>
-                      <td className="p-2 tabular-nums">{r.jobNumber}</td>
-                      <td className="p-2 max-w-[220px] truncate" title={r.party}>
-                        {r.party || "—"}
+                      <td className={`${td} tabular-nums`}>{r.jobNumber}</td>
+                      <td className={`${td} max-w-[220px] truncate`} title={r.party}>
+                        {r.party || DASH}
                       </td>
-                      <td className="p-2 text-right tabular-nums">{r.tons.toFixed(3)}</td>
-                      <td className="p-2 text-right tabular-nums">{r.cbm.toFixed(3)}</td>
+                      <td className={`${td} text-right tabular-nums`}>{r.tons.toFixed(3)}</td>
+                      <td className={`${td} text-right tabular-nums`}>{r.cbm.toFixed(3)}</td>
                       <td
-                        className={`p-2 text-right tabular-nums font-semibold ${on && method === "wm" && r.freightTon <= 0 ? "text-red-500" : ""}`}
+                        className={`${td} text-right tabular-nums font-semibold ${on && method === "wm" && r.freightTon <= 0 ? "!text-red-600" : ""}`}
                       >
                         {r.freightTon.toFixed(3)}
                       </td>
                       {showParts && (
-                        <td className="p-2 text-right tabular-nums font-semibold">
-                          {on && part ? part : "—"}
+                        <td className={`${td} text-right tabular-nums font-semibold`}>
+                          {on && part ? part : DASH}
                         </td>
                       )}
                       {showParts && (
-                        <td className="p-2">
+                        <td className={td}>
                           {on && had ? (
                             <span className="flex items-center gap-2">
                               <span className="text-amber-600">
@@ -161,22 +163,22 @@ export function MasterInvoiceShipments({
                 })}
               </tbody>
               <tfoot>
-                <tr className="border-t border-slate-200 bg-slate-50 font-semibold text-slate-800">
-                  <td />
-                  <td className="p-2" colSpan={2}>
+                <tr className="bg-slate-50">
+                  <td className={TD_TOTAL} />
+                  <td className={TD_TOTAL} colSpan={2}>
                     Total of {tickedCount} ticked
                   </td>
-                  <td className="p-2 text-right tabular-nums">{sum((r) => r.tons).toFixed(3)}</td>
-                  <td className="p-2 text-right tabular-nums">{sum((r) => r.cbm).toFixed(3)}</td>
-                  <td className="p-2 text-right tabular-nums">
+                  <td className={`${TD_TOTAL} text-right tabular-nums`}>{sum((r) => r.tons).toFixed(3)}</td>
+                  <td className={`${TD_TOTAL} text-right tabular-nums`}>{sum((r) => r.cbm).toFixed(3)}</td>
+                  <td className={`${TD_TOTAL} text-right tabular-nums`}>
                     {sum((r) => r.freightTon).toFixed(3)}
                   </td>
                   {showParts && (
-                    <td className="p-2 text-right tabular-nums">
-                      {partsTotal > 0 ? partsTotal.toFixed(2) : "—"}
+                    <td className={`${TD_TOTAL} text-right tabular-nums`}>
+                      {partsTotal > 0 ? partsTotal.toFixed(2) : DASH}
                     </td>
                   )}
-                  {showParts && <td />}
+                  {showParts && <td className={TD_TOTAL} />}
                 </tr>
               </tfoot>
             </table>
@@ -197,7 +199,7 @@ export function MasterInvoiceShipments({
           (r) =>
             ticked.has(r.shipmentId) && existing?.[r.shipmentId] && !overwrite?.has(r.shipmentId),
         ) && (
-          <p className="mt-2 mb-0 text-[11px] text-slate-400">
+          <p className={`mt-2 mb-0 ${HINT}`}>
             A shipment that already has a real cost under this charge keeps it and is skipped,
             unless Replace is ticked.
           </p>

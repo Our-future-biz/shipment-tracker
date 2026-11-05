@@ -1,3 +1,7 @@
+/* antd's styles sit in their own layer (StyleProvider in lib/theme/ThemeProvider.tsx), between
+   Tailwind's base and its utilities: antd still beats the browser reset, and a utility class beats antd. */
+@layer theme, base, antd, components, utilities;
+
 @import "tailwindcss";
 
 /* The panel palette of the shipment detail tabs (documents, customs, costs). Use these

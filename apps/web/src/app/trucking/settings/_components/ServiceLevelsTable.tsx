@@ -25,8 +25,8 @@ export const ServiceLevelsTable = ({ levels, disabled, onChange }: ServiceLevels
     rowKey="code"
     dataSource={levels}
     columns={[
-      { key: "label", title: "Service level", render: (_, l) => <span className="font-semibold text-slate-800">{l.label}</span> },
-      { key: "days", title: "Due", render: (_, l) => <span className="text-slate-600">{workingDaysText(l.code, l.workingDays)}</span> },
+      { key: "label", title: "Service level", render: (_, l) => <span className="font-semibold text-slate-900">{l.label}</span> },
+      { key: "days", title: "Due", render: (_, l) => <span className="text-slate-700">{workingDaysText(l.code, l.workingDays)}</span> },
       {
         key: "cutoff",
         title: "Order cut-off (Prague)",

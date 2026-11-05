@@ -9,6 +9,7 @@ import {
 } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { EMPTY_CELL } from "@/components/EmptyCell";
+import { LINK } from "@/styles/ui";
 import {
   getCellConditionalStyle,
   getRowConditionalStyle,
@@ -103,14 +104,14 @@ function CustomerName({
       {customerId ? (
         <Link
           href={`/customers/${customerId}`}
-          className="text-indigo-500 hover:underline font-medium"
+          className="text-indigo-600 hover:!underline font-medium"
           // the row opens the job: the click must not open that as well
           onClick={(e) => e.stopPropagation()}
         >
           {name}
         </Link>
       ) : (
-        <span className="text-slate-600">{name}</span>
+        <span className="text-slate-700">{name}</span>
       )}
     </span>
   );
@@ -162,14 +163,14 @@ export function queueColumns({
       onCell: tint("jobNumber", (r) => r.jobNumber, info),
       render: (_, r) => {
         const s = styleOf("jobNumber", r.jobNumber, info, r);
-        // An OBL row is red throughout, so the default indigo steps aside for it.
+        // An OBL row is red throughout, so the link's own indigo (LINK) steps aside for it.
         const coloured = !!s?.color || !!info.get(r.shipmentId)?.rowStyle?.color;
         return (
           <Link
             href={jobHref(r.shipmentId)}
             scroll={false}
             onClick={(e) => e.stopPropagation()}
-            className={`tabular-nums hover:!underline ${coloured ? "" : "!text-indigo-500"} ${s?.fontWeight ? "" : "font-bold"}`}
+            className={`tabular-nums ${coloured ? "hover:!underline" : LINK} ${s?.fontWeight ? "" : "font-bold"}`}
             style={{ color: s?.color, fontWeight: s?.fontWeight }}
           >
             {r.jobNumber || "—"}
@@ -193,7 +194,7 @@ export function queueColumns({
       width: W.direction,
       ellipsis: true,
       render: (_, r) =>
-        r.tradeDirection ? <span className="text-slate-600">{r.tradeDirection}</span> : EMPTY_CELL,
+        r.tradeDirection ? <span className="text-slate-700">{r.tradeDirection}</span> : EMPTY_CELL,
     },
     {
       // The date the job is billed by, the list's default order (BillingQueue sorts all rows by it).
@@ -214,7 +215,7 @@ export function queueColumns({
         const s = styleOf(key, v, info, r);
         return (
           <span
-            className="text-slate-600"
+            className="text-slate-700"
             style={{ color: s?.color, fontWeight: s?.fontWeight }}
             title={key === "estimatedDeparture" ? "Estimated Departure" : "Estimated Arrival"}
           >
@@ -230,7 +231,7 @@ export function queueColumns({
       width: W.duzp,
       ellipsis: true,
       sorter: (a, b) => (a.duzp || "9999").localeCompare(b.duzp || "9999"),
-      render: (_, r) => (r.duzp ? <span className="text-slate-600">{formatDate(r.duzp)}</span> : EMPTY_CELL),
+      render: (_, r) => (r.duzp ? <span className="text-slate-700">{formatDate(r.duzp)}</span> : EMPTY_CELL),
     },
     {
       key: "invoices",
@@ -254,7 +255,7 @@ export function queueColumns({
             >
               <span
                 tabIndex={0}
-                className="block truncate tabular-nums text-slate-600"
+                className="block truncate tabular-nums text-slate-700"
                 style={capped(W.invoices)}
               >
                 {r.invoiceNumbers.join(", ")}
@@ -300,7 +301,7 @@ export function queueColumns({
       ellipsis: true,
       sorter: (a, b) => invoicingStatusOf(a).localeCompare(invoicingStatusOf(b)),
       onCell: tint("invoicingStatus", invoicingStatusOf, info),
-      render: (_, r) => <span className="text-slate-600">{invoicingStatusOf(r)}</span>,
+      render: (_, r) => <span className="text-slate-700">{invoicingStatusOf(r)}</span>,
     },
     {
       key: "__open",
@@ -322,7 +323,7 @@ export function queueColumns({
                   e.stopPropagation();
                   onDocs(r);
                 }}
-                className="text-slate-400 hover:text-indigo-500 bg-transparent border-none cursor-pointer p-1 leading-[21px]"
+                className="text-slate-400 hover:text-indigo-600 bg-transparent border-none cursor-pointer p-1 leading-[21px]"
               >
                 <FileTextOutlined />
               </button>
@@ -338,19 +339,19 @@ export function queueColumns({
                     e.stopPropagation();
                     onChat(r);
                   }}
-                  className={`bg-transparent border-none cursor-pointer p-1 leading-[21px] ${unread ? "text-red-500 hover:text-red-600" : "text-slate-400 hover:text-indigo-500"}`}
+                  className={`bg-transparent border-none cursor-pointer p-1 leading-[21px] ${unread ? "text-red-500 hover:text-red-600" : "text-slate-400 hover:text-indigo-600"}`}
                 >
                   <MessageOutlined />
                 </button>
               </Badge>
             </Tooltip>
             {/* Warning triangle as on Shipments; the invoicing rules come later, so for now it
-                shows the Shipments "no warning" look. */}
+                shows the Shipments "no warning" look (grey). */}
             <Tooltip title="No invoicing warning">
               <span
                 role="img"
                 aria-label="No invoicing warning"
-                className="inline-block p-1 leading-[21px] text-yellow-400"
+                className="inline-block p-1 leading-[21px] text-slate-400"
               >
                 <WarningFilled />
               </span>

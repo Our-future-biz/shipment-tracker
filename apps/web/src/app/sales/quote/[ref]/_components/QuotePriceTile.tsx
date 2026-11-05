@@ -1,5 +1,6 @@
 import { KPI_TILE_CLASS, KPI_TONE_CLASS, type KpiTone } from "@/components/KpiTile";
 import { fmtMoney } from "@/lib/money";
+import { KPI_VALUE, LABEL_TEXT } from "@/styles/ui";
 import type { QuoteTotals } from "../../../_lib/salesQuote";
 
 interface QuotePriceTileProps {
@@ -13,8 +14,8 @@ interface QuotePriceTileProps {
 export const QuotePriceTile = ({ totals, profitTone }: QuotePriceTileProps) => {
   const amount = (label: string, value: number) => (
     <div className="flex items-baseline justify-between gap-3 min-w-0">
-      <span className="text-[11px] text-slate-400 uppercase tracking-wide truncate">{label}</span>
-      <span className="text-lg font-bold text-slate-800 tabular-nums whitespace-nowrap">{fmtMoney(value, totals.currency)}</span>
+      <span className={`${LABEL_TEXT} truncate`}>{label}</span>
+      <span className={`${KPI_VALUE} whitespace-nowrap`}>{fmtMoney(value, totals.currency)}</span>
     </div>
   );
 
@@ -22,16 +23,16 @@ export const QuotePriceTile = ({ totals, profitTone }: QuotePriceTileProps) => {
     <div className={`${KPI_TILE_CLASS} flex items-center gap-4`}>
       <div className="flex-[2] min-w-0">
         {amount("Buying · all-in", totals.buying)}
-        <div aria-hidden className="my-1 h-0.5 bg-slate-800" />
+        <div aria-hidden className="my-1 h-0.5 bg-slate-900" />
         {amount("Selling · all-in", totals.selling)}
       </div>
       <div aria-hidden className="self-stretch w-px bg-slate-200" />
       {/* The profit in the middle of the space from the dividing line to the tile's edge. */}
       <div className="flex-1 min-w-[6.5rem] text-center">
-        <div className="text-[11px] text-slate-400 uppercase tracking-wide whitespace-nowrap">
+        <div className={`${LABEL_TEXT} whitespace-nowrap`}>
           {totals.margin === null ? "Profit" : `Profit · ${totals.margin}%`}
         </div>
-        <div className={`mt-0.5 text-lg font-bold tabular-nums whitespace-nowrap ${profitTone ? KPI_TONE_CLASS[profitTone] : "text-slate-800"}`}>
+        <div className={`mt-0.5 text-[20px] leading-7 font-bold tabular-nums whitespace-nowrap ${profitTone ? KPI_TONE_CLASS[profitTone] : "text-slate-900"}`}>
           {fmtMoney(totals.profit, totals.currency)}
         </div>
       </div>

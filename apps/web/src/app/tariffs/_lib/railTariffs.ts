@@ -22,10 +22,11 @@ export function tariffFileProblem(file: { name: string; size: number }): string 
   return null;
 }
 
-export const STATUS_CHIP: Record<interfaces.SupplierTariffStatus, { label: string; className: string }> = {
-  draft: { label: "Draft", className: "bg-amber-50 text-amber-700 border-amber-200" },
-  active: { label: "Active", className: "bg-emerald-50 text-emerald-700 border-emerald-200" },
-  superseded: { label: "Replaced", className: "bg-slate-100 text-slate-500 border-slate-200" },
+/** A version's status as a Pill: its words and its tone. */
+export const STATUS_CHIP: Record<interfaces.SupplierTariffStatus, { label: string; tone: "amber" | "green" | "slate" }> = {
+  draft: { label: "Draft", tone: "amber" },
+  active: { label: "Active", tone: "green" },
+  superseded: { label: "Replaced", tone: "slate" },
 };
 
 export const LAYOUT_SOURCE_LABEL: Record<interfaces.LayoutSource, string> = {

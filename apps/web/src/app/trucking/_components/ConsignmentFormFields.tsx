@@ -5,6 +5,7 @@ import { Checkbox, DatePicker, Input, InputNumber, Radio, Segmented, Select, Tim
 import { useCustomerSites } from "@/hooks/useCustomerSites";
 import { useHauliers, useTruckingSettings } from "@/hooks/useTrucking";
 import type { ConsignmentScope } from "@/hooks/useTruckingConsignments";
+import { HINT, LABEL_TEXT } from "@/styles/ui";
 import { LAST_MILE_OPTIONS, SCOPE_OPTIONS, type ConsignmentForm, type PriceSource } from "../_lib/consignmentForm";
 import { CURRENCIES } from "../_lib/hauliers";
 import { TERMS } from "../_lib/glossary";
@@ -46,7 +47,7 @@ export const ConsignmentFormFields = ({ form, onChange, limited = false }: Consi
   return (
     <div className="flex flex-col gap-4">
       <fieldset className="m-0 flex min-w-0 flex-col gap-3 rounded-xl border border-slate-200 p-3">
-        <legend className="px-1 text-[12px] font-bold uppercase tracking-wide text-slate-600">Scope</legend>
+        <legend className={`px-1 ${LABEL_TEXT}`}>Scope</legend>
         <Segmented<ConsignmentScope> block aria-label="Scope" disabled={limited} options={SCOPE_OPTIONS} value={form.scope} onChange={(scope) => set("scope", scope)} />
         {ltl && (
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_1fr_1.2fr] lg:items-end">
@@ -76,7 +77,7 @@ export const ConsignmentFormFields = ({ form, onChange, limited = false }: Consi
           </div>
         )}
         {ltl && (
-          <p className="m-0 text-[12px] text-slate-500">
+          <p className={`m-0 ${HINT}`}>
             Goes through our warehouse: {form.selfDelivered ? "the customer brings it" : `a ${TERMS.pickupRun.toLowerCase()} collects it`}, the warehouse confirms the gate-in (the promised date counts from it), then{" "}
             {form.lastMile === "PARTNER" ? `the partner delivers it (a ${TERMS.lineHaul.toLowerCase()} takes it to the partner's depot when needed)` : `our ${TERMS.deliveryRun.toLowerCase()} delivers it`}. Legs are planned on the Planning tab.
           </p>
@@ -126,7 +127,7 @@ export const ConsignmentFormFields = ({ form, onChange, limited = false }: Consi
       <ConsignmentLoadFields load={form.load} disabled={limited} onChange={(l) => set("load", l)} />
 
       <fieldset className="m-0 flex min-w-0 flex-col gap-3 rounded-xl border border-slate-200 p-3">
-        <legend className="px-1 text-[12px] font-bold uppercase tracking-wide text-slate-600">Sell price</legend>
+        <legend className={`px-1 ${LABEL_TEXT}`}>Sell price</legend>
         <Radio.Group aria-label="Sell price" disabled={limited} value={form.priceSource} options={priceOptions} onChange={(e) => set("priceSource", e.target.value)} />
         {form.priceSource === "MANUAL" && (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-[160px_100px_1fr]">
@@ -141,7 +142,7 @@ export const ConsignmentFormFields = ({ form, onChange, limited = false }: Consi
             </TruckingField>
           </div>
         )}
-        <p className="m-0 text-[12px] text-slate-500">
+        <p className={`m-0 ${HINT}`}>
           The price is stored with the consignment and written to the job&apos;s selling costs. Below the {TERMS.marginFloor.toLowerCase()} it can be saved, but the transport order waits for a manager&apos;s approval.
         </p>
       </fieldset>

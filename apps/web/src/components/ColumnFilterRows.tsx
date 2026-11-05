@@ -3,6 +3,7 @@
 import { Input, Select } from "antd";
 import { CloseOutlined, PlusOutlined } from "@ant-design/icons";
 import { newFilterId, type GridFilter, type GridFilterColumn } from "./gridFilters";
+import { HINT, ICON_BTN_GHOST } from "@/styles/ui";
 
 interface ColumnFilterRowsProps {
   rows: GridFilter[];
@@ -27,7 +28,7 @@ export function ColumnFilterRows({ rows, columns, onChange, autoFocusFirst, maxR
   return (
     <>
       {rows.length === 0 ? (
-        <div className="text-xs text-slate-400 text-center py-4 bg-slate-50 rounded-lg">No filters yet — add one to narrow the list.</div>
+        <div className={`${HINT} text-center py-4 bg-slate-50 rounded-lg`}>No filters yet — add one to narrow the list.</div>
       ) : (
         <div className="flex flex-col gap-2">
           {rows.map((f, i) => {
@@ -73,7 +74,7 @@ export function ColumnFilterRows({ rows, columns, onChange, autoFocusFirst, maxR
                   type="button"
                   onClick={() => onChange(rows.filter((x) => x.id !== f.id))}
                   aria-label="Remove filter"
-                  className="shrink-0 flex items-center justify-center w-6 h-6 rounded text-slate-400 hover:text-red-500 hover:bg-red-50 bg-transparent border-none cursor-pointer transition-colors"
+                  className={`${ICON_BTN_GHOST} hover:!text-red-600 hover:!bg-red-50`}
                 >
                   <CloseOutlined className="text-[11px]" />
                 </button>
@@ -87,7 +88,7 @@ export function ColumnFilterRows({ rows, columns, onChange, autoFocusFirst, maxR
         onClick={() => onChange([...rows, { id: newFilterId(), key: "", value: "" }])}
         disabled={full}
         title={full ? `At most ${maxRows} filters` : undefined}
-        className="mt-2.5 w-full flex items-center justify-center gap-1.5 h-8 rounded-lg border border-dashed border-slate-300 text-xs font-medium text-slate-500 hover:border-indigo-400 hover:text-indigo-500 hover:bg-indigo-50/40 bg-transparent cursor-pointer transition-colors disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-slate-300 disabled:hover:text-slate-500 disabled:hover:bg-transparent"
+        className="mt-2.5 w-full flex items-center justify-center gap-1.5 h-8 rounded-lg border border-dashed border-slate-300 text-[12px] font-medium text-slate-500 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50/40 bg-transparent cursor-pointer transition-colors disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-slate-300 disabled:hover:text-slate-500 disabled:hover:bg-transparent"
       >
         <PlusOutlined className="text-[10px]" /> Add filter
       </button>

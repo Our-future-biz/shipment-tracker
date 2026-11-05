@@ -8,6 +8,7 @@ import type { controllers, interfaces } from "@/lib/api/client";
 import { TERMS } from "@/app/warehouse-concept/_lib/glossary";
 import { MAX_DROPS, PACKINGS } from "../../_lib/gate";
 import { Section } from "./fields";
+import { HINT, ICON_BTN_GHOST, LABEL_TEXT, REF, TD, TD_TOTAL, TH } from "@/styles/ui";
 
 type Drop = interfaces.GateSubPosition;
 type Save = (data: Omit<controllers.GateMovementUpdateRequest, "id">) => void;
@@ -58,14 +59,14 @@ const blankDrop = (): Drop => ({
 });
 
 const cell =
-  "w-full min-w-0 bg-transparent border border-transparent rounded px-1.5 py-1 text-xs font-medium text-slate-900 outline-none hover:bg-slate-50 focus:bg-white focus:border-slate-300 placeholder:text-slate-300 placeholder:font-normal disabled:opacity-40 disabled:cursor-not-allowed";
+  "w-full min-w-0 bg-transparent border border-transparent rounded-md px-1.5 py-1 text-[13px] font-medium text-slate-900 outline-none hover:bg-slate-50 focus:bg-white focus:border-slate-300 placeholder:text-slate-300 placeholder:font-normal disabled:opacity-40 disabled:cursor-not-allowed";
 const numCell = `${cell} tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`;
 
 const fmt = (v: number, unit: string) => (v ? `${v.toLocaleString("cs-CZ", { maximumFractionDigits: 2 })} ${unit}` : "0");
 
 const Total = ({ label, children }: { label: string; children: ReactNode }) => (
-  <span className="inline-flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-md px-2.5 py-1 text-xs">
-    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">{label}</span>
+  <span className="inline-flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-[13px]">
+    <span className={LABEL_TEXT}>{label}</span>
     <span className="tabular-nums font-semibold text-slate-900">{children}</span>
   </span>
 );
@@ -121,21 +122,21 @@ export function ShipmentManagementTab({ m, save }: { m: GateMovement; save: Save
       bodyClassName="p-0"
       extra={
         <span>
-          Base position <span className="tabular-nums text-slate-700">{base}</span> · one container, up to {MAX_DROPS} drops
+          Base position <span className={`${REF} text-slate-700`}>{base}</span> · one container, up to {MAX_DROPS} drops
         </span>
       }
     >
       <div className="overflow-x-auto">
-        <table className={`border-collapse text-xs table-fixed ${TABLE_MIN_WIDTH}`}>
+        <table className={`border-collapse table-fixed ${TABLE_MIN_WIDTH}`}>
           <colgroup>
             {COLUMNS.map((c, i) => (
               <col key={i} className={c.width} />
             ))}
           </colgroup>
           <thead>
-            <tr className="bg-slate-50 border-b border-slate-200">
+            <tr>
               {COLUMNS.map((c, i) => (
-                <th key={i} className="text-left px-2 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-500 whitespace-nowrap">
+                <th key={i} className={TH}>
                   {c.title}
                 </th>
               ))}
@@ -150,17 +151,17 @@ export function ShipmentManagementTab({ m, save }: { m: GateMovement; save: Save
               </tr>
             )}
             {rows.map((r, i) => (
-              <tr key={i} className="group border-b border-slate-100">
-                <td className="px-2 py-1">
-                  <span className="tabular-nums font-semibold text-slate-900 whitespace-nowrap">
+              <tr key={i} className="group">
+                <td className={TD}>
+                  <span className={`${REF} font-semibold text-slate-900 whitespace-nowrap`}>
                     {base}-{i + 1}
                   </span>
                 </td>
-                <td className="px-2 py-1">
+                <td className={TD}>
                   <input className={`${cell} tabular-nums`} type="date" aria-label="ETW" value={r.etw} onChange={(e) => change(i, { etw: e.target.value })} />
                 </td>
-                <td className="px-2 py-1">{num(i, "qty", "0")}</td>
-                <td className="px-2 py-1">
+                <td className={TD}>{num(i, "qty", "0")}</td>
+                <td className={TD}>
                   <select className={`${cell} cursor-pointer`} value={r.packing} onChange={(e) => change(i, { packing: e.target.value })}>
                     <option value="">—</option>
                     {PACKINGS.map((p) => (
@@ -168,17 +169,17 @@ export function ShipmentManagementTab({ m, save }: { m: GateMovement; save: Save
                     ))}
                   </select>
                 </td>
-                <td className="px-2 py-1">{num(i, "width", "cm")}</td>
-                <td className="px-2 py-1">{num(i, "length", "cm")}</td>
-                <td className="px-2 py-1">{num(i, "height", "cm")}</td>
-                <td className="px-2 py-1">{text(i, "description", "What is on this drop")}</td>
-                <td className="px-2 py-1">{num(i, "weight", "kg")}</td>
-                <td className="px-2 py-1">{num(i, "measure", "cbm", 0.01)}</td>
-                <td className="px-2 py-1">{num(i, "totalGross", "kg")}</td>
-                <td className="px-2 py-1">{text(i, "plate", "1A1 1122", true)}</td>
-                <td className="px-2 py-1">{text(i, "driver", "Driver name")}</td>
-                <td className="px-2 py-1">{text(i, "transport", "Carrier")}</td>
-                <td className="px-2 py-1 text-center">
+                <td className={TD}>{num(i, "width", "cm")}</td>
+                <td className={TD}>{num(i, "length", "cm")}</td>
+                <td className={TD}>{num(i, "height", "cm")}</td>
+                <td className={TD}>{text(i, "description", "What is on this drop")}</td>
+                <td className={TD}>{num(i, "weight", "kg")}</td>
+                <td className={TD}>{num(i, "measure", "cbm", 0.01)}</td>
+                <td className={TD}>{num(i, "totalGross", "kg")}</td>
+                <td className={TD}>{text(i, "plate", "1A1 1122", true)}</td>
+                <td className={TD}>{text(i, "driver", "Driver name")}</td>
+                <td className={TD}>{text(i, "transport", "Carrier")}</td>
+                <td className={`${TD} text-center`}>
                   <input
                     type="checkbox"
                     aria-label="VGM required"
@@ -187,17 +188,17 @@ export function ShipmentManagementTab({ m, save }: { m: GateMovement; save: Save
                     onChange={(e) => change(i, { vgm: e.target.checked, vgmDate: e.target.checked ? r.vgmDate : "" })}
                   />
                 </td>
-                <td className="px-2 py-1">
+                <td className={TD}>
                   <input className={`${cell} tabular-nums`} type="date" disabled={!r.vgm} value={r.vgmDate} onChange={(e) => change(i, { vgmDate: e.target.value })} />
                 </td>
-                <td className="px-2 py-1">{num(i, "storageDays", "0")}</td>
-                <td className="px-2 py-1 text-center">
+                <td className={TD}>{num(i, "storageDays", "0")}</td>
+                <td className={`${TD} text-center`}>
                   <button
                     type="button"
                     title="Remove sub-position"
                     aria-label="Remove sub-position"
                     onClick={() => persist(rows.filter((_, idx) => idx !== i))}
-                    className="w-6 h-6 rounded-full border border-transparent group-hover:border-slate-200 bg-transparent text-slate-400 hover:text-red-500 hover:!border-red-400 cursor-pointer p-0 leading-none"
+                    className={`${ICON_BTN_GHOST} hover:!text-red-600`}
                   >
                     ×
                   </button>
@@ -206,15 +207,15 @@ export function ShipmentManagementTab({ m, save }: { m: GateMovement; save: Save
             ))}
           </tbody>
           <tfoot>
-            <tr className="border-t border-slate-200 bg-slate-50/60 font-semibold text-slate-600">
-              <td className="px-2 py-2">Total</td>
-              <td />
-              <td className="px-2 py-2 tabular-nums">{qty}</td>
-              <td colSpan={5} />
-              <td className="px-2 py-2 tabular-nums whitespace-nowrap">{fmt(weight, "kg")}</td>
-              <td className="px-2 py-2 tabular-nums whitespace-nowrap">{fmt(measure, "cbm")}</td>
-              <td className="px-2 py-2 tabular-nums whitespace-nowrap">{fmt(gross, "kg")}</td>
-              <td colSpan={7} />
+            <tr>
+              <td className={TD_TOTAL}>Total</td>
+              <td className={TD_TOTAL} />
+              <td className={`${TD_TOTAL} tabular-nums`}>{qty}</td>
+              <td colSpan={5} className={TD_TOTAL} />
+              <td className={`${TD_TOTAL} tabular-nums whitespace-nowrap`}>{fmt(weight, "kg")}</td>
+              <td className={`${TD_TOTAL} tabular-nums whitespace-nowrap`}>{fmt(measure, "cbm")}</td>
+              <td className={`${TD_TOTAL} tabular-nums whitespace-nowrap`}>{fmt(gross, "kg")}</td>
+              <td colSpan={7} className={TD_TOTAL} />
             </tr>
           </tfoot>
         </table>
@@ -224,7 +225,7 @@ export function ShipmentManagementTab({ m, save }: { m: GateMovement; save: Save
         <Button size="small" icon={<PlusOutlined />} disabled={full} onClick={() => persist([...rows, blankDrop()])}>
           Add sub-position
         </Button>
-        <span className="text-xs text-slate-400">
+        <span className={HINT}>
           {rows.length} of {MAX_DROPS} drops
         </span>
         <div className="ml-auto flex flex-wrap gap-2">

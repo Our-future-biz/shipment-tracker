@@ -3,6 +3,8 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { Alert, Button, Table, Spin } from "antd";
 import type { ColumnsType } from "antd/es/table";
+import { KPI_GRID_CLASS, KpiTile } from "@/components/KpiTile";
+import { SectionCard } from "@/components/SectionCard";
 import { useAllSalesQuotes } from "@/hooks/useAllSalesQuotes";
 import { useCurrentExchangeRates } from "@/hooks/useExchangeRates";
 import { computeTotals, fmtByCurrency, newestFirst, type CurrencyAmount, type QuoteTotals, type SalesQuote } from "@/app/sales/_lib/salesQuote";
@@ -15,6 +17,7 @@ import { QuoteRefLink } from "./QuoteRefLink";
 import { QuoteStatusPill } from "./QuoteStatusPill";
 import { SalesDialog } from "./SalesDialog";
 import { formatDate } from "@/lib/date";
+import { LINK } from "@/styles/ui";
 
 interface Kpi {
   label: string;
@@ -102,7 +105,7 @@ const GROUP_KEY: Record<QuoteGroup["by"], (q: SalesQuote) => string> = { owner: 
 // A row's name in a table, which opens the quotes counted in it.
 function GroupLink({ onClick, children }: { onClick: () => void; children: ReactNode }) {
   return (
-    <button type="button" onClick={onClick} className="font-medium text-indigo-600 hover:underline bg-transparent border-0 p-0 cursor-pointer">
+    <button type="button" onClick={onClick} className={`font-medium ${LINK} bg-transparent border-0 p-0 cursor-pointer`}>
       {children}
     </button>
   );
@@ -284,17 +287,13 @@ export function SalesReportTab() {
           description={`Quotes: ${unconvertible.map((q) => q.quoteNumber).join(", ")}.`}
         />
       )}
-      <div className="grid grid-cols-6 gap-3 mb-4">
+      <div className={`${KPI_GRID_CLASS} mb-4`}>
         {kpis.map((k) => (
-          <div key={k.label} className="bg-white border border-slate-200 rounded-xl px-3 py-2.5">
-            <div className="text-[11px] text-slate-400 uppercase tracking-wide">{k.label}</div>
-            <div className="text-lg font-bold text-slate-800 mt-0.5">{k.value}</div>
-          </div>
+          <KpiTile key={k.label} label={k.label} value={k.value} />
         ))}
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-2xl p-4">
-        <div className="text-sm font-semibold text-slate-800 mb-3">By sales owner</div>
+      <SectionCard title="By sales owner" bodyClassName="p-0">
         <Table<OwnerRow>
           size="small"
           rowKey="owner"
@@ -303,7 +302,7 @@ export function SalesReportTab() {
           pagination={false}
           locale={{ emptyText: "No quotes sent yet" }}
         />
-      </div>
+      </SectionCard>
 
       {group && (
         <GroupQuotesDialog
@@ -313,8 +312,7 @@ export function SalesReportTab() {
         />
       )}
 
-      <div className="bg-white border border-slate-200 rounded-2xl p-4">
-        <div className="text-sm font-semibold text-slate-800 mb-3">By service type</div>
+      <SectionCard title="By service type" bodyClassName="p-0">
         <Table<ServiceRow>
           size="small"
           rowKey="serviceType"
@@ -323,10 +321,9 @@ export function SalesReportTab() {
           pagination={false}
           locale={{ emptyText: "No quotes sent yet" }}
         />
-      </div>
+      </SectionCard>
 
-      <div className="bg-white border border-slate-200 rounded-2xl p-4">
-        <div className="text-sm font-semibold text-slate-800 mb-3">By status</div>
+      <SectionCard title="By status" bodyClassName="p-0">
         <Table<StatusRow>
           size="small"
           rowKey="status"
@@ -335,7 +332,7 @@ export function SalesReportTab() {
           pagination={false}
           locale={{ emptyText: "No quotes yet" }}
         />
-      </div>
+      </SectionCard>
     </div>
   );
 }

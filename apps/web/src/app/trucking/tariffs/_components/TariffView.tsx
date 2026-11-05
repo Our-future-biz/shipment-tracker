@@ -12,6 +12,8 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { useToast } from "@/lib/toast";
 import { fetchTariffTemplate, useTariff, useTruckingSettings, type TariffDetail, type TariffUpdate, type TariffVersionSummary } from "@/hooks/useTrucking";
 import { useUnsavedGuard } from "@/app/warehouse-concept/_lib/useUnsavedGuard";
+import { HINT, LINK, PAGE_SUBTITLE, PAGE_TITLE } from "@/styles/ui";
+import { LINK_ICON_BTN_GHOST } from "../../_lib/linkButtons";
 import { TERMS } from "../../_lib/glossary";
 import { isTruckingManager } from "../../_lib/roles";
 import { SCOPE_LABELS, TARIFF_SIDES, ZONE_BY_LABELS, discountLabel, modeLabel, ownerLabel, versionLabel } from "../../_lib/tariffs";
@@ -77,7 +79,7 @@ export const TariffView = ({ tariffId }: TariffViewProps) => {
     return (
       <div className="p-10 text-center text-slate-500">
         {isNotFound(error) ? "This tariff does not exist." : `Could not load the tariff: ${apiErrorMessage(error)}.`}{" "}
-        <Link href="/trucking?tab=tariffs" className="text-indigo-500">
+        <Link href="/trucking?tab=tariffs" className={LINK}>
           Back to Tariffs
         </Link>
       </div>
@@ -126,16 +128,16 @@ export const TariffView = ({ tariffId }: TariffViewProps) => {
     <div className="bg-slate-50 min-h-full">
       <div className="bg-white border-b border-slate-200 px-6 py-4">
         <div className="flex flex-wrap items-start gap-2">
-          <Link href={backHref} aria-label="Back to Tariffs" className="mt-1 text-slate-400 hover:text-indigo-500 p-1">
+          <Link href={backHref} aria-label="Back to Tariffs" className={LINK_ICON_BTN_GHOST}>
             <ArrowLeftOutlined />
           </Link>
           <div className="min-w-0 flex-1">
-            <h1 className="text-[22px] font-bold text-slate-800 m-0">{tariff.name}</h1>
-            <div className="text-xs text-slate-500 mt-1 flex flex-wrap gap-x-1">
+            <h1 className={PAGE_TITLE}>{tariff.name}</h1>
+            <div className={`${PAGE_SUBTITLE} mt-1 flex flex-wrap gap-x-1`}>
               <span>{sideLabel} tariff</span>
               <span>·</span>
               {ownerLink ? (
-                <Link href={ownerLink} className="text-indigo-600 hover:underline">
+                <Link href={ownerLink} className={LINK}>
                   {owner}
                 </Link>
               ) : (
@@ -161,7 +163,7 @@ export const TariffView = ({ tariffId }: TariffViewProps) => {
           />
         ) : (
           <SectionCard title="Tariff file">
-            <p className="mt-0 mb-3 text-[13px] text-slate-600">
+            <p className="mt-0 mb-3 text-[13px] text-slate-700">
               Prices are kept in the Excel {TERMS.template.toLowerCase()}: download it ({tariff.activeVersion ? "as the current version" : "empty"}), change it and
               upload it. Each upload becomes a {TERMS.draftVersion.toLowerCase()}, checked and compared with the active one before it is activated.
             </p>
@@ -219,7 +221,7 @@ export const TariffView = ({ tariffId }: TariffViewProps) => {
               {problems.length > 0 && <span className="text-xs text-red-600">{problems.join(" · ")}</span>}
             </div>
           ) : (
-            <p className="mt-3 mb-0 text-[11px] text-slate-400">Only a manager changes a tariff.</p>
+            <p className={`mt-3 mb-0 ${HINT}`}>Only a manager changes a tariff.</p>
           )}
         </SectionCard>
 

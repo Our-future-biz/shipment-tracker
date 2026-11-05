@@ -54,7 +54,7 @@ export function CostPaidCell({ received, receivedAt, paidOn, paidBy, paidAt, onC
       trigger="click"
       title={paidOn ? `Paid on ${formatDate(paidOn)}` : "Mark the invoice paid"}
       content={
-        <div className="flex w-[240px] flex-col gap-2 text-[12px] text-slate-600">
+        <div className="flex w-[240px] flex-col gap-2 text-[12px] text-slate-700">
           {who && <span>Noted by {who}</span>}
           <span>The day the payment went:</span>
           <DatePicker

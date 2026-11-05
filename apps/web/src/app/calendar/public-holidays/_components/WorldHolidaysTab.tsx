@@ -7,6 +7,7 @@ import { DeleteOutlined, SearchOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import type { Dayjs } from "dayjs";
 import { usePublicHolidays } from "@/hooks/usePublicHolidays";
+import { CARD, ICON_BTN_GHOST } from "@/styles/ui";
 import { type HolidayItem, occurrences, overlaps } from "../_lib/holidays";
 import { HolidayAlerts } from "./HolidayAlerts";
 import { dash, dateCell, textCell } from "./holidayCells";
@@ -77,7 +78,9 @@ export function WorldHolidaysTab({ items, loading }: WorldHolidaysTabProps) {
       fixed: "right",
       render: (_: unknown, h: HolidayItem) => (
         <Popconfirm title="Delete this holiday?" okText="Delete" okButtonProps={{ danger: true }} onConfirm={() => handleDelete(h.id)}>
-          <Button type="text" size="small" icon={<DeleteOutlined />} aria-label="Delete holiday" className="text-slate-400 hover:!text-red-500" />
+          <button type="button" aria-label="Delete holiday" className={ICON_BTN_GHOST}>
+            <DeleteOutlined />
+          </button>
         </Popconfirm>
       ),
     },
@@ -87,7 +90,7 @@ export function WorldHolidaysTab({ items, loading }: WorldHolidaysTabProps) {
     <div className="flex flex-col gap-5">
       <HolidayAlerts items={occurrences(items)} loading={loading} />
 
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm">
+      <div className={`${CARD} overflow-hidden`}>
         <div className="flex flex-wrap items-center gap-3 p-4 border-b border-slate-100">
           <Input
             allowClear

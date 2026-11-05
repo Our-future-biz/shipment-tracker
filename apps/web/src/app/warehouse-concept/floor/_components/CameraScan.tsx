@@ -66,7 +66,7 @@ export function CameraScan({ open, onClose, onScan }: { open: boolean; onClose: 
       ) : (
         <>
           <video ref={video} playsInline muted className="w-full rounded-lg bg-black aspect-[3/4] object-cover" />
-          <p className="mb-0 mt-2 text-[14px] text-slate-600">Point the camera at the label&rsquo;s barcode or QR code.</p>
+          <p className="mb-0 mt-2 text-[14px] text-slate-500">Point the camera at the label&rsquo;s barcode or QR code.</p>
         </>
       )}
     </Modal>

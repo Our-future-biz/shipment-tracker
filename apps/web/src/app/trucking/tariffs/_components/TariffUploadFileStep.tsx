@@ -23,7 +23,7 @@ interface TariffUploadFileStepProps {
 // Step 1 of the upload: what the template holds, and the drop zone for the filled-in .xlsx.
 export const TariffUploadFileStep = ({ tariff, uploading, fileName, problem, draft, onFile }: TariffUploadFileStepProps) => (
   <div className="flex flex-col gap-4">
-    <div className="text-[13px] leading-relaxed text-slate-600">
+    <div className="text-[13px] leading-relaxed text-slate-700">
       <p className="mt-0 mb-2">
         Fill in the <b>{TERMS.template.toLowerCase()}</b> and upload it here. Its sheets: <b>Read me</b> (instructions), <b>Meta</b> (validity, chargeable-weight
         factors, rounding, notes), <b>Zones</b> (zone code, label, PSČ from – to, remote), one sheet per service level (<b>D1</b> … <b>D4</b>, <b>EXP_…</b>:
@@ -56,7 +56,7 @@ export const TariffUploadFileStep = ({ tariff, uploading, fileName, problem, dra
     </Upload.Dragger>
 
     {uploading && (
-      <div className="flex items-center gap-3 text-[13px] text-slate-600">
+      <div className="flex items-center gap-3 text-[13px] text-slate-500">
         <Spin size="small" /> Reading {fileName}…
       </div>
     )}

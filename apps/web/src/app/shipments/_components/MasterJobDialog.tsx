@@ -1,11 +1,13 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import { Modal, Button, Input, Checkbox, Tag, Radio, Space } from "antd";
+import { Modal, Button, Input, Checkbox, Radio, Space } from "antd";
 import { SearchOutlined } from "@ant-design/icons";
 import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
 import { useMasterJobs } from "@/hooks/useMasterJobs";
 import { nextMczNumber } from "@/lib/mcz";
+import { Badge } from "@/components/Badge";
+import { HINT, REF } from "@/styles/ui";
 
 interface MasterJobDialogProps {
   open: boolean;
@@ -98,7 +100,7 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
       destroyOnHidden
       footer={
         <div className="flex justify-between items-center">
-          <span className="text-xs text-slate-500">{selected.size} shipment{selected.size !== 1 ? "s" : ""} selected</span>
+          <span className={HINT}>{selected.size} shipment{selected.size !== 1 ? "s" : ""} selected</span>
           <Space>
             <Button onClick={handleClose}>Cancel</Button>
             <Button
@@ -130,8 +132,8 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
               >
                 {existingMCZs.map(([mcz, count]) => (
                   <Radio key={mcz} value={mcz}>
-                    <span className="tabular-nums text-amber-500 font-medium">{mcz}</span>
-                    <span className="text-[11px] text-slate-400 ml-2">({count} shipment{count !== 1 ? "s" : ""})</span>
+                    <span className={`${REF} font-medium text-slate-900`}>{mcz}</span>
+                    <span className={`${HINT} ml-2`}>({count} shipment{count !== 1 ? "s" : ""})</span>
                   </Radio>
                 ))}
               </Radio.Group>
@@ -142,8 +144,8 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
 
       {/* No existing — just show the new MCZ info */}
       {existingMCZs.length === 0 && (
-        <p className="text-xs text-slate-500 mb-3">
-          New Master Job: <strong className="tabular-nums text-amber-500">{nextMCZ}</strong>
+        <p className={`${HINT} mb-3`}>
+          New Master Job: <strong className={`${REF} text-slate-900`}>{nextMCZ}</strong>
         </p>
       )}
 
@@ -159,30 +161,30 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
       />
 
       {/* Shipment selection list */}
-      <div className="max-h-[320px] overflow-y-auto border border-neutral-100 rounded-md">
+      <div className="max-h-[320px] overflow-y-auto border border-slate-200 rounded-lg">
         {filteredShipments.map((s) => {
           const isChecked = selected.has(s.id);
           return (
             <div
               key={s.id}
               onClick={() => toggleShipment(s.id)}
-              className={`flex items-center gap-2.5 px-3 py-[7px] cursor-pointer border-b border-neutral-50 ${isChecked ? "bg-amber-500/[0.04]" : ""}`}
+              className={`flex items-center gap-2.5 px-3 py-[7px] cursor-pointer border-b border-slate-100 ${isChecked ? "bg-indigo-50" : "hover:bg-slate-50"}`}
             >
               <Checkbox checked={isChecked} />
-              <span className="tabular-nums text-teal-600 font-medium text-xs w-[100px] shrink-0">
+              <span className={`${REF} text-[13px] font-medium text-slate-900 w-[100px] shrink-0`}>
                 {s.jobNumber}
               </span>
-              <span className="text-xs text-gray-500 flex-1 truncate">
+              <span className="text-[13px] text-slate-700 flex-1 truncate">
                 {s.shipper || s.consignee || "—"}
               </span>
               {s.masterJobMczNumber && (
-                <Tag color="gold" className="!text-[10px] !m-0">{s.masterJobMczNumber}</Tag>
+                <Badge tone="a" className={REF}>{s.masterJobMczNumber}</Badge>
               )}
             </div>
           );
         })}
         {filteredShipments.length === 0 && (
-          <p className="text-center text-slate-400 text-xs p-6">No shipments found</p>
+          <p className={`${HINT} text-center p-6`}>No shipments found</p>
         )}
       </div>
     </Modal>

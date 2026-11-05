@@ -10,7 +10,9 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { businessDateTime } from "@/lib/date";
 import { useToast } from "@/lib/toast";
 import { useTruckingSettings, type TruckingSettings } from "@/hooks/useTrucking";
+import { HINT, LINK, PAGE_SUBTITLE, PAGE_TITLE } from "@/styles/ui";
 import { useUnsavedGuard } from "@/app/warehouse-concept/_lib/useUnsavedGuard";
+import { LINK_ICON_BTN_GHOST } from "../../_lib/linkButtons";
 import { TERMS } from "../../_lib/glossary";
 import { isTruckingManager } from "../../_lib/roles";
 import { CONFLICT_TEXT, isVersionConflict } from "../../_lib/saveConflict";
@@ -67,7 +69,7 @@ export const TruckingSettingsView = () => {
     return (
       <div className="p-10 text-center text-slate-500">
         The Trucking settings could not be read — reload the page.{" "}
-        <Link href="/trucking" className="text-indigo-500">
+        <Link href="/trucking" className={LINK}>
           Back to Trucking
         </Link>
       </div>
@@ -102,12 +104,12 @@ export const TruckingSettingsView = () => {
     <div className="bg-slate-50 min-h-full">
       <div className="bg-white border-b border-slate-200 px-6 py-4">
         <div className="flex items-start gap-2">
-          <Link href="/trucking" aria-label="Back to Trucking" className="mt-1 text-slate-400 hover:text-indigo-500 p-1">
+          <Link href="/trucking" aria-label="Back to Trucking" className={LINK_ICON_BTN_GHOST}>
             <ArrowLeftOutlined />
           </Link>
           <div className="min-w-0">
-            <h1 className="text-[22px] font-bold text-slate-800 m-0">Trucking settings</h1>
-            <div className="text-xs text-slate-500 mt-1">
+            <h1 className={PAGE_TITLE}>Trucking settings</h1>
+            <div className={`${PAGE_SUBTITLE} mt-1`}>
               {TERMS.serviceLevel}s, vehicle types, {TERMS.chargeableWeight.toLowerCase()}, margin floor, our warehouse ({TERMS.hub.toLowerCase()}), the {TERMS.transportOrder.toLowerCase()} e-mail and the {TERMS.fuelIndex.toLowerCase()}.
               {settings.updatedAt
                 ? ` Last changed${settings.updatedBy ? ` by ${settings.updatedBy}` : ""} on ${businessDateTime(settings.updatedAt)}.`
@@ -164,7 +166,7 @@ export const TruckingSettingsView = () => {
                 />
               </TruckingField>
             </div>
-            <p className="mt-3 mb-0 text-[11px] text-slate-400">A consignment is priced at the higher of its real weight and what its LDM, volume or pallet places count for.</p>
+            <p className={`mt-3 mb-0 ${HINT}`}>A consignment is priced at the higher of its real weight and what its LDM, volume or pallet places count for.</p>
           </SectionCard>
 
           <SectionCard title="Margin floor">
@@ -184,7 +186,7 @@ export const TruckingSettingsView = () => {
                 />
               </TruckingField>
             </div>
-            <p className="mt-3 mb-0 text-[11px] text-slate-400">A price below both is flagged before it goes to the customer.</p>
+            <p className={`mt-3 mb-0 ${HINT}`}>A price below both is flagged before it goes to the customer.</p>
           </SectionCard>
         </div>
 
@@ -207,7 +209,7 @@ export const TruckingSettingsView = () => {
               </TruckingField>
             ))}
           </div>
-          <p className="mt-3 mb-0 text-[11px] text-slate-400">
+          <p className={`mt-3 mb-0 ${HINT}`}>
             A truck may wait this long at loading or unloading for free; beyond it, waiting time is charged per started 15 minutes (the tariff&apos;s waiting-time surcharge).
           </p>
         </SectionCard>

@@ -7,6 +7,7 @@ import { Button, Spin } from "antd";
 import { useGateLog, useRepairMissingGate } from "@/hooks/useGateLog";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useToast } from "@/lib/toast";
+import { LINK } from "@/styles/ui";
 import { errorMessage, isManager } from "../gate-log/_lib/gate";
 
 // A position has one page: its Gate Log job. This old address (/warehouse/<taskId>) forwards
@@ -56,7 +57,7 @@ export function WarehouseTaskDetailContent() {
   return (
     <div className="p-10 text-center text-slate-500">
       This position has no Gate Log job yet.{" "}
-      <Link href="/warehouse-concept" className="text-indigo-500">
+      <Link href="/warehouse-concept" className={LINK}>
         Back to Warehouse
       </Link>
       {isManager(user) && (

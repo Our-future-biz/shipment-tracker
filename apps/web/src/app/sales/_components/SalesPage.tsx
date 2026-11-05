@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { PAGE_SUBTITLE, PAGE_TITLE } from "@/styles/ui";
 
 interface SalesPageProps {
   // The page's name: for a page in the Sales menu the label it has there (SALES_PAGES).
@@ -22,8 +23,8 @@ export function SalesPage({ title, subtitle, extra, children }: SalesPageProps) 
       <div className="max-w-[1400px] mx-auto flex flex-col gap-5">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="min-w-0">
-            <h1 className="text-2xl font-bold text-slate-900">{title}</h1>
-            {subtitle && <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>}
+            <h1 className={PAGE_TITLE}>{title}</h1>
+            {subtitle && <p className={`${PAGE_SUBTITLE} mt-0.5`}>{subtitle}</p>}
           </div>
           {extra}
         </div>

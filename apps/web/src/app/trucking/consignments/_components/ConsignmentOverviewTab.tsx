@@ -5,6 +5,7 @@ import { SectionCard } from "@/components/SectionCard";
 import type { ConsignmentDetail } from "@/hooks/useTruckingConsignments";
 import { businessDateTime } from "@/lib/date";
 import { quoteHref } from "@/app/sales/_lib/quoteHref";
+import { EMPTY, LABEL_TEXT, LINK, REF } from "@/styles/ui";
 import { formatPsc } from "../../_lib/hauliers";
 import { PriceSnapshotTable } from "../../_components/PriceSnapshotTable";
 import { TERMS } from "../../_lib/glossary";
@@ -12,10 +13,14 @@ import { pragueDate } from "../../_lib/format";
 
 type Stop = ConsignmentDetail["pickup"];
 
+// A label + value row of the cards below, in the shape of InfoRow.
+const ROW = "flex items-baseline gap-2 border-b border-slate-100 py-1.5 text-[13px] last:border-b-0";
+const LABEL = `w-[140px] shrink-0 ${LABEL_TEXT}`;
+
 const Line = ({ k, v }: { k: string; v: string }) => (
-  <div className="flex items-baseline gap-2 border-b border-slate-100 py-1 text-xs last:border-b-0">
-    <span className="w-[140px] shrink-0 text-[11px] font-bold uppercase tracking-wide text-slate-500">{k}</span>
-    <span className={`min-w-0 flex-1 whitespace-pre-wrap break-words font-medium ${v ? "text-slate-900" : "text-slate-300"}`}>{v || "—"}</span>
+  <div className={ROW}>
+    <span className={LABEL}>{k}</span>
+    <span className={`min-w-0 flex-1 whitespace-pre-wrap break-words ${v ? "text-slate-900" : EMPTY}`}>{v || "—"}</span>
   </div>
 );
 
@@ -46,20 +51,20 @@ export const ConsignmentOverviewTab = ({ c }: ConsignmentOverviewTabProps) => (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <SectionCard title="Order">
         <Line k="Customer" v={c.customerName} />
-        <div className="flex items-baseline gap-2 border-b border-slate-100 py-1 text-xs">
-          <span className="w-[140px] shrink-0 text-[11px] font-bold uppercase tracking-wide text-slate-500">Job</span>
-          <Link href={`/shipments/${c.shipmentId}?tab=trucking`} className="tabular-nums font-semibold text-indigo-600 hover:underline">
+        <div className={ROW}>
+          <span className={LABEL}>Job</span>
+          <Link href={`/shipments/${c.shipmentId}?tab=trucking`} className={`${LINK} ${REF} font-semibold`}>
             {c.jobNumber}
           </Link>
         </div>
-        <div className="flex items-baseline gap-2 border-b border-slate-100 py-1 text-xs">
-          <span className="w-[140px] shrink-0 text-[11px] font-bold uppercase tracking-wide text-slate-500">Quote</span>
+        <div className={ROW}>
+          <span className={LABEL}>Quote</span>
           {c.quoteNumber ? (
-            <Link href={quoteHref(c.quoteNumber)} className="tabular-nums font-semibold text-indigo-600 hover:underline">
+            <Link href={quoteHref(c.quoteNumber)} className={`${LINK} ${REF} font-semibold`}>
               {c.quoteNumber}
             </Link>
           ) : (
-            <span className="text-slate-300">—</span>
+            <span className={EMPTY}>—</span>
           )}
         </div>
         <Line k="Goods" v={c.load.description} />

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Alert, Button, Input, Modal, Spin, Tag } from "antd";
+import { Alert, Button, Input, Modal, Spin } from "antd";
 import { PaperClipOutlined, LinkOutlined } from "@ant-design/icons";
 import { APIError, ErrCode } from "@/lib/api/client";
 import { useToast } from "@/lib/toast";
@@ -9,6 +9,8 @@ import { errorMessage } from "../../gate-log/_lib/gate";
 import { uuid } from "../../floor/_lib/queue";
 import type { SupplierKind } from "@/hooks/useWarehouseSettings";
 import { useSendToSupplier, useSupplierEmailPreview } from "@/hooks/useSupplierEmail";
+import { Badge } from "@/components/Badge";
+import { LABEL_TEXT } from "@/styles/ui";
 
 // "Send VGM / survey / remeasurement": shows who gets it, the subject, the text and the files, then
 // e-mails it. Only when the provider took it is it recorded as sent; a failure is shown here in red
@@ -95,7 +97,7 @@ export function SendToSupplierModal({ taskId, what, onClose }: { taskId: string;
           description={notSetUp ? "Use Mark as sent to record it, or set recipients in Warehouse settings." : undefined}
         />
       ) : p ? (
-        <div className="flex flex-col gap-3 text-xs">
+        <div className="flex flex-col gap-3 text-[13px]">
           {failure && outcome === "sent" && (
             <Alert
               type="warning"
@@ -130,31 +132,29 @@ export function SendToSupplierModal({ taskId, what, onClose }: { taskId: string;
               }
             />
           )}
-          <div className="grid grid-cols-[60px_1fr] gap-x-3 gap-y-1">
-            <span className="text-slate-500">To</span>
+          <div className="grid grid-cols-[60px_1fr] items-baseline gap-x-3 gap-y-1">
+            <span className={LABEL_TEXT}>To</span>
             <span className="break-words">{p.to.join(", ")}</span>
             {p.cc.length > 0 && (
               <>
-                <span className="text-slate-500">Cc</span>
+                <span className={LABEL_TEXT}>Cc</span>
                 <span className="break-words">{p.cc.join(", ")}</span>
               </>
             )}
-            <span className="text-slate-500">Subject</span>
-            <span className="font-semibold text-slate-800 break-words">{p.subject}</span>
+            <span className={LABEL_TEXT}>Subject</span>
+            <span className="font-semibold text-slate-900 break-words">{p.subject}</span>
           </div>
           <pre className="m-0 max-h-[320px] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 p-3 font-sans text-xs text-slate-700">{p.text}</pre>
           {p.attachments.length > 0 && (
             <div>
-              <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-1">Files</div>
+              <div className={`${LABEL_TEXT} mb-1`}>Files</div>
               <ul className="list-none m-0 p-0 flex flex-col gap-0.5">
                 {p.attachments.map((a) => (
                   <li key={a.fileId} className="flex items-center gap-2">
                     {a.how === "attached" ? <PaperClipOutlined className="text-slate-400" /> : <LinkOutlined className="text-slate-400" />}
                     <span className="break-all">{a.fileName}</span>
                     <span className="text-slate-400">{size(a.size)}</span>
-                    <Tag className="m-0" color={a.how === "attached" ? "blue" : undefined}>
-                      {HOW[a.how] ?? a.how}
-                    </Tag>
+                    <Badge tone={a.how === "attached" ? "b" : ""}>{HOW[a.how] ?? a.how}</Badge>
                   </li>
                 ))}
               </ul>

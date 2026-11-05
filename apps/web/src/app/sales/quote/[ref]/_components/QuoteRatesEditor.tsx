@@ -30,8 +30,8 @@ export function QuoteRatesEditor({ data, exchange }: QuoteRatesEditorProps) {
           const shown = stamped ?? (draft ? (today ?? own) : (own ?? today));
           return (
             <li key={currency} className="flex items-center gap-3 px-3 py-1.5 border-b border-slate-100 last:border-b-0">
-              <span className="w-11 shrink-0 text-xs font-semibold text-slate-700">{currency}</span>
-              <span className="w-[120px] shrink-0 text-xs tabular-nums text-slate-700">{shown ?? "—"}</span>
+              <span className="w-11 shrink-0 text-[13px] font-semibold text-slate-900">{currency}</span>
+              <span className="w-[120px] shrink-0 text-[13px] tabular-nums text-slate-700">{shown ?? "—"}</span>
               {stamped !== undefined ? (
                 <span className="flex-1 min-w-0 text-xs text-slate-500">
                   ČNB · {formatDate(data.fx?.fixingDate ?? "")} · stored when the quote was sent

@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import Link from "next/link";
 import { AppGrid, type AppGridColumn } from "@/components/AppGrid";
 import type { HaulierScore } from "@/hooks/useTruckingReports";
+import { HINT, LINK } from "@/styles/ui";
 import { HAULIER_STATUS_CHIP } from "../_lib/hauliers";
 import { claimsText, daysText, haulierStatusLabel, perKgText, sortHauliers } from "../_lib/reports";
 import { formatMoney, formatPercent } from "../_lib/tariffs";
@@ -20,7 +21,7 @@ const COLUMNS: AppGridColumn<HaulierScore>[] = [
     text: (h) => h.name,
     sorter: (a, b) => a.name.localeCompare(b.name, "cs"),
     render: (_, h) => (
-      <Link href={haulierHref(h.haulierCustomerId)} className="font-semibold text-indigo-600 hover:underline">
+      <Link href={haulierHref(h.haulierCustomerId)} className={`${LINK} font-semibold`}>
         {h.name}
       </Link>
     ),
@@ -47,7 +48,7 @@ const COLUMNS: AppGridColumn<HaulierScore>[] = [
     align: "right",
     text: (h) => String(h.invoicesBlocked),
     sorter: (a, b) => a.invoicesBlocked - b.invoicesBlocked,
-    render: (_, h) => (h.invoicesBlocked > 0 ? <span className="font-semibold text-red-600">{h.invoicesBlocked} blocked</span> : <span className="text-slate-400">0</span>),
+    render: (_, h) => (h.invoicesBlocked > 0 ? <span className="font-semibold text-red-600">{h.invoicesBlocked} blocked</span> : <span className="text-slate-500">0</span>),
   },
   {
     key: "invoiceDifference",
@@ -75,7 +76,7 @@ export const ReportHaulierScorecard = ({ hauliers }: ReportHaulierScorecardProps
         exportFilePrefix="trucking-haulier-scorecard"
         emptyText="No haulier carried a consignment delivered in this period."
       />
-      <p className="m-0 mt-2 text-[11px] text-slate-500">
+      <p className={`m-0 mt-2 ${HINT}`}>
         Status is the haulier&apos;s status now. Cost is the real cost where an approved haulier invoice exists, else the expected cost. Invoice differences are the
         sum of the differences of its approved invoices, either way.
       </p>

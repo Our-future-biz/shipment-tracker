@@ -6,6 +6,7 @@ import dayjs, { type Dayjs } from "dayjs";
 import { SalesDialog } from "../../../_components/SalesDialog";
 import { floorText, marginText, type RoadMargin } from "../../../_lib/roadQuote";
 import { MARGIN_INQUIRY_REASONS } from "@/hooks/useMarginInquiries";
+import { LABEL_TEXT } from "@/styles/ui";
 
 interface AskMarginApprovalDialogProps {
   quoteNumber: string;
@@ -15,7 +16,7 @@ interface AskMarginApprovalDialogProps {
   onClose: () => void;
 }
 
-const LABEL = "text-[11px] font-bold uppercase tracking-wide text-slate-500";
+const LABEL = LABEL_TEXT;
 
 // "Needs it by" is a moment still to come: the days before today, and today's hours and minutes
 // already gone, can't be picked.

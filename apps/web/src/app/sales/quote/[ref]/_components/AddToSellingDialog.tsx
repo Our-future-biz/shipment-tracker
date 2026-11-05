@@ -5,6 +5,7 @@ import { Button, InputNumber, Modal, type GetRef } from "antd";
 import type { CostLine } from "@/app/sales/_lib/types";
 import { fmtMoney, moneyInputParser, round2 } from "@/lib/money";
 import { lineRate, withRate } from "@/app/sales/_lib/salesQuote";
+import { LABEL_TEXT, MODAL_TITLE } from "@/styles/ui";
 
 /** The selling line a buying line becomes with a markup in %: the same charge, quantity and basis, its rate marked up. */
 export function sellingFromBuying(line: CostLine, markupPct: number): CostLine {
@@ -74,7 +75,7 @@ export function AddToSellingDialog({ line, onAdd, onClose }: AddToSellingDialogP
   return (
     <Modal
       open
-      title={`Add ${name} to selling as well?`}
+      title={<div className={MODAL_TITLE}>{`Add ${name} to selling as well?`}</div>}
       onCancel={onClose}
       width={420}
       destroyOnHidden
@@ -88,12 +89,12 @@ export function AddToSellingDialog({ line, onAdd, onClose }: AddToSellingDialogP
       }
     >
       <div className="flex flex-col gap-3 pt-1">
-        <div className="text-sm text-slate-500">
-          Buying: <span className="font-medium text-slate-800 tabular-nums">{fmtMoney(buying, line.currency)}</span>
+        <div className="text-[13px] text-slate-500">
+          Buying: <span className="font-medium text-slate-900 tabular-nums">{fmtMoney(buying, line.currency)}</span>
           {per}
         </div>
         <label className="flex items-center gap-3">
-          <span className="w-28 shrink-0 text-[12px] font-semibold uppercase tracking-wide text-slate-500">Markup</span>
+          <span className={`w-28 shrink-0 ${LABEL_TEXT}`}>Markup</span>
           <InputNumber
             ref={markupInput}
             className="!w-full"
@@ -106,7 +107,7 @@ export function AddToSellingDialog({ line, onAdd, onClose }: AddToSellingDialogP
           />
         </label>
         <label className="flex items-center gap-3">
-          <span className="w-28 shrink-0 text-[12px] font-semibold uppercase tracking-wide text-slate-500">or lump sum</span>
+          <span className={`w-28 shrink-0 ${LABEL_TEXT}`}>or lump sum</span>
           <InputNumber
             className="!w-full"
             aria-label="Markup lump sum"
@@ -120,7 +121,7 @@ export function AddToSellingDialog({ line, onAdd, onClose }: AddToSellingDialogP
           />
         </label>
         <label className="flex items-center gap-3">
-          <span className="w-28 shrink-0 text-[12px] font-semibold uppercase tracking-wide text-slate-500">Selling</span>
+          <span className={`w-28 shrink-0 ${LABEL_TEXT}`}>Selling</span>
           <InputNumber
             className="!w-full"
             aria-label="Selling amount"

@@ -201,8 +201,9 @@ export function EditableCell({
               <EditableLink
                 href={customerContactHref(customerId, original, contactId)}
                 onEdit={startEditing}
-                // The same look as the Customer link beside it (CustomerCell).
-                className="block min-w-0 text-indigo-500 hover:underline font-medium"
+                // The app's link (LINK in styles/ui.ts) without its "!" colour, so a conditional
+                // format's colour (textStyle) still wins.
+                className="block min-w-0 text-indigo-600 hover:!underline"
                 style={textStyle}
               >
                 <FadeText>{shown}</FadeText>

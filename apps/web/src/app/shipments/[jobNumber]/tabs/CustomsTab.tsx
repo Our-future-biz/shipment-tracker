@@ -26,6 +26,8 @@ import { CustomerLinkField } from "../_components/CustomerLinkField";
 import { EditableCell } from "../_components/EditableCell";
 import { CUSTOMS_TAB_GROUPS, documentGroupOf, isReviewedDocumentType } from "@/lib/documentTypes";
 import { LABEL, ROW } from "../_components/detailStyles";
+import { CountChip } from "@/components/SectionCard";
+import { BTN, BTN_DANGER, CARD, CARD_BAR, CARD_ICON, CARD_TITLE, EMPTY, HINT, ICON_BTN_GHOST, LABEL_TEXT, LINK, TH } from "@/styles/ui";
 
 // Statuses the server derives from the paperwork; while one of them shows, the field is locked.
 const PAPERWORK_STATUSES = ["Waiting For Commercial Paperwork", "Paperwork Verification Pending"];
@@ -66,12 +68,12 @@ function ContainerNumberRow({ value }: { value: string }) {
               e.preventDefault();
               document.getElementById(CUSTOMS_CONTAINERS_ID)?.scrollIntoView({ behavior: "smooth", block: "start" });
             }}
-            className="text-indigo-600 hover:underline font-medium"
+            className={`${LINK} font-medium`}
           >
             {value}
           </a>
         ) : (
-          <span className="text-slate-300">—</span>
+          <span className={EMPTY}>—</span>
         )}
       </div>
     </div>
@@ -105,9 +107,11 @@ const DOC_COLUMNS: { label: string; widthClass?: string }[] = [
 // Every cell of a document row is laid out on the same two lines (32px + 16px, see also
 // FileCell), so names, the status and its buttons share one line across the columns and
 // sizes, dates and the reviewer share the other.
-const DOC_CELL = "py-[13px] border-b border-line";
-const DOC_BUTTON =
-  "inline-flex items-center h-8 gap-[7px] text-[13px] font-semibold px-[10px] rounded-[7px] border border-line-strong bg-white text-ink cursor-pointer transition-colors";
+const DOC_CELL = "py-[13px] border-b border-slate-100";
+/** A row's Preview / Download: an icon button; "!" beats antd's own <a> colour. */
+const DOC_ICON_LINK = `${ICON_BTN_GHOST} !text-slate-500 hover:!text-slate-900`;
+/** The label over a reason for decline: small bold caps (LABEL_TEXT), in red. */
+const DECLINE_LABEL = LABEL_TEXT.replace("text-slate-900", "text-red-600");
 
 // The shipment's total weight in kg: from the cargo lines, else the typed tons × 1000 - to 0.01 kg,
 // as the Cargo Details total shows it.
@@ -116,7 +120,7 @@ function weightKg(shipment: ShipmentItem): string {
   return kg == null ? "" : fmtNum(kg);
 }
 
-const PRIORITY_DOT: Record<string, string> = { Standard: "bg-green-500", Urgent: "bg-red-500" };
+const PRIORITY_DOT: Record<string, string> = { Standard: "bg-emerald-500", Urgent: "bg-red-500" };
 
 const priorityLabel = (value: string) => (
   <span className="inline-flex items-center gap-2 font-medium text-slate-900">
@@ -138,7 +142,7 @@ function ManualStatusRow({ value, style, onCommit }: { value: string; style?: Re
         value={value}
         options={MANUAL_STATUSES}
         onCommit={onCommit}
-        displayClassName="text-slate-800"
+        displayClassName="text-slate-900"
         displayStyle={style}
       />
     </div>
@@ -150,7 +154,7 @@ function LockedStatusRow({ value, style }: { value: string; style?: React.CSSPro
     <div className={ROW}>
       <span className={LABEL}>Customs Status</span>
       <span className="flex-1 min-w-0" title="Follows the invoice and the packing list">
-        <span className="text-slate-800" style={style}>
+        <span className="text-slate-900" style={style}>
           {value}
         </span>
       </span>
@@ -234,7 +238,7 @@ function CustomsPriorityRow({
         }}
         onCancel={() => setAsking(null)}
       >
-        <p className="mt-0 mb-2 text-[13px] text-slate-600">By when does customs have to clear this shipment?</p>
+        <p className="mt-0 mb-2 text-[13px] text-slate-700">By when does customs have to clear this shipment?</p>
         <div className="flex gap-2">
           <DatePicker
             format="DD.MM.YYYY"
@@ -393,8 +397,8 @@ export function CustomsTab({
       )}
 
       {/*
-        customsDocsCardHtml() z mockupu: .docs2.cx > .card
-        Barvy dle promennych .docs2 (--line #E4E7F0, --card-head #EDEFFC, atd.)
+        customsDocsCardHtml() z mockupu: .docs2.cx > .card - in the app's card (CARD, CARD_BAR,
+        CARD_TITLE), as every card of the shipment.
       */}
       {section !== "details" && CUSTOMS_TAB_GROUPS.map((group, index) => {
         const inGroup = (d: { documentType: string }) => documentGroupOf(d.documentType) === group;
@@ -405,35 +409,36 @@ export function CustomsTab({
         // A table that is not reviewed has no Customs review column at all.
         const columns = reviewed ? DOC_COLUMNS : DOC_COLUMNS.filter((c) => c.label !== REVIEW_COLUMN);
         return (
-          <div key={group.title} className="bg-white border border-line rounded-[11px] overflow-hidden shadow-[0_1px_2px_rgba(21,27,43,.05)]">
+          <div key={group.title} className={`${CARD} overflow-hidden`}>
             {/* .card-head */}
-            <div className="flex items-center gap-[11px] flex-wrap bg-accent-softer px-[18px] py-[13px]">
-              {/* .ci - ikona v ramecku */}
-              <span className="w-[22px] h-[22px] rounded-[6px] grid place-items-center text-accent border-[1.5px] border-accent flex-none text-[12px]">
+            <div className={`${CARD_BAR} flex-wrap`}>
+              {/* .ci - ikona */}
+              <span aria-hidden className={`${CARD_ICON} shrink-0`}>
                 <FileTextOutlined />
               </span>
               {/* h2 */}
-              <h2 className="m-0 text-[14px] font-extrabold tracking-[.06em] uppercase text-ink leading-[1.2]">
+              <h2 className={`${CARD_TITLE} min-w-0`}>
                 {group.title}
               </h2>
               {/* .right */}
-              <div className="ml-auto flex items-center gap-[10px] flex-wrap">
+              <div className="ml-auto flex items-center gap-2 flex-wrap">
                 {/* .count-note */}
-                <span className="text-[13px] text-subtle font-semibold whitespace-nowrap">
-                  {docPlural(documents.length)}
-                  {reviewed &&
-                    documents.length > 0 &&
-                    ` · ${documents.filter((d) => d.customsStatus === "approved").length} approved · ${documents.filter((d) => d.customsStatus === "declined").length} declined`}
-                </span>
+                <CountChip
+                  count={`${docPlural(documents.length)}${
+                    reviewed && documents.length > 0
+                      ? ` · ${documents.filter((d) => d.customsStatus === "approved").length} approved · ${documents.filter((d) => d.customsStatus === "declined").length} declined`
+                      : ""
+                  }`}
+                />
                 {/* .search - one search for all three lists, kept in the first card */}
                 {index === 0 && (
                 <Input
                   placeholder="Search by file name"
-                  prefix={<SearchOutlined className="!text-muted text-[14px]" />}
+                  prefix={<SearchOutlined className="!text-slate-400" />}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   allowClear
-                  className="flex-none !w-[210px] [&.ant-input-affix-wrapper]:!border-line-strong [&.ant-input-affix-wrapper]:!rounded-lg [&.ant-input-affix-wrapper]:!py-[7px] [&.ant-input-affix-wrapper]:!px-[11px] [&_input]:!text-[13px]"
+                  className="flex-none !w-[210px]"
                 />
                 )}
               </div>
@@ -451,10 +456,7 @@ export function CustomsTab({
                 <thead>
                   <tr>
                     {columns.map((c, i) => (
-                      <th
-                        key={i}
-                        className="text-left text-[11px] font-extrabold tracking-[.07em] uppercase text-ink-muted px-[18px] py-[12px] border-b border-line bg-white whitespace-nowrap"
-                      >
+                      <th key={i} className={`${TH} !px-4`}>
                         {c.label}
                       </th>
                     ))}
@@ -463,32 +465,32 @@ export function CustomsTab({
                 <tbody>
                   {filtered.map((d) => (
                     <Fragment key={d.id}>
-                      <tr className="group transition-colors hover:bg-surface">
+                      <tr className="group transition-colors hover:bg-slate-50">
                         {/* File */}
-                        <td className={`px-[18px] align-top ${DOC_CELL}`}>
+                        <td className={`px-4 align-top ${DOC_CELL}`}>
                           <FileCell fileName={d.fileName} fileSize={d.fileSize} />
                         </td>
 
                         {/* Document type - .type-static, v Customs jen ke cteni */}
-                        <td className={`px-[18px] align-top ${DOC_CELL}`}>
+                        <td className={`px-4 align-top ${DOC_CELL}`}>
                           {d.documentType ? (
-                            <span className="block truncate text-[14px] leading-8 font-semibold text-subtle" title={d.documentType}>
+                            <span className="block truncate text-[13px] leading-8 text-slate-700" title={d.documentType}>
                               {d.documentType}
                             </span>
                           ) : (
                             <Tooltip title="Set the type in the Documents tab">
-                              <span className="text-[14px] leading-8 font-semibold text-muted">—</span>
+                              <span className={`text-[13px] leading-8 ${EMPTY}`}>—</span>
                             </Tooltip>
                           )}
                         </td>
 
                         {/* Uploaded by - .val */}
-                        <td className={`px-[18px] align-top ${DOC_CELL}`}>
-                          <span className="block text-[14px] font-semibold text-danger">
+                        <td className={`px-4 align-top ${DOC_CELL}`}>
+                          <span className="block text-[13px] text-slate-700">
                             <span className="block truncate leading-8" title={d.uploadedByName || "Unknown"}>
                               {d.uploadedByName || "Unknown"}
                             </span>
-                            <small className="block text-[12px] leading-4 font-medium text-muted whitespace-nowrap tabular-nums">
+                            <small className={`block ${HINT} leading-4 whitespace-nowrap tabular-nums`}>
                               {d.createdAt ? formatDateTime(d.createdAt) : ""}
                             </small>
                           </span>
@@ -498,7 +500,7 @@ export function CustomsTab({
                             action next to it (Change or Decline), so both start at the same
                             place in every row whatever the name under the pill. */}
                         {reviewed && (
-                        <td className={`px-[18px] align-top ${DOC_CELL}`}>
+                        <td className={`px-4 align-top ${DOC_CELL}`}>
                           <div className="grid grid-cols-[108px_minmax(0,1fr)] items-center justify-items-start gap-x-2">
                             {d.customsStatus === "approved" || d.customsStatus === "declined" ? (
                               /* jiz posouzeno: stitek + tlacitko Change, pod nimi kdo/kdy */
@@ -509,7 +511,7 @@ export function CustomsTab({
                                 {canReview ? (
                                   <button
                                     onClick={() => review.mutate({ id: d.id, status: "" })}
-                                    className={`${DOC_BUTTON} hover:bg-surface-3 hover:border-muted`}
+                                    className={BTN}
                                   >
                                     Change
                                   </button>
@@ -518,7 +520,7 @@ export function CustomsTab({
                                 )}
                                 {d.customsReviewedAt && (
                                   <small
-                                    className="col-span-2 flex w-full min-w-0 text-[11px] leading-4 text-muted whitespace-nowrap tabular-nums"
+                                    className="col-span-2 flex w-full min-w-0 text-[11px] leading-4 text-slate-500 whitespace-nowrap tabular-nums"
                                     title={`${d.customsReviewedByName || "Customs"} · ${formatDateTime(d.customsReviewedAt)}`}
                                   >
                                     <span className="truncate">{d.customsReviewedByName || "Customs"}</span>
@@ -535,9 +537,9 @@ export function CustomsTab({
                               <>
                                 <button
                                   onClick={() => review.mutate({ id: d.id, status: "approved" })}
-                                  className={`${DOC_BUTTON} justify-center w-full hover:border-ok hover:text-ok hover:bg-ok-soft`}
+                                  className={`${BTN} w-full`}
                                 >
-                                  <CheckOutlined className="text-[14px]" />
+                                  <CheckOutlined className="text-[14px] text-emerald-600" />
                                   Approve
                                 </button>
                                 <button
@@ -548,9 +550,9 @@ export function CustomsTab({
                                     setDeclining(d.id);
                                     setNote("");
                                   }}
-                                  className={`${DOC_BUTTON} hover:border-danger hover:text-danger hover:bg-danger-soft`}
+                                  className={BTN}
                                 >
-                                  <CloseOutlined className="text-[14px]" />
+                                  <CloseOutlined className="text-[14px] text-red-600" />
                                   Decline
                                 </button>
                               </>
@@ -560,14 +562,14 @@ export function CustomsTab({
                         )}
 
                         {/* .acts - nahled a stazeni */}
-                        <td className={`pl-0 pr-[18px] align-middle ${DOC_CELL}`}>
-                          <div className="flex gap-[2px] justify-end opacity-60 group-hover:opacity-100 transition-opacity">
+                        <td className={`pl-0 pr-4 align-middle ${DOC_CELL}`}>
+                          <div className="flex gap-0.5 justify-end opacity-60 group-hover:opacity-100 transition-opacity">
                             <Tooltip title="Preview">
                               <a
                                 href={apiFileUrl(d.contentUrl)}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="w-[30px] h-[30px] rounded-[7px] grid place-items-center !text-subtle hover:!bg-accent-soft hover:!text-accent"
+                                className={DOC_ICON_LINK}
                               >
                                 <EyeOutlined className="text-[16px]" />
                               </a>
@@ -575,7 +577,7 @@ export function CustomsTab({
                             <Tooltip title="Download">
                               <a
                                 href={apiFileUrl(d.contentUrl, true)}
-                                className="w-[30px] h-[30px] rounded-[7px] grid place-items-center !text-subtle hover:!bg-accent-soft hover:!text-accent"
+                                className={DOC_ICON_LINK}
                               >
                                 <DownloadOutlined className="text-[16px]" />
                               </a>
@@ -587,10 +589,10 @@ export function CustomsTab({
                       {/* tr.cs-note - duvod zamitnuti v rozbalenem radku pod dokumentem */}
                       {(declining === d.id || (d.customsStatus === "declined" && d.customsNote)) && (
                         <tr className="cs-note">
-                          <td colSpan={columns.length} className="px-[18px] pb-[14px] pt-0 border-b border-line bg-surface">
-                            <label className="block text-[11px] font-extrabold tracking-[.07em] uppercase text-danger mb-[5px]">
+                          <td colSpan={columns.length} className="px-4 pb-3.5 pt-0 border-b border-slate-100 bg-slate-50">
+                            <label className={`block mb-1 ${DECLINE_LABEL}`}>
                               Reason for decline
-                              <span className="block text-[11px] font-medium tracking-normal normal-case text-muted mt-[2px]">
+                              <span className={`block ${HINT} font-normal tracking-normal normal-case mt-0.5`}>
                                 Visible to the operations team in the Documents tab
                               </span>
                             </label>
@@ -602,12 +604,12 @@ export function CustomsTab({
                                   value={note}
                                   onChange={(e) => setNote(e.target.value)}
                                   placeholder="What is wrong with the document…"
-                                  className="w-full max-w-[620px] text-[13px] text-ink border border-danger rounded-lg px-[10px] py-2 bg-white outline-none resize-y"
+                                  className="w-full max-w-[620px] text-[13px] text-slate-900 border border-red-600 rounded-lg px-2.5 py-2 bg-white outline-none resize-y focus:ring-2 focus:ring-red-100"
                                 />
                                 <div className="flex gap-2 mt-2">
                                   <button
                                     onClick={() => review.mutate({ id: d.id, status: "declined", reason: note })}
-                                    className="text-[13px] font-semibold px-[10px] py-[5px] rounded-[7px] border border-danger bg-danger text-white cursor-pointer hover:brightness-110 transition-all"
+                                    className={BTN_DANGER}
                                   >
                                     Save decline
                                   </button>
@@ -616,14 +618,14 @@ export function CustomsTab({
                                       setDeclining(null);
                                       setNote("");
                                     }}
-                                    className="text-[13px] font-semibold px-[10px] py-[5px] rounded-[7px] border border-line-strong bg-white text-ink cursor-pointer hover:bg-surface-3 transition-colors"
+                                    className={BTN}
                                   >
                                     Cancel
                                   </button>
                                 </div>
                               </>
                             ) : (
-                              <div className="text-[13px] text-ink max-w-[620px]">“{d.customsNote}”</div>
+                              <div className="text-[13px] text-slate-700 max-w-[620px]">“{d.customsNote}”</div>
                             )}
                           </td>
                         </tr>
@@ -635,7 +637,7 @@ export function CustomsTab({
 
               {/* .empty */}
               {filtered.length === 0 && (
-                <div className="px-[18px] py-9 text-center text-muted text-[14px]">
+                <div className="px-4 py-9 text-center text-slate-400 text-[13px]">
                   {documents.length === 0
                     ? `No ${group.title.toLowerCase()} yet — files marked ${group.types.join(" or ")} in the Documents tab show up here.`
                     : `No file matches “${search}”.`}
@@ -644,7 +646,7 @@ export function CustomsTab({
             </div>
 
             {/* .cs-foot */}
-            <div className="px-[18px] py-[11px] border-t border-line bg-surface text-[13px] text-muted font-medium">
+            <div className={`px-4 py-2.5 border-t border-slate-200 bg-slate-50 ${HINT}`}>
               {group.types.join(" and ")} documents. Types are set in the Documents tab
               {!reviewed ? "." : canReview ? " — customs can only approve or decline." : "; they are approved or declined in the Customs section."}
             </div>

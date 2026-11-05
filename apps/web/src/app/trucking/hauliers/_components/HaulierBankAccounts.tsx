@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button, Input } from "antd";
 import { CloseOutlined, PlusOutlined } from "@ant-design/icons";
+import { LABEL_TEXT, REF } from "@/styles/ui";
 import { bankAccountProblem, formatBankAccount, isPublishedAccount, normaliseBankAccount } from "../../_lib/bankAccounts";
 
 interface HaulierBankAccountsProps {
@@ -29,7 +30,7 @@ export const HaulierBankAccounts = ({ accounts, onChange, readOnly = false, haul
 
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Published bank accounts</span>
+      <span className={LABEL_TEXT}>Published bank accounts</span>
       {accounts.length === 0 ? (
         haulier ? (
           <span className="text-[12px] text-amber-700">None yet — every invoice from this haulier is blocked until its account is listed here.</span>
@@ -41,7 +42,7 @@ export const HaulierBankAccounts = ({ accounts, onChange, readOnly = false, haul
           {/* Rows hold no input, so position + text is a stable key even for an account listed twice. */}
           {accounts.map((a, i) => (
             <li key={`${i}-${a}`} className="flex items-center gap-2 text-[13px]">
-              <span className="tabular-nums text-slate-800">{formatBankAccount(a)}</span>
+              <span className={`${REF} text-slate-900`}>{formatBankAccount(a)}</span>
               {!readOnly && (
                 <Button size="small" type="text" aria-label={`Remove ${a}`} icon={<CloseOutlined />} onClick={() => onChange(accounts.filter((_, j) => j !== i))} />
               )}
@@ -64,7 +65,7 @@ export const HaulierBankAccounts = ({ accounts, onChange, readOnly = false, haul
           </Button>
         </div>
       )}
-      {!readOnly && problem && <span className="text-[11px] text-red-600">{problem}</span>}
+      {!readOnly && problem && <span className="text-[12px] text-red-600">{problem}</span>}
     </div>
   );
 };

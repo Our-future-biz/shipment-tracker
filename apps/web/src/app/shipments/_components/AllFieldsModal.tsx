@@ -3,6 +3,7 @@
 import { Modal } from "antd";
 import { COLUMNS } from "@/lib/columnConfig";
 import { getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
+import { HINT, LABEL_TEXT, MODAL_TITLE, REF } from "@/styles/ui";
 
 export function AllFieldsModal({
   shipment,
@@ -24,17 +25,17 @@ export function AllFieldsModal({
       footer={null}
       width={900}
       title={
-        <span className="text-sm">
-          All fields · <span className="tabular-nums text-slate-500">{shipment.jobNumber ?? shipment.id}</span>
+        <span className={MODAL_TITLE}>
+          All fields · <span className={`${REF} font-normal text-slate-500`}>{shipment.jobNumber ?? shipment.id}</span>
         </span>
       }
     >
       <div className="grid grid-cols-3 gap-x-6 gap-y-3 max-h-[70vh] overflow-y-auto pr-1">
-        {fields.length === 0 && <div className="text-xs text-slate-400">No fields set.</div>}
+        {fields.length === 0 && <div className={HINT}>No fields set.</div>}
         {fields.map((f) => (
           <div key={f.label}>
-            <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">{f.label}</div>
-            <div className="text-xs text-slate-700 break-words">{f.value}</div>
+            <div className={`${LABEL_TEXT} mb-0.5`}>{f.label}</div>
+            <div className="text-[13px] text-slate-900 break-words">{f.value}</div>
           </div>
         ))}
       </div>

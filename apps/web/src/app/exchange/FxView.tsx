@@ -6,7 +6,9 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { useToast } from "@/lib/toast";
 import { useFxOverview, useFxSync } from "@/hooks/useFx";
 import { formatDate, formatDateTime } from "@/lib/date";
-import { CARD, type FxOverview } from "./_components/fxShared";
+import { Pill } from "@/components/Pill";
+import { CARD, HINT } from "@/styles/ui";
+import type { FxOverview } from "./_components/fxShared";
 import { OverviewCards } from "./_components/OverviewCards";
 import { useFxCurrencies, withBase } from "./_components/useFxCurrencies";
 import { DailyTab } from "./_components/DailyTab";
@@ -19,22 +21,22 @@ const SYNC_ROLES = ["superadmin", "admin", "manager"];
 function SyncPill({ sync }: { sync: FxOverview["sync"] }) {
   if (sync.state === "ok") {
     return (
-      <span className="text-[13px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-600 rounded-md px-2 py-0.5">
+      <Pill tone="green">
         Up to date · fixing {formatDate(sync.latestFixing)}
-      </span>
+      </Pill>
     );
   }
   if (sync.state === "failed" || sync.state === "empty") {
     return (
-      <span className="text-[13px] font-semibold text-red-700 bg-red-50 border border-red-600 rounded-md px-2 py-0.5">
+      <Pill tone="red">
         {sync.state === "empty" ? "No rates imported yet" : `Last sync failed ${formatDateTime(sync.lastRunAt)}`}
-      </span>
+      </Pill>
     );
   }
   return (
-    <span className="text-[13px] font-semibold text-warn bg-warn-soft border border-warn rounded-md px-2 py-0.5">
+    <Pill tone="amber">
       Waiting for ČNB fixing of {formatDate(sync.expectedFixing)}
-    </span>
+    </Pill>
   );
 }
 
@@ -128,11 +130,11 @@ export function FxView() {
             {data.base === "CZK" ? "ČNB official rates — CZK per 1 unit" : `Rates in ${data.base} per 1 unit — crossed from the ČNB fixing`}
           </span>
           <SyncPill sync={data.sync} />
-          <span className="text-[12px] text-slate-400">Pulled daily at 15:00 · Source: ČNB</span>
+          <span className={HINT}>Pulled daily at 15:00 · Source: ČNB</span>
         </div>
         {canSync && (
           <Tooltip title="Fetch the latest fixing from ČNB now">
-            <Button icon={<SyncOutlined spin={sync.isPending} />} onClick={handleSync} disabled={sync.isPending} className="!rounded-md !h-8">
+            <Button icon={<SyncOutlined spin={sync.isPending} />} onClick={handleSync} disabled={sync.isPending}>
               Sync now
             </Button>
           </Tooltip>
