@@ -3,8 +3,8 @@ import { isUniqueViolation } from "../../../lib/db/errors";
 import { countryName } from "../../../lib/geo/format";
 import { departmentRepository, branchRepository, countryRepository, locationRepository } from "../repositories/orgUnit.repository";
 import type { Place } from "../../../lib/geo/place";
-import { searchAirports, type Airport } from "../../../lib/geo/airports";
-import { searchInlandTerminals, searchTerminals, type InlandTerminal, type Terminal } from "../../../lib/geo/terminals";
+import { isAirportCode, searchAirports, type Airport } from "../../../lib/geo/airports";
+import { isTerminalCode, searchInlandTerminals, searchTerminals, type InlandTerminal, type Terminal } from "../../../lib/geo/terminals";
 import { userRepository } from "../repositories/user.repository";
 import { locationPickRepository } from "../repositories/locationPick.repository";
 import { pickCode, type PickCounts } from "../../../lib/geo/picks";
@@ -197,8 +197,14 @@ class OrgUnitService {
   /** One more pick of a place, airport or terminal code by the user, so their pickers list it sooner. */
   async recordPick(code: string, by: Picker): Promise<void> {
     const known = pickCode(code);
-    if (!known) throw APIError.invalidArgument("code must be a UN/LOCODE, IATA airport or terminal code");
+    if (!known || !(await this.isKnownCode(known))) throw APIError.invalidArgument("code must be a known UN/LOCODE, IATA airport or terminal code");
     await locationPickRepository.record(by.companyId, by.userId, known);
+  }
+
+  // Only codes the pickers offer are counted: made-up codes would only grow the table.
+  private async isKnownCode(code: string): Promise<boolean> {
+    if (isAirportCode(code) || isTerminalCode(code)) return true;
+    return /^[A-Z]{2}[A-Z0-9]{3}$/.test(code) && (await locationRepository.findByCodes([code])).length > 0;
   }
 
   private async picksOf(pickedBy?: Picker): Promise<PickCounts | undefined> {

@@ -211,12 +211,17 @@ export function NotificationBell() {
     seenMargin.current = new Set(keys);
   }, [marginWaiting, marginAnswers, marginLoaded, toast]);
 
-  // And new suppliers waiting, and answers to the ones this user added.
+  // And new suppliers waiting, and answers to the ones this user added. Every waiting one is remembered,
+  // whoever the user is: the sales permissions may arrive after the list, and a manager is then not told
+  // of the whole backlog as news.
   const seenSuppliers = useRef<Set<string> | null>(null);
   useEffect(() => {
     if (!suppliersLoaded) return;
     const before = seenSuppliers.current;
-    const keys = [...supplierWaiting.map((a) => `w:${a.customerId}`), ...supplierAnswers.map((a) => `a:${a.customerId}`)];
+    const keys = [
+      ...supplierApprovals.filter((a) => a.status === "pending").map((a) => `w:${a.customerId}`),
+      ...supplierAnswers.map((a) => `a:${a.customerId}`),
+    ];
     if (before) {
       for (const a of supplierWaiting) if (!before.has(`w:${a.customerId}`)) toast.notify({ title: supplierWaitingTitle(a), description: supplierWaitingText(a), type: "warning" });
       for (const a of supplierAnswers)

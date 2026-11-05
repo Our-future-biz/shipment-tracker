@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
-import { Input, Button, message } from "antd";
+import { useEffect, useRef, useState, useMemo } from "react";
+import { Input, Button, Tooltip, message } from "antd";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import type { MessageInstance } from "antd/es/message/interface";
 import { buildRowData, getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
@@ -9,8 +9,9 @@ import type { interfaces } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/date";
 import { loadTypeLabel } from "@/lib/enums";
 import { NOT_STACKABLE, STACKABLE, dimensionLineVolume, dimensionTotals, numberInput, shipmentStackability } from "@/lib/cargo";
-import { useWarehouseSection } from "@/hooks/useWarehouseSection";
-import { useRemeasureNotice } from "@/hooks/useRemeasureNotice";
+import { SectionChangedError, useWarehouseSection } from "@/hooks/useWarehouseSection";
+import { apiErrorMessage } from "@/lib/api";
+import { informedText } from "@/lib/informOperations";
 import { SectionCard as Card, PillTabs } from "@/components/SectionCard";
 import { PickupSection } from "./warehouse/PickupSection";
 import { JobNotes, ActionPushButtons } from "./warehouse/JobExtras";
@@ -137,18 +138,21 @@ const serializeRows = (rows: DimensionRow[]) =>
 const asLine = (r: DimensionRow): interfaces.CargoDimensionLine => ({ containerId: null, packageType: "", stackable: "", volumePerPcM3: "", ...r });
 
 function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; messageApi: MessageInstance }) {
-  const { data: jobSectionData, save: saveJobSection, isSaving } = useWarehouseSection(shipment.id, "job");
+  const { data: jobSectionData, saveKeys, isSaving, informOperations: inform, isInforming } = useWarehouseSection(shipment.id, "job");
   const jobSection = asJobSection(jobSectionData);
   const informedAt = jobSection.inform_operations_sent;
   const saved = jobSection.remeasure_rows;
 
   const [rows, setRows] = useState<DimensionRow[]>([{ ...EMPTY_DIM }]);
   const [dirty, setDirty] = useState(false);
+  // The saved lines the edit started from: a save replaces exactly those, or is refused.
+  const [base, setBase] = useState(saved ?? "");
   // The saved lines fill the table while it holds no unsaved edit.
   useEffect(() => {
     if (dirty) return;
     const parsed = parseRemeasure(saved);
     setRows(parsed.length > 0 ? parsed : [{ ...EMPTY_DIM }]);
+    setBase(saved ?? "");
   }, [saved, dirty]);
 
   const updateRow = (idx: number, field: keyof DimensionRow, value: string) => {
@@ -158,14 +162,19 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
   const addRow = () => { setRows((prev) => [...prev, { ...EMPTY_DIM }]); setDirty(true); };
   const deleteRow = (idx: number) => { setRows((prev) => prev.filter((_, i) => i !== idx)); setDirty(true); };
 
-  // Only the warehouse's job section is written; the shipment's cargo dimensions are not touched.
+  // Only the lines of the warehouse's job section are written (notes saved meanwhile stay); the
+  // shipment's cargo dimensions are not touched.
   const save = async () => {
     try {
-      await saveJobSection({ ...jobSection, remeasure_rows: serializeRows(rows) });
+      await saveKeys([{ key: "remeasure_rows", value: serializeRows(rows), expected: base }]);
       setDirty(false);
       messageApi.success("Saved");
-    } catch {
-      messageApi.error("Failed to save");
+    } catch (e) {
+      if (e instanceof SectionChangedError) {
+        // Someone else saved the lines meanwhile: theirs show, as a note saved meanwhile does.
+        setDirty(false);
+        messageApi.warning("Someone else saved the remeasured lines meanwhile — theirs are shown; enter your changes again");
+      } else messageApi.error(`Failed to save: ${apiErrorMessage(e)}`);
     }
   };
 
@@ -183,26 +192,23 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
   const hasMismatch = differs(shipmentDims.colli, totalColli) || differs(shipmentDims.weightKg, totalWeightKg) || differs(shipmentDims.volumeCbm, totalVolumeCbm);
   const hasData = totalColli > 0 || totalWeightKg > 0 || totalVolumeCbm > 0;
 
-  // Records when Operations was told, then tells them: a message in the shipment's chat tagging
-  // its Person in Charge and Holiday Cover.
-  const postNotice = useRemeasureNotice();
+  // Inform Operations: one request records when and posts "Cargo has been remeasured by the
+  // warehouse" with the SAVED lines' figures to the shipment's chat, tagging its Person in Charge and
+  // Holiday Cover (the server finds them) - both, or neither. Only with the lines saved, so what is
+  // told is what is on screen; a second click while it runs is ignored.
+  const informingRef = useRef(false);
+  const informBlocked = dirty ? "Save the lines first — Operations are told the saved figures" : null;
   const informOperations = async () => {
+    if (informingRef.current || informBlocked) return;
+    informingRef.current = true;
     try {
-      await saveJobSection({ ...jobSection, inform_operations_sent: new Date().toISOString() });
-    } catch {
-      messageApi.error("Failed to inform Operations");
-      return;
-    }
-    try {
-      const tagged = await postNotice(
-        shipment,
-        { colli: shipmentDims.colli, weightKg: shipmentDims.weightKg, volumeCbm: shipmentDims.volumeCbm },
-        { colli: totalColli, weightKg: totalWeightKg, volumeCbm: totalVolumeCbm },
-      );
-      if (tagged > 0) messageApi.success("Operations informed in the shipment's chat");
-      else messageApi.warning("Posted in the shipment's chat, but no Person in Charge or Holiday Cover is set to notify");
-    } catch {
-      messageApi.error("Could not post the message to the shipment's chat");
+      const { tagged } = await inform(informedAt ?? "");
+      const told = informedText(tagged);
+      messageApi[told.level](told.text);
+    } catch (e) {
+      messageApi.error(e instanceof SectionChangedError ? e.message : `Operations not informed: ${apiErrorMessage(e)}`);
+    } finally {
+      informingRef.current = false;
     }
   };
 
@@ -296,16 +302,21 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
 
       {hasData && hasMismatch && (
         <div className="mt-4 flex items-center justify-between gap-3 rounded-md border border-red-200 bg-red-50 px-3.5 py-2.5">
-          <span className="text-xs text-red-600">
-            Remeasured values differ from the shipment values.
-            {informedAt && <span className="block text-[11px] text-red-400">Operations informed on {formatDateTime(informedAt)}</span>}
-          </span>
-          <Button danger size="small" onClick={informOperations} loading={isSaving}>{informedAt ? "Inform Again" : "Inform Operations"}</Button>
+          <span className="text-xs text-red-600">Remeasured values differ from the shipment values.</span>
+          <Tooltip title={informBlocked ?? undefined}>
+            <span className="inline-flex">
+              <Button danger size="small" onClick={informOperations} loading={isInforming} disabled={!!informBlocked}>
+                {informedAt ? "Inform Again" : "Inform Operations"}
+              </Button>
+            </span>
+          </Tooltip>
         </div>
       )}
       {hasData && !hasMismatch && (
         <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-xs text-emerald-700">✓ All values match</div>
       )}
+      {/* Shown whatever the lines say now, e.g. for a shipment informed before its lines changed. */}
+      {informedAt && <div className="mt-2 text-[11px] text-slate-500">Operations informed on {formatDateTime(informedAt)}</div>}
     </Card>
   );
 }

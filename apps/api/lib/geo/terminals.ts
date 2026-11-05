@@ -29,6 +29,8 @@ const TERMINALS: Entry[] = TERMINALS_DATA.trim()
     return { code, name, portCode: code.slice(0, 5), port, countryCode, operator: operator || null, text: ` ${fold(`${name} ${port} ${operator}`)}` };
   });
 
+const TERMINAL_CODES = new Set(TERMINALS.map((t) => t.code));
+
 const toTerminal = ({ code, name, portCode, port, countryCode, operator }: Entry): Terminal => ({ code, name, portCode, port, countryCode, operator });
 
 /**
@@ -74,6 +76,11 @@ const INLAND: InlandEntry[] = INLAND_TERMINALS_DATA.trim()
     const [code = "", name = "", town = "", countryCode = "", kind = "T", railroads = ""] = line.split("|");
     return { code, name, town, countryCode, kind: KIND[kind] ?? "intermodal", railroads: railroads || null, text: ` ${fold(`${name} ${town} ${railroads}`)}` };
   });
+
+const INLAND_CODES = new Set(INLAND.map((t) => t.code));
+
+/** Whether the code is an ocean ("DEHAMCTB") or inland ("DE-IT116") terminal of the lists. */
+export const isTerminalCode = (code: string): boolean => TERMINAL_CODES.has(code) || INLAND_CODES.has(code);
 
 const toInlandTerminal = ({ code, name, town, countryCode, kind, railroads }: InlandEntry): InlandTerminal => ({ code, name, town, countryCode, kind, railroads });
 

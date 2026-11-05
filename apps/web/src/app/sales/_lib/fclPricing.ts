@@ -260,13 +260,15 @@ const withPairIds = (lines: readonly CostLine[]): CostLine[] => lines.map((l) =>
  * The selling lines of an FCL-priced quote, made from its buying lines (which all get a pairId) and
  * its profit; its trucking lines stay as they are. A charge priced at nothing sells nothing and has
  * no selling line. Null while a rate a charge needs is missing: its profit could not be converted.
+ * `live`: the ROE % of a draft (one not sent has no rates of its own), so a block rounded up to fives
+ * is rounded at the ROE its totals and quotation are shown at, as its card is.
  */
-export function fclLines(data: SalesQuoteData, sheet: ExchangeRates): Pick<SalesQuoteData, "buyingLines" | "sellingLines"> | null {
+export function fclLines(data: SalesQuoteData, sheet: ExchangeRates, live?: LivePricing): Pick<SalesQuoteData, "buyingLines" | "sellingLines"> | null {
   const buyingLines = withPairIds(data.buyingLines ?? []);
   const quote = { ...data, buyingLines };
   const selling = new Map<number, CostLine>();
   for (const block of fclBlocks(quote)) {
-    const priced = priceFclBlock(quote, sheet, block);
+    const priced = priceFclBlock(quote, sheet, block, live);
     for (const c of priced.charges) {
       const line = buyingLines[c.index]!;
       const factor = quoteCurrencyFactor(line.currency, quote, sheet);
@@ -337,7 +339,7 @@ export function withFclPricing(
   if (!start) return null;
   // An open quote priced now has its selling rounded up to full fives; a quote shown as it was sent keeps what it had.
   const fclPricing = { ...(start.fclPricing ?? { blocks: {} }), ...(roundUp ? { roundUp: true } : {}) };
-  const lines = fclLines({ ...start, fclPricing }, sheet);
+  const lines = fclLines({ ...start, fclPricing }, sheet, live);
   return lines && { ...lines, fclPricing };
 }
 

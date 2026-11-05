@@ -173,6 +173,21 @@ describe("a block's selling, rounded up to full fives", () => {
     expect(priceFclBlock(data, SHEET, block(data, "20' DC")).selling).toBe(1966.67);
   });
 
+  it("is rounded at a draft's live ROE, so the totals are what the card shows", () => {
+    // A draft in EUR (no rates of its own yet): the ocean freight in USD, sold at today's ROE of 102 %.
+    const lines = quote().buyingLines!.map((l, i) => (i === 3 ? { ...l, currency: "EUR" } : l));
+    const live = { roePct: 102, fixingDate: "2026-11-05" };
+    const data = quote({ currency: "EUR", buyingLines: lines, fclPricing: { blocks: { "20' DC": { mode: "percent", value: 10 } } } });
+    const priced = withFclPricing(data, SHEET, live, { roundUp: true })!;
+    const card = priceFclBlock({ ...data, ...priced }, SHEET, block({ ...data, ...priced }, "20' DC"), live).selling;
+    expect(Math.round(card * 100) % 500).toBe(0);
+    // The 20' DC lines on the totals: 2 containers at the card's price, to the cent.
+    const of20 = priced.sellingLines!.filter((l) => l.containerType === "20' DC");
+    const sold = of20.reduce((sum, l) => sum + convertLine(l, { ...data, ...priced }, SHEET, { selling: true, live })!, 0);
+    expect(Math.abs(sold - card * 2)).toBeLessThanOrEqual(0.02);
+    expect(computeTotals({ ...data, ...priced }, SHEET, live).roePct).toBe(102);
+  });
+
   it("is asked for when an open quote is priced, and its selling lines follow", () => {
     const data = quote({ fclPricing: { blocks: { "20' DC": { mode: "percent", value: 10 } } } });
     const priced = withFclPricing(data, SHEET, undefined, { roundUp: true })!;

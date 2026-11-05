@@ -12,10 +12,20 @@ import { gateAdminService } from "../services/gateAdmin.service";
 import { warehouseSectionRepository } from "../repositories/warehouseSection.repository";
 import { readPickup } from "../services/pickupPin";
 
+// The shipments service as the tests see it; its chat records each remeasurement notice posted.
+const notices = vi.hoisted(() => ({ posted: [] as { shipmentId: string; remeasured: unknown; comparedWith: string; note?: string }[], fail: null as Error | null }));
 vi.mock("~encore/clients", async () => {
   const { getShipment } = await import("./shipmentFakes");
   return {
-    shipments: { shipmentUpdate: vi.fn(async () => ({})), shipmentGet: vi.fn(getShipment) },
+    shipments: {
+      shipmentUpdate: vi.fn(async () => ({})),
+      shipmentGet: vi.fn(getShipment),
+      _internalShipmentRemeasureNotice: vi.fn(async (req: { shipmentId: string; remeasured: unknown; comparedWith: string; note?: string }) => {
+        if (notices.fail) throw notices.fail;
+        notices.posted.push(req);
+        return { commentId: randomUUID(), tagged: ["pic@firma.cz"] };
+      }),
+    },
     auth: (await import("./authFake")).authFake([]),
   };
 });
@@ -128,7 +138,10 @@ describe("sections stored per position", () => {
     const data = row.data as Record<string, unknown>;
     expect(JSON.parse(data.remeasurement_sent as string)).toMatchObject({ timestamp: expect.any(String) });
     expect((data.remeasurement_sent_history as { note: string }[]).map((h) => h.note).sort()).toEqual(["again", "to the carrier"]);
-    await warehouseService.markSent(taskId, "inform_operations", "", c, user);
+    // A stand-alone position has no shipment and no chat: Operations informed is only recorded.
+    notices.posted = [];
+    expect((await warehouseService.informOperations(taskId, "", c, user)).tagged).toBeNull();
+    expect(notices.posted).toEqual([]);
     const informed = ((await warehouseService.getSectionByTask(taskId, "job", c))!.data as Record<string, string>).inform_operations_sent;
     expect(informed).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     await expect(warehouseService.markSent(taskId, "invoice", "", c, user)).rejects.toThrow(/must be one of/);
@@ -136,6 +149,43 @@ describe("sections stored per position", () => {
     expect(events).toHaveLength(3);
     const summary = (await warehouseService.sectionSummary(c)).find((s) => s.taskId === taskId)!;
     expect(summary).toMatchObject({ hasLines: false, remeasurementSentAt: expect.any(String), operationsInformedAt: informed });
+  });
+
+  it("tells the shipment's people when Operations are informed - the saved lines against what the shipment declares - or records nothing", async () => {
+    const { c, shipmentId, taskId, movementId } = await linked();
+    const lines = JSON.stringify([{ pieces: "11", lengthCm: "120", widthCm: "80", heightCm: "150", weightPerPcKg: "250" }]);
+    await byTask(c, taskId, [{ key: "remeasure_rows", value: lines, expected: "" }]);
+    notices.posted = [];
+    const told = await warehouseService.informOperations(taskId, " 2 crates crushed ", c, user);
+    expect(told.tagged).toEqual(["pic@firma.cz"]);
+    expect(notices.posted).toEqual([{ shipmentId, remeasured: { colli: 11, weightKg: 2750, volumeCbm: 15.84 }, comparedWith: "declared", note: "2 crates crushed" }]);
+    const informed = (told.row.data as Record<string, string>).inform_operations_sent;
+    expect(informed).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    // A notice that cannot be posted takes the record and its History line back with it.
+    notices.fail = new Error("chat down");
+    await expect(warehouseService.markSent(taskId, "inform_operations", "", c, user)).rejects.toThrow(/could not be posted/);
+    notices.fail = null;
+    expect(((await warehouseService.getSectionByTask(taskId, "job", c))!.data as Record<string, unknown>).inform_operations_sent).toBe(informed);
+    expect(((await warehouseService.getSectionByTask(taskId, "job", c))!.data as Record<string, unknown[]>).inform_operations_sent_history).toHaveLength(1);
+    expect((await gateMovementService.get(movementId, c)).events.filter((e) => e.kind === "sectionSent")).toHaveLength(1);
+    // Lines that cannot be read are not told as nothing.
+    await byTask(c, taskId, [{ key: "remeasure_rows", value: JSON.stringify([{ pieces: "two" }]), expected: lines }]);
+    await expect(warehouseService.informOperations(taskId, "", c, user)).rejects.toThrow(/cannot be read: Line 1: Qty is not a number/);
+    // It is no field a save may write: only Inform Operations, which tells them.
+    await expect(byTask(c, taskId, [{ key: "inform_operations_sent", value: "2026-11-05T10:00:00Z", expected: informed }])).rejects.toThrow(/Unknown field/);
+  });
+
+  it("informs Operations by shipment id: the position's when it has one, else the shipment's own, compared with its dimension lines", async () => {
+    const { c, shipmentId, taskId } = await linked();
+    notices.posted = [];
+    const viaPosition = await warehouseService.informOperationsByShipment(shipmentId, "", c, user);
+    expect(viaPosition.row.taskId).toBe(taskId);
+    expect(notices.posted.map((n) => n.comparedWith)).toEqual(["declared"]);
+    const alone = randomUUID();
+    const own = await warehouseService.informOperationsByShipment(alone, "", c, user);
+    expect(own).toMatchObject({ row: { taskId: null, shipmentId: alone }, tagged: ["pic@firma.cz"] });
+    expect(notices.posted.at(-1)).toMatchObject({ shipmentId: alone, remeasured: { colli: 0, weightKg: 0, volumeCbm: 0 }, comparedWith: "dimensions" });
+    await expect(warehouseService.informOperationsByShipment("nope", "", c, user)).rejects.toThrow(/Not a shipment id/);
   });
 
   it("gives the remeasurement worklist the lines saved per position", async () => {

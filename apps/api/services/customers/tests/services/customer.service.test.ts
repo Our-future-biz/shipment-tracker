@@ -27,7 +27,7 @@ vi.mock("../../topics", () => ({ customerChanged: { publish: vi.fn() }, contactC
 import { customerRepository } from "../../repositories/customer.repository";
 import { aresService } from "../../services/ares.service";
 import { auth } from "~encore/clients";
-import { assertMayGiveRoles, customerService } from "../../services/customer.service";
+import { assertMayGiveRoles, customerService, supplierRequestOf } from "../../services/customer.service";
 
 const repository = vi.mocked(customerRepository);
 const ares = vi.mocked(aresService);
@@ -191,6 +191,29 @@ describe("roles", () => {
     // A manager's own is approved at once: nothing waits.
     await customerService.createManual(COMPANY, "manager", manual, { userId: USER, quoteNumber: "QCZ20261105001" });
     expect(repository.createWithContact.mock.lastCall?.[1]).not.toHaveProperty("approvalStatus");
+  });
+
+  it("from a quote are suppliers only: a customer (the quote customer picker's) is refused, whoever asks, before anything is written", async () => {
+    expect(() => assertMayGiveRoles("user", ["customer", "haulier"], true)).toThrow(
+      expect.objectContaining({ code: "invalid_argument", message: "A supplier added from a quote can't be a customer too: add the customer in the Customer Database" }),
+    );
+    expect(() => assertMayGiveRoles("manager", ["haulier", "customer"], true)).toThrow(expect.objectContaining({ code: "invalid_argument" }));
+    const manual = { country: "DE", companyName: "Hapag-Lloyd AG", street: "Ballindamm 25", city: "Hamburg", postalCode: "20095", contact: CONTACT, roles: ["customer" as const, "haulier" as const] };
+    await expect(customerService.createManual(COMPANY, "user", manual, { userId: "u1", quoteNumber: "QCZ20261105001" })).rejects.toMatchObject({ code: "invalid_argument" });
+    await expect(customerService.createFromAres(COMPANY, "user", "12345678", CONTACT, ["customer", "haulier"], { userId: "u1", quoteNumber: "QCZ20261105001" })).rejects.toMatchObject({
+      code: "invalid_argument",
+    });
+    expect(ares.lookup).not.toHaveBeenCalled();
+    expect(repository.createWithContact).not.toHaveBeenCalled();
+  });
+
+  it("from a quote name it by its Sales Reference: nothing else is a quote the list and the bell could lead to", () => {
+    expect(supplierRequestOf("u1", undefined)).toBeUndefined();
+    expect(supplierRequestOf("u1", "  ")).toBeUndefined();
+    expect(supplierRequestOf("u1", " QCZ20261105001-2-R1 ")).toEqual({ userId: "u1", quoteNumber: "QCZ20261105001-2-R1" });
+    for (const bad of ["x", "QCZ1", "Q-123", "QCZ20261105001; drop"]) {
+      expect(() => supplierRequestOf("u1", bad)).toThrow(expect.objectContaining({ code: "invalid_argument" }));
+    }
   });
 
   it("list the companies with a role, asking only for ids that can be customers", async () => {

@@ -1,6 +1,9 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "../db/db";
 import { locationPickTable } from "../schemas/locationPick.schema";
+
+// The airport and terminal searches order by at most this many of a user's most picked codes.
+const MOST_COUNTED = 500;
 
 class LocationPickRepository {
   /** One more pick of `code` by the user. */
@@ -14,12 +17,17 @@ class LocationPickRepository {
       });
   }
 
-  /** How often the user picked each code they ever picked. */
+  /**
+   * How often the user picked each of the codes they picked most (MOST_COUNTED). A search only
+   * needs the favourites, not every code a user ever picked.
+   */
   async countsFor(companyId: string, userId: string): Promise<Map<string, number>> {
     const rows = await db
       .select({ code: locationPickTable.code, picks: locationPickTable.picks })
       .from(locationPickTable)
-      .where(and(eq(locationPickTable.companyId, companyId), eq(locationPickTable.userId, userId)));
+      .where(and(eq(locationPickTable.companyId, companyId), eq(locationPickTable.userId, userId)))
+      .orderBy(desc(locationPickTable.picks), desc(locationPickTable.lastPickedAt))
+      .limit(MOST_COUNTED);
     return new Map(rows.map((r) => [r.code, r.picks]));
   }
 }

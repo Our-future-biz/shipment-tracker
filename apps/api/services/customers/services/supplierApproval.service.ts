@@ -9,9 +9,9 @@ import { supplierApprovalRepository, type SupplierApprovalRow } from "../reposit
 import { customerService } from "./customer.service";
 
 // A new supplier a user who is no manager adds from a quote's Pricing waits for a manager on Sales →
-// Managers → Company approval. Approved it is a supplier like any other; declined it is deleted (it can
-// be restored) and the user is told why. A quote linked to a supplier that waits or was declined is not
-// sent (the quotes service asks here: states).
+// Managers → Company approval. Approved it is a supplier like any other; declined it is deleted and the
+// user is told why - a manager can take a decline back there, and it waits again. A quote linked to a
+// supplier that waits or was declined is not sent (the quotes service asks here: states).
 
 /** How long an answer stays on the list, and in the bell of the one who asked. */
 export const ANSWERED_SHOWN_DAYS = 30;
@@ -73,9 +73,26 @@ class SupplierApprovalService {
       comment: reason,
     });
     if (!row) throw APIError.failedPrecondition("This supplier no longer waits for approval: another manager answered, or it was deleted");
-    // Declined, it leaves the Customer Database with what was filed under it (it can be restored).
-    if (decision === "decline") await customerService.softDelete(id, actor.companyID);
-    const item = (await this.list(actor.companyID)).find((i) => i.customerId === id);
+    // Declined, it left the Customer Database with what was filed under it, in the answer's own
+    // transaction; the copies elsewhere are told now.
+    if (decision === "decline") await customerService.announceDeleted(actor.companyID, row);
+    return this.itemOf(actor.companyID, id);
+  }
+
+  /**
+   * A manager takes back a decline (one given by mistake): the company comes back with what was deleted
+   * with it and waits for a manager again, so Approve or Decline answers it as before; its quote stays
+   * held until then. Only a supplier declined here and still deleted; a second click is refused.
+   */
+  async undoDecline(actor: Actor, id: string): Promise<SupplierApprovalItem> {
+    if (!canManageSales(actor.role)) throw APIError.permissionDenied("Only a manager can take back the decline of a new supplier");
+    if (!isUuid(id)) throw APIError.invalidArgument("Not a company of the Customer Database");
+    await customerService.undoDecline(id, actor.companyID);
+    return this.itemOf(actor.companyID, id);
+  }
+
+  private async itemOf(companyId: string, id: string): Promise<SupplierApprovalItem> {
+    const item = (await this.list(companyId)).find((i) => i.customerId === id);
     if (!item) throw APIError.internal("the answered supplier is not on the list");
     return item;
   }

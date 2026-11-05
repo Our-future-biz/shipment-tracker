@@ -6,6 +6,8 @@ import type { SalesQuoteData } from "@/app/sales/_lib/types";
 import type { SalesQuote } from "@/app/sales/_lib/salesQuote";
 import { quoteProblem } from "@/app/sales/_lib/quoteProblem";
 import { SECTIONS, pickSections, type SectionKey } from "@/app/sales/_lib/quoteSections";
+import { withTemplateTerms } from "@/app/sales/_lib/shippingTerms";
+import { useTermsConditions } from "@/hooks/useTermsConditions";
 import { QuotePicker } from "@/app/sales/_components/QuotePicker";
 import { SalesDialog } from "@/app/sales/_components/SalesDialog";
 import { useSalesQuotes } from "@/hooks/useSalesQuotes";
@@ -29,6 +31,8 @@ export function DuplicateWizardModal({
 }: DuplicateWizardModalProps) {
   const { duplicateQuote } = useSalesQuotes();
   const { withLiveContact } = useQuoteCustomerFields();
+  // The copy's Shipping terms are the template's texts as they are now (read once the list is in).
+  const { terms, isLoaded: termsLoaded } = useTermsConditions();
   const toast = useToast();
 
   const [checked, setChecked] = useState<SectionKey[]>(
@@ -60,7 +64,8 @@ export function DuplicateWizardModal({
       // Only the content is sent. The server starts the duplicate as a new Draft with a history
       // of its own, whatever status the copied quote has. A contact person linked on the source
       // goes with it while it is still a contact of that customer.
-      const content = await withLiveContact(pickSections(sourceData, checked));
+      const picked = pickSections(sourceData, checked);
+      const content = await withLiveContact(termsLoaded ? withTemplateTerms(picked, terms) : picked);
       const newRef = await duplicateQuote({ baseRef, data: content });
       toast.success("Quote duplicated");
       reset();

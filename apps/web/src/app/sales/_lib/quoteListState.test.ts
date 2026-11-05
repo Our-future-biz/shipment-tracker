@@ -66,5 +66,9 @@ describe("column filters", () => {
   it("from a saved view of unknown age keep only known columns with a value", () => {
     expect(activeColumnFilters([{ key: "customer", value: "x" }, { key: 3, value: "y" }, null, "z", { key: "method", value: 1 }])).toEqual([{ key: "customer", value: "x" }]);
     expect(activeColumnFilters("nonsense")).toEqual([]);
+    // No more and no longer than the server takes: an address with more must not fail the list.
+    const many = Array.from({ length: 12 }, (_, i) => ({ key: "customer", value: `c${i}` }));
+    expect(activeColumnFilters(many)).toHaveLength(10);
+    expect(activeColumnFilters([{ key: "customer", value: `${"č".repeat(150)}` }])[0]!.value).toHaveLength(100);
   });
 });

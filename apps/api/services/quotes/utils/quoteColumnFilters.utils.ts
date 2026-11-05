@@ -30,6 +30,13 @@ export interface QuoteColumnFilter {
   key: QuoteFilterColumn;
   value: string;
   exact: boolean;
+  /** The value folded, not escaped: what another service is asked for (the shipments of a "shipment" filter). */
+  text: string;
+  /**
+   * A "shipment" filter: the quotes named by a shipment whose job number contains the value (the
+   * quote keeps only its first shipment's job number), as the shipments service answered.
+   */
+  references?: string[];
 }
 
 const MAX_FILTERS = 10;
@@ -59,7 +66,7 @@ export function columnFiltersOf(json: string | undefined): QuoteColumnFilter[] {
     const folded = foldDiacritics(Array.from(value.trim()).slice(0, MAX_VALUE).join(""));
     if (!folded) continue;
     const exact = EXACT_FILTER_COLUMNS.includes(key);
-    filters.push({ key, value: exact ? folded : escapeLike(folded), exact });
+    filters.push({ key, value: exact ? folded : escapeLike(folded), exact, text: folded });
   }
   if (filters.length > MAX_FILTERS) throw APIError.invalidArgument(`At most ${MAX_FILTERS} column filters`);
   return filters;

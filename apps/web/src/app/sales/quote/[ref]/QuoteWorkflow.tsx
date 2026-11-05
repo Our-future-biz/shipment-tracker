@@ -92,6 +92,7 @@ import { CostLinesEditor } from "./_components/CostLinesEditor";
 import { FclPricingEditor } from "./_components/FclPricingEditor";
 import { FclTruckingBlock } from "./_components/FclTruckingBlock";
 import { fclChanges, usesFclPricing, withFclPricing } from "../../_lib/fclPricing";
+import { templateTerms, termsDifferFromTemplate } from "../../_lib/shippingTerms";
 import { linesForOtherDirection, linesToRecheck, otherDirectionBlock, rechecked, stampDirection, stampPricedFor, withPricedForNow } from "../../_lib/tariffRecheck";
 import { QuoteAddressField } from "./_components/QuoteAddressField";
 import { QuoteContactField } from "./_components/QuoteContactField";
@@ -777,12 +778,12 @@ export function QuoteWorkflow() {
   // Why the quote may not be sent or marked Ready to send: its margin waits for a manager.
   // Why the quote can't go out, in the server's words: a margin below its mode's floor no approval
   // covers, or heavy pieces the warehouse has not approved (Council Outlay 6).
-  // And a buying line linked to a new supplier that waits for a manager's approval, or was declined: the
-  // server refuses the sending too, this says it beforehand.
+  // And a buying line linked to a new supplier that waits for a manager's approval, or was declined, or
+  // with a supplier only typed: the server refuses the sending too, this says it beforehand.
   // So does a line priced from a tariff in the other Trade Direction (a tariff prices only the directions it is for).
   const sendBlocked =
     quote.sendBlocked ??
-    (quoteClosed ? null : (supplierSendBlock(draft.buyingLines ?? [], (id) => supplierDirectory.byId.get(id), supplierApprovals.declined) ?? otherDirectionBlock(draft)));
+    (quoteClosed ? null : (supplierSendBlock(draft.buyingLines ?? [], (id) => supplierDirectory.byId.get(id), supplierApprovals.byId) ?? otherDirectionBlock(draft)));
   // E-mailing sends the quote only where Export PDF would close it - one that has not gone out yet
   // - and on the revision of a Won quote, whose new prices go to the customer. A quote that went
   // out is e-mailed again as it was sent, whatever its margin says now.
@@ -940,19 +941,13 @@ export function QuoteWorkflow() {
     setRemoving(null);
   };
 
-  // What choosing a template puts on the quote: its name, and its text where it has any - a
-  // field the template leaves empty keeps what the quote says.
-  // The Shipping terms are the template's, word for word: they are not typed on the quote. Only the
+  // What choosing a template puts on the quote: its name and its texts, word for word - a text the
+  // template leaves empty is empty here too. The Shipping terms are not typed on the quote; only the
   // validity is the quote's own. The quote is not made Ready to Send (or sent) before one is chosen.
-  const chooseTemplate = (name: string) => {
-    const template = terms.find((t) => t.name === name);
-    set({
-      shippingTerms: name,
-      shippingIncludes: template?.includes ?? "",
-      shippingExcludes: template?.excludes ?? "",
-      shippingSubjectTo: template?.subjectTo ?? "",
-    });
-  };
+  const chooseTemplate = (name: string) => set(templateTerms(name, terms));
+  // The template was changed since its texts were put on this quote (or they were copied from an
+  // older quote): choosing the same template again changes nothing in the picker, so it is offered.
+  const termsOutdated = !quoteClosed && termsDifferFromTemplate(draft, terms);
 
   // While a shipment carries the quote nobody may delete it, and the way there is not obvious:
   // the server's sentence stands under the actions. A user who may not delete the quote for want
@@ -1745,6 +1740,20 @@ export function QuoteWorkflow() {
               )}
             </div>
           </InfoRow>
+          {termsOutdated && (
+            <Alert
+              type="info"
+              showIcon
+              className="!mb-3"
+              message="The template's texts are not the ones on this quote"
+              description="It was changed since they were put on the quote, or they came from an older quote."
+              action={
+                <Button size="small" onClick={() => chooseTemplate(draft.shippingTerms!)}>
+                  {"Use the template's texts"}
+                </Button>
+              }
+            />
+          )}
           {/* The template's texts: read here, changed only on the template (Sales Settings → Terms & Conditions). */}
           {(
             [

@@ -26,6 +26,7 @@ import { iso } from "../../../lib/db/serialize";
 import { canManageSales, canManageSupplierTerms, canRateSupplier } from "../../../lib/salesPolicy";
 import { isUniqueViolation } from "../../../lib/db/errors";
 import { isUuid } from "../../../lib/uuid";
+import { isSalesReference } from "../../../lib/salesReference";
 import { storedEmail } from "../../../lib/personPick";
 import { dateInput } from "../lib/dates";
 import { toCustomerItem } from "../lib/mappers";
@@ -122,6 +123,9 @@ const requireRoles = (roles: CustomerRole[]): CustomerRole[] => {
 export function assertMayGiveRoles(actorRole: string, roles: CustomerRole[] | undefined, forApproval = false): void {
   if (forApproval) {
     if (!roles || !isSupplier(roles)) throw APIError.invalidArgument("A new supplier needs a supplier role");
+    // Added from a quote it is a supplier only: a customer (one the quote customer picker offers) is added
+    // in the Customer Database, where giving it supplier roles too is a manager's decision.
+    if (roles.includes("customer")) throw APIError.invalidArgument("A supplier added from a quote can't be a customer too: add the customer in the Customer Database");
     return;
   }
   if (roles && isSupplier(roles) && !canManageSales(actorRole)) {
@@ -135,9 +139,16 @@ export interface NewSupplierRequest {
   quoteNumber: string;
 }
 
-/** The request a create carries when it adds a supplier from a quote; none without a quote. */
-export const supplierRequestOf = (userId: string, fromQuote: string | undefined): NewSupplierRequest | undefined =>
-  fromQuote?.trim() ? { userId, quoteNumber: fromQuote.trim() } : undefined;
+/**
+ * The request a create carries when it adds a supplier from a quote; none without a quote. The quote is
+ * named by its Sales Reference (QCZ…): the managers' list and the bell lead to it.
+ */
+export function supplierRequestOf(userId: string, fromQuote: string | undefined): NewSupplierRequest | undefined {
+  const quoteNumber = fromQuote?.trim() ?? "";
+  if (!quoteNumber) return undefined;
+  if (!isSalesReference(quoteNumber)) throw APIError.invalidArgument("A new supplier is added from a quote: fromQuote is its Sales Reference (QCZ…)");
+  return { userId, quoteNumber };
+}
 
 /**
  * The approval columns of a new company. A supplier a user who is no manager adds from a quote waits
@@ -160,6 +171,29 @@ async function approvalOf(actorRole: string, request: NewSupplierRequest | undef
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
+
+const NOT_DECLINED = "This supplier is no longer declined: another manager took the decline back, or it was restored";
+
+/**
+ * A deleted customer back with what was deleted together with it (a restore, or a decline taken back).
+ * Refused while a live customer has the same registration number. Null when it is not deleted (as asked)
+ * any more: somebody brought it back in this very moment.
+ */
+async function bringBack(id: string, deleted: CustomerRecord, companyId: string, as: "restore" | "undoDecline"): Promise<CustomerRecord | null> {
+  const clash = deleted.ico ? await customerRepository.findByIco(deleted.ico, companyId) : null;
+  if (clash) {
+    throw APIError.alreadyExists(
+      `${clash.companyName} already has the registration number ${deleted.ico}, so ${deleted.companyName} can't be restored`,
+    );
+  }
+  try {
+    return await customerRepository.restoreWithChildren(id, companyId, as);
+  } catch (err) {
+    // Another customer with the same registration number was added in the meantime.
+    if (isUniqueViolation(err)) throw APIError.alreadyExists("A customer with this registration number already exists");
+    throw err;
+  }
+}
 
 // Only the fields actually sent are written.
 function definedOnly<T extends object>(patch: T): Partial<T> {
@@ -454,18 +488,32 @@ class CustomerService {
   async softDelete(id: string, companyId: string): Promise<void> {
     const row = await customerRepository.softDeleteWithChildren(id, companyId);
     if (!row) throw APIError.notFound("Customer not found");
+    await this.announceDeleted(companyId, row);
+  }
+
+  /**
+   * Tells the copies that a customer was deleted (here, or by a manager's decline of a new supplier).
+   * The delete is done and can't be done again, so nothing here fails the request: it is only logged.
+   */
+  async announceDeleted(companyId: string, row: CustomerRecord): Promise<void> {
     await announceLogged(companyId, row, true);
     // Its contacts were hidden with it: each gets its own delete event with its last name, so a
     // rename of one whose event is handled after this delete still reaches the copies.
-    if (row.deletedAt) {
-      for (const contact of await contactRepository.hiddenWithCustomer(companyId, id, row.deletedAt)) {
-        try {
-          await contactChanged.publish({
-            companyId, customerId: id, contactId: contact.id, name: contact.name, email: contact.email, phone: contact.phone, deleted: true,
-          });
-        } catch (err) {
-          log.error(err, "contact delete not published", { companyId, customerId: id, contactId: contact.id });
-        }
+    if (!row.deletedAt) return;
+    let hidden: Awaited<ReturnType<typeof contactRepository.hiddenWithCustomer>>;
+    try {
+      hidden = await contactRepository.hiddenWithCustomer(companyId, row.id, row.deletedAt);
+    } catch (err) {
+      log.error(err, "contacts of a deleted customer not read", { companyId, customerId: row.id });
+      return;
+    }
+    for (const contact of hidden) {
+      try {
+        await contactChanged.publish({
+          companyId, customerId: row.id, contactId: contact.id, name: contact.name, email: contact.email, phone: contact.phone, deleted: true,
+        });
+      } catch (err) {
+        log.error(err, "contact delete not published", { companyId, customerId: row.id, contactId: contact.id });
       }
     }
   }
@@ -483,24 +531,24 @@ class CustomerService {
   async restore(id: string, companyId: string): Promise<CustomerItem> {
     const deleted = await customerRepository.getDeletedForCompany(id, companyId);
     if (!deleted) throw APIError.notFound("Deleted customer not found");
-    const clash = deleted.ico ? await customerRepository.findByIco(deleted.ico, companyId) : null;
-    if (clash) {
-      throw APIError.alreadyExists(
-        `${clash.companyName} already has the registration number ${deleted.ico}, so ${deleted.companyName} can't be restored`,
-      );
-    }
-    let row: CustomerRecord | null;
-    try {
-      // A declined new supplier brought back is a company like any other: its approval ends there.
-      row = await customerRepository.restoreWithChildren(id, companyId);
-    } catch (err) {
-      // Another customer with the same registration number was added in the meantime.
-      if (isUniqueViolation(err)) throw APIError.alreadyExists("A customer with this registration number already exists");
-      throw err;
-    }
+    // A declined new supplier brought back is a company like any other: its decline ends there.
+    const row = await bringBack(id, deleted, companyId, "restore");
     if (!row) throw APIError.notFound("Deleted customer not found");
     await announceLogged(companyId, row, false);
     return toCustomerItem(row);
+  }
+
+  /**
+   * A manager takes back the decline of a new supplier: it comes back with what was deleted with it, and
+   * waits for a manager again (Sales → Managers → Company approval) - its quote stays held until it is
+   * answered. Only a supplier declined so and still deleted; a second try is refused.
+   */
+  async undoDecline(id: string, companyId: string): Promise<void> {
+    const deleted = await customerRepository.getDeletedForCompany(id, companyId);
+    if (!deleted || deleted.approvalDecision !== "declined") throw APIError.failedPrecondition(NOT_DECLINED);
+    const row = await bringBack(id, deleted, companyId, "undoDecline");
+    if (!row) throw APIError.failedPrecondition(NOT_DECLINED);
+    await announceLogged(companyId, row, false);
   }
 
   async uploadLogo(id: string, companyId: string, dataUrl: string): Promise<CustomerItem> {

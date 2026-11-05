@@ -2,8 +2,8 @@
 
 import { Fragment, useState } from "react";
 import Link from "next/link";
-import { Checkbox, Input, Modal, Segmented } from "antd";
-import { CheckOutlined, CloseOutlined, EditOutlined } from "@ant-design/icons";
+import { Checkbox, Input, Modal, Popconfirm, Segmented } from "antd";
+import { CheckOutlined, CloseOutlined, EditOutlined, UndoOutlined } from "@ant-design/icons";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, apiErrorMessage } from "@/lib/api";
 import type { interfaces } from "@/lib/api";
@@ -18,8 +18,9 @@ import { quoteHref } from "../../_lib/quoteHref";
 // Sales → Managers → Company approval: a user who is no manager adds a supplier that is not in the
 // Customer Database from a quote's Pricing. It is in the database at once, waiting here; until a manager
 // approves it the quote can't be sent. A manager approves it, edits it first, or declines it with a
-// reason: declined it is deleted (Customer Database → Deleted customers can restore it), and the one who
-// added it is told in their bell, as of an approval.
+// reason: declined it is deleted, and the one who added it is told in their bell, as of an approval. A
+// decline given by mistake is taken back from the Answered list (Undo decline): the company comes back
+// and waits here again.
 
 const BUTTON = "inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-200 bg-white text-[12.5px] font-semibold text-slate-700 cursor-pointer transition-colors";
 const SAVE = "text-[12.5px] font-semibold px-3 py-1.5 rounded-lg border text-white cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed hover:brightness-110";
@@ -38,7 +39,7 @@ function AnswerPill({ item }: { item: SupplierApprovalItem }) {
 
 export function SalesCompanyApprovals() {
   const toast = useToast();
-  const { approvals, waiting, isLoading, isError, decide } = useSupplierApprovals();
+  const { approvals, waiting, isLoading, isError, decide, undoDecline } = useSupplierApprovals();
   const [view, setView] = useState<"waiting" | "answered">("waiting");
   // The supplier being declined (its reason typed below its row), or edited (in the dialog).
   const [declining, setDeclining] = useState<string | null>(null);
@@ -57,6 +58,15 @@ export function SalesCompanyApprovals() {
       })
       .catch((e) => toast.error(apiErrorMessage(e)));
 
+  const takeBack = (a: SupplierApprovalItem) =>
+    undoDecline
+      .mutateAsync(a.customerId)
+      .then(() => {
+        toast.success(`${a.companyName} is back in the Customer Database, waiting for approval again`);
+        setView("waiting");
+      })
+      .catch((e) => toast.error(apiErrorMessage(e)));
+
   const empty = isError ? "Could not load the new suppliers." : isLoading ? "Loading…" : view === "waiting" ? "No new supplier waiting for a manager." : "No answers in the last 30 days.";
 
   return (
@@ -66,7 +76,7 @@ export function SalesCompanyApprovals() {
           <div>
             <div className="text-[13px] font-bold uppercase tracking-wider text-slate-800">Company approval · new suppliers</div>
             <div className="text-[12px] text-slate-500">
-              Added from a quote&apos;s Pricing; its quote can&apos;t be sent until the supplier is approved. Approve it, edit it first, or decline it with a reason (it is then deleted). The one who added it is told.
+              Added from a quote&apos;s Pricing; its quote can&apos;t be sent until the supplier is approved. Approve it, edit it first, or decline it with a reason (it is then deleted; Undo decline under Answered brings it back). The one who added it is told.
             </div>
           </div>
           <Segmented
@@ -161,7 +171,23 @@ export function SalesCompanyApprovals() {
                               {a.answerSeen ? " · seen" : ""}
                             </div>
                             {a.comment && <div className="text-[12px] text-slate-600 mt-1 max-w-[280px] whitespace-pre-wrap">{a.comment}</div>}
-                            {a.status === "declined" && <div className="text-[11px] text-slate-400 mt-1">Deleted: Customer Database → Deleted customers can restore it</div>}
+                            {a.status === "declined" && (
+                              <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                                <span className="text-[11px] text-slate-400">Deleted from the Customer Database</span>
+                                <Popconfirm
+                                  title={`Undo the decline of ${a.companyName}?`}
+                                  description="It comes back to the Customer Database and waits for approval again; its quote stays held until it is answered."
+                                  okText="Undo decline"
+                                  cancelText="Cancel"
+                                  onConfirm={() => takeBack(a)}
+                                >
+                                  <button type="button" disabled={undoDecline.isPending} className={`${BUTTON} hover:border-indigo-400 hover:text-indigo-700`}>
+                                    <UndoOutlined className="text-[13px]" />
+                                    Undo decline
+                                  </button>
+                                </Popconfirm>
+                              </div>
+                            )}
                           </div>
                         )}
                       </td>
@@ -181,7 +207,7 @@ export function SalesCompanyApprovals() {
                                 className="w-full text-[13px] border border-slate-300 rounded-lg px-2.5 py-2 bg-white outline-none resize-y focus:border-indigo-500"
                               />
                               <span className="block text-[11px] text-slate-500 mt-0.5">
-                                Sent to {who(a)}. The company is deleted, and its quote&apos;s line asks for another supplier.
+                                Sent to {who(a)}. The company is deleted, and its quote&apos;s line asks for another supplier. Given by mistake, it can be undone under Answered.
                               </span>
                             </label>
                             <div className="flex gap-2">

@@ -5,7 +5,7 @@ vi.mock("~encore/clients", () => ({ auth: { userLookup: vi.fn() } }));
 vi.mock("../../repositories/supplierApproval.repository", () => ({
   supplierApprovalRepository: { list: vi.fn(), decide: vi.fn(), markSeen: vi.fn(), states: vi.fn() },
 }));
-vi.mock("../../services/customer.service", () => ({ customerService: { softDelete: vi.fn() } }));
+vi.mock("../../services/customer.service", () => ({ customerService: { announceDeleted: vi.fn(), undoDecline: vi.fn() } }));
 
 import { auth } from "~encore/clients";
 import { supplierApprovalRepository } from "../../repositories/supplierApproval.repository";
@@ -41,21 +41,36 @@ describe("decide", () => {
     const item = await supplierApprovalService.decide(MANAGER, ID, "approve");
     expect(repository.decide).toHaveBeenCalledWith(COMPANY, ID, { decision: "approved", by: "boss@firm.cz", byUserId: MANAGER.userID, comment: "" });
     expect(item).toMatchObject({ customerId: ID, status: "", decision: "approved" });
-    expect(customerService.softDelete).not.toHaveBeenCalled();
+    expect(customerService.announceDeleted).not.toHaveBeenCalled();
   });
 
-  it("declines only with a reason, and deletes the company", async () => {
+  it("declines only with a reason; the company was deleted with the answer, and its copies are told", async () => {
     await expect(supplierApprovalService.decide(MANAGER, ID, "decline", " no ")).rejects.toMatchObject({ code: "invalid_argument" });
-    repository.decide.mockResolvedValue(row({ approvalStatus: "declined" }));
+    const declined = row({ approvalStatus: "declined", deletedAt: new Date() });
+    repository.decide.mockResolvedValue(declined);
     repository.list.mockResolvedValue([row({ approvalStatus: "declined", approvalDecision: "declined", approvalComment: "Unknown company" })]);
     await supplierApprovalService.decide(MANAGER, ID, "decline", " Unknown company ");
     expect(repository.decide).toHaveBeenCalledWith(COMPANY, ID, expect.objectContaining({ decision: "declined", comment: "Unknown company" }));
-    expect(customerService.softDelete).toHaveBeenCalledWith(ID, COMPANY);
+    expect(customerService.announceDeleted).toHaveBeenCalledWith(COMPANY, declined);
   });
 
   it("refuses a supplier that no longer waits", async () => {
     repository.decide.mockResolvedValue(null);
     await expect(supplierApprovalService.decide(MANAGER, ID, "approve")).rejects.toMatchObject({ code: "failed_precondition" });
+  });
+});
+
+describe("undoDecline", () => {
+  it("is a manager's: anyone else is refused before anything is written", async () => {
+    await expect(supplierApprovalService.undoDecline({ ...MANAGER, role: "user" }, ID)).rejects.toMatchObject({ code: "permission_denied" });
+    await expect(supplierApprovalService.undoDecline(MANAGER, "nope")).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(customerService.undoDecline).not.toHaveBeenCalled();
+  });
+
+  it("brings the company back of the manager's own company, waiting again", async () => {
+    repository.list.mockResolvedValue([row()]);
+    await expect(supplierApprovalService.undoDecline(MANAGER, ID)).resolves.toMatchObject({ customerId: ID, status: "pending", decision: "" });
+    expect(customerService.undoDecline).toHaveBeenCalledWith(ID, COMPANY);
   });
 });
 

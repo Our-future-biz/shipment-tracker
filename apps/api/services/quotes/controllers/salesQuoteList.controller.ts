@@ -68,7 +68,7 @@ interface SalesQuoteListRequest {
    * reference, customer, origin, destination, validity, shipment (the job number), incoterm,
    * cargoReady, commodity, method, shippingTerms, sent; dates as DD.MM.YYYY. At most 10.
    */
-  columnFilters?: string & MaxLen<2000>;
+  columnFilters?: string & MaxLen<4000>;
 }
 
 interface SalesQuoteListResponse {

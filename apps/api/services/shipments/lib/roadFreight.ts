@@ -1,5 +1,5 @@
 import { APIError } from "encore.dev/api";
-import { hasAllSizes } from "../../../lib/cargoVolume";
+import { cargoNum, hasAllSizes } from "../../../lib/cargoVolume";
 import { isUuid } from "../../../lib/uuid";
 import type { AdrPackingGroup, CargoDimensionLine, PalletType } from "../interfaces/interfaces";
 
@@ -76,9 +76,11 @@ const MAX_VOLUME_PER_PIECE_M3 = 1000;
  * The m³ typed for one piece as stored: a plain number with a point and nothing else ("0,50" →
  * "0.5", ".5" → "0.5"), "" when blank. Anything else is refused - a unit, an exponent, a minus,
  * more than MAX_VOLUME_PER_PIECE_M3 - as it would count wrongly in the shipment's volume and its
- * freight tons, which a master job's costs are split by.
+ * freight tons, which a master job's costs are split by. Cargo Details may take a line's volume
+ * for all its pieces and store each piece's share, so a refusal names both: what one piece holds
+ * and what the line's pieces hold together.
  */
-function typedVolumePerPiece(value: string | null | undefined, row: number): string {
+function typedVolumePerPiece(value: string | null | undefined, row: number, pieces = 0): string {
   const typed = (value ?? "").trim().replace(",", ".");
   if (!typed) return "";
   if (typed.startsWith("-")) throw APIError.invalidArgument(`Cargo line ${row}: volume per piece cannot be negative`);
@@ -88,7 +90,11 @@ function typedVolumePerPiece(value: string | null | undefined, row: number): str
   const decimals = (parts[2] ?? "").replace(/0+$/, "");
   const volume = decimals ? `${whole}.${decimals}` : whole;
   if (Number(volume) > MAX_VOLUME_PER_PIECE_M3) {
-    throw APIError.invalidArgument(`Cargo line ${row}: volume per piece cannot be more than ${MAX_VOLUME_PER_PIECE_M3} m³`);
+    const each = Number(Number(volume).toPrecision(6));
+    const all = pieces > 1 ? `, ${Number((Number(volume) * pieces).toPrecision(6))} m³ for its ${pieces} pieces together` : "";
+    throw APIError.invalidArgument(
+      `Cargo line ${row}: volume per piece cannot be more than ${MAX_VOLUME_PER_PIECE_M3} m³ (${each} m³ for one piece${all}) — check the volume and the pieces`,
+    );
   }
   return volume;
 }
@@ -114,7 +120,7 @@ export function normalizeCargoDimension<T extends CargoDimensionLine>(line: T, r
     throw APIError.invalidArgument(`Cargo line ${row}: packing group must be I, II or III`);
   }
   // A typed volume beside all three sizes is not kept, nor read: the sizes say what it is.
-  const volumePerPcM3 = hasAllSizes(line) ? "" : typedVolumePerPiece(line.volumePerPcM3, row);
+  const volumePerPcM3 = hasAllSizes(line) ? "" : typedVolumePerPiece(line.volumePerPcM3, row, Math.floor(cargoNum(line.pieces)));
   return {
     ...line,
     volumePerPcM3,

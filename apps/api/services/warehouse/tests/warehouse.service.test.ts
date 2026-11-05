@@ -5,15 +5,17 @@ const tasks = vi.hoisted(() => ({
   ensureForShipment: vi.fn(),
   softDeleteForShipment: vi.fn(),
 }));
-const sections = vi.hoisted(() => ({ findByShipmentAndSection: vi.fn(), upsert: vi.fn(), softDeleteForShipment: vi.fn() }));
+const sections = vi.hoisted(() => ({ findByShipmentAndSection: vi.fn(), upsert: vi.fn(), softDeleteForShipment: vi.fn(), patchKeys: vi.fn() }));
 const shipments = vi.hoisted(() => ({ assertShipmentExists: vi.fn() }));
+const notice = vi.hoisted(() => ({ tellOperations: vi.fn() }));
 vi.mock("../repositories/warehouseTask.repository", () => ({ warehouseTaskRepository: tasks }));
 vi.mock("../repositories/warehouseSection.repository", () => ({ warehouseSectionRepository: sections }));
 vi.mock("../../../lib/shipmentRefs", () => shipments);
-// The Encore runtime isn't loaded under vitest; APIError only needs to carry its message here.
-vi.mock("encore.dev/api", () => ({ APIError: { invalidArgument: (m: string) => new Error(m), notFound: (m: string) => new Error(m) } }));
+vi.mock("../../../lib/operationsNotice", () => notice);
+// The Encore runtime isn't loaded under vitest; APIError only needs to carry its code and message here.
+vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
 
-import { taskChanges, toSection, warehouseService } from "../services/warehouse.service";
+import { remeasuredFigures, taskChanges, toSection, warehouseService } from "../services/warehouse.service";
 
 const COMPANY = "c1";
 const SHIPMENT = "11111111-1111-1111-1111-111111111111";
@@ -29,8 +31,90 @@ describe("warehouse sections", () => {
   it("checks the shipment before its first section is saved", async () => {
     sections.findByShipmentAndSection.mockResolvedValue(null);
     shipments.assertShipmentExists.mockRejectedValueOnce(new Error("Shipment not found"));
-    await expect(warehouseService.upsertSection(SHIPMENT, "job", COMPANY, {})).rejects.toThrow("Shipment not found");
+    await expect(warehouseService.upsertSection(SHIPMENT, "pickup", COMPANY, {})).rejects.toThrow("Shipment not found");
     expect(sections.upsert).not.toHaveBeenCalled();
+    shipments.assertShipmentExists.mockRejectedValueOnce(new Error("Shipment not found"));
+    await expect(warehouseService.patchSection(SHIPMENT, "job", COMPANY, [{ key: "notes", value: "x", expected: "" }])).rejects.toThrow("Shipment not found");
+    expect(sections.patchKeys).not.toHaveBeenCalled();
+  });
+});
+
+describe("Shipment Details saved field by field", () => {
+  const row = (data: Record<string, unknown>) => ({ id: "w1", shipmentId: SHIPMENT, section: "job", data, createdAt: new Date(), updatedAt: new Date() });
+
+  it("refuses a whole save of Shipment Details: one from a page opened before would take back what was saved since", async () => {
+    await expect(warehouseService.upsertSection(SHIPMENT, "job", COMPANY, { notes: "x" })).rejects.toThrow(/saved field by field/);
+    expect(sections.upsert).not.toHaveBeenCalled();
+  });
+
+  it("writes only the fields sent, and refuses one changed meanwhile naming it", async () => {
+    sections.findByShipmentAndSection.mockResolvedValue(row({}));
+    sections.patchKeys.mockResolvedValueOnce({ row: row({ notes: "fragile" }), conflicts: null });
+    const saved = await warehouseService.patchSection(SHIPMENT, "job", COMPANY, [{ key: "notes", value: "fragile", expected: "" }]);
+    expect(sections.patchKeys).toHaveBeenCalledWith(SHIPMENT, "job", COMPANY, [{ key: "notes", value: "fragile", expected: "" }]);
+    expect(saved.data).toEqual({ notes: "fragile" });
+    sections.patchKeys.mockResolvedValueOnce({ row: null, conflicts: ["remeasure_rows"] });
+    await expect(warehouseService.patchSection(SHIPMENT, "job", COMPANY, [{ key: "remeasure_rows", value: "[]", expected: "" }])).rejects.toThrow(
+      expect.objectContaining({ code: "aborted", message: expect.stringMatching(/^Changed meanwhile: remeasured lines/) }),
+    );
+  });
+
+  it("takes only its fields - when Operations were informed is written by Inform Operations alone - and lines as a list", async () => {
+    const bad = [
+      [{ key: "inform_operations_sent", value: "2026-11-05T10:00:00Z", expected: "" }],
+      [{ key: "remeasure_rows", value: "{}", expected: "" }],
+      [{ key: "notes", value: "a" }, { key: "notes", value: "b" }],
+      [],
+    ];
+    for (const changes of bad) await expect(warehouseService.patchSection(SHIPMENT, "job", COMPANY, changes)).rejects.toThrow(expect.objectContaining({ code: "invalid_argument" }));
+    await expect(warehouseService.patchSection(SHIPMENT, "pickup", COMPANY, [{ key: "rows", value: "[]" }])).rejects.toThrow(/saved whole/);
+    expect(sections.patchKeys).not.toHaveBeenCalled();
+  });
+});
+
+describe("Inform Operations", () => {
+  const LINES = JSON.stringify([{ pieces: "11", lengthCm: "120", widthCm: "80", heightCm: "150", weightPerPcKg: "250" }]);
+  // The repository runs the notice inside its transaction, on the section as saved.
+  const savedWith = (data: Record<string, unknown>) =>
+    sections.patchKeys.mockImplementationOnce(async (_s, _sec, _c, changes, after) => {
+      const row = { id: "w1", shipmentId: SHIPMENT, section: "job", data: { ...data, inform_operations_sent: changes[0].value }, createdAt: new Date(), updatedAt: new Date() };
+      await after(undefined, row);
+      return { row, conflicts: null };
+    });
+
+  it("records the time and tells the shipment's people the saved figures, compared with its dimension lines; answers who was tagged", async () => {
+    savedWith({ remeasure_rows: LINES });
+    notice.tellOperations.mockResolvedValueOnce(["pic@firma.cz"]);
+    const res = await warehouseService.informOperations(SHIPMENT, COMPANY, "");
+    expect(sections.patchKeys).toHaveBeenCalledWith(SHIPMENT, "job", COMPANY, [{ key: "inform_operations_sent", value: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/), expected: "" }], expect.any(Function));
+    expect(notice.tellOperations).toHaveBeenCalledWith(SHIPMENT, { colli: 11, weightKg: 2750, volumeCbm: 15.84 }, "dimensions");
+    expect(res.tagged).toEqual(["pic@firma.cz"]);
+  });
+
+  it("fails - so nothing is recorded - when no lines are saved or the notice cannot be posted", async () => {
+    savedWith({});
+    await expect(warehouseService.informOperations(SHIPMENT, COMPANY, "")).rejects.toThrow(expect.objectContaining({ code: "failed_precondition" }));
+    savedWith({ remeasure_rows: LINES });
+    notice.tellOperations.mockRejectedValueOnce(new Error("chat down"));
+    await expect(warehouseService.informOperations(SHIPMENT, COMPANY, "")).rejects.toThrow("chat down");
+  });
+
+  it("refuses a second click of a double click: the time it saw changed meanwhile", async () => {
+    sections.patchKeys.mockResolvedValueOnce({ row: null, conflicts: ["inform_operations_sent"] });
+    await expect(warehouseService.informOperations(SHIPMENT, COMPANY, "")).rejects.toThrow(expect.objectContaining({ code: "aborted", message: expect.stringContaining("operations informed") }));
+    expect(notice.tellOperations).not.toHaveBeenCalled();
+  });
+});
+
+describe("remeasuredFigures", () => {
+  it("adds up the saved lines as Shipments → Warehouse shows them; nothing readable is nothing", () => {
+    const lines = JSON.stringify([
+      { pieces: "2", lengthCm: "120", widthCm: "80", heightCm: "100", weightPerPcKg: "250.5" },
+      { pieces: "3", lengthCm: "", widthCm: "50", heightCm: "50", weightPerPcKg: "10" },
+    ]);
+    expect(remeasuredFigures(lines)).toEqual({ colli: 5, weightKg: 531, volumeCbm: 1.92 });
+    expect(remeasuredFigures("not json")).toEqual({ colli: 0, weightKg: 0, volumeCbm: 0 });
+    expect(remeasuredFigures(undefined)).toEqual({ colli: 0, weightKg: 0, volumeCbm: 0 });
   });
 });
 

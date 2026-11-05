@@ -570,6 +570,7 @@ export namespace customers {
             this.supplierApprovalDecide = this.supplierApprovalDecide.bind(this)
             this.supplierApprovalList = this.supplierApprovalList.bind(this)
             this.supplierApprovalSeen = this.supplierApprovalSeen.bind(this)
+            this.supplierApprovalUndoDecline = this.supplierApprovalUndoDecline.bind(this)
             this.supplierRatingHistory = this.supplierRatingHistory.bind(this)
             this.supplierRatingSet = this.supplierRatingSet.bind(this)
             this.supplierTermsCopyFromTrucking = this.supplierTermsCopyFromTrucking.bind(this)
@@ -892,7 +893,7 @@ export namespace customers {
         }
 
         /**
-         * Managers and admins only. Declined, the company is deleted (it can be restored from Deleted customers).
+         * Managers and admins only. Declined, the company is deleted (a manager can take the decline back: below).
          */
         public async supplierApprovalDecide(id: string, params: controllers.SupplierApprovalDecideRequest): Promise<controllers.SupplierApprovalDecideResponse> {
             // Now make the actual call to the API
@@ -911,6 +912,15 @@ export namespace customers {
 
         public async supplierApprovalSeen(params: controllers.SupplierApprovalSeenRequest): Promise<void> {
             await this.baseClient.callTypedAPI("POST", `/customers/supplier-approvals/seen`, JSON.stringify(params))
+        }
+
+        /**
+         * Managers and admins only: a declined new supplier comes back and waits for a manager again.
+         */
+        public async supplierApprovalUndoDecline(id: string): Promise<controllers.SupplierApprovalDecideResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/customers/${encodeURIComponent(id)}/supplier-approval/undo-decline`)
+            return await resp.json() as controllers.SupplierApprovalDecideResponse
         }
 
         public async supplierRatingHistory(id: string): Promise<controllers.SupplierRatingHistoryResponse> {
@@ -4275,8 +4285,10 @@ export namespace warehouse {
             this.warehouseCreate = this.warehouseCreate.bind(this)
             this.warehouseDelete = this.warehouseDelete.bind(this)
             this.warehouseEnsureRefs = this.warehouseEnsureRefs.bind(this)
+            this.warehouseInformOperations = this.warehouseInformOperations.bind(this)
             this.warehouseList = this.warehouseList.bind(this)
             this.warehouseSectionGet = this.warehouseSectionGet.bind(this)
+            this.warehouseSectionPatch = this.warehouseSectionPatch.bind(this)
             this.warehouseSectionUpsert = this.warehouseSectionUpsert.bind(this)
             this.warehouseTruckCreate = this.warehouseTruckCreate.bind(this)
             this.warehouseUpdate = this.warehouseUpdate.bind(this)
@@ -4304,6 +4316,17 @@ export namespace warehouse {
             return await resp.json() as controllers.EnsureRefsResponse
         }
 
+        /**
+         * Inform Operations: records when, and posts "Cargo has been remeasured by the warehouse" with the
+         * shipment's and the saved remeasured figures to the shipment's chat, tagging its Person in Charge
+         * and Holiday Cover - together, or neither.
+         */
+        public async warehouseInformOperations(shipmentId: string, params: controllers.WarehouseInformOperationsRequest): Promise<controllers.WarehouseInformOperationsResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse/inform-operations/${encodeURIComponent(shipmentId)}`, JSON.stringify(params))
+            return await resp.json() as controllers.WarehouseInformOperationsResponse
+        }
+
         public async warehouseList(params: controllers.WarehouseListRequest): Promise<controllers.WarehouseListResponse> {
             // Convert our params into the objects we need for the request
             const query = makeRecord<string, string | string[]>({
@@ -4319,6 +4342,17 @@ export namespace warehouse {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/warehouse/sections/${encodeURIComponent(shipmentId)}/${encodeURIComponent(section)}`)
             return await resp.json() as controllers.WarehouseSectionGetResponse
+        }
+
+        /**
+         * Saves changed fields of Shipment Details (notes, remeasured lines, "sent" marks). A field sent
+         * with the value the client last saw is refused with "Changed meanwhile … reload" (aborted) when
+         * someone else changed it since; different fields saved at the same time both stay.
+         */
+        public async warehouseSectionPatch(shipmentId: string, section: string, params: controllers.WarehouseSectionFieldsRequest): Promise<controllers.WarehouseSectionFieldsResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse/sections/${encodeURIComponent(shipmentId)}/${encodeURIComponent(section)}`, JSON.stringify(params))
+            return await resp.json() as controllers.WarehouseSectionFieldsResponse
         }
 
         public async warehouseSectionUpsert(shipmentId: string, section: string, params: controllers.WarehouseSectionUpsertRequest): Promise<controllers.WarehouseSectionUpsertResponse> {
@@ -4397,6 +4431,7 @@ export namespace warehouseConcept {
             this.warehouseClaimDelete = this.warehouseClaimDelete.bind(this)
             this.warehouseClaimList = this.warehouseClaimList.bind(this)
             this.warehouseClaimUpdate = this.warehouseClaimUpdate.bind(this)
+            this.warehouseConceptInformOperations = this.warehouseConceptInformOperations.bind(this)
             this.warehouseContainerAddPositions = this.warehouseContainerAddPositions.bind(this)
             this.warehouseContainerCreate = this.warehouseContainerCreate.bind(this)
             this.warehouseContainerDelete = this.warehouseContainerDelete.bind(this)
@@ -4896,6 +4931,18 @@ export namespace warehouseConcept {
         }
 
         /**
+         * Inform Operations by shipment (a shipment's warehouse part): its live position's when it has
+         * one, else the shipment's own Shipment Details. Records when (with a history) and posts "Cargo has
+         * been remeasured by the warehouse" to the shipment's chat, tagging its Person in Charge and Holiday
+         * Cover - together, or neither.
+         */
+        public async warehouseConceptInformOperations(shipmentId: string, params: controllers.WarehouseConceptInformOperationsRequest): Promise<controllers.WarehouseConceptInformOperationsResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/inform-operations/${encodeURIComponent(shipmentId)}`, JSON.stringify(params))
+            return await resp.json() as controllers.WarehouseConceptInformOperationsResponse
+        }
+
+        /**
          * Adds positions as houses. Export: inbound (příjem) positions in the warehouse, not on hold;
          * import: outbound (výdej) positions not received yet. A position is in at most one container.
          */
@@ -5173,16 +5220,14 @@ export namespace warehouseConcept {
 
         /**
          * "Mark as sent" (VGM / survey / remeasurement sent outside the app) or "Inform Operations" for a
-         * position. Nothing is e-mailed. A resend is allowed and kept in the history; logged.
+         * position. Nothing is e-mailed. A resend is allowed and kept in the history; logged. Inform
+         * Operations also posts "Cargo has been remeasured by the warehouse" to the shipment's chat, tagging
+         * its Person in Charge and Holiday Cover - together with the record, or neither.
          */
-        public async warehousePositionMarkSent(taskId: string, params: controllers.PositionMarkSentRequest): Promise<{
-    section: interfaces.WarehouseConceptSectionItem
-}> {
+        public async warehousePositionMarkSent(taskId: string, params: controllers.PositionMarkSentRequest): Promise<controllers.PositionMarkSentResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/positions/${encodeURIComponent(taskId)}/mark-sent`, JSON.stringify(params))
-            return await resp.json() as {
-    section: interfaces.WarehouseConceptSectionItem
-}
+            return await resp.json() as controllers.PositionMarkSentResponse
         }
 
         /**
@@ -5288,8 +5333,8 @@ export namespace warehouseConcept {
         }
 
         /**
-         * Saves changed fields of a section (Shipment Details: notes, remeasured lines, "sent" marks,
-         * operations informed). A field someone else changed since the client read it is refused with
+         * Saves changed fields of a section (Shipment Details: notes, remeasured lines, "sent" marks;
+         * Operations informed only through Inform Operations, which also tells them). A field someone else changed since the client read it is refused with
          * "Changed meanwhile … reload" (aborted); different fields saved at the same time both stay.
          */
         public async warehouseSectionPatch(shipmentId: string, section: string, params: controllers.WarehouseSectionPatchRequest): Promise<controllers.WarehouseSectionPatchResponse> {
@@ -6422,7 +6467,6 @@ export namespace controllers {
 
     /**
      * The response keeps its name: the web app reads it as CustomerGetResponse.
-     * eslint-disable-next-line @typescript-eslint/no-empty-object-type
      */
     export interface CustomerGetResponse {
         customer: interfaces.CustomerItem
@@ -8068,6 +8112,16 @@ export namespace controllers {
         what: string
 
         note?: string
+    }
+
+    export interface PositionMarkSentResponse {
+        section: interfaces.WarehouseConceptSectionItem
+        /**
+         * Inform Operations of a position of a shipment: the e-mails tagged in the shipment's chat
+         * (Person in Charge, Holiday Cover; empty when nobody is set). Null for anything else, and for a
+         * stand-alone position (no shipment, no chat).
+         */
+        tagged: string[] | null
     }
 
     export interface PositionSectionPatchRequest {
@@ -10688,6 +10742,21 @@ export namespace controllers {
         ok: boolean
     }
 
+    export interface WarehouseConceptInformOperationsRequest {
+        /**
+         * Goes with the record and the chat message; optional.
+         */
+        note?: string
+    }
+
+    export interface WarehouseConceptInformOperationsResponse {
+        section: interfaces.WarehouseConceptSectionItem
+        /**
+         * E-mails of the people tagged in the shipment's chat (Person in Charge, Holiday Cover); empty when nobody is set.
+         */
+        tagged: string[] | null
+    }
+
     export interface WarehouseConceptListRequest {
         shipmentId?: string
     }
@@ -10757,6 +10826,21 @@ export namespace controllers {
          * One result per shipment, in the order sent.
          */
         results: interfaces.WarehouseImportResult[]
+    }
+
+    export interface WarehouseInformOperationsRequest {
+        /**
+         * When Operations were last informed, as the client saw it ("" = never); a changed one is refused.
+         */
+        expected: string
+    }
+
+    export interface WarehouseInformOperationsResponse {
+        section: interfaces.WarehouseSectionItem
+        /**
+         * E-mails of the people tagged in the shipment's chat (Person in Charge, Holiday Cover); empty when nobody is set.
+         */
+        tagged: string[]
     }
 
     export interface WarehouseInquiryAskRequest {
@@ -10862,6 +10946,17 @@ export namespace controllers {
          * Required when the position's gate record has stamps (manager only). Sent in the body, so it stays out of URLs and logs.
          */
         reason?: string
+    }
+
+    export interface WarehouseSectionFieldsRequest {
+        /**
+         * The fields to save (1–10). Fields not listed are left as stored.
+         */
+        changes: interfaces.WarehouseSectionChange[]
+    }
+
+    export interface WarehouseSectionFieldsResponse {
+        section: interfaces.WarehouseSectionItem
     }
 
     export interface WarehouseSectionGetResponse {
@@ -20337,6 +20432,22 @@ export namespace interfaces {
         distribution: string
         createdAt: string
         updatedAt: string
+    }
+
+    /**
+     * One field of a section to save (Shipment Details is saved field by field).
+     */
+    export interface WarehouseSectionChange {
+        key: string
+        /**
+         * The new text; "" clears the field.
+         */
+        value: string
+
+        /**
+         * The text the client last saw ("" = not set); when given, the save is refused if it changed since.
+         */
+        expected?: string
     }
 
     export interface WarehouseSectionItem {

@@ -22,6 +22,18 @@ export const supplierInUse = (company: { status: interfaces.CustomerStatus; role
 /** A new supplier added from a quote that waits for a manager (Sales → Managers → Company approval). */
 export const WAITING_FOR_APPROVAL = "Waiting for approval";
 
+/**
+ * Whether a supplier is offered where suppliers are picked: in use (D16) and approved - or, on a quote,
+ * also one still waiting for a manager, as the quote's sending waits for it too. Elsewhere (a shipment's
+ * costs) one that waits is not offered: a decline deletes the company a cost line would point to. One
+ * declined is never offered. `approval` is where it stands now ("" approved, "pending", "declined").
+ */
+export const supplierOffered = (
+  company: { status: interfaces.CustomerStatus; roles: readonly interfaces.CustomerRole[] },
+  approval: string,
+  onQuote: boolean,
+): boolean => supplierInUse(company) && (approval === "" || (onQuote && approval === "pending"));
+
 /** The status as the company's page and the list show it. */
 export function shownStatus(company: {
   status: interfaces.CustomerStatus;

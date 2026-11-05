@@ -3,6 +3,8 @@ import {
   piecesOf,
   perPieceText,
   totalText,
+  lineTotal,
+  plainDecimal,
   checkConsistency,
   compareFigure,
   dimensionLineIsEmpty,
@@ -214,13 +216,48 @@ describe("All pieces: totals stored per piece", () => {
 
   it("keeps a total that does not share out evenly, as shown", () => {
     const share = perPieceText(1000, 3);
-    expect(share).toBe("333.333333");
+    expect(share).toBe("333.333333333");
     expect(totalText(Number(share), 3, 2)).toBe("1000");
     expect(totalText(Number(perPieceText(10, 7)), 7, 3)).toBe("10");
   });
 
-  it("counts a line without pieces as one, and nothing as nothing", () => {
-    expect([piecesOf({ pieces: "" }), piecesOf({ pieces: "0" }), piecesOf({ pieces: "12" })]).toEqual([1, 1, 12]);
+  it("gives a total back over thousands of pieces - and a declared container matches it", () => {
+    // 7 m³ over 3,000 pieces: 0.002333 a piece would be 6.999 m³ and a Volume Mismatch.
+    const share = perPieceText(7, 3000);
+    expect(share).toBe("0.00233333333333");
+    expect(totalText(Number(share), 3000, 3)).toBe("7");
+    const line = { containerId: "c1", pieces: "3000", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: perPieceText(4500, 3000), volumePerPcM3: share, packageType: "", stackable: "" };
+    expect(compareFigure(dimensionTotals([line]).m3, 7, 3).ok).toBe(true);
+    expect(compareFigure(dimensionTotals([line]).kg, 4500, 2).ok).toBe(true);
+    // A tiny volume over many pieces is not lost to rounding, and stays a plain number the server takes.
+    expect(perPieceText(0.001, 3000)).toBe("0.000000333333333333");
+    expect(totalText(Number(perPieceText(0.001, 3000)), 3000, 3)).toBe("0.001");
+    for (const [total, pieces] of [[7, 9999], [12345.67, 1234], [0.5, 4321]] as const) {
+      expect(perPieceText(total, pieces)).toMatch(/^\d+(\.\d+)?$/);
+      expect(Number(totalText(Number(perPieceText(total, pieces)), pieces, 3))).toBe(Number(total.toFixed(3)));
+    }
+  });
+
+  it("shares a total out again from the total, so changing Pcs keystroke after keystroke does not drift", () => {
+    // Typing 3000 pieces over a 7 m³ line: 3 → 30 → 300 → 3000, each step from the line's total.
+    let pieces = 1;
+    let share = perPieceText(7, pieces);
+    for (const next of [3, 30, 300, 3000, 1, 2999]) {
+      share = perPieceText(lineTotal(Number(share), pieces), next);
+      pieces = next;
+      expect(lineTotal(Number(share), pieces)).toBe(7);
+    }
+    expect(lineTotal(Number(perPieceText(3000.555, 7)), 7)).toBe(3000.555);
+  });
+
+  it("writes a share as a plain decimal, never with an exponent", () => {
+    expect([plainDecimal(150), plainDecimal(0.5), plainDecimal(1 / 3), plainDecimal(3.333e-7)]).toEqual(["150", "0.5", "0.333333333333", "0.0000003333"]);
+    expect([plainDecimal(0), plainDecimal(-1), plainDecimal(Number.NaN)]).toEqual(["", "", ""]);
+  });
+
+  it("counts a line without pieces as none: it has no totals, as the totals row and the server count it", () => {
+    expect([piecesOf({ pieces: "" }), piecesOf({ pieces: "0" }), piecesOf({ pieces: "12" })]).toEqual([0, 0, 12]);
+    expect([perPieceText(3000, 0), totalText(150, 0, 2), lineTotal(150, 0)]).toEqual(["", "", 0]);
     expect([perPieceText(0, 5), totalText(0, 5, 2)]).toEqual(["", ""]);
   });
 });

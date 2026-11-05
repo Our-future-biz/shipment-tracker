@@ -6,19 +6,22 @@ import { AutoComplete, Tooltip } from "antd";
 import { LinkOutlined, PlusOutlined } from "@ant-design/icons";
 import { AddCustomerModal } from "@/app/customers/_components/AddCustomerModal";
 import { SupplierRatingStars } from "@/app/customers/_components/SupplierRatingStars";
-import { SUPPLIER_NOT_IN_USE, supplierInUse } from "@/app/customers/_lib/supplierStatus";
+import { SUPPLIER_NOT_IN_USE, supplierInUse, supplierOffered } from "@/app/customers/_lib/supplierStatus";
 import { useCustomers } from "@/hooks/useCustomers";
 import { useSupplierApprovals } from "@/hooks/useSupplierApprovals";
 import { useSupplierDirectory } from "@/hooks/useSupplierDirectory";
 import { fold } from "@/lib/fold";
 import { lowRatingNote, sortBestFirst } from "@/lib/supplierRating";
+import { supplierApprovalOf } from "@/app/sales/_lib/supplierApproval";
 
 // The supplier of a buying line (a quote's, a shipment's cost): picked from the Customer Database's
 // suppliers, with their stars, or typed as text when it is not one (Council Outlay 7, step 6) - but on a
 // quote, where it comes from the Customer Database only (NewSupplierFromQuote). Picking
 // links the line to the company; typing over a picked name unlinks it, so the link never names another
 // company than the text. Matches come best first (5 → 1, not rated, 0, then by name), and a supplier only set
-// "Not in use" is not offered, though a line already linked to one keeps it (D16). A low-rated pick gets a
+// "Not in use" is not offered, though a line already linked to one keeps it (D16). Nor is a new supplier
+// waiting for a manager's approval, but on a quote (whose sending waits for it too): a shipment's cost
+// linked to one would point to a company a decline deletes. A low-rated pick gets a
 // note in the rating scale's words with its reason: amber at 1–2 stars, red at 0, never a block.
 
 /**
@@ -71,7 +74,9 @@ export function SupplierPicker({
   const { suppliers, byId } = useSupplierDirectory();
   const fromQuote = useContext(NewSupplierFromQuote);
   const databaseOnly = !!fromQuote && !readOnly;
-  const { declined } = useSupplierApprovals({ enabled: !!fromQuote });
+  const { byId: answers } = useSupplierApprovals({ enabled: !!fromQuote });
+  // Where a new supplier stands: the Company approval list's answer is newer than the Customer Database list's.
+  const approvalOf = (id: string): string => supplierApprovalOf(id, (x) => byId.get(x), answers)?.status ?? "";
   const { createCustomer, createManualCustomer, isCreating } = useCustomers({}, { enabled: false });
   const [typing, setTyping] = useState(false);
   // The name a new supplier is added under; null while the dialog is closed.
@@ -85,10 +90,17 @@ export function SupplierPicker({
   // supplier any more); the note under it needs the company itself.
   const linked = !!value.supplierCustomerId;
   const linkedCompany = value.supplierCustomerId ? byId.get(value.supplierCustomerId) : undefined;
+  const linkedApproval = value.supplierCustomerId ? approvalOf(value.supplierCustomerId) : "";
+  const declinedAnswer = value.supplierCustomerId && linkedApproval === "declined" ? answers.get(value.supplierCustomerId) : undefined;
+  // What may be picked, best first.
+  const offered = useMemo(
+    () => suppliers.filter((s) => supplierOffered(s, supplierApprovalOf(s.id, (x) => byId.get(x), answers)?.status ?? "", !!fromQuote)),
+    [suppliers, byId, answers, fromQuote],
+  );
 
   const options = useMemo(() => {
     const words = fold(value.name).split(/\s+/).filter(Boolean);
-    const matches = suppliers.filter((s) => supplierInUse(s) && words.every((w) => fold(`${s.companyName} ${s.ico}`).includes(w)));
+    const matches = offered.filter((s) => words.every((w) => fold(`${s.companyName} ${s.ico}`).includes(w)));
     const found = sortBestFirst(matches, (s) => s.supplierRating, (s) => s.companyName)
       .slice(0, MAX_OPTIONS)
       .map((s) => ({
@@ -96,7 +108,7 @@ export function SupplierPicker({
         label: (
           <span className="flex min-w-0 items-center justify-between gap-3">
             <span className="truncate">{s.companyName}</span>
-            {s.approvalStatus === "pending" ? <span className="shrink-0 text-[11px] text-amber-700">Waiting for approval</span> : <SupplierRatingStars rating={s.supplierRating} />}
+            {supplierApprovalOf(s.id, (x) => byId.get(x), answers)?.status === "pending" ? <span className="shrink-0 text-[11px] text-amber-700">Waiting for approval</span> : <SupplierRatingStars rating={s.supplierRating} />}
           </span>
         ),
       }));
@@ -114,14 +126,22 @@ export function SupplierPicker({
         ),
       },
     ];
-  }, [suppliers, value.name, databaseOnly]);
+  }, [offered, byId, answers, value.name, databaseOnly]);
 
-  // A name left typed that is no company asks for the company (once per change: the field entered and left as
-  // it was asks nothing).
+  // A name left typed is linked to the one company it names exactly (as the list folds names: case and
+  // diacritics aside), as if picked; one that is no company asks for the company (once per change: the field
+  // entered and left as it was asks nothing). Several of that name are picked from the list.
   const leave = () => {
     const now = current.current;
-    if (!databaseOnly || now.supplierCustomerId || !now.name.trim() || now.name === atFocus.current.name) return false;
-    setAdding(now.name.trim());
+    const typed = now.name.trim();
+    if (!databaseOnly || now.supplierCustomerId || !typed) return false;
+    const [exact, ...more] = offered.filter((s) => fold(s.companyName) === fold(typed));
+    if (exact && !more.length) {
+      onChange({ name: exact.companyName, supplierCustomerId: exact.id });
+      return false;
+    }
+    if (exact || now.name === atFocus.current.name) return false;
+    setAdding(typed);
     return true;
   };
 
@@ -182,8 +202,14 @@ export function SupplierPicker({
       <div className={className}>
         {readOnly ? <Tooltip title={readOnlyReason}>{field}</Tooltip> : field}
       </div>
-      {linkedCompany?.approvalStatus === "pending" ? (
-        <div className="mt-1 text-[11px] leading-4 text-amber-700">Waiting for a manager&apos;s approval: the quote can&apos;t be sent until then</div>
+      {linkedApproval === "declined" ? (
+        <div className="mt-1 text-[11px] font-medium leading-4 text-red-600">
+          Declined by a manager{declinedAnswer?.comment ? `: “${declinedAnswer.comment}”` : ""} — pick another supplier
+        </div>
+      ) : linkedApproval === "pending" ? (
+        <div className="mt-1 text-[11px] leading-4 text-amber-700">
+          Waiting for a manager&apos;s approval{fromQuote ? ": the quote can't be sent until then" : ""}
+        </div>
       ) : linkedCompany ? (
         <SupplierLinkNote
           id={linkedCompany.id}
@@ -191,10 +217,9 @@ export function SupplierPicker({
           reason={linkedCompany.supplierRatingReason}
           notInUse={!supplierInUse(linkedCompany)}
         />
-      ) : value.supplierCustomerId && declined.has(value.supplierCustomerId) ? (
-        <div className="mt-1 text-[11px] font-medium leading-4 text-red-600">
-          Declined by a manager{declined.get(value.supplierCustomerId)?.comment ? `: “${declined.get(value.supplierCustomerId)?.comment}”` : ""} — pick another supplier
-        </div>
+      ) : databaseOnly && !linked && !typing && adding === null && value.name.trim() ? (
+        // Left so by a reload while the Add supplier dialog was open, or a duplicated line: the server holds the quote.
+        <div className="mt-1 text-[11px] leading-4 text-amber-700">Only typed: pick it from the list (or add it) — the quote can&apos;t be sent until then</div>
       ) : null}
       {fromQuote && adding !== null && (
         <AddCustomerModal

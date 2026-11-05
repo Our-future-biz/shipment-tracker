@@ -336,6 +336,8 @@ const DATE_FIELDS = new Set([
 const MONEY_FIELDS = new Set(["selling", "buying"]);
 // How many quotes one request may ask the shipments of: a page of the Quotes list at most.
 const MAX_QUOTE_REFERENCES = 200;
+// The most quote references a job number filter finds: a few letters of a job number match many shipments.
+const MAX_REFERENCES_BY_JOB = 1000;
 // The reference backfill asks Invoicing about this many shipments at a time, right before it
 // renames them: the answer is the fresher for it (a job may be invoiced while the backfill runs).
 const NORMALIZE_CHUNK = 50;
@@ -1217,6 +1219,11 @@ class ShipmentService {
   async idsOfCustomer(companyId: string, customerId: string, ids: string[]): Promise<string[]> {
     if (!isUuid(customerId)) return [];
     return shipmentRepository.idsOfCustomer(companyId, customerId, ids.filter(isUuid));
+  }
+
+  /** The quote references of the live shipments whose job number contains the text (the Quotes list's Shipment filter). */
+  async quoteReferencesByJobNumber(companyId: string, text: string): Promise<string[]> {
+    return shipmentRepository.salesNumbersByJobNumber(companyId, text, MAX_REFERENCES_BY_JOB);
   }
 
   async shipmentsNamingQuote(companyId: string, reference: string): Promise<{ id: string; jobNumber: string }[]> {

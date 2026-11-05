@@ -57,13 +57,24 @@ export const QUOTE_FILTER_COLUMNS: { key: string; title: string; options?: reado
 
 const isFilterColumn = (key: unknown): key is string => typeof key === "string" && QUOTE_FILTER_COLUMNS.some((c) => c.key === key);
 
-/** The rows that narrow anything, trimmed: a known column and a value. Anything else (a saved view of unknown age) is dropped. */
+/** The most column filters, and the longest value, the server takes (quotes utils/quoteColumnFilters.utils). */
+export const MAX_COLUMN_FILTERS = 10;
+export const MAX_COLUMN_FILTER_VALUE = 100;
+
+/**
+ * The rows that narrow anything, trimmed: a known column and a value, at most as many and as long as
+ * the server takes (an address or saved view with more must not make the whole list fail). Anything
+ * else (a saved view of unknown age) is dropped.
+ */
 export function activeColumnFilters(rows: unknown): ColumnFilter[] {
   if (!Array.isArray(rows)) return [];
-  return rows.flatMap((row): ColumnFilter[] => {
-    const { key, value } = (row ?? {}) as { key?: unknown; value?: unknown };
-    return isFilterColumn(key) && typeof value === "string" && value.trim() ? [{ key, value: value.trim() }] : [];
-  });
+  return rows
+    .flatMap((row): ColumnFilter[] => {
+      const { key, value } = (row ?? {}) as { key?: unknown; value?: unknown };
+      const text = typeof value === "string" ? Array.from(value.trim()).slice(0, MAX_COLUMN_FILTER_VALUE).join("").trim() : "";
+      return isFilterColumn(key) && text ? [{ key, value: text }] : [];
+    })
+    .slice(0, MAX_COLUMN_FILTERS);
 }
 
 // A column filter in the address: f.<column>=<value>, as the Shipments grid writes them.

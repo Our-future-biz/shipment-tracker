@@ -8,7 +8,7 @@ import { shipmentRefCounterRepository, type Tx as CounterTx } from "./shipmentRe
 import { jobNumberFor } from "../lib/jobNumber";
 import { masterJobTable } from "../schemas/masterJob.schema";
 import { containerTable } from "../schemas/container.schema";
-import { containsAllWords } from "../../../lib/db/textSearch";
+import { containsAllWords, escapeLike, foldDiacritics, foldSql } from "../../../lib/db/textSearch";
 import { JOB_NUMBER_PATTERN, referenceSearchDigits } from "../../../lib/jobNumber";
 import type { PeopleRewrite, ShipmentPeople } from "../lib/people";
 
@@ -394,6 +394,29 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
       .from(shipmentTable)
       .where(and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt), inArray(SALES_NUMBER, references)))
       .orderBy(asc(shipmentTable.createdAt), asc(shipmentTable.id));
+  }
+
+  /**
+   * The quote references (Sales Number) of the live shipments whose job number contains `text`,
+   * case and diacritics aside, each once - at most `limit`. For the Quotes list's "Shipment (job no.)"
+   * filter, which finds a quote by any of its shipments.
+   */
+  async salesNumbersByJobNumber(companyId: string, text: string, limit: number): Promise<string[]> {
+    const folded = foldDiacritics(text.trim());
+    if (!folded) return [];
+    const rows = await this.db
+      .selectDistinct({ reference: SALES_NUMBER })
+      .from(shipmentTable)
+      .where(
+        and(
+          eq(shipmentTable.companyId, companyId),
+          isNull(shipmentTable.deletedAt),
+          sql`${SALES_NUMBER} <> ''`,
+          sql`${foldSql(sql`coalesce(${shipmentTable.jobNumber}, '')`)} LIKE ${`%${escapeLike(folded)}%`}`,
+        ),
+      )
+      .limit(limit);
+    return rows.map((r) => r.reference);
   }
 
   /** Every company that has shipments, deleted ones included (a deleted shipment can leave a quote to unlink). */

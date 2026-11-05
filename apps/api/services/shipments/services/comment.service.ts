@@ -4,8 +4,10 @@ import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment
 import type { ShipmentCommentRecord } from "../schemas/shipmentComment.schema";
 import { userEmails } from "../lib/userEmails";
 import { attachmentContentUrl } from "../lib/contentToken";
+import { COMPARED_WITH, declaredFigures, dimensionFigures, remeasureNotice, type CargoFigures } from "../lib/remeasureNotice";
 import { iso } from "../../../lib/db/serialize";
-import type { CommentItem, CommentMentionItem, CommentUnreadItem } from "../interfaces/interfaces";
+import { companyUsers } from "../../../lib/companyUsers";
+import type { CommentItem, CommentMentionItem, CommentUnreadItem, RemeasureNoticeResult } from "../interfaces/interfaces";
 import { attachmentService } from "./attachment.service";
 import { shipmentService } from "./shipment.service";
 
@@ -17,6 +19,18 @@ export interface NewComment {
   mentionedUserIds: string[];
 }
 
+/** What the warehouse's Inform Operations tells a shipment's chat. */
+export interface RemeasureNoticeInput {
+  /** The totals of the warehouse's saved remeasured lines. */
+  remeasured: CargoFigures;
+  /** What the warehouse's screen compared them with (lib/remeasureNotice COMPARED_WITH). */
+  comparedWith: string;
+  /** Typed with Inform Operations; "" for none. */
+  note: string;
+}
+
+const MAX_NOTICE_NOTE = 2_000;
+const isFigure = (n: unknown) => typeof n === "number" && Number.isFinite(n) && n >= 0;
 
 /** How long the bell keeps a read mention, counted from when it was written. */
 export const READ_MENTION_KEEP_DAYS = 7;
@@ -90,12 +104,10 @@ class CommentService {
       throw APIError.invalidArgument("message or attachment is required");
     }
     await shipmentService.requireLive(shipmentId, companyId);
-    // Only real colleagues from the same company can be tagged. The chat's @ list never offers the
-    // writer, but a notice posted for someone's click (the warehouse's "Inform Operations") tags the
-    // shipment's Person in Charge and Holiday Cover - who may be the one clicking - so a tag of the
-    // author is kept: it reaches their notifications and marks the chat unread for them.
+    // Only real colleagues from the same company can be tagged, and never yourself (the @ list never
+    // offers the writer; the warehouse's notice, which may tag its writer, is postRemeasureNotice).
     const colleagues = await userEmails();
-    const mentions = [...new Set(input.mentionedUserIds)].filter((id) => colleagues.has(id));
+    const mentions = [...new Set(input.mentionedUserIds)].filter((id) => id !== authorId && colleagues.has(id));
     const comment = await shipmentCommentRepository.createForCompany(companyId, {
       shipmentId,
       authorId,
@@ -105,6 +117,35 @@ class CommentService {
     await shipmentAttachmentRepository.linkToComment(input.attachmentIds, comment.id, shipmentId, companyId);
     const files = await shipmentAttachmentRepository.listChatFilesByShipmentId(shipmentId, companyId);
     return this.toItem(comment, files, null, colleagues, authorId);
+  }
+
+  /**
+   * "Cargo has been remeasured by the warehouse" in a shipment's chat, for the warehouse's Inform
+   * Operations: the shipment's figures against the remeasured ones, tagging the shipment's Person in
+   * Charge and Holiday Cover as stored - resolved here, never sent by a browser. The one clicking is
+   * tagged too when they are one of them: the notice then shows in their own notifications and marks
+   * the chat unread for them (unreadCounts counts a writer's own message that tags them). Throws when
+   * the company's users can't be read, rather than post a notice that tags nobody. Answers who was
+   * tagged (e-mails), so the warehouse can say so - or that nobody is set to notify.
+   */
+  async postRemeasureNotice(shipmentId: string, companyId: string, authorId: string, input: RemeasureNoticeInput): Promise<RemeasureNoticeResult> {
+    const { remeasured, comparedWith, note } = input;
+    if (!COMPARED_WITH.some((c) => c === comparedWith)) throw APIError.invalidArgument(`comparedWith must be one of: ${COMPARED_WITH.join(", ")}`);
+    if (![remeasured?.colli, remeasured?.weightKg, remeasured?.volumeCbm].every(isFigure)) {
+      throw APIError.invalidArgument("The remeasured colli, kg and CBM must be numbers of 0 or more");
+    }
+    if (note.length > MAX_NOTICE_NOTE) throw APIError.invalidArgument(`The note is too long (at most ${MAX_NOTICE_NOTE} characters)`);
+    const shipment = await shipmentService.get(shipmentId, companyId);
+    const users = await companyUsers();
+    const ours = comparedWith === "declared" ? declaredFigures(shipment) : dimensionFigures(shipment.cargoDimensions ?? []);
+    const notice = remeasureNotice(shipment, users, ours, remeasured, note);
+    const comment = await shipmentCommentRepository.createForCompany(companyId, {
+      shipmentId,
+      authorId,
+      message: notice.message,
+      mentionedUserIds: notice.tagged.map((u) => u.id),
+    });
+    return { commentId: comment.id, tagged: notice.tagged.map((u) => u.email) };
   }
 
   // Deleting a message takes the files sent with it along (they also show on the Documents tab).

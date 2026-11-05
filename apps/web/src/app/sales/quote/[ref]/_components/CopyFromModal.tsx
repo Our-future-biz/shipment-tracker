@@ -6,6 +6,8 @@ import type { SalesQuoteData } from "@/app/sales/_lib/types";
 import type { SalesQuote } from "@/app/sales/_lib/salesQuote";
 import { useQuoteCustomerFields } from "@/hooks/useQuoteCustomerFields";
 import { SECTIONS, hasSection, pickCarried, pickSections, type SectionKey } from "@/app/sales/_lib/quoteSections";
+import { withTemplateTerms } from "@/app/sales/_lib/shippingTerms";
+import { useTermsConditions } from "@/hooks/useTermsConditions";
 import { QuotePicker } from "@/app/sales/_components/QuotePicker";
 import { SalesDialog } from "@/app/sales/_components/SalesDialog";
 import { shipmentToQuoteData } from "@/app/shipments/_components/quoteToShipment";
@@ -99,6 +101,9 @@ export function CopyFromModal({ open, mode, currentRef, onClose, onApply }: Copy
   // What a shipment carries of its customer, completed from the Customer Database where linked;
   // a contact person copied from another quote, checked against the customer's contacts.
   const { withCustomerRecord, withLiveContact } = useQuoteCustomerFields();
+  // Copied Shipping terms are the template's texts as they are now (read once the list is in).
+  const { terms, isLoaded: termsLoaded } = useTermsConditions();
+  const withTerms = (patch: Partial<SalesQuoteData>) => (termsLoaded ? withTemplateTerms(patch, terms) : patch);
   // What is copied from: the quote or the shipment picked, whole, as the picker found it.
   const [sourceQuote, setSourceQuote] = useState<SalesQuote | null>(null);
   const [sourceShipment, setSourceShipment] = useState<ShipmentItem | null>(null);
@@ -142,10 +147,10 @@ export function CopyFromModal({ open, mode, currentRef, onClose, onApply }: Copy
       // The customer is read from the Customer Database first, and the dialog waits for it.
       setCopying(true);
       const source = ticked.includes("customer") ? await withCustomerRecord(carried) : carried;
-      onApply(pickCarried(source, ticked));
+      onApply(withTerms(pickCarried(source, ticked)));
     } else {
       if (!sourceQuote) return;
-      const patch = pickSections(sourceQuote.data, ticked);
+      const patch = withTerms(pickSections(sourceQuote.data, ticked));
       // The contact's link is checked with the Customer Database first, and the dialog waits for it.
       setCopying(true);
       onApply(ticked.includes("customer") ? await withLiveContact(patch) : patch);

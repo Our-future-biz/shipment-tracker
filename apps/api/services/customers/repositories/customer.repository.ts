@@ -44,6 +44,39 @@ const LIST_COLUMNS = {
 export const kindClause = (kind: CustomerListKind) =>
   kind === "customers" ? arrayContains(customerTable.roles, ["customer"]) : arrayOverlaps(customerTable.roles, [...SUPPLIER_ROLES]);
 
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * Hides what is filed under a customer being deleted - its addresses, contacts, notes, documents,
+ * invoices and sites - with the customer's own stamp, in the caller's transaction: a restore brings
+ * back exactly the rows of that stamp.
+ */
+export async function hideChildren(tx: Tx, id: string, companyId: string, now: Date): Promise<void> {
+  const gone = { deletedAt: now, updatedAt: now };
+  await tx.update(customerAddressTable).set(gone)
+    .where(and(eq(customerAddressTable.companyId, companyId), eq(customerAddressTable.customerId, id), isNull(customerAddressTable.deletedAt)));
+  await tx.update(contactTable).set(gone)
+    .where(and(eq(contactTable.companyId, companyId), eq(contactTable.customerId, id), isNull(contactTable.deletedAt)));
+  await tx.update(customerNoteTable).set(gone)
+    .where(and(eq(customerNoteTable.companyId, companyId), eq(customerNoteTable.customerId, id), isNull(customerNoteTable.deletedAt)));
+  await tx.update(customerDocumentTable).set(gone)
+    .where(and(eq(customerDocumentTable.companyId, companyId), eq(customerDocumentTable.customerId, id), isNull(customerDocumentTable.deletedAt)));
+  await tx.update(customerInvoiceTable).set(gone)
+    .where(and(eq(customerInvoiceTable.companyId, companyId), eq(customerInvoiceTable.customerId, id), isNull(customerInvoiceTable.deletedAt)));
+  await tx.update(customerSiteTable).set(gone)
+    .where(and(eq(customerSiteTable.companyId, companyId), eq(customerSiteTable.customerId, id), isNull(customerSiteTable.deletedAt)));
+}
+
+// A manager's answer to a new supplier, wiped: the decline of one brought back no longer stands.
+const NO_ANSWER = {
+  approvalDecision: "" as const,
+  approvalDecidedBy: "",
+  approvalDecidedByUserId: null,
+  approvalDecidedAt: null,
+  approvalComment: "",
+  approvalAnswerSeenAt: null,
+};
+
 class CustomerRepository extends TenantRepository<typeof customerTable> {
   constructor() {
     super(db, customerTable, "customer");
@@ -155,9 +188,9 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
   ): Promise<(Pick<CustomerRecord, "id" | "companyName" | "ico" | "dic" | "city" | "country"> & { rating: number | null; ratingReason: string; inUse: boolean })[]> {
     const clauses = [eq(customerTable.companyId, companyId), isNull(customerTable.deletedAt), arrayContains(customerTable.roles, [role])];
     // Looked up by id, a company is found whatever it is; the whole list (Trucking's and Tariffs' pickers)
-    // leaves out a new supplier still waiting for a manager's approval.
+    // offers only approved ones: not a new supplier still waiting for a manager, nor one declined.
     if (ids) clauses.push(inArray(customerTable.id, ids));
-    else clauses.push(ne(customerTable.approvalStatus, "pending"));
+    else clauses.push(eq(customerTable.approvalStatus, ""));
     return this.db
       .select({
         id: customerTable.id,
@@ -284,19 +317,7 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
         .where(and(eq(customerTable.id, id), eq(customerTable.companyId, companyId), isNull(customerTable.deletedAt)))
         .returning();
       if (!customer) return null;
-      const gone = { deletedAt: now, updatedAt: now };
-      await tx.update(customerAddressTable).set(gone)
-        .where(and(eq(customerAddressTable.companyId, companyId), eq(customerAddressTable.customerId, id), isNull(customerAddressTable.deletedAt)));
-      await tx.update(contactTable).set(gone)
-        .where(and(eq(contactTable.companyId, companyId), eq(contactTable.customerId, id), isNull(contactTable.deletedAt)));
-      await tx.update(customerNoteTable).set(gone)
-        .where(and(eq(customerNoteTable.companyId, companyId), eq(customerNoteTable.customerId, id), isNull(customerNoteTable.deletedAt)));
-      await tx.update(customerDocumentTable).set(gone)
-        .where(and(eq(customerDocumentTable.companyId, companyId), eq(customerDocumentTable.customerId, id), isNull(customerDocumentTable.deletedAt)));
-      await tx.update(customerInvoiceTable).set(gone)
-        .where(and(eq(customerInvoiceTable.companyId, companyId), eq(customerInvoiceTable.customerId, id), isNull(customerInvoiceTable.deletedAt)));
-      await tx.update(customerSiteTable).set(gone)
-        .where(and(eq(customerSiteTable.companyId, companyId), eq(customerSiteTable.customerId, id), isNull(customerSiteTable.deletedAt)));
+      await hideChildren(tx, id, companyId, now);
       return customer;
     });
   }
@@ -343,24 +364,35 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
   /**
    * Undoes softDeleteWithChildren in one transaction: the customer and every row hidden together
    * with it (the same deleted_at) come back. Rows deleted on their own before stay deleted.
-   * Null when the customer is not deleted (or not of this company).
+   * A new supplier a manager declined (and so deleted) comes back as a company like any other on a
+   * restore: the decline is gone. Undoing the decline (`undoDecline`, only for such a supplier) puts
+   * it back to waiting for a manager instead, as it was before the answer. Null when there is no such
+   * deleted customer of this company - or it came back in this very moment: the write is conditional.
    */
-  async restoreWithChildren(id: string, companyId: string): Promise<CustomerRecord | null> {
+  async restoreWithChildren(id: string, companyId: string, as: "restore" | "undoDecline" = "restore"): Promise<CustomerRecord | null> {
     return this.db.transaction(async (tx) => {
+      const deletedOne = and(eq(customerTable.id, id), eq(customerTable.companyId, companyId), isNotNull(customerTable.deletedAt));
       const [deleted] = await tx
-        .select({ deletedAt: customerTable.deletedAt })
+        .select({ deletedAt: customerTable.deletedAt, approvalDecision: customerTable.approvalDecision, approvalStatus: customerTable.approvalStatus })
         .from(customerTable)
-        .where(and(eq(customerTable.id, id), eq(customerTable.companyId, companyId), isNotNull(customerTable.deletedAt)))
+        .where(as === "undoDecline" ? and(deletedOne, eq(customerTable.approvalDecision, "declined")) : deletedOne)
         .limit(1);
       if (!deleted?.deletedAt) return null;
       const stamp = deleted.deletedAt;
       const now = new Date();
       const back = { deletedAt: null, updatedAt: now };
+      const declined = deleted.approvalDecision === "declined" || deleted.approvalStatus === "declined";
       const [customer] = await tx
         .update(customerTable)
-        // A declined new supplier comes back as a company like any other.
-        .set({ ...back, approvalStatus: sql`case when ${customerTable.approvalStatus} = 'declined' then '' else ${customerTable.approvalStatus} end` })
-        .where(and(eq(customerTable.id, id), eq(customerTable.companyId, companyId), eq(customerTable.deletedAt, stamp)))
+        .set({ ...back, ...(as === "undoDecline" ? { ...NO_ANSWER, approvalStatus: "pending" as const } : declined ? { ...NO_ANSWER, approvalStatus: "" as const } : {}) })
+        .where(
+          and(
+            eq(customerTable.id, id),
+            eq(customerTable.companyId, companyId),
+            eq(customerTable.deletedAt, stamp),
+            ...(as === "undoDecline" ? [eq(customerTable.approvalDecision, "declined")] : []),
+          ),
+        )
         .returning();
       if (!customer) return null;
       await tx.update(customerAddressTable).set(back)

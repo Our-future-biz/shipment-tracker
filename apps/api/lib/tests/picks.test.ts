@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { byPicks, pickCode } from "../geo/picks";
-import { searchAirports } from "../geo/airports";
-import { searchInlandTerminals, searchTerminals } from "../geo/terminals";
+import { isAirportCode, searchAirports } from "../geo/airports";
+import { isTerminalCode, searchInlandTerminals, searchTerminals } from "../geo/terminals";
 
 const code = (x: { code: string }) => x.code;
 
@@ -44,5 +44,16 @@ describe("pickCode", () => {
   });
   it("refuses anything else", () => {
     expect(["", "Hamburg port", "DE", "DEHAM!", "DE-XX1"].map(pickCode)).toEqual([null, null, null, null, null]);
+  });
+});
+
+describe("isAirportCode / isTerminalCode", () => {
+  it("know only the codes of the lists, so made-up codes are not counted", () => {
+    expect(isAirportCode("PVG")).toBe(true);
+    expect(isAirportCode("QQQ")).toBe(false);
+    const ocean = searchTerminals("deham")[0]!.code;
+    const inland = searchInlandTerminals("duisburg")[0]!.code;
+    expect([ocean, inland].map(isTerminalCode)).toEqual([true, true]);
+    expect(["DEHAMZZZZ", "DE-IT9999", "PVG"].map(isTerminalCode)).toEqual([false, false, false]);
   });
 });

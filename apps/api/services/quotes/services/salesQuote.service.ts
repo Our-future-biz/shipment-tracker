@@ -30,6 +30,7 @@ import { customerIdOf, linkForSave, refreshCopies, withRefresh } from "../utils/
 import { tryCustomerRefs } from "../lib/customerRefs";
 import { linkedSupplierIds, supplierGate, type LinkedSupplierState } from "../utils/supplierApproval.utils";
 import { shippingTermsGateMessage } from "../utils/shippingTerms.utils";
+import { tariffDirectionGateMessage } from "../utils/tariffDirection.utils";
 import { columnFiltersOf } from "../utils/quoteColumnFilters.utils";
 import { approvedPricing, inquiryGateMessage, MAX_INQUIRY_NOTE, MAX_INQUIRY_PIECES, MAX_PRICE_PER_PIECE, MIN_REJECT_REASON, readInquiry } from "../utils/warehouseInquiry.utils";
 import { fxWriteFor, mayStampFx, type StoredFx } from "../lib/quoteFx";
@@ -375,6 +376,18 @@ async function activateCustomer(companyId: string, customerId: string | null): P
 }
 const conflict = () => APIError.aborted("the quote was changed by someone else since it was loaded");
 
+// A "Shipment (job no.)" column filter finds a quote by any shipment that names it: the quote keeps
+// only its first shipment's job number, so the shipments service says which quotes the others name.
+async function withShipmentReferences(filter: SalesQuoteFilter): Promise<SalesQuoteFilter> {
+  if (!filter.columns?.some((f) => f.key === "shipment")) return filter;
+  const columns = await Promise.all(
+    filter.columns.map(async (f) =>
+      f.key === "shipment" ? { ...f, references: (await shipments._internalQuoteReferencesByJob({ jobNumber: f.text })).references } : f,
+    ),
+  );
+  return { ...filter, columns };
+}
+
 // Where the suppliers a quote is linked to stand, by id (the caller's company: the request's login).
 async function linkedSupplierStates(ids: string[]): Promise<Map<string, LinkedSupplierState>> {
   if (!ids.length) return new Map();
@@ -458,7 +471,7 @@ class SalesQuoteService {
   // same moment by the filter (in SQL) and by what it is handed out with (status shown,
   // follow-up flag), so the two cannot disagree. The total is the real number of matches.
   async list(actor: Actor, request: SalesQuoteListRequest): Promise<PaginatedResponse<SalesQuoteItem>> {
-    const filter = filterOf(actor, request);
+    const filter = await withShipmentReferences(filterOf(actor, request));
     const page = pageOf(request);
     await this.catchUp(actor.companyID);
     const at = new Date();
@@ -568,7 +581,10 @@ class SalesQuoteService {
     const before = MARGIN_GATED_STATUSES.includes(request.to) ? await salesQuoteRepository.loadSales(actor.companyID, quoteNumber) : null;
     const margins = before ? await marginsFor(actor.companyID, [before], at) : undefined;
     // And where its linked suppliers stand: a new one waiting for a manager, or declined, holds the quote.
-    const suppliers = before ? await linkedSupplierStates(linkedSupplierIds(before.data)) : undefined;
+    // Asked only for a move the gates hold (not Quoted → Won); one that turns out gated under the lock
+    // with a linked supplier nobody looked up is tried again (supplierGate's unknown).
+    const gatedBefore = (q: SalesQuoteRecord) => isGatedMove(effectiveStatus(stateOf(q).status, q.validUntil, ctx.today), request.to);
+    const suppliers = before && gatedBefore(before) ? await linkedSupplierStates(linkedSupplierIds(before.data)) : undefined;
     const result = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
       if (request.expectedDataVersion !== undefined && request.expectedDataVersion !== quote.dataVersion) throw conflict();
       const state = stateOf(quote);
@@ -588,13 +604,16 @@ class SalesQuoteService {
         // Its Shipping terms come from a template, chosen before it goes on.
         const termsGate = shippingTermsGateMessage(quote.data);
         if (termsGate) throw APIError.failedPrecondition(termsGate);
+        // A rail or ocean tariff prices only its Trade Direction: a line priced in the other is priced again first.
+        const directionGate = tariffDirectionGateMessage(quote.data);
+        if (directionGate) throw APIError.failedPrecondition(directionGate);
         // Judged as the quote will be once moved: a validity the sending sets is part of what an approval covers (D10).
         const judged = isPlainObject(quote.data) ? { ...quote.data, validUntil: change.state.validUntil ?? undefined } : quote.data;
         const margin = margins ? roadMargin(judged, margins) : null;
         if (margin?.needsApproval) throw APIError.failedPrecondition(marginGateMessage(margin));
         const inquiryGate = inquiryGateMessage(quote.data, "ready_to_send");
         if (inquiryGate) throw APIError.failedPrecondition(inquiryGate);
-        // A supplier linked since they were read is judged by nobody: try again.
+        // A supplier linked since they were read is judged by nobody: try again. A supplier only typed holds it too.
         const supplierCheck = supplierGate(quote.data, suppliers ?? new Map());
         if (supplierCheck.unknown) throw conflict();
         if (supplierCheck.message) throw APIError.failedPrecondition(supplierCheck.message);

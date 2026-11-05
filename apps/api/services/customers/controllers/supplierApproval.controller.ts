@@ -28,11 +28,23 @@ interface SupplierApprovalDecideResponse {
   approval: SupplierApprovalItem;
 }
 
-// Managers and admins only. Declined, the company is deleted (it can be restored from Deleted customers).
+// Managers and admins only. Declined, the company is deleted (a manager can take the decline back: below).
 export const supplierApprovalDecide = api(
   { expose: true, auth: true, method: "POST", path: "/customers/:id/supplier-approval" },
   async ({ id, decision, comment }: SupplierApprovalDecideRequest): Promise<SupplierApprovalDecideResponse> => {
     return { approval: await supplierApprovalService.decide(getAuthData()!, id, decision, comment) };
+  },
+);
+
+interface SupplierApprovalUndoDeclineRequest {
+  id: string;
+}
+
+// Managers and admins only: a declined new supplier comes back and waits for a manager again.
+export const supplierApprovalUndoDecline = api(
+  { expose: true, auth: true, method: "POST", path: "/customers/:id/supplier-approval/undo-decline" },
+  async ({ id }: SupplierApprovalUndoDeclineRequest): Promise<SupplierApprovalDecideResponse> => {
+    return { approval: await supplierApprovalService.undoDecline(getAuthData()!, id) };
   },
 );
 

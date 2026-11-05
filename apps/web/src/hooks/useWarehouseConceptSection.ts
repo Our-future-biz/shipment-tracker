@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { APIError, ErrCode, type controllers, type services } from "@/lib/api/client";
 import { gateKeys, sectionKeys } from "./warehouseKeys";
+import { chatQueryKeys } from "@/lib/informOperations";
 
 export type SectionKeyChange = services.SectionKeyChange;
 
@@ -52,6 +53,17 @@ export function useWarehouseSection(shipmentId: string, section: string) {
     onSuccess: (res) => queryClient.setQueryData<controllers.WarehouseConceptSectionGetResponse>(key, { section: res.section }),
   });
 
+  // Inform Operations: the server records when and posts the notice to the shipment's chat in one
+  // request (both, or neither); the answer says whom it tagged.
+  const inform = useMutation({
+    mutationFn: (note: string) => api.warehouseConcept.warehouseConceptInformOperations(shipmentId, { note }),
+    onSuccess: (res) => {
+      queryClient.setQueryData<controllers.WarehouseConceptSectionGetResponse>(key, { section: res.section });
+      queryClient.invalidateQueries({ queryKey: sectionKeys.summary() });
+      for (const queryKey of chatQueryKeys(shipmentId)) queryClient.invalidateQueries({ queryKey });
+    },
+  });
+
   const item = query.data?.section ?? null;
   return {
     data: (item?.data as unknown) ?? null,
@@ -59,7 +71,9 @@ export function useWarehouseSection(shipmentId: string, section: string) {
     isLoading: query.isLoading,
     save: mutation.mutateAsync,
     saveKeys: patch.mutateAsync,
+    informOperations: inform.mutateAsync,
     isSaving: mutation.isPending || patch.isPending,
+    isInforming: inform.isPending,
   };
 }
 
@@ -115,12 +129,14 @@ export function usePositionSection(taskId: string | null | undefined, section: s
     },
   });
 
-  // "Mark as sent" / "Inform Operations": a resend is allowed and kept in the history.
+  // "Mark as sent" / "Inform Operations": a resend is allowed and kept in the history. Inform
+  // Operations also posts the notice to the shipment's chat (the answer says whom it tagged).
   const markSent = useMutation({
     mutationFn: ({ what, note }: { what: SentWhat; note?: string }) => api.warehouseConcept.warehousePositionMarkSent(taskId!, { what, note }),
-    onSuccess: (res) => {
+    onSuccess: (res, { what }) => {
       queryClient.setQueryData<controllers.WarehouseConceptSectionGetResponse>(key, { section: res.section });
       refreshOthers();
+      if (what === "inform_operations") for (const queryKey of chatQueryKeys(res.section.shipmentId)) queryClient.invalidateQueries({ queryKey });
     },
   });
 

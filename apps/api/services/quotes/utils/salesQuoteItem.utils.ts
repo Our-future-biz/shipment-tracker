@@ -3,6 +3,7 @@ import { canApproveMargin, ownerChangeRight, quoteDeletePermission, type OwnerCh
 import { freightModeGateMessage, marginGateMessage, roadMargin, type MarginContext } from "../lib/roadMargin";
 import { inquiryGateMessage } from "./warehouseInquiry.utils";
 import { shippingTermsGateMessage } from "./shippingTerms.utils";
+import { tariffDirectionGateMessage } from "./tariffDirection.utils";
 import type { RoadMargin, SalesQuoteItem } from "../interfaces/interfaces";
 import type { SalesQuoteRecord } from "../schemas/quote.schema";
 import { isPlainObject, isWonRevision } from "./quoteDocument.utils";
@@ -21,6 +22,8 @@ function sendBlockedOf(row: SalesQuoteRecord, shown: string, margin: RoadMargin 
   if (mode) return mode;
   const terms = shippingTermsGateMessage(row.data);
   if (terms) return terms;
+  const direction = tariffDirectionGateMessage(row.data);
+  if (direction) return direction;
   return margin?.needsApproval ? marginGateMessage(margin) : inquiryGateMessage(row.data, "ready_to_send");
 }
 

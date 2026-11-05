@@ -9,13 +9,16 @@ const json = (rows: unknown) => JSON.stringify(rows);
 describe("columnFiltersOf", () => {
   it("reads the rows, folded for the search, dropping those without a value", () => {
     expect(columnFiltersOf(json([{ key: "customer", value: " Alža " }, { key: "origin", value: "  " }, { key: "incoterm", value: "FOB" }]))).toEqual([
-      { key: "customer", value: "alza", exact: false },
-      { key: "incoterm", value: "fob", exact: true },
+      { key: "customer", value: "alza", exact: false, text: "alza" },
+      { key: "incoterm", value: "fob", exact: true, text: "fob" },
     ]);
   });
 
   it("takes % and _ as typed, not as patterns", () => {
-    expect(columnFiltersOf(json([{ key: "commodity", value: "50%_x" }]))[0]?.value).toBe("50\\%\\_x");
+    const [filter] = columnFiltersOf(json([{ key: "commodity", value: "50%_x" }]));
+    expect(filter?.value).toBe("50\\%\\_x");
+    // Unescaped for another service, which escapes it its own way.
+    expect(filter?.text).toBe("50%_x");
   });
 
   it("is nothing without filters", () => {

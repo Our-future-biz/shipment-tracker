@@ -150,7 +150,8 @@ const COLUMN_TEXT: Record<QuoteFilterColumn, SQL> = {
   validity: sql`to_char(${quoteTable.validUntil}, 'DD.MM.YYYY')`,
   shipment: sql`${quoteTable.shipmentJobNumber}`,
   incoterm: sql`${quoteTable.data}->>'incoterm'`,
-  cargoReady: sql`CASE WHEN ${quoteTable.data}->>'readyDate' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN to_char((${quoteTable.data}->>'readyDate')::date, 'DD.MM.YYYY') END`,
+  // Rearranged as text, not cast: a stored "2026-02-30" must not fail the whole list.
+  cargoReady: sql`CASE WHEN ${quoteTable.data}->>'readyDate' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN concat_ws('.', substr(${quoteTable.data}->>'readyDate', 9, 2), substr(${quoteTable.data}->>'readyDate', 6, 2), substr(${quoteTable.data}->>'readyDate', 1, 4)) END`,
   commodity: sql`${quoteTable.data}->>'commodity'`,
   method: sql`${quoteTable.data}->>'method'`,
   shippingTerms: sql`${quoteTable.data}->>'shippingTerms'`,
@@ -158,9 +159,11 @@ const COLUMN_TEXT: Record<QuoteFilterColumn, SQL> = {
 };
 
 // A column filter as SQL: the column's folded text contains the value, or on an exact column is it.
+// A "shipment" filter also keeps the quotes named by any of their shipments whose job number has it.
 const columnMatches = (f: QuoteColumnFilter): SQL => {
   const text = foldSql(sql`coalesce(${COLUMN_TEXT[f.key]}, '')`);
-  return f.exact ? sql`btrim(${text}) = ${f.value}` : sql`${text} LIKE ${`%${f.value}%`}`;
+  const matches = f.exact ? sql`btrim(${text}) = ${f.value}` : sql`${text} LIKE ${`%${f.value}%`}`;
+  return f.references?.length ? or(matches, inArray(quoteTable.quoteNumber, f.references))! : matches;
 };
 
 // What a list can be sorted by, and what each sort orders by: the whole of it - nothing a caller

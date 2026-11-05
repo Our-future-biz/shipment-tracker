@@ -6,7 +6,7 @@ import { FilterOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { ColumnFilterRows } from "@/components/ColumnFilterRows";
 import { withFilterId, type GridFilter } from "@/components/gridFilters";
-import { NO_OWNER, QUOTE_FILTER_COLUMNS, activeColumnFilters, type Filters } from "../_lib/quoteListState";
+import { MAX_COLUMN_FILTERS, MAX_COLUMN_FILTER_VALUE, NO_OWNER, QUOTE_FILTER_COLUMNS, activeColumnFilters, type Filters } from "../_lib/quoteListState";
 import { DIRECTIONS, QUOTE_STATUSES, SERVICE_TYPES } from "../_lib/types";
 import { toolbarButtonClass } from "./ToolbarButton";
 import { matchesUserOption, UserOptionLabel, type UserIdOption } from "../_lib/userOptions";
@@ -56,6 +56,8 @@ function useColumnRows(filters: Filters, onChange: (patch: Partial<Filters>) => 
   });
   useEffect(() => {
     if (applied === sent.current) return;
+    // Rows put on from outside win over typing not yet handed on: Clear all must not come back.
+    clearTimeout(timer.current);
     sent.current = applied;
     setRows(activeColumnFilters(JSON.parse(applied)).map(withFilterId));
   }, [applied]);
@@ -184,7 +186,13 @@ export function QuoteListFilters({ filters, onChange, onClear, userOptions }: Qu
         {/* Any of the list's columns, as many rows as needed: each keeps the quotes whose text in the column contains the value, on every page. */}
         <div className="pt-2.5 border-t border-slate-100">
           <span className="block text-xs font-medium text-slate-500 mb-1.5">Filter by column</span>
-          <ColumnFilterRows rows={columnRows.rows} columns={QUOTE_FILTER_COLUMNS} onChange={columnRows.change} />
+          <ColumnFilterRows
+            rows={columnRows.rows}
+            columns={QUOTE_FILTER_COLUMNS}
+            onChange={columnRows.change}
+            maxRows={MAX_COLUMN_FILTERS}
+            maxLength={MAX_COLUMN_FILTER_VALUE}
+          />
         </div>
       </div>
     </div>

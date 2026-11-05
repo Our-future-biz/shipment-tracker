@@ -2,6 +2,14 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { warehouseSectionTable, type WarehouseSectionRecord } from "../schemas/warehouseSection.schema";
+import type { WarehouseSectionChange } from "../interfaces/interfaces";
+
+export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+export type SectionKeyWrite = WarehouseSectionChange;
+
+const asObject = (data: unknown): Record<string, unknown> => (data && typeof data === "object" && !Array.isArray(data) ? (data as Record<string, unknown>) : {});
+const asText = (v: unknown) => (v === undefined || v === null ? "" : typeof v === "string" ? v : JSON.stringify(v));
 
 class WarehouseSectionRepository extends TenantRepository<typeof warehouseSectionTable> {
   constructor() {
@@ -36,6 +44,49 @@ class WarehouseSectionRepository extends TenantRepository<typeof warehouseSectio
       })
       .returning();
     return row!;
+  }
+
+  // Saves only the given fields of a section, so two screens saving different fields (notes, the
+  // remeasured lines, "sent" marks) never undo each other. A field sent with `expected` is written
+  // only while it still holds that text; otherwise nothing is written and the fields that changed
+  // meanwhile are answered. Every write of one section runs under one lock, so a first save never
+  // makes two rows and a check never interleaves with another write. `after` runs inside the
+  // transaction once the save is in; an error there undoes it.
+  async patchKeys(
+    shipmentId: string,
+    section: string,
+    companyId: string,
+    changes: SectionKeyWrite[],
+    after?: (tx: Tx, row: WarehouseSectionRecord) => Promise<void>,
+  ): Promise<{ row: WarehouseSectionRecord; conflicts: null } | { row: null; conflicts: string[] }> {
+    return db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`warehouse_section:${companyId}:${shipmentId}:${section}`}))`);
+      const [cur] = await tx
+        .select()
+        .from(warehouseSectionTable)
+        .where(
+          and(
+            eq(warehouseSectionTable.companyId, companyId),
+            eq(warehouseSectionTable.shipmentId, shipmentId),
+            eq(warehouseSectionTable.section, section),
+            isNull(warehouseSectionTable.deletedAt),
+          ),
+        )
+        .limit(1);
+      const data = asObject(cur?.data);
+      const conflicts = changes.filter((c) => c.expected !== undefined && asText(data[c.key]) !== c.expected).map((c) => c.key);
+      if (conflicts.length) return { row: null, conflicts };
+      const next = { ...data };
+      for (const c of changes) {
+        if (c.value) next[c.key] = c.value;
+        else delete next[c.key];
+      }
+      const [row] = cur
+        ? await tx.update(warehouseSectionTable).set({ data: next, updatedAt: new Date() }).where(eq(warehouseSectionTable.id, cur.id)).returning()
+        : await tx.insert(warehouseSectionTable).values({ companyId, shipmentId, section, data: next }).returning();
+      await after?.(tx, row!);
+      return { row: row!, conflicts: null };
+    });
   }
 
   async softDeleteForShipment(shipmentId: string, companyId: string): Promise<void> {

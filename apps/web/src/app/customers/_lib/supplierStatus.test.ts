@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isSupplierOnly, shownStatus, supplierInUse, supplierStatusValue } from "./supplierStatus";
+import { isSupplierOnly, shownStatus, supplierInUse, supplierOffered, supplierStatusValue } from "./supplierStatus";
 
 describe("the status a company shows", () => {
   it("is the stored status for a customer, also one that is a supplier too", () => {
@@ -35,5 +35,20 @@ describe("the status a company shows", () => {
     expect(supplierInUse({ status: "Inactive", roles: ["haulier", "customer"] })).toBe(true);
     expect(supplierInUse({ status: "Prospect", roles: ["shipping_line"] })).toBe(true);
     expect(supplierInUse({ status: "Active", roles: ["rail_operator"] })).toBe(true);
+  });
+});
+
+describe("a supplier offered for picking", () => {
+  const haulier = { status: "Active" as const, roles: ["haulier" as const] };
+  it("is one in use and approved, on a quote or elsewhere", () => {
+    expect(supplierOffered(haulier, "", true)).toBe(true);
+    expect(supplierOffered(haulier, "", false)).toBe(true);
+    expect(supplierOffered({ ...haulier, status: "Inactive" }, "", true)).toBe(false);
+  });
+  it("is one waiting for a manager only on a quote, whose sending waits for it too; a declined one never", () => {
+    expect(supplierOffered(haulier, "pending", true)).toBe(true);
+    expect(supplierOffered(haulier, "pending", false)).toBe(false);
+    expect(supplierOffered(haulier, "declined", true)).toBe(false);
+    expect(supplierOffered(haulier, "declined", false)).toBe(false);
   });
 });

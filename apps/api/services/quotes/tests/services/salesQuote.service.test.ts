@@ -8,9 +8,9 @@ vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 vi.mock("~encore/clients", () => ({
   auth: { usersList: vi.fn() },
-  customers: { customerActivate: vi.fn(), _internalCustomerRefs: vi.fn() },
+  customers: { customerActivate: vi.fn(), _internalCustomerRefs: vi.fn(), _internalSupplierApprovalStates: vi.fn() },
   fx: { fxRatesOn: vi.fn() },
-  shipments: { _internalShipmentsNamingQuote: vi.fn(), _internalShipmentsMoveQuote: vi.fn() },
+  shipments: { _internalShipmentsNamingQuote: vi.fn(), _internalShipmentsMoveQuote: vi.fn(), _internalQuoteReferencesByJob: vi.fn() },
   trucking: { truckingRate: vi.fn(), _internalTruckingMarginFloor: vi.fn() },
 }));
 vi.mock("../../repositories/quoteAttachment.repository", () => ({ quoteAttachmentRepository: { deleteForQuote: vi.fn() } }));
@@ -253,6 +253,20 @@ describe("list", () => {
     const [companyId, filter, page, moment] = repository.list.mock.calls[0]!;
     return { companyId, filter, page, moment };
   };
+
+  it("finds a quote by any of its shipments' job numbers, asking the shipments service only for that filter", async () => {
+    const byJob = vi.mocked(shipments._internalQuoteReferencesByJob);
+    byJob.mockResolvedValue({ references: ["QCZ26110501", "QCZ26110502"] });
+    const { filter } = await asked({ columnFilters: JSON.stringify([{ key: "shipment", value: "CZ0042" }, { key: "customer", value: "Alza" }]) });
+    expect(byJob).toHaveBeenCalledWith({ jobNumber: "cz0042" });
+    expect(filter.columns).toEqual([
+      { key: "shipment", value: "cz0042", exact: false, text: "cz0042", references: ["QCZ26110501", "QCZ26110502"] },
+      { key: "customer", value: "alza", exact: false, text: "alza" },
+    ]);
+    byJob.mockClear();
+    await asked({ columnFilters: JSON.stringify([{ key: "customer", value: "Alza" }]) });
+    expect(byJob).not.toHaveBeenCalled();
+  });
 
   it("adopts what waits and matches the owner texts before it reads the list", async () => {
     await salesQuoteService.list(martin, {});
@@ -622,6 +636,17 @@ describe("transition", () => {
     for (const to of ["ready_to_send", "quoted"] as const) {
       await expect(salesQuoteService.transition(martin, REF, { to })).rejects.toMatchObject({ code: "failed_precondition", message: SHIPPING_TERMS_FIRST });
     }
+    expect(repository.writeLifecycle).not.toHaveBeenCalled();
+    await expect(salesQuoteService.transition(martin, REF, { to: "lost", lostReason: "Price: too high" })).resolves.toMatchObject({ changed: true });
+  });
+
+  it("refuses a send while a rail or ocean line is priced in the other Trade Direction; Lost is let", async () => {
+    const data = { reference: REF, quoteStatus: "draft", salesOwner: "martin@forwarder.cz", timeline: [], shippingTerms: "Standard", direction: "Import", serviceType: "Sea FCL" };
+    stored = quote({ data: { ...data, buyingLines: [{ type: "Ocean freight", tariffRef: "ocean:v1", pricedDirection: "export" }] } });
+    await expect(salesQuoteService.transition(martin, REF, { to: "ready_to_send" })).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: expect.stringMatching(/^A buying line was priced from an export tariff, and the quote is now an import/),
+    });
     expect(repository.writeLifecycle).not.toHaveBeenCalled();
     await expect(salesQuoteService.transition(martin, REF, { to: "lost", lostReason: "Price: too high" })).resolves.toMatchObject({ changed: true });
   });
@@ -2220,5 +2245,53 @@ describe("who a quote is for (the Customer Database)", () => {
     stored = quote({ data: { reference: REF, ...unlinked } });
     await salesQuoteService.save(martin, REF, { customerId: ACME, customerContact: "Petr", customerEmail: "private@mail.cz" }, 3);
     expect(repository.saveDocument.mock.calls[1]![2].data).toMatchObject({ customerContactId: "", customerContact: "Petr", customerEmail: "private@mail.cz" });
+  });
+});
+
+describe("the suppliers of the buying lines (Customer Database only, a new one approved by a manager)", () => {
+  const WAITS = "6f1c2b9e-1d3a-4c5b-8e7f-0a1b2c3d4e5f";
+  const supplierStates = vi.mocked(customers._internalSupplierApprovalStates);
+  // Priced well above the LCL floor, so only its suppliers can hold it.
+  const priced = (buyingLines: unknown[], over: Partial<SalesQuoteRecord> = {}) =>
+    quote({
+      data: { ...(quote().data as Record<string, unknown>), serviceType: "Sea LCL", sellingLines: [{ type: "Ocean freight", currency: "EUR", amount: 2000 }], buyingLines },
+      ...over,
+    });
+  const line = (supplier: string, supplierCustomerId?: string) => ({ type: "Ocean freight", description: "LCL", currency: "EUR", amount: 100, supplier, ...(supplierCustomerId ? { supplierCustomerId } : {}) });
+
+  beforeEach(() => fxRatesOn.mockResolvedValue(sheet([{ currency: "EUR", rate: 25 }])));
+
+  it("refuses to send a quote with a supplier only typed, naming its line, writing nothing; Lost is let", async () => {
+    stored = priced([line("DANGO"), { ...line("Rail Cargo"), type: "Rail freight", tariffRef: "rail:v1:r1" }]);
+    for (const to of ["ready_to_send", "quoted"] as const) {
+      await expect(salesQuoteService.transition(martin, REF, { to })).rejects.toMatchObject({
+        code: "failed_precondition",
+        message: "The supplier of the buying line Ocean freight (DANGO) is only typed — pick it from the Customer Database on Pricing (or add it there)",
+      });
+    }
+    expect(repository.writeLifecycle).not.toHaveBeenCalled();
+    await expect(salesQuoteService.transition(martin, REF, { to: "lost", lostReason: "Price: too high" })).resolves.toMatchObject({ changed: true });
+  });
+
+  it("holds a quote linked to a supplier waiting for a manager", async () => {
+    stored = priced([line("DANGO", WAITS)]);
+    supplierStates.mockResolvedValue({ states: [{ id: WAITS, companyName: "DANGO s.r.o.", status: "pending", comment: "" }] });
+    await expect(salesQuoteService.transition(martin, REF, { to: "ready_to_send" })).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringMatching(/^The new supplier DANGO s\.r\.o\. waits/) });
+    expect(supplierStates).toHaveBeenCalledWith({ ids: [WAITS] });
+  });
+
+  it("does not hold a quote sent before, nor ask where its suppliers stand: Quoted → Won", async () => {
+    stored = priced([line("DANGO"), line("Waits", WAITS)], { status: "quoted", sentAt: SENT, firstSentAt: SENT });
+    await expect(salesQuoteService.transition(martin, REF, { to: "won" })).resolves.toMatchObject({ changed: true });
+    expect(supplierStates).not.toHaveBeenCalled();
+  });
+
+  it("tries again when the quote became one to hold under the lock with a supplier nobody looked up", async () => {
+    // Read as Quoted (not held), then reopened as a draft by someone else before the lock.
+    const reopened = priced([line("Waits", WAITS)]);
+    stored = priced([line("Waits", WAITS)], { status: "quoted", sentAt: SENT, firstSentAt: SENT });
+    repository.withLockedQuote.mockImplementation(async (_companyId, _quoteNumber, change) => change(reopened, TX));
+    await expect(salesQuoteService.transition(martin, REF, { to: "ready_to_send" })).rejects.toMatchObject({ code: "aborted" });
+    expect(repository.writeLifecycle).not.toHaveBeenCalled();
   });
 });

@@ -123,7 +123,7 @@ class LocationRepository {
       ${picks}
       ORDER BY COALESCE(lp.picks, 0) DESC,
         CASE WHEN p.code ILIKE ${query} THEN 0 WHEN p.name_ascii ILIKE ${query} THEN 1 WHEN p.name_ascii ILIKE ${prefix} THEN 2 ELSE 3 END,
-        length(p.name), p.name
+        length(p.name), p.name, p.code
       LIMIT ${limit}`);
     return result.rows;
   }

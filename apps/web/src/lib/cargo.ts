@@ -140,13 +140,41 @@ export function numberInput(v: string, decimals = true, maxDigits = Infinity): s
 }
 
 // "All pieces" in Cargo Details: weight and volume typed for all the pieces of a dimension line are
-// stored per piece. A line's pieces count at least 1, so a total typed before the pieces is kept
-// as for one piece.
-export const piecesOf = (l: { pieces?: string | null }) => Math.max(1, Math.floor(num(l.pieces)));
-/** One piece's share of a total, as stored: up to 6 decimals, no trailing zeros ("150", "0.5"); "" for none. */
-export const perPieceText = (total: number, pieces: number) => (total > 0 ? String(Number((total / Math.max(1, pieces)).toFixed(6))) : "");
-/** A line's total from its per-piece value, rounded as shown (weight 2 decimals, volume 3); "" for none. */
-export const totalText = (perPiece: number, pieces: number, decimals: number) => (perPiece > 0 ? String(Number((perPiece * pieces).toFixed(decimals))) : "");
+// stored per piece. A line without pieces has no totals - there is nothing to share one over - so
+// its pieces count 0, as the totals row and the server count them.
+export const piecesOf = (l: { pieces?: string | null }) => Math.max(0, Math.floor(num(l.pieces)));
+
+/** The most m³ one piece may hold (the server refuses more: a slip of the keyboard, not a piece). */
+export const MAX_VOLUME_PER_PIECE_M3 = 1000;
+
+/**
+ * A number as a plain decimal with `significant` digits and no trailing zeros ("150", "0.5",
+ * "0.000000333333333333") - never "3.3e-7", which the server does not take; "" for none.
+ */
+export function plainDecimal(n: number, significant = 12): string {
+  if (!Number.isFinite(n) || n <= 0) return "";
+  const decimals = Math.min(100, Math.max(0, significant - 1 - Math.floor(Math.log10(n))));
+  const fixed = n.toFixed(decimals);
+  return fixed.includes(".") ? fixed.replace(/\.?0+$/, "") : fixed;
+}
+
+/**
+ * One piece's share of a total, as stored: 12 significant digits, so pieces × share gives the total
+ * back as typed even over thousands of pieces (7 m³ over 3,000 pieces is 0.00233333333333, not
+ * 0.002333 = 6.999 m³); "" for none or without pieces.
+ */
+export const perPieceText = (total: number, pieces: number) => (total > 0 && pieces > 0 ? plainDecimal(total / pieces) : "");
+
+/** A line's total from its per-piece value, rounded as shown (weight 2 decimals, volume 3); "" for none or without pieces. */
+export const totalText = (perPiece: number, pieces: number, decimals: number) =>
+  perPiece > 0 && pieces > 0 ? String(Number((perPiece * pieces).toFixed(decimals))) : "";
+
+/**
+ * The total a line's per-piece share was made from: pieces × share to 10 significant digits, which
+ * undoes the share's own rounding - so sharing it out again over other pieces, keystroke after
+ * keystroke, never drifts away from what was typed. 0 for none.
+ */
+export const lineTotal = (perPiece: number, pieces: number) => (perPiece > 0 && pieces > 0 ? Number((perPiece * pieces).toPrecision(10)) : 0);
 
 // en-US thousands separators; integers plain, otherwise at most 2 decimals.
 export function fmtNum(n: number): string {

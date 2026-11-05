@@ -1,6 +1,7 @@
 import { and, desc, eq, gte, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { db } from "../db/db";
 import { customerTable, type CustomerRecord } from "../schemas/customer.schema";
+import { hideChildren } from "./customer.repository";
 import type { SupplierApprovalDecision } from "../interfaces/interfaces";
 
 /** A new supplier as the Company approval list shows it, with its main contact. */
@@ -78,39 +79,46 @@ class SupplierApprovalRepository {
   }
 
   /**
-   * A manager's answer to a supplier that still waits: approved it is a supplier like any other,
-   * declined it is marked so (the service then deletes it). Null when it no longer waits (answered
-   * meanwhile, or deleted): nothing is written.
+   * A manager's answer to a supplier that still waits: approved it is a supplier like any other;
+   * declined it is marked so and deleted with what is filed under it, in the same transaction - a
+   * decline never leaves a live company that can't be answered again. Null when it no longer waits
+   * (answered meanwhile, or deleted): nothing is written.
    */
   async decide(
     companyId: string,
     id: string,
     answer: { decision: Exclude<SupplierApprovalDecision, "">; by: string; byUserId: string; comment: string },
   ): Promise<CustomerRecord | null> {
-    const now = new Date();
-    const [row] = await db
-      .update(customerTable)
-      .set({
-        approvalStatus: answer.decision === "approved" ? "" : "declined",
-        approvalDecision: answer.decision,
-        approvalDecidedBy: answer.by,
-        approvalDecidedByUserId: answer.byUserId,
-        approvalDecidedAt: now,
-        approvalComment: answer.comment,
-        // A manager answering their own request has seen the answer.
-        approvalAnswerSeenAt: sql`case when ${customerTable.approvalRequestedByUserId} = ${answer.byUserId} then ${now.toISOString()}::timestamptz else null end`,
-        updatedAt: now,
-      })
-      .where(
-        and(
-          eq(customerTable.id, id),
-          eq(customerTable.companyId, companyId),
-          eq(customerTable.approvalStatus, "pending"),
-          isNull(customerTable.deletedAt),
-        ),
-      )
-      .returning();
-    return row ?? null;
+    const declined = answer.decision === "declined";
+    return db.transaction(async (tx) => {
+      const now = new Date();
+      const [row] = await tx
+        .update(customerTable)
+        .set({
+          approvalStatus: declined ? "declined" : "",
+          approvalDecision: answer.decision,
+          approvalDecidedBy: answer.by,
+          approvalDecidedByUserId: answer.byUserId,
+          approvalDecidedAt: now,
+          approvalComment: answer.comment,
+          // A manager answering their own request has seen the answer.
+          approvalAnswerSeenAt: sql`case when ${customerTable.approvalRequestedByUserId} = ${answer.byUserId} then ${now.toISOString()}::timestamptz else null end`,
+          updatedAt: now,
+          ...(declined ? { deletedAt: now } : {}),
+        })
+        .where(
+          and(
+            eq(customerTable.id, id),
+            eq(customerTable.companyId, companyId),
+            eq(customerTable.approvalStatus, "pending"),
+            isNull(customerTable.deletedAt),
+          ),
+        )
+        .returning();
+      if (!row) return null;
+      if (declined) await hideChildren(tx, id, companyId, now);
+      return row;
+    });
   }
 
   /** The answers to the user's own requests among `ids` are seen. */

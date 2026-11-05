@@ -36,6 +36,9 @@ const AIRPORTS: Entry[] = AIRPORTS_DATA.trim()
 
 const BY_CODE = new Map(AIRPORTS.map((a) => [a.code, a]));
 
+/** Whether the code is an airport of the list ("PVG"). */
+export const isAirportCode = (code: string): boolean => BY_CODE.has(code);
+
 const toAirport = ({ code, name, city, countryCode }: Entry): Airport => ({ code, name, city, countryCode });
 
 /**

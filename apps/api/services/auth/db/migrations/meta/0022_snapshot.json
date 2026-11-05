@@ -1,5 +1,5 @@
 {
-  "id": "d7942f64-ee2a-4330-9cfa-ba500035df4e",
+  "id": "b7000440-0ebc-40b8-ad2c-f59eb0712a48",
   "prevId": "c8d44655-5dc3-42e1-b3de-ed385bd7a431",
   "version": "7",
   "dialect": "postgresql",
@@ -860,7 +860,34 @@
         }
       },
       "indexes": {},
-      "foreignKeys": {},
+      "foreignKeys": {
+        "location_pick_company_id_company_id_fk": {
+          "name": "location_pick_company_id_company_id_fk",
+          "tableFrom": "location_pick",
+          "tableTo": "company",
+          "columnsFrom": [
+            "company_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "location_pick_user_id_app_user_id_fk": {
+          "name": "location_pick_user_id_app_user_id_fk",
+          "tableFrom": "location_pick",
+          "tableTo": "app_user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {
         "location_pick_pkey": {
           "name": "location_pick_pkey",

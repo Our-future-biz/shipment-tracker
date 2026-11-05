@@ -469,6 +469,20 @@ export interface CommentUnreadItem {
   unread: number;
 }
 
+/** Pieces, gross kg and CBM, as the warehouse's remeasurement notice states them. */
+export interface RemeasureFigures {
+  colli: number;
+  weightKg: number;
+  volumeCbm: number;
+}
+
+/** The warehouse's "Cargo has been remeasured" notice, as posted to a shipment's chat. */
+export interface RemeasureNoticeResult {
+  commentId: string;
+  /** E-mails of the people tagged (Person in Charge, Holiday Cover); empty when nobody is set. */
+  tagged: string[];
+}
+
 export interface TaskItem {
   id: string;
   shipmentId: string;
