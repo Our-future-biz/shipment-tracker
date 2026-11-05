@@ -52,7 +52,7 @@ export interface ChatSource {
 
 type Comment = ChatMessage;
 
-const initials = (name: string) =>
+export const initials = (name: string) =>
   name
     .split(/[\s.@_-]+/)
     .filter(Boolean)
@@ -69,7 +69,7 @@ const AUTHOR_TONES = [
   "bg-rose-100 text-rose-700",
   "bg-violet-100 text-violet-700",
 ];
-const toneFor = (id: string) => AUTHOR_TONES[[...id].reduce((a, c) => a + c.charCodeAt(0), 0) % AUTHOR_TONES.length]!;
+export const toneFor = (id: string) => AUTHOR_TONES[[...id].reduce((a, c) => a + c.charCodeAt(0), 0) % AUTHOR_TONES.length]!;
 
 const dayKey = (iso: string) => new Date(iso).toDateString();
 const dayLabel = (iso: string) => {
