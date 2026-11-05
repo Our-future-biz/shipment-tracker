@@ -19,6 +19,7 @@ import { SupplierRatingBox } from "./SupplierRatingBox";
 import { statusDotClass } from "../../_lib/constants";
 import { shownStatus } from "../../_lib/supplierStatus";
 import { CustomerSalesOwnerSelect } from "./CustomerSalesOwnerSelect";
+import { useCustomerCameFrom } from "../../_lib/customerCameFrom";
 import { useCustomerListHref } from "../../_lib/customerListHref";
 import { canDeleteCustomerRecords } from "../../_lib/customerPermissions";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -36,6 +37,7 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
   const toast = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
   const listHref = useCustomerListHref();
+  const cameFrom = useCustomerCameFrom(customer.id);
   // A supplier only is called a supplier on its own page (Council Review 5, m20).
   const noun = isSupplierOnly(customer.roles) ? "supplier" : "customer";
   const { user } = useAuth();
@@ -89,7 +91,15 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
 
   return (
     <>
-      <BackLink href={listHref} className="mb-2">Customer Database</BackLink>
+      <div className="mb-2 flex flex-wrap items-center gap-x-2">
+        {cameFrom && (
+          <>
+            <BackLink href={cameFrom.href}>{cameFrom.label}</BackLink>
+            <span aria-hidden className="text-[13px] text-slate-300">·</span>
+          </>
+        )}
+        <BackLink href={listHref} arrow={!cameFrom}>Customer Database</BackLink>
+      </div>
 
       <div className="flex flex-wrap items-center justify-between gap-4 mb-2 bg-white border border-slate-200 rounded-xl shadow-sm px-5 py-4">
         <div className="flex items-center gap-4 min-w-0">

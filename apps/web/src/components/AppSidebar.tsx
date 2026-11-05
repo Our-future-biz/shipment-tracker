@@ -105,6 +105,13 @@ const COLLAPSED_WIDTH = 64;
 // Whether `pathname` is the page at `path` or anything below it.
 const isUnder = (pathname: string, path: string) => pathname === path || pathname.startsWith(path + "/");
 
+/** What the menu calls the page at `pathname`: its submenu item when it has one, otherwise its item. */
+export function navLabelOf(pathname: string): string | null {
+  const path = pathname.replace(/\/$/, "");
+  const item = NAV_ITEMS.find((i) => isUnder(path, i.path));
+  return item?.children?.find((c) => isUnder(path, c.path))?.label ?? item?.label ?? null;
+}
+
 export function AppSidebar() {
   // The app runs with trailingSlash, so the pathname ends in a slash the menu paths do not have.
   const pathname = usePathname().replace(/\/$/, "");
