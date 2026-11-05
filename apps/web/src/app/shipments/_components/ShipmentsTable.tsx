@@ -42,6 +42,7 @@ import { ShipmentHoverCard } from "@/components/ShipmentHoverCard";
 import { CommercialInvoicesModal } from "./CommercialInvoicesModal";
 import { ShipmentChatDrawer } from "./ChatPanel";
 import { EditableCell, FreightModeContext } from "@/app/shipments/[jobNumber]/_components/EditableCell";
+import { shipmentEmailSubject } from "@/app/shipments/_lib/shipmentEmail";
 import { CustomerCell } from "./CustomerCell";
 import { statusLabel } from "@/lib/shipmentStatus";
 import { LOAD_TYPE_FILTER_OPTIONS, loadTypeLabel } from "@/lib/enums";
@@ -582,6 +583,7 @@ export const ShipmentsTable = ({
               options={col.key === "status" ? getFilteredStatusOptions(record.tradeDirection) : undefined}
               customerId={record.customerId ?? null}
               contactId={record.customerPicContactId ?? null}
+              emailSubject={shipmentEmailSubject(record)}
               onCommit={(fieldKey, value, links) => updateField(record.id, fieldKey, value, record, links)}
               placeholder={"\u2014"}
               displayClassName="text-slate-700"

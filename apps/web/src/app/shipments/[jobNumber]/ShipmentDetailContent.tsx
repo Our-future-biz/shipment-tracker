@@ -57,7 +57,8 @@ import { NotificationsTab } from "./tabs/NotificationsTab";
 import { useShipmentAlerts } from "@/hooks/useShipmentAlerts";
 import { WarehouseTab } from "./tabs/WarehouseTab";
 import { CustomsTab } from "./tabs/CustomsTab";
-import { EditableCell, FreightModeContext, ShipmentCustomerContext, ShipmentCustomerPicContext, TradeDirectionContext } from "./_components/EditableCell";
+import { EditableCell, FreightModeContext, ShipmentCustomerContext, ShipmentCustomerPicContext, ShipmentEmailSubjectContext, TradeDirectionContext } from "./_components/EditableCell";
+import { shipmentEmailSubject } from "../_lib/shipmentEmail";
 import { FadeText } from "@/components/FadeText";
 import { CustomerLinkField } from "./_components/CustomerLinkField";
 import { PartyContactField } from "./_components/PartyContactField";
@@ -1714,7 +1715,9 @@ export function ShipmentDetailContent() {
     <TradeDirectionContext.Provider value={shipment.tradeDirection ?? undefined}>
       <FreightModeContext.Provider value={shipment.freightMode ?? undefined}>
         <ShipmentCustomerContext.Provider value={shipment.customerId ?? null}>
-          <ShipmentCustomerPicContext.Provider value={shipment.customerPicContactId ?? null}>{page}</ShipmentCustomerPicContext.Provider>
+          <ShipmentCustomerPicContext.Provider value={shipment.customerPicContactId ?? null}>
+            <ShipmentEmailSubjectContext.Provider value={shipmentEmailSubject(shipment)}>{page}</ShipmentEmailSubjectContext.Provider>
+          </ShipmentCustomerPicContext.Provider>
         </ShipmentCustomerContext.Provider>
       </FreightModeContext.Provider>
     </TradeDirectionContext.Provider>

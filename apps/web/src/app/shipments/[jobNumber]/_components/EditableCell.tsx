@@ -71,6 +71,9 @@ export const ShipmentCustomerContext = createContext<string | null | undefined>(
 /** The id of the contact the Customer's PIC of the shipment a page shows is; a grid passes it per row. */
 export const ShipmentCustomerPicContext = createContext<string | null | undefined>(undefined);
 
+/** The subject of an email to the Customer's PIC of the shipment a page shows; a grid passes it per row. */
+export const ShipmentEmailSubjectContext = createContext<string | undefined>(undefined);
+
 interface EditableCellProps {
   /** columnConfig key (e.g. "shippingLine") — decides text vs dropdown. */
   fieldKey: string;
@@ -95,6 +98,8 @@ interface EditableCellProps {
   customerId?: string | null;
   /** The stored contact's id, for a contact column; defaults to ShipmentCustomerPicContext. */
   contactId?: string | null;
+  /** The subject of an email to the stored contact; defaults to ShipmentEmailSubjectContext. */
+  emailSubject?: string;
 }
 
 export function EditableCell({
@@ -110,6 +115,7 @@ export function EditableCell({
   options: allowedOptions,
   customerId: customerIdProp,
   contactId: contactIdProp,
+  emailSubject: emailSubjectProp,
 }: EditableCellProps) {
   const [editing, setEditing] = useState(false);
   // A contact cell stays open while its Add contact dialog is (the dialog takes the focus).
@@ -132,6 +138,8 @@ export function EditableCell({
   const customerId = customerIdProp !== undefined ? customerIdProp : contextCustomerId;
   const contextContactId = useContext(ShipmentCustomerPicContext);
   const contactId = (contactIdProp !== undefined ? contactIdProp : contextContactId) ?? null;
+  const contextEmailSubject = useContext(ShipmentEmailSubjectContext);
+  const emailSubject = emailSubjectProp ?? contextEmailSubject;
   // Places and countries are picked from the location database.
   const geoKind = geoKindOf(col);
   const tradeDirection = useContext(TradeDirectionContext);
@@ -197,7 +205,7 @@ export function EditableCell({
           // It is also a link to the contact in the Customer Database: a click opens it, a
           // double click changes the contact (as on every other cell).
           isContact && hasValue && customerId ? (
-            <ContactHoverCard name={original} contactId={contactId} customerId={customerId}>
+            <ContactHoverCard name={original} contactId={contactId} customerId={customerId} emailSubject={emailSubject}>
               <EditableLink
                 href={customerContactHref(customerId, original, contactId)}
                 onEdit={startEditing}
