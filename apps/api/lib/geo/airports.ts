@@ -1,5 +1,6 @@
 import { AIRPORTS_DATA } from "./airports.data";
 import { fold } from "./format";
+import { byPicks, type PickCounts } from "./picks";
 
 // An IATA-coded airport, offered beside the UN/LOCODE places when a quote goes by air. Written
 // into quotes as "Name (CODE)" like a place: "Shanghai Pudong International Airport (PVG)".
@@ -39,9 +40,10 @@ const toAirport = ({ code, name, city, countryCode }: Entry): Airport => ({ code
 
 /**
  * Airports matching typed text: the one whose IATA code it is first, then those whose name or city
- * has a word starting with it, bigger airports before smaller ones.
+ * has a word starting with it, bigger airports before smaller ones - those the user picked most
+ * (`picks`) before all of them.
  */
-export function searchAirports(query: string, limit = 30): Airport[] {
+export function searchAirports(query: string, limit = 30, picks?: PickCounts): Airport[] {
   const q = fold(query ?? "");
   if (q.length < 2) return [];
   const exact = q.length === 3 ? BY_CODE.get(q.toUpperCase()) : undefined;
@@ -49,5 +51,6 @@ export function searchAirports(query: string, limit = 30): Airport[] {
   const found = AIRPORTS.filter((a) => a !== exact && a.text.includes(words)).sort(
     (a, b) => a.rank - b.rank || a.name.localeCompare(b.name),
   );
-  return (exact ? [exact, ...found] : found).slice(0, limit).map(toAirport);
+  // The user's most picked first, before the list is cut.
+  return byPicks(exact ? [exact, ...found] : found, (a) => a.code, picks).slice(0, limit).map(toAirport);
 }

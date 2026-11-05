@@ -1,6 +1,7 @@
 import { TERMINALS_DATA } from "./terminals.data";
 import { INLAND_TERMINALS_DATA } from "./inlandTerminals.data";
 import { fold } from "./format";
+import { byPicks, type PickCounts } from "./picks";
 
 // An ocean container terminal (CY), offered beside the UN/LOCODE places as the Origin and
 // Destination of a sea quote or shipment. Its code is the port's UN/LOCODE and the terminal's SMDG
@@ -32,16 +33,17 @@ const toTerminal = ({ code, name, portCode, port, countryCode, operator }: Entry
 
 /**
  * Terminals matching typed text: those whose code starts with it first (a port's UN/LOCODE lists
- * all of its terminals), then those whose name, port or operator has a word starting with it.
+ * all of its terminals), then those whose name, port or operator has a word starting with it -
+ * those the user picked most (`picks`) before all of them.
  */
-export function searchTerminals(query: string, limit = 30): Terminal[] {
+export function searchTerminals(query: string, limit = 30, picks?: PickCounts): Terminal[] {
   const q = fold(query ?? "");
   if (q.length < 2) return [];
   const code = q.replace(/ /g, "").toUpperCase();
   const byCode = code.length >= 5 ? TERMINALS.filter((t) => t.code.startsWith(code)) : [];
   const words = ` ${q}`;
   const byText = TERMINALS.filter((t) => !byCode.includes(t) && t.text.includes(words)).sort((a, b) => a.port.localeCompare(b.port) || a.name.localeCompare(b.name));
-  return [...byCode, ...byText].slice(0, limit).map(toTerminal);
+  return byPicks([...byCode, ...byText], (t) => t.code, picks).slice(0, limit).map(toTerminal);
 }
 
 /** What an inland terminal is: a dry port, an intermodal (rail / road / barge) terminal, or a US rail terminal. */
@@ -77,14 +79,14 @@ const toInlandTerminal = ({ code, name, town, countryCode, kind, railroads }: In
 
 /**
  * Inland terminals matching typed text: the one whose code it is first, then those whose name or
- * town has a word starting with it.
+ * town has a word starting with it - those the user picked most (`picks`) before all of them.
  */
-export function searchInlandTerminals(query: string, limit = 30): InlandTerminal[] {
+export function searchInlandTerminals(query: string, limit = 30, picks?: PickCounts): InlandTerminal[] {
   const q = fold(query ?? "");
   if (q.length < 2) return [];
   const code = (query ?? "").trim().toUpperCase();
   const exact = INLAND.find((t) => t.code === code);
   const words = ` ${q}`;
   const found = INLAND.filter((t) => t !== exact && t.text.includes(words)).sort((a, b) => a.town.localeCompare(b.town) || a.name.localeCompare(b.name));
-  return (exact ? [exact, ...found] : found).slice(0, limit).map(toInlandTerminal);
+  return byPicks(exact ? [exact, ...found] : found, (t) => t.code, picks).slice(0, limit).map(toInlandTerminal);
 }

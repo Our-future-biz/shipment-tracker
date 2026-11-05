@@ -158,6 +158,7 @@ export namespace auth {
             this.departmentList = this.departmentList.bind(this)
             this.departmentUpdate = this.departmentUpdate.bind(this)
             this.locationList = this.locationList.bind(this)
+            this.placePick = this.placePick.bind(this)
             this.placeSearch = this.placeSearch.bind(this)
             this.terminalSearch = this.terminalSearch.bind(this)
             this.userCreate = this.userCreate.bind(this)
@@ -415,6 +416,14 @@ export namespace auth {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/auth/locations/${encodeURIComponent(countryCode)}`)
             return await resp.json() as controllers.LocationListResponse
+        }
+
+        /**
+         * A place, airport or terminal picked in a location picker: counted for the user, whose pickers
+         * then list it sooner (most picked first).
+         */
+        public async placePick(params: controllers.PlacePickRequest): Promise<void> {
+            await this.baseClient.callTypedAPI("POST", `/auth/places/picks`, JSON.stringify(params))
         }
 
         /**
@@ -7880,6 +7889,13 @@ export namespace controllers {
 
     export interface PlaceListResponse {
         places: services.PlaceInfo[]
+    }
+
+    export interface PlacePickRequest {
+        /**
+         * The code of the place, airport or terminal picked: "DEHAM", "PVG", "DEHAMCTB", "DE-IT116".
+         */
+        code: string
     }
 
     export interface PlaceSearchRequest {

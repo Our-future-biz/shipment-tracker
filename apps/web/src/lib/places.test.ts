@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isUnmatched } from "./places";
+import { isUnmatched, placeCodeOf } from "./places";
 
 describe("a stored place", () => {
   it("is from the database as a UN/LOCODE place, an IATA airport, an ocean terminal (CY) or an inland terminal", () => {
@@ -17,5 +17,19 @@ describe("a stored place", () => {
     expect(isUnmatched("place", "Somewhere (DEHAMTOOLONG1)")).toBe(true);
     expect(isUnmatched("place", "Somewhere (DE-XX1)")).toBe(true);
     expect(isUnmatched("place", "")).toBe(false);
+  });
+});
+
+describe("placeCodeOf", () => {
+  it("reads the code of a stored place, airport or terminal", () => {
+    expect(placeCodeOf("Hamburg (DEHAM)")).toBe("DEHAM");
+    expect(placeCodeOf("Shanghai Pudong International Airport (PVG)")).toBe("PVG");
+    expect(placeCodeOf("HHLA CONTAINER TERMINAL BURCHARDKAI (CTB) (DEHAMCTB)")).toBe("DEHAMCTB");
+    expect(placeCodeOf("Duisburg DIT (DE-IT116)")).toBe("DE-IT116");
+  });
+  it("is null for anything not in the database's form", () => {
+    expect(placeCodeOf("PORT OF HALIFAX, CANADA")).toBeNull();
+    expect(placeCodeOf("")).toBeNull();
+    expect(placeCodeOf(null)).toBeNull();
   });
 });

@@ -6,6 +6,14 @@ import type { Place } from "../../../lib/geo/place";
 import { searchAirports, type Airport } from "../../../lib/geo/airports";
 import { searchInlandTerminals, searchTerminals, type InlandTerminal, type Terminal } from "../../../lib/geo/terminals";
 import { userRepository } from "../repositories/user.repository";
+import { locationPickRepository } from "../repositories/locationPick.repository";
+import { pickCode, type PickCounts } from "../../../lib/geo/picks";
+
+/** The user picking or searching a place: their own picks rank their lists. */
+export interface Picker {
+  companyId: string;
+  userId: string;
+}
 
 export interface DepartmentInfo {
   id: string;
@@ -163,23 +171,38 @@ class OrgUnitService {
     return locationRepository.listByCountry(requireText(countryCode, "countryCode").toUpperCase());
   }
 
-  async searchPlaces(query: string, countryCode?: string): Promise<PlaceInfo[]> {
+  // `pickedBy`: the user searching, whose most picked places are listed first.
+  async searchPlaces(query: string, countryCode?: string, pickedBy?: Picker): Promise<PlaceInfo[]> {
     const q = likeSafe(asciiFold(query ?? ""));
     if (q.length < 2) return [];
-    return locationRepository.search(q, countryCode ? countryCode.toUpperCase() : null, 30);
+    return locationRepository.search(q, countryCode ? countryCode.toUpperCase() : null, 30, pickedBy);
   }
 
   // IATA airports, offered beside the places when a quote or shipment goes by air. Searched in
-  // memory: the snapshot ships with the code, not in the database.
-  searchAirports(query: string): Airport[] {
-    return searchAirports(query);
+  // memory: the snapshot ships with the code, not in the database. The user's most picked first.
+  async searchAirports(query: string, pickedBy?: Picker): Promise<Airport[]> {
+    if ((query ?? "").trim().length < 2) return [];
+    return searchAirports(query, 30, await this.picksOf(pickedBy));
   }
 
   // Ocean container terminals (CYs), and inland terminals (dry ports, rail and intermodal
   // terminals), offered beside the places as the Origin and Destination of a sea quote or shipment.
-  // In memory too, like the airports.
-  searchTerminals(query: string): TerminalMatches {
-    return { terminals: searchTerminals(query), inland: searchInlandTerminals(query) };
+  // In memory too, like the airports; the user's most picked first.
+  async searchTerminals(query: string, pickedBy?: Picker): Promise<TerminalMatches> {
+    if ((query ?? "").trim().length < 2) return { terminals: [], inland: [] };
+    const picks = await this.picksOf(pickedBy);
+    return { terminals: searchTerminals(query, 30, picks), inland: searchInlandTerminals(query, 30, picks) };
+  }
+
+  /** One more pick of a place, airport or terminal code by the user, so their pickers list it sooner. */
+  async recordPick(code: string, by: Picker): Promise<void> {
+    const known = pickCode(code);
+    if (!known) throw APIError.invalidArgument("code must be a UN/LOCODE, IATA airport or terminal code");
+    await locationPickRepository.record(by.companyId, by.userId, known);
+  }
+
+  private async picksOf(pickedBy?: Picker): Promise<PickCounts | undefined> {
+    return pickedBy ? locationPickRepository.countsFor(pickedBy.companyId, pickedBy.userId) : undefined;
   }
 
   async placesByCodes(codes: string[]): Promise<PlaceInfo[]> {
