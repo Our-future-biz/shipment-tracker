@@ -201,7 +201,7 @@ export const ConsignmentView = ({ consignmentId }: ConsignmentViewProps) => {
             </Link>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className="m-0 font-mono text-[22px] font-bold text-slate-800">{c.ref}</h1>
+                <h1 className="m-0 tabular-nums text-[22px] font-bold text-slate-800">{c.ref}</h1>
                 <TruckingStatusChip chip={CONSIGNMENT_STATUS_CHIP[c.status]} />
                 {c.internal && (
                   <Tooltip title={`Job ${c.jobNumber} belongs to another department: no customer price, one internal line priced from the ${TERMS.internalTariff.toLowerCase()}, billed in the monthly ${TERMS.internalStatement.toLowerCase()}.`}>
@@ -217,14 +217,14 @@ export const ConsignmentView = ({ consignmentId }: ConsignmentViewProps) => {
                 </span>
                 <span>
                   Job{" "}
-                  <Link href={`/shipments/${c.shipmentId}?tab=trucking`} className="font-mono font-semibold text-indigo-500 hover:underline">
+                  <Link href={`/shipments/${c.shipmentId}?tab=trucking`} className="tabular-nums font-semibold text-indigo-500 hover:underline">
                     {c.jobNumber}
                   </Link>
                 </span>
                 {liveTrip && (
                   <span>
                     {TERMS.trip}{" "}
-                    <Link href={tripHref(liveTrip.id)} className="font-mono font-semibold text-indigo-500 hover:underline">
+                    <Link href={tripHref(liveTrip.id)} className="tabular-nums font-semibold text-indigo-500 hover:underline">
                       {liveTrip.ref}
                     </Link>{" "}
                     · {liveTrip.haulierName}

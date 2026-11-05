@@ -129,7 +129,7 @@ export function UsersManager({
 
   const columns: ColumnsType<ManagedUser> = [
     { title: "Name", dataIndex: "displayName", render: (v: string) => v || <span className="text-slate-300">—</span> },
-    { title: "Email", dataIndex: "email", render: (v: string) => <span className="font-mono text-xs">{v}</span> },
+    { title: "Email", dataIndex: "email", render: (v: string) => <span className="tabular-nums text-xs">{v}</span> },
     { title: "Role", dataIndex: "role", width: 130, render: (v: string) => <Tag color={ROLE_COLOR[v] ?? "default"}>{v}</Tag> },
     ...(orgUnits
       ? [

@@ -32,7 +32,7 @@ export function ExtBadge({ fileName }: { fileName: string }) {
     other: "text-muted border-line-strong bg-surface",
   }[kind];
   return (
-    <span className={`flex-none w-[30px] h-[36px] rounded-[5px] grid place-items-center text-[8.5px] font-extrabold tracking-[.02em] border ${cls}`}>
+    <span className={`flex-none w-[30px] h-[36px] rounded-[5px] grid place-items-center text-[10px] font-extrabold tracking-[.02em] border ${cls}`}>
       {ext.slice(0, 4).toUpperCase() || "FILE"}
     </span>
   );
@@ -59,7 +59,7 @@ export function FileCell({ fileName, fileSize }: { fileName: string; fileSize: n
 /** .pill z mockupu - csPill(): Approved / Declined / Awaiting review */
 export function CustomsPill({ status }: { status: string }) {
   const base =
-    "inline-flex items-center gap-[5px] whitespace-nowrap text-[11.5px] font-extrabold tracking-[.04em] uppercase px-2 py-1 rounded-[6px] border";
+    "inline-flex items-center gap-[5px] whitespace-nowrap text-[12px] font-extrabold tracking-[.04em] uppercase px-2 py-1 rounded-[6px] border";
   if (status === "approved")
     return (
       <span className={`${base} text-ok bg-ok-soft border-ok`}>

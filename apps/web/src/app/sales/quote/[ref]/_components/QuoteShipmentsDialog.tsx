@@ -34,7 +34,7 @@ export const QuoteShipmentsDialog = ({ quoteNumber, shipments, onClose }: QuoteS
           <li key={shipment.id} className="flex items-center justify-between gap-4 px-3 py-2">
             <span className="flex items-center gap-3 min-w-0">
               <span className="w-5 text-right text-xs text-slate-400 tabular-nums">{index + 1}.</span>
-              <Link href={`/shipments/${shipment.id}`} className={`font-mono text-sm font-semibold ${LINK_CLASS}`}>
+              <Link href={`/shipments/${shipment.id}`} className={`tabular-nums text-sm font-semibold ${LINK_CLASS}`}>
                 {shipment.jobNumber || "Shipment"}
               </Link>
             </span>

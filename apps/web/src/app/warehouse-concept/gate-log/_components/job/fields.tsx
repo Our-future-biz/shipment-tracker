@@ -85,7 +85,7 @@ export function InlineText({
       placeholder={placeholder}
       status={problem ? "error" : undefined}
       title={problem || undefined}
-      className={`${inlineClass} font-medium text-slate-900 ${mono ? "font-mono" : ""} ${className}`}
+      className={`${inlineClass} font-medium text-slate-900 ${mono ? "tabular-nums" : ""} ${className}`}
       onChange={(e) => setDraft(phone ? limitCzechPhone(e.target.value) : e.target.value)}
       onBlur={() => !problem && draft !== value && onSave(draft.trim())}
       onPressEnter={(e) => e.currentTarget.blur()}
@@ -101,7 +101,7 @@ export const parseStamp = (value: string) => {
   return d.isValid() ? d : null;
 };
 
-const pickerClass = `${inlineClass} font-mono font-medium [&_input]:!text-xs`;
+const pickerClass = `${inlineClass} tabular-nums font-medium [&_input]:!text-xs`;
 
 export function InlineDate({ value, onSave, className = "" }: { value: string; onSave: (v: string) => void; className?: string }) {
   return (
@@ -157,7 +157,7 @@ export function InlineNumber({
         step={step}
         controls={false}
         value={draft}
-        className={`${inlineClass} w-[110px] font-mono font-medium`}
+        className={`${inlineClass} w-[110px] tabular-nums font-medium`}
         onChange={(v) => setDraft(v == null ? null : Number(v))}
         onBlur={() => {
           const n = Math.max(0, draft ?? 0);

@@ -38,7 +38,7 @@ export function ContainersTab() {
       width: 160,
       text: (c) => c.number,
       sorter: (a, b) => a.number.localeCompare(b.number),
-      render: (_, c) => <span className="font-mono font-bold text-indigo-500">{c.number}</span>,
+      render: (_, c) => <span className="tabular-nums font-bold text-indigo-500">{c.number}</span>,
     },
     {
       key: "kind",

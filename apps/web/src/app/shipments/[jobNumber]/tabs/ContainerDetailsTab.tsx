@@ -463,7 +463,7 @@ export function ContainerDetailsTab({
                   <span data-field="containerNumber">
                     <button
                       type="button"
-                      className={`font-mono font-bold text-[13px] tracking-wide px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-600 ${
+                      className={`tabular-nums font-bold text-[13px] tracking-wide px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-600 ${
                         savedIds.has(c.id ?? "") && onOpenCargo ? "hover:bg-indigo-100 hover:text-indigo-700 cursor-pointer" : "cursor-default"
                       }`}
                       title="Open Cargo Details"

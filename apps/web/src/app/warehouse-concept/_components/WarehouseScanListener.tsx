@@ -40,7 +40,7 @@ export function WarehouseScanListener() {
               onClick={() => setMany(null)}
               className="flex flex-wrap items-center gap-x-3 gap-y-0.5 min-h-[48px] rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-50"
             >
-              <span className="font-mono font-bold text-indigo-600">{m.positionRef || m.gateRef}</span>
+              <span className="tabular-nums font-bold text-indigo-600">{m.positionRef || m.gateRef}</span>
               <span className="text-slate-700">{m.customer || "—"}</span>
               <span className="ml-auto text-xs text-slate-500">{directionOf(m)}</span>
             </Link>

@@ -22,8 +22,8 @@ import { quoteHref } from "../../_lib/quoteHref";
 // decline given by mistake is taken back from the Answered list (Undo decline): the company comes back
 // and waits here again.
 
-const BUTTON = "inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-200 bg-white text-[12.5px] font-semibold text-slate-700 cursor-pointer transition-colors";
-const SAVE = "text-[12.5px] font-semibold px-3 py-1.5 rounded-lg border text-white cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed hover:brightness-110";
+const BUTTON = "inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-200 bg-white text-[13px] font-semibold text-slate-700 cursor-pointer transition-colors";
+const SAVE = "text-[13px] font-semibold px-3 py-1.5 rounded-lg border text-white cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed hover:brightness-110";
 const LABEL = "block text-[11px] font-extrabold tracking-[.07em] uppercase mb-1";
 const MIN_REASON = 3;
 
@@ -134,7 +134,7 @@ export function SalesCompanyApprovals() {
                         {a.requestedBy || "—"}
                         <div className="text-[11px] text-slate-400 tabular-nums">{a.requestedAt ? formatDateTime(a.requestedAt) : ""}</div>
                         {a.quoteNumber && (
-                          <Link href={quoteHref(a.quoteNumber)} className="text-[12px] font-mono font-semibold text-indigo-600 hover:underline">
+                          <Link href={quoteHref(a.quoteNumber)} className="text-[12px] tabular-nums font-semibold text-indigo-600 hover:underline">
                             {a.quoteNumber}
                           </Link>
                         )}

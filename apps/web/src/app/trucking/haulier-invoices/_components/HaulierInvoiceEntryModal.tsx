@@ -111,7 +111,7 @@ export const HaulierInvoiceEntryModal = ({ onClose, onCreate }: HaulierInvoiceEn
 
   const columns = [
     { key: "kind", title: "Kind", render: (_: unknown, t: InvoiceCandidate) => TARGET_KIND_LABELS[t.kind] },
-    { key: "ref", title: "Trip / leg", render: (_: unknown, t: InvoiceCandidate) => <span className="font-mono font-semibold">{t.ref}</span> },
+    { key: "ref", title: "Trip / leg", render: (_: unknown, t: InvoiceCandidate) => <span className="tabular-nums font-semibold">{t.ref}</span> },
     { key: "date", title: "Date", render: (_: unknown, t: InvoiceCandidate) => formatDate(t.date) },
     { key: "expected", title: "Expected", align: "right" as const, render: (_: unknown, t: InvoiceCandidate) => formatMoney(t.expected, t.currency) },
     {

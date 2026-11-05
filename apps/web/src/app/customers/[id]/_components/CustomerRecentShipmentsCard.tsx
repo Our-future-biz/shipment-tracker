@@ -23,7 +23,7 @@ const COLUMNS: ColumnsType<ShipmentItem> = [
     width: 170,
     // The shipment page is addressed by the shipment ID, not by the job number.
     render: (v: string, r) => (
-      <Link href={`/shipments/${r.id}`} className="font-mono font-semibold text-indigo-600 hover:underline whitespace-nowrap">
+      <Link href={`/shipments/${r.id}`} className="tabular-nums font-semibold text-indigo-600 hover:underline whitespace-nowrap">
         {v}
       </Link>
     ),

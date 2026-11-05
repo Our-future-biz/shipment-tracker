@@ -198,7 +198,7 @@ function ShipmentOnlyPart({ shipmentId, onBack }: { shipmentId: string; onBack: 
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-2">
         <BackButton onBack={onBack} />
-        <h2 className="text-[20px] font-bold text-slate-800 m-0 font-mono">{shipment.jobNumber}</h2>
+        <h2 className="text-[20px] font-bold text-slate-800 m-0 tabular-nums">{shipment.jobNumber}</h2>
         {shipment.customer && <span className="ml-2 text-sm text-slate-500">{shipment.customer}</span>}
       </div>
       <Alert

@@ -58,9 +58,9 @@ export function OverviewCards({ data, isAdmin, list, onChangeList, onChangeBase 
             <div className="text-[12px] font-bold tracking-[.05em] uppercase text-slate-500">
               {againstCzk ? "Today's ČNB rate" : `Today's rate in ${data.base}`}
             </div>
-            <div className="text-[12.5px] text-slate-400 mb-3">{fixingDate ? `Fixing of ${formatDate(fixingDate)}` : "No fixing yet"}</div>
+            <div className="text-[13px] text-slate-400 mb-3">{fixingDate ? `Fixing of ${formatDate(fixingDate)}` : "No fixing yet"}</div>
           </div>
-          <span className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-indigo-600 whitespace-nowrap">
+          <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-indigo-600 whitespace-nowrap">
             <UnorderedListOutlined />
             {more > 0 ? `All ${list.length}` : "Currencies"}
           </span>
@@ -81,7 +81,7 @@ export function OverviewCards({ data, isAdmin, list, onChangeList, onChangeBase 
         <div className="flex items-start justify-between">
           <div>
             <div className="text-[12px] font-bold tracking-[.05em] uppercase text-slate-500">Company ROE %</div>
-            <div className="text-[12.5px] text-slate-400">
+            <div className="text-[13px] text-slate-400">
               {data.roe.effectiveFrom
                 ? `Since ${formatDate(data.roe.effectiveFrom)}${data.roe.changedByName ? `, set by ${data.roe.changedByName}` : ""}`
                 : "Standard — pure ČNB rate"}
@@ -94,14 +94,14 @@ export function OverviewCards({ data, isAdmin, list, onChangeList, onChangeBase 
           )}
         </div>
         <div className="text-[28px] font-bold text-slate-900 tabular-nums mt-1">{fmtPct(pct)}</div>
-        <div className="text-[12.5px] text-slate-500 mb-1">
+        <div className="text-[13px] text-slate-500 mb-1">
           Pricing rate = ČNB × {fmtPct(pct)}
           {!againstCzk && " · CZK per 1 unit"}
         </div>
         {pricing.map((r) => (
           <div key={r.currency} className="flex items-baseline justify-between py-0.5">
             <span className="text-[13px] text-slate-600">{r.currency}</span>
-            <span className="text-[15px] font-semibold text-slate-800 tabular-nums">
+            <span className="text-[14px] font-semibold text-slate-800 tabular-nums">
               {fmtQuoted(r.rate == null ? null : (r.rate * pct) / 100, r.amount)}
             </span>
           </div>
@@ -117,7 +117,7 @@ export function OverviewCards({ data, isAdmin, list, onChangeList, onChangeBase 
         <div className="text-[12px] font-bold tracking-[.05em] uppercase text-slate-500">
           This month&apos;s average{againstCzk ? "" : ` in ${data.base}`}
         </div>
-        <div className="text-[12.5px] text-slate-400 mb-3">
+        <div className="text-[13px] text-slate-400 mb-3">
           {data.month} · provisional · {averages[0]?.fixingDays ?? 0} fixing days so far
         </div>
         {averages.length === 0 && <div className="text-[13px] text-slate-400">No fixings this month yet</div>}

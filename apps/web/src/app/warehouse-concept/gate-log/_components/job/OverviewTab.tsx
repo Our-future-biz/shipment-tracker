@@ -203,7 +203,7 @@ export function OverviewTab({
               <div>
                 {/* This job is the position's page, so its reference is plain text. */}
                 <FieldRow label={TERMS.warehouseRef}>
-                  <span className="font-mono font-semibold text-slate-900">{m.gateRef}</span>
+                  <span className="tabular-nums font-semibold text-slate-900">{m.gateRef}</span>
                 </FieldRow>
                 {/* Saves the stored handling (Import / Export / Domestic), shown as Outbound / Inbound / Domestic; the server
                     moves the gate visit with it. Locked once anything is stamped. */}
@@ -434,7 +434,7 @@ export function OverviewTab({
                             <TripMarker x={l} className="ml-2" />
                           </td>
                           <td className="px-4 py-1.5">{shown(l.company)}</td>
-                          <td className="px-4 py-1.5">{shown(l.plate, "font-mono")}</td>
+                          <td className="px-4 py-1.5">{shown(l.plate, "tabular-nums")}</td>
                           <td className="px-4 py-1.5">{shown(l.driver)}</td>
                           <td className="px-4 py-1.5">{shown(l.phone, "!text-slate-500")}</td>
                           <td className="px-4 py-1.5">{shown(stamp ? stamp.format("YYYY-MM-DD") : "", "!text-slate-500")}</td>
@@ -683,7 +683,7 @@ function UnNumberInput({ value, onSave }: { value: string; onSave: (v: string) =
       maxLength={12}
       defaultValue={value}
       placeholder="e.g. UN 1263"
-      className="!text-xs -ml-[7px] hover:!bg-slate-50 font-mono font-medium w-[160px]"
+      className="!text-xs -ml-[7px] hover:!bg-slate-50 tabular-nums font-medium w-[160px]"
       onBlur={(e) => e.target.value.trim() !== value && onSave(e.target.value.trim())}
       onPressEnter={(e) => e.currentTarget.blur()}
     />
@@ -761,7 +761,7 @@ function FreeDaysInput({ value, onSave }: { value: number | null; onSave: (v: nu
         placeholder="7 (default)"
         aria-label="Free days"
         value={draft}
-        className="!text-xs -ml-[7px] hover:!bg-slate-50 w-[110px] font-mono font-medium"
+        className="!text-xs -ml-[7px] hover:!bg-slate-50 w-[110px] tabular-nums font-medium"
         onChange={(v) => setDraft(v == null ? null : Number(v))}
         onBlur={() => {
           if (draft !== value) onSave(draft);
@@ -790,7 +790,7 @@ function ContainerCard({ m }: { m: GateMovement }) {
     >
       <FieldRow label="Container">
         <span className="flex flex-wrap items-center gap-2">
-          <span className="font-mono font-semibold text-slate-900">{c.number}</span>
+          <span className="tabular-nums font-semibold text-slate-900">{c.number}</span>
           <Badge tone={kind === "export" ? "i" : "b"}>{KIND_LABEL[kind]}</Badge>
           <Badge tone={CONTAINER_STATUS_TONE[c.status] ?? ""}>{c.status}</Badge>
         </span>
@@ -798,7 +798,7 @@ function ContainerCard({ m }: { m: GateMovement }) {
       {(c.equipment || c.seal) && (
         <FieldRow label="Type · seal">
           <span className="text-xs text-slate-700">
-            {c.equipment || "—"} · <span className="font-mono">{c.seal || "no seal yet"}</span>
+            {c.equipment || "—"} · <span className="tabular-nums">{c.seal || "no seal yet"}</span>
           </span>
         </FieldRow>
       )}

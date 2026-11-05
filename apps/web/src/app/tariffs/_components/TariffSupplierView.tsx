@@ -50,7 +50,7 @@ function versionColumns(customerId: string, today: string, versionHref: (custome
       title: "Status",
       render: (_, v) => (
         <span className="inline-flex items-center gap-1.5">
-          <span className={`inline-block rounded-full border px-2 py-0.5 text-[11.5px] font-medium ${STATUS_CHIP[v.status].className}`}>{STATUS_CHIP[v.status].label}</span>
+          <span className={`inline-block rounded-full border px-2 py-0.5 text-[12px] font-medium ${STATUS_CHIP[v.status].className}`}>{STATUS_CHIP[v.status].label}</span>
           {v.status === "active" && !pricesOn(v, today) && muted((v.validFrom ?? "") > today ? "starts later" : "ended")}
         </span>
       ),
@@ -62,7 +62,7 @@ function versionColumns(customerId: string, today: string, versionHref: (custome
       title: "Problems",
       render: (_, v) =>
         v.errorCount || v.warningCount ? (
-          <span className="flex gap-2 text-[12.5px]">
+          <span className="flex gap-2 text-[13px]">
             {v.errorCount > 0 && <span className="font-semibold text-red-600">{v.errorCount} errors</span>}
             {v.warningCount > 0 && <span className="text-amber-600">{v.warningCount} warnings</span>}
           </span>
@@ -273,7 +273,7 @@ export function TariffSupplierView<T extends SupplierTariff, F extends object>({
         subtitle={supplier.companyName}
         footer={
           <div className="flex items-center justify-end gap-2">
-            {editProblem && <span className="mr-auto text-[12.5px] text-slate-500">{editProblem}</span>}
+            {editProblem && <span className="mr-auto text-[13px] text-slate-500">{editProblem}</span>}
             <Button disabled={edit.isSaving} onClick={() => setEditing(null)}>
               Cancel
             </Button>

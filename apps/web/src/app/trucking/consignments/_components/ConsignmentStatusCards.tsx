@@ -112,7 +112,7 @@ export const ConsignmentStatusCards = ({ c, trip, levelLabel, approveMargin, onA
           <Line k="Margin" v={marginText(c)} tone={marginBlocks(c) ? "text-red-600" : c.belowFloor ? "text-amber-700" : "text-emerald-700"} />
         </div>
         {c.belowFloor && (
-          <div className={`mt-2 rounded-md px-2.5 py-1.5 text-[11.5px] ${c.marginApproved ? "bg-amber-50 text-amber-800" : "bg-red-50 text-red-700"}`}>
+          <div className={`mt-2 rounded-md px-2.5 py-1.5 text-[12px] ${c.marginApproved ? "bg-amber-50 text-amber-800" : "bg-red-50 text-red-700"}`}>
             {c.marginApproval ? (
               <>
                 Below the {TERMS.marginFloor.toLowerCase()} — approved by {c.marginApproval.byName} on {businessDateTime(c.marginApproval.at)} at {formatMoney(c.marginApproval.marginCzk, "CZK")}: “{c.marginApproval.reason}”

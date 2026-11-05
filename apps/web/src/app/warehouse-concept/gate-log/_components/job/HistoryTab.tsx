@@ -89,7 +89,7 @@ export function HistoryTab({ m, onVoid, manager = false }: { m: GateMovement; on
                   const blocked = step ? voidBlocked(m, step.kind) : null;
                   return (
                     <li key={`${e.index}`} className="py-1.5 text-xs flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                      <span className="font-mono text-slate-400 w-[42px] shrink-0">{hhmm(e.at)}</span>
+                      <span className="tabular-nums text-slate-400 w-[42px] shrink-0">{hhmm(e.at)}</span>
                       <Badge tone={CATEGORY_TONE[e.category]}>{CATEGORY_LABEL[e.category]}</Badge>
                       <span className="font-semibold text-slate-800">{e.label}</span>
                       {e.by && <span className="text-slate-500">· {e.by}</span>}

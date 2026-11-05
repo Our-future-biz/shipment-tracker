@@ -29,7 +29,7 @@ interface GroupProps {
 
 const Group = ({ title, children }: GroupProps) => (
   <fieldset className="border-0 p-0 m-0 mb-4">
-    <legend className="text-[11.5px] font-bold uppercase tracking-[.04em] text-slate-500 mb-2">{title}</legend>
+    <legend className="text-[12px] font-bold uppercase tracking-[.04em] text-slate-500 mb-2">{title}</legend>
     {children}
   </fieldset>
 );
@@ -193,7 +193,7 @@ function InvoiceProfileForm({ profile }: InvoiceProfileFormProps) {
         </Group>
 
         <Group title="Bank accounts">
-          <p className="text-[12.5px] text-slate-500 mt-0 mb-2">
+          <p className="text-[13px] text-slate-500 mt-0 mb-2">
             One account per currency. An invoice shows the account in its own currency.
           </p>
           <Form.List name="bankAccounts">

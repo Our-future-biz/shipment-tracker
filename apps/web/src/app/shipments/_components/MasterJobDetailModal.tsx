@@ -67,7 +67,7 @@ export function MasterJobDetailModal({
       destroyOnHidden
       title={
         <span className="flex items-center gap-2">
-          <span className="font-mono font-semibold text-indigo-500">#{target}</span>
+          <span className="tabular-nums font-semibold text-indigo-500">#{target}</span>
           <span className="text-xs font-normal text-slate-400">
             master job · {rows.length} shipment{rows.length === 1 ? "" : "s"}
           </span>
@@ -138,7 +138,7 @@ function ShipmentsTab({ rows, totalFreightTons }: { rows: DerivedRow[]; totalFre
             })();
             return (
               <tr key={r.shipmentId} className="border-b border-slate-100">
-                <td className="p-2 font-mono font-semibold text-indigo-500">{r.jobNumber}</td>
+                <td className="p-2 tabular-nums font-semibold text-indigo-500">{r.jobNumber}</td>
                 <td className="p-2">
                   <Button size="small" disabled={!r.dimsJson} onClick={() => setDimsRow(r)}>
                     {r.dimsJson ? `${dimsCount} row${dimsCount === 1 ? "" : "s"} · view` : "no dimensions"}
@@ -184,7 +184,7 @@ function DimensionsViewer({ row, onClose }: { row: DerivedRow | null; onClose: (
       onCancel={onClose}
       footer={null}
       width={900}
-      title={<span className="text-sm">Dimensions · <span className="font-mono text-slate-500">{row?.jobNumber}</span></span>}
+      title={<span className="text-sm">Dimensions · <span className="tabular-nums text-slate-500">{row?.jobNumber}</span></span>}
     >
       <table className="w-full border-collapse text-xs">
         <thead>
@@ -414,7 +414,7 @@ function MachineProcessingTab({
             const rowCls = isZero ? "bg-red-50" : isExisting && !overwrite ? "bg-amber-50" : "";
             return (
               <tr key={r.shipmentId} className={`border-b border-slate-100 ${rowCls}`}>
-                <td className="p-2 font-mono font-semibold text-indigo-500">{r.jobNumber}</td>
+                <td className="p-2 tabular-nums font-semibold text-indigo-500">{r.jobNumber}</td>
                 <td className={`p-2 text-right tabular-nums ${isZero ? "text-red-500" : ""}`}>{r.freightTon.toFixed(3)}</td>
                 <td className={`p-2 text-right tabular-nums font-semibold ${isZero ? "text-red-500" : "text-indigo-500"}`}>
                   {isZero ? "—" : (amt ?? "…")}
@@ -500,7 +500,7 @@ function Stat({ label, value, mono, highlight }: { label: string; value: string;
   return (
     <div className="flex justify-between py-1 text-xs">
       <span className="text-slate-500">{label}</span>
-      <span className={`tabular-nums ${mono ? "font-mono" : ""} ${highlight ? "text-indigo-500 font-bold" : "text-slate-700 font-medium"}`}>
+      <span className={`tabular-nums ${mono ? "": ""} ${highlight ? "text-indigo-500 font-bold" : "text-slate-700 font-medium"}`}>
         {value}
       </span>
     </div>

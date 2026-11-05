@@ -24,7 +24,7 @@ const Row = ({ label, value }: { label: BiText; value: string }) =>
       <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
         <Bi text={label} />
       </div>
-      <div className="whitespace-pre-wrap break-words text-[15px] text-slate-900">{value}</div>
+      <div className="whitespace-pre-wrap break-words text-[14px] text-slate-900">{value}</div>
     </div>
   ) : null;
 
@@ -41,9 +41,9 @@ export const PortalStopCard = ({ order, stop, index, busy, onDelivered, onUpload
         <span className="text-[13px] font-bold uppercase tracking-wide text-indigo-700">
           {index + 1}. <Bi text={isDelivery ? { cs: "Vykládka", en: "Delivery" } : { cs: "Nakládka", en: "Pick-up" }} />
         </span>
-        <span className="font-mono text-[12px] text-slate-500">{stop.consignmentRef}</span>
+        <span className="tabular-nums text-[12px] text-slate-500">{stop.consignmentRef}</span>
       </div>
-      <div className="mt-1 text-[17px] font-semibold text-slate-900">{stop.name}</div>
+      <div className="mt-1 text-[16px] font-semibold text-slate-900">{stop.name}</div>
       <Row label={{ cs: "Adresa", en: "Address" }} value={stopAddress(stop)} />
       <Row label={{ cs: "Časové okno", en: "Time window" }} value={stop.windowText} />
       <Row label={{ cs: "Kontakt", en: "Contact" }} value={stop.contact} />

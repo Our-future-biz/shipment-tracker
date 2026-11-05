@@ -746,7 +746,7 @@ export function QuotesList() {
           }`}
           description={[...new Set(bulkFailed.map((f) => f.reason))].map((reason) => (
             <div key={reason}>
-              <span className="font-mono text-xs">
+              <span className="tabular-nums text-xs">
                 {bulkFailed.filter((f) => f.reason === reason).map((f) => f.quoteNumber).join(", ")}
               </span>{" "}
               - {reason}

@@ -146,7 +146,7 @@ export function FloorPhotos({ m, onBack }: { m: GateMovement; onBack: () => void
         </div>
       </FloorCard>
       <FloorCard title="On this position">
-        <div className="text-[15px] text-slate-700">
+        <div className="text-[14px] text-slate-700">
           {photos.length} photo{photos.length === 1 ? "" : "s"} stored
           {waiting ? ` · ${waiting} waiting to send` : ""}
         </div>

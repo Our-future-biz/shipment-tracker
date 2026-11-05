@@ -111,9 +111,9 @@ export const ExceptionCreateModal = ({ c, freeMinutes, onClose, onCreate }: Exce
           <Input.TextArea aria-label="Description" autoSize={{ minRows: 3, maxRows: 6 }} maxLength={1000} value={description} onChange={(e) => setDescription(e.target.value)} />
         </TruckingField>
         {kind === "FAILED_DELIVERY" && (
-          <p className="m-0 text-[11.5px] text-slate-500">A failed delivery puts the consignment back to Out for delivery: it then needs a redelivery or a return.</p>
+          <p className="m-0 text-[12px] text-slate-500">A failed delivery puts the consignment back to Out for delivery: it then needs a redelivery or a return.</p>
         )}
-        <p className="m-0 text-[11.5px] text-slate-500">Until it is decided and closed, the consignment cannot become Ready to bill. Photos are added afterwards.</p>
+        <p className="m-0 text-[12px] text-slate-500">Until it is decided and closed, the consignment cannot become Ready to bill. Photos are added afterwards.</p>
       </div>
     </Modal>
   );

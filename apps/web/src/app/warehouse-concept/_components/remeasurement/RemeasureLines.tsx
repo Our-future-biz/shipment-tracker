@@ -167,7 +167,7 @@ export function RemeasureLines({ draft, readOnly }: RemeasureLinesProps) {
         ].map(([k, v]) => (
           <div key={k}>
             <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{k}</div>
-            <div className="text-[15px] font-bold text-slate-900 mt-0.5 tabular-nums">{v}</div>
+            <div className="text-[14px] font-bold text-slate-900 mt-0.5 tabular-nums">{v}</div>
           </div>
         ))}
         {!readOnly && <span className="ml-auto text-[11px] text-slate-400">Tab moves along the line · Enter adds a line</span>}

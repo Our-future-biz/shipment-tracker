@@ -194,11 +194,11 @@ export function FclBlockCard({
                   </td>
                   <td className={`${LINE_TD_CLASS} text-right tabular-nums whitespace-nowrap ${c.takesProfit ? "text-slate-700" : "text-slate-400"}`}>
                     {c.takesProfit ? fmtMoney(c.profit, currency) : "at cost"}
-                    {c.takesProfit && c.percent !== null && <span className="block text-[10.5px] text-slate-400">{c.percent} %</span>}
+                    {c.takesProfit && c.percent !== null && <span className="block text-[11px] text-slate-400">{c.percent} %</span>}
                   </td>
                   <td className={`${LINE_TD_CLASS} text-right font-semibold tabular-nums whitespace-nowrap text-slate-800`}>
                     {c.selling === null ? "—" : fmtMoney(c.selling, currency)}
-                    {c.roe !== 0 && <span className="block text-[10.5px] font-normal text-slate-400">incl. ROE {fmtMoney(c.roe, currency)}</span>}
+                    {c.roe !== 0 && <span className="block text-[11px] font-normal text-slate-400">incl. ROE {fmtMoney(c.roe, currency)}</span>}
                   </td>
                   <td className={`${LINE_TD_CLASS} pl-0`}>
                     <RemoveLineButton label={`Remove charge ${l.description || l.type}`} onClick={() => onRemove(c.index)} />

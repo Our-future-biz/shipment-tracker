@@ -45,6 +45,6 @@ export function fmtPct(value: number): string {
 
 export const CELL = "px-4 py-2.5 border-b border-slate-100 align-middle text-[14px]";
 export const TH =
-  "text-[11.5px] font-bold tracking-[.05em] uppercase text-slate-500 px-4 py-2.5 " +
+  "text-[12px] font-bold tracking-[.05em] uppercase text-slate-500 px-4 py-2.5 " +
   "border-b border-slate-200 bg-neutral-50 text-left whitespace-nowrap";
 export const CARD = "bg-white border border-slate-200 rounded-2xl";

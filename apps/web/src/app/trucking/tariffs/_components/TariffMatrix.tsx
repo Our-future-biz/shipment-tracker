@@ -26,7 +26,7 @@ export const TariffMatrix = ({ matrix, currency }: TariffMatrixProps) => {
   if (!matrix.rows.length) return <p className="m-0 p-4 text-[13px] text-slate-500">No prices for this service level.</p>;
   return (
     <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-[12.5px] tabular-nums">
+      <table className="w-full border-collapse text-[13px] tabular-nums">
         <caption className="sr-only">Prices in {currency}: bands down, zones across</caption>
         <thead>
           <tr className="border-b border-slate-200 text-[11px] uppercase tracking-wide text-slate-500">
@@ -56,7 +56,7 @@ export const TariffMatrix = ({ matrix, currency }: TariffMatrixProps) => {
                   {cell ? (
                     <>
                       {formatQty(cell.amount)}
-                      {cellSuffix(cell, row.band.basis) && <span className="ml-0.5 text-[10.5px] text-slate-500">{cellSuffix(cell, row.band.basis)}</span>}
+                      {cellSuffix(cell, row.band.basis) && <span className="ml-0.5 text-[11px] text-slate-500">{cellSuffix(cell, row.band.basis)}</span>}
                     </>
                   ) : (
                     <span className="text-slate-300">—</span>

@@ -262,7 +262,7 @@ export function AppSidebar() {
             <div className="flex items-center gap-2 cursor-pointer min-w-0 flex-1" onClick={() => router.push("/dashboard")}>
               <div className="w-9 h-9 bg-indigo-500 rounded-xl flex items-center justify-center text-white font-bold text-xs shrink-0">ST</div>
               <div className="overflow-hidden">
-                <div className="text-[15px] font-semibold text-slate-800 whitespace-nowrap">Shipment Tracker</div>
+                <div className="text-[14px] font-semibold text-slate-800 whitespace-nowrap">Shipment Tracker</div>
               </div>
             </div>
             <button

@@ -52,7 +52,7 @@ const buildColumns = (
     text: (t) => t.ref,
     sorter: (a, b) => byText(a.ref, b.ref),
     render: (_, t) => (
-      <Link href={tripHref(t.id)} onClick={(e) => e.stopPropagation()} className="font-mono font-semibold text-indigo-600 hover:underline">
+      <Link href={tripHref(t.id)} onClick={(e) => e.stopPropagation()} className="tabular-nums font-semibold text-indigo-600 hover:underline">
         {t.ref}
       </Link>
     ),
@@ -72,7 +72,7 @@ const buildColumns = (
     filterOptions: KIND_LABELS,
     sorter: (a, b) => KIND_LABELS.indexOf(TRIP_KIND_LABEL[a.kind]) - KIND_LABELS.indexOf(TRIP_KIND_LABEL[b.kind]),
   },
-  { key: "consignments", title: "Consignments", text: (t) => t.consignmentRefs.join(", "), render: (_, t) => <span className="font-mono">{t.consignmentRefs.join(", ")}</span> },
+  { key: "consignments", title: "Consignments", text: (t) => t.consignmentRefs.join(", "), render: (_, t) => <span className="tabular-nums">{t.consignmentRefs.join(", ")}</span> },
   { key: "haulier", title: "Haulier", text: (t) => t.haulierName, sorter: (a, b) => byText(a.haulierName, b.haulierName) },
   {
     key: "haulierStatus",
@@ -83,7 +83,7 @@ const buildColumns = (
   },
   { key: "pickup", title: "Planned pick-up", text: (t) => formatDate(t.plannedPickupDate), sorter: (a, b) => byText(a.plannedPickupDate, b.plannedPickupDate) },
   { key: "vehicle", title: "Vehicle", text: (t) => vehicleLabel(t.vehicleTypeCode) },
-  { key: "tractor", title: "Tractor plate", text: (t) => t.tractorPlate, render: (_, t) => (t.tractorPlate ? <span className="font-mono">{t.tractorPlate}</span> : dash) },
+  { key: "tractor", title: "Tractor plate", text: (t) => t.tractorPlate, render: (_, t) => (t.tractorPlate ? <span className="tabular-nums">{t.tractorPlate}</span> : dash) },
   {
     key: "fill",
     title: "Fill",
@@ -100,7 +100,7 @@ const buildColumns = (
       const summary = warningSummary(warnings);
       return summary ? (
         <Tooltip title={warnings.length > 1 ? warnings.join(" · ") : undefined}>
-          <span className="text-[12.5px] text-amber-700">{summary}</span>
+          <span className="text-[13px] text-amber-700">{summary}</span>
         </Tooltip>
       ) : (
         dash

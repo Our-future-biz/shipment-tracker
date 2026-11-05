@@ -417,7 +417,7 @@ function DimensionsEditor({ shipment, messageApi, readOnly }: { shipment: Shipme
         ].map(([k, v]) => (
           <div key={k}>
             <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{k}</div>
-            <div className="text-[15px] font-bold text-slate-900 mt-0.5">{v}</div>
+            <div className="text-[14px] font-bold text-slate-900 mt-0.5">{v}</div>
           </div>
         ))}
       </div>

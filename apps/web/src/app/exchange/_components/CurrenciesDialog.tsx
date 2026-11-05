@@ -56,7 +56,7 @@ export function CurrenciesDialog({ data, list, onChange, onChangeBase, onClose }
           className="w-64"
           aria-label="Currency the rates are shown in"
         />
-        <span className="text-[12.5px] text-slate-400">
+        <span className="text-[13px] text-slate-400">
           {againstCzk ? "as ČNB publishes them" : "crossed from the ČNB fixing"}
         </span>
       </div>
@@ -82,7 +82,7 @@ export function CurrenciesDialog({ data, list, onChange, onChangeBase, onClose }
                   <td className={CELL}>
                     <div className="flex items-baseline gap-2">
                       <span className="font-semibold text-slate-800">{c}</span>
-                      <span className="text-[12.5px] text-slate-400 whitespace-nowrap">{currencyName(c)}</span>
+                      <span className="text-[13px] text-slate-400 whitespace-nowrap">{currencyName(c)}</span>
                       {i < CARD_CURRENCIES && (
                         <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 rounded px-1.5 whitespace-nowrap">on cards</span>
                       )}
@@ -145,7 +145,7 @@ export function CurrenciesDialog({ data, list, onChange, onChangeBase, onClose }
           disabled={options.length === 0}
           aria-label="Add a currency"
         />
-        <span className="text-[12.5px] text-slate-400">{data.available.filter((c) => c !== "CZK").length} currencies published by ČNB</span>
+        <span className="text-[13px] text-slate-400">{data.available.filter((c) => c !== "CZK").length} currencies published by ČNB</span>
       </div>
     </Modal>
   );

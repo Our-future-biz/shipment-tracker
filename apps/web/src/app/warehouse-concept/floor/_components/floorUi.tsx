@@ -6,11 +6,11 @@ import type { ReactNode } from "react";
 // 48 px, large text, one thing per row.
 
 export const bigPrimary =
-  "w-full min-h-[56px] rounded-xl border-none bg-indigo-600 px-4 text-[17px] font-bold text-white active:bg-indigo-700 cursor-pointer disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600";
+  "w-full min-h-[56px] rounded-xl border-none bg-indigo-600 px-4 text-[16px] font-bold text-white active:bg-indigo-700 cursor-pointer disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600";
 export const bigDanger =
-  "w-full min-h-[56px] rounded-xl border-none bg-red-600 px-4 text-[17px] font-bold text-white active:bg-red-700 cursor-pointer disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600";
+  "w-full min-h-[56px] rounded-xl border-none bg-red-600 px-4 text-[16px] font-bold text-white active:bg-red-700 cursor-pointer disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600";
 export const bigDefault =
-  "w-full min-h-[48px] rounded-xl border border-slate-300 bg-white px-4 text-[15px] font-semibold text-slate-800 active:bg-slate-100 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50";
+  "w-full min-h-[48px] rounded-xl border border-slate-300 bg-white px-4 text-[14px] font-semibold text-slate-800 active:bg-slate-100 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50";
 
 export function FloorCard({ title, extra, children }: { title?: ReactNode; extra?: ReactNode; children: ReactNode }) {
   return (
@@ -47,7 +47,7 @@ export function Stepper({ label, value, onChange, min = 0, max }: { label: strin
   const btn = "w-12 h-12 shrink-0 rounded-xl border border-slate-300 bg-white text-[22px] font-bold text-slate-700 active:bg-slate-100 cursor-pointer disabled:opacity-40";
   return (
     <div className="flex items-center gap-2">
-      <span className="flex-1 text-[15px] font-semibold text-slate-800">{label}</span>
+      <span className="flex-1 text-[14px] font-semibold text-slate-800">{label}</span>
       <button type="button" className={btn} aria-label={`${label}: one less`} disabled={value <= min} onClick={() => onChange(clamp(value - 1))}>
         −
       </button>

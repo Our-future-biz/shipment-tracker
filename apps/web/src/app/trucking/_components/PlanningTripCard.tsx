@@ -72,7 +72,7 @@ export const PlanningTripCard = ({ trip, vehicleLabel, avizaceWarning, legDraggi
       className={`flex flex-col gap-2 rounded-xl border bg-white p-3 shadow-sm ${over ? "border-indigo-400 ring-2 ring-indigo-200" : takesLegs ? "border-dashed border-indigo-300" : "border-slate-200"}`}
     >
       <header className="flex flex-wrap items-center gap-2">
-        <Link href={tripHref(trip.id)} className="font-mono text-[13px] font-bold text-indigo-600 hover:underline">
+        <Link href={tripHref(trip.id)} className="tabular-nums text-[13px] font-bold text-indigo-600 hover:underline">
           {trip.ref}
         </Link>
         <TruckingStatusChip chip={TRIP_STATUS_CHIP[trip.status]} />
@@ -115,7 +115,7 @@ export const PlanningTripCard = ({ trip, vehicleLabel, avizaceWarning, legDraggi
       </div>
 
       {warnings.length > 0 && (
-        <ul className="m-0 list-none rounded-md bg-amber-50 px-2.5 py-1.5 text-[11.5px] text-amber-800" aria-label="Warnings">
+        <ul className="m-0 list-none rounded-md bg-amber-50 px-2.5 py-1.5 text-[12px] text-amber-800" aria-label="Warnings">
           {warnings.map((w) => (
             <li key={w} className="flex gap-1.5">
               <WarningOutlined className="mt-[3px]" aria-hidden />
@@ -151,7 +151,7 @@ export const PlanningTripCard = ({ trip, vehicleLabel, avizaceWarning, legDraggi
             >
               {!locked && <HolderOutlined className="cursor-grab text-slate-300" aria-hidden />}
               <span className="w-4 text-right tabular-nums text-slate-400">{i + 1}</span>
-              <span className="font-mono font-semibold text-slate-800">{s.consignmentRef}</span>
+              <span className="tabular-nums font-semibold text-slate-800">{s.consignmentRef}</span>
               <span className="min-w-0 flex-1 truncate text-slate-600">
                 {trip.kind === "PICKUP_RUN" ? `${formatPsc(s.fromPostcode)} ${s.fromCity}` : `${formatPsc(s.toPostcode)} ${s.toCity}`} · {s.customerName}
               </span>

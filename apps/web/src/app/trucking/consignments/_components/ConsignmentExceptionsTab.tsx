@@ -69,7 +69,7 @@ const ExceptionCard = ({ e, legText, onAction }: { e: DeliveryException; legText
       {e.photos.length > 0 && (
         <ul className="mt-2 mb-0 flex list-none flex-wrap gap-2 p-0">
           {e.photos.map((p) => (
-            <li key={p.id} className="inline-flex items-center gap-1 rounded-md bg-slate-50 px-2 py-0.5 text-[11.5px] text-slate-600">
+            <li key={p.id} className="inline-flex items-center gap-1 rounded-md bg-slate-50 px-2 py-0.5 text-[12px] text-slate-600">
               <PaperClipOutlined aria-hidden /> {p.fileName}
             </li>
           ))}
@@ -120,7 +120,7 @@ export const ConsignmentExceptionsTab = ({ c, onCreate, onAction }: ConsignmentE
           </Link>
         </div>
         {c.warehouseExceptions.length === 0 ? (
-          <p className="mt-2 mb-0 text-[12.5px] text-slate-400">None recorded at our warehouse for job {c.jobNumber}.</p>
+          <p className="mt-2 mb-0 text-[13px] text-slate-400">None recorded at our warehouse for job {c.jobNumber}.</p>
         ) : (
           <table className="mt-2 w-full border-collapse text-xs">
             <thead>

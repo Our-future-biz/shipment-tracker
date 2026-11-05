@@ -67,11 +67,11 @@ const BONDED_COLORS: Record<string, string> = { "In stock": "orange", Discharged
 const btnPrimary =
   "flex items-center gap-1.5 shrink-0 rounded-lg bg-indigo-600 px-3 h-8 text-[13px] font-semibold text-white hover:bg-indigo-700 transition-colors";
 
-const mono = (v: string) => (v ? <span className="font-mono font-bold text-indigo-500">{v}</span> : dim(""));
+const mono = (v: string) => (v ? <span className="tabular-nums font-bold text-indigo-500">{v}</span> : dim(""));
 // House job coloured by its free-time state, as on the prototype.
 const JOB_TONE: Record<string, string> = { Chargeable: "text-red-600", Expiring: "text-amber-600", "Within free time": "text-emerald-600" };
 const job = (l: StockLine) => (
-  <span className={`font-mono font-bold ${l.closed ? "text-slate-400" : (JOB_TONE[l.freeTimeState] ?? "text-indigo-500")}`} title={l.movementId ? undefined : "Not linked to a position"}>
+  <span className={`tabular-nums font-bold ${l.closed ? "text-slate-400" : (JOB_TONE[l.freeTimeState] ?? "text-indigo-500")}`} title={l.movementId ? undefined : "Not linked to a position"}>
     {l.job}
     {!l.movementId && <span className="ml-1 font-sans font-normal text-[10px] text-slate-400">not linked</span>}
   </span>
@@ -430,7 +430,7 @@ function Locations() {
                         onClick={() => setSelected(b.code)}
                         className={`text-left rounded-md border px-2 py-1.5 cursor-pointer transition-shadow ${bayTone(b)} ${selected === b.code ? "ring-2 ring-indigo-500" : ""}`}
                       >
-                        <div className="font-mono text-[11px] font-bold text-slate-700">{b.code}</div>
+                        <div className="tabular-nums text-[11px] font-bold text-slate-700">{b.code}</div>
                         <div className="text-[10px] text-slate-500 truncate">
                           {b.blocked ? "Blocked" : b.lines.length ? `${b.lines[0]!.job.slice(-4)} · ${nf(b.lines.reduce((s, l) => s + l.cbm, 0), 1)} cbm` : "Empty"}
                         </div>
@@ -554,7 +554,7 @@ function Movements() {
   const rows = useMemo(() => (type ? items.filter((m) => m.type === type) : items), [items, type]);
 
   const columns: AppGridColumn<StockMovement>[] = [
-    { key: "at", title: "Timestamp", width: 150, text: (m) => m.at, render: (_, m) => <span className="font-mono text-slate-600">{formatDateTime(m.at)}</span> },
+    { key: "at", title: "Timestamp", width: 150, text: (m) => m.at, render: (_, m) => <span className="tabular-nums text-slate-600">{formatDateTime(m.at)}</span> },
     { key: "type", title: "Type", width: 120, text: (m) => m.type, filterOptions: MOVEMENT_TYPES, render: (_, m) => <StatusTag value={m.type} colors={MOVEMENT_COLORS} /> },
     { key: "job", title: "House job", width: 150, text: (m) => m.job, render: (_, m) => mono(m.job) },
     { key: "source", title: "Source", width: 90, text: (m) => sourceLabel(m.source), filterOptions: ["Auto", "Manual"], render: (_, m) => sourceTag(m.source) },
@@ -722,7 +722,7 @@ function Bonded() {
       render: (_, b) => (
         <span className="flex flex-col gap-0.5">
           <CustomsDeadlineChip clock={b.customsClock} empty="" />
-          {b.deadline && <span className="text-[10.5px] text-slate-400">{formatDate(b.deadline)}</span>}
+          {b.deadline && <span className="text-[11px] text-slate-400">{formatDate(b.deadline)}</span>}
         </span>
       ),
     },

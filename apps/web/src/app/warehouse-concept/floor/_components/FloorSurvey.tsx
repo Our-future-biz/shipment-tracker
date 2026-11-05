@@ -38,7 +38,7 @@ export function FloorSurvey({ m, onBack, onRecordException }: FloorSurveyProps) 
       <div className="flex flex-col gap-4">
         <FloorBack onBack={onBack} title="Survey" />
         <FloorCard>
-          <div className="text-[15px] text-slate-600">The survey starts once the cargo has arrived (gate-in).</div>
+          <div className="text-[14px] text-slate-600">The survey starts once the cargo has arrived (gate-in).</div>
         </FloorCard>
       </div>
     );
@@ -133,7 +133,7 @@ function FloorSurveyForm({ m, phase, targets, container, onContainer, stored, sa
       <div className="text-[14px] text-slate-600">
         {container ? (
           <>
-            Container <span className="font-mono font-semibold text-slate-900">{container}</span>
+            Container <span className="tabular-nums font-semibold text-slate-900">{container}</span>
           </>
         ) : (
           "Position level (no container recorded)"
@@ -192,7 +192,7 @@ function FloorSurveyForm({ m, phase, targets, container, onContainer, stored, sa
 
       {photoCheck.short && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-          <div className="text-[15px] text-amber-900">{photoCheck.text}</div>
+          <div className="text-[14px] text-amber-900">{photoCheck.text}</div>
           <div className="mt-2">
             <CameraButton
               busy={shooting}
@@ -238,7 +238,7 @@ function FloorSurveyForm({ m, phase, targets, container, onContainer, stored, sa
 
       {saved && (draft.damaged > 0 || draft.lost > 0) && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-          <div className="text-[15px] text-amber-900">
+          <div className="text-[14px] text-amber-900">
             This survey found {draft.damaged > 0 ? `${draft.damaged} damaged` : ""}
             {draft.damaged > 0 && draft.lost > 0 ? " and " : ""}
             {draft.lost > 0 ? `${draft.lost} missing` : ""} — record it as an exception (the cargo is then on hold).

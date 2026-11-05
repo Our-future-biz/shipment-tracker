@@ -10,6 +10,7 @@ import { SortableContext, arrayMove, horizontalListSortingStrategy } from "@dnd-
 import { DraggableHeaderCell } from "@/components/DraggableHeaderCell";
 import { ColumnChecklist } from "@/components/ColumnChecklist";
 import { ColumnFilterRows } from "@/components/ColumnFilterRows";
+import { CARD, PAGE_TITLE } from "@/styles/ui";
 import { TOOLBAR_BUTTON_CLASS, activeGridFilters, matchesGridFilters, type GridFilter } from "@/components/gridFilters";
 import { cellRender } from "@/components/gridColumns";
 import { downloadCsv } from "@/lib/csv";
@@ -246,7 +247,7 @@ export function AppGrid<T extends object>({
         <div>
           {(title || headerExtra) && (
             <div className="flex items-center justify-between gap-4 flex-wrap">
-              {title && <h1 className="text-2xl font-bold text-slate-900">{title}</h1>}
+              {title && <h1 className={PAGE_TITLE}>{title}</h1>}
               {headerExtra}
             </div>
           )}
@@ -256,7 +257,7 @@ export function AppGrid<T extends object>({
 
       {/* Filters Row */}
       {/* Wraps onto a second line when narrow, so the search never shrinks under the buttons. */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3">
+      <div className={`flex flex-wrap items-center justify-between gap-3 ${CARD} px-4 py-3`}>
         <div className="flex items-center gap-3 shrink-0">{actions}</div>
         {/* Search sits in the middle of the toolbar, actions left, the rest right. "/" focuses it. */}
         <div className="flex flex-1 basis-[220px] justify-center min-w-[200px]">

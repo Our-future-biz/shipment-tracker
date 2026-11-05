@@ -7,7 +7,7 @@ import { TariffSupplierView } from "../../_components/TariffSupplierView";
 import { RailTariffPortsFields, type PortsAndDirections } from "./RailTariffPortsFields";
 import { RailUploadModal } from "./RailUploadModal";
 
-const CHIP = "inline-block rounded-full border px-2 py-0.5 text-[11.5px] font-medium";
+const CHIP = "inline-block rounded-full border px-2 py-0.5 text-[12px] font-medium";
 
 // What a tariff is for, above its versions: its ports, then import / export.
 const RailTariffFor = ({ tariff }: { tariff: RailTariffItem }) => (

@@ -83,7 +83,7 @@ export const RateCalculator = ({ initial, initialCustomerName = null }: RateCalc
         <section className="bg-white border border-slate-200 rounded-xl shadow-sm">
           <div className="flex flex-wrap items-center gap-3 px-4 py-2.5 border-b border-slate-100">
             <h3 className="m-0 text-[13px] font-bold uppercase tracking-wider text-slate-800">Prices</h3>
-            <span className="text-[11.5px] text-slate-500">rated {businessDateTime(result.ratedAt)} · click a row for the price lines and every haulier</span>
+            <span className="text-[12px] text-slate-500">rated {businessDateTime(result.ratedAt)} · click a row for the price lines and every haulier</span>
             <span className="ml-auto flex flex-wrap gap-2">
               <Tooltip title={changed ? "Calculate again first: the inputs changed" : undefined}>
                 <span>

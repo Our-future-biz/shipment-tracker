@@ -26,7 +26,7 @@ export const TariffFindingList = ({ findings, limit }: TariffFindingListProps) =
             <span className="min-w-0">
               <span className="sr-only">{error ? "Error: " : "Warning: "}</span>
               {f.message}
-              {f.where && <span className="block text-[11.5px] text-slate-500">{f.where}</span>}
+              {f.where && <span className="block text-[12px] text-slate-500">{f.where}</span>}
             </span>
           </li>
         );

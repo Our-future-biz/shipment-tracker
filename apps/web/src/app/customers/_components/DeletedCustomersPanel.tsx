@@ -64,7 +64,7 @@ export function DeletedCustomersPanel() {
       title: "IČO / Reg. no.",
       key: "ico",
       width: 130,
-      render: (_: unknown, c) => <span className="font-mono text-xs">{c.ico || "—"}</span>,
+      render: (_: unknown, c) => <span className="tabular-nums text-xs">{c.ico || "—"}</span>,
     },
     {
       title: "Location",

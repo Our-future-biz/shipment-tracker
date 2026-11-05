@@ -99,7 +99,7 @@ export function ShipmentHoverCard({ shipment, jobNumberColor, children }: Shipme
   const content = (
     // As wide as its content, between 240 and 420px.
     <div className="w-max min-w-[240px] max-w-[420px]">
-      <div className={`font-mono text-[13px] font-bold ${jobNumberColor ? "" : "text-indigo-500"}`} style={{ color: jobNumberColor }}>
+      <div className={`tabular-nums text-[13px] font-bold ${jobNumberColor ? "" : "text-indigo-500"}`} style={{ color: jobNumberColor }}>
         {shipment.jobNumber || "—"}
       </div>
       <dl className="mt-2.5 mb-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 border-t border-slate-100 pt-2.5 text-xs">

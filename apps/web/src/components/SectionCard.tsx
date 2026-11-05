@@ -2,12 +2,14 @@
 
 import { useId, type ReactNode } from "react";
 import { DownOutlined, UpOutlined } from "@ant-design/icons";
+import { CARD, CARD_TITLE } from "@/styles/ui";
 
 // What a card that folds and one that does not have in common: the frame, the indigo header bar
 // and the type of the title.
-const CARD_CLASS = "bg-white border border-slate-200 rounded-xl shadow-sm min-w-0";
-const HEADER_CLASS = "px-4 flex items-center gap-2.5 bg-indigo-50";
-const TITLE_CLASS = "text-[13px] font-bold text-slate-800 uppercase tracking-wider";
+// (styles/ui.ts: CARD, CARD_BAR, CARD_TITLE.)
+const CARD_CLASS = `${CARD} min-w-0`;
+const HEADER_CLASS = "px-4 flex items-center gap-2.5 min-h-[42px] bg-indigo-50";
+const TITLE_CLASS = CARD_TITLE;
 
 interface SectionCardProps {
   title: string;
@@ -38,7 +40,7 @@ export function SectionCard({ title, extra, middle, dense, children, bodyClassNa
     return (
       <section className={CARD_CLASS}>
         <div className={`${HEADER_CLASS} ${dense ? "py-2" : "py-2.5"} border-b border-indigo-100 rounded-t-xl`}>
-          <h3 className={`min-w-0 truncate ${TITLE_CLASS} m-0`} title={title}>
+          <h3 className={`min-w-0 truncate ${TITLE_CLASS}`} title={title}>
             {title}
           </h3>
           {middle && <div className="flex-1 min-w-0 flex justify-center">{middle}</div>}
@@ -63,7 +65,7 @@ export function SectionCard({ title, extra, middle, dense, children, bodyClassNa
         >
           {fold.leading}
           <span className={`shrink-0 ${TITLE_CLASS}`}>{title}</span>
-          <span className="flex-1 min-w-0 truncate text-xs font-normal text-slate-600">{fold.subtitle}</span>
+          <span className="flex-1 min-w-0 truncate text-[12px] font-normal text-slate-500">{fold.subtitle}</span>
           {extra && <span className="shrink-0 flex items-center gap-2">{extra}</span>}
           {/* The icon's own colour needs "!": antd gives icons `color: inherit` in unlayered CSS, which wins over a plain utility. */}
           {fold.open ? <UpOutlined className="shrink-0 text-[10px] !text-slate-500" /> : <DownOutlined className="shrink-0 text-[10px] !text-slate-500" />}
@@ -87,7 +89,7 @@ interface CountChipProps {
 // The count beside a card title, in the card's `extra`: how many rows the card holds ("12", "6 open").
 export function CountChip({ count }: CountChipProps) {
   return (
-    <span className="rounded-full bg-white border border-indigo-100 px-2 py-0.5 text-xs font-semibold text-indigo-600 tabular-nums">
+    <span className="rounded-full bg-white border border-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-600 tabular-nums">
       {count}
     </span>
   );

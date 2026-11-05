@@ -44,7 +44,7 @@ export const ConsignmentDocumentsTab = ({ c, documents, isLoading, onUpload }: C
       ) : documents.length === 0 ? (
         <p className="m-0 p-4 text-[13px] text-slate-500">No documents yet. The haulier uploads the {TERMS.pod} through the link in the transport order, or upload it here.</p>
       ) : (
-        <table className="w-full border-collapse text-[12.5px]">
+        <table className="w-full border-collapse text-[13px]">
           <thead>
             <tr className="border-b border-slate-200 text-left text-[11px] uppercase tracking-wide text-slate-500">
               <th className="px-4 py-2 font-semibold">Kind</th>
@@ -59,7 +59,7 @@ export const ConsignmentDocumentsTab = ({ c, documents, isLoading, onUpload }: C
               <tr key={d.id} className="border-b border-slate-100 last:border-b-0">
                 <td className="px-4 py-2 font-semibold text-slate-800">{DOCUMENT_KIND_LABELS[d.kind]}</td>
                 <td className="px-4 py-2 break-all text-slate-700">{d.fileName}</td>
-                <td className="px-4 py-2 whitespace-nowrap font-mono text-slate-500">{businessDateTime(d.uploadedAt)}</td>
+                <td className="px-4 py-2 whitespace-nowrap tabular-nums text-slate-500">{businessDateTime(d.uploadedAt)}</td>
                 <td className="px-4 py-2">
                   {d.source === "HAULIER" ? <Badge tone="b">Haulier</Badge> : null} <span className="text-slate-600">{d.uploadedBy}</span>
                 </td>

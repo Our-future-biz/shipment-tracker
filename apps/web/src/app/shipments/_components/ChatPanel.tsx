@@ -94,7 +94,7 @@ const FileBadge = ({ fileName }: { fileName: string }) => {
   const ext = (fileName.split(".").pop() ?? "").toLowerCase();
   const kind = FILE_KINDS.find((k) => k.exts.includes(ext)) ?? { label: "FILE", tone: "bg-slate-400" };
   return (
-    <span className={`shrink-0 flex items-center justify-center w-8 h-9 rounded-md text-[9px] font-bold text-white ${kind.tone}`}>
+    <span className={`shrink-0 flex items-center justify-center w-8 h-9 rounded-md text-[10px] font-bold text-white ${kind.tone}`}>
       {kind.label}
     </span>
   );
@@ -319,7 +319,7 @@ export const ChatThread = ({ source }: { source: ChatSource }) => {
         rel="noopener noreferrer"
         className="flex-1 min-w-0 !text-slate-800 hover:!text-blue-600"
       >
-        <span className="block text-[12.5px] font-semibold truncate">{a.fileName}</span>
+        <span className="block text-[13px] font-semibold truncate">{a.fileName}</span>
         <span className="block text-[11px] font-normal text-slate-500">{formatFileSize(a.fileSize)}</span>
       </a>
       <a
@@ -327,14 +327,14 @@ export const ChatThread = ({ source }: { source: ChatSource }) => {
         aria-label={`Download ${a.fileName}`}
         className="shrink-0 !text-slate-500 hover:!text-blue-600"
       >
-        <DownloadOutlined className="text-[15px]" />
+        <DownloadOutlined className="text-[14px]" />
       </a>
     </div>
   );
 
   // A quote's thread spans its revisions: each message says which Sales Reference it was written on.
   const writtenOn = (c: Comment) =>
-    source.showQuoteNumber && c.quoteNumber ? <span className="font-mono text-[10.5px] text-slate-400">{c.quoteNumber}</span> : null;
+    source.showQuoteNumber && c.quoteNumber ? <span className="tabular-nums text-[11px] text-slate-400">{c.quoteNumber}</span> : null;
 
   const row = (c: Comment, isMe: boolean, firstOfGroup: boolean) => {
     const text = c.message && (

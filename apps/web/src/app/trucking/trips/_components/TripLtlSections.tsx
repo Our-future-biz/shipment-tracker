@@ -91,7 +91,7 @@ export const TripLtlSections = ({ trip }: TripLtlSectionsProps) => {
               if (s) {
                 return (
                   <Tag key={kind} color="success" icon={<CheckCircleOutlined />} className="m-0 !px-2 !py-1 !text-[12px]">
-                    <span className="font-semibold">{STAMP_LABEL[kind]}</span> <span className="font-mono">{businessDateTime(s.at)}</span>
+                    <span className="font-semibold">{STAMP_LABEL[kind]}</span> <span className="tabular-nums">{businessDateTime(s.at)}</span>
                     {s.by ? ` · ${s.by}` : ""}
                   </Tag>
                 );

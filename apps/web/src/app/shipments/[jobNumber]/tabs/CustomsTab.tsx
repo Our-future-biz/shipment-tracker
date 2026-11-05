@@ -107,7 +107,7 @@ const DOC_COLUMNS: { label: string; widthClass?: string }[] = [
 // sizes, dates and the reviewer share the other.
 const DOC_CELL = "py-[13px] border-b border-line";
 const DOC_BUTTON =
-  "inline-flex items-center h-8 gap-[7px] text-[12.5px] font-semibold px-[10px] rounded-[7px] border border-line-strong bg-white text-ink cursor-pointer transition-colors";
+  "inline-flex items-center h-8 gap-[7px] text-[13px] font-semibold px-[10px] rounded-[7px] border border-line-strong bg-white text-ink cursor-pointer transition-colors";
 
 // The shipment's total weight in kg: from the cargo lines, else the typed tons × 1000 - to 0.01 kg,
 // as the Cargo Details total shows it.
@@ -413,7 +413,7 @@ export function CustomsTab({
                 <FileTextOutlined />
               </span>
               {/* h2 */}
-              <h2 className="m-0 text-[14.5px] font-extrabold tracking-[.06em] uppercase text-ink leading-[1.2]">
+              <h2 className="m-0 text-[14px] font-extrabold tracking-[.06em] uppercase text-ink leading-[1.2]">
                 {group.title}
               </h2>
               {/* .right */}
@@ -429,7 +429,7 @@ export function CustomsTab({
                 {index === 0 && (
                 <Input
                   placeholder="Search by file name"
-                  prefix={<SearchOutlined className="!text-muted text-[15px]" />}
+                  prefix={<SearchOutlined className="!text-muted text-[14px]" />}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   allowClear
@@ -472,19 +472,19 @@ export function CustomsTab({
                         {/* Document type - .type-static, v Customs jen ke cteni */}
                         <td className={`px-[18px] align-top ${DOC_CELL}`}>
                           {d.documentType ? (
-                            <span className="block truncate text-[13.5px] leading-8 font-semibold text-subtle" title={d.documentType}>
+                            <span className="block truncate text-[14px] leading-8 font-semibold text-subtle" title={d.documentType}>
                               {d.documentType}
                             </span>
                           ) : (
                             <Tooltip title="Set the type in the Documents tab">
-                              <span className="text-[13.5px] leading-8 font-semibold text-muted">—</span>
+                              <span className="text-[14px] leading-8 font-semibold text-muted">—</span>
                             </Tooltip>
                           )}
                         </td>
 
                         {/* Uploaded by - .val */}
                         <td className={`px-[18px] align-top ${DOC_CELL}`}>
-                          <span className="block text-[13.5px] font-semibold text-danger">
+                          <span className="block text-[14px] font-semibold text-danger">
                             <span className="block truncate leading-8" title={d.uploadedByName || "Unknown"}>
                               {d.uploadedByName || "Unknown"}
                             </span>
@@ -537,7 +537,7 @@ export function CustomsTab({
                                   onClick={() => review.mutate({ id: d.id, status: "approved" })}
                                   className={`${DOC_BUTTON} justify-center w-full hover:border-ok hover:text-ok hover:bg-ok-soft`}
                                 >
-                                  <CheckOutlined className="text-[15px]" />
+                                  <CheckOutlined className="text-[14px]" />
                                   Approve
                                 </button>
                                 <button
@@ -550,7 +550,7 @@ export function CustomsTab({
                                   }}
                                   className={`${DOC_BUTTON} hover:border-danger hover:text-danger hover:bg-danger-soft`}
                                 >
-                                  <CloseOutlined className="text-[15px]" />
+                                  <CloseOutlined className="text-[14px]" />
                                   Decline
                                 </button>
                               </>
@@ -607,7 +607,7 @@ export function CustomsTab({
                                 <div className="flex gap-2 mt-2">
                                   <button
                                     onClick={() => review.mutate({ id: d.id, status: "declined", reason: note })}
-                                    className="text-[12.5px] font-semibold px-[10px] py-[5px] rounded-[7px] border border-danger bg-danger text-white cursor-pointer hover:brightness-110 transition-all"
+                                    className="text-[13px] font-semibold px-[10px] py-[5px] rounded-[7px] border border-danger bg-danger text-white cursor-pointer hover:brightness-110 transition-all"
                                   >
                                     Save decline
                                   </button>
@@ -616,7 +616,7 @@ export function CustomsTab({
                                       setDeclining(null);
                                       setNote("");
                                     }}
-                                    className="text-[12.5px] font-semibold px-[10px] py-[5px] rounded-[7px] border border-line-strong bg-white text-ink cursor-pointer hover:bg-surface-3 transition-colors"
+                                    className="text-[13px] font-semibold px-[10px] py-[5px] rounded-[7px] border border-line-strong bg-white text-ink cursor-pointer hover:bg-surface-3 transition-colors"
                                   >
                                     Cancel
                                   </button>
@@ -635,7 +635,7 @@ export function CustomsTab({
 
               {/* .empty */}
               {filtered.length === 0 && (
-                <div className="px-[18px] py-9 text-center text-muted text-[13.5px]">
+                <div className="px-[18px] py-9 text-center text-muted text-[14px]">
                   {documents.length === 0
                     ? `No ${group.title.toLowerCase()} yet — files marked ${group.types.join(" or ")} in the Documents tab show up here.`
                     : `No file matches “${search}”.`}
@@ -644,7 +644,7 @@ export function CustomsTab({
             </div>
 
             {/* .cs-foot */}
-            <div className="px-[18px] py-[11px] border-t border-line bg-surface text-[12.5px] text-muted font-medium">
+            <div className="px-[18px] py-[11px] border-t border-line bg-surface text-[13px] text-muted font-medium">
               {group.types.join(" and ")} documents. Types are set in the Documents tab
               {!reviewed ? "." : canReview ? " — customs can only approve or decline." : "; they are approved or declined in the Customs section."}
             </div>

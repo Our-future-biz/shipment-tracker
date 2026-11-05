@@ -96,7 +96,7 @@ export function PickupSection({ ownerId, messageApi, readOnly = false }: { owner
       <div className="mb-5">
         <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mb-2">PIN</div>
         <Space align="center" wrap>
-          <span className="font-mono text-[32px] tracking-[0.3em] text-slate-800">
+          <span className="tabular-nums text-[32px] tracking-[0.3em] text-slate-800">
             {pin ? pin.split("").join(" ") : pinSet ? "• • • • • •" : "– – – – – –"}
           </span>
           {!pinSet && !readOnly && (
@@ -148,7 +148,7 @@ export function PickupSection({ ownerId, messageApi, readOnly = false }: { owner
         <tbody>
           {tripRows.map((row, idx) => (
             <tr key={`trip-${idx}`} className="border-b border-slate-100 bg-sky-50/40">
-              <td className="p-0.5 px-1.5 font-mono text-indigo-500">{pin ?? ""}</td>
+              <td className="p-0.5 px-1.5 tabular-nums text-indigo-500">{pin ?? ""}</td>
               {["haulier", "licensePlate", "driver"].map((f) => {
                 const v = typeof row[f] === "string" ? (row[f] as string) : "";
                 return (
@@ -165,7 +165,7 @@ export function PickupSection({ ownerId, messageApi, readOnly = false }: { owner
           {rows.map((row, idx) => (
             <tr key={rowKeys.keys[idx]} className="border-b border-slate-100">
               {/* The PIN belongs to the pick-up, so every row carries it. */}
-              <td className="p-0.5 px-1.5 font-mono text-indigo-500">{pin ?? ""}</td>
+              <td className="p-0.5 px-1.5 tabular-nums text-indigo-500">{pin ?? ""}</td>
               {["haulier", "licensePlate", "driver"].map((f) => (
                 <td key={f} className="p-0.5">
                   {readOnly ? (

@@ -63,7 +63,7 @@ export function FloorPosition({ id }: { id: string }) {
 
   if (!m) {
     return (
-      <div className="py-10 text-center text-[15px] text-slate-500">
+      <div className="py-10 text-center text-[14px] text-slate-500">
         {isLoading || detailLoading ? "Loading…" : "Position not found (or not loaded while offline)."}
       </div>
     );
@@ -154,7 +154,7 @@ export function FloorPosition({ id }: { id: string }) {
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
             <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{TERMS.warehouseRef}</div>
-            <div className="break-all font-mono text-[22px] font-bold leading-tight text-slate-900">{m.positionRef || m.gateRef}</div>
+            <div className="break-all tabular-nums text-[22px] font-bold leading-tight text-slate-900">{m.positionRef || m.gateRef}</div>
           </div>
           <div className="flex flex-col items-end gap-1">
             <Badge tone={STATUS_TONE[m.status] ?? ""} className="!text-[12px]">
@@ -164,11 +164,11 @@ export function FloorPosition({ id }: { id: string }) {
             <CustomsDeadlineChip clock={movementCustomsClock(m)} empty="" />
           </div>
         </div>
-        <div className="mt-1 text-[15px] text-slate-800">{m.customer || "—"}</div>
+        <div className="mt-1 text-[14px] text-slate-800">{m.customer || "—"}</div>
         <div className="mt-2 flex flex-wrap items-center gap-2 text-[13px]">
           {m.jobNumber && (
             <span className="text-slate-600">
-              {TERMS.jobNo} <span className="font-mono font-semibold text-slate-900">{m.jobNumber}</span>
+              {TERMS.jobNo} <span className="tabular-nums font-semibold text-slate-900">{m.jobNumber}</span>
             </span>
           )}
           <Badge tone={out ? "i" : "b"} className="!text-[12px]">
@@ -207,7 +207,7 @@ export function FloorPosition({ id }: { id: string }) {
           {(leg?.plate || m.plate) && (
             <div>
               <span className="text-slate-500">{TERMS.plate} </span>
-              <span className="font-mono font-semibold">{leg?.plate || m.plate}</span>
+              <span className="tabular-nums font-semibold">{leg?.plate || m.plate}</span>
               {(leg?.driver || m.driver) && <span className="text-slate-600"> · {leg?.driver || m.driver}</span>}
             </div>
           )}
@@ -221,7 +221,7 @@ export function FloorPosition({ id }: { id: string }) {
         >
           <span className="flex-1">
             <span className="block text-[11px] font-bold uppercase tracking-wide text-slate-500">Container · {m.container.status}</span>
-            <span className="block font-mono text-[16px] font-bold text-slate-900">{m.container.number}</span>
+            <span className="block tabular-nums text-[16px] font-bold text-slate-900">{m.container.number}</span>
             <span className="block text-[13px] text-slate-600">
               {m.container.kind === "export"
                 ? m.container.stuffedAt
@@ -252,7 +252,7 @@ export function FloorPosition({ id }: { id: string }) {
                   <span className={`h-5 w-5 rounded-full border-2 ${s.state === "next" ? "border-indigo-500" : "border-slate-300"}`} />
                 )}
                 <div className="min-w-0 flex-1">
-                  <div className={`text-[15px] font-semibold ${s.state === "later" ? "text-slate-400" : "text-slate-900"}`}>{s.label}</div>
+                  <div className={`text-[14px] font-semibold ${s.state === "later" ? "text-slate-400" : "text-slate-900"}`}>{s.label}</div>
                   {s.state === "done" && (
                     <div className="text-[13px] text-slate-500">
                       {formatDateTime(s.at)}
@@ -290,7 +290,7 @@ export function FloorPosition({ id }: { id: string }) {
           ))}
         <Link
           href={`/warehouse-concept/gate-log/${m.id}`}
-          className="flex min-h-[48px] items-center justify-center rounded-xl text-[15px] font-semibold text-indigo-600 underline"
+          className="flex min-h-[48px] items-center justify-center rounded-xl text-[14px] font-semibold text-indigo-600 underline"
         >
           Open full gate job
         </Link>

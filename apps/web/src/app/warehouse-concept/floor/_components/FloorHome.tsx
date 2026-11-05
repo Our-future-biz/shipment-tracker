@@ -89,22 +89,22 @@ export function FloorHome() {
 
       <FloorCard title={`Expected today (${expected.length})`}>
         {isLoading ? (
-          <div className="py-3 text-[15px] text-slate-500">Loading…</div>
+          <div className="py-3 text-[14px] text-slate-500">Loading…</div>
         ) : expected.length === 0 ? (
-          <div className="py-3 text-[15px] text-slate-500">Nothing expected today.</div>
+          <div className="py-3 text-[14px] text-slate-500">Nothing expected today.</div>
         ) : (
           <ul className="-mx-4 m-0 list-none p-0">
             {expected.map((m) => (
               <li key={m.id} className="border-t border-slate-100 first:border-t-0">
                 <Link href={`/warehouse-concept/floor/${m.id}`} className="flex min-h-[56px] min-w-0 flex-col justify-center px-4 py-2 active:bg-slate-50">
                   <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-                    <span className="font-mono text-[15px] font-bold text-indigo-600">{m.positionRef || m.gateRef}</span>
+                    <span className="tabular-nums text-[14px] font-bold text-indigo-600">{m.positionRef || m.gateRef}</span>
                     <Badge tone={VISIT_TONE[m.visit] ?? ""}>{directionOf(m)}</Badge>
                     <span className="ml-auto min-w-0 max-w-full truncate text-[13px] font-semibold text-slate-600">{expectedBecause(m, today)}</span>
                   </span>
                   <span className="truncate text-[14px] text-slate-700">
                     {m.customer || "—"}
-                    {m.plate ? <span className="ml-2 font-mono text-slate-500">{m.plate}</span> : null}
+                    {m.plate ? <span className="ml-2 tabular-nums text-slate-500">{m.plate}</span> : null}
                   </span>
                 </Link>
               </li>

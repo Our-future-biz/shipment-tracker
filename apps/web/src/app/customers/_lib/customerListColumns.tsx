@@ -58,14 +58,14 @@ export const CUSTOMER_LIST_COLUMNS: CustomerListColumn[] = [
     key: "ico",
     title: "IČO / Reg. no.",
     width: 110,
-    render: (c) => <span className="font-mono text-xs">{plain(c.ico)}</span>,
+    render: (c) => <span className="tabular-nums text-xs">{plain(c.ico)}</span>,
     text: (c) => c.ico,
   },
   {
     key: "dic",
     title: "DIČ / VAT ID",
     width: 120,
-    render: (c) => <span className="font-mono text-xs">{plain(c.dic)}</span>,
+    render: (c) => <span className="tabular-nums text-xs">{plain(c.dic)}</span>,
     text: (c) => c.dic,
   },
   {

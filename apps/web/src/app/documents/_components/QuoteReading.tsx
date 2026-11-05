@@ -52,7 +52,7 @@ export function QuoteReview({ reading, onBack, onWritten }: QuoteReviewProps) {
             {base && (
               <>
                 {" "}
-                for <span className="font-mono">{base.quoteNumber}</span>
+                for <span className="tabular-nums">{base.quoteNumber}</span>
               </>
             )}
           </span>

@@ -37,7 +37,7 @@ const countryColumn = {
   render: (_: unknown, o: Occurrence) => (
     <span className="font-semibold text-slate-800">
       {o.country || o.countryCode}
-      {o.country && o.countryCode && <span className="ml-1.5 text-[11px] font-mono text-slate-400">{o.countryCode}</span>}
+      {o.country && o.countryCode && <span className="ml-1.5 text-[11px] tabular-nums text-slate-400">{o.countryCode}</span>}
     </span>
   ),
 };

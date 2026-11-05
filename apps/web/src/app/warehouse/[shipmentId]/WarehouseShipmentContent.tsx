@@ -40,7 +40,7 @@ export function WarehouseShipmentContent() {
             <div className="flex items-baseline gap-3">
               <h1 className="text-2xl font-bold text-slate-900 m-0">{shipment.jobNumber ?? shipment.id}</h1>
               {shipment.warehouseReference && (
-                <span className="font-mono text-[13px] font-semibold text-slate-500">{shipment.warehouseReference}</span>
+                <span className="tabular-nums text-[13px] font-semibold text-slate-500">{shipment.warehouseReference}</span>
               )}
             </div>
             <Link href={`/shipments/${shipment.id}`} className="text-[13px] text-slate-500 hover:text-indigo-500">

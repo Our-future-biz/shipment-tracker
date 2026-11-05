@@ -40,7 +40,7 @@ export const HaulierPodForm = ({ busy, onUpload, accept = POD_ACCEPT, withCamera
 
   return (
     <section className="rounded-xl border-2 border-indigo-200 bg-white p-4">
-      <h2 className="m-0 mb-1 text-[15px] font-bold text-slate-900">
+      <h2 className="m-0 mb-1 text-[14px] font-bold text-slate-900">
         <Bi text={{ cs: "Nahrát doklad o doručení (POD)", en: "Upload the proof of delivery (POD)" }} />
       </h2>
       <p className="mb-3 mt-0 text-[13px] text-slate-500">
@@ -50,10 +50,10 @@ export const HaulierPodForm = ({ busy, onUpload, accept = POD_ACCEPT, withCamera
         <span className="mb-1 block text-[13px] font-semibold text-slate-600">
           <Bi text={{ cs: "Soubor", en: "File" }} />
         </span>
-        <input type="file" accept={accept} className="block w-full text-[15px]" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+        <input type="file" accept={accept} className="block w-full text-[14px]" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
       </label>
       {withCamera && (
-        <label className="mt-2 block cursor-pointer rounded-lg border border-indigo-300 bg-indigo-50 px-4 py-2.5 text-center text-[15px] font-semibold text-indigo-700">
+        <label className="mt-2 block cursor-pointer rounded-lg border border-indigo-300 bg-indigo-50 px-4 py-2.5 text-center text-[14px] font-semibold text-indigo-700">
           <Bi text={{ cs: "Vyfotit doklad", en: "Take a photo" }} />
           <input type="file" accept="image/*" capture="environment" className="sr-only" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
         </label>
@@ -86,7 +86,7 @@ export const HaulierPodForm = ({ busy, onUpload, accept = POD_ACCEPT, withCamera
         type="button"
         disabled={busy || !!problem || !!fileProblem}
         onClick={handleSubmit}
-        className="mt-4 w-full rounded-lg bg-indigo-600 px-4 py-3 text-[15px] font-semibold text-white disabled:opacity-50"
+        className="mt-4 w-full rounded-lg bg-indigo-600 px-4 py-3 text-[14px] font-semibold text-white disabled:opacity-50"
       >
         {busy ? <Bi text={{ cs: "Nahrávám…", en: "Uploading…" }} /> : <Bi text={{ cs: "Odeslat POD", en: "Send POD" }} />}
       </button>

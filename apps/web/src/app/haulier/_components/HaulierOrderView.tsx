@@ -52,7 +52,7 @@ export const HaulierOrderView = ({ token }: HaulierOrderViewProps) => {
         <header>
           <div className="text-[13px] text-slate-500">{order.ourCompany}</div>
           <h1 className="m-0 text-[20px] font-bold text-slate-900">
-            <Bi text={{ cs: "Přepravní příkaz", en: "Transport order" }} /> <span className="font-mono">{order.orderNumber}</span>
+            <Bi text={{ cs: "Přepravní příkaz", en: "Transport order" }} /> <span className="tabular-nums">{order.orderNumber}</span>
           </h1>
           <div className="mt-1 text-[14px] text-slate-700">
             {order.haulierName} · <Bi text={{ cs: "Nakládka", en: "Pick-up" }} /> {formatDate(order.plannedPickupDate)}
@@ -70,7 +70,7 @@ export const HaulierOrderView = ({ token }: HaulierOrderViewProps) => {
           </p>
         )}
         {order.podUploaded && (
-          <div className="rounded-xl bg-emerald-50 p-4 text-[15px] font-semibold text-emerald-800">
+          <div className="rounded-xl bg-emerald-50 p-4 text-[14px] font-semibold text-emerald-800">
             <Bi text={{ cs: "POD jsme obdrželi. Děkujeme!", en: "We have received the POD. Thank you!" }} />
           </div>
         )}
@@ -78,7 +78,7 @@ export const HaulierOrderView = ({ token }: HaulierOrderViewProps) => {
         <HaulierStopCard title={{ cs: "Nakládka", en: "Pick-up" }} stop={order.pickup} />
         <HaulierStopCard title={{ cs: "Vykládka", en: "Delivery" }} stop={order.delivery} />
 
-        <section className="rounded-xl border border-slate-200 bg-white p-4 text-[15px] text-slate-900">
+        <section className="rounded-xl border border-slate-200 bg-white p-4 text-[14px] text-slate-900">
           <h2 className="m-0 mb-2 text-[13px] font-bold uppercase tracking-wide text-indigo-700">
             <Bi text={{ cs: "Zboží", en: "Goods" }} />
           </h2>

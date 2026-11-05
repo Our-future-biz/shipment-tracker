@@ -71,7 +71,7 @@ export function ReleaseGatesPanel({
   return (
     <Section title={TERMS.releaseGates} icon={<UnlockOutlined />}>
       <div className="flex flex-col gap-1">
-        <Badge tone={state.tone} className="self-start !text-[11.5px]">
+        <Badge tone={state.tone} className="self-start !text-[12px]">
           {state.label}
         </Badge>
         {state.detail && <div className="text-[11px] text-slate-500 break-words">{state.detail}</div>}

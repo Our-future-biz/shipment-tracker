@@ -322,8 +322,8 @@ function QualityAndClaims({ report }: { report?: Report }) {
   const quality = (report?.kpis ?? []).filter((k) => ["exceptionRate", "reweighVariance", "onTime"].includes(k.key));
 
   const columns: AppGridColumn<Claim>[] = [
-    { key: "ref", title: "Claim", width: 130, text: (c) => c.ref, render: (_, c) => <span className="font-mono font-bold text-indigo-500">{c.ref}</span> },
-    { key: "job", title: "House job", width: 160, text: (c) => c.job, render: (_, c) => (c.job ? <span className="font-mono text-slate-700">{c.job}</span> : dim("")) },
+    { key: "ref", title: "Claim", width: 130, text: (c) => c.ref, render: (_, c) => <span className="tabular-nums font-bold text-indigo-500">{c.ref}</span> },
+    { key: "job", title: "House job", width: 160, text: (c) => c.job, render: (_, c) => (c.job ? <span className="tabular-nums text-slate-700">{c.job}</span> : dim("")) },
     { key: "against", title: "Against", width: 220, text: (c) => c.against, render: (_, c) => dim(c.against) },
     { key: "type", title: "Type", width: 150, text: (c) => c.type, render: (_, c) => dim(c.type) },
     { key: "value", title: "Value", width: 120, align: "right", text: (c) => c.value, render: (_, c) => dim(c.value) },

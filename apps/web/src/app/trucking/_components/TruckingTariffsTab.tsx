@@ -124,7 +124,7 @@ export const TruckingTariffsTab = () => {
         subHeader={
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <PillTabs tabs={TARIFF_SIDES.map((s) => ({ key: s.key, label: `${s.label} · ${counts[s.key]}` }))} active={side} onChange={setSide} />
-            <span className="text-[12.5px] text-slate-500">{sideInfo.hint}.</span>
+            <span className="text-[13px] text-slate-500">{sideInfo.hint}.</span>
           </div>
         }
         searchPlaceholder="Search tariff, owner…"

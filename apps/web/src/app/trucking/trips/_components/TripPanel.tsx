@@ -78,11 +78,11 @@ export const TripPanel = ({ trip, actions, manager, linkToTrip = false, onDialog
         extra={
           <span className="flex items-center gap-2">
             {linkToTrip ? (
-              <Link href={tripHref(trip.id)} className="font-mono text-xs font-semibold text-indigo-600 hover:underline">
+              <Link href={tripHref(trip.id)} className="tabular-nums text-xs font-semibold text-indigo-600 hover:underline">
                 {trip.ref}
               </Link>
             ) : (
-              <span className="font-mono text-xs font-semibold text-slate-700">{trip.ref}</span>
+              <span className="tabular-nums text-xs font-semibold text-slate-700">{trip.ref}</span>
             )}
             <TruckingStatusChip chip={TRIP_STATUS_CHIP[trip.status]} />
           </span>
@@ -90,7 +90,7 @@ export const TripPanel = ({ trip, actions, manager, linkToTrip = false, onDialog
       >
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2">
-            <Link href={`/trucking/hauliers/${trip.haulierCustomerId}`} className="text-[15px] font-semibold text-indigo-600 hover:underline">
+            <Link href={`/trucking/hauliers/${trip.haulierCustomerId}`} className="text-[14px] font-semibold text-indigo-600 hover:underline">
               {trip.haulierName}
             </Link>
             <HaulierStatusChip status={trip.haulierStatus} />

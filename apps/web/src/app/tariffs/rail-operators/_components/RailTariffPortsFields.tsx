@@ -15,7 +15,7 @@ const PORT_OPTIONS = TARIFF_PORTS.map((p) => ({
   value: p.code,
   label: (
     <>
-      {p.name} <span className="text-[11.5px] text-slate-400">{p.code}</span>
+      {p.name} <span className="text-[12px] text-slate-400">{p.code}</span>
     </>
   ),
 }));
@@ -24,7 +24,7 @@ const DIRECTION_OPTIONS = DIRECTIONS.map((d) => ({
   value: d.value,
   label: (
     <>
-      {d.label} <span className="text-[11.5px] text-slate-400">{d.hint}</span>
+      {d.label} <span className="text-[12px] text-slate-400">{d.hint}</span>
     </>
   ),
 }));

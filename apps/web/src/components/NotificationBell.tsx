@@ -394,7 +394,7 @@ export function NotificationBell() {
               <span role="img" aria-label="Unread" className={`shrink-0 w-2 h-2 rounded-full ${a.inquiry.status === "approved" ? "bg-emerald-500" : "bg-red-500"}`} />
             )}
             <span className={`min-w-0 flex-1 text-[13px] truncate ${a.inquiry.answerSeenAt ? "font-medium text-slate-500" : "font-semibold text-slate-800"}`}>{answerTitle(a)}</span>
-            <span className="shrink-0 text-[11px] font-mono text-slate-500">{a.quoteNumber}</span>
+            <span className="shrink-0 text-[11px] tabular-nums text-slate-500">{a.quoteNumber}</span>
           </span>
           <span className="text-[12px] text-slate-600 line-clamp-2">{answerText(a)}</span>
           <span className="block text-[11px] text-slate-400 mt-0.5">
@@ -429,7 +429,7 @@ export function NotificationBell() {
           <span className="flex items-center justify-between gap-2">
             {m.unread && <span role="img" aria-label="Unread" className="shrink-0 w-2 h-2 rounded-full bg-red-500" />}
             <span className={`min-w-0 flex-1 text-[13px] truncate ${m.unread ? "font-semibold text-slate-800" : "font-medium text-slate-500"}`}>{m.authorName || "Unknown"}</span>
-            <span className="shrink-0 text-[11px] font-mono text-slate-500">{m.ref}</span>
+            <span className="shrink-0 text-[11px] tabular-nums text-slate-500">{m.ref}</span>
           </span>
           <span className={`text-[12px] line-clamp-2 ${m.unread ? "text-slate-600" : "text-slate-400"}`}>{m.message}</span>
           <span className="block text-[11px] text-slate-400 mt-0.5">{formatTime(m.createdAt)}</span>

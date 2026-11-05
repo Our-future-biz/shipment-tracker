@@ -28,7 +28,7 @@ export const TripTiles = ({ active, counts, onSelect }: TripTilesProps) => (
             ].join(" ")}
           >
             <div className="flex items-baseline gap-2">
-              <span className={`text-[15px] font-bold uppercase tracking-wide ${on ? "text-indigo-600" : "text-slate-500"}`}>{tile.label}:</span>
+              <span className={`text-[14px] font-bold uppercase tracking-wide ${on ? "text-indigo-600" : "text-slate-500"}`}>{tile.label}:</span>
               <span className={`text-[22px] leading-tight font-bold tabular-nums ${tile.danger && n ? "text-red-600" : on ? "text-indigo-700" : "text-slate-900"}`}>{n ?? "—"}</span>
             </div>
           </button>

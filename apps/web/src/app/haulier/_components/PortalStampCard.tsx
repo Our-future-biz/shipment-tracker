@@ -46,7 +46,7 @@ export const PortalStampCard = ({ order, loadedAt, stampingKind, onStamp }: Port
                 type="button"
                 disabled={!!problem || !!refusal || !!stampingKind}
                 onClick={() => handleStamp(kind)}
-                className={`w-full rounded-lg px-4 py-3 text-[15px] font-semibold disabled:opacity-60 ${done ? "bg-emerald-50 text-emerald-800" : "bg-indigo-600 text-white"}`}
+                className={`w-full rounded-lg px-4 py-3 text-[14px] font-semibold disabled:opacity-60 ${done ? "bg-emerald-50 text-emerald-800" : "bg-indigo-600 text-white"}`}
               >
                 {done && "✓ "}
                 <Bi text={STAMP_LABEL[kind]} />

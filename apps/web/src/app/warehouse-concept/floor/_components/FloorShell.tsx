@@ -37,8 +37,8 @@ function QueueRow({ item }: { item: QueueItem }) {
     <li className="border-b border-slate-100 py-3 last:border-b-0">
       {modalHolder}
       <div className="flex flex-wrap items-center gap-2">
-        <span className="font-mono text-[14px] font-bold text-indigo-600">{item.ref}</span>
-        <span className="text-[15px] font-semibold text-slate-800">{item.label}</span>
+        <span className="tabular-nums text-[14px] font-bold text-indigo-600">{item.ref}</span>
+        <span className="text-[14px] font-semibold text-slate-800">{item.label}</span>
         <span className={`ml-auto rounded-md px-2 py-0.5 text-[12px] font-semibold ${s.tone}`}>{s.text}</span>
       </div>
       <div className="mt-0.5 text-[13px] text-slate-500">
@@ -96,7 +96,7 @@ export function FloorShell({ children }: { children: ReactNode }) {
             <ArrowLeftOutlined />
           </Link>
         )}
-        <h1 className="m-0 flex-1 truncate text-[17px] font-bold">{TERMS.floorMode}</h1>
+        <h1 className="m-0 flex-1 truncate text-[16px] font-bold">{TERMS.floorMode}</h1>
         <span
           role="status"
           className={`rounded-full px-2.5 py-1 text-[12px] font-bold ${q.online ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}
@@ -111,7 +111,7 @@ export function FloorShell({ children }: { children: ReactNode }) {
         <button
           type="button"
           onClick={() => setSheet(true)}
-          className={`flex min-h-[48px] w-full shrink-0 items-center gap-2 border-none px-4 text-left text-[15px] font-semibold cursor-pointer ${
+          className={`flex min-h-[48px] w-full shrink-0 items-center gap-2 border-none px-4 text-left text-[14px] font-semibold cursor-pointer ${
             q.authPaused ? "bg-red-50 text-red-800" : "bg-amber-50 text-amber-900"
           }`}
         >
@@ -142,7 +142,7 @@ export function FloorShell({ children }: { children: ReactNode }) {
           applies each one only once.
         </p>
         {n === 0 ? (
-          <div className="py-6 text-center text-[15px] text-slate-500">Everything is sent.</div>
+          <div className="py-6 text-center text-[14px] text-slate-500">Everything is sent.</div>
         ) : (
           <ul className="m-0 list-none p-0">
             {q.items.map((i) => (

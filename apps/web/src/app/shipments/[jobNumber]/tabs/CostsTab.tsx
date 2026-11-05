@@ -97,7 +97,7 @@ const FIELD =
 /** A Trucking row's value: plain text (read-only, readable by screen readers), as tall as a field. */
 const READ = "block min-h-[30px] px-2 py-[5px] text-[13px] text-slate-800";
 const TH =
-  "text-[11.5px] font-bold tracking-[.04em] uppercase text-slate-500 px-[6px] py-2 " +
+  "text-[12px] font-bold tracking-[.04em] uppercase text-slate-500 px-[6px] py-2 " +
   "border-b border-slate-200 whitespace-nowrap";
 
 interface SectionCardProps {
@@ -116,7 +116,7 @@ function SectionCard({
   }[tone];
   return (
     <div className="bg-white border border-slate-200 rounded-xl overflow-hidden mb-4">
-      <div className={`h-[38px] px-4 flex items-center gap-3 text-[12.5px] font-bold uppercase tracking-[.05em] ${bg}`}>
+      <div className={`h-[38px] px-4 flex items-center gap-3 text-[13px] font-bold uppercase tracking-[.05em] ${bg}`}>
         <span>{title}</span>
         {actions && <span className="ml-auto flex items-center gap-2">{actions}</span>}
       </div>
@@ -1068,7 +1068,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
         )}
 
         {/* where the rate comes from */}
-        <span className="text-[12.5px] text-slate-500">
+        <span className="text-[13px] text-slate-500">
           {ratesLoading ? (
             "Loading rates…"
           ) : ratesError || !fx ? (
@@ -1102,7 +1102,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
       {t.missingCurrencies.length > 0 && (
         <div className="flex items-start gap-2 bg-warn-soft border border-warn rounded-xl px-4 py-3 mb-4">
           <WarningOutlined className="text-warn mt-[2px]" />
-          <span className="text-[12.5px] text-warn-ink">
+          <span className="text-[13px] text-warn-ink">
             <strong>ČNB publishes no rate for {t.missingCurrencies.join(", ")}.</strong>{" "}
             {t.unconvertibleRowCount} row{t.unconvertibleRowCount === 1 ? " is" : "s are"} left out of
             the totals below.
@@ -1116,7 +1116,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
           onClick={() => setReportOpen((v) => !v)}
           title="Show / hide report"
           className="w-full h-[38px] px-4 flex items-center gap-3 bg-ink text-white
-                     text-[12.5px] font-bold uppercase tracking-[.05em] border-0 cursor-pointer"
+                     text-[13px] font-bold uppercase tracking-[.05em] border-0 cursor-pointer"
         >
           <span>Report</span>
           <DownOutlined className={`text-[10px] transition-transform ${reportOpen ? "rotate-180" : ""}`} />
@@ -1127,7 +1127,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
               { k: "Profit", v: t.hasAny ? signed(t.profitCZK) : "—", profit: true },
             ].map((x) => (
               <span key={x.k} className="flex items-center gap-2">
-                <span className="text-[11.5px] font-semibold text-white/45">{x.k}</span>
+                <span className="text-[12px] font-semibold text-white/45">{x.k}</span>
                 <span
                   className={`text-[13px] font-bold tabular-nums ${
                     !t.hasAny ? "text-white/45"
@@ -1141,7 +1141,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
             ))}
             {vsQuoteCZK !== null && (
               <span className="flex items-center gap-2" title={`The job's profit minus the profit ${profitQuoteRef} calculated, in CZK`}>
-                <span className="text-[11.5px] font-semibold text-white/45">vs quote</span>
+                <span className="text-[12px] font-semibold text-white/45">vs quote</span>
                 <span
                   className={`text-[13px] font-bold tabular-nums ${
                     vsQuoteCZK > 0.004 ? "text-green-400" : vsQuoteCZK < -0.004 ? "text-red-400" : "text-white/70"
@@ -1231,7 +1231,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
                         <td className="px-[15px] py-[8px] text-right border-b border-slate-100">
                           <ProfitVsEstimate delta={x.delta} currency={billingCur} />
                         </td>
-                        <td className="px-[15px] py-[8px] text-right text-[12.5px] text-slate-500 tabular-nums border-b border-slate-100">
+                        <td className="px-[15px] py-[8px] text-right text-[13px] text-slate-500 tabular-nums border-b border-slate-100">
                           {x.pct ? `${x.pct > 0 ? "+" : "−"}${Math.abs(x.pct).toFixed(1)} %` : ""}
                         </td>
                       </tr>
@@ -1265,9 +1265,9 @@ export function CostsTab({ shipment }: CostsTabProps) {
           value={quoteInput}
           onChange={(e) => { setQuoteInput(e.target.value); setQuoteErr(""); setQuoteAgain(false); }}
           onPressEnter={importQuoteCosts}
-          className="font-mono tracking-[.03em]"
+          className="tabular-nums tracking-[.03em]"
         />
-        <div className={`${quoteAgain ? "text-warn" : "text-danger"} text-[12.5px] font-semibold min-h-[17px] mt-[7px]`}>
+        <div className={`${quoteAgain ? "text-warn" : "text-danger"} text-[13px] font-semibold min-h-[17px] mt-[7px]`}>
           {quoteErr}
           {quoteAgain && " Copy again?"}
         </div>

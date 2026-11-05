@@ -69,7 +69,7 @@ export const TripView = ({ tripId }: TripViewProps) => {
           </Link>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="m-0 font-mono text-[22px] font-bold text-slate-800">{trip.ref}</h1>
+              <h1 className="m-0 tabular-nums text-[22px] font-bold text-slate-800">{trip.ref}</h1>
               <TruckingStatusChip chip={TRIP_STATUS_CHIP[trip.status]} />
             </div>
             <div className="mt-0.5 text-xs text-slate-500">
@@ -84,7 +84,7 @@ export const TripView = ({ tripId }: TripViewProps) => {
           <SectionCard title={TERMS.consignment}>
             {consignment ? (
               <div className="flex flex-wrap items-center gap-3 text-[13px]">
-                <Link href={consignmentHref(consignment.id)} className="font-mono font-semibold text-indigo-600 hover:underline">
+                <Link href={consignmentHref(consignment.id)} className="tabular-nums font-semibold text-indigo-600 hover:underline">
                   {consignment.ref}
                 </Link>
                 <TruckingStatusChip chip={CONSIGNMENT_STATUS_CHIP[consignment.status]} />
@@ -92,7 +92,7 @@ export const TripView = ({ tripId }: TripViewProps) => {
                 <span className="text-slate-500">
                   {consignment.pickupCity} → {consignment.deliveryCity}
                 </span>
-                <Link href={`/shipments/${consignment.shipmentId}?tab=trucking`} className="font-mono text-indigo-600 hover:underline">
+                <Link href={`/shipments/${consignment.shipmentId}?tab=trucking`} className="tabular-nums text-indigo-600 hover:underline">
                   {consignment.jobNumber}
                 </Link>
               </div>

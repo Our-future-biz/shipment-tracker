@@ -189,7 +189,7 @@ export function DimensionsModal({
       open={!!shipment}
       title={
         <span className="text-sm">
-          Dimensions · <span className="font-mono text-slate-500">{shipment?.jobNumber ?? ""}</span>
+          Dimensions · <span className="tabular-nums text-slate-500">{shipment?.jobNumber ?? ""}</span>
         </span>
       }
       width={1108}

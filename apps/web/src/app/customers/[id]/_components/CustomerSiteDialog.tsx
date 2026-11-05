@@ -129,7 +129,7 @@ export function CustomerSiteDialog({ open, site, saving, onCancel, onSubmit }: C
       destroyOnHidden
     >
       {/* A site is one of the customer's Pickup / Delivery addresses: the two are one record. */}
-      <div className="mb-3 rounded-md bg-slate-50 px-3 py-2 text-[12.5px] text-slate-600">
+      <div className="mb-3 rounded-md bg-slate-50 px-3 py-2 text-[13px] text-slate-600">
         A site is a Pickup / Delivery address of the customer: its name, use and address are the same in Addresses, and a change here is
         made there too. {site ? "" : "Adding a site adds the address."}
       </div>

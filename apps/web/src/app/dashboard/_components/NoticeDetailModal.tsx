@@ -197,7 +197,7 @@ export function NoticeDetailModal({ post, onClose, onConfirmRead }: NoticeDetail
     >
       {shown && (
         <article>
-          <p className="mt-3 mb-0 text-[15px] leading-relaxed text-slate-700 whitespace-pre-wrap [overflow-wrap:anywhere]">
+          <p className="mt-3 mb-0 text-[14px] leading-relaxed text-slate-700 whitespace-pre-wrap [overflow-wrap:anywhere]">
             {shown.body || <span className="text-slate-400">No further details.</span>}
           </p>
           {shown.attachments.length > 0 && (

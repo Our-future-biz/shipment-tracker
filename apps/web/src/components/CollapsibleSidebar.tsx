@@ -65,7 +65,7 @@ export function CollapsibleSidebar({
         )}
         {collapsed && item.badge !== undefined && (
           <span
-            className="absolute top-1 right-0.5 w-3.5 h-3.5 rounded-full text-white text-[8px] flex items-center justify-center font-semibold"
+            className="absolute top-1 right-0.5 w-3.5 h-3.5 rounded-full text-white text-[10px] flex items-center justify-center font-semibold"
             style={{ background: item.badgeColor ?? "#94a3b8" }}
           >
             {typeof item.badge === "number" ? item.badge : ""}

@@ -62,7 +62,7 @@ export const AvizaceTemplateDrawer = ({ consignmentId, open, onClose, onRecord }
                     Copy {label}
                   </Button>
                 </header>
-                <pre className="m-0 whitespace-pre-wrap break-words px-3 py-2 font-sans text-[12.5px] text-slate-700">{text}</pre>
+                <pre className="m-0 whitespace-pre-wrap break-words px-3 py-2 font-sans text-[13px] text-slate-700">{text}</pre>
               </section>
             );
           })}

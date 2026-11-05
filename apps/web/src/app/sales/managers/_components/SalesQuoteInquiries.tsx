@@ -25,8 +25,8 @@ import { COCKPIT_MODES, inCockpitMode } from "../_lib/cockpitModes";
 // shown (owner decision D9). The warehouse's heavy-piece questions are decided on Warehouse →
 // Managers; here they are one line to chase.
 
-const BUTTON = "inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-200 bg-white text-[12.5px] font-semibold text-slate-700 cursor-pointer transition-colors";
-const SAVE = "text-[12.5px] font-semibold px-3 py-1.5 rounded-lg border text-white cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed hover:brightness-110";
+const BUTTON = "inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-200 bg-white text-[13px] font-semibold text-slate-700 cursor-pointer transition-colors";
+const SAVE = "text-[13px] font-semibold px-3 py-1.5 rounded-lg border text-white cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed hover:brightness-110";
 const LABEL = "block text-[11px] font-extrabold tracking-[.07em] uppercase mb-1";
 
 type Answering = { id: string; decision: "approve" | "counter" | "reject" };
@@ -149,7 +149,7 @@ export function SalesQuoteInquiries({ mode }: { mode: SalesCockpitMode }) {
                   <Fragment key={i.id}>
                     <tr className="border-b border-slate-100 align-top">
                       <td className="px-4 py-3">
-                        <Link href={quoteHref(i.quoteNumber)} className="font-mono font-bold text-indigo-600 hover:underline">
+                        <Link href={quoteHref(i.quoteNumber)} className="tabular-nums font-bold text-indigo-600 hover:underline">
                           {i.quoteNumber}
                         </Link>
                         <div className="text-[12px] text-slate-600">{r.customer || "—"}</div>

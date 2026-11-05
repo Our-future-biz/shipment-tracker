@@ -853,7 +853,7 @@ export function QuoteWorkflow() {
       <button
         type="button"
         onClick={() => open(index)}
-        className="inline-flex items-center gap-1 text-[11.5px] font-medium text-indigo-600 hover:text-indigo-700 hover:underline cursor-pointer"
+        className="inline-flex items-center gap-1 text-[12px] font-medium text-indigo-600 hover:text-indigo-700 hover:underline cursor-pointer"
       >
         <TagsOutlined aria-hidden />
         Tariffs available{count !== undefined ? ` (${count})` : ""}
@@ -1705,9 +1705,9 @@ export function QuoteWorkflow() {
             />
           )}
           {/* Which rates the totals use: stored on the quote once sent, today's until then. */}
-          <div className="text-[12.5px] text-slate-500">{fxNote(totals)}</div>
+          <div className="text-[13px] text-slate-500">{fxNote(totals)}</div>
           {liveRatesMissing && (
-            <div className="text-[12.5px] text-danger bg-danger-soft border border-danger/30 rounded-lg px-3 py-2">
+            <div className="text-[13px] text-danger bg-danger-soft border border-danger/30 rounded-lg px-3 py-2">
               Today&apos;s ČNB rates have not been imported — prices use an older fixing. Sync them on the Exchange page before sending.
             </div>
           )}
@@ -1844,11 +1844,11 @@ export function QuoteWorkflow() {
         <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
           <div className="flex-[1_1_300px] min-w-0">
             <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-              <h1 className="text-[22px] font-bold font-mono text-slate-800 m-0">{ref}</h1>
+              <h1 className="text-[22px] font-bold tabular-nums text-slate-800 m-0">{ref}</h1>
               <CopyButton text={ref} what="reference" />
               <QuoteStatusPill status={quote.effectiveStatus} />
             </div>
-            <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[15px] font-bold text-slate-500">
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[14px] font-bold text-slate-500">
               {headline.map((part, i) => (
                 <Fragment key={i}>
                   {i > 0 && <span aria-hidden>·</span>}

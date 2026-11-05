@@ -48,7 +48,7 @@ export const VehicleTypesTable = ({ types, savedCodes, disabled, onChange }: Veh
                     disabled={disabled || savedCodes.has(t.code)}
                     placeholder="e.g. tautliner_136"
                     onChange={(e) => patch(i, { code: e.target.value.trim().toLowerCase() })}
-                    className="w-[150px] font-mono"
+                    className="w-[150px] tabular-nums"
                   />
                 </Tooltip>
               );

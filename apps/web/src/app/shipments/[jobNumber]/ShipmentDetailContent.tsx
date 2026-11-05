@@ -145,7 +145,7 @@ function SectionHeader({
       {/* The app's card header (Master Jobs, Warehouse, Claims): a light indigo bar with the
           icon, the title in caps and the card's tools. */}
       <div className="flex items-center gap-2.5 min-h-[42px] px-4 py-1.5 bg-indigo-50 border-b border-indigo-100">
-        <span className="text-indigo-500 text-[15px] leading-none shrink-0">{icon}</span>
+        <span className="text-indigo-500 text-[14px] leading-none shrink-0">{icon}</span>
         <h3 className="m-0 min-w-0 text-[13px] leading-tight font-bold uppercase tracking-wider text-slate-800">
           {title}
         </h3>
@@ -220,14 +220,14 @@ function SectionHeader({
               </span>
               <button
                 onClick={() => resetCard(cardId!)}
-                className="h-8 px-3 text-[12.5px] font-semibold rounded-md border border-line-soft
+                className="h-8 px-3 text-[13px] font-semibold rounded-md border border-line-soft
                            bg-white text-slate-600 cursor-pointer hover:bg-surface-2"
               >
                 Show all fields
               </button>
               <button
                 onClick={() => setPicking(false)}
-                className="h-8 px-3 text-[12.5px] font-semibold rounded-md border border-indigo-500
+                className="h-8 px-3 text-[13px] font-semibold rounded-md border border-indigo-500
                            bg-indigo-500 text-white cursor-pointer hover:brightness-110"
               >
                 Done
@@ -1128,7 +1128,7 @@ export function ShipmentDetailContent() {
                 setCargoFocusId(null);
                 setActiveTab(tab.key);
               }}
-              className={`px-[9px] min-[1400px]:px-3.5 2xl:px-4 py-3 text-[14px] min-[1400px]:text-[14.5px] whitespace-nowrap cursor-pointer transition-colors duration-150 border-b-2 ${
+              className={`px-[9px] min-[1400px]:px-3.5 2xl:px-4 py-3 text-[14px] min-[1400px]:text-[14px] whitespace-nowrap cursor-pointer transition-colors duration-150 border-b-2 ${
                 activeTab === tab.key
                   ? "font-semibold text-indigo-600 border-indigo-600"
                   : "font-medium text-slate-500 border-transparent hover:text-slate-800"
@@ -1685,7 +1685,7 @@ export function ShipmentDetailContent() {
       >
         <p className="text-sm text-slate-700">
           Do you really want to release the shipment{" "}
-          <b className="font-mono">{shipment.jobNumber ?? shipment.id}</b>?
+          <b className="tabular-nums">{shipment.jobNumber ?? shipment.id}</b>?
         </p>
         <p className="text-sm text-slate-500 mt-2">
           Your name and the current date and time will be recorded as the release. This cannot be undone.
@@ -1703,7 +1703,7 @@ export function ShipmentDetailContent() {
         destroyOnHidden
       >
         <p className="text-sm text-slate-700">
-          Do you really want to delete order <b className="font-mono">{shipment.jobNumber ?? shipment.id}</b>?
+          Do you really want to delete order <b className="tabular-nums">{shipment.jobNumber ?? shipment.id}</b>?
         </p>
         <p className="text-sm text-slate-500 mt-2">
           The order is <b>not erased</b> — it is archived with all its details, and its reference can never be reused.

@@ -42,13 +42,13 @@ export function ExpectedTodayPanel({ movements }: { movements: GateMovement[] })
               {list.map((m) => (
                 <li key={m.id} className="border-b border-slate-100 last:border-b-0">
                   <Link href={`/warehouse-concept/gate-log/${m.id}`} className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5 px-4 py-2 text-xs hover:bg-slate-50">
-                    <span className="font-mono font-bold text-indigo-500 w-[130px]">{m.positionRef || m.gateRef}</span>
+                    <span className="tabular-nums font-bold text-indigo-500 w-[130px]">{m.positionRef || m.gateRef}</span>
                     <span className="text-slate-800 font-medium min-w-[160px]">{m.customer || "—"}</span>
                     <Badge tone={VISIT_TONE[m.visit] ?? ""}>{directionOf(m)}</Badge>
                     <span className="text-slate-500">{expectedBecause(m, today)}</span>
                     <span className="ml-auto text-slate-500 tabular-nums">
                       {m.colli ? `${nf(m.colli)} ${TERMS.pieces.toLowerCase()}` : ""}
-                      {m.plate ? <span className="ml-3 font-mono">{m.plate}</span> : null}
+                      {m.plate ? <span className="ml-3 tabular-nums">{m.plate}</span> : null}
                     </span>
                   </Link>
                 </li>

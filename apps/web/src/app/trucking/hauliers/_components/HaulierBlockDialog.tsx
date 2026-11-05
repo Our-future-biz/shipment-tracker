@@ -30,7 +30,7 @@ export const HaulierBlockDialog = ({ open, mode, companyName, loading, onClose, 
           {block ? "⛔" : "ℹ️"}
         </div>
         <div className="min-w-0 flex-1 [overflow-wrap:anywhere]">
-          <div className="text-[15px] font-semibold text-slate-800 mb-1">{block ? `Block ${companyName}?` : `Unblock ${companyName}?`}</div>
+          <div className="text-[14px] font-semibold text-slate-800 mb-1">{block ? `Block ${companyName}?` : `Unblock ${companyName}?`}</div>
           <div className="text-sm text-slate-500 leading-relaxed mb-3">
             {block
               ? "A blocked haulier cannot be put on a trip until a manager unblocks it."

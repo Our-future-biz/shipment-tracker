@@ -41,7 +41,7 @@ export const HaulierBankAccounts = ({ accounts, onChange, readOnly = false, haul
           {/* Rows hold no input, so position + text is a stable key even for an account listed twice. */}
           {accounts.map((a, i) => (
             <li key={`${i}-${a}`} className="flex items-center gap-2 text-[13px]">
-              <span className="font-mono text-slate-800">{formatBankAccount(a)}</span>
+              <span className="tabular-nums text-slate-800">{formatBankAccount(a)}</span>
               {!readOnly && (
                 <Button size="small" type="text" aria-label={`Remove ${a}`} icon={<CloseOutlined />} onClick={() => onChange(accounts.filter((_, j) => j !== i))} />
               )}

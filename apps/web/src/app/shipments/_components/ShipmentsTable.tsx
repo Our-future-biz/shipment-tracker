@@ -466,7 +466,7 @@ export const ShipmentsTable = ({
             <ShipmentHoverCard shipment={record} jobNumberColor={cellStyle?.color}>
               <span
                 onClick={() => router.push(detailHref.replace(":id", record.id))}
-                className={`font-mono hover:underline cursor-pointer ${cellStyle?.color ? "" : "text-indigo-500"} ${cellStyle?.fontWeight ? "" : "font-bold"}`}
+                className={`tabular-nums hover:underline cursor-pointer ${cellStyle?.color ? "" : "text-indigo-500"} ${cellStyle?.fontWeight ? "" : "font-bold"}`}
                 // Conditional formatting rules set these per row; without one the classes apply.
                 style={{ color: cellStyle?.color, fontWeight: cellStyle?.fontWeight }}
               >

@@ -55,7 +55,7 @@ export const QuoteMarginPanel = ({ margin, canApprove, onApprove, inquiry, onAsk
       </div>
 
       {state === "needsApproval" && (
-        <div className="mt-2 flex items-start gap-1.5 text-[12.5px] text-red-700">
+        <div className="mt-2 flex items-start gap-1.5 text-[13px] text-red-700">
           <WarningFilled className="mt-0.5" aria-hidden />
           <span>
             <b>{margin.noBuying ? "No buying lines." : "Below margin floor."}</b>{" "}
@@ -67,7 +67,7 @@ export const QuoteMarginPanel = ({ margin, canApprove, onApprove, inquiry, onAsk
         </div>
       )}
       {waiting && (
-        <div className="mt-2 flex flex-wrap items-start gap-1.5 text-[12.5px] text-amber-800">
+        <div className="mt-2 flex flex-wrap items-start gap-1.5 text-[13px] text-amber-800">
           <ClockCircleFilled className="mt-0.5" aria-hidden />
           <span className="min-w-0">
             <b>Waiting for a manager</b> · asked by {waiting.requestedByName || "a colleague"} on {businessDateTime(waiting.requestedAt)} ({waiting.reason})
@@ -81,7 +81,7 @@ export const QuoteMarginPanel = ({ margin, canApprove, onApprove, inquiry, onAsk
               cancelText="Keep it"
               onConfirm={() => onWithdraw(waiting.id)}
             >
-              <button type="button" className="ml-1 p-0 border-none bg-transparent text-[12.5px] font-semibold text-amber-800 underline cursor-pointer">
+              <button type="button" className="ml-1 p-0 border-none bg-transparent text-[13px] font-semibold text-amber-800 underline cursor-pointer">
                 Withdraw
               </button>
             </Popconfirm>
@@ -89,7 +89,7 @@ export const QuoteMarginPanel = ({ margin, canApprove, onApprove, inquiry, onAsk
         </div>
       )}
       {rejected && (
-        <div className="mt-2 flex items-start gap-1.5 text-[12.5px] text-red-700">
+        <div className="mt-2 flex items-start gap-1.5 text-[13px] text-red-700">
           <CloseCircleFilled className="mt-0.5" aria-hidden />
           <span>
             <b>Rejected</b> by {rejected.decidedByName || "a manager"}
@@ -98,14 +98,14 @@ export const QuoteMarginPanel = ({ margin, canApprove, onApprove, inquiry, onAsk
         </div>
       )}
       {state === "approved" && margin.approval && (
-        <div className="mt-2 flex items-start gap-1.5 text-[12.5px] text-green-800">
+        <div className="mt-2 flex items-start gap-1.5 text-[13px] text-green-800">
           <CheckCircleFilled className="mt-0.5" aria-hidden />
           <span>
             Approved by {margin.approval.byName} on {businessDateTime(margin.approval.at)}: {margin.approval.reason}
           </span>
         </div>
       )}
-      {margin.problem && <div className="mt-1.5 text-[12.5px] text-amber-700">{margin.problem}</div>}
+      {margin.problem && <div className="mt-1.5 text-[13px] text-amber-700">{margin.problem}</div>}
     </div>
   );
 };

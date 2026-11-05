@@ -39,7 +39,7 @@ export function ExportCloseDialog({ quoteNumber, validUntil, validityDays: lastD
 
   return (
     <Modal open onCancel={onClose} footer={null} width={420} closable={false} destroyOnHidden>
-      <div className="text-[15px] font-semibold text-slate-800 mb-1">{EXPORT_CLOSE_TITLE}</div>
+      <div className="text-[14px] font-semibold text-slate-800 mb-1">{EXPORT_CLOSE_TITLE}</div>
       <div className="text-sm text-slate-500 leading-relaxed">{exportCloseDescription(quoteNumber)}</div>
       {askDays && (
         <Form layout="vertical" disabled={busy} className="mt-4">

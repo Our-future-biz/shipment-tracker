@@ -271,5 +271,5 @@ export function CargoComparison({
 }
 
 function VarTag({ label }: { label: string }) {
-  return <span className="inline-block rounded-[5px] bg-orange-50 px-2 py-[2px] text-[10.5px] font-semibold text-orange-700 whitespace-nowrap">{label}</span>;
+  return <span className="inline-block rounded-[5px] bg-orange-50 px-2 py-[2px] text-[11px] font-semibold text-orange-700 whitespace-nowrap">{label}</span>;
 }

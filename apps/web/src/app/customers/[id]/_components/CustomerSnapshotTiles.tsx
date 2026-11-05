@@ -62,7 +62,7 @@ export function SnapshotTile({ label, icon, value, tone, onClick }: SnapshotTile
     >
       <span
         aria-hidden
-        className="flex shrink-0 items-center justify-center w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 text-[15px]"
+        className="flex shrink-0 items-center justify-center w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 text-[14px]"
       >
         {icon}
       </span>

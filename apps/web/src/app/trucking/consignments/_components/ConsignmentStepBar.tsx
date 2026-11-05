@@ -35,9 +35,9 @@ export const ConsignmentStepBar = ({ c, actions, onStep, onVoid }: ConsignmentSt
         if (stamp) {
           const tag = (
             <Tag color="success" icon={<CheckCircleOutlined />} className={`m-0 !px-2 !py-1 !text-[12px] ${actions.voidStamp ? "cursor-pointer" : ""}`}>
-              <span className="font-semibold">{label}</span> <span className="font-mono">{businessDateTime(stamp.at)}</span>
+              <span className="font-semibold">{label}</span> <span className="tabular-nums">{businessDateTime(stamp.at)}</span>
               {stamp.by ? ` · ${stamp.by}` : ""}
-              {actions.voidStamp && <DownOutlined className="ml-1 text-[9px]" />}
+              {actions.voidStamp && <DownOutlined className="ml-1 text-[10px]" />}
             </Tag>
           );
           item = actions.voidStamp ? (

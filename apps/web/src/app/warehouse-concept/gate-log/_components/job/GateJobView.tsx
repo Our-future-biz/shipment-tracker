@@ -71,7 +71,7 @@ function StatusCards({ m, onRefreshCustoms, refreshing }: { m: GateMovement; onR
   const line = (k: string, v: string, mono = false) => (
     <div className="flex items-baseline gap-2 text-xs">
       <span className="text-slate-500 shrink-0">{k}</span>
-      <span className={`ml-auto text-right font-semibold text-slate-900 break-words ${mono ? "font-mono" : ""}`}>{v || "—"}</span>
+      <span className={`ml-auto text-right font-semibold text-slate-900 break-words ${mono ? "tabular-nums" : ""}`}>{v || "—"}</span>
     </div>
   );
 
@@ -94,7 +94,7 @@ function StatusCards({ m, onRefreshCustoms, refreshing }: { m: GateMovement; onR
             </Tooltip>
           )}
         </div>
-        <div className="mt-1.5 text-[15px] font-bold leading-snug text-slate-900 break-words">{m.customsStatus || "Not set"}</div>
+        <div className="mt-1.5 text-[14px] font-bold leading-snug text-slate-900 break-words">{m.customsStatus || "Not set"}</div>
         {/* Under customs control: days since the receipt and the 90-day deadline (UCC art. 149). */}
         {movementCustomsClock(m).state !== "none" && (
           <div className="mt-1">
@@ -111,7 +111,7 @@ function StatusCards({ m, onRefreshCustoms, refreshing }: { m: GateMovement; onR
       <Tooltip title={storageHint(s)}>
         <div className={card}>
           <div className={cardLabel}>Storage{s.stopped ? " · stopped" : ""}</div>
-          <div className={`mt-1 text-[26px] leading-tight font-bold font-mono ${storage.tone}`}>{storage.value}</div>
+          <div className={`mt-1 text-[26px] leading-tight font-bold tabular-nums ${storage.tone}`}>{storage.value}</div>
           <div className="text-[11px] text-slate-500">{storage.sub}</div>
         </div>
       </Tooltip>
@@ -147,9 +147,9 @@ function StepItem({ step, onPick, onVoid, voidReason }: { step: GateStep; onPick
         icon={step.legacy ? undefined : <CheckCircleOutlined />}
         className={`m-0 !px-2 !py-1 !text-[12px] ${step.legacy ? "opacity-70" : ""} ${onVoid ? "cursor-pointer" : ""}`}
       >
-        <span className="font-semibold">{step.label}</span> <span className="font-mono">{formatDateTime(step.at)}</span>
+        <span className="font-semibold">{step.label}</span> <span className="tabular-nums">{formatDateTime(step.at)}</span>
         {step.by ? ` · ${step.by}` : ""}
-        {onVoid && <DownOutlined className="ml-1 text-[9px]" />}
+        {onVoid && <DownOutlined className="ml-1 text-[10px]" />}
       </Tag>
     );
     if (!onVoid) return <Tooltip title={step.note}>{tag}</Tooltip>;
@@ -357,7 +357,7 @@ export function GateJobView({ id }: { id: string }) {
               <ArrowLeftOutlined />
             </button>
             <div className="min-w-0">
-              <h1 className="text-[22px] font-bold text-slate-800 m-0 font-mono">{m.gateRef}</h1>
+              <h1 className="text-[22px] font-bold text-slate-800 m-0 tabular-nums">{m.gateRef}</h1>
               <div className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5 text-xs text-slate-500 mt-0.5">
                 <span>
                   Customer <span className="font-semibold text-slate-800">{m.customer || "—"}</span>
@@ -367,11 +367,11 @@ export function GateJobView({ id }: { id: string }) {
                   <span>
                     {TERMS.jobNo}{" "}
                     {m.shipmentId ? (
-                      <Link href={`/shipments/${m.shipmentId}`} className="font-mono font-semibold text-indigo-500 hover:underline">
+                      <Link href={`/shipments/${m.shipmentId}`} className="tabular-nums font-semibold text-indigo-500 hover:underline">
                         {m.jobNumber}
                       </Link>
                     ) : (
-                      <span className="font-mono font-semibold text-slate-800">{m.jobNumber}</span>
+                      <span className="tabular-nums font-semibold text-slate-800">{m.jobNumber}</span>
                     )}
                   </span>
                 )}

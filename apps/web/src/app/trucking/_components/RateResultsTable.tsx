@@ -19,14 +19,14 @@ const PriceCell = ({ side }: { side: interfaces.PricedSide | interfaces.Unpriced
     return (
       <span className="block max-w-[220px]">
         <Pill tone="amber">Unpriced</Pill>
-        <span className="block mt-0.5 text-[11.5px] text-slate-500 whitespace-normal">{side.reason}</span>
+        <span className="block mt-0.5 text-[12px] text-slate-500 whitespace-normal">{side.reason}</span>
       </span>
     );
   }
   return (
     <span className="block text-right tabular-nums whitespace-nowrap">
       <span className="font-semibold text-slate-900">{formatMoney(side.total, side.currency)}</span>
-      {side.currency !== "CZK" && <span className="block text-[11.5px] text-slate-500">{formatMoney(side.totalCzk, "CZK")}</span>}
+      {side.currency !== "CZK" && <span className="block text-[12px] text-slate-500">{formatMoney(side.totalCzk, "CZK")}</span>}
     </span>
   );
 };
@@ -54,7 +54,7 @@ export const RateResultsTable = ({ results, includeBuy, includeInternal, marginF
       render: (_, r) => (
         <span className="block min-w-[150px]">
           <span className="whitespace-nowrap">{promisedLabel(r)}</span>
-          {r.promiseNote && <span className="block text-[11.5px] text-slate-500">{r.promiseNote}</span>}
+          {r.promiseNote && <span className="block text-[12px] text-slate-500">{r.promiseNote}</span>}
         </span>
       ),
     },
@@ -104,7 +104,7 @@ export const RateResultsTable = ({ results, includeBuy, includeInternal, marginF
         return (
           <span className="block text-right tabular-nums whitespace-nowrap">
             <span className={`font-semibold ${r.marginCzk < 0 ? "text-red-700" : "text-slate-900"}`}>{formatMoney(r.marginCzk, "CZK")}</span>
-            <span className="block text-[11.5px] text-slate-500">{formatPercent(r.marginPercent)}</span>
+            <span className="block text-[12px] text-slate-500">{formatPercent(r.marginPercent)}</span>
             {r.belowFloor && (
               <Tooltip title={floorText}>
                 <Pill tone="red" className="mt-0.5">

@@ -169,7 +169,7 @@ export function queueColumns({
             href={jobHref(r.shipmentId)}
             scroll={false}
             onClick={(e) => e.stopPropagation()}
-            className={`font-mono hover:!underline ${coloured ? "" : "!text-indigo-500"} ${s?.fontWeight ? "" : "font-bold"}`}
+            className={`tabular-nums hover:!underline ${coloured ? "" : "!text-indigo-500"} ${s?.fontWeight ? "" : "font-bold"}`}
             style={{ color: s?.color, fontWeight: s?.fontWeight }}
           >
             {r.jobNumber || "—"}
@@ -254,7 +254,7 @@ export function queueColumns({
             >
               <span
                 tabIndex={0}
-                className="block truncate font-mono text-slate-600"
+                className="block truncate tabular-nums text-slate-600"
                 style={capped(W.invoices)}
               >
                 {r.invoiceNumbers.join(", ")}

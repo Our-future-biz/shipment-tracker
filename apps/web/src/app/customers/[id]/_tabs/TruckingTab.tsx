@@ -91,7 +91,7 @@ export function TruckingTab({ customerId }: { customerId: string }) {
           </>
         }
       >
-        <p className="mt-0 mb-2 text-[12.5px] text-slate-500">
+        <p className="mt-0 mb-2 text-[13px] text-slate-500">
           Quotes and the rate calculator price {name}&apos;s consignments with {hasOwn ? "its own tariff where it has one" : "the Standard list"}; a scope without an own tariff
           falls back to Standard.
         </p>

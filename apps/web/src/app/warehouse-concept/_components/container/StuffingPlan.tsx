@@ -116,7 +116,7 @@ export function StuffingPlan({ c, api }: { c: WarehouseContainer; api: Api }) {
                       <span className="tabular-nums">{i + 1}</span>
                     </td>
                     <td className={td}>
-                      <Link href={`/warehouse-concept/gate-log/${h.movementId}`} className="font-mono font-bold text-indigo-500 hover:underline">
+                      <Link href={`/warehouse-concept/gate-log/${h.movementId}`} className="tabular-nums font-bold text-indigo-500 hover:underline">
                         {h.positionRef || h.gateRef}
                       </Link>
                       {h.addedBy === "migration" && <div className="text-[10px] text-slate-400">from the old register</div>}
@@ -214,7 +214,7 @@ export function StuffingPlan({ c, api }: { c: WarehouseContainer; api: Api }) {
                     onChange={(e) => setPicked((p) => (e.target.checked ? [...p, m.id] : p.filter((x) => x !== m.id)))}
                     className="!text-xs w-full"
                   >
-                    <span className="font-mono font-semibold text-slate-800">{m.positionRef || m.gateRef}</span>
+                    <span className="tabular-nums font-semibold text-slate-800">{m.positionRef || m.gateRef}</span>
                     <span className="text-slate-500"> · {m.customer || "—"}</span>
                     <span className="block text-[11px] text-slate-500 tabular-nums">
                       {m.pod || "—"} · ETD {formatDate(m.etd) || "—"} · {nf(m.colli)} pcs · {nf(m.weightKg)} kg · {nf(m.measureCbm, 2)} cbm

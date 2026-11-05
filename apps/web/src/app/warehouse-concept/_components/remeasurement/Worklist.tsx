@@ -59,9 +59,9 @@ export function Worklist() {
       width: 150,
       text: (r) => r.m.positionRef || r.task.taskId,
       sorter: (a, b) => (a.m.positionRef || a.task.taskId).localeCompare(b.m.positionRef || b.task.taskId),
-      render: (_, r) => <span className="font-mono font-bold text-indigo-500">{r.m.positionRef || r.task.taskId}</span>,
+      render: (_, r) => <span className="tabular-nums font-bold text-indigo-500">{r.m.positionRef || r.task.taskId}</span>,
     },
-    { key: "jobNumber", title: TERMS.jobNo, width: 150, text: (r) => r.m.jobNumber, render: (_, r) => <span className="font-mono text-slate-600">{r.m.jobNumber || "—"}</span> },
+    { key: "jobNumber", title: TERMS.jobNo, width: 150, text: (r) => r.m.jobNumber, render: (_, r) => <span className="tabular-nums text-slate-600">{r.m.jobNumber || "—"}</span> },
     { key: "customer", title: "Customer", width: 200, text: (r) => r.m.customer, render: (_, r) => <span className="text-slate-600">{r.m.customer || "—"}</span> },
     { key: "direction", title: TERMS.direction, width: 110, text: (r) => directionOf(r.m) },
     {

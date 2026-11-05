@@ -116,7 +116,7 @@ function stageFact(card: PipelineCard): ReactNode {
       href={`/shipments/${card.firstShipmentId}`}
       // The card around it opens the customer: the click must not open that as well.
       onClick={(e) => e.stopPropagation()}
-      className={`font-mono font-semibold ${LINK_CLASS}`}
+      className={`tabular-nums font-semibold ${LINK_CLASS}`}
     >
       {card.firstJobNumber}
     </Link>

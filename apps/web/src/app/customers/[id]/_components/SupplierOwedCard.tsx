@@ -41,7 +41,7 @@ export function SupplierOwedCard({ customer }: SupplierOwedCardProps) {
     title: "Job",
     key: "ref",
     render: (_: unknown, r: OwedItem) => (
-      <Link href={r.href} className={`${r.source === "cost" ? "font-mono" : ""} font-semibold whitespace-nowrap text-indigo-600 hover:underline`}>
+      <Link href={r.href} className={`${r.source === "cost" ? "tabular-nums" : ""} font-semibold whitespace-nowrap text-indigo-600 hover:underline`}>
         {r.ref}
       </Link>
     ),
@@ -67,7 +67,7 @@ export function SupplierOwedCard({ customer }: SupplierOwedCardProps) {
       ) : (
         <span className="whitespace-nowrap tabular-nums">
           {fmtMoney(r.amount, r.currency)}
-          <span className="block text-[10.5px] text-slate-400">{VAT_LABEL[r.vat]}</span>
+          <span className="block text-[11px] text-slate-400">{VAT_LABEL[r.vat]}</span>
         </span>
       ),
   });

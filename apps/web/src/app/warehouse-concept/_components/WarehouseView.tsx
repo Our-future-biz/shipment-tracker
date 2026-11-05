@@ -54,7 +54,7 @@ type PositionRow = { task: WarehouseTask; m: GateMovement | undefined };
 type LoadFilter = "fcl" | "lcl";
 
 const dim = (v: string | undefined) => (v ? <span className="text-slate-600">{v}</span> : <span className="text-slate-300">—</span>);
-const mono = (v: string | undefined) => (v ? <span className="text-slate-600 font-mono">{v}</span> : <span className="text-slate-300">—</span>);
+const mono = (v: string | undefined) => (v ? <span className="text-slate-600 tabular-nums">{v}</span> : <span className="text-slate-300">—</span>);
 const numCell = (v: string) => (v ? <span className="text-slate-600 tabular-nums">{v}</span> : <span className="text-slate-300">—</span>);
 const textCol = (key: keyof GateMovement & string, title: string, width: number, extra: Partial<AppGridColumn<PositionRow>> = {}): AppGridColumn<PositionRow> => ({
   key,
@@ -78,7 +78,7 @@ const POSITION_COLUMNS: AppGridColumn<PositionRow>[] = [
     width: 150,
     text: (r) => r.task.taskId,
     sorter: byText((r) => r.task.taskId),
-    render: (_, r) => <span className="font-mono font-bold text-indigo-500">{r.task.taskId}</span>,
+    render: (_, r) => <span className="tabular-nums font-bold text-indigo-500">{r.task.taskId}</span>,
   },
   // Every position — imported or stand-alone — opens its Remeasurement / Release.
   {
@@ -92,7 +92,7 @@ const POSITION_COLUMNS: AppGridColumn<PositionRow>[] = [
       <Link
         href={positionRemeasurementHref(r.task.id)}
         onClick={(e) => e.stopPropagation()}
-        className={r.m?.jobNumber ? "font-mono font-semibold text-indigo-500 hover:underline" : "text-[11px] text-indigo-400 hover:underline"}
+        className={r.m?.jobNumber ? "tabular-nums font-semibold text-indigo-500 hover:underline" : "text-[11px] text-indigo-400 hover:underline"}
         title="Open Remeasurement / Release"
       >
         {r.m?.jobNumber || "Remeasure"}
@@ -139,7 +139,7 @@ const POSITION_COLUMNS: AppGridColumn<PositionRow>[] = [
         <Link
           href={`/warehouse-concept/containers/${r.m.container.id}`}
           onClick={(e) => e.stopPropagation()}
-          className="font-mono font-semibold text-indigo-500 hover:underline"
+          className="tabular-nums font-semibold text-indigo-500 hover:underline"
           title={`${r.m.container.status}${r.m.container.stuffedAt ? " · stuffed" : r.m.container.tallyOutcome ? ` · ${r.m.container.tallyOutcome.replace("_", " ")}` : ""}`}
         >
           {r.m.container.number}
@@ -385,7 +385,7 @@ function FilterBubbles({ active, counts, onSelect }: { active: BubbleId | null; 
               ].join(" ")}
             >
               <div className="flex items-baseline gap-2">
-                <span className={`text-[15px] font-bold uppercase tracking-wide ${on ? "text-indigo-600" : "text-slate-500"}`}>{b.label}:</span>
+                <span className={`text-[14px] font-bold uppercase tracking-wide ${on ? "text-indigo-600" : "text-slate-500"}`}>{b.label}:</span>
                 <span className={`text-[22px] leading-tight font-bold tabular-nums ${on ? "text-indigo-700" : "text-slate-900"}`}>{counts[b.id]}</span>
               </div>
             </button>
@@ -411,7 +411,7 @@ function QuickChips({ active, counts, onSelect }: { active: ChipId | null; count
               aria-pressed={on}
               onClick={() => onSelect(on ? null : c.id)}
               className={[
-                "inline-flex items-center gap-1.5 rounded-full border px-3 h-7 text-[12.5px] font-medium transition-colors cursor-pointer",
+                "inline-flex items-center gap-1.5 rounded-full border px-3 h-7 text-[13px] font-medium transition-colors cursor-pointer",
                 on ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
               ].join(" ")}
             >

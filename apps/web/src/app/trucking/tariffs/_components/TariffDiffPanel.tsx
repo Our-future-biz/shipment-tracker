@@ -46,7 +46,7 @@ export const TariffDiffPanel = ({ versionId, currency, side, levelLabel }: Tarif
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
         {diffTiles(diff).map((t) => (
           <div key={t.label} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-            <div className="text-[10.5px] font-semibold uppercase tracking-wide text-slate-500">{t.label}</div>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{t.label}</div>
             <div className={`text-lg font-bold tabular-nums ${t.tone === "same" ? "text-slate-800" : diffToneClass(t.tone, side)}`}>{t.value}</div>
           </div>
         ))}

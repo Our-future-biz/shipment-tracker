@@ -116,7 +116,7 @@ export function RoeDialog({ current, rates, today, onClose }: Props) {
             </div>
           ))}
         </div>
-        {backdated && <div className="text-[12.5px] text-warn">This date is in the past — you will be asked to confirm.</div>}
+        {backdated && <div className="text-[13px] text-warn">This date is in the past — you will be asked to confirm.</div>}
         {error && <div className="text-[13px] text-red-600">{error}</div>}
       </div>
     </Modal>

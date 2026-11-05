@@ -28,7 +28,7 @@ function quoteLabel(quote: PickedQuote): ReactNode {
   const { customerName, origin, destination } = quote.data ?? {};
   return (
     <>
-      <span className="font-mono font-semibold">{quote.quoteNumber}</span>
+      <span className="tabular-nums font-semibold">{quote.quoteNumber}</span>
       {customerName && <span className="ml-2">{customerName}</span>}
       {(origin || destination) && (
         <span className="ml-2">

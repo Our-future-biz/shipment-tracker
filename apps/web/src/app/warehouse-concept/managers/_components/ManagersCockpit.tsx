@@ -71,10 +71,10 @@ const refColumn = {
   width: 170,
   render: (_: unknown, r: CockpitRow) => (
     <div className="min-w-0">
-      <Link href={rowHref(r)} className="font-mono font-bold text-indigo-600 hover:underline">
+      <Link href={rowHref(r)} className="tabular-nums font-bold text-indigo-600 hover:underline">
         {r.ref}
       </Link>
-      {r.sub && <div className="font-mono text-[11px] text-slate-500 truncate">{r.sub}</div>}
+      {r.sub && <div className="tabular-nums text-[11px] text-slate-500 truncate">{r.sub}</div>}
     </div>
   ),
 };

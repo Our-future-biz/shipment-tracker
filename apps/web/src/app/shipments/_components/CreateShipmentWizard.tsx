@@ -480,7 +480,7 @@ export const CreateShipmentWizard = ({
                 <div className="mt-4 border border-slate-200 bg-slate-50 rounded-xl px-4 py-3.5">
                   <div className="flex items-center gap-2 mb-3">
                     <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Data to transfer</span>
-                    <Tag color="geekblue" className="!m-0 font-mono">{selectedQuote.quoteNumber}</Tag>
+                    <Tag color="geekblue" className="!m-0 tabular-nums">{selectedQuote.quoteNumber}</Tag>
                     <QuoteStatusPill status={selectedQuote.status} />
                   </div>
                   <div className="grid grid-cols-2 gap-x-6 gap-y-2">

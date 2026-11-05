@@ -23,7 +23,7 @@ const COLUMNS: AppGridColumn<HaulierInvoice>[] = [
     text: (i) => i.invoiceNumber,
     sorter: (a, b) => byText(a.invoiceNumber, b.invoiceNumber),
     render: (_, i) => (
-      <Link href={haulierInvoiceHref(i.id)} onClick={(e) => e.stopPropagation()} className="font-mono font-semibold text-indigo-600 hover:underline">
+      <Link href={haulierInvoiceHref(i.id)} onClick={(e) => e.stopPropagation()} className="tabular-nums font-semibold text-indigo-600 hover:underline">
         {i.invoiceNumber}
       </Link>
     ),
@@ -58,7 +58,7 @@ const COLUMNS: AppGridColumn<HaulierInvoice>[] = [
     sorter: (a, b) => Math.abs(a.difference) - Math.abs(b.difference),
     render: (_, i) => <span className={i.difference ? "font-semibold text-amber-700" : "text-emerald-700"}>{differenceText(i.difference, i.currency)}</span>,
   },
-  { key: "lines", title: "Lines", text: (i) => i.lines.map((l) => l.target.ref).join(", "), render: (_, i) => <span className="font-mono">{i.lines.map((l) => l.target.ref).join(", ")}</span> },
+  { key: "lines", title: "Lines", text: (i) => i.lines.map((l) => l.target.ref).join(", "), render: (_, i) => <span className="tabular-nums">{i.lines.map((l) => l.target.ref).join(", ")}</span> },
   { key: "created", title: "Entered", text: (i) => `${pragueDate(i.createdAt)}${i.createdBy ? ` · ${i.createdBy}` : ""}`, sorter: (a, b) => byText(a.createdAt, b.createdAt) },
 ];
 
@@ -104,7 +104,7 @@ export const TruckingHaulierInvoicesTab = () => {
                     aria-pressed={on}
                     onClick={() => handleStatus(on ? null : s)}
                     className={[
-                      "inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-full border px-3 text-[12.5px] font-medium transition-colors",
+                      "inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-full border px-3 text-[13px] font-medium transition-colors",
                       on ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
                     ].join(" ")}
                   >

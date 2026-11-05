@@ -918,7 +918,7 @@ export function CargoDetailsTab({
                     title="Double-click to edit"
                   >
                     <span className="font-medium text-slate-900 truncate">{l.cargoDescription || "—"}</span>
-                    <span className="font-mono text-center truncate">{l.hsCode || "—"}</span>
+                    <span className="tabular-nums text-center truncate">{l.hsCode || "—"}</span>
                     <span className="text-center tabular-nums">{l.pieces || "—"}</span>
                     <span className="text-center truncate">{l.packageType || "—"}</span>
                     <span className="text-center tabular-nums">{l.grossWeight || "—"}</span>

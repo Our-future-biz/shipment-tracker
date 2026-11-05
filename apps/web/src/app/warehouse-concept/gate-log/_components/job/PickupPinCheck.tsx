@@ -82,7 +82,7 @@ export function PickupPinCheck({ m, verifyPin }: { m: GateMovement; verifyPin: (
                 {r.haulier || "—"}
                 <TripMarker x={r} className="ml-1.5" />
               </td>
-              <td className="py-1 pr-2 font-mono text-slate-800">{r.licensePlate || "—"}</td>
+              <td className="py-1 pr-2 tabular-nums text-slate-800">{r.licensePlate || "—"}</td>
               <td className="py-1 text-slate-800 break-words">{r.driver || "—"}</td>
             </tr>
           ))}
@@ -95,7 +95,7 @@ export function PickupPinCheck({ m, verifyPin }: { m: GateMovement; verifyPin: (
           )}
           <tr className="text-slate-500">
             <td className="pt-1.5 pr-2 italic">Truck at the gate (OUT)</td>
-            <td className="pt-1.5 pr-2 font-mono">{truckPlate || "—"}</td>
+            <td className="pt-1.5 pr-2 tabular-nums">{truckPlate || "—"}</td>
             <td className="pt-1.5">{truckDriver || "—"}</td>
           </tr>
         </tbody>
@@ -111,7 +111,7 @@ export function PickupPinCheck({ m, verifyPin }: { m: GateMovement; verifyPin: (
           <div className="flex gap-2">
             <Input
               size="middle"
-              className="!w-40 font-mono tracking-[0.3em]"
+              className="!w-40 tabular-nums tracking-[0.3em]"
               placeholder="PIN"
               inputMode="numeric"
               autoComplete="off"

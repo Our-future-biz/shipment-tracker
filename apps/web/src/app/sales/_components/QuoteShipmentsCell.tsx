@@ -29,7 +29,7 @@ export function QuoteShipmentsCell({ quote }: QuoteShipmentsCellProps) {
     <ul className="m-0 p-0 list-none flex flex-col gap-1.5 min-w-[180px]">
       {shipments.map((shipment) => (
         <li key={shipment.id} className="flex items-center justify-between gap-4">
-          <Link href={`/shipments/${shipment.id}`} className={`font-mono text-xs font-semibold ${LINK_CLASS}`}>
+          <Link href={`/shipments/${shipment.id}`} className={`tabular-nums text-xs font-semibold ${LINK_CLASS}`}>
             {shipment.jobNumber || "Shipment"}
           </Link>
           {shipment.status && <span className="text-xs text-slate-500">{shipment.status}</span>}

@@ -61,7 +61,7 @@ const isBillingStatus = (status: string | null | undefined) => /^Billing \[(IMP|
 /** §28 ZDPH: a tax document must be issued within 15 days of the DUZP. */
 const MAX_DAYS_AFTER_DUZP = 15;
 
-const TH = "text-[11.5px] font-bold tracking-[.04em] uppercase text-slate-500 px-2 py-2 border-b border-slate-200";
+const TH = "text-[12px] font-bold tracking-[.04em] uppercase text-slate-500 px-2 py-2 border-b border-slate-200";
 const TD = "px-2 py-2 border-b border-slate-100 text-[13px] text-slate-700";
 
 const czDate = (iso: string) => formatDate(iso) || "—";
@@ -369,7 +369,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
       optionFilterProp="label"
       className="w-[220px] max-w-full"
       aria-label="Customer to invoice"
-      notFoundContent={<span className="text-[12.5px]">No customers — add one in the <Link href="/customers">Customer Database</Link></span>}
+      notFoundContent={<span className="text-[13px]">No customers — add one in the <Link href="/customers">Customer Database</Link></span>}
       autoFocus={behindPencil}
       defaultOpen={behindPencil}
       onOpenChange={behindPencil ? (open) => !open && closePicker() : undefined}
@@ -665,20 +665,20 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
                     aria-expanded={vatOpen}
                     aria-controls="invoice-vat-breakdown"
                     onClick={() => setVatOpen((o) => !o)}
-                    className="-ml-1 !px-1 !text-[12.5px] !text-slate-500 hover:!text-slate-800"
+                    className="-ml-1 !px-1 !text-[13px] !text-slate-500 hover:!text-slate-800"
                   >
                     VAT breakdown
                   </Button>
                   <div className="ml-auto text-right tabular-nums">
                     <div className="flex items-baseline justify-end gap-x-4 gap-y-1 flex-wrap">
-                      <span className="text-[12.5px] text-slate-500">Net {moneyCz(p.net)} · VAT {moneyCz(p.vat)}</span>
-                      <span className="text-[15px] font-bold text-slate-900">Total {moneyCz(p.gross)} {p.currency}</span>
+                      <span className="text-[13px] text-slate-500">Net {moneyCz(p.net)} · VAT {moneyCz(p.vat)}</span>
+                      <span className="text-[14px] font-bold text-slate-900">Total {moneyCz(p.gross)} {p.currency}</span>
                     </div>
-                    {foreign && <div className="text-[12.5px] text-slate-500 mt-0.5">= {moneyCz(p.grossCzk)} CZK (VAT {moneyCz(p.vatCzk)} CZK)</div>}
+                    {foreign && <div className="text-[13px] text-slate-500 mt-0.5">= {moneyCz(p.grossCzk)} CZK (VAT {moneyCz(p.vatCzk)} CZK)</div>}
                   </div>
                 </div>
                 <div id="invoice-vat-breakdown" hidden={!vatOpen} className="overflow-x-auto mt-2">
-                  <table className="border-collapse text-[12.5px]">
+                  <table className="border-collapse text-[13px]">
                     <thead>
                       <tr className="text-slate-500">
                         <th className="text-left font-semibold pr-4 pb-1">VAT</th>
@@ -730,7 +730,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
             {/* status and button wrap together, so the button stays on the right */}
             <div className="flex-[3_1_360px] flex items-center justify-end gap-3 min-w-0">
               {/* what blocks issuing, or that nothing does */}
-              <span className={`min-w-0 max-w-[480px] truncate text-[12.5px] ${problems.length ? "text-slate-500" : "text-ok font-medium"}`}>
+              <span className={`min-w-0 max-w-[480px] truncate text-[13px] ${problems.length ? "text-slate-500" : "text-ok font-medium"}`}>
                 {problems[0] ?? (canIssue ? "Ready to issue" : "")}
               </span>
               <Tooltip title={canIssue ? "" : problems[0] ?? ""}>
@@ -800,7 +800,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
                                   e.stopPropagation();
                                   void download(d);
                                 }}
-                                className="bg-transparent border-0 p-0 font-mono font-semibold text-indigo-600 hover:underline cursor-pointer disabled:cursor-default disabled:no-underline"
+                                className="bg-transparent border-0 p-0 tabular-nums font-semibold text-indigo-600 hover:underline cursor-pointer disabled:cursor-default disabled:no-underline"
                               >
                                 {d.number}
                               </button>
@@ -867,7 +867,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
                 <tbody>
                   {docs.map((d) => (
                     <tr key={d.id}>
-                      <td className={`${TD} font-mono font-medium`}>{d.number}</td>
+                      <td className={`${TD} tabular-nums font-medium`}>{d.number}</td>
                       <td className={TD}>
                         {d.kind === "credit_note" ? <Tag color="purple" bordered={false}>Credit note</Tag> : <Tag bordered={false}>Invoice</Tag>}
                         {d.status === "credited" && <Tag color="orange" bordered={false}>Credited</Tag>}

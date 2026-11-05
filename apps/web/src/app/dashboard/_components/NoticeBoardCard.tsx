@@ -113,7 +113,7 @@ export function NoticeBoardCard({
             type="button"
             className="min-w-0 p-0 border-none bg-transparent text-left cursor-pointer rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
           >
-            <span className="text-[15px] leading-tight font-semibold text-slate-800 [overflow-wrap:anywhere] line-clamp-2">{v}</span>
+            <span className="text-[14px] leading-tight font-semibold text-slate-800 [overflow-wrap:anywhere] line-clamp-2">{v}</span>
           </button>
           {r.attachments.length > 0 && (
             <span className="shrink-0 flex items-center gap-0.5 text-xs text-slate-400" title="Documents attached">

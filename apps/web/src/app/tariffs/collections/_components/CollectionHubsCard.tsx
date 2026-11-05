@@ -44,7 +44,7 @@ export const CollectionHubsCard = () => {
 
   return (
     <SectionCard title="Our hubs" dense>
-      <p className="mt-0 mb-3 text-[12.5px] text-slate-500">Collections and deliveries are priced between the hub of the freight and the customer&apos;s postcode.</p>
+      <p className="mt-0 mb-3 text-[13px] text-slate-500">Collections and deliveries are priced between the hub of the freight and the customer&apos;s postcode.</p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {COLLECTION_FREIGHT_MODES.map(({ value, label }) => {
           const hub = hubOf(value);
@@ -88,7 +88,7 @@ export const CollectionHubsCard = () => {
         size="small"
         footer={
           <div className="flex items-center justify-end gap-2">
-            {problem && <span className="mr-auto text-[12.5px] text-slate-500">{problem}</span>}
+            {problem && <span className="mr-auto text-[13px] text-slate-500">{problem}</span>}
             <Button disabled={isSettingHub} onClick={() => setEditing(null)}>
               Cancel
             </Button>

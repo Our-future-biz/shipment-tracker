@@ -69,7 +69,7 @@ export const PlanningLegList = ({ groups, selected, onSelect, targets, onAdd, on
                     <Checkbox checked={selected.includes(leg.legId)} onChange={(e) => toggle(leg.legId, e.target.checked)} aria-label={`Select ${leg.consignmentRef}`} />
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="font-mono font-semibold text-slate-800">{leg.consignmentRef}</span>
+                        <span className="tabular-nums font-semibold text-slate-800">{leg.consignmentRef}</span>
                         <Badge tone={badge.tone}>{badge.label}</Badge>
                         {leg.adr && <Badge tone="a">{TERMS.adr}</Badge>}
                         {leg.tailLift && <Badge tone="i">{TERMS.tailLift}</Badge>}
@@ -106,7 +106,7 @@ export const PlanningLegList = ({ groups, selected, onSelect, targets, onAdd, on
                     >
                       <Tooltip title={targets.length ? undefined : "No open trip of this day — make one with New trip"}>
                         <button type="button" className={`${btnInline} shrink-0`} aria-label={`Add ${leg.consignmentRef} to a trip`}>
-                          Add to trip… <DownOutlined className="text-[9px]" />
+                          Add to trip… <DownOutlined className="text-[10px]" />
                         </button>
                       </Tooltip>
                     </Dropdown>

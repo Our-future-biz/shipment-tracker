@@ -16,7 +16,7 @@ export const PortalOrderCard = ({ order }: PortalOrderCardProps) => {
   return (
     <Link href={`/haulier/portal/orders/${encodeURIComponent(order.id)}`} className="block rounded-xl border border-slate-200 bg-white p-4 text-slate-900 no-underline hover:border-indigo-300">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="font-mono text-[15px] font-bold">{order.ref}</span>
+        <span className="tabular-nums text-[14px] font-bold">{order.ref}</span>
         <span className="text-[13px] text-slate-500">
           <Bi text={ORDER_KIND[order.kind]} />
         </span>

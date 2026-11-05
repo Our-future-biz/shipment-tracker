@@ -59,7 +59,7 @@ export function CustomerInvoicesCard({ customerId, currency }: CustomerInvoicesC
     {
       title: "Invoice #",
       dataIndex: "invoiceNumber",
-      render: (v: string) => <span className="font-mono font-semibold text-slate-800">{v}</span>,
+      render: (v: string) => <span className="tabular-nums font-semibold text-slate-800">{v}</span>,
     },
     {
       title: "Status",

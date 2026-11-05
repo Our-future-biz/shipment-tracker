@@ -46,7 +46,7 @@ function columnsFor(section: WarehouseSection, chosen: string[], openDimensions:
         render: (_: unknown, s: ShipmentItem) => {
           if (key === "jobNumber") {
             return (
-              <Link href={`/warehouse/${s.id}?from=${section}`} className="font-mono font-bold text-indigo-500 hover:underline">
+              <Link href={`/warehouse/${s.id}?from=${section}`} className="tabular-nums font-bold text-indigo-500 hover:underline">
                 {s.jobNumber || "—"}
               </Link>
             );
@@ -115,7 +115,7 @@ export function WarehouseDashboard() {
           <section key={section} className="data-table bg-white border border-slate-200 rounded-2xl overflow-hidden">
             <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-slate-100">
               <div className="flex items-center gap-2.5">
-                <Link href={`/warehouse/${section}`} className="text-[15px] font-semibold text-slate-900 hover:text-indigo-600">
+                <Link href={`/warehouse/${section}`} className="text-[14px] font-semibold text-slate-900 hover:text-indigo-600">
                   {WAREHOUSE_SECTIONS[section]}
                 </Link>
                 <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-600 tabular-nums">

@@ -144,11 +144,11 @@ export function CustomsInvoicePreview({ open, shipment, issuedNumber, lines, onC
         <div className="bg-slate-800 text-white rounded-t-lg px-6 py-4 flex items-start justify-between">
           <div>
             <div className="text-lg font-semibold">Customs Invoice</div>
-            <div className="font-mono text-xs text-slate-300">{issuedNumber || "—"}</div>
+            <div className="tabular-nums text-xs text-slate-300">{issuedNumber || "—"}</div>
           </div>
           <div className="text-right">
             <div className="text-sm">Job</div>
-            <div className="font-mono text-xs text-slate-300">{shipment.jobNumber}</div>
+            <div className="tabular-nums text-xs text-slate-300">{shipment.jobNumber}</div>
           </div>
         </div>
 

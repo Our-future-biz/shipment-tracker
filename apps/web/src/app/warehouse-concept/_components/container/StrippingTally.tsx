@@ -151,7 +151,7 @@ export function StrippingTally({ c, api, manager }: { c: WarehouseContainer; api
                   return (
                     <tr key={h.id} className={`border-b border-slate-100 last:border-b-0 ${done ? "bg-slate-50/60" : ""}`}>
                       <td className={td}>
-                        <Link href={`/warehouse-concept/gate-log/${h.movementId}`} className="font-mono font-bold text-indigo-500 hover:underline">
+                        <Link href={`/warehouse-concept/gate-log/${h.movementId}`} className="tabular-nums font-bold text-indigo-500 hover:underline">
                           {ref}
                         </Link>
                         <div>
@@ -383,7 +383,7 @@ function AddHouses({
             {candidates.map((m) => (
               <div key={m.id} className="py-1 border-b border-slate-100 last:border-b-0">
                 <Checkbox checked={picked.includes(m.id)} onChange={(e) => setPicked((p) => (e.target.checked ? [...p, m.id] : p.filter((x) => x !== m.id)))} className="!text-xs">
-                  <span className="font-mono font-semibold">{m.positionRef || m.gateRef}</span> · {m.customer || "—"} · {nf(m.colli)} pcs · {nf(m.weightKg)} kg
+                  <span className="tabular-nums font-semibold">{m.positionRef || m.gateRef}</span> · {m.customer || "—"} · {nf(m.colli)} pcs · {nf(m.weightKg)} kg
                 </Checkbox>
               </div>
             ))}

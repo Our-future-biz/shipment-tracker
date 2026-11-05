@@ -37,7 +37,7 @@ export const PortalFrame = ({ children }: PortalFrameProps) => {
               {me?.ourCompany ? `${me.ourCompany} · ` : ""}
               <Bi text={{ cs: "Portál dopravce", en: "Haulier portal" }} />
             </div>
-            <div className="truncate text-[15px] font-semibold text-slate-900">{me?.haulierName ?? "…"}</div>
+            <div className="truncate text-[14px] font-semibold text-slate-900">{me?.haulierName ?? "…"}</div>
             {me && <div className="truncate text-[12px] text-slate-500">{me.userName}</div>}
           </div>
           <button

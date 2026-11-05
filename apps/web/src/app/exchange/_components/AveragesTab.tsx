@@ -60,7 +60,7 @@ export function AveragesTab({ initialYear }: { initialYear: number }) {
                 if (!rows.length) return null;
                 return [
                   <tr key={g.type}>
-                    <td colSpan={currencies.length + 3} className="px-4 pt-3 pb-1 text-[11.5px] font-bold tracking-[.05em] uppercase text-slate-400">
+                    <td colSpan={currencies.length + 3} className="px-4 pt-3 pb-1 text-[12px] font-bold tracking-[.05em] uppercase text-slate-400">
                       {g.title}
                     </td>
                   </tr>,
@@ -88,7 +88,7 @@ export function AveragesTab({ initialYear }: { initialYear: number }) {
           </table>
         </div>
       )}
-      <p className="text-[12.5px] text-slate-400 m-0">
+      <p className="text-[13px] text-slate-400 m-0">
         Average of the ČNB fixing days in the period, shown per the units ČNB quotes (e.g. per 1000 IDR) to 3 decimals — the same
         method as ČNB&apos;s own published averages; reports convert with the unrounded rate.
         Quarters and years average all their fixing days, not the monthly averages. Reports use these rates without the ROE %.

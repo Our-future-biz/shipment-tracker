@@ -65,7 +65,7 @@ export const ConsignmentLegsTimeline = ({ c, onPartner }: ConsignmentLegsTimelin
                 <StateIcon state={s.state} /> {s.label}
               </span>
               <span className="text-slate-600">{s.detail}</span>
-              {s.at && <span className="font-mono text-[11px] text-slate-700">{businessDateTime(s.at)}</span>}
+              {s.at && <span className="tabular-nums text-[11px] text-slate-700">{businessDateTime(s.at)}</span>}
               {s.tripId && (
                 <Link href={tripHref(s.tripId)} className="font-semibold text-indigo-600 hover:underline">
                   {s.tripRef ?? `Open ${TERMS.trip.toLowerCase()}`}

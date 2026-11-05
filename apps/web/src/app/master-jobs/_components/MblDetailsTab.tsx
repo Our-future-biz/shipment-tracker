@@ -70,7 +70,7 @@ function Tile({ label, value, note, target }: TileProps) {
       className="text-left bg-white border border-slate-200 rounded-xl px-4 py-3 shadow-sm cursor-pointer transition-colors hover:border-indigo-300 hover:bg-indigo-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
     >
       <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">{label}</div>
-      <div className="mt-1 text-[17px] font-bold text-slate-900">{value || "—"}</div>
+      <div className="mt-1 text-[16px] font-bold text-slate-900">{value || "—"}</div>
       {note && <div className="mt-0.5 text-[12px] text-slate-500">{note}</div>}
     </button>
   );

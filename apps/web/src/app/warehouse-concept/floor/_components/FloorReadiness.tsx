@@ -37,7 +37,7 @@ export function FloorReadiness({ m, onBack }: { m: GateMovement; onBack: () => v
             <li key={g.g} className="flex min-h-[44px] items-center gap-3 border-b border-slate-100 py-1 last:border-b-0">
               {ICON[g.s]}
               <div className="min-w-0 flex-1">
-                <div className="text-[15px] font-semibold">{g.g}</div>
+                <div className="text-[14px] font-semibold">{g.g}</div>
                 {g.note && g.note !== "—" && <div className="text-[13px] text-slate-500 break-words">{g.note}</div>}
               </div>
               <span className="text-[13px] text-slate-500">{g.s}</span>

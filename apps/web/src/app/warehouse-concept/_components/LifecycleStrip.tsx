@@ -39,11 +39,11 @@ export function LifecycleStrip({ l, large }: { l: Lifecycle | null | undefined; 
               current ? "border-indigo-400 bg-indigo-50" : s.done ? "border-emerald-200 bg-emerald-50/60" : "border-slate-200 bg-white",
             ].join(" ")}
           >
-            <span className={`flex items-center gap-1 font-semibold ${large ? "text-[14px]" : "text-[11.5px]"} ${s.done ? "text-slate-900" : "text-slate-400"}`}>
+            <span className={`flex items-center gap-1 font-semibold ${large ? "text-[14px]" : "text-[12px]"} ${s.done ? "text-slate-900" : "text-slate-400"}`}>
               {s.done && <CheckCircleFilled className="text-emerald-500 text-[11px]" />}
               {s.label}
             </span>
-            <span className={`font-mono ${large ? "text-[12px]" : "text-[10.5px]"} ${s.done ? "text-slate-500" : "text-slate-300"}`}>{s.done ? when(s.at) || "✓" : "—"}</span>
+            <span className={`tabular-nums ${large ? "text-[12px]" : "text-[11px]"} ${s.done ? "text-slate-500" : "text-slate-300"}`}>{s.done ? when(s.at) || "✓" : "—"}</span>
           </li>
         );
       })}

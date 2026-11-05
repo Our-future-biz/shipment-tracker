@@ -34,7 +34,7 @@ export const HaulierRespondForm = ({ busy, onRespond }: HaulierRespondFormProps)
 
   return (
     <section className="rounded-xl border-2 border-indigo-200 bg-white p-4">
-      <h2 className="m-0 mb-3 text-[15px] font-bold text-slate-900">
+      <h2 className="m-0 mb-3 text-[14px] font-bold text-slate-900">
         <Bi text={{ cs: "Potvrďte prosím objednávku", en: "Please confirm the order" }} />
       </h2>
       <label className="block">
@@ -60,19 +60,19 @@ export const HaulierRespondForm = ({ busy, onRespond }: HaulierRespondFormProps)
       <div className="mt-4 flex flex-col gap-2 sm:flex-row">
         {rejecting ? (
           <>
-            <button type="button" disabled={busy || !!problem} onClick={handleSubmit} className="flex-1 rounded-lg bg-red-600 px-4 py-3 text-[15px] font-semibold text-white disabled:opacity-50">
+            <button type="button" disabled={busy || !!problem} onClick={handleSubmit} className="flex-1 rounded-lg bg-red-600 px-4 py-3 text-[14px] font-semibold text-white disabled:opacity-50">
               <Bi text={{ cs: "Odeslat odmítnutí", en: "Send rejection" }} />
             </button>
-            <button type="button" disabled={busy} onClick={() => setRejecting(false)} className="flex-1 rounded-lg border border-slate-300 bg-white px-4 py-3 text-[15px] font-semibold text-slate-700">
+            <button type="button" disabled={busy} onClick={() => setRejecting(false)} className="flex-1 rounded-lg border border-slate-300 bg-white px-4 py-3 text-[14px] font-semibold text-slate-700">
               <Bi text={{ cs: "Zpět", en: "Back" }} />
             </button>
           </>
         ) : (
           <>
-            <button type="button" disabled={busy || !!problem} onClick={handleSubmit} className="flex-1 rounded-lg bg-emerald-600 px-4 py-3 text-[15px] font-semibold text-white disabled:opacity-50">
+            <button type="button" disabled={busy || !!problem} onClick={handleSubmit} className="flex-1 rounded-lg bg-emerald-600 px-4 py-3 text-[14px] font-semibold text-white disabled:opacity-50">
               <Bi text={{ cs: "Potvrdit", en: "Confirm" }} />
             </button>
-            <button type="button" disabled={busy} onClick={() => setRejecting(true)} className="flex-1 rounded-lg border border-red-300 bg-white px-4 py-3 text-[15px] font-semibold text-red-700">
+            <button type="button" disabled={busy} onClick={() => setRejecting(true)} className="flex-1 rounded-lg border border-red-300 bg-white px-4 py-3 text-[14px] font-semibold text-red-700">
               <Bi text={{ cs: "Odmítnout…", en: "Reject…" }} />
             </button>
           </>

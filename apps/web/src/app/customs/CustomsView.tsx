@@ -128,12 +128,12 @@ export function CustomsView() {
                 <button
                   type="button"
                   onClick={backToList}
-                  className="inline-flex items-center gap-2 h-10 px-4 rounded-lg border border-line-soft bg-white text-slate-900 text-[17px] font-bold cursor-pointer hover:bg-surface-2 hover:text-ink-soft transition-colors"
+                  className="inline-flex items-center gap-2 h-10 px-4 rounded-lg border border-line-soft bg-white text-slate-900 text-[16px] font-bold cursor-pointer hover:bg-surface-2 hover:text-ink-soft transition-colors"
                 >
                   <ArrowLeftOutlined /> Customs
                 </button>
                 {openShipment && (
-                  <span className="font-mono text-[18px] font-bold tracking-[.02em] text-ink-strong">
+                  <span className="tabular-nums text-[18px] font-bold tracking-[.02em] text-ink-strong">
                     {openShipment.jobNumber}
                   </span>
                 )}

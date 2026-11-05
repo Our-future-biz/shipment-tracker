@@ -43,7 +43,7 @@ export default function PlatformCompaniesPage() {
 
   const columns: ColumnsType<CompanyRow> = [
     { title: "Company", dataIndex: "name", render: (v: string) => <span className="font-medium text-slate-800">{v}</span> },
-    { title: "Slug", dataIndex: "slug", render: (v: string) => <span className="font-mono text-xs text-slate-500">{v}</span> },
+    { title: "Slug", dataIndex: "slug", render: (v: string) => <span className="tabular-nums text-xs text-slate-500">{v}</span> },
     { title: "Created", dataIndex: "createdAt", width: 140, render: (v: string) => v?.slice(0, 10) ?? "—" },
     {
       title: "",

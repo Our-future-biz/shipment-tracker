@@ -90,7 +90,7 @@ export const CollectionTryRoute = ({ version }: { version: CollectionTariffVersi
       {failed && <Alert className="!mt-3" type="error" showIcon message={`Could not price it: ${failed}`} />}
       {result && !price && <Alert className="!mt-3" type="warning" showIcon message={`No price: ${result.problem}`} />}
       {result && (result.hubPlace || result.customerPlace) && (
-        <p className="mt-3 mb-0 text-[12.5px] text-slate-500">
+        <p className="mt-3 mb-0 text-[13px] text-slate-500">
           The tariff&apos;s list names {from && `${postcodeText(digits(from))} ${result.hubPlace || "—"}`}
           {" and "}
           {`${postcodeText(digits(customerPostcode))} ${result.customerPlace || "—"}`}.

@@ -51,7 +51,7 @@ export function DetailSidebar({ shipment, activeSection, onSelectSection }: Deta
             &larr; Back to Shipments
           </div>
           <div className="border-b border-slate-200 pb-3">
-            <div className="text-[15px] font-bold text-slate-800">{jobNumber}</div>
+            <div className="text-[14px] font-bold text-slate-800">{jobNumber}</div>
             {status && <div className="mt-1"><StatusBadge status={status} /></div>}
           </div>
         </div>

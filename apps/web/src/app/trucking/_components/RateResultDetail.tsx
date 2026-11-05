@@ -35,7 +35,7 @@ export const RateResultDetail = ({ result, includeBuy, notInUse }: RateResultDet
             side={b}
             title={
               <span className="inline-flex items-center gap-1.5">
-                {i === 0 && <span className="rounded bg-indigo-50 px-1.5 text-[10.5px] font-bold uppercase text-indigo-600">Suggested</span>}
+                {i === 0 && <span className="rounded bg-indigo-50 px-1.5 text-[11px] font-bold uppercase text-indigo-600">Suggested</span>}
                 {b.ownerName ?? "Haulier"}
                 {b.ownerCustomerId && notInUse.has(b.ownerCustomerId) && <Pill tone="slate">{SUPPLIER_NOT_IN_USE}</Pill>}
                 {b.preferred && (
@@ -49,10 +49,10 @@ export const RateResultDetail = ({ result, includeBuy, notInUse }: RateResultDet
         ))}
         {result.excluded.length > 0 && (
           <div className="rounded-lg border border-red-200 bg-red-50/50 px-3 py-2">
-            <div className="mb-1 text-[12.5px] font-semibold text-red-800">Left out — blocked hauliers</div>
+            <div className="mb-1 text-[13px] font-semibold text-red-800">Left out — blocked hauliers</div>
             {result.excluded.map((x) => (
               <div key={x.customerId} className="py-1 border-t border-red-100 first:border-t-0">
-                <div className="text-[12.5px] font-semibold text-slate-800">{x.name}</div>
+                <div className="text-[13px] font-semibold text-slate-800">{x.name}</div>
                 <HaulierIssueList issues={x.issues} />
               </div>
             ))}

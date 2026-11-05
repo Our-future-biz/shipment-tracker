@@ -36,7 +36,7 @@ export const PortalOrderView = ({ id }: PortalOrderViewProps) => {
   }
   if (!o.order) {
     return (
-      <p className="m-0 text-center text-[15px] text-slate-700">
+      <p className="m-0 text-center text-[14px] text-slate-700">
         {isNotFound(o.error) ? <Bi text={{ cs: "Objednávka nenalezena.", en: "Order not found." }} /> : apiErrorMessage(o.error)}{" "}
         <Link href="/haulier/portal" className="text-indigo-600">
           <Bi text={{ cs: "Zpět na objednávky", en: "Back to orders" }} />
@@ -70,7 +70,7 @@ export const PortalOrderView = ({ id }: PortalOrderViewProps) => {
 
       <header>
         <h1 className="m-0 text-[20px] font-bold text-slate-900">
-          <span className="font-mono">{order.ref}</span> <span className="text-[15px] font-semibold text-slate-500">· <Bi text={ORDER_KIND[order.kind]} /></span>
+          <span className="tabular-nums">{order.ref}</span> <span className="text-[14px] font-semibold text-slate-500">· <Bi text={ORDER_KIND[order.kind]} /></span>
         </h1>
         <div className="mt-1 text-[14px] text-slate-700">
           {formatDate(order.date)} · {order.from} → {order.to}
@@ -100,7 +100,7 @@ export const PortalOrderView = ({ id }: PortalOrderViewProps) => {
         <h2 className={PORTAL_CARD_TITLE}>
           <Bi text={{ cs: "Vozidlo a náklad", en: "Vehicle and load" }} />
         </h2>
-        <div className="flex flex-col gap-1 text-[15px] text-slate-900">
+        <div className="flex flex-col gap-1 text-[14px] text-slate-900">
           {order.vehicleText && <div>{order.vehicleText}</div>}
           {order.plates && (
             <div>

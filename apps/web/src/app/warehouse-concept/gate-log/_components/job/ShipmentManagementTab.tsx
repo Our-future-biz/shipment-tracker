@@ -59,14 +59,14 @@ const blankDrop = (): Drop => ({
 
 const cell =
   "w-full min-w-0 bg-transparent border border-transparent rounded px-1.5 py-1 text-xs font-medium text-slate-900 outline-none hover:bg-slate-50 focus:bg-white focus:border-slate-300 placeholder:text-slate-300 placeholder:font-normal disabled:opacity-40 disabled:cursor-not-allowed";
-const numCell = `${cell} font-mono [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`;
+const numCell = `${cell} tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`;
 
 const fmt = (v: number, unit: string) => (v ? `${v.toLocaleString("cs-CZ", { maximumFractionDigits: 2 })} ${unit}` : "0");
 
 const Total = ({ label, children }: { label: string; children: ReactNode }) => (
   <span className="inline-flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-md px-2.5 py-1 text-xs">
     <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">{label}</span>
-    <span className="font-mono font-semibold text-slate-900">{children}</span>
+    <span className="tabular-nums font-semibold text-slate-900">{children}</span>
   </span>
 );
 
@@ -105,7 +105,7 @@ export function ShipmentManagementTab({ m, save }: { m: GateMovement; save: Save
   );
   const text = (i: number, key: TextKey, placeholder: string, mono = false) => (
     <input
-      className={`${cell} ${mono ? "font-mono" : ""}`}
+      className={`${cell} ${mono ? "tabular-nums" : ""}`}
       type="text"
       placeholder={placeholder}
       value={rows[i]![key]}
@@ -121,7 +121,7 @@ export function ShipmentManagementTab({ m, save }: { m: GateMovement; save: Save
       bodyClassName="p-0"
       extra={
         <span>
-          Base position <span className="font-mono text-slate-700">{base}</span> · one container, up to {MAX_DROPS} drops
+          Base position <span className="tabular-nums text-slate-700">{base}</span> · one container, up to {MAX_DROPS} drops
         </span>
       }
     >
@@ -152,12 +152,12 @@ export function ShipmentManagementTab({ m, save }: { m: GateMovement; save: Save
             {rows.map((r, i) => (
               <tr key={i} className="group border-b border-slate-100">
                 <td className="px-2 py-1">
-                  <span className="font-mono font-semibold text-slate-900 whitespace-nowrap">
+                  <span className="tabular-nums font-semibold text-slate-900 whitespace-nowrap">
                     {base}-{i + 1}
                   </span>
                 </td>
                 <td className="px-2 py-1">
-                  <input className={`${cell} font-mono`} type="date" aria-label="ETW" value={r.etw} onChange={(e) => change(i, { etw: e.target.value })} />
+                  <input className={`${cell} tabular-nums`} type="date" aria-label="ETW" value={r.etw} onChange={(e) => change(i, { etw: e.target.value })} />
                 </td>
                 <td className="px-2 py-1">{num(i, "qty", "0")}</td>
                 <td className="px-2 py-1">
@@ -188,7 +188,7 @@ export function ShipmentManagementTab({ m, save }: { m: GateMovement; save: Save
                   />
                 </td>
                 <td className="px-2 py-1">
-                  <input className={`${cell} font-mono`} type="date" disabled={!r.vgm} value={r.vgmDate} onChange={(e) => change(i, { vgmDate: e.target.value })} />
+                  <input className={`${cell} tabular-nums`} type="date" disabled={!r.vgm} value={r.vgmDate} onChange={(e) => change(i, { vgmDate: e.target.value })} />
                 </td>
                 <td className="px-2 py-1">{num(i, "storageDays", "0")}</td>
                 <td className="px-2 py-1 text-center">
@@ -209,11 +209,11 @@ export function ShipmentManagementTab({ m, save }: { m: GateMovement; save: Save
             <tr className="border-t border-slate-200 bg-slate-50/60 font-semibold text-slate-600">
               <td className="px-2 py-2">Total</td>
               <td />
-              <td className="px-2 py-2 font-mono">{qty}</td>
+              <td className="px-2 py-2 tabular-nums">{qty}</td>
               <td colSpan={5} />
-              <td className="px-2 py-2 font-mono whitespace-nowrap">{fmt(weight, "kg")}</td>
-              <td className="px-2 py-2 font-mono whitespace-nowrap">{fmt(measure, "cbm")}</td>
-              <td className="px-2 py-2 font-mono whitespace-nowrap">{fmt(gross, "kg")}</td>
+              <td className="px-2 py-2 tabular-nums whitespace-nowrap">{fmt(weight, "kg")}</td>
+              <td className="px-2 py-2 tabular-nums whitespace-nowrap">{fmt(measure, "cbm")}</td>
+              <td className="px-2 py-2 tabular-nums whitespace-nowrap">{fmt(gross, "kg")}</td>
               <td colSpan={7} />
             </tr>
           </tfoot>

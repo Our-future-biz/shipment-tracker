@@ -33,7 +33,7 @@ const COLUMNS: AppGridColumn<InternalCharge>[] = [
     text: (c) => c.consignmentRef,
     sorter: (a, b) => byText(a.consignmentRef, b.consignmentRef),
     render: (_, c) => (
-      <Link href={consignmentHref(c.consignmentId)} onClick={stop} className="font-mono font-semibold text-indigo-600 hover:underline">
+      <Link href={consignmentHref(c.consignmentId)} onClick={stop} className="tabular-nums font-semibold text-indigo-600 hover:underline">
         {c.consignmentRef}
       </Link>
     ),
@@ -45,7 +45,7 @@ const COLUMNS: AppGridColumn<InternalCharge>[] = [
     // By number, whatever the letters (a copied CZ00000023 next to CZROAD00000024).
     sorter: (a, b) => compareJobNumbers(a.jobNumber, b.jobNumber),
     render: (_, c) => (
-      <Link href={`/shipments/${c.shipmentId}?tab=trucking`} onClick={stop} className="font-mono text-indigo-600 hover:underline">
+      <Link href={`/shipments/${c.shipmentId}?tab=trucking`} onClick={stop} className="tabular-nums text-indigo-600 hover:underline">
         {c.jobNumber}
       </Link>
     ),

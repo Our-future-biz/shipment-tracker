@@ -113,7 +113,7 @@ export function ShipmentFacts({ shipment }: { shipment: ShipmentItem }) {
       <Fact label="Container Number">
         {container ? (
           // The same chip the Container Details tab gives a container number.
-          <span className="truncate font-mono text-[12px] font-bold tracking-wide px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-600" title={container}>
+          <span className="truncate tabular-nums text-[12px] font-bold tracking-wide px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-600" title={container}>
             {container}
           </span>
         ) : (

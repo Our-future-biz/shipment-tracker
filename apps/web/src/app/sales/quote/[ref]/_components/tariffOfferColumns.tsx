@@ -30,7 +30,7 @@ export const rankColumn = <T,>(): ColumnType<T> => ({
   render: (_, _o, i) => (i === 0 ? <Pill tone="green">Cheapest</Pill> : <span className="text-slate-400">{i + 1}.</span>),
 });
 
-const validUntil = (o: TariffOfferSource) => o.validTo && <div className="text-[11.5px] text-slate-400">valid until {formatDate(o.validTo)}</div>;
+const validUntil = (o: TariffOfferSource) => o.validTo && <div className="text-[12px] text-slate-400">valid until {formatDate(o.validTo)}</div>;
 
 /** The supplier, a link to the tariff version (in a new tab), and below it how long it is valid - or `detail`. */
 export const tariffColumn = <T extends TariffOfferSource>(title: string, versionHref: (offer: T) => string, detail: (offer: T) => ReactNode = validUntil): ColumnType<T> => ({
@@ -60,7 +60,7 @@ export const totalColumn = <T extends { total: number; currency: string }>(quote
     return (
       <div className="whitespace-nowrap tabular-nums">
         <div className="font-semibold text-slate-800">{fmtMoney(o.total, o.currency)}</div>
-        {o.currency !== quoteCurrency && <div className="text-[11.5px] text-slate-400">{converted === null ? "no rate" : fmtMoney(converted, quoteCurrency)}</div>}
+        {o.currency !== quoteCurrency && <div className="text-[12px] text-slate-400">{converted === null ? "no rate" : fmtMoney(converted, quoteCurrency)}</div>}
       </div>
     );
   },

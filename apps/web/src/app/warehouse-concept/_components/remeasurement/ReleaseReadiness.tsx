@@ -81,7 +81,7 @@ export function ReleaseReadiness({ m }: { m: GateMovement | undefined }) {
     <Card title="Release readiness">
       {lifecycle}
       <div className="flex flex-wrap items-center gap-2">
-        <Badge tone={state.tone} className="!text-[11.5px]">
+        <Badge tone={state.tone} className="!text-[12px]">
           {state.label}
         </Badge>
         {state.detail && <span className="text-[11px] text-slate-500 break-words">{state.detail}</span>}
@@ -122,7 +122,7 @@ export function ReleaseReadiness({ m }: { m: GateMovement | undefined }) {
                 <ul className="list-none m-0 mt-1.5 p-0 text-[11px] text-slate-600">
                   {m.pickup.rows.map((r, i) => (
                     <li key={i}>
-                      {r.haulier || "—"} · <span className="font-mono">{r.licensePlate || "—"}</span> · {r.driver || "—"}
+                      {r.haulier || "—"} · <span className="tabular-nums">{r.licensePlate || "—"}</span> · {r.driver || "—"}
                     </li>
                   ))}
                 </ul>

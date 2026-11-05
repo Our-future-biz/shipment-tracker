@@ -9,7 +9,7 @@ export function FloorBack({ onBack, title }: { onBack: () => void; title: string
       <button
         type="button"
         onClick={onBack}
-        className="flex h-12 items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 text-[15px] font-semibold text-slate-700 cursor-pointer"
+        className="flex h-12 items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 text-[14px] font-semibold text-slate-700 cursor-pointer"
       >
         <ArrowLeftOutlined /> Position
       </button>

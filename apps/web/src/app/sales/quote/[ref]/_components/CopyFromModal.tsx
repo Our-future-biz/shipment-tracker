@@ -35,7 +35,7 @@ const shipmentText = (shipment: ShipmentItem) => `${shipment.jobNumber} — ${sh
 // references, then whose shipment it is.
 const shipmentLabel = (shipment: ShipmentItem) => (
   <>
-    <span className="font-mono font-semibold">{shipment.jobNumber}</span>
+    <span className="tabular-nums font-semibold">{shipment.jobNumber}</span>
     {shipment.customer && <span className="ml-2">{shipment.customer}</span>}
   </>
 );

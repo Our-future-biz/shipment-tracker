@@ -41,7 +41,7 @@ const referenceColumn = {
   title: "Internal Reference",
   dataIndex: "jobNumber",
   width: 170,
-  render: (v: string) => <span className="font-mono font-semibold text-indigo-600">{v}</span>,
+  render: (v: string) => <span className="tabular-nums font-semibold text-indigo-600">{v}</span>,
 };
 
 const deadlinesColumn = {

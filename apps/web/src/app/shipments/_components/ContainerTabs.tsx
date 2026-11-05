@@ -51,7 +51,7 @@ export function ContainerTabs({ tabs, activeKey, onChange, className = "" }: Con
                 aria-label={t.matched ? "Matched" : "Mismatch"}
               />
             )}
-            <span className={`${t.isContainer ? "font-mono tracking-wide" : ""} ${on ? "font-bold" : "font-semibold"}`}>{t.label}</span>
+            <span className={`${t.isContainer ? "tabular-nums tracking-wide" : ""} ${on ? "font-bold" : "font-semibold"}`}>{t.label}</span>
             {t.type && <span className={`text-xs ${on ? "text-indigo-500" : "text-slate-400"}`}>{t.type}</span>}
           </button>
         );

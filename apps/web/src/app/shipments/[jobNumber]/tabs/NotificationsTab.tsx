@@ -45,14 +45,14 @@ export function NotificationsTab({ shipment, onOpen }: NotificationsTabProps) {
                 >
                   <CustomsPill status={doc.customsStatus} />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13.5px] text-slate-800">
+                    <span className="block truncate text-[14px] text-slate-800">
                       Customs {doc.customsStatus} <span className="font-semibold">{doc.fileName}</span>
                     </span>
                     <span className="block truncate text-[12px] text-slate-500">
                       {[doc.documentType, doc.customsReviewedByName, formatDateTime(doc.customsReviewedAt)].filter(Boolean).join(" · ")}
                     </span>
                   </span>
-                  <span className="shrink-0 flex items-center gap-1.5 text-[12.5px] font-semibold text-indigo-600">
+                  <span className="shrink-0 flex items-center gap-1.5 text-[13px] font-semibold text-indigo-600">
                     Open in Documents <RightOutlined className="text-[10px]" />
                   </span>
                 </button>
@@ -94,7 +94,7 @@ function CommunicationCard({ shipment }: { shipment: ShipmentItem }) {
             <button
               type="button"
               onClick={() => setChatOpen(true)}
-              className="inline-flex items-center gap-1.5 p-0 border-0 bg-transparent cursor-pointer text-[12.5px] font-semibold text-indigo-600 hover:text-indigo-700"
+              className="inline-flex items-center gap-1.5 p-0 border-0 bg-transparent cursor-pointer text-[13px] font-semibold text-indigo-600 hover:text-indigo-700"
             >
               <MessageOutlined aria-hidden /> Open chat
             </button>
@@ -120,7 +120,7 @@ function CommunicationCard({ shipment }: { shipment: ShipmentItem }) {
                     <span className="ml-auto shrink-0 text-[12px] text-slate-500 tabular-nums">{formatDateTime(m.createdAt)}</span>
                   </div>
                   {m.message && (
-                    <p className="m-0 mt-0.5 text-[13.5px] leading-5 text-slate-800 whitespace-pre-wrap break-words">{m.message}</p>
+                    <p className="m-0 mt-0.5 text-[14px] leading-5 text-slate-800 whitespace-pre-wrap break-words">{m.message}</p>
                   )}
                   {m.attachments.length > 0 && (
                     <div className="mt-1.5 flex flex-wrap gap-1.5">

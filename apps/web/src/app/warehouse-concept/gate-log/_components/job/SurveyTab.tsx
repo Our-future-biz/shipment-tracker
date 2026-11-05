@@ -145,7 +145,7 @@ export function SurveyTab({ m, saveSurvey }: SurveyTabProps) {
               Print survey
             </Button>
             <Button size="small" type="primary" icon={<CameraOutlined />} onClick={() => photosRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>
-              Photos &amp; documents <span className="font-mono">{files.length}</span>
+              Photos &amp; documents <span className="tabular-nums">{files.length}</span>
             </Button>
           </>
         }
@@ -154,7 +154,7 @@ export function SurveyTab({ m, saveSurvey }: SurveyTabProps) {
         <div className="flex items-center gap-3 flex-wrap px-4 py-3 border-b border-slate-100">
           <div className="inline-flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5">
             <span className={label}>Container</span>
-            <span className="font-mono font-semibold text-[13px] text-slate-900">{container || "Position level"}</span>
+            <span className="tabular-nums font-semibold text-[13px] text-slate-900">{container || "Position level"}</span>
             <span className="text-xs text-slate-400">
               {m.containers.length ? `· ${surveyedCount} of ${m.containers.length} surveyed on ${phase}` : "· no container recorded"}
             </span>
@@ -233,7 +233,7 @@ export function SurveyTab({ m, saveSurvey }: SurveyTabProps) {
                         controls={false}
                         placeholder="0"
                         aria-label="Number of packages"
-                        className="w-full font-mono"
+                        className="w-full tabular-nums"
                         value={l.qty}
                         onChange={(v) => setLine(i, { qty: v == null ? null : Math.max(0, Math.floor(Number(v))) }, false)}
                         onBlur={() => persist(draft)}
@@ -414,7 +414,7 @@ function PieceInput({ value, max, onSave }: PieceInputProps) {
         max={known ? max : undefined}
         precision={0}
         controls={false}
-        className="w-[90px] font-mono"
+        className="w-[90px] tabular-nums"
         value={draft}
         onChange={(v) => setDraft(v == null ? null : Number(v))}
         onBlur={() => {
@@ -523,7 +523,7 @@ function PhotosSection({
         </div>
         <div className="flex justify-between gap-2 flex-wrap text-[11px] text-slate-400 mt-1.5">
           <span>{fmtSize(total)} used of the 20 MB expected per shipment</span>
-          <span className="font-mono">jpg ≈ 400 kB · pdf / tiff / png</span>
+          <span className="tabular-nums">jpg ≈ 400 kB · pdf / tiff / png</span>
         </div>
       </div>
     </Section>
@@ -564,7 +564,7 @@ function FileCard({ movementId, file, onDelete }: { movementId: string; file: Ga
         }`}
       >
         {file.tag && (
-          <span className="absolute top-1.5 left-1.5 z-10 text-[9.5px] font-bold tracking-wide bg-white border border-slate-200 rounded px-1.5 text-slate-600">
+          <span className="absolute top-1.5 left-1.5 z-10 text-[10px] font-bold tracking-wide bg-white border border-slate-200 rounded px-1.5 text-slate-600">
             {file.tag}
           </span>
         )}
@@ -580,7 +580,7 @@ function FileCard({ movementId, file, onDelete }: { movementId: string; file: Ga
         <div className="font-semibold text-slate-800 truncate" title={file.fileName}>
           {file.fileName.replace(/\.[^.]+$/, "")}
         </div>
-        <div className="font-mono text-slate-400">{fmtSize(file.fileSize)}</div>
+        <div className="tabular-nums text-slate-400">{fmtSize(file.fileSize)}</div>
       </div>
       <button
         type="button"
@@ -656,7 +656,7 @@ function ContainerDialog({
               picked === c.number ? "bg-indigo-50" : "bg-transparent hover:bg-slate-50"
             }`}
           >
-            <span className="font-mono font-semibold text-[13px] flex-1 text-slate-900">{c.number}</span>
+            <span className="tabular-nums font-semibold text-[13px] flex-1 text-slate-900">{c.number}</span>
             <span className="text-xs text-slate-400">
               {c.type} · {phase} {surveyed(c.number) ? "surveyed" : "survey pending"}
             </span>

@@ -16,7 +16,7 @@ export const RatePricedSide = ({ title, side }: RatePricedSideProps) => (
   <div className="rounded-lg border border-slate-200 bg-white">
     <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 border-b border-slate-100 px-3 py-2">
       <span className="text-[13px] font-semibold text-slate-800">{title}</span>
-      <span className="text-[11.5px] text-slate-500">
+      <span className="text-[12px] text-slate-500">
         {side.tariffName} {versionLabel(side)} · zone {side.zoneCode}
         {side.zoneLabel ? ` ${side.zoneLabel}` : ""} · {side.bandLabel}
       </span>
@@ -26,7 +26,7 @@ export const RatePricedSide = ({ title, side }: RatePricedSideProps) => (
     </div>
     <table className="w-full border-collapse text-[12px] tabular-nums">
       <thead>
-        <tr className="border-y border-slate-100 text-[10.5px] uppercase tracking-wide text-slate-500">
+        <tr className="border-y border-slate-100 text-[11px] uppercase tracking-wide text-slate-500">
           <th className="px-3 py-1 text-left font-semibold">Line</th>
           <th className="px-3 py-1 text-right font-semibold">Qty</th>
           <th className="px-3 py-1 text-right font-semibold">Unit price</th>
@@ -53,7 +53,7 @@ export const RatePricedSide = ({ title, side }: RatePricedSideProps) => (
       </tbody>
     </table>
     {side.fx && (
-      <div className="px-3 pb-2 text-[11.5px] text-slate-500">
+      <div className="px-3 pb-2 text-[12px] text-slate-500">
         = {formatMoney(side.totalCzk, "CZK")} at the ČNB rate {formatQty(side.fx.rate)} of {formatDate(side.fx.date)}
       </div>
     )}

@@ -130,7 +130,7 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
               >
                 {existingMCZs.map(([mcz, count]) => (
                   <Radio key={mcz} value={mcz}>
-                    <span className="font-mono text-amber-500 font-medium">{mcz}</span>
+                    <span className="tabular-nums text-amber-500 font-medium">{mcz}</span>
                     <span className="text-[11px] text-slate-400 ml-2">({count} shipment{count !== 1 ? "s" : ""})</span>
                   </Radio>
                 ))}
@@ -143,7 +143,7 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
       {/* No existing — just show the new MCZ info */}
       {existingMCZs.length === 0 && (
         <p className="text-xs text-slate-500 mb-3">
-          New Master Job: <strong className="font-mono text-amber-500">{nextMCZ}</strong>
+          New Master Job: <strong className="tabular-nums text-amber-500">{nextMCZ}</strong>
         </p>
       )}
 
@@ -169,7 +169,7 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
               className={`flex items-center gap-2.5 px-3 py-[7px] cursor-pointer border-b border-neutral-50 ${isChecked ? "bg-amber-500/[0.04]" : ""}`}
             >
               <Checkbox checked={isChecked} />
-              <span className="font-mono text-teal-600 font-medium text-xs w-[100px] shrink-0">
+              <span className="tabular-nums text-teal-600 font-medium text-xs w-[100px] shrink-0">
                 {s.jobNumber}
               </span>
               <span className="text-xs text-gray-500 flex-1 truncate">

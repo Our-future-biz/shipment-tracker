@@ -43,7 +43,7 @@ const buildColumns = (levelLabel: (code: string | null) => string): AppGridColum
     text: (c) => c.ref,
     sorter: (a, b) => byText(a.ref, b.ref),
     render: (_, c) => (
-      <Link href={consignmentHref(c.id)} onClick={stop} className="font-mono font-semibold text-indigo-600 hover:underline">
+      <Link href={consignmentHref(c.id)} onClick={stop} className="tabular-nums font-semibold text-indigo-600 hover:underline">
         {c.ref}
       </Link>
     ),
@@ -65,7 +65,7 @@ const buildColumns = (levelLabel: (code: string | null) => string): AppGridColum
       if (!summary) return dash;
       return (
         <Tooltip title={summary.more ? c.needsAttention.join(" · ") : undefined}>
-          <span className="text-[12.5px] text-red-700">
+          <span className="text-[13px] text-red-700">
             {summary.first}
             {summary.more > 0 && <span className="ml-1 font-semibold">+{summary.more}</span>}
           </span>
@@ -80,7 +80,7 @@ const buildColumns = (levelLabel: (code: string | null) => string): AppGridColum
     // By number, whatever the letters (a copied CZ00000023 next to CZROAD00000024).
     sorter: (a, b) => compareJobNumbers(a.jobNumber, b.jobNumber),
     render: (_, c) => (
-      <Link href={`/shipments/${c.shipmentId}?tab=trucking`} onClick={stop} className="font-mono text-indigo-600 hover:underline">
+      <Link href={`/shipments/${c.shipmentId}?tab=trucking`} onClick={stop} className="tabular-nums text-indigo-600 hover:underline">
         {c.jobNumber}
       </Link>
     ),
@@ -128,7 +128,7 @@ const buildColumns = (levelLabel: (code: string | null) => string): AppGridColum
     text: (c) => c.tripRef ?? "",
     render: (_, c) =>
       c.tripId && c.tripRef ? (
-        <Link href={tripHref(c.tripId)} onClick={stop} className="font-mono text-indigo-600 hover:underline">
+        <Link href={tripHref(c.tripId)} onClick={stop} className="tabular-nums text-indigo-600 hover:underline">
           {c.tripRef}
         </Link>
       ) : (
@@ -228,9 +228,9 @@ export const TruckingConsignmentsTab = () => {
             <ConsignmentTiles active={activeTile} counts={counts} onSelect={handleTile} />
             <ConsignmentQuickChips active={chipView} counts={counts} onSelect={(id) => setFilter({ view: id, status: null })} />
             {job && (
-              <div className="mt-3 flex flex-wrap items-center gap-2 text-[12.5px] text-slate-600">
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-[13px] text-slate-600">
                 <span>
-                  Only the consignments of job <span className="font-mono font-semibold text-slate-800">{jobNumber ?? "…"}</span>
+                  Only the consignments of job <span className="tabular-nums font-semibold text-slate-800">{jobNumber ?? "…"}</span>
                 </span>
                 <button type="button" className="font-semibold text-indigo-600 hover:underline" onClick={() => setFilter({ job: null })}>
                   Show all consignments

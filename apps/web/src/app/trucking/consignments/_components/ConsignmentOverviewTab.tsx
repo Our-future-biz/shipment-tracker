@@ -48,14 +48,14 @@ export const ConsignmentOverviewTab = ({ c }: ConsignmentOverviewTabProps) => (
         <Line k="Customer" v={c.customerName} />
         <div className="flex items-baseline gap-2 border-b border-slate-100 py-1 text-xs">
           <span className="w-[140px] shrink-0 text-[11px] font-bold uppercase tracking-wide text-slate-500">Job</span>
-          <Link href={`/shipments/${c.shipmentId}?tab=trucking`} className="font-mono font-semibold text-indigo-600 hover:underline">
+          <Link href={`/shipments/${c.shipmentId}?tab=trucking`} className="tabular-nums font-semibold text-indigo-600 hover:underline">
             {c.jobNumber}
           </Link>
         </div>
         <div className="flex items-baseline gap-2 border-b border-slate-100 py-1 text-xs">
           <span className="w-[140px] shrink-0 text-[11px] font-bold uppercase tracking-wide text-slate-500">Quote</span>
           {c.quoteNumber ? (
-            <Link href={quoteHref(c.quoteNumber)} className="font-mono font-semibold text-indigo-600 hover:underline">
+            <Link href={quoteHref(c.quoteNumber)} className="tabular-nums font-semibold text-indigo-600 hover:underline">
               {c.quoteNumber}
             </Link>
           ) : (

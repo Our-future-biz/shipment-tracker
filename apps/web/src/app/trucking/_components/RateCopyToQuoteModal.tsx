@@ -114,7 +114,7 @@ export const RateCopyToQuoteModal = ({ form, customerName, results, onClose }: R
           </div>
         )}
         {target === "new" && (
-          <div className="text-[12.5px] text-slate-500">
+          <div className="text-[13px] text-slate-500">
             A new Road quote{form.customerId ? ` for ${customerName ?? "the chosen customer"}` : " without a customer (priced from the Standard list)"} is created and priced.
           </div>
         )}

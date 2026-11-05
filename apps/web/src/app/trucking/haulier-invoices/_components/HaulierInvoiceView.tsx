@@ -113,7 +113,7 @@ export const HaulierInvoiceView = ({ invoiceId }: HaulierInvoiceViewProps) => {
             </Link>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className="m-0 font-mono text-[22px] font-bold text-slate-800">{inv.invoiceNumber}</h1>
+                <h1 className="m-0 tabular-nums text-[22px] font-bold text-slate-800">{inv.invoiceNumber}</h1>
                 <TruckingStatusChip chip={INVOICE_STATUS_CHIP[inv.status]} />
               </div>
               <div className="mt-0.5 text-xs text-slate-500">
@@ -240,7 +240,7 @@ export const HaulierInvoiceView = ({ invoiceId }: HaulierInvoiceViewProps) => {
           <div className={card}>
             <div className={cardLabel}>{TERMS.vatBankAccountCheck}</div>
             <div className="mt-1.5 flex flex-col gap-0.5">
-              <Line k="Account" v={<span className="font-mono">{formatBankAccount(inv.bankAccount)}</span>} />
+              <Line k="Account" v={<span className="tabular-nums">{formatBankAccount(inv.bankAccount)}</span>} />
               <Line
                 k="Published"
                 v={check.published == null ? "Not checked" : check.published ? "Yes" : "No"}
@@ -255,7 +255,7 @@ export const HaulierInvoiceView = ({ invoiceId }: HaulierInvoiceViewProps) => {
 
       <div className="p-6">
         <section className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-          <table className="w-full border-collapse text-[12.5px]">
+          <table className="w-full border-collapse text-[13px]">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
                 <th className="px-3 py-2">Kind</th>
@@ -271,7 +271,7 @@ export const HaulierInvoiceView = ({ invoiceId }: HaulierInvoiceViewProps) => {
               {inv.lines.map((l) => (
                 <tr key={l.id} className="border-b border-slate-100 align-top">
                   <td className="px-3 py-1.5">{TARGET_KIND_LABELS[l.target.kind]}</td>
-                  <td className="px-3 py-1.5 font-mono font-semibold">
+                  <td className="px-3 py-1.5 tabular-nums font-semibold">
                     {l.target.kind === "TRIP" ? (
                       <Link href={tripHref(l.target.id)} className="text-indigo-600 hover:underline">
                         {l.target.ref}
@@ -302,7 +302,7 @@ export const HaulierInvoiceView = ({ invoiceId }: HaulierInvoiceViewProps) => {
             </tfoot>
           </table>
         </section>
-        <p className="mt-2 mb-0 text-[11.5px] text-slate-500">
+        <p className="mt-2 mb-0 text-[12px] text-slate-500">
           Expected = the trip&apos;s or partner delivery&apos;s buy price minus our claims against the haulier. Only an {TERMS.exactMatch.toLowerCase()} of every line and the net
           total is approved by itself; on approval the real cost goes to the jobs.
         </p>

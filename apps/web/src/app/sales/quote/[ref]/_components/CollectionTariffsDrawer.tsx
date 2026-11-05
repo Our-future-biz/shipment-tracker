@@ -81,7 +81,7 @@ export const CollectionTariffsDrawer = ({ open, quote, hubs, quoteCurrency, toQu
         return (
           <div>
             {from} → {to}
-            <div className="text-[11.5px] text-slate-400">
+            <div className="text-[12px] text-slate-400">
               {offerReach(o)} · {o.matrixLabel}
             </div>
           </div>
@@ -95,7 +95,7 @@ export const CollectionTariffsDrawer = ({ open, quote, hubs, quoteCurrency, toQu
         <div className="whitespace-nowrap">
           {kgText(o.chargeableKg)}
           {o.chargeableBy === "volume" && <span className="text-slate-400"> by volume</span>}
-          <div className="text-[11.5px] text-slate-400">{o.bandLabel}</div>
+          <div className="text-[12px] text-slate-400">{o.bandLabel}</div>
         </div>
       ),
     },
@@ -103,7 +103,7 @@ export const CollectionTariffsDrawer = ({ open, quote, hubs, quoteCurrency, toQu
       key: "price",
       title: "Price",
       render: (_, o) => (
-        <div className="flex flex-col gap-0.5 text-[12.5px] tabular-nums">
+        <div className="flex flex-col gap-0.5 text-[13px] tabular-nums">
           <span className="whitespace-nowrap">{fmtMoney(o.price, o.currency)}</span>
           {o.surcharges.map((s) => (
             <span key={s.label} className="whitespace-nowrap text-slate-500">
@@ -156,7 +156,7 @@ export const CollectionTariffsDrawer = ({ open, quote, hubs, quoteCurrency, toQu
         </TariffDrawerField>
       </div>
 
-      <div className="text-[11.5px] text-slate-400">
+      <div className="text-[12px] text-slate-400">
         {route.leg === "collection" ? "A collection runs from the customer to our hub" : "A delivery runs from our hub to the customer"}
         {route.freightMode ? ` (our ${FREIGHT_LABEL[route.freightMode]} hub)` : ""}. Our hubs are set on Tariffs → Last / First Mile Collections; a change here is for this quote only. Each tariff charges the
         higher of the real weight and its own volume weight, and adds its surcharges (e.g. a long piece).

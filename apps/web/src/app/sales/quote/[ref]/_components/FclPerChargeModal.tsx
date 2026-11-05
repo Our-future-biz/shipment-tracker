@@ -124,7 +124,7 @@ export function FclPerChargeModal({ block, quote, sheet, live, currency, onClose
                         onChange={(mode: FclProfit["mode"]) => put(c.index, { mode, value: mode === "sum" ? c.profit : (c.percent ?? 0) })}
                       />
                     </div>
-                    <span className="text-[10.5px] text-slate-400">
+                    <span className="text-[11px] text-slate-400">
                       {p.mode === "percent" ? fmtMoney(c.profit, currency) : c.percent !== null ? `${c.percent} %` : ""}
                     </span>
                   </td>

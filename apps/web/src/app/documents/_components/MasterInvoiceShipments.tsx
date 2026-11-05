@@ -120,7 +120,7 @@ export function MasterInvoiceShipments({
                           aria-label={`Tick ${r.jobNumber}`}
                         />
                       </td>
-                      <td className="p-2 font-mono">{r.jobNumber}</td>
+                      <td className="p-2 tabular-nums">{r.jobNumber}</td>
                       <td className="p-2 max-w-[220px] truncate" title={r.party}>
                         {r.party || "—"}
                       </td>

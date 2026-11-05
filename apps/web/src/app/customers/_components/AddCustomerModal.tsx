@@ -401,11 +401,11 @@ export function AddCustomerModal({
                   Change
                 </Button>
               </div>
-              <div className="text-[15px] font-semibold text-slate-800 mb-1">
+              <div className="text-[14px] font-semibold text-slate-800 mb-1">
                 {preview.companyName || "—"}
               </div>
               <CustomerInfoRow label="IČO">
-                <span className="font-mono">{preview.ico}</span>
+                <span className="tabular-nums">{preview.ico}</span>
               </CustomerInfoRow>
               <CustomerInfoRow label="DIČ (VAT ID)">{preview.dic}</CustomerInfoRow>
               <CustomerInfoRow label="Address">{preview.street}</CustomerInfoRow>

@@ -71,7 +71,7 @@ export function ExceptionList({ m, onResolve }: { m: GateMovement; onResolve?: (
               <span className="font-semibold text-slate-800 tabular-nums">
                 {e.pieces} pc{e.pieces === 1 ? "" : "s"}
               </span>
-              {e.container && <span className="font-mono text-slate-500">{e.container}</span>}
+              {e.container && <span className="tabular-nums text-slate-500">{e.container}</span>}
               <Badge tone={open ? "r" : "g"}>{open ? "Open — on hold" : "Resolved"}</Badge>
               {open && onResolve && (
                 <button type="button" className={`${btnInline} ml-auto`} onClick={() => onResolve(e)}>

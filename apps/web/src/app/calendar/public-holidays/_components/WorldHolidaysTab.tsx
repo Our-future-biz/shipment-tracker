@@ -62,7 +62,7 @@ export function WorldHolidaysTab({ items, loading }: WorldHolidaysTabProps) {
 
   const columns: ColumnsType<HolidayItem> = [
     { title: "Country", dataIndex: "country", width: 160, fixed: "left", sorter: byText("country"), render: (v: string) => <span className="font-semibold">{textCell(v)}</span> },
-    { title: "Country code", dataIndex: "countryCode", width: 110, sorter: byText("countryCode"), render: (v: string) => (v ? <span className="font-mono">{v}</span> : dash) },
+    { title: "Country code", dataIndex: "countryCode", width: 110, sorter: byText("countryCode"), render: (v: string) => (v ? <span className="tabular-nums">{v}</span> : dash) },
     { title: "National holiday", dataIndex: "nationalHoliday", width: 220, sorter: byText("nationalHoliday"), render: textCell },
     { title: "National start date", dataIndex: "nationalStart", width: 140, sorter: byText("nationalStart"), defaultSortOrder: "ascend", render: dateCell },
     { title: "National end date", dataIndex: "nationalEnd", width: 140, sorter: byText("nationalEnd"), render: dateCell },

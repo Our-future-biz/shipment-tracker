@@ -31,7 +31,7 @@ export function FloorPinCheck({ m, onBack }: { m: GateMovement; onBack: () => vo
       <div className="flex flex-col gap-4">
         <FloorBack onBack={onBack} title={TERMS.pickupPin} />
         <FloorCard>
-          <div className="text-[15px] text-slate-600">No pick-up from Shipments on this position.</div>
+          <div className="text-[14px] text-slate-600">No pick-up from Shipments on this position.</div>
         </FloorCard>
       </div>
     );
@@ -56,9 +56,9 @@ export function FloorPinCheck({ m, onBack }: { m: GateMovement; onBack: () => vo
   };
 
   const row = (k: string, v: string, mono = false) => (
-    <div className="flex items-baseline gap-2 py-1 text-[15px]">
+    <div className="flex items-baseline gap-2 py-1 text-[14px]">
       <span className="w-28 shrink-0 text-slate-500">{k}</span>
-      <span className={`min-w-0 flex-1 break-words font-semibold ${mono ? "font-mono" : ""}`}>{v || "—"}</span>
+      <span className={`min-w-0 flex-1 break-words font-semibold ${mono ? "tabular-nums" : ""}`}>{v || "—"}</span>
     </div>
   );
 
@@ -67,7 +67,7 @@ export function FloorPinCheck({ m, onBack }: { m: GateMovement; onBack: () => vo
       <FloorBack onBack={onBack} title={TERMS.pickupPin} />
       <FloorCard title="Pick-up from Shipments">
         {p.rows.length === 0 ? (
-          <div className="text-[15px] text-slate-500">No pick-up entered in Shipments yet.</div>
+          <div className="text-[14px] text-slate-500">No pick-up entered in Shipments yet.</div>
         ) : (
           p.rows.map((r, i) => (
             <div key={i} className="border-b border-slate-100 pb-1 last:border-b-0">
@@ -101,7 +101,7 @@ export function FloorPinCheck({ m, onBack }: { m: GateMovement; onBack: () => vo
               disabled={!p.pinSet || p.locked || verifyPin.isPending}
               onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
               onKeyDown={(e) => e.key === "Enter" && check()}
-              className="h-14 rounded-xl border border-slate-300 px-4 text-center font-mono text-[24px] tracking-[0.4em]"
+              className="h-14 rounded-xl border border-slate-300 px-4 text-center tabular-nums text-[24px] tracking-[0.4em]"
             />
             <button type="button" className={bigPrimary} disabled={!canCheck} onClick={check}>
               {verifyPin.isPending ? "Checking…" : "Check PIN"}

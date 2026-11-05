@@ -91,7 +91,7 @@ const refColumn = {
   width: 180,
   render: (_: unknown, r: SalesCockpitRow) => (
     <div className="flex flex-col items-start gap-1 min-w-0">
-      <Link href={rowHref(r)} className={`${r.kind === "quote" ? "font-mono" : ""} font-bold text-indigo-600 hover:underline`}>
+      <Link href={rowHref(r)} className={`${r.kind === "quote" ? "tabular-nums" : ""} font-bold text-indigo-600 hover:underline`}>
         {r.ref}
       </Link>
       {r.kind === "quote" && !r.status ? (
@@ -126,7 +126,7 @@ const signalsColumn = {
   render: (_: unknown, r: SalesCockpitRow) => (
     <div className="flex flex-col gap-1 min-w-0">
       {tagList(r)}
-      <div className="text-[11.5px] text-slate-500 truncate">
+      <div className="text-[12px] text-slate-500 truncate">
         {[r.customer, r.ownerName || (r.kind === "quote" ? "no Sales Owner" : "nobody assigned"), r.sellingCzk ? czk(r.sellingCzk) : ""].filter(Boolean).join(" · ")}
       </div>
     </div>

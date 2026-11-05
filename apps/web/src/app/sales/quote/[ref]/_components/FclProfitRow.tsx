@@ -25,12 +25,12 @@ export function FclProfitRow({ block, priced, setting, currency, closed, onSetti
   const times = (amount: number) => fmtMoney(roundCents(amount * block.units), currency);
   const figure = (label: string, amount: number, strong = false) => (
     <div className="flex flex-col items-end min-w-[120px] px-3 py-1.5 rounded-md border border-slate-200 bg-white">
-      <span className="text-[10.5px] font-bold uppercase tracking-wide text-slate-500">
+      <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
         {label}
         {per}
       </span>
       <span className={`tabular-nums ${strong ? "text-[14px] font-bold text-slate-900" : "text-[13px] font-semibold text-slate-700"}`}>{fmtMoney(amount, currency)}</span>
-      {many && <span className="text-[10.5px] text-slate-400 tabular-nums">× {block.units} = {times(amount)}</span>}
+      {many && <span className="text-[11px] text-slate-400 tabular-nums">× {block.units} = {times(amount)}</span>}
     </div>
   );
   return (

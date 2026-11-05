@@ -44,6 +44,6 @@ export const PriceSnapshotTable = ({ price }: PriceSnapshotTableProps) => (
         </tr>
       </tbody>
     </table>
-    {price.currency !== "CZK" && <div className="px-3 pb-2 text-[11.5px] text-slate-500">= {formatMoney(price.totalCzk, "CZK")}</div>}
+    {price.currency !== "CZK" && <div className="px-3 pb-2 text-[12px] text-slate-500">= {formatMoney(price.totalCzk, "CZK")}</div>}
   </div>
 );

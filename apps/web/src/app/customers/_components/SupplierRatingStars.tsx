@@ -18,7 +18,7 @@ export function SupplierRatingStars({ rating }: SupplierRatingStarsProps) {
           </span>
         ))}
       </span>
-      <span aria-hidden className={`font-mono text-[11px] tabular-nums ${rating === 0 ? "font-medium text-red-600" : "text-slate-500"}`}>
+      <span aria-hidden className={`text-[11px] tabular-nums ${rating === 0 ? "font-medium text-red-600" : "text-slate-500"}`}>
         {rating}/5
       </span>
     </span>

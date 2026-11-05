@@ -61,7 +61,7 @@ export function ShipmentReportsTab() {
     {
       title: "Internal Reference",
       dataIndex: "jobNumber",
-      render: (v: string) => <span className="font-mono text-xs text-indigo-500">{v}</span>,
+      render: (v: string) => <span className="tabular-nums text-xs text-indigo-500">{v}</span>,
     },
     { title: "Customer", dataIndex: "customer", render: (v: string) => v || <span className="text-slate-300">—</span> },
     { title: "Freight Mode", dataIndex: "freightMode", render: (v: string) => v || <span className="text-slate-300">—</span> },
@@ -112,7 +112,7 @@ export function ShipmentReportsTab() {
       title: "ČNB average used",
       key: "avg",
       render: (_: unknown, m) => (
-        <span className="text-slate-500 text-[12.5px] whitespace-nowrap">
+        <span className="text-slate-500 text-[13px] whitespace-nowrap">
           {m.averages.map((a) => `${a.currency} ${a.average.toFixed(3)}`).join(" · ") || "—"}
           {!m.final && <span className="ml-1.5 text-[11px] font-semibold text-warn">provisional</span>}
         </span>
@@ -154,7 +154,7 @@ export function ShipmentReportsTab() {
           allowClear
           className="max-w-xs"
         />
-        <span className="text-[12.5px] text-slate-500">
+        <span className="text-[13px] text-slate-500">
           CZK at each month&apos;s ČNB average (fixing days, no ROE %) · by ATA (import) / ATD (export)
           {totals.provisional > 0 && ` · ${totals.provisional} provisional (no ATA / ATD or delivery yet)`}
           {data?.undated ? ` · ${data.undated} job${data.undated === 1 ? "" : "s"} without any date not shown` : ""}
@@ -164,7 +164,7 @@ export function ShipmentReportsTab() {
       {isError && <Alert type="error" showIcon className="mb-4" message="Could not load the job profit report." />}
 
       {unconverted.length > 0 && (
-        <div className="text-[12.5px] text-warn-ink bg-warn-soft border border-warn/40 rounded-xl px-4 py-2.5 mb-4">
+        <div className="text-[13px] text-warn-ink bg-warn-soft border border-warn/40 rounded-xl px-4 py-2.5 mb-4">
           No ČNB average for {unconverted.join(", ")} — those amounts are left out (marked *).
         </div>
       )}

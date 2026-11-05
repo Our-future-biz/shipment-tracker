@@ -81,7 +81,7 @@ export const ExceptionDecideModal = ({ exception, manager, internal, jobNumber, 
         <TruckingField label="Reason">
           <Input.TextArea aria-label="Reason" autoSize={{ minRows: 2, maxRows: 5 }} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
         </TruckingField>
-        {!manager && <p className="m-0 text-[11.5px] text-slate-500">Charging the customer, claiming from the haulier or absorbing a cost above 0 is a manager&apos;s decision.</p>}
+        {!manager && <p className="m-0 text-[12px] text-slate-500">Charging the customer, claiming from the haulier or absorbing a cost above 0 is a manager&apos;s decision.</p>}
         {!state.allowed && reason.trim().length >= 3 && <p className="m-0 text-[12px] text-red-600">{state.reason}</p>}
       </div>
     </Modal>

@@ -74,7 +74,7 @@ export const TruckingInternalBillingTab = () => {
               <td className="px-4 py-2 text-right tabular-nums">{monthCount(m)}</td>
               <td className="px-4 py-2 text-slate-600">{m.totals.map((t) => `${t.department} ${formatMoney(t.amount, "CZK")} (${t.count})`).join(" · ") || "—"}</td>
               <td className="px-4 py-2 text-right font-semibold tabular-nums">{formatMoney(monthTotal(m), "CZK")}</td>
-              <td className="px-4 py-2 font-mono text-[12px] text-slate-600">{m.statementNumbers.join(", ") || "—"}</td>
+              <td className="px-4 py-2 tabular-nums text-[12px] text-slate-600">{m.statementNumbers.join(", ") || "—"}</td>
             </tr>
           ))}
         </tbody>

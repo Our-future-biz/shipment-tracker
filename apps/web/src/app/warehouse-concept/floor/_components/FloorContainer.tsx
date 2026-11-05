@@ -49,7 +49,7 @@ export function FloorContainer({ id }: { id: string }) {
   const toast = useToast();
 
   if (!c) {
-    return <div className="py-10 text-center text-[15px] text-slate-500">{isLoading ? "Loading…" : "Container not found (or not loaded while offline)."}</div>;
+    return <div className="py-10 text-center text-[14px] text-slate-500">{isLoading ? "Loading…" : "Container not found (or not loaded while offline)."}</div>;
   }
   const kind = containerKind(c.direction);
   const waiting = pendingInContainer(q.items, c.id);
@@ -84,7 +84,7 @@ export function FloorContainer({ id }: { id: string }) {
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
             <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Container</div>
-            <div className="break-all font-mono text-[22px] font-bold leading-tight text-slate-900">{c.number}</div>
+            <div className="break-all tabular-nums text-[22px] font-bold leading-tight text-slate-900">{c.number}</div>
           </div>
           <Badge tone={CONTAINER_STATUS_TONE[c.status] ?? ""} className="!text-[12px]">
             {c.status}
@@ -95,7 +95,7 @@ export function FloorContainer({ id }: { id: string }) {
             {KIND_LABEL[kind]}
           </Badge>
           <span>{c.equipment || "—"}</span>
-          {c.seal && <span className="font-mono">seal {c.seal}</span>}
+          {c.seal && <span className="tabular-nums">seal {c.seal}</span>}
           {waiting.length > 0 && <span className="font-semibold text-amber-700">{waiting.length} waiting to send</span>}
         </div>
         <div className="mt-3 grid grid-cols-3 gap-2 text-center">
@@ -224,7 +224,7 @@ function TallyList({ c, report }: { c: WarehouseContainer; report: (res: SubmitR
                   <span className="h-6 w-6 rounded-full border-2 border-indigo-500" />
                 )}
                 <span className="min-w-0 flex-1">
-                  <span className="block font-mono text-[16px] font-bold text-slate-900">{ref}</span>
+                  <span className="block tabular-nums text-[16px] font-bold text-slate-900">{ref}</span>
                   <span className="block truncate text-[13px] text-slate-600">
                     {h.customer || "—"} · {nf(h.pieces)} pcs expected
                   </span>
@@ -285,7 +285,7 @@ function TallyList({ c, report }: { c: WarehouseContainer; report: (res: SubmitR
             </li>
           );
         })}
-        {c.positions.length === 0 && <li className="px-4 py-3 text-[15px] text-slate-500">No houses in this container — they are added on the container page.</li>}
+        {c.positions.length === 0 && <li className="px-4 py-3 text-[14px] text-slate-500">No houses in this container — they are added on the container page.</li>}
       </ul>
     </FloorCard>
   );
@@ -326,7 +326,7 @@ function StuffList({ c, report }: { c: WarehouseContainer; report: (res: SubmitR
             <li key={h.id} className="flex items-center gap-3 border-t border-slate-100 px-4 py-3 first:border-t-0">
               <span className="w-6 text-center text-[14px] font-bold tabular-nums text-slate-400">{i + 1}</span>
               <span className="min-w-0 flex-1">
-                <span className="block font-mono text-[16px] font-bold text-slate-900">{ref}</span>
+                <span className="block tabular-nums text-[16px] font-bold text-slate-900">{ref}</span>
                 <span className="block truncate text-[13px] text-slate-600">
                   {h.customer || "—"} · {nf(h.pieces)} pcs · {nf(h.weightKg)} kg
                 </span>
@@ -337,7 +337,7 @@ function StuffList({ c, report }: { c: WarehouseContainer; report: (res: SubmitR
                 aria-pressed={!!h.stuffedAt}
                 disabled={!!blocked || busy === h.movementId}
                 onClick={() => toggle(h)}
-                className={`min-h-[48px] min-w-[112px] rounded-xl border px-3 text-[15px] font-bold cursor-pointer disabled:opacity-50 ${
+                className={`min-h-[48px] min-w-[112px] rounded-xl border px-3 text-[14px] font-bold cursor-pointer disabled:opacity-50 ${
                   h.stuffedAt ? "border-emerald-500 bg-emerald-50 text-emerald-700" : "border-indigo-500 bg-indigo-600 text-white"
                 }`}
               >
@@ -346,7 +346,7 @@ function StuffList({ c, report }: { c: WarehouseContainer; report: (res: SubmitR
             </li>
           );
         })}
-        {c.positions.length === 0 && <li className="px-4 py-3 text-[15px] text-slate-500">Nothing planned — the stuffing plan is made on the container page.</li>}
+        {c.positions.length === 0 && <li className="px-4 py-3 text-[14px] text-slate-500">Nothing planned — the stuffing plan is made on the container page.</li>}
       </ul>
     </FloorCard>
   );

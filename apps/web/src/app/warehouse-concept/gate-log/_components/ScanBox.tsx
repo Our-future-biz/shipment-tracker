@@ -161,7 +161,7 @@ export function ScanBox({
           {result.matches.map((m) => (
             <li key={m.id}>
               <Link href={scanHref(target, m.id)} className={large ? `${btnInline} !min-h-[48px] !px-3 !text-sm` : btnInline}>
-                <span className="font-mono font-semibold text-indigo-500">{m.positionRef || m.gateRef}</span>
+                <span className="tabular-nums font-semibold text-indigo-500">{m.positionRef || m.gateRef}</span>
                 <span className="text-slate-500">{m.customer || "—"}</span>
               </Link>
             </li>

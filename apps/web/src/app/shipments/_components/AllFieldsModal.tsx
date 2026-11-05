@@ -25,7 +25,7 @@ export function AllFieldsModal({
       width={900}
       title={
         <span className="text-sm">
-          All fields · <span className="font-mono text-slate-500">{shipment.jobNumber ?? shipment.id}</span>
+          All fields · <span className="tabular-nums text-slate-500">{shipment.jobNumber ?? shipment.id}</span>
         </span>
       }
     >

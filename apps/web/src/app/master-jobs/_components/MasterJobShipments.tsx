@@ -55,7 +55,7 @@ export function MasterJobShipments({ masterJob, shipments, onLink, onUnlink }: M
               {shipments.map((s) => (
                 <tr key={s.id} className="border-b border-slate-100 last:border-b-0">
                   <td className={TD}>
-                    <Link href={`/shipments/${s.id}`} className="font-mono font-semibold text-indigo-600 hover:underline">
+                    <Link href={`/shipments/${s.id}`} className="tabular-nums font-semibold text-indigo-600 hover:underline">
                       {s.jobNumber}
                     </Link>
                   </td>
@@ -63,7 +63,7 @@ export function MasterJobShipments({ masterJob, shipments, onLink, onUnlink }: M
                   <td className={TD}>{s.shipper || "—"}</td>
                   <td className={TD}>{s.consignee || "—"}</td>
                   <td className={TD}>{s.tradeDirection || "—"}</td>
-                  <td className={`${TD} font-mono`}>{s.containerNumber || "—"}</td>
+                  <td className={`${TD} tabular-nums`}>{s.containerNumber || "—"}</td>
                   <td className="px-2 py-2 text-right">
                     <Popconfirm
                       title={`Remove ${s.jobNumber} from ${masterJob.mczNumber}?`}
@@ -172,7 +172,7 @@ function AddShipmentsModal({ open, masterJob, linkedIds, onClose, onLink }: AddS
                 className="flex items-center gap-3 px-3 py-2 border-b border-slate-100 last:border-b-0 text-xs cursor-pointer hover:bg-slate-50"
               >
                 <Checkbox value={s.id} />
-                <span className="font-mono font-semibold w-[110px] shrink-0">{s.jobNumber}</span>
+                <span className="tabular-nums font-semibold w-[110px] shrink-0">{s.jobNumber}</span>
                 <span className="flex-1 min-w-0 truncate text-slate-700">{s.customer || s.shipper || "—"}</span>
                 <span className="w-[120px] shrink-0 text-slate-500 truncate">
                   {[s.pol, s.pod].filter(Boolean).join(" → ")}

@@ -232,17 +232,17 @@ function DockSchedule() {
 
   const gateLink = (s: DockSlot) =>
     s.movementId ? (
-      <Link href={`/warehouse-concept/gate-log/${s.movementId}`} onClick={(e) => e.stopPropagation()} className="font-mono font-bold text-indigo-500 hover:underline">
+      <Link href={`/warehouse-concept/gate-log/${s.movementId}`} onClick={(e) => e.stopPropagation()} className="tabular-nums font-bold text-indigo-500 hover:underline">
         {s.positionRef || s.reference || "Position"}
       </Link>
     ) : s.reference ? (
-      <span className="font-mono font-bold text-slate-600">{s.reference}</span>
+      <span className="tabular-nums font-bold text-slate-600">{s.reference}</span>
     ) : (
       dim("")
     );
 
   const columns: AppGridColumn<DockSlot>[] = [
-    { key: "time", title: "Time", width: 110, text: (s) => `${s.time}${s.end ? `–${s.end}` : ""}`, render: (_, s) => <span className="font-mono text-slate-700">{s.time}{s.end ? `–${s.end}` : ""}</span> },
+    { key: "time", title: "Time", width: 110, text: (s) => `${s.time}${s.end ? `–${s.end}` : ""}`, render: (_, s) => <span className="tabular-nums text-slate-700">{s.time}{s.end ? `–${s.end}` : ""}</span> },
     { key: "dock", title: "Dock", width: 100, text: (s) => s.dock, filterOptions: docks, render: (_, s) => dim(s.dock) },
     { key: "direction", title: "Direction", width: 100, text: (s) => s.direction, filterOptions: ["IN", "OUT"], render: (_, s) => <StatusTag value={s.direction} colors={{ IN: "blue", OUT: "purple" }} /> },
     { key: "reference", title: "Position", width: 170, text: (s) => s.positionRef || s.reference, render: (_, s) => gateLink(s) },
@@ -399,7 +399,7 @@ function YardPark() {
   ];
 
   const columns: AppGridColumn<WarehouseContainer>[] = [
-    { key: "number", title: "Container", width: 160, text: (c) => c.number, render: (_, c) => <span className="font-mono font-bold text-indigo-500">{c.number}</span> },
+    { key: "number", title: "Container", width: 160, text: (c) => c.number, render: (_, c) => <span className="tabular-nums font-bold text-indigo-500">{c.number}</span> },
     { key: "carrier", title: "Carrier", width: 140, text: (c) => c.carrier, render: (_, c) => dim(c.carrier) },
     { key: "equipment", title: "Type", width: 100, text: (c) => c.equipment, filterOptions: CONTAINER_TYPES, render: (_, c) => dim(c.equipment) },
     { key: "yardState", title: "State", width: 190, text: (c) => c.yardState, render: (_, c) => dim(c.yardState) },
@@ -419,7 +419,7 @@ function YardPark() {
               e.stopPropagation();
               router.push(c.movementId ? `/warehouse-concept/gate-log/${c.movementId}` : `/warehouse-concept/${c.warehouseTaskId}`);
             }}
-            className="font-mono font-bold text-indigo-500 hover:underline cursor-pointer"
+            className="tabular-nums font-bold text-indigo-500 hover:underline cursor-pointer"
           >
             {c.positionRef}
           </span>
@@ -505,7 +505,7 @@ function Resources() {
     { key: "status", title: "Status", width: 130, text: (s) => s.status, render: (_, s) => <StatusTag value={s.status} colors={STAFF_COLORS} /> },
   ];
   const equipmentColumns: AppGridColumn<Equipment>[] = [
-    { key: "code", title: "ID", width: 100, text: (e) => e.code, render: (_, e) => <span className="font-mono font-bold text-indigo-500">{e.code}</span> },
+    { key: "code", title: "ID", width: 100, text: (e) => e.code, render: (_, e) => <span className="tabular-nums font-bold text-indigo-500">{e.code}</span> },
     { key: "kind", title: "Equipment", width: 190, text: (e) => e.kind, render: (_, e) => dim(e.kind) },
     { key: "status", title: "Status", width: 120, text: (e) => e.status, filterOptions: EQUIPMENT_STATUSES, render: (_, e) => <StatusTag value={e.status} colors={EQUIPMENT_COLORS} /> },
     { key: "operator", title: "Operator", width: 140, text: (e) => e.operator, render: (_, e) => dim(e.operator) },

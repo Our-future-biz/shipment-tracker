@@ -33,7 +33,7 @@ export function HeaderStrip({
   const remWm = remeasured ? wm(remeasured) : 0;
   const item = (label: string, value: React.ReactNode) => (
     <div className="min-w-0">
-      <div className="text-[10.5px] font-bold uppercase tracking-wide text-slate-400">{label}</div>
+      <div className="text-[11px] font-bold uppercase tracking-wide text-slate-400">{label}</div>
       <div className="text-[13px] font-semibold text-slate-900 mt-0.5 break-words">{value}</div>
     </div>
   );
@@ -46,22 +46,22 @@ export function HeaderStrip({
             <ArrowLeftOutlined />
           </button>
           {m ? (
-            <Link href={`/warehouse-concept/gate-log/${m.id}`} className="font-mono text-[18px] font-bold text-indigo-600 hover:underline" title="Open the gate job">
+            <Link href={`/warehouse-concept/gate-log/${m.id}`} className="tabular-nums text-[18px] font-bold text-indigo-600 hover:underline" title="Open the gate job">
               {ref}
             </Link>
           ) : (
-            <span className="font-mono text-[18px] font-bold text-slate-800">{ref}</span>
+            <span className="tabular-nums text-[18px] font-bold text-slate-800">{ref}</span>
           )}
         </div>
         {item(
           TERMS.jobNo,
           jobNo ? (
             task.shipmentId ? (
-              <Link href={`/shipments/${task.shipmentId}`} className="font-mono text-indigo-500 hover:underline">
+              <Link href={`/shipments/${task.shipmentId}`} className="tabular-nums text-indigo-500 hover:underline">
                 {jobNo}
               </Link>
             ) : (
-              <span className="font-mono">{jobNo}</span>
+              <span className="tabular-nums">{jobNo}</span>
             )
           ) : (
             <span className="text-slate-300">{task.shipmentId ? "—" : "stand-alone"}</span>

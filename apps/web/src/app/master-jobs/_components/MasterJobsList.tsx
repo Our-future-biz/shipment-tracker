@@ -89,7 +89,7 @@ export function MasterJobsList({ masterJobs, isLoading, creating, onCreate }: Ma
       width: 140,
       sorter: (a, b) => byText(a.mczNumber, b.mczNumber),
       render: (v: string, m) => (
-        <Link href={openHref(m.id)} className="font-mono font-semibold text-indigo-600 hover:underline">
+        <Link href={openHref(m.id)} className="tabular-nums font-semibold text-indigo-600 hover:underline">
           {v}
         </Link>
       ),

@@ -222,7 +222,7 @@ export function WarehouseSettingsView() {
             <ul className="list-none m-0 p-0 text-xs text-slate-600">
               {settings.events.map((e, i) => (
                 <li key={`${e.at}-${i}`} className="py-1 border-b border-slate-100 last:border-b-0">
-                  <span className="font-mono text-slate-500">{formatDateTime(e.at)}</span>
+                  <span className="tabular-nums text-slate-500">{formatDateTime(e.at)}</span>
                   {e.by ? <span className="text-slate-500"> · {e.by}</span> : null} — {e.label}
                 </li>
               ))}

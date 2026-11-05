@@ -42,7 +42,7 @@ export function ImportLogTab() {
         <tbody>
           {runs.length === 0 && (
             <tr>
-              <td colSpan={6} className="px-4 py-8 text-center text-[13.5px] text-slate-400">No imports yet.</td>
+              <td colSpan={6} className="px-4 py-8 text-center text-[14px] text-slate-400">No imports yet.</td>
             </tr>
           )}
           {runs.map((r) => (

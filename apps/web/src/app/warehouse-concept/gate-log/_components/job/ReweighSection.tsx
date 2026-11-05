@@ -110,7 +110,7 @@ export function ReweighSection({ m, informHref }: { m: GateMovement; /** Shipmen
         <ul className="list-none m-0 mt-2 p-0 text-[11px] text-slate-600">
           {m.reweighs.map((x, i) => (
             <li key={x.id} className={`py-1 border-b border-slate-100 last:border-b-0 ${i > 0 ? "text-slate-400" : ""}`}>
-              <span className="font-mono">{formatDateTime(x.weighedAt)}</span> · {reweighLine(x)}
+              <span className="tabular-nums">{formatDateTime(x.weighedAt)}</span> · {reweighLine(x)}
               {x.weighedBy ? ` · ${x.weighedBy}` : ""}
               {x.note ? ` — ${x.note}` : ""}
               {i === 0 ? " (counts)" : ""}

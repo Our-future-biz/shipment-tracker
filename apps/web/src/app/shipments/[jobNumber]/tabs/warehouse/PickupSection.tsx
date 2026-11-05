@@ -72,7 +72,7 @@ export function PickupSection({ ownerId, messageApi }: { ownerId: string; messag
       <div className="mb-5">
         <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mb-2">PIN</div>
         <Space align="center">
-          <span className="font-mono text-[32px] tracking-[0.3em] text-slate-800">
+          <span className="tabular-nums text-[32px] tracking-[0.3em] text-slate-800">
             {pin ? pin.split("").join(" ") : "– – – –"}
           </span>
           {!pin && <Button type="primary" size="small" onClick={generatePin} loading={isSaving}>Generate PIN</Button>}
@@ -99,7 +99,7 @@ export function PickupSection({ ownerId, messageApi }: { ownerId: string; messag
           {rows.map((row, idx) => (
             <tr key={idx} className="border-b border-slate-100">
               {/* The PIN belongs to the pick-up, so every row carries it. */}
-              <td className="p-0.5 px-1.5 font-mono text-indigo-500">{pin ?? ""}</td>
+              <td className="p-0.5 px-1.5 tabular-nums text-indigo-500">{pin ?? ""}</td>
               {["haulier", "licensePlate", "driver"].map((f) => (
                 <td key={f} className="p-0.5">
                   <Input size="small" value={row[f] || ""} onChange={(e) => update(idx, f, e.target.value)} />

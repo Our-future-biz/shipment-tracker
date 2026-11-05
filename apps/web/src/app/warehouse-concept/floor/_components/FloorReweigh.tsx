@@ -60,7 +60,7 @@ export function FloorReweigh({ m, onBack }: { m: GateMovement; onBack: () => voi
 
       {r && (
         <FloorCard title="Current re-weigh (the one that counts)">
-          <div className="text-[15px] font-semibold text-slate-900">
+          <div className="text-[14px] font-semibold text-slate-900">
             {nf(r.weighedKg, r.weighedKg % 1 ? 1 : 0)} kg{r.variancePct != null ? ` · ${pctText(r.variancePct)}` : ""}
             {r.flagged ? <span className="text-amber-700"> · variance</span> : null}
           </div>
@@ -72,7 +72,7 @@ export function FloorReweigh({ m, onBack }: { m: GateMovement; onBack: () => voi
       )}
 
       <FloorCard title="Weighed gross kg">
-        <div className="mb-3 rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-right font-mono text-[32px] font-bold tabular-nums text-slate-900" aria-live="polite" aria-label="Weighed kg">
+        <div className="mb-3 rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-right text-[32px] font-bold tabular-nums text-slate-900" aria-live="polite" aria-label="Weighed kg">
           {value || <span className="text-slate-300">0</span>} <span className="text-[18px] text-slate-500">kg</span>
         </div>
         <div className="grid grid-cols-3 gap-2" role="group" aria-label="Keypad">

@@ -107,7 +107,7 @@ export function ContainerDetail({ id }: { id: string }) {
             </button>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-[22px] font-bold text-slate-800 m-0 font-mono">{c.number}</h1>
+                <h1 className="text-[22px] font-bold text-slate-800 m-0 tabular-nums">{c.number}</h1>
                 <Badge tone={kind === "export" ? "i" : "b"}>{KIND_LABEL[kind]}</Badge>
                 <Badge tone={CONTAINER_STATUS_TONE[c.status] ?? ""}>{c.status}</Badge>
               </div>
@@ -116,7 +116,7 @@ export function ContainerDetail({ id }: { id: string }) {
                   Type <span className="font-semibold text-slate-800">{c.equipment || "—"}</span>
                 </span>
                 <span>
-                  Seal <span className="font-mono font-semibold text-slate-800">{c.seal || "—"}</span>
+                  Seal <span className="tabular-nums font-semibold text-slate-800">{c.seal || "—"}</span>
                 </span>
                 {(c.vessel || c.voyage) && (
                   <span>
@@ -125,12 +125,12 @@ export function ContainerDetail({ id }: { id: string }) {
                 )}
                 {(c.bookingNumber || c.mblNumber) && (
                   <span>
-                    Booking / MBL <span className="font-mono font-semibold text-slate-800">{[c.bookingNumber, c.mblNumber].filter(Boolean).join(" / ")}</span>
+                    Booking / MBL <span className="tabular-nums font-semibold text-slate-800">{[c.bookingNumber, c.mblNumber].filter(Boolean).join(" / ")}</span>
                   </span>
                 )}
                 {c.plate && (
                   <span>
-                    {TERMS.plate} <span className="font-mono font-semibold text-slate-800">{c.plate}</span>
+                    {TERMS.plate} <span className="tabular-nums font-semibold text-slate-800">{c.plate}</span>
                   </span>
                 )}
                 {c.daysOnYard != null && <span>{c.daysOnYard} days on the yard</span>}
@@ -282,9 +282,9 @@ export function ContainerDetail({ id }: { id: string }) {
 function StampTag({ label, at, by, onVoid, voidReason }: { label: string; at: string; by: string; onVoid?: () => void; voidReason: string | null }) {
   const tag = (
     <Tag color="success" icon={<CheckCircleOutlined />} className={`m-0 !px-2 !py-1 !text-[12px] ${onVoid ? "cursor-pointer" : ""}`}>
-      <span className="font-semibold">{label}</span> <span className="font-mono">{formatDateTime(at)}</span>
+      <span className="font-semibold">{label}</span> <span className="tabular-nums">{formatDateTime(at)}</span>
       {by ? ` · ${by}` : ""}
-      {onVoid && <DownOutlined className="ml-1 text-[9px]" />}
+      {onVoid && <DownOutlined className="ml-1 text-[10px]" />}
     </Tag>
   );
   if (!onVoid) return tag;
@@ -340,7 +340,7 @@ function SealPlateModal({
       <p className="text-xs text-slate-500 mt-0">{containerStampWrites(c, kind, close ? "" : value.trim())} The stamp needs a connection and is logged; only a manager can void it.</p>
       <label className="flex flex-col gap-1 text-xs">
         <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{close ? "Seal number (required)" : `Truck ${TERMS.plate.toLowerCase()} (optional)`}</span>
-        <Input autoFocus value={value} maxLength={close ? 50 : 30} className="font-mono" onChange={(e) => setValue(e.target.value)} />
+        <Input autoFocus value={value} maxLength={close ? 50 : 30} className="tabular-nums" onChange={(e) => setValue(e.target.value)} />
       </label>
     </Modal>
   );
@@ -380,7 +380,7 @@ function ContainerHistory({ c }: { c: WarehouseContainer }) {
         <ul className="list-none m-0 p-0">
           {events.map((e, i) => (
             <li key={`${e.at}-${i}`} className="py-1.5 border-b border-slate-100 last:border-b-0 text-xs flex flex-wrap gap-x-3">
-              <span className="font-mono text-slate-500 w-[120px] shrink-0">{formatDateTime(e.at)}</span>
+              <span className="tabular-nums text-slate-500 w-[120px] shrink-0">{formatDateTime(e.at)}</span>
               <span className="font-semibold text-slate-800">{e.label}</span>
               {e.by && <span className="text-slate-500">{e.by}</span>}
               {e.detail && <span className="basis-full pl-[132px] text-[11px] text-slate-500 break-words">{e.detail}</span>}

@@ -69,7 +69,7 @@ const buildColumns = (vehicleLabel: (code: string) => string): AppGridColumn<Hau
       if (!summary) return <span className="text-slate-400">—</span>;
       return (
         <Tooltip title={summary.more ? h.issues.map((i) => i.message).join(" · ") : undefined}>
-          <span className="text-[12.5px] text-slate-700">
+          <span className="text-[13px] text-slate-700">
             {summary.first}
             {summary.more > 0 && <span className="ml-1 font-semibold text-slate-500">+{summary.more}</span>}
           </span>

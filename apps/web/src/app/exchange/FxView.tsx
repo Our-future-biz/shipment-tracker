@@ -19,20 +19,20 @@ const SYNC_ROLES = ["superadmin", "admin", "manager"];
 function SyncPill({ sync }: { sync: FxOverview["sync"] }) {
   if (sync.state === "ok") {
     return (
-      <span className="text-[12.5px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-600 rounded-md px-2 py-0.5">
+      <span className="text-[13px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-600 rounded-md px-2 py-0.5">
         Up to date · fixing {formatDate(sync.latestFixing)}
       </span>
     );
   }
   if (sync.state === "failed" || sync.state === "empty") {
     return (
-      <span className="text-[12.5px] font-semibold text-red-700 bg-red-50 border border-red-600 rounded-md px-2 py-0.5">
+      <span className="text-[13px] font-semibold text-red-700 bg-red-50 border border-red-600 rounded-md px-2 py-0.5">
         {sync.state === "empty" ? "No rates imported yet" : `Last sync failed ${formatDateTime(sync.lastRunAt)}`}
       </span>
     );
   }
   return (
-    <span className="text-[12.5px] font-semibold text-warn bg-warn-soft border border-warn rounded-md px-2 py-0.5">
+    <span className="text-[13px] font-semibold text-warn bg-warn-soft border border-warn rounded-md px-2 py-0.5">
       Waiting for ČNB fixing of {formatDate(sync.expectedFixing)}
     </span>
   );
@@ -53,7 +53,7 @@ function SyncWarning({ sync }: { sync: FxOverview["sync"] }) {
   return (
     <div
       className={
-        "rounded-xl px-4 py-3 text-[13.5px] border " +
+        "rounded-xl px-4 py-3 text-[14px] border " +
         (failed ? "bg-red-50 border-red-300 text-red-800" : "bg-warn-soft border-warn/40 text-warn-ink")
       }
     >
@@ -66,7 +66,7 @@ function SyncWarning({ sync }: { sync: FxOverview["sync"] }) {
 function AlertBanner({ alerts }: { alerts: FxOverview["alerts"] }) {
   if (!alerts.length) return null;
   return (
-    <div className="rounded-xl px-4 py-3 text-[13.5px] border bg-red-50 border-red-300 text-red-800 flex flex-col gap-1">
+    <div className="rounded-xl px-4 py-3 text-[14px] border bg-red-50 border-red-300 text-red-800 flex flex-col gap-1">
       {alerts.map((a) => (
         <div key={a.id}>
           <span className="font-semibold">ČNB rates missing for {formatDate(a.fixingDate)}</span> — {a.reason}.{" "}
@@ -75,7 +75,7 @@ function AlertBanner({ alerts }: { alerts: FxOverview["alerts"] }) {
           </span>
         </div>
       ))}
-      <div className="text-[12.5px] text-red-700/80">This closes by itself once the rates are imported (Sync now, or the next day&apos;s pull).</div>
+      <div className="text-[13px] text-red-700/80">This closes by itself once the rates are imported (Sync now, or the next day&apos;s pull).</div>
     </div>
   );
 }

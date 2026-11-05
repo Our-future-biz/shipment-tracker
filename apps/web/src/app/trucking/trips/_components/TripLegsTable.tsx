@@ -47,7 +47,7 @@ export const TripLegsTable = ({ trip }: TripLegsTableProps) => {
             <tr key={l.legId} className="border-b border-slate-100 last:border-b-0">
               <td className={`${td} tabular-nums text-slate-500`}>{i + 1}</td>
               <td className={td}>
-                <Link href={consignmentHref(l.consignmentId)} className="font-mono font-semibold text-indigo-600 hover:underline">
+                <Link href={consignmentHref(l.consignmentId)} className="tabular-nums font-semibold text-indigo-600 hover:underline">
                   {l.consignmentRef}
                 </Link>
               </td>

@@ -145,7 +145,7 @@ function CostsTotals({ shipment }: ShipmentProps) {
   const { billingCur, totals: t } = useCostsData(shipment);
   return (
     // one block that does not squeeze; its parts wrap only if it is wider than the whole row
-    <div className="ml-auto shrink-0 max-w-full whitespace-nowrap flex flex-wrap items-center gap-x-4 gap-y-1 px-2 py-2.5 text-[12.5px] text-slate-600 tabular-nums">
+    <div className="ml-auto shrink-0 max-w-full whitespace-nowrap flex flex-wrap items-center gap-x-4 gap-y-1 px-2 py-2.5 text-[13px] text-slate-600 tabular-nums">
       <span>Buying <strong className="text-slate-900">{moneyCz(t.buyTotal)}</strong></span>
       <span>Selling <strong className="text-slate-900">{moneyCz(t.sellTotal)}</strong></span>
       <span>

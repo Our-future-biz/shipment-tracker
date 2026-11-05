@@ -53,7 +53,7 @@ export function TariffVersionDatesModal({ open, onClose, version, label, tariffN
       subtitle={tariffName}
       footer={
         <div className="flex items-center justify-end gap-2">
-          {problem && <span className="mr-auto text-[12.5px] text-slate-500">{problem}</span>}
+          {problem && <span className="mr-auto text-[13px] text-slate-500">{problem}</span>}
           <Button disabled={isSaving} onClick={onClose}>
             Cancel
           </Button>

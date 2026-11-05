@@ -82,7 +82,7 @@ const COLUMNS: AppGridColumn<GateMovement>[] = [
     text: (r) => r.gateRef,
     render: (_, r) => (
       <span className="inline-flex items-center gap-1.5">
-        <span className="font-mono font-bold text-indigo-500">{r.gateRef}</span>
+        <span className="tabular-nums font-bold text-indigo-500">{r.gateRef}</span>
         <ShipmentUpdateBadge m={r} />
       </span>
     ),
@@ -112,7 +112,7 @@ const COLUMNS: AppGridColumn<GateMovement>[] = [
     text: (r) => r.mrn,
     render: (_, r) =>
       r.mrn.trim() && r.mrn !== "—" ? (
-        <span className="text-slate-600 font-mono">{r.mrn}</span>
+        <span className="text-slate-600 tabular-nums">{r.mrn}</span>
       ) : mrnMissing(r) ? (
         <span className="text-red-500 font-medium">missing</span>
       ) : (
@@ -147,7 +147,7 @@ const COLUMNS: AppGridColumn<GateMovement>[] = [
       r.pinLocked ? (
         <span className="text-[11px] font-semibold text-red-600">locked</span>
       ) : r.hasPin ? (
-        <span className="font-mono tracking-[2px] text-slate-400">••••</span>
+        <span className="tabular-nums tracking-[2px] text-slate-400">••••</span>
       ) : (
         dim("")
       ),
@@ -313,7 +313,7 @@ export function GateLogView({ embedded, header }: { embedded?: boolean; header?:
               ].join(" ")}
             >
               <div className="flex items-baseline gap-2">
-                <span className={`text-[15px] font-bold uppercase tracking-wide ${on ? "text-indigo-600" : "text-slate-500"}`}>{b.label}:</span>
+                <span className={`text-[14px] font-bold uppercase tracking-wide ${on ? "text-indigo-600" : "text-slate-500"}`}>{b.label}:</span>
                 <span
                   className={`text-[22px] leading-tight font-bold tabular-nums ${
                     b.danger && count > 0 ? "text-red-600" : on ? "text-indigo-700" : "text-slate-900"

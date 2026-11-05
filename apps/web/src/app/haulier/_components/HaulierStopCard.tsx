@@ -15,7 +15,7 @@ const Row = ({ label, value }: { label: BiText; value: string }) =>
       <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
         <Bi text={label} />
       </div>
-      <div className="whitespace-pre-wrap break-words text-[15px] text-slate-900">{value}</div>
+      <div className="whitespace-pre-wrap break-words text-[14px] text-slate-900">{value}</div>
     </div>
   ) : null;
 
@@ -28,7 +28,7 @@ export const HaulierStopCard = ({ title, stop }: HaulierStopCardProps) => {
       <h2 className="m-0 mb-1 text-[13px] font-bold uppercase tracking-wide text-indigo-700">
         <Bi text={title} />
       </h2>
-      <div className="text-[17px] font-semibold text-slate-900">{stop.name}</div>
+      <div className="text-[16px] font-semibold text-slate-900">{stop.name}</div>
       <Row label={{ cs: "Adresa", en: "Address" }} value={address} />
       <Row label={{ cs: "Časové okno", en: "Time window" }} value={window} />
       <Row label={{ cs: "Kontakt", en: "Contact" }} value={[stop.contactName, stop.contactPhone].filter(Boolean).join(" · ")} />

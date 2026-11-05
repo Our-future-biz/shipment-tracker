@@ -14,7 +14,7 @@ import { errorMessage, nf } from "../../gate-log/_lib/gate";
 // buttons and reason box as Customs' review of a document. The answer goes to the one who asked
 // (their notifications) and into the quote's history; until it is approved the quote cannot be sent.
 
-const BUTTON = "inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-200 bg-white text-[12.5px] font-semibold text-slate-700 cursor-pointer transition-colors";
+const BUTTON = "inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-200 bg-white text-[13px] font-semibold text-slate-700 cursor-pointer transition-colors";
 
 type Answering = { key: string; approve: boolean };
 
@@ -94,7 +94,7 @@ export function QuoteInquiries() {
                 <Fragment key={keyOf(x)}>
                   <tr className="border-b border-slate-100 align-top">
                     <td className="px-4 py-3">
-                      <Link href={`/sales/quote/${encodeURIComponent(x.quoteNumber)}`} className="font-mono font-bold text-indigo-600 hover:underline">
+                      <Link href={`/sales/quote/${encodeURIComponent(x.quoteNumber)}`} className="tabular-nums font-bold text-indigo-600 hover:underline">
                         {x.quoteNumber}
                       </Link>
                       <div className="text-[12px] text-slate-600">{x.customerName || "—"}</div>
@@ -175,7 +175,7 @@ export function QuoteInquiries() {
                                 type="button"
                                 disabled={price === null || decide.isPending}
                                 onClick={() => save(x, true)}
-                                className="text-[12.5px] font-semibold px-3 py-1.5 rounded-lg border border-emerald-600 bg-emerald-600 text-white cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed hover:brightness-110"
+                                className="text-[13px] font-semibold px-3 py-1.5 rounded-lg border border-emerald-600 bg-emerald-600 text-white cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed hover:brightness-110"
                               >
                                 Save approval
                               </button>
@@ -204,7 +204,7 @@ export function QuoteInquiries() {
                                 type="button"
                                 disabled={comment.trim().length < 3 || decide.isPending}
                                 onClick={() => save(x, false)}
-                                className="text-[12.5px] font-semibold px-3 py-1.5 rounded-lg border border-red-600 bg-red-600 text-white cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed hover:brightness-110"
+                                className="text-[13px] font-semibold px-3 py-1.5 rounded-lg border border-red-600 bg-red-600 text-white cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed hover:brightness-110"
                               >
                                 Save rejection
                               </button>

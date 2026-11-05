@@ -4,7 +4,7 @@ import { Checkbox } from "antd";
 import type { interfaces } from "@/lib/api/client";
 import { DIRECTIONS } from "../../_lib/railTariffs";
 
-const DIRECTION_CHIP = "inline-block rounded-full border px-2 py-0.5 text-[11.5px] font-medium bg-slate-100 text-slate-600 border-slate-200";
+const DIRECTION_CHIP = "inline-block rounded-full border px-2 py-0.5 text-[12px] font-medium bg-slate-100 text-slate-600 border-slate-200";
 
 const DIRECTION_OPTIONS = DIRECTIONS.map((d) => ({ value: d.value, label: d.label }));
 

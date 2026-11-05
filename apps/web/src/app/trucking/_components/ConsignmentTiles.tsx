@@ -30,7 +30,7 @@ export const ConsignmentTiles = ({ active, counts, onSelect }: ConsignmentTilesP
             ].join(" ")}
           >
             <div className="flex items-baseline gap-2">
-              <span className={`text-[15px] font-bold uppercase tracking-wide ${on ? "text-indigo-600" : "text-slate-500"}`}>{tile.label}:</span>
+              <span className={`text-[14px] font-bold uppercase tracking-wide ${on ? "text-indigo-600" : "text-slate-500"}`}>{tile.label}:</span>
               <span className={`text-[22px] leading-tight font-bold tabular-nums ${on ? "text-indigo-700" : "text-slate-900"}`}>{counts ? counts[tile.id] : "—"}</span>
             </div>
           </button>

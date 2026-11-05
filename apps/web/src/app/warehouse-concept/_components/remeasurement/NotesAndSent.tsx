@@ -260,7 +260,7 @@ function SentRow({
         <ul className="list-none m-0 mt-1.5 ml-[142px] p-0 text-[11px] text-slate-600">
           {history.map((e, i) => (
             <li key={`${e.at}-${i}`} className="py-0.5">
-              <span className="font-mono">{formatDateTime(e.at)}</span>
+              <span className="tabular-nums">{formatDateTime(e.at)}</span>
               {e.by ? ` · ${e.by}` : ""}
               {e.weighedKg ? ` · ${kg(e.weighedKg)}` : ""}
               {e.emailedTo ? ` · e-mailed to ${e.emailedTo}` : what !== "inform_operations" ? " · recorded only" : ""}

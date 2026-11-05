@@ -62,7 +62,7 @@ export function CameraScan({ open, onClose, onScan }: { open: boolean; onClose: 
   return (
     <Modal open={open} onCancel={onClose} footer={null} title="Scan with camera" destroyOnHidden width={520}>
       {error ? (
-        <div className="text-[15px] text-red-700">{error}</div>
+        <div className="text-[14px] text-red-700">{error}</div>
       ) : (
         <>
           <video ref={video} playsInline muted className="w-full rounded-lg bg-black aspect-[3/4] object-cover" />

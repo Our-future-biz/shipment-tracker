@@ -48,7 +48,7 @@ const TD = "px-2 py-2 align-middle border-b border-slate-100";
 /** A small icon button of a row (Preview, Remove). */
 const ICON_BTN = `w-7 h-7 rounded-md grid place-items-center text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors ${FOCUS}`;
 /** A soft pill (as the check pills under the Cargo tables). */
-const PILL = "inline-flex items-center gap-1 whitespace-nowrap rounded-md px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide ring-1 ring-inset";
+const PILL = "inline-flex items-center gap-1 whitespace-nowrap rounded-md px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ring-1 ring-inset";
 
 /** Whether a drag carries files (not text or a link). */
 const isFileDrag = (e: React.DragEvent) => Array.from(e.dataTransfer.types).includes("Files");
@@ -57,7 +57,7 @@ const isFileDrag = (e: React.DragEvent) => Array.from(e.dataTransfer.types).incl
 function CardBar({ id, icon, title, right }: { id?: string; icon: React.ReactNode; title: string; right?: React.ReactNode }) {
   return (
     <div className="flex items-center gap-2.5 min-h-[42px] px-4 py-1.5 bg-indigo-50 border-b border-indigo-100">
-      <span aria-hidden className="text-indigo-500 text-[15px] leading-none shrink-0">{icon}</span>
+      <span aria-hidden className="text-indigo-500 text-[14px] leading-none shrink-0">{icon}</span>
       <h3 id={id} className="m-0 min-w-0 text-[13px] leading-tight font-bold uppercase tracking-wider text-slate-800">
         {title}
       </h3>
@@ -83,7 +83,7 @@ function ExtChip({ fileName }: { fileName: string }) {
     other: "bg-slate-50 text-slate-500 ring-slate-200",
   }[kind];
   return (
-    <span aria-hidden className={`flex-none w-8 h-7 rounded-md grid place-items-center text-[9px] font-bold tracking-tight ring-1 ring-inset ${cls}`}>
+    <span aria-hidden className={`flex-none w-8 h-7 rounded-md grid place-items-center text-[10px] font-bold tracking-tight ring-1 ring-inset ${cls}`}>
       {ext.slice(0, 4).toUpperCase() || "FILE"}
     </span>
   );
@@ -136,7 +136,7 @@ function RequiredMilestones({
           {have} / {REQUIRED_DOCUMENT_TYPES.length}
         </span>
         {!loading && (
-          <span className={`ml-auto text-[12.5px] font-medium ${left ? "text-amber-700" : "text-emerald-700"}`}>
+          <span className={`ml-auto text-[13px] font-medium ${left ? "text-amber-700" : "text-emerald-700"}`}>
             {left
               ? left === 1
                 ? "1 required document is missing"
@@ -153,7 +153,7 @@ function RequiredMilestones({
           const body = (
             <>
               <span
-                className={`block truncate text-center text-[12.5px] leading-4 mb-1.5 ${
+                className={`block truncate text-center text-[13px] leading-4 mb-1.5 ${
                   done ? "text-slate-700" : "text-slate-900 font-medium group-hover:text-indigo-700"
                 }`}
               >
@@ -167,7 +167,7 @@ function RequiredMilestones({
               />
               {!loading && (
                 <span
-                  className={`mt-1 flex items-center justify-center gap-1 text-[10.5px] font-semibold uppercase tracking-wide ${
+                  className={`mt-1 flex items-center justify-center gap-1 text-[11px] font-semibold uppercase tracking-wide ${
                     done ? "text-emerald-700" : "text-amber-700"
                   }`}
                 >
@@ -639,7 +639,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                       // An empty group is just its band (the count says 0); a line shows only while the
                       // list loads, or when the search hides the group's files.
                       <tr>
-                        <td colSpan={6} className="px-2 py-2 text-[12.5px] text-slate-400">
+                        <td colSpan={6} className="px-2 py-2 text-[13px] text-slate-400">
                           {isLoading ? (
                             <span aria-hidden className="block h-4 w-1/2 rounded bg-slate-100 animate-pulse" />
                           ) : (

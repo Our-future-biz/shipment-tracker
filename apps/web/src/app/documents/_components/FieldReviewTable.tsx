@@ -58,7 +58,7 @@ export function FieldReviewTable({
               <GeoFlag kind={geoKind} value={v} />
             </span>
           ) : (
-            <span className={`font-mono ${valueClass}`}>
+            <span className={`tabular-nums ${valueClass}`}>
               {v}
               <GeoFlag kind={geoKind} value={v} />
             </span>
@@ -68,11 +68,11 @@ export function FieldReviewTable({
             size="small"
             variant="borderless"
             value={v}
-            className={`font-mono ${valueClass}`}
+            className={`tabular-nums ${valueClass}`}
             onChange={(e) => onEdit?.(row.index, e.target.value)}
           />
         ) : (
-          <span className={`font-mono ${valueClass}`}>{v}</span>
+          <span className={`tabular-nums ${valueClass}`}>{v}</span>
         );
         if (!row.choices || !onPick) return value;
         // The files read together disagree: each value with the files it came from, to pick one.
@@ -102,7 +102,7 @@ export function FieldReviewTable({
             dataIndex: "existingValue",
             render: (v: string) =>
               v ? (
-                <span className="font-mono text-slate-500">{v}</span>
+                <span className="tabular-nums text-slate-500">{v}</span>
               ) : (
                 <span className="italic text-slate-300">empty</span>
               ),

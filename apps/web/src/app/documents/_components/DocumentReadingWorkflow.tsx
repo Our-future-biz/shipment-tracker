@@ -1084,7 +1084,7 @@ export function DocumentReadingWorkflow() {
                   filterOption={(input, option) => (option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
                 />
               ) : (
-                <Tag color="cyan" className="font-mono text-sm py-1 px-2">
+                <Tag color="cyan" className="tabular-nums text-sm py-1 px-2">
                   {newShipmentPreview} (will be assigned)
                 </Tag>
               )}
@@ -1175,7 +1175,7 @@ export function DocumentReadingWorkflow() {
                 <Radio value="existing">Add to existing</Radio>
               </Radio.Group>
               {bookingMode === "new" ? (
-                <Tag color="gold" className="font-mono text-sm py-1 px-2">
+                <Tag color="gold" className="tabular-nums text-sm py-1 px-2">
                   {newMcz} (will be assigned)
                 </Tag>
               ) : existingMcz.length === 0 ? (
@@ -1209,7 +1209,7 @@ export function DocumentReadingWorkflow() {
                 <Radio value="existing">Add to existing</Radio>
               </Radio.Group>
               {masterMode === "new" ? (
-                <Tag color="gold" className="font-mono text-sm py-1 px-2">
+                <Tag color="gold" className="tabular-nums text-sm py-1 px-2">
                   {newMcz} (will be assigned)
                 </Tag>
               ) : existingMcz.length === 0 ? (
@@ -1406,7 +1406,7 @@ export function DocumentReadingWorkflow() {
       {step === "review" && invoiceToMaster && (
         <Card>
           <div className="text-sm font-semibold mb-3">
-            Invoice for master job <span className="font-mono">{invoiceMcz}</span>
+            Invoice for master job <span className="tabular-nums">{invoiceMcz}</span>
           </div>
           {error && <Alert className="mb-3" type="error" showIcon message={error} />}
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_110px_1fr_1fr] gap-3 mb-4">
@@ -1627,7 +1627,7 @@ export function DocumentReadingWorkflow() {
             <div>
               <div className="flex items-center gap-2 mb-3">
                 <span className="text-sm font-semibold">Master Bill of Lading</span>
-                <Tag color="gold" className="font-mono">{activeMcz}</Tag>
+                <Tag color="gold" className="tabular-nums">{activeMcz}</Tag>
                 <span className="text-xs text-slate-400">No House B/Ls in this upload — the MBL alone is filed</span>
               </div>
               <MblDetailsBox
@@ -1658,7 +1658,7 @@ export function DocumentReadingWorkflow() {
                     Shipment {Math.min(masterIdx + 1, masterShipments.length)} of {masterShipments.length}
                     {hblBatchIndex < hblTotalBatches ? "+" : ""}
                   </span>
-                  <Tag color="gold" className="font-mono">{activeMcz}</Tag>
+                  <Tag color="gold" className="tabular-nums">{activeMcz}</Tag>
                   <span className="text-xs text-slate-400">{masterCreatedJobs.length} created</span>
                 </Space>
               </div>

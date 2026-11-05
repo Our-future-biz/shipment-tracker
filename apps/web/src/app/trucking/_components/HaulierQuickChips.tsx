@@ -22,7 +22,7 @@ export const HaulierQuickChips = ({ active, counts, onSelect }: HaulierQuickChip
             aria-pressed={on}
             onClick={() => onSelect(on ? null : c.id)}
             className={[
-              "inline-flex items-center gap-1.5 rounded-full border px-3 h-7 text-[12.5px] font-medium transition-colors cursor-pointer",
+              "inline-flex items-center gap-1.5 rounded-full border px-3 h-7 text-[13px] font-medium transition-colors cursor-pointer",
               on ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
             ].join(" ")}
           >
