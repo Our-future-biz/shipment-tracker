@@ -178,18 +178,21 @@ const CENTERED_SELECT = "w-full [&_.ant-select-selection-item]:!text-center [&_.
 const DESC_GRID = "grid grid-cols-[2fr_1fr_0.7fr_1.1fr_1.1fr_1.2fr_0.8fr_32px] gap-x-0";
 const DESC_COLS = `${DESC_GRID} items-center [&>*]:mx-1.5 [&>*:last-child]:!mx-0`;
 // Read rows built like the Dimensions read rows (cells carry the padding and stretch to the
-// row), so a row is as tall in both tables and switching tables does not shift anything.
+// row), so a row is as tall in both tables.
 const DESC_CELLS = `${DESC_GRID} [&>*]:px-1.5 [&>*]:py-1.5 [&>*]:self-stretch [&>*]:content-center [&>*:last-child]:!px-0`;
 
-// Where a click does not end the editing of a row: the row itself and its own popups
-// (pickers, the "⋯" menu, the delete confirmation, tooltips), which render outside the row.
-const EDIT_ROW_AREAS = "[data-edit-row], .ant-select-dropdown, .ant-dropdown, .ant-modal-root, .ant-tooltip, .ant-picker-dropdown";
+// Where a click does not end the editing of a row: an open row of the same table and the
+// popups (pickers, the "⋯" menu, the delete confirmation, tooltips), which render outside the row.
+// Both tables are on the page, so a click into the other table's open row ends it too.
+type Table = "dims" | "desc";
+const editRowAreas = (table: Table) =>
+  `[data-edit-row="${table}"], .ant-select-dropdown, .ant-dropdown, .ant-modal-root, .ant-tooltip, .ant-picker-dropdown`;
 
 /**
  * Which rows of a table are open for editing. A row closes when focus leaves it or on
  * Enter; saving is left to each field's own onBlur, so leaving a row saves exactly once.
  */
-function useOpenRows() {
+function useOpenRows(table: Table) {
   const [rows, setRows] = useState<Set<number>>(() => new Set());
   // A click outside every row being edited ends the editing. Focus leaving a row closes it
   // too, but a row opened by double-click may never have had focus, so the click itself is
@@ -199,16 +202,16 @@ function useOpenRows() {
     if (!anyOpen) return;
     const handleMouseDown = (e: MouseEvent) => {
       const target = e.target as Element | null;
-      if (!target?.closest || target.closest(EDIT_ROW_AREAS)) return;
+      if (!target?.closest || target.closest(editRowAreas(table))) return;
       // The field being typed in is left first, so its own onBlur saves it: closing the row
       // removes the field before the click would move the focus, and its last value was lost.
       const typing = document.activeElement as HTMLElement | null;
-      if (typing?.closest?.("[data-edit-row]")) typing.blur();
+      if (typing?.closest?.(`[data-edit-row="${table}"]`)) typing.blur();
       setRows(new Set());
     };
     document.addEventListener("mousedown", handleMouseDown);
     return () => document.removeEventListener("mousedown", handleMouseDown);
-  }, [anyOpen]);
+  }, [anyOpen, table]);
   const open = (idx: number) => setRows((o) => (o.has(idx) ? o : new Set(o).add(idx)));
   const close = (idx: number) =>
     setRows((o) => {
@@ -261,9 +264,8 @@ export function CargoDetailsTab({
   const [items, setItems] = useState<CargoItemLine[]>(() => shipment.cargoItems ?? []);
   // Dimension lines are held in their own unit (cm or inches) and sent in cm (lineInCm).
   const [dims, setDims] = useState<CargoDimensionLine[]>(() => (shipment.cargoDimensions ?? []).map(lineInUnit));
-  // The container shown (its tab) and which of its tables: one at a time keeps the page short.
+  // The container shown (its tab); both of its tables show at once.
   const [activeKey, setActiveKey] = useState<string | null>(null);
-  const [view, setView] = useState<"dims" | "desc">("dims");
   // Weight and volume per piece or for all pieces (read after the first render: the browser's choice).
   const [figures, setFigures] = useState<Figures>("piece");
   useEffect(() => setFigures(readFigures()), []);
@@ -284,8 +286,8 @@ export function CargoDetailsTab({
   const dimsRef = useRef(dims);
   itemsRef.current = items;
   dimsRef.current = dims;
-  const openItems = useOpenRows();
-  const openDims = useOpenRows();
+  const openItems = useOpenRows("desc");
+  const openDims = useOpenRows("dims");
 
   const panelKeys = useMemo(() => panelKeysFor(containers.map((c) => c.id), items, dims), [containers, items, dims]);
 
@@ -541,9 +543,13 @@ export function CargoDetailsTab({
   const dimTotals = dimensionTotals(panelDims.map(({ l }) => lineInCm(l)));
   const descCiv = civByCurrency(panelItems.map(({ l }) => l));
 
+  // A thin line between rows; the last row has none, so the line of the totals row (or of the
+  // pills under the table) is the only one under it - the same thick line as under Container Details.
+  const rowLine = (i: number, count: number) => (i < count - 1 ? "border-b border-slate-100" : "");
+
   // Under the table of a container: its lines against what the container declares.
   const checkStrip = (pills: React.ReactNode) => (
-    <div className="flex items-center gap-2 flex-wrap mt-3 pt-3 px-1 border-t border-slate-100">{pills}</div>
+    <div className="flex items-center gap-2 flex-wrap mt-1 pt-3 px-1 border-t-2 border-slate-200">{pills}</div>
   );
 
   // Delete from a row's "⋯": a line with anything in it asks first; an empty line just goes.
@@ -568,18 +574,17 @@ export function CargoDetailsTab({
     return `The description line${l.cargoDescription ? ` "${l.cargoDescription}"` : ""} will be deleted.`;
   })();
 
-  const addLine = () => (view === "dims" ? addDim(active.key) : addItem(active.key));
   // Add: a small filled "+" laid over the table header's right end, above the rows' "⋯" -
   // as in Container Details. Outside the scroll box so nothing clips it; the header keeps
-  // its height.
-  const addButton = (
-    <Tooltip title={view === "dims" ? "Add dimension" : "Add description"}>
+  // its height. Each table has its own.
+  const addButton = (table: Table) => (
+    <Tooltip title={table === "dims" ? "Add dimension" : "Add description"}>
       <Button
         size="small"
         type="primary"
         icon={<PlusOutlined className="text-[11px]" />}
-        aria-label={view === "dims" ? "Add dimension" : "Add description"}
-        onClick={addLine}
+        aria-label={table === "dims" ? "Add dimension" : "Add description"}
+        onClick={() => (table === "dims" ? addDim(active.key) : addItem(active.key))}
         // On the column titles' line (under the group labels), the same place in both tables.
         className="!absolute top-[19px] right-[9px] z-10 !w-[22px] !h-[22px] !min-w-0 !p-0"
       />
@@ -587,10 +592,11 @@ export function CargoDetailsTab({
   );
 
   return (
-    // One card: the containers as tabs, then which table (pill tabs, as on the list pages),
-    // and the table straight in the card with Add on its header. The page's own tab already
-    // says "Cargo Details", so the card has no title bar.
-    <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+    // Each table in its own card, under its purple title, with Add on its header: Dimensions,
+    // and under it Description. With more than one container, the containers as tabs sit in a
+    // card above both, since they switch both tables. The page's own tab already says
+    // "Cargo Details", so there is no title bar.
+    <div className="flex flex-col gap-3">
       <ConfirmModal
         open={!!confirmDelete}
         danger
@@ -606,434 +612,422 @@ export function CargoDetailsTab({
       {panels.length > 1 && (
         // The containers as tabs (as in the grid's Dimensions dialog) - only when there is
         // more than one to choose from. A container's dot shows once it has lines.
-        <ContainerTabs
-          className="px-3"
-          activeKey={active.key}
-          onChange={setActiveKey}
-          tabs={panels.map((p) => ({
-            key: p.key,
-            label: p.label,
-            type: p.container?.type,
-            isContainer: !!p.container,
-            matched: p.container && p.hasLines ? p.matched : null,
-          }))}
-        />
+        <div className={CARD}>
+          <ContainerTabs
+            className="px-3"
+            activeKey={active.key}
+            onChange={setActiveKey}
+            tabs={panels.map((p) => ({
+              key: p.key,
+              label: p.label,
+              type: p.container?.type,
+              isContainer: !!p.container,
+              matched: p.container && p.hasLines ? p.matched : null,
+            }))}
+          />
+        </div>
       )}
 
-      <div className="p-4">
-        {/* Which table of this container: dimensions or descriptions (Add sits on the table's header). */}
-        <div role="tablist" aria-label="Cargo tables" className="flex items-center gap-2 mb-3">
-          {(
-            [
-              ["dims", "Dimensions"],
-              ["desc", "Description"],
-            ] as const
-          ).map(([k, text]) => {
-            const on = view === k;
-            return (
-              <button
-                key={k}
-                type="button"
-                role="tab"
-                aria-selected={on}
-                onClick={() => setView(k)}
-                className={[
-                  "flex items-center gap-1.5 h-8 px-3 rounded-lg border text-[13px] font-medium transition-colors cursor-pointer",
-                  "outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-1",
-                  // The open table is filled indigo, so it is clear at a glance which one is shown.
-                  on ? "border-indigo-600 bg-indigo-600 text-white shadow-sm" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
-                ].join(" ")}
-              >
-                {text}
-              </button>
-            );
-          })}
-        </div>
-        {view === "dims" ? (
-          <div className="relative">
-            {addButton}
-            <div className="overflow-x-auto">
-              <div className="min-w-[1000px]">
-                {/* The group labels over the banded columns, each the top of its band. */}
-                <div className={`${DIM_GRID} px-1 ${GROUP_ROW}`}>
-                  <span className="col-span-2" />
-                  <span className="col-span-4 text-center bg-slate-100/70 rounded-t-lg pt-1.5 pb-0.5">Size</span>
-                  {/* The band's label is its switch: weight and volume per piece, or for all the pieces of a line. */}
-                  <span className="col-span-2 flex justify-center gap-0.5 bg-slate-100/70 rounded-t-lg pt-1 pb-0.5 border-l-4 border-white" role="radiogroup" aria-label="Weight and volume">
-                    {(
-                      [
-                        ["piece", "Per piece"],
-                        ["total", "All pieces"],
-                      ] as const
-                    ).map(([f, text]) => (
-                      <button
-                        key={f}
-                        type="button"
-                        role="radio"
-                        aria-checked={figures === f}
-                        onClick={() => chooseFigures(f)}
-                        title={f === "piece" ? "Weight and volume of one piece" : "Weight and volume of all the pieces of a line together"}
-                        className={[
-                          "px-1.5 rounded uppercase tracking-wider cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-indigo-400",
-                          figures === f ? "bg-indigo-600 text-white" : "text-slate-500 hover:text-slate-700",
-                        ].join(" ")}
-                      >
-                        {text}
-                      </button>
-                    ))}
-                  </span>
-                  <span className="col-span-3" />
-                </div>
-                <div className={`${DIM_BANDS} px-1 text-[10px] font-bold text-slate-500 uppercase tracking-wide border-b border-slate-200 [&>*]:!pt-0 [&>*]:!pb-1.5`}>
-                  <span className="text-center truncate">Pcs</span>
-                  <span className="text-center truncate">Packages</span>
-                  <span className="text-center truncate">Length</span>
-                  <span className="text-center truncate">Width</span>
-                  <span className="text-center truncate">Height</span>
-                  <span className="text-center truncate">Unit</span>
-                  <span className="text-center truncate">Weight (kg)</span>
-                  <span className="text-center truncate">Volume (m³)</span>
-                  <span className="text-center truncate">Stackability</span>
-                  <span className="text-center truncate">ADR</span>
-                  <span />
-                </div>
+      <div className={`${CARD} p-4`}>
+        <TableTitle>Dimensions</TableTitle>
+        <div className="relative">
+          {addButton("dims")}
+          <div className="overflow-x-auto">
+            <div className="min-w-[1000px]">
+              {/* The group labels over the banded columns, each the top of its band. */}
+              <div className={`${DIM_GRID} px-1 ${GROUP_ROW}`}>
+                <span className="col-span-2" />
+                <span className="col-span-4 text-center bg-slate-100/70 rounded-t-lg pt-1.5 pb-0.5">Size</span>
+                {/* The band's label is its switch: weight and volume per piece, or for all the pieces of a line. */}
+                <span className="col-span-2 flex justify-center gap-0.5 bg-slate-100/70 rounded-t-lg pt-1 pb-0.5 border-l-4 border-white" role="radiogroup" aria-label="Weight and volume">
+                  {(
+                    [
+                      ["piece", "Per piece"],
+                      ["total", "All pieces"],
+                    ] as const
+                  ).map(([f, text]) => (
+                    <button
+                      key={f}
+                      type="button"
+                      role="radio"
+                      aria-checked={figures === f}
+                      onClick={() => chooseFigures(f)}
+                      title={f === "piece" ? "Weight and volume of one piece" : "Weight and volume of all the pieces of a line together"}
+                      className={[
+                        "px-1.5 rounded uppercase tracking-wider cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-indigo-400",
+                        figures === f ? "bg-indigo-600 text-white" : "text-slate-500 hover:text-slate-700",
+                      ].join(" ")}
+                    >
+                      {text}
+                    </button>
+                  ))}
+                </span>
+                <span className="col-span-3" />
+              </div>
+              <div className={`${DIM_BANDS} px-1 text-[10px] font-bold text-slate-500 uppercase tracking-wide border-b border-slate-200 [&>*]:!pt-0 [&>*]:!pb-1.5`}>
+                <span className="text-center truncate">Pcs</span>
+                <span className="text-center truncate">Packages</span>
+                <span className="text-center truncate">Length</span>
+                <span className="text-center truncate">Width</span>
+                <span className="text-center truncate">Height</span>
+                <span className="text-center truncate">Unit</span>
+                <span className="text-center truncate">Weight (kg)</span>
+                <span className="text-center truncate">Volume (m³)</span>
+                <span className="text-center truncate">Stackability</span>
+                <span className="text-center truncate">ADR</span>
+                <span />
+              </div>
 
-                {panelDims.map(({ l, idx }) => {
-                  const vpc = dimensionVolumePerPiece(lineInCm(l));
-                  // With length, width and height the volume is worked out; without them it is typed.
-                  const sized = hasAllSizes(lineInCm(l));
-                  if (!dimIsOpen(idx)) {
-                    return (
-                      <div
-                        key={rowKey(l)}
-                        className={`${DIM_BANDS} px-1 border-b border-slate-100 text-[13px] text-slate-700 cursor-pointer hover:bg-slate-50/60`}
-                        onDoubleClick={() => openDims.open(idx)}
-                        title="Double-click to edit"
-                      >
-                        <span className="text-center tabular-nums font-medium text-slate-900">{l.pieces || "—"}</span>
-                        <span className="text-center truncate">{l.packageType || "—"}</span>
-                        <span className="text-center tabular-nums">{l.lengthCm || "—"}</span>
-                        <span className="text-center tabular-nums">{l.widthCm || "—"}</span>
-                        <span className="text-center tabular-nums">{l.heightCm || "—"}</span>
-                        <span className="text-center text-xs font-semibold uppercase text-slate-500">{l.dimensionUnit === "in" ? "inch" : "cm"}</span>
-                        {figures === "total" ? (
-                          // Without pieces a line has no totals (it counts nothing): "—", and why.
-                          <>
-                            <span className="text-center tabular-nums" title={!piecesOf(l) && num(l.weightPerPcKg) ? NO_PIECES_HINT : undefined}>
-                              {totalText(num(l.weightPerPcKg), piecesOf(l), 2) || "—"}
-                            </span>
-                            <span
-                              className={`text-center tabular-nums ${sized ? "text-slate-500" : ""}`}
-                              title={!piecesOf(l) && vpc ? NO_PIECES_HINT : vpc && !sized ? "Typed (no dimensions)" : undefined}
-                            >
-                              {vpc && piecesOf(l) ? (vpc * piecesOf(l)).toFixed(3) : "—"}
-                            </span>
-                          </>
-                        ) : (
-                          <>
-                            <span className="text-center tabular-nums">{l.weightPerPcKg || "—"}</span>
-                            <span className={`text-center tabular-nums ${sized ? "text-slate-500" : ""}`} title={vpc && !sized ? "Typed (no dimensions)" : undefined}>
-                              {vpc ? vpc.toFixed(3) : "—"}
-                            </span>
-                          </>
-                        )}
-                        <span className="text-center leading-snug break-words" title={l.stackable || undefined}>{l.stackable || "—"}</span>
-                        {/* The whole ADR summary, wrapping onto a second line rather than being cut. */}
-                        <span className="text-center text-orange-600 font-medium leading-snug break-words" title={adrSummary(l)}>
-                          {hasAdr(l) ? adrSummary(l) : <span className="text-slate-700 font-normal">—</span>}
-                        </span>
-                        <RowActionsMenu label="Dimension line actions" onCopy={() => copyDim(idx)} onDelete={() => askDelete({ table: "dims", line: l })} />
-                      </div>
-                    );
-                  }
-                  const adrShown = hasAdr(l) || adrOn.has(rowKey(l));
+              {panelDims.map(({ l, idx }, i) => {
+                const vpc = dimensionVolumePerPiece(lineInCm(l));
+                // With length, width and height the volume is worked out; without them it is typed.
+                const sized = hasAllSizes(lineInCm(l));
+                if (!dimIsOpen(idx)) {
                   return (
                     <div
                       key={rowKey(l)}
-                      className="border-b border-slate-100"
-                      data-edit-row
-                      onBlur={openDims.onRowBlur(idx)}
-                      onKeyDown={openDims.onRowKeyDown(idx)}
-                    >
-                      {/* Built like the read row (same banded cells, each control inside its
-                          cell), so double-clicking a line only turns its values into fields -
-                          nothing in the table moves or loses its band. */}
-                      <div className={`${DIM_BANDS} px-1 [&>*]:!py-1`}>
-                        {/* Numbers only, like the Dimensions modal: Pcs whole, the rest may take a decimal point; at most 4 digits (weight 5). */}
-                        <div>
-                          <Input size="small" className={EDIT_FIELD} aria-label="Pieces" inputMode="numeric" value={l.pieces} onChange={(e) => patchPieces(idx, l, numberInput(e.target.value, false, 4))} onBlur={persistDims} />
-                        </div>
-                        <div>
-                          <Select
-                            size="small"
-                            className={CENTERED_SELECT}
-                            aria-label="Package type"
-                            value={l.packageType || undefined}
-                            allowClear
-                            placeholder="—"
-                            options={PACK_TYPE_OPTIONS}
-                            onChange={(v) => {
-                              patchDim(idx, { packageType: v ?? "" });
-                              setTimeout(persistDims, 0);
-                            }}
-                          />
-                        </div>
-                        <div>
-                          <Input size="small" className={EDIT_FIELD} aria-label="Length" inputMode="decimal" value={l.lengthCm} onChange={(e) => patchDim(idx, { lengthCm: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
-                        </div>
-                        <div>
-                          <Input size="small" className={EDIT_FIELD} aria-label="Width" inputMode="decimal" value={l.widthCm} onChange={(e) => patchDim(idx, { widthCm: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
-                        </div>
-                        <div>
-                          <Input size="small" className={EDIT_FIELD} aria-label="Height" inputMode="decimal" value={l.heightCm} onChange={(e) => patchDim(idx, { heightCm: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
-                        </div>
-                        <div>
-                          {/* The unit of the three sizes: the numbers stay as typed, only their unit changes. */}
-                          <Select
-                            size="small"
-                            className={CENTERED_SELECT}
-                            aria-label="Size unit"
-                            value={l.dimensionUnit === "in" ? "in" : "cm"}
-                            options={DIMENSION_UNITS}
-                            onChange={(v: DimensionUnit) => {
-                              patchDim(idx, { dimensionUnit: v });
-                              setTimeout(persistDims, 0);
-                            }}
-                          />
-                        </div>
-                        {/* Per piece, or under "All pieces" the line's total, stored as its per-piece share (a total may take a digit more). */}
-                        <div>
-                          {figures === "total" ? (
-                            <Input
-                              size="small"
-                              className={EDIT_FIELD}
-                              aria-label="Weight of all pieces (kg)"
-                              inputMode="decimal"
-                              disabled={!piecesOf(l)}
-                              placeholder={piecesOf(l) ? undefined : "Pcs first"}
-                              title={piecesOf(l) ? undefined : NO_PIECES_HINT}
-                              value={typedTotals[rowKey(l)]?.kg ?? totalText(num(l.weightPerPcKg), piecesOf(l), 2)}
-                              onChange={(e) => patchTotal(idx, l, "kg", numberInput(e.target.value, true, 6))}
-                              onBlur={() => leaveTotal(l)}
-                            />
-                          ) : (
-                            <Input size="small" className={EDIT_FIELD} aria-label="Weight per piece (kg)" inputMode="decimal" value={l.weightPerPcKg} onChange={(e) => patchDim(idx, { weightPerPcKg: numberInput(e.target.value, true, 5) })} onBlur={persistDims} />
-                          )}
-                        </div>
-                        {/* Worked out from the sizes, so plain text as in the read row; without all three it is typed (at most 4 digits before the point). */}
-                        {sized ? (
-                          <span className="text-center text-[13px] tabular-nums text-slate-500">
-                            {vpc && (figures !== "total" || piecesOf(l)) ? (figures === "total" ? vpc * piecesOf(l) : vpc).toFixed(3) : "—"}
-                          </span>
-                        ) : figures === "total" ? (
-                          <div>
-                            {/* More than the server takes per piece shows here, before the save is refused. */}
-                            <Input
-                              size="small"
-                              className={EDIT_FIELD}
-                              aria-label="Volume of all pieces (m³)"
-                              inputMode="decimal"
-                              disabled={!piecesOf(l)}
-                              placeholder={piecesOf(l) ? "m³" : "Pcs first"}
-                              status={num(l.volumePerPcM3) > MAX_VOLUME_PER_PIECE_M3 ? "error" : undefined}
-                              title={
-                                !piecesOf(l)
-                                  ? NO_PIECES_HINT
-                                  : num(l.volumePerPcM3) > MAX_VOLUME_PER_PIECE_M3
-                                    ? `At most ${MAX_VOLUME_PER_PIECE_M3} m³ per piece: ${piecesOf(l)} pcs hold at most ${fmtNum(MAX_VOLUME_PER_PIECE_M3 * piecesOf(l))} m³`
-                                    : undefined
-                              }
-                              value={typedTotals[rowKey(l)]?.m3 ?? totalText(num(l.volumePerPcM3), piecesOf(l), 3)}
-                              onChange={(e) => patchTotal(idx, l, "m3", numberInput(e.target.value, true, 5))}
-                              onBlur={() => leaveTotal(l)}
-                            />
-                          </div>
-                        ) : (
-                          <div>
-                            <Input size="small" className={EDIT_FIELD} aria-label="Volume per piece (m³)" inputMode="decimal" placeholder="m³" value={l.volumePerPcM3 ?? ""} onChange={(e) => patchDim(idx, { volumePerPcM3: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
-                          </div>
-                        )}
-                        <div>
-                          <Select
-                            size="small"
-                            className={CENTERED_SELECT}
-                            aria-label="Stackability"
-                            value={l.stackable || undefined}
-                            allowClear
-                            placeholder="—"
-                            popupMatchSelectWidth={false}
-                            options={STACKABLE_OPTIONS.map((s) => ({ value: s }))}
-                            onChange={(v) => {
-                              patchDim(idx, { stackable: v ?? "" });
-                              setTimeout(persistDims, 0);
-                            }}
-                          />
-                        </div>
-                        <div className="flex justify-center">
-                          <Checkbox aria-label="Dangerous goods (ADR)" checked={adrShown} onChange={(e) => handleAdrToggle(idx, l, e.target.checked)} />
-                        </div>
-                        <RowActionsMenu label="Dimension line actions" onCopy={() => copyDim(idx)} onDelete={() => askDelete({ table: "dims", line: l })} />
-                      </div>
-                      {adrShown && <CargoDimensionAdrFields line={l} onPatch={(p) => patchDim(idx, p)} onCommit={persistDims} />}
-                    </div>
-                  );
-                })}
-
-                {/* Each figure sits under the column it sums - only without a container: with
-                    one, the pills under the table already show these sums. */}
-                {!check && (
-                  <div className={`${DIM_COLS} px-1 pt-2.5 pb-1 mt-1 border-t border-slate-200`}>
-                    {totalCell(dimTotals.pcs, "PCS", 0)}
-                    <span />
-                    <span />
-                    <span />
-                    <span />
-                    <span />
-                    {totalCell(dimTotals.kg, "KG", 2)}
-                    {totalCell(dimTotals.m3, "M³", 3)}
-                    <span className="col-span-3" />
-                  </div>
-                )}
-              </div>
-              {check &&
-                checkStrip(
-                  <>
-                    <CheckPill label="Pcs" m={check.pcs} decimals={0} />
-                    <CheckPill label="Weight" m={check.kg} decimals={2} unit="kg" />
-                    <CheckPill label="Volume" m={check.m3} decimals={3} unit="m³" />
-                  </>,
-                )}
-            </div>
-          </div>
-        ) : (
-          <div className="relative">
-            {addButton}
-            <div className="overflow-x-auto">
-              <div className="min-w-[860px]">
-                {/* As tall as the Dimensions group labels, so both headers sit on the same line and
-                    switching tables does not shift anything. */}
-                <div aria-hidden className={`${GROUP_ROW} pt-1.5 pb-0.5 invisible`}>
-                  Size
-                </div>
-                <div className={`${DESC_COLS} px-1 pb-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wide border-b border-slate-200`}>
-                  <span className="truncate">Cargo Description</span>
-                  <span className="text-center truncate">HS Code</span>
-                  <span className="text-center truncate">Pcs</span>
-                  <span className="text-center truncate">Packages</span>
-                  <span className="text-center truncate">Gross Weight (kg)</span>
-                  <span className="text-center truncate">Invoice Value</span>
-                  <span className="text-center truncate">Currency</span>
-                  <span />
-                </div>
-
-                {panelItems.map(({ l, idx }) =>
-                  !itemIsOpen(idx) ? (
-                    <div
-                      key={rowKey(l)}
-                      className={`${DESC_CELLS} px-1 border-b border-slate-100 text-[13px] text-slate-700 cursor-pointer hover:bg-slate-50/60`}
-                      onDoubleClick={() => openItems.open(idx)}
+                      className={`${DIM_BANDS} px-1 ${rowLine(i, panelDims.length)} text-[13px] text-slate-700 cursor-pointer hover:bg-slate-50/60`}
+                      onDoubleClick={() => openDims.open(idx)}
                       title="Double-click to edit"
                     >
-                      <span className="font-medium text-slate-900 truncate">{l.cargoDescription || "—"}</span>
-                      <span className="font-mono text-center truncate">{l.hsCode || "—"}</span>
-                      <span className="text-center tabular-nums">{l.pieces || "—"}</span>
+                      <span className="text-center tabular-nums font-medium text-slate-900">{l.pieces || "—"}</span>
                       <span className="text-center truncate">{l.packageType || "—"}</span>
-                      <span className="text-center tabular-nums">{l.grossWeight || "—"}</span>
-                      <span className="text-center tabular-nums">{l.commercialInvoiceValue || "—"}</span>
-                      <span className="text-center truncate">{l.currency || "—"}</span>
-                      <RowActionsMenu label="Description line actions" onCopy={() => copyItem(idx)} onDelete={() => askDelete({ table: "items", line: l })} />
+                      <span className="text-center tabular-nums">{l.lengthCm || "—"}</span>
+                      <span className="text-center tabular-nums">{l.widthCm || "—"}</span>
+                      <span className="text-center tabular-nums">{l.heightCm || "—"}</span>
+                      <span className="text-center text-xs font-semibold uppercase text-slate-500">{l.dimensionUnit === "in" ? "inch" : "cm"}</span>
+                      {figures === "total" ? (
+                        // Without pieces a line has no totals (it counts nothing): "—", and why.
+                        <>
+                          <span className="text-center tabular-nums" title={!piecesOf(l) && num(l.weightPerPcKg) ? NO_PIECES_HINT : undefined}>
+                            {totalText(num(l.weightPerPcKg), piecesOf(l), 2) || "—"}
+                          </span>
+                          <span
+                            className={`text-center tabular-nums ${sized ? "text-slate-500" : ""}`}
+                            title={!piecesOf(l) && vpc ? NO_PIECES_HINT : vpc && !sized ? "Typed (no dimensions)" : undefined}
+                          >
+                            {vpc && piecesOf(l) ? (vpc * piecesOf(l)).toFixed(3) : "—"}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-center tabular-nums">{l.weightPerPcKg || "—"}</span>
+                          <span className={`text-center tabular-nums ${sized ? "text-slate-500" : ""}`} title={vpc && !sized ? "Typed (no dimensions)" : undefined}>
+                            {vpc ? vpc.toFixed(3) : "—"}
+                          </span>
+                        </>
+                      )}
+                      <span className="text-center leading-snug break-words" title={l.stackable || undefined}>{l.stackable || "—"}</span>
+                      {/* The whole ADR summary, wrapping onto a second line rather than being cut. */}
+                      <span className="text-center text-orange-600 font-medium leading-snug break-words" title={adrSummary(l)}>
+                        {hasAdr(l) ? adrSummary(l) : <span className="text-slate-700 font-normal">—</span>}
+                      </span>
+                      <RowActionsMenu label="Dimension line actions" onCopy={() => copyDim(idx)} onDelete={() => askDelete({ table: "dims", line: l })} />
                     </div>
-                  ) : (
-                    <div
-                      key={rowKey(l)}
-                      className={`${DESC_COLS} px-1 py-1 border-b border-slate-100`}
-                      data-edit-row
-                      onBlur={openItems.onRowBlur(idx)}
-                      onKeyDown={openItems.onRowKeyDown(idx)}
-                    >
-                      <Input size="small" aria-label="Cargo description" value={l.cargoDescription} placeholder="PLASTIC PARTS OF SPEAKER" onChange={(e) => patchItem(idx, { cargoDescription: e.target.value })} onBlur={persistItems} />
-                      {/* HS code is a tariff number — digits only (separators are dropped). */}
-                      <Input
-                        size="small"
-                        className="text-center"
-                        aria-label="HS code"
-                        inputMode="numeric"
-                        value={l.hsCode}
-                        placeholder="85319000"
-                        onChange={(e) => patchItem(idx, { hsCode: e.target.value.replace(/\D/g, "") })}
-                        onBlur={persistItems}
-                      />
-                      <Input size="small" className="text-center" aria-label="Pieces" value={l.pieces} inputMode="numeric" onChange={(e) => patchItem(idx, { pieces: numberInput(e.target.value, false) })} onBlur={persistItems} />
-                      {/* Picked from the list only (typing filters it); free text is not taken. */}
-                      <Select
-                        size="small"
-                        className={CENTERED_SELECT}
-                        aria-label="Package type"
-                        value={l.packageType || undefined}
-                        placeholder="Pallet(s)"
-                        showSearch
-                        allowClear
-                        options={PACK_TYPE_OPTIONS}
-                        onChange={(v?: string) => {
-                          patchItem(idx, { packageType: v ?? "" });
-                          setTimeout(persistItems, 0);
-                        }}
-                        onBlur={persistItems}
-                      />
-                      {/* Numbers only: digits and one decimal point. */}
-                      <Input size="small" className="text-center" aria-label="Gross weight (kg)" value={l.grossWeight} inputMode="decimal" onChange={(e) => patchItem(idx, { grossWeight: numberInput(e.target.value) })} onBlur={persistItems} />
-                      <Input size="small" className="text-center" aria-label="Invoice value" value={l.commercialInvoiceValue} placeholder="12 500" inputMode="decimal" onChange={(e) => patchItem(idx, { commercialInvoiceValue: numberInput(e.target.value) })} onBlur={persistItems} />
-                      <AutoComplete
-                        size="small"
-                        className="w-full [&_input]:!text-center"
-                        aria-label="Currency"
-                        value={l.currency}
-                        placeholder="USD"
-                        options={currencyOptions(l.currency)}
-                        onChange={(v) => patchItem(idx, { currency: (v ?? "").toUpperCase() })}
-                        onBlur={persistItems}
-                      />
-                      <RowActionsMenu label="Description line actions" onCopy={() => copyItem(idx)} onDelete={() => askDelete({ table: "items", line: l })} />
-                    </div>
-                  ),
-                )}
-
-                {/* Each figure sits under the column it sums - only when no pills follow (no
-                    container, or no description lines yet): the pills show these sums then. */}
-                {!(descCheck && hasDesc) && (
-                  <div className={`${DESC_COLS} px-1 pt-2.5 pb-1 mt-1 border-t border-slate-200`}>
-                    <span />
-                    <span />
-                    {totalCell(active.descPcs, "PCS", 0)}
-                    <span />
-                    {totalCell(active.descKg, "KG", 2)}
-                    <span className={`text-center text-[13px] font-bold tabular-nums whitespace-nowrap ${descCiv ? "text-slate-900" : "text-slate-300"}`}>{descCiv || "—"}</span>
-                    <span className="col-span-2" />
-                  </div>
-                )}
-              </div>
-              {/* Compared once the container has description lines (the tab's dot counts them then too). */}
-              {descCheck &&
-                hasDesc &&
-                checkStrip(
-                  <>
-                    <CheckPill label="Pcs" m={descCheck.pcs} decimals={0} />
-                    <CheckPill label="Weight" m={descCheck.kg} decimals={2} unit="kg" />
-                    {/* The invoice value total, which nothing declares: a plain pill. */}
-                    {descCiv && (
-                      <Tooltip title={`Lines: ${descCiv} · the container declares no invoice value`}>
-                        <span className={`${CHECK_PILL_CLASS} ring-slate-200 bg-slate-50 text-slate-700`}>
-                          <span className="font-semibold uppercase tracking-wide text-[10px] text-slate-500">Invoice value</span>
-                          <span className="font-semibold">{descCiv}</span>
+                  );
+                }
+                const adrShown = hasAdr(l) || adrOn.has(rowKey(l));
+                return (
+                  <div
+                    key={rowKey(l)}
+                    className={rowLine(i, panelDims.length)}
+                    data-edit-row="dims"
+                    onBlur={openDims.onRowBlur(idx)}
+                    onKeyDown={openDims.onRowKeyDown(idx)}
+                  >
+                    {/* Built like the read row (same banded cells, each control inside its
+                        cell), so double-clicking a line only turns its values into fields -
+                        nothing in the table moves or loses its band. */}
+                    <div className={`${DIM_BANDS} px-1 [&>*]:!py-1`}>
+                      {/* Numbers only, like the Dimensions modal: Pcs whole, the rest may take a decimal point; at most 4 digits (weight 5). */}
+                      <div>
+                        <Input size="small" className={EDIT_FIELD} aria-label="Pieces" inputMode="numeric" value={l.pieces} onChange={(e) => patchPieces(idx, l, numberInput(e.target.value, false, 4))} onBlur={persistDims} />
+                      </div>
+                      <div>
+                        <Select
+                          size="small"
+                          className={CENTERED_SELECT}
+                          aria-label="Package type"
+                          value={l.packageType || undefined}
+                          allowClear
+                          placeholder="—"
+                          options={PACK_TYPE_OPTIONS}
+                          onChange={(v) => {
+                            patchDim(idx, { packageType: v ?? "" });
+                            setTimeout(persistDims, 0);
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <Input size="small" className={EDIT_FIELD} aria-label="Length" inputMode="decimal" value={l.lengthCm} onChange={(e) => patchDim(idx, { lengthCm: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
+                      </div>
+                      <div>
+                        <Input size="small" className={EDIT_FIELD} aria-label="Width" inputMode="decimal" value={l.widthCm} onChange={(e) => patchDim(idx, { widthCm: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
+                      </div>
+                      <div>
+                        <Input size="small" className={EDIT_FIELD} aria-label="Height" inputMode="decimal" value={l.heightCm} onChange={(e) => patchDim(idx, { heightCm: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
+                      </div>
+                      <div>
+                        {/* The unit of the three sizes: the numbers stay as typed, only their unit changes. */}
+                        <Select
+                          size="small"
+                          className={CENTERED_SELECT}
+                          aria-label="Size unit"
+                          value={l.dimensionUnit === "in" ? "in" : "cm"}
+                          options={DIMENSION_UNITS}
+                          onChange={(v: DimensionUnit) => {
+                            patchDim(idx, { dimensionUnit: v });
+                            setTimeout(persistDims, 0);
+                          }}
+                        />
+                      </div>
+                      {/* Per piece, or under "All pieces" the line's total, stored as its per-piece share (a total may take a digit more). */}
+                      <div>
+                        {figures === "total" ? (
+                          <Input
+                            size="small"
+                            className={EDIT_FIELD}
+                            aria-label="Weight of all pieces (kg)"
+                            inputMode="decimal"
+                            disabled={!piecesOf(l)}
+                            placeholder={piecesOf(l) ? undefined : "Pcs first"}
+                            title={piecesOf(l) ? undefined : NO_PIECES_HINT}
+                            value={typedTotals[rowKey(l)]?.kg ?? totalText(num(l.weightPerPcKg), piecesOf(l), 2)}
+                            onChange={(e) => patchTotal(idx, l, "kg", numberInput(e.target.value, true, 6))}
+                            onBlur={() => leaveTotal(l)}
+                          />
+                        ) : (
+                          <Input size="small" className={EDIT_FIELD} aria-label="Weight per piece (kg)" inputMode="decimal" value={l.weightPerPcKg} onChange={(e) => patchDim(idx, { weightPerPcKg: numberInput(e.target.value, true, 5) })} onBlur={persistDims} />
+                        )}
+                      </div>
+                      {/* Worked out from the sizes, so plain text as in the read row; without all three it is typed (at most 4 digits before the point). */}
+                      {sized ? (
+                        <span className="text-center text-[13px] tabular-nums text-slate-500">
+                          {vpc && (figures !== "total" || piecesOf(l)) ? (figures === "total" ? vpc * piecesOf(l) : vpc).toFixed(3) : "—"}
                         </span>
-                      </Tooltip>
-                    )}
-                  </>,
-                )}
+                      ) : figures === "total" ? (
+                        <div>
+                          {/* More than the server takes per piece shows here, before the save is refused. */}
+                          <Input
+                            size="small"
+                            className={EDIT_FIELD}
+                            aria-label="Volume of all pieces (m³)"
+                            inputMode="decimal"
+                            disabled={!piecesOf(l)}
+                            placeholder={piecesOf(l) ? "m³" : "Pcs first"}
+                            status={num(l.volumePerPcM3) > MAX_VOLUME_PER_PIECE_M3 ? "error" : undefined}
+                            title={
+                              !piecesOf(l)
+                                ? NO_PIECES_HINT
+                                : num(l.volumePerPcM3) > MAX_VOLUME_PER_PIECE_M3
+                                  ? `At most ${MAX_VOLUME_PER_PIECE_M3} m³ per piece: ${piecesOf(l)} pcs hold at most ${fmtNum(MAX_VOLUME_PER_PIECE_M3 * piecesOf(l))} m³`
+                                  : undefined
+                            }
+                            value={typedTotals[rowKey(l)]?.m3 ?? totalText(num(l.volumePerPcM3), piecesOf(l), 3)}
+                            onChange={(e) => patchTotal(idx, l, "m3", numberInput(e.target.value, true, 5))}
+                            onBlur={() => leaveTotal(l)}
+                          />
+                        </div>
+                      ) : (
+                        <div>
+                          <Input size="small" className={EDIT_FIELD} aria-label="Volume per piece (m³)" inputMode="decimal" placeholder="m³" value={l.volumePerPcM3 ?? ""} onChange={(e) => patchDim(idx, { volumePerPcM3: numberInput(e.target.value, true, 4) })} onBlur={persistDims} />
+                        </div>
+                      )}
+                      <div>
+                        <Select
+                          size="small"
+                          className={CENTERED_SELECT}
+                          aria-label="Stackability"
+                          value={l.stackable || undefined}
+                          allowClear
+                          placeholder="—"
+                          popupMatchSelectWidth={false}
+                          options={STACKABLE_OPTIONS.map((s) => ({ value: s }))}
+                          onChange={(v) => {
+                            patchDim(idx, { stackable: v ?? "" });
+                            setTimeout(persistDims, 0);
+                          }}
+                        />
+                      </div>
+                      <div className="flex justify-center">
+                        <Checkbox aria-label="Dangerous goods (ADR)" checked={adrShown} onChange={(e) => handleAdrToggle(idx, l, e.target.checked)} />
+                      </div>
+                      <RowActionsMenu label="Dimension line actions" onCopy={() => copyDim(idx)} onDelete={() => askDelete({ table: "dims", line: l })} />
+                    </div>
+                    {adrShown && <CargoDimensionAdrFields line={l} onPatch={(p) => patchDim(idx, p)} onCommit={persistDims} />}
+                  </div>
+                );
+              })}
+
+              {/* Each figure sits under the column it sums - only without a container: with
+                  one, the pills under the table already show these sums. */}
+              {!check && (
+                <div className={`${DIM_COLS} px-1 pt-2.5 pb-1 mt-1 border-t-2 border-slate-200`}>
+                  {totalCell(dimTotals.pcs, "PCS", 0)}
+                  <span />
+                  <span />
+                  <span />
+                  <span />
+                  <span />
+                  {totalCell(dimTotals.kg, "KG", 2)}
+                  {totalCell(dimTotals.m3, "M³", 3)}
+                  <span className="col-span-3" />
+                </div>
+              )}
             </div>
+            {check &&
+              checkStrip(
+                <>
+                  <CheckPill label="Pcs" m={check.pcs} decimals={0} />
+                  <CheckPill label="Weight" m={check.kg} decimals={2} unit="kg" />
+                  <CheckPill label="Volume" m={check.m3} decimals={3} unit="m³" />
+                </>,
+              )}
           </div>
-        )}
+        </div>
+      </div>
+
+      <div className={`${CARD} p-4`}>
+        <TableTitle>Description</TableTitle>
+        <div className="relative">
+          {addButton("desc")}
+          <div className="overflow-x-auto">
+            <div className="min-w-[860px]">
+              {/* As tall as the Dimensions group labels, so both headers are built alike and
+                  Add sits at the same place on both. */}
+              <div aria-hidden className={`${GROUP_ROW} pt-1.5 pb-0.5 invisible`}>
+                Size
+              </div>
+              <div className={`${DESC_COLS} px-1 pb-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wide border-b border-slate-200`}>
+                <span className="truncate">Cargo Description</span>
+                <span className="text-center truncate">HS Code</span>
+                <span className="text-center truncate">Pcs</span>
+                <span className="text-center truncate">Packages</span>
+                <span className="text-center truncate">Gross Weight (kg)</span>
+                <span className="text-center truncate">Invoice Value</span>
+                <span className="text-center truncate">Currency</span>
+                <span />
+              </div>
+
+              {panelItems.map(({ l, idx }, i) =>
+                !itemIsOpen(idx) ? (
+                  <div
+                    key={rowKey(l)}
+                    className={`${DESC_CELLS} px-1 ${rowLine(i, panelItems.length)} text-[13px] text-slate-700 cursor-pointer hover:bg-slate-50/60`}
+                    onDoubleClick={() => openItems.open(idx)}
+                    title="Double-click to edit"
+                  >
+                    <span className="font-medium text-slate-900 truncate">{l.cargoDescription || "—"}</span>
+                    <span className="font-mono text-center truncate">{l.hsCode || "—"}</span>
+                    <span className="text-center tabular-nums">{l.pieces || "—"}</span>
+                    <span className="text-center truncate">{l.packageType || "—"}</span>
+                    <span className="text-center tabular-nums">{l.grossWeight || "—"}</span>
+                    <span className="text-center tabular-nums">{l.commercialInvoiceValue || "—"}</span>
+                    <span className="text-center truncate">{l.currency || "—"}</span>
+                    <RowActionsMenu label="Description line actions" onCopy={() => copyItem(idx)} onDelete={() => askDelete({ table: "items", line: l })} />
+                  </div>
+                ) : (
+                  <div
+                    key={rowKey(l)}
+                    className={`${DESC_COLS} px-1 py-1 ${rowLine(i, panelItems.length)}`}
+                    data-edit-row="desc"
+                    onBlur={openItems.onRowBlur(idx)}
+                    onKeyDown={openItems.onRowKeyDown(idx)}
+                  >
+                    <Input size="small" aria-label="Cargo description" value={l.cargoDescription} placeholder="PLASTIC PARTS OF SPEAKER" onChange={(e) => patchItem(idx, { cargoDescription: e.target.value })} onBlur={persistItems} />
+                    {/* HS code is a tariff number — digits only (separators are dropped). */}
+                    <Input
+                      size="small"
+                      className="text-center"
+                      aria-label="HS code"
+                      inputMode="numeric"
+                      value={l.hsCode}
+                      placeholder="85319000"
+                      onChange={(e) => patchItem(idx, { hsCode: e.target.value.replace(/\D/g, "") })}
+                      onBlur={persistItems}
+                    />
+                    <Input size="small" className="text-center" aria-label="Pieces" value={l.pieces} inputMode="numeric" onChange={(e) => patchItem(idx, { pieces: numberInput(e.target.value, false) })} onBlur={persistItems} />
+                    {/* Picked from the list only (typing filters it); free text is not taken. */}
+                    <Select
+                      size="small"
+                      className={CENTERED_SELECT}
+                      aria-label="Package type"
+                      value={l.packageType || undefined}
+                      placeholder="Pallet(s)"
+                      showSearch
+                      allowClear
+                      options={PACK_TYPE_OPTIONS}
+                      onChange={(v?: string) => {
+                        patchItem(idx, { packageType: v ?? "" });
+                        setTimeout(persistItems, 0);
+                      }}
+                      onBlur={persistItems}
+                    />
+                    {/* Numbers only: digits and one decimal point. */}
+                    <Input size="small" className="text-center" aria-label="Gross weight (kg)" value={l.grossWeight} inputMode="decimal" onChange={(e) => patchItem(idx, { grossWeight: numberInput(e.target.value) })} onBlur={persistItems} />
+                    <Input size="small" className="text-center" aria-label="Invoice value" value={l.commercialInvoiceValue} placeholder="12 500" inputMode="decimal" onChange={(e) => patchItem(idx, { commercialInvoiceValue: numberInput(e.target.value) })} onBlur={persistItems} />
+                    <AutoComplete
+                      size="small"
+                      className="w-full [&_input]:!text-center"
+                      aria-label="Currency"
+                      value={l.currency}
+                      placeholder="USD"
+                      options={currencyOptions(l.currency)}
+                      onChange={(v) => patchItem(idx, { currency: (v ?? "").toUpperCase() })}
+                      onBlur={persistItems}
+                    />
+                    <RowActionsMenu label="Description line actions" onCopy={() => copyItem(idx)} onDelete={() => askDelete({ table: "items", line: l })} />
+                  </div>
+                ),
+              )}
+
+              {/* Each figure sits under the column it sums - only when no pills follow (no
+                  container, or no description lines yet): the pills show these sums then. */}
+              {!(descCheck && hasDesc) && (
+                <div className={`${DESC_COLS} px-1 pt-2.5 pb-1 mt-1 border-t-2 border-slate-200`}>
+                  <span />
+                  <span />
+                  {totalCell(active.descPcs, "PCS", 0)}
+                  <span />
+                  {totalCell(active.descKg, "KG", 2)}
+                  <span className={`text-center text-[13px] font-bold tabular-nums whitespace-nowrap ${descCiv ? "text-slate-900" : "text-slate-300"}`}>{descCiv || "—"}</span>
+                  <span className="col-span-2" />
+                </div>
+              )}
+            </div>
+            {/* Compared once the container has description lines (the tab's dot counts them then too). */}
+            {descCheck &&
+              hasDesc &&
+              checkStrip(
+                <>
+                  <CheckPill label="Pcs" m={descCheck.pcs} decimals={0} />
+                  <CheckPill label="Weight" m={descCheck.kg} decimals={2} unit="kg" />
+                  {/* The invoice value total, which nothing declares: a plain pill. */}
+                  {descCiv && (
+                    <Tooltip title={`Lines: ${descCiv} · the container declares no invoice value`}>
+                      <span className={`${CHECK_PILL_CLASS} ring-slate-200 bg-slate-50 text-slate-700`}>
+                        <span className="font-semibold uppercase tracking-wide text-[10px] text-slate-500">Invoice value</span>
+                        <span className="font-semibold">{descCiv}</span>
+                      </span>
+                    </Tooltip>
+                  )}
+                </>,
+              )}
+          </div>
+        </div>
       </div>
     </div>
+  );
+}
+
+// The white card each part of the tab sits in.
+const CARD = "bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden";
+
+// The purple title over each table (the look the table switch had for the open table).
+function TableTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <h3 className="m-0 mb-3 flex w-fit items-center h-8 px-3 rounded-lg border border-indigo-600 bg-indigo-600 text-white text-[13px] font-medium shadow-sm">
+      {children}
+    </h3>
   );
 }
