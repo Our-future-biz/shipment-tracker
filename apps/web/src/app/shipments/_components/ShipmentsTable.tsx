@@ -40,7 +40,7 @@ import { DocumentsPanel } from "./DocumentsPanel";
 import { DimensionsModal } from "./DimensionsModal";
 import { ShipmentHoverCard } from "@/components/ShipmentHoverCard";
 import { CommercialInvoicesModal } from "./CommercialInvoicesModal";
-import { ChatPanel } from "./ChatPanel";
+import { ShipmentChatDrawer } from "./ChatPanel";
 import { EditableCell, FreightModeContext } from "@/app/shipments/[jobNumber]/_components/EditableCell";
 import { CustomerCell } from "./CustomerCell";
 import { statusLabel } from "@/lib/shipmentStatus";
@@ -1082,16 +1082,7 @@ export const ShipmentsTable = ({
       </Modal>
 
       {/* Chat — the shipment's internal conversation; opening it marks it read. */}
-      <Drawer
-        open={!!chatShipment}
-        onClose={() => setChatShipment(null)}
-        width={460}
-        destroyOnHidden
-        styles={{ body: { padding: 0 } }}
-        title={chatShipment?.jobNumber ? `Chat — ${chatShipment.jobNumber}` : "Chat"}
-      >
-        {chatShipment && <ChatPanel shipmentId={chatShipment.id} />}
-      </Drawer>
+      <ShipmentChatDrawer shipment={chatShipment} onClose={() => setChatShipment(null)} />
     </div>
   );
 };

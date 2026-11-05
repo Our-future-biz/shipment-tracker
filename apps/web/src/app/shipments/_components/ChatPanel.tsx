@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useMemo } from "react";
-import { Input, Tooltip } from "antd";
+import { Drawer, Input, Tooltip } from "antd";
 import type { TextAreaRef } from "antd/es/input/TextArea";
 import { SendOutlined, DeleteOutlined, PaperClipOutlined, DownloadOutlined, CloseOutlined } from "@ant-design/icons";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -124,13 +124,19 @@ const ReadTicks = ({ read }: { read: boolean }) => (
   </Tooltip>
 );
 
+/** A shipment's chat messages: one query for the chat and for the Communication card of the shipment's Alerts tab. */
+export const shipmentChatQuery = (shipmentId: string) => ({
+  queryKey: ["comments", shipmentId] as const,
+  queryFn: async (): Promise<ChatMessage[]> => (await api.shipments.commentList(shipmentId)).comments,
+});
+
 // A shipment's chat: its messages, files kept as ordinary shipment documents.
 export const ChatPanel = ({ shipmentId }: { shipmentId: string }) => {
   const queryClient = useQueryClient();
   const source = useMemo<ChatSource>(
     () => ({
-      key: ["comments", shipmentId],
-      list: async () => (await api.shipments.commentList(shipmentId)).comments,
+      key: shipmentChatQuery(shipmentId).queryKey,
+      list: shipmentChatQuery(shipmentId).queryFn,
       // Files are stored as ordinary shipment documents first, then tied to the message.
       // authorId is derived server-side from the authenticated user.
       send: async ({ message, files, mentionedUserIds }) => {
@@ -161,6 +167,25 @@ export const ChatPanel = ({ shipmentId }: { shipmentId: string }) => {
   );
   return <ChatThread source={source} />;
 };
+
+/**
+ * A shipment's chat in a side drawer, wherever it is opened from (the Shipments list, the shipment's
+ * Alerts tab); opening it marks it read.
+ */
+export function ShipmentChatDrawer({ shipment, onClose }: { shipment: { id: string; jobNumber: string } | null; onClose: () => void }) {
+  return (
+    <Drawer
+      open={!!shipment}
+      onClose={onClose}
+      width={460}
+      destroyOnHidden
+      classNames={{ body: "!p-0" }}
+      title={shipment?.jobNumber ? `Chat — ${shipment.jobNumber}` : "Chat"}
+    >
+      {shipment && <ChatPanel shipmentId={shipment.id} />}
+    </Drawer>
+  );
+}
 
 export const ChatThread = ({ source }: { source: ChatSource }) => {
   const { user } = useAuth();
