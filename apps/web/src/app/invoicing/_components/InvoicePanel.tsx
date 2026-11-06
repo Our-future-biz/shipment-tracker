@@ -41,7 +41,7 @@ import { statusLabel } from "@/lib/shipmentStatus";
 import { SectionCard } from "@/components/SectionCard";
 import { EMPTY_CELL } from "@/components/EmptyCell";
 import { Pill } from "@/components/Pill";
-import { CARD, HINT, ICON_BTN, ICON_BTN_GHOST, LABEL_TEXT, LINK, REF, TD, TH } from "@/styles/ui";
+import { CARD, HINT, ICON_BTN, ICON_BTN_GHOST, LABEL_TEXT, LINK, REF, TD, TD_TOTAL, TH } from "@/styles/ui";
 import { useCostsData } from "@/app/shipments/[jobNumber]/tabs/useCostsData";
 import { lineTableRows, type LineTableRow as TableRow } from "../_lib/lineTable";
 import { IssuedInvoiceEmailModal, type IssuedInvoiceEmail } from "./IssuedInvoiceEmailModal";
@@ -116,12 +116,17 @@ interface InvoicePanelProps {
   onOpenCosts?: () => void;
   /** false: no note that the job is not released for Billing yet (the shipment's own Issue invoice). */
   billingStatusWarning?: boolean;
+  /**
+   * Told whether an invoice is being issued or a PDF downloaded, so a dialog holding the panel stays
+   * open meanwhile: closed, the panel would go and the email step after issuing with it.
+   */
+  onBusyChange?: (busy: boolean) => void;
 }
 
 // Why a customer picked here is not linked to the shipment.
 const NOT_LINKED_HINT = "Only the shipment's Person in Charge, Holiday Cover or a manager can link it to the shipment.";
 
-export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, billingStatusWarning = true }: InvoicePanelProps) {
+export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, billingStatusWarning = true, onBusyChange }: InvoicePanelProps) {
   const toast = useToast();
   const { modal } = App.useApp();
   const queryClient = useQueryClient();
@@ -163,6 +168,13 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
     previewKey,
   });
 
+  // Issuing runs on to its PDF and the email: until both are done the holder must keep the panel.
+  const busy = isIssuing || isCrediting || downloading !== null;
+  useEffect(() => {
+    onBusyChange?.(busy);
+  }, [busy, onBusyChange]);
+  useEffect(() => () => onBusyChange?.(false), [onBusyChange]);
+
   // The queue's counts (to bill, lines invoiced) come from the same rows, so it is marked stale too.
   const refreshCosts = () => {
     void queryClient.invalidateQueries({ queryKey: INVOICE_KEYS.queueAll });
@@ -180,15 +192,16 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
     mutationFn: ({ sellingId, vatCode }: { sellingId: string; vatCode: interfaces.SellingVatCode }) =>
       api.invoicing.invoicingUpdateSellingCost(shipment.id, sellingId, { vatCode }),
     onSuccess: refreshCosts,
-    onError: () => toast.error("Failed to change the VAT code"),
+    onError: (e) => toast.error(`Failed to change the VAT code: ${apiErrorMessage(e)}`),
   });
 
-  // The text printed on a line: the selling row's invoice text; left empty, the category is printed.
+  // The text printed on a line: its own text (the selling row's `customer`), else the row's
+  // Description, else the category.
   const lineText = useMutation({
     mutationFn: ({ sellingId, text }: { sellingId: string; text: string }) =>
       api.invoicing.invoicingUpdateSellingCost(shipment.id, sellingId, { customer: text }),
     onSuccess: refreshCosts,
-    onError: () => toast.error("Failed to change the line text"),
+    onError: (e) => toast.error(`Failed to change the line text: ${apiErrorMessage(e)}`),
   });
 
   // The tick is the selling row's "Invoice" flag, the same one Costs Breakdown shows.
@@ -700,7 +713,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
                   {hasLines && (
                     <tfoot>
                       <tr>
-                        <td colSpan={5} className="px-2 pt-3 pb-1 align-middle">
+                        <td colSpan={5} className={`${TD_TOTAL} align-middle`}>
                           <Button
                             type="text"
                             size="small"
@@ -714,9 +727,9 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
                             VAT breakdown
                           </Button>
                         </td>
-                        <td className="px-2 pt-3 pb-1 text-right tabular-nums text-[13px] text-slate-700">{moneyCz(p.net)}</td>
-                        <td className="px-2 pt-3 pb-1 text-right tabular-nums text-[13px] text-slate-700">{moneyCz(p.vat)}</td>
-                        <td className="px-2 pt-3 pb-1 text-right tabular-nums text-[14px] font-bold text-slate-900 whitespace-nowrap">
+                        <td className={`${TD_TOTAL} !text-right tabular-nums`}>{moneyCz(p.net)}</td>
+                        <td className={`${TD_TOTAL} !text-right tabular-nums`}>{moneyCz(p.vat)}</td>
+                        <td className={`${TD_TOTAL} !text-right tabular-nums !text-[14px] whitespace-nowrap`}>
                           {moneyCz(p.gross)} {p.currency}
                         </td>
                       </tr>

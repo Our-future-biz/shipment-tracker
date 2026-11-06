@@ -65,13 +65,19 @@ export function normaliseAmount(text: string | null | undefined): string | null 
 }
 
 /**
- * What may be typed into an amount or quantity field: digits, the separators parseMoney reads
- * ("." and ","; a space as thousands) and one leading minus. Letters and anything else are dropped.
+ * Whether `typed` may be typed into an amount or quantity field holding `value`, with the caret or
+ * selection at `selStart`..`selEnd`: digits, the separators parseMoney reads ("." and ","; a space as
+ * thousands) and one minus in front (a discount). Only typing is filtered this way: pasted text goes
+ * in as it is, so "2 x 40HC" or "1e5" is refused by parseMoney when the field is saved instead of
+ * being stripped to a different number (240, 15).
  */
-export function amountInput(raw: string): string {
-  const kept = raw.replace(/[^\d.,\s\u00a0\u202f-]/g, "");
-  const minus = kept.trimStart().startsWith("-") ? "-" : "";
-  return minus + kept.replace(/-/g, "").replace(/^\s+/, "");
+export function amountTypingAllowed(typed: string, value: string, selStart: number, selEnd: number): boolean {
+  if (!/^[\d.,\s\u00a0\u202f-]+$/.test(typed)) return false;
+  const minus = typed.indexOf("-");
+  if (minus === -1) return true;
+  return (
+    minus === 0 && typed.lastIndexOf("-") === 0 && value.slice(0, selStart).trim() === "" && !value.slice(selEnd).includes("-")
+  );
 }
 
 /**

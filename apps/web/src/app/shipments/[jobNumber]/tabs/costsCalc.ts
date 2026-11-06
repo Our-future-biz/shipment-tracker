@@ -55,9 +55,11 @@ export interface BuyingRow {
 export interface SellingRow {
   id: string;
   category: string;
-  /** What the cost is for, in the user's words - the description of the quote line it was copied from. */
+  /** What the cost is for, in the user's words - the description of the quote line it was copied from.
+   *  Shown as "Invoice text": the invoice line prints it unless the row has a text of its own (`customer`). */
   description: string;
-  /** the "Invoice text" column: the line text on the invoice; empty = the category */
+  /** The invoice line's own text, set in Issue invoice. The line prints it; empty, the row's
+   *  Description, else the category. */
   customer: string;
   qty: string;
   amount: string;

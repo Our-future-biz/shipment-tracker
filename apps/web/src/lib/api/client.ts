@@ -6059,7 +6059,7 @@ export namespace controllers {
     export interface AddSellingRequest {
         category?: string
         /**
-         * what is charged, in words (from the quote); the printed line text is `customer` ("Invoice text")
+         * what is charged, in words (from the quote), shown as "Invoice text": the printed line text unless `customer` holds a text of its own set in Issue invoice
          */
         description?: string
 

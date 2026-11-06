@@ -218,7 +218,9 @@ async function loadContext(shipmentId: string, companyId: string, params: IssueP
   else if (calc.gross <= 0) problems.push("The invoice total must be above zero");
 
   const dueDate = addDays(issueDate, dueDays(customer?.paymentTerms, profile?.defaultDueDays ?? 14));
-  return { shipment, profile, customer, customerId, issueDate, duzp, dueDate, calc, picked, problems, warnings };
+  // When each row the lines are built from was last changed: issuing checks them again under its lock.
+  const versions = new Map(rows.map((r) => [r.id, r.updatedAt.getTime()]));
+  return { shipment, profile, customer, customerId, issueDate, duzp, dueDate, calc, picked, problems, warnings, versions };
 }
 
 function supplierSnapshot(profile: NonNullable<Awaited<ReturnType<typeof loadContext>>["profile"]>, currency: string): SupplierSnapshot {
@@ -501,9 +503,11 @@ class InvoiceDocumentService {
             if (billed.some((id) => taken.has(id))) {
               throw APIError.failedPrecondition("Some of these selling rows were invoiced a moment ago — reload and check the invoice");
             }
+            // A row saved while this invoice was being prepared (its saves take the same lock) would
+            // be billed with its old values and then locked with the new ones: refused, to reload.
             const sourceIds = billed.filter((id): id is string => !!id);
-            const live = await truckingLinesRepository.liveSellingIds(tx, companyId, shipmentId, sourceIds);
-            if (sourceIds.some((id) => !live.has(id))) {
+            const live = await truckingLinesRepository.liveSellingVersions(tx, companyId, shipmentId, sourceIds);
+            if (sourceIds.some((id) => !live.has(id) || live.get(id) !== ctx.versions.get(id))) {
               throw APIError.failedPrecondition("Some of these selling rows were changed a moment ago — reload and check the invoice");
             }
           },

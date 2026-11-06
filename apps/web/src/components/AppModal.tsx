@@ -23,6 +23,10 @@ interface AppModalProps {
   footer?: ReactNode;
   children: ReactNode;
   destroyOnHidden?: boolean;
+  /** false: a click beside the dialog leaves it open (a dialog holding work typed into it). */
+  maskClosable?: boolean;
+  /** false: the dialog can't be closed for now - no close button, Esc does nothing (while it saves). */
+  closable?: boolean;
 }
 
 export function AppModal({
@@ -34,11 +38,16 @@ export function AppModal({
   footer,
   children,
   destroyOnHidden = true,
+  maskClosable = true,
+  closable = true,
 }: AppModalProps) {
   return (
     <Modal
       open={open}
-      onCancel={onClose}
+      onCancel={() => closable && onClose()}
+      maskClosable={maskClosable && closable}
+      closable={closable}
+      keyboard={closable}
       title={
         <div>
           <div className={MODAL_TITLE}>{title}</div>

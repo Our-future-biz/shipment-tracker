@@ -4,13 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { CURRENCIES } from "@/lib/cargo";
 import Link from "next/link";
 import { App, Input, Select, Checkbox, Tooltip, Modal, Popover } from "antd";
-import { DeleteOutlined, FileDoneOutlined, PlusOutlined, SendOutlined, DownOutlined, CopyOutlined, WarningOutlined, LockOutlined } from "@ant-design/icons";
+import { CloseOutlined, DeleteOutlined, FileDoneOutlined, PlusOutlined, RollbackOutlined, SendOutlined, DownOutlined, CopyOutlined, WarningOutlined, LockOutlined } from "@ant-design/icons";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, apiErrorMessage, ErrCode, isAPIError } from "@/lib/api";
 import type { controllers } from "@/lib/api/client";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { businessDayOf, formatDate, formatDateTime } from "@/lib/date";
-import { amountInput, normaliseAmount } from "@/lib/money";
+import { amountTypingAllowed, normaliseAmount } from "@/lib/money";
 import { asData, computeTotals, isSalesQuoteRef, quoteProfitIn } from "@/app/sales/_lib/salesQuote";
 import { useSalesQuoteByRef } from "@/hooks/useSalesQuote";
 import { INVOICE_KEYS } from "@/hooks/useInvoiceQueue";
@@ -38,6 +38,7 @@ import {
   ICON_BTN_GHOST,
   LABEL_TEXT,
   LINK,
+  REF,
   TD,
   TD_TOTAL,
   TH,
@@ -88,14 +89,19 @@ function CurrencyPicker({ value, onChange, locked = false }: CurrencyPickerProps
   );
 }
 
-/** A quantity or amount field takes numbers only: anything else typed or pasted is dropped at once. */
-function onlyNumbers(e: React.FormEvent<HTMLInputElement>) {
+/**
+ * A quantity or amount field: a key that would type anything but a number (a digit, "," or ".", a
+ * space, a minus in front) types nothing. Shortcuts (copy, paste, select all) and what is pasted are
+ * left alone: pasted text goes in as it is, and the save refuses it when it is no amount (cleanAmounts)
+ * rather than saving what is left of it once its letters are gone ("2 x 40HC" is not 240).
+ */
+function onlyNumbers(e: React.KeyboardEvent<HTMLInputElement>) {
+  // Ctrl / Cmd shortcuts pass; AltGr (Ctrl + Alt on Windows) and Option types a character, judged below
+  if (e.key.length !== 1 || e.metaKey || (e.ctrlKey && !e.altKey) || e.nativeEvent.isComposing) return;
   const el = e.currentTarget;
-  const clean = amountInput(el.value);
-  if (clean === el.value) return;
-  const caret = Math.max(0, (el.selectionStart ?? clean.length) - (el.value.length - clean.length));
-  el.value = clean;
-  el.setSelectionRange(caret, caret);
+  if (el.readOnly) return;
+  const start = el.selectionStart ?? el.value.length;
+  if (!amountTypingAllowed(e.key, el.value, start, el.selectionEnd ?? start)) e.preventDefault();
 }
 
 /** Amount fields of a row: the database (numeric) takes "4999.5", not "4 999,50". */
@@ -131,6 +137,15 @@ const FIELD =
 const READ = "block min-h-[30px] px-[9px] py-[5px] text-[13px] text-slate-900";
 /** The same in a Select's column (category, currency): its text sits 12px in (11px + 1px border). */
 const READ_SELECT = "block min-h-[30px] px-3 py-[5px] text-[13px] text-slate-900";
+/** The note under an invoice text that is the row's own (set in Issue invoice), lined up with READ's text. */
+const OWN_TEXT_HINT = `${HINT} block px-[9px] pb-[3px] leading-4`;
+
+/**
+ * What a selling row prints on its invoice line, as the server's invoice calculation has it: its own
+ * text (set in Issue invoice, kept in `customer`), else its Description, else its category.
+ */
+const printedText = (r: SellingRow) =>
+  r.customer.trim() || r.description.trim() || (r.category ? chargeLabel(r.category) : "");
 /** A column head of the cost tables: the app's (TH) at the tables' padding. */
 const HEAD = `${TH} !px-[6px]`;
 /** The totals row: its label in small caps, its figures as TD_TOTAL, a currency as a hint. */
@@ -138,6 +153,8 @@ const FOOT_LINE = "border-t-2 border-slate-200";
 const FOOT_LABEL = `px-[6px] py-2 ${FOOT_LINE} ${LABEL_TEXT}`;
 const FOOT = `${TD_TOTAL} !px-[6px] text-right tabular-nums`;
 const FOOT_UNIT = `px-[6px] py-2 ${FOOT_LINE} ${HINT}`;
+/** A locked row in focus (it is a Tab stop): the focus colour of the app's buttons, as an outline. */
+const ROW_FOCUS = "focus-visible:outline-2 focus-visible:outline-solid focus-visible:-outline-offset-2 focus-visible:outline-indigo-500";
 /** A row's Duplicate / Delete. */
 const ROW_BTN = ICON_BTN_GHOST;
 const ROW_DELETE_BTN = `${ICON_BTN_GHOST} hover:!bg-red-50 hover:!text-red-600`;
@@ -146,20 +163,12 @@ const ADD_FIRST_BTN = `${LINK} text-[13px] font-semibold border-0 bg-transparent
 /** A report cell: TD with its figure on the right; the colour goes on the figure's own span. */
 const REPORT_NUM = `${TD} text-right tabular-nums whitespace-nowrap`;
 
-/** A return arrow (↩) for Undo: a stroke drawn in the text colour, at the size of the button's text. */
-function ReturnArrowIcon() {
-  return (
-    <svg aria-hidden width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M9 14 4 9l5-5" />
-      <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
-    </svg>
-  );
-}
-
 interface HeadBtnProps {
   onClick: () => void;
   disabled?: boolean;
   title?: string;
+  /** A fuller name than the words on the button, where two cards have the same words (Undo). */
+  ariaLabel?: string;
   /** The card's main action (Add …): purple. */
   primary?: boolean;
   children: React.ReactNode;
@@ -170,7 +179,7 @@ interface HeadBtnProps {
  * purple, the others white, each with its icon and words (Undo, Copy from …, Add …).
  */
 function HeadBtn({
-  onClick, disabled, title, primary, children,
+  onClick, disabled, title, ariaLabel, primary, children,
 }: HeadBtnProps) {
   return (
     <button
@@ -178,7 +187,8 @@ function HeadBtn({
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className={`${primary ? `${BTN_PRIMARY} !text-white hover:!text-white` : BTN} ${BTN_SM} shadow-sm`}
+      aria-label={ariaLabel}
+      className={`${primary ? BTN_PRIMARY : BTN} ${BTN_SM}`}
     >
       {children}
     </button>
@@ -375,22 +385,45 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
   const buyLocked = (r: BuyingRow) =>
     !unlocked.has(r.id) && !!(r.category || num(r.estAmount) || num(r.realAmount));
   const sellLocked = (r: SellingRow) =>
-    (!unlocked.has(r.id) || !invoiceDocs) && !!(r.category || num(r.amount));
+    (!unlocked.has(r.id) || !invoicedKnown) && !!(r.category || num(r.amount));
 
   // Selling rows on an issued invoice (a credited one frees them): the invoice each is on.
   // Until the list has come, no filled row opens for editing (it may turn out to be invoiced).
-  const { data: invoiceDocs } = useInvoiceDocList(shipment.id);
+  // A list that could not be read does not keep them shut: the card says so, and the rows open,
+  // as the server refuses a change to an invoiced row whatever is shown here.
+  const { data: invoiceDocs, isError: invoiceDocsFailed } = useInvoiceDocList(shipment.id);
+  const invoicedKnown = !!invoiceDocs || invoiceDocsFailed;
   const invoicedBy = new Map<string, InvoiceDoc>();
   for (const doc of invoiceDocs?.invoices ?? []) {
     if (!isOpenInvoice(doc)) continue;
     for (const line of doc.lines) if (line.sourceSellingCostId) invoicedBy.set(line.sourceSellingCostId, doc);
   }
 
-  /** a locked row: fields look like text, a double-click opens them */
+  /** a locked row: fields look like text, a double-click opens them (or Enter on the row; the
+   *  fields themselves are read-only and out of the Tab order meanwhile, see `closed`) */
   const lockedField = (locked: boolean) =>
     locked
       ? " !border-transparent !bg-transparent pointer-events-none"
       : "";
+  /** What makes a field of a locked row unreachable by the keyboard too: read-only, no Tab stop. */
+  const closed = (locked: boolean) => (locked ? { readOnly: true, tabIndex: -1 } : {});
+  /** A locked row is one Tab stop: Enter opens it, Enter in one of its fields closes it again. */
+  const rowKeys = (id: string, locked: boolean) => ({
+    tabIndex: locked ? 0 : undefined,
+    onKeyDown: (e: React.KeyboardEvent<HTMLTableRowElement>) => {
+      if (e.key !== "Enter") return;
+      if (locked) {
+        if (e.target !== e.currentTarget) return;
+        // opened, the row is no Tab stop any more: the focus goes on to its first field
+        const row = e.currentTarget;
+        unlock(id);
+        window.setTimeout(() => row.querySelector<HTMLElement>('input:not([readonly]):not([disabled]):not([tabindex="-1"])')?.focus(), 0);
+        return;
+      }
+      (e.target as HTMLElement).blur();
+      lock(id);
+    },
+  });
 
   /**
    * What a selling row is added again from on undo: the fields the request takes (the restored row gets a
@@ -482,10 +515,14 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
     invalidate();
   };
 
-  const duplicateSell = async (r: SellingRow, index: number) => {
+  // A copy of a row on an issued invoice is a new charge, not one more line of the same: it is not
+  // ticked for Invoice (or it would go straight onto the next one) and takes no own text from that
+  // invoice - it is printed by its Description until it is given one.
+  const duplicateSell = async (r: SellingRow, index: number, invoiced = false) => {
     await api.invoicing.invoicingAddSellingCost(shipment.id, {
-      category: r.category, description: r.description, customer: r.customer,
-      qty: r.qty, amount: r.amount, currency: r.currency, invoice: r.invoice,
+      category: r.category, description: r.description,
+      ...(invoiced ? { invoice: false } : { customer: r.customer, invoice: r.invoice }),
+      qty: r.qty, amount: r.amount, currency: r.currency,
       sortOrder: index + 1,
     });
     await Promise.all(sellRows.flatMap((row, i) => i > index
@@ -626,8 +663,8 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
         bodyClassName="rounded-b-xl overflow-hidden"
         extra={
           <>
-            <HeadBtn onClick={guarded("Could not restore the row", undoBuy)} disabled={!undoBuyCount} title="Bring back the last deleted buying cost">
-              <ReturnArrowIcon />
+            <HeadBtn onClick={guarded("Could not restore the row", undoBuy)} disabled={!undoBuyCount} title="Bring back the last deleted buying cost" ariaLabel="Undo the last deleted buying cost">
+              <RollbackOutlined />
               Undo
             </HeadBtn>
             {/* Copies the quote's buying and selling costs both. */}
@@ -712,10 +749,10 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                 return (
                 <tr
                   key={r.id}
-                  className={`hover:bg-slate-50/60 ${locked ? "cursor-pointer" : ""}`}
+                  className={`hover:bg-slate-50/60 ${locked ? `cursor-pointer ${ROW_FOCUS}` : ""}`}
                   data-cost-row={r.id}
                   onDoubleClick={() => unlock(r.id)}
-                  onKeyDown={(e) => { if (e.key === "Enter") { (e.target as HTMLElement).blur(); lock(r.id); } }}
+                  {...rowKeys(r.id, locked)}
                 >
                   <td className={CELL}>
                     <Select
@@ -731,16 +768,15 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                       showSearch
                       optionFilterProp="label"
                       popupMatchSelectWidth={380}
-                      open={fromQuote ? false : undefined}
-                      tabIndex={fromQuote ? -1 : undefined}
+                      open={locked || fromQuote ? false : undefined}
+                      tabIndex={locked || fromQuote ? -1 : undefined}
                       onChange={(v) => updateBuy.mutate({ id: r.id, category: v })}
                     />
                   </td>
                   <td className={CELL}>
                     <input
                       className={`${FIELD}${fixed}`}
-                      readOnly={!!fromQuote}
-                      tabIndex={fromQuote ? -1 : undefined}
+                      {...closed(locked || !!fromQuote)}
                       defaultValue={r.description}
                       onBlur={(e) => e.target.value !== r.description && updateBuy.mutate({ id: r.id, description: e.target.value })}
                     />
@@ -752,22 +788,20 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                   <td className={CELL}>
                     <input
                       className={`${FIELD} text-center${est}`}
-                      readOnly={estClosed}
-                      tabIndex={estClosed ? -1 : undefined}
+                      {...closed(locked || estClosed)}
                       defaultValue={r.estQty}
                       inputMode="decimal"
-                      onInput={onlyNumbers}
+                      onKeyDown={onlyNumbers}
                       onBlur={(e) => e.target.value !== r.estQty && updateBuy.mutate({ id: r.id, estQty: e.target.value })}
                     />
                   </td>
                   <td className={CELL}>
                     <input
                       className={`${FIELD} text-right${est}`}
-                      readOnly={estClosed}
-                      tabIndex={estClosed ? -1 : undefined}
+                      {...closed(locked || estClosed)}
                       defaultValue={r.estAmount}
                       inputMode="decimal"
-                      onInput={onlyNumbers}
+                      onKeyDown={onlyNumbers}
                       onBlur={(e) => e.target.value !== r.estAmount && updateBuy.mutate({ id: r.id, estAmount: e.target.value })}
                     />
                   </td>
@@ -782,9 +816,10 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                   <td className={`${CELL} ${SPLIT}`}>
                     <input
                       className={`${FIELD} text-center${fld}`}
+                      {...closed(locked)}
                       defaultValue={r.realQty}
                       inputMode="decimal"
-                      onInput={onlyNumbers}
+                      onKeyDown={onlyNumbers}
                       onBlur={(e) => e.target.value !== r.realQty && updateBuy.mutate({ id: r.id, realQty: e.target.value })}
                     />
                   </td>
@@ -799,9 +834,10 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                   >
                     <input
                       className={`${FIELD} text-right${fld} ${t.buyRowUnder[r.id] ? "!text-emerald-700 font-bold" : ""}`}
+                      {...closed(locked)}
                       defaultValue={r.realAmount}
                       inputMode="decimal"
-                      onInput={onlyNumbers}
+                      onKeyDown={onlyNumbers}
                       onBlur={(e) => e.target.value !== r.realAmount && updateBuy.mutate({ id: r.id, realAmount: e.target.value })}
                     />
                   </td>
@@ -811,6 +847,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                   <td className={CELL}>
                     <input
                       className={`${FIELD}${fld}`}
+                      {...closed(locked)}
                       defaultValue={r.invoiceNumber}
                       onBlur={(e) => changeInvoiceNumber(r, e.target)}
                     />
@@ -913,8 +950,8 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
         bodyClassName="rounded-b-xl overflow-hidden"
         extra={
           <>
-            <HeadBtn onClick={guarded("Could not restore the row", undoSell)} disabled={!undoSellCount} title="Bring back the last deleted selling cost">
-              <ReturnArrowIcon />
+            <HeadBtn onClick={guarded("Could not restore the row", undoSell)} disabled={!undoSellCount} title="Bring back the last deleted selling cost" ariaLabel="Undo the last deleted selling cost">
+              <RollbackOutlined />
               Undo
             </HeadBtn>
             <HeadBtn onClick={guarded("Could not copy from buying", copyFromBuying)}>Copy from buying</HeadBtn>
@@ -922,6 +959,12 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
           </>
         }
       >
+        {invoiceDocsFailed && !invoiceDocs && (
+          <div role="status" className="flex items-center gap-2 px-4 py-2 border-b border-slate-100 text-[12px] text-red-600">
+            <WarningOutlined />
+            Could not check which rows are invoiced — the server still refuses changes to invoiced rows.
+          </div>
+        )}
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1040px] border-separate border-spacing-0">
             <thead>
@@ -929,8 +972,8 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                 <th className={`${HEAD} !text-center w-[64px]`} title="Include in the billing calculation sheet">Invoice</th>
                 {/* each head starts (or ends) where its column's text does: a Select's 12px, an input's 9px */}
                 <th className={`${HEAD} !pl-[18px] w-[250px]`}>Category</th>
-                {/* the row's Description: the text printed on its invoice line (rewritable in Issue invoice) */}
-                <th className={`${HEAD} !pl-[15px] w-[26%]`} title="Printed on the invoice line; it can still be rewritten in Issue invoice">Invoice text</th>
+                {/* what the invoice line prints: the row's own text (set in Issue invoice), else its Description, else the category */}
+                <th className={`${HEAD} !pl-[15px] w-[26%]`} title="Printed on the invoice line: the row's Description, or a text of its own set in Issue invoice">Invoice text</th>
                 <th className={`${HEAD} !text-center w-[6%]`}>Qty</th>
                 <th className={`${HEAD} !text-right !pr-[15px] w-[10%]`}>Amount</th>
                 <th className={`${HEAD} !pl-[18px] w-[7%]`}>Cur</th>
@@ -951,7 +994,11 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                       </td>
                       <td className={CELL}><span className={READ_SELECT}>{r.category ? chargeLabel(r.category) : "—"}</span></td>
                       <td className={CELL}>
-                        <span className={READ}>{r.description}</span>
+                        {/* what the invoice line printed (an invoiced row) or prints */}
+                        <span className={READ}>
+                          {invoicedOn?.lines.find((l) => l.sourceSellingCostId === r.id)?.description ?? printedText(r)}
+                        </span>
+                        {r.customer.trim() && <span className={OWN_TEXT_HINT}>Own text from Issue invoice</span>}
                         {truckingTag && <TruckingCostTagLink tag={truckingTag} />}
                       </td>
                       <td className={CELL}><span className={`${READ} text-center`}>{r.qty}</span></td>
@@ -960,13 +1007,13 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                       <td className={`${CELL} text-right text-[13px] font-semibold tabular-nums ${r.invoice ? "text-slate-900" : "text-slate-400 line-through"}`}>{sellRowTotal(r)}</td>
                       <td className={`${CELL} text-center whitespace-nowrap`}>
                         {/* Duplicate, then the invoice mark: in the places an open row has Duplicate and Delete.
-                            A copy is a new row, not on the invoice: it can be changed and invoiced. */}
+                            A copy is a new row, not on the invoice and not ticked for it: it can be changed and invoiced. */}
                         {invoicedOn && (truckingTag ? (
                           <span aria-hidden className="inline-block w-7" />
                         ) : (
                           <Tooltip title="Duplicate row">
                             <button
-                              onClick={guarded("Could not duplicate the row", () => duplicateSell(r, rowIndex))}
+                              onClick={guarded("Could not duplicate the row", () => duplicateSell(r, rowIndex, true))}
                               aria-label="Duplicate selling cost row"
                               className={ROW_BTN}
                             >
@@ -984,10 +1031,10 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                 return (
                 <tr
                   key={r.id}
-                  className={`hover:bg-slate-50/60 ${locked ? "cursor-pointer" : ""}`}
+                  className={`hover:bg-slate-50/60 ${locked ? `cursor-pointer ${ROW_FOCUS}` : ""}`}
                   data-cost-row={r.id}
                   onDoubleClick={() => unlock(r.id)}
-                  onKeyDown={(e) => { if (e.key === "Enter") { (e.target as HTMLElement).blur(); lock(r.id); } }}
+                  {...rowKeys(r.id, locked)}
                 >
                   <td className={`${CELL} text-center`}>
                     <Checkbox
@@ -1010,31 +1057,59 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                       showSearch
                       optionFilterProp="label"
                       popupMatchSelectWidth={380}
+                      open={locked ? false : undefined}
+                      tabIndex={locked ? -1 : undefined}
                       onChange={(v) => updateSell.mutate({ id: r.id, category: v })}
                     />
                   </td>
                   <td className={CELL}>
-                    <input
-                      className={`${FIELD}${fld}`}
-                      defaultValue={r.description}
-                      onBlur={(e) => e.target.value !== r.description && updateSell.mutate({ id: r.id, description: e.target.value })}
-                    />
+                    {r.customer.trim() ? (
+                      // A text of its own, set in Issue invoice, is what the line prints: shown here, with
+                      // a way back to the Description (which it hides meanwhile).
+                      <div className="flex items-start gap-1">
+                        <div className="min-w-0 flex-1">
+                          <span className={`${READ} !min-h-0 !pb-0 break-words`}>{r.customer}</span>
+                          <span className={OWN_TEXT_HINT}>Own text from Issue invoice</span>
+                        </div>
+                        <Tooltip title={`Clear the own text: the line prints ${r.description.trim() ? `the Description ("${r.description.trim()}")` : "the category"} again`}>
+                          <button
+                            type="button"
+                            onClick={() => updateSell.mutate({ id: r.id, customer: "" })}
+                            aria-label="Clear the own invoice text"
+                            className={ROW_BTN}
+                          >
+                            <CloseOutlined />
+                          </button>
+                        </Tooltip>
+                      </div>
+                    ) : (
+                      <input
+                        className={`${FIELD}${fld}`}
+                        {...closed(locked)}
+                        defaultValue={r.description}
+                        placeholder={r.category ? chargeLabel(r.category) : undefined}
+                        aria-label="Invoice text"
+                        onBlur={(e) => e.target.value !== r.description && updateSell.mutate({ id: r.id, description: e.target.value })}
+                      />
+                    )}
                   </td>
                   <td className={CELL}>
                     <input
                       className={`${FIELD} text-center${fld}`}
+                      {...closed(locked)}
                       defaultValue={r.qty}
                       inputMode="decimal"
-                      onInput={onlyNumbers}
+                      onKeyDown={onlyNumbers}
                       onBlur={(e) => e.target.value !== r.qty && updateSell.mutate({ id: r.id, qty: e.target.value })}
                     />
                   </td>
                   <td className={CELL}>
                     <input
                       className={`${FIELD} text-right${fld}`}
+                      {...closed(locked)}
                       defaultValue={r.amount}
                       inputMode="decimal"
-                      onInput={onlyNumbers}
+                      onKeyDown={onlyNumbers}
                       onBlur={(e) => e.target.value !== r.amount && updateSell.mutate({ id: r.id, amount: e.target.value })}
                     />
                   </td>
@@ -1176,15 +1251,15 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
         </span>
 
         {/* Issue invoice: the invoice is made right here (Invoicing's own panel, in a dialog on the
-            shipment page; Invoicing itself switches to its Invoice tab). The app's main-action
-            purple, a size up, so it is easy to spot. Only where the page offers it. */}
+            shipment page; Invoicing itself switches to its Invoice tab). The app's main action.
+            Only where the page offers it. */}
         {onIssueInvoice && (
           <button
             type="button"
             onClick={onIssueInvoice}
-            className={`${BTN_PRIMARY} ml-auto !h-10 !px-3.5 !text-[14px] font-semibold shadow-sm`}
+            className={`${BTN_PRIMARY} ml-auto`}
           >
-            <SendOutlined className="text-[15px]" />
+            <SendOutlined />
             Issue invoice
           </button>
         )}
@@ -1492,8 +1567,8 @@ interface InvoicedMarkProps {
 }
 
 /**
- * The mark of a selling row that is on an issued invoice: hovering shows the invoice's number
- * (a link to its PDF) and where to find it in Invoicing; a click shows the PDF.
+ * The mark of a selling row that is on an issued invoice: hovering or focusing it shows the invoice's
+ * number (a link to its PDF) and where to find it in Invoicing; a click (or Enter) shows the PDF.
  */
 function InvoicedMark({ doc, shipmentId }: InvoicedMarkProps) {
   const { message } = App.useApp();
@@ -1501,10 +1576,11 @@ function InvoicedMark({ doc, shipmentId }: InvoicedMarkProps) {
   return (
     <Popover
       placement="left"
+      trigger={["hover", "focus"]}
       content={
         <div className="text-[13px] leading-5">
           <div className="text-slate-500">Invoiced on</div>
-          <button type="button" onClick={show} className={`${LINK} font-semibold tabular-nums cursor-pointer bg-transparent border-none p-0`}>
+          <button type="button" onClick={show} className={`${LINK} ${REF} font-semibold cursor-pointer bg-transparent border-none p-0`}>
             {doc.number}
           </button>
           <div className="text-slate-500 tabular-nums">DUZP {formatDate(doc.duzp)}</div>
@@ -1518,7 +1594,7 @@ function InvoicedMark({ doc, shipmentId }: InvoicedMarkProps) {
         type="button"
         onClick={show}
         aria-label={`Invoiced on ${doc.number} — show the invoice`}
-        className="inline-flex items-center justify-center w-7 h-7 rounded-md border-0 bg-emerald-100 text-emerald-700 hover:bg-emerald-200 cursor-pointer"
+        className={`${ICON_BTN_GHOST} !bg-emerald-100 !text-emerald-700 hover:!bg-emerald-200`}
       >
         <FileDoneOutlined />
       </button>

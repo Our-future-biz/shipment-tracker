@@ -153,6 +153,8 @@ export function SupplierPicker({
       placeholder={placeholder}
       disabled={readOnly}
       variant={plain ? "borderless" : undefined}
+      // plain text is no Tab stop either: the row's other fields are not, until it opens
+      tabIndex={plain ? -1 : undefined}
       value={value.name}
       options={typing ? options : []}
       popupMatchSelectWidth={320}

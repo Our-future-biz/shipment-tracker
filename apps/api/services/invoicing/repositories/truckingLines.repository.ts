@@ -27,13 +27,18 @@ class TruckingLinesRepository {
    * meanwhile is seen and the invoice is refused instead of billing rows that no longer exist.
    */
   async liveSellingIds(tx: Tx, companyId: string, shipmentId: string, ids: string[]): Promise<Set<string>> {
-    if (!ids.length) return new Set();
+    return new Set((await this.liveSellingVersions(tx, companyId, shipmentId, ids)).keys());
+  }
+
+  /** The live rows among these, each with when it was last changed (ms), read in the caller's transaction. */
+  async liveSellingVersions(tx: Tx, companyId: string, shipmentId: string, ids: string[]): Promise<Map<string, number>> {
+    if (!ids.length) return new Map();
     const s = invoiceSellingCostTable;
     const rows = await tx
-      .select({ id: s.id })
+      .select({ id: s.id, updatedAt: s.updatedAt })
       .from(s)
       .where(and(eq(s.companyId, companyId), eq(s.shipmentId, shipmentId), inArray(s.id, ids), isNull(s.deletedAt)));
-    return new Set(rows.map((r) => r.id));
+    return new Map(rows.map((r) => [r.id, r.updatedAt.getTime()]));
   }
 
   /**

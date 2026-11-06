@@ -531,7 +531,7 @@ function ContainerNumberLinkRow({ value, onOpen }: { value: string; onOpen: () =
             type="button"
             onClick={onOpen}
             title="Open Container Details"
-            className={`${LINK} font-medium tabular-nums cursor-pointer bg-transparent border-none p-0 text-left`}
+            className={`${LINK} ${REF} font-medium cursor-pointer bg-transparent border-none p-0 text-left`}
           >
             {value}
           </button>
@@ -627,6 +627,7 @@ export function DetailCard({
         shipment={shipment}
         onCommit={onCommit}
         styleFor={styleFor}
+        renderField={renderField}
       />
       <div className={CARD_BODY}>
       <div className={shownColumns.length > 1 ? COLS2 : ""}>
@@ -1027,8 +1028,12 @@ export function ShipmentDetailContent() {
   // The page glides up first (easing in and out) and the tab then fades in, so the shorter
   // tab does not make the page jump. With reduced motion asked for, it is all at once.
   const [containerFade, setContainerFade] = useState(false);
-  // Issue invoice, opened from Costs Breakdown.
+  // Issue invoice, opened from Costs Breakdown; it stays open while an invoice is being issued.
   const [issueOpen, setIssueOpen] = useState(false);
+  const [issueBusy, setIssueBusy] = useState(false);
+  const closeIssue = () => {
+    if (!issueBusy) setIssueOpen(false);
+  };
   // The glide under way (its frame request and the listeners that stop it), so it can be stopped:
   // by another tab click, by the user's own scrolling, or by leaving the page.
   const glide = useRef<{ frame: number; stop: () => void } | null>(null);
@@ -1040,12 +1045,14 @@ export function ShipmentDetailContent() {
   }, [activeTab]);
   const openContainerTab = () => {
     if (glide.current) return; // already on its way
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const open = () => {
-      setContainerFade(true);
+      // with reduced motion asked for, no fade either
+      if (!reduced) setContainerFade(true);
       setActiveTab("container");
     };
     const from = window.scrollY;
-    if (from < 2 || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    if (from < 2 || reduced) {
       window.scrollTo({ top: 0 });
       open();
       return;
@@ -1795,16 +1802,20 @@ export function ShipmentDetailContent() {
         {activeTab === "costs" && <CostsTab shipment={shipment} onIssueInvoice={() => setIssueOpen(true)} />}
 
         {/* Issue invoice from Costs Breakdown: Invoicing's own Invoice panel (same preview, checks,
-            issuing and PDF), on this page instead of leading away to Invoicing. */}
+            issuing and PDF), on this page instead of leading away to Invoicing. A click beside it
+            leaves it open (the note, customer and DUZP picked stay); while an invoice is issued and
+            its PDF downloaded it can't be closed at all, or the email step would be lost with it. */}
         <AppModal
           open={issueOpen}
-          onClose={() => setIssueOpen(false)}
+          onClose={closeIssue}
           title="Issue invoice"
           size="xlarge"
           footer={null}
+          maskClosable={false}
+          closable={!issueBusy}
         >
           {/* Issued from the job itself: no note that the job is not released for Billing (Invoicing keeps it) */}
-          <InvoicePanel shipment={shipment} section="invoice" billingStatusWarning={false} onOpenCosts={() => setIssueOpen(false)} />
+          <InvoicePanel shipment={shipment} section="invoice" billingStatusWarning={false} onOpenCosts={closeIssue} onBusyChange={setIssueBusy} />
         </AppModal>
 
         {activeTab === "documents" && <DocumentsTab shipment={shipment} />}

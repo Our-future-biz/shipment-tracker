@@ -126,8 +126,9 @@ function linesOf(value: unknown, quoteCurrency: string, skipTrucking: boolean): 
 /**
  * The Costs Breakdown rows a quote's document gives: a buying row per buying line (estimate =
  * the line's amount, real cost still open but in the same currency, vendor = the supplier) and a
- * selling row per selling line (ticked for invoicing). A selling row's invoice text is left empty, so
- * its line prints the category's name until it is rewritten in Issue invoice (not the customer's name).
+ * selling row per selling line (ticked for invoicing). A selling row's own text is left empty, so its
+ * line prints the row's Description (else the category) until one is set in Issue invoice (never the
+ * customer's name).
  * `skipTrucking`: lines priced from a trucking tariff are left out (the job has a Trucking
  * consignment, whose rows are Trucking's own).
  */

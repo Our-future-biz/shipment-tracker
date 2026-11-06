@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { amountInput, money, moneyCz, normaliseAmount, num, parseMoney, round2, sumRounded } from "./money";
+import { amountTypingAllowed, money, moneyCz, normaliseAmount, num, parseMoney, round2, sumRounded } from "./money";
 
 describe("num", () => {
   it.each([
@@ -103,24 +103,37 @@ describe("formatting", () => {
   });
 });
 
-describe("amountInput", () => {
-  it("keeps digits and the separators parseMoney reads", () => {
-    expect(amountInput("4 999,50")).toBe("4 999,50");
-    expect(amountInput("1,234.5")).toBe("1,234.5");
-    expect(amountInput("2000.00")).toBe("2000.00");
+describe("amountTypingAllowed", () => {
+  it("lets digits and the separators parseMoney reads be typed", () => {
+    for (const key of ["0", "7", ",", ".", " "]) expect(amountTypingAllowed(key, "12", 2, 2)).toBe(true);
+    // a decimal comma, Czech style
+    expect(amountTypingAllowed(",", "4 999", 5, 5)).toBe(true);
+    // a whole typed run (a mobile keyboard, autocompletion)
+    expect(amountTypingAllowed("4 999,50", "", 0, 0)).toBe(true);
   });
 
-  it("drops letters and other signs", () => {
-    expect(amountInput("12abc")).toBe("12");
-    expect(amountInput("CZK 200")).toBe("200");
-    expect(amountInput("1e5")).toBe("15");
-    expect(amountInput("€100+")).toBe("100");
+  it("refuses letters and other signs", () => {
+    for (const key of ["a", "e", "x", "€", "+", "*"]) expect(amountTypingAllowed(key, "12", 2, 2)).toBe(false);
+    expect(amountTypingAllowed("2 x 40HC", "", 0, 0)).toBe(false);
   });
 
-  it("keeps only one minus, and only in front", () => {
-    expect(amountInput("-50")).toBe("-50");
-    expect(amountInput("5-0")).toBe("50");
-    expect(amountInput("--5")).toBe("-5");
-    expect(amountInput("x-5")).toBe("-5");
+  it("lets one minus be typed, in front only (a discount)", () => {
+    expect(amountTypingAllowed("-", "", 0, 0)).toBe(true);
+    expect(amountTypingAllowed("-", "50", 0, 0)).toBe(true);
+    expect(amountTypingAllowed("-50", "", 0, 0)).toBe(true);
+    // over a selection that holds the old minus
+    expect(amountTypingAllowed("-", "-50", 0, 1)).toBe(true);
+    expect(amountTypingAllowed("-", "50", 1, 1)).toBe(false);
+    expect(amountTypingAllowed("-", "-50", 0, 0)).toBe(false);
+    expect(amountTypingAllowed("--", "", 0, 0)).toBe(false);
+    expect(amountTypingAllowed("5-", "", 0, 0)).toBe(false);
+  });
+
+  it("leaves pasted text to the validation: text with letters is refused, not stripped to another number", () => {
+    // pasted text goes in as it is; when the field is saved, parseMoney refuses it
+    expect(parseMoney("2 x 40HC")).toBeNull();
+    expect(parseMoney("1e5")).toBeNull();
+    expect(normaliseAmount("2 x 40HC")).toBeNull();
+    expect(normaliseAmount("CZK 200")).toBeNull();
   });
 });

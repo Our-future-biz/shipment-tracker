@@ -16,7 +16,7 @@ const repo = vi.hoisted(() => ({
 const generated = vi.hoisted(() => ({ shipmentIdsWithInvoices: vi.fn() }));
 const trucking = vi.hoisted(() => ({
   lock: vi.fn(async () => undefined),
-  liveSellingIds: vi.fn(async (_tx: unknown, _c: string, _s: string, ids: string[]) => new Set(ids)),
+  liveSellingVersions: vi.fn(async (_tx: unknown, _c: string, _s: string, ids: string[]) => new Map(ids.map((id) => [id, new Date("2026-11-06T09:00:00Z").getTime()]))),
 }));
 const bucket = vi.hoisted(() => ({ upload: vi.fn(), download: vi.fn(), remove: vi.fn() }));
 const pdf = vi.hoisted(() => ({ render: vi.fn() }));
@@ -34,7 +34,7 @@ vi.mock("../repositories/invoice.repository", () => ({ invoiceRepository: repo }
 vi.mock("../repositories/generatedInvoice.repository", () => ({ generatedInvoiceRepository: generated }));
 vi.mock("../repositories/truckingLines.repository", () => ({
   truckingLinesLock: trucking.lock,
-  truckingLinesRepository: { liveSellingIds: trucking.liveSellingIds },
+  truckingLinesRepository: { liveSellingVersions: trucking.liveSellingVersions },
 }));
 vi.mock("../repositories/invoiceProfile.repository", () => ({ invoiceProfileRepository: profiles }));
 vi.mock("../repositories/sellingCost.repository", () => ({ sellingCostRepository: selling }));
@@ -88,8 +88,10 @@ const profile = {
 };
 // ČNB rates valid on the DUZP, as the fx service returns them
 const cnb = { date: "2026-10-14", fixingDate: "2026-10-13", provisional: false, missing: false, roePct: 100, rates: [{ currency: "EUR", rate: 25 }, { currency: "USD", rate: 22 }], retired: [] };
+// Every row was last changed at SAVED, unless a test says otherwise.
+const SAVED = new Date("2026-11-06T09:00:00Z");
 const sellRow = (over: Record<string, unknown>) => ({
-  id: "s1", category: "Ocean freight", qty: "1.00", amount: "1000.00", currency: "EUR", invoice: true, vatCode: null, ...over,
+  id: "s1", category: "Ocean freight", qty: "1.00", amount: "1000.00", currency: "EUR", invoice: true, vatCode: null, updatedAt: SAVED, ...over,
 });
 
 beforeEach(() => {
@@ -323,10 +325,22 @@ describe("issue", () => {
     expect(clients.invoiceCreate).not.toHaveBeenCalled();
   });
 
+  it("refuses a row saved while the invoice was being prepared, so it isn't billed with its old values", async () => {
+    repo.invoicedSellingRowIds.mockResolvedValue(new Set());
+    // s1 was saved after the invoice read it: under the lock it is newer than what the lines were built from.
+    trucking.liveSellingVersions.mockImplementationOnce(async (_tx, _c, _s, ids: string[]) => new Map(ids.map((id) => [id, id === "s1" ? SAVED.getTime() + 1000 : SAVED.getTime()])));
+    repo.issue.mockImplementation(async (_p: string, _h: unknown, _l: unknown, hooks?: { beforeInsert?: (tx: unknown) => Promise<void> }) => {
+      await hooks?.beforeInsert?.({ tx: true });
+      return { invoice: {}, lines: [] };
+    });
+    await expect(invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, {})).rejects.toThrow(/changed a moment ago/);
+    expect(clients.invoiceCreate).not.toHaveBeenCalled();
+  });
+
   it("waits for a running Trucking push and refuses rows the push replaced meanwhile", async () => {
     repo.invoicedSellingRowIds.mockResolvedValue(new Set());
     // the push soft-deleted s2 and wrote a new row while this invoice was being prepared
-    trucking.liveSellingIds.mockImplementationOnce(async (_tx, _c, _s, ids: string[]) => new Set(ids.filter((id) => id !== "s2")));
+    trucking.liveSellingVersions.mockImplementationOnce(async (_tx, _c, _s, ids: string[]) => new Map(ids.filter((id) => id !== "s2").map((id) => [id, SAVED.getTime()])));
     repo.issue.mockImplementation(async (_p: string, _h: unknown, _l: unknown, hooks?: { beforeInsert?: (tx: unknown) => Promise<void> }) => {
       await hooks?.beforeInsert?.({ tx: true });
       return { invoice: {}, lines: [] };
