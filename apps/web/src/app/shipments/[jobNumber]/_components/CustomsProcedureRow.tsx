@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Input, Modal, Select } from "antd";
+import { ConfigProvider, Input, Modal, Select } from "antd";
 import { useCustomsOfficeRequest, type CustomsOfficeRequestItem } from "@/hooks/useCustomsOfficeRequests";
 import { useCanChangeCustomsOffice } from "@/lib/auth/AuthContext";
 import { CUSTOMS_OFFICES, namesCustomsOffice } from "@/lib/customsOffices";
@@ -39,6 +39,8 @@ export function CustomsProcedureRow({ label, value, shipmentId, customsOffice, o
   const waiting = request?.status === "pending";
 
   return (
+    // A department's own fields: not disabled with a read-only card around them.
+    <ConfigProvider componentDisabled={false}>
     <div className={`${ROW} ${t1 ? "flex-wrap" : ""}`}>
       <span className={LABEL.replace(LABEL_W, labelW)}>{label}</span>
       {locked ? (
@@ -98,6 +100,7 @@ export function CustomsProcedureRow({ label, value, shipmentId, customsOffice, o
         />
       )}
     </div>
+    </ConfigProvider>
   );
 }
 

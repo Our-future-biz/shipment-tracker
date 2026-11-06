@@ -47,6 +47,7 @@ import { isUuid } from "../../../lib/uuid";
 import { publicFields } from "../lib/rows";
 import { changesTaxDate } from "../lib/taxDate";
 import { customsOfficeForProcedure, customsOfficeLockRefusal } from "../lib/customsOffice";
+import { DETAILS_REFUSAL, isDetailsManager, isOpenToPerson, touchesDetails } from "../lib/shipmentEditRule";
 import { dangerousFromAdr, normalizeCargoDimensions, normalizeStops } from "../lib/roadFreight";
 import { detailRowChanges, type DetailRowLists } from "../lib/detailRowsAudit";
 import { partyContact, partyStop, stopKeys, type Party } from "../lib/partyAddress";
@@ -1021,6 +1022,19 @@ class ShipmentService {
     return shipmentRefCounterRepository.peek(companyId, "CZ");
   }
 
+  // At user level only the Person in Charge and the Holiday Cover change a shipment's details
+  // (lib/shipmentEditRule). An e-mail that can't be looked up is refused rather than guessed.
+  private async assertMayChangeDetails(shipment: { personInCharge: string; holidayCover: string }, userId: string, role: string): Promise<void> {
+    if (isDetailsManager(role) || isOpenToPerson(shipment, "") || isOpenToPerson(shipment, await userEmailOf(userId))) return;
+    throw APIError.permissionDenied(DETAILS_REFUSAL);
+  }
+
+  /** For the actions that aren't a field edit but change the shipment: its master job, releasing its BoL. */
+  async requireDetailsEditor(id: string, actor: { companyID: string; userID: string; role: string }): Promise<void> {
+    const shipment = await shipmentRepository.getByIdForCompany(id, actor.companyID);
+    if (shipment) await this.assertMayChangeDetails(shipment, actor.userID, actor.role);
+  }
+
   // `role`: of the person editing, whose edit is held to what their role may change. Left out by
   // the app's own writes (a master job's sync, an approved request).
   async update(id: string, companyId: string, data: ShipmentUpdateData, userId: string, role?: string): Promise<ShipmentItem> {
@@ -1028,6 +1042,7 @@ class ShipmentService {
     if (!existing) throw APIError.notFound("Shipment not found");
     const locked = role === undefined ? null : customsOfficeLockRefusal(existing, data, role);
     if (locked) throw APIError.permissionDenied(locked);
+    if (role !== undefined && touchesDetails(data)) await this.assertMayChangeDetails(existing, userId, role);
 
     const { containers, cargoItems, cargoDimensions: sentDimensions, commercialInvoices, ...rest } = data;
     assertValidContainerNumbers(containers);

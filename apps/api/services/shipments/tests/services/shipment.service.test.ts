@@ -1581,3 +1581,60 @@ describe("the Pick-up tab's License Plate", () => {
     expect(shipment?.licensePlate).toBe("");
   });
 });
+
+describe("who may change a shipment's details", () => {
+  const asRole = (data: Record<string, unknown>, role?: string) => shipmentService.update(SHIPMENT, COMPANY, data as never, USER, role);
+  const named = (personInCharge: string, holidayCover = "") => stored.set(SHIPMENT, row({ personInCharge, holidayCover }));
+  const REFUSAL = "Only this shipment's Person in Charge, Holiday Cover or a manager can change its details";
+
+  it("refuses a user who is neither its Person in Charge nor its Holiday Cover, and writes nothing", async () => {
+    named(MARTIN.email, JANA.email);
+    await expect(asRole({ vessel: "SEASPAN" }, "user")).rejects.toThrow(REFUSAL);
+    await expect(asRole({ containers: [] }, "user")).rejects.toThrow(REFUSAL);
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
+  });
+
+  it("lets its Person in Charge and its Holiday Cover change them", async () => {
+    named(JAN.email);
+    await expect(asRole({ vessel: "SEASPAN" }, "user")).resolves.toBeTruthy();
+    named(MARTIN.email, JAN.email);
+    await expect(asRole({ voyage: "078W" }, "user")).resolves.toBeTruthy();
+  });
+
+  it("always lets a manager, an admin and a superadmin", async () => {
+    named(MARTIN.email);
+    for (const role of ["manager", "admin", "superadmin"]) await expect(asRole({ vessel: role }, role)).resolves.toBeTruthy();
+  });
+
+  it("leaves a shipment with nobody named open to any user", async () => {
+    named("");
+    await expect(asRole({ vessel: "SEASPAN" }, "user")).resolves.toBeTruthy();
+  });
+
+  it("leaves the departments' own fields open to any user", async () => {
+    named(MARTIN.email);
+    await expect(asRole({ mrn: "26CZ1" }, "user")).resolves.toBeTruthy();
+    await expect(asRole({ warehouseReceivedDate: "2026-11-06" }, "user")).resolves.toBeTruthy();
+    await expect(asRole({ invoicingStatus: "Billing" }, "user")).resolves.toBeTruthy();
+  });
+
+  it("refuses an edit that mixes a department's field with a detail", async () => {
+    named(MARTIN.email);
+    await expect(asRole({ mrn: "26CZ1", vessel: "SEASPAN" }, "user")).rejects.toThrow(REFUSAL);
+  });
+
+  it("does not hold the app's own writes to it", async () => {
+    named(MARTIN.email);
+    await expect(asRole({ vessel: "SEASPAN" })).resolves.toBeTruthy();
+  });
+
+  it("refuses a user the actions that aren't a field edit, on someone else's shipment", async () => {
+    named(MARTIN.email);
+    const actor = { companyID: COMPANY, userID: USER, role: "user" };
+    await expect(shipmentService.requireDetailsEditor(SHIPMENT, actor)).rejects.toThrow(REFUSAL);
+    named(JAN.email);
+    await expect(shipmentService.requireDetailsEditor(SHIPMENT, actor)).resolves.toBeUndefined();
+    named(MARTIN.email);
+    await expect(shipmentService.requireDetailsEditor(SHIPMENT, { ...actor, role: "manager" })).resolves.toBeUndefined();
+  });
+});

@@ -31,5 +31,6 @@ export async function actingAuthNow(row: Pick<ShipmentUpdateOwed, "companyId" | 
 /** Throws the upstream error when Shipments does not take the update. */
 export async function sendShipmentUpdateAs(row: ShipmentUpdateOwed): Promise<void> {
   const authData = await actingAuthNow(row);
-  await shipments.shipmentUpdate({ shipmentId: row.shipmentId, ...row.payload }, { authData });
+  // The app's own update, not the user's edit: it isn't held to who may change the shipment's details.
+  await shipments.shipmentUpdate({ shipmentId: row.shipmentId, ...row.payload }, { authData: { ...authData, appWrite: true } });
 }

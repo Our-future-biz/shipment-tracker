@@ -31,9 +31,9 @@ beforeEach(() => {
 describe("outbox delivery", () => {
   it("writes dates and plate through ShipmentUpdate as the acting user (with the role they have now)", async () => {
     await sendRow(row("planned", { pickupDate: "2026-10-16", plannedDeliveryDate: "2026-10-19" }));
-    expect(shipments.shipmentUpdate).toHaveBeenCalledWith({ shipmentId: S, pickupDate: "2026-10-16", plannedDeliveryDate: "2026-10-19" }, { authData });
+    expect(shipments.shipmentUpdate).toHaveBeenCalledWith({ shipmentId: S, pickupDate: "2026-10-16", plannedDeliveryDate: "2026-10-19" }, { authData: { ...authData, appWrite: true } });
     await sendRow(row("delivered", { actualDeliveryDate: "2026-10-16" }));
-    expect(shipments.shipmentUpdate).toHaveBeenLastCalledWith({ shipmentId: S, actualDeliveryDate: "2026-10-16" }, { authData });
+    expect(shipments.shipmentUpdate).toHaveBeenLastCalledWith({ shipmentId: S, actualDeliveryDate: "2026-10-16" }, { authData: { ...authData, appWrite: true } });
   });
 
   it("asks Shipments for the Billing step, and pushes the cost lines to invoicing", async () => {

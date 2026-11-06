@@ -145,7 +145,7 @@ export function WarehouseDashboard() {
           onClose={() => setDimsShipmentId(null)}
           onSave={(shipment, cargoDimensions) =>
             updateShipment({ id: shipment.id, data: { cargoDimensions } }).catch((e) => {
-              toast.error("Could not save the dimensions");
+              toast.error(e instanceof Error && e.message ? e.message : "Could not save the dimensions");
               throw e;
             })
           }

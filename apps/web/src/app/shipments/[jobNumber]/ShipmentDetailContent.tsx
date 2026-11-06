@@ -4,7 +4,7 @@ import React, { useEffect, useState } from "react";
 import { contactUpdate, partyUpdate, type ContactField, type ContactLinks, type PartyField } from "@/app/shipments/_lib/parties";
 import { useQueryClient } from "@tanstack/react-query";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { Badge, Spin, Dropdown, Modal, Drawer, Tooltip, Select, TimePicker, Button } from "antd";
+import { Alert, Badge, ConfigProvider, Spin, Dropdown, Modal, Drawer, Tooltip, Select, TimePicker, Button } from "antd";
 import { useToast } from "@/lib/toast";
 import dayjs from "dayjs";
 import { api, apiErrorMessage } from "@/lib/api";
@@ -34,7 +34,8 @@ import {
 import { useShipment } from "@/hooks/useShipment";
 import { NOT_STACKABLE, STACKABLE_OPTIONS, shipmentStackability, withShipmentStackability } from "@/lib/cargo";
 import { useInvoicing } from "@/hooks/useInvoicing";
-import { useCanDeleteShipments } from "@/lib/auth/AuthContext";
+import { useAuth, useCanDeleteShipments } from "@/lib/auth/AuthContext";
+import { canChangeShipmentDetails } from "@/lib/shipmentEditRule";
 import { useShipmentMutations, getFieldValue, buildRowData, type ShipmentItem } from "@/hooks/useShipments";
 import { getCellConditionalStyle, getRowConditionalStyle } from "@/lib/columnConfig";
 import { businessToday, formatDate } from "@/lib/date";
@@ -58,7 +59,7 @@ import { useShipmentAlerts } from "@/hooks/useShipmentAlerts";
 import { WarehouseTab } from "./tabs/WarehouseTab";
 import { CustomsProcedureRow } from "./_components/CustomsProcedureRow";
 import { CustomsTab } from "./tabs/CustomsTab";
-import { EditableCell, FreightModeContext, ShipmentCustomerContext, ShipmentCustomerPicContext, ShipmentEmailSubjectContext, TradeDirectionContext } from "./_components/EditableCell";
+import { EditableCell, ShipmentDetailsEditableContext, FreightModeContext, ShipmentCustomerContext, ShipmentCustomerPicContext, ShipmentEmailSubjectContext, TradeDirectionContext } from "./_components/EditableCell";
 import { shipmentEmailSubject } from "../_lib/shipmentEmail";
 import { MasterJobHoverCard } from "@/components/MasterJobHoverCard";
 import { FadeText } from "@/components/FadeText";
@@ -270,6 +271,26 @@ function SectionHeader({
         </Modal>
       )}
     </>
+  );
+}
+
+// The Shipment Details, Cargo and Container tabs for someone who may not change them: every cell and
+// picker read-only. `native` also disables the tab's plain buttons; the Details tab has none that
+// change anything once its own are hidden, and its others (a master job's link) must keep working.
+function DetailsGuard({ editable, native = false, children }: { editable: boolean; native?: boolean; children: React.ReactNode }) {
+  if (editable) return <>{children}</>;
+  return (
+    <ShipmentDetailsEditableContext.Provider value={false}>
+      <ConfigProvider componentDisabled>
+        {native ? (
+          <fieldset disabled className="contents">
+            {children}
+          </fieldset>
+        ) : (
+          children
+        )}
+      </ConfigProvider>
+    </ShipmentDetailsEditableContext.Provider>
   );
 }
 
@@ -659,6 +680,7 @@ function OpeningHoursRow({
   to,
   onChange,
 }: OpeningHoursRowProps) {
+  const editable = React.useContext(ShipmentDetailsEditableContext);
   const parse = (v?: string | null) => {
     if (!v) return null;
     const d = dayjs(`1970-01-01T${v}`);
@@ -674,6 +696,8 @@ function OpeningHoursRow({
           format="HH:mm"
           minuteStep={15}
           value={[parse(from), parse(to)]}
+          // Disabled and empty in a read-only card, which the picker wants to be told it may be.
+          allowEmpty={editable ? undefined : [true, true]}
           onChange={(_, strs) => onChange(strs[0] || "", strs[1] || "")}
         />
       </div>
@@ -920,6 +944,7 @@ export function ShipmentDetailContent() {
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const canDelete = useCanDeleteShipments();
+  const { user } = useAuth();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [releaseOpen, setReleaseOpen] = useState(false);
@@ -997,6 +1022,8 @@ export function ShipmentDetailContent() {
   }
 
   // The shipment goes along: it need not be among the rows the list hook knows.
+  // At user level only the Person in Charge and the Holiday Cover change the details (the server holds to the same).
+  const detailsEditable = canChangeShipmentDetails(user, shipment);
   const handleCommit: CommitFn = (fieldKey, value, links) => updateField(shipment.id, fieldKey, value, shipment, links);
 
   // Update a party's name + its CRM customer link together.
@@ -1173,7 +1200,16 @@ export function ShipmentDetailContent() {
 
       {/* ── Tab content ── */}
       <div className="px-4 md:px-6 pt-4 pb-8">
+        {!detailsEditable && (activeTab === "details" || activeTab === "cargo" || activeTab === "container") && (
+          <Alert
+            type="info"
+            showIcon
+            className="mb-4"
+            message="View only: only this shipment's Person in Charge, Holiday Cover or a manager can change its details."
+          />
+        )}
         {activeTab === "details" && (
+          <DetailsGuard editable={detailsEditable}>
           <div className="space-y-4">
             {/* The shipment's progress through its stages */}
             <ShipmentProgress shipment={shipment} />
@@ -1248,14 +1284,18 @@ export function ShipmentDetailContent() {
                               ) : (
                                 <span>#{shipment.masterJobMczNumber}</span>
                               )}
-                              <button onClick={() => setUnlinkOpen(true)} className="text-[10px] text-slate-500 hover:text-red-600 cursor-pointer bg-transparent border-none p-0">
-                                unassign
-                              </button>
+                              {detailsEditable && (
+                                <button onClick={() => setUnlinkOpen(true)} className="text-[10px] text-slate-500 hover:text-red-600 cursor-pointer bg-transparent border-none p-0">
+                                  unassign
+                                </button>
+                              )}
                             </>
-                          ) : (
+                          ) : detailsEditable ? (
                             <button onClick={() => setAssignOpen(true)} className={`${LINK} cursor-pointer bg-transparent border-none p-0 text-left`}>
                               + Assign to master job
                             </button>
+                          ) : (
+                            <span className={EMPTY}>—</span>
                           )}
                         </div>
                       </div>
@@ -1615,10 +1655,12 @@ export function ShipmentDetailContent() {
             </div>
           </div>
           </div>
+          </DetailsGuard>
         )}
 
         {activeTab === "cargo" && (
-          // Keyed by the shipment, so opening another shipment starts the tab afresh.
+          <DetailsGuard editable={detailsEditable} native>
+          {/* Keyed by the shipment, so opening another shipment starts the tab afresh. */}
           <CargoDetailsTab
             key={shipment.id}
             shipment={shipment}
@@ -1631,6 +1673,7 @@ export function ShipmentDetailContent() {
               })
             }
           />
+          </DetailsGuard>
         )}
 
         {activeTab === "costs" && <CostsTab shipment={shipment} />}
@@ -1642,6 +1685,7 @@ export function ShipmentDetailContent() {
         {activeTab === "tracking" && <TrackingTab shipment={shipment} />}
 
         {activeTab === "container" && (
+          <DetailsGuard editable={detailsEditable} native>
           <ContainerDetailsTab
             shipment={shipment}
             // A refused save is said; the tab then shows the saved list again.
@@ -1656,6 +1700,7 @@ export function ShipmentDetailContent() {
               setActiveTab("cargo");
             }}
           />
+          </DetailsGuard>
         )}
 
         {/* Only the Customs card: the documents are in the Documents tab, and customs reviews them in the Customs section. */}

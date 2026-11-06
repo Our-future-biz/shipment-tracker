@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
+import { getAuthData } from "~encore/auth";
 import { customers, fx, shipments } from "~encore/clients";
 import { invoiceRepository, type InvoiceLineInput } from "../repositories/invoice.repository";
 import { generatedInvoiceRepository } from "../repositories/generatedInvoice.repository";
@@ -399,7 +400,9 @@ async function storePdfQuietly(inv: InvoiceRecord, lines: InvoiceLineRecord[], c
 async function applyStatusPatch(shipmentId: string, patch: StatusPatch, number: string) {
   if (!patch.status && !patch.invoicingStatus) return;
   try {
-    await shipments.shipmentUpdate({ shipmentId, ...patch });
+    // The app's own update (a status follows the invoice), not the issuing user's edit of the shipment.
+    const authData = getAuthData();
+    await shipments.shipmentUpdate({ shipmentId, ...patch }, authData ? { authData: { ...authData, appWrite: true } } : undefined);
   } catch (err) {
     log.error(err, "could not update the shipment statuses after invoicing", { number });
   }

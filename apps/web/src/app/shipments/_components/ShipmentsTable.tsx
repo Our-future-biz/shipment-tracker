@@ -24,6 +24,8 @@ import {
 } from "@dnd-kit/sortable";
 import { getFieldValue, buildRowData, useShipmentMutations, type ShipmentItem } from "@/hooks/useShipments";
 import { ListCapNotice } from "@/components/ListCapNotice";
+import Link from "next/link";
+import { canChangeShipmentField } from "@/lib/shipmentEditRule";
 import { COLUMNS, COLUMN_MAP, getCellConditionalStyle, getFilteredStatusOptions, getRowConditionalStyle, getShipmentUrgency, isFixedColumn, type CellStyle } from "@/lib/columnConfig";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useColumnView } from "@/hooks/useColumnView";
@@ -529,6 +531,18 @@ export const ShipmentsTable = ({
         if (isPartyColumn(col.key)) {
           const nameKey = col.key;
           const idKey = PARTY_ID_FIELD[nameKey];
+          if (!canChangeShipmentField(user, record, col.key)) {
+            const name = record[nameKey];
+            if (!name) return <span className={EMPTY}>{"\u2014"}</span>;
+            const customerId = record[idKey];
+            return customerId ? (
+              <Link href={`/customers/${customerId}`} className={cellLinkClass(textStyle?.color)} style={textStyle}>
+                {name}
+              </Link>
+            ) : (
+              <span className="text-slate-700" style={textStyle}>{name}</span>
+            );
+          }
           return (
             <CustomerCell
               name={record[nameKey]}
@@ -573,7 +587,7 @@ export const ShipmentsTable = ({
           );
         }
         // Read-only columns (computed, createdBy\u2026) \u2014 plain text.
-        if (col.readonly || viewReadonly?.includes(col.key)) {
+        if (col.readonly || viewReadonly?.includes(col.key) || !canChangeShipmentField(user, record, col.key)) {
           const shown = col.key === "loadType" ? loadTypeLabel(val, record.freightMode) : val;
           return shown ? <span className="text-slate-700" style={textStyle}>{shown}</span> : <span className={EMPTY}>{"\u2014"}</span>;
         }
@@ -669,7 +683,7 @@ export const ShipmentsTable = ({
 
     // Each titled column's width can be dragged (not the icon columns).
     return resizableColumns(cols, { widthOf, resizeProps });
-  }, [visible, leadColumn, viewReadonly, rowInfo, router, updateField, updateShipment, unreadBy, detailHref, widthOf, resizeProps]);
+  }, [user, visible, leadColumn, viewReadonly, rowInfo, router, updateField, updateShipment, unreadBy, detailHref, widthOf, resizeProps]);
 
   // Client-side pagination (custom bottom bar so the size selector sits on the left).
   const totalRows = filtered.length;

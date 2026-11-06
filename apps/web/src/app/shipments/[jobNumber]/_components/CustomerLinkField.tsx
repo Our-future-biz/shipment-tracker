@@ -1,11 +1,12 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useContext, useRef, useState } from "react";
 import { AutoComplete } from "antd";
 import { useCustomers } from "@/hooks/useCustomers";
 import { FadeText } from "@/components/FadeText";
 import { CustomerHoverCard } from "@/components/CustomerHoverCard";
 import { EditableLink } from "@/components/EditableLink";
+import { ShipmentDetailsEditableContext } from "./EditableCell";
 import { EMPTY, LABEL, ROW } from "./detailStyles";
 import { LINK } from "@/styles/ui";
 
@@ -24,6 +25,7 @@ interface CustomerLinkFieldProps {
 // won't be linked.
 export function CustomerLinkField({ label, name, customerId, onChange, customersOnly = false }: CustomerLinkFieldProps) {
   const { customers } = useCustomers();
+  const editable = useContext(ShipmentDetailsEditableContext);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(name);
   const justSelected = useRef(false);
@@ -36,6 +38,7 @@ export function CustomerLinkField({ label, name, customerId, onChange, customers
     .map((c) => ({ value: c.companyName, id: c.id, label: c.companyName }));
 
   const startEdit = () => {
+    if (!editable) return;
     setDraft(name);
     justSelected.current = false;
     setEditing(true);

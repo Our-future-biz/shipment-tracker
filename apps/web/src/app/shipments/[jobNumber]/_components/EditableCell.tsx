@@ -2,9 +2,10 @@
 
 import { createContext, useContext, useState, useRef } from "react";
 import { EditableLink } from "@/components/EditableLink";
-import { Input, Select, DatePicker } from "antd";
+import { ConfigProvider, Input, Select, DatePicker } from "antd";
 import type { InputRef } from "antd";
 import dayjs from "dayjs";
+import { DEPARTMENT_FIELDS } from "@/lib/shipmentEditRule";
 import { COLUMN_MAP, geoKindOf, getFilteredStatusOptions, splitDateTime } from "@/lib/columnConfig";
 import { GeoFlag, GeoSelect } from "@/components/GeoSelect";
 import { FadeText } from "@/components/FadeText";
@@ -43,6 +44,13 @@ function shownDate(value: string): string {
  * The Trade Direction of the shipment a page shows. A Shipment Status cell inside it offers
  * only that direction's statuses (see getFilteredStatusOptions); without it, all of them.
  */
+/**
+ * Whether the user may change the details of the shipment around these cells (lib/shipmentEditRule).
+ * Provided by the shipment page; a grid decides per row and cell itself. The departments' own
+ * fields stay editable either way.
+ */
+export const ShipmentDetailsEditableContext = createContext(true);
+
 export const TradeDirectionContext = createContext<string | undefined>(undefined);
 
 /**
@@ -102,7 +110,19 @@ interface EditableCellProps {
   emailSubject?: string;
 }
 
-export function EditableCell({
+export function EditableCell(props: EditableCellProps) {
+  const editable = useContext(ShipmentDetailsEditableContext);
+  if (editable) return <EditableCellBody {...props} />;
+  if (!DEPARTMENT_FIELDS.has(props.fieldKey)) return <EditableCellBody {...props} locked />;
+  // A department's own field inside a read-only card: its picker isn't disabled with the card's.
+  return (
+    <ConfigProvider componentDisabled={false}>
+      <EditableCellBody {...props} />
+    </ConfigProvider>
+  );
+}
+
+function EditableCellBody({
   fieldKey,
   value,
   onCommit,
@@ -116,7 +136,8 @@ export function EditableCell({
   customerId: customerIdProp,
   contactId: contactIdProp,
   emailSubject: emailSubjectProp,
-}: EditableCellProps) {
+  locked = false,
+}: EditableCellProps & { locked?: boolean }) {
   const [editing, setEditing] = useState(false);
   // A contact cell stays open while its Add contact dialog is (the dialog takes the focus).
   const [addingContact, setAddingContact] = useState(false);
@@ -157,6 +178,7 @@ export function EditableCell({
     statusLabels ? statusLabel(o) : fieldKey === "loadType" ? loadTypeLabel(o, freightMode) : o;
 
   const startEditing = () => {
+    if (locked) return;
     cancelledRef.current = false;
     setDraft(original);
     setEditing(true);
@@ -190,8 +212,8 @@ export function EditableCell({
     const textStyle = hasValue ? displayStyle : undefined;
     return (
       <span
-        className={`${className ?? ""} cursor-pointer rounded px-1 -mx-1 hover:bg-slate-100 transition-colors ${multiline ? "block" : "flex items-center"}`}
-        title={hasValue ? undefined : "Double-click to edit"}
+        className={`${className ?? ""} ${locked ? "" : "cursor-pointer"} rounded px-1 -mx-1 hover:bg-slate-100 transition-colors ${multiline ? "block" : "flex items-center"}`}
+        title={hasValue || locked ? undefined : "Double-click to edit"}
         onDoubleClick={startEditing}
       >
         {multiline ? (

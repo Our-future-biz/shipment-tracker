@@ -2,6 +2,7 @@ import { api } from "encore.dev/api";
 import type { MinLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { masterJobService } from "../services/masterJob.service";
+import { shipmentService } from "../services/shipment.service";
 import type { MasterJobContainerLine, MasterJobItem, MasterJobShipmentItem } from "../interfaces/interfaces";
 
 interface MasterJobShipmentsResponse {
@@ -20,6 +21,8 @@ export const masterJobShipmentsLink = api(
   { expose: true, auth: true, method: "POST", path: "/master-jobs/:masterJobId/shipments" },
   async (req: MasterJobShipmentsLinkRequest): Promise<MasterJobShipmentsResponse> => {
     const auth = getAuthData()!;
+    // Checked for all of them first, so a refusal links none.
+    for (const id of req.shipmentIds) await shipmentService.requireDetailsEditor(id, auth);
     return masterJobService.linkShipments(req.masterJobId, auth.companyID, req.shipmentIds, auth.userID);
   },
 );
@@ -33,6 +36,8 @@ interface MasterJobShipmentUnlinkRequest {
 export const masterJobShipmentUnlink = api(
   { expose: true, auth: true, method: "DELETE", path: "/master-jobs/:masterJobId/shipments/:shipmentId" },
   async (req: MasterJobShipmentUnlinkRequest): Promise<MasterJobShipmentsResponse> => {
-    return masterJobService.unlinkShipment(req.masterJobId, getAuthData()!.companyID, req.shipmentId);
+    const auth = getAuthData()!;
+    await shipmentService.requireDetailsEditor(req.shipmentId, auth);
+    return masterJobService.unlinkShipment(req.masterJobId, auth.companyID, req.shipmentId);
   },
 );
