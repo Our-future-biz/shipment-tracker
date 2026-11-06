@@ -151,6 +151,7 @@ interface ShipmentUpdateRequest {
   approvedBy?: string;
   bookingConfirmation?: string;
   customsProcedure?: string;
+  customsOffice?: string;
   /** "" counts as Standard. */
   customsPriority?: CustomsPriority | "";
   customsDeadline?: string;

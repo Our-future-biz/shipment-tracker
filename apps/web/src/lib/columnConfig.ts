@@ -249,6 +249,8 @@ export const COLUMNS: ColumnDef[] = [
   // Written by the release action on the detail page, never edited by hand.
   { key: "houseBolRelease", title: "House BoL Release", width: 200, type: "text", readonly: true, apiField: "houseBolRelease" },
   { key: "customsProcedure", title: "Customs Procedure", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Customs Procedure"], apiField: "customsProcedure" },
+  // Picked beside a T1 in the shipment's cards (CustomsProcedureRow), from a long list; only shown here.
+  { key: "customsOffice", title: "Customs Office", width: 260, type: "text", readonly: true, apiField: "customsOffice" },
   { key: "mrn", title: "MRN Number", width: 150, type: "text", apiField: "mrn" },
   // Manual override of the Customs "received" ticks: "" (follow documents) | "yes" | "no".
   { key: "csRecvInvoice", title: "Invoice Received", width: 130, type: "text", apiField: "csRecvInvoice" },

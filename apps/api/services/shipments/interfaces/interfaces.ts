@@ -219,6 +219,8 @@ export interface ShipmentItem {
   approvedBy: string;
   bookingConfirmation: string;
   customsProcedure: string;
+  /** The office of a T1 procedure, its code and name as one text; "" under any other procedure. */
+  customsOffice: string;
   customsPriority: CustomsPriority;
   /** Deadline of an Urgent shipment, "YYYY-MM-DD HH:mm"; "" for Standard. */
   customsDeadline: string;

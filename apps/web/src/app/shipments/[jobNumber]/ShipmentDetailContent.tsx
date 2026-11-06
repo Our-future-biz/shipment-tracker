@@ -56,6 +56,7 @@ import { TrackingTab } from "./tabs/TrackingTab";
 import { NotificationsTab } from "./tabs/NotificationsTab";
 import { useShipmentAlerts } from "@/hooks/useShipmentAlerts";
 import { WarehouseTab } from "./tabs/WarehouseTab";
+import { CustomsProcedureRow } from "./_components/CustomsProcedureRow";
 import { CustomsTab } from "./tabs/CustomsTab";
 import { EditableCell, FreightModeContext, ShipmentCustomerContext, ShipmentCustomerPicContext, ShipmentEmailSubjectContext, TradeDirectionContext } from "./_components/EditableCell";
 import { shipmentEmailSubject } from "../_lib/shipmentEmail";
@@ -153,6 +154,7 @@ function SectionHeader({
         value={getFieldValue(shipment!, f.key)}
         onCommit={onCommit ?? (() => {})}
         styleFor={styleFor}
+        customsOffice={shipment!.customsOffice}
       />
     );
 
@@ -277,6 +279,8 @@ interface FieldRowProps {
   onCommit: CommitFn;
   styleFor?: StyleFor;
   labelW?: string;
+  /** For Customs Procedure: its row also holds the shipment's Customs Office. */
+  customsOffice?: string | null;
 }
 
 function FieldRow({
@@ -286,7 +290,20 @@ function FieldRow({
   onCommit,
   styleFor,
   labelW = LABEL_W,
+  customsOffice,
 }: FieldRowProps) {
+  if (fieldKey === "customsProcedure") {
+    return (
+      <CustomsProcedureRow
+        label={label}
+        value={value}
+        customsOffice={customsOffice}
+        onCommit={onCommit}
+        displayStyle={styleFor?.(fieldKey, value)}
+        labelW={labelW}
+      />
+    );
+  }
   // A person is never typed in: every card and modal row of one is the user picker.
   if (isPersonField(fieldKey)) {
     return <MemberRow label={label} fieldKey={fieldKey} value={value} onCommit={onCommit} labelW={labelW} />;
@@ -569,7 +586,7 @@ export function DetailCard({
                 ) : f.ro ? (
                   <RoRow label={f.label} value={getFieldValue(shipment, f.key)} />
                 ) : (
-                  <FieldRow label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={onCommit} styleFor={styleFor} />
+                  <FieldRow label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={onCommit} styleFor={styleFor} customsOffice={shipment.customsOffice} />
                 )}
                 {renderAfter?.[f.key]}
               </React.Fragment>
@@ -1279,7 +1296,7 @@ export function ShipmentDetailContent() {
                       ) : f.ro ? (
                         <RoRow key={f.key} label={f.label} value={getFieldValue(shipment, f.key)} />
                       ) : (
-                        <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={handleCommit} styleFor={styleFor} />
+                        <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} customsOffice={shipment.customsOffice} onCommit={handleCommit} styleFor={styleFor} />
                       ),
                     );
 
@@ -1378,7 +1395,7 @@ export function ShipmentDetailContent() {
                       custom[f.key] ? (
                         <React.Fragment key={f.key}>{custom[f.key]}</React.Fragment>
                       ) : (
-                        <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={handleCommit} styleFor={styleFor} />
+                        <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} customsOffice={shipment.customsOffice} onCommit={handleCommit} styleFor={styleFor} />
                       ),
                     );
 
@@ -1526,7 +1543,7 @@ export function ShipmentDetailContent() {
                       f.ro ? (
                         <RoRow key={f.key} label={f.label} value={getFieldValue(shipment, f.key)} />
                       ) : (
-                        <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={handleCommit} styleFor={styleFor} />
+                        <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} customsOffice={shipment.customsOffice} onCommit={handleCommit} styleFor={styleFor} />
                       ),
                     );
 
