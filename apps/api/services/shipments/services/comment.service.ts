@@ -4,9 +4,10 @@ import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment
 import type { ShipmentCommentRecord } from "../schemas/shipmentComment.schema";
 import { userEmails } from "../lib/userEmails";
 import { attachmentContentUrl } from "../lib/contentToken";
+import { customsOfficeRequestNotice } from "../lib/customsOfficeNotice";
 import { COMPARED_WITH, declaredFigures, dimensionFigures, remeasureNotice, type CargoFigures } from "../lib/remeasureNotice";
 import { iso } from "../../../lib/db/serialize";
-import { companyUsers } from "../../../lib/companyUsers";
+import { companyUsers, companyUsersWithRoles } from "../../../lib/companyUsers";
 import type { CommentItem, CommentMentionItem, CommentUnreadItem, RemeasureNoticeResult } from "../interfaces/interfaces";
 import { attachmentService } from "./attachment.service";
 import { shipmentService } from "./shipment.service";
@@ -146,6 +147,25 @@ class CommentService {
       mentionedUserIds: notice.tagged.map((u) => u.id),
     });
     return { commentId: comment.id, tagged: notice.tagged.map((u) => u.email) };
+  }
+
+  /**
+   * A request to change a Customs Office in the shipment's chat, as the one asking, tagging everyone
+   * who can answer it: it then also shows under their bell, like any message that tags them.
+   */
+  async postCustomsOfficeRequestNotice(
+    shipmentId: string,
+    companyId: string,
+    authorId: string,
+    request: { fromOffice: string; toOffice: string; reason: string },
+  ): Promise<void> {
+    const notice = customsOfficeRequestNotice(request, await companyUsersWithRoles(), authorId);
+    await shipmentCommentRepository.createForCompany(companyId, {
+      shipmentId,
+      authorId,
+      message: notice.message,
+      mentionedUserIds: notice.tagged.map((u) => u.id),
+    });
   }
 
   // Deleting a message takes the files sent with it along (they also show on the Documents tab).

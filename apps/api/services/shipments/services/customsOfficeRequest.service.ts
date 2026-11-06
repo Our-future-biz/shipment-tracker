@@ -8,6 +8,7 @@ import type { CustomsOfficeRequestItem } from "../interfaces/interfaces";
 import { canChangeCustomsOffice } from "../lib/customsOffice";
 import { customsOfficeRequestRepository as requests, type CustomsOfficeRequestRow } from "../repositories/customsOfficeRequest.repository";
 import { shipmentRepository } from "../repositories/shipment.repository";
+import { commentService } from "./comment.service";
 import { shipmentService } from "./shipment.service";
 
 const MAX_TEXT = 1000;
@@ -76,6 +77,13 @@ class CustomsOfficeRequestService {
       requestedByName: await nameOf(actor.userID),
     });
     if (!created) throw APIError.alreadyExists("A request to change this Customs Office is already waiting");
+    // The shipment's chat and the managers' notifications are told. The request itself is what
+    // counts, and it is on the Approvals tab either way, so a message that can't be posted doesn't undo it.
+    try {
+      await commentService.postCustomsOfficeRequestNotice(shipmentId, actor.companyID, actor.userID, created);
+    } catch (err) {
+      log.warn(err, "customs office request: the message to the shipment's chat could not be posted", { shipmentId });
+    }
     return toItem({ ...created, jobNumber: shipment.jobNumber, customer: shipment.customer });
   }
 

@@ -18,6 +18,8 @@ vi.mock("~encore/clients", () => ({ auth: { userLookup: vi.fn(async () => ({ use
 vi.mock("../../repositories/customsOfficeRequest.repository", () => ({ customsOfficeRequestRepository: repo }));
 vi.mock("../../repositories/shipment.repository", () => ({ shipmentRepository: shipments }));
 vi.mock("../../services/shipment.service", () => ({ shipmentService: service }));
+const comments = vi.hoisted(() => ({ postCustomsOfficeRequestNotice: vi.fn() }));
+vi.mock("../../services/comment.service", () => ({ commentService: comments }));
 
 import { customsOfficeRequestService as requests } from "../../services/customsOfficeRequest.service";
 
@@ -64,6 +66,27 @@ describe("asking to change a Customs Office", () => {
     );
     expect(item.jobNumber).toBe("CZ1");
     expect(service.update).not.toHaveBeenCalled();
+  });
+
+  it("tells the shipment's chat, as the one asking", async () => {
+    await requests.ask(user, SHIPMENT, { toOffice: TO, reason: "Wrong office" });
+    expect(comments.postCustomsOfficeRequestNotice).toHaveBeenCalledWith(
+      SHIPMENT,
+      "c1",
+      user.userID,
+      expect.objectContaining({ fromOffice: FROM, toOffice: TO, reason: "Wrong office" }),
+    );
+  });
+
+  it("keeps the request when the message can't be posted", async () => {
+    comments.postCustomsOfficeRequestNotice.mockRejectedValueOnce(new Error("chat down"));
+    await expect(requests.ask(user, SHIPMENT, { toOffice: TO, reason: "Wrong office" })).resolves.toMatchObject({ status: "pending" });
+  });
+
+  it("posts nothing when a request is refused", async () => {
+    repo.create.mockResolvedValue(null);
+    await expect(requests.ask(user, SHIPMENT, { toOffice: TO, reason: "Wrong office" })).rejects.toThrow("already waiting");
+    expect(comments.postCustomsOfficeRequestNotice).not.toHaveBeenCalled();
   });
 
   it("wants an office from the list, a different one, and a reason", async () => {
