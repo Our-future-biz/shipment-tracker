@@ -14,6 +14,8 @@ import { CHIPS, type ChipId } from "../../_lib/worklist";
 import { HealthLine } from "../../_components/tabs/ReportsTab";
 import { useWarehouseInquiries } from "@/hooks/useWarehouseInquiries";
 import { QuoteInquiries } from "./QuoteInquiries";
+import { CustomsOfficeApprovals } from "./CustomsOfficeApprovals";
+import { useCustomsOfficeApprovals } from "@/hooks/useCustomsOfficeRequests";
 import { CARD_TITLE, EMPTY, HINT, LINK, MODAL_TITLE, REF } from "@/styles/ui";
 
 // The warehouse managers' cockpit (Council Outlay 5, steps 1 to 3): the Positions quick filters as
@@ -205,16 +207,19 @@ function AuditLine({ cockpit }: { cockpit: Cockpit }) {
   );
 }
 
-// The page's two tabs: the cockpit, and Sales' questions waiting for the warehouse (?tab=inquiries).
-type PageTab = "cockpit" | "inquiries";
+// The page's tabs: the cockpit, Sales' questions waiting for the warehouse (?tab=inquiries), and
+// what waits for a manager's approval (?tab=approvals).
+type PageTab = "cockpit" | "inquiries" | "approvals";
 
 export function ManagersCockpit() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const tab: PageTab = searchParams.get("tab") === "inquiries" ? "inquiries" : "cockpit";
+  const asked = searchParams.get("tab");
+  const tab: PageTab = asked === "inquiries" || asked === "approvals" ? asked : "cockpit";
   const setTab = (next: PageTab) => router.replace(next === "cockpit" ? pathname : `${pathname}?tab=${next}`);
   const { waiting: inquiriesWaiting } = useWarehouseInquiries();
+  const { waiting: approvalsWaiting } = useCustomsOfficeApprovals();
   const { cockpit, isLoading, isError } = useManagersCockpit();
   const [openCard, setOpenCard] = useState<CardKey | null>(null);
 
@@ -318,11 +323,26 @@ export function ManagersCockpit() {
                 </span>
               ),
             },
+            {
+              key: "approvals",
+              label: (
+                <span className="whitespace-nowrap">
+                  Approvals
+                  {approvalsWaiting > 0 && (
+                    <Badge tone="a" className="ml-1.5">
+                      {approvalsWaiting}
+                    </Badge>
+                  )}
+                </span>
+              ),
+            },
           ]}
         />
 
         {tab === "inquiries" ? (
           <QuoteInquiries />
+        ) : tab === "approvals" ? (
+          <CustomsOfficeApprovals />
         ) : (
           <>
         <Tiles cockpit={cockpit} isLoading={isLoading} isError={isError} />

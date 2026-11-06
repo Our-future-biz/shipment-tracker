@@ -19,6 +19,7 @@ import { useWarehouseInquiryAnswers, type WarehouseInquiryItem } from "@/hooks/u
 import { useMarginInquiryBell, type MarginInquiryItem, type MarginInquiryRow } from "@/hooks/useMarginInquiries";
 import { useSalesPermissions } from "@/hooks/useSalesPermissions";
 import { useSupplierApprovals, type SupplierApprovalItem } from "@/hooks/useSupplierApprovals";
+import { useCustomsOfficeAnswers, type CustomsOfficeRequestItem } from "@/hooks/useCustomsOfficeRequests";
 import { HINT, ICON_BTN_GHOST, LABEL_TEXT } from "@/styles/ui";
 
 const formatTime = (iso: string) =>
@@ -40,6 +41,10 @@ interface BellMention {
 // Where a notification about a Sales Reference leads: the Quotes list with that quote's chat
 // open (quoteChatHref). One about an Internal Reference opens the Shipments list with the shipment's chat.
 const shipmentChatHref = (shipmentId: string) => `/shipments?chat=${encodeURIComponent(shipmentId)}`;
+
+// A manager's answer to a request to change a Customs Office, as the bell says it.
+const officeAnswerTitle = (a: CustomsOfficeRequestItem) => `Customs Office ${a.status === "approved" ? "approved" : "rejected"} · ${a.jobNumber}`;
+const officeAnswerText = (a: CustomsOfficeRequestItem) => `${a.toOffice}${a.comment ? ` — ${a.comment}` : ""}`;
 
 // A warehouse answer as the bell says it.
 const answerTitle = (a: WarehouseInquiryItem) => `Warehouse ${a.inquiry.status === "approved" ? "approved" : "rejected"} ${a.quoteNumber}`;
@@ -132,6 +137,8 @@ export function NotificationBell() {
   const { announcements, viewer, hasLoaded: noticesLoaded } = useNoticeboard();
   // The warehouse answered a quote inquiry this user sent; it leaves the bell once opened.
   const { answers: warehouseAnswers, hasLoaded: answersLoaded, seen: answerSeen } = useWarehouseInquiryAnswers();
+  // A manager answered this user's request to change a Customs Office; it leaves the bell once opened.
+  const { answers: officeAnswers, hasLoaded: officeAnswersLoaded, seen: officeAnswerSeen } = useCustomsOfficeAnswers();
   // Margin questions this user is told about (the owner's manager, or an admin once it waits
   // long), and managers' answers to their questions or quotes (Council Outlay 6).
   const { waiting: marginWaiting, answers: marginAnswers, hasLoaded: marginLoaded, seen: marginSeen } = useMarginInquiryBell();
@@ -149,6 +156,8 @@ export function NotificationBell() {
   const notices = announcements.filter((a) => a.unread);
   const unreadMentions = allMentions.filter((m) => m.unread);
   const unreadAnswers = warehouseAnswers.filter((a) => !a.inquiry.answerSeenAt);
+  const unreadOfficeAnswers = officeAnswers.filter((a) => !a.answerSeenAt);
+  const officeAnswersShown = (view === "unread" ? unreadOfficeAnswers : officeAnswers).filter((a) => matchesAll(query, officeAnswerTitle(a), officeAnswerText(a), a.decidedByName));
   const unreadMarginAnswers = marginAnswers.filter((a) => !a.answerSeenAt);
   // "Last 7 days": everything unread, and what was read in the last 7 days (a mention: written in them).
   const viewNotices = view === "unread" ? notices : announcements.filter((a) => a.unread || keptSince(a.readAt, now));
@@ -198,6 +207,16 @@ export function NotificationBell() {
     seenAnswers.current = new Set(warehouseAnswers.map((a) => a.inquiry.id));
     for (const a of fresh) toast.notify({ title: answerTitle(a), description: answerText(a), type: a.inquiry.status === "approved" ? "info" : "warning" });
   }, [warehouseAnswers, answersLoaded, toast]);
+
+  // The same for answers about a Customs Office.
+  const seenOfficeAnswers = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!officeAnswersLoaded) return;
+    const before = seenOfficeAnswers.current;
+    const fresh = before ? officeAnswers.filter((a) => !a.answerSeenAt && !before.has(a.id)) : [];
+    seenOfficeAnswers.current = new Set(officeAnswers.map((a) => a.id));
+    for (const a of fresh) toast.notify({ title: officeAnswerTitle(a), description: officeAnswerText(a), type: a.status === "approved" ? "info" : "warning" });
+  }, [officeAnswers, officeAnswersLoaded, toast]);
 
   // The same for margin questions arriving and answers coming back.
   const seenMargin = useRef<Set<string> | null>(null);
@@ -278,7 +297,7 @@ export function NotificationBell() {
 
   // The badge counts what is unread, whatever the view or the search.
   const total =
-    unreadMentions.length + notices.length + fxAlerts.length + unreadAnswers.length + marginWaiting.length + unreadMarginAnswers.length + supplierWaiting.length + unreadSupplierAnswers.length;
+    unreadOfficeAnswers.length + unreadMentions.length + notices.length + fxAlerts.length + unreadAnswers.length + marginWaiting.length + unreadMarginAnswers.length + supplierWaiting.length + unreadSupplierAnswers.length;
   const openSupplierAnswer = (a: SupplierApprovalItem) => {
     if (!a.answerSeen) supplierSeen.mutate([a.customerId]);
     go(a.quoteNumber ? `/sales/quote/${encodeURIComponent(a.quoteNumber)}` : "/customers");
@@ -286,6 +305,10 @@ export function NotificationBell() {
   const openAnswer = (a: WarehouseInquiryItem) => {
     if (!a.inquiry.answerSeenAt) answerSeen.mutate({ quoteNumber: a.quoteNumber, inquiryId: a.inquiry.id });
     go(quoteChatHref(a.quoteNumber));
+  };
+  const openOfficeAnswer = (a: CustomsOfficeRequestItem) => {
+    if (!a.answerSeenAt) officeAnswerSeen.mutate(a.id);
+    go(`/shipments/${a.shipmentId}?tab=customs`);
   };
   const openMarginAnswer = (a: MarginInquiryItem) => {
     if (!a.answerSeenAt) marginSeen.mutate([a.id]);
@@ -403,7 +426,22 @@ export function NotificationBell() {
           </span>
         </button>
       ))}
-      {listed.length + mentions.length + fxShown.length + answersShown.length + marginWaitingShown.length + marginAnswersShown.length + supplierWaitingShown.length + supplierAnswersShown.length === 0 && (
+      {officeAnswersShown.length > 0 && <div className={headingClass}>Customs Office answers</div>}
+      {officeAnswersShown.map((a) => (
+        <button key={a.id} type="button" onClick={() => openOfficeAnswer(a)} className={rowClass}>
+          <span className="flex items-center gap-2">
+            {!a.answerSeenAt && (
+              <span role="img" aria-label="Unread" className={`shrink-0 w-2 h-2 rounded-full ${a.status === "approved" ? "bg-emerald-500" : "bg-red-500"}`} />
+            )}
+            <span className={`min-w-0 flex-1 text-[13px] truncate ${a.answerSeenAt ? "font-medium text-slate-500" : "font-semibold text-slate-900"}`}>{officeAnswerTitle(a)}</span>
+          </span>
+          <span className="text-[12px] text-slate-700 line-clamp-2">{officeAnswerText(a)}</span>
+          <span className="block text-[11px] text-slate-400 mt-0.5">
+            {a.decidedByName || "Manager"} · {a.decidedAt ? formatTime(a.decidedAt) : ""}
+          </span>
+        </button>
+      ))}
+      {officeAnswersShown.length + listed.length + mentions.length + fxShown.length + answersShown.length + marginWaitingShown.length + marginAnswersShown.length + supplierWaitingShown.length + supplierAnswersShown.length === 0 && (
         <p className={`px-4 py-6 text-center ${HINT}`}>
           {query.trim() ? `Nothing matches “${query.trim()}”.` : view === "unread" ? "Nothing new." : `Nothing in the last ${READ_KEEP_DAYS} days.`}
         </p>

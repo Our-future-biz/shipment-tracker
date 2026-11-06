@@ -168,6 +168,15 @@ export const useCanManageCustomers = (): boolean => {
   return !!user && (CUSTOMER_MANAGER_ROLES as readonly string[]).includes(user.role);
 };
 
+/** Roles that may change a chosen Customs Office and answer the requests to change one; the server enforces the same. */
+export const CUSTOMS_OFFICE_MANAGER_ROLES = ["superadmin", "admin", "manager"] as const;
+
+/** Whether the signed-in user may change a chosen Customs Office directly (a regular user asks for it). */
+export const useCanChangeCustomsOffice = (): boolean => {
+  const { user } = useAuth();
+  return !!user && (CUSTOMS_OFFICE_MANAGER_ROLES as readonly string[]).includes(user.role);
+};
+
 /** Roles that may delete a shipment (it also retires its costs and billing); the server enforces the same. */
 export const SHIPMENT_DELETE_ROLES = ["superadmin", "admin", "manager"] as const;
 

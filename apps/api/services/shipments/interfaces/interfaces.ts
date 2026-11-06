@@ -78,6 +78,25 @@ export interface CommercialInvoiceLine {
   currency: string & MaxLen<200>;
 }
 
+/** A request to change a shipment's chosen Customs Office, as the screens show it. */
+export interface CustomsOfficeRequestItem {
+  id: string;
+  shipmentId: string;
+  jobNumber: string;
+  customer: string;
+  fromOffice: string;
+  toOffice: string;
+  reason: string;
+  status: "pending" | "approved" | "rejected";
+  requestedById: string;
+  requestedByName: string;
+  requestedAt: string;
+  decidedByName: string;
+  decidedAt: string | null;
+  comment: string;
+  answerSeenAt: string | null;
+}
+
 export interface ShipmentItem {
   id: string;
   jobNumber: string;

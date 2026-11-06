@@ -217,6 +217,6 @@ export const shipmentUpdate = api(
   async (req: ShipmentUpdateRequest): Promise<ShipmentUpdateResponse> => {
     const { shipmentId, ...data } = req;
     const auth = getAuthData()!;
-    return { shipment: await shipmentService.update(shipmentId, auth.companyID, data, auth.userID) };
+    return { shipment: await shipmentService.update(shipmentId, auth.companyID, data, auth.userID, auth.role) };
   },
 );

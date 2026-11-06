@@ -2254,6 +2254,12 @@ export namespace shipments {
             this.commentMarkRead = this.commentMarkRead.bind(this)
             this.commentMentions = this.commentMentions.bind(this)
             this.commentUnread = this.commentUnread.bind(this)
+            this.customsOfficeRequestAnswers = this.customsOfficeRequestAnswers.bind(this)
+            this.customsOfficeRequestAsk = this.customsOfficeRequestAsk.bind(this)
+            this.customsOfficeRequestDecide = this.customsOfficeRequestDecide.bind(this)
+            this.customsOfficeRequestLatest = this.customsOfficeRequestLatest.bind(this)
+            this.customsOfficeRequestList = this.customsOfficeRequestList.bind(this)
+            this.customsOfficeRequestSeen = this.customsOfficeRequestSeen.bind(this)
             this.masterJobContainersUpdate = this.masterJobContainersUpdate.bind(this)
             this.masterJobCreate = this.masterJobCreate.bind(this)
             this.masterJobGet = this.masterJobGet.bind(this)
@@ -2437,6 +2443,75 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/shipment-comments/unread`)
             return await resp.json() as controllers.CommentUnreadResponse
+        }
+
+        /**
+         * The bell: the answers to the signed-in user's own requests.
+         */
+        public async customsOfficeRequestAnswers(): Promise<{
+    answers: interfaces.CustomsOfficeRequestItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/customs-office-request-answers`)
+            return await resp.json() as {
+    answers: interfaces.CustomsOfficeRequestItem[]
+}
+        }
+
+        public async customsOfficeRequestAsk(shipmentId: string, params: controllers.CustomsOfficeAskRequest): Promise<{
+    request: interfaces.CustomsOfficeRequestItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/customs-office-request`, JSON.stringify(params))
+            return await resp.json() as {
+    request: interfaces.CustomsOfficeRequestItem
+}
+        }
+
+        /**
+         * Managers only.
+         */
+        public async customsOfficeRequestDecide(id: string, params: controllers.CustomsOfficeDecideRequest): Promise<{
+    request: interfaces.CustomsOfficeRequestItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/customs-office-requests/${encodeURIComponent(id)}/decide`, JSON.stringify(params))
+            return await resp.json() as {
+    request: interfaces.CustomsOfficeRequestItem
+}
+        }
+
+        /**
+         * The shipment's newest request, for its Customs Office row.
+         */
+        public async customsOfficeRequestLatest(shipmentId: string): Promise<{
+    request: interfaces.CustomsOfficeRequestItem | null
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipments/${encodeURIComponent(shipmentId)}/customs-office-request`)
+            return await resp.json() as {
+    request: interfaces.CustomsOfficeRequestItem | null
+}
+        }
+
+        /**
+         * The Approvals tab. Managers only.
+         */
+        public async customsOfficeRequestList(): Promise<{
+    requests: interfaces.CustomsOfficeRequestItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/customs-office-requests`)
+            return await resp.json() as {
+    requests: interfaces.CustomsOfficeRequestItem[]
+}
+        }
+
+        /**
+         * The one who asked opened the answer.
+         */
+        public async customsOfficeRequestSeen(id: string): Promise<void> {
+            await this.baseClient.callTypedAPI("POST", `/customs-office-requests/${encodeURIComponent(id)}/seen`)
         }
 
         /**
@@ -6720,6 +6795,23 @@ export namespace controllers {
 
     export interface CustomsLineResponse {
         line: interfaces.CustomsInvoiceLineItem
+    }
+
+    export interface CustomsOfficeAskRequest {
+        /**
+         * The office asked for: its code and name, as in the list.
+         */
+        toOffice: string
+
+        reason: string
+    }
+
+    export interface CustomsOfficeDecideRequest {
+        approve: boolean
+        /**
+         * Rejected: why (required); approved: optional.
+         */
+        comment?: string
     }
 
     export interface DailyRequest {
@@ -12936,6 +13028,27 @@ export namespace interfaces {
     export interface CustomsInvoicingItem {
         lines: CustomsInvoiceLineItem[]
         issuedInvoiceNumber: string
+    }
+
+    /**
+     * A request to change a shipment's chosen Customs Office, as the screens show it.
+     */
+    export interface CustomsOfficeRequestItem {
+        id: string
+        shipmentId: string
+        jobNumber: string
+        customer: string
+        fromOffice: string
+        toOffice: string
+        reason: string
+        status: "pending" | "approved" | "rejected"
+        requestedById: string
+        requestedByName: string
+        requestedAt: string
+        decidedByName: string
+        decidedAt: string | null
+        comment: string
+        answerSeenAt: string | null
     }
 
     /**

@@ -46,7 +46,7 @@ import { iso } from "../../../lib/db/serialize";
 import { isUuid } from "../../../lib/uuid";
 import { publicFields } from "../lib/rows";
 import { changesTaxDate } from "../lib/taxDate";
-import { customsOfficeForProcedure } from "../lib/customsOffice";
+import { customsOfficeForProcedure, customsOfficeLockRefusal } from "../lib/customsOffice";
 import { dangerousFromAdr, normalizeCargoDimensions, normalizeStops } from "../lib/roadFreight";
 import { detailRowChanges, type DetailRowLists } from "../lib/detailRowsAudit";
 import { partyContact, partyStop, stopKeys, type Party } from "../lib/partyAddress";
@@ -1021,9 +1021,13 @@ class ShipmentService {
     return shipmentRefCounterRepository.peek(companyId, "CZ");
   }
 
-  async update(id: string, companyId: string, data: ShipmentUpdateData, userId: string): Promise<ShipmentItem> {
+  // `role`: of the person editing, whose edit is held to what their role may change. Left out by
+  // the app's own writes (a master job's sync, an approved request).
+  async update(id: string, companyId: string, data: ShipmentUpdateData, userId: string, role?: string): Promise<ShipmentItem> {
     const existing = await shipmentRepository.getByIdForCompany(id, companyId);
     if (!existing) throw APIError.notFound("Shipment not found");
+    const locked = role === undefined ? null : customsOfficeLockRefusal(existing, data, role);
+    if (locked) throw APIError.permissionDenied(locked);
 
     const { containers, cargoItems, cargoDimensions: sentDimensions, commercialInvoices, ...rest } = data;
     assertValidContainerNumbers(containers);

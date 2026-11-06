@@ -1,20 +1,9 @@
 import type { ReactNode } from "react";
-import { SuperadminOnly } from "@/components/SuperadminOnly";
-import { WarehouseScanListener } from "./_components/WarehouseScanListener";
-import { FloorQueueProvider } from "./floor/_lib/useFloorQueue";
-import { FloorQueueNotice } from "./floor/_components/FloorQueueNotice";
+import { WarehouseConceptGate } from "./_components/WarehouseConceptGate";
 
 // Every Warehouse page listens for handheld scanner input (see WarehouseScanListener) and keeps
 // sending what floor mode queued while offline (FloorQueueProvider), with a notice outside floor mode.
-// Warehouse Concept is shown to superadmins only (SuperadminOnly).
+// Who sees what is the gate's: superadmins everything, admins and managers only the managers' page.
 export default function WarehouseConceptLayout({ children }: { children: ReactNode }) {
-  return (
-    <SuperadminOnly>
-      <FloorQueueProvider>
-        {children}
-        <WarehouseScanListener />
-        <FloorQueueNotice />
-      </FloorQueueProvider>
-    </SuperadminOnly>
-  );
+  return <WarehouseConceptGate>{children}</WarehouseConceptGate>;
 }

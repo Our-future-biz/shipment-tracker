@@ -155,6 +155,7 @@ function SectionHeader({
         onCommit={onCommit ?? (() => {})}
         styleFor={styleFor}
         customsOffice={shipment!.customsOffice}
+        shipmentId={shipment!.id}
       />
     );
 
@@ -281,6 +282,7 @@ interface FieldRowProps {
   labelW?: string;
   /** For Customs Procedure: its row also holds the shipment's Customs Office. */
   customsOffice?: string | null;
+  shipmentId?: string;
 }
 
 function FieldRow({
@@ -291,12 +293,14 @@ function FieldRow({
   styleFor,
   labelW = LABEL_W,
   customsOffice,
+  shipmentId = "",
 }: FieldRowProps) {
   if (fieldKey === "customsProcedure") {
     return (
       <CustomsProcedureRow
         label={label}
         value={value}
+        shipmentId={shipmentId}
         customsOffice={customsOffice}
         onCommit={onCommit}
         displayStyle={styleFor?.(fieldKey, value)}
@@ -586,7 +590,7 @@ export function DetailCard({
                 ) : f.ro ? (
                   <RoRow label={f.label} value={getFieldValue(shipment, f.key)} />
                 ) : (
-                  <FieldRow label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={onCommit} styleFor={styleFor} customsOffice={shipment.customsOffice} />
+                  <FieldRow label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={onCommit} styleFor={styleFor} customsOffice={shipment.customsOffice} shipmentId={shipment.id} />
                 )}
                 {renderAfter?.[f.key]}
               </React.Fragment>
@@ -1296,7 +1300,7 @@ export function ShipmentDetailContent() {
                       ) : f.ro ? (
                         <RoRow key={f.key} label={f.label} value={getFieldValue(shipment, f.key)} />
                       ) : (
-                        <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} customsOffice={shipment.customsOffice} onCommit={handleCommit} styleFor={styleFor} />
+                        <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} customsOffice={shipment.customsOffice} shipmentId={shipment.id} onCommit={handleCommit} styleFor={styleFor} />
                       ),
                     );
 
@@ -1395,7 +1399,7 @@ export function ShipmentDetailContent() {
                       custom[f.key] ? (
                         <React.Fragment key={f.key}>{custom[f.key]}</React.Fragment>
                       ) : (
-                        <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} customsOffice={shipment.customsOffice} onCommit={handleCommit} styleFor={styleFor} />
+                        <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} customsOffice={shipment.customsOffice} shipmentId={shipment.id} onCommit={handleCommit} styleFor={styleFor} />
                       ),
                     );
 
@@ -1543,7 +1547,7 @@ export function ShipmentDetailContent() {
                       f.ro ? (
                         <RoRow key={f.key} label={f.label} value={getFieldValue(shipment, f.key)} />
                       ) : (
-                        <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} customsOffice={shipment.customsOffice} onCommit={handleCommit} styleFor={styleFor} />
+                        <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} customsOffice={shipment.customsOffice} shipmentId={shipment.id} onCommit={handleCommit} styleFor={styleFor} />
                       ),
                     );
 

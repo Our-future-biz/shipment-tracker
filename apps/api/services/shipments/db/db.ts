@@ -10,6 +10,7 @@ import * as shipmentClaimSchema from "../schemas/shipmentClaim.schema";
 import * as shipmentTaskSchema from "../schemas/shipmentTask.schema";
 import * as shipmentAttachmentSchema from "../schemas/shipmentAttachment.schema";
 import * as userPreferenceSchema from "../schemas/userPreference.schema";
+import * as customsOfficeRequestSchema from "../schemas/customsOfficeRequest.schema";
 
 export const DB = new SQLDatabase("shipments", {
   migrations: { path: "migrations", source: "drizzle" },
@@ -28,6 +29,7 @@ export const db = drizzle(pool, {
     ...shipmentTaskSchema,
     ...shipmentAttachmentSchema,
     ...userPreferenceSchema,
+    ...customsOfficeRequestSchema,
   },
 });
 

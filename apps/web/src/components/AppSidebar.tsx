@@ -77,6 +77,8 @@ const NAV_ITEMS: NavItem[] = [
     roles: ["superadmin"],
     children: [{ path: "/warehouse-concept/managers", label: "Managers" }],
   },
+  // The same page for admins and managers, who don't see the rest of the concept module.
+  { path: "/warehouse-concept/managers", label: "Warehouse Managers", icon: <InboxOutlined />, roles: ["admin", "manager"] },
   { path: "/trucking", label: "Trucking Concept", icon: <CarOutlined />, roles: ["superadmin"] },
   { path: "/master-jobs", label: "Master Jobs", icon: <ClusterOutlined /> },
   { path: "/cockpit", label: "Cockpit", icon: <ControlOutlined /> },
