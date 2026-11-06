@@ -8,7 +8,6 @@ import {
   FileTextOutlined,
   EyeOutlined,
   CheckOutlined,
-  CloseOutlined,
   SearchOutlined,
 } from "@ant-design/icons";
 import { useMutation } from "@tanstack/react-query";
@@ -170,13 +169,19 @@ function RequiredMilestones({
 
 /** A file waiting to be classified before it is uploaded (docPending in the mockup). */
 interface PendingFile {
+  id: number;
   file: File;
   name: string;
   size: number;
   type: string;
   /** true when the type came from the file name rather than the user */
   guessed: boolean;
+  /** "added": saved and in the Documents list, its line kept in the box until none is left to do. */
+  status: "waiting" | "saving" | "added";
 }
+
+/** The box's lines, none at all once every one of them is added. */
+const clearedWhenDone = (list: PendingFile[]) => (list.every((p) => p.status === "added") ? [] : list);
 
 export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
   const toast = useToast();
@@ -188,7 +193,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
   // Files are classified BEFORE they are uploaded — nothing reaches the list
   // without a document type, so the checklist can never go stale.
   const [pending, setPending] = useState<PendingFile[]>([]);
-  const [saving, setSaving] = useState(false);
+  const nextPendingId = useRef(0);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Type pre-selected by clicking a "Missing" row in the checklist.
@@ -199,7 +204,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
     if (!list || list.length === 0) return;
     const next = Array.from(list).map((f) => {
       const guess = preset || guessDocumentType(f.name);
-      return { file: f, name: f.name, size: f.size, type: guess, guessed: !preset && !!guess };
+      return { id: nextPendingId.current++, file: f, name: f.name, size: f.size, type: guess, guessed: !preset && !!guess, status: "waiting" as const };
     });
     setPending((p) => [...p, ...next]);
   };
@@ -217,13 +222,15 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
     onError: () => toast.error("Could not delete the document"),
   });
 
-  // Uploads the whole classified queue in one go ("Add to list" in the mockup).
-  const savePending = async () => {
-    if (pending.length === 0 || pending.some((p) => !p.type)) return;
-    setSaving(true);
-    // The files that did not make it, kept by the file itself (two files may share a name).
-    const failed: { file: PendingFile; reason: string }[] = [];
-    for (const p of pending) {
+  // Saves the given lines: Add to list on one line, or Add to list all on every waiting one.
+  const saveLines = async (lines: PendingFile[]) => {
+    if (lines.length === 0 || lines.some((p) => !p.type)) return;
+    const setStatus = (id: number, status: PendingFile["status"]) =>
+      setPending((list) => list.map((x) => (x.id === id ? { ...x, status } : x)));
+    const ids = new Set(lines.map((p) => p.id));
+    setPending((list) => list.map((x) => (ids.has(x.id) ? { ...x, status: "saving" } : x)));
+    const failed: string[] = [];
+    for (const p of lines) {
       try {
         const contentBase64 = await fileToBase64(p.file);
         await api.shipments.attachmentCreate(shipment.id, {
@@ -233,25 +240,25 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
           contentBase64,
           documentType: p.type,
         });
+        setStatus(p.id, "added");
       } catch (err) {
         // Surface the real reason (size limit, network, server) instead of a
         // generic failure — a silent no-op is impossible to diagnose.
         console.error("Attachment upload failed", p.name, err);
-        failed.push({ file: p, reason: `${p.name}: ${err instanceof Error ? err.message : "unknown error"}` });
+        failed.push(`${p.name}: ${err instanceof Error ? err.message : "unknown error"}`);
+        // Back to waiting, so the user can retry without re-picking.
+        setStatus(p.id, "waiting");
       }
     }
+    // The list first, so a file is never out of both the box and the list.
     await refreshDocuments();
-    setSaving(false);
+    setPending(clearedWhenDone);
 
-    if (failed.length === 0) {
-      toast.success(pending.length === 1 ? "Document added" : `${pending.length} documents added`);
-      setPending([]);
-      return;
+    if (failed.length > 0) {
+      toast.error(failed[0] ?? "Could not add the document", 8);
+    } else {
+      toast.success(lines.length === 1 ? "Document added" : `${lines.length} documents added`);
     }
-    // Keep the failed ones in the queue so the user can retry without re-picking.
-    toast.error(failed[0]?.reason ?? "Could not add the document", 8);
-    const failedFiles = new Set(failed.map((f) => f.file));
-    setPending((list) => list.filter((p) => failedFiles.has(p)));
   };
 
   // Assign a business document type. Separate from upload so a file can be
@@ -361,79 +368,107 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
           </div>
 
           {pending.length > 0 && (
-            // The files waiting for their type, one line each: the file, its type, Remove; the
-            // last line also carries Cancel / Add to list (and how many still need a type).
+            // The files of this upload, one line each. Waiting: the file, its size and type in the
+            // middle, its own Cancel / Add to list on the right. Added: size and type move to the
+            // right. Under them, for several waiting files, Cancel all / Add to list all.
             <div className="mt-3 rounded-lg border border-indigo-200 bg-indigo-50/30 overflow-hidden">
-              {pending.map((p, i) => {
-                const last = i === pending.length - 1;
-                const untyped = pending.filter((x) => !x.type).length;
+              {pending.map((p) => {
+                const added = p.status === "added";
+                const lineSaving = p.status === "saving";
                 return (
                   <div
-                    key={`${p.name}-${i}`}
-                    className="flex items-center gap-3 px-4 py-3 flex-wrap sm:flex-nowrap border-b border-indigo-100 last:border-b-0"
+                    key={p.id}
+                    className="flex items-center gap-3 px-4 py-3 flex-wrap lg:flex-nowrap border-b border-indigo-100 last:border-b-0"
                   >
                     <ExtBadge fileName={p.name} className="w-8 h-7" />
                     <span className="min-w-[80px] flex-1 truncate text-[14px] font-medium text-slate-900" title={p.name}>
                       {p.name}
                     </span>
-                    <span className="text-[13px] text-slate-500 tabular-nums whitespace-nowrap">{formatFileSize(p.size)}</span>
-                    {p.guessed && p.type && (
-                      <Tooltip title="Guessed from the file name">
-                        <Pill tone="green">Guessed</Pill>
-                      </Tooltip>
+                    {added ? (
+                      <Pill tone="green">Added</Pill>
+                    ) : (
+                      p.guessed && p.type && (
+                        <Tooltip title="Guessed from the file name">
+                          <Pill tone="green">Guessed</Pill>
+                        </Tooltip>
+                      )
                     )}
+                    <span className="text-[13px] text-slate-500 tabular-nums whitespace-nowrap">{formatFileSize(p.size)}</span>
                     <Select
                       value={p.type || undefined}
                       placeholder="Select type"
                       options={DOCUMENT_TYPES.map((t) => ({ value: t, label: documentTypeLabel(t) }))}
                       onChange={(v) =>
                         setPending((list) =>
-                          list.map((x, xi) => (xi === i ? { ...x, type: v, guessed: false } : x)),
+                          list.map((x) => (x.id === p.id ? { ...x, type: v, guessed: false } : x)),
                         )
                       }
                       className="w-[190px] shrink-0"
                       status={p.type ? undefined : "warning"}
+                      // An added file's type is fixed: no arrow, as nothing can be picked.
+                      disabled={added || lineSaving}
+                      suffixIcon={added ? null : undefined}
                     />
-                    {/* Remove takes one file out of several; with a single file Cancel does the same. */}
-                    {pending.length > 1 && (
-                      <Tooltip title="Remove">
-                        <button
-                          type="button"
-                          aria-label={`Remove ${p.name}`}
-                          onClick={() => setPending((list) => list.filter((_, xi) => xi !== i))}
-                          className={`${ICON_BTN_GHOST} hover:!bg-red-50 hover:!text-red-600`}
-                        >
-                          <CloseOutlined aria-hidden />
-                        </button>
-                      </Tooltip>
-                    )}
-                    {last && (
+                    {!added && (
                       <div className="ml-auto flex items-center gap-2 shrink-0">
-                        {untyped > 0 && (
-                          <span className="text-[13px] font-medium whitespace-nowrap text-amber-700">
-                            {untyped === 1 ? "1 file still needs a type" : `${untyped} files still need a type`}
-                          </span>
-                        )}
                         <button
                           type="button"
-                          onClick={() => setPending([])}
+                          disabled={lineSaving}
+                          onClick={() => setPending((list) => clearedWhenDone(list.filter((x) => x.id !== p.id)))}
                           className={BTN}
                         >
                           Cancel
                         </button>
                         <button
                           type="button"
-                          disabled={saving || pending.some((x) => !x.type)}
-                          onClick={savePending}
-                          className={`${BTN_PRIMARY} disabled:hover:bg-indigo-600`}
+                          disabled={lineSaving || !p.type}
+                          onClick={() => saveLines([p])}
+                          className={`${BTN_PRIMARY} min-w-[92px] justify-center disabled:hover:bg-indigo-600`}
                         >
-                          {saving ? "Adding…" : "Add to list"}
+                          {lineSaving ? "Adding…" : "Add to list"}
                         </button>
                       </div>
                     )}
                   </div>
                 );
               })}
+              {(() => {
+                const waiting = pending.filter((x) => x.status === "waiting");
+                const untyped = waiting.filter((x) => !x.type).length;
+                // One waiting file has its own buttons, the same two again would say nothing.
+                const several = waiting.length > 1;
+                if (!several && untyped === 0) return null;
+                return (
+                  <div className="flex items-center justify-end gap-2 flex-wrap px-4 py-3">
+                    {untyped > 0 && (
+                      <span className="text-[13px] font-medium whitespace-nowrap text-amber-700">
+                        {untyped === 1 ? "1 file still needs a type" : `${untyped} files still need a type`}
+                      </span>
+                    )}
+                    {several && (
+                      <>
+                        {/* Clears the box: what is added stays in the Documents list. */}
+                        <button
+                          type="button"
+                          disabled={pending.some((x) => x.status === "saving")}
+                          onClick={() => setPending([])}
+                          className={BTN}
+                        >
+                          Cancel all
+                        </button>
+                        <button
+                          type="button"
+                          disabled={untyped > 0 || pending.some((x) => x.status === "saving")}
+                          onClick={() => saveLines(waiting)}
+                          className={`${BTN_PRIMARY} disabled:hover:bg-indigo-600`}
+                        >
+                          Add to list all
+                        </button>
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           )}
         </div>
