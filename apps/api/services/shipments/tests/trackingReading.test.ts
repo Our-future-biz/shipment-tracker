@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { containersIn, documentEffect, readingExternalId, readingPreview } from "../lib/trackingReading";
+import { containersIn, documentEffect, lastFreeDayChangeOf, readingExternalId, readingPreview } from "../lib/trackingReading";
 import type { ShipmentRecord } from "../schemas/shipment.schema";
 
 const shipment = {
@@ -95,5 +95,22 @@ describe("containersIn", () => {
 describe("documentEffect", () => {
   it("never sets the customs status", () => {
     expect(documentEffect("customs_released", shipment, TODAY).mode).toBe("none");
+  });
+});
+
+describe("the last free day a notice states", () => {
+  const boxes = [{ id: "a", containerNumber: "CSQU3054383" }, { id: "b", containerNumber: "MSKU1234565" }];
+  it("goes on the boxes it names", () => {
+    expect(lastFreeDayChangeOf({ "Last Free Day": "2026-11-12", "Container Numbers": "csqu 305438-3" }, boxes)).toEqual({ day: "2026-11-12", containerIds: ["a"], containerNumbers: ["CSQU3054383"] });
+  });
+  it("goes on all of them when it names none of the job's", () => {
+    expect(lastFreeDayChangeOf({ "Last Free Day": "2026-11-12" }, boxes)?.containerIds).toEqual(["a", "b"]);
+    expect(lastFreeDayChangeOf({ "Last Free Day": "2026-11-12", "Container Numbers": "ZZZU1234567" }, boxes)?.containerIds).toEqual(["a", "b"]);
+  });
+  it("is nothing without a day or a box, or when it is the day they have", () => {
+    expect(lastFreeDayChangeOf({}, boxes)).toBeNull();
+    expect(lastFreeDayChangeOf({ "Last Free Day": "soon" }, boxes)).toBeNull();
+    expect(lastFreeDayChangeOf({ "Last Free Day": "2026-11-12" }, [])).toBeNull();
+    expect(lastFreeDayChangeOf({ "Last Free Day": "2026-11-12" }, [{ id: "a", containerNumber: "CSQU3054383", lastFreeDay: "2026-11-12" }])).toBeNull();
   });
 });

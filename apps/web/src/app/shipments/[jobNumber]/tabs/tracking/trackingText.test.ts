@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import type { TrackingMilestone, TrackingTaxDate } from "@/hooks/useShipmentTracking";
-import { movedDaysLabel, readFactWords, taxDateParts, trackingStatusLine } from "./trackingText";
+import { clockStatus, freeTimeWords, movedDaysLabel, readFactWords, taxDateParts, trackingStatusLine } from "./trackingText";
 
 const shipment = (over: Partial<ShipmentItem> = {}) =>
   ({
@@ -109,5 +109,23 @@ describe("readFactWords", () => {
   it("puts a refusal first, then what is on record", () => {
     expect(readFactWords({ ...fact, alreadyKept: true })).toBe("Already on record");
     expect(readFactWords({ ...fact, alreadyKept: true, refusal: "Can't be in the future" })).toBe("Can't be in the future");
+  });
+});
+
+describe("free time in words", () => {
+  const clock = { state: "running", freeTimeDays: 14, freeTimeFrom: "discharge", lastFreeDayStated: null, daysLeft: 5, chargeableDays: 0, stopDay: null };
+  it("says what the box was given", () => {
+    expect(freeTimeWords(clock)).toBe("14 d from discharge");
+    expect(freeTimeWords({ ...clock, freeTimeFrom: "gate_out", lastFreeDayStated: "2026-11-12" })).toBe("14 d from leaving the terminal · carrier's date");
+    expect(freeTimeWords({ ...clock, freeTimeDays: null })).toBe("");
+  });
+  it("says where the clock stands", () => {
+    expect(clockStatus(clock)).toEqual({ text: "5 days left", tone: "green" });
+    expect(clockStatus({ ...clock, state: "ending", daysLeft: 1 })).toEqual({ text: "Ends in 1 day", tone: "amber" });
+    expect(clockStatus({ ...clock, state: "ending", daysLeft: 0 }).text).toBe("Ends today");
+    expect(clockStatus({ ...clock, state: "chargeable", chargeableDays: 3 })).toEqual({ text: "3 days over", tone: "red" });
+    expect(clockStatus({ ...clock, state: "returned", chargeableDays: 0 })).toEqual({ text: "Returned in time", tone: "slate" });
+    expect(clockStatus({ ...clock, state: "returned", chargeableDays: 2 })).toEqual({ text: "Returned 2 days over", tone: "red" });
+    expect(clockStatus({ ...clock, state: "unknown" })).toEqual({ text: "Not set", tone: null });
   });
 });

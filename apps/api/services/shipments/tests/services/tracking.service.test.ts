@@ -7,6 +7,8 @@ const service = vi.hoisted(() => ({ isInvoiced: vi.fn(), customsStatusOf: vi.fn(
 const masterJobs = vi.hoisted(() => ({ update: vi.fn() }));
 const comments = vi.hoisted(() => ({ postExceptionNotice: vi.fn() }));
 const attachments = vi.hoisted(() => ({ addFromModule: vi.fn() }));
+const containers = vi.hoisted(() => ({ listByShipmentId: vi.fn(async () => [] as object[]), setFreeTime: vi.fn(), byNumbers: vi.fn() }));
+const dbTx = vi.hoisted(() => ({ transaction: vi.fn() }));
 const events = vi.hoisted(() => ({
   listByShipmentId: vi.fn(),
   getLive: vi.fn(),
@@ -16,6 +18,7 @@ const events = vi.hoisted(() => ({
   resolveOpen: vi.fn(),
   softDeleteForCompany: vi.fn(),
   addOnce: vi.fn(),
+  ofKinds: vi.fn(),
 }));
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
@@ -29,7 +32,8 @@ vi.mock("../../services/masterJob.service", () => ({ masterJobService: masterJob
 vi.mock("../../repositories/shipmentCustomerNotice.repository", () => ({ shipmentCustomerNoticeRepository: { listByShipmentId: vi.fn(async () => []) } }));
 vi.mock("../../services/comment.service", () => ({ commentService: comments }));
 vi.mock("../../services/attachment.service", () => ({ attachmentService: attachments }));
-vi.mock("../../repositories/container.repository", () => ({ containerRepository: { listByShipmentId: vi.fn(async () => []) } }));
+vi.mock("../../repositories/container.repository", () => ({ containerRepository: containers }));
+vi.mock("../../db/db", () => ({ db: dbTx }));
 vi.mock("../../repositories/masterJob.repository", () => ({ masterJobRepository: { getByIdForCompany: vi.fn() } }));
 
 import { TRACKING_AUDIT_FIELDS } from "../../lib/trackingTimeline";
@@ -68,6 +72,7 @@ beforeEach(() => {
   service.customsStatusOf.mockResolvedValue("Waiting For Commercial Paperwork");
   service.mayChangeDetails.mockResolvedValue(true);
   events.listByShipmentId.mockResolvedValue([]);
+  containers.listByShipmentId.mockResolvedValue([]);
   events.findSameDay.mockResolvedValue(null);
   events.add.mockImplementation(async (row: object) => ({ id: "new", ...row }));
   events.change.mockImplementation(async (id: string) => ({ id }));
@@ -345,5 +350,46 @@ describe("a read document", () => {
   it("files the document once, by what is in it", async () => {
     await keep([{ kind: "note", occurredOn: "2026-11-05", note: "Fine" }], { file: { fileName: "an.pdf", fileType: "application/pdf", contentBase64: "QUJD" } });
     expect(attachments.addFromModule).toHaveBeenCalledWith("s1", "c1", expect.objectContaining({ fileName: "an.pdf", documentType: "Carrier notice", sourceRef: expect.stringMatching(/^tracking-reading:[0-9a-f]{64}$/) }), "u1");
+  });
+});
+
+describe("free time", () => {
+  const box = (id: string, containerNumber = `BOX${id}`) => ({ id, containerNumber, freeTimeDays: null, freeTimeFrom: "discharge", lastFreeDay: null, shipmentId: "s1" });
+  const input = { containerIds: ["a"], freeTimeDays: 14, freeTimeFrom: "discharge", lastFreeDay: null };
+  beforeEach(() => {
+    containers.listByShipmentId.mockResolvedValue([box("a"), box("b")]);
+    dbTx.transaction.mockImplementation(async (run: (tx: object) => unknown) => run({}));
+  });
+
+  it("is set by the details rule, and logged", async () => {
+    await trackingService.setFreeTime("s1", ACTOR, input);
+    expect(containers.setFreeTime).toHaveBeenCalledWith("s1", "c1", ["a"], { freeTimeDays: 14, freeTimeFrom: "discharge", lastFreeDay: null }, {});
+    expect(auditRows.create).toHaveBeenCalledWith(expect.objectContaining({ field: "freeTime", oldValue: "BOXa: none", newValue: "BOXa: 14 d from discharge" }), {});
+    service.mayChangeDetails.mockResolvedValue(false);
+    await expect(trackingService.setFreeTime("s1", ACTOR, input)).rejects.toThrow();
+  });
+
+  it("refuses another job's box, a plane, and nonsense", async () => {
+    await expect(trackingService.setFreeTime("s1", ACTOR, { ...input, containerIds: ["x"] })).rejects.toThrow("own containers");
+    await expect(trackingService.setFreeTime("s1", ACTOR, { ...input, containerIds: [] })).rejects.toThrow("own containers");
+    await expect(trackingService.setFreeTime("s1", ACTOR, { ...input, freeTimeDays: -1 })).rejects.toThrow("Free days");
+    await expect(trackingService.setFreeTime("s1", ACTOR, { ...input, freeTimeFrom: "moon" })).rejects.toThrow("counts from");
+    await expect(trackingService.setFreeTime("s1", ACTOR, { ...input, lastFreeDay: "soon" })).rejects.toThrow("last free day");
+    shipments.getByIdForCompany.mockResolvedValue({ ...shipment, freightMode: "Air Freight" });
+    await expect(trackingService.setFreeTime("s1", ACTOR, input)).rejects.toThrow("sea or rail");
+    expect(containers.setFreeTime).not.toHaveBeenCalled();
+  });
+
+  it("logs nothing when nothing changed", async () => {
+    containers.listByShipmentId.mockResolvedValue([{ ...box("a"), freeTimeDays: 14 }]);
+    await trackingService.setFreeTime("s1", ACTOR, input);
+    expect(auditRows.create).not.toHaveBeenCalled();
+  });
+
+  it("tells the warehouse the latest job's date, not an older job's, and nothing once returned", async () => {
+    const row = (id: string, shipmentId: string, containerNumber: string, lastFreeDay: string | null) => ({ container: { ...box(id, containerNumber), shipmentId, lastFreeDay }, tradeDirection: "Import", freightMode: "Sea Freight" });
+    containers.byNumbers.mockResolvedValue([row("n", "s2", "AAAU1", null), row("o", "s1", "AAAU1", "2026-01-01"), row("r", "s3", "BBBU1", "2026-11-20"), row("k", "s4", "CCCU1", "2026-11-20")]);
+    events.ofKinds.mockResolvedValue([{ shipmentId: "s3", kind: "empty_returned", occurredOn: "2026-11-05", containerNumber: "", effect: "none" }]);
+    await expect(trackingService.freeTimeByContainer("c1", ["AAAU1", "BBBU1", "CCCU1"], NOW)).resolves.toEqual([{ containerNumber: "CCCU1", lastFreeDay: "2026-11-20" }]);
   });
 });

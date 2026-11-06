@@ -1,6 +1,8 @@
 import { businessDay } from "../../../lib/businessDate";
 import type { TrackingAttentionItem } from "../interfaces/interfaces";
+import { CLOCK_EVENT_KINDS, clockApplies, clockOf } from "../lib/detentionClock";
 import { attentionFlags } from "../lib/trackingAttention";
+import { containerRepository } from "../repositories/container.repository";
 import { shipmentRepository } from "../repositories/shipment.repository";
 import { shipmentCustomerNoticeRepository } from "../repositories/shipmentCustomerNotice.repository";
 import { shipmentTrackingEventRepository } from "../repositories/shipmentTrackingEvent.repository";
@@ -14,11 +16,13 @@ class TrackingAttentionService {
     const rows = await shipmentRepository.trackingAttentionCandidates(companyId, TRACKING_ATTENTION_LIMIT + 1);
     const shipments = rows.slice(0, TRACKING_ATTENTION_LIMIT);
     const ids = shipments.map((s) => s.id);
-    const [proposed, latest, hub, notices] = await Promise.all([
+    const [proposed, latest, hub, notices, boxes, clockEvents] = await Promise.all([
       shipmentTrackingEventRepository.proposedOn(ids, companyId),
       shipmentTrackingEventRepository.latestPerShipment(ids, companyId),
       shipmentTrackingEventRepository.arrivedAtHub(ids, companyId),
       shipmentCustomerNoticeRepository.latestPerShipment(ids, companyId),
+      containerRepository.withFreeTime(ids, companyId),
+      shipmentTrackingEventRepository.ofKinds(ids, companyId, CLOCK_EVENT_KINDS),
     ]);
     const today = businessDay(now);
     const items = shipments.flatMap((s): TrackingAttentionItem[] => {
@@ -29,6 +33,11 @@ class TrackingAttentionService {
           lastEventDay: latest.get(s.id)?.occurredOn ?? null,
           arrivedAtHub: hub.has(s.id),
           lastNotice: notices.get(s.id) ?? null,
+          clocks: clockApplies(s)
+            ? boxes
+                .filter((b) => b.shipmentId === s.id && b.containerNumber)
+                .map((b) => ({ containerNumber: b.containerNumber, clock: clockOf(b, clockEvents.filter((e) => e.shipmentId === s.id), today) }))
+            : [],
         },
         today,
       );

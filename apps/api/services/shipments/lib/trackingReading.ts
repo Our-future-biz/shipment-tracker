@@ -32,6 +32,7 @@ export interface VesselChange {
 
 export interface ReadingPreview {
   facts: ReadFact[];
+  lastFreeDayChange: LastFreeDayChange | null;
   vesselChange: VesselChange | null;
   containersFound: string[];
   /** The document names containers and none of them is on this shipment: probably the wrong one. */
@@ -115,7 +116,24 @@ export function readingPreview(extracted: Record<string, string>, shipment: Ship
 
   const containersFound = containersIn(value("Container Numbers"));
   const ours = new Set(shipmentContainers.map((c) => c.toUpperCase()));
-  return { facts, vesselChange: vesselChangeOf(value("Vessel"), value("Voyage"), shipment), containersFound, otherShipment: containersFound.length > 0 && ours.size > 0 && !containersFound.some((c) => ours.has(c)) };
+  return { facts, lastFreeDayChange: null, vesselChange: vesselChangeOf(value("Vessel"), value("Voyage"), shipment), containersFound, otherShipment: containersFound.length > 0 && ours.size > 0 && !containersFound.some((c) => ours.has(c)) };
+}
+
+export interface LastFreeDayChange {
+  day: string;
+  containerIds: string[];
+  containerNumbers: string[];
+}
+
+/** The last free day a notice states, for the boxes it names, or every box of the job when it names none of them. */
+export function lastFreeDayChangeOf(extracted: Record<string, string>, containers: readonly { id: string; containerNumber: string; lastFreeDay?: string | null }[]): LastFreeDayChange | null {
+  const day = (extracted["Last Free Day"] ?? "").trim().slice(0, 10);
+  if (!isRealYmd(day) || containers.length === 0) return null;
+  const named = new Set(containersIn(extracted["Container Numbers"]));
+  const ofNotice = containers.filter((c) => named.has(c.containerNumber));
+  const boxes = (ofNotice.length > 0 ? ofNotice : containers).filter((c) => c.lastFreeDay !== day);
+  if (boxes.length === 0) return null;
+  return { day, containerIds: boxes.map((c) => c.id), containerNumbers: boxes.map((c) => c.containerNumber) };
 }
 
 /** The id a kept fact goes by: reading the same document again adds nothing. */

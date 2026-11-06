@@ -151,3 +151,21 @@ describe("the tax date's lock on a job dated by its delivery", () => {
     expect(changesTaxDate({ tradeDirection: "Import", actualDeliveryDate: "2026-10-21" }, { department: "Road Department" })).toBe(true);
   });
 });
+
+describe("free time", () => {
+  const clock = (state: "chargeable" | "ending" | "running", over: object = {}) => ({ state, startDay: null, lastFreeDay: "2026-11-05", daysLeft: 1, chargeableDays: 0, stopDay: null, ...over });
+  const flagsOf = (clocks: { containerNumber: string; clock: ReturnType<typeof clock> }[]) =>
+    attentionFlags(shipment(), { proposed: [], lastEventDay: null, arrivedAtHub: false, lastNotice: null, clocks }, TODAY).filter((f) => f.kind === "free_time");
+
+  it("is urgent once over, a warning before, and quiet while running", () => {
+    expect(flagsOf([{ containerNumber: "AAAU1", clock: clock("chargeable", { chargeableDays: 3 }) }])).toEqual([expect.objectContaining({ severity: "urgent", area: "tracking", label: "Free time over", detail: "AAAU1 3 d over" })]);
+    expect(flagsOf([{ containerNumber: "AAAU1", clock: clock("ending") }])).toEqual([expect.objectContaining({ severity: "attention", label: "Free time ends", detail: "AAAU1 in 1 d" })]);
+    expect(flagsOf([{ containerNumber: "AAAU1", clock: clock("ending", { daysLeft: 0 }) }])[0]!.detail).toBe("AAAU1 today");
+    expect(flagsOf([{ containerNumber: "AAAU1", clock: clock("running") }])).toEqual([]);
+  });
+
+  it("lists three boxes and counts the rest", () => {
+    const boxes = ["A", "B", "C", "D", "E"].map((n) => ({ containerNumber: n, clock: clock("ending") }));
+    expect(flagsOf(boxes)[0]!.detail).toBe("A in 1 d · B in 1 d · C in 1 d · and 2 more");
+  });
+});

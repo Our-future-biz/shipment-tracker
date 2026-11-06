@@ -24,6 +24,9 @@ import type { ShipmentTaskRecord } from "../schemas/shipmentTask.schema";
 import type { ShipmentTrackingEventRecord } from "../schemas/shipmentTrackingEvent.schema";
 import type { ShipmentCustomerNoticeRecord } from "../schemas/shipmentCustomerNotice.schema";
 import { NOTICE_KINDS, isNoticeKind, toldDifferences } from "./customerNotice";
+import { clockApplies, clockOf } from "./detentionClock";
+import type { ContainerRecord } from "../schemas/container.schema";
+import type { TrackingContainerClock } from "../interfaces/interfaces";
 import { CUSTOMS_CLEARED, SOURCE_LABELS, TRACKING_KINDS, isExceptionKind, isRoadJob, isTrackingKind, labelOfKind, recordableKinds, setsWord, type TrackingKind, type TrackingSource } from "./trackingEvents";
 import { ARRIVAL_LATE_AFTER_DAYS, DATE_MOVED_WINDOW_DAYS, EXPORT_DEPARTURE_LATE_AFTER_DAYS } from "./trackingThresholds";
 
@@ -56,7 +59,7 @@ const ROUTING_LABELS = {
   pod: "POD",
 } as const satisfies Partial<Record<Field, string>>;
 
-const CHANGE_LABELS: Record<string, string> = { ...DATE_LABELS, ...ROUTING_LABELS };
+const CHANGE_LABELS: Record<string, string> = { ...DATE_LABELS, ...ROUTING_LABELS, freeTime: "Free time" };
 
 /** The fields the timeline reads from the audit log. */
 export const TRACKING_AUDIT_FIELDS: readonly string[] = [...Object.keys(CHANGE_LABELS), "customsStatus"];
@@ -163,6 +166,8 @@ export interface TrackingInput {
   events: readonly ShipmentTrackingEventRecord[];
   /** What the customer was told, the latest first. */
   notices: readonly ShipmentCustomerNoticeRecord[];
+  /** The shipment's boxes, for their free time. */
+  containers?: readonly ContainerRecord[];
   mayChangeDetails: boolean;
   tasks: readonly ShipmentTaskRecord[];
   /** User names by id. */
@@ -172,7 +177,7 @@ export interface TrackingInput {
   now: Date;
 }
 
-export function buildTracking({ shipment, customsStatus, audit, events, notices, mayChangeDetails, tasks, names, invoiced, changesCapped, now }: TrackingInput): ShipmentTracking {
+export function buildTracking({ shipment, customsStatus, audit, events, notices, containers = [], mayChangeDetails, tasks, names, invoiced, changesCapped, now }: TrackingInput): ShipmentTracking {
   const today = businessDay(now);
   const nameOf = (userId: string | null | undefined): string => (userId ? (names.get(userId) ?? "") : "");
 
@@ -307,6 +312,7 @@ export function buildTracking({ shipment, customsStatus, audit, events, notices,
     changesCapped,
     attention: [...exceptionsOf(events, nameOf), ...notToldOf(notices, shipment, nameOf), ...attentionOf(milestones, shipment, lastChange, nameOf, today)],
     customerNotices: notices.map(toNoticeItem(nameOf)),
+    containerClocks: containerClocksOf(shipment, containers, events, today),
     events: events.filter((e) => !PLAN_CHANGE_KINDS.has(e.kind) || !!e.note.trim()).map(toEventItem(nameOf, sourceLabel, shipment)),
     recordable: recordableKinds(shipment, mayChangeDetails),
     mayChangeDetails,
@@ -332,6 +338,21 @@ const toChange = (nameOf: (id: string) => string) => (row: ShipmentAuditRecord):
     at: row.changedAt.toISOString(),
   };
 };
+
+/** Free time per box; only an import by sea or rail runs a clock here. */
+function containerClocksOf(shipment: ShipmentRecord, containers: readonly ContainerRecord[], events: readonly ShipmentTrackingEventRecord[], today: string): TrackingContainerClock[] {
+  if (!clockApplies(shipment)) return [];
+  return containers
+    .filter((c) => c.containerNumber)
+    .map((c) => ({
+      containerId: c.id,
+      containerNumber: c.containerNumber,
+      freeTimeDays: c.freeTimeDays ?? null,
+      freeTimeFrom: c.freeTimeFrom,
+      lastFreeDayStated: c.lastFreeDay ?? null,
+      ...clockOf(c, events, today),
+    }));
+}
 
 const toEventItem = (nameOf: (id: string | null) => string, sourceLabel: (source: string) => string, shipment: ShipmentRecord) => (e: ShipmentTrackingEventRecord): TrackingEventItem => ({
   id: e.id,

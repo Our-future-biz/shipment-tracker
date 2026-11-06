@@ -16,6 +16,7 @@ import { ChecklistCard } from "./tracking/ChecklistCard";
 import { CustomerNoticesCard } from "./tracking/CustomerNoticesCard";
 import type { NoticeKindValue } from "./tracking/customerDraft";
 import { EventsCard } from "./tracking/EventsCard";
+import { FreeTimeCard } from "./tracking/FreeTimeCard";
 import { ReadNoticeModal } from "./tracking/ReadNoticeModal";
 import { RecordEventModal } from "./tracking/RecordEventModal";
 import { TellCustomerModal } from "./tracking/TellCustomerModal";
@@ -111,6 +112,7 @@ export function TrackingTab({ shipment, onOpen }: { shipment: ShipmentItem; onOp
       {showTimeline && (
         <TimelineCard shipment={shipment} milestones={data.milestones} actualsOnly={!customerView && view === "actuals"} customerView={customerView} onOpen={onOpen} onTellPod={() => setTelling("pod_sent")} />
       )}
+      {!customerView && view === "all" && data.containerClocks.length > 0 && <FreeTimeCard shipment={shipment} clocks={data.containerClocks} mayChangeDetails={data.mayChangeDetails} onOpen={onOpen} />}
       {!customerView && view === "all" && <EventsCard shipmentId={shipment.id} events={data.events} mayChangeDetails={data.mayChangeDetails} containers={(shipment.containers ?? []).map((c) => c.containerNumber).filter(Boolean)} />}
       {!customerView && view === "all" && data.customerNotices.length > 0 && <CustomerNoticesCard notices={data.customerNotices} />}
       {showChanges && <ChangesCard changes={data.changes} capped={data.changesCapped} />}

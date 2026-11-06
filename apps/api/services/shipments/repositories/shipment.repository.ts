@@ -795,6 +795,7 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
           ${shipmentTable.actualDeparture} IS NOT NULL OR ${shipmentTable.actualArrival} IS NOT NULL OR ${shipmentTable.actualDeliveryDate} IS NOT NULL
           OR ${shipmentTable.estimatedArrival} < ${TODAY} OR ${shipmentTable.estimatedDeparture} < ${TODAY}
           OR EXISTS (SELECT 1 FROM ${shipmentCustomerNoticeTable} told WHERE told.shipment_id = ${shipmentTable.id} AND told.deleted_at IS NULL)
+          OR EXISTS (SELECT 1 FROM ${containerTable} box WHERE box.shipment_id = ${shipmentTable.id} AND box.deleted_at IS NULL AND (box.free_time_days IS NOT NULL OR box.last_free_day IS NOT NULL))
           OR EXISTS (SELECT 1 FROM ${shipmentTrackingEventTable} proposed WHERE proposed.shipment_id = ${shipmentTable.id} AND proposed.effect = 'proposed' AND proposed.deleted_at IS NULL)
         )`,
       ))

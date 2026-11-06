@@ -51,3 +51,11 @@ export const _internalModuleDocument = api(
     return attachmentService.addFromModule(shipmentId, auth.companyID, file, auth.userID);
   },
 );
+
+/** Internal API of the warehouse: the last free day of these container numbers, read instead of typed (D21). */
+export const _internalFreeTimeByContainer = api(
+  { expose: false, auth: true, method: "POST", path: "/internal/shipments/free-time" },
+  async ({ numbers }: { numbers: string[] }): Promise<{ items: { containerNumber: string; lastFreeDay: string }[] }> => {
+    return { items: await trackingService.freeTimeByContainer(getAuthData()!.companyID, numbers) };
+  },
+);

@@ -1,3 +1,4 @@
+import { jobFreeTime } from "./jobFreeTime";
 import { APIError } from "encore.dev/api";
 import { sql } from "drizzle-orm";
 import { db } from "../db/db";
@@ -228,7 +229,7 @@ class ContainerService {
     const byId = new Map(movements.map((m) => [m.id, m]));
     // The legacy one-position link shows only a live position (as before).
     const live = new Map(movements.filter((m) => !m.deletedAt).map((m) => [m.id, m]));
-    return rows.map((c) =>
+    const items = rows.map((c) =>
       containerItem(
         c,
         {
@@ -241,6 +242,12 @@ class ContainerService {
         now,
       ),
     );
+    // An import box's free time is the job's: read it from there, what was typed stays as the fallback.
+    const fromJob = await jobFreeTime(companyId, rows.filter((c) => c.direction === "Unloading").map((c) => c.number));
+    return items.map((item, i) => {
+      const day = rows[i]!.direction === "Unloading" ? fromJob.get(rows[i]!.number) : undefined;
+      return day ? { ...item, detentionExpiry: day, detentionFromJob: true } : item;
+    });
   }
 
   async detail(id: string, companyId: string): Promise<WarehouseContainerItem> {

@@ -24,3 +24,5 @@ export const TAX_DATE_WARN_DAYS = 10;
 /** Days after the tax date by which the invoice has to be out (§28 ZDPH). */
 export const TAX_DATE_LATE_DAYS = 15;
 
+/** Days of free time left at which a container asks for attention (the warehouse's own warning is 2 too). */
+export const FREE_TIME_WARN_DAYS = 2;

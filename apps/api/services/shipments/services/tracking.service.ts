@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { db } from "../db/db";
 import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
 import type { MasterJobTrackingHouse, ShipmentTracking, TrackingReadingPreview, TrackingVesselChange } from "../interfaces/interfaces";
@@ -21,7 +22,9 @@ import {
   type TrackingSource,
 } from "../lib/trackingEvents";
 import { buildTracking, TRACKING_AUDIT_FIELDS } from "../lib/trackingTimeline";
-import { documentEffect, readingExternalId, readingPreview } from "../lib/trackingReading";
+import { CLOCK_EVENT_KINDS, FREE_TIME_FROM, clockApplies, clockOf } from "../lib/detentionClock";
+import { documentEffect, lastFreeDayChangeOf, readingExternalId, readingPreview } from "../lib/trackingReading";
+import type { ContainerRecord } from "../schemas/container.schema";
 import { DETAILS_REFUSAL } from "../lib/shipmentEditRule";
 import { userEmails } from "../lib/userEmails";
 import { containerRepository } from "../repositories/container.repository";
@@ -74,7 +77,23 @@ export interface KeptReading {
   facts: KeptFact[];
   file?: KeptFile;
   vesselChange?: TrackingVesselChange;
+  /** The last free day a notice states, for the boxes chosen. */
+  lastFreeDay?: { day: string; containerIds: string[] };
 }
+
+export interface FreeTimeInput {
+  containerIds: string[];
+  /** null: not known. */
+  freeTimeDays: number | null;
+  freeTimeFrom: string;
+  /** The day the carrier stated; null: only counted. */
+  lastFreeDay: string | null;
+}
+
+type FreeTimeValues = Partial<Pick<ContainerRecord, "freeTimeDays" | "freeTimeFrom" | "lastFreeDay">>;
+
+const freeTimeText = (b: Pick<ContainerRecord, "freeTimeDays" | "freeTimeFrom" | "lastFreeDay">): string =>
+  [b.freeTimeDays != null ? `${b.freeTimeDays} d from ${b.freeTimeFrom === "gate_out" ? "leaving the terminal" : "discharge"}` : "", b.lastFreeDay ? `carrier's date ${b.lastFreeDay}` : ""].filter(Boolean).join(", ");
 
 export interface RecordEventInput {
   kind: string;
@@ -95,7 +114,7 @@ class TrackingService {
   async get(shipmentId: string, actor: TrackingActor, now = new Date()): Promise<ShipmentTracking> {
     const companyId = actor.companyID;
     const shipment = await this.requireShipment(shipmentId, companyId);
-    const [audit, events, notices, tasks, customsStatus, names, invoiced, mayChangeDetails] = await Promise.all([
+    const [audit, events, notices, tasks, customsStatus, names, invoiced, mayChangeDetails, containers] = await Promise.all([
       shipmentAuditRepository.listByShipmentId(shipmentId, companyId, TRACKING_AUDIT_FIELDS, TRACKING_CHANGES_LIMIT + 1),
       shipmentTrackingEventRepository.listByShipmentId(shipmentId, companyId, TRACKING_EVENTS_LIMIT),
       shipmentCustomerNoticeRepository.listByShipmentId(shipmentId, companyId, TRACKING_NOTICES_LIMIT),
@@ -104,8 +123,10 @@ class TrackingService {
       userEmails(),
       this.invoiced(shipmentId),
       shipmentService.mayChangeDetails(shipment, actor.userID, actor.role),
+      containerRepository.listByShipmentId(shipmentId, companyId),
     ]);
     return buildTracking({
+      containers,
       shipment,
       customsStatus,
       audit: audit.slice(0, TRACKING_CHANGES_LIMIT),
@@ -179,14 +200,15 @@ class TrackingService {
     const shipment = await this.requireShipment(shipmentId, companyId);
     const [containers, events] = await Promise.all([containerRepository.listByShipmentId(shipmentId, companyId), shipmentTrackingEventRepository.listByShipmentId(shipmentId, companyId, TRACKING_EVENTS_LIMIT)]);
     const keptIds = new Set(events.filter((e) => e.source === "document").map((e) => e.externalId));
-    return readingPreview(extracted, shipment, containers.map((c) => c.containerNumber).filter(Boolean), keptIds, businessDay(now));
+    const preview = readingPreview(extracted, shipment, containers.map((c) => c.containerNumber).filter(Boolean), keptIds, businessDay(now));
+    return { ...preview, lastFreeDayChange: clockApplies(shipment) ? lastFreeDayChangeOf(extracted, containers.filter((c) => c.containerNumber)) : null };
   }
 
   /**
    * Keeps what a person chose of a read document: a source like any other, so ATA and ATD wait as
    * proposals and the rest goes by the rule. Reading the same document again adds nothing.
    */
-  async keepReading(shipmentId: string, actor: TrackingActor, { facts, file, vesselChange }: KeptReading, now = new Date()): Promise<void> {
+  async keepReading(shipmentId: string, actor: TrackingActor, { facts, file, vesselChange, lastFreeDay }: KeptReading, now = new Date()): Promise<void> {
     const companyId = actor.companyID;
     const shipment = await this.requireShipment(shipmentId, companyId);
     if (!(await shipmentService.mayChangeDetails(shipment, actor.userID, actor.role))) throw APIError.permissionDenied(DETAILS_REFUSAL);
@@ -201,6 +223,7 @@ class TrackingService {
       if (shipment.masterJobId) await masterJobService.update(shipment.masterJobId, companyId, { ...vesselChange }, actor.userID);
       else await shipmentService.update(shipmentId, companyId, { ...vesselChange }, actor.userID, actor.role);
     }
+    if (lastFreeDay) await this.writeFreeTime(shipmentId, actor, lastFreeDay.containerIds, { lastFreeDay: lastFreeDay.day });
     for (const fact of facts) {
       const kind = fact.kind as TrackingKind;
       const note = (fact.note ?? "").trim();
@@ -227,6 +250,52 @@ class TrackingService {
       const sha = createHash("sha256").update(file.contentBase64).digest("hex");
       await attachmentService.addFromModule(shipmentId, companyId, { ...file, documentType: "Carrier notice", sourceRef: `tracking-reading:${sha}` }, actor.userID);
     }
+  }
+
+  /** What the booking gives a shipment's boxes, or the last free day the carrier stated. By the details rule. */
+  async setFreeTime(shipmentId: string, actor: TrackingActor, input: FreeTimeInput): Promise<void> {
+    const shipment = await this.requireShipment(shipmentId, actor.companyID);
+    if (!(await shipmentService.mayChangeDetails(shipment, actor.userID, actor.role))) throw APIError.permissionDenied(DETAILS_REFUSAL);
+    if (!clockApplies(shipment)) throw APIError.failedPrecondition("Only an import by sea or rail runs a free time clock");
+    const { freeTimeDays, freeTimeFrom, lastFreeDay } = input;
+    if (freeTimeDays !== null && (!Number.isInteger(freeTimeDays) || freeTimeDays < 0 || freeTimeDays > 365)) throw APIError.invalidArgument("Free days must be a whole number from 0 to 365");
+    if (!(FREE_TIME_FROM as readonly string[]).includes(freeTimeFrom)) throw APIError.invalidArgument("Free time counts from discharge or from leaving the terminal");
+    if (lastFreeDay !== null && !isRealYmd(lastFreeDay)) throw APIError.invalidArgument("The last free day must be a day as YYYY-MM-DD");
+    await this.writeFreeTime(shipmentId, actor, input.containerIds, { freeTimeDays, freeTimeFrom, lastFreeDay });
+  }
+
+  /** Writes free time on the boxes, with who did it in the shipment's log. */
+  private async writeFreeTime(shipmentId: string, actor: TrackingActor, containerIds: readonly string[], values: FreeTimeValues): Promise<void> {
+    const companyId = actor.companyID;
+    const boxes = await containerRepository.listByShipmentId(shipmentId, companyId);
+    const chosen = containerIds.map((id) => boxes.find((b) => b.id === id));
+    if (chosen.length === 0 || chosen.some((b) => !b)) throw APIError.invalidArgument("Choose the shipment's own containers");
+    await db.transaction(async (tx) => {
+      await containerRepository.setFreeTime(shipmentId, companyId, containerIds, values, tx);
+      for (const box of chosen as ContainerRecord[]) {
+        const before = freeTimeText(box);
+        const after = freeTimeText({ ...box, ...values });
+        if (before !== after) {
+          await shipmentAuditRepository.create({ companyId, shipmentId, userId: actor.userID, field: "freeTime", oldValue: `${box.containerNumber}: ${before || "none"}`, newValue: `${box.containerNumber}: ${after || "none"}` }, tx);
+        }
+      }
+    });
+  }
+
+  /** The last free day of each number, for the warehouse: the latest job with that box, unless the empty went back. */
+  async freeTimeByContainer(companyId: string, numbers: readonly string[], now = new Date()): Promise<{ containerNumber: string; lastFreeDay: string }[]> {
+    const seen = new Set<string>();
+    const latest = (await containerRepository.byNumbers(numbers, companyId)).filter((row) => {
+      if (seen.has(row.container.containerNumber)) return false;
+      seen.add(row.container.containerNumber);
+      return clockApplies(row);
+    });
+    const events = await shipmentTrackingEventRepository.ofKinds([...new Set(latest.map((r) => r.container.shipmentId))], companyId, CLOCK_EVENT_KINDS);
+    const today = businessDay(now);
+    return latest.flatMap(({ container }) => {
+      const clock = clockOf(container, events.filter((e) => e.shipmentId === container.shipmentId), today);
+      return clock.lastFreeDay && clock.state !== "returned" ? [{ containerNumber: container.containerNumber, lastFreeDay: clock.lastFreeDay }] : [];
+    });
   }
 
   /** A master job's houses, each with where it stands: one look says which is behind. */

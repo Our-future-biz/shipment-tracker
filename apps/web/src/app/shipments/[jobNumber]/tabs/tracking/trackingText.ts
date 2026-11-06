@@ -93,3 +93,38 @@ export function readFactWords(fact: { effect: string; sets: string; alreadyKept:
   if (fact.effect === "propose") return `Proposes the ${fact.sets}: someone confirms it under Events`;
   return "Recorded, no date changes";
 }
+
+interface ClockWords {
+  state: string;
+  freeTimeDays?: number | null;
+  freeTimeFrom: string;
+  lastFreeDayStated?: string | null;
+  daysLeft?: number | null;
+  chargeableDays: number;
+  stopDay?: string | null;
+}
+
+/** The free time a box was given, in words. */
+export function freeTimeWords(c: ClockWords): string {
+  const counted = c.freeTimeDays != null ? `${c.freeTimeDays} d from ${c.freeTimeFrom === "gate_out" ? "leaving the terminal" : "discharge"}` : "";
+  return [counted, c.lastFreeDayStated ? "carrier's date" : ""].filter(Boolean).join(" · ");
+}
+
+/** Where a box's clock stands, in a word and a colour; no colour when there is nothing to watch. */
+export function clockStatus(c: ClockWords): { text: string; tone: "red" | "amber" | "green" | "slate" | null } {
+  const days = (n: number) => (n === 1 ? "1 day" : `${n} days`);
+  switch (c.state) {
+    case "chargeable":
+      return { text: `${days(c.chargeableDays)} over`, tone: "red" };
+    case "ending":
+      return { text: c.daysLeft ? `Ends in ${days(c.daysLeft)}` : "Ends today", tone: "amber" };
+    case "running":
+      return { text: `${days(c.daysLeft ?? 0)} left`, tone: "green" };
+    case "returned":
+      return { text: c.chargeableDays > 0 ? `Returned ${days(c.chargeableDays)} over` : "Returned in time", tone: c.chargeableDays > 0 ? "red" : "slate" };
+    case "not_started":
+      return { text: "Not started", tone: null };
+    default:
+      return { text: "Not set", tone: null };
+  }
+}

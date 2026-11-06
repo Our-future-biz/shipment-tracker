@@ -2322,6 +2322,7 @@ export namespace shipments {
             this.trackingEventRecord = this.trackingEventRecord.bind(this)
             this.trackingEventResolve = this.trackingEventResolve.bind(this)
             this.trackingEventStrike = this.trackingEventStrike.bind(this)
+            this.trackingFreeTimeSet = this.trackingFreeTimeSet.bind(this)
             this.trackingMarkRead = this.trackingMarkRead.bind(this)
             this.trackingReadingKeep = this.trackingReadingKeep.bind(this)
             this.trackingReadingPreview = this.trackingReadingPreview.bind(this)
@@ -3032,6 +3033,19 @@ export namespace shipments {
 }> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/tracking/events/${encodeURIComponent(eventId)}/strike`, JSON.stringify(params))
+            return await resp.json() as {
+    ok: boolean
+}
+        }
+
+        /**
+         * The free time a booking gives a shipment's boxes.
+         */
+        public async trackingFreeTimeSet(shipmentId: string, params: controllers.TrackingFreeTimeRequest): Promise<{
+    ok: boolean
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/shipments/${encodeURIComponent(shipmentId)}/tracking/free-time`, JSON.stringify(params))
             return await resp.json() as {
     ok: boolean
 }
@@ -10177,6 +10191,20 @@ export namespace controllers {
         reason: string
     }
 
+    export interface TrackingFreeTimeRequest {
+        containerIds: string[]
+        /**
+         * null: not known.
+         */
+        freeTimeDays: number | null
+
+        freeTimeFrom: string
+        /**
+         * The day the carrier stated; null: only counted.
+         */
+        lastFreeDay: string | null
+    }
+
     export interface TrackingReadingKeepRequest {
         facts: services.KeptFact[]
         /**
@@ -10185,6 +10213,13 @@ export namespace controllers {
         file?: services.KeptFile
 
         vesselChange?: interfaces.TrackingVesselChange
+        /**
+         * The last free day it states, for the boxes chosen.
+         */
+        lastFreeDay?: {
+            day: string
+            containerIds: string[]
+        }
     }
 
     export interface TrackingReadingPreviewRequest {
@@ -16328,6 +16363,15 @@ export namespace interfaces {
     export type PalletType = "EUR" | "INDUSTRIAL" | "HALF" | "QUARTER" | "OTHER"
 
     /**
+     * What the people backfill did: values looked at, records changed, values left as they are.
+     */
+    export interface PeopleNormalizeResult {
+        checked: number
+        changed: number
+        unmatched: PeopleNormalizeUnmatched[]
+    }
+
+    /**
      * What the people backfill did to the company's live shipments.
      */
     export interface PeopleNormalizeResult {
@@ -16345,15 +16389,6 @@ export namespace interfaces {
          * The names left as they are, most frequent first: to be fixed by hand.
          */
         unmatched: UnmatchedPerson[]
-    }
-
-    /**
-     * What the people backfill did: values looked at, records changed, values left as they are.
-     */
-    export interface PeopleNormalizeResult {
-        checked: number
-        changed: number
-        unmatched: PeopleNormalizeUnmatched[]
     }
 
     /**
@@ -18836,6 +18871,11 @@ export namespace interfaces {
     }
 
     export interface ShipmentTracking {
+        /**
+         * Free time per box; empty for a job that runs no clock.
+         */
+        containerClocks: TrackingContainerClock[]
+
         customerNotices: TrackingCustomerNotice[]
         events: TrackingEventItem[]
         /**
@@ -19932,7 +19972,7 @@ export namespace interfaces {
      * Something a shipment's dates say needs doing, as Needs Attention lists it.
      */
     export interface TrackingAttentionFlag {
-        kind: "to_confirm" | "eta_passed" | "etd_passed" | "no_onward" | "no_event" | "not_told" | "not_released" | "tax_date" | "delivered_not_billed"
+        kind: "to_confirm" | "eta_passed" | "etd_passed" | "no_onward" | "no_event" | "not_told" | "not_released" | "tax_date" | "delivered_not_billed" | "free_time"
         /**
          * urgent is red, attention amber.
          */
@@ -19989,6 +20029,27 @@ export namespace interfaces {
 
         by: string
         at: string
+    }
+
+    /**
+     * One box's free time at the carrier, on the Tracking tab.
+     */
+    export interface TrackingContainerClock {
+        containerId: string
+        containerNumber: string
+        freeTimeDays: number | null
+        freeTimeFrom: string
+        /**
+         * The last free day the carrier stated; null when it is only counted.
+         */
+        lastFreeDayStated: string | null
+
+        state: "unknown" | "not_started" | "running" | "ending" | "chargeable" | "returned"
+        startDay: string | null
+        lastFreeDay: string | null
+        daysLeft: number | null
+        chargeableDays: number
+        stopDay: string | null
     }
 
     /**
@@ -20054,6 +20115,15 @@ export namespace interfaces {
         strikeable: boolean
 
         resolvedAt: string | null
+    }
+
+    /**
+     * The last free day a notice states, and the boxes it goes on.
+     */
+    export interface TrackingLastFreeDayChange {
+        day: string
+        containerIds: string[]
+        containerNumbers: string[]
     }
 
     export type TrackingLeg = "origin" | "main" | "destination"
@@ -20152,6 +20222,11 @@ export namespace interfaces {
 
     export interface TrackingReadingPreview {
         facts: TrackingReadFact[]
+        /**
+         * The last free day it states, when the job has boxes that run a clock.
+         */
+        lastFreeDayChange: TrackingLastFreeDayChange | null
+
         /**
          * The vessel and voyage it names, when they differ and nothing has sailed yet.
          */
@@ -21048,6 +21123,11 @@ export namespace interfaces {
 
         gatedOut: string
         detentionExpiry: string
+        /**
+         * The expiry is the job's free time, not what was typed here.
+         */
+        detentionFromJob?: boolean
+
         yardStatus: string
         tareKg: number | null
         cargoKg: number | null

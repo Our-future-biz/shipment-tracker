@@ -1,7 +1,8 @@
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db, type Tx } from "../db/db";
 import { containerTable, type ContainerRecord } from "../schemas/container.schema";
+import { shipmentTable } from "../schemas/shipment.schema";
 import { matchContainerRows, normalizeContainerNumber, teuForType } from "../lib/cargoProjection";
 import type { ContainerLine } from "../interfaces/interfaces";
 
@@ -27,6 +28,48 @@ class ContainerRepository extends TenantRepository<typeof containerTable> {
         ),
       )
       .orderBy(asc(containerTable.position), asc(containerTable.createdAt));
+  }
+
+  /** Sets the free time of a shipment's boxes. */
+  async setFreeTime(
+    shipmentId: string,
+    companyId: string,
+    containerIds: readonly string[],
+    values: Partial<Pick<ContainerRecord, "freeTimeDays" | "freeTimeFrom" | "lastFreeDay">>,
+    tx: Tx | typeof db = db,
+  ): Promise<void> {
+    if (containerIds.length === 0) return;
+    await tx
+      .update(containerTable)
+      .set({ ...values, updatedAt: new Date() })
+      .where(and(eq(containerTable.companyId, companyId), eq(containerTable.shipmentId, shipmentId), inArray(containerTable.id, [...containerIds]), isNull(containerTable.deletedAt)));
+  }
+
+  /** The boxes of these shipments that have free time set. */
+  async withFreeTime(shipmentIds: readonly string[], companyId: string): Promise<ContainerRecord[]> {
+    if (shipmentIds.length === 0) return [];
+    return db
+      .select()
+      .from(containerTable)
+      .where(
+        and(
+          eq(containerTable.companyId, companyId),
+          inArray(containerTable.shipmentId, [...shipmentIds]),
+          isNull(containerTable.deletedAt),
+          or(isNotNull(containerTable.freeTimeDays), isNotNull(containerTable.lastFreeDay)),
+        ),
+      );
+  }
+
+  /** The rows of these numbers on live shipments, the newest first: a number comes back on a later job. */
+  async byNumbers(numbers: readonly string[], companyId: string) {
+    if (numbers.length === 0) return [];
+    return db
+      .select({ container: containerTable, tradeDirection: shipmentTable.tradeDirection, freightMode: shipmentTable.freightMode })
+      .from(containerTable)
+      .innerJoin(shipmentTable, eq(shipmentTable.id, containerTable.shipmentId))
+      .where(and(eq(containerTable.companyId, companyId), inArray(containerTable.containerNumber, [...numbers]), isNull(containerTable.deletedAt), isNull(shipmentTable.deletedAt)))
+      .orderBy(desc(containerTable.createdAt));
   }
 
   // Sync the shipment's containers to the provided list while keeping row ids

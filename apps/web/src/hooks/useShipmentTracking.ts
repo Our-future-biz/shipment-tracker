@@ -19,6 +19,7 @@ export type TrackingBellNotice = interfaces.TrackingBellNotice;
 export type TrackingReadFact = interfaces.TrackingReadFact;
 export type TrackingReadingPreview = interfaces.TrackingReadingPreview;
 export type MasterJobTrackingHouse = interfaces.MasterJobTrackingHouse;
+export type TrackingContainerClock = interfaces.TrackingContainerClock;
 
 export interface CustomerNoticeInput {
   kind: string;
@@ -103,12 +104,18 @@ export function useTrackingActions(shipmentId: string) {
     resolve: useMutation({ mutationFn: (eventId: string) => api.shipments.trackingEventResolve(shipmentId, eventId), onSettled, onError }),
     /** Says nothing on failure: the dialog stays open and shows why. */
     keepReading: useMutation({
-      mutationFn: (input: { facts: TrackingReadFact[]; file?: { fileName: string; fileType: string; contentBase64: string }; vesselChange?: interfaces.TrackingVesselChange }) =>
+      mutationFn: (input: { facts: TrackingReadFact[]; file?: { fileName: string; fileType: string; contentBase64: string }; vesselChange?: interfaces.TrackingVesselChange; lastFreeDay?: { day: string; containerIds: string[] } }) =>
         api.shipments.trackingReadingKeep(shipmentId, {
           facts: input.facts.map((f) => ({ kind: f.kind, occurredOn: f.occurredOn, place: f.place, vessel: f.vessel, note: f.note })),
           file: input.file,
           vesselChange: input.vesselChange,
+          lastFreeDay: input.lastFreeDay,
         }),
+      onSettled,
+    }),
+    /** Says nothing on failure: the dialog stays open and shows why. */
+    setFreeTime: useMutation({
+      mutationFn: (input: { containerIds: string[]; freeTimeDays: number | null; freeTimeFrom: string; lastFreeDay: string | null }) => api.shipments.trackingFreeTimeSet(shipmentId, input),
       onSettled,
     }),
     /** Says nothing on failure: the dialog that asks why stays open and shows it. */

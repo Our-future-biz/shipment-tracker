@@ -84,6 +84,15 @@ class ShipmentTrackingEventRepository extends TenantRepository<typeof t> {
     await this.db.insert(t).values(row).onConflictDoNothing();
   }
 
+  /** The live events of these kinds on these shipments. */
+  async ofKinds(shipmentIds: readonly string[], companyId: string, kinds: readonly string[]): Promise<ShipmentTrackingEventRecord[]> {
+    if (shipmentIds.length === 0) return [];
+    return this.db
+      .select()
+      .from(t)
+      .where(and(eq(t.companyId, companyId), inArray(t.shipmentId, [...shipmentIds]), inArray(t.kind, [...kinds]), isNull(t.deletedAt)));
+  }
+
   async softDeleteByExternalId(shipmentId: string, companyId: string, source: string, externalId: string): Promise<void> {
     await this.db
       .update(t)

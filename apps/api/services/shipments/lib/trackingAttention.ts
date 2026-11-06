@@ -7,6 +7,7 @@ import { addDays } from "../../../lib/businessDate";
 import { workingDaysAfter } from "../../../lib/workingDays";
 import type { TrackingAttentionFlag } from "../interfaces/interfaces";
 import { toldDifferences } from "./customerNotice";
+import type { DetentionClock } from "./detentionClock";
 import { TRACKING_KINDS, SOURCE_LABELS, isRoadJob, isTrackingKind, type TrackingSource } from "./trackingEvents";
 import {
   ARRIVAL_LATE_AFTER_DAYS,
@@ -39,6 +40,8 @@ export interface AttentionFacts {
   lastEventDay: string | null;
   arrivedAtHub: boolean;
   lastNotice: { etaPod: string | null; etaWarehouse: string | null; plannedDelivery: string | null } | null;
+  /** The clocks of the job's boxes that have free time set. */
+  clocks?: readonly { containerNumber: string; clock: DetentionClock }[];
 }
 
 const czDay = (day: string) => `${day.slice(8, 10)}.${day.slice(5, 7)}.${day.slice(0, 4)}`;
@@ -103,6 +106,14 @@ export function attentionFlags(s: AttentionShipment, facts: AttentionFacts, toda
   if (!road && s.actualDeliveryDate && !isReleased(s.status)) {
     add("delivered_not_billed", "attention", "finance", "Delivered, not billed", `Delivered ${czDay(s.actualDeliveryDate)}`);
   }
+
+  const boxes = (rows: readonly { containerNumber: string; clock: DetentionClock }[], words: (clock: DetentionClock) => string) =>
+    [...rows.slice(0, 3).map((r) => `${r.containerNumber} ${words(r.clock)}`), ...(rows.length > 3 ? [`and ${rows.length - 3} more`] : [])].join(" · ");
+  const clocks = facts.clocks ?? [];
+  const over = clocks.filter((c) => c.clock.state === "chargeable");
+  const ending = clocks.filter((c) => c.clock.state === "ending");
+  if (over.length > 0) add("free_time", "urgent", "tracking", "Free time over", boxes(over, (c) => `${c.chargeableDays} d over`));
+  if (ending.length > 0) add("free_time", "attention", "tracking", "Free time ends", boxes(ending, (c) => (c.daysLeft ? `in ${c.daysLeft} d` : "today")));
 
   return flags.sort((a, b) => Number(b.severity === "urgent") - Number(a.severity === "urgent"));
 }

@@ -995,7 +995,7 @@ export interface TrackingBellNotice {
 
 /** Something a shipment's dates say needs doing, as Needs Attention lists it. */
 export interface TrackingAttentionFlag {
-  kind: "to_confirm" | "eta_passed" | "etd_passed" | "no_onward" | "no_event" | "not_told" | "not_released" | "tax_date" | "delivered_not_billed";
+  kind: "to_confirm" | "eta_passed" | "etd_passed" | "no_onward" | "no_event" | "not_told" | "not_released" | "tax_date" | "delivered_not_billed" | "free_time";
   /** urgent is red, attention amber. */
   severity: "urgent" | "attention";
   /** Whose desk it is. */
@@ -1033,8 +1033,33 @@ export interface TrackingVesselChange {
   voyage: string;
 }
 
+/** The last free day a notice states, and the boxes it goes on. */
+export interface TrackingLastFreeDayChange {
+  day: string;
+  containerIds: string[];
+  containerNumbers: string[];
+}
+
+/** One box's free time at the carrier, on the Tracking tab. */
+export interface TrackingContainerClock {
+  containerId: string;
+  containerNumber: string;
+  freeTimeDays: number | null;
+  freeTimeFrom: string;
+  /** The last free day the carrier stated; null when it is only counted. */
+  lastFreeDayStated: string | null;
+  state: "unknown" | "not_started" | "running" | "ending" | "chargeable" | "returned";
+  startDay: string | null;
+  lastFreeDay: string | null;
+  daysLeft: number | null;
+  chargeableDays: number;
+  stopDay: string | null;
+}
+
 export interface TrackingReadingPreview {
   facts: TrackingReadFact[];
+  /** The last free day it states, when the job has boxes that run a clock. */
+  lastFreeDayChange: TrackingLastFreeDayChange | null;
   /** The vessel and voyage it names, when they differ and nothing has sailed yet. */
   vesselChange: TrackingVesselChange | null;
   containersFound: string[];
@@ -1056,6 +1081,8 @@ export interface MasterJobTrackingHouse {
 }
 
 export interface ShipmentTracking {
+  /** Free time per box; empty for a job that runs no clock. */
+  containerClocks: TrackingContainerClock[];
   customerNotices: TrackingCustomerNotice[];
   events: TrackingEventItem[];
   /** Empty when nothing can be recorded here: a road job's stamps are set in Trucking. */

@@ -28,6 +28,7 @@ export function ReadNoticeModal({ shipment, onClose }: { shipment: ShipmentItem;
   const [read, setRead] = useState<TrackingReadingPreview | null>(null);
   const [ticked, setTicked] = useState<ReadonlySet<number>>(new Set());
   const [keepVessel, setKeepVessel] = useState(false);
+  const [keepLastFree, setKeepLastFree] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const startReading = async () => {
@@ -40,6 +41,7 @@ export function ReadNoticeModal({ shipment, onClose }: { shipment: ShipmentItem;
       // The notice of another job is looked at first, not kept by a click.
       setTicked(preview.otherShipment ? new Set() : new Set(preview.facts.flatMap((f, i) => (canKeep(f) ? [i] : []))));
       setKeepVessel(!preview.otherShipment && !!preview.vesselChange);
+      setKeepLastFree(!preview.otherShipment && !!preview.lastFreeDayChange);
     } catch (err) {
       setError(apiErrorMessage(err));
     } finally {
@@ -55,6 +57,7 @@ export function ReadNoticeModal({ shipment, onClose }: { shipment: ShipmentItem;
         facts: read.facts.filter((_, i) => ticked.has(i)),
         file: file ? { fileName: file.name, fileType: file.type, contentBase64: await fileToBase64(file) } : undefined,
         vesselChange: keepVessel && read.vesselChange ? read.vesselChange : undefined,
+        lastFreeDay: keepLastFree && read.lastFreeDayChange ? { day: read.lastFreeDayChange.day, containerIds: read.lastFreeDayChange.containerIds } : undefined,
       });
       onClose();
     } catch (err) {
@@ -70,7 +73,7 @@ export function ReadNoticeModal({ shipment, onClose }: { shipment: ShipmentItem;
       return next;
     });
 
-  const kept = ticked.size + (keepVessel ? 1 : 0);
+  const kept = ticked.size + (keepVessel ? 1 : 0) + (keepLastFree ? 1 : 0);
   const footer = read ? (
     <div className="flex justify-between gap-2">
       <Button onClick={() => setRead(null)}>Read another</Button>
@@ -124,7 +127,7 @@ export function ReadNoticeModal({ shipment, onClose }: { shipment: ShipmentItem;
               )}
             </div>
           </>
-        ) : read.facts.length === 0 && !read.vesselChange ? (
+        ) : read.facts.length === 0 && !read.vesselChange && !read.lastFreeDayChange ? (
           <p className={EMPTY_STATE}>No dated facts found in this notice.</p>
         ) : (
           <>
@@ -144,6 +147,16 @@ export function ReadNoticeModal({ shipment, onClose }: { shipment: ShipmentItem;
                   <div className="ml-6 text-[12px] text-slate-500">
                     {shipment.vessel ? `Replaces ${[shipment.vessel, shipment.voyage].filter(Boolean).join(" ")}` : "Sets the vessel and voyage"}
                   </div>
+                </li>
+              )}
+              {read.lastFreeDayChange && (
+                <li className="py-2">
+                  <Checkbox checked={keepLastFree} onChange={(e) => setKeepLastFree(e.target.checked)}>
+                    <span className="font-medium text-slate-900">Last free day</span>
+                    <span className="ml-2 tabular-nums text-slate-700">{formatDate(read.lastFreeDayChange.day)}</span>
+                  </Checkbox>
+                  <div className={`${HINT} ml-6`}>{read.lastFreeDayChange.containerNumbers.join(", ")}</div>
+                  <div className="ml-6 text-[12px] text-slate-500">Sets the free time clock</div>
                 </li>
               )}
               {read.facts.map((fact, i) => (

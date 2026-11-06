@@ -396,7 +396,7 @@ function YardPark() {
     { name: "yardState", label: "State", placeholder: "Full — devanning / Empty …" },
     { name: "gatedIn", label: "Gated in", type: "date", required: true },
     { name: "gatedOut", label: "Gated out", type: "date" },
-    { name: "detentionExpiry", label: "Detention expiry (empty return due)", type: "date" },
+    { name: "detentionExpiry", label: "Detention expiry (the job's free time wins)", type: "date" },
     { name: "yardStatus", label: "Status", type: "select", options: YARD_STATUSES },
   ];
 
@@ -406,7 +406,12 @@ function YardPark() {
     { key: "equipment", title: "Type", width: 100, text: (c) => c.equipment, filterOptions: CONTAINER_TYPES, render: (_, c) => dim(c.equipment) },
     { key: "yardState", title: "State", width: 190, text: (c) => c.yardState, render: (_, c) => dim(c.yardState) },
     { key: "gatedIn", title: "Gated in", width: 110, text: (c) => c.gatedIn, render: (_, c) => dim(c.gatedIn) },
-    { key: "detentionExpiry", title: "Detention expiry (empty return due)", width: 250, text: (c) => c.detentionExpiry, render: (_, c) => <ExpiryTag date={c.detentionExpiry} /> },
+    { key: "detentionExpiry", title: "Detention expiry (empty return due)", width: 250, text: (c) => c.detentionExpiry, render: (_, c) => (
+        <span className="inline-flex items-center gap-2">
+          <ExpiryTag date={c.detentionExpiry} />
+          {c.detentionFromJob && <span className="text-[12px] text-slate-500">from the job</span>}
+        </span>
+      ) },
     { key: "daysOnYard", title: "Days on yard", width: 110, align: "right", text: (c) => String(c.daysOnYard ?? ""), render: (_, c) => dim(c.daysOnYard) },
     {
       key: "position",

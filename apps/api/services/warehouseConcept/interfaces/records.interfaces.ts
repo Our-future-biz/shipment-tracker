@@ -25,6 +25,8 @@ export interface WarehouseContainerFields {
   gatedIn: string;
   gatedOut: string;
   detentionExpiry: string;
+  /** The expiry is the job's free time, not what was typed here. */
+  detentionFromJob?: boolean;
   yardStatus: string;
   tareKg: number | null;
   cargoKg: number | null;
