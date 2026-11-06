@@ -26,13 +26,13 @@ export function WarehouseShipmentsView({
   const statusBucket = searchParams.get("status") ?? "all";
   // The search looks only in the columns the table shows.
   const [searchColumns, setSearchColumns] = useState<string[]>();
-  const { shipments: all, total, isLoading } = useShipments({ search, searchColumns, statusBucket, warehouse: section });
+  const { shipments: all, total, isLoading, isError } = useShipments({ search, searchColumns, statusBucket, warehouse: section });
   const shipments = useMemo(() => all.filter(WAREHOUSE_RULES[section]), [all, section]);
 
   return (
     <div className="bg-slate-50 min-h-full px-8 py-6">
       <div className="max-w-[1400px] mx-auto">
-        <ShipmentsTable shipments={shipments} cap={{ shown: all.length, total }} isLoading={isLoading} onVisibleColumnsChange={setSearchColumns} view={{ key: `warehouse-${section}`, title: WAREHOUSE_SECTIONS[section], detailHref: `/warehouse/:id?from=${section}`, defaultColumns: WAREHOUSE_DEFAULT_COLUMNS, leadColumn: WAREHOUSE_LEAD_COLUMN[section] }} selectionActions={selectionActions} />
+        <ShipmentsTable shipments={shipments} cap={{ shown: all.length, total }} isLoading={isLoading} isError={isError} onVisibleColumnsChange={setSearchColumns} view={{ key: `warehouse-${section}`, title: WAREHOUSE_SECTIONS[section], detailHref: `/warehouse/:id?from=${section}`, defaultColumns: WAREHOUSE_DEFAULT_COLUMNS, leadColumn: WAREHOUSE_LEAD_COLUMN[section] }} selectionActions={selectionActions} />
       </div>
     </div>
   );

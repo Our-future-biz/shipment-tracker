@@ -56,6 +56,8 @@ import { BTN, BTN_GHOST, BTN_PRIMARY, BTN_SM, CARD, EMPTY, HINT, ICON_BTN, ICON_
 export interface ShipmentsTableProps {
   shipments: ShipmentItem[];
   isLoading: boolean;
+  /** The last request failed: an empty table then says so, not that nothing was found. */
+  isError?: boolean;
   /** Left out, there is no New Shipment button. */
   onCreateClick?: () => void;
   /** Opens the Master Job dialog; the rows ticked in the table come pre-selected. Left out, there is no button. */
@@ -143,6 +145,7 @@ const cellLinkClass = (color: string | undefined) => (color ? "hover:!underline"
 export const ShipmentsTable = ({
   shipments,
   isLoading,
+  isError = false,
   onCreateClick,
   onAddMasterJob,
   view,
@@ -973,7 +976,13 @@ export const ShipmentsTable = ({
                 const fg = rowInfo.get(record.id)?.rowStyle?.color;
                 return fg ? { style: { "--cf-row-fg": fg } as React.CSSProperties } : {};
               }}
-              locale={{ emptyText: "No shipments found" }}
+              locale={{
+                emptyText: isError ? (
+                  <span role="alert" className="text-red-600">Could not load the shipments, so this is not a real result. Try again in a moment.</span>
+                ) : (
+                  "No shipments found"
+                ),
+              }}
             />
           </SortableContext>
         </DndContext>

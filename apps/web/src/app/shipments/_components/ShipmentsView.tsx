@@ -26,7 +26,7 @@ export const ShipmentsView = () => {
 
   // The search looks only in the columns the table shows.
   const [searchColumns, setSearchColumns] = useState<string[]>();
-  const { shipments, total, isLoading, createShipment, linkMasterJob, isCreating } =
+  const { shipments, total, isLoading, isError, createShipment, linkMasterJob, isCreating } =
     useShipments({ search, searchColumns, statusBucket, tile });
   const toast = useToast();
   const [createOpen, setCreateOpen] = useState(false);
@@ -75,6 +75,7 @@ export const ShipmentsView = () => {
         shipments={shipments}
         cap={{ shown: shipments.length, total }}
         isLoading={isLoading}
+        isError={isError}
         onVisibleColumnsChange={setSearchColumns}
         onCreateClick={() => setCreateOpen(true)}
         onAddMasterJob={(ids) => {
