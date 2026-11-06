@@ -474,6 +474,30 @@ export function RoRow({ label, value, labelW = LABEL_W, wrap = false, mark }: Ro
   );
 }
 
+// Container Number as a link: a click opens the job's Container Details tab, where each
+// container is listed with its seal, type, packages, weight and volume.
+function ContainerNumberLinkRow({ value, onOpen }: { value: string; onOpen: () => void }) {
+  return (
+    <div className={ROW}>
+      <span className={LABEL}>Container Number</span>
+      {value ? (
+        <div className="flex-1 min-w-0 truncate">
+          <button
+            type="button"
+            onClick={onOpen}
+            title="Open Container Details"
+            className={`${LINK} font-medium tabular-nums cursor-pointer bg-transparent border-none p-0 text-left`}
+          >
+            {value}
+          </button>
+        </div>
+      ) : (
+        <span className={`flex-1 min-w-0 ${EMPTY}`}>—</span>
+      )}
+    </div>
+  );
+}
+
 interface FieldColumnsProps {
   fields: FieldDef[];
   renderRow: (field: FieldDef) => React.ReactNode;
@@ -518,6 +542,8 @@ interface DetailCardProps {
   children?: React.ReactNode;
   /** Extra classes for the card, e.g. h-full for one of a pair side by side. */
   className?: string;
+  /** Rows drawn in place of the plain field row, by field key. */
+  renderField?: Record<string, React.ReactNode>;
   /** "stack": all columns one under another in a single column (same field order). */
   layout?: "stack";
 }
@@ -533,6 +559,7 @@ export function DetailCard({
   styleFor,
   renderBefore,
   renderAfter,
+  renderField,
   children,
   className,
   layout,
@@ -563,7 +590,9 @@ export function DetailCard({
             {col.filter((f) => !shown || shown.has(f.key)).map((f) => (
               <React.Fragment key={f.key}>
                 {renderBefore?.[f.key]}
-                {INVOICE_FIELDS.has(f.key) ? (
+                {renderField?.[f.key] ? (
+                  renderField[f.key]
+                ) : INVOICE_FIELDS.has(f.key) ? (
                   <InvoiceRow label={f.label} fieldKey={f.key} shipment={shipment} styleFor={styleFor} />
                 ) : f.ro ? (
                   <RoRow label={f.label} value={getFieldValue(shipment, f.key)} />
@@ -944,6 +973,12 @@ export function ShipmentDetailContent() {
     router.replace(`?${params.toString()}`, { scroll: false });
   };
 
+  // From a Container Number link: the Container Details tab, seen from the top of the page.
+  const openContainerTab = () => {
+    setActiveTab("container");
+    window.scrollTo({ top: 0, behavior: "auto" });
+  };
+
   if (isLoading) {
     return (
       <div className="flex justify-center p-20">
@@ -1246,6 +1281,9 @@ export function ShipmentDetailContent() {
                         mark={<UnlinkedPersonMark value={shipment.salesPerson} hint="pick one in the Quote card" />}
                       />
                     ),
+                    containerNumber: (
+                      <ContainerNumberLinkRow value={shipment.containerNumber} onOpen={openContainerTab} />
+                    ),
                     incoterm: (
                       <div className={ROW}>
                         <span className={LABEL}>Incoterms Origin/Destination</span>
@@ -1402,6 +1440,11 @@ export function ShipmentDetailContent() {
                   shipment={shipment}
                   onCommit={handleCommit}
                   styleFor={styleFor}
+                  renderField={{
+                    containerNumber: (
+                      <ContainerNumberLinkRow value={shipment.containerNumber} onOpen={openContainerTab} />
+                    ),
+                  }}
                   renderAfter={{
                     houseBolType: (
                       <HouseBolReleaseRow releasedAt={shipment.houseBolRelease} onRelease={() => setReleaseOpen(true)} />
