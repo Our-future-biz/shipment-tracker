@@ -20,6 +20,7 @@ import { useMarginInquiryBell, type MarginInquiryItem, type MarginInquiryRow } f
 import { useSalesPermissions } from "@/hooks/useSalesPermissions";
 import { useSupplierApprovals, type SupplierApprovalItem } from "@/hooks/useSupplierApprovals";
 import { useCustomsOfficeAnswers, type CustomsOfficeRequestItem } from "@/hooks/useCustomsOfficeRequests";
+import { useCustomsVerdictNotices, type CustomsVerdictNotice } from "@/hooks/useShipmentAlerts";
 import { HINT, ICON_BTN_GHOST, LABEL_TEXT } from "@/styles/ui";
 
 const formatTime = (iso: string) =>
@@ -41,6 +42,10 @@ interface BellMention {
 // Where a notification about a Sales Reference leads: the Quotes list with that quote's chat
 // open (quoteChatHref). One about an Internal Reference opens the Shipments list with the shipment's chat.
 const shipmentChatHref = (shipmentId: string) => `/shipments?chat=${encodeURIComponent(shipmentId)}`;
+
+// Customs' verdict on a document of one of the user's shipments, as the bell says it.
+const verdictTitle = (v: CustomsVerdictNotice) => `Customs ${v.status} · ${v.jobNumber}`;
+const verdictText = (v: CustomsVerdictNotice) => `${v.fileName}${v.note ? ` — ${v.note}` : ""}`;
 
 // A manager's answer to a request to change a Customs Office, as the bell says it.
 const officeAnswerTitle = (a: CustomsOfficeRequestItem) => `Customs Office ${a.status === "approved" ? "approved" : "rejected"} · ${a.jobNumber}`;
@@ -139,6 +144,8 @@ export function NotificationBell() {
   const { answers: warehouseAnswers, hasLoaded: answersLoaded, seen: answerSeen } = useWarehouseInquiryAnswers();
   // A manager answered this user's request to change a Customs Office; it leaves the bell once opened.
   const { answers: officeAnswers, hasLoaded: officeAnswersLoaded, seen: officeAnswerSeen } = useCustomsOfficeAnswers();
+  // Customs approved or declined a document of a shipment this user is the Person in Charge or Holiday Cover of.
+  const { verdicts, hasLoaded: verdictsLoaded, seen: verdictSeen } = useCustomsVerdictNotices();
   // Margin questions this user is told about (the owner's manager, or an admin once it waits
   // long), and managers' answers to their questions or quotes (Council Outlay 6).
   const { waiting: marginWaiting, answers: marginAnswers, hasLoaded: marginLoaded, seen: marginSeen } = useMarginInquiryBell();
@@ -156,6 +163,8 @@ export function NotificationBell() {
   const notices = announcements.filter((a) => a.unread);
   const unreadMentions = allMentions.filter((m) => m.unread);
   const unreadAnswers = warehouseAnswers.filter((a) => !a.inquiry.answerSeenAt);
+  const unreadVerdicts = verdicts.filter((v) => v.unread);
+  const verdictsShown = (view === "unread" ? unreadVerdicts : verdicts).filter((v) => matchesAll(query, verdictTitle(v), verdictText(v), v.reviewedByName));
   const unreadOfficeAnswers = officeAnswers.filter((a) => !a.answerSeenAt);
   const officeAnswersShown = (view === "unread" ? unreadOfficeAnswers : officeAnswers).filter((a) => matchesAll(query, officeAnswerTitle(a), officeAnswerText(a), a.decidedByName));
   const unreadMarginAnswers = marginAnswers.filter((a) => !a.answerSeenAt);
@@ -207,6 +216,17 @@ export function NotificationBell() {
     seenAnswers.current = new Set(warehouseAnswers.map((a) => a.inquiry.id));
     for (const a of fresh) toast.notify({ title: answerTitle(a), description: answerText(a), type: a.inquiry.status === "approved" ? "info" : "warning" });
   }, [warehouseAnswers, answersLoaded, toast]);
+
+  // The same for customs' verdicts: a document can be reviewed again, so its time counts too.
+  const seenVerdicts = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!verdictsLoaded) return;
+    const keyOf = (v: CustomsVerdictNotice) => `${v.id}:${v.reviewedAt}`;
+    const before = seenVerdicts.current;
+    const fresh = before ? verdicts.filter((v) => v.unread && !before.has(keyOf(v))) : [];
+    seenVerdicts.current = new Set(verdicts.map(keyOf));
+    for (const v of fresh) toast.notify({ title: verdictTitle(v), description: verdictText(v), type: v.status === "approved" ? "info" : "warning" });
+  }, [verdicts, verdictsLoaded, toast]);
 
   // The same for answers about a Customs Office.
   const seenOfficeAnswers = useRef<Set<string> | null>(null);
@@ -297,7 +317,7 @@ export function NotificationBell() {
 
   // The badge counts what is unread, whatever the view or the search.
   const total =
-    unreadOfficeAnswers.length + unreadMentions.length + notices.length + fxAlerts.length + unreadAnswers.length + marginWaiting.length + unreadMarginAnswers.length + supplierWaiting.length + unreadSupplierAnswers.length;
+    unreadVerdicts.length + unreadOfficeAnswers.length + unreadMentions.length + notices.length + fxAlerts.length + unreadAnswers.length + marginWaiting.length + unreadMarginAnswers.length + supplierWaiting.length + unreadSupplierAnswers.length;
   const openSupplierAnswer = (a: SupplierApprovalItem) => {
     if (!a.answerSeen) supplierSeen.mutate([a.customerId]);
     go(a.quoteNumber ? `/sales/quote/${encodeURIComponent(a.quoteNumber)}` : "/customers");
@@ -305,6 +325,13 @@ export function NotificationBell() {
   const openAnswer = (a: WarehouseInquiryItem) => {
     if (!a.inquiry.answerSeenAt) answerSeen.mutate({ quoteNumber: a.quoteNumber, inquiryId: a.inquiry.id });
     go(quoteChatHref(a.quoteNumber));
+  };
+  const openVerdict = (v: CustomsVerdictNotice) => {
+    if (v.unread) verdictSeen.mutate(v.shipmentId);
+    // A decline is an alert; an approval isn't, so it leads to the document. Seen is per shipment, so
+    // an approval opened beside a new decline still leads to the decline it marks as seen.
+    const declineWaits = v.status === "declined" || verdicts.some((x) => x.shipmentId === v.shipmentId && x.unread && x.status === "declined");
+    go(`/shipments/${v.shipmentId}?tab=${declineWaits ? "alerts" : "documents"}`);
   };
   const openOfficeAnswer = (a: CustomsOfficeRequestItem) => {
     if (!a.answerSeenAt) officeAnswerSeen.mutate(a.id);
@@ -426,6 +453,21 @@ export function NotificationBell() {
           </span>
         </button>
       ))}
+      {verdictsShown.length > 0 && <div className={headingClass}>Customs</div>}
+      {verdictsShown.map((v) => (
+        <button key={`${v.id}:${v.reviewedAt}`} type="button" onClick={() => openVerdict(v)} className={rowClass}>
+          <span className="flex items-center gap-2">
+            {v.unread && (
+              <span role="img" aria-label="Unread" className={`shrink-0 w-2 h-2 rounded-full ${v.status === "approved" ? "bg-emerald-500" : "bg-red-500"}`} />
+            )}
+            <span className={`min-w-0 flex-1 text-[13px] truncate ${v.unread ? "font-semibold text-slate-900" : "font-medium text-slate-500"}`}>{verdictTitle(v)}</span>
+          </span>
+          <span className="text-[12px] text-slate-700 line-clamp-2">{verdictText(v)}</span>
+          <span className="block text-[11px] text-slate-400 mt-0.5">
+            {v.reviewedByName || "Customs"} · {formatTime(v.reviewedAt)}
+          </span>
+        </button>
+      ))}
       {officeAnswersShown.length > 0 && <div className={headingClass}>Customs Office answers</div>}
       {officeAnswersShown.map((a) => (
         <button key={a.id} type="button" onClick={() => openOfficeAnswer(a)} className={rowClass}>
@@ -441,7 +483,7 @@ export function NotificationBell() {
           </span>
         </button>
       ))}
-      {officeAnswersShown.length + listed.length + mentions.length + fxShown.length + answersShown.length + marginWaitingShown.length + marginAnswersShown.length + supplierWaitingShown.length + supplierAnswersShown.length === 0 && (
+      {verdictsShown.length + officeAnswersShown.length + listed.length + mentions.length + fxShown.length + answersShown.length + marginWaitingShown.length + marginAnswersShown.length + supplierWaitingShown.length + supplierAnswersShown.length === 0 && (
         <p className={`px-4 py-6 text-center ${HINT}`}>
           {query.trim() ? `Nothing matches “${query.trim()}”.` : view === "unread" ? "Nothing new." : `Nothing in the last ${READ_KEEP_DAYS} days.`}
         </p>

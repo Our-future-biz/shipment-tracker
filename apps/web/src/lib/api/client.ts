@@ -2260,6 +2260,7 @@ export namespace shipments {
             this.customsOfficeRequestLatest = this.customsOfficeRequestLatest.bind(this)
             this.customsOfficeRequestList = this.customsOfficeRequestList.bind(this)
             this.customsOfficeRequestSeen = this.customsOfficeRequestSeen.bind(this)
+            this.customsVerdictNotices = this.customsVerdictNotices.bind(this)
             this.masterJobContainersUpdate = this.masterJobContainersUpdate.bind(this)
             this.masterJobCreate = this.masterJobCreate.bind(this)
             this.masterJobGet = this.masterJobGet.bind(this)
@@ -2512,6 +2513,19 @@ export namespace shipments {
          */
         public async customsOfficeRequestSeen(id: string): Promise<void> {
             await this.baseClient.callTypedAPI("POST", `/customs-office-requests/${encodeURIComponent(id)}/seen`)
+        }
+
+        /**
+         * The bell: customs' verdicts on the shipments this user is the Person in Charge or Holiday Cover of.
+         */
+        public async customsVerdictNotices(): Promise<{
+    verdicts: interfaces.CustomsVerdictNotice[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipment-alerts/customs-verdicts`)
+            return await resp.json() as {
+    verdicts: interfaces.CustomsVerdictNotice[]
+}
         }
 
         /**
@@ -13060,6 +13074,33 @@ export namespace interfaces {
      * Manual override of a Customs "received" tick: "" follows the uploads.
      */
     export type CustomsReceivedOverride = "" | "yes" | "no"
+
+    /**
+     * Customs' verdict on a document, as the bell of the shipment's people shows it.
+     */
+    export interface CustomsVerdictNotice {
+        /**
+         * The document's.
+         */
+        id: string
+
+        shipmentId: string
+        jobNumber: string
+        fileName: string
+        documentType: string
+        status: "approved" | "declined"
+        /**
+         * Declined: the reason.
+         */
+        note: string
+
+        reviewedAt: string
+        reviewedByName: string
+        /**
+         * Given since this user last opened the shipment's Alerts.
+         */
+        unread: boolean
+    }
 
     export interface DailyRow {
         date: string

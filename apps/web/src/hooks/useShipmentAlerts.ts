@@ -3,12 +3,43 @@
 import { useCallback, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import type { interfaces } from "@/lib/api/client";
 import { useShipmentAttachments, type AttachmentItem } from "@/hooks/useShipmentAttachments";
 
-/** A shipment's alert: customs' latest verdict on one of its documents. */
+/** A shipment's alert: a document customs declined, as its latest verdict. */
 export type ShipmentAlert = AttachmentItem & { customsReviewedAt: string };
 
+/** The documents that need attention, newest first: an approved one is no alert. */
+export const shipmentAlerts = (attachments: readonly AttachmentItem[]): ShipmentAlert[] =>
+  attachments
+    .filter((a): a is ShipmentAlert => a.customsStatus === "declined" && !!a.customsReviewedAt)
+    .sort((a, b) => b.customsReviewedAt.localeCompare(a.customsReviewedAt));
+
 export const alertReadKey = (shipmentId: string) => ["shipment-alerts-read", shipmentId] as const;
+
+/** Customs' verdict as the bell of the shipment's people shows it. */
+export type CustomsVerdictNotice = interfaces.CustomsVerdictNotice;
+
+const CUSTOMS_VERDICTS_KEY = ["customs-verdict-notices"] as const;
+
+/**
+ * The bell: customs' verdicts on the shipments this user is the Person in Charge or Holiday Cover
+ * of. Opening one marks the shipment's Alerts read, the same moment the tab's count goes.
+ */
+export const useCustomsVerdictNotices = () => {
+  const queryClient = useQueryClient();
+  const query = useQuery({
+    queryKey: CUSTOMS_VERDICTS_KEY,
+    queryFn: async () => (await api.shipments.customsVerdictNotices()).verdicts,
+    refetchInterval: 30_000,
+  });
+  const seen = useMutation({
+    mutationFn: (shipmentId: string) => api.shipments.alertMarkRead(shipmentId),
+    onSuccess: (_data, shipmentId) => queryClient.invalidateQueries({ queryKey: alertReadKey(shipmentId) }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: CUSTOMS_VERDICTS_KEY }),
+  });
+  return { verdicts: query.data ?? [], hasLoaded: query.data !== undefined, seen };
+};
 
 /**
  * The mark-read call: the badge goes at once, not after the server has answered, and the server's
@@ -21,7 +52,11 @@ export const markReadOptions = (queryClient: QueryClient, shipmentId: string) =>
   onMutate: () => {
     queryClient.setQueryData(alertReadKey(shipmentId), { readAt: new Date().toISOString() });
   },
-  onSuccess: () => queryClient.invalidateQueries({ queryKey: alertReadKey(shipmentId) }),
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: alertReadKey(shipmentId) });
+    // The tab was opened: its verdicts are no longer new under the bell either.
+    queryClient.invalidateQueries({ queryKey: CUSTOMS_VERDICTS_KEY });
+  },
 });
 
 /**
@@ -38,14 +73,7 @@ export const useShipmentAlerts = (shipmentId: string) => {
     enabled: !!shipmentId,
   });
 
-  // A document carries customs' latest verdict and when it was given: one alert each.
-  const alerts = useMemo(
-    () =>
-      attachments
-        .filter((a): a is ShipmentAlert => !!a.customsStatus && !!a.customsReviewedAt)
-        .sort((a, b) => b.customsReviewedAt.localeCompare(a.customsReviewedAt)),
-    [attachments],
-  );
+  const alerts = useMemo(() => shipmentAlerts(attachments), [attachments]);
 
   // Nothing is counted as new before it is known when the user last looked.
   const readAt = read.data?.readAt ?? null;

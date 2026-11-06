@@ -78,6 +78,23 @@ export interface CommercialInvoiceLine {
   currency: string & MaxLen<200>;
 }
 
+/** Customs' verdict on a document, as the bell of the shipment's people shows it. */
+export interface CustomsVerdictNotice {
+  /** The document's. */
+  id: string;
+  shipmentId: string;
+  jobNumber: string;
+  fileName: string;
+  documentType: string;
+  status: "approved" | "declined";
+  /** Declined: the reason. */
+  note: string;
+  reviewedAt: string;
+  reviewedByName: string;
+  /** Given since this user last opened the shipment's Alerts. */
+  unread: boolean;
+}
+
 /** A request to change a shipment's chosen Customs Office, as the screens show it. */
 export interface CustomsOfficeRequestItem {
   id: string;

@@ -1,4 +1,5 @@
-import { eq, and, isNull, isNotNull, asc, inArray } from "drizzle-orm";
+import type { PgColumn } from "drizzle-orm/pg-core";
+import { eq, and, desc, gte, isNull, isNotNull, asc, inArray, ne, or, sql } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import {
@@ -6,6 +7,11 @@ import {
   type NewShipmentAttachmentRecord,
   type ShipmentAttachmentRecord,
 } from "../schemas/shipmentAttachment.schema";
+import { shipmentAlertReadTable } from "../schemas/shipmentAlertRead.schema";
+import { shipmentTable } from "../schemas/shipment.schema";
+
+// A person as a shipment names them: by e-mail, an old value with a name after it ("a@b.cz — Name").
+const namedEmail = (column: PgColumn) => sql`lower(trim(split_part(${column}, ' — ', 1)))`;
 
 /** The review/classification columns an attachment update may change. */
 export type AttachmentUpdate = Partial<
@@ -133,6 +139,46 @@ class ShipmentAttachmentRepository extends TenantRepository<typeof shipmentAttac
       )
       .returning();
     return row ?? null;
+  }
+
+  /**
+   * Customs' verdicts for the bell, newest first: on the live shipments this user is the Person in
+   * Charge or Holiday Cover of, not given by themselves, since `since`; of those read (opened the
+   * shipment's Alerts after them), only the ones since `readSince`.
+   */
+  async customsVerdictsFor(companyId: string, userId: string, email: string, since: Date, readSince: Date, limit: number) {
+    const a = shipmentAttachmentTable;
+    const read = shipmentAlertReadTable;
+    return this.db
+      .select({
+        id: a.id,
+        shipmentId: a.shipmentId,
+        jobNumber: shipmentTable.jobNumber,
+        fileName: a.fileName,
+        documentType: a.documentType,
+        status: a.customsStatus,
+        note: a.customsNote,
+        reviewedAt: a.customsReviewedAt,
+        reviewedById: a.customsReviewedById,
+        readAt: read.readAt,
+      })
+      .from(a)
+      .innerJoin(shipmentTable, eq(shipmentTable.id, a.shipmentId))
+      .leftJoin(read, and(eq(read.shipmentId, a.shipmentId), eq(read.userId, userId)))
+      .where(
+        and(
+          eq(a.companyId, companyId),
+          isNull(a.deletedAt),
+          isNull(shipmentTable.deletedAt),
+          inArray(a.customsStatus, ["approved", "declined"]),
+          gte(a.customsReviewedAt, since),
+          or(isNull(a.customsReviewedById), ne(a.customsReviewedById, userId)),
+          or(sql`${namedEmail(shipmentTable.personInCharge)} = ${email}`, sql`${namedEmail(shipmentTable.holidayCover)} = ${email}`),
+          or(isNull(read.readAt), sql`${a.customsReviewedAt} > ${read.readAt}`, gte(a.customsReviewedAt, readSince)),
+        ),
+      )
+      .orderBy(desc(a.customsReviewedAt))
+      .limit(limit);
   }
 }
 

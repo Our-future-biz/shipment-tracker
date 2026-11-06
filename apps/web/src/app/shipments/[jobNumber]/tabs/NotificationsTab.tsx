@@ -18,9 +18,9 @@ interface NotificationsTabProps {
   onOpen: (tab: string) => void;
 }
 
-// The shipment's Alerts: what changed that the operations team should know about - for now customs'
-// verdict on a document. Only the fact that something changed is told, newest first: a click
-// leads to the Documents tab, where the whole of it (the reason for a decline, ...) is.
+// The shipment's Alerts: what needs the operations team's attention - for now a document customs
+// declined (an approved one needs nothing, and is no alert). Only the fact is told, newest first:
+// a click leads to the Documents tab, where the whole of it (the reason for the decline, ...) is.
 // Beside them, Communication: the shipment's chat messages.
 export function NotificationsTab({ shipment, onOpen }: NotificationsTabProps) {
   const { alerts: reviewed, isLoading, isError } = useShipmentAlerts(shipment.id);
