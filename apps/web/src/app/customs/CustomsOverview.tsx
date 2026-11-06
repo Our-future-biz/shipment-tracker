@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { ContainerOutlined, EnvironmentOutlined, InboxOutlined, SwapOutlined } from "@ant-design/icons";
+import { ContainerOutlined, EnvironmentOutlined, InboxOutlined, SwapOutlined, TruckOutlined } from "@ant-design/icons";
 import { PartyContactLink } from "@/app/shipments/[jobNumber]/_components/PartyContactLink";
 import { DetailCard } from "@/app/shipments/[jobNumber]/ShipmentDetailContent";
 import { type ShipmentItem } from "@/hooks/useShipments";
+import { useWarehouseSection } from "@/hooks/useWarehouseSection";
+import { truckingLines } from "./_lib/truckingLines";
 import { formatDate, formatDateTime } from "@/lib/date";
 import { loadTypeLabel } from "@/lib/enums";
 import { CUSTOMS_DOCUMENT_TYPES } from "@/lib/documentTypes";
@@ -167,6 +169,7 @@ export function CustomsShipmentInfo({ shipment }: { shipment: ShipmentItem }) {
     c.grossWeight,
     c.volume,
   ]);
+  const { data: pickup, isLoading: pickupLoading } = useWarehouseSection(shipment.id, "pickup");
 
   return (
     <>
@@ -226,6 +229,13 @@ export function CustomsShipmentInfo({ shipment }: { shipment: ShipmentItem }) {
         />
       </DetailCard>
       </div>
+      <DetailCard icon={<TruckOutlined />} title="Trucking" columns={[[]]} shipment={shipment} onCommit={noCommit}>
+        <LinesTable
+          head={["License Plate", "Haulier", "Customs Office"]}
+          rows={truckingLines(pickup, shipment.customsOffice)}
+          empty={pickupLoading ? "Loading…" : "No truck yet — it is entered in the shipment's Warehouse tab, under Pick-up."}
+        />
+      </DetailCard>
     </>
   );
 }
