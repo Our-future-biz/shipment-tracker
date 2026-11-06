@@ -1,5 +1,6 @@
 "use client";
 
+import { useCanManageDocuments } from "@/lib/auth/AuthContext";
 import { Button, Upload } from "antd";
 import { CloseOutlined, DeleteOutlined, EyeOutlined, DownloadOutlined, FileOutlined, FilePdfOutlined, FileExcelOutlined, FileWordOutlined, InboxOutlined } from "@ant-design/icons";
 import { useMutation } from "@tanstack/react-query";
@@ -25,6 +26,8 @@ const fileIcon = (type: string, name: string) => {
 
 export const AttachmentsPanel = ({ shipmentId, jobNumber, context, onClose }: AttachmentsPanelProps) => {
   const { attachments: files, refresh } = useShipmentAttachments(shipmentId);
+  // Anyone can add a document; only a manager, an admin or a superadmin can delete one.
+  const canManageDocuments = useCanManageDocuments();
 
   const deleteAttachment = useMutation({
     mutationFn: (attachmentId: string) => api.shipments.attachmentDelete(shipmentId, attachmentId),
@@ -95,13 +98,15 @@ export const AttachmentsPanel = ({ shipmentId, jobNumber, context, onClose }: At
             <a href={apiFileUrl(file.contentUrl, true)} title="Download">
               <Button type="text" size="small" icon={<DownloadOutlined className="text-[10px]" />} />
             </a>
-            <Button
-              type="text"
-              size="small"
-              danger
-              icon={<DeleteOutlined className="text-[10px]" />}
-              onClick={() => deleteAttachment.mutate(file.id)}
-            />
+            {canManageDocuments && (
+              <Button
+                type="text"
+                size="small"
+                danger
+                icon={<DeleteOutlined className="text-[10px]" />}
+                onClick={() => deleteAttachment.mutate(file.id)}
+              />
+            )}
           </div>
         ))}
       </div>

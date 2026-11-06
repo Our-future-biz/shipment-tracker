@@ -1,5 +1,9 @@
 "use client";
 
+import Link from "next/link";
+import { useDocumentChangeRequests, type DocumentChangeRequestItem } from "@/hooks/useDocumentChangeRequests";
+import { useCanManageDocuments } from "@/lib/auth/AuthContext";
+import { ChangeAfterApprovalModal } from "./ChangeAfterApprovalModal";
 import { Fragment, useMemo, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { DatePicker, Input, Modal, Select, TimePicker, Tooltip } from "antd";
@@ -80,6 +84,31 @@ function ContainerNumberRow({ value }: { value: string }) {
   );
 }
 
+// What became of the newest request to replace an approved document, while it still says something:
+// an approved one is the document now shown.
+function ChangeRequestNote({ request, canAnswer }: { request?: DocumentChangeRequestItem; canAnswer: boolean }) {
+  if (request?.status === "pending") {
+    return (
+      <small className="col-span-2 block w-full whitespace-normal text-[11px] leading-4 text-amber-700">
+        {request.requestedByName || "Someone"} asked to replace it with {request.newFileName}: waiting for a manager&apos;s approval.
+        {canAnswer && (
+          <Link href="/warehouse-concept/managers?tab=approvals" className={`${LINK} ml-1`}>
+            Answer in Approvals
+          </Link>
+        )}
+      </small>
+    );
+  }
+  if (request?.status === "rejected") {
+    return (
+      <small className="col-span-2 block w-full whitespace-normal text-[11px] leading-4 text-red-700">
+        Change to {request.newFileName} rejected{request.decidedByName ? ` by ${request.decidedByName}` : ""}: {request.comment}
+      </small>
+    );
+  }
+  return null;
+}
+
 // Customs Priority is rendered as the first row of this column (see CustomsPriorityRow).
 const CUSTOMS_RIGHT = [
   { key: "customsStatus", label: "Customs Status" },
@@ -100,7 +129,7 @@ const DOC_COLUMNS: { label: string; widthClass?: string }[] = [
   { label: "File" },
   { label: "Document type", widthClass: "w-[190px]" },
   { label: "Uploaded by", widthClass: "w-[170px]" },
-  { label: REVIEW_COLUMN, widthClass: "w-[250px]" },
+  { label: REVIEW_COLUMN, widthClass: "w-[300px]" },
   { label: "", widthClass: "w-[84px]" },
 ];
 
@@ -311,6 +340,10 @@ export function CustomsTab({
   const { attachments, refresh: refreshDocuments } = useShipmentAttachments(shipment.id);
 
   const [declining, setDeclining] = useState<string | null>(null);
+  // A regular user changes an approved document by a request for a manager's approval, with the new file.
+  const canManageDocuments = useCanManageDocuments();
+  const changeRequests = useDocumentChangeRequests(shipment.id, !!canReview && section !== "details");
+  const [changing, setChanging] = useState<{ id: string; fileName: string; documentType: string } | null>(null);
   const [note, setNote] = useState("");
 
   // Customs can only approve or decline — the document type itself is set in the
@@ -400,6 +433,14 @@ export function CustomsTab({
         customsDocsCardHtml() z mockupu: .docs2.cx > .card - in the app's card (CARD, CARD_BAR,
         CARD_TITLE), as every card of the shipment.
       */}
+      {changing && (
+        <ChangeAfterApprovalModal
+          document={changing}
+          saving={changeRequests.ask.isPending}
+          onSend={(attachmentId, file, reason) => changeRequests.ask.mutateAsync({ attachmentId, file, reason })}
+          onClose={() => setChanging(null)}
+        />
+      )}
       {section !== "details" && CUSTOMS_TAB_GROUPS.map((group, index) => {
         const inGroup = (d: { documentType: string }) => documentGroupOf(d.documentType) === group;
         const documents = attachments.filter(inGroup);
@@ -508,7 +549,16 @@ export function CustomsTab({
                                 <span className="flex h-8 items-center">
                                   <CustomsPill status={d.customsStatus} />
                                 </span>
-                                {canReview ? (
+                                {canReview && d.customsStatus === "approved" && !canManageDocuments ? (
+                                  // An approved document changes only with a manager's approval.
+                                  changeRequests.newestOf.get(d.id)?.status === "pending" ? (
+                                    <span />
+                                  ) : (
+                                    <button onClick={() => setChanging(d)} className={`${BTN} whitespace-nowrap`}>
+                                      Change after approval
+                                    </button>
+                                  )
+                                ) : canReview ? (
                                   <button
                                     onClick={() => review.mutate({ id: d.id, status: "" })}
                                     className={BTN}
@@ -527,6 +577,7 @@ export function CustomsTab({
                                     <span className="flex-none">&nbsp;· {formatDateTime(d.customsReviewedAt)}</span>
                                   </small>
                                 )}
+                                {canReview && d.customsStatus === "approved" && <ChangeRequestNote request={changeRequests.newestOf.get(d.id)} canAnswer={canManageDocuments} />}
                               </>
                             ) : !canReview ? (
                               <span className="col-span-2 flex h-8 items-center">

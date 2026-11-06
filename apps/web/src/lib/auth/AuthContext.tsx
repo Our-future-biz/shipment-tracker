@@ -177,6 +177,15 @@ export const useCanChangeCustomsOffice = (): boolean => {
   return !!user && (CUSTOMS_OFFICE_MANAGER_ROLES as readonly string[]).includes(user.role);
 };
 
+/** Roles that may delete a document and take back customs' approval of one; the server enforces the same. */
+export const DOCUMENT_MANAGER_ROLES = ["superadmin", "admin", "manager"] as const;
+
+/** Whether the signed-in user may delete documents and change an approved one directly (a regular user asks for it). */
+export const useCanManageDocuments = (): boolean => {
+  const { user } = useAuth();
+  return !!user && (DOCUMENT_MANAGER_ROLES as readonly string[]).includes(user.role);
+};
+
 /** Roles that may delete a shipment (it also retires its costs and billing); the server enforces the same. */
 export const SHIPMENT_DELETE_ROLES = ["superadmin", "admin", "manager"] as const;
 

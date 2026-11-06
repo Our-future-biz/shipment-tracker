@@ -18,3 +18,17 @@ export function companyOfContentToken(token: string | null, id: string): string 
   const claim = verifyContentToken(jwtSecret(), token, KIND);
   return claim && claim.id === id ? claim.companyId : null;
 }
+
+const CHANGE_KIND = "document-change-request";
+
+/** The API path that serves the new file of a request to change a document, with a token valid for an hour. */
+export function documentChangeContentUrl(id: string, companyId: string): string {
+  const token = signContentToken(jwtSecret(), { kind: CHANGE_KIND, id, companyId });
+  return `/document-change-requests/${id}/content?t=${encodeURIComponent(token)}`;
+}
+
+/** The company a valid token for this request's file was issued to; null when it is missing, forged or expired. */
+export function companyOfDocumentChangeToken(token: string | null, id: string): string | null {
+  const claim = verifyContentToken(jwtSecret(), token, CHANGE_KIND);
+  return claim && claim.id === id ? claim.companyId : null;
+}

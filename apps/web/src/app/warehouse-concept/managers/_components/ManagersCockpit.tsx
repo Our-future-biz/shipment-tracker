@@ -16,6 +16,7 @@ import { useWarehouseInquiries } from "@/hooks/useWarehouseInquiries";
 import { QuoteInquiries } from "./QuoteInquiries";
 import { CustomsOfficeApprovals } from "./CustomsOfficeApprovals";
 import { useCustomsOfficeApprovals } from "@/hooks/useCustomsOfficeRequests";
+import { useDocumentChangeApprovals } from "@/hooks/useDocumentChangeRequests";
 import { CARD_TITLE, EMPTY, HINT, LINK, MODAL_TITLE, REF } from "@/styles/ui";
 
 // The warehouse managers' cockpit (Council Outlay 5, steps 1 to 3): the Positions quick filters as
@@ -219,7 +220,9 @@ export function ManagersCockpit() {
   const tab: PageTab = asked === "inquiries" || asked === "approvals" ? asked : "cockpit";
   const setTab = (next: PageTab) => router.replace(next === "cockpit" ? pathname : `${pathname}?tab=${next}`);
   const { waiting: inquiriesWaiting } = useWarehouseInquiries();
-  const { waiting: approvalsWaiting } = useCustomsOfficeApprovals();
+  const { waiting: officesWaiting } = useCustomsOfficeApprovals();
+  const { waiting: documentsWaiting } = useDocumentChangeApprovals();
+  const approvalsWaiting = officesWaiting + documentsWaiting;
   const { cockpit, isLoading, isError } = useManagersCockpit();
   const [openCard, setOpenCard] = useState<CardKey | null>(null);
 

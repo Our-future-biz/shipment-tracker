@@ -76,6 +76,14 @@ class ShipmentAttachmentRepository extends TenantRepository<typeof shipmentAttac
   }
 
   /** Ids of the files sent with one chat message. */
+  /** The files stay, in the Documents tab, when the message they came with goes. */
+  async unlinkFromComment(commentId: string, companyId: string) {
+    await this.db
+      .update(shipmentAttachmentTable)
+      .set({ commentId: null, updatedAt: new Date() })
+      .where(and(eq(shipmentAttachmentTable.companyId, companyId), eq(shipmentAttachmentTable.commentId, commentId), isNull(shipmentAttachmentTable.deletedAt)));
+  }
+
   async listIdsByCommentId(commentId: string, companyId: string) {
     const rows = await this.db
       .select({ id: shipmentAttachmentTable.id })

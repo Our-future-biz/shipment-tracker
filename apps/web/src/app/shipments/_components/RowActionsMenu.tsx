@@ -4,7 +4,8 @@ import { Button, Dropdown } from "antd";
 import { CopyOutlined, DeleteOutlined, DownloadOutlined, EllipsisOutlined } from "@ant-design/icons";
 
 interface RowActionsMenuProps {
-  onDelete: () => void;
+  /** Left out, the menu offers no Delete. */
+  onDelete?: () => void;
   onCopy?: () => void;
   // With a link, the menu also offers Download (above Delete): the file at that address.
   downloadHref?: string;
@@ -27,7 +28,7 @@ export function RowActionsMenu({ onDelete, onCopy, downloadHref, label = "Row ac
           ...(downloadHref
             ? [{ key: "download", label: "Download", icon: <DownloadOutlined /> }]
             : []),
-          { key: "delete", label: "Delete", icon: <DeleteOutlined />, danger: true },
+          ...(onDelete ? [{ key: "delete", label: "Delete", icon: <DeleteOutlined />, danger: true }] : []),
         ],
         onClick: ({ key }) => {
           if (key === "copy") onCopy?.();
@@ -35,7 +36,7 @@ export function RowActionsMenu({ onDelete, onCopy, downloadHref, label = "Row ac
           // item's edge downloads too. The address answers with the file as a download, so the
           // page stays where it is.
           if (key === "download" && downloadHref) window.location.assign(downloadHref);
-          if (key === "delete") onDelete();
+          if (key === "delete") onDelete?.();
         },
       }}
     >

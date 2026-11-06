@@ -4,6 +4,7 @@ import { APIError } from "encore.dev/api";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
 import type { ShipmentAttachmentRecord } from "../schemas/shipmentAttachment.schema";
 import { attachmentBucket } from "../storage/attachmentBucket";
+import { documentReviewRefusal } from "../lib/documentRules";
 import { userEmails } from "../lib/userEmails";
 import { attachmentContentUrl, companyOfContentToken } from "../lib/contentToken";
 import { iso, isoOrNull } from "../../../lib/db/serialize";
@@ -105,7 +106,13 @@ class AttachmentService {
     status: AttachmentCustomsStatus,
     note: string,
     userId: string,
+    role?: string,
   ): Promise<AttachmentItem> {
+    if (role !== undefined) {
+      const current = await shipmentAttachmentRepository.getForShipment(id, shipmentId, companyId);
+      const refusal = current ? documentReviewRefusal(current.customsStatus, status, role) : null;
+      if (refusal) throw APIError.permissionDenied(refusal);
+    }
     const clear = status === "";
     const row = await shipmentAttachmentRepository.updateReview(id, shipmentId, companyId, {
       customsStatus: status,

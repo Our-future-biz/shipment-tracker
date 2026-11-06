@@ -21,6 +21,7 @@ import { useSalesPermissions } from "@/hooks/useSalesPermissions";
 import { useSupplierApprovals, type SupplierApprovalItem } from "@/hooks/useSupplierApprovals";
 import { useCustomsOfficeAnswers, type CustomsOfficeRequestItem } from "@/hooks/useCustomsOfficeRequests";
 import { useCustomsVerdictNotices, type CustomsVerdictNotice } from "@/hooks/useShipmentAlerts";
+import { useDocumentChangeAnswers, type DocumentChangeRequestItem } from "@/hooks/useDocumentChangeRequests";
 import { HINT, ICON_BTN_GHOST, LABEL_TEXT } from "@/styles/ui";
 
 const formatTime = (iso: string) =>
@@ -46,6 +47,10 @@ const shipmentChatHref = (shipmentId: string) => `/shipments?chat=${encodeURICom
 // Customs' verdict on a document of one of the user's shipments, as the bell says it.
 const verdictTitle = (v: CustomsVerdictNotice) => `Customs ${v.status} · ${v.jobNumber}`;
 const verdictText = (v: CustomsVerdictNotice) => `${v.fileName}${v.note ? ` — ${v.note}` : ""}`;
+
+// A manager's answer to a request to replace an approved document, as the bell says it.
+const documentAnswerTitle = (a: DocumentChangeRequestItem) => `Document change ${a.status === "approved" ? "approved" : "rejected"} · ${a.jobNumber}`;
+const documentAnswerText = (a: DocumentChangeRequestItem) => `${a.newFileName}${a.comment ? ` — ${a.comment}` : ""}`;
 
 // A manager's answer to a request to change a Customs Office, as the bell says it.
 const officeAnswerTitle = (a: CustomsOfficeRequestItem) => `Customs Office ${a.status === "approved" ? "approved" : "rejected"} · ${a.jobNumber}`;
@@ -144,6 +149,8 @@ export function NotificationBell() {
   const { answers: warehouseAnswers, hasLoaded: answersLoaded, seen: answerSeen } = useWarehouseInquiryAnswers();
   // A manager answered this user's request to change a Customs Office; it leaves the bell once opened.
   const { answers: officeAnswers, hasLoaded: officeAnswersLoaded, seen: officeAnswerSeen } = useCustomsOfficeAnswers();
+  // A manager answered this user's request to replace an approved document.
+  const { answers: documentAnswers, hasLoaded: documentAnswersLoaded, seen: documentAnswerSeen } = useDocumentChangeAnswers();
   // Customs approved or declined a document of a shipment this user is the Person in Charge or Holiday Cover of.
   const { verdicts, hasLoaded: verdictsLoaded, seen: verdictSeen } = useCustomsVerdictNotices();
   // Margin questions this user is told about (the owner's manager, or an admin once it waits
@@ -163,6 +170,8 @@ export function NotificationBell() {
   const notices = announcements.filter((a) => a.unread);
   const unreadMentions = allMentions.filter((m) => m.unread);
   const unreadAnswers = warehouseAnswers.filter((a) => !a.inquiry.answerSeenAt);
+  const unreadDocumentAnswers = documentAnswers.filter((a) => !a.answerSeenAt);
+  const documentAnswersShown = (view === "unread" ? unreadDocumentAnswers : documentAnswers).filter((a) => matchesAll(query, documentAnswerTitle(a), documentAnswerText(a), a.decidedByName));
   const unreadVerdicts = verdicts.filter((v) => v.unread);
   const verdictsShown = (view === "unread" ? unreadVerdicts : verdicts).filter((v) => matchesAll(query, verdictTitle(v), verdictText(v), v.reviewedByName));
   const unreadOfficeAnswers = officeAnswers.filter((a) => !a.answerSeenAt);
@@ -216,6 +225,16 @@ export function NotificationBell() {
     seenAnswers.current = new Set(warehouseAnswers.map((a) => a.inquiry.id));
     for (const a of fresh) toast.notify({ title: answerTitle(a), description: answerText(a), type: a.inquiry.status === "approved" ? "info" : "warning" });
   }, [warehouseAnswers, answersLoaded, toast]);
+
+  // The same for answers about an approved document.
+  const seenDocumentAnswers = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!documentAnswersLoaded) return;
+    const before = seenDocumentAnswers.current;
+    const fresh = before ? documentAnswers.filter((a) => !a.answerSeenAt && !before.has(a.id)) : [];
+    seenDocumentAnswers.current = new Set(documentAnswers.map((a) => a.id));
+    for (const a of fresh) toast.notify({ title: documentAnswerTitle(a), description: documentAnswerText(a), type: a.status === "approved" ? "info" : "warning" });
+  }, [documentAnswers, documentAnswersLoaded, toast]);
 
   // The same for customs' verdicts: a document can be reviewed again, so its time counts too.
   const seenVerdicts = useRef<Set<string> | null>(null);
@@ -317,7 +336,7 @@ export function NotificationBell() {
 
   // The badge counts what is unread, whatever the view or the search.
   const total =
-    unreadVerdicts.length + unreadOfficeAnswers.length + unreadMentions.length + notices.length + fxAlerts.length + unreadAnswers.length + marginWaiting.length + unreadMarginAnswers.length + supplierWaiting.length + unreadSupplierAnswers.length;
+    unreadDocumentAnswers.length + unreadVerdicts.length + unreadOfficeAnswers.length + unreadMentions.length + notices.length + fxAlerts.length + unreadAnswers.length + marginWaiting.length + unreadMarginAnswers.length + supplierWaiting.length + unreadSupplierAnswers.length;
   const openSupplierAnswer = (a: SupplierApprovalItem) => {
     if (!a.answerSeen) supplierSeen.mutate([a.customerId]);
     go(a.quoteNumber ? `/sales/quote/${encodeURIComponent(a.quoteNumber)}` : "/customers");
@@ -325,6 +344,10 @@ export function NotificationBell() {
   const openAnswer = (a: WarehouseInquiryItem) => {
     if (!a.inquiry.answerSeenAt) answerSeen.mutate({ quoteNumber: a.quoteNumber, inquiryId: a.inquiry.id });
     go(quoteChatHref(a.quoteNumber));
+  };
+  const openDocumentAnswer = (a: DocumentChangeRequestItem) => {
+    if (!a.answerSeenAt) documentAnswerSeen.mutate(a.id);
+    go(`/customs?open=${a.shipmentId}`);
   };
   const openVerdict = (v: CustomsVerdictNotice) => {
     if (v.unread) verdictSeen.mutate(v.shipmentId);
@@ -453,6 +476,21 @@ export function NotificationBell() {
           </span>
         </button>
       ))}
+      {documentAnswersShown.length > 0 && <div className={headingClass}>Document change answers</div>}
+      {documentAnswersShown.map((a) => (
+        <button key={a.id} type="button" onClick={() => openDocumentAnswer(a)} className={rowClass}>
+          <span className="flex items-center gap-2">
+            {!a.answerSeenAt && (
+              <span role="img" aria-label="Unread" className={`shrink-0 w-2 h-2 rounded-full ${a.status === "approved" ? "bg-emerald-500" : "bg-red-500"}`} />
+            )}
+            <span className={`min-w-0 flex-1 text-[13px] truncate ${a.answerSeenAt ? "font-medium text-slate-500" : "font-semibold text-slate-900"}`}>{documentAnswerTitle(a)}</span>
+          </span>
+          <span className="text-[12px] text-slate-700 line-clamp-2">{documentAnswerText(a)}</span>
+          <span className="block text-[11px] text-slate-400 mt-0.5">
+            {a.decidedByName || "Manager"} · {a.decidedAt ? formatTime(a.decidedAt) : ""}
+          </span>
+        </button>
+      ))}
       {verdictsShown.length > 0 && <div className={headingClass}>Customs</div>}
       {verdictsShown.map((v) => (
         <button key={`${v.id}:${v.reviewedAt}`} type="button" onClick={() => openVerdict(v)} className={rowClass}>
@@ -483,7 +521,7 @@ export function NotificationBell() {
           </span>
         </button>
       ))}
-      {verdictsShown.length + officeAnswersShown.length + listed.length + mentions.length + fxShown.length + answersShown.length + marginWaitingShown.length + marginAnswersShown.length + supplierWaitingShown.length + supplierAnswersShown.length === 0 && (
+      {documentAnswersShown.length + verdictsShown.length + officeAnswersShown.length + listed.length + mentions.length + fxShown.length + answersShown.length + marginWaitingShown.length + marginAnswersShown.length + supplierWaitingShown.length + supplierAnswersShown.length === 0 && (
         <p className={`px-4 py-6 text-center ${HINT}`}>
           {query.trim() ? `Nothing matches “${query.trim()}”.` : view === "unread" ? "Nothing new." : `Nothing in the last ${READ_KEEP_DAYS} days.`}
         </p>

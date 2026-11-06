@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import { Select, Tooltip } from "antd";
 import { useToast } from "@/lib/toast";
+import { useCanManageDocuments } from "@/lib/auth/AuthContext";
 import {
   InboxOutlined,
   FileTextOutlined,
@@ -185,6 +186,8 @@ const clearedWhenDone = (list: PendingFile[]) => (list.every((p) => p.status ===
 
 export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
   const toast = useToast();
+  // Anyone can add a document; only a manager, an admin or a superadmin can delete one.
+  const canManageDocuments = useCanManageDocuments();
   // A document added, removed or classified also changes the shipment itself: its customs
   // status follows the invoice and the packing list, and so do the "received" ticks.
   const { attachments, isLoading, refresh: refreshDocuments } = useShipmentAttachments(shipment.id);
@@ -219,7 +222,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
   const deleteAttachment = useMutation({
     mutationFn: (attachmentId: string) => api.shipments.attachmentDelete(shipment.id, attachmentId),
     onSuccess: refreshDocuments,
-    onError: () => toast.error("Could not delete the document"),
+    onError: (e) => toast.error(e instanceof Error && e.message ? e.message : "Could not delete the document"),
   });
 
   // Saves the given lines: Add to list on one line, or Add to list all on every waiting one.
@@ -628,7 +631,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                               <RowActionsMenu
                                 label={`Actions for ${file.fileName}`}
                                 downloadHref={apiFileUrl(file.contentUrl, true)}
-                                onDelete={() => setConfirmDelete(file)}
+                                onDelete={canManageDocuments ? () => setConfirmDelete(file) : undefined}
                               />
                             </div>
                           </td>

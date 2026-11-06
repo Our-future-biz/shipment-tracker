@@ -2261,6 +2261,13 @@ export namespace shipments {
             this.customsOfficeRequestList = this.customsOfficeRequestList.bind(this)
             this.customsOfficeRequestSeen = this.customsOfficeRequestSeen.bind(this)
             this.customsVerdictNotices = this.customsVerdictNotices.bind(this)
+            this.documentChangeRequestAnswers = this.documentChangeRequestAnswers.bind(this)
+            this.documentChangeRequestAsk = this.documentChangeRequestAsk.bind(this)
+            this.documentChangeRequestContent = this.documentChangeRequestContent.bind(this)
+            this.documentChangeRequestDecide = this.documentChangeRequestDecide.bind(this)
+            this.documentChangeRequestList = this.documentChangeRequestList.bind(this)
+            this.documentChangeRequestSeen = this.documentChangeRequestSeen.bind(this)
+            this.documentChangeRequestsOfShipment = this.documentChangeRequestsOfShipment.bind(this)
             this.masterJobContainersUpdate = this.masterJobContainersUpdate.bind(this)
             this.masterJobCreate = this.masterJobCreate.bind(this)
             this.masterJobGet = this.masterJobGet.bind(this)
@@ -2525,6 +2532,83 @@ export namespace shipments {
             const resp = await this.baseClient.callTypedAPI("GET", `/shipment-alerts/customs-verdicts`)
             return await resp.json() as {
     verdicts: interfaces.CustomsVerdictNotice[]
+}
+        }
+
+        /**
+         * The bell: the answers to the signed-in user's own requests.
+         */
+        public async documentChangeRequestAnswers(): Promise<{
+    answers: interfaces.DocumentChangeRequestItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/document-change-request-answers`)
+            return await resp.json() as {
+    answers: interfaces.DocumentChangeRequestItem[]
+}
+        }
+
+        public async documentChangeRequestAsk(shipmentId: string, attachmentId: string, params: controllers.DocumentChangeAskRequest): Promise<{
+    request: interfaces.DocumentChangeRequestItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/attachments/${encodeURIComponent(attachmentId)}/change-request`, JSON.stringify(params))
+            return await resp.json() as {
+    request: interfaces.DocumentChangeRequestItem
+}
+        }
+
+        /**
+         * The waiting new file. Public by necessity, like a document's own link: the browser opens it as a
+         * plain link, without the auth header, so the link carries a short-lived signed token naming it.
+         */
+        public async documentChangeRequestContent(method: "GET", id: string, body?: RequestInit["body"], options?: CallParameters): Promise<globalThis.Response> {
+            return this.baseClient.callAPI(method, `/document-change-requests/${encodeURIComponent(id)}/content`, body, options)
+        }
+
+        /**
+         * Managers only.
+         */
+        public async documentChangeRequestDecide(id: string, params: controllers.DocumentChangeDecideRequest): Promise<{
+    request: interfaces.DocumentChangeRequestItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/document-change-requests/${encodeURIComponent(id)}/decide`, JSON.stringify(params))
+            return await resp.json() as {
+    request: interfaces.DocumentChangeRequestItem
+}
+        }
+
+        /**
+         * The Approvals tab. Managers only.
+         */
+        public async documentChangeRequestList(): Promise<{
+    requests: interfaces.DocumentChangeRequestItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/document-change-requests`)
+            return await resp.json() as {
+    requests: interfaces.DocumentChangeRequestItem[]
+}
+        }
+
+        /**
+         * The one who asked opened the answer.
+         */
+        public async documentChangeRequestSeen(id: string): Promise<void> {
+            await this.baseClient.callTypedAPI("POST", `/document-change-requests/${encodeURIComponent(id)}/seen`)
+        }
+
+        /**
+         * The shipment's requests, for its documents' rows.
+         */
+        public async documentChangeRequestsOfShipment(shipmentId: string): Promise<{
+    requests: interfaces.DocumentChangeRequestItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipments/${encodeURIComponent(shipmentId)}/document-change-requests`)
+            return await resp.json() as {
+    requests: interfaces.DocumentChangeRequestItem[]
 }
         }
 
@@ -6911,6 +6995,22 @@ export namespace controllers {
         vehicle?: string
         status?: string
         note?: string
+    }
+
+    export interface DocumentChangeAskRequest {
+        fileName: string
+        fileSize: number
+        fileType: string
+        contentBase64: string
+        reason: string
+    }
+
+    export interface DocumentChangeDecideRequest {
+        approve: boolean
+        /**
+         * Rejected: why (required); approved: optional.
+         */
+        comment?: string
     }
 
     export interface DocumentContentResponse {
@@ -13332,6 +13432,40 @@ export namespace interfaces {
          * ISO weekdays: 1 = Monday … 7 = Sunday
          */
         workingDays: number[]
+    }
+
+    /**
+     * A request to replace a document customs has approved, as the screens show it.
+     */
+    export interface DocumentChangeRequestItem {
+        id: string
+        shipmentId: string
+        jobNumber: string
+        customer: string
+        attachmentId: string
+        /**
+         * The approved document as it was when asked.
+         */
+        fileName: string
+
+        documentType: string
+        fileUrl: string
+        newFileName: string
+        newFileSize: number
+        /**
+         * The new file's link, only while the request waits.
+         */
+        newFileUrl: string | null
+
+        reason: string
+        status: "pending" | "approved" | "rejected"
+        requestedById: string
+        requestedByName: string
+        requestedAt: string
+        decidedByName: string
+        decidedAt: string | null
+        comment: string
+        answerSeenAt: string | null
     }
 
     export interface DocumentItem {

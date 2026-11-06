@@ -4,7 +4,8 @@ import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment
 import type { ShipmentCommentRecord } from "../schemas/shipmentComment.schema";
 import { userEmails } from "../lib/userEmails";
 import { attachmentContentUrl } from "../lib/contentToken";
-import { customsOfficeRequestNotice } from "../lib/customsOfficeNotice";
+import { customsOfficeRequestNotice, documentChangeNotice } from "../lib/customsOfficeNotice";
+import { canManageDocuments } from "../lib/documentRules";
 import { COMPARED_WITH, declaredFigures, dimensionFigures, remeasureNotice, type CargoFigures } from "../lib/remeasureNotice";
 import { iso } from "../../../lib/db/serialize";
 import { companyUsers, companyUsersWithRoles } from "../../../lib/companyUsers";
@@ -168,10 +169,34 @@ class CommentService {
     });
   }
 
-  // Deleting a message takes the files sent with it along (they also show on the Documents tab).
-  async delete(shipmentId: string, id: string, companyId: string, userId: string): Promise<void> {
+  /**
+   * A request to replace an approved document in the shipment's chat, as the one asking, tagging
+   * everyone who can answer it: it then also shows under their bell, like any message that tags them.
+   */
+  async postDocumentChangeNotice(
+    shipmentId: string,
+    companyId: string,
+    authorId: string,
+    request: { fileName: string; documentType: string; newFileName: string; reason: string },
+  ): Promise<void> {
+    const notice = documentChangeNotice(request, await companyUsersWithRoles(), authorId);
+    await shipmentCommentRepository.createForCompany(companyId, {
+      shipmentId,
+      authorId,
+      message: notice.message,
+      mentionedUserIds: notice.tagged.map((u) => u.id),
+    });
+  }
+
+  // Deleting a message takes the files sent with it along (they also show on the Documents tab) -
+  // but only a manager deletes a document, so a regular user's message goes and its files stay.
+  async delete(shipmentId: string, id: string, companyId: string, userId: string, role?: string): Promise<void> {
     const deleted = await shipmentCommentRepository.deleteOwn(id, companyId, userId);
     if (!deleted) throw APIError.notFound("Message not found");
+    if (role !== undefined && !canManageDocuments(role)) {
+      await shipmentAttachmentRepository.unlinkFromComment(id, companyId);
+      return;
+    }
     const fileIds = await shipmentAttachmentRepository.listIdsByCommentId(id, companyId);
     for (const fileId of fileIds) await attachmentService.delete(shipmentId, fileId, companyId);
   }

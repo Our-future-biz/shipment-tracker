@@ -78,6 +78,32 @@ export interface CommercialInvoiceLine {
   currency: string & MaxLen<200>;
 }
 
+/** A request to replace a document customs has approved, as the screens show it. */
+export interface DocumentChangeRequestItem {
+  id: string;
+  shipmentId: string;
+  jobNumber: string;
+  customer: string;
+  attachmentId: string;
+  /** The approved document as it was when asked. */
+  fileName: string;
+  documentType: string;
+  fileUrl: string;
+  newFileName: string;
+  newFileSize: number;
+  /** The new file's link, only while the request waits. */
+  newFileUrl: string | null;
+  reason: string;
+  status: "pending" | "approved" | "rejected";
+  requestedById: string;
+  requestedByName: string;
+  requestedAt: string;
+  decidedByName: string;
+  decidedAt: string | null;
+  comment: string;
+  answerSeenAt: string | null;
+}
+
 /** Customs' verdict on a document, as the bell of the shipment's people shows it. */
 export interface CustomsVerdictNotice {
   /** The document's. */
