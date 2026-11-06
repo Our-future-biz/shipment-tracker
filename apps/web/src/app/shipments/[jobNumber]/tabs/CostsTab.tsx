@@ -3,17 +3,19 @@
 import { useEffect, useRef, useState } from "react";
 import { CURRENCIES } from "@/lib/cargo";
 import Link from "next/link";
-import { App, Input, Select, Checkbox, Tooltip, Modal } from "antd";
-import { DeleteOutlined, UndoOutlined, DownOutlined, CopyOutlined, WarningOutlined, LockOutlined } from "@ant-design/icons";
+import { App, Input, Select, Checkbox, Tooltip, Modal, Popover } from "antd";
+import { DeleteOutlined, FileDoneOutlined, PlusOutlined, SendOutlined, DownOutlined, CopyOutlined, WarningOutlined, LockOutlined } from "@ant-design/icons";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, apiErrorMessage, ErrCode, isAPIError } from "@/lib/api";
 import type { controllers } from "@/lib/api/client";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { businessDayOf, formatDate, formatDateTime } from "@/lib/date";
-import { normaliseAmount } from "@/lib/money";
+import { amountInput, normaliseAmount } from "@/lib/money";
 import { asData, computeTotals, isSalesQuoteRef, quoteProfitIn } from "@/app/sales/_lib/salesQuote";
 import { useSalesQuoteByRef } from "@/hooks/useSalesQuote";
 import { INVOICE_KEYS } from "@/hooks/useInvoiceQueue";
+import { openInvoicePdf, useInvoiceDocList, type InvoiceDoc } from "@/hooks/useInvoiceDocs";
+import { isOpenInvoice } from "@/app/invoicing/_lib/openInvoices";
 import { chargeLabel, chargeOptions } from "@/lib/chargeCodes";
 import { money, signed, num, type BuyingRow, type SellingRow } from "./costsCalc";
 import { useCostsData } from "./useCostsData";
@@ -27,7 +29,8 @@ import { CostPaidCell } from "./CostPaidCell";
 import { SectionCard } from "@/components/SectionCard";
 import { Pill } from "@/components/Pill";
 import {
-  BTN_GHOST,
+  BTN,
+  BTN_PRIMARY,
   BTN_SM,
   CARD,
   EMPTY,
@@ -43,13 +46,12 @@ import {
 interface CurrencyPickerProps {
   value: string;
   onChange: (v: string) => void;
+  /** A locked row: the code reads as text, as the row's other fields (a double-click opens the row). */
+  locked?: boolean;
 }
 
-/**
- * Currency picker, searching by code and name. The currency can be switched even on a
- * locked row: it is a frequent change, not worth unlocking the row with a double-click.
- */
-function CurrencyPicker({ value, onChange }: CurrencyPickerProps) {
+/** Currency picker, searching by code and name. */
+function CurrencyPicker({ value, onChange, locked = false }: CurrencyPickerProps) {
   return (
     <Select
       value={value || undefined}
@@ -76,11 +78,24 @@ function CurrencyPicker({ value, onChange }: CurrencyPickerProps) {
       )}
       labelRender={(p) => <span className="text-[13px]">{String(p.value ?? "")}</span>}
       popupMatchSelectWidth={false}
-      className="w-full [&_.ant-select-selector]:!h-[30px] [&_.ant-select-selector]:!border
+      className={`w-full [&_.ant-select-selector]:!h-[30px] [&_.ant-select-selector]:!border
                  [&_.ant-select-selector]:!border-slate-300 [&_.ant-select-selector]:!rounded-md
-                 [&_.ant-select-selection-item]:!text-[13px] [&_.ant-select-selection-search-input]:!text-[13px]"
+                 [&_.ant-select-selection-item]:!text-[13px] [&_.ant-select-selection-search-input]:!text-[13px]${
+        locked ? " [&_.ant-select-selector]:!border-transparent [&_.ant-select-selector]:!bg-transparent [&_.ant-select-arrow]:!hidden pointer-events-none" : ""
+      }`}
+      tabIndex={locked ? -1 : undefined}
     />
   );
+}
+
+/** A quantity or amount field takes numbers only: anything else typed or pasted is dropped at once. */
+function onlyNumbers(e: React.FormEvent<HTMLInputElement>) {
+  const el = e.currentTarget;
+  const clean = amountInput(el.value);
+  if (clean === el.value) return;
+  const caret = Math.max(0, (el.selectionStart ?? clean.length) - (el.value.length - clean.length));
+  el.value = clean;
+  el.setSelectionRange(caret, caret);
 }
 
 /** Amount fields of a row: the database (numeric) takes "4999.5", not "4 999,50". */
@@ -111,8 +126,11 @@ const SPLIT = "border-l-[3px] border-l-slate-900";
 const FIELD =
   "w-full h-[30px] px-2 text-[13px] text-slate-900 border border-slate-300 rounded-md outline-none " +
   "focus:border-indigo-500 bg-white";
-/** A Trucking row's value: plain text (read-only, readable by screen readers), as tall as a field. */
-const READ = "block min-h-[30px] px-2 py-[5px] text-[13px] text-slate-900";
+/** A read-only row's value (Trucking, invoiced): plain text, readable by screen readers, as tall
+ *  as a field, its text where a field's is (an input's 8px padding + 1px border). */
+const READ = "block min-h-[30px] px-[9px] py-[5px] text-[13px] text-slate-900";
+/** The same in a Select's column (category, currency): its text sits 12px in (11px + 1px border). */
+const READ_SELECT = "block min-h-[30px] px-3 py-[5px] text-[13px] text-slate-900";
 /** A column head of the cost tables: the app's (TH) at the tables' padding. */
 const HEAD = `${TH} !px-[6px]`;
 /** The totals row: its label in small caps, its figures as TD_TOTAL, a currency as a hint. */
@@ -128,26 +146,39 @@ const ADD_FIRST_BTN = `${LINK} text-[13px] font-semibold border-0 bg-transparent
 /** A report cell: TD with its figure on the right; the colour goes on the figure's own span. */
 const REPORT_NUM = `${TD} text-right tabular-nums whitespace-nowrap`;
 
+/** A return arrow (↩) for Undo: a stroke drawn in the text colour, at the size of the button's text. */
+function ReturnArrowIcon() {
+  return (
+    <svg aria-hidden width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 14 4 9l5-5" />
+      <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
+    </svg>
+  );
+}
+
 interface HeadBtnProps {
   onClick: () => void;
   disabled?: boolean;
   title?: string;
-  /** Required when the button renders only an icon. */
-  ariaLabel?: string;
+  /** The card's main action (Add …): purple. */
+  primary?: boolean;
   children: React.ReactNode;
 }
 
-/** A button in a card's header bar: a quiet small one, or a square one for an icon (with ariaLabel). */
+/**
+ * A button in a card's header bar, small and framed so it stands out on the bar: the main action
+ * purple, the others white, each with its icon and words (Undo, Copy from …, Add …).
+ */
 function HeadBtn({
-  onClick, disabled, title, ariaLabel, children,
+  onClick, disabled, title, primary, children,
 }: HeadBtnProps) {
   return (
     <button
+      type="button"
       onClick={onClick}
       disabled={disabled}
       title={title}
-      aria-label={ariaLabel}
-      className={ariaLabel ? ICON_BTN_GHOST : `${BTN_GHOST} ${BTN_SM}`}
+      className={`${primary ? `${BTN_PRIMARY} !text-white hover:!text-white` : BTN} ${BTN_SM} shadow-sm`}
     >
       {children}
     </button>
@@ -156,9 +187,11 @@ function HeadBtn({
 
 interface CostsTabProps {
   shipment: ShipmentItem;
+  /** Opens the job's Issue invoice (shown as a button beside the ČNB rate when given). */
+  onIssueInvoice?: () => void;
 }
 
-export function CostsTab({ shipment }: CostsTabProps) {
+export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
   const queryClient = useQueryClient();
   // Toasts go through the App context: antd's static `message` shows nothing under React 19.
   const { message, modal } = App.useApp();
@@ -179,6 +212,23 @@ export function CostsTab({ shipment }: CostsTabProps) {
     n.delete(id);
     return n;
   });
+  // A row opened with a double-click stays open while its own fields are clicked; a click
+  // anywhere else closes it again (its field being left still saves on blur). The pop-ups of its
+  // fields (a Select's list, a date picker, a tooltip) are part of the row; so is a dialog.
+  useEffect(() => {
+    if (!unlocked.size) return;
+    const onDown = (e: PointerEvent) => {
+      const el = e.target instanceof Element ? e.target : null;
+      if (!el || el.closest(".ant-select-dropdown, .ant-picker-dropdown, .ant-dropdown, .ant-popover, .ant-tooltip, .ant-modal-root, .ant-message")) return;
+      const inRow = el.closest("[data-cost-row]")?.getAttribute("data-cost-row");
+      setUnlocked((p) => {
+        const n = new Set([...p].filter((id) => id === inRow));
+        return n.size === p.size ? p : n;
+      });
+    };
+    document.addEventListener("pointerdown", onDown, true);
+    return () => document.removeEventListener("pointerdown", onDown, true);
+  }, [unlocked.size]);
 
   // Rows, rates and totals come from the shared hook, so the Quote card on the detail page
   // shows exactly the same figures as this tab.
@@ -325,7 +375,16 @@ export function CostsTab({ shipment }: CostsTabProps) {
   const buyLocked = (r: BuyingRow) =>
     !unlocked.has(r.id) && !!(r.category || num(r.estAmount) || num(r.realAmount));
   const sellLocked = (r: SellingRow) =>
-    !unlocked.has(r.id) && !!(r.category || num(r.amount));
+    (!unlocked.has(r.id) || !invoiceDocs) && !!(r.category || num(r.amount));
+
+  // Selling rows on an issued invoice (a credited one frees them): the invoice each is on.
+  // Until the list has come, no filled row opens for editing (it may turn out to be invoiced).
+  const { data: invoiceDocs } = useInvoiceDocList(shipment.id);
+  const invoicedBy = new Map<string, InvoiceDoc>();
+  for (const doc of invoiceDocs?.invoices ?? []) {
+    if (!isOpenInvoice(doc)) continue;
+    for (const line of doc.lines) if (line.sourceSellingCostId) invoicedBy.set(line.sourceSellingCostId, doc);
+  }
 
   /** a locked row: fields look like text, a double-click opens them */
   const lockedField = (locked: boolean) =>
@@ -567,14 +626,15 @@ export function CostsTab({ shipment }: CostsTabProps) {
         bodyClassName="rounded-b-xl overflow-hidden"
         extra={
           <>
-            <HeadBtn onClick={guarded("Could not restore the row", undoBuy)} disabled={!undoBuyCount} title="Undo the last deleted cost" ariaLabel="Undo the last deleted buying cost">
-              <UndoOutlined />
+            <HeadBtn onClick={guarded("Could not restore the row", undoBuy)} disabled={!undoBuyCount} title="Bring back the last deleted buying cost">
+              <ReturnArrowIcon />
+              Undo
             </HeadBtn>
             {/* Copies the quote's buying and selling costs both. */}
             <HeadBtn onClick={openQuoteModal}>
               Copy from quote
             </HeadBtn>
-            <HeadBtn onClick={() => addBuy.mutate()}>Add buying cost</HeadBtn>
+            <HeadBtn primary onClick={() => addBuy.mutate()}><PlusOutlined />Add buying cost</HeadBtn>
           </>
         }
       >
@@ -614,7 +674,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
                 if (truckingTag) {
                   return (
                     <tr key={r.id} className="bg-indigo-50/40">
-                      <td className={CELL}><span className={READ}>{r.category ? chargeLabel(r.category) : "—"}</span></td>
+                      <td className={CELL}><span className={READ_SELECT}>{r.category ? chargeLabel(r.category) : "—"}</span></td>
                       <td className={CELL}>
                         <span className={READ}>{r.description}</span>
                         <TruckingCostTagLink tag={truckingTag} />
@@ -622,12 +682,12 @@ export function CostsTab({ shipment }: CostsTabProps) {
                       <td className={CELL}><span className={READ}>{r.vendor}</span></td>
                       <td className={CELL}><span className={`${READ} text-center`}>{r.estQty}</span></td>
                       <td className={CELL}><span className={`${READ} text-right tabular-nums`}>{r.estAmount}</span></td>
-                      <td className={CELL}><span className={READ}>{r.estCurrency}</span></td>
+                      <td className={CELL}><span className={READ_SELECT}>{r.estCurrency}</span></td>
                       <td className={`${CELL} ${SPLIT}`}><span className={`${READ} text-center`}>{r.realQty}</span></td>
                       <td className={`${CELL} ${t.buyRowOver[r.id] ? "bg-red-100" : t.buyRowUnder[r.id] ? "bg-emerald-100" : ""}`}>
                         <span className={`${READ} text-right tabular-nums`}>{r.realAmount}</span>
                       </td>
-                      <td className={CELL}><span className={READ}>{r.realCurrency}</span></td>
+                      <td className={CELL}><span className={READ_SELECT}>{r.realCurrency}</span></td>
                       <td className={CELL}><span className={READ}>{r.invoiceNumber}</span></td>
                       <td className={`${CELL} text-center`}>
                         <span className="inline-flex items-center gap-1.5">
@@ -653,6 +713,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
                 <tr
                   key={r.id}
                   className={`hover:bg-slate-50/60 ${locked ? "cursor-pointer" : ""}`}
+                  data-cost-row={r.id}
                   onDoubleClick={() => unlock(r.id)}
                   onKeyDown={(e) => { if (e.key === "Enter") { (e.target as HTMLElement).blur(); lock(r.id); } }}
                 >
@@ -694,6 +755,8 @@ export function CostsTab({ shipment }: CostsTabProps) {
                       readOnly={estClosed}
                       tabIndex={estClosed ? -1 : undefined}
                       defaultValue={r.estQty}
+                      inputMode="decimal"
+                      onInput={onlyNumbers}
                       onBlur={(e) => e.target.value !== r.estQty && updateBuy.mutate({ id: r.id, estQty: e.target.value })}
                     />
                   </td>
@@ -703,6 +766,8 @@ export function CostsTab({ shipment }: CostsTabProps) {
                       readOnly={estClosed}
                       tabIndex={estClosed ? -1 : undefined}
                       defaultValue={r.estAmount}
+                      inputMode="decimal"
+                      onInput={onlyNumbers}
                       onBlur={(e) => e.target.value !== r.estAmount && updateBuy.mutate({ id: r.id, estAmount: e.target.value })}
                     />
                   </td>
@@ -710,7 +775,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
                     {estClosed ? (
                       <span className="block px-[11px] text-[13px] text-slate-900">{fromQuote || num(r.estAmount) ? r.estCurrency : ""}</span>
                     ) : (
-                      <CurrencyPicker value={r.estCurrency} onChange={(v) => changeEstCurrency(r, v)} />
+                      <CurrencyPicker locked={locked} value={r.estCurrency} onChange={(v) => changeEstCurrency(r, v)} />
                     )}
                   </td>
                   {/* Real */}
@@ -718,6 +783,8 @@ export function CostsTab({ shipment }: CostsTabProps) {
                     <input
                       className={`${FIELD} text-center${fld}`}
                       defaultValue={r.realQty}
+                      inputMode="decimal"
+                      onInput={onlyNumbers}
                       onBlur={(e) => e.target.value !== r.realQty && updateBuy.mutate({ id: r.id, realQty: e.target.value })}
                     />
                   </td>
@@ -733,11 +800,13 @@ export function CostsTab({ shipment }: CostsTabProps) {
                     <input
                       className={`${FIELD} text-right${fld} ${t.buyRowUnder[r.id] ? "!text-emerald-700 font-bold" : ""}`}
                       defaultValue={r.realAmount}
+                      inputMode="decimal"
+                      onInput={onlyNumbers}
                       onBlur={(e) => e.target.value !== r.realAmount && updateBuy.mutate({ id: r.id, realAmount: e.target.value })}
                     />
                   </td>
                   <td className={CELL}>
-                    <CurrencyPicker value={r.realCurrency} onChange={(v) => updateBuy.mutate({ id: r.id, realCurrency: v })} />
+                    <CurrencyPicker locked={locked} value={r.realCurrency} onChange={(v) => updateBuy.mutate({ id: r.id, realCurrency: v })} />
                   </td>
                   <td className={CELL}>
                     <input
@@ -844,11 +913,12 @@ export function CostsTab({ shipment }: CostsTabProps) {
         bodyClassName="rounded-b-xl overflow-hidden"
         extra={
           <>
-            <HeadBtn onClick={guarded("Could not restore the row", undoSell)} disabled={!undoSellCount} title="Undo the last deleted cost" ariaLabel="Undo the last deleted selling cost">
-              <UndoOutlined />
+            <HeadBtn onClick={guarded("Could not restore the row", undoSell)} disabled={!undoSellCount} title="Bring back the last deleted selling cost">
+              <ReturnArrowIcon />
+              Undo
             </HeadBtn>
             <HeadBtn onClick={guarded("Could not copy from buying", copyFromBuying)}>Copy from buying</HeadBtn>
-            <HeadBtn onClick={() => addSell.mutate({})}>Add selling cost</HeadBtn>
+            <HeadBtn primary onClick={() => addSell.mutate({})}><PlusOutlined />Add selling cost</HeadBtn>
           </>
         }
       >
@@ -856,38 +926,56 @@ export function CostsTab({ shipment }: CostsTabProps) {
           <table className="w-full min-w-[1040px] border-separate border-spacing-0">
             <thead>
               <tr>
-                <th className={`${HEAD} w-[185px]`}>Category</th>
-                <th className={`${HEAD} w-[16%]`}>Description</th>
-                {/* the "customer" field holds the line text printed on the invoice */}
-                <th className={`${HEAD} w-[16%]`} title="Printed on the invoice line; when empty, the category is printed">Invoice text</th>
-                <th className={`${HEAD} !text-center w-[7%]`}>Qty</th>
-                <th className={`${HEAD} text-right w-[11%]`}>Amount</th>
-                <th className={`${HEAD} w-[8%]`}>Cur</th>
-                <th className={`${HEAD} text-right w-[13%]`}>Total in {billingCur}</th>
-                <th className={`${HEAD} !text-center w-[6%]`} title="Include in the billing calculation sheet">Invoice</th>
-                <th className={`${HEAD} w-[70px]`} />
+                <th className={`${HEAD} !text-center w-[64px]`} title="Include in the billing calculation sheet">Invoice</th>
+                {/* each head starts (or ends) where its column's text does: a Select's 12px, an input's 9px */}
+                <th className={`${HEAD} !pl-[18px] w-[250px]`}>Category</th>
+                {/* the row's Description: the text printed on its invoice line (rewritable in Issue invoice) */}
+                <th className={`${HEAD} !pl-[15px] w-[26%]`} title="Printed on the invoice line; it can still be rewritten in Issue invoice">Invoice text</th>
+                <th className={`${HEAD} !text-center w-[6%]`}>Qty</th>
+                <th className={`${HEAD} !text-right !pr-[15px] w-[10%]`}>Amount</th>
+                <th className={`${HEAD} !pl-[18px] w-[7%]`}>Cur</th>
+                <th className={`${HEAD} !text-right w-[10%]`}>Total in {billingCur}</th>
+                <th className={`${HEAD} w-[76px]`} />
               </tr>
             </thead>
             <tbody>
               {sellRows.map((r, rowIndex) => {
                 const truckingTag = truckingTagOf(r.id);
-                if (truckingTag) {
+                // On an issued invoice: read-only (the server refuses changes too) and tinted green.
+                const invoicedOn = invoicedBy.get(r.id);
+                if (truckingTag || invoicedOn) {
                   return (
-                    <tr key={r.id} className="bg-indigo-50/40">
-                      <td className={CELL}><span className={READ}>{r.category ? chargeLabel(r.category) : "—"}</span></td>
-                      <td className={CELL}>
-                        <span className={READ}>{r.description}</span>
-                        <TruckingCostTagLink tag={truckingTag} />
-                      </td>
-                      <td className={CELL}><span className={READ}>{r.customer}</span></td>
-                      <td className={CELL}><span className={`${READ} text-center`}>{r.qty}</span></td>
-                      <td className={CELL}><span className={`${READ} text-right tabular-nums`}>{r.amount}</span></td>
-                      <td className={CELL}><span className={READ}>{r.currency}</span></td>
-                      <td className={`${CELL} text-right text-[13px] font-semibold tabular-nums ${r.invoice ? "text-slate-900" : "text-slate-400 line-through"}`}>{sellRowTotal(r)}</td>
+                    <tr key={r.id} className={invoicedOn ? "bg-emerald-50/70" : "bg-indigo-50/40"}>
                       <td className={`${CELL} text-center`}>
                         <Checkbox checked={r.invoice} disabled aria-label="Include in the invoice" />
                       </td>
-                      <td className={CELL} />
+                      <td className={CELL}><span className={READ_SELECT}>{r.category ? chargeLabel(r.category) : "—"}</span></td>
+                      <td className={CELL}>
+                        <span className={READ}>{r.description}</span>
+                        {truckingTag && <TruckingCostTagLink tag={truckingTag} />}
+                      </td>
+                      <td className={CELL}><span className={`${READ} text-center`}>{r.qty}</span></td>
+                      <td className={CELL}><span className={`${READ} text-right tabular-nums`}>{r.amount}</span></td>
+                      <td className={CELL}><span className={READ_SELECT}>{r.currency}</span></td>
+                      <td className={`${CELL} text-right text-[13px] font-semibold tabular-nums ${r.invoice ? "text-slate-900" : "text-slate-400 line-through"}`}>{sellRowTotal(r)}</td>
+                      <td className={`${CELL} text-center whitespace-nowrap`}>
+                        {/* Duplicate, then the invoice mark: in the places an open row has Duplicate and Delete.
+                            A copy is a new row, not on the invoice: it can be changed and invoiced. */}
+                        {invoicedOn && (truckingTag ? (
+                          <span aria-hidden className="inline-block w-7" />
+                        ) : (
+                          <Tooltip title="Duplicate row">
+                            <button
+                              onClick={guarded("Could not duplicate the row", () => duplicateSell(r, rowIndex))}
+                              aria-label="Duplicate selling cost row"
+                              className={ROW_BTN}
+                            >
+                              <CopyOutlined />
+                            </button>
+                          </Tooltip>
+                        ))}
+                        {invoicedOn && <InvoicedMark doc={invoicedOn} shipmentId={shipment.id} />}
+                      </td>
                     </tr>
                   );
                 }
@@ -897,9 +985,17 @@ export function CostsTab({ shipment }: CostsTabProps) {
                 <tr
                   key={r.id}
                   className={`hover:bg-slate-50/60 ${locked ? "cursor-pointer" : ""}`}
+                  data-cost-row={r.id}
                   onDoubleClick={() => unlock(r.id)}
                   onKeyDown={(e) => { if (e.key === "Enter") { (e.target as HTMLElement).blur(); lock(r.id); } }}
                 >
+                  <td className={`${CELL} text-center`}>
+                    <Checkbox
+                      aria-label="Include in the invoice"
+                      checked={r.invoice}
+                      onChange={(e) => updateSell.mutate({ id: r.id, invoice: e.target.checked })}
+                    />
+                  </td>
                   <td className={CELL}>
                     <Select
                       value={r.category || undefined}
@@ -926,18 +1022,10 @@ export function CostsTab({ shipment }: CostsTabProps) {
                   </td>
                   <td className={CELL}>
                     <input
-                      className={`${FIELD}${fld}`}
-                      defaultValue={r.customer}
-                      placeholder={r.category ? `On the invoice: ${chargeLabel(r.category)}` : "Text on the invoice"}
-                      maxLength={200}
-                      aria-label="Invoice text"
-                      onBlur={(e) => e.target.value !== r.customer && updateSell.mutate({ id: r.id, customer: e.target.value })}
-                    />
-                  </td>
-                  <td className={CELL}>
-                    <input
                       className={`${FIELD} text-center${fld}`}
                       defaultValue={r.qty}
+                      inputMode="decimal"
+                      onInput={onlyNumbers}
                       onBlur={(e) => e.target.value !== r.qty && updateSell.mutate({ id: r.id, qty: e.target.value })}
                     />
                   </td>
@@ -945,19 +1033,15 @@ export function CostsTab({ shipment }: CostsTabProps) {
                     <input
                       className={`${FIELD} text-right${fld}`}
                       defaultValue={r.amount}
+                      inputMode="decimal"
+                      onInput={onlyNumbers}
                       onBlur={(e) => e.target.value !== r.amount && updateSell.mutate({ id: r.id, amount: e.target.value })}
                     />
                   </td>
                   <td className={CELL}>
-                    <CurrencyPicker value={r.currency} onChange={(v) => updateSell.mutate({ id: r.id, currency: v })} />
+                    <CurrencyPicker locked={locked} value={r.currency} onChange={(v) => updateSell.mutate({ id: r.id, currency: v })} />
                   </td>
                   <td className={`${CELL} text-right text-[13px] font-semibold tabular-nums ${r.invoice ? "text-slate-900" : "text-slate-400 line-through"}`}>{sellRowTotal(r)}</td>
-                  <td className={`${CELL} text-center`}>
-                    <Checkbox
-                      checked={r.invoice}
-                      onChange={(e) => updateSell.mutate({ id: r.id, invoice: e.target.checked })}
-                    />
-                  </td>
                   <td className={`${CELL} text-center whitespace-nowrap`}>
                     <Tooltip title="Duplicate row">
                       <button
@@ -983,7 +1067,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
               })}
               {!sellRows.length && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center">
+                  <td colSpan={8} className="px-4 py-8 text-center">
                     <button
                       onClick={() => addSell.mutate({})}
                       disabled={addSell.isPending}
@@ -1007,10 +1091,12 @@ export function CostsTab({ shipment }: CostsTabProps) {
                     </span>
                   )}
                 </td>
-                <td className={FOOT} colSpan={3}>
-                  {money(t.sellTotalCZK)} CZK
-                  {billingCur !== "CZK" && ` · ${money(t.sellTotal)} ${billingCur}`}
+                {/* under the rows' totals, in the same currency, as Total buying above */}
+                <td className={FOOT}>
+                  {money(t.sellTotal)}
+                  {billingCur !== "CZK" && <div className={`${HINT} font-normal`}>{money(t.sellTotalCZK)} CZK</div>}
                 </td>
+                <td className={FOOT_UNIT}>{billingCur}</td>
               </tr>
             </tfoot>
           </table>
@@ -1088,6 +1174,20 @@ export function CostsTab({ shipment }: CostsTabProps) {
           )}
           {fx?.directionAssumed && <span className="text-slate-400"> · no trade direction, treated as import</span>}
         </span>
+
+        {/* Issue invoice: the invoice is made right here (Invoicing's own panel, in a dialog on the
+            shipment page; Invoicing itself switches to its Invoice tab). The app's main-action
+            purple, a size up, so it is easy to spot. Only where the page offers it. */}
+        {onIssueInvoice && (
+          <button
+            type="button"
+            onClick={onIssueInvoice}
+            className={`${BTN_PRIMARY} ml-auto !h-10 !px-3.5 !text-[14px] font-semibold shadow-sm`}
+          >
+            <SendOutlined className="text-[15px]" />
+            Issue invoice
+          </button>
+        )}
       </div>
 
       {/* Rows in a currency the rate sheet does not cover are left out of every
@@ -1383,5 +1483,45 @@ function VendorCell({ row, locked, className, onSave }: VendorCellProps) {
       }}
       onBlur={() => save(latest.current)}
     />
+  );
+}
+
+interface InvoicedMarkProps {
+  doc: InvoiceDoc;
+  shipmentId: string;
+}
+
+/**
+ * The mark of a selling row that is on an issued invoice: hovering shows the invoice's number
+ * (a link to its PDF) and where to find it in Invoicing; a click shows the PDF.
+ */
+function InvoicedMark({ doc, shipmentId }: InvoicedMarkProps) {
+  const { message } = App.useApp();
+  const show = () => openInvoicePdf(doc.id).catch(() => message.error(`Could not open the PDF of ${doc.number}`));
+  return (
+    <Popover
+      placement="left"
+      content={
+        <div className="text-[13px] leading-5">
+          <div className="text-slate-500">Invoiced on</div>
+          <button type="button" onClick={show} className={`${LINK} font-semibold tabular-nums cursor-pointer bg-transparent border-none p-0`}>
+            {doc.number}
+          </button>
+          <div className="text-slate-500 tabular-nums">DUZP {formatDate(doc.duzp)}</div>
+          <Link href={`/invoicing?shipment=${encodeURIComponent(shipmentId)}&tab=documents`} className={`${LINK} block mt-1 text-[12px]`}>
+            Invoices &amp; credit notes →
+          </Link>
+        </div>
+      }
+    >
+      <button
+        type="button"
+        onClick={show}
+        aria-label={`Invoiced on ${doc.number} — show the invoice`}
+        className="inline-flex items-center justify-center w-7 h-7 rounded-md border-0 bg-emerald-100 text-emerald-700 hover:bg-emerald-200 cursor-pointer"
+      >
+        <FileDoneOutlined />
+      </button>
+    </Popover>
   );
 }

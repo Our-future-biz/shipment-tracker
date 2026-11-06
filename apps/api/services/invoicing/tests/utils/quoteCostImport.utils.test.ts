@@ -56,10 +56,10 @@ describe("quoteLinesToCostRows", () => {
     ]);
   });
 
-  it("makes one selling row per selling line, charged to the quote's customer and ticked for invoicing", () => {
+  it("makes one selling row per selling line, ticked for invoicing, with no invoice text of its own", () => {
     expect(quoteLinesToCostRows(QUOTE).selling).toEqual([
-      { category: "ocean_freight", description: "All-in rate", customer: "ITTEC s.r.o.", qty: "1", amount: "2400.00", currency: "USD", invoice: true },
-      { category: "handling", description: "", customer: "ITTEC s.r.o.", qty: "1", amount: "120.50", currency: "EUR", invoice: true },
+      { category: "ocean_freight", description: "All-in rate", customer: "", qty: "1", amount: "2400.00", currency: "USD", invoice: true },
+      { category: "handling", description: "", customer: "", qty: "1", amount: "120.50", currency: "EUR", invoice: true },
     ]);
   });
 
@@ -147,7 +147,8 @@ describe("quoteLinesToCostRows", () => {
     expect(selling([{ type: " Handling ", description: " per container ", amount: 80 }], { customerName: 42 })).toEqual([
       { category: "handling", description: "per container", customer: "", qty: "1", amount: "80.00", currency: "EUR", invoice: true },
     ]);
-    expect(selling([{ type: "Handling", amount: 80 }], { customerName: " ITTEC s.r.o. " })[0]?.customer).toBe("ITTEC s.r.o.");
+    // The customer's name is not the line's invoice text: the line prints its category.
+    expect(selling([{ type: "Handling", amount: 80 }], { customerName: " ITTEC s.r.o. " })[0]?.customer).toBe("");
   });
 
   it("stores the charge code: the line's own, else its type read as a label; text of no code stays as typed", () => {

@@ -21,7 +21,7 @@ interface NotificationsTabProps {
 // The shipment's Alerts: what changed that the operations team should know about - for now customs'
 // verdict on a document. Only the fact that something changed is told, newest first: a click
 // leads to the Documents tab, where the whole of it (the reason for a decline, ...) is.
-// Beside them, Communication: the shipment's chat messages.
+// Beside them, Notifications: the shipment's chat messages.
 export function NotificationsTab({ shipment, onOpen }: NotificationsTabProps) {
   const { alerts: reviewed, isLoading, isError } = useShipmentAlerts(shipment.id);
 
@@ -30,7 +30,7 @@ export function NotificationsTab({ shipment, onOpen }: NotificationsTabProps) {
   if (isError) empty = "Could not load alerts.";
 
   return (
-    // Alerts and Communication side by side (one under the other on a narrow screen).
+    // Alerts and Notifications side by side (one under the other on a narrow screen).
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
       <SectionCard title="Alerts" bodyClassName="p-2" extra={reviewed.length > 0 && <CountChip count={reviewed.length} />}>
         {reviewed.length === 0 ? (
@@ -87,7 +87,7 @@ function CommunicationCard({ shipment }: { shipment: ShipmentItem }) {
         onClose={() => setChatOpen(false)}
       />
       <SectionCard
-        title="Communication"
+        title="Notifications"
         bodyClassName="p-2"
         extra={
           <>

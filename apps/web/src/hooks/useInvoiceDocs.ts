@@ -81,6 +81,27 @@ export function useInvoiceDocList(shipmentId: string) {
   });
 }
 
+/**
+ * Shows the stored, official PDF of an invoice / credit note in a new browser tab. The tab is
+ * opened at the click (so no pop-up blocker stops it) and filled once the PDF has come; where
+ * no tab can be opened, the PDF is downloaded instead.
+ */
+export async function openInvoicePdf(invoiceId: string) {
+  const tab = window.open("", "_blank");
+  if (!tab) return downloadInvoicePdf(invoiceId);
+  try {
+    const { contentBase64 } = await api.invoicing.invoiceDocPdf(invoiceId);
+    const bytes = Uint8Array.from(atob(contentBase64), (c) => c.charCodeAt(0));
+    const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+    tab.location.href = url;
+    // the tab has loaded it by then; it keeps the PDF it shows
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch (e) {
+    tab.close();
+    throw e;
+  }
+}
+
 /** Downloads the stored, official PDF of an invoice / credit note. */
 export async function downloadInvoicePdf(invoiceId: string) {
   const { fileName, contentBase64 } = await api.invoicing.invoiceDocPdf(invoiceId);

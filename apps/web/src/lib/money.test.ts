@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { money, moneyCz, normaliseAmount, num, parseMoney, round2, sumRounded } from "./money";
+import { amountInput, money, moneyCz, normaliseAmount, num, parseMoney, round2, sumRounded } from "./money";
 
 describe("num", () => {
   it.each([
@@ -100,5 +100,27 @@ describe("formatting", () => {
     // Intl uses a non-breaking space as the thousands separator
     expect(moneyCz(1234567.891).replace(/\s/g, " ")).toBe("1 234 567,89");
     expect(moneyCz(-0.5)).toBe("-0,50");
+  });
+});
+
+describe("amountInput", () => {
+  it("keeps digits and the separators parseMoney reads", () => {
+    expect(amountInput("4 999,50")).toBe("4 999,50");
+    expect(amountInput("1,234.5")).toBe("1,234.5");
+    expect(amountInput("2000.00")).toBe("2000.00");
+  });
+
+  it("drops letters and other signs", () => {
+    expect(amountInput("12abc")).toBe("12");
+    expect(amountInput("CZK 200")).toBe("200");
+    expect(amountInput("1e5")).toBe("15");
+    expect(amountInput("€100+")).toBe("100");
+  });
+
+  it("keeps only one minus, and only in front", () => {
+    expect(amountInput("-50")).toBe("-50");
+    expect(amountInput("5-0")).toBe("50");
+    expect(amountInput("--5")).toBe("-5");
+    expect(amountInput("x-5")).toBe("-5");
   });
 });

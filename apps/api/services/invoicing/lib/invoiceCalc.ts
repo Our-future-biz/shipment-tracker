@@ -190,8 +190,10 @@ export function isIsoDate(v: string): boolean {
 export interface SellingRowInput {
   id: string;
   category: string;
-  /** "Invoice text" column: what the customer reads on the line; empty = the category */
+  /** The line's own text, set in Issue invoice: what the customer reads; empty = the description */
   invoiceText?: string | null;
+  /** The row's Description in Costs Breakdown: the line's name unless it has text of its own; empty = the category */
+  description?: string | null;
   qty: string | null;
   amount: string | null;
   currency: string;
@@ -274,7 +276,7 @@ export function calculateInvoice(input: {
     lines.push({
       sourceSellingCostId: r.id,
       // the category is a charge code: the customer reads its label ("road_freight" -> "Road freight")
-      description: r.invoiceText?.trim() || chargeLabel(r.category) || "Service",
+      description: r.invoiceText?.trim() || r.description?.trim() || chargeLabel(r.category) || "Service",
       qty,
       unitPrice,
       unitCurrency: r.currency || "CZK",

@@ -51,7 +51,7 @@ const BUYING = [
   { category: "ocean_freight", description: "", vendor: "Maersk", supplierCustomerId: null, estQty: "1", estAmount: "2000.00", estCurrency: "USD", realQty: "1", realCurrency: "USD", unit: "" },
   { category: "thc_destination", description: "", vendor: "", supplierCustomerId: null, estQty: "1", estAmount: "3500.00", estCurrency: "CZK", realQty: "1", realCurrency: "CZK", unit: "" },
 ];
-const SELLING = [{ category: "ocean_freight", description: "All-in", customer: "ITTEC s.r.o.", qty: "1", amount: "2400.00", currency: "USD", invoice: true }];
+const SELLING = [{ category: "ocean_freight", description: "All-in", customer: "", qty: "1", amount: "2400.00", currency: "USD", invoice: true }];
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -255,5 +255,43 @@ describe("getInvoicingData", () => {
     salesQuoteGet.mockRejectedValueOnce(new Error("quotes is down"));
     await expect(invoicingService.getInvoicingData(SHIPMENT, COMPANY)).resolves.toMatchObject({ costsQuote: null });
     expect(log.warn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("selling rows on an issued invoice", () => {
+  const ROW = "0f5c1c3e-6a0e-4d7f-9a59-2d1b6f0c7a11";
+  const RECORD = { id: ROW, shipmentId: SHIPMENT, category: "", description: "", customer: "", qty: "1", amount: "0", currency: "CZK", invoice: true, vatCode: null, sortOrder: 0 };
+  const updateLine = vi.fn();
+  const writeUnlessInvoiced = vi.fn();
+
+  beforeEach(() => {
+    Object.assign(sellingCostRepository, { updateLine, writeUnlessInvoiced });
+    updateLine.mockResolvedValue(RECORD);
+  });
+
+  it("can be neither changed nor deleted: the user is told to credit the invoice", async () => {
+    writeUnlessInvoiced.mockResolvedValue("invoiced");
+    await expect(invoicingService.updateSellingCost(ROW, COMPANY, SHIPMENT, { amount: "100" })).rejects.toThrow(/issued invoice/);
+    await expect(invoicingService.deleteSellingCost(ROW, COMPANY, SHIPMENT)).rejects.toThrow(/issued invoice/);
+    expect(writeUnlessInvoiced).toHaveBeenNthCalledWith(1, ROW, COMPANY, SHIPMENT, { data: expect.objectContaining({ amount: "100" }) });
+    expect(writeUnlessInvoiced).toHaveBeenNthCalledWith(2, ROW, COMPANY, SHIPMENT, { delete: true });
+    expect(updateLine).not.toHaveBeenCalled();
+  });
+
+  it("may still move in the list (Duplicate / Undo renumber the rows below)", async () => {
+    await expect(invoicingService.updateSellingCost(ROW, COMPANY, SHIPMENT, { sortOrder: 3 })).resolves.toBeTruthy();
+    expect(updateLine).toHaveBeenCalledWith(ROW, COMPANY, SHIPMENT, { sortOrder: 3 });
+    expect(writeUnlessInvoiced).not.toHaveBeenCalled();
+  });
+
+  it("leaves a row not on one (or freed by a credit note) to change and delete as before", async () => {
+    writeUnlessInvoiced.mockResolvedValue(RECORD);
+    await expect(invoicingService.updateSellingCost(ROW, COMPANY, SHIPMENT, { amount: "100" })).resolves.toBeTruthy();
+    await expect(invoicingService.deleteSellingCost(ROW, COMPANY, SHIPMENT)).resolves.toBeUndefined();
+  });
+
+  it("answers a row that is not there as before", async () => {
+    writeUnlessInvoiced.mockResolvedValue(null);
+    await expect(invoicingService.deleteSellingCost(ROW, COMPANY, SHIPMENT)).rejects.toThrow(/not found/);
   });
 });

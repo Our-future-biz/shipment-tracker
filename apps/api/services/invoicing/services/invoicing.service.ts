@@ -335,6 +335,12 @@ async function costsQuoteOf(quoteRef: string | undefined): Promise<CostsQuoteIte
   }
 }
 
+const INVOICED_ROW = "This selling row is on an issued invoice — credit the invoice to change it";
+
+/** A change of the row's place in the list only: it prints nothing different on an invoice. */
+const onlyReorders = (input: SellingCostInput) =>
+  Object.entries(input).every(([key, value]) => key === "sortOrder" || value === undefined);
+
 class InvoicingService {
   async getInvoicingData(shipmentId: string, companyId: string): Promise<InvoicingData> {
     const [costs, sellingCosts, additionalCharges, billingSettings, billingOverrides, generatedInvoices] = await Promise.all([
@@ -501,13 +507,20 @@ class InvoicingService {
   }
 
   async updateSellingCost(id: string, companyId: string, shipmentId: string, input: SellingCostInput): Promise<SellingCostItem> {
-    const row = await sellingCostRepository.updateLine(id, companyId, shipmentId, sellingChanges(input));
+    // A selling row on an issued invoice (not credited) is part of a tax document: it stays as it
+    // was invoiced until the invoice is credited. Only its place in the list may move.
+    const row = onlyReorders(input)
+      ? await sellingCostRepository.updateLine(id, companyId, shipmentId, sellingChanges(input))
+      : await sellingCostRepository.writeUnlessInvoiced(id, companyId, shipmentId, { data: sellingChanges(input) });
+    if (row === "invoiced") throw APIError.failedPrecondition(INVOICED_ROW);
     if (!row) throw APIError.notFound("Selling cost not found");
     return toSellingItem(row);
   }
 
   async deleteSellingCost(id: string, companyId: string, shipmentId: string): Promise<void> {
-    if (!(await sellingCostRepository.softDeleteLine(id, companyId, shipmentId))) throw APIError.notFound("Selling cost not found");
+    const row = await sellingCostRepository.writeUnlessInvoiced(id, companyId, shipmentId, { delete: true });
+    if (row === "invoiced") throw APIError.failedPrecondition(INVOICED_ROW);
+    if (!row) throw APIError.notFound("Selling cost not found");
   }
 
   // ── Copy from a sales quote ──

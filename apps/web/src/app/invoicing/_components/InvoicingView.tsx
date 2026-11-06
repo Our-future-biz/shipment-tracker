@@ -288,7 +288,7 @@ export const InvoicingView = () => {
               {/* key: a fresh Costs editor per shipment */}
               {costsMountedFor === selectedShipment.id && (
                 <div hidden={activeTab !== "costs"}>
-                  <CostsTab key={selectedShipment.id} shipment={selectedShipment} />
+                  <CostsTab key={selectedShipment.id} shipment={selectedShipment} onIssueInvoice={() => handleTab("invoice")} />
                 </div>
               )}
               {/* Mounted on every tab, so the DUZP, customer and note picked on the Invoice tab stay */}

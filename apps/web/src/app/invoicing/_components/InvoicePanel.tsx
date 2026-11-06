@@ -30,7 +30,7 @@ import { CURRENCIES } from "@/lib/enums";
 import { invoicingKey } from "@/hooks/useInvoicing";
 import { INVOICE_KEYS } from "@/hooks/useInvoiceQueue";
 import { isTruckingCost } from "@/lib/truckingCosts";
-import { moneyCz } from "@/lib/money";
+import { moneyCz, round2 } from "@/lib/money";
 import { chargeLabel } from "@/lib/chargeCodes";
 import { statusLabel } from "@/lib/shipmentStatus";
 import { SectionCard } from "@/components/SectionCard";
@@ -108,9 +108,11 @@ interface InvoicePanelProps {
   onDuzpChange?: (iso: string) => void;
   /** Opens the Costs Breakdown tab (from the empty Invoice tab). */
   onOpenCosts?: () => void;
+  /** false: no note that the job is not released for Billing yet (the shipment's own Issue invoice). */
+  billingStatusWarning?: boolean;
 }
 
-export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: InvoicePanelProps) {
+export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, billingStatusWarning = true }: InvoicePanelProps) {
   const toast = useToast();
   const { modal } = App.useApp();
   const queryClient = useQueryClient();
@@ -164,6 +166,14 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
       api.invoicing.invoicingUpdateSellingCost(shipment.id, sellingId, { vatCode }),
     onSuccess: refreshCosts,
     onError: () => toast.error("Failed to change the VAT code"),
+  });
+
+  // The text printed on a line: the selling row's invoice text; left empty, the category is printed.
+  const lineText = useMutation({
+    mutationFn: ({ sellingId, text }: { sellingId: string; text: string }) =>
+      api.invoicing.invoicingUpdateSellingCost(shipment.id, sellingId, { customer: text }),
+    onSuccess: refreshCosts,
+    onError: () => toast.error("Failed to change the line text"),
   });
 
   // The tick is the selling row's "Invoice" flag, the same one Costs Breakdown shows.
@@ -270,7 +280,7 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
 
   // Issuing is allowed before the job reaches Billing (owner's decision), but it is flagged.
   const releasedForBilling = isBillingStatus(shipment.status);
-  const notReleasedWarning = releasedForBilling
+  const notReleasedWarning = releasedForBilling || !billingStatusWarning
     ? ""
     : shipment.status
       ? `Shipment Status is "${statusLabel(shipment.status)}", not Billing — operations has not released this job for billing yet.`
@@ -298,7 +308,11 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
   // so a line can be put back. Kept in the Costs Breakdown order (see lineTableRows).
   const sellingRows = data?.sellingCosts ?? [];
   const tableRows: TableRow[] = p ? lineTableRows(sellingRows, p.lines, docs) : [];
-  const rowDescription = (t: TableRow) => (t.line ? t.line.description : t.row!.customer.trim() || chargeLabel(t.row!.category) || "Service");
+  // as the server names a line: its own text, else the row's Description, else the category
+  const rowDescription = (t: TableRow) =>
+    t.line ? t.line.description : t.row!.customer.trim() || t.row!.description.trim() || chargeLabel(t.row!.category) || "Service";
+  // A line's VAT, as shown on its row (rounded per line; the invoice's VAT is counted per rate).
+  const vatOfLine = (l: interfaces.InvoiceDocLineItem) => round2((Number(l.net) * (Number(l.vatRate) || 0)) / 100);
   const rowCurrency = (t: TableRow) => (t.line ? t.line.unitCurrency : t.row!.currency);
   const words = lineQuery.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const matches = (text: string) => words.every((w) => text.toLowerCase().includes(w));
@@ -565,10 +579,11 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
             {p && tableRows.length > 0 ? (
               // -mx-2: the cells' own padding lines the text up with the facts above
               <div className="overflow-x-auto -mx-2">
-                <table className="w-full min-w-[640px] border-collapse">
+                {/* Fixed columns: the figures sit together on the right, the line text takes the rest */}
+                <table className="w-full min-w-[880px] border-collapse table-fixed">
                   <thead>
                     <tr>
-                      <th className={`${TH} w-8`}>
+                      <th className={`${TH} w-10`}>
                         <Checkbox
                           checked={tickable.length > 0 && tickedCount === tickable.length}
                           indeterminate={tickedCount > 0 && tickedCount < tickable.length}
@@ -577,17 +592,21 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
                           aria-label="Put every line shown on the invoice"
                         />
                       </th>
-                      <th className={`${TH} text-left`}>Service</th>
-                      <th className={`${TH} !text-right w-[8%]`}>Qty</th>
-                      <th className={`${TH} !text-right w-[17%]`}>Price</th>
-                      <th className={`${TH} text-left w-[18%]`}>VAT</th>
-                      <th className={`${TH} !text-right w-[18%]`}>Net ({p.currency})</th>
+                      {/* Service and VAT heads start where the text in their fields does (8px in) */}
+                      <th className={`${TH} text-left !pl-4`}>Service</th>
+                      <th className={`${TH} !text-right w-[72px]`}>Qty</th>
+                      <th className={`${TH} !text-right w-[140px]`}>Price</th>
+                      <th className={`${TH} text-left !pl-4 w-[150px]`}>VAT rate</th>
+                      {/* each line without VAT, its VAT and with VAT; the totals sit under them */}
+                      <th className={`${TH} !text-right w-[120px]`}>Net ({p.currency})</th>
+                      <th className={`${TH} !text-right w-[110px]`}>VAT ({p.currency})</th>
+                      <th className={`${TH} !text-right w-[130px]`}>Total ({p.currency})</th>
                     </tr>
                   </thead>
                   <tbody>
                     {shownRows.length === 0 && (
                       <tr>
-                        <td colSpan={6} className={`${TD} text-center !text-slate-500 !py-6`}>
+                        <td colSpan={8} className={`${TD} text-center !text-slate-500 !py-6`}>
                           No lines match the search or filter.
                         </td>
                       </tr>
@@ -609,7 +628,15 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
                               />
                             )}
                           </td>
-                          <td className={`${TD}${muted}`}>{description}</td>
+                          <td className={`${TD}${muted}`}>
+                            <LineTextField
+                              row={sellingRows.find((r) => r.id === t.sellingId)}
+                              shown={description}
+                              readOnly={isReadOnly(t)}
+                              muted={!t.ticked}
+                              onSave={(sellingId, text) => lineText.mutateAsync({ sellingId, text })}
+                            />
+                          </td>
                           <td className={`${TD} text-right tabular-nums${muted}`}>{Number(l ? l.qty : t.row!.qty ?? 1) || 1}</td>
                           <td className={`${TD} text-right tabular-nums${muted}`}>
                             {moneyCz(Number(l ? l.unitPrice : t.row!.amount))} {l ? l.unitCurrency : t.row!.currency}
@@ -626,16 +653,51 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
                                 onChange={(v) => handleLineVat(l.sourceSellingCostId, v)}
                                 disabled={lineVat.isPending}
                                 options={VAT_OPTIONS}
-                                className="w-[140px]"
+                                className="w-full"
                                 aria-label={`VAT code of ${l.description}`}
                               />
                             )}
                           </td>
-                          <td className={`${TD} text-right tabular-nums font-medium${muted}`}>{l ? moneyCz(Number(l.net)) : t.ticked ? "…" : EMPTY_CELL}</td>
+                          <td className={`${TD} text-right tabular-nums${muted}`}>{l ? moneyCz(Number(l.net)) : t.ticked ? "…" : EMPTY_CELL}</td>
+                          <td className={`${TD} text-right tabular-nums${muted}`}>{l ? moneyCz(vatOfLine(l)) : t.ticked ? "…" : EMPTY_CELL}</td>
+                          <td className={`${TD} text-right tabular-nums font-medium${muted}`}>{l ? moneyCz(round2(Number(l.net) + vatOfLine(l))) : t.ticked ? "…" : EMPTY_CELL}</td>
                         </tr>
                       );
                     })}
                   </tbody>
+                  {/* the invoice's totals (the server's: VAT is counted per rate), each under its column */}
+                  {hasLines && (
+                    <tfoot>
+                      <tr>
+                        <td colSpan={5} className="px-2 pt-3 pb-1 align-middle">
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<DownOutlined rotate={vatOpen ? 180 : 0} className="!text-[10px]" />}
+                            iconPosition="end"
+                            aria-expanded={vatOpen}
+                            aria-controls="invoice-vat-breakdown"
+                            onClick={() => setVatOpen((o) => !o)}
+                            className="-ml-2"
+                          >
+                            VAT breakdown
+                          </Button>
+                        </td>
+                        <td className="px-2 pt-3 pb-1 text-right tabular-nums text-[13px] text-slate-700">{moneyCz(p.net)}</td>
+                        <td className="px-2 pt-3 pb-1 text-right tabular-nums text-[13px] text-slate-700">{moneyCz(p.vat)}</td>
+                        <td className="px-2 pt-3 pb-1 text-right tabular-nums text-[14px] font-bold text-slate-900 whitespace-nowrap">
+                          {moneyCz(p.gross)} {p.currency}
+                        </td>
+                      </tr>
+                      {foreign && (
+                        <tr>
+                          <td colSpan={8} className="px-2 pb-1 text-right tabular-nums text-[13px] text-slate-500">
+                            = {moneyCz(p.grossCzk)} CZK (VAT {moneyCz(p.vatCzk)} CZK)
+                          </td>
+                        </tr>
+                      )}
+                    </tfoot>
+                  )}
                 </table>
               </div>
             ) : previewError ? null : !p && previewLoading ? (
@@ -654,27 +716,6 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
             {/* ── Totals; the VAT summary per code folds out ── */}
             {p && hasLines && (
               <>
-                <div className="flex items-start justify-between gap-x-6 gap-y-2 flex-wrap pt-3">
-                  <Button
-                    type="text"
-                    size="small"
-                    icon={<DownOutlined rotate={vatOpen ? 180 : 0} className="!text-[10px]" />}
-                    iconPosition="end"
-                    aria-expanded={vatOpen}
-                    aria-controls="invoice-vat-breakdown"
-                    onClick={() => setVatOpen((o) => !o)}
-                    className="-ml-2.5"
-                  >
-                    VAT breakdown
-                  </Button>
-                  <div className="ml-auto text-right tabular-nums">
-                    <div className="flex items-baseline justify-end gap-x-4 gap-y-1 flex-wrap">
-                      <span className="text-[13px] text-slate-500">Net {moneyCz(p.net)} · VAT {moneyCz(p.vat)}</span>
-                      <span className="text-[14px] font-bold text-slate-900">Total {moneyCz(p.gross)} {p.currency}</span>
-                    </div>
-                    {foreign && <div className="text-[13px] text-slate-500 mt-0.5">= {moneyCz(p.grossCzk)} CZK (VAT {moneyCz(p.vatCzk)} CZK)</div>}
-                  </div>
-                </div>
                 <div id="invoice-vat-breakdown" hidden={!vatOpen} className="overflow-x-auto mt-2">
                   <table className="border-collapse">
                     <thead>
@@ -947,5 +988,65 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
         </div>
       </Modal>
     </>
+  );
+}
+
+interface LineTextFieldProps {
+  /** The selling row the line is made from; none for a line of no current row. */
+  row?: interfaces.SellingCostItem;
+  /** The text the line shows now (the preview's, or the row's own). */
+  shown: string;
+  /** Kept by Trucking: shown as text, as in Costs Breakdown. */
+  readOnly: boolean;
+  /** An unticked line: greyed, as its other cells. */
+  muted: boolean;
+  onSave: (sellingId: string, text: string) => Promise<unknown>;
+}
+
+/**
+ * The text printed on an invoice line, to rewrite before issuing. It starts as the row's
+ * Description in Costs Breakdown (else its category); what is typed is kept as the line's own
+ * text. Emptied, or set back to that name, the name is printed again and follows the Description.
+ */
+function LineTextField({ row, shown, readOnly, muted, onSave }: LineTextFieldProps) {
+  if (!row || readOnly) return <>{shown}</>;
+  return <LineTextInput key={row.id} row={row} muted={muted} onSave={onSave} />;
+}
+
+function LineTextInput({ row, muted, onSave }: { row: interfaces.SellingCostItem; muted: boolean; onSave: LineTextFieldProps["onSave"] }) {
+  // the name printed when the row has no text of its own (as the server's invoice calculation)
+  const fallback = row.description.trim() || chargeLabel(row.category) || "Service";
+  const saved = row.customer.trim() || fallback;
+  const [value, setValue] = useState(saved);
+  const [editing, setEditing] = useState(false);
+  // Follows the saved text (a save, another tab) - but never while the user is typing in it.
+  const [shownSaved, setShownSaved] = useState(saved);
+  if (!editing && saved !== shownSaved) {
+    setShownSaved(saved);
+    setValue(saved);
+  }
+
+  const commit = () => {
+    setEditing(false);
+    const typed = value.trim();
+    if (!typed) setValue(fallback);
+    const text = !typed || typed === fallback ? "" : typed;
+    // only a real change is saved: a click in and out writes nothing
+    if (text === row.customer.trim()) return;
+    onSave(row.id, text).catch(() => setValue(saved));
+  };
+
+  return (
+    <Input
+      size="small"
+      value={value}
+      maxLength={200}
+      onFocus={() => setEditing(true)}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={commit}
+      onPressEnter={(e) => e.currentTarget.blur()}
+      aria-label={`Text on the invoice for ${fallback}`}
+      className={`!text-[13px] w-full${muted ? " !text-slate-400" : ""}`}
+    />
   );
 }

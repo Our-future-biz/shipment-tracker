@@ -65,6 +65,16 @@ export function normaliseAmount(text: string | null | undefined): string | null 
 }
 
 /**
+ * What may be typed into an amount or quantity field: digits, the separators parseMoney reads
+ * ("." and ","; a space as thousands) and one leading minus. Letters and anything else are dropped.
+ */
+export function amountInput(raw: string): string {
+  const kept = raw.replace(/[^\d.,\s\u00a0\u202f-]/g, "");
+  const minus = kept.trimStart().startsWith("-") ? "-" : "";
+  return minus + kept.replace(/-/g, "").replace(/^\s+/, "");
+}
+
+/**
  * Rounds to 2 decimals, half away from zero (1.005 -> 1.01, -1.005 -> -1.01).
  * The toPrecision step removes binary noise first: 1.005 * 100 is 100.49999999999999.
  */

@@ -3,7 +3,7 @@ import type { interfaces } from "@/lib/api/client";
 type Doc = interfaces.InvoiceDocItem;
 
 /** An open invoice: issued and not credited. A credit note never is one. */
-const isOpenInvoice = (d: Pick<Doc, "kind" | "status">) => d.kind === "invoice" && d.status === "issued";
+export const isOpenInvoice = (d: Pick<Doc, "kind" | "status">) => d.kind === "invoice" && d.status === "issued";
 
 /** The selling rows on an open invoice: billed already, so they are not on the next one. */
 export function openInvoiceRowIds(docs: readonly Pick<Doc, "kind" | "status" | "lines">[]): Set<string> {

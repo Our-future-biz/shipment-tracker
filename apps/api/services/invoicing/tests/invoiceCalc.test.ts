@@ -195,6 +195,21 @@ describe("calculateInvoice", () => {
     expect(c.lines.map((l) => l.description)).toEqual(["Rail freight Hamburg → Prague, 1x40HC", "Delivery"]);
   });
 
+  it("prints the row's Description when the line has no text of its own, the category when both are empty", () => {
+    const c = calculateInvoice({
+      rows: [
+        row({ id: "a", category: "Delivery", amount: "100.00", invoiceText: "", description: "Abrakadabra" }),
+        row({ id: "b", category: "Delivery", amount: "100.00", invoiceText: "Own text", description: "Abrakadabra" }),
+        row({ id: "c", category: "Delivery", amount: "100.00", invoiceText: "", description: "  " }),
+      ],
+      currency: "CZK",
+      rates,
+      tradeDirection: "Import",
+      vatPayer: true,
+    });
+    expect(c.lines.map((l) => l.description)).toEqual(["Abrakadabra", "Own text", "Delivery"]);
+  });
+
   it("multiplies by quantity, keeps discounts and skips zero lines", () => {
     const c = calculateInvoice({
       rows: [

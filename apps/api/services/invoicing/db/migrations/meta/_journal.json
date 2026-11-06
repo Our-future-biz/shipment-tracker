@@ -162,6 +162,13 @@
       "when": 1793817304557,
       "tag": "0022_supplier_cost_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1793817305557,
+      "tag": "0023_clear_invoice_text",
+      "breakpoints": true
     }
   ]
 }

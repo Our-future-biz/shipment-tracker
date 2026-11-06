@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { contactUpdate, partyUpdate, type ContactField, type ContactLinks, type PartyField } from "@/app/shipments/_lib/parties";
 import { useQueryClient } from "@tanstack/react-query";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -19,7 +19,6 @@ import {
   PaperClipOutlined,
   FileTextOutlined,
   ControlOutlined,
-  DollarOutlined,
   WarningOutlined,
   ProfileOutlined,
   ShopOutlined,
@@ -47,6 +46,8 @@ import { quoteHref } from "@/app/sales/_lib/quoteHref";
 import Link from "next/link";
 import { ClaimsTab } from "./tabs/ClaimsTab";
 import { CostsTab } from "./tabs/CostsTab";
+import { InvoicePanel } from "@/app/invoicing/_components/InvoicePanel";
+import { AppModal } from "@/components/AppModal";
 import { useCostsData } from "./tabs/useCostsData";
 import { money } from "./tabs/costsCalc";
 import { ContainerDetailsTab } from "./tabs/ContainerDetailsTab";
@@ -974,9 +975,61 @@ export function ShipmentDetailContent() {
   };
 
   // From a Container Number link: the Container Details tab, seen from the top of the page.
+  // The page glides up first (easing in and out) and the tab then fades in, so the shorter
+  // tab does not make the page jump. With reduced motion asked for, it is all at once.
+  const [containerFade, setContainerFade] = useState(false);
+  // Issue invoice, opened from Costs Breakdown.
+  const [issueOpen, setIssueOpen] = useState(false);
+  // The glide under way (its frame request and the listeners that stop it), so it can be stopped:
+  // by another tab click, by the user's own scrolling, or by leaving the page.
+  const glide = useRef<{ frame: number; stop: () => void } | null>(null);
+  const stopGlide = () => glide.current?.stop();
+  useEffect(() => () => glide.current?.stop(), []);
+  // The fade belongs only to the opening from the link.
+  useEffect(() => {
+    if (activeTab !== "container") setContainerFade(false);
+  }, [activeTab]);
   const openContainerTab = () => {
-    setActiveTab("container");
-    window.scrollTo({ top: 0, behavior: "auto" });
+    if (glide.current) return; // already on its way
+    const open = () => {
+      setContainerFade(true);
+      setActiveTab("container");
+    };
+    const from = window.scrollY;
+    if (from < 2 || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      window.scrollTo({ top: 0 });
+      open();
+      return;
+    }
+    const duration = Math.min(700, Math.max(380, from * 0.6));
+    const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+    const t0 = performance.now();
+    // The user scrolling meanwhile takes over: the glide stops and the tab opens where they are.
+    const takeOver = () => {
+      stop();
+      open();
+    };
+    const stop = () => {
+      if (glide.current) cancelAnimationFrame(glide.current.frame);
+      glide.current = null;
+      window.removeEventListener("wheel", takeOver);
+      window.removeEventListener("touchstart", takeOver);
+      window.removeEventListener("keydown", takeOver);
+    };
+    window.addEventListener("wheel", takeOver, { passive: true });
+    window.addEventListener("touchstart", takeOver, { passive: true });
+    window.addEventListener("keydown", takeOver);
+    const step = (now: number) => {
+      const t = Math.min(1, (now - t0) / duration);
+      window.scrollTo({ top: Math.round(from * (1 - ease(t))) });
+      if (t < 1) {
+        if (glide.current) glide.current.frame = requestAnimationFrame(step);
+      } else {
+        stop();
+        open();
+      }
+    };
+    glide.current = { frame: requestAnimationFrame(step), stop };
   };
 
   if (isLoading) {
@@ -1097,12 +1150,6 @@ export function ShipmentDetailContent() {
             list is the sidebar's Shipments item. */}
         <div className="flex items-center justify-end gap-x-6 gap-y-2 flex-wrap">
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Invoicing of this shipment, opened with the shipment already selected */}
-            <Link href={`/invoicing?shipment=${shipment.id}`} className={HEADER_BTN}>
-              <DollarOutlined />
-              Invoice
-            </Link>
-
             {/* The shipment's quote, shown once: the sales quote in its Sales Number, with a link
                 to its page. A shipment without one may still carry the reference its costs were
                 copied from (Costs tab > Copy from quote): that is named as what it is, and is not
@@ -1157,6 +1204,7 @@ export function ShipmentDetailContent() {
               // A plain tab click forgets an earlier jump to a container, so Cargo Details
               // opens at the top like every other tab.
               onClick={() => {
+                stopGlide();
                 setCargoFocusId(null);
                 setActiveTab(tab.key);
               }}
@@ -1643,7 +1691,20 @@ export function ShipmentDetailContent() {
           />
         )}
 
-        {activeTab === "costs" && <CostsTab shipment={shipment} />}
+        {activeTab === "costs" && <CostsTab shipment={shipment} onIssueInvoice={() => setIssueOpen(true)} />}
+
+        {/* Issue invoice from Costs Breakdown: Invoicing's own Invoice panel (same preview, checks,
+            issuing and PDF), on this page instead of leading away to Invoicing. */}
+        <AppModal
+          open={issueOpen}
+          onClose={() => setIssueOpen(false)}
+          title="Issue invoice"
+          size="xlarge"
+          footer={null}
+        >
+          {/* Issued from the job itself: no note that the job is not released for Billing (Invoicing keeps it) */}
+          <InvoicePanel shipment={shipment} section="invoice" billingStatusWarning={false} onOpenCosts={() => setIssueOpen(false)} />
+        </AppModal>
 
         {activeTab === "documents" && <DocumentsTab shipment={shipment} />}
 
@@ -1652,6 +1713,11 @@ export function ShipmentDetailContent() {
         {activeTab === "tracking" && <TrackingTab shipment={shipment} />}
 
         {activeTab === "container" && (
+          <div
+            // Opened from a Container Number link: the tab fades in (CSS @starting-style).
+            className={containerFade ? "transition-[opacity,translate] duration-300 ease-out starting:opacity-0 starting:translate-y-1.5" : undefined}
+            onTransitionEnd={(e) => e.target === e.currentTarget && setContainerFade(false)}
+          >
           <ContainerDetailsTab
             shipment={shipment}
             // A refused save is said; the tab then shows the saved list again.
@@ -1666,6 +1732,7 @@ export function ShipmentDetailContent() {
               setActiveTab("cargo");
             }}
           />
+          </div>
         )}
 
         {/* Only the Customs card: the documents are in the Documents tab, and customs reviews them in the Customs section. */}

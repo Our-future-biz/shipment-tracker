@@ -1,6 +1,8 @@
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
+import { invoiceRepository } from "./invoice.repository";
+import { truckingLinesLock } from "./truckingLines.repository";
 import {
   invoiceSellingCostTable as t,
   type InvoiceSellingCostRecord,
@@ -59,13 +61,29 @@ class SellingCostRepository extends TenantRepository<typeof t> {
     return row ?? null;
   }
 
-  async softDeleteLine(id: string, companyId: string, shipmentId: string): Promise<boolean> {
-    const rows = await this.db
-      .update(t)
-      .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(lineOf(id, companyId, shipmentId))
-      .returning({ id: t.id });
-    return rows.length > 0;
+  /**
+   * Changes (or, with `delete`, soft-deletes) a row unless it is on an issued, not credited
+   * invoice: "invoiced" then, and nothing is written. The check and the write are one transaction
+   * under the shipment's trucking-lines lock, the one an invoice issue takes, so a row can't be
+   * changed while an invoice with it is being issued.
+   */
+  async writeUnlessInvoiced(
+    id: string,
+    companyId: string,
+    shipmentId: string,
+    change: { delete: true } | { data: Partial<NewInvoiceSellingCostRecord> },
+  ): Promise<InvoiceSellingCostRecord | "invoiced" | null> {
+    return this.db.transaction(async (tx) => {
+      await truckingLinesLock(tx, shipmentId);
+      if ((await invoiceRepository.invoicedSellingRowIds(shipmentId, companyId, tx)).has(id)) return "invoiced" as const;
+      const now = new Date();
+      const [row] = await tx
+        .update(t)
+        .set("delete" in change ? { deletedAt: now, updatedAt: now } : { ...change.data, updatedAt: now })
+        .where(lineOf(id, companyId, shipmentId))
+        .returning();
+      return row ?? null;
+    });
   }
 
   async softDeleteForShipment(shipmentId: string, companyId: string): Promise<void> {

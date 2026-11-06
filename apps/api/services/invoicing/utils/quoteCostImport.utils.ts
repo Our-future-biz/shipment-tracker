@@ -126,7 +126,8 @@ function linesOf(value: unknown, quoteCurrency: string, skipTrucking: boolean): 
 /**
  * The Costs Breakdown rows a quote's document gives: a buying row per buying line (estimate =
  * the line's amount, real cost still open but in the same currency, vendor = the supplier) and a
- * selling row per selling line (charged to the quote's customer, ticked for invoicing).
+ * selling row per selling line (ticked for invoicing). A selling row's invoice text is left empty, so
+ * its line prints the category's name until it is rewritten in Issue invoice (not the customer's name).
  * `skipTrucking`: lines priced from a trucking tariff are left out (the job has a Trucking
  * consignment, whose rows are Trucking's own).
  */
@@ -134,7 +135,6 @@ export function quoteLinesToCostRows(data: unknown, opts: { skipTrucking?: boole
   const doc = isPlainObject(data) ? data : {};
   // A quote whose currency was never changed stores none and is in EUR.
   const quoteCurrency = text(doc.currency) || "EUR";
-  const customer = text(doc.customerName);
   return {
     buying: linesOf(doc.buyingLines, quoteCurrency, opts.skipTrucking === true).map((line) => ({
       category: line.category,
@@ -151,7 +151,7 @@ export function quoteLinesToCostRows(data: unknown, opts: { skipTrucking?: boole
     selling: linesOf(doc.sellingLines, quoteCurrency, opts.skipTrucking === true).map((line) => ({
       category: line.category,
       description: line.description,
-      customer,
+      customer: "",
       qty: line.qty,
       amount: line.amount,
       currency: line.currency,

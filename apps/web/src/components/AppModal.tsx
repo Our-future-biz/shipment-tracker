@@ -4,12 +4,14 @@ import { Modal } from "antd";
 import { HINT, MODAL_TITLE } from "@/styles/ui";
 import type { ReactNode } from "react";
 
-type ModalSize = "small" | "medium" | "large";
+type ModalSize = "small" | "medium" | "large" | "xlarge";
 
 const SIZE_MAP: Record<ModalSize, number> = {
   small: 380,
   medium: 480,
   large: 820,
+  /** A whole working panel in a dialog (Issue invoice from the shipment's Costs Breakdown). */
+  xlarge: 1240,
 };
 
 interface AppModalProps {
