@@ -542,3 +542,17 @@ export const CUSTOMS_OFFICES: readonly string[] = [
 
 /** Only the T1 procedure names a customs office. */
 export const namesCustomsOffice = (procedure: string | null | undefined): boolean => (procedure ?? "").trim().toUpperCase() === "T1";
+
+/**
+ * Whether the Customs Procedure is fixed for this user: a T1 shipment whose Customs Office is chosen,
+ * for someone who may not change a chosen office (leaving T1 would clear it). The server refuses the
+ * same (its lib/customsOffice customsOfficeLockRefusal); the shipment's cards and the grids hold to this.
+ */
+export const customsProcedureLocked = (
+  procedure: string | null | undefined,
+  office: string | null | undefined,
+  canChangeOffice: boolean,
+): boolean => namesCustomsOffice(procedure) && !!(office ?? "").trim() && !canChangeOffice;
+
+/** What a fixed Customs Procedure says when the pointer rests on it. */
+export const CUSTOMS_PROCEDURE_LOCKED_HINT = "Only a manager can change the procedure once the Customs Office is chosen";

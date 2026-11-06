@@ -11,7 +11,7 @@ import { useNoticeboard } from "@/hooks/useNoticeboard";
 import { useFxAlerts, useInvalidateFx } from "@/hooks/useFx";
 import { NoticeSeverityTag } from "@/app/dashboard/_components/NoticeSeverityTag";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { formatDate } from "@/lib/date";
+import { businessDateTime, formatDate } from "@/lib/date";
 import { formatAmount } from "@/lib/money";
 import { quoteChatHref } from "@/app/sales/_lib/quoteHref";
 import { salesManagersHref } from "@/app/sales/_lib/tabs";
@@ -21,12 +21,12 @@ import { useSalesPermissions } from "@/hooks/useSalesPermissions";
 import { useSupplierApprovals, type SupplierApprovalItem } from "@/hooks/useSupplierApprovals";
 import { useCustomsOfficeAnswers, type CustomsOfficeRequestItem } from "@/hooks/useCustomsOfficeRequests";
 import { useCustomsVerdictNotices, type CustomsVerdictNotice } from "@/hooks/useShipmentAlerts";
-import { useTrackingBell, type TrackingBellNotice } from "@/hooks/useShipmentTracking";
+import { useTrackingBell, useTrackingMarkRead, type TrackingBellNotice } from "@/hooks/useShipmentTracking";
 import { useDocumentChangeAnswers, type DocumentChangeRequestItem } from "@/hooks/useDocumentChangeRequests";
 import { HINT, ICON_BTN_GHOST, LABEL_TEXT } from "@/styles/ui";
 
-const formatTime = (iso: string) =>
-  new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+// On the company's calendar and clock (Prague), wherever the browser is.
+const formatTime = (iso: string) => businessDateTime(iso);
 
 // A mention in a shipment's or a quote's chat, as the bell lists it.
 interface BellMention {
@@ -160,6 +160,7 @@ export function NotificationBell() {
   const { verdicts, hasLoaded: verdictsLoaded, seen: verdictSeen } = useCustomsVerdictNotices();
   // A date of a shipment this user is on moved, waits to be confirmed, or no longer holds what the customer was told.
   const { notices: trackingNotices, hasLoaded: trackingLoaded } = useTrackingBell();
+  const { mutate: markTrackingRead } = useTrackingMarkRead();
   // Margin questions this user is told about (the owner's manager, or an admin once it waits
   // long), and managers' answers to their questions or quotes (Council Outlay 6).
   const { waiting: marginWaiting, answers: marginAnswers, hasLoaded: marginLoaded, seen: marginSeen } = useMarginInquiryBell();
@@ -513,7 +514,16 @@ export function NotificationBell() {
       ))}
       {trackingShown.length > 0 && <div className={headingClass}>Tracking</div>}
       {trackingShown.map((n) => (
-        <button key={n.key} type="button" onClick={() => go(`/shipments/${n.shipmentId}?tab=tracking`)} className={rowClass}>
+        <button
+          key={n.key}
+          type="button"
+          onClick={() => {
+            // Read here, not only once the tab opens: the shipment may open on another tab.
+            if (n.unread) markTrackingRead(n.shipmentId);
+            go(`/shipments/${n.shipmentId}?tab=tracking`);
+          }}
+          className={rowClass}
+        >
           <span className="flex items-center gap-2">
             {n.unread && <span role="img" aria-label="Unread" className={`shrink-0 w-2 h-2 rounded-full ${TRACKING_DOT[n.kind]}`} />}
             <span className={`min-w-0 flex-1 text-[13px] truncate ${n.unread ? "font-semibold text-slate-900" : "font-medium text-slate-500"}`}>{trackingTitle(n)}</span>

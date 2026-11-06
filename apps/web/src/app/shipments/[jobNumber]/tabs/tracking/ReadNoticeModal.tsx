@@ -8,10 +8,12 @@ import { readTrackingNotice, useTrackingActions, type TrackingReadFact, type Tra
 import { apiErrorMessage } from "@/lib/api";
 import { formatDate } from "@/lib/date";
 import { fileToBase64, formatFileSize } from "@/lib/files";
-import { BTN_GHOST, BTN_SM, EMPTY_STATE, HINT, LABEL_TEXT } from "@/styles/ui";
+import { BTN_GHOST, BTN_SM, EMPTY_STATE, HINT, LABEL_TEXT, LINK } from "@/styles/ui";
 import { readFactWords } from "./trackingText";
 
 const MAX_TEXT = 6000;
+/** The server reads no shorter message (extractText: MinLen<10>). */
+const MIN_TEXT = 10;
 const ACCEPT = ".pdf,.png,.jpg,.jpeg,.webp";
 
 const canKeep = (fact: TrackingReadFact) => !fact.alreadyKept && !fact.refusal;
@@ -87,7 +89,7 @@ export function ReadNoticeModal({ shipment, onClose }: { shipment: ShipmentItem;
   ) : (
     <div className="flex justify-end gap-2">
       <Button onClick={onClose}>Cancel</Button>
-      <Button type="primary" loading={reading} disabled={!file && !text.trim()} onClick={startReading}>
+      <Button type="primary" loading={reading} disabled={!file && text.trim().length < MIN_TEXT} onClick={startReading}>
         Read
       </Button>
     </div>
@@ -103,9 +105,10 @@ export function ReadNoticeModal({ shipment, onClose }: { shipment: ShipmentItem;
             <div>
               <label htmlFor="notice-text" className={LABEL_TEXT}>Paste the message</label>
               <Input.TextArea id="notice-text" className="mt-1" rows={7} maxLength={MAX_TEXT} disabled={!!file} value={text} onChange={(e) => setText(e.target.value)} />
+              {!file && text.trim() && text.trim().length < MIN_TEXT && <p className={`${HINT} m-0 mt-1`}>Paste the whole message: at least {MIN_TEXT} characters.</p>}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <label className={`${BTN_GHOST} ${BTN_SM} cursor-pointer`}>
+              <label className={`${BTN_GHOST} ${BTN_SM} cursor-pointer focus-within:ring-2 focus-within:ring-indigo-500 focus-within:ring-offset-1`}>
                 {file ? "Choose another file" : "Or upload a file"}
                 <input
                   type="file"
@@ -120,7 +123,7 @@ export function ReadNoticeModal({ shipment, onClose }: { shipment: ShipmentItem;
               {file && (
                 <span className={HINT}>
                   {file.name} · {formatFileSize(file.size)} ·{" "}
-                  <button type="button" onClick={() => setFile(null)} className="cursor-pointer bg-transparent border-none p-0 underline text-[12px] text-slate-500">
+                  <button type="button" onClick={() => setFile(null)} className={`${LINK} cursor-pointer bg-transparent border-none p-0 text-[12px]`}>
                     Remove
                   </button>
                 </span>
@@ -144,7 +147,7 @@ export function ReadNoticeModal({ shipment, onClose }: { shipment: ShipmentItem;
                   <Checkbox checked={keepVessel} onChange={(e) => setKeepVessel(e.target.checked)}>
                     <span className="font-medium text-slate-900">{[read.vesselChange.vessel, read.vesselChange.voyage].filter(Boolean).join(" ")}</span>
                   </Checkbox>
-                  <div className="ml-6 text-[12px] text-slate-500">
+                  <div className={`${HINT} ml-6`}>
                     {shipment.vessel ? `Replaces ${[shipment.vessel, shipment.voyage].filter(Boolean).join(" ")}` : "Sets the vessel and voyage"}
                   </div>
                 </li>
@@ -156,17 +159,18 @@ export function ReadNoticeModal({ shipment, onClose }: { shipment: ShipmentItem;
                     <span className="ml-2 tabular-nums text-slate-700">{formatDate(read.lastFreeDayChange.day)}</span>
                   </Checkbox>
                   <div className={`${HINT} ml-6`}>{read.lastFreeDayChange.containerNumbers.join(", ")}</div>
-                  <div className="ml-6 text-[12px] text-slate-500">Sets the free time clock</div>
+                  <div className={`${HINT} ml-6`}>Sets the free time clock</div>
                 </li>
               )}
               {read.facts.map((fact, i) => (
-                <li key={`${fact.kind}:${fact.occurredOn}:${fact.note}`} className="py-2">
+                // The facts are the server's list as read, in order: two of them may say the same.
+                <li key={i} className="py-2">
                   <Checkbox checked={ticked.has(i)} disabled={!canKeep(fact)} onChange={(e) => toggle(i, e.target.checked)}>
                     <span className="font-medium text-slate-900">{fact.label}</span>
                     <span className="ml-2 tabular-nums text-slate-700">{formatDate(fact.occurredOn)}</span>
                   </Checkbox>
                   <div className={`${HINT} ml-6`}>{[fact.place, fact.vessel, fact.note].filter(Boolean).join(" · ")}</div>
-                  <div className={`ml-6 text-[12px] ${fact.refusal ? "text-amber-700" : "text-slate-500"}`}>{readFactWords(fact)}</div>
+                  <div className={`${HINT} ml-6 ${fact.refusal ? "!text-amber-700" : ""}`}>{readFactWords(fact)}</div>
                 </li>
               ))}
             </ul>

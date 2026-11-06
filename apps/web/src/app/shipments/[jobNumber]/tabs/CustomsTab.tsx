@@ -528,7 +528,12 @@ export function CustomsTab({
                                   changeRequests.newestOf.get(d.id)?.status === "pending" ? (
                                     <span />
                                   ) : (
-                                    <button onClick={() => setChanging(d)} className={`${BTN} whitespace-nowrap`}>
+                                    // A link, as under an approved document in the Documents tab.
+                                    <button
+                                      type="button"
+                                      onClick={() => setChanging(d)}
+                                      className={`${LINK} whitespace-nowrap text-[12px] font-medium cursor-pointer bg-transparent border-none p-0`}
+                                    >
                                       Change after approval
                                     </button>
                                   )

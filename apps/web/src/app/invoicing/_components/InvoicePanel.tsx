@@ -18,8 +18,10 @@ import {
   WarningOutlined,
 } from "@ant-design/icons";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, apiErrorMessage } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
+import { useAuth } from "@/lib/auth/AuthContext";
+import { canChangeShipmentDetails } from "@/lib/shipmentEditRule";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { useShipmentMutations } from "@/hooks/useShipments";
 import { useCustomers } from "@/hooks/useCustomers";
@@ -114,6 +116,9 @@ interface InvoicePanelProps {
   onOpenCosts?: () => void;
 }
 
+// Why a customer picked here is not linked to the shipment.
+const NOT_LINKED_HINT = "Only the shipment's Person in Charge, Holiday Cover or a manager can link it to the shipment.";
+
 export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: InvoicePanelProps) {
   const toast = useToast();
   const { modal } = App.useApp();
@@ -121,6 +126,10 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
   const { data, billingCur } = useCostsData(shipment);
   const { updateShipment } = useShipmentMutations();
   const { customers } = useCustomers();
+  // The shipment's Customer is one of its details (lib/shipmentEditRule): whoever may not change them
+  // still picks whom to bill, but the pick is not linked to the shipment (the server would refuse it).
+  const { user } = useAuth();
+  const mayLinkCustomer = canChangeShipmentDetails(user, shipment);
 
   const [customerId, setCustomerId] = useState<string | undefined>(undefined);
   const [duzp, setDuzp] = useState<string | undefined>(undefined);
@@ -217,17 +226,17 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
       return updateShipment({ id: shipment.id, data: { customer: c?.companyName ?? "", customerId: id } }).then(() => c);
     },
     onSuccess: (c) => toast.success(`${c?.companyName ?? "Customer"} linked to ${shipment.jobNumber}`),
-    onError: () => toast.error("The customer is used for this invoice, but linking it to the shipment failed"),
+    onError: (e) => toast.error(`The customer is used for this invoice, but linking it to the shipment failed: ${apiErrorMessage(e)}`),
   });
 
   const handleLineVat = (sellingId: string | null, vatCode: interfaces.SellingVatCode) => {
     if (sellingId) lineVat.mutate({ sellingId, vatCode });
   };
 
-  /** Picking a customer for a shipment that has none also links it, as on the shipment page. */
+  /** Picking a customer for a shipment that has none also links it, as on the shipment page, for whoever may. */
   const handlePickCustomer = (id: string) => {
     setCustomerId(id);
-    if (!shipment.customerId) linkCustomer.mutate(id);
+    if (!shipment.customerId && mayLinkCustomer) linkCustomer.mutate(id);
   };
 
   const download = async (doc: Pick<InvoiceDoc, "id" | "number">) => {
@@ -395,7 +404,15 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
         <div className={CARD}>
           <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-[minmax(0,2fr)_repeat(4,minmax(0,1fr))] gap-x-4 gap-y-3 px-4 py-4">
             {p && !p.customer ? (
-              <Fact label="Bill to" className="col-span-2 md:col-span-4 xl:col-span-1" sub="Pick one from the Customer Database — it is also linked to the shipment.">
+              <Fact
+                label="Bill to"
+                className="col-span-2 md:col-span-4 xl:col-span-1"
+                sub={
+                  mayLinkCustomer
+                    ? "Pick one from the Customer Database — it is also linked to the shipment."
+                    : `Pick one from the Customer Database for this invoice. ${NOT_LINKED_HINT}`
+                }
+              >
                 <span className="font-medium text-warn">No customer linked</span>
                 {customerSelect(false)}
               </Fact>
@@ -409,7 +426,9 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
                     <>
                       {customerAddress && <div>{customerAddress}</div>}
                       {customerIds && <div className="whitespace-nowrap">{customerIds}</div>}
-                      {!shipment.customerId && customerId && <div className="mt-0.5">Linked to the shipment as its customer.</div>}
+                      {!shipment.customerId && customerId && (
+                        <div className="mt-0.5">{mayLinkCustomer ? "Linked to the shipment as its customer." : `Used for this invoice only. ${NOT_LINKED_HINT}`}</div>
+                      )}
                     </>
                   )
                 }

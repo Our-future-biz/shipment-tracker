@@ -78,6 +78,8 @@ export function useWarehouseSection(shipmentId: string, section: string) {
   return {
     data: query.data?.section?.data ?? null,
     isLoading: query.isLoading,
+    /** The section could not be read: an empty `data` then says nothing about what it holds. */
+    isError: query.isError,
     save: mutation.mutateAsync,
     saveKeys: patch.mutateAsync,
     informOperations: inform.mutateAsync,

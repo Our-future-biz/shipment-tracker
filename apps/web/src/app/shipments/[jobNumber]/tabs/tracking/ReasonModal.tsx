@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Alert, Button, Input } from "antd";
 import { AppModal } from "@/components/AppModal";
+import { LABEL_TEXT } from "@/styles/ui";
 
 interface ReasonModalProps {
   title: string;
@@ -52,10 +53,8 @@ export function ReasonModal({ title, description, confirmLabel, onClose, onConfi
       <div className="space-y-3">
         {error && <Alert type="error" showIcon message={error} />}
         <div ref={box}>
-          <label className="block text-[13px] text-slate-700">
-            Reason
-            <Input.TextArea id="reason-text" className="mt-1" rows={3} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
-          </label>
+          <label htmlFor="reason-text" className={LABEL_TEXT}>Reason</label>
+          <Input.TextArea id="reason-text" className="mt-1" rows={3} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
         </div>
       </div>
     </AppModal>

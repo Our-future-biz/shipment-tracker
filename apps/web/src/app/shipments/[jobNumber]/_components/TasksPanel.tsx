@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Tooltip } from "antd";
 import { useShipmentTasks } from "@/hooks/useShipmentTasks";
-import { useShipmentTracking, useTrackingActions } from "@/hooks/useShipmentTracking";
+import { TRACKING_PEEK_STALE_MS, useShipmentTracking, useTrackingActions } from "@/hooks/useShipmentTracking";
 import { apiErrorMessage } from "@/lib/api";
 import { isDetailsManager } from "@/lib/shipmentEditRule";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -22,7 +22,7 @@ export function TasksPanel({ shipment }: { shipment: ShipmentItem }) {
   const taskList = getTasksForDirection(shipment.tradeDirection, shipment.freightMode);
   // The first task not done yet is marked, so where the job stopped shows at a glance.
   const nextIdx = taskList.findIndex((d) => !byKey.get(d.key)?.completed);
-  const { data: tracking } = useShipmentTracking(shipment.id);
+  const { data: tracking } = useShipmentTracking(shipment.id, { staleTime: TRACKING_PEEK_STALE_MS });
   const { reopenTask } = useTrackingActions(shipment.id);
   // A tick that is also a dated fact asks for its date, for whoever may record it; for anyone else
   // (and on a road job, whose stamps are set in Trucking) it stays a plain tick.

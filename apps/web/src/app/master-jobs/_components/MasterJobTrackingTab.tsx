@@ -22,7 +22,7 @@ function HouseRow({ house }: { house: MasterJobTrackingHouse }) {
       </td>
       <td className={TD}><Day day={house.departed} /></td>
       <td className={TD}><Day day={house.arrived} /></td>
-      <td className={TD}>{house.customsCleared ? <Pill tone="green">Cleared</Pill> : <span className={HINT}>{house.customsStatus}</span>}</td>
+      <td className={TD}>{house.customsCleared ? <Pill tone="green">Cleared</Pill> : house.customsStatus ? <span className={HINT}>{house.customsStatus}</span> : <span className={EMPTY}>—</span>}</td>
       <td className={TD}><Day day={house.gateIn} /></td>
       <td className={TD}><Day day={house.delivered} /></td>
       <td className={TD}>{house.lastEvent || <span className={EMPTY}>—</span>}</td>

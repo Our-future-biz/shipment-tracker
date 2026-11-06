@@ -137,3 +137,36 @@ export function noticeWords(delivered?: string | null, notice?: string | null): 
   const count = Math.abs(days) === 1 ? "1 day" : `${Math.abs(days)} days`;
   return days > 0 ? `${count} after delivery` : `${count} before delivery`;
 }
+
+/**
+ * Whether this person may record, close or strike an event of this kind: the server's rule
+ * (assertMayRecord) is the details rule, except for the kinds Customs keeps up, which `recordable`
+ * then still lists.
+ */
+export function mayRecordKind(tracking: { mayChangeDetails: boolean; recordable: readonly { kind: string }[] }, kind: string): boolean {
+  return tracking.mayChangeDetails || tracking.recordable.some((r) => r.kind === kind);
+}
+
+/** The notice a moved date the customer was told of asks for: a delivery date its advice, an ETA its change. */
+export const noticeKindOfMoved = (field: string): "delivery_advice" | "eta_change" => (field === "plannedDeliveryDate" ? "delivery_advice" : "eta_change");
+
+/** A kind of event a person records for a day ahead: only a new ETD or ETA is a plan (the server's `planned`). */
+export const mayLieAhead = (sets: string | undefined): boolean => sets === "ETD" || sets === "ETA";
+
+/** A container number as written in a line of text: no spaces, upper case. */
+const squeezed = (s: string) => s.replace(/\s+/g, "").toUpperCase();
+
+/**
+ * Whether a detention cost line is already on Costs for this box: a line of the detention code that
+ * names the container (however spaced), or, on a job of one box, any detention line - its words may
+ * have been rewritten since.
+ */
+export function detentionLineOn(lines: readonly { category: string; description: string | null }[], containerNumber: string, boxes: number, code: string): boolean {
+  const detention = lines.filter((l) => l.category === code);
+  if (boxes === 1 && detention.length > 0) return true;
+  const number = squeezed(containerNumber);
+  return !!number && detention.some((l) => squeezed(l.description ?? "").includes(number));
+}
+
+/** A milestone's state as the customer's link shows it: late is ours to chase, a plan-only date is still to come. */
+export const customerState = (state: "done" | "next" | "late" | "open" | "planned"): "done" | "next" | "open" => (state === "done" ? "done" : state === "next" || state === "late" ? "next" : "open");

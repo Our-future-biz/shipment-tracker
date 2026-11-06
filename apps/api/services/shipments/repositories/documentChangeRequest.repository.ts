@@ -7,6 +7,10 @@ import {
   type NewDocumentChangeRequestRecord,
 } from "../schemas/documentChangeRequest.schema";
 import { shipmentTable } from "../schemas/shipment.schema";
+import { shipmentAttachmentTable as attachments, type NewShipmentAttachmentRecord } from "../schemas/shipmentAttachment.schema";
+
+/** Thrown inside the approval's transaction when the approved document isn't there to replace any more. */
+export class DocumentNoLongerApproved extends Error {}
 
 /** A request with what the lists say about its shipment (as the shipment is now). */
 export type DocumentChangeRequestRow = DocumentChangeRequestRecord & { jobNumber: string | null; customer: string };
@@ -18,7 +22,7 @@ const withShipment = () =>
   db
     .select({ request: requests, jobNumber: shipmentTable.jobNumber, customer: shipmentTable.customer })
     .from(requests)
-    .innerJoin(shipmentTable, eq(shipmentTable.id, requests.shipmentId));
+    .innerJoin(shipmentTable, and(eq(shipmentTable.id, requests.shipmentId), eq(shipmentTable.companyId, requests.companyId)));
 
 type Joined = { request: DocumentChangeRequestRecord; jobNumber: string | null; customer: string };
 const flat = (r: Joined): DocumentChangeRequestRow => ({ ...r.request, jobNumber: r.jobNumber, customer: r.customer });
@@ -99,12 +103,44 @@ class DocumentChangeRequestRepository {
     return row ?? null;
   }
 
-  /** Takes an answer back, when what it was to do could not be done. */
-  async reopen(id: string, companyId: string): Promise<void> {
-    await db
-      .update(requests)
-      .set({ status: "pending", decidedById: null, decidedByName: "", decidedAt: null, comment: "", updatedAt: new Date() })
-      .where(and(eq(requests.id, id), eq(requests.companyId, companyId)));
+  /**
+   * A manager's approval, in one transaction: the answer (only while the request still waits), the
+   * approved document leaving the lists (only while it is still live and approved) and the new file
+   * taking its place. Null when the request was answered meanwhile; DocumentNoLongerApproved when
+   * the document changed meanwhile. Either way nothing is written.
+   */
+  async approveWithSwap(
+    id: string,
+    companyId: string,
+    answer: { decidedById: string; decidedByName: string; decidedAt: Date; comment: string },
+    replaced: { attachmentId: string; shipmentId: string },
+    replacement: Omit<NewShipmentAttachmentRecord, "companyId" | "shipmentId">,
+  ): Promise<DocumentChangeRequestRecord | null> {
+    return db.transaction(async (tx) => {
+      const now = new Date();
+      const [row] = await tx
+        .update(requests)
+        .set({ ...answer, status: "approved", updatedAt: now })
+        .where(and(eq(requests.id, id), eq(requests.companyId, companyId), eq(requests.status, "pending"), isNull(requests.deletedAt)))
+        .returning();
+      if (!row) return null;
+      const [old] = await tx
+        .update(attachments)
+        .set({ deletedAt: now, updatedAt: now })
+        .where(
+          and(
+            eq(attachments.id, replaced.attachmentId),
+            eq(attachments.shipmentId, replaced.shipmentId),
+            eq(attachments.companyId, companyId),
+            eq(attachments.customsStatus, "approved"),
+            isNull(attachments.deletedAt),
+          ),
+        )
+        .returning({ id: attachments.id });
+      if (!old) throw new DocumentNoLongerApproved();
+      await tx.insert(attachments).values({ ...replacement, companyId, shipmentId: replaced.shipmentId });
+      return row;
+    });
   }
 
   /** The one who asked opened the answer. Only theirs, only once. */

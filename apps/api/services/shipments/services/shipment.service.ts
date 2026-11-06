@@ -51,7 +51,7 @@ import { iso } from "../../../lib/db/serialize";
 import { isUuid } from "../../../lib/uuid";
 import { publicFields } from "../lib/rows";
 import { changesTaxDate } from "../lib/taxDate";
-import { customsOfficeForProcedure, customsOfficeLockRefusal } from "../lib/customsOffice";
+import { customsOfficeForProcedure, customsOfficeLockRefusal, customsOfficeShapeRefusal } from "../lib/customsOffice";
 import { DETAILS_REFUSAL, isDetailsManager, isOpenToPerson, touchesDetails } from "../lib/shipmentEditRule";
 import { dangerousFromAdr, normalizeCargoDimensions, normalizeStops } from "../lib/roadFreight";
 import { detailRowChanges, type DetailRowLists } from "../lib/detailRowsAudit";
@@ -985,6 +985,8 @@ class ShipmentService {
    */
   async create(companyId: string, data: ShipmentCreateData, creatorUserId?: string, { allowUnfinishedQuote = false } = {}): Promise<CreatedShipment> {
     const { containers, cargoItems, cargoDimensions: sentDimensions, commercialInvoices, fromQuoteNumber, allowSecondShipment, ...rest } = data;
+    const badOffice = customsOfficeShapeRefusal(rest.customsOffice);
+    if (badOffice) throw APIError.invalidArgument(badOffice);
     assertValidContainerNumbers(containers);
     const cargoDimensions = normalizeCargoDimensions(sentDimensions);
     const shipmentData = sanitizeTypedFields({ ...rest, ...legacyInvoiceFields(commercialInvoices) });
@@ -1069,6 +1071,7 @@ class ShipmentService {
 
   /** For the actions that aren't a field edit but change the shipment: its master job, releasing its BoL. */
   async requireDetailsEditor(id: string, actor: { companyID: string; userID: string; role: string }): Promise<void> {
+    if (!isUuid(id)) throw APIError.notFound("Shipment not found");
     const shipment = await shipmentRepository.getByIdForCompany(id, actor.companyID);
     if (shipment) await this.assertMayChangeDetails(shipment, actor.userID, actor.role);
   }
@@ -1081,6 +1084,8 @@ class ShipmentService {
     if (!existing) throw APIError.notFound("Shipment not found");
     const locked = role === undefined ? null : customsOfficeLockRefusal(existing, data, role);
     if (locked) throw APIError.permissionDenied(locked);
+    const badOffice = customsOfficeShapeRefusal(data.customsOffice);
+    if (badOffice) throw APIError.invalidArgument(badOffice);
     if (role !== undefined && touchesDetails(data)) await this.assertMayChangeDetails(existing, userId, role);
 
     const { containers, cargoItems, cargoDimensions: sentDimensions, commercialInvoices, ...rest } = data;

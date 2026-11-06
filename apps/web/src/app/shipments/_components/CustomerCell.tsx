@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import Link from "next/link";
 import { useDebounced } from "@/hooks/useDebounced";
 import { AutoComplete } from "antd";
 import { EditableLink } from "@/components/EditableLink";
@@ -18,6 +19,8 @@ interface CustomerCellProps {
   customerId?: string | null;
   textStyle?: React.CSSProperties;
   onChange: (name: string, customerId: string | null) => void;
+  /** The user may not change this shipment's details: the name is shown (with its link and card) and not edited. */
+  locked?: boolean;
 }
 
 // A party column of the shipments list (Customer / Shipper / Consignee):
@@ -25,7 +28,7 @@ interface CustomerCellProps {
 // up) and pick a customer, which links the shipment to it. Free text is still
 // allowed for a party that isn't in the CRM — it just stays unlinked. Mirrors
 // the detail page's CustomerLinkField.
-export function CustomerCell({ name, customerId, textStyle, onChange }: CustomerCellProps) {
+export function CustomerCell({ name, customerId, textStyle, onChange, locked = false }: CustomerCellProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(name);
   // Debounced so holding down a key doesn't fire a request per character.
@@ -96,26 +99,28 @@ export function CustomerCell({ name, customerId, textStyle, onChange }: Customer
     );
   }
 
+  // A conditional-format colour (textStyle) shows instead of the link's own, which "!" would beat.
+  const linkClass = `${textStyle?.color ? "hover:!underline" : LINK} font-medium`;
   return (
     <span
-      className="cursor-pointer rounded px-1 -mx-1 hover:bg-slate-100 transition-colors block truncate"
+      className={`rounded px-1 -mx-1 transition-colors block truncate ${locked ? "" : "cursor-pointer hover:bg-slate-100"}`}
       // A linked customer shows its card on hover instead of this tooltip.
-      title={name && customerId ? undefined : "Double-click to edit"}
-      onDoubleClick={startEdit}
+      title={(name && customerId) || locked ? undefined : "Double-click to edit"}
+      onDoubleClick={locked ? undefined : startEdit}
     >
       {name ? (
         customerId ? (
           // Click opens the customer, double click changes it (like every other cell).
           <CustomerHoverCard customerId={customerId}>
-            <EditableLink
-              href={`/customers/${customerId}`}
-              onEdit={startEdit}
-              // A conditional-format colour (textStyle) shows instead of the link's own, which "!" would beat.
-              className={`${textStyle?.color ? "hover:!underline" : LINK} font-medium`}
-              style={textStyle}
-            >
-              {name}
-            </EditableLink>
+            {locked ? (
+              <Link href={`/customers/${customerId}`} className={linkClass} style={textStyle} onClick={(e) => e.stopPropagation()}>
+                {name}
+              </Link>
+            ) : (
+              <EditableLink href={`/customers/${customerId}`} onEdit={startEdit} className={linkClass} style={textStyle}>
+                {name}
+              </EditableLink>
+            )}
           </CustomerHoverCard>
         ) : (
           <span className="text-slate-700" style={textStyle}>{name}</span>

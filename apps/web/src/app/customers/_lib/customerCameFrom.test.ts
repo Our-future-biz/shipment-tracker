@@ -33,18 +33,24 @@ describe("where a customer's page was opened from", () => {
 });
 
 describe("what the way back is called", () => {
+  const superadmin = { role: "superadmin" };
+
   it("is the quote's number on a quote", () => {
-    expect(cameFromLabel("/sales/quote/QCZ00000012/?from=followup")).toBe("QCZ00000012");
+    expect(cameFromLabel("/sales/quote/QCZ00000012/?from=followup", superadmin)).toBe("QCZ00000012");
   });
 
   it("is the menu's name for the page anywhere else", () => {
-    expect(cameFromLabel("/shipments/?status=open")).toBe("Shipments");
-    expect(cameFromLabel("/sales/pipeline/")).toBe("Pipeline");
-    expect(cameFromLabel("/trucking/hauliers/some-id/")).toBe("Trucking Concept");
-    expect(cameFromLabel("/warehouse-concept/managers/")).toBe("Managers");
+    expect(cameFromLabel("/shipments/?status=open", superadmin)).toBe("Shipments");
+    expect(cameFromLabel("/sales/pipeline/", superadmin)).toBe("Pipeline");
+    expect(cameFromLabel("/trucking/hauliers/some-id/", superadmin)).toBe("Trucking Concept");
+    expect(cameFromLabel("/warehouse-concept/managers/", superadmin)).toBe("Managers");
+  });
+
+  it("is the name in the user's own menu", () => {
+    expect(cameFromLabel("/warehouse-concept/managers/?tab=approvals", { role: "admin" })).toBe("Warehouse Managers");
   });
 
   it("falls back to a plain name for a page outside the menu", () => {
-    expect(cameFromLabel("/somewhere/else/")).toBe("Previous page");
+    expect(cameFromLabel("/somewhere/else/", superadmin)).toBe("Previous page");
   });
 });

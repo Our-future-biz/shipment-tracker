@@ -86,8 +86,9 @@ import {
   LABEL_TEXT,
   LINK,
   MODAL_TITLE,
+  REF,
 } from "@/styles/ui";
-import { MasterJobDialog } from "../_components/MasterJobDialog";
+import { MasterJobDialog, linkEach, linkedCount } from "../_components/MasterJobDialog";
 import { AttachmentsPanel } from "../_components/AttachmentsPanel";
 import { NotesDrawer } from "../_components/NotesDrawer";
 import { CommercialInvoicesModal } from "../_components/CommercialInvoicesModal";
@@ -276,21 +277,15 @@ function SectionHeader({
 }
 
 // The Shipment Details, Cargo and Container tabs for someone who may not change them: every cell and
-// picker read-only. `native` also disables the tab's plain buttons; the Details tab has none that
-// change anything once its own are hidden, and its others (a master job's link) must keep working.
-function DetailsGuard({ editable, native = false, children }: { editable: boolean; native?: boolean; children: React.ReactNode }) {
+// picker read-only. Plain buttons are left alone: the ones that change something are not shown
+// (the Cargo and Container tabs take `readOnly`), and the rest (a container's tab, a link, Per piece
+// / All pieces) must keep working. What the departments keep up is enabled again inside
+// (CustomsProcedureRow, InvoiceRow, the Tasks card).
+function DetailsGuard({ editable, children }: { editable: boolean; children: React.ReactNode }) {
   if (editable) return <>{children}</>;
   return (
     <ShipmentDetailsEditableContext.Provider value={false}>
-      <ConfigProvider componentDisabled>
-        {native ? (
-          <fieldset disabled className="contents">
-            {children}
-          </fieldset>
-        ) : (
-          children
-        )}
-      </ConfigProvider>
+      <ConfigProvider componentDisabled>{children}</ConfigProvider>
     </ShipmentDetailsEditableContext.Provider>
   );
 }
@@ -368,6 +363,7 @@ interface StackabilityRowProps {
 // The shipment's stackability, read from its dimension rows. A double-click picks it for the
 // whole shipment (every row takes it); the long value wraps instead of being cut off.
 function StackabilityRow({ value, onPick }: StackabilityRowProps) {
+  const editable = React.useContext(ShipmentDetailsEditableContext);
   const [editing, setEditing] = useState(false);
   return (
     <div className={ROW_TOP}>
@@ -392,11 +388,11 @@ function StackabilityRow({ value, onPick }: StackabilityRowProps) {
       ) : (
         <span
           // Cargo that needs special handling stands out, like a Yes for Dangerous.
-          className={`flex-1 min-w-0 cursor-pointer rounded px-1 -mx-1 transition-colors text-slate-900 break-words ${
-            value === NOT_STACKABLE ? "bg-amber-500/15" : "hover:bg-slate-100"
-          }`}
-          title="Double-click to edit"
-          onDoubleClick={() => setEditing(true)}
+          className={`flex-1 min-w-0 rounded px-1 -mx-1 transition-colors text-slate-900 break-words ${
+            value === NOT_STACKABLE ? "bg-amber-500/15" : editable ? "hover:bg-slate-100" : ""
+          } ${editable ? "cursor-pointer" : ""}`}
+          title={editable ? "Double-click to edit" : undefined}
+          onDoubleClick={editable ? () => setEditing(true) : undefined}
         >
           {value || <span className={EMPTY}>—</span>}
         </span>
@@ -464,6 +460,9 @@ function InvoiceRow({
       ? shipment.civByCurrency || getFieldValue(shipment, "commercialInvoiceValue")
       : getFieldValue(shipment, fieldKey);
   return (
+    // Customs' own field (the server leaves it open to everyone): its dialog is not disabled with a
+    // read-only card around it.
+    <ConfigProvider componentDisabled={false}>
     <div className={ROW}>
       <span className={LABEL.replace(LABEL_W, labelW)}>{label}</span>
       <button
@@ -481,12 +480,13 @@ function InvoiceRow({
         onClose={() => setOpen(false)}
         onSave={(s, commercialInvoices) =>
           updateShipment({ id: s.id, data: { commercialInvoices } }).catch((e) => {
-            toast.error("Could not save the commercial invoices");
+            toast.error(`Could not save the commercial invoices: ${apiErrorMessage(e)}`);
             throw e;
           })
         }
       />
     </div>
+    </ConfigProvider>
   );
 }
 
@@ -1042,14 +1042,16 @@ export function ShipmentDetailContent() {
   const salesNumber = (shipment.salesNumber ?? "").trim();
   const salesQuoteRef = isSalesQuoteRef(salesNumber) ? salesNumber : null;
 
+  // One request per shipment, each may be refused on its own (the details rule): the rest still link.
   const handleAssignMasterJob = async (ids: string[], mczNumber: string) => {
-    try {
-      await Promise.all(ids.map((id) => linkMasterJob({ shipmentId: id, mczNumber })));
+    const { linked, failed, error } = await linkEach(ids, (id) => linkMasterJob({ shipmentId: id, mczNumber }));
+    if (failed === 0) {
       toast.success(`Linked to ${mczNumber}`);
       setAssignOpen(false);
-    } catch {
-      toast.error("Failed to link to master job");
+      return;
     }
+    if (linked > 0) toast.success(`Linked ${linkedCount(linked)} to ${mczNumber}`);
+    toast.error(`${linkedCount(failed)} not linked to ${mczNumber}: ${apiErrorMessage(error)}`);
   };
 
   const confirmUnlinkMasterJob = async () => {
@@ -1058,8 +1060,8 @@ export function ShipmentDetailContent() {
       await unlinkMasterJob(shipment.id);
       toast.success("Removed from master job");
       setUnlinkOpen(false);
-    } catch {
-      toast.error("Failed to remove from master job");
+    } catch (e) {
+      toast.error(`Failed to remove from master job: ${apiErrorMessage(e)}`);
     } finally {
       setUnlinking(false);
     }
@@ -1279,9 +1281,10 @@ export function ShipmentDetailContent() {
                             <>
                               {shipment.masterJobId ? (
                                 <MasterJobHoverCard masterJobId={shipment.masterJobId} mczNumber={String(shipment.masterJobMczNumber)}>
-                                  <button onClick={() => router.push(`/master-jobs?open=${shipment.masterJobId}`)} className={`${LINK} cursor-pointer bg-transparent border-none p-0`}>
+                                  {/* A link, so it also opens in a new tab. */}
+                                  <Link href={`/master-jobs?open=${shipment.masterJobId}`} className={LINK}>
                                     #{shipment.masterJobMczNumber}
-                                  </button>
+                                  </Link>
                                 </MasterJobHoverCard>
                               ) : (
                                 <span>#{shipment.masterJobMczNumber}</span>
@@ -1663,7 +1666,11 @@ export function ShipmentDetailContent() {
                   <div className={`${LABEL_TEXT} mb-1`}>
                     {shipment.tradeDirection === "Export" ? "Export Workflow" : "Import Workflow"}
                   </div>
-                  <TasksPanel shipment={shipment} />
+                  {/* The ticks and what they open (Tell the customer, Record an event) go by the
+                      server's own rules, not the details rule: not disabled with the card. */}
+                  <ConfigProvider componentDisabled={false}>
+                    <TasksPanel shipment={shipment} />
+                  </ConfigProvider>
                 </div>
               </div>
 
@@ -1676,11 +1683,12 @@ export function ShipmentDetailContent() {
         )}
 
         {activeTab === "cargo" && (
-          <DetailsGuard editable={detailsEditable} native>
+          <DetailsGuard editable={detailsEditable}>
           {/* Keyed by the shipment, so opening another shipment starts the tab afresh. */}
           <CargoDetailsTab
             key={shipment.id}
             shipment={shipment}
+            readOnly={!detailsEditable}
             focusContainerId={cargoFocusId}
             // A refused line (e.g. a UN number that is not four digits) is rolled back and said.
             onChange={(data) =>
@@ -1702,9 +1710,10 @@ export function ShipmentDetailContent() {
         {activeTab === "tracking" && <TrackingTab shipment={shipment} onOpen={setActiveTab} />}
 
         {activeTab === "container" && (
-          <DetailsGuard editable={detailsEditable} native>
+          <DetailsGuard editable={detailsEditable}>
           <ContainerDetailsTab
             shipment={shipment}
+            readOnly={!detailsEditable}
             // A refused save is said; the tab then shows the saved list again.
             onChange={(containers) =>
               updateShipment({ id: shipment.id, data: { containers } }).catch((err) => {
@@ -1745,10 +1754,10 @@ export function ShipmentDetailContent() {
         onCancel={() => setUnlinkOpen(false)}
         destroyOnHidden
       >
-        <p className="text-sm text-slate-700">
+        <p className="text-[13px] text-slate-700">
           Do you really want to unassign the shipment{" "}
-          <b className="tabular-nums">{shipment.jobNumber ?? shipment.id}</b> from master job{" "}
-          <b className="tabular-nums">{shipment.masterJobMczNumber}</b>?
+          <b className={REF}>{shipment.jobNumber ?? shipment.id}</b> from master job{" "}
+          <b className={REF}>{shipment.masterJobMczNumber}</b>?
         </p>
       </Modal>
 
@@ -1785,11 +1794,11 @@ export function ShipmentDetailContent() {
         onCancel={() => setReleaseOpen(false)}
         destroyOnHidden
       >
-        <p className="text-sm text-slate-700">
+        <p className="text-[13px] text-slate-700">
           Do you really want to release the shipment{" "}
-          <b className="tabular-nums">{shipment.jobNumber ?? shipment.id}</b>?
+          <b className={REF}>{shipment.jobNumber ?? shipment.id}</b>?
         </p>
-        <p className="text-sm text-slate-500 mt-2">
+        <p className="text-[13px] text-slate-500 mt-2">
           Your name and the current date and time will be recorded as the release. This cannot be undone.
         </p>
       </Modal>
@@ -1804,10 +1813,10 @@ export function ShipmentDetailContent() {
         onCancel={() => setDeleteOpen(false)}
         destroyOnHidden
       >
-        <p className="text-sm text-slate-700">
-          Do you really want to delete order <b className="tabular-nums">{shipment.jobNumber ?? shipment.id}</b>?
+        <p className="text-[13px] text-slate-700">
+          Do you really want to delete order <b className={REF}>{shipment.jobNumber ?? shipment.id}</b>?
         </p>
-        <p className="text-sm text-slate-500 mt-2">
+        <p className="text-[13px] text-slate-500 mt-2">
           The order is <b>not erased</b> — it is archived with all its details, and its reference can never be reused.
           This action is recorded against your account.
         </p>

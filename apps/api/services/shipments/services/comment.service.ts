@@ -1,4 +1,5 @@
 import { exceptionNotice } from "../lib/trackingChatNotice";
+import { isUuid } from "../../../lib/uuid";
 import { APIError } from "encore.dev/api";
 import { shipmentCommentRepository } from "../repositories/shipmentComment.repository";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
@@ -211,7 +212,7 @@ class CommentService {
   }
 
   private async line(shipmentId: string, id: string, companyId: string): Promise<ShipmentCommentRecord> {
-    const comment = await shipmentCommentRepository.getByIdForCompany(id, companyId);
+    const comment = isUuid(id) ? await shipmentCommentRepository.getByIdForCompany(id, companyId) : null;
     if (comment?.shipmentId !== shipmentId) throw APIError.notFound("Message not found");
     return comment;
   }

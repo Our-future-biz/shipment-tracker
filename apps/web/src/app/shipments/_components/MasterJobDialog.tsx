@@ -7,7 +7,25 @@ import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
 import { useMasterJobs } from "@/hooks/useMasterJobs";
 import { nextMczNumber } from "@/lib/mcz";
 import { Badge } from "@/components/Badge";
+import { useAuth } from "@/lib/auth/AuthContext";
+import { canChangeShipmentDetails } from "@/lib/shipmentEditRule";
 import { HINT, REF } from "@/styles/ui";
+
+/** What a shipment the user may not link says (the server refuses it: lib/shipmentEditRule). */
+export const LINK_REFUSED_HINT = "Only its Person in Charge, Holiday Cover or a manager can link it to a master job";
+
+/**
+ * Links each shipment by a request of its own, so one the server refuses does not stop the others.
+ * Says how many were linked and how many not, with the first refusal.
+ */
+export async function linkEach(ids: string[], link: (id: string) => Promise<unknown>): Promise<{ linked: number; failed: number; error: unknown }> {
+  const results = await Promise.allSettled(ids.map((id) => link(id)));
+  const refused = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+  return { linked: results.length - refused.length, failed: refused.length, error: refused[0]?.reason };
+}
+
+/** "1 shipment", "3 shipments". */
+export const linkedCount = (n: number) => `${n} shipment${n === 1 ? "" : "s"}`;
 
 interface MasterJobDialogProps {
   open: boolean;
@@ -31,6 +49,10 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
   const [search, setSearch] = useState("");
   const [selectedExistingMCZ, setSelectedExistingMCZ] = useState("");
   const [isLinking, setIsLinking] = useState(false);
+  // A shipment whose details the user may not change cannot be linked by them either: shown, not picked.
+  const { user } = useAuth();
+  const lockedIds = useMemo(() => new Set(shipments.filter((s) => !canChangeShipmentDetails(user, s)).map((s) => s.id)), [shipments, user]);
+  const chosen = Array.from(selected).filter((id) => !lockedIds.has(id));
 
   // Every master job on the server counts: one created on the Master Jobs page has
   // no shipments yet, so the loaded shipments alone would hand out its number again.
@@ -66,6 +88,7 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
   }, [shipments, search]);
 
   const toggleShipment = (id: string) => {
+    if (lockedIds.has(id)) return;
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
@@ -74,10 +97,10 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
   };
 
   const handleConfirm = async () => {
-    if (selected.size === 0 || isLinking) return;
+    if (chosen.length === 0 || isLinking) return;
     setIsLinking(true);
     try {
-      await onLink(Array.from(selected), activeMCZ);
+      await onLink(chosen, activeMCZ);
     } finally {
       setIsLinking(false);
     }
@@ -100,12 +123,12 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
       destroyOnHidden
       footer={
         <div className="flex justify-between items-center">
-          <span className={HINT}>{selected.size} shipment{selected.size !== 1 ? "s" : ""} selected</span>
+          <span className={HINT}>{chosen.length} shipment{chosen.length !== 1 ? "s" : ""} selected</span>
           <Space>
             <Button onClick={handleClose}>Cancel</Button>
             <Button
               type="primary"
-              disabled={selected.size === 0 || isLinking || (mode === "existing" && !selectedExistingMCZ)}
+              disabled={chosen.length === 0 || isLinking || (mode === "existing" && !selectedExistingMCZ)}
               loading={isLinking}
               onClick={handleConfirm}
             >
@@ -163,14 +186,18 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
       {/* Shipment selection list */}
       <div className="max-h-[320px] overflow-y-auto border border-slate-200 rounded-lg">
         {filteredShipments.map((s) => {
-          const isChecked = selected.has(s.id);
+          const locked = lockedIds.has(s.id);
+          const isChecked = !locked && selected.has(s.id);
           return (
             <div
               key={s.id}
               onClick={() => toggleShipment(s.id)}
-              className={`flex items-center gap-2.5 px-3 py-[7px] cursor-pointer border-b border-slate-100 ${isChecked ? "bg-indigo-50" : "hover:bg-slate-50"}`}
+              title={locked ? LINK_REFUSED_HINT : undefined}
+              className={`flex items-center gap-2.5 px-3 py-[7px] border-b border-slate-100 ${
+                locked ? "cursor-not-allowed opacity-50" : isChecked ? "cursor-pointer bg-indigo-50" : "cursor-pointer hover:bg-slate-50"
+              }`}
             >
-              <Checkbox checked={isChecked} />
+              <Checkbox checked={isChecked} disabled={locked} />
               <span className={`${REF} text-[13px] font-medium text-slate-900 w-[100px] shrink-0`}>
                 {s.jobNumber}
               </span>

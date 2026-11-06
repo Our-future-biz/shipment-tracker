@@ -241,7 +241,9 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
   let emptyText =
     view === "invoiced"
       ? "No invoiced jobs yet."
-      : "No jobs to bill — a job appears here once operations set its Shipment Status to Billing.";
+      : view === "unbilled_arrivals"
+        ? "No unbilled arrivals — a job appears here once its tax date has happened (it arrived, departed or was delivered) and operations hasn't set its Shipment Status to Billing yet."
+        : "No jobs to bill — a job appears here once operations set its Shipment Status to Billing.";
   if (debounced || hasListFilters) emptyText = "No shipments match these filters.";
   if (isFetching) emptyText = "Loading the queue…";
   if (isError) emptyText = "Could not load the invoicing queue.";

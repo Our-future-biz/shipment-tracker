@@ -5,7 +5,7 @@ import type { Actor } from "../../../lib/rbac";
 import { iso } from "../../../lib/db/serialize";
 import { isUuid } from "../../../lib/uuid";
 import type { CustomsOfficeRequestItem } from "../interfaces/interfaces";
-import { canChangeCustomsOffice } from "../lib/customsOffice";
+import { CUSTOMS_OFFICE_SHAPE, canChangeCustomsOffice } from "../lib/customsOffice";
 import { customsOfficeRequestRepository as requests, type CustomsOfficeRequestRow } from "../repositories/customsOfficeRequest.repository";
 import { shipmentRepository } from "../repositories/shipment.repository";
 import { commentService } from "./comment.service";
@@ -18,8 +18,6 @@ const SEEN_KEEP_DAYS = 7;
 const LIST_LIMIT = 200;
 const DAY_MS = 86_400_000;
 
-/** A customs office as the shipment keeps it: its code, then its name. */
-const OFFICE_SHAPE = /^CZ\d{6} \S/;
 
 const toItem = (r: CustomsOfficeRequestRow): CustomsOfficeRequestItem => ({
   id: r.id,
@@ -57,7 +55,7 @@ class CustomsOfficeRequestService {
   async ask(actor: Actor, shipmentId: string, input: { toOffice: string; reason: string }): Promise<CustomsOfficeRequestItem> {
     const toOffice = input.toOffice.trim();
     const reason = input.reason.trim();
-    if (!OFFICE_SHAPE.test(toOffice)) throw APIError.invalidArgument("Choose the new Customs Office from the list");
+    if (!CUSTOMS_OFFICE_SHAPE.test(toOffice)) throw APIError.invalidArgument("Choose the new Customs Office from the list");
     if (reason.length < MIN_REASON) throw APIError.invalidArgument("Say why the Customs Office has to change");
     if (reason.length > MAX_TEXT) throw APIError.invalidArgument(`The reason is too long (at most ${MAX_TEXT} characters)`);
     const shipment = isUuid(shipmentId) ? await shipmentRepository.getByIdForCompany(shipmentId, actor.companyID) : null;

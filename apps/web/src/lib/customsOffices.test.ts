@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CUSTOMS_OFFICES, namesCustomsOffice } from "./customsOffices";
+import { CUSTOMS_OFFICES, customsProcedureLocked, namesCustomsOffice } from "./customsOffices";
 
 describe("the customs office list", () => {
   it("holds the 535 live offices, each a code and a name, each once", () => {
@@ -18,5 +18,20 @@ describe("namesCustomsOffice", () => {
     expect(namesCustomsOffice("T1")).toBe(true);
     expect(namesCustomsOffice(" t1 ")).toBe(true);
     for (const other of ["SCP", "JSD", "C-Goods", "", null, undefined]) expect(namesCustomsOffice(other)).toBe(false);
+  });
+});
+
+describe("customsProcedureLocked", () => {
+  const office = "CZ510000 Celní úřad pro hlavní město Prahu, Praha";
+
+  it("fixes a T1 with its office chosen for whoever may not change the office", () => {
+    expect(customsProcedureLocked("T1", office, false)).toBe(true);
+    expect(customsProcedureLocked("T1", office, true)).toBe(false);
+  });
+
+  it("leaves it open before an office is chosen, and off T1", () => {
+    expect(customsProcedureLocked("T1", "", false)).toBe(false);
+    expect(customsProcedureLocked("T1", null, false)).toBe(false);
+    expect(customsProcedureLocked("SCP", office, false)).toBe(false);
   });
 });

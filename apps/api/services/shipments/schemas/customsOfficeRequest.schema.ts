@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, timestamp, uuid, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { check, pgTable, text, timestamp, uuid, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
+import { shipmentTable } from "./shipment.schema";
 
 export type CustomsOfficeRequestStatus = "pending" | "approved" | "rejected";
 
@@ -13,7 +14,7 @@ export const customsOfficeRequestTable = pgTable(
   {
     ...defaultTableColumns,
     ...tenantColumns,
-    shipmentId: uuid("shipment_id").notNull(),
+    shipmentId: uuid("shipment_id").notNull().references(() => shipmentTable.id, { onDelete: "cascade" }),
     // The office when asked, and the one asked for: code and name as one text, as on the shipment.
     fromOffice: text("from_office").notNull(),
     toOffice: text("to_office").notNull(),
@@ -39,6 +40,7 @@ export const customsOfficeRequestTable = pgTable(
     uniqueIndex("customs_office_request_one_pending_unique")
       .on(table.companyId, table.shipmentId)
       .where(sql`status = 'pending' AND deleted_at IS NULL`),
+    check("customs_office_request_status_check", sql`${table.status} IN ('pending', 'approved', 'rejected')`),
   ],
 );
 

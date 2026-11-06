@@ -123,12 +123,25 @@ export function fillDraft(text: DraftText, values: DraftValues): DraftText {
   };
 }
 
-/** The other way round: what a user wrote, with this shipment's values back as placeholders, to keep as their wording. */
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * The other way round: what a user wrote, with this shipment's values back as placeholders, to keep
+ * as their wording. Only a value standing as a whole word goes back ("Eva" in "Evaluation" stays),
+ * and a value two placeholders share (the ETA on the day of the planned delivery) stays as written:
+ * which one was meant can't be told.
+ */
 export function toTemplate(text: DraftText, values: DraftValues): DraftText {
-  // The longest first: a reference can hold the shorter values.
-  const pairs = Object.entries(values)
-    .filter(([, value]) => value)
-    .sort((a, b) => b[1].length - a[1].length);
-  const back = (s: string) => pairs.reduce((out, [key, value]) => out.split(value).join(`{${key}}`), s);
+  const keysOf = new Map<string, (keyof DraftValues)[]>();
+  for (const [key, value] of Object.entries(values) as [keyof DraftValues, string][]) {
+    if (!value.trim()) continue;
+    keysOf.set(value, [...(keysOf.get(value) ?? []), key]);
+  }
+  const keyOf = new Map([...keysOf].filter(([, keys]) => keys.length === 1).map(([value, [key]]) => [value, key!]));
+  if (keyOf.size === 0) return { ...text };
+  // The longest first, in one pass: a reference or the facts can hold the shorter values.
+  const alternatives = [...keyOf.keys()].sort((a, b) => b.length - a.length).map(escapeRegExp);
+  const pattern = new RegExp(`(?<![\\p{L}\\p{N}_])(?:${alternatives.join("|")})(?![\\p{L}\\p{N}_])`, "gu");
+  const back = (s: string) => s.replace(pattern, (value) => `{${keyOf.get(value)}}`);
   return { subject: back(text.subject), message: back(text.message) };
 }

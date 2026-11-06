@@ -75,6 +75,28 @@ describe("keeping one's own wording", () => {
     expect(fillDraft(template, other)).toEqual({ subject: "CZ43 update", message: "Hello Petr, new date 01.12.2026.\n\nEva" });
   });
 
+  it("swaps whole words only, never a name inside a word", () => {
+    const short = { ...values, sender: "Eva", contact: "Jan" };
+    const template = toTemplate({ subject: "", message: "Dear Jan, the evaluation by Jana is done.\n\nEva" }, short);
+    expect(template.message).toBe("Dear {contact}, the evaluation by Jana is done.\n\n{sender}");
+  });
+
+  it("leaves a date two placeholders share as written: which one was meant can't be told", () => {
+    const same = { ...values, eta: "22.10.2026", delivery: "22.10.2026" };
+    const template = toTemplate({ subject: "CZ42 // 4711 · 22.10.2026", message: "Arrives and is delivered on 22.10.2026." }, same);
+    expect(template).toEqual({ subject: "{reference} · 22.10.2026", message: "Arrives and is delivered on 22.10.2026." });
+  });
+
+  it("puts the facts block back whole, before the dates inside it", () => {
+    const template = toTemplate({ subject: "", message: `ETA ${values.eta}\n\n${values.facts}` }, values);
+    expect(template.message).toBe("ETA {eta}\n\n{facts}");
+  });
+
+  it("takes a value with regular-expression marks as plain text", () => {
+    const marked = { ...values, reference: "CZ42 (4711)+" };
+    expect(toTemplate({ subject: "CZ42 (4711)+ update", message: "" }, marked).subject).toBe("{reference} update");
+  });
+
   it("leaves a placeholder it doesn't know alone", () => {
     expect(fillDraft({ subject: "{unknown}", message: "" }, values).subject).toBe("{unknown}");
   });

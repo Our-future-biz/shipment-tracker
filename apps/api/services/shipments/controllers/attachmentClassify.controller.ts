@@ -17,7 +17,7 @@ interface AttachmentClassifyResponse {
 export const attachmentClassify = api(
   { expose: true, auth: true, method: "PATCH", path: "/shipments/:shipmentId/attachments/:attachmentId/type" },
   async (req: AttachmentClassifyRequest): Promise<AttachmentClassifyResponse> => {
-    const companyId = getAuthData()!.companyID;
-    return { attachment: await attachmentService.classify(req.shipmentId, req.attachmentId, companyId, req.documentType) };
+    const auth = getAuthData()!;
+    return { attachment: await attachmentService.classify(req.shipmentId, req.attachmentId, auth.companyID, req.documentType, auth.role) };
   },
 );

@@ -5,7 +5,8 @@ import Link from "next/link";
 import { ConfigProvider, Input, Modal, Select } from "antd";
 import { useCustomsOfficeRequest, type CustomsOfficeRequestItem } from "@/hooks/useCustomsOfficeRequests";
 import { useCanChangeCustomsOffice } from "@/lib/auth/AuthContext";
-import { CUSTOMS_OFFICES, namesCustomsOffice } from "@/lib/customsOffices";
+import { CUSTOMS_OFFICES, CUSTOMS_PROCEDURE_LOCKED_HINT, customsProcedureLocked, namesCustomsOffice } from "@/lib/customsOffices";
+import { apiErrorMessage } from "@/lib/api";
 import { foldIncludes } from "@/lib/fold";
 import { useToast } from "@/lib/toast";
 import { HINT, LABEL_TEXT, LINK } from "@/styles/ui";
@@ -33,7 +34,8 @@ export function CustomsProcedureRow({ label, value, shipmentId, customsOffice, o
   const canChange = useCanChangeCustomsOffice();
   const t1 = namesCustomsOffice(value);
   const office = t1 ? customsOffice || "" : "";
-  const locked = !!office && !canChange;
+  // The grids hold to the same check (ShipmentsTable).
+  const locked = customsProcedureLocked(value, customsOffice, canChange);
   const { request, ask } = useCustomsOfficeRequest(shipmentId, !!office);
   const [asking, setAsking] = useState(false);
   const waiting = request?.status === "pending";
@@ -44,7 +46,7 @@ export function CustomsProcedureRow({ label, value, shipmentId, customsOffice, o
     <div className={`${ROW} ${t1 ? "flex-wrap" : ""}`}>
       <span className={LABEL.replace(LABEL_W, labelW)}>{label}</span>
       {locked ? (
-        <span className="w-[80px] shrink-0 text-slate-900" style={displayStyle} title="Only a manager can change the procedure once the Customs Office is chosen">
+        <span className="w-[80px] shrink-0 text-slate-900" style={displayStyle} title={CUSTOMS_PROCEDURE_LOCKED_HINT}>
           {value}
         </span>
       ) : (
@@ -148,7 +150,7 @@ function RequestChangeModal({ office, saving, onSend, onClose }: RequestChangeMo
         toast.success("Request sent for a manager's approval");
         onClose();
       })
-      .catch((e) => toast.error(e instanceof Error && e.message ? e.message : "Could not send the request"));
+      .catch((e) => toast.error(`Could not send the request: ${apiErrorMessage(e)}`));
   };
 
   return (

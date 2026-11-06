@@ -7,7 +7,9 @@ import { AppModal } from "@/components/AppModal";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { useTrackingActions, type ShipmentTracking, type TrackingRecordableKind } from "@/hooks/useShipmentTracking";
 import { apiErrorMessage } from "@/lib/api";
-import { LABEL_TEXT } from "@/styles/ui";
+import { addDays, businessToday } from "@/lib/date";
+import { HINT, LABEL_TEXT } from "@/styles/ui";
+import { mayLieAhead } from "./trackingText";
 
 const GROUPS: { key: TrackingRecordableKind["group"]; label: string }[] = [
   { key: "milestone", label: "Milestones" },
@@ -38,23 +40,31 @@ export function RecordEventModal({ shipment, tracking, initialKind, taskKey, onC
   const { record } = useTrackingActions(shipment.id);
   const firstKind = initialKind ?? tracking.recordable[0]?.kind ?? "";
   const [kind, setKindState] = useState(firstKind);
-  const [day, setDay] = useState<Dayjs | null>(dayjs());
+  // Today on the company's calendar (Prague), wherever the browser is.
+  const today = businessToday();
+  const [day, setDay] = useState<Dayjs | null>(dayjs(today));
   const [time, setTime] = useState<Dayjs | null>(null);
   const [place, setPlace] = useState(placeOf(firstKind, shipment));
   const [container, setContainer] = useState("");
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  // What has happened can't be in the future; the server lets it be tomorrow, as a port ahead of
+  // Prague can already be. A new ETD or ETA is a plan, and may lie ahead.
+  const latestDay = addDays(today, 1);
+  const tooLate = (d: Dayjs | null, k: string) => !!d && !mayLieAhead(tracking.recordable.find((r) => r.kind === k)?.sets) && d.format("YYYY-MM-DD") > latestDay;
+
   const setKind = (next: string) => {
     setKindState(next);
     setPlace(placeOf(next, shipment));
+    if (tooLate(day, next)) setDay(dayjs(today));
   };
 
   const def = tracking.recordable.find((r) => r.kind === kind);
   const containers = (shipment.containers ?? []).map((c) => c.containerNumber).filter(Boolean);
   // The server refuses it too; said here before anyone types.
   const lockedByInvoice = !!def?.taxDate && tracking.taxDate.invoiced === true;
-  const canSave = !!def && !!day && (!def.reasonRequired || !!note.trim()) && !lockedByInvoice;
+  const canSave = !!def && !!day && !tooLate(day, kind) && (!def.reasonRequired || !!note.trim()) && !lockedByInvoice;
 
   const save = () => {
     if (!canSave) return;
@@ -109,7 +119,7 @@ export function RecordEventModal({ shipment, tracking, initialKind, taskKey, onC
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label htmlFor="tracking-day" className={LABEL_TEXT}>Date</label>
-            <DatePicker id="tracking-day" className="w-full mt-1" format="DD.MM.YYYY" value={day} onChange={setDay} allowClear={false} />
+            <DatePicker id="tracking-day" className="w-full mt-1" format="DD.MM.YYYY" value={day} onChange={setDay} allowClear={false} disabledDate={(d) => tooLate(d, kind)} />
           </div>
           <div>
             <label htmlFor="tracking-time" className={LABEL_TEXT}>Time, Prague (if known)</label>
@@ -141,7 +151,7 @@ export function RecordEventModal({ shipment, tracking, initialKind, taskKey, onC
         ) : (
           def?.taxDate && <Alert type="info" showIcon message={`This sets the ${def.sets}. It can be the job's tax date, and the ČNB rate locks on it.`} />
         )}
-        {!lockedByInvoice && def?.sets && !def.taxDate && <p className="m-0 text-[12px] text-slate-500">This sets the {def.sets}.</p>}
+        {!lockedByInvoice && def?.sets && !def.taxDate && <p className={`${HINT} m-0`}>This sets the {def.sets}.</p>}
       </div>
     </AppModal>
   );

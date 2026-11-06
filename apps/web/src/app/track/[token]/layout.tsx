@@ -4,7 +4,8 @@ import type { ReactNode } from "react";
 // A link meant for one customer: no search engine lists it, and the token stays out of what the
 // browser tells any site opened from here.
 export const metadata: Metadata = {
-  title: "Shipment status",
+  // Absolute: the customer sees no app name the root layout's template would add.
+  title: { absolute: "Shipment status" },
   robots: { index: false, follow: false },
   referrer: "no-referrer",
 };

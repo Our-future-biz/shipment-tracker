@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { DraggableHeaderCell } from "@/components/DraggableHeaderCell";
 import { partyUpdate } from "@/app/shipments/_lib/parties";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, apiErrorMessage } from "@/lib/api";
 import { Table, Input, Select, Drawer, Tooltip, Popover, Pagination, Badge, AutoComplete, Modal, Button, Checkbox } from "antd";
 import { SearchOutlined, PlusOutlined, FileTextOutlined, FilterOutlined, CloseOutlined, DownloadOutlined, MessageOutlined, WarningFilled } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
@@ -25,9 +25,10 @@ import {
 import { getFieldValue, buildRowData, useShipmentMutations, type ShipmentItem } from "@/hooks/useShipments";
 import { ListCapNotice } from "@/components/ListCapNotice";
 import Link from "next/link";
-import { canChangeShipmentField } from "@/lib/shipmentEditRule";
+import { canChangeShipmentDetails, canChangeShipmentField } from "@/lib/shipmentEditRule";
+import { CUSTOMS_PROCEDURE_LOCKED_HINT, customsProcedureLocked } from "@/lib/customsOffices";
 import { COLUMNS, COLUMN_MAP, getCellConditionalStyle, getFilteredStatusOptions, getRowConditionalStyle, getShipmentUrgency, isFixedColumn, type CellStyle } from "@/lib/columnConfig";
-import { useAuth } from "@/lib/auth/AuthContext";
+import { useAuth, useCanChangeCustomsOffice } from "@/lib/auth/AuthContext";
 import { useColumnView } from "@/hooks/useColumnView";
 import { DEFAULT_SHIPMENT_COLUMNS } from "@/hooks/useColumnPrefs";
 import { resizableColumns, useColumnWidths } from "@/hooks/useColumnWidths";
@@ -43,7 +44,7 @@ import { MasterJobHoverCard } from "@/components/MasterJobHoverCard";
 import { ShipmentHoverCard } from "@/components/ShipmentHoverCard";
 import { CommercialInvoicesModal } from "./CommercialInvoicesModal";
 import { ShipmentChatDrawer } from "./ChatPanel";
-import { EditableCell, FreightModeContext } from "@/app/shipments/[jobNumber]/_components/EditableCell";
+import { EditableCell, FreightModeContext, ShipmentDetailsEditableContext } from "@/app/shipments/[jobNumber]/_components/EditableCell";
 import { shipmentEmailSubject } from "@/app/shipments/_lib/shipmentEmail";
 import { CustomerCell } from "./CustomerCell";
 import { statusLabel } from "@/lib/shipmentStatus";
@@ -160,6 +161,7 @@ export const ShipmentsTable = ({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user, token } = useAuth();
+  const canChangeOffice = useCanChangeCustomsOffice();
   const { updateField, updateShipment } = useShipmentMutations();
   const viewKey = view?.key;
   const viewDefaults = view?.defaultColumns;
@@ -267,6 +269,7 @@ export const ShipmentsTable = ({
   const [docsShipment, setDocsShipment] = useState<ShipmentItem | null>(null);
   // Shipment whose Dimensions dialog is open, by id so the dialog sees fresh rows.
   const [dimsShipmentId, setDimsShipmentId] = useState<string | null>(null);
+  const dimsShipment = shipments.find((s) => s.id === dimsShipmentId) ?? null;
   const [invoicesShipmentId, setInvoicesShipmentId] = useState<string | null>(null);
   const [chatShipment, setChatShipment] = useState<Pick<ShipmentItem, "id" | "jobNumber"> | null>(null);
   // ?chat=<shipmentId> (from a mention notification) opens that shipment's chat, then
@@ -491,13 +494,15 @@ export const ShipmentsTable = ({
           if (!record.masterJobId) return <span style={textStyle}>{val}</span>;
           return (
             <MasterJobHoverCard masterJobId={record.masterJobId} mczNumber={val}>
-              <button
-                onClick={(e) => { e.stopPropagation(); router.push(`/master-jobs?open=${record.masterJobId}`); }}
-                className={`${cellLinkClass(textStyle?.color)} font-medium bg-transparent border-none p-0 cursor-pointer`}
+              {/* A link, so it also opens in a new tab; the click stays off the row. */}
+              <Link
+                href={`/master-jobs?open=${record.masterJobId}`}
+                onClick={(e) => e.stopPropagation()}
+                className={`${cellLinkClass(textStyle?.color)} font-medium`}
                 style={textStyle}
               >
                 {val}
-              </button>
+              </Link>
             </MasterJobHoverCard>
           );
         }
@@ -531,23 +536,13 @@ export const ShipmentsTable = ({
         if (isPartyColumn(col.key)) {
           const nameKey = col.key;
           const idKey = PARTY_ID_FIELD[nameKey];
-          if (!canChangeShipmentField(user, record, col.key)) {
-            const name = record[nameKey];
-            if (!name) return <span className={EMPTY}>{"\u2014"}</span>;
-            const customerId = record[idKey];
-            return customerId ? (
-              <Link href={`/customers/${customerId}`} className={cellLinkClass(textStyle?.color)} style={textStyle}>
-                {name}
-              </Link>
-            ) : (
-              <span className="text-slate-700" style={textStyle}>{name}</span>
-            );
-          }
           return (
             <CustomerCell
               name={record[nameKey]}
               customerId={record[idKey]}
               textStyle={textStyle}
+              // Shown the same way (link, card) for a user who may not change it, only not edited.
+              locked={!canChangeShipmentField(user, record, col.key)}
               onChange={(name, id) =>
                 updateShipment({ id: record.id, data: partyUpdate(nameKey, name, id) })
               }
@@ -587,13 +582,25 @@ export const ShipmentsTable = ({
           );
         }
         // Read-only columns (computed, createdBy\u2026) \u2014 plain text.
-        if (col.readonly || viewReadonly?.includes(col.key) || !canChangeShipmentField(user, record, col.key)) {
+        if (col.readonly || viewReadonly?.includes(col.key)) {
           const shown = col.key === "loadType" ? loadTypeLabel(val, record.freightMode) : val;
           return shown ? <span className="text-slate-700" style={textStyle}>{shown}</span> : <span className={EMPTY}>{"\u2014"}</span>;
         }
+        // A T1 shipment with its Customs Office chosen keeps its procedure, unless a manager changes
+        // it (the server refuses anyone else, as in the shipment's cards).
+        if (col.key === "customsProcedure" && customsProcedureLocked(record.customsProcedure, record.customsOffice, canChangeOffice)) {
+          return (
+            <span className="text-slate-700" style={textStyle} title={CUSTOMS_PROCEDURE_LOCKED_HINT}>
+              {val}
+            </span>
+          );
+        }
         // Everything else \u2014 inline editable (double-click). Text/dropdown/date per column config.
-        // The row's Freight Mode lets an air shipment's POL and POD offer airports.
+        // The row's Freight Mode lets an air shipment's POL and POD offer airports. A row whose
+        // details the user may not change shows the same cells locked (the departments' fields stay
+        // open), so dates, statuses, places and contacts read as they do everywhere else.
         return (
+          <ShipmentDetailsEditableContext.Provider value={canChangeShipmentDetails(user, record)}>
           <FreightModeContext.Provider value={record.freightMode ?? undefined}>
             <EditableCell
               fieldKey={col.key}
@@ -609,6 +616,7 @@ export const ShipmentsTable = ({
               displayStyle={textStyle}
             />
           </FreightModeContext.Provider>
+          </ShipmentDetailsEditableContext.Provider>
         );
       },
     }));
@@ -683,7 +691,7 @@ export const ShipmentsTable = ({
 
     // Each titled column's width can be dragged (not the icon columns).
     return resizableColumns(cols, { widthOf, resizeProps });
-  }, [user, visible, leadColumn, viewReadonly, rowInfo, router, updateField, updateShipment, unreadBy, detailHref, widthOf, resizeProps]);
+  }, [user, canChangeOffice, visible, leadColumn, viewReadonly, rowInfo, router, updateField, updateShipment, unreadBy, detailHref, widthOf, resizeProps]);
 
   // Client-side pagination (custom bottom bar so the size selector sits on the left).
   const totalRows = filtered.length;
@@ -1037,11 +1045,13 @@ export const ShipmentsTable = ({
       />
 
       <DimensionsModal
-        shipment={shipments.find((s) => s.id === dimsShipmentId) ?? null}
+        shipment={dimsShipment}
+        // The dimensions are the shipment's details: only shown to whoever may not change them.
+        readOnly={!!dimsShipment && !canChangeShipmentDetails(user, dimsShipment)}
         onClose={() => setDimsShipmentId(null)}
         onSave={(shipment, cargoDimensions) =>
           updateShipment({ id: shipment.id, data: { cargoDimensions } }).catch((e) => {
-            toast.error("Could not save the dimensions");
+            toast.error(`Could not save the dimensions: ${apiErrorMessage(e)}`);
             throw e;
           })
         }

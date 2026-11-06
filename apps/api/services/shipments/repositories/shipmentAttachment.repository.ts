@@ -132,8 +132,17 @@ class ShipmentAttachmentRepository extends TenantRepository<typeof shipmentAttac
     return row ?? null;
   }
 
-  /** Partial update of an attachment's classification / customs review. */
-  async updateReview(id: string, shipmentId: string, companyId: string, data: AttachmentUpdate): Promise<ShipmentAttachmentRecord | null> {
+  /**
+   * Partial update of an attachment's classification / customs review. `unlessApproved` leaves an
+   * approved document alone in the same statement, so an approval given meanwhile can't be undone.
+   */
+  async updateReview(
+    id: string,
+    shipmentId: string,
+    companyId: string,
+    data: AttachmentUpdate,
+    { unlessApproved = false }: { unlessApproved?: boolean } = {},
+  ): Promise<ShipmentAttachmentRecord | null> {
     const [row] = await this.db
       .update(shipmentAttachmentTable)
       .set({ ...data, updatedAt: new Date() })
@@ -143,6 +152,7 @@ class ShipmentAttachmentRepository extends TenantRepository<typeof shipmentAttac
           eq(shipmentAttachmentTable.shipmentId, shipmentId),
           eq(shipmentAttachmentTable.companyId, companyId),
           isNull(shipmentAttachmentTable.deletedAt),
+          unlessApproved ? ne(shipmentAttachmentTable.customsStatus, "approved") : undefined,
         ),
       )
       .returning();

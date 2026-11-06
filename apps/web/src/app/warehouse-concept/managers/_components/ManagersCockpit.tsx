@@ -17,6 +17,8 @@ import { QuoteInquiries } from "./QuoteInquiries";
 import { CustomsOfficeApprovals } from "./CustomsOfficeApprovals";
 import { useCustomsOfficeApprovals } from "@/hooks/useCustomsOfficeRequests";
 import { useDocumentChangeApprovals } from "@/hooks/useDocumentChangeRequests";
+import { useAuth } from "@/lib/auth/AuthContext";
+import { isWarehouseManagerOnly } from "@/lib/concepts";
 import { CARD_TITLE, EMPTY, HINT, LINK, MODAL_TITLE, REF } from "@/styles/ui";
 
 // The warehouse managers' cockpit (Council Outlay 5, steps 1 to 3): the Positions quick filters as
@@ -69,19 +71,25 @@ const dash = <span className={EMPTY}>—</span>;
 
 const PRAGUE_TIME = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Prague", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 
-const refColumn = {
+// `linked`: the reference leads to the record. Not for an admin or a manager who sees only this page
+// of Warehouse Concept (isWarehouseManagerOnly): the records are superadmin pages, so it is plain text.
+const refColumn = (linked: boolean) => ({
   title: TERMS.warehouseRef,
   key: "ref",
   width: 170,
   render: (_: unknown, r: CockpitRow) => (
     <div className="min-w-0">
-      <Link href={rowHref(r)} className={`${REF} font-bold ${LINK}`}>
-        {r.ref}
-      </Link>
+      {linked ? (
+        <Link href={rowHref(r)} className={`${REF} font-bold ${LINK}`}>
+          {r.ref}
+        </Link>
+      ) : (
+        <span className={`${REF} font-bold text-slate-900`}>{r.ref}</span>
+      )}
       {r.sub && <div className={`tabular-nums ${HINT} truncate`}>{r.sub}</div>}
     </div>
   ),
-};
+});
 
 const directionColumn = {
   title: TERMS.direction,
@@ -105,13 +113,13 @@ const signalsColumn = {
 };
 
 // In a card the direction sits under the reference, so the signals keep the width and wrap.
-const CARD_COLUMNS: ColumnsType<CockpitRow> = [
+const cardColumns = (linked: boolean): ColumnsType<CockpitRow> => [
   {
-    ...refColumn,
+    ...refColumn(linked),
     width: 160,
     render: (v: unknown, r: CockpitRow) => (
       <div className="flex flex-col items-start gap-1">
-        {refColumn.render(v, r)}
+        {refColumn(linked).render(v, r)}
         {directionColumn.render(v, r)}
       </div>
     ),
@@ -119,8 +127,8 @@ const CARD_COLUMNS: ColumnsType<CockpitRow> = [
   signalsColumn,
 ];
 
-const DIALOG_COLUMNS: ColumnsType<CockpitRow> = [
-  refColumn,
+const dialogColumns = (linked: boolean): ColumnsType<CockpitRow> => [
+  refColumn(linked),
   { title: "Customer", dataIndex: "customer", width: 180, render: (v: string) => v || dash },
   directionColumn,
   { title: TERMS.lifecycle, dataIndex: "lifecycle", width: 140, render: (v: string) => v || dash },
@@ -128,7 +136,10 @@ const DIALOG_COLUMNS: ColumnsType<CockpitRow> = [
   signalsColumn,
 ];
 
-function Tiles({ cockpit, isLoading, isError }: { cockpit: Cockpit | null; isLoading: boolean; isError: boolean }) {
+// The tile's look; `linked` adds the hover of a link to Positions.
+const TILE = "flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-200 bg-white text-[13px] !text-slate-600";
+
+function Tiles({ cockpit, isLoading, isError, linked }: { cockpit: Cockpit | null; isLoading: boolean; isError: boolean; linked: boolean }) {
   const valueOf = (key: TileKey): string => {
     // A failed request must not read as "nothing in the warehouse".
     if (!cockpit) return isLoading ? "…" : isError ? "–" : "0";
@@ -141,16 +152,25 @@ function Tiles({ cockpit, isLoading, isError }: { cockpit: Cockpit | null; isLoa
         const label = tileLabel(t.key, t.chip);
         const value = valueOf(t.key);
         const hot = t.danger && !!cockpit && cockpit.tiles[t.key] > 0;
+        const body = (
+          <>
+            <span className="font-medium">{label}:</span>
+            <span className={`font-bold tabular-nums ${hot ? "text-red-600" : "text-slate-900"}`}>{value}</span>
+          </>
+        );
         return (
           <Tooltip key={t.key} title={chipOf(t.chip).hint} mouseEnterDelay={0.4}>
-            <Link
-              href={`/warehouse-concept?view=${t.chip}`}
-              aria-label={`${label}: ${value} — open in Positions`}
-              className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-200 bg-white text-[13px] !text-slate-600 hover:border-slate-300 hover:bg-slate-50 transition-colors"
-            >
-              <span className="font-medium">{label}:</span>
-              <span className={`font-bold tabular-nums ${hot ? "text-red-600" : "text-slate-900"}`}>{value}</span>
-            </Link>
+            {linked ? (
+              <Link
+                href={`/warehouse-concept?view=${t.chip}`}
+                aria-label={`${label}: ${value} — open in Positions`}
+                className={`${TILE} hover:border-slate-300 hover:bg-slate-50 transition-colors`}
+              >
+                {body}
+              </Link>
+            ) : (
+              <span className={TILE}>{body}</span>
+            )}
           </Tooltip>
         );
       })}
@@ -160,7 +180,7 @@ function Tiles({ cockpit, isLoading, isError }: { cockpit: Cockpit | null; isLoa
 
 // What the warehouse owes Shipments, Trucking and the suppliers and has not delivered: red when
 // something failed for good, amber when it only waits too long.
-function DeliveryLine({ cockpit }: { cockpit: Cockpit }) {
+function DeliveryLine({ cockpit, linked }: { cockpit: Cockpit; linked: boolean }) {
   const d = cockpit.delivery;
   const failed = d.truckingFailed + d.supplierEmailsFailed > 0;
   const waiting = d.shipmentUpdatesWaiting + d.truckingWaiting > 0;
@@ -175,7 +195,7 @@ function DeliveryLine({ cockpit }: { cockpit: Cockpit }) {
       </span>
       <span>
         <b>Supplier e-mails failed</b> (last {d.supplierEmailDays} days): {plural(d.supplierEmailsFailed, "position")}
-        {d.supplierEmailsFailed > 0 && (
+        {linked && d.supplierEmailsFailed > 0 && (
           <Link href="/warehouse-concept?tab=remeasurement" className={`${LINK} ml-2 font-semibold`}>
             Open Remeasurement / Release
           </Link>
@@ -185,7 +205,7 @@ function DeliveryLine({ cockpit }: { cockpit: Cockpit }) {
   );
 }
 
-function AuditLine({ cockpit }: { cockpit: Cockpit }) {
+function AuditLine({ cockpit, linked }: { cockpit: Cockpit; linked: boolean }) {
   const a = cockpit.audit;
   const parts = [
     `${plural(a.overrides, "override")}${a.overridesPastCustoms ? ` (${a.overridesPastCustoms} past Customs)` : ""}`,
@@ -199,7 +219,7 @@ function AuditLine({ cockpit }: { cockpit: Cockpit }) {
     <div role="status" className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs text-slate-700">
       <b>Last {a.days} days:</b>
       <span>{parts.join(" · ")}</span>
-      {any && (
+      {linked && any && (
         <Link href="/warehouse-concept?tab=gatelog" className={`${LINK} ml-2 font-semibold`}>
           Open the Gate Log
         </Link>
@@ -211,14 +231,21 @@ function AuditLine({ cockpit }: { cockpit: Cockpit }) {
 // The page's tabs: the cockpit, Sales' questions waiting for the warehouse (?tab=inquiries), and
 // what waits for a manager's approval (?tab=approvals).
 type PageTab = "cockpit" | "inquiries" | "approvals";
+const PAGE_TABS: readonly PageTab[] = ["cockpit", "inquiries", "approvals"];
 
 export function ManagersCockpit() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { user } = useAuth();
+  // An admin or a manager comes here for the approvals and sees nothing else of Warehouse Concept:
+  // the page opens on Approvals for them, and what leads into the concept module is plain text.
+  const managerOnly = isWarehouseManagerOnly(user);
+  const linked = !managerOnly;
+  const defaultTab: PageTab = managerOnly ? "approvals" : "cockpit";
   const asked = searchParams.get("tab");
-  const tab: PageTab = asked === "inquiries" || asked === "approvals" ? asked : "cockpit";
-  const setTab = (next: PageTab) => router.replace(next === "cockpit" ? pathname : `${pathname}?tab=${next}`);
+  const tab: PageTab = PAGE_TABS.find((t) => t === asked) ?? defaultTab;
+  const setTab = (next: PageTab) => router.replace(next === defaultTab ? pathname : `${pathname}?tab=${next}`);
   const { waiting: inquiriesWaiting } = useWarehouseInquiries();
   const { waiting: officesWaiting } = useCustomsOfficeApprovals();
   const { waiting: documentsWaiting } = useDocumentChangeApprovals();
@@ -227,12 +254,15 @@ export function ManagersCockpit() {
   const [openCard, setOpenCard] = useState<CardKey | null>(null);
 
   // A row opens its record; its Warehouse ref is a link, so the keyboard reaches it too.
-  const rowProps = (r: CockpitRow) => ({
-    onClick: (e: React.MouseEvent) => {
-      if ((e.target as HTMLElement).closest("a")) return;
-      router.push(rowHref(r));
-    },
-  });
+  const rowProps = (r: CockpitRow) =>
+    linked
+      ? {
+          onClick: (e: React.MouseEvent) => {
+            if ((e.target as HTMLElement).closest("a")) return;
+            router.push(rowHref(r));
+          },
+        }
+      : {};
 
   const renderCard = (key: CardKey) => {
     const { title, window, linkLabel, empty, tone } = CARDS[key];
@@ -275,10 +305,10 @@ export function ManagersCockpit() {
               : undefined
           }
           dataSource={(list?.rows ?? []).slice(0, VISIBLE_ROWS)}
-          columns={CARD_COLUMNS}
+          columns={cardColumns(linked)}
           tableLayout="fixed"
           pagination={false}
-          rowClassName="cursor-pointer"
+          rowClassName={linked ? "cursor-pointer" : undefined}
           onRow={rowProps}
         />
       </section>
@@ -293,16 +323,22 @@ export function ManagersCockpit() {
         <PageHeader
           title="Managers"
           breadcrumb={
-            <Link href="/warehouse-concept" className={LINK}>
-              Warehouse Concept
-            </Link>
+            linked ? (
+              <Link href="/warehouse-concept" className={LINK}>
+                Warehouse Concept
+              </Link>
+            ) : (
+              "Warehouse Concept"
+            )
           }
           extra={
-            <span className="flex items-center gap-3 text-xs text-slate-500">
+            <span className="flex items-center gap-3 text-[12px] text-slate-500">
               {cockpit && <span>Updated {PRAGUE_TIME.format(new Date(cockpit.asOf))} · Prague time</span>}
-              <Link href="/warehouse-concept?tab=reports" className={LINK}>
-                Reports
-              </Link>
+              {linked && (
+                <Link href="/warehouse-concept?tab=reports" className={LINK}>
+                  Reports
+                </Link>
+              )}
             </span>
           }
         />
@@ -348,7 +384,7 @@ export function ManagersCockpit() {
           <CustomsOfficeApprovals />
         ) : (
           <>
-        <Tiles cockpit={cockpit} isLoading={isLoading} isError={isError} />
+        <Tiles cockpit={cockpit} isLoading={isLoading} isError={isError} linked={linked} />
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {renderCard("urgent")}
@@ -357,9 +393,9 @@ export function ManagersCockpit() {
 
         {cockpit && (
           <>
-            <HealthLine report={cockpit} />
-            <DeliveryLine cockpit={cockpit} />
-            <AuditLine cockpit={cockpit} />
+            <HealthLine report={cockpit} linked={linked} />
+            <DeliveryLine cockpit={cockpit} linked={linked} />
+            <AuditLine cockpit={cockpit} linked={linked} />
           </>
         )}
           </>
@@ -390,9 +426,9 @@ export function ManagersCockpit() {
           rowKey={(r) => `${r.kind}:${r.id}`}
           scroll={{ x: "max-content" }}
           dataSource={openList?.rows ?? []}
-          columns={DIALOG_COLUMNS}
+          columns={dialogColumns(linked)}
           pagination={{ pageSize: 15, hideOnSinglePage: true, size: "small" }}
-          rowClassName="cursor-pointer"
+          rowClassName={linked ? "cursor-pointer" : undefined}
           onRow={rowProps}
         />
       </Modal>

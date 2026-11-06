@@ -108,10 +108,15 @@ const COLLAPSED_WIDTH = 64;
 // Whether `pathname` is the page at `path` or anything below it.
 const isUnder = (pathname: string, path: string) => pathname === path || pathname.startsWith(path + "/");
 
-/** What the menu calls the page at `pathname`: its submenu item when it has one, otherwise its item. */
-export function navLabelOf(pathname: string): string | null {
+/**
+ * What `user`'s menu calls the page at `pathname`: its submenu item when it has one, otherwise its
+ * item. The item `user` sees comes first (an admin's Warehouse Managers, a superadmin's Managers
+ * under Warehouse Concept); a page their menu does not list takes the name it has in anyone's.
+ */
+export function navLabelOf(pathname: string, user: { role: string } | null): string | null {
   const path = pathname.replace(/\/$/, "");
-  const item = NAV_ITEMS.find((i) => isUnder(path, i.path));
+  const owns = (i: NavItem) => isUnder(path, i.path);
+  const item = visibleNavItems(user).find(owns) ?? NAV_ITEMS.find(owns);
   return item?.children?.find((c) => isUnder(path, c.path))?.label ?? item?.label ?? null;
 }
 

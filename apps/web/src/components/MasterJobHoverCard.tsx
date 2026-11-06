@@ -41,7 +41,7 @@ export function MasterJobHoverCard({ masterJobId, mczNumber, children }: MasterJ
       ) : isError ? (
         <div className="mt-2 text-[12px] text-red-600">The shipments could not be loaded.</div>
       ) : (
-        <ul className="m-0 mt-2.5 flex max-h-[280px] list-none flex-col gap-1.5 overflow-y-auto border-t border-slate-100 p-0 pt-2.5 text-xs">
+        <ul className="m-0 mt-2.5 flex max-h-[280px] list-none flex-col gap-1.5 overflow-y-auto border-t border-slate-100 p-0 pt-2.5 text-[12px]">
           {shipments.map((s) => (
             <li key={s.id} className="flex items-baseline gap-3">
               <Link href={`/shipments/${s.id}`} className={`${REF} ${LINK} shrink-0 font-medium`}>

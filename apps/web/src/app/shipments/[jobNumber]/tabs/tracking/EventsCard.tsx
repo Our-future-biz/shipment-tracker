@@ -14,12 +14,14 @@ interface EventsCardProps {
   shipmentId: string;
   events: readonly TrackingEventItem[];
   mayChangeDetails: boolean;
+  /** Whether this person may record (and so strike) an event of this kind: the server's rule. */
+  mayRecord: (kind: string) => boolean;
   /** The shipment's container numbers: with more than one, the events can be read per container. */
   containers?: readonly string[];
 }
 
 /** Every stored fact, a date waiting to be confirmed first: where it was, where it came from, and what can be done with it. */
-export function EventsCard({ shipmentId, events, mayChangeDetails, containers = [] }: EventsCardProps) {
+export function EventsCard({ shipmentId, events, mayChangeDetails, mayRecord, containers = [] }: EventsCardProps) {
   const { confirm, dismiss, strike } = useTrackingActions(shipmentId);
   const [striking, setStriking] = useState<TrackingEventItem | null>(null);
   const [container, setContainer] = useState("");
@@ -77,7 +79,7 @@ export function EventsCard({ shipmentId, events, mayChangeDetails, containers = 
                         <button type="button" disabled={busy} onClick={() => dismiss.mutate(e.id)} className={`${BTN_GHOST} ${BTN_SM}`}>Dismiss</button>
                       </span>
                     )}
-                    {e.strikeable && e.effect !== "proposed" && (
+                    {e.strikeable && e.effect !== "proposed" && mayRecord(e.kind) && (
                       <button type="button" onClick={() => setStriking(e)} className={`${BTN_GHOST} ${BTN_SM}`}>Strike</button>
                     )}
                   </td>

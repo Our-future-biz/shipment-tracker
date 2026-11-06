@@ -4,6 +4,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, apiErrorMessage } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import type { interfaces } from "@/lib/api/client";
+import { shipmentAttachmentsKey } from "./useShipmentAttachments";
+import { invalidateShipmentDerivedViews } from "./useShipments";
+import { TRACKING_ATTENTION_KEY } from "./useTrackingAttention";
 
 export type ShipmentTracking = interfaces.ShipmentTracking;
 export type TrackingMilestone = interfaces.TrackingMilestone;
@@ -42,6 +45,15 @@ export function useTrackingBell() {
   return { notices: query.data ?? [], hasLoaded: query.data !== undefined };
 }
 
+/** What the bell says about one shipment is no longer new: from the bell's row or the opened tab. */
+export function useTrackingMarkRead() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (shipmentId: string) => api.shipments.trackingMarkRead(shipmentId),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: BELL_KEY }),
+  });
+}
+
 export interface RecordEventInput {
   kind: string;
   occurredOn: string;
@@ -52,13 +64,22 @@ export interface RecordEventInput {
   taskKey?: string;
 }
 
-/** The shipment's dated facts. Other modules and other people write them too, so each opening reads them anew. */
-export function useShipmentTracking(shipmentId: string) {
+export const shipmentTrackingKey = (shipmentId: string) => ["shipment-tracking", shipmentId] as const;
+
+/** How long a screen that only peeks at the tracking (a lock note, a tick) takes it from the cache. */
+export const TRACKING_PEEK_STALE_MS = 60_000;
+
+/**
+ * The shipment's dated facts. Other modules and other people write them too, so the Tracking tab
+ * reads them anew on each opening; a screen that only needs a flag from them passes `staleTime`
+ * (TRACKING_PEEK_STALE_MS) and is served from the same cache entry.
+ */
+export function useShipmentTracking(shipmentId: string, { staleTime = 0 }: { staleTime?: number } = {}) {
   return useQuery({
-    queryKey: ["shipment-tracking", shipmentId],
+    queryKey: shipmentTrackingKey(shipmentId),
     queryFn: () => api.shipments.shipmentTracking(shipmentId),
     enabled: !!shipmentId,
-    staleTime: 0,
+    staleTime,
   });
 }
 
@@ -77,15 +98,23 @@ export const readTrackingNotice = async (shipmentId: string, source: { text: str
   return api.shipments.trackingReadingPreview(shipmentId, { extracted: read.extracted });
 };
 
-/** What people do with the shipment's events. An event can set a date and tick a task, so those are read anew too. */
+/**
+ * What people do with the shipment's events. An event can set a date and tick a task, so those are
+ * read anew too, and so is what is worked out from the dates elsewhere: the tiles, Needs Attention,
+ * Tracking and billing, and the master job (a date it carries is written there, and on every house).
+ */
 export function useTrackingActions(shipmentId: string) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const onSettled = () => {
-    queryClient.invalidateQueries({ queryKey: ["shipment-tracking", shipmentId] });
+    queryClient.invalidateQueries({ queryKey: shipmentTrackingKey(shipmentId) });
     queryClient.invalidateQueries({ queryKey: ["shipment-tasks", shipmentId] });
     queryClient.invalidateQueries({ queryKey: ["shipments"] });
     queryClient.invalidateQueries({ queryKey: BELL_KEY });
+    invalidateShipmentDerivedViews(queryClient);
+    queryClient.invalidateQueries({ queryKey: TRACKING_ATTENTION_KEY });
+    queryClient.invalidateQueries({ queryKey: ["master-jobs"] });
+    queryClient.invalidateQueries({ queryKey: ["master-job-tracking"] });
   };
   const onError = (err: unknown) => toast.error(apiErrorMessage(err));
 
@@ -95,8 +124,14 @@ export function useTrackingActions(shipmentId: string) {
       mutationFn: () => api.shipments.trackingMarkRead(shipmentId),
       onSettled: () => queryClient.invalidateQueries({ queryKey: BELL_KEY }),
     }),
-    /** Says nothing on failure: the dialog stays open and shows why. */
-    tellCustomer: useMutation({ mutationFn: (input: CustomerNoticeInput) => api.shipments.customerNoticeRecord(shipmentId, input), onSettled }),
+    /** Says nothing on failure: the dialog stays open and shows why. Arrival notice, ETA change and POD sent land in the customer's Communication log. */
+    tellCustomer: useMutation({
+      mutationFn: (input: CustomerNoticeInput) => api.shipments.customerNoticeRecord(shipmentId, input),
+      onSettled: () => {
+        onSettled();
+        queryClient.invalidateQueries({ queryKey: ["customer-notes"] });
+      },
+    }),
     /** Says nothing on failure: the dialog that records stays open and shows why. */
     record: useMutation({ mutationFn: (input: RecordEventInput) => api.shipments.trackingEventRecord(shipmentId, input), onSettled }),
     confirm: useMutation({ mutationFn: (eventId: string) => api.shipments.trackingEventConfirm(shipmentId, eventId), onSettled, onError }),
@@ -111,7 +146,11 @@ export function useTrackingActions(shipmentId: string) {
           vesselChange: input.vesselChange,
           lastFreeDay: input.lastFreeDay,
         }),
-      onSettled,
+      // The notice's file goes into Documents as a Carrier notice.
+      onSettled: () => {
+        onSettled();
+        queryClient.invalidateQueries({ queryKey: shipmentAttachmentsKey(shipmentId) });
+      },
     }),
     /** Says nothing on failure: the dialog stays open and shows why. */
     setFreeTime: useMutation({

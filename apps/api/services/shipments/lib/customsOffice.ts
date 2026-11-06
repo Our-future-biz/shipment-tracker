@@ -1,5 +1,14 @@
 const isT1 = (procedure: string | null | undefined) => (procedure ?? "").trim().toUpperCase() === "T1";
 
+/** A customs office as the shipment keeps it: its code, then its name ("CZ510000 Celní úřad pro …"). */
+export const CUSTOMS_OFFICE_SHAPE = /^CZ\d{6} \S/;
+
+/** Why this office can't be stored, or null: an office is picked from the list, never typed freely. */
+export function customsOfficeShapeRefusal(office: string | null | undefined): string | null {
+  const value = (office ?? "").trim();
+  return value && !CUSTOMS_OFFICE_SHAPE.test(value) ? "Choose the Customs Office from the list" : null;
+}
+
 /**
  * Only the T1 procedure names a customs office: under any other procedure the office is cleared,
  * also when the procedure changes on a screen that doesn't show the office (the grid), so a

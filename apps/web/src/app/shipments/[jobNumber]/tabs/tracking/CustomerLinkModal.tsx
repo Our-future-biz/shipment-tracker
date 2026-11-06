@@ -4,7 +4,9 @@ import { useState } from "react";
 import { Alert, Button, Spin } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppModal } from "@/components/AppModal";
+import { ConfirmModal } from "@/components/ConfirmModal";
 import { CopyButton } from "@/components/CopyButton";
+import { InfoRow } from "@/components/InfoRow";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { api, apiErrorMessage } from "@/lib/api";
 import { businessDateTime, formatDate } from "@/lib/date";
@@ -17,11 +19,17 @@ export function CustomerLinkModal({ shipment, onClose }: { shipment: ShipmentIte
   const { data, isLoading, error: loadError } = useQuery({ queryKey: key, queryFn: () => api.shipments.customerLinkGet(shipment.id), staleTime: 0 });
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const onError = (err: unknown) => setError(apiErrorMessage(err));
+  // Replacing or stopping the link the customer has is asked about first: their old address stops working.
+  const [asking, setAsking] = useState<"replace" | "stop" | null>(null);
+  const onError = (err: unknown) => {
+    setAsking(null);
+    setError(apiErrorMessage(err));
+  };
 
   const create = useMutation({
     mutationFn: () => api.shipments.customerLinkCreate(shipment.id),
     onSuccess: (res) => {
+      setAsking(null);
       setError(null);
       setUrl(res.url);
       queryClient.invalidateQueries({ queryKey: key });
@@ -31,6 +39,7 @@ export function CustomerLinkModal({ shipment, onClose }: { shipment: ShipmentIte
   const revoke = useMutation({
     mutationFn: () => api.shipments.customerLinkRevoke(shipment.id),
     onSuccess: () => {
+      setAsking(null);
       setError(null);
       setUrl(null);
       queryClient.invalidateQueries({ queryKey: key });
@@ -40,6 +49,8 @@ export function CustomerLinkModal({ shipment, onClose }: { shipment: ShipmentIte
 
   const link = data?.link ?? null;
   const busy = create.isPending || revoke.isPending;
+  // The server makes no link for a cancelled job or one delivered more than 30 days ago.
+  const closed = link?.open === false;
 
   return (
     <AppModal
@@ -51,15 +62,15 @@ export function CustomerLinkModal({ shipment, onClose }: { shipment: ShipmentIte
         <div className="flex justify-between gap-2">
           <div className="flex gap-2">
             {link && (
-              <Button danger disabled={busy} loading={revoke.isPending} onClick={() => revoke.mutate()}>
+              <Button danger disabled={busy} loading={revoke.isPending} onClick={() => setAsking("stop")}>
                 Stop this link
               </Button>
             )}
           </div>
           <div className="flex gap-2">
             <Button onClick={onClose}>Close</Button>
-            {!isLoading && (
-              <Button type={link ? "default" : "primary"} disabled={busy} loading={create.isPending} onClick={() => create.mutate()}>
+            {!isLoading && !closed && (
+              <Button type={link ? "default" : "primary"} disabled={busy} loading={create.isPending} onClick={() => (link ? setAsking("replace") : create.mutate())}>
                 {link ? "Make a new link" : "Make a link"}
               </Button>
             )}
@@ -83,16 +94,34 @@ export function CustomerLinkModal({ shipment, onClose }: { shipment: ShipmentIte
           </div>
         )}
         {link && (
-          <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[13px]">
-            <dt className="text-slate-500">Made</dt>
-            <dd className="m-0 text-slate-900">{[businessDateTime(link.createdAt), link.createdBy].filter(Boolean).join(" · ")}</dd>
-            <dt className="text-slate-500">Last opened</dt>
-            <dd className="m-0 text-slate-900">{link.lastOpenedAt ? businessDateTime(link.lastOpenedAt) : "Not yet"}</dd>
-            <dt className="text-slate-500">Open until</dt>
-            <dd className="m-0 text-slate-900">{!link.open ? "Closed" : link.openUntil ? formatDate(link.openUntil) : "30 days after delivery"}</dd>
-          </dl>
+          <div>
+            <InfoRow label="Made">{[businessDateTime(link.createdAt), link.createdBy].filter(Boolean).join(" · ")}</InfoRow>
+            <InfoRow label="Last opened">{link.lastOpenedAt ? businessDateTime(link.lastOpenedAt) : "Not yet"}</InfoRow>
+            <InfoRow label="Open until">{!link.open ? "Closed" : link.openUntil ? formatDate(link.openUntil) : "30 days after delivery"}</InfoRow>
+          </div>
         )}
+        {closed && <p className={`${HINT} m-0`}>No new link can be made: the job is cancelled, or it was delivered more than 30 days ago.</p>}
       </div>
+      <ConfirmModal
+        open={asking === "replace"}
+        onClose={() => !busy && setAsking(null)}
+        onConfirm={() => create.mutate()}
+        title="Make a new link?"
+        description="The link the customer has stops working. Send them the new one."
+        confirmLabel="Make a new link"
+        danger
+        loading={create.isPending}
+      />
+      <ConfirmModal
+        open={asking === "stop"}
+        onClose={() => !busy && setAsking(null)}
+        onConfirm={() => revoke.mutate()}
+        title="Stop this link?"
+        description={closed ? "Nobody can open it again." : "The customer's link stops working at once. You can make a new one later."}
+        confirmLabel="Stop this link"
+        danger
+        loading={revoke.isPending}
+      />
     </AppModal>
   );
 }

@@ -26,7 +26,7 @@ import { useWarehouseSettings } from "@/hooks/useWarehouseSettings";
 import { Card, ExpiryTag, Kpi, RecordFormModal, StatusTag, SubTabs, daysUntil, dim, type FieldDef } from "./shared";
 import { addDays, businessToday } from "@/lib/date";
 import type { Tone } from "@/components/Badge";
-import { BTN, BTN_PRIMARY, LINK, REF } from "@/styles/ui";
+import { BTN, BTN_PRIMARY, HINT, LINK, REF } from "@/styles/ui";
 
 type Sub = "schedule" | "yard" | "resources";
 
@@ -389,6 +389,10 @@ function YardPark() {
   const isEmpty = (c: WarehouseContainer) => /^empty/i.test(c.yardState);
   const rows = onYard.filter((c) => (filter === "risk" ? atRisk(c) : filter === "empties" ? isEmpty(c) : true));
 
+  // A box whose expiry comes from its job's free time shows the job's day, not the one typed here:
+  // it is shown read-only and left out of the form, so saving another field doesn't copy the
+  // job's day into the typed fallback.
+  const expiryFromJob = !!editing?.container?.detentionFromJob;
   const fields: FieldDef[] = [
     ...(editing?.container ? [] : [{ name: "number", label: "Container number", type: "container", required: true, placeholder: "TGHU2205539" } as FieldDef]),
     { name: "carrier", label: "Carrier" },
@@ -396,9 +400,14 @@ function YardPark() {
     { name: "yardState", label: "State", placeholder: "Full — devanning / Empty …" },
     { name: "gatedIn", label: "Gated in", type: "date", required: true },
     { name: "gatedOut", label: "Gated out", type: "date" },
-    { name: "detentionExpiry", label: "Detention expiry (the job's free time wins)", type: "date" },
+    ...(expiryFromJob ? [] : [{ name: "detentionExpiry", label: "Detention expiry (the job's free time wins)", type: "date" } as FieldDef]),
     { name: "yardStatus", label: "Status", type: "select", options: YARD_STATUSES },
   ];
+  // One object per opening: the form fills itself again whenever its initial values change.
+  const initial = useMemo<Partial<interfaces.WarehouseContainerInput>>(() => {
+    if (!editing?.container) return { gatedIn: businessToday(), yardStatus: "On site" };
+    return editing.container.detentionFromJob ? { ...editing.container, detentionExpiry: undefined } : editing.container;
+  }, [editing]);
 
   const columns: AppGridColumn<WarehouseContainer>[] = [
     { key: "number", title: "Container", width: 160, text: (c) => c.number, render: (_, c) => <span className={`${REF} font-bold text-indigo-600`}>{c.number}</span> },
@@ -409,7 +418,7 @@ function YardPark() {
     { key: "detentionExpiry", title: "Detention expiry (empty return due)", width: 250, text: (c) => c.detentionExpiry, render: (_, c) => (
         <span className="inline-flex items-center gap-2">
           <ExpiryTag date={c.detentionExpiry} />
-          {c.detentionFromJob && <span className="text-[12px] text-slate-500">from the job</span>}
+          {c.detentionFromJob && <span className={HINT}>from the job</span>}
         </span>
       ) },
     { key: "daysOnYard", title: "Days on yard", width: 110, align: "right", text: (c) => String(c.daysOnYard ?? ""), render: (_, c) => dim(c.daysOnYard) },
@@ -474,7 +483,14 @@ function YardPark() {
           open
           title={editing.container ? `Container ${editing.container.number}` : "Gate-in container"}
           fields={fields}
-          initial={editing.container ?? { gatedIn: businessToday(), yardStatus: "On site" }}
+          initial={initial}
+          note={
+            expiryFromJob && editing.container ? (
+              <>
+                Detention expiry <ExpiryTag date={editing.container.detentionExpiry} /> comes from the job&apos;s free time: change it on the shipment&apos;s Tracking tab.
+              </>
+            ) : undefined
+          }
           saving={isSaving}
           onCancel={() => setEditing(null)}
           onSubmit={(v) => (editing.container ? update(editing.container.id, v) : create({ direction: "Unloading", ...v }))}

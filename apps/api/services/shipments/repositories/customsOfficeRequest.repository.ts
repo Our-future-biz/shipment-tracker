@@ -19,7 +19,7 @@ const withShipment = () =>
   db
     .select({ request: requests, jobNumber: shipmentTable.jobNumber, customer: shipmentTable.customer })
     .from(requests)
-    .innerJoin(shipmentTable, eq(shipmentTable.id, requests.shipmentId));
+    .innerJoin(shipmentTable, and(eq(shipmentTable.id, requests.shipmentId), eq(shipmentTable.companyId, requests.companyId)));
 
 type Joined = { request: CustomsOfficeRequestRecord; jobNumber: string | null; customer: string };
 const flat = (r: Joined): CustomsOfficeRequestRow => ({ ...r.request, jobNumber: r.jobNumber, customer: r.customer });

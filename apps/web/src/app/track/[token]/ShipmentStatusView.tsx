@@ -2,10 +2,11 @@
 
 import { Spin } from "antd";
 import { useQuery } from "@tanstack/react-query";
-import { apiErrorMessage, isNotFound, publicApi } from "@/lib/api";
+import { SectionCard } from "@/components/SectionCard";
+import { isNotFound, publicApi } from "@/lib/api";
 import { businessDateTime, formatDate } from "@/lib/date";
 import type { interfaces } from "@/lib/api/client";
-import { EMPTY, HINT, LABEL_TEXT, PAGE_SUBTITLE, PAGE_TITLE, REF } from "@/styles/ui";
+import { BTN, EMPTY, HINT, PAGE_SUBTITLE, PAGE_TITLE, REF } from "@/styles/ui";
 
 type Milestone = interfaces.PublicMilestone;
 
@@ -38,7 +39,7 @@ function Row({ m }: { m: Milestone }) {
         {m.actual ? (
           <span className="font-medium text-slate-900">{formatDate(m.actual)}</span>
         ) : m.planned ? (
-          <span className="text-slate-600">Planned {formatDate(m.planned)}</span>
+          <span className="text-slate-700">Planned {formatDate(m.planned)}</span>
         ) : (
           <span className={EMPTY}>—</span>
         )}
@@ -49,7 +50,7 @@ function Row({ m }: { m: Milestone }) {
 
 /** What a customer sees through their link: the dates of one shipment, read-only. */
 export function ShipmentStatusView({ token }: { token: string }) {
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ["public-shipment-status", token],
     queryFn: () => publicApi.shipments.publicShipmentStatus(token),
     enabled: !!token,
@@ -64,9 +65,16 @@ export function ShipmentStatusView({ token }: { token: string }) {
     );
   }
   if (!data) {
+    // A customer reads no server's wording: a link that doesn't open is just no longer valid.
+    const gone = isNotFound(error);
     return (
-      <main className="min-h-screen bg-slate-50 flex items-center justify-center px-4">
-        <p className="m-0 text-[14px] text-slate-700">{isNotFound(error) ? "This link is no longer valid." : `Could not load this page: ${apiErrorMessage(error)}`}</p>
+      <main className="min-h-screen bg-slate-50 flex flex-col items-center justify-center gap-3 px-4">
+        <p className="m-0 text-[14px] text-slate-700">{gone ? "This link is no longer valid." : "Could not load this page. Please try again in a moment."}</p>
+        {!gone && (
+          <button type="button" disabled={isFetching} onClick={() => void refetch()} className={BTN}>
+            Try again
+          </button>
+        )}
       </main>
     );
   }
@@ -91,16 +99,13 @@ export function ShipmentStatusView({ token }: { token: string }) {
           const rows = status.milestones.filter((m) => m.leg === leg.key);
           if (rows.length === 0) return null;
           return (
-            <section key={leg.key} className="rounded-xl border border-slate-200 bg-white overflow-hidden">
-              <div className="px-4 py-2 bg-slate-50">
-                <span className={LABEL_TEXT}>{leg.label}</span>
-              </div>
+            <SectionCard key={leg.key} title={leg.label} bodyClassName="p-0">
               <ul className="m-0 p-0 list-none divide-y divide-slate-100">
                 {rows.map((m) => (
                   <Row key={m.key} m={m} />
                 ))}
               </ul>
-            </section>
+            </SectionCard>
           );
         })}
 

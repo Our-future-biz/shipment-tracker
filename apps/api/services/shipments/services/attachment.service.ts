@@ -4,7 +4,7 @@ import { APIError } from "encore.dev/api";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
 import type { ShipmentAttachmentRecord } from "../schemas/shipmentAttachment.schema";
 import { attachmentBucket } from "../storage/attachmentBucket";
-import { documentReviewRefusal } from "../lib/documentRules";
+import { APPROVED_DOCUMENT_REFUSAL, canManageDocuments, documentReviewRefusal } from "../lib/documentRules";
 import { userEmails } from "../lib/userEmails";
 import { attachmentContentUrl, companyOfContentToken } from "../lib/contentToken";
 import { iso, isoOrNull } from "../../../lib/db/serialize";
@@ -118,10 +118,19 @@ class AttachmentService {
     }
   }
 
-  /** Set the business document type (Invoice, Packing list, …). */
-  async classify(shipmentId: string, id: string, companyId: string, documentType: string): Promise<AttachmentItem> {
-    const row = await shipmentAttachmentRepository.updateReview(id, shipmentId, companyId, { documentType });
-    if (!row) throw APIError.notFound("Attachment not found");
+  /**
+   * Set the business document type (Invoice, Packing list, …). A regular user (`role` given) can't
+   * re-type an approved document: customs approved it as that type, and the shipment's paperwork
+   * status reads the approvals per type.
+   */
+  async classify(shipmentId: string, id: string, companyId: string, documentType: string, role?: string): Promise<AttachmentItem> {
+    const guarded = role !== undefined && !canManageDocuments(role);
+    const row = await shipmentAttachmentRepository.updateReview(id, shipmentId, companyId, { documentType }, { unlessApproved: guarded });
+    if (!row) {
+      const current = guarded ? await shipmentAttachmentRepository.getForShipment(id, shipmentId, companyId) : null;
+      if (current?.customsStatus === "approved") throw APIError.permissionDenied(APPROVED_DOCUMENT_REFUSAL);
+      throw APIError.notFound("Attachment not found");
+    }
     return toItem(row, await userEmails());
   }
 
@@ -138,18 +147,31 @@ class AttachmentService {
     userId: string,
     role?: string,
   ): Promise<AttachmentItem> {
-    if (role !== undefined) {
+    // A regular user leaves an approved document as it is: no undoing it, and approving it again
+    // would only put their name and a new time on customs' approval (and a new note in the bell).
+    const guarded = role !== undefined && !canManageDocuments(role);
+    if (guarded) {
       const current = await shipmentAttachmentRepository.getForShipment(id, shipmentId, companyId);
-      const refusal = current ? documentReviewRefusal(current.customsStatus, status, role) : null;
+      if (!current) throw APIError.notFound("Attachment not found");
+      const refusal = documentReviewRefusal(current.customsStatus, status, role);
       if (refusal) throw APIError.permissionDenied(refusal);
+      if (current.customsStatus === "approved") return toItem(current, await userEmails());
     }
     const clear = status === "";
-    const row = await shipmentAttachmentRepository.updateReview(id, shipmentId, companyId, {
-      customsStatus: status,
-      customsNote: status === "declined" ? note : "",
-      customsReviewedAt: clear ? null : new Date(),
-      customsReviewedById: clear ? null : userId,
-    });
+    const row = await shipmentAttachmentRepository.updateReview(
+      id,
+      shipmentId,
+      companyId,
+      {
+        customsStatus: status,
+        customsNote: status === "declined" ? note : "",
+        customsReviewedAt: clear ? null : new Date(),
+        customsReviewedById: clear ? null : userId,
+      },
+      { unlessApproved: guarded },
+    );
+    // Approved by someone else between the read and the write.
+    if (!row && guarded) throw APIError.permissionDenied(APPROVED_DOCUMENT_REFUSAL);
     if (!row) throw APIError.notFound("Attachment not found");
     return toItem(row, await userEmails());
   }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { customsOfficeForProcedure, customsOfficeLockRefusal } from "../lib/customsOffice";
+import { customsOfficeForProcedure, customsOfficeLockRefusal, customsOfficeShapeRefusal } from "../lib/customsOffice";
 
 const OFFICE = "CZ100000 Celní úřad v Brně, Brno";
 
@@ -51,5 +51,19 @@ describe("customsOfficeForProcedure", () => {
     expect(customsOfficeForProcedure("SCP", "")).toEqual({});
     expect(customsOfficeForProcedure("SCP", null)).toEqual({});
     expect(customsOfficeForProcedure("SCP", undefined)).toEqual({});
+  });
+});
+
+describe("customsOfficeShapeRefusal", () => {
+  it("takes an office from the list, or none", () => {
+    expect(customsOfficeShapeRefusal(OFFICE)).toBeNull();
+    expect(customsOfficeShapeRefusal("")).toBeNull();
+    expect(customsOfficeShapeRefusal(undefined)).toBeNull();
+    expect(customsOfficeShapeRefusal(null)).toBeNull();
+  });
+
+  it("refuses a typed one", () => {
+    expect(customsOfficeShapeRefusal("Praha")).toMatch(/from the list/);
+    expect(customsOfficeShapeRefusal("CZ51 Praha")).toMatch(/from the list/);
   });
 });

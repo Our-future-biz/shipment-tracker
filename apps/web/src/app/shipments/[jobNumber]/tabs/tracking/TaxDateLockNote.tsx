@@ -1,7 +1,7 @@
 "use client";
 
 import { LockOutlined } from "@ant-design/icons";
-import { useShipmentTracking } from "@/hooks/useShipmentTracking";
+import { TRACKING_PEEK_STALE_MS, useShipmentTracking } from "@/hooks/useShipmentTracking";
 import { HINT } from "@/styles/ui";
 
 /**
@@ -9,7 +9,8 @@ import { HINT } from "@/styles/ui";
  * dated by its delivery: says before a save what the server would refuse once the job is invoiced.
  */
 export function TaxDateLockNote({ shipmentId, whenDeliveryDated = false }: { shipmentId: string; whenDeliveryDated?: boolean }) {
-  const { data } = useShipmentTracking(shipmentId);
+  // Only the invoice flag is read here: the Tracking tab's cache serves it, no new read per mount.
+  const { data } = useShipmentTracking(shipmentId, { staleTime: TRACKING_PEEK_STALE_MS });
   if (!data?.taxDate.invoiced) return null;
   if (whenDeliveryDated && data.taxDate.basis !== "plannedDelivery") return null;
   return (

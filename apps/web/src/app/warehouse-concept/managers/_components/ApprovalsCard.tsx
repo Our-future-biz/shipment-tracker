@@ -8,14 +8,14 @@ import { useToast } from "@/lib/toast";
 import { formatDateTime } from "@/lib/date";
 import { errorMessage } from "../../gate-log/_lib/gate";
 import { Pill } from "@/components/Pill";
-import { BTN, BTN_DANGER, BTN_PRIMARY, CARD, CARD_BAR, CARD_TITLE, HINT, LABEL_TEXT, LINK, REF, TD, TH } from "@/styles/ui";
+import { BTN, BTN_DANGER, BTN_PRIMARY, CARD, CARD_BAR, CARD_TITLE, EMPTY_STATE, HINT, LABEL_TEXT, LINK, REF, TD, TEXTAREA, TH } from "@/styles/ui";
 
 // One kind of request waiting for a manager's approval (a change of Customs Office, of an approved
 // document): what is asked for is the caller's, the rest is the same - approve, or reject with a
 // reason, the same two buttons and reason box as Quote inquiries. The answer goes to whoever asked.
 
-const TEXTAREA =
-  "w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-[13px] text-slate-900 placeholder:text-slate-400 outline-none resize-y focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-colors";
+// The app's text box, as wide as the row and drawn taller by hand.
+const ANSWER_BOX = `${TEXTAREA} w-full resize-y`;
 const HEAD = `${TH} !px-4`;
 const CELL = `${TD} !px-4 !py-3 !align-top`;
 
@@ -108,7 +108,7 @@ export function ApprovalsCard<T extends ApprovalRequest>({ title, hint, whatHead
           <tbody>
             {listed.length === 0 && (
               <tr>
-                <td colSpan={5} className={`px-4 py-8 text-center ${isError ? "text-red-600" : "text-slate-400"}`}>
+                <td colSpan={5} className={`${EMPTY_STATE} px-4 ${isError ? "!text-red-600" : ""}`}>
                   {empty}
                 </td>
               </tr>
@@ -168,7 +168,7 @@ export function ApprovalsCard<T extends ApprovalRequest>({ title, hint, whatHead
                           maxLength={1000}
                           onChange={(e) => setComment(e.target.value)}
                           placeholder={open.approve ? "Anything they should know…" : "Why it stays as it is…"}
-                          className={`${TEXTAREA} max-w-[620px]`}
+                          className={`${ANSWER_BOX} max-w-[620px]`}
                         />
                         <div className="flex gap-2 mt-2">
                           <button

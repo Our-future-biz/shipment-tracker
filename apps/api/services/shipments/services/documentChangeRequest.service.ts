@@ -9,7 +9,7 @@ import { isUuid } from "../../../lib/uuid";
 import type { DocumentChangeRequestItem } from "../interfaces/interfaces";
 import { attachmentContentUrl, companyOfDocumentChangeToken, documentChangeContentUrl } from "../lib/contentToken";
 import { canManageDocuments } from "../lib/documentRules";
-import { documentChangeRequestRepository as requests, type DocumentChangeRequestRow } from "../repositories/documentChangeRequest.repository";
+import { DocumentNoLongerApproved, documentChangeRequestRepository as requests, type DocumentChangeRequestRow } from "../repositories/documentChangeRequest.repository";
 import { shipmentAttachmentRepository as attachments } from "../repositories/shipmentAttachment.repository";
 import { attachmentBucket } from "../storage/attachmentBucket";
 import { commentService } from "./comment.service";
@@ -20,6 +20,7 @@ const HISTORY_DAYS = 30;
 const SEEN_KEEP_DAYS = 7;
 const LIST_LIMIT = 200;
 const DAY_MS = 86_400_000;
+const DOCUMENT_CHANGED = "The document has changed since this was asked: reject the request instead";
 
 const toItem = (r: DocumentChangeRequestRow): DocumentChangeRequestItem => ({
   id: r.id,
@@ -90,6 +91,7 @@ class DocumentChangeRequestService {
     await attachmentBucket.upload(newStorageKey, Buffer.from(input.contentBase64, "base64"), {
       contentType: input.fileType || "application/octet-stream",
     });
+    // The file goes up first; a request that then can't be stored takes it away again.
     const created = await requests.create({
       companyId: actor.companyID,
       shipmentId,
@@ -103,6 +105,9 @@ class DocumentChangeRequestService {
       reason,
       requestedById: actor.userID,
       requestedByName: await nameOf(actor.userID),
+    }).catch(async (err: unknown) => {
+      await discard(newStorageKey, attachmentId);
+      throw err;
     });
     if (!created) {
       await discard(newStorageKey, attachmentId);
@@ -134,8 +139,9 @@ class DocumentChangeRequestService {
   /**
    * A manager answers. Approved, the new file becomes the document, at pending for customs; the
    * approved one leaves the lists but its file is kept. Only while it still is what was asked
-   * about. Rejected, a reason is required and the new file goes. The answer is taken first, so two
-   * managers can't both answer, and given back if the swap could not be done.
+   * about: the answer and the swap are one transaction, so two managers can't both answer and a
+   * failed swap leaves the request waiting. Rejected, a reason is required and the new file goes,
+   * once the answer is stored.
    */
   async decide(actor: Actor, id: string, input: { approve: boolean; comment?: string }): Promise<DocumentChangeRequestItem> {
     if (!canManageDocuments(actor.role)) throw APIError.permissionDenied("Only a manager answers these requests");
@@ -148,39 +154,36 @@ class DocumentChangeRequestService {
     if (request.status !== "pending") throw APIError.failedPrecondition("This request has already been answered");
     if (input.approve) {
       const document = await attachments.getForShipment(request.attachmentId, request.shipmentId, actor.companyID);
-      if (document?.customsStatus !== "approved") {
-        throw APIError.failedPrecondition("The document has changed since this was asked: reject the request instead");
-      }
+      if (document?.customsStatus !== "approved") throw APIError.failedPrecondition(DOCUMENT_CHANGED);
     }
 
-    const answered = await requests.answer(id, actor.companyID, {
-      status: input.approve ? "approved" : "rejected",
-      decidedById: actor.userID,
-      decidedByName: await nameOf(actor.userID),
-      decidedAt: new Date(),
-      comment,
-    });
-    if (!answered) throw APIError.failedPrecondition("This request has already been answered");
-
+    const decision = { decidedById: actor.userID, decidedByName: await nameOf(actor.userID), decidedAt: new Date(), comment };
+    let answered;
     if (input.approve) {
       try {
-        await attachments.createForCompany(actor.companyID, {
-          shipmentId: request.shipmentId,
-          fileName: request.newFileName,
-          fileSize: request.newFileSize,
-          fileType: request.newFileType,
-          storageKey: request.newStorageKey,
-          documentType: request.documentType,
-          uploadedById: request.requestedById,
-        });
-        await attachments.softDeleteForCompany(request.attachmentId, actor.companyID);
+        answered = await requests.approveWithSwap(
+          id,
+          actor.companyID,
+          decision,
+          { attachmentId: request.attachmentId, shipmentId: request.shipmentId },
+          {
+            fileName: request.newFileName,
+            fileSize: request.newFileSize,
+            fileType: request.newFileType,
+            storageKey: request.newStorageKey,
+            documentType: request.documentType,
+            uploadedById: request.requestedById,
+          },
+        );
       } catch (err) {
-        await requests.reopen(id, actor.companyID);
+        if (err instanceof DocumentNoLongerApproved) throw APIError.failedPrecondition(DOCUMENT_CHANGED);
         throw err;
       }
     } else {
-      await discard(request.newStorageKey, id);
+      answered = await requests.answer(id, actor.companyID, { status: "rejected", ...decision });
     }
+    if (!answered) throw APIError.failedPrecondition("This request has already been answered");
+    if (!input.approve) await discard(request.newStorageKey, id);
     return toItem({ ...answered, jobNumber: request.jobNumber, customer: request.customer });
   }
 

@@ -148,7 +148,7 @@ describe("Not sent — Send again", () => {
 
     const res = await gateSendAgain(m.id, c, user, "manager");
     expect(res.unsent).toBeNull();
-    expect(shipmentUpdate).toHaveBeenCalledWith(expect.objectContaining({ shipmentId, plate: "1AB 2345" }), { authData: { userID: SERVICE_USER, companyID: c, role: "user" } });
+    expect(shipmentUpdate).toHaveBeenCalledWith(expect.objectContaining({ shipmentId, plate: "1AB 2345" }), { authData: { userID: SERVICE_USER, companyID: c, role: "user", appWrite: true } });
     expect(publish).toHaveBeenCalledWith(expect.objectContaining({ kind: "gateIn" }));
     expect(res.movement.events.find((e) => e.kind === SENT_AGAIN_EVENT)).toMatchObject({ label: "Not sent — sent again: plate number, gate-in" });
     expect(await db.select().from(so).where(and(eq(so.movementId, m.id), eq(so.status, "sent")))).toHaveLength(1);

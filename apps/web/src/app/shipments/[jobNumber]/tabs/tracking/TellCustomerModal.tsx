@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Button, Input, Radio, Select } from "antd";
+import { Alert, AutoComplete, Button, Input, Radio, Select } from "antd";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppModal } from "@/components/AppModal";
 import { findContact, useCustomerContacts } from "@/hooks/useCustomerContacts";
@@ -61,10 +61,19 @@ export function TellCustomerModal({ shipment, tracking, initialKind, taskKey, on
   const [kind, setKind] = useState<NoticeKindValue>(initialKind);
   const [language, setLanguage] = useState<NoticeLanguage>("en");
   const [channel, setChannel] = useState("email");
+  // Whom the e-mail goes to, and whom one spoke to on the phone: two fields, so an address
+  // doesn't become a person's name on switching. Each is filled in once the contacts are here,
+  // until the user types in it.
   const [to, setTo] = useState("");
+  const [toTyped, setToTyped] = useState(false);
+  const [spokeTo, setSpokeTo] = useState("");
+  const [spokeToTyped, setSpokeToTyped] = useState(false);
   const [cc, setCc] = useState<string[]>([]);
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("");
+  // The draft the user wrote in is theirs: nothing loading later (their own wording, the contacts,
+  // the dates read anew) fills it in again; another kind or language starts it afresh.
+  const [draftTyped, setDraftTyped] = useState(false);
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -78,15 +87,28 @@ export function TellCustomerModal({ shipment, tracking, initialKind, taskKey, on
 
   // The customer's person in charge, once the contacts are here; the user can change it.
   useEffect(() => {
-    if (contact?.email) setTo((current) => current || contact.email);
-  }, [contact?.email]);
-
-  // A new kind or language starts from its wording.
+    if (!toTyped && contact?.email) setTo(contact.email.trim());
+  }, [contact?.email, toTyped]);
   useEffect(() => {
+    if (!spokeToTyped) setSpokeTo(contactName);
+  }, [contactName, spokeToTyped]);
+
+  // A kind and language start from its wording, filled in as far as what has loaded tells.
+  useEffect(() => {
+    if (draftTyped) return;
     const filled = fillDraft(texts[draftKey] ?? standardDraft(kind, language), values);
     setSubject(filled.subject);
     setMessage(filled.message);
-  }, [draftKey, kind, language, texts, values]);
+  }, [draftKey, kind, language, texts, values, draftTyped]);
+
+  const pickKind = (next: NoticeKindValue) => {
+    setKind(next);
+    setDraftTyped(false);
+  };
+  const pickLanguage = (next: NoticeLanguage) => {
+    setLanguage(next);
+    setDraftTyped(false);
+  };
 
   const copy = () =>
     navigator.clipboard.writeText(`${subject}\n\n${message}`).then(
@@ -97,7 +119,7 @@ export function TellCustomerModal({ shipment, tracking, initialKind, taskKey, on
   const markTold = () => {
     setError(null);
     tellCustomer.mutate(
-      { kind, channel, toldTo: to.trim() || undefined, subject: channel === "email" ? subject.trim() || undefined : undefined, note: note.trim() || undefined, taskKey },
+      { kind, channel, toldTo: (channel === "email" ? to : spokeTo).trim() || undefined, subject: channel === "email" ? subject.trim() || undefined : undefined, note: note.trim() || undefined, taskKey },
       { onSuccess: onClose, onError: (err) => setError(apiErrorMessage(err)) },
     );
   };
@@ -139,25 +161,50 @@ export function TellCustomerModal({ shipment, tracking, initialKind, taskKey, on
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
             <label htmlFor="notice-kind" className={LABEL_TEXT}>What</label>
-            <Select id="notice-kind" className="w-full mt-1" value={kind} onChange={setKind} disabled={!!taskKey} options={[...NOTICE_KIND_OPTIONS]} />
+            <Select id="notice-kind" className="w-full mt-1" value={kind} onChange={pickKind} disabled={!!taskKey} options={[...NOTICE_KIND_OPTIONS]} />
           </div>
-          <div>
-            <span className={LABEL_TEXT}>How</span>
+          <fieldset className="m-0 p-0 border-0 min-w-0">
+            <legend className={`${LABEL_TEXT} p-0`}>How</legend>
             <Radio.Group className="block mt-1" size="small" optionType="button" value={channel} onChange={(e) => setChannel(e.target.value)} options={[{ value: "email", label: "E-mail" }, { value: "phone", label: "Phone" }, { value: "other", label: "Other" }]} />
-          </div>
+          </fieldset>
+          <fieldset className="m-0 p-0 border-0 min-w-0">
+            <legend className={`${LABEL_TEXT} p-0`}>Language</legend>
+            <Radio.Group className="block mt-1" size="small" optionType="button" value={language} onChange={(e) => pickLanguage(e.target.value)} options={[{ value: "en", label: "English" }, { value: "cs", label: "Čeština" }]} />
+          </fieldset>
+        </div>
+        {channel === "email" ? (
           <div>
-            <span className={LABEL_TEXT}>Language</span>
-            <Radio.Group className="block mt-1" size="small" optionType="button" value={language} onChange={(e) => setLanguage(e.target.value)} options={[{ value: "en", label: "English" }, { value: "cs", label: "Čeština" }]} />
+            <label htmlFor="notice-to" className={LABEL_TEXT}>To</label>
+            {/* A contact from the Customer Database, or any address typed in. */}
+            <AutoComplete
+              id="notice-to"
+              className="w-full mt-1"
+              maxLength={500}
+              value={to}
+              onChange={(next: string) => {
+                setTo(next);
+                setToTyped(true);
+              }}
+              options={toOptions}
+              filterOption={(input, option) => String(option?.label ?? "").toLowerCase().includes(input.trim().toLowerCase())}
+              placeholder={toOptions.length > 0 ? "Choose a contact or type an address" : "E-mail address"}
+            />
           </div>
-        </div>
-        <div>
-          <label htmlFor="notice-to" className={LABEL_TEXT}>To</label>
-          {channel === "email" && toOptions.length > 0 ? (
-            <Select id="notice-to" className="w-full mt-1" showSearch value={to || undefined} onChange={setTo} options={toOptions} placeholder="Choose a contact" />
-          ) : (
-            <Input id="notice-to" className="mt-1" maxLength={500} value={to} onChange={(e) => setTo(e.target.value)} placeholder={channel === "email" ? "E-mail address" : "Who you spoke to"} />
-          )}
-        </div>
+        ) : (
+          <div>
+            <label htmlFor="notice-spoke-to" className={LABEL_TEXT}>Who you spoke to</label>
+            <Input
+              id="notice-spoke-to"
+              className="mt-1"
+              maxLength={500}
+              value={spokeTo}
+              onChange={(e) => {
+                setSpokeTo(e.target.value);
+                setSpokeToTyped(true);
+              }}
+            />
+          </div>
+        )}
         {channel === "email" && (
           <>
             {otherEmails.length > 0 && (
@@ -168,7 +215,16 @@ export function TellCustomerModal({ shipment, tracking, initialKind, taskKey, on
             )}
             <div>
               <label htmlFor="notice-subject" className={LABEL_TEXT}>Subject</label>
-              <Input id="notice-subject" className="mt-1" maxLength={500} value={subject} onChange={(e) => setSubject(e.target.value)} />
+              <Input
+                id="notice-subject"
+                className="mt-1"
+                maxLength={500}
+                value={subject}
+                onChange={(e) => {
+                  setSubject(e.target.value);
+                  setDraftTyped(true);
+                }}
+              />
             </div>
             <div>
               <div className="flex items-center justify-between gap-2">
@@ -188,7 +244,16 @@ export function TellCustomerModal({ shipment, tracking, initialKind, taskKey, on
                   Keep this as my wording
                 </Button>
               </div>
-              <Input.TextArea id="notice-message" className="mt-1" rows={9} value={message} onChange={(e) => setMessage(e.target.value)} />
+              <Input.TextArea
+                id="notice-message"
+                className="mt-1"
+                rows={9}
+                value={message}
+                onChange={(e) => {
+                  setMessage(e.target.value);
+                  setDraftTyped(true);
+                }}
+              />
               <p className={`${HINT} m-0 mt-1`}>A long message may be cut by a mail program: use Copy then. Attach files in your mail program.</p>
             </div>
           </>

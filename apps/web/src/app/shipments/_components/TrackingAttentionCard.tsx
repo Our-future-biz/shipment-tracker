@@ -1,14 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Modal, Table, Tag } from "antd";
-import { WarningFilled } from "@ant-design/icons";
+import { Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { PillTabs } from "@/components/SectionCard";
+import { AppModal } from "@/components/AppModal";
+import { Pill } from "@/components/Pill";
+import { PillTabs, SectionCard } from "@/components/SectionCard";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useTrackingAttention, type TrackingAttentionItem } from "@/hooks/useTrackingAttention";
-import { CARD_TITLE, EMPTY, HINT, MODAL_TITLE, REF } from "@/styles/ui";
+import { EMPTY, HINT, LINK, REF } from "@/styles/ui";
 
 const VISIBLE_ROWS = 3;
 
@@ -20,6 +21,9 @@ const AREAS: readonly { key: Area; label: string }[] = [
 ];
 
 const dash = <span className={EMPTY}>—</span>;
+
+// A row is a way into the shipment: it shows where the keyboard is.
+const ROW_CLASS = "cursor-pointer outline-none focus-visible:[&>td]:!bg-indigo-50";
 
 const referenceColumn = {
   title: "Internal Reference",
@@ -34,9 +38,9 @@ const flagsColumn = {
   render: (_: unknown, r: TrackingAttentionItem) => (
     <div className="flex flex-wrap gap-1.5">
       {r.flags.map((f, i) => (
-        <Tag key={`${f.kind}-${i}`} color={f.severity === "urgent" ? "red" : "orange"} className="m-0 whitespace-normal">
+        <Pill key={`${f.kind}-${i}`} tone={f.severity === "urgent" ? "red" : "amber"} className="!whitespace-normal">
           {f.label}: {f.detail}
-        </Tag>
+        </Pill>
       ))}
     </div>
   ),
@@ -62,9 +66,20 @@ export function TrackingAttentionCard() {
   const [open, setOpen] = useState(false);
   const [area, setArea] = useState<Area>("all");
 
-  const rowProps = (r: TrackingAttentionItem) => ({ onClick: () => router.push(`/shipments/${r.id}?tab=tracking`) });
+  // A row opens with a click, and from the keyboard with Enter or Space.
+  const rowProps = (r: TrackingAttentionItem) => {
+    const openRow = () => router.push(`/shipments/${r.id}?tab=tracking`);
+    return {
+      onClick: openRow,
+      tabIndex: 0,
+      onKeyDown: (e: KeyboardEvent<HTMLElement>) => {
+        if (e.target !== e.currentTarget || (e.key !== "Enter" && e.key !== " ")) return;
+        e.preventDefault();
+        openRow();
+      },
+    };
+  };
   const urgent = items.some((i) => i.flags.some((f) => f.severity === "urgent"));
-  const tone = items.length === 0 ? null : urgent ? { border: "border-red-200", header: "bg-red-50", icon: "text-red-500", link: "text-red-600" } : { border: "border-amber-200", header: "bg-amber-50", icon: "text-amber-500", link: "text-amber-600" };
   const shown =
     area === "all"
       ? items
@@ -75,18 +90,18 @@ export function TrackingAttentionCard() {
 
   return (
     <>
-      <section className={`bg-white border rounded-xl shadow-sm overflow-hidden ${tone?.border ?? "border-slate-200"}`}>
-        <div className={`flex items-center gap-2.5 min-h-[42px] px-4 py-2 ${tone?.header ?? "bg-slate-50"}`}>
-          <WarningFilled className={tone?.icon ?? "text-slate-300"} />
-          <h3 className={CARD_TITLE}>Tracking and billing</h3>
-          <span
-            aria-label={isError ? "Count unavailable" : `${items.length} shipments`}
-            className={`min-w-6 h-6 px-1.5 rounded-full flex items-center justify-center bg-white text-[13px] font-bold tabular-nums ${tone?.link ?? "text-slate-500"}`}
-          >
-            {isError ? "–" : items.length}
-          </span>
-          <span className="text-[13px] text-slate-500">dates passed, not told, not billed</span>
-        </div>
+      <SectionCard
+        title="Tracking and billing"
+        bodyClassName="p-0 overflow-hidden rounded-b-xl"
+        extra={
+          <>
+            <span className={`${HINT} hidden sm:inline`}>dates passed, not told, not billed</span>
+            <Pill tone={isError || items.length === 0 ? "slate" : urgent ? "red" : "amber"} aria-label={isError ? "Count unavailable" : `${items.length} shipments`} className="tabular-nums">
+              {isError ? "–" : items.length}
+            </Pill>
+          </>
+        }
+      >
         <Table<TrackingAttentionItem>
           size="small"
           rowKey="id"
@@ -98,7 +113,7 @@ export function TrackingAttentionCard() {
           footer={
             items.length > 0
               ? () => (
-                  <button type="button" onClick={() => setOpen(true)} className={`p-0 border-none bg-transparent text-[13px] font-semibold cursor-pointer hover:underline ${tone?.link ?? ""}`}>
+                  <button type="button" onClick={() => setOpen(true)} className={`${LINK} p-0 border-none bg-transparent text-[13px] font-semibold cursor-pointer`}>
                     Show all {items.length}
                   </button>
                 )
@@ -107,20 +122,20 @@ export function TrackingAttentionCard() {
           dataSource={items.slice(0, VISIBLE_ROWS)}
           columns={CARD_COLUMNS}
           pagination={false}
-          rowClassName="cursor-pointer"
+          rowClassName={ROW_CLASS}
           onRow={rowProps}
         />
-      </section>
+      </SectionCard>
 
-      <Modal open={open} onCancel={() => setOpen(false)} title={<span className={MODAL_TITLE}>Tracking and billing</span>} footer={null} width={1100} centered>
+      <AppModal open={open} onClose={() => setOpen(false)} title="Tracking and billing" subtitle={`${items.length} shipments: dates passed, not told, not billed`} size="large" footer={null}>
         <div className="space-y-3">
           <PillTabs tabs={AREAS} active={area} onChange={setArea} />
           {capped && <p className={`${HINT} m-0`}>Looks at the newest 1,000 active shipments.</p>}
           <div className="overflow-x-auto">
-            <Table<TrackingAttentionItem> size="small" rowKey="id" dataSource={shown} columns={DIALOG_COLUMNS} pagination={{ pageSize: 25, hideOnSinglePage: true }} rowClassName="cursor-pointer" onRow={rowProps} />
+            <Table<TrackingAttentionItem> size="small" rowKey="id" dataSource={shown} columns={DIALOG_COLUMNS} pagination={{ pageSize: 25, hideOnSinglePage: true }} rowClassName={ROW_CLASS} onRow={rowProps} />
           </div>
         </div>
-      </Modal>
+      </AppModal>
     </>
   );
 }

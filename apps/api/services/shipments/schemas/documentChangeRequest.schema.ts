@@ -1,6 +1,8 @@
 import { sql } from "drizzle-orm";
-import { integer, pgTable, text, timestamp, uuid, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { check, integer, pgTable, text, timestamp, uuid, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
+import { shipmentTable } from "./shipment.schema";
+import { shipmentAttachmentTable } from "./shipmentAttachment.schema";
 
 export type DocumentChangeRequestStatus = "pending" | "approved" | "rejected";
 
@@ -13,8 +15,8 @@ export const documentChangeRequestTable = pgTable(
   {
     ...defaultTableColumns,
     ...tenantColumns,
-    shipmentId: uuid("shipment_id").notNull(),
-    attachmentId: uuid("attachment_id").notNull(),
+    shipmentId: uuid("shipment_id").notNull().references(() => shipmentTable.id, { onDelete: "cascade" }),
+    attachmentId: uuid("attachment_id").notNull().references(() => shipmentAttachmentTable.id, { onDelete: "cascade" }),
     // The approved document as it was when asked.
     fileName: text("file_name").notNull(),
     documentType: text("document_type").notNull().default(""),
@@ -45,6 +47,7 @@ export const documentChangeRequestTable = pgTable(
     uniqueIndex("document_change_request_one_pending_unique")
       .on(table.companyId, table.attachmentId)
       .where(sql`status = 'pending' AND deleted_at IS NULL`),
+    check("document_change_request_status_check", sql`${table.status} IN ('pending', 'approved', 'rejected')`),
   ],
 );
 

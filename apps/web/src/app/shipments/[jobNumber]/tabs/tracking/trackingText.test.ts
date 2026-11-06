@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import type { TrackingMilestone, TrackingTaxDate } from "@/hooks/useShipmentTracking";
-import { clockStatus, freeTimeWords, movedDaysLabel, noticeWords, readFactWords, taxDateParts, trackingStatusLine } from "./trackingText";
+import { clockStatus, customerState, detentionLineOn, freeTimeWords, mayLieAhead, mayRecordKind, movedDaysLabel, noticeKindOfMoved, noticeWords, readFactWords, taxDateParts, trackingStatusLine } from "./trackingText";
 
 const shipment = (over: Partial<ShipmentItem> = {}) =>
   ({
@@ -140,5 +140,57 @@ describe("noticeWords", () => {
   it("says nothing without both days", () => {
     expect(noticeWords(null, "2026-11-01")).toBe("");
     expect(noticeWords("2026-11-01", null)).toBe("");
+  });
+});
+
+describe("who may record, close or strike", () => {
+  const customs = { kind: "hold" };
+  it("is anyone under the details rule", () => {
+    expect(mayRecordKind({ mayChangeDetails: true, recordable: [] }, "delayed")).toBe(true);
+  });
+  it("is, for anyone else, only the kinds Customs keeps up", () => {
+    const tracking = { mayChangeDetails: false, recordable: [customs] };
+    expect(mayRecordKind(tracking, "hold")).toBe(true);
+    expect(mayRecordKind(tracking, "delayed")).toBe(false);
+  });
+});
+
+describe("the notice a moved date asks for", () => {
+  it("is a delivery advice for the delivery date, an ETA change for the rest", () => {
+    expect(noticeKindOfMoved("plannedDeliveryDate")).toBe("delivery_advice");
+    expect(noticeKindOfMoved("estimatedArrival")).toBe("eta_change");
+    expect(noticeKindOfMoved("etaWarehouse")).toBe("eta_change");
+  });
+});
+
+describe("a day ahead", () => {
+  it("is for a new ETD or ETA only", () => {
+    expect(mayLieAhead("ETA")).toBe(true);
+    expect(mayLieAhead("ETD")).toBe(true);
+    expect(mayLieAhead("ATA")).toBe(false);
+    expect(mayLieAhead("")).toBe(false);
+    expect(mayLieAhead(undefined)).toBe(false);
+  });
+});
+
+describe("a detention line already on Costs", () => {
+  const line = (description: string, category = "container_detention") => ({ category, description });
+  it("names the box, however spaced", () => {
+    expect(detentionLineOn([line("Detention msdu 277831 5: 3 days")], "MSDU2778315", 2, "container_detention")).toBe(true);
+    expect(detentionLineOn([line("Detention TGHU2205539: 3 days")], "MSDU2778315", 2, "container_detention")).toBe(false);
+  });
+  it("is any detention line on a job of one box, whatever its words now", () => {
+    expect(detentionLineOn([line("Demurrage, rewritten")], "MSDU2778315", 1, "container_detention")).toBe(true);
+  });
+  it("is never a line of another charge", () => {
+    expect(detentionLineOn([line("MSDU2778315 storage", "storage")], "MSDU2778315", 1, "container_detention")).toBe(false);
+  });
+});
+
+describe("the customer view's states", () => {
+  it("shows late as the next step and a plan-only date as still to come, as the link does", () => {
+    expect(customerState("late")).toBe("next");
+    expect(customerState("planned")).toBe("open");
+    expect(customerState("done")).toBe("done");
   });
 });

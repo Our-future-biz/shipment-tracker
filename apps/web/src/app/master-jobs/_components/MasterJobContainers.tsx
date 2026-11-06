@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { rowKey } from "@/app/shipments/_lib/rowKey";
 import { App, Button, Input, Select } from "antd";
+import { apiErrorMessage } from "@/lib/api";
 import { ContainerOutlined, DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import { CONTAINER_TYPES, containerType } from "@/lib/cargo";
 import { containerNumberInput, isValidContainerNumber } from "@/lib/container";
@@ -50,7 +51,7 @@ export function MasterJobContainers({ id, fromShipments, containers, shipments, 
       await onSave(draft.map((c) => ({ ...c, containerNumber: c.containerNumber.trim() })));
       message.success("Containers saved and copied to the shipments");
     } catch (err) {
-      message.error(err instanceof Error ? err.message : "Saving the containers failed");
+      message.error(`Saving the containers failed: ${apiErrorMessage(err)}`);
     } finally {
       setSaving(false);
     }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useContext, useRef, useState } from "react";
+import Link from "next/link";
 import { AutoComplete } from "antd";
 import { useCustomers } from "@/hooks/useCustomers";
 import { FadeText } from "@/components/FadeText";
@@ -86,21 +87,24 @@ export function CustomerLinkField({ label, name, customerId, onChange, customers
           />
         ) : (
           // A linked customer: click opens it, double click changes it. Otherwise double click edits.
+          // Read-only, it is a plain value (a linked customer still a link), with no hint to edit it.
           <div
-            className="flex items-center gap-1.5 cursor-pointer rounded px-1 -mx-1 hover:bg-slate-100 transition-colors"
-            title={name && customerId ? undefined : "Double-click to edit"}
-            onDoubleClick={startEdit}
+            className={`flex items-center gap-1.5 rounded px-1 -mx-1 transition-colors ${editable ? "cursor-pointer hover:bg-slate-100" : ""}`}
+            title={(name && customerId) || !editable ? undefined : "Double-click to edit"}
+            onDoubleClick={editable ? startEdit : undefined}
           >
             {name ? (
               customerId ? (
                 <CustomerHoverCard customerId={customerId}>
-                  <EditableLink
-                    href={`/customers/${customerId}`}
-                    onEdit={startEdit}
-                    className={`${LINK} block min-w-0`}
-                  >
-                    <FadeText>{name}</FadeText>
-                  </EditableLink>
+                  {editable ? (
+                    <EditableLink href={`/customers/${customerId}`} onEdit={startEdit} className={`${LINK} block min-w-0`}>
+                      <FadeText>{name}</FadeText>
+                    </EditableLink>
+                  ) : (
+                    <Link href={`/customers/${customerId}`} className={`${LINK} block min-w-0`}>
+                      <FadeText>{name}</FadeText>
+                    </Link>
+                  )}
                 </CustomerHoverCard>
               ) : (
                 <FadeText className="text-slate-900">{name}</FadeText>

@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, useRef } from "react";
+import Link from "next/link";
 import { EditableLink } from "@/components/EditableLink";
 import { ConfigProvider, Input, Select, DatePicker } from "antd";
 import type { InputRef } from "antd";
@@ -41,16 +42,16 @@ function shownDate(value: string): string {
 }
 
 /**
- * The Trade Direction of the shipment a page shows. A Shipment Status cell inside it offers
- * only that direction's statuses (see getFilteredStatusOptions); without it, all of them.
- */
-/**
  * Whether the user may change the details of the shipment around these cells (lib/shipmentEditRule).
- * Provided by the shipment page; a grid decides per row and cell itself. The departments' own
- * fields stay editable either way.
+ * Provided by the shipment page and per row by a grid. The departments' own fields stay editable
+ * either way; a locked cell shows its value just as an open one does, with nothing to edit.
  */
 export const ShipmentDetailsEditableContext = createContext(true);
 
+/**
+ * The Trade Direction of the shipment a page shows. A Shipment Status cell inside it offers
+ * only that direction's statuses (see getFilteredStatusOptions); without it, all of them.
+ */
 export const TradeDirectionContext = createContext<string | undefined>(undefined);
 
 /**
@@ -212,9 +213,10 @@ function EditableCellBody({
     const textStyle = hasValue ? displayStyle : undefined;
     return (
       <span
-        className={`${className ?? ""} ${locked ? "" : "cursor-pointer"} rounded px-1 -mx-1 hover:bg-slate-100 transition-colors ${multiline ? "block" : "flex items-center"}`}
+        // Locked, it reads as a plain value: no pointer, no hover and no hint to edit it.
+        className={`${className ?? ""} ${locked ? "" : "cursor-pointer hover:bg-slate-100"} rounded px-1 -mx-1 transition-colors ${multiline ? "block" : "flex items-center"}`}
         title={hasValue || locked ? undefined : "Double-click to edit"}
-        onDoubleClick={startEditing}
+        onDoubleClick={locked ? undefined : startEditing}
       >
         {multiline ? (
           // Address blocks keep their lines.
@@ -228,25 +230,32 @@ function EditableCellBody({
           // double click changes the contact (as on every other cell).
           isContact && hasValue && customerId ? (
             <ContactHoverCard name={original} contactId={contactId} customerId={customerId} emailSubject={emailSubject}>
-              <EditableLink
-                href={customerContactHref(customerId, original, contactId)}
-                onEdit={startEditing}
-                // The app's link (LINK in styles/ui.ts) without its "!" colour, so a conditional
-                // format's colour (textStyle) still wins.
-                className="block min-w-0 text-indigo-600 hover:!underline"
-                style={textStyle}
-              >
-                <FadeText>{shown}</FadeText>
-              </EditableLink>
+              {locked ? (
+                // Nothing to edit: the link opens at once, with no wait for a second click.
+                <Link href={customerContactHref(customerId, original, contactId)} className="block min-w-0 text-indigo-600 hover:!underline" style={textStyle}>
+                  <FadeText>{shown}</FadeText>
+                </Link>
+              ) : (
+                <EditableLink
+                  href={customerContactHref(customerId, original, contactId)}
+                  onEdit={startEditing}
+                  // The app's link (LINK in styles/ui.ts) without its "!" colour, so a conditional
+                  // format's colour (textStyle) still wins.
+                  className="block min-w-0 text-indigo-600 hover:!underline"
+                  style={textStyle}
+                >
+                  <FadeText>{shown}</FadeText>
+                </EditableLink>
+              )}
             </ContactHoverCard>
           ) : (
-            <FadeText className={textClass} style={textStyle} title="Double-click to edit">
+            <FadeText className={textClass} style={textStyle} title={locked ? undefined : "Double-click to edit"}>
               {shown}
             </FadeText>
           )
         )}
         {geoKind && <GeoFlag kind={geoKind} value={original} />}
-        {isUser && hasValue && <UnlinkedPersonMark value={original} hint="double-click to pick one" />}
+        {isUser && hasValue && <UnlinkedPersonMark value={original} hint={locked ? "only its Person in Charge, Holiday Cover or a manager can pick one" : "double-click to pick one"} />}
       </span>
     );
   }

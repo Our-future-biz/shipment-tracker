@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isUuid } from "../../../lib/uuid";
 import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
 import type { Actor } from "../../../lib/rbac";
@@ -96,7 +97,7 @@ class QuoteChatService {
 
   private async line(actor: Actor, quoteNumber: string, commentId: string): Promise<QuoteCommentRecord> {
     const { threadRef } = await this.thread(actor, quoteNumber);
-    const comment = await quoteCommentRepository.getByIdForCompany(commentId, actor.companyID);
+    const comment = isUuid(commentId) ? await quoteCommentRepository.getByIdForCompany(commentId, actor.companyID) : null;
     if (comment?.threadRef !== threadRef) throw APIError.notFound("Message not found");
     return comment;
   }

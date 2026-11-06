@@ -12,7 +12,7 @@ import { formatDate } from "@/lib/date";
 import { useToast } from "@/lib/toast";
 import { BTN_GHOST, BTN_SM, EMPTY, HINT, LINK, REF, TD, TH } from "@/styles/ui";
 import { FreeTimeModal } from "./FreeTimeModal";
-import { clockStatus, freeTimeWords } from "./trackingText";
+import { clockStatus, detentionLineOn, freeTimeWords } from "./trackingText";
 
 const DETENTION_CODE = "container_detention";
 
@@ -26,23 +26,28 @@ interface FreeTimeCardProps {
 /** How long each box may stay out before the carrier charges for it. A chargeable one proposes a cost line; only a person adds it. */
 export function FreeTimeCard({ shipment, clocks, mayChangeDetails, onOpen }: FreeTimeCardProps) {
   const [editing, setEditing] = useState<TrackingContainerClock | null>(null);
-  const { data: costs } = useInvoicing(shipment.id);
+  const { data: costs, isError: costsFailed } = useInvoicing(shipment.id);
   const queryClient = useQueryClient();
   const toast = useToast();
-  const detentionLines = (costs?.costs ?? []).filter((c) => c.category === DETENTION_CODE);
+  // A line is proposed only against the costs as they stand: before they are read, its currency,
+  // its place and whether it is already there are not known.
+  const costsWhy = costs ? "" : costsFailed ? "Could not load the costs: try again later" : "Loading the costs…";
 
   const addCost = useMutation({
-    mutationFn: (clock: TrackingContainerClock) =>
-      api.invoicing.invoicingAddBuyingCost(shipment.id, {
+    mutationFn: async (clock: TrackingContainerClock) => {
+      if (!costs) throw new Error(costsWhy);
+      return api.invoicing.invoicingAddBuyingCost(shipment.id, {
         category: DETENTION_CODE,
         description: `Detention ${clock.containerNumber}: ${clock.chargeableDays} days after ${formatDate(clock.lastFreeDay)}`,
         realQty: String(clock.chargeableDays),
-        realCurrency: costs?.billingSettings?.billingCurrency || "CZK",
+        realCurrency: costs.billingSettings?.billingCurrency || "CZK",
         unit: "day",
-        sortOrder: costs?.costs?.length ?? 0,
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: invoicingKey(shipment.id) });
+        sortOrder: costs.costs.length,
+      });
+    },
+    // Busy until the costs are read again, so a second click can't add the line twice.
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: invoicingKey(shipment.id) });
       onOpen("costs");
     },
     onError: (err) => toast.error(apiErrorMessage(err)),
@@ -64,7 +69,7 @@ export function FreeTimeCard({ shipment, clocks, mayChangeDetails, onOpen }: Fre
           <tbody>
             {clocks.map((clock) => {
               const status = clockStatus(clock);
-              const onCosts = detentionLines.some((c) => (c.description ?? "").includes(clock.containerNumber));
+              const onCosts = !!costs && detentionLineOn(costs.costs, clock.containerNumber, clocks.length, DETENTION_CODE);
               return (
                 <tr key={clock.containerId}>
                   <td className={`${TD} ${REF}`}>{clock.containerNumber}</td>
@@ -81,7 +86,13 @@ export function FreeTimeCard({ shipment, clocks, mayChangeDetails, onOpen }: Fre
                             On Costs
                           </button>
                         ) : (
-                          <button type="button" disabled={addCost.isPending} onClick={() => addCost.mutate(clock)} className={`${BTN_GHOST} ${BTN_SM}`} title="Adds a line to Costs with the days and no price: you fill in the rest">
+                          <button
+                            type="button"
+                            disabled={!costs || addCost.isPending}
+                            onClick={() => addCost.mutate(clock)}
+                            className={`${BTN_GHOST} ${BTN_SM}`}
+                            title={costsWhy || "Adds a line to Costs with the days and no price: you fill in the rest"}
+                          >
                             Add a cost line
                           </button>
                         ))}

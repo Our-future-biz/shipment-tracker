@@ -4,6 +4,7 @@ import { useEffect, useSyncExternalStore } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { navLabelOf } from "@/components/AppSidebar";
 import { useShipment } from "@/hooks/useShipment";
+import { useAuth } from "@/lib/auth/AuthContext";
 
 // A customer's page is opened from all over the app (shipments, quotes, invoicing, customs...), so
 // it remembers where the user came from and offers the way back beside Customer Database. The page
@@ -34,11 +35,11 @@ export function nextCameFrom(stored: CameFrom | null, previous: string | null, c
   return { customerId, href: previous };
 }
 
-// What the link is called: the quote's number, or the page's name in the menu.
-export function cameFromLabel(href: string): string {
+// What the link is called: the quote's number, or the page's name in `user`'s menu.
+export function cameFromLabel(href: string, user: { role: string } | null): string {
   const segments = segmentsOf(href);
   if (segments[0] === "sales" && segments[1] === "quote" && segments[2]) return segments[2];
-  return navLabelOf(`/${segments.join("/")}`) ?? "Previous page";
+  return navLabelOf(`/${segments.join("/")}`, user) ?? "Previous page";
 }
 
 function readStored(): string | null {
@@ -93,6 +94,7 @@ export function CustomerCameFromTracker() {
 // Where this customer's page leads back to, or null when there is nowhere but the list. A shipment
 // is named by its job number, read by the id in its address.
 export function useCustomerCameFrom(customerId: string): { href: string; label: string } | null {
+  const { user } = useAuth();
   const cameFrom = parseStored(useSyncExternalStore(subscribe, readStored, () => null));
   const href = cameFrom?.customerId === customerId ? cameFrom.href : null;
   const [section, shipmentId] = href ? segmentsOf(href) : [];
@@ -100,5 +102,5 @@ export function useCustomerCameFrom(customerId: string): { href: string; label: 
   const { shipment } = useShipment(fromShipment ? shipmentId : undefined);
 
   if (!href) return null;
-  return { href, label: fromShipment ? shipment?.jobNumber || "Shipment" : cameFromLabel(href) };
+  return { href, label: fromShipment ? shipment?.jobNumber || "Shipment" : cameFromLabel(href, user) };
 }

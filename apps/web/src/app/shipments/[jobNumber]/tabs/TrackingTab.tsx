@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Alert, Spin, Switch } from "antd";
 import { CopyButton } from "@/components/CopyButton";
 import { PillTabs } from "@/components/SectionCard";
 import { useJobFxRates } from "@/hooks/useFx";
 import type { ShipmentItem } from "@/hooks/useShipments";
-import { useShipmentTracking, useTrackingActions } from "@/hooks/useShipmentTracking";
+import { useShipmentTracking, useTrackingBell, useTrackingMarkRead } from "@/hooks/useShipmentTracking";
 import { apiErrorMessage } from "@/lib/api";
 import { BTN_GHOST, BTN_PRIMARY, BTN_SM, CARD, HINT } from "@/styles/ui";
 import { jobFxDates } from "./costsRows";
@@ -23,7 +23,7 @@ import { RecordEventModal } from "./tracking/RecordEventModal";
 import { TellCustomerModal } from "./tracking/TellCustomerModal";
 import { RecordedBy } from "./tracking/RecordedBy";
 import { TimelineCard } from "./tracking/TimelineCard";
-import { taxDateParts, trackingStatusLine } from "./tracking/trackingText";
+import { mayRecordKind, taxDateParts, trackingStatusLine } from "./tracking/trackingText";
 
 type View = "all" | "actuals" | "changes";
 
@@ -41,9 +41,21 @@ export function TrackingTab({ shipment, onOpen }: { shipment: ShipmentItem; onOp
   const [reading, setReading] = useState(false);
   const [linking, setLinking] = useState(false);
   const [telling, setTelling] = useState<NoticeKindValue | null>(null);
-  // Opening the tab is seeing what the bell says about this shipment.
-  const { mutate: markRead } = useTrackingActions(shipment.id).markRead;
-  useEffect(() => markRead(), [markRead]);
+  // Opening the tab is seeing what the bell says about this shipment, and so is having it open
+  // when something new about it arrives.
+  const { mutate: markRead } = useTrackingMarkRead();
+  const { notices } = useTrackingBell();
+  const unreadHere = notices
+    .filter((n) => n.unread && n.shipmentId === shipment.id)
+    .map((n) => `${n.key}:${n.at}`)
+    .join("|");
+  const markedFor = useRef<string | null>(null);
+  useEffect(() => {
+    const opened = markedFor.current === null;
+    if (!opened && (!unreadHere || unreadHere === markedFor.current)) return;
+    markedFor.current = unreadHere;
+    markRead(shipment.id);
+  }, [markRead, shipment.id, unreadHere]);
   const { data, isLoading, error } = useShipmentTracking(shipment.id);
   const { data: rates } = useJobFxRates(shipment.id, jobFxDates(shipment));
 
@@ -59,6 +71,7 @@ export function TrackingTab({ shipment, onOpen }: { shipment: ShipmentItem; onOp
   }
 
   const statusLine = trackingStatusLine(shipment, data.milestones);
+  const mayRecord = (kind: string) => mayRecordKind(data, kind);
   const showChanges = !customerView && view !== "actuals";
   const showTimeline = customerView || view !== "changes";
 
@@ -115,12 +128,12 @@ export function TrackingTab({ shipment, onOpen }: { shipment: ShipmentItem; onOp
         </div>
       </div>
 
-      {!customerView && view === "all" && <AttentionCard shipmentId={shipment.id} items={data.attention} onTell={setTelling} />}
+      {!customerView && view === "all" && <AttentionCard shipmentId={shipment.id} items={data.attention} mayRecord={mayRecord} onTell={setTelling} />}
       {showTimeline && (
         <TimelineCard shipment={shipment} milestones={data.milestones} actualsOnly={!customerView && view === "actuals"} customerView={customerView} onOpen={onOpen} onTellPod={() => setTelling("pod_sent")} />
       )}
       {!customerView && view === "all" && data.containerClocks.length > 0 && <FreeTimeCard shipment={shipment} clocks={data.containerClocks} mayChangeDetails={data.mayChangeDetails} onOpen={onOpen} />}
-      {!customerView && view === "all" && <EventsCard shipmentId={shipment.id} events={data.events} mayChangeDetails={data.mayChangeDetails} containers={(shipment.containers ?? []).map((c) => c.containerNumber).filter(Boolean)} />}
+      {!customerView && view === "all" && <EventsCard shipmentId={shipment.id} events={data.events} mayChangeDetails={data.mayChangeDetails} mayRecord={mayRecord} containers={(shipment.containers ?? []).map((c) => c.containerNumber).filter(Boolean)} />}
       {!customerView && view === "all" && data.customerNotices.length > 0 && <CustomerNoticesCard notices={data.customerNotices} />}
       {showChanges && <ChangesCard changes={data.changes} capped={data.changesCapped} />}
       {!customerView && view === "all" && <ChecklistCard tradeDirection={shipment.tradeDirection} freightMode={shipment.freightMode ?? ""} ticks={data.ticks} />}

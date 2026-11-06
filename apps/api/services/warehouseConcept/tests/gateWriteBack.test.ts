@@ -52,7 +52,8 @@ const outboxOf = (movementId: string) => db.select().from(o).where(eq(o.movement
 // Makes every pending row of a record due now (as if its wait had passed).
 const makeDue = (movementId: string) =>
   db.update(o).set({ nextAttemptAt: new Date(Date.now() - 1000) }).where(and(eq(o.movementId, movementId), eq(o.status, "pending")));
-const asUser = (c: string, role = "user") => ({ authData: { userID: user, companyID: c, role } });
+// The shipment update a stamp sends: as the stamping user, marked as the app's own write (appWrite).
+const asUser = (c: string, role = "user") => ({ authData: { userID: user, companyID: c, role, appWrite: true } });
 
 describe("gate stamps write back to the shipment", () => {
   beforeEach(() => {

@@ -6,6 +6,7 @@ import { Button, Input, Modal } from "antd";
 import { UploadOutlined } from "@ant-design/icons";
 import type { DocumentChangeRequestItem } from "@/hooks/useDocumentChangeRequests";
 import { useToast } from "@/lib/toast";
+import { apiErrorMessage } from "@/lib/api";
 import { formatFileSize } from "./docsShared";
 import { HINT, LABEL_TEXT, LINK } from "@/styles/ui";
 
@@ -29,7 +30,7 @@ export function ChangeAfterApprovalModal({ document, saving, onSend, onClose }: 
         toast.success("Request sent for a manager's approval");
         onClose();
       })
-      .catch((e) => toast.error(e instanceof Error && e.message ? e.message : "Could not send the request"));
+      .catch((e) => toast.error(`Could not send the request: ${apiErrorMessage(e)}`));
   };
 
   return (

@@ -8,9 +8,10 @@ const repo = vi.hoisted(() => ({
   listForManagers: vi.fn(),
   answersFor: vi.fn(),
   answer: vi.fn(),
-  reopen: vi.fn(),
+  approveWithSwap: vi.fn(),
   markSeen: vi.fn(),
 }));
+const NoLongerApproved = vi.hoisted(() => class DocumentNoLongerApproved extends Error {});
 const attachments = vi.hoisted(() => ({ getForShipment: vi.fn(), createForCompany: vi.fn(), softDeleteForCompany: vi.fn() }));
 const bucket = vi.hoisted(() => ({ upload: vi.fn(), remove: vi.fn(), download: vi.fn() }));
 const comments = vi.hoisted(() => ({ postDocumentChangeNotice: vi.fn() }));
@@ -22,7 +23,7 @@ vi.mock("../../lib/contentToken", () => ({
   documentChangeContentUrl: () => "/new",
   companyOfDocumentChangeToken: () => "c1",
 }));
-vi.mock("../../repositories/documentChangeRequest.repository", () => ({ documentChangeRequestRepository: repo }));
+vi.mock("../../repositories/documentChangeRequest.repository", () => ({ documentChangeRequestRepository: repo, DocumentNoLongerApproved: NoLongerApproved }));
 vi.mock("../../repositories/shipmentAttachment.repository", () => ({ shipmentAttachmentRepository: attachments }));
 vi.mock("../../storage/attachmentBucket", () => ({ attachmentBucket: bucket }));
 vi.mock("../../services/comment.service", () => ({ commentService: comments }));
@@ -68,6 +69,7 @@ beforeEach(() => {
   repo.create.mockImplementation(async (values) => request(values));
   repo.get.mockResolvedValue(request());
   repo.answer.mockImplementation(async (_id, _company, answer) => request(answer));
+  repo.approveWithSwap.mockImplementation(async (_id, _company, answer) => request({ ...answer, status: "approved" }));
 });
 
 describe("asking to change an approved document", () => {
@@ -113,19 +115,17 @@ describe("answering a request", () => {
     expect(repo.answer).not.toHaveBeenCalled();
   });
 
-  it("approved, the new file becomes the document, at pending, and the old one leaves the lists with its file kept", async () => {
+  it("approved, the new file becomes the document, at pending, and the old one leaves the lists with its file kept, in one turn", async () => {
     const item = await requests.decide(manager, ID, { approve: true });
     expect(item.status).toBe("approved");
-    expect(attachments.createForCompany).toHaveBeenCalledWith("c1", {
-      shipmentId: SHIPMENT,
-      fileName: "new.pdf",
-      fileSize: 10,
-      fileType: "application/pdf",
-      storageKey: "key",
-      documentType: "Invoice",
-      uploadedById: user.userID,
-    });
-    expect(attachments.softDeleteForCompany).toHaveBeenCalledWith(DOC, "c1");
+    expect(repo.approveWithSwap).toHaveBeenCalledWith(
+      ID,
+      "c1",
+      expect.objectContaining({ decidedById: manager.userID, comment: "" }),
+      { attachmentId: DOC, shipmentId: SHIPMENT },
+      { fileName: "new.pdf", fileSize: 10, fileType: "application/pdf", storageKey: "key", documentType: "Invoice", uploadedById: user.userID },
+    );
+    expect(repo.answer).not.toHaveBeenCalled();
     expect(bucket.remove).not.toHaveBeenCalled();
   });
 
@@ -134,8 +134,7 @@ describe("answering a request", () => {
     const item = await requests.decide(manager, ID, { approve: false, comment: "It is right" });
     expect(item.status).toBe("rejected");
     expect(bucket.remove).toHaveBeenCalledWith("key");
-    expect(attachments.createForCompany).not.toHaveBeenCalled();
-    expect(attachments.softDeleteForCompany).not.toHaveBeenCalled();
+    expect(repo.approveWithSwap).not.toHaveBeenCalled();
   });
 
   it("does not approve once the document is no longer the approved one", async () => {
@@ -143,21 +142,25 @@ describe("answering a request", () => {
       attachments.getForShipment.mockResolvedValueOnce(current);
       await expect(requests.decide(manager, ID, { approve: true })).rejects.toThrow("has changed since");
     }
-    expect(repo.answer).not.toHaveBeenCalled();
+    expect(repo.approveWithSwap).not.toHaveBeenCalled();
+    // Changed between the read and the swap: the transaction finds it gone and writes nothing.
+    repo.approveWithSwap.mockRejectedValueOnce(new NoLongerApproved());
+    await expect(requests.decide(manager, ID, { approve: true })).rejects.toThrow("has changed since");
   });
 
   it("does not answer twice", async () => {
     repo.get.mockResolvedValueOnce(request({ status: "approved" }));
     await expect(requests.decide(manager, ID, { approve: true })).rejects.toThrow("already been answered");
-    repo.answer.mockResolvedValueOnce(null);
+    repo.approveWithSwap.mockResolvedValueOnce(null);
     await expect(requests.decide(manager, ID, { approve: true })).rejects.toThrow("already been answered");
-    expect(attachments.createForCompany).not.toHaveBeenCalled();
+    repo.answer.mockResolvedValueOnce(null);
+    await expect(requests.decide(manager, ID, { approve: false, comment: "It is right" })).rejects.toThrow("already been answered");
+    expect(bucket.remove).not.toHaveBeenCalled();
   });
 
-  it("gives the answer back when the swap fails", async () => {
-    attachments.createForCompany.mockRejectedValueOnce(new Error("write failed"));
+  it("lets a failed swap through as an error, the request still waiting", async () => {
+    repo.approveWithSwap.mockRejectedValueOnce(new Error("write failed"));
     await expect(requests.decide(manager, ID, { approve: true })).rejects.toThrow("write failed");
-    expect(repo.reopen).toHaveBeenCalledWith(ID, "c1");
   });
 });
 

@@ -19,6 +19,7 @@ export const DEPARTMENT_FIELDS: ReadonlySet<string> = new Set([
   "principalPartyId",
   "commercialInvoice",
   "commercialInvoices",
+  "commercialInvoiceValue",
   "csRecvInvoice",
   "csRecvPacking",
   // Warehouse
