@@ -128,3 +128,12 @@ export function clockStatus(c: ClockWords): { text: string; tone: "red" | "amber
       return { text: "Not set", tone: null };
   }
 }
+
+/** How long after the delivery a claim's notice was given. No deadline: the legal day counts per mode are still to be checked. */
+export function noticeWords(delivered?: string | null, notice?: string | null): string {
+  if (!delivered || !notice) return "";
+  const days = Math.round((Date.parse(`${notice}T00:00:00Z`) - Date.parse(`${delivered}T00:00:00Z`)) / 86_400_000);
+  if (days === 0) return "On the day of delivery";
+  const count = Math.abs(days) === 1 ? "1 day" : `${Math.abs(days)} days`;
+  return days > 0 ? `${count} after delivery` : `${count} before delivery`;
+}

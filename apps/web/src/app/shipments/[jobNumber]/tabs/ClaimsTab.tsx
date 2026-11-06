@@ -1,12 +1,15 @@
 "use client";
 
-import { Input, Select, Tooltip, message } from "antd";
+import { DatePicker, Input, Select, Tooltip, message } from "antd";
+import dayjs from "dayjs";
 import { DeleteOutlined, FileTextOutlined, PlusOutlined, WarningOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import type { controllers, interfaces } from "@/lib/api/client";
-import { CARD, CARD_BAR, CARD_ICON, CARD_TITLE, HINT, ICON_BTN_GHOST, TD, TH } from "@/styles/ui";
+import { formatDate } from "@/lib/date";
+import { CARD, CARD_BAR, CARD_ICON, CARD_TITLE, EMPTY, HINT, ICON_BTN_GHOST, TD, TH } from "@/styles/ui";
+import { noticeWords } from "./tracking/trackingText";
 
 // Claim tab: claims on the shipment itself (how the cargo arrived) and claims on a
 // supplier's costs. Each card holds as many claims as needed — "+" adds a row.
@@ -134,12 +137,12 @@ export function ClaimsTab({ shipment }: { shipment: ShipmentItem }) {
   return (
     <>
       {contextHolder}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
+      <div className="grid grid-cols-1 2xl:grid-cols-2 gap-5 items-start">
         {card(
           "Claim on the shipment",
           <WarningOutlined />,
           "cargo",
-          ["Cargo state", "Note"],
+          ["Cargo state", "Note", "Delivered", "Notice given"],
           claims
             .filter((c) => c.kind === "cargo")
             .map((c) => (
@@ -156,6 +159,20 @@ export function ClaimsTab({ shipment }: { shipment: ShipmentItem }) {
                   />
                 </td>
                 <td className={CELL}>{text(c, "note", "What happened")}</td>
+                <td className={`${CELL} whitespace-nowrap tabular-nums`}>{shipment.actualDeliveryDate ? formatDate(shipment.actualDeliveryDate) : <span className={EMPTY}>—</span>}</td>
+                <td className={`${CELL} w-[150px]`}>
+                  <DatePicker
+                    size="small"
+                    variant="borderless"
+                    format="DD.MM.YYYY"
+                    aria-label="Notice given"
+                    placeholder="—"
+                    className="w-full"
+                    value={c.noticeDate ? dayjs(c.noticeDate) : null}
+                    onChange={(day) => update.mutate({ id: c.id, noticeDate: day ? day.format("YYYY-MM-DD") : "" })}
+                  />
+                  {noticeWords(shipment.actualDeliveryDate, c.noticeDate) && <div className={HINT}>{noticeWords(shipment.actualDeliveryDate, c.noticeDate)}</div>}
+                </td>
                 {deleteCell(c)}
               </tr>
             )),

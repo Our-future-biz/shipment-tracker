@@ -14,6 +14,7 @@ import * as customsOfficeRequestSchema from "../schemas/customsOfficeRequest.sch
 import * as documentChangeRequestSchema from "../schemas/documentChangeRequest.schema";
 import * as shipmentTrackingEventSchema from "../schemas/shipmentTrackingEvent.schema";
 import * as shipmentCustomerNoticeSchema from "../schemas/shipmentCustomerNotice.schema";
+import * as shipmentCustomerLinkSchema from "../schemas/shipmentCustomerLink.schema";
 import * as shipmentTrackingReadSchema from "../schemas/shipmentTrackingRead.schema";
 
 export const DB = new SQLDatabase("shipments", {
@@ -37,6 +38,7 @@ export const db = drizzle(pool, {
     ...documentChangeRequestSchema,
     ...shipmentTrackingEventSchema,
     ...shipmentCustomerNoticeSchema,
+    ...shipmentCustomerLinkSchema,
     ...shipmentTrackingReadSchema,
   },
 });

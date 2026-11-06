@@ -2270,6 +2270,9 @@ export namespace shipments {
             this.commentMentions = this.commentMentions.bind(this)
             this.commentStrike = this.commentStrike.bind(this)
             this.commentUnread = this.commentUnread.bind(this)
+            this.customerLinkCreate = this.customerLinkCreate.bind(this)
+            this.customerLinkGet = this.customerLinkGet.bind(this)
+            this.customerLinkRevoke = this.customerLinkRevoke.bind(this)
             this.customerNoticeRecord = this.customerNoticeRecord.bind(this)
             this.customsOfficeRequestAnswers = this.customsOfficeRequestAnswers.bind(this)
             this.customsOfficeRequestAsk = this.customsOfficeRequestAsk.bind(this)
@@ -2293,6 +2296,7 @@ export namespace shipments {
             this.masterJobShipmentsLink = this.masterJobShipmentsLink.bind(this)
             this.masterJobTracking = this.masterJobTracking.bind(this)
             this.masterJobUpdate = this.masterJobUpdate.bind(this)
+            this.publicShipmentStatus = this.publicShipmentStatus.bind(this)
             this.shipmentCreate = this.shipmentCreate.bind(this)
             this.shipmentDashboard = this.shipmentDashboard.bind(this)
             this.shipmentDelete = this.shipmentDelete.bind(this)
@@ -2491,6 +2495,38 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/shipment-comments/unread`)
             return await resp.json() as controllers.CommentUnreadResponse
+        }
+
+        /**
+         * A new link, in place of any earlier one. The answer is the only time the URL is known.
+         */
+        public async customerLinkCreate(shipmentId: string): Promise<{
+    url: string
+    link: interfaces.ShipmentCustomerLink
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/customer-link`)
+            return await resp.json() as {
+    url: string
+    link: interfaces.ShipmentCustomerLink
+}
+        }
+
+        /**
+         * The shipment's link, as the desk sees it.
+         */
+        public async customerLinkGet(shipmentId: string): Promise<{
+    link: interfaces.ShipmentCustomerLink | null
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipments/${encodeURIComponent(shipmentId)}/customer-link`)
+            return await resp.json() as {
+    link: interfaces.ShipmentCustomerLink | null
+}
+        }
+
+        public async customerLinkRevoke(shipmentId: string): Promise<void> {
+            await this.baseClient.callTypedAPI("DELETE", `/shipments/${encodeURIComponent(shipmentId)}/customer-link`)
         }
 
         /**
@@ -2738,6 +2774,20 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PATCH", `/master-jobs/${encodeURIComponent(masterJobId)}`, JSON.stringify(params))
             return await resp.json() as controllers.MasterJobUpdateResponse
+        }
+
+        /**
+         * The customer's page, without a login: the link's token is the only key. Every invalid, revoked or
+         * expired link answers the same 404.
+         */
+        public async publicShipmentStatus(token: string): Promise<{
+    status: interfaces.PublicShipmentStatus
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/public/shipment-status/${encodeURIComponent(token)}`)
+            return await resp.json() as {
+    status: interfaces.PublicShipmentStatus
+}
         }
 
         public async shipmentCreate(params: controllers.ShipmentCreateRequest): Promise<controllers.ShipmentCreateResponse> {
@@ -6348,6 +6398,10 @@ export namespace controllers {
         invoiceNumber?: string
         reason?: string
         amount?: string
+        /**
+         * yyyy-mm-dd; "" takes it back
+         */
+        noticeDate?: string
     }
 
     export interface ClaimListResponse {
@@ -6365,6 +6419,10 @@ export namespace controllers {
         invoiceNumber?: string
         reason?: string
         amount?: string
+        /**
+         * yyyy-mm-dd; "" takes it back
+         */
+        noticeDate?: string
     }
 
     export interface CollectionDatesRequest {
@@ -12037,6 +12095,11 @@ export namespace interfaces {
          */
         amount: string
 
+        /**
+         * The day the carrier or supplier was given notice; null when not yet.
+         */
+        noticeDate: string | null
+
         createdAt: string
     }
 
@@ -16363,15 +16426,6 @@ export namespace interfaces {
     export type PalletType = "EUR" | "INDUSTRIAL" | "HALF" | "QUARTER" | "OTHER"
 
     /**
-     * What the people backfill did: values looked at, records changed, values left as they are.
-     */
-    export interface PeopleNormalizeResult {
-        checked: number
-        changed: number
-        unmatched: PeopleNormalizeUnmatched[]
-    }
-
-    /**
      * What the people backfill did to the company's live shipments.
      */
     export interface PeopleNormalizeResult {
@@ -16389,6 +16443,15 @@ export namespace interfaces {
          * The names left as they are, most frequent first: to be fixed by hand.
          */
         unmatched: UnmatchedPerson[]
+    }
+
+    /**
+     * What the people backfill did: values looked at, records changed, values left as they are.
+     */
+    export interface PeopleNormalizeResult {
+        checked: number
+        changed: number
+        unmatched: PeopleNormalizeUnmatched[]
     }
 
     /**
@@ -16883,6 +16946,41 @@ export namespace interfaces {
          * What was priced on a fallback someone should look at (a missing or an earlier month's fuel index); absent when none
          */
         findings?: string[]
+    }
+
+    /**
+     * One step on the customer's page.
+     */
+    export interface PublicMilestone {
+        key: string
+        label: string
+        leg: string
+        place: string
+        planned: string | null
+        actual: string | null
+        detail: string
+        state: "done" | "next" | "open"
+    }
+
+    /**
+     * All a customer's link shows: nothing else leaves the app through it.
+     */
+    export interface PublicShipmentStatus {
+        /**
+         * Whose page it is; "" when it couldn't be read.
+         */
+        ourCompany: string
+
+        reference: string
+        customerReference: string
+        direction: string
+        freightMode: string
+        pol: string
+        pod: string
+        vessel: string
+        containers: string[]
+        milestones: PublicMilestone[]
+        asOf: string
     }
 
     /**
@@ -18456,6 +18554,24 @@ export namespace interfaces {
             rowNo: number
             cells: { [key: string]: string }
         }[]
+    }
+
+    /**
+     * A shipment's customer link as the desk sees it; the URL isn't kept.
+     */
+    export interface ShipmentCustomerLink {
+        createdAt: string
+        createdBy: string
+        lastOpenedAt: string | null
+        /**
+         * The last day it opens; null until the job is delivered.
+         */
+        openUntil: string | null
+
+        /**
+         * False once the job is cancelled or that day has passed.
+         */
+        open: boolean
     }
 
     /**

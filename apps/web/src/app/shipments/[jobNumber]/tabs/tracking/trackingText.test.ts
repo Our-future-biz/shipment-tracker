@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import type { TrackingMilestone, TrackingTaxDate } from "@/hooks/useShipmentTracking";
-import { clockStatus, freeTimeWords, movedDaysLabel, readFactWords, taxDateParts, trackingStatusLine } from "./trackingText";
+import { clockStatus, freeTimeWords, movedDaysLabel, noticeWords, readFactWords, taxDateParts, trackingStatusLine } from "./trackingText";
 
 const shipment = (over: Partial<ShipmentItem> = {}) =>
   ({
@@ -127,5 +127,18 @@ describe("free time in words", () => {
     expect(clockStatus({ ...clock, state: "returned", chargeableDays: 0 })).toEqual({ text: "Returned in time", tone: "slate" });
     expect(clockStatus({ ...clock, state: "returned", chargeableDays: 2 })).toEqual({ text: "Returned 2 days over", tone: "red" });
     expect(clockStatus({ ...clock, state: "unknown" })).toEqual({ text: "Not set", tone: null });
+  });
+});
+
+describe("noticeWords", () => {
+  it("counts from the delivery", () => {
+    expect(noticeWords("2026-11-01", "2026-11-04")).toBe("3 days after delivery");
+    expect(noticeWords("2026-11-01", "2026-11-02")).toBe("1 day after delivery");
+    expect(noticeWords("2026-11-01", "2026-11-01")).toBe("On the day of delivery");
+    expect(noticeWords("2026-11-03", "2026-11-01")).toBe("2 days before delivery");
+  });
+  it("says nothing without both days", () => {
+    expect(noticeWords(null, "2026-11-01")).toBe("");
+    expect(noticeWords("2026-11-01", null)).toBe("");
   });
 });

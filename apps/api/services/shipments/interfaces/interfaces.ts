@@ -523,6 +523,8 @@ export interface ClaimItem {
   reason: string;
   /** Disputed amount, with currency. */
   amount: string;
+  /** The day the carrier or supplier was given notice; null when not yet. */
+  noticeDate: string | null;
   createdAt: string;
 }
 
@@ -533,6 +535,8 @@ export interface ClaimInput {
   invoiceNumber?: string;
   reason?: string;
   amount?: string;
+  /** yyyy-mm-dd; "" takes it back */
+  noticeDate?: string;
 }
 
 /** Unread chat messages of one shipment, for the user asking. */
@@ -1038,6 +1042,45 @@ export interface TrackingLastFreeDayChange {
   day: string;
   containerIds: string[];
   containerNumbers: string[];
+}
+
+/** A shipment's customer link as the desk sees it; the URL isn't kept. */
+export interface ShipmentCustomerLink {
+  createdAt: string;
+  createdBy: string;
+  lastOpenedAt: string | null;
+  /** The last day it opens; null until the job is delivered. */
+  openUntil: string | null;
+  /** False once the job is cancelled or that day has passed. */
+  open: boolean;
+}
+
+/** One step on the customer's page. */
+export interface PublicMilestone {
+  key: string;
+  label: string;
+  leg: string;
+  place: string;
+  planned: string | null;
+  actual: string | null;
+  detail: string;
+  state: "done" | "next" | "open";
+}
+
+/** All a customer's link shows: nothing else leaves the app through it. */
+export interface PublicShipmentStatus {
+  /** Whose page it is; "" when it couldn't be read. */
+  ourCompany: string;
+  reference: string;
+  customerReference: string;
+  direction: string;
+  freightMode: string;
+  pol: string;
+  pod: string;
+  vessel: string;
+  containers: string[];
+  milestones: PublicMilestone[];
+  asOf: string;
 }
 
 /** One box's free time at the carrier, on the Tracking tab. */

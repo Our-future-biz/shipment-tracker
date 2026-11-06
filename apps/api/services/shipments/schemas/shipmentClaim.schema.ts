@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, uuid, index, check } from "drizzle-orm/pg-core";
+import { date, pgTable, text, uuid, index, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 import { shipmentTable } from "./shipment.schema";
 import type { ClaimKind } from "../interfaces/interfaces";
@@ -18,6 +18,8 @@ export const shipmentClaimTable = pgTable(
     // Claim on the shipment
     cargoState: text("cargo_state").notNull().default(""), // Damaged | Incomplete | Undamaged | Lost
     note: text("note").notNull().default(""),
+    // The day the carrier or supplier was given notice.
+    noticeDate: date("notice_date", { mode: "string" }),
 
     // Claim on costs
     supplier: text("supplier").notNull().default(""),
