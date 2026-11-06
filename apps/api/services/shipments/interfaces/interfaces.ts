@@ -828,6 +828,13 @@ export interface TrackingRecorded {
 
 export type TrackingLeg = "origin" | "main" | "destination";
 
+export interface TrackingProposal {
+  eventId: string;
+  day: string;
+  /** Who reports it ("Carrier", "Document read"). */
+  source: string;
+}
+
 /**
  * done: it happened. next: the first step still to happen. late: its planned date passed and it
  * was not recorded. open: still to come. planned: a date we only plan by, with no actual to record.
@@ -849,6 +856,10 @@ export interface TrackingMilestone {
   /** How far the last change moved it, in days (later is positive); null when it never moved. */
   movedDays: number | null;
   actual: string | null;
+  /** "HH:MM" of the actual date in Prague when known; "" otherwise. */
+  actualTime: string;
+  /** A date a source reports and a person hasn't confirmed yet; null when there is none. */
+  proposed: TrackingProposal | null;
   /** What stands in for a date ("Under Customs Clearance", the MRN); "" when nothing does. */
   detail: string;
   state: TrackingMilestoneState;
@@ -875,7 +886,12 @@ export interface TrackingChange {
 
 /** What needs a look on this shipment, worked out from its dates. */
 export interface TrackingAttention {
-  kind: "moved" | "late";
+  /** moved and late come from the dates; exception is one somebody reported, open until closed; not_told is a date the customer was told that moved. */
+  kind: "moved" | "late" | "exception" | "not_told";
+  /** The reported exception, which can be closed; null for what the dates show. */
+  eventId: string | null;
+  /** Its reason; "" otherwise. */
+  note: string;
   milestoneKey: string;
   /** "ETA", "ETD", … */
   what: string;
@@ -903,7 +919,77 @@ export interface TrackingTaxDate {
   invoiced: boolean | null;
 }
 
+/** A stored fact about the shipment, as the tab lists it. */
+export interface TrackingEventItem {
+  id: string;
+  kind: string;
+  label: string;
+  occurredOn: string;
+  /** "HH:MM" in Prague when known; "" otherwise. */
+  occurredTime: string;
+  place: string;
+  containerNumber: string;
+  note: string;
+  /** Where it came from in words ("Trucking"); "" for a person. */
+  source: string;
+  by: string;
+  recordedAt: string;
+  effect: "none" | "proposed" | "applied" | "dismissed";
+  /** The day it would set or set; null when it sets none. */
+  effectValue: string | null;
+  /** The shipment field it would set or set, in words ("ATA"); "" when none. */
+  sets: string;
+  /** Only what a person recorded can be struck: the rest is changed where it comes from. */
+  strikeable: boolean;
+  resolvedAt: string | null;
+}
+
+/** A kind of event this person may record on this shipment. */
+export interface TrackingRecordableKind {
+  kind: string;
+  label: string;
+  group: "milestone" | "exception" | "note";
+  reasonRequired: boolean;
+  sets: string;
+  taxDate: boolean;
+}
+
+/** What the customer was told, as the tab lists it. */
+export interface TrackingCustomerNotice {
+  id: string;
+  kind: string;
+  label: string;
+  channel: string;
+  toldTo: string;
+  subject: string;
+  note: string;
+  etaPod: string | null;
+  etaWarehouse: string | null;
+  plannedDelivery: string | null;
+  by: string;
+  at: string;
+}
+
+/** A line under the bell about a shipment's dates. */
+export interface TrackingBellNotice {
+  key: string;
+  kind: "date_moved" | "to_confirm" | "not_told";
+  shipmentId: string;
+  jobNumber: string;
+  title: string;
+  text: string;
+  by: string;
+  at: string;
+  unread: boolean;
+}
+
 export interface ShipmentTracking {
+  customerNotices: TrackingCustomerNotice[];
+  events: TrackingEventItem[];
+  /** Empty when nothing can be recorded here: a road job's stamps are set in Trucking. */
+  recordable: TrackingRecordableKind[];
+  /** Whether this person may change the shipment's details, which confirming a date and striking an event take. */
+  mayChangeDetails: boolean;
   milestones: TrackingMilestone[];
   changes: TrackingChange[];
   /** The log holds more than the newest rows read. */

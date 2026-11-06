@@ -1081,6 +1081,13 @@ class ConsignmentService {
       // A job of another department is charged from the Internal tariff once the POD is in.
       if (row.internal) await internalBillingService.chargeDelivered(tx, actor, row, by, internalRateRequest(row));
       await this.settleBilling(tx, actor, c.shipmentId, c.id, by);
+      // The job's people and its customer ask for the POD on the shipment, not in Trucking.
+      const pod = await truckingDocumentRepository.podOf(companyId, c.id, tx);
+      if (pod) {
+        await truckingOutboxRepository.enqueue(tx, companyId, [
+          owed(actor, c, "pod", { fileName: pod.fileName, contentType: pod.contentType, sha256: pod.sha256, storageKey: pod.storageKey, stampedAt: time.toISOString() }),
+        ]);
+      }
     }
     return row;
   }

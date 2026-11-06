@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, uuid, bigint, index, timestamp, check } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, bigint, index, timestamp, check, uniqueIndex } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 import { shipmentTable } from "./shipment.schema";
 import { shipmentCommentTable } from "./shipmentComment.schema";
@@ -27,12 +27,15 @@ export const shipmentAttachmentTable = pgTable(
     customsNote: text("customs_note").notNull().default(""),
     customsReviewedAt: timestamp("customs_reviewed_at", { withTimezone: true }),
     customsReviewedById: uuid("customs_reviewed_by_id"),
+    /** What another module handed this file over as ("trucking:<sha256>"), so a retry adds no second copy; "" for an upload. */
+    sourceRef: text("source_ref").notNull().default(""),
   },
   (table) => [
     ...defaultTableIndexes("shipment_attachment", table),
     tenantIndex("shipment_attachment", table),
     index("shipment_attachment_shipment_id_idx").on(table.shipmentId),
     index("shipment_attachment_comment_id_idx").on(table.commentId),
+    uniqueIndex("shipment_attachment_source_ref_uq").on(table.companyId, table.shipmentId, table.sourceRef).where(sql`source_ref <> '' AND deleted_at IS NULL`),
     check("shipment_attachment_customs_status_check", sql`${table.customsStatus} IN ('', 'approved', 'declined')`),
   ],
 );

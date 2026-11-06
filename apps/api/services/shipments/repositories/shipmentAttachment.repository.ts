@@ -149,6 +149,22 @@ class ShipmentAttachmentRepository extends TenantRepository<typeof shipmentAttac
     return row ?? null;
   }
 
+  /** The live file another module handed over as `sourceRef`. */
+  async findBySourceRef(shipmentId: string, companyId: string, sourceRef: string): Promise<ShipmentAttachmentRecord | null> {
+    const [row] = await this.db
+      .select()
+      .from(shipmentAttachmentTable)
+      .where(and(eq(shipmentAttachmentTable.companyId, companyId), eq(shipmentAttachmentTable.shipmentId, shipmentId), eq(shipmentAttachmentTable.sourceRef, sourceRef), isNull(shipmentAttachmentTable.deletedAt)))
+      .limit(1);
+    return row ?? null;
+  }
+
+  /** Adds a handed-over file unless one with its `sourceRef` is there; whether it did. */
+  async addOnce(row: NewShipmentAttachmentRecord): Promise<boolean> {
+    const added = await this.db.insert(shipmentAttachmentTable).values(row).onConflictDoNothing().returning({ id: shipmentAttachmentTable.id });
+    return added.length > 0;
+  }
+
   /**
    * Customs' verdicts for the bell, newest first: on the live shipments this user is the Person in
    * Charge or Holiday Cover of, not given by themselves, since `since`; of those read (opened the

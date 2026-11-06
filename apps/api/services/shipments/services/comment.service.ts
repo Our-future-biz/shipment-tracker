@@ -1,3 +1,4 @@
+import { exceptionNotice } from "../lib/trackingChatNotice";
 import { APIError } from "encore.dev/api";
 import { shipmentCommentRepository } from "../repositories/shipmentComment.repository";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
@@ -150,6 +151,25 @@ class CommentService {
       mentionedUserIds: notice.tagged.map((u) => u.id),
     });
     return { commentId: comment.id, tagged: notice.tagged.map((u) => u.email) };
+  }
+
+  /**
+   * A reported exception in the shipment's chat, as the one reporting, tagging its Person in Charge
+   * and Holiday Cover: the reason is then where the conversation is, and under their bell.
+   */
+  async postExceptionNotice(
+    shipment: { id: string; personInCharge: string; holidayCover: string },
+    companyId: string,
+    authorId: string,
+    exception: { label: string; day: string; note: string },
+  ): Promise<void> {
+    const notice = exceptionNotice(shipment, await companyUsers(), exception, authorId);
+    await shipmentCommentRepository.createForCompany(companyId, {
+      shipmentId: shipment.id,
+      authorId,
+      message: notice.message,
+      mentionedUserIds: notice.tagged.map((u) => u.id),
+    });
   }
 
   /**

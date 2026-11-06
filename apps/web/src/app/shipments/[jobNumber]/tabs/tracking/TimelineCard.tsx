@@ -32,7 +32,7 @@ const DOT_CLASS: Record<TrackingMilestone["state"], string> = {
   planned: "border-slate-200 bg-slate-100",
 };
 
-function MilestoneRow({ m, customerView }: { m: TrackingMilestone; customerView: boolean }) {
+function MilestoneRow({ m, customerView, onOpen, onTellPod }: { m: TrackingMilestone; customerView: boolean; onOpen: (tab: string) => void; onTellPod: () => void }) {
   return (
     <tr>
       <td className={`${TD} !align-top`}>
@@ -61,8 +61,20 @@ function MilestoneRow({ m, customerView }: { m: TrackingMilestone; customerView:
         {m.wasPlanned && <div className="text-[12px] text-amber-700">was {formatDate(m.wasPlanned)}</div>}
       </td>
       <td className={`${TD} !align-top tabular-nums`}>
-        {m.actual ? <span className="font-medium text-slate-900 whitespace-nowrap">{formatDate(m.actual)}</span> : !m.detail && !(m.lateDays > 0 && !customerView) && <span className={EMPTY}>—</span>}
+        {m.actual ? (
+          <span className="font-medium text-slate-900 whitespace-nowrap">
+            {formatDate(m.actual)}
+            {m.actualTime && ` ${m.actualTime}`}
+          </span>
+        ) : (
+          !m.detail && !(m.lateDays > 0 && !customerView) && <span className={EMPTY}>—</span>
+        )}
         {m.lateDays > 0 && !customerView && <Pill tone="amber">Late {m.lateDays} d</Pill>}
+        {m.proposed && !customerView && (
+          <Pill tone="indigo" title="Confirm it under Events to set the date">
+            Proposed {formatDate(m.proposed.day)}{m.proposed.source && ` · ${m.proposed.source}`}
+          </Pill>
+        )}
         {m.detail && <div className={HINT}>{m.detail}</div>}
       </td>
       {!customerView && (
@@ -73,6 +85,12 @@ function MilestoneRow({ m, customerView }: { m: TrackingMilestone; customerView:
             <RecordedBy recorded={m.recorded} />
           ) : (
             <span className={EMPTY}>—</span>
+          )}
+          {m.key === "pod" && (
+            <span className="block mt-0.5 space-x-3">
+              <button type="button" onClick={() => onOpen("documents")} className={`${LINK} cursor-pointer bg-transparent border-none p-0 text-[12px]`}>Open in Documents</button>
+              <button type="button" onClick={onTellPod} className={`${LINK} cursor-pointer bg-transparent border-none p-0 text-[12px]`}>Send it to the customer</button>
+            </span>
           )}
         </td>
       )}
@@ -118,10 +136,11 @@ interface TimelineCardProps {
   /** What can be told to a customer: no names, marks or who-recorded-it. */
   customerView: boolean;
   onOpen: (tab: string) => void;
+  onTellPod: () => void;
 }
 
 /** The dated facts by leg, planned beside actual. */
-export function TimelineCard({ shipment, milestones, actualsOnly, customerView, onOpen }: TimelineCardProps) {
+export function TimelineCard({ shipment, milestones, actualsOnly, customerView, onOpen, onTellPod }: TimelineCardProps) {
   const rows = actualsOnly ? milestones.filter((m) => m.state === "done") : milestones;
   const nothingDated = milestones.every((m) => !m.planned && !m.actual && !m.detail);
   const columns = customerView ? 3 : 4;
@@ -164,7 +183,7 @@ export function TimelineCard({ shipment, milestones, actualsOnly, customerView, 
                     </td>
                   </tr>
                   {ofLeg.map((m) => (
-                    <MilestoneRow key={m.key} m={m} customerView={customerView} />
+                    <MilestoneRow key={m.key} m={m} customerView={customerView} onOpen={onOpen} onTellPod={onTellPod} />
                   ))}
                 </tbody>
               );

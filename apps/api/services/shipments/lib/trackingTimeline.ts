@@ -2,15 +2,17 @@
 // where the cargo is. Nothing is stored here. Pure, so it is unit-tested.
 //
 // The rows are dated facts, never checklist ticks: a tick's time is the click (D1). A row with an
-// actual date is done; a row whose planned date passed with nothing recorded is late. A tick moves
-// no row.
+// actual date, from the shipment or from a recorded event, is done; a row whose planned date passed
+// with nothing recorded is late. A tick moves no row.
 
-import { addDays, businessDay } from "../../../lib/businessDate";
+import { addDays, businessDay, businessTime } from "../../../lib/businessDate";
 import { isDeliveryDated } from "../../../lib/deliveryDated";
 import type {
   ShipmentTracking,
   TrackingAttention,
   TrackingChange,
+  TrackingCustomerNotice,
+  TrackingEventItem,
   TrackingLeg,
   TrackingMilestone,
   TrackingRecorded,
@@ -19,11 +21,15 @@ import type {
 import type { ShipmentRecord } from "../schemas/shipment.schema";
 import type { ShipmentAuditRecord } from "../schemas/shipmentAudit.schema";
 import type { ShipmentTaskRecord } from "../schemas/shipmentTask.schema";
+import type { ShipmentTrackingEventRecord } from "../schemas/shipmentTrackingEvent.schema";
+import type { ShipmentCustomerNoticeRecord } from "../schemas/shipmentCustomerNotice.schema";
+import { NOTICE_KINDS, isNoticeKind, toldDifferences } from "./customerNotice";
+import { CUSTOMS_CLEARED, SOURCE_LABELS, TRACKING_KINDS, isExceptionKind, isRoadJob, isTrackingKind, recordableKinds, type TrackingSource } from "./trackingEvents";
 import { ARRIVAL_LATE_AFTER_DAYS, DATE_MOVED_WINDOW_DAYS, EXPORT_DEPARTURE_LATE_AFTER_DAYS } from "./trackingThresholds";
 
 type Field = keyof ShipmentRecord & string;
 
-export const CUSTOMS_CLEARED = "Customs Cleared/Released";
+export { CUSTOMS_CLEARED };
 
 const DATE_LABELS = {
   estimatedDeparture: "ETD",
@@ -73,6 +79,10 @@ interface RowSpec {
   planned?: Field;
   plannedTime?: Field;
   actual?: Field;
+  /** The recorded event that says it happened. */
+  event?: string;
+  /** The event's note is what there is to say on the row. */
+  noteAsDetail?: boolean;
   /** Shown only when it holds something. */
   optional?: boolean;
 }
@@ -80,25 +90,23 @@ interface RowSpec {
 const CUSTOMS_KEY = "customs";
 
 function rowsOf(s: ShipmentRecord): RowSpec[] {
-  const direction = s.tradeDirection.trim().toLowerCase();
-  const isExport = direction === "export";
-  const road = direction === "domestic" || /road/i.test(s.freightMode);
+  const isExport = s.tradeDirection.trim().toLowerCase() === "export";
+  const road = isRoadJob(s);
+  const atOrigin = isExport ? "origin" : "destination";
 
-  const cargoReady: RowSpec = { key: "cargoReady", label: "Cargo ready", leg: "origin", planned: "cargoReadinessDate", optional: true };
-  const pickup: RowSpec = { key: "pickup", label: "Picked up", leg: "origin", planned: "pickupDate", plannedTime: "pickupTime", optional: !road };
-  const equipment: RowSpec = {
-    key: "equipment",
-    label: "Equipment delivery / pick-up",
-    leg: isExport ? "origin" : "destination",
-    planned: "equipmentDeliveryDate",
-    plannedTime: "equipmentDeliveryTime",
-    optional: true,
-  };
-  const departed: RowSpec = { key: "departed", label: "Departed", basis: "ETD / ATD", leg: "main", place: s.pol, planned: "estimatedDeparture", actual: "actualDeparture", optional: road };
-  const arrived: RowSpec = { key: "arrived", label: "Arrived", basis: "ETA / ATA", leg: "main", place: s.pod, planned: "estimatedArrival", actual: "actualArrival", optional: road };
-  const customs: RowSpec = { key: CUSTOMS_KEY, label: "Customs cleared", leg: isExport ? "origin" : "destination", optional: road };
-  const gateIn: RowSpec = { key: "gateIn", label: "Gate in", basis: "ETA warehouse", leg: isExport ? "origin" : "destination", place: s.hub, planned: "etaWarehouse", actual: "warehouseReceivedDate", optional: true };
-  const gateOut: RowSpec = { key: "gateOut", label: "Gate out", leg: isExport ? "origin" : "destination", place: s.hub, actual: "warehouseReleasedDate", optional: true };
+  const booking: RowSpec = { key: "booking", label: "Booking confirmed", leg: "origin", event: "booking_confirmed", optional: true };
+  const cargoReady: RowSpec = { key: "cargoReady", label: "Cargo ready", leg: "origin", planned: "cargoReadinessDate", event: "cargo_ready", optional: true };
+  const pickup: RowSpec = { key: "pickup", label: "Picked up", leg: "origin", planned: "pickupDate", plannedTime: "pickupTime", event: "picked_up", optional: !road };
+  const equipment: RowSpec = { key: "equipment", label: "Equipment delivery / pick-up", leg: atOrigin, planned: "equipmentDeliveryDate", plannedTime: "equipmentDeliveryTime", optional: true };
+  const loaded: RowSpec = { key: "loaded", label: "Loaded on board", leg: "main", place: s.pol, event: "loaded", optional: true };
+  const departed: RowSpec = { key: "departed", label: "Departed", basis: "ETD / ATD", leg: "main", place: s.pol, planned: "estimatedDeparture", actual: "actualDeparture", event: "departed", optional: road };
+  const arrived: RowSpec = { key: "arrived", label: "Arrived", basis: "ETA / ATA", leg: "main", place: s.pod, planned: "estimatedArrival", actual: "actualArrival", event: "arrived", optional: road };
+  const discharged: RowSpec = { key: "discharged", label: "Discharged", leg: "main", place: s.pod, event: "discharged", optional: true };
+  const terminalOut: RowSpec = { key: "terminalOut", label: "Left the terminal", leg: "destination", place: s.pod, event: "terminal_out", optional: true };
+  const hub: RowSpec = { key: "hub", label: "Arrived at HUB", leg: "destination", place: s.hub, event: "hub_arrived", optional: true };
+  const customs: RowSpec = { key: CUSTOMS_KEY, label: "Customs cleared", leg: atOrigin, event: "customs_released", optional: road };
+  const gateIn: RowSpec = { key: "gateIn", label: "Gate in", basis: "ETA warehouse", leg: atOrigin, place: s.hub, planned: "etaWarehouse", actual: "warehouseReceivedDate", event: "gate_in", optional: true };
+  const gateOut: RowSpec = { key: "gateOut", label: "Gate out", leg: atOrigin, place: s.hub, actual: "warehouseReleasedDate", event: "gate_out", optional: true };
   const delivered: RowSpec = {
     key: "delivered",
     label: "Delivered",
@@ -107,8 +115,12 @@ function rowsOf(s: ShipmentRecord): RowSpec[] {
     planned: "plannedDeliveryDate",
     plannedTime: "plannedDeliveryTime",
     actual: "actualDeliveryDate",
+    event: "delivered",
     optional: isExport,
   };
+  const advised: RowSpec = { key: "advised", label: "Delivery advised", leg: "destination", event: "delivery_advised", noteAsDetail: true, optional: true };
+  const pod: RowSpec = { key: "pod", label: "POD received", leg: "destination", event: "pod_received", noteAsDetail: true, optional: true };
+  const emptyReturned: RowSpec = { key: "emptyReturned", label: "Empty returned", leg: "destination", event: "empty_returned", optional: true };
 
   if (isExport) {
     const closings: RowSpec[] = [
@@ -116,10 +128,14 @@ function rowsOf(s: ShipmentRecord): RowSpec[] {
       { key: "vgmClosing", label: "VGM closing", leg: "origin", planned: "vgmClosing", plannedTime: "vgmClosingTime", optional: true },
       { key: "siClosing", label: "SI closing", leg: "origin", planned: "siClosing", plannedTime: "siClosingTime", optional: true },
     ];
-    return [cargoReady, pickup, equipment, gateIn, gateOut, customs, ...closings, departed, arrived, delivered];
+    return [booking, cargoReady, pickup, equipment, gateIn, gateOut, customs, ...closings, loaded, departed, arrived, discharged, terminalOut, hub, advised, delivered, pod, emptyReturned];
   }
-  return [cargoReady, pickup, departed, arrived, customs, equipment, gateIn, gateOut, delivered];
+  return [booking, cargoReady, pickup, loaded, departed, arrived, discharged, terminalOut, customs, hub, equipment, gateIn, gateOut, advised, delivered, pod, emptyReturned];
 }
+
+const TRANSHIPMENT_KINDS = new Set<string>(["ts_arrived", "ts_departed"]);
+// What the Changes card already says, unless somebody gave a reason.
+const PLAN_CHANGE_KINDS = new Set<string>(["eta_changed", "etd_changed"]);
 
 const dayMs = 86_400_000;
 
@@ -141,6 +157,11 @@ export interface TrackingInput {
   customsStatus: string;
   /** The audit rows of TRACKING_AUDIT_FIELDS, newest first. */
   audit: readonly ShipmentAuditRecord[];
+  /** The shipment's live events, the latest first. */
+  events: readonly ShipmentTrackingEventRecord[];
+  /** What the customer was told, the latest first. */
+  notices: readonly ShipmentCustomerNoticeRecord[];
+  mayChangeDetails: boolean;
   tasks: readonly ShipmentTaskRecord[];
   /** User names by id. */
   names: ReadonlyMap<string, string>;
@@ -149,13 +170,18 @@ export interface TrackingInput {
   now: Date;
 }
 
-export function buildTracking({ shipment, customsStatus, audit, tasks, names, invoiced, changesCapped, now }: TrackingInput): ShipmentTracking {
+export function buildTracking({ shipment, customsStatus, audit, events, notices, mayChangeDetails, tasks, names, invoiced, changesCapped, now }: TrackingInput): ShipmentTracking {
   const today = businessDay(now);
-  const nameOf = (userId: string | null | undefined) => (userId ? (names.get(userId) ?? "") : "");
+  const nameOf = (userId: string | null | undefined): string => (userId ? (names.get(userId) ?? "") : "");
 
   // Newest first, so the first row seen of a field is its last change.
   const lastChange = new Map<string, ShipmentAuditRecord>();
   for (const row of audit) if (!lastChange.has(row.field)) lastChange.set(row.field, row);
+
+  const sourceLabel = (source: string) => SOURCE_LABELS[source as TrackingSource] ?? "";
+  // A proposal hasn't happened until somebody confirms it; a dismissed one never did.
+  const standing = events.filter((e) => e.effect !== "proposed" && e.effect !== "dismissed");
+  const eventRecorded = (e: ShipmentTrackingEventRecord): TrackingRecorded => ({ at: e.createdAt.toISOString(), by: nameOf(e.recordedById), source: sourceLabel(e.source) });
 
   const recordedOf = (field: string | undefined): TrackingRecorded | null => {
     const row = field ? lastChange.get(field) : undefined;
@@ -169,10 +195,15 @@ export function buildTracking({ shipment, customsStatus, audit, tasks, names, in
     const customs = spec.key === CUSTOMS_KEY;
     let planned = spec.planned ? dayOf(shipment[spec.planned]) : null;
     let plannedTime = spec.plannedTime ? text(shipment[spec.plannedTime]) : "";
-    let actual = spec.actual ? dayOf(shipment[spec.actual]) : null;
-    let detail = "";
+    const column = spec.actual ? dayOf(shipment[spec.actual]) : null;
+    const ofKind = spec.event ? standing.filter((e) => e.kind === spec.event) : [];
+    // The shipment's date is the truth where it has one; an event then only adds the hour and who.
+    const event = spec.actual ? (ofKind.find((e) => e.occurredOn === column) ?? null) : (ofKind[0] ?? null);
+    let actual = spec.actual ? column : (event?.occurredOn ?? null);
+    let detail = spec.noteAsDetail ? text(event?.note) : "";
     let done = !!actual;
-    let recorded = recordedOf(actual ? spec.actual : planned ? spec.planned : undefined);
+    let recorded = event ? eventRecorded(event) : recordedOf(actual ? spec.actual : planned ? spec.planned : undefined);
+    const proposal = spec.event ? events.find((e) => e.kind === spec.event && e.effect === "proposed") : undefined;
 
     if (customs) {
       const status = text(customsStatus);
@@ -183,13 +214,13 @@ export function buildTracking({ shipment, customsStatus, audit, tasks, names, in
       plannedTime = deadline.slice(11, 16);
       done = status === CUSTOMS_CLEARED;
       const change = lastChange.get("customsStatus");
-      actual = done && change?.newValue === CUSTOMS_CLEARED ? businessDay(change.changedAt) : null;
+      actual = !done ? null : (event?.occurredOn ?? (change?.newValue === CUSTOMS_CLEARED ? businessDay(change.changedAt) : null));
       detail = [done && actual ? "" : status, mrn && `MRN ${mrn}`].filter(Boolean).join(" · ");
       // Only a status somebody set has an author; the paperwork's own steps have none.
-      recorded = change?.newValue === status ? recordedOf("customsStatus") : null;
+      recorded = done && event ? eventRecorded(event) : change?.newValue === status ? recordedOf("customsStatus") : null;
       // A job that needs no customs still reads "waiting for paperwork": that alone doesn't show the row.
       if (spec.optional && !done && !mrn && !planned) return null;
-    } else if (spec.optional && !planned && !actual) {
+    } else if (spec.optional && !planned && !actual && !proposal) {
       return null;
     }
 
@@ -204,12 +235,14 @@ export function buildTracking({ shipment, customsStatus, audit, tasks, names, in
         label: spec.label,
         basis: spec.basis ?? "",
         leg: spec.leg,
-        place: text(spec.place),
+        place: text(event?.place) || text(spec.place),
         planned,
         plannedTime,
         wasPlanned: moved ? from : null,
         movedDays: moved ? daysBetween(from, planned!) : null,
         actual,
+        actualTime: done && event?.occurredAt ? businessTime(event.occurredAt) : "",
+        proposed: proposal ? { eventId: proposal.id, day: proposal.effectValue ?? proposal.occurredOn, source: sourceLabel(proposal.source) } : null,
         detail,
         state: done ? "done" : "open",
         lateDays: 0,
@@ -218,6 +251,35 @@ export function buildTracking({ shipment, customsStatus, audit, tasks, names, in
       },
     };
   }).filter((r) => r !== null);
+
+  // A transhipment can happen several times: each one is a row, after the departure, in its order.
+  const transhipments = standing
+    .filter((e) => TRANSHIPMENT_KINDS.has(e.kind))
+    .sort((a, b) => a.occurredOn.localeCompare(b.occurredOn) || a.createdAt.getTime() - b.createdAt.getTime())
+    .map((e): { row: TrackingMilestone; trackable: boolean } => ({
+      trackable: false,
+      row: {
+        key: `ts-${e.id}`,
+        label: TRACKING_KINDS[e.kind as keyof typeof TRACKING_KINDS].label,
+        basis: "",
+        leg: "main",
+        place: text(e.place),
+        planned: null,
+        plannedTime: "",
+        wasPlanned: null,
+        movedDays: null,
+        actual: e.occurredOn,
+        actualTime: e.occurredAt ? businessTime(e.occurredAt) : "",
+        proposed: null,
+        detail: [e.vessel, e.voyage].filter(Boolean).join(" "),
+        state: "done",
+        lateDays: 0,
+        taxDate: false,
+        recorded: eventRecorded(e),
+      },
+    }));
+  const afterDeparture = rows.findIndex(({ row }) => row.key === "departed") + 1;
+  rows.splice(afterDeparture, 0, ...transhipments);
 
   const lastDone = rows.reduce((last, { row }, i) => (row.state === "done" ? i : last), -1);
   let nextSet = false;
@@ -238,7 +300,11 @@ export function buildTracking({ shipment, customsStatus, audit, tasks, names, in
     milestones,
     changes: audit.filter((row) => row.field in CHANGE_LABELS).map(toChange(nameOf)),
     changesCapped,
-    attention: attentionOf(milestones, shipment, lastChange, nameOf, today),
+    attention: [...exceptionsOf(events, nameOf), ...notToldOf(notices, shipment, nameOf), ...attentionOf(milestones, shipment, lastChange, nameOf, today)],
+    customerNotices: notices.map(toNoticeItem(nameOf)),
+    events: events.filter((e) => !PLAN_CHANGE_KINDS.has(e.kind) || !!e.note.trim()).map(toEventItem(nameOf, sourceLabel)),
+    recordable: recordableKinds(shipment, mayChangeDetails),
+    mayChangeDetails,
     ticks: tasks
       .filter((t) => t.completed && t.completedAt)
       .map((t) => ({ taskKey: t.taskKey, completedAt: t.completedAt!.toISOString(), by: nameOf(t.completedById) })),
@@ -262,6 +328,84 @@ const toChange = (nameOf: (id: string) => string) => (row: ShipmentAuditRecord):
   };
 };
 
+const SETS_WORD: Record<string, string> = {
+  actualDeparture: "ATD",
+  actualArrival: "ATA",
+  actualDeliveryDate: "delivery date",
+  estimatedDeparture: "ETD",
+  estimatedArrival: "ETA",
+  customsStatus: "customs status",
+};
+
+const toEventItem = (nameOf: (id: string | null) => string, sourceLabel: (source: string) => string) => (e: ShipmentTrackingEventRecord): TrackingEventItem => ({
+  id: e.id,
+  kind: e.kind,
+  label: isTrackingKind(e.kind) ? TRACKING_KINDS[e.kind].label : e.kind,
+  occurredOn: e.occurredOn,
+  occurredTime: e.occurredAt ? businessTime(e.occurredAt) : "",
+  place: e.place,
+  containerNumber: e.containerNumber,
+  note: e.note,
+  source: sourceLabel(e.source),
+  by: nameOf(e.recordedById),
+  recordedAt: e.createdAt.toISOString(),
+  effect: e.effect as TrackingEventItem["effect"],
+  effectValue: e.effectValue,
+  sets: SETS_WORD[e.effectField] ?? "",
+  strikeable: e.source === "user",
+  resolvedAt: e.resolvedAt ? e.resolvedAt.toISOString() : null,
+});
+
+const toNoticeItem = (nameOf: (id: string | null) => string) => (n: ShipmentCustomerNoticeRecord): TrackingCustomerNotice => ({
+  id: n.id,
+  kind: n.kind,
+  label: isNoticeKind(n.kind) ? NOTICE_KINDS[n.kind] : n.kind,
+  channel: n.channel,
+  toldTo: n.toldTo,
+  subject: n.subject,
+  note: n.note,
+  etaPod: n.etaPod,
+  etaWarehouse: n.etaWarehouse,
+  plannedDelivery: n.plannedDelivery,
+  by: nameOf(n.toldById),
+  at: n.createdAt.toISOString(),
+});
+
+/** The dates the customer was told last, where they have moved since. */
+const notToldOf = (notices: readonly ShipmentCustomerNoticeRecord[], shipment: ShipmentRecord, nameOf: (id: string | null) => string): TrackingAttention[] => {
+  const latest = notices[0];
+  if (!latest) return [];
+  return toldDifferences(latest, shipment).map((d) => ({
+    kind: "not_told",
+    eventId: null,
+    note: "",
+    milestoneKey: d.field,
+    what: d.what,
+    days: 0,
+    from: d.told,
+    to: d.now,
+    at: latest.createdAt.toISOString(),
+    by: nameOf(latest.toldById),
+  }));
+};
+
+/** The exceptions people reported and nobody closed, the latest first. */
+const exceptionsOf = (events: readonly ShipmentTrackingEventRecord[], nameOf: (id: string | null) => string): TrackingAttention[] =>
+  events
+    .filter((e) => isExceptionKind(e.kind) && !e.resolvedAt)
+    .map((e) => ({
+      kind: "exception",
+      eventId: e.id,
+      note: e.note,
+      milestoneKey: e.kind,
+      what: isTrackingKind(e.kind) ? TRACKING_KINDS[e.kind].label : e.kind,
+      days: 0,
+      from: null,
+      to: e.occurredOn,
+      at: e.createdAt.toISOString(),
+      by: nameOf(e.recordedById),
+    }));
+
 const PLANNED_FIELD_OF: Record<string, Field> = {
   departed: "estimatedDeparture",
   arrived: "estimatedArrival",
@@ -283,13 +427,15 @@ function attentionOf(
     if (m.state === "done") continue;
     const lateAfter = m.key === "arrived" ? ARRIVAL_LATE_AFTER_DAYS : m.key === "departed" && isExport ? EXPORT_DEPARTURE_LATE_AFTER_DAYS : null;
     if (lateAfter !== null && m.lateDays >= lateAfter) {
-      out.push({ kind: "late", milestoneKey: m.key, what: m.key === "arrived" ? "ETA" : "ETD", days: m.lateDays, from: null, to: m.planned, at: null, by: "" });
+      out.push({ kind: "late", eventId: null, note: "", milestoneKey: m.key, what: m.key === "arrived" ? "ETA" : "ETD", days: m.lateDays, from: null, to: m.planned, at: null, by: "" });
     }
     const field = PLANNED_FIELD_OF[m.key];
     const change = field ? lastChange.get(field) : undefined;
     if (field && change && m.movedDays && businessDay(change.changedAt) >= movedSince) {
       out.push({
         kind: "moved",
+        eventId: null,
+        note: "",
         milestoneKey: m.key,
         what: CHANGE_LABELS[field]!,
         days: m.movedDays,

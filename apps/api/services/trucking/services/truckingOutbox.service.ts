@@ -1,3 +1,4 @@
+import { truckingDocumentBucket } from "../storage/documentBucket";
 import log from "encore.dev/log";
 import { invoicing, shipments } from "~encore/clients";
 import { truckingOutboxRepository } from "../repositories/truckingOutbox.repository";
@@ -33,6 +34,8 @@ export const OUTBOX_WHAT: Record<TruckingOutboxKind, string> = {
   expect_departure: "expected departure from our warehouse",
   cancel_expected: "trip withdrawn from our warehouse",
   real_costs: "real haulier cost in Costs Breakdown",
+  pod: "POD on the shipment's Documents",
+  delivery_advice: "delivery advice on the shipment's timeline",
 };
 
 // What users see of a failed delivery (stored as last_error and in the history): our own
@@ -79,6 +82,25 @@ export async function sendRow(row: TruckingOutboxRecord): Promise<void> {
       return;
     case "real_costs":
       await invoicing._internalInvoicingTruckingReal({ shipmentId: row.shipmentId, ...message.payload }, { authData });
+      return;
+    case "pod": {
+      const { fileName, contentType, sha256, storageKey, stampedAt } = message.payload;
+      const bytes = await truckingDocumentBucket.download(storageKey);
+      await shipments._internalModuleDocument(
+        { shipmentId: row.shipmentId, fileName, fileType: contentType, contentBase64: bytes.toString("base64"), documentType: "CMR / POD", sourceRef: `trucking:${sha256}` },
+        { authData },
+      );
+      await shipments._internalTrackingFact(
+        { shipmentId: row.shipmentId, kind: "pod_received", occurredAt: stampedAt, note: fileName, externalId: `pod:${row.consignmentId}:${sha256}` },
+        { authData },
+      );
+      return;
+    }
+    case "delivery_advice":
+      await shipments._internalTrackingFact(
+        { shipmentId: row.shipmentId, kind: "delivery_advised", occurredAt: message.payload.at, note: message.payload.text, externalId: `avizace:${row.consignmentId}:${message.payload.at}` },
+        { authData },
+      );
       return;
     case "costs": {
       const result = await invoicing._internalInvoicingTruckingLines({ shipmentId: row.shipmentId, ...message.payload }, { authData });

@@ -357,6 +357,19 @@ describe("stamps", () => {
     expect(d.stamps.podReceived).not.toBeNull();
   });
 
+  it("hands the POD on file to the job when it is stamped", async () => {
+    const { c } = await seed(delivered, { trip: true, sent: true });
+    store.documents.push({ consignmentId: c.id, kind: "POD", fileName: "pod.pdf", contentType: "application/pdf", sha256: "abc", storageKey: "k/1" } as never);
+    await consignmentService.stamp(user, c.id, "podReceived", null);
+    expect(outboxOf("pod")).toEqual([expect.objectContaining({ shipmentId: SHIPMENT, payload: expect.objectContaining({ fileName: "pod.pdf", sha256: "abc", storageKey: "k/1" }) })]);
+  });
+
+  it("hands over nothing when a manager stamps it with no file", async () => {
+    const { c } = await seed(delivered, { trip: true, sent: true });
+    await consignmentService.stamp(manager, c.id, "podReceived", null);
+    expect(outboxOf("pod")).toEqual([]);
+  });
+
   it("Billing: the last POD of the job makes every consignment ready to bill and owes the Billing step once", async () => {
     const a = await seed(delivered, { trip: true, sent: true });
     const b = await seed(delivered);

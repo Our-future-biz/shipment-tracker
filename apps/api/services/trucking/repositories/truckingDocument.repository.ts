@@ -51,6 +51,16 @@ class TruckingDocumentRepository {
   }
 
   /** Whether the consignment has a POD document. */
+  /** The consignment's POD on file; null when there is none. */
+  async podOf(companyId: string, consignmentId: string, reader: Tx | typeof db = db): Promise<TruckingDocumentRecord | null> {
+    const [row] = await reader
+      .select()
+      .from(d)
+      .where(and(eq(d.companyId, companyId), eq(d.consignmentId, consignmentId), eq(d.kind, "POD"), isNull(d.deletedAt)))
+      .limit(1);
+    return row ?? null;
+  }
+
   async hasPod(companyId: string, consignmentId: string, reader: Tx | typeof db = db): Promise<boolean> {
     const [row] = await reader
       .select({ id: d.id })

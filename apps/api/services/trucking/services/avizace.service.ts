@@ -7,7 +7,8 @@ import type { AvizaceTemplate } from "../interfaces/avizace.interfaces";
 import type { Actor } from "../../../lib/rbac";
 import { avizaceTemplate, cleanAvizace, type AvizaceInput } from "../lib/avizaceRules";
 import { userName } from "../lib/users";
-import { CONSIGNMENT_CONFLICT, consignmentService } from "./consignment.service";
+import { truckingOutboxRepository } from "../repositories/truckingOutbox.repository";
+import { CONSIGNMENT_CONFLICT, consignmentService, owed } from "./consignment.service";
 
 // Avizace (announcing a delivery to the consignee): e-mail sending is off, so the app prepares the
 // text (Czech and English) to copy, and staff record how and when they told the consignee. A
@@ -40,6 +41,9 @@ class AvizaceService {
           summary: `Avizace given by ${avizace.channel.toLowerCase()} to ${avizace.contact}${window}`,
         },
       });
+      await truckingOutboxRepository.enqueue(tx, actor.companyID, [
+        owed(actor, c, "delivery_advice", { at: avizace.at, text: `By ${avizace.channel.toLowerCase()} to ${avizace.contact}${window}` }),
+      ]);
     });
     return consignmentService.get(actor, id);
   }

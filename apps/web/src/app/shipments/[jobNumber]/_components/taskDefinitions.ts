@@ -43,6 +43,30 @@ export const EXPORT_TASKS: TaskDef[] = [
   { key: "exp_bl_provided", label: "Bill Of Lading provided to customer", description: "Bill of Lading provided to customer", stage: 5 },
 ];
 
+/**
+ * The ticks that are also a dated fact: ticking one asks for the date and records the event. The
+ * server keeps the same list (lib/trackingEvents TICK_EVENTS); tests/taskCatalog.test fails if they drift.
+ */
+export const TICK_EVENTS: Readonly<Record<string, string>> = {
+  imp_cargo_readiness: "cargo_ready",
+  exp_cargo_readiness: "cargo_ready",
+  imp_cargo_shipped: "departed",
+  imp_departed_port: "terminal_out",
+  imp_arrived_hub: "hub_arrived",
+  imp_customs_cleared: "customs_released",
+  imp_delivered: "delivered",
+};
+
+/**
+ * The ticks that mean the customer was told: ticking one opens Tell the customer, and the notice
+ * writes the tick. The server keeps the same list (lib/customerNotice TICK_NOTICES).
+ */
+export const TICK_NOTICES: Readonly<Record<string, string>> = {
+  imp_arrival_notice: "arrival_notice",
+  exp_draft_sent: "draft_sent",
+  exp_bl_provided: "bl_provided",
+};
+
 export function getTasksForDirection(tradeDirection?: string | null): TaskDef[] {
   return tradeDirection === "Export" ? EXPORT_TASKS : IMPORT_TASKS;
 }

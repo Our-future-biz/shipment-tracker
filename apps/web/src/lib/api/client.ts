@@ -2260,6 +2260,7 @@ export namespace shipments {
             this.commentMentions = this.commentMentions.bind(this)
             this.commentStrike = this.commentStrike.bind(this)
             this.commentUnread = this.commentUnread.bind(this)
+            this.customerNoticeRecord = this.customerNoticeRecord.bind(this)
             this.customsOfficeRequestAnswers = this.customsOfficeRequestAnswers.bind(this)
             this.customsOfficeRequestAsk = this.customsOfficeRequestAsk.bind(this)
             this.customsOfficeRequestDecide = this.customsOfficeRequestDecide.bind(this)
@@ -2301,7 +2302,15 @@ export namespace shipments {
             this.shipmentUpdate = this.shipmentUpdate.bind(this)
             this.shipmentsNamingQuotes = this.shipmentsNamingQuotes.bind(this)
             this.taskList = this.taskList.bind(this)
+            this.taskReopen = this.taskReopen.bind(this)
             this.taskUpsert = this.taskUpsert.bind(this)
+            this.trackingBellNotices = this.trackingBellNotices.bind(this)
+            this.trackingEventConfirm = this.trackingEventConfirm.bind(this)
+            this.trackingEventDismiss = this.trackingEventDismiss.bind(this)
+            this.trackingEventRecord = this.trackingEventRecord.bind(this)
+            this.trackingEventResolve = this.trackingEventResolve.bind(this)
+            this.trackingEventStrike = this.trackingEventStrike.bind(this)
+            this.trackingMarkRead = this.trackingMarkRead.bind(this)
             this.userPrefGet = this.userPrefGet.bind(this)
             this.userPrefSet = this.userPrefSet.bind(this)
         }
@@ -2467,6 +2476,20 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/shipment-comments/unread`)
             return await resp.json() as controllers.CommentUnreadResponse
+        }
+
+        /**
+         * Somebody says the customer was told, with a copy of the dates as they stand. Open to any user:
+         * telling a customer changes nothing on the shipment.
+         */
+        public async customerNoticeRecord(shipmentId: string, params: controllers.CustomerNoticeRecordRequest): Promise<{
+    id: string
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/customer-notices`, JSON.stringify(params))
+            return await resp.json() as {
+    id: string
+}
         }
 
         /**
@@ -2847,8 +2870,8 @@ export namespace shipments {
         }
 
         /**
-         * A shipment's Tracking tab: its milestones, the logged changes of its dates, what needs a look,
-         * its ticks and its tax date.
+         * A shipment's Tracking tab: its milestones, its events, the logged changes of its dates, what
+         * needs a look, its ticks and its tax date.
          */
         public async shipmentTracking(shipmentId: string): Promise<interfaces.ShipmentTracking> {
             // Now make the actual call to the API
@@ -2885,10 +2908,110 @@ export namespace shipments {
             return await resp.json() as controllers.TaskListResponse
         }
 
+        /**
+         * A manager takes a wrong tick back, saying why.
+         */
+        public async taskReopen(shipmentId: string, taskKey: string, params: controllers.TaskReopenRequest): Promise<controllers.TaskUpsertResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/tasks/${encodeURIComponent(taskKey)}/reopen`, JSON.stringify(params))
+            return await resp.json() as controllers.TaskUpsertResponse
+        }
+
         public async taskUpsert(shipmentId: string, params: controllers.TaskUpsertRequest): Promise<controllers.TaskUpsertResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/tasks`, JSON.stringify(params))
             return await resp.json() as controllers.TaskUpsertResponse
+        }
+
+        /**
+         * The bell: moved dates, dates to confirm, and what the customer was told that no longer holds.
+         */
+        public async trackingBellNotices(): Promise<{
+    notices: interfaces.TrackingBellNotice[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipment-alerts/tracking`)
+            return await resp.json() as {
+    notices: interfaces.TrackingBellNotice[]
+}
+        }
+
+        /**
+         * A person confirms a date a source proposed: only now does it reach the shipment.
+         */
+        public async trackingEventConfirm(shipmentId: string, eventId: string): Promise<{
+    ok: boolean
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/tracking/events/${encodeURIComponent(eventId)}/confirm`)
+            return await resp.json() as {
+    ok: boolean
+}
+        }
+
+        /**
+         * A person turns a proposed date down.
+         */
+        public async trackingEventDismiss(shipmentId: string, eventId: string): Promise<{
+    ok: boolean
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/tracking/events/${encodeURIComponent(eventId)}/dismiss`)
+            return await resp.json() as {
+    ok: boolean
+}
+        }
+
+        /**
+         * A person records a dated fact. One that sets a shipment field goes through the normal update.
+         */
+        public async trackingEventRecord(shipmentId: string, params: controllers.TrackingEventRecordRequest): Promise<{
+    id: string
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/tracking/events`, JSON.stringify(params))
+            return await resp.json() as {
+    id: string
+}
+        }
+
+        /**
+         * Closes an exception by hand.
+         */
+        public async trackingEventResolve(shipmentId: string, eventId: string): Promise<{
+    ok: boolean
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/tracking/events/${encodeURIComponent(eventId)}/resolve`)
+            return await resp.json() as {
+    ok: boolean
+}
+        }
+
+        /**
+         * Takes back what somebody recorded by mistake, with a reason.
+         */
+        public async trackingEventStrike(shipmentId: string, eventId: string, params: controllers.TrackingEventStrikeRequest): Promise<{
+    ok: boolean
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/tracking/events/${encodeURIComponent(eventId)}/strike`, JSON.stringify(params))
+            return await resp.json() as {
+    ok: boolean
+}
+        }
+
+        /**
+         * The Tracking tab was opened: what the bell says about this shipment is no longer new.
+         */
+        public async trackingMarkRead(shipmentId: string): Promise<{
+    ok: boolean
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/tracking/read`)
+            return await resp.json() as {
+    ok: boolean
+}
         }
 
         public async userPrefGet(prefKey: string): Promise<controllers.UserPrefGetResponse> {
@@ -6775,6 +6898,18 @@ export namespace controllers {
         total: number
     }
 
+    export interface CustomerNoticeRecordRequest {
+        kind: string
+        channel: string
+        toldTo?: string
+        subject?: string
+        note?: string
+        /**
+         * The checklist tick this notice comes with.
+         */
+        taskKey?: string
+    }
+
     export interface CustomerRestoreResponse {
         customer: interfaces.CustomerItem
     }
@@ -9891,6 +10026,10 @@ export namespace controllers {
         tasks: interfaces.TaskItem[]
     }
 
+    export interface TaskReopenRequest {
+        reason: string
+    }
+
     export interface TaskUpsertRequest {
         taskKey: string
         completed: boolean
@@ -9940,6 +10079,31 @@ export namespace controllers {
 
     export interface TermsUpdateResponse {
         terms: interfaces.TermsConditionItem
+    }
+
+    export interface TrackingEventRecordRequest {
+        kind: string
+        /**
+         * YYYY-MM-DD
+         */
+        occurredOn: string
+
+        /**
+         * HH:MM in Prague; left out when not known.
+         */
+        occurredTime?: string
+
+        place?: string
+        containerNumber?: string
+        note?: string
+        /**
+         * The checklist tick this event comes with.
+         */
+        taskKey?: string
+    }
+
+    export interface TrackingEventStrikeRequest {
+        reason: string
     }
 
     export interface TruckCreateResponse {
@@ -16056,6 +16220,15 @@ export namespace interfaces {
     export type PalletType = "EUR" | "INDUSTRIAL" | "HALF" | "QUARTER" | "OTHER"
 
     /**
+     * What the people backfill did: values looked at, records changed, values left as they are.
+     */
+    export interface PeopleNormalizeResult {
+        checked: number
+        changed: number
+        unmatched: PeopleNormalizeUnmatched[]
+    }
+
+    /**
      * What the people backfill did to the company's live shipments.
      */
     export interface PeopleNormalizeResult {
@@ -16073,15 +16246,6 @@ export namespace interfaces {
          * The names left as they are, most frequent first: to be fixed by hand.
          */
         unmatched: UnmatchedPerson[]
-    }
-
-    /**
-     * What the people backfill did: values looked at, records changed, values left as they are.
-     */
-    export interface PeopleNormalizeResult {
-        checked: number
-        changed: number
-        unmatched: PeopleNormalizeUnmatched[]
     }
 
     /**
@@ -18549,6 +18713,18 @@ export namespace interfaces {
     }
 
     export interface ShipmentTracking {
+        customerNotices: TrackingCustomerNotice[]
+        events: TrackingEventItem[]
+        /**
+         * Empty when nothing can be recorded here: a road job's stamps are set in Trucking.
+         */
+        recordable: TrackingRecordableKind[]
+
+        /**
+         * Whether this person may change the shipment's details, which confirming a date and striking an event take.
+         */
+        mayChangeDetails: boolean
+
         milestones: TrackingMilestone[]
         changes: TrackingChange[]
         /**
@@ -19601,7 +19777,21 @@ export namespace interfaces {
      * What needs a look on this shipment, worked out from its dates.
      */
     export interface TrackingAttention {
-        kind: "moved" | "late"
+        /**
+         * moved and late come from the dates; exception is one somebody reported, open until closed; not_told is a date the customer was told that moved.
+         */
+        kind: "moved" | "late" | "exception" | "not_told"
+
+        /**
+         * The reported exception, which can be closed; null for what the dates show.
+         */
+        eventId: string | null
+
+        /**
+         * Its reason; "" otherwise.
+         */
+        note: string
+
         milestoneKey: string
         /**
          * "ETA", "ETD", …
@@ -19613,6 +19803,21 @@ export namespace interfaces {
         to: string | null
         at: string | null
         by: string
+    }
+
+    /**
+     * A line under the bell about a shipment's dates.
+     */
+    export interface TrackingBellNotice {
+        key: string
+        kind: "date_moved" | "to_confirm" | "not_told"
+        shipmentId: string
+        jobNumber: string
+        title: string
+        text: string
+        by: string
+        at: string
+        unread: boolean
     }
 
     /**
@@ -19632,6 +19837,66 @@ export namespace interfaces {
 
         by: string
         at: string
+    }
+
+    /**
+     * What the customer was told, as the tab lists it.
+     */
+    export interface TrackingCustomerNotice {
+        id: string
+        kind: string
+        label: string
+        channel: string
+        toldTo: string
+        subject: string
+        note: string
+        etaPod: string | null
+        etaWarehouse: string | null
+        plannedDelivery: string | null
+        by: string
+        at: string
+    }
+
+    /**
+     * A stored fact about the shipment, as the tab lists it.
+     */
+    export interface TrackingEventItem {
+        id: string
+        kind: string
+        label: string
+        occurredOn: string
+        /**
+         * "HH:MM" in Prague when known; "" otherwise.
+         */
+        occurredTime: string
+
+        place: string
+        containerNumber: string
+        note: string
+        /**
+         * Where it came from in words ("Trucking"); "" for a person.
+         */
+        source: string
+
+        by: string
+        recordedAt: string
+        effect: "none" | "proposed" | "applied" | "dismissed"
+        /**
+         * The day it would set or set; null when it sets none.
+         */
+        effectValue: string | null
+
+        /**
+         * The shipment field it would set or set, in words ("ATA"); "" when none.
+         */
+        sets: string
+
+        /**
+         * Only what a person recorded can be struck: the rest is changed where it comes from.
+         */
+        strikeable: boolean
+
+        resolvedAt: string | null
     }
 
     export type TrackingLeg = "origin" | "main" | "destination"
@@ -19664,6 +19929,16 @@ export namespace interfaces {
 
         actual: string | null
         /**
+         * "HH:MM" of the actual date in Prague when known; "" otherwise.
+         */
+        actualTime: string
+
+        /**
+         * A date a source reports and a person hasn't confirmed yet; null when there is none.
+         */
+        proposed: TrackingProposal | null
+
+        /**
          * What stands in for a date ("Under Customs Clearance", the MRN); "" when nothing does.
          */
         detail: string
@@ -19687,6 +19962,27 @@ export namespace interfaces {
      * was not recorded. open: still to come. planned: a date we only plan by, with no actual to record.
      */
     export type TrackingMilestoneState = "done" | "next" | "late" | "open" | "planned"
+
+    export interface TrackingProposal {
+        eventId: string
+        day: string
+        /**
+         * Who reports it ("Carrier", "Document read").
+         */
+        source: string
+    }
+
+    /**
+     * A kind of event this person may record on this shipment.
+     */
+    export interface TrackingRecordableKind {
+        kind: string
+        label: string
+        group: "milestone" | "exception" | "note"
+        reasonRequired: boolean
+        sets: string
+        taxDate: boolean
+    }
 
     /**
      * Who put a value there and when, from the audit log. No person is named for a system write or a user who left.

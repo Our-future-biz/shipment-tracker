@@ -114,6 +114,7 @@ describe("avizace", () => {
     expect(t.cs).toContain(c.ref);
     expect((await consignmentService.get(user, c.id)).avizaceNeeded).toBe(true);
     const d = await avizaceService.record(user, c.id, { channel: "PHONE", contact: "Eva Nováková", agreedFrom: null, agreedTo: null, note: "" });
+    expect(store.outbox.filter((o) => o.kind === "delivery_advice")).toEqual([expect.objectContaining({ payload: expect.objectContaining({ text: "By phone to Eva Nováková" }) })]);
     expect(d).toMatchObject({ avizaceNeeded: true, avizaceDone: true, avizace: { channel: "PHONE", contact: "Eva Nováková", by: "Jana Nováková" } });
     expect(eventsOf("avizace_recorded")).toHaveLength(1);
   });

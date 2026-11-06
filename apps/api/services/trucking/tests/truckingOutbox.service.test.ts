@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Where each kind of outbox row goes, and as whom.
+const bucket = vi.hoisted(() => ({ download: vi.fn(async () => Buffer.from("pdf bytes")) }));
+vi.mock("../storage/documentBucket", () => ({ truckingDocumentBucket: bucket }));
 vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("~encore/clients", () => ({
-  shipments: { _internalShipmentMarkBilling: vi.fn(), shipmentUpdate: vi.fn() },
+  shipments: { _internalShipmentMarkBilling: vi.fn(), shipmentUpdate: vi.fn(), _internalModuleDocument: vi.fn(), _internalTrackingFact: vi.fn() },
   invoicing: { _internalInvoicingTruckingLines: vi.fn() },
   auth: { userLookup: vi.fn() },
 }));
@@ -39,6 +41,27 @@ describe("outbox delivery", () => {
   it("asks Shipments for the Billing step, and pushes the cost lines to invoicing", async () => {
     await sendRow(row("billing", {}));
     expect(shipments._internalShipmentMarkBilling).toHaveBeenCalledWith({ shipmentId: S }, { authData });
+  });
+
+  it("hands the POD to the job's Documents and timeline, once per file", async () => {
+    await sendRow(row("pod", { fileName: "pod.pdf", contentType: "application/pdf", sha256: "abc", storageKey: "c/1/x", stampedAt: "2026-11-05T09:00:00.000Z" }));
+    expect(bucket.download).toHaveBeenCalledWith("c/1/x");
+    expect(shipments._internalModuleDocument).toHaveBeenCalledWith(
+      { shipmentId: S, fileName: "pod.pdf", fileType: "application/pdf", contentBase64: Buffer.from("pdf bytes").toString("base64"), documentType: "CMR / POD", sourceRef: "trucking:abc" },
+      { authData },
+    );
+    expect(shipments._internalTrackingFact).toHaveBeenCalledWith(
+      { shipmentId: S, kind: "pod_received", occurredAt: "2026-11-05T09:00:00.000Z", note: "pod.pdf", externalId: "pod:c1:abc" },
+      { authData },
+    );
+  });
+
+  it("hands the delivery advice to the job's timeline", async () => {
+    await sendRow(row("delivery_advice", { at: "2026-11-05T09:00:00.000Z", text: "By phone to Jan" }));
+    expect(shipments._internalTrackingFact).toHaveBeenCalledWith(
+      { shipmentId: S, kind: "delivery_advised", occurredAt: "2026-11-05T09:00:00.000Z", note: "By phone to Jan", externalId: "avizace:c1:2026-11-05T09:00:00.000Z" },
+      { authData },
+    );
     const costs = { sourceRef: "trucking:trip:t1", buying: [{ description: "x" }], selling: [] };
     await sendRow(row("costs", costs));
     expect(invoicing._internalInvoicingTruckingLines).toHaveBeenCalledWith({ shipmentId: S, ...costs }, { authData });

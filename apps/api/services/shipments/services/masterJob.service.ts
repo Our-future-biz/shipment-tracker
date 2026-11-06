@@ -209,7 +209,7 @@ class MasterJobService {
     if (houses.length > 0) {
       for (const house of houses) {
         // The synced keys are shipment columns; blanks clear them (null on a date).
-        await shipmentService.update(house.id, companyId, synced as ShipmentUpdateData, userId);
+        await shipmentService.update(house.id, companyId, synced as ShipmentUpdateData, userId, undefined, "master_job");
       }
     }
     return toItem(row, await this.countShipments(id, companyId));

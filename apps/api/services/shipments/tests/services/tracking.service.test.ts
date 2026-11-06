@@ -1,16 +1,32 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const shipments = vi.hoisted(() => ({ getByIdForCompany: vi.fn() }));
-const auditRows = vi.hoisted(() => ({ listByShipmentId: vi.fn() }));
-const taskRows = vi.hoisted(() => ({ listByShipmentId: vi.fn() }));
-const service = vi.hoisted(() => ({ isInvoiced: vi.fn(), customsStatusOf: vi.fn() }));
+const auditRows = vi.hoisted(() => ({ listByShipmentId: vi.fn(), create: vi.fn() }));
+const taskRows = vi.hoisted(() => ({ listByShipmentId: vi.fn(), upsert: vi.fn() }));
+const service = vi.hoisted(() => ({ isInvoiced: vi.fn(), customsStatusOf: vi.fn(), mayChangeDetails: vi.fn(), update: vi.fn() }));
+const masterJobs = vi.hoisted(() => ({ update: vi.fn() }));
+const comments = vi.hoisted(() => ({ postExceptionNotice: vi.fn() }));
+const events = vi.hoisted(() => ({
+  listByShipmentId: vi.fn(),
+  getLive: vi.fn(),
+  findSameDay: vi.fn(),
+  add: vi.fn(),
+  change: vi.fn(),
+  resolveOpen: vi.fn(),
+  softDeleteForCompany: vi.fn(),
+  addOnce: vi.fn(),
+}));
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 vi.mock("../../lib/userEmails", () => ({ userEmails: async () => new Map([["u1", "jana@firma.cz"]]) }));
 vi.mock("../../repositories/shipment.repository", () => ({ shipmentRepository: shipments }));
 vi.mock("../../repositories/shipmentAudit.repository", () => ({ shipmentAuditRepository: auditRows }));
 vi.mock("../../repositories/shipmentTask.repository", () => ({ shipmentTaskRepository: taskRows }));
+vi.mock("../../repositories/shipmentTrackingEvent.repository", () => ({ shipmentTrackingEventRepository: events }));
 vi.mock("../../services/shipment.service", () => ({ shipmentService: service }));
+vi.mock("../../services/masterJob.service", () => ({ masterJobService: masterJobs }));
+vi.mock("../../repositories/shipmentCustomerNotice.repository", () => ({ shipmentCustomerNoticeRepository: { listByShipmentId: vi.fn(async () => []) } }));
+vi.mock("../../services/comment.service", () => ({ commentService: comments }));
 
 import { TRACKING_AUDIT_FIELDS } from "../../lib/trackingTimeline";
 import { TRACKING_CHANGES_LIMIT, trackingService } from "../../services/tracking.service";
@@ -27,7 +43,16 @@ const shipment = {
   customsDeadline: "",
   mrn: "",
   estimatedArrival: "2026-12-09",
+  id: "s1",
+  masterJobId: null as string | null,
+  actualArrival: null as string | null,
+  actualDeparture: null as string | null,
+  actualDeliveryDate: null as string | null,
 };
+const ACTOR = { userID: "u1", companyID: "c1", role: "user" };
+const NOW = new Date("2026-11-06T12:00:00Z");
+const record = (input: Partial<Parameters<typeof trackingService.record>[2]> = {}) =>
+  trackingService.record("s1", ACTOR, { kind: "arrived", occurredOn: "2026-11-05", ...input }, NOW);
 const change = (id: number) => ({ id: `a${id}`, field: "vessel", oldValue: "", newValue: "X", changedAt: new Date("2026-11-01T10:00:00Z"), userId: "u1" });
 
 beforeEach(() => {
@@ -37,37 +62,225 @@ beforeEach(() => {
   taskRows.listByShipmentId.mockResolvedValue([]);
   service.isInvoiced.mockResolvedValue(false);
   service.customsStatusOf.mockResolvedValue("Waiting For Commercial Paperwork");
+  service.mayChangeDetails.mockResolvedValue(true);
+  events.listByShipmentId.mockResolvedValue([]);
+  events.findSameDay.mockResolvedValue(null);
+  events.add.mockImplementation(async (row: object) => ({ id: "new", ...row }));
+  events.change.mockImplementation(async (id: string) => ({ id }));
 });
 
 describe("the shipment's tracking", () => {
   it("is not found for a shipment that isn't live in this company", async () => {
     shipments.getByIdForCompany.mockResolvedValue(null);
-    await expect(trackingService.get("s1", "c1")).rejects.toThrow("Shipment not found");
+    await expect(trackingService.get("s1", ACTOR)).rejects.toThrow("Shipment not found");
     expect(auditRows.listByShipmentId).not.toHaveBeenCalled();
   });
 
   it("reads the transport fields of this shipment and company, one row past the limit", async () => {
-    await trackingService.get("s1", "c1");
+    await trackingService.get("s1", ACTOR);
     expect(auditRows.listByShipmentId).toHaveBeenCalledWith("s1", "c1", TRACKING_AUDIT_FIELDS, TRACKING_CHANGES_LIMIT + 1);
   });
 
   it("shows the customs status worked out from the paperwork", async () => {
-    const t = await trackingService.get("s1", "c1");
+    const t = await trackingService.get("s1", ACTOR);
     expect(service.customsStatusOf).toHaveBeenCalledWith(shipment, "c1");
     expect(t.milestones.find((m) => m.key === "customs")?.detail).toBe("Waiting For Commercial Paperwork");
   });
 
   it("says when the log holds more than it read", async () => {
     auditRows.listByShipmentId.mockResolvedValue(Array.from({ length: TRACKING_CHANGES_LIMIT + 1 }, (_, i) => change(i)));
-    const t = await trackingService.get("s1", "c1");
+    const t = await trackingService.get("s1", ACTOR);
     expect(t.changes).toHaveLength(TRACKING_CHANGES_LIMIT);
     expect(t.changesCapped).toBe(true);
   });
 
   it("still answers when Invoicing can't be asked, without saying invoiced or not", async () => {
     service.isInvoiced.mockRejectedValue(new Error("down"));
-    const t = await trackingService.get("s1", "c1");
+    const t = await trackingService.get("s1", ACTOR);
     expect(t.taxDate.invoiced).toBeNull();
     expect(t.milestones.length).toBeGreaterThan(0);
+  });
+});
+
+describe("recording an event", () => {
+  it("sets the shipment's field through the normal update, under the person's role", async () => {
+    await record({ note: "On the berth" });
+    expect(service.update).toHaveBeenCalledWith("s1", "c1", { actualArrival: "2026-11-05" }, "u1", "user");
+    expect(events.add).toHaveBeenCalledWith(expect.objectContaining({ kind: "arrived", occurredOn: "2026-11-05", effect: "applied", effectField: "actualArrival", effectValue: "2026-11-05", source: "user", note: "On the berth" }));
+  });
+
+  it("leaves no event when the update refuses, as it does on an invoiced job", async () => {
+    service.update.mockRejectedValueOnce(new Error("credit the invoice first"));
+    await expect(record()).rejects.toThrow("credit the invoice first");
+    expect(events.add).not.toHaveBeenCalled();
+  });
+
+  it("writes a date a master job carries on the master job", async () => {
+    shipments.getByIdForCompany.mockResolvedValue({ ...shipment, masterJobId: "m1" });
+    await record();
+    expect(masterJobs.update).toHaveBeenCalledWith("m1", "c1", { actualArrival: "2026-11-05" }, "u1");
+    expect(service.update).not.toHaveBeenCalled();
+  });
+
+  it("adds its details to the bare fact the write just stored, rather than a second one", async () => {
+    events.findSameDay.mockResolvedValue({ id: "bare", note: "", place: "", containerNumber: "", occurredAt: null, source: "master_job" });
+    const row = await record({ occurredTime: "14:30", place: "Charleston" });
+    expect(row.id).toBe("bare");
+    expect(events.add).not.toHaveBeenCalled();
+    expect(events.change).toHaveBeenCalledWith("bare", "c1", expect.objectContaining({ place: "Charleston", occurredAt: new Date("2026-11-05T13:30:00Z"), source: "user" }));
+  });
+
+  it("keeps a fact somebody already gave details of, and adds another", async () => {
+    events.findSameDay.mockResolvedValue({ id: "other", note: "", place: "", containerNumber: "MSDU2778315", occurredAt: null, source: "user" });
+    await record({ containerNumber: "MSDU2778316" });
+    expect(events.change).not.toHaveBeenCalled();
+    expect(events.add).toHaveBeenCalled();
+  });
+
+  it("doesn't write a field that already holds the date", async () => {
+    shipments.getByIdForCompany.mockResolvedValue({ ...shipment, actualArrival: "2026-11-05" });
+    await record();
+    expect(service.update).not.toHaveBeenCalled();
+    expect(events.add).toHaveBeenCalled();
+  });
+
+  it("writes nothing on the shipment for a fact it has no column for", async () => {
+    await record({ kind: "discharged" });
+    expect(service.update).not.toHaveBeenCalled();
+    expect(events.add).toHaveBeenCalledWith(expect.objectContaining({ kind: "discharged", effect: "none", effectField: "" }));
+  });
+
+  it("closes the exceptions the fact ends", async () => {
+    await record();
+    expect(events.resolveOpen).toHaveBeenCalledWith("s1", "c1", ["delayed", "rolled"], "u1");
+  });
+
+  it("refuses who may not change the details, before anything is written", async () => {
+    service.mayChangeDetails.mockResolvedValue(false);
+    await expect(record()).rejects.toThrow("Only this shipment's Person in Charge");
+    expect(service.update).not.toHaveBeenCalled();
+    expect(events.add).not.toHaveBeenCalled();
+  });
+
+  it("lets anyone record customs' own kinds", async () => {
+    service.mayChangeDetails.mockResolvedValue(false);
+    await record({ kind: "hold", note: "MRN pending" });
+    expect(events.add).toHaveBeenCalled();
+  });
+
+  it("tells the chat of an exception, and of nothing else", async () => {
+    await record({ kind: "rolled", note: "No space" });
+    expect(comments.postExceptionNotice).toHaveBeenCalledWith(expect.objectContaining({ id: "s1" }), "c1", "u1", { label: "Rolled", day: "2026-11-05", note: "No space" });
+    comments.postExceptionNotice.mockClear();
+    await record({ kind: "discharged" });
+    expect(comments.postExceptionNotice).not.toHaveBeenCalled();
+  });
+
+  it("keeps the exception when the chat can't be written", async () => {
+    comments.postExceptionNotice.mockRejectedValueOnce(new Error("users away"));
+    await expect(record({ kind: "rolled", note: "No space" })).resolves.toMatchObject({ kind: "rolled" });
+  });
+
+  it("refuses a date or a time that isn't one", async () => {
+    await expect(record({ occurredOn: "2026-02-31" })).rejects.toThrow("YYYY-MM-DD");
+    await expect(record({ occurredTime: "25:00" })).rejects.toThrow("HH:MM");
+  });
+
+  it("ticks the task it comes with, and only one that goes with it", async () => {
+    await record({ taskKey: "imp_cargo_shipped", kind: "departed" });
+    expect(taskRows.upsert).toHaveBeenCalledWith("s1", "c1", "imp_cargo_shipped", true, "u1");
+    await expect(record({ taskKey: "imp_billed" })).rejects.toThrow("doesn't go with");
+  });
+});
+
+describe("a proposed date", () => {
+  const proposal = { id: "e1", kind: "arrived", effect: "proposed", effectField: "actualArrival", effectValue: "2026-11-05", occurredOn: "2026-11-05", source: "carrier" };
+
+  it("reaches the shipment only when confirmed, through the normal update", async () => {
+    events.getLive.mockResolvedValue(proposal);
+    await trackingService.confirm("s1", "e1", ACTOR);
+    expect(service.update).toHaveBeenCalledWith("s1", "c1", { actualArrival: "2026-11-05" }, "u1", "user");
+    expect(events.change).toHaveBeenCalledWith("e1", "c1", expect.objectContaining({ effect: "applied", decidedById: "u1" }));
+  });
+
+  it("stays proposed when the update refuses the confirmation", async () => {
+    events.getLive.mockResolvedValue(proposal);
+    service.update.mockRejectedValueOnce(new Error("credit the invoice first"));
+    await expect(trackingService.confirm("s1", "e1", ACTOR)).rejects.toThrow("credit the invoice first");
+    expect(events.change).not.toHaveBeenCalled();
+  });
+
+  it("takes the details rule to confirm or dismiss", async () => {
+    events.getLive.mockResolvedValue(proposal);
+    service.mayChangeDetails.mockResolvedValue(false);
+    await expect(trackingService.confirm("s1", "e1", ACTOR)).rejects.toThrow("Only this shipment's Person in Charge");
+    await expect(trackingService.dismiss("s1", "e1", ACTOR)).rejects.toThrow("Only this shipment's Person in Charge");
+  });
+
+  it("leaves the shipment alone when dismissed", async () => {
+    events.getLive.mockResolvedValue(proposal);
+    await trackingService.dismiss("s1", "e1", ACTOR);
+    expect(service.update).not.toHaveBeenCalled();
+    expect(events.change).toHaveBeenCalledWith("e1", "c1", expect.objectContaining({ effect: "dismissed" }));
+  });
+
+  it("can't be confirmed once it isn't waiting", async () => {
+    events.getLive.mockResolvedValue({ ...proposal, effect: "applied" });
+    await expect(trackingService.confirm("s1", "e1", ACTOR)).rejects.toThrow("isn't waiting");
+  });
+});
+
+describe("closing and striking", () => {
+  it("closes an exception, and only an exception", async () => {
+    events.getLive.mockResolvedValue({ id: "e1", kind: "rolled", resolvedAt: null, source: "user" });
+    await trackingService.resolve("s1", "e1", ACTOR);
+    expect(events.change).toHaveBeenCalledWith("e1", "c1", expect.objectContaining({ resolvedById: "u1" }));
+    events.getLive.mockResolvedValue({ id: "e2", kind: "arrived", resolvedAt: null, source: "user" });
+    await expect(trackingService.resolve("s1", "e2", ACTOR)).rejects.toThrow("Only an exception");
+  });
+
+  const hand = { id: "e1", kind: "arrived", source: "user", effect: "applied", effectField: "actualArrival", effectValue: "2026-11-05", occurredOn: "2026-11-05" };
+
+  it("clears the date a struck event set, and keeps the reason in the log", async () => {
+    shipments.getByIdForCompany.mockResolvedValue({ ...shipment, actualArrival: "2026-11-05" });
+    events.getLive.mockResolvedValue(hand);
+    await trackingService.strike("s1", "e1", "Wrong job", ACTOR);
+    expect(service.update).toHaveBeenCalledWith("s1", "c1", { actualArrival: "" }, "u1", "user");
+    expect(events.softDeleteForCompany).toHaveBeenCalledWith("e1", "c1");
+    expect(auditRows.create).toHaveBeenCalledWith(expect.objectContaining({ field: "trackingEvent:arrived", oldValue: "2026-11-05", newValue: "struck: Wrong job" }));
+  });
+
+  it("leaves a date somebody has changed since", async () => {
+    shipments.getByIdForCompany.mockResolvedValue({ ...shipment, actualArrival: "2026-11-06" });
+    events.getLive.mockResolvedValue(hand);
+    await trackingService.strike("s1", "e1", "Wrong", ACTOR);
+    expect(service.update).not.toHaveBeenCalled();
+    expect(events.softDeleteForCompany).toHaveBeenCalled();
+  });
+
+  it("stays when the date can't be cleared, as on an invoiced job", async () => {
+    shipments.getByIdForCompany.mockResolvedValue({ ...shipment, actualArrival: "2026-11-05" });
+    events.getLive.mockResolvedValue(hand);
+    service.update.mockRejectedValueOnce(new Error("credit the invoice first"));
+    await expect(trackingService.strike("s1", "e1", "Wrong", ACTOR)).rejects.toThrow("credit the invoice first");
+    expect(events.softDeleteForCompany).not.toHaveBeenCalled();
+  });
+
+  it("refuses what came from another module", async () => {
+    events.getLive.mockResolvedValue({ ...hand, kind: "gate_in", source: "warehouse" });
+    await expect(trackingService.strike("s1", "e1", "Wrong", ACTOR)).rejects.toThrow("change it there");
+  });
+
+  it("asks for a reason", async () => {
+    events.getLive.mockResolvedValue(hand);
+    await expect(trackingService.strike("s1", "e1", "  ", ACTOR)).rejects.toThrow("Say why");
+  });
+});
+
+describe("a fact from another module", () => {
+  it("is stored under its own id, on the Prague day, and sets no date", async () => {
+    await trackingService.addFact("s1", "c1", "u1", { kind: "pod_received", source: "trucking", occurredAt: new Date("2026-11-05T23:30:00Z"), note: "pod.pdf", externalId: "pod:c1:abc" });
+    expect(events.addOnce).toHaveBeenCalledWith(expect.objectContaining({ kind: "pod_received", occurredOn: "2026-11-06", source: "trucking", externalId: "pod:c1:abc", note: "pod.pdf" }));
+    expect(service.update).not.toHaveBeenCalled();
   });
 });

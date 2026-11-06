@@ -71,6 +71,36 @@ class AttachmentService {
   }
 
   /**
+   * A file another module hands over, once per `sourceRef`: a retry finds the first copy. The bytes
+   * are stored first and removed again when another delivery got there meanwhile.
+   */
+  async addFromModule(
+    shipmentId: string,
+    companyId: string,
+    file: { fileName: string; fileType: string; contentBase64: string; documentType: string; sourceRef: string },
+    uploadedById: string,
+  ): Promise<{ created: boolean }> {
+    await shipmentService.requireLive(shipmentId, companyId);
+    if (await shipmentAttachmentRepository.findBySourceRef(shipmentId, companyId, file.sourceRef)) return { created: false };
+    const bytes = Buffer.from(file.contentBase64, "base64");
+    const storageKey = `${shipmentId}/${randomUUID()}`;
+    await attachmentBucket.upload(storageKey, bytes, { contentType: file.fileType || "application/octet-stream" });
+    const created = await shipmentAttachmentRepository.addOnce({
+      companyId,
+      shipmentId,
+      fileName: file.fileName,
+      fileSize: bytes.length,
+      fileType: file.fileType,
+      storageKey,
+      documentType: file.documentType,
+      uploadedById,
+      sourceRef: file.sourceRef,
+    });
+    if (!created) await attachmentBucket.remove(storageKey).catch((err: unknown) => log.warn(err, "a duplicate handed-over file was not removed", { storageKey }));
+    return { created };
+  }
+
+  /**
    * The bytes of a file for the public content endpoint. Served only with a valid token for
    * this file, and only from the company and shipment the token and the path name.
    */

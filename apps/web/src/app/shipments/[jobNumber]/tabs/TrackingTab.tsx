@@ -1,18 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Alert, Spin, Switch } from "antd";
 import { CopyButton } from "@/components/CopyButton";
 import { PillTabs } from "@/components/SectionCard";
 import { useJobFxRates } from "@/hooks/useFx";
 import type { ShipmentItem } from "@/hooks/useShipments";
-import { useShipmentTracking } from "@/hooks/useShipmentTracking";
+import { useShipmentTracking, useTrackingActions } from "@/hooks/useShipmentTracking";
 import { apiErrorMessage } from "@/lib/api";
-import { CARD, HINT } from "@/styles/ui";
+import { BTN_GHOST, BTN_PRIMARY, BTN_SM, CARD, HINT } from "@/styles/ui";
 import { jobFxDates } from "./costsRows";
 import { AttentionCard } from "./tracking/AttentionCard";
 import { ChangesCard } from "./tracking/ChangesCard";
 import { ChecklistCard } from "./tracking/ChecklistCard";
+import { CustomerNoticesCard } from "./tracking/CustomerNoticesCard";
+import type { NoticeKindValue } from "./tracking/customerDraft";
+import { EventsCard } from "./tracking/EventsCard";
+import { RecordEventModal } from "./tracking/RecordEventModal";
+import { TellCustomerModal } from "./tracking/TellCustomerModal";
 import { RecordedBy } from "./tracking/RecordedBy";
 import { TimelineCard } from "./tracking/TimelineCard";
 import { taxDateParts, trackingStatusLine } from "./tracking/trackingText";
@@ -29,6 +34,11 @@ const VIEWS: readonly { key: View; label: string; title: string }[] = [
 export function TrackingTab({ shipment, onOpen }: { shipment: ShipmentItem; onOpen: (tab: string) => void }) {
   const [view, setView] = useState<View>("all");
   const [customerView, setCustomerView] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [telling, setTelling] = useState<NoticeKindValue | null>(null);
+  // Opening the tab is seeing what the bell says about this shipment.
+  const { mutate: markRead } = useTrackingActions(shipment.id).markRead;
+  useEffect(() => markRead(), [markRead]);
   const { data, isLoading, error } = useShipmentTracking(shipment.id);
   const { data: rates } = useJobFxRates(shipment.id, jobFxDates(shipment));
 
@@ -55,7 +65,7 @@ export function TrackingTab({ shipment, onOpen }: { shipment: ShipmentItem; onOp
       </div>
 
       {!customerView && (
-        <p className={`${CARD} m-0 px-4 py-2.5 text-[13px] text-slate-700 tabular-nums`}>
+        <div className={`${CARD} px-4 py-2.5 text-[13px] text-slate-700 tabular-nums`}>
           {taxDateParts(data.taxDate, rates).join(" · ")}
           {/* Who set the date it goes by; an invoiced job goes by its invoice, not by that estimate. */}
           {data.taxDate.recorded && (data.taxDate.actual || !data.taxDate.invoiced) && (
@@ -64,23 +74,42 @@ export function TrackingTab({ shipment, onOpen }: { shipment: ShipmentItem; onOp
               <RecordedBy recorded={data.taxDate.recorded} />
             </>
           )}
-        </p>
+        </div>
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         {customerView ? <span className={HINT}>What can be told to the customer: no names, no internal marks.</span> : <PillTabs tabs={VIEWS} active={view} onChange={setView} />}
-        <label className="flex items-center gap-2 text-[13px] text-slate-700 cursor-pointer">
-          <Switch size="small" checked={customerView} onChange={setCustomerView} />
-          Customer view
-        </label>
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-[13px] text-slate-700 cursor-pointer">
+            <Switch size="small" checked={customerView} onChange={setCustomerView} />
+            Customer view
+          </label>
+          {!customerView && (
+            <button type="button" onClick={() => setTelling("status")} className={`${BTN_GHOST} ${BTN_SM}`}>
+              Tell the customer
+            </button>
+          )}
+          {!customerView &&
+            (data.recordable.length > 0 ? (
+              <button type="button" onClick={() => setRecording(true)} className={`${BTN_PRIMARY} ${BTN_SM}`}>
+                Record an event
+              </button>
+            ) : (
+              <span className={HINT}>A road job&apos;s stamps are set in Trucking.</span>
+            ))}
+        </div>
       </div>
 
-      {!customerView && view === "all" && <AttentionCard items={data.attention} />}
+      {!customerView && view === "all" && <AttentionCard shipmentId={shipment.id} items={data.attention} onTell={setTelling} />}
       {showTimeline && (
-        <TimelineCard shipment={shipment} milestones={data.milestones} actualsOnly={!customerView && view === "actuals"} customerView={customerView} onOpen={onOpen} />
+        <TimelineCard shipment={shipment} milestones={data.milestones} actualsOnly={!customerView && view === "actuals"} customerView={customerView} onOpen={onOpen} onTellPod={() => setTelling("pod_sent")} />
       )}
+      {!customerView && view === "all" && <EventsCard shipmentId={shipment.id} events={data.events} mayChangeDetails={data.mayChangeDetails} />}
+      {!customerView && view === "all" && data.customerNotices.length > 0 && <CustomerNoticesCard notices={data.customerNotices} />}
       {showChanges && <ChangesCard changes={data.changes} capped={data.changesCapped} />}
       {!customerView && view === "all" && <ChecklistCard tradeDirection={shipment.tradeDirection} ticks={data.ticks} />}
+      {recording && <RecordEventModal shipment={shipment} tracking={data} onClose={() => setRecording(false)} />}
+      {telling && <TellCustomerModal shipment={shipment} tracking={data} initialKind={telling} onClose={() => setTelling(null)} />}
     </div>
   );
 }

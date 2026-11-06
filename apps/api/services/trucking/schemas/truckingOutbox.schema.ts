@@ -14,6 +14,8 @@ import type { TruckingOutboxPayload } from "../lib/outboxPayload";
  *  - expect_arrival / expect_departure: an LTL trip announced to our warehouse (lib/warehouseLink)
  *  - cancel_expected: that announcement withdrawn (the job left the trip, or the trip was cancelled)
  *  - real_costs: an approved haulier invoice's real cost on the job's Trucking buying rows (by sourceRef in invoicing)
+ *  - pod: the POD file and its stamp handed to the job's Documents and timeline
+ *  - delivery_advice: the avizace given, for the job's timeline
  */
 export type TruckingOutboxKind =
   | "planned"
@@ -24,7 +26,9 @@ export type TruckingOutboxKind =
   | "expect_arrival"
   | "expect_departure"
   | "cancel_expected"
-  | "real_costs";
+  | "real_costs"
+  | "pod"
+  | "delivery_advice";
 export type { OutboxStatus } from "../../../lib/outbox/outbox.columns";
 
 // One update owed to the consignment's job (Shipments) or its Costs Breakdown (Invoicing). It is

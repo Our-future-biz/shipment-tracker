@@ -1,4 +1,5 @@
 import { APIError, ErrCode } from "encore.dev/api";
+import { businessDay } from "../../../lib/businessDate";
 import type { Actor } from "../../../lib/rbac";
 import { canManageSales, shipmentFromQuoteRefusal, shipmentLinkRefusal } from "../../../lib/salesPolicy";
 import { isSalesReference } from "../../../lib/salesReference";
@@ -14,6 +15,9 @@ import { containerRepository } from "../repositories/container.repository";
 import { cargoItemRepository } from "../repositories/cargoItem.repository";
 import { cargoDimensionRepository } from "../repositories/cargoDimension.repository";
 import { commercialInvoiceRepository } from "../repositories/commercialInvoice.repository";
+import { EXCEPTIONS_CLOSED_BY, eventsFromChanges, ticksFromChanges, type TrackingSource } from "../lib/trackingEvents";
+import { shipmentTaskRepository } from "../repositories/shipmentTask.repository";
+import { shipmentTrackingEventRepository } from "../repositories/shipmentTrackingEvent.repository";
 import { invoiceValueByCurrency, isValidContainerNumber, matchContainerRows, normalizeContainerNumber, projectCargo } from "../lib/cargoProjection";
 import { actionStamp, cfsDefault, exportBolDefaults, isCreditApproval, startingStateDefaults, statusForDirection } from "../lib/fieldDefaults";
 import { quoteLinksService } from "./quoteLinks.service";
@@ -732,6 +736,24 @@ class ShipmentService {
     if (!(await shipmentRepository.getByIdForCompany(id, companyId))) throw APIError.notFound("Shipment not found");
   }
 
+  // What a change of the shipment is worth on the Tracking tab, in its write turn: the fact as an
+  // event (once: one already recorded for that day stands), the exceptions it closes, the ticks it
+  // makes true.
+  private async writeTrackingFacts(tx: Tx, existing: ShipmentRecord, changes: Partial<NewShipmentRecord>, userId: string, byPerson: boolean, origin?: TrackingSource): Promise<void> {
+    const now = new Date();
+    const facts = eventsFromChanges(existing, changes, { byPerson, origin, today: businessDay(now), now });
+    for (const fact of facts) {
+      const { companyId, id: shipmentId } = existing;
+      if (await shipmentTrackingEventRepository.findSameDay(shipmentId, companyId, fact.kind, fact.occurredOn, tx)) continue;
+      await shipmentTrackingEventRepository.add({ ...fact, companyId, shipmentId, recordedById: userId }, tx);
+      const closes = EXCEPTIONS_CLOSED_BY[fact.kind];
+      if (closes) await shipmentTrackingEventRepository.resolveOpen(shipmentId, companyId, closes, userId, tx);
+    }
+    for (const taskKey of ticksFromChanges(existing, changes, changes.tradeDirection ?? existing.tradeDirection)) {
+      await shipmentTaskRepository.upsert(existing.id, existing.companyId, taskKey, true, userId, tx);
+    }
+  }
+
   /** The customs status the shipment shows, which follows its paperwork. */
   async customsStatusOf(shipment: { id: string; customsStatus: string }, companyId: string): Promise<string> {
     return customsStatusFor(shipment.customsStatus, await this.documentsOf(shipment.id, companyId));
@@ -1030,8 +1052,12 @@ class ShipmentService {
   // At user level only the Person in Charge and the Holiday Cover change a shipment's details
   // (lib/shipmentEditRule). An e-mail that can't be looked up is refused rather than guessed.
   private async assertMayChangeDetails(shipment: { personInCharge: string; holidayCover: string }, userId: string, role: string): Promise<void> {
-    if (isDetailsManager(role) || isOpenToPerson(shipment, "") || isOpenToPerson(shipment, await userEmailOf(userId))) return;
-    throw APIError.permissionDenied(DETAILS_REFUSAL);
+    if (!(await this.mayChangeDetails(shipment, userId, role))) throw APIError.permissionDenied(DETAILS_REFUSAL);
+  }
+
+  /** Whether this person may change the shipment's details (lib/shipmentEditRule). */
+  async mayChangeDetails(shipment: { personInCharge: string; holidayCover: string }, userId: string, role: string): Promise<boolean> {
+    return isDetailsManager(role) || isOpenToPerson(shipment, "") || isOpenToPerson(shipment, await userEmailOf(userId));
   }
 
   /** For the actions that aren't a field edit but change the shipment: its master job, releasing its BoL. */
@@ -1041,8 +1067,9 @@ class ShipmentService {
   }
 
   // `role`: of the person editing, whose edit is held to what their role may change. Left out by
-  // the app's own writes (a master job's sync, an approved request).
-  async update(id: string, companyId: string, data: ShipmentUpdateData, userId: string, role?: string): Promise<ShipmentItem> {
+  // the app's own writes (a master job's sync, an approved request). `origin`: where the write comes
+  // from, when the fields alone don't say, for the tracking events it causes.
+  async update(id: string, companyId: string, data: ShipmentUpdateData, userId: string, role?: string, origin?: TrackingSource): Promise<ShipmentItem> {
     const existing = await shipmentRepository.getByIdForCompany(id, companyId);
     if (!existing) throw APIError.notFound("Shipment not found");
     const locked = role === undefined ? null : customsOfficeLockRefusal(existing, data, role);
@@ -1175,6 +1202,7 @@ class ShipmentService {
           await audit(change.field, change.oldValue, change.newValue);
         }
       }
+      await this.writeTrackingFacts(tx, existing, shipmentData, userId, role !== undefined, origin);
       if (Object.keys(shipmentData).length === 0) return null;
       const saved = await shipmentRepository.updateForCompany(id, companyId, shipmentData, tx);
       return saved && lettersMayFollow ? this.followLetters(tx, companyId, userId, saved) : saved;

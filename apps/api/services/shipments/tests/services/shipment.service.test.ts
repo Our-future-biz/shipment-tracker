@@ -39,6 +39,8 @@ vi.mock("../../repositories/shipment.repository", () => ({
 }));
 vi.mock("../../repositories/shipmentAttachment.repository", () => ({ shipmentAttachmentRepository: { documentTypesByShipmentIds: vi.fn() } }));
 vi.mock("../../repositories/shipmentAudit.repository", () => ({ shipmentAuditRepository: { create: vi.fn() } }));
+vi.mock("../../repositories/shipmentTask.repository", () => ({ shipmentTaskRepository: { upsert: vi.fn() } }));
+vi.mock("../../repositories/shipmentTrackingEvent.repository", () => ({ shipmentTrackingEventRepository: { findSameDay: vi.fn(async () => null), add: vi.fn(), resolveOpen: vi.fn() } }));
 vi.mock("../../repositories/masterJob.repository", () => ({ masterJobRepository: {} }));
 vi.mock("../../repositories/shipmentRefCounter.repository", () => ({ shipmentRefCounterRepository: { peek: vi.fn() } }));
 vi.mock("../../repositories/container.repository", () => ({
@@ -62,6 +64,8 @@ import { shipmentRepository } from "../../repositories/shipment.repository";
 import { shipmentAttachmentRepository } from "../../repositories/shipmentAttachment.repository";
 import type { ShipmentRecord } from "../../schemas/shipment.schema";
 import { shipmentAuditRepository } from "../../repositories/shipmentAudit.repository";
+import { shipmentTaskRepository } from "../../repositories/shipmentTask.repository";
+import { shipmentTrackingEventRepository } from "../../repositories/shipmentTrackingEvent.repository";
 import { quoteLinksService } from "../../services/quoteLinks.service";
 import { shipmentService } from "../../services/shipment.service";
 import { shipmentPartiesChanged } from "../../topics";
@@ -607,6 +611,59 @@ describe("update", () => {
     expect(links.markDirty).toHaveBeenCalledWith(COMPANY);
     // The old quote is still tried after the new one failed.
     expect(links.syncReference).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("what a change is worth on the Tracking tab", () => {
+  const update = (data: Record<string, unknown>, role?: string, origin?: "master_job") => shipmentService.update(SHIPMENT, COMPANY, data as never, USER, role, origin);
+  const events = vi.mocked(shipmentTrackingEventRepository);
+  const invoicedRow = () => stored.set(SHIPMENT, row({ tradeDirection: "Import", invoicingStatus: "Not Invoiced" }));
+
+  beforeEach(() => {
+    invoicedRow();
+    vi.mocked(invoicing.openInvoiceCount).mockResolvedValue({ count: 0 });
+    events.findSameDay.mockResolvedValue(null);
+  });
+
+  it("stores the fact in the write turn, with who and from where", async () => {
+    await update({ actualArrival: "2026-11-05" }, "admin");
+    expect(events.add).toHaveBeenCalledWith(
+      expect.objectContaining({ companyId: COMPANY, shipmentId: SHIPMENT, kind: "arrived", occurredOn: "2026-11-05", source: "user", recordedById: USER, effect: "applied", effectField: "actualArrival" }),
+      TX,
+    );
+  });
+
+  it("says a master job's sync came from the master job", async () => {
+    await update({ actualArrival: "2026-11-05" }, undefined, "master_job");
+    expect(events.add).toHaveBeenCalledWith(expect.objectContaining({ source: "master_job" }), TX);
+  });
+
+  it("doesn't store the same fact twice", async () => {
+    events.findSameDay.mockResolvedValue({ id: "e1" } as never);
+    await update({ actualArrival: "2026-11-05" }, "admin");
+    expect(events.add).not.toHaveBeenCalled();
+  });
+
+  it("closes the exceptions the fact ends", async () => {
+    await update({ actualArrival: "2026-11-05" }, "admin");
+    expect(events.resolveOpen).toHaveBeenCalledWith(SHIPMENT, COMPANY, ["delayed", "rolled"], USER, TX);
+  });
+
+  it("stores nothing for a field that is no fact", async () => {
+    await update({ freeComments: "hello" }, "admin");
+    expect(events.add).not.toHaveBeenCalled();
+    expect(vi.mocked(shipmentTaskRepository.upsert)).not.toHaveBeenCalled();
+  });
+
+  it("ticks Billed when the app marks the job invoiced", async () => {
+    await update({ invoicingStatus: "Invoiced" });
+    expect(vi.mocked(shipmentTaskRepository.upsert)).toHaveBeenCalledWith(SHIPMENT, COMPANY, "imp_billed", true, USER, TX);
+  });
+
+  it("ticks Delivered when the delivery date comes, and stores Trucking as its source", async () => {
+    await update({ actualDeliveryDate: "2026-11-05" });
+    expect(vi.mocked(shipmentTaskRepository.upsert)).toHaveBeenCalledWith(SHIPMENT, COMPANY, "imp_delivered", true, USER, TX);
+    expect(events.add).toHaveBeenCalledWith(expect.objectContaining({ kind: "delivered", source: "trucking" }), TX);
   });
 });
 

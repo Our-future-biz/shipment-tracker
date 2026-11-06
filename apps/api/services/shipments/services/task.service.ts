@@ -1,7 +1,10 @@
+import { APIError } from "encore.dev/api";
+import { shipmentAuditRepository } from "../repositories/shipmentAudit.repository";
 import { shipmentTaskRepository } from "../repositories/shipmentTask.repository";
 import type { ShipmentTaskRecord } from "../schemas/shipmentTask.schema";
 import { isoOrNull } from "../../../lib/db/serialize";
 import type { TaskItem } from "../interfaces/interfaces";
+import { isDetailsManager } from "../lib/shipmentEditRule";
 import { shipmentService } from "./shipment.service";
 
 const toItem = (r: ShipmentTaskRecord): TaskItem => ({
@@ -22,6 +25,18 @@ class TaskService {
   async upsert(shipmentId: string, companyId: string, taskKey: string, completed: boolean, completedById: string): Promise<TaskItem> {
     await shipmentService.requireLive(shipmentId, companyId);
     return toItem(await shipmentTaskRepository.upsert(shipmentId, companyId, taskKey, completed, completedById));
+  }
+
+  /** A manager takes a wrong tick back, with a reason kept in the audit log (Council Outlay 8, D8). */
+  async reopen(shipmentId: string, companyId: string, taskKey: string, reason: string, actor: { userID: string; role: string }): Promise<TaskItem> {
+    if (!isDetailsManager(actor.role)) throw APIError.permissionDenied("Only a manager can take a tick back");
+    const why = reason.trim();
+    if (!why) throw APIError.invalidArgument("Say why the tick is taken back");
+    await shipmentService.requireLive(shipmentId, companyId);
+    const row = await shipmentTaskRepository.reopen(shipmentId, companyId, taskKey);
+    if (!row) throw APIError.failedPrecondition("That task isn't ticked");
+    await shipmentAuditRepository.create({ companyId, shipmentId, userId: actor.userID, field: `task:${taskKey}`, oldValue: "ticked", newValue: `taken back: ${why}` });
+    return toItem(row);
   }
 }
 

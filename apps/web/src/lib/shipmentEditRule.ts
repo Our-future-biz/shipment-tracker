@@ -6,6 +6,9 @@
 
 const MANAGER_ROLES = ["superadmin", "admin", "manager"];
 
+/** Whether a role is a manager's, who may do what a regular user may not. */
+export const isDetailsManager = (role: string): boolean => MANAGER_ROLES.includes(role);
+
 /** The fields the other departments keep up, whoever the shipment's people are. */
 export const DEPARTMENT_FIELDS: ReadonlySet<string> = new Set([
   // Customs
