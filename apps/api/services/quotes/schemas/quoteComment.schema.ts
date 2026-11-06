@@ -17,6 +17,8 @@ export const quoteCommentTable = pgTable(
     message: text("message").notNull(),
     /** Colleagues tagged with @ in the message; each gets a notification until they open the chat. */
     mentionedUserIds: uuid("mentioned_user_ids").array().notNull().default(sql`'{}'::uuid[]`),
+    /** When its writer crossed it out (lib/chatRule): the line stays in the chat, struck through. */
+    struckAt: timestamp("struck_at", { withTimezone: true }),
   },
   (table) => [
     ...defaultTableIndexes("quote_comment", table),

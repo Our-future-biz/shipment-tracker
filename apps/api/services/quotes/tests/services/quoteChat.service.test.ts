@@ -21,7 +21,9 @@ vi.mock("../../repositories/quoteComment.repository", () => ({
     createForCompany: vi.fn(),
     linkFiles: vi.fn(),
     createFile: vi.fn(),
-    deleteOwn: vi.fn(),
+    getByIdForCompany: vi.fn(),
+    updateForCompany: vi.fn(),
+    deleteWithFiles: vi.fn(),
     markRead: vi.fn(),
     unreadCounts: vi.fn(),
     mentions: vi.fn(),
@@ -75,10 +77,41 @@ describe("the thread of a quote", () => {
     expect(repo.createForCompany).not.toHaveBeenCalled();
   });
 
-  it("deletes only the author's own message", async () => {
-    repo.deleteOwn.mockResolvedValue(false);
-    await expect(quoteChatService.delete(me, `${ROOT}-R1`, "m9")).rejects.toMatchObject({ code: "not_found" });
-    expect(repo.deleteOwn).toHaveBeenCalledWith("c1", ROOT, "m9", "u-me");
+  const line = (over: object = {}) => ({ id: "m9", threadRef: ROOT, authorId: "u-me", createdAt: new Date(Date.now() - 30_000), struckAt: null, ...over }) as never;
+
+  it("deletes the writer's own message within 2 minutes, from any revision", async () => {
+    repo.getByIdForCompany.mockResolvedValue(line());
+    repo.deleteWithFiles.mockResolvedValue(true);
+    await quoteChatService.delete(me, `${ROOT}-R1`, "m9");
+    expect(repo.deleteWithFiles).toHaveBeenCalledWith("c1", ROOT, "m9");
+  });
+
+  it("refuses the writer after 2 minutes and anyone else, and a message of another thread isn't found", async () => {
+    repo.getByIdForCompany.mockResolvedValue(line({ createdAt: new Date(Date.now() - 130_000) }));
+    await expect(quoteChatService.delete(me, ROOT, "m9")).rejects.toMatchObject({ code: "permission_denied" });
+    repo.getByIdForCompany.mockResolvedValue(line({ authorId: "u-eva" }));
+    await expect(quoteChatService.delete(me, ROOT, "m9")).rejects.toMatchObject({ code: "permission_denied" });
+    repo.getByIdForCompany.mockResolvedValue(line({ threadRef: "QCZ-OTHER" }));
+    await expect(quoteChatService.delete(me, ROOT, "m9")).rejects.toMatchObject({ code: "not_found" });
+    expect(repo.deleteWithFiles).not.toHaveBeenCalled();
+  });
+
+  it("lets an admin and a superadmin delete anyone's message at any time, not a manager", async () => {
+    repo.getByIdForCompany.mockResolvedValue(line({ authorId: "u-eva", createdAt: new Date(Date.now() - 86_400_000) }));
+    repo.deleteWithFiles.mockResolvedValue(true);
+    for (const role of ["admin", "superadmin"]) await quoteChatService.delete({ ...me, role }, ROOT, "m9");
+    expect(repo.deleteWithFiles).toHaveBeenCalledTimes(2);
+    await expect(quoteChatService.delete({ ...me, role: "manager" }, ROOT, "m9")).rejects.toMatchObject({ code: "permission_denied" });
+  });
+
+  it("crosses out only the writer's own message, and it stays", async () => {
+    repo.getByIdForCompany.mockResolvedValue(line({ createdAt: new Date(Date.now() - 86_400_000) }));
+    await quoteChatService.strike(me, ROOT, "m9");
+    expect(repo.updateForCompany).toHaveBeenCalledWith("m9", "c1", { struckAt: expect.any(Date) });
+    expect(repo.deleteWithFiles).not.toHaveBeenCalled();
+    repo.getByIdForCompany.mockResolvedValue(line({ authorId: "u-eva" }));
+    await expect(quoteChatService.strike(me, ROOT, "m9")).rejects.toMatchObject({ code: "permission_denied" });
+    expect(repo.updateForCompany).toHaveBeenCalledTimes(1);
   });
 });
 

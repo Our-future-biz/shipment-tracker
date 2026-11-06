@@ -1576,6 +1576,7 @@ export namespace quotes {
             this.quoteCommentList = this.quoteCommentList.bind(this)
             this.quoteCommentMarkRead = this.quoteCommentMarkRead.bind(this)
             this.quoteCommentMentions = this.quoteCommentMentions.bind(this)
+            this.quoteCommentStrike = this.quoteCommentStrike.bind(this)
             this.quoteCommentUnread = this.quoteCommentUnread.bind(this)
             this.quoteLinksNormalize = this.quoteLinksNormalize.bind(this)
             this.quotePeopleNormalize = this.quotePeopleNormalize.bind(this)
@@ -1672,6 +1673,10 @@ export namespace quotes {
             return await resp.json() as {
     mentions: interfaces.QuoteCommentMentionItem[]
 }
+        }
+
+        public async quoteCommentStrike(quoteNumber: string, commentId: string): Promise<void> {
+            await this.baseClient.callTypedAPI("POST", `/sales-quotes/${encodeURIComponent(quoteNumber)}/comments/${encodeURIComponent(commentId)}/strike`)
         }
 
         /**
@@ -2253,6 +2258,7 @@ export namespace shipments {
             this.commentList = this.commentList.bind(this)
             this.commentMarkRead = this.commentMarkRead.bind(this)
             this.commentMentions = this.commentMentions.bind(this)
+            this.commentStrike = this.commentStrike.bind(this)
             this.commentUnread = this.commentUnread.bind(this)
             this.customsOfficeRequestAnswers = this.customsOfficeRequestAnswers.bind(this)
             this.customsOfficeRequestAsk = this.customsOfficeRequestAsk.bind(this)
@@ -2442,6 +2448,15 @@ export namespace shipments {
             return await resp.json() as {
     mentions: interfaces.CommentMentionItem[]
 }
+        }
+
+        /**
+         * The writer crosses out their own message: it stays in the chat, struck through.
+         */
+        public async commentStrike(shipmentId: string, commentId: string): Promise<controllers.CommentStrikeResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/comments/${encodeURIComponent(commentId)}/strike`)
+            return await resp.json() as controllers.CommentStrikeResponse
         }
 
         /**
@@ -6310,6 +6325,10 @@ export namespace controllers {
 
     export interface CommentListResponse {
         comments: interfaces.CommentItem[]
+    }
+
+    export interface CommentStrikeResponse {
+        ok: boolean
     }
 
     export interface CommentUnreadResponse {
@@ -12328,6 +12347,11 @@ export namespace interfaces {
          * On the reader's own messages: a colleague has opened the chat since it was sent.
          */
         readByOthers: boolean
+
+        /**
+         * When its writer crossed it out; null while it stands.
+         */
+        struckAt: string | null
     }
 
     /**
@@ -16661,6 +16685,11 @@ export namespace interfaces {
          * On the reader's own messages: a colleague has opened the chat since it was sent.
          */
         readByOthers: boolean
+
+        /**
+         * When its writer crossed it out; null while it stands.
+         */
+        struckAt: string | null
     }
 
     /**

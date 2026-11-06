@@ -121,8 +121,9 @@ function CommunicationCard({ shipment }: { shipment: ShipmentItem }) {
                     <span className="ml-auto shrink-0 text-[12px] text-slate-500 tabular-nums">{formatDateTime(m.createdAt)}</span>
                   </div>
                   {m.message && (
-                    <p className="m-0 mt-0.5 text-[13px] leading-5 text-slate-700 whitespace-pre-wrap break-words">{m.message}</p>
+                    <p className={`m-0 mt-0.5 text-[13px] leading-5 whitespace-pre-wrap break-words ${m.struckAt ? "text-slate-500 line-through" : "text-slate-700"}`}>{m.message}</p>
                   )}
+                  {m.struckAt && <p className="m-0 mt-0.5 text-[11px] text-slate-500">Crossed out</p>}
                   {m.attachments.length > 0 && (
                     <div className="mt-1.5 flex flex-wrap gap-1.5">
                       {m.attachments.map((f) => (

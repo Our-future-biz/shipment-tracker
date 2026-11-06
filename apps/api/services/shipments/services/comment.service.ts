@@ -7,6 +7,7 @@ import { attachmentContentUrl } from "../lib/contentToken";
 import { customsOfficeRequestNotice, documentChangeNotice } from "../lib/customsOfficeNotice";
 import { canManageDocuments } from "../lib/documentRules";
 import { COMPARED_WITH, declaredFigures, dimensionFigures, remeasureNotice, type CargoFigures } from "../lib/remeasureNotice";
+import { chatDeleteRefusal, chatStrikeRefusal } from "../../../lib/chatRule";
 import { iso } from "../../../lib/db/serialize";
 import { companyUsers, companyUsersWithRoles } from "../../../lib/companyUsers";
 import type { CommentItem, CommentMentionItem, CommentUnreadItem, RemeasureNoticeResult } from "../interfaces/interfaces";
@@ -75,6 +76,7 @@ class CommentService {
           contentUrl: attachmentContentUrl(c.shipmentId, id, c.companyId),
         })),
       readByOthers: c.authorId === userId && !!othersReadAt && othersReadAt >= c.createdAt,
+      struckAt: c.struckAt ? iso(c.struckAt) : null,
     };
   }
 
@@ -188,17 +190,33 @@ class CommentService {
     });
   }
 
-  // Deleting a message takes the files sent with it along (they also show on the Documents tab) -
-  // but only a manager deletes a document, so a regular user's message goes and its files stay.
-  async delete(shipmentId: string, id: string, companyId: string, userId: string, role?: string): Promise<void> {
-    const deleted = await shipmentCommentRepository.deleteOwn(id, companyId, userId);
-    if (!deleted) throw APIError.notFound("Message not found");
-    if (role !== undefined && !canManageDocuments(role)) {
+  private async line(shipmentId: string, id: string, companyId: string): Promise<ShipmentCommentRecord> {
+    const comment = await shipmentCommentRepository.getByIdForCompany(id, companyId);
+    if (comment?.shipmentId !== shipmentId) throw APIError.notFound("Message not found");
+    return comment;
+  }
+
+  // Who may delete is lib/chatRule. Deleting a message takes the files sent with it along (they also
+  // show on the Documents tab) - but only a manager deletes a document, so a regular user's message
+  // goes and its files stay.
+  async delete(shipmentId: string, id: string, companyId: string, userId: string, role: string): Promise<void> {
+    const refusal = chatDeleteRefusal(await this.line(shipmentId, id, companyId), userId, role);
+    if (refusal) throw APIError.permissionDenied(refusal);
+    await shipmentCommentRepository.softDeleteForCompany(id, companyId);
+    if (!canManageDocuments(role)) {
       await shipmentAttachmentRepository.unlinkFromComment(id, companyId);
       return;
     }
     const fileIds = await shipmentAttachmentRepository.listIdsByCommentId(id, companyId);
     for (const fileId of fileIds) await attachmentService.delete(shipmentId, fileId, companyId);
+  }
+
+  // The writer crosses out their own message: it stays in the chat, struck through, for good.
+  async strike(shipmentId: string, id: string, companyId: string, userId: string): Promise<void> {
+    const comment = await this.line(shipmentId, id, companyId);
+    const refusal = chatStrikeRefusal(comment, userId);
+    if (refusal) throw APIError.permissionDenied(refusal);
+    if (!comment.struckAt) await shipmentCommentRepository.updateForCompany(id, companyId, { struckAt: new Date() });
   }
 }
 

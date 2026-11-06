@@ -461,6 +461,8 @@ export interface QuoteCommentItem {
   attachments: QuoteCommentAttachment[];
   /** On the reader's own messages: a colleague has opened the chat since it was sent. */
   readByOthers: boolean;
+  /** When its writer crossed it out; null while it stands. */
+  struckAt: string | null;
 }
 
 /** Unread messages of a thread for the signed-in user. */

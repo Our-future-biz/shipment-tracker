@@ -1,0 +1,1 @@
+ALTER TABLE "shipment_comment" ADD COLUMN "struck_at" timestamp with time zone;

@@ -499,6 +499,8 @@ export interface CommentItem {
   attachments: CommentAttachment[];
   /** On the reader's own messages: a colleague has opened the chat since it was sent. */
   readByOthers: boolean;
+  /** When its writer crossed it out; null while it stands. */
+  struckAt: string | null;
 }
 
 /** cargo = claim on the shipment · cost = claim on a supplier's invoice */

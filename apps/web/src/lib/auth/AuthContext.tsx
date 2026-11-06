@@ -186,6 +186,12 @@ export const useCanManageDocuments = (): boolean => {
   return !!user && (DOCUMENT_MANAGER_ROLES as readonly string[]).includes(user.role);
 };
 
+/** Whether the signed-in user may delete anyone's chat message at any time; the server enforces the same (lib/chatRule). */
+export const useCanDeleteAnyChatMessage = (): boolean => {
+  const { user } = useAuth();
+  return user?.role === "superadmin" || user?.role === "admin";
+};
+
 /** Roles that may delete a shipment (it also retires its costs and billing); the server enforces the same. */
 export const SHIPMENT_DELETE_ROLES = ["superadmin", "admin", "manager"] as const;
 
