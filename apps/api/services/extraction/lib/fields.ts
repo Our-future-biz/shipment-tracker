@@ -59,6 +59,14 @@ export const MBL_FIELDS = [
   "PCS", "Type Of Packages", "Total Weight In Tons", "Total Volume In CBM",
 ];
 
+// A carrier's or terminal's notice about where a cargo is: an arrival notice, a delay notice, an
+// availability mail, a rail or airline status. Facts with their day; what isn't printed stays out.
+export const TRACKING_FIELDS = [
+  "Container Numbers", "Vessel", "Voyage",
+  "Loaded On Board", "ATD", "Transhipment Port", "Transhipment Arrived", "Transhipment Departed", "ATA", "Discharged", "Gate Out", "Delivered", "Empty Returned",
+  "New ETD", "New ETA", "Customs Hold", "Available From", "Last Free Day",
+];
+
 export const CUSTOMS_FIELDS = ["MRN Number", "Shipper", "Consignee", "Total Weight In Tons", "Container Number"];
 
 /**

@@ -1,5 +1,5 @@
 import { api } from "encore.dev/api";
-import type { MinLen } from "encore.dev/validate";
+import type { MaxLen, MinLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { taskService } from "../services/task.service";
 import type { TaskItem } from "../interfaces/interfaces";
@@ -19,5 +19,20 @@ export const taskUpsert = api(
   async (req: TaskUpsertRequest): Promise<TaskUpsertResponse> => {
     const auth = getAuthData()!;
     return { task: await taskService.upsert(req.shipmentId, auth.companyID, req.taskKey, req.completed, auth.userID) };
+  },
+);
+
+interface TaskReopenRequest {
+  shipmentId: string;
+  taskKey: string;
+  reason: string & MinLen<1> & MaxLen<500>;
+}
+
+// A manager takes a wrong tick back, saying why.
+export const taskReopen = api(
+  { expose: true, auth: true, method: "POST", path: "/shipments/:shipmentId/tasks/:taskKey/reopen" },
+  async (req: TaskReopenRequest): Promise<TaskUpsertResponse> => {
+    const auth = getAuthData()!;
+    return { task: await taskService.reopen(req.shipmentId, auth.companyID, req.taskKey, req.reason, { userID: auth.userID, role: auth.role }) };
   },
 );

@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { contactUpdate, partyUpdate, type ContactField, type ContactLinks, type PartyField } from "@/app/shipments/_lib/parties";
 import { useQueryClient } from "@tanstack/react-query";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { Badge, Spin, Dropdown, Modal, Drawer, Tooltip, Select, TimePicker, Button } from "antd";
+import { Alert, Badge, ConfigProvider, Spin, Dropdown, Modal, Drawer, Tooltip, Select, TimePicker, Button } from "antd";
 import { useToast } from "@/lib/toast";
 import dayjs from "dayjs";
 import { api, apiErrorMessage } from "@/lib/api";
@@ -33,7 +33,8 @@ import {
 import { useShipment } from "@/hooks/useShipment";
 import { NOT_STACKABLE, STACKABLE_OPTIONS, shipmentStackability, withShipmentStackability } from "@/lib/cargo";
 import { useInvoicing } from "@/hooks/useInvoicing";
-import { useCanDeleteShipments } from "@/lib/auth/AuthContext";
+import { useAuth, useCanDeleteShipments } from "@/lib/auth/AuthContext";
+import { canChangeShipmentDetails } from "@/lib/shipmentEditRule";
 import { useShipmentMutations, getFieldValue, buildRowData, type ShipmentItem } from "@/hooks/useShipments";
 import { getCellConditionalStyle, getRowConditionalStyle } from "@/lib/columnConfig";
 import { businessToday, formatDate } from "@/lib/date";
@@ -54,11 +55,15 @@ import { ContainerDetailsTab } from "./tabs/ContainerDetailsTab";
 import { CargoDetailsTab } from "./tabs/CargoDetailsTab";
 import { DocumentsTab } from "./tabs/DocumentsTab";
 import { TrackingTab } from "./tabs/TrackingTab";
+import { TaxDateLockNote } from "./tabs/tracking/TaxDateLockNote";
 import { NotificationsTab } from "./tabs/NotificationsTab";
 import { useShipmentAlerts } from "@/hooks/useShipmentAlerts";
 import { WarehouseTab } from "./tabs/WarehouseTab";
+import { CustomsProcedureRow } from "./_components/CustomsProcedureRow";
 import { CustomsTab } from "./tabs/CustomsTab";
-import { EditableCell, FreightModeContext, ShipmentCustomerContext, ShipmentCustomerPicContext, TradeDirectionContext } from "./_components/EditableCell";
+import { EditableCell, ShipmentDetailsEditableContext, FreightModeContext, ShipmentCustomerContext, ShipmentCustomerPicContext, ShipmentEmailSubjectContext, TradeDirectionContext } from "./_components/EditableCell";
+import { shipmentEmailSubject } from "../_lib/shipmentEmail";
+import { MasterJobHoverCard } from "@/components/MasterJobHoverCard";
 import { FadeText } from "@/components/FadeText";
 import { CustomerLinkField } from "./_components/CustomerLinkField";
 import { PartyContactField } from "./_components/PartyContactField";
@@ -82,9 +87,9 @@ import {
   LABEL_TEXT,
   LINK,
   MODAL_TITLE,
+  REF,
 } from "@/styles/ui";
-import { MasterJobDetailModal } from "../_components/MasterJobDetailModal";
-import { MasterJobDialog } from "../_components/MasterJobDialog";
+import { MasterJobDialog, linkEach, linkedCount } from "../_components/MasterJobDialog";
 import { AttachmentsPanel } from "../_components/AttachmentsPanel";
 import { NotesDrawer } from "../_components/NotesDrawer";
 import { CommercialInvoicesModal } from "../_components/CommercialInvoicesModal";
@@ -153,6 +158,8 @@ function SectionHeader({
         value={getFieldValue(shipment!, f.key)}
         onCommit={onCommit ?? (() => {})}
         styleFor={styleFor}
+        customsOffice={shipment!.customsOffice}
+        shipmentId={shipment!.id}
       />
     );
 
@@ -270,6 +277,20 @@ function SectionHeader({
   );
 }
 
+// The Shipment Details, Cargo and Container tabs for someone who may not change them: every cell and
+// picker read-only. Plain buttons are left alone: the ones that change something are not shown
+// (the Cargo and Container tabs take `readOnly`), and the rest (a container's tab, a link, Per piece
+// / All pieces) must keep working. What the departments keep up is enabled again inside
+// (CustomsProcedureRow, InvoiceRow, the Tasks card).
+function DetailsGuard({ editable, children }: { editable: boolean; children: React.ReactNode }) {
+  if (editable) return <>{children}</>;
+  return (
+    <ShipmentDetailsEditableContext.Provider value={false}>
+      <ConfigProvider componentDisabled>{children}</ConfigProvider>
+    </ShipmentDetailsEditableContext.Provider>
+  );
+}
+
 interface FieldRowProps {
   label: string;
   value?: string | null;
@@ -277,6 +298,9 @@ interface FieldRowProps {
   onCommit: CommitFn;
   styleFor?: StyleFor;
   labelW?: string;
+  /** For Customs Procedure: its row also holds the shipment's Customs Office. */
+  customsOffice?: string | null;
+  shipmentId?: string;
 }
 
 function FieldRow({
@@ -286,7 +310,22 @@ function FieldRow({
   onCommit,
   styleFor,
   labelW = LABEL_W,
+  customsOffice,
+  shipmentId = "",
 }: FieldRowProps) {
+  if (fieldKey === "customsProcedure") {
+    return (
+      <CustomsProcedureRow
+        label={label}
+        value={value}
+        shipmentId={shipmentId}
+        customsOffice={customsOffice}
+        onCommit={onCommit}
+        displayStyle={styleFor?.(fieldKey, value)}
+        labelW={labelW}
+      />
+    );
+  }
   // A person is never typed in: every card and modal row of one is the user picker.
   if (isPersonField(fieldKey)) {
     return <MemberRow label={label} fieldKey={fieldKey} value={value} onCommit={onCommit} labelW={labelW} />;
@@ -325,6 +364,7 @@ interface StackabilityRowProps {
 // The shipment's stackability, read from its dimension rows. A double-click picks it for the
 // whole shipment (every row takes it); the long value wraps instead of being cut off.
 function StackabilityRow({ value, onPick }: StackabilityRowProps) {
+  const editable = React.useContext(ShipmentDetailsEditableContext);
   const [editing, setEditing] = useState(false);
   return (
     <div className={ROW_TOP}>
@@ -349,11 +389,11 @@ function StackabilityRow({ value, onPick }: StackabilityRowProps) {
       ) : (
         <span
           // Cargo that needs special handling stands out, like a Yes for Dangerous.
-          className={`flex-1 min-w-0 cursor-pointer rounded px-1 -mx-1 transition-colors text-slate-900 break-words ${
-            value === NOT_STACKABLE ? "bg-amber-500/15" : "hover:bg-slate-100"
-          }`}
-          title="Double-click to edit"
-          onDoubleClick={() => setEditing(true)}
+          className={`flex-1 min-w-0 rounded px-1 -mx-1 transition-colors text-slate-900 break-words ${
+            value === NOT_STACKABLE ? "bg-amber-500/15" : editable ? "hover:bg-slate-100" : ""
+          } ${editable ? "cursor-pointer" : ""}`}
+          title={editable ? "Double-click to edit" : undefined}
+          onDoubleClick={editable ? () => setEditing(true) : undefined}
         >
           {value || <span className={EMPTY}>—</span>}
         </span>
@@ -421,6 +461,9 @@ function InvoiceRow({
       ? shipment.civByCurrency || getFieldValue(shipment, "commercialInvoiceValue")
       : getFieldValue(shipment, fieldKey);
   return (
+    // Customs' own field (the server leaves it open to everyone): its dialog is not disabled with a
+    // read-only card around it.
+    <ConfigProvider componentDisabled={false}>
     <div className={ROW}>
       <span className={LABEL.replace(LABEL_W, labelW)}>{label}</span>
       <button
@@ -438,12 +481,13 @@ function InvoiceRow({
         onClose={() => setOpen(false)}
         onSave={(s, commercialInvoices) =>
           updateShipment({ id: s.id, data: { commercialInvoices } }).catch((e) => {
-            toast.error("Could not save the commercial invoices");
+            toast.error(`Could not save the commercial invoices: ${apiErrorMessage(e)}`);
             throw e;
           })
         }
       />
     </div>
+    </ConfigProvider>
   );
 }
 
@@ -598,7 +642,7 @@ export function DetailCard({
                 ) : f.ro ? (
                   <RoRow label={f.label} value={getFieldValue(shipment, f.key)} />
                 ) : (
-                  <FieldRow label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={onCommit} styleFor={styleFor} />
+                  <FieldRow label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={onCommit} styleFor={styleFor} customsOffice={shipment.customsOffice} shipmentId={shipment.id} />
                 )}
                 {renderAfter?.[f.key]}
               </React.Fragment>
@@ -667,6 +711,7 @@ function OpeningHoursRow({
   to,
   onChange,
 }: OpeningHoursRowProps) {
+  const editable = React.useContext(ShipmentDetailsEditableContext);
   const parse = (v?: string | null) => {
     if (!v) return null;
     const d = dayjs(`1970-01-01T${v}`);
@@ -682,6 +727,8 @@ function OpeningHoursRow({
           format="HH:mm"
           minuteStep={15}
           value={[parse(from), parse(to)]}
+          // Disabled and empty in a read-only card, which the picker wants to be told it may be.
+          allowEmpty={editable ? undefined : [true, true]}
           onChange={(_, strs) => onChange(strs[0] || "", strs[1] || "")}
         />
       </div>
@@ -922,11 +969,13 @@ export function ShipmentDetailContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { updateField, updateShipment, deleteShipment, linkMasterJob, unlinkMasterJob } = useShipmentMutations();
-  const [masterJobOpen, setMasterJobOpen] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
+  const [unlinkOpen, setUnlinkOpen] = useState(false);
+  const [unlinking, setUnlinking] = useState(false);
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const canDelete = useCanDeleteShipments();
+  const { user } = useAuth();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [releaseOpen, setReleaseOpen] = useState(false);
@@ -1062,6 +1111,8 @@ export function ShipmentDetailContent() {
   }
 
   // The shipment goes along: it need not be among the rows the list hook knows.
+  // At user level only the Person in Charge and the Holiday Cover change the details (the server holds to the same).
+  const detailsEditable = canChangeShipmentDetails(user, shipment);
   const handleCommit: CommitFn = (fieldKey, value, links) => updateField(shipment.id, fieldKey, value, shipment, links);
 
   // Update a party's name + its CRM customer link together.
@@ -1079,22 +1130,28 @@ export function ShipmentDetailContent() {
   const salesNumber = (shipment.salesNumber ?? "").trim();
   const salesQuoteRef = isSalesQuoteRef(salesNumber) ? salesNumber : null;
 
+  // One request per shipment, each may be refused on its own (the details rule): the rest still link.
   const handleAssignMasterJob = async (ids: string[], mczNumber: string) => {
-    try {
-      await Promise.all(ids.map((id) => linkMasterJob({ shipmentId: id, mczNumber })));
+    const { linked, failed, error } = await linkEach(ids, (id) => linkMasterJob({ shipmentId: id, mczNumber }));
+    if (failed === 0) {
       toast.success(`Linked to ${mczNumber}`);
       setAssignOpen(false);
-    } catch {
-      toast.error("Failed to link to master job");
+      return;
     }
+    if (linked > 0) toast.success(`Linked ${linkedCount(linked)} to ${mczNumber}`);
+    toast.error(`${linkedCount(failed)} not linked to ${mczNumber}: ${apiErrorMessage(error)}`);
   };
 
-  const handleUnlinkMasterJob = async () => {
+  const confirmUnlinkMasterJob = async () => {
+    setUnlinking(true);
     try {
       await unlinkMasterJob(shipment.id);
       toast.success("Removed from master job");
-    } catch {
-      toast.error("Failed to remove from master job");
+      setUnlinkOpen(false);
+    } catch (e) {
+      toast.error(`Failed to remove from master job: ${apiErrorMessage(e)}`);
+    } finally {
+      setUnlinking(false);
     }
   };
 
@@ -1229,7 +1286,16 @@ export function ShipmentDetailContent() {
 
       {/* ── Tab content ── */}
       <div className="px-4 md:px-6 pt-4 pb-8">
+        {!detailsEditable && (activeTab === "details" || activeTab === "cargo" || activeTab === "container") && (
+          <Alert
+            type="info"
+            showIcon
+            className="mb-4"
+            message="View only: only this shipment's Person in Charge, Holiday Cover or a manager can change its details."
+          />
+        )}
         {activeTab === "details" && (
+          <DetailsGuard editable={detailsEditable}>
           <div className="space-y-4">
             {/* The shipment's progress through its stages */}
             <ShipmentProgress shipment={shipment} />
@@ -1280,6 +1346,7 @@ export function ShipmentDetailContent() {
                     { key: "shipmentsDate", label: "Shipments Month", ro: true },
                     { key: "shipmentsYear", label: "Year", ro: true },
                     { key: "shippingLine", label: "Shipping line / Coloader" },
+                    { key: "carrierCode", label: "Carrier code", ro: true },
                     { key: "containerNumber", label: "Container Number", ro: true },
                     { key: "sealNumber", label: "Seal Number", ro: true },
                     { key: "masterBolNumber", label: "Master BoL Number" },
@@ -1295,17 +1362,28 @@ export function ShipmentDetailContent() {
                           {/* The app's link colour (antd's link), like Customer below. */}
                           {shipment.masterJobMczNumber ? (
                             <>
-                              <button onClick={() => setMasterJobOpen(true)} className={`${LINK} cursor-pointer bg-transparent border-none p-0`}>
-                                #{shipment.masterJobMczNumber}
-                              </button>
-                              <button onClick={handleUnlinkMasterJob} className="text-[10px] text-slate-500 hover:text-red-600 cursor-pointer bg-transparent border-none p-0">
-                                unassign
-                              </button>
+                              {shipment.masterJobId ? (
+                                <MasterJobHoverCard masterJobId={shipment.masterJobId} mczNumber={String(shipment.masterJobMczNumber)}>
+                                  {/* A link, so it also opens in a new tab. */}
+                                  <Link href={`/master-jobs?open=${shipment.masterJobId}`} className={LINK}>
+                                    #{shipment.masterJobMczNumber}
+                                  </Link>
+                                </MasterJobHoverCard>
+                              ) : (
+                                <span>#{shipment.masterJobMczNumber}</span>
+                              )}
+                              {detailsEditable && (
+                                <button onClick={() => setUnlinkOpen(true)} className="text-[10px] text-slate-500 hover:text-red-600 cursor-pointer bg-transparent border-none p-0">
+                                  unassign
+                                </button>
+                              )}
                             </>
-                          ) : (
+                          ) : detailsEditable ? (
                             <button onClick={() => setAssignOpen(true)} className={`${LINK} cursor-pointer bg-transparent border-none p-0 text-left`}>
                               + Assign to master job
                             </button>
+                          ) : (
+                            <span className={EMPTY}>—</span>
                           )}
                         </div>
                       </div>
@@ -1332,6 +1410,8 @@ export function ShipmentDetailContent() {
                     containerNumber: (
                       <ContainerNumberLinkRow value={shipment.containerNumber} onOpen={openContainerTab} />
                     ),
+                    // Worked out by the server from the shipping line, and no column of the grid either.
+                    carrierCode: <RoRow label="Carrier code" value={shipment.carrierCode} />,
                     incoterm: (
                       <div className={ROW}>
                         <span className={LABEL}>Incoterms Origin/Destination</span>
@@ -1353,7 +1433,7 @@ export function ShipmentDetailContent() {
                       ) : f.ro ? (
                         <RoRow key={f.key} label={f.label} value={getFieldValue(shipment, f.key)} />
                       ) : (
-                        <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={handleCommit} styleFor={styleFor} />
+                        <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} customsOffice={shipment.customsOffice} shipmentId={shipment.id} onCommit={handleCommit} styleFor={styleFor} />
                       ),
                     );
 
@@ -1379,7 +1459,20 @@ export function ShipmentDetailContent() {
               </div>
 
               {/* KEY DATES */}
-              <DetailCard icon={<CalendarOutlined />} title="Key Dates" cardId="dates" columns={[KEY_DATES_L, KEY_DATES_R]} shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
+              <DetailCard
+                icon={<CalendarOutlined />}
+                title="Key Dates"
+                cardId="dates"
+                columns={[KEY_DATES_L, KEY_DATES_R]}
+                shipment={shipment}
+                onCommit={handleCommit}
+                styleFor={styleFor}
+                renderAfter={{
+                  actualDeparture: <TaxDateLockNote shipmentId={shipment.id} />,
+                  actualArrival: <TaxDateLockNote shipmentId={shipment.id} />,
+                  plannedDeliveryDate: <TaxDateLockNote shipmentId={shipment.id} whenDeliveryDated />,
+                }}
+              />
 
               {/* COMMERCIAL PARTIES */}
               <div className={CARD}>
@@ -1452,7 +1545,7 @@ export function ShipmentDetailContent() {
                       custom[f.key] ? (
                         <React.Fragment key={f.key}>{custom[f.key]}</React.Fragment>
                       ) : (
-                        <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={handleCommit} styleFor={styleFor} />
+                        <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} customsOffice={shipment.customsOffice} shipmentId={shipment.id} onCommit={handleCommit} styleFor={styleFor} />
                       ),
                     );
 
@@ -1605,7 +1698,7 @@ export function ShipmentDetailContent() {
                       f.ro ? (
                         <RoRow key={f.key} label={f.label} value={getFieldValue(shipment, f.key)} />
                       ) : (
-                        <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={handleCommit} styleFor={styleFor} />
+                        <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} customsOffice={shipment.customsOffice} shipmentId={shipment.id} onCommit={handleCommit} styleFor={styleFor} />
                       ),
                     );
 
@@ -1664,7 +1757,11 @@ export function ShipmentDetailContent() {
                   <div className={`${LABEL_TEXT} mb-1`}>
                     {shipment.tradeDirection === "Export" ? "Export Workflow" : "Import Workflow"}
                   </div>
-                  <TasksPanel shipment={shipment} />
+                  {/* The ticks and what they open (Tell the customer, Record an event) go by the
+                      server's own rules, not the details rule: not disabled with the card. */}
+                  <ConfigProvider componentDisabled={false}>
+                    <TasksPanel shipment={shipment} />
+                  </ConfigProvider>
                 </div>
               </div>
 
@@ -1673,13 +1770,16 @@ export function ShipmentDetailContent() {
             </div>
           </div>
           </div>
+          </DetailsGuard>
         )}
 
         {activeTab === "cargo" && (
-          // Keyed by the shipment, so opening another shipment starts the tab afresh.
+          <DetailsGuard editable={detailsEditable}>
+          {/* Keyed by the shipment, so opening another shipment starts the tab afresh. */}
           <CargoDetailsTab
             key={shipment.id}
             shipment={shipment}
+            readOnly={!detailsEditable}
             focusContainerId={cargoFocusId}
             // A refused line (e.g. a UN number that is not four digits) is rolled back and said.
             onChange={(data) =>
@@ -1689,6 +1789,7 @@ export function ShipmentDetailContent() {
               })
             }
           />
+          </DetailsGuard>
         )}
 
         {activeTab === "costs" && <CostsTab shipment={shipment} onIssueInvoice={() => setIssueOpen(true)} />}
@@ -1710,7 +1811,7 @@ export function ShipmentDetailContent() {
 
         {activeTab === "warehouse" && <WarehouseTab shipment={shipment} />}
 
-        {activeTab === "tracking" && <TrackingTab shipment={shipment} />}
+        {activeTab === "tracking" && <TrackingTab shipment={shipment} onOpen={setActiveTab} />}
 
         {activeTab === "container" && (
           <div
@@ -1718,8 +1819,10 @@ export function ShipmentDetailContent() {
             className={containerFade ? "transition-[opacity,translate] duration-300 ease-out starting:opacity-0 starting:translate-y-1.5" : undefined}
             onTransitionEnd={(e) => e.target === e.currentTarget && setContainerFade(false)}
           >
+          <DetailsGuard editable={detailsEditable}>
           <ContainerDetailsTab
             shipment={shipment}
+            readOnly={!detailsEditable}
             // A refused save is said; the tab then shows the saved list again.
             onChange={(containers) =>
               updateShipment({ id: shipment.id, data: { containers } }).catch((err) => {
@@ -1732,6 +1835,7 @@ export function ShipmentDetailContent() {
               setActiveTab("cargo");
             }}
           />
+          </DetailsGuard>
           </div>
         )}
 
@@ -1743,20 +1847,29 @@ export function ShipmentDetailContent() {
         {activeTab === "alerts" && <NotificationsTab shipment={shipment} onOpen={setActiveTab} />}
       </div>
 
-      {shipment.masterJobMczNumber && (
-        <MasterJobDetailModal
-          mcz={String(shipment.masterJobMczNumber)}
-          open={masterJobOpen}
-          onClose={() => setMasterJobOpen(false)}
-        />
-      )}
-
       <MasterJobDialog
         open={assignOpen}
         onClose={() => setAssignOpen(false)}
         onLink={handleAssignMasterJob}
         initialSelectedIds={[shipment.id]}
       />
+
+      <Modal
+        open={unlinkOpen}
+        title="Unassign from master job?"
+        okText="Yes, unassign"
+        okButtonProps={{ danger: true, loading: unlinking }}
+        cancelText="Cancel"
+        onOk={confirmUnlinkMasterJob}
+        onCancel={() => setUnlinkOpen(false)}
+        destroyOnHidden
+      >
+        <p className="text-[13px] text-slate-700">
+          Do you really want to unassign the shipment{" "}
+          <b className={REF}>{shipment.jobNumber ?? shipment.id}</b> from master job{" "}
+          <b className={REF}>{shipment.masterJobMczNumber}</b>?
+        </p>
+      </Modal>
 
       <Drawer
         open={attachmentsOpen}
@@ -1791,11 +1904,11 @@ export function ShipmentDetailContent() {
         onCancel={() => setReleaseOpen(false)}
         destroyOnHidden
       >
-        <p className="text-sm text-slate-700">
+        <p className="text-[13px] text-slate-700">
           Do you really want to release the shipment{" "}
-          <b className="tabular-nums">{shipment.jobNumber ?? shipment.id}</b>?
+          <b className={REF}>{shipment.jobNumber ?? shipment.id}</b>?
         </p>
-        <p className="text-sm text-slate-500 mt-2">
+        <p className="text-[13px] text-slate-500 mt-2">
           Your name and the current date and time will be recorded as the release. This cannot be undone.
         </p>
       </Modal>
@@ -1810,10 +1923,10 @@ export function ShipmentDetailContent() {
         onCancel={() => setDeleteOpen(false)}
         destroyOnHidden
       >
-        <p className="text-sm text-slate-700">
-          Do you really want to delete order <b className="tabular-nums">{shipment.jobNumber ?? shipment.id}</b>?
+        <p className="text-[13px] text-slate-700">
+          Do you really want to delete order <b className={REF}>{shipment.jobNumber ?? shipment.id}</b>?
         </p>
-        <p className="text-sm text-slate-500 mt-2">
+        <p className="text-[13px] text-slate-500 mt-2">
           The order is <b>not erased</b> — it is archived with all its details, and its reference can never be reused.
           This action is recorded against your account.
         </p>
@@ -1824,7 +1937,9 @@ export function ShipmentDetailContent() {
     <TradeDirectionContext.Provider value={shipment.tradeDirection ?? undefined}>
       <FreightModeContext.Provider value={shipment.freightMode ?? undefined}>
         <ShipmentCustomerContext.Provider value={shipment.customerId ?? null}>
-          <ShipmentCustomerPicContext.Provider value={shipment.customerPicContactId ?? null}>{page}</ShipmentCustomerPicContext.Provider>
+          <ShipmentCustomerPicContext.Provider value={shipment.customerPicContactId ?? null}>
+            <ShipmentEmailSubjectContext.Provider value={shipmentEmailSubject(shipment)}>{page}</ShipmentEmailSubjectContext.Provider>
+          </ShipmentCustomerPicContext.Provider>
         </ShipmentCustomerContext.Provider>
       </FreightModeContext.Provider>
     </TradeDirectionContext.Provider>

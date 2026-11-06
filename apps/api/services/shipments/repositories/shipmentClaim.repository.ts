@@ -6,7 +6,7 @@ import { shipmentTable } from "../schemas/shipment.schema";
 
 /** The fields of a claim a user fills in. */
 export type ClaimFields = Partial<
-  Pick<NewShipmentClaimRecord, "cargoState" | "note" | "supplier" | "invoiceNumber" | "reason" | "amount">
+  Pick<NewShipmentClaimRecord, "cargoState" | "note" | "supplier" | "invoiceNumber" | "reason" | "amount" | "noticeDate">
 >;
 
 const claimOf = (id: string, shipmentId: string, companyId: string) =>

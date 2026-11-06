@@ -62,6 +62,6 @@ export const masterJobUpdate = api(
   async (req: MasterJobUpdateRequest): Promise<MasterJobUpdateResponse> => {
     const { masterJobId, ...data } = req;
     const auth = getAuthData()!;
-    return { masterJob: await masterJobService.update(masterJobId, auth.companyID, data, auth.userID) };
+    return { masterJob: await masterJobService.update(masterJobId, auth.companyID, data, auth.userID, auth) };
   },
 );

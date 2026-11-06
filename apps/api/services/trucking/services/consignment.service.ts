@@ -1073,6 +1073,9 @@ class ConsignmentService {
       byName: by,
       payload: { changes: { [kind]: { before: null, after: time.toISOString() } }, summary: `${STAMP_LABEL[kind]}: ${stampText(time)}${source === "HAULIER" ? " (by the haulier)" : ""}`, facts: { kind, source } },
     });
+    if (kind === "confirmed" || kind === "pickedUp") {
+      await truckingOutboxRepository.enqueue(tx, companyId, [owed(actor, c, "stamp", { stamp: kind, at: time.toISOString() })]);
+    }
     if (kind === "delivered") {
       await truckingOutboxRepository.enqueue(tx, companyId, [owed(actor, c, "delivered", { actualDeliveryDate: businessDay(time) })]);
       if (c.scope === "LTL") await this.markDeliveryLeg(tx, companyId, c.id, true);
@@ -1081,6 +1084,13 @@ class ConsignmentService {
       // A job of another department is charged from the Internal tariff once the POD is in.
       if (row.internal) await internalBillingService.chargeDelivered(tx, actor, row, by, internalRateRequest(row));
       await this.settleBilling(tx, actor, c.shipmentId, c.id, by);
+      // The job's people and its customer ask for the POD on the shipment, not in Trucking.
+      const pod = await truckingDocumentRepository.podOf(companyId, c.id, tx);
+      if (pod) {
+        await truckingOutboxRepository.enqueue(tx, companyId, [
+          owed(actor, c, "pod", { fileName: pod.fileName, contentType: pod.contentType, sha256: pod.sha256, storageKey: pod.storageKey, stampedAt: time.toISOString() }),
+        ]);
+      }
     }
     return row;
   }
@@ -1171,7 +1181,16 @@ class ConsignmentService {
           facts: { kind },
         },
       });
+      // The stamp's fact leaves the job's timeline (found by the stamp's instant, see stampFactId).
+      const stampedAt = (facts[cols.at] as Date).toISOString();
+      if (kind === "confirmed" || kind === "pickedUp") {
+        await truckingOutboxRepository.enqueue(tx, companyId, [owed(actor, c, "stamp", { stamp: kind, at: stampedAt, voided: true })]);
+      }
       if (kind === "podReceived") {
+        // Only the POD's fact is taken back (a stamp that handed no file over added none, and the void
+        // then changes nothing). The file it handed over stays in the shipment's Documents: only a
+        // manager deletes a document there, and a corrected POD comes as a file of its own.
+        await truckingOutboxRepository.enqueue(tx, companyId, [owed(actor, c, "pod", { stampedAt, voided: true })]);
         await this.unsettleBilling(tx, actor, c, by);
         if (c.internal) await internalBillingService.reverseDelivered(tx, actor, c, by, `POD voided: ${why}`);
       }

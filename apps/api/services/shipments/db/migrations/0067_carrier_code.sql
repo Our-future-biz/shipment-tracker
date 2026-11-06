@@ -1,0 +1,2 @@
+ALTER TABLE "shipment" ADD COLUMN IF NOT EXISTS "carrier_code" text DEFAULT '' NOT NULL;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "container_company_number_idx" ON "container" USING btree ("company_id","container_number");

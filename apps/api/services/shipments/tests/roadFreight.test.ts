@@ -2,10 +2,32 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
 
-import { normalizeCargoDimension, normalizeCargoDimensions, normalizePostcode, normalizeStops } from "../lib/roadFreight";
+import { dangerousFromAdr, normalizeCargoDimension, normalizeCargoDimensions, normalizePostcode, normalizeStops } from "../lib/roadFreight";
 import type { CargoDimensionLine } from "../interfaces/interfaces";
 
 const SITE = "946e01e8-a4ed-4aa7-932b-2c5d5e991c30";
+
+describe("dangerousFromAdr", () => {
+  const line = (over: Partial<CargoDimensionLine> = {}) => ({ adrUn: null, adrClass: null, adrPackingGroup: null, adrLimitedQuantity: false, ...over }) as CargoDimensionLine;
+
+  it("makes the shipment Dangerous when any line has any ADR detail", () => {
+    for (const adr of [{ adrUn: "1203" }, { adrClass: "3" }, { adrPackingGroup: "II" as const }, { adrLimitedQuantity: true }]) {
+      expect(dangerousFromAdr([line(), line(adr)], "")).toEqual({ dangerous: "Yes" });
+    }
+  });
+
+  it("also switches a No, and leaves a Yes as it is", () => {
+    expect(dangerousFromAdr([line({ adrUn: "1203" })], "No")).toEqual({ dangerous: "Yes" });
+    expect(dangerousFromAdr([line({ adrUn: "1203" })], "Yes")).toEqual({});
+  });
+
+  it("changes nothing when no line has ADR details, or the write does not touch the lines", () => {
+    expect(dangerousFromAdr([line()], "Yes")).toEqual({});
+    expect(dangerousFromAdr([line()], "")).toEqual({});
+    expect(dangerousFromAdr([], "Yes")).toEqual({});
+    expect(dangerousFromAdr(undefined, "")).toEqual({});
+  });
+});
 
 describe("normalizePostcode", () => {
   it("stores a Czech postcode as its five digits", () => {

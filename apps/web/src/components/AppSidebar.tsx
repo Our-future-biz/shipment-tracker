@@ -77,6 +77,8 @@ const NAV_ITEMS: NavItem[] = [
     roles: ["superadmin"],
     children: [{ path: "/warehouse-concept/managers", label: "Managers" }],
   },
+  // The same page for admins and managers, who don't see the rest of the concept module.
+  { path: "/warehouse-concept/managers", label: "Warehouse Managers", icon: <InboxOutlined />, roles: ["admin", "manager"] },
   { path: "/trucking", label: "Trucking Concept", icon: <CarOutlined />, roles: ["superadmin"] },
   { path: "/master-jobs", label: "Master Jobs", icon: <ClusterOutlined /> },
   { path: "/cockpit", label: "Cockpit", icon: <ControlOutlined /> },
@@ -105,6 +107,18 @@ const COLLAPSED_WIDTH = 64;
 
 // Whether `pathname` is the page at `path` or anything below it.
 const isUnder = (pathname: string, path: string) => pathname === path || pathname.startsWith(path + "/");
+
+/**
+ * What `user`'s menu calls the page at `pathname`: its submenu item when it has one, otherwise its
+ * item. The item `user` sees comes first (an admin's Warehouse Managers, a superadmin's Managers
+ * under Warehouse Concept); a page their menu does not list takes the name it has in anyone's.
+ */
+export function navLabelOf(pathname: string, user: { role: string } | null): string | null {
+  const path = pathname.replace(/\/$/, "");
+  const owns = (i: NavItem) => isUnder(path, i.path);
+  const item = visibleNavItems(user).find(owns) ?? NAV_ITEMS.find(owns);
+  return item?.children?.find((c) => isUnder(path, c.path))?.label ?? item?.label ?? null;
+}
 
 export function AppSidebar() {
   // The app runs with trailingSlash, so the pathname ends in a slash the menu paths do not have.

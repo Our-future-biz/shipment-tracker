@@ -2,11 +2,12 @@
 
 import { Fragment } from "react";
 import type { ReactNode } from "react";
+import Link from "next/link";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { dimensionTotals, num } from "@/lib/cargo";
 import { loadTypeLabel } from "@/lib/enums";
 import { HoverCard } from "./HoverCard";
-import { EMPTY, REF } from "@/styles/ui";
+import { EMPTY, LINK, REF } from "@/styles/ui";
 
 // ── Pure summary helpers (unit-tested in ShipmentHoverCard.test.ts) ──
 
@@ -86,8 +87,9 @@ interface ShipmentHoverCardProps {
 }
 
 // A small card of a shipment that appears when the pointer rests on its job number for a moment,
-// like the customer and contact cards: the job number, then Customer, Load Type, Freight Mode,
-// Trade Direction and the cargo in short. Everything comes from the grid row, so nothing is loaded; an empty value shows "—".
+// like the customer and contact cards: the job number with its master job beside it (a link to the
+// Master Jobs module), then Customer, Load Type, Freight Mode, Trade Direction and the cargo in
+// short. Everything comes from the grid row, so nothing is loaded; an empty value shows "—".
 export function ShipmentHoverCard({ shipment, jobNumberColor, children }: ShipmentHoverCardProps) {
   const rows: [string, string][] = [
     ["Customer", (shipment.customer ?? "").trim()],
@@ -100,8 +102,15 @@ export function ShipmentHoverCard({ shipment, jobNumberColor, children }: Shipme
   const content = (
     // As wide as its content, between 240 and 420px.
     <div className="w-max min-w-[240px] max-w-[420px]">
-      <div className={`${REF} text-[13px] font-bold ${jobNumberColor ? "" : "text-indigo-600"}`} style={jobNumberColor ? { color: jobNumberColor } : undefined}>
-        {shipment.jobNumber || "—"}
+      <div className="flex items-baseline justify-between gap-4">
+        <span className={`${REF} text-[13px] font-bold ${jobNumberColor ? "" : "text-indigo-600"}`} style={jobNumberColor ? { color: jobNumberColor } : undefined}>
+          {shipment.jobNumber || "—"}
+        </span>
+        {shipment.masterJobId && shipment.masterJobMczNumber && (
+          <Link href={`/master-jobs?open=${shipment.masterJobId}`} className={`${REF} ${LINK} text-[13px] font-bold`}>
+            {shipment.masterJobMczNumber}
+          </Link>
+        )}
       </div>
       <dl className="mt-2.5 mb-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 border-t border-slate-100 pt-2.5 text-xs">
         {rows.map(([label, value]) => (

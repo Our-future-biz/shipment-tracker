@@ -10,6 +10,12 @@ export async function companyUsers(): Promise<CompanyUser[]> {
   return users.map((u) => ({ id: u.id, email: storedEmail(u.email), displayName: u.displayName }));
 }
 
+/** The same users with their roles, for who may be told something. Throws when they can't be loaded. */
+export async function companyUsersWithRoles(): Promise<(CompanyUser & { role: string })[]> {
+  const { users } = await auth.usersList();
+  return users.map((u) => ({ id: u.id, email: storedEmail(u.email), displayName: u.displayName, role: u.role }));
+}
+
 /** The e-mail of the user `userId` (the signed-in one, typically) as it is stored; "" when it can't be looked up. */
 export async function userEmailOf(userId: string): Promise<string> {
   if (!userId) return "";

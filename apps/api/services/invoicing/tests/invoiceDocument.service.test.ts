@@ -29,6 +29,7 @@ const clients = vi.hoisted(() => ({
   invoiceMarkCredited: vi.fn(), shipmentReferenceFinal: vi.fn(),
 }));
 
+vi.mock("~encore/auth", () => ({ getAuthData: () => ({ userID: "u1", companyID: "c1", role: "user" }) }));
 vi.mock("../repositories/invoice.repository", () => ({ invoiceRepository: repo }));
 vi.mock("../repositories/generatedInvoice.repository", () => ({ generatedInvoiceRepository: generated }));
 vi.mock("../repositories/truckingLines.repository", () => ({
@@ -226,7 +227,7 @@ describe("issue", () => {
     expect(repo.setPdfIfMissing).toHaveBeenCalledWith("inv1", COMPANY, expect.any(String), expect.stringMatching(/^[0-9a-f]{64}$/));
     expect(inv.hasPdf).toBe(true);
     // Billing -> Billed and Invoiced, through the shipments service (audited there)
-    expect(clients.shipmentUpdate).toHaveBeenCalledWith({ shipmentId: SHIPMENT, invoicingStatus: "Invoiced", status: "Billed [IMP]" });
+    expect(clients.shipmentUpdate).toHaveBeenCalledWith({ shipmentId: SHIPMENT, invoicingStatus: "Invoiced", status: "Billed [IMP]"  }, { authData: expect.objectContaining({ appWrite: true }) });
     expect(clients.invoiceCreate).toHaveBeenCalledWith(expect.objectContaining({
       customerId: CUSTOMER, invoiceNumber: "INV2026CZ00000028-001", amount: 29999.5, currency: "CZK", status: "Open",
     }));
@@ -406,7 +407,7 @@ describe("credit", () => {
     expect(clients.invoiceCreate).toHaveBeenCalledWith(expect.objectContaining({ invoiceNumber: "CN2026CZ00000028-001", status: "Credited" }));
     expect(clients.invoiceMarkCredited).toHaveBeenCalledWith({ invoiceNumbers: ["INV2026CZ00000028-001"] });
     // no open invoice left: the job goes back to Billing / Not Invoiced
-    expect(clients.shipmentUpdate).toHaveBeenCalledWith({ shipmentId: SHIPMENT, invoicingStatus: "Not Invoiced", status: "Billing [IMP]" });
+    expect(clients.shipmentUpdate).toHaveBeenCalledWith({ shipmentId: SHIPMENT, invoicingStatus: "Not Invoiced", status: "Billing [IMP]"  }, { authData: expect.objectContaining({ appWrite: true }) });
   });
 
   it("refuses a key that was used for issuing an invoice", async () => {

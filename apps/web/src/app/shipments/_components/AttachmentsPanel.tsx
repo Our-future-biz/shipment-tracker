@@ -1,9 +1,13 @@
 "use client";
 
+import { useState } from "react";
+import { useCanManageDocuments } from "@/lib/auth/AuthContext";
 import { Button, Upload } from "antd";
 import { CloseOutlined, DeleteOutlined, EyeOutlined, DownloadOutlined, FileOutlined, FilePdfOutlined, FileExcelOutlined, FileWordOutlined, InboxOutlined } from "@ant-design/icons";
 import { useMutation } from "@tanstack/react-query";
-import { api, apiFileUrl } from "@/lib/api";
+import { api, apiErrorMessage, apiFileUrl } from "@/lib/api";
+import { useToast } from "@/lib/toast";
+import { ConfirmModal } from "@/components/ConfirmModal";
 import { fileToBase64, formatFileSize } from "@/lib/files";
 import { useShipmentAttachments } from "@/hooks/useShipmentAttachments";
 import { HINT, MODAL_TITLE, REF } from "@/styles/ui";
@@ -25,10 +29,19 @@ const fileIcon = (type: string, name: string) => {
 
 export const AttachmentsPanel = ({ shipmentId, jobNumber, context, onClose }: AttachmentsPanelProps) => {
   const { attachments: files, refresh } = useShipmentAttachments(shipmentId);
+  // Anyone can add a document; only a manager, an admin or a superadmin can delete one.
+  const canManageDocuments = useCanManageDocuments();
 
+  const toast = useToast();
+  // The file whose Delete waits for a yes: a document is not removed by a stray click.
+  const [toDelete, setToDelete] = useState<{ id: string; fileName: string } | null>(null);
   const deleteAttachment = useMutation({
     mutationFn: (attachmentId: string) => api.shipments.attachmentDelete(shipmentId, attachmentId),
-    onSuccess: refresh,
+    onSuccess: () => {
+      setToDelete(null);
+      refresh();
+    },
+    onError: (e) => toast.error(`Could not delete the file: ${apiErrorMessage(e)}`),
   });
 
   const uploadAttachment = useMutation({
@@ -68,7 +81,10 @@ export const AttachmentsPanel = ({ shipmentId, jobNumber, context, onClose }: At
           customRequest={({ file, onSuccess, onError }) => {
             uploadAttachment.mutate(file as File, {
               onSuccess: () => onSuccess?.("ok"),
-              onError: (err) => onError?.(err as Error),
+              onError: (err) => {
+                toast.error(`Could not upload ${(file as File).name}: ${apiErrorMessage(err)}`);
+                onError?.(err as Error);
+              },
             });
           }}
         >
@@ -95,16 +111,29 @@ export const AttachmentsPanel = ({ shipmentId, jobNumber, context, onClose }: At
             <a href={apiFileUrl(file.contentUrl, true)} title="Download">
               <Button type="text" size="small" icon={<DownloadOutlined className="text-[10px]" />} />
             </a>
-            <Button
-              type="text"
-              size="small"
-              danger
-              icon={<DeleteOutlined className="text-[10px]" />}
-              onClick={() => deleteAttachment.mutate(file.id)}
-            />
+            {canManageDocuments && (
+              <Button
+                type="text"
+                size="small"
+                danger
+                icon={<DeleteOutlined className="text-[10px]" />}
+                aria-label={`Delete ${file.fileName}`}
+                onClick={() => setToDelete({ id: file.id, fileName: file.fileName })}
+              />
+            )}
           </div>
         ))}
       </div>
+      <ConfirmModal
+        open={!!toDelete}
+        danger
+        title="Delete file?"
+        description={`${toDelete?.fileName ?? "The file"} will be deleted from this shipment.`}
+        confirmLabel="Delete"
+        loading={deleteAttachment.isPending}
+        onClose={() => setToDelete(null)}
+        onConfirm={() => toDelete && deleteAttachment.mutate(toDelete.id)}
+      />
     </div>
   );
 };

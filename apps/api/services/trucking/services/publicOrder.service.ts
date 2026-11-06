@@ -12,7 +12,8 @@ import { factsOf } from "../lib/consignmentView";
 import { hashToken, looksLikeToken, tokenMatches } from "../lib/haulierToken";
 import { checkUpload } from "../lib/truckingFiles";
 import { serviceActor } from "../../../lib/outbox/serviceIdentity";
-import { consignmentService } from "./consignment.service";
+import { truckingOutboxRepository } from "../repositories/truckingOutbox.repository";
+import { consignmentService, owed } from "./consignment.service";
 import { assertNoPod, insertDocument, POD_ON_FILE_HAULIER, withStoredFile } from "./truckingDocument.service";
 import { deliverDue } from "./truckingOutbox.service";
 
@@ -82,6 +83,8 @@ export async function recordAnswer(
       { confirmedAt: now, confirmedBy: who, status: consignmentStatus({ ...factsOf(c, row), confirmedAt: now }) },
       { stampEmpty: "confirmed", tripId: trip.id },
     );
+    // The haulier's answer reaches the job as the service identity, like the POD does.
+    await truckingOutboxRepository.enqueue(tx, companyId, [owed(await serviceActor(companyId), c, "stamp", { stamp: "confirmed", at: now.toISOString() })]);
   }
   await appendEvent(tx, companyId, {
     kind: action === "CONFIRM" ? "transport_order_confirmed" : "transport_order_rejected",

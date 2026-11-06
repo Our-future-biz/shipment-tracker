@@ -126,6 +126,25 @@ export function remeasuredFigures(raw: unknown): RemeasuredFigures {
 }
 
 // A path parameter can't be typed as a union in Encore, so the section is checked here.
+/**
+ * The license plates of a stored Pick-up section, each once, as one text: a pick-up can have
+ * several rows. "" when there are none or the stored rows are unreadable.
+ */
+export function pickupLicensePlates(data: unknown): string {
+  const stored = data && typeof data === "object" ? (data as { rows?: unknown }).rows : undefined;
+  let rows: unknown = stored;
+  if (typeof stored === "string") {
+    try {
+      rows = JSON.parse(stored);
+    } catch {
+      return "";
+    }
+  }
+  if (!Array.isArray(rows)) return "";
+  const plates = rows.map((r: { licensePlate?: unknown } | null) => (typeof r?.licensePlate === "string" ? r.licensePlate.trim() : ""));
+  return [...new Set(plates.filter(Boolean))].join(", ");
+}
+
 export function toSection(section: string): WarehouseSection {
   const found = WAREHOUSE_SECTIONS.find((s) => s === section);
   if (!found) throw APIError.invalidArgument(`Unknown section; use one of: ${WAREHOUSE_SECTIONS.join(", ")}`);
@@ -197,6 +216,15 @@ class WarehouseService {
   async getSection(shipmentId: string, section: string, companyId: string): Promise<WarehouseSectionItem | null> {
     const row = await warehouseSectionRepository.findByShipmentAndSection(shipmentId, toSection(section), companyId);
     return row ? toSectionItem(row) : null;
+  }
+
+  /** The Pick-up license plates of these shipments; a shipment with none is left out. */
+  async pickupPlates(shipmentIds: string[], companyId: string): Promise<{ shipmentId: string; licensePlate: string }[]> {
+    if (shipmentIds.length === 0) return [];
+    const rows = await warehouseSectionRepository.findManyBySection(shipmentIds, "pickup", companyId);
+    return rows
+      .map((r) => ({ shipmentId: r.shipmentId, licensePlate: pickupLicensePlates(r.data) }))
+      .filter((p) => p.licensePlate);
   }
 
   // A whole-section save (Pick-up). Shipment Details is saved field by field (patchSection): a

@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
+import { getAuthData } from "~encore/auth";
 import { customers, fx, shipments } from "~encore/clients";
 import { invoiceRepository, type InvoiceLineInput } from "../repositories/invoice.repository";
 import { generatedInvoiceRepository } from "../repositories/generatedInvoice.repository";
@@ -399,14 +400,16 @@ async function storePdfQuietly(inv: InvoiceRecord, lines: InvoiceLineRecord[], c
 async function applyStatusPatch(shipmentId: string, patch: StatusPatch, number: string) {
   if (!patch.status && !patch.invoicingStatus) return;
   try {
-    await shipments.shipmentUpdate({ shipmentId, ...patch });
+    // The app's own update (a status follows the invoice), not the issuing user's edit of the shipment.
+    const authData = getAuthData();
+    await shipments.shipmentUpdate({ shipmentId, ...patch }, authData ? { authData: { ...authData, appWrite: true } } : undefined);
   } catch (err) {
     log.error(err, "could not update the shipment statuses after invoicing", { number });
   }
 }
 
 /** Queue views and the shipments-list filter behind each. */
-export const QUEUE_VIEWS: Record<QueueView, string> = { all: "all", to_bill: "billing", not_invoiced: "not-invoiced", invoiced: "invoiced" };
+export const QUEUE_VIEWS: Record<QueueView, string> = { all: "all", to_bill: "billing", not_invoiced: "not-invoiced", invoiced: "invoiced", unbilled_arrivals: "unbilled-arrivals" };
 
 /** How many shipments one queue view shows at most (shipments are fetched 200 per page). */
 const QUEUE_MAX = 1000;
@@ -666,7 +669,7 @@ class InvoiceDocumentService {
     // Shown oldest first, as before.
     listed.reverse();
 
-    const [rows, openInvoices, settings, today, all, toBill, notInvoiced, invoiced] = await Promise.all([
+    const [rows, openInvoices, settings, today, all, toBill, notInvoiced, invoiced, unbilledArrivals] = await Promise.all([
       sellingCostRepository.listLiveByCompany(companyId),
       invoiceRepository.listOpenInvoicesWithSources(companyId),
       billingSettingsRepository.listByCompany(companyId),
@@ -675,6 +678,7 @@ class InvoiceDocumentService {
       countOf(QUEUE_VIEWS.to_bill),
       countOf(QUEUE_VIEWS.not_invoiced),
       countOf(QUEUE_VIEWS.invoiced),
+      countOf(QUEUE_VIEWS.unbilled_arrivals),
     ]);
     const settingsById = new Map(settings.map((x) => [x.shipmentId, x.billingCurrency]));
     // The DUZP of each job's newest open invoice (the highest number).
@@ -718,7 +722,7 @@ class InvoiceDocumentService {
         invoicedLines: lineCounts.get(s.id)?.invoiced ?? 0,
       };
     });
-    return { queue, counts: { all, toBill, notInvoiced, invoiced }, truncated: total > listed.length };
+    return { queue, counts: { all, toBill, notInvoiced, invoiced, unbilledArrivals }, truncated: total > listed.length };
   }
 
   async list(shipmentId: string, companyId: string): Promise<InvoiceDocItem[]> {

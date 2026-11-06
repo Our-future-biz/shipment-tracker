@@ -978,6 +978,7 @@ export namespace extraction {
             this.extractInvoice = this.extractInvoice.bind(this)
             this.extractQuote = this.extractQuote.bind(this)
             this.extractText = this.extractText.bind(this)
+            this.extractTracking = this.extractTracking.bind(this)
             this.pipelineExtractHbl = this.pipelineExtractHbl.bind(this)
             this.pipelineExtractMbl = this.pipelineExtractMbl.bind(this)
             this.pipelinePrepare = this.pipelinePrepare.bind(this)
@@ -1017,6 +1018,15 @@ export namespace extraction {
         public async extractText(params: controllers.ExtractTextRequest): Promise<interfaces.ExtractionResult> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/extraction/text`, JSON.stringify(params))
+            return await resp.json() as interfaces.ExtractionResult
+        }
+
+        /**
+         * A notice about where a cargo is, for a shipment's Tracking tab.
+         */
+        public async extractTracking(params: controllers.ExtractTrackingRequest): Promise<interfaces.ExtractionResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/extraction/tracking`, JSON.stringify(params))
             return await resp.json() as interfaces.ExtractionResult
         }
 
@@ -1576,6 +1586,7 @@ export namespace quotes {
             this.quoteCommentList = this.quoteCommentList.bind(this)
             this.quoteCommentMarkRead = this.quoteCommentMarkRead.bind(this)
             this.quoteCommentMentions = this.quoteCommentMentions.bind(this)
+            this.quoteCommentStrike = this.quoteCommentStrike.bind(this)
             this.quoteCommentUnread = this.quoteCommentUnread.bind(this)
             this.quoteLinksNormalize = this.quoteLinksNormalize.bind(this)
             this.quotePeopleNormalize = this.quotePeopleNormalize.bind(this)
@@ -1672,6 +1683,10 @@ export namespace quotes {
             return await resp.json() as {
     mentions: interfaces.QuoteCommentMentionItem[]
 }
+        }
+
+        public async quoteCommentStrike(quoteNumber: string, commentId: string): Promise<void> {
+            await this.baseClient.callTypedAPI("POST", `/sales-quotes/${encodeURIComponent(quoteNumber)}/comments/${encodeURIComponent(commentId)}/strike`)
         }
 
         /**
@@ -2253,14 +2268,35 @@ export namespace shipments {
             this.commentList = this.commentList.bind(this)
             this.commentMarkRead = this.commentMarkRead.bind(this)
             this.commentMentions = this.commentMentions.bind(this)
+            this.commentStrike = this.commentStrike.bind(this)
             this.commentUnread = this.commentUnread.bind(this)
+            this.customerLinkCreate = this.customerLinkCreate.bind(this)
+            this.customerLinkGet = this.customerLinkGet.bind(this)
+            this.customerLinkRevoke = this.customerLinkRevoke.bind(this)
+            this.customerNoticeRecord = this.customerNoticeRecord.bind(this)
+            this.customsOfficeRequestAnswers = this.customsOfficeRequestAnswers.bind(this)
+            this.customsOfficeRequestAsk = this.customsOfficeRequestAsk.bind(this)
+            this.customsOfficeRequestDecide = this.customsOfficeRequestDecide.bind(this)
+            this.customsOfficeRequestLatest = this.customsOfficeRequestLatest.bind(this)
+            this.customsOfficeRequestList = this.customsOfficeRequestList.bind(this)
+            this.customsOfficeRequestSeen = this.customsOfficeRequestSeen.bind(this)
+            this.customsVerdictNotices = this.customsVerdictNotices.bind(this)
+            this.documentChangeRequestAnswers = this.documentChangeRequestAnswers.bind(this)
+            this.documentChangeRequestAsk = this.documentChangeRequestAsk.bind(this)
+            this.documentChangeRequestContent = this.documentChangeRequestContent.bind(this)
+            this.documentChangeRequestDecide = this.documentChangeRequestDecide.bind(this)
+            this.documentChangeRequestList = this.documentChangeRequestList.bind(this)
+            this.documentChangeRequestSeen = this.documentChangeRequestSeen.bind(this)
+            this.documentChangeRequestsOfShipment = this.documentChangeRequestsOfShipment.bind(this)
             this.masterJobContainersUpdate = this.masterJobContainersUpdate.bind(this)
             this.masterJobCreate = this.masterJobCreate.bind(this)
             this.masterJobGet = this.masterJobGet.bind(this)
             this.masterJobList = this.masterJobList.bind(this)
             this.masterJobShipmentUnlink = this.masterJobShipmentUnlink.bind(this)
             this.masterJobShipmentsLink = this.masterJobShipmentsLink.bind(this)
+            this.masterJobTracking = this.masterJobTracking.bind(this)
             this.masterJobUpdate = this.masterJobUpdate.bind(this)
+            this.publicShipmentStatus = this.publicShipmentStatus.bind(this)
             this.shipmentCreate = this.shipmentCreate.bind(this)
             this.shipmentDashboard = this.shipmentDashboard.bind(this)
             this.shipmentDelete = this.shipmentDelete.bind(this)
@@ -2276,11 +2312,24 @@ export namespace shipments {
             this.shipmentReferencesNormalize = this.shipmentReferencesNormalize.bind(this)
             this.shipmentReleaseHouseBol = this.shipmentReleaseHouseBol.bind(this)
             this.shipmentTileCounts = this.shipmentTileCounts.bind(this)
+            this.shipmentTracking = this.shipmentTracking.bind(this)
+            this.shipmentTrackingAttention = this.shipmentTrackingAttention.bind(this)
             this.shipmentUnlinkMasterJob = this.shipmentUnlinkMasterJob.bind(this)
             this.shipmentUpdate = this.shipmentUpdate.bind(this)
             this.shipmentsNamingQuotes = this.shipmentsNamingQuotes.bind(this)
             this.taskList = this.taskList.bind(this)
+            this.taskReopen = this.taskReopen.bind(this)
             this.taskUpsert = this.taskUpsert.bind(this)
+            this.trackingBellNotices = this.trackingBellNotices.bind(this)
+            this.trackingEventConfirm = this.trackingEventConfirm.bind(this)
+            this.trackingEventDismiss = this.trackingEventDismiss.bind(this)
+            this.trackingEventRecord = this.trackingEventRecord.bind(this)
+            this.trackingEventResolve = this.trackingEventResolve.bind(this)
+            this.trackingEventStrike = this.trackingEventStrike.bind(this)
+            this.trackingFreeTimeSet = this.trackingFreeTimeSet.bind(this)
+            this.trackingMarkRead = this.trackingMarkRead.bind(this)
+            this.trackingReadingKeep = this.trackingReadingKeep.bind(this)
+            this.trackingReadingPreview = this.trackingReadingPreview.bind(this)
             this.userPrefGet = this.userPrefGet.bind(this)
             this.userPrefSet = this.userPrefSet.bind(this)
         }
@@ -2431,12 +2480,226 @@ export namespace shipments {
         }
 
         /**
+         * The writer crosses out their own message: it stays in the chat, struck through.
+         */
+        public async commentStrike(shipmentId: string, commentId: string): Promise<controllers.CommentStrikeResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/comments/${encodeURIComponent(commentId)}/strike`)
+            return await resp.json() as controllers.CommentStrikeResponse
+        }
+
+        /**
          * How many chat messages each shipment has that this user has not seen yet.
          */
         public async commentUnread(): Promise<controllers.CommentUnreadResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/shipment-comments/unread`)
             return await resp.json() as controllers.CommentUnreadResponse
+        }
+
+        /**
+         * A new link, in place of any earlier one. The answer is the only time the URL is known.
+         */
+        public async customerLinkCreate(shipmentId: string): Promise<{
+    url: string
+    link: interfaces.ShipmentCustomerLink
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/customer-link`)
+            return await resp.json() as {
+    url: string
+    link: interfaces.ShipmentCustomerLink
+}
+        }
+
+        /**
+         * The shipment's link, as the desk sees it.
+         */
+        public async customerLinkGet(shipmentId: string): Promise<{
+    link: interfaces.ShipmentCustomerLink | null
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipments/${encodeURIComponent(shipmentId)}/customer-link`)
+            return await resp.json() as {
+    link: interfaces.ShipmentCustomerLink | null
+}
+        }
+
+        public async customerLinkRevoke(shipmentId: string): Promise<void> {
+            await this.baseClient.callTypedAPI("DELETE", `/shipments/${encodeURIComponent(shipmentId)}/customer-link`)
+        }
+
+        /**
+         * Somebody says the customer was told, with a copy of the dates as they stand. Open to any user:
+         * telling a customer changes nothing on the shipment.
+         */
+        public async customerNoticeRecord(shipmentId: string, params: controllers.CustomerNoticeRecordRequest): Promise<{
+    id: string
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/customer-notices`, JSON.stringify(params))
+            return await resp.json() as {
+    id: string
+}
+        }
+
+        /**
+         * The bell: the answers to the signed-in user's own requests.
+         */
+        public async customsOfficeRequestAnswers(): Promise<{
+    answers: interfaces.CustomsOfficeRequestItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/customs-office-request-answers`)
+            return await resp.json() as {
+    answers: interfaces.CustomsOfficeRequestItem[]
+}
+        }
+
+        public async customsOfficeRequestAsk(shipmentId: string, params: controllers.CustomsOfficeAskRequest): Promise<{
+    request: interfaces.CustomsOfficeRequestItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/customs-office-request`, JSON.stringify(params))
+            return await resp.json() as {
+    request: interfaces.CustomsOfficeRequestItem
+}
+        }
+
+        /**
+         * Managers only.
+         */
+        public async customsOfficeRequestDecide(id: string, params: controllers.CustomsOfficeDecideRequest): Promise<{
+    request: interfaces.CustomsOfficeRequestItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/customs-office-requests/${encodeURIComponent(id)}/decide`, JSON.stringify(params))
+            return await resp.json() as {
+    request: interfaces.CustomsOfficeRequestItem
+}
+        }
+
+        /**
+         * The shipment's newest request, for its Customs Office row.
+         */
+        public async customsOfficeRequestLatest(shipmentId: string): Promise<{
+    request: interfaces.CustomsOfficeRequestItem | null
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipments/${encodeURIComponent(shipmentId)}/customs-office-request`)
+            return await resp.json() as {
+    request: interfaces.CustomsOfficeRequestItem | null
+}
+        }
+
+        /**
+         * The Approvals tab. Managers only.
+         */
+        public async customsOfficeRequestList(): Promise<{
+    requests: interfaces.CustomsOfficeRequestItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/customs-office-requests`)
+            return await resp.json() as {
+    requests: interfaces.CustomsOfficeRequestItem[]
+}
+        }
+
+        /**
+         * The one who asked opened the answer.
+         */
+        public async customsOfficeRequestSeen(id: string): Promise<void> {
+            await this.baseClient.callTypedAPI("POST", `/customs-office-requests/${encodeURIComponent(id)}/seen`)
+        }
+
+        /**
+         * The bell: customs' verdicts on the shipments this user is the Person in Charge or Holiday Cover of.
+         */
+        public async customsVerdictNotices(): Promise<{
+    verdicts: interfaces.CustomsVerdictNotice[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipment-alerts/customs-verdicts`)
+            return await resp.json() as {
+    verdicts: interfaces.CustomsVerdictNotice[]
+}
+        }
+
+        /**
+         * The bell: the answers to the signed-in user's own requests.
+         */
+        public async documentChangeRequestAnswers(): Promise<{
+    answers: interfaces.DocumentChangeRequestItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/document-change-request-answers`)
+            return await resp.json() as {
+    answers: interfaces.DocumentChangeRequestItem[]
+}
+        }
+
+        public async documentChangeRequestAsk(shipmentId: string, attachmentId: string, params: controllers.DocumentChangeAskRequest): Promise<{
+    request: interfaces.DocumentChangeRequestItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/attachments/${encodeURIComponent(attachmentId)}/change-request`, JSON.stringify(params))
+            return await resp.json() as {
+    request: interfaces.DocumentChangeRequestItem
+}
+        }
+
+        /**
+         * The waiting new file. Public by necessity, like a document's own link: the browser opens it as a
+         * plain link, without the auth header, so the link carries a short-lived signed token naming it.
+         */
+        public async documentChangeRequestContent(method: "GET", id: string, body?: RequestInit["body"], options?: CallParameters): Promise<globalThis.Response> {
+            return this.baseClient.callAPI(method, `/document-change-requests/${encodeURIComponent(id)}/content`, body, options)
+        }
+
+        /**
+         * Managers only.
+         */
+        public async documentChangeRequestDecide(id: string, params: controllers.DocumentChangeDecideRequest): Promise<{
+    request: interfaces.DocumentChangeRequestItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/document-change-requests/${encodeURIComponent(id)}/decide`, JSON.stringify(params))
+            return await resp.json() as {
+    request: interfaces.DocumentChangeRequestItem
+}
+        }
+
+        /**
+         * The Approvals tab. Managers only.
+         */
+        public async documentChangeRequestList(): Promise<{
+    requests: interfaces.DocumentChangeRequestItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/document-change-requests`)
+            return await resp.json() as {
+    requests: interfaces.DocumentChangeRequestItem[]
+}
+        }
+
+        /**
+         * The one who asked opened the answer.
+         */
+        public async documentChangeRequestSeen(id: string): Promise<void> {
+            await this.baseClient.callTypedAPI("POST", `/document-change-requests/${encodeURIComponent(id)}/seen`)
+        }
+
+        /**
+         * The shipment's requests, for its documents' rows.
+         */
+        public async documentChangeRequestsOfShipment(shipmentId: string): Promise<{
+    requests: interfaces.DocumentChangeRequestItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipments/${encodeURIComponent(shipmentId)}/document-change-requests`)
+            return await resp.json() as {
+    requests: interfaces.DocumentChangeRequestItem[]
+}
         }
 
         /**
@@ -2492,12 +2755,39 @@ export namespace shipments {
         }
 
         /**
+         * A master job's houses, each with where it stands.
+         */
+        public async masterJobTracking(masterJobId: string): Promise<{
+    houses: interfaces.MasterJobTrackingHouse[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/master-jobs/${encodeURIComponent(masterJobId)}/tracking`)
+            return await resp.json() as {
+    houses: interfaces.MasterJobTrackingHouse[]
+}
+        }
+
+        /**
          * Saves MBL details; the synced ones are written onto every linked shipment too.
          */
         public async masterJobUpdate(masterJobId: string, params: controllers.MasterJobUpdateRequest): Promise<controllers.MasterJobUpdateResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PATCH", `/master-jobs/${encodeURIComponent(masterJobId)}`, JSON.stringify(params))
             return await resp.json() as controllers.MasterJobUpdateResponse
+        }
+
+        /**
+         * The customer's page, without a login: the link's token is the only key. Every invalid, revoked or
+         * expired link answers the same 404.
+         */
+        public async publicShipmentStatus(token: string): Promise<{
+    status: interfaces.PublicShipmentStatus
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/public/shipment-status/${encodeURIComponent(token)}`)
+            return await resp.json() as {
+    status: interfaces.PublicShipmentStatus
+}
         }
 
         public async shipmentCreate(params: controllers.ShipmentCreateRequest): Promise<controllers.ShipmentCreateResponse> {
@@ -2657,6 +2947,25 @@ export namespace shipments {
             return await resp.json() as interfaces.ShipmentTileCounts
         }
 
+        /**
+         * A shipment's Tracking tab: its milestones, its events, the logged changes of its dates, what
+         * needs a look, its ticks and its tax date.
+         */
+        public async shipmentTracking(shipmentId: string): Promise<interfaces.ShipmentTracking> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipments/${encodeURIComponent(shipmentId)}/tracking`)
+            return await resp.json() as interfaces.ShipmentTracking
+        }
+
+        /**
+         * Active shipments whose dates need a look: passed with nothing recorded, unconfirmed, untold, unbilled.
+         */
+        public async shipmentTrackingAttention(): Promise<controllers.TrackingAttentionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipments/tracking-attention`)
+            return await resp.json() as controllers.TrackingAttentionResponse
+        }
+
         public async shipmentUnlinkMasterJob(shipmentId: string): Promise<controllers.UnlinkMasterJobResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("DELETE", `/shipments/${encodeURIComponent(shipmentId)}/master-job`)
@@ -2686,10 +2995,145 @@ export namespace shipments {
             return await resp.json() as controllers.TaskListResponse
         }
 
+        /**
+         * A manager takes a wrong tick back, saying why.
+         */
+        public async taskReopen(shipmentId: string, taskKey: string, params: controllers.TaskReopenRequest): Promise<controllers.TaskUpsertResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/tasks/${encodeURIComponent(taskKey)}/reopen`, JSON.stringify(params))
+            return await resp.json() as controllers.TaskUpsertResponse
+        }
+
         public async taskUpsert(shipmentId: string, params: controllers.TaskUpsertRequest): Promise<controllers.TaskUpsertResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/tasks`, JSON.stringify(params))
             return await resp.json() as controllers.TaskUpsertResponse
+        }
+
+        /**
+         * The bell: moved dates, dates to confirm, and what the customer was told that no longer holds.
+         */
+        public async trackingBellNotices(): Promise<{
+    notices: interfaces.TrackingBellNotice[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipment-alerts/tracking`)
+            return await resp.json() as {
+    notices: interfaces.TrackingBellNotice[]
+}
+        }
+
+        /**
+         * A person confirms a date a source proposed: only now does it reach the shipment.
+         */
+        public async trackingEventConfirm(shipmentId: string, eventId: string): Promise<{
+    ok: boolean
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/tracking/events/${encodeURIComponent(eventId)}/confirm`)
+            return await resp.json() as {
+    ok: boolean
+}
+        }
+
+        /**
+         * A person turns a proposed date down.
+         */
+        public async trackingEventDismiss(shipmentId: string, eventId: string): Promise<{
+    ok: boolean
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/tracking/events/${encodeURIComponent(eventId)}/dismiss`)
+            return await resp.json() as {
+    ok: boolean
+}
+        }
+
+        /**
+         * A person records a dated fact. One that sets a shipment field goes through the normal update.
+         */
+        public async trackingEventRecord(shipmentId: string, params: controllers.TrackingEventRecordRequest): Promise<{
+    id: string
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/tracking/events`, JSON.stringify(params))
+            return await resp.json() as {
+    id: string
+}
+        }
+
+        /**
+         * Closes an exception by hand.
+         */
+        public async trackingEventResolve(shipmentId: string, eventId: string): Promise<{
+    ok: boolean
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/tracking/events/${encodeURIComponent(eventId)}/resolve`)
+            return await resp.json() as {
+    ok: boolean
+}
+        }
+
+        /**
+         * Takes back what somebody recorded by mistake, with a reason.
+         */
+        public async trackingEventStrike(shipmentId: string, eventId: string, params: controllers.TrackingEventStrikeRequest): Promise<{
+    ok: boolean
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/tracking/events/${encodeURIComponent(eventId)}/strike`, JSON.stringify(params))
+            return await resp.json() as {
+    ok: boolean
+}
+        }
+
+        /**
+         * The free time a booking gives a shipment's boxes.
+         */
+        public async trackingFreeTimeSet(shipmentId: string, params: controllers.TrackingFreeTimeRequest): Promise<{
+    ok: boolean
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/shipments/${encodeURIComponent(shipmentId)}/tracking/free-time`, JSON.stringify(params))
+            return await resp.json() as {
+    ok: boolean
+}
+        }
+
+        /**
+         * The Tracking tab was opened: what the bell says about this shipment is no longer new.
+         */
+        public async trackingMarkRead(shipmentId: string): Promise<{
+    ok: boolean
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/tracking/read`)
+            return await resp.json() as {
+    ok: boolean
+}
+        }
+
+        /**
+         * Keeps what a person chose of a read document: ATA and ATD wait to be confirmed, the rest goes by the rule.
+         */
+        public async trackingReadingKeep(shipmentId: string, params: controllers.TrackingReadingKeepRequest): Promise<{
+    ok: boolean
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/tracking/reading/keep`, JSON.stringify(params))
+            return await resp.json() as {
+    ok: boolean
+}
+        }
+
+        /**
+         * What a read document says about this shipment, for a person to look over. Nothing is kept yet.
+         */
+        public async trackingReadingPreview(shipmentId: string, params: controllers.TrackingReadingPreviewRequest): Promise<interfaces.TrackingReadingPreview> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/tracking/reading/preview`, JSON.stringify(params))
+            return await resp.json() as interfaces.TrackingReadingPreview
         }
 
         public async userPrefGet(prefKey: string): Promise<controllers.UserPrefGetResponse> {
@@ -5954,6 +6398,10 @@ export namespace controllers {
         invoiceNumber?: string
         reason?: string
         amount?: string
+        /**
+         * yyyy-mm-dd; "" takes it back
+         */
+        noticeDate?: string
     }
 
     export interface ClaimListResponse {
@@ -5971,6 +6419,10 @@ export namespace controllers {
         invoiceNumber?: string
         reason?: string
         amount?: string
+        /**
+         * yyyy-mm-dd; "" takes it back
+         */
+        noticeDate?: string
     }
 
     export interface CollectionDatesRequest {
@@ -6137,6 +6589,10 @@ export namespace controllers {
 
     export interface CommentListResponse {
         comments: interfaces.CommentItem[]
+    }
+
+    export interface CommentStrikeResponse {
+        ok: boolean
     }
 
     export interface CommentUnreadResponse {
@@ -6572,6 +7028,18 @@ export namespace controllers {
         total: number
     }
 
+    export interface CustomerNoticeRecordRequest {
+        kind: string
+        channel: string
+        toldTo?: string
+        subject?: string
+        note?: string
+        /**
+         * The checklist tick this notice comes with.
+         */
+        taskKey?: string
+    }
+
     export interface CustomerRestoreResponse {
         customer: interfaces.CustomerItem
     }
@@ -6722,6 +7190,23 @@ export namespace controllers {
         line: interfaces.CustomsInvoiceLineItem
     }
 
+    export interface CustomsOfficeAskRequest {
+        /**
+         * The office asked for: its code and name, as in the list.
+         */
+        toOffice: string
+
+        reason: string
+    }
+
+    export interface CustomsOfficeDecideRequest {
+        approve: boolean
+        /**
+         * Rejected: why (required); approved: optional.
+         */
+        comment?: string
+    }
+
     export interface DailyRequest {
         month: string
         all?: boolean
@@ -6805,6 +7290,22 @@ export namespace controllers {
         vehicle?: string
         status?: string
         note?: string
+    }
+
+    export interface DocumentChangeAskRequest {
+        fileName: string
+        fileSize: number
+        fileType: string
+        contentBase64: string
+        reason: string
+    }
+
+    export interface DocumentChangeDecideRequest {
+        approve: boolean
+        /**
+         * Rejected: why (required); approved: optional.
+         */
+        comment?: string
     }
 
     export interface DocumentContentResponse {
@@ -6907,11 +7408,16 @@ export namespace controllers {
 
     export interface ExtractTextRequest {
         /**
-         * up to 6000 characters for a quote request, 1500 otherwise (checked by the service)
+         * up to 6000 characters for a quote request or a tracking notice, 1500 otherwise (checked by the service)
          */
         text: string
 
         destination: string
+    }
+
+    export interface ExtractTrackingRequest {
+        fileBase64: string
+        fileName: string
     }
 
     export interface FileResponse {
@@ -9001,6 +9507,7 @@ export namespace controllers {
         approvedBy?: string
         bookingConfirmation?: string
         customsProcedure?: string
+        customsOffice?: string
         /**
          * "" counts as Standard.
          */
@@ -9133,7 +9640,7 @@ export namespace controllers {
         statusBucket?: string
 
         /**
-         * Overview tile filter: active | attention | import | export | week | nextweek
+         * Overview tile filter: active | attention | etamoved | import | export | week | nextweek
          */
         tile?: string
 
@@ -9379,6 +9886,7 @@ export namespace controllers {
         approvedBy?: string
         bookingConfirmation?: string
         customsProcedure?: string
+        customsOffice?: string
         /**
          * "" counts as Standard.
          */
@@ -9653,6 +10161,10 @@ export namespace controllers {
         tasks: interfaces.TaskItem[]
     }
 
+    export interface TaskReopenRequest {
+        reason: string
+    }
+
     export interface TaskUpsertRequest {
         taskKey: string
         completed: boolean
@@ -9702,6 +10214,77 @@ export namespace controllers {
 
     export interface TermsUpdateResponse {
         terms: interfaces.TermsConditionItem
+    }
+
+    export interface TrackingAttentionResponse {
+        items: interfaces.TrackingAttentionItem[]
+        /**
+         * There are more active shipments than were looked at: the oldest are left out.
+         */
+        capped: boolean
+    }
+
+    export interface TrackingEventRecordRequest {
+        kind: string
+        /**
+         * YYYY-MM-DD
+         */
+        occurredOn: string
+
+        /**
+         * HH:MM in Prague; left out when not known.
+         */
+        occurredTime?: string
+
+        place?: string
+        containerNumber?: string
+        note?: string
+        /**
+         * The checklist tick this event comes with.
+         */
+        taskKey?: string
+    }
+
+    export interface TrackingEventStrikeRequest {
+        reason: string
+    }
+
+    export interface TrackingFreeTimeRequest {
+        containerIds: string[]
+        /**
+         * null: not known.
+         */
+        freeTimeDays: number | null
+
+        freeTimeFrom: string
+        /**
+         * The day the carrier stated; null: only counted.
+         */
+        lastFreeDay: string | null
+    }
+
+    export interface TrackingReadingKeepRequest {
+        facts: services.KeptFact[]
+        /**
+         * The document itself, when it was a file: filed on the shipment as a Carrier notice.
+         */
+        file?: services.KeptFile
+
+        vesselChange?: interfaces.TrackingVesselChange
+        /**
+         * The last free day it states, for the boxes chosen.
+         */
+        lastFreeDay?: {
+            day: string
+            containerIds: string[]
+        }
+    }
+
+    export interface TrackingReadingPreviewRequest {
+        /**
+         * What document reading got from the notice.
+         */
+        extracted: { [key: string]: string }
     }
 
     export interface TruckCreateResponse {
@@ -11326,6 +11909,10 @@ export namespace interfaces {
         toBill: number
         notInvoiced: number
         invoiced: number
+        /**
+         * Their tax date has passed, not released for billing yet, not invoiced.
+         */
+        unbilledArrivals: number
     }
 
     /**
@@ -11507,6 +12094,11 @@ export namespace interfaces {
          * Disputed amount, with currency.
          */
         amount: string
+
+        /**
+         * The day the carrier or supplier was given notice; null when not yet.
+         */
+        noticeDate: string | null
 
         createdAt: string
     }
@@ -12120,6 +12712,11 @@ export namespace interfaces {
          * On the reader's own messages: a colleague has opened the chat since it was sent.
          */
         readByOthers: boolean
+
+        /**
+         * When its writer crossed it out; null while it stands.
+         */
+        struckAt: string | null
     }
 
     /**
@@ -12937,6 +13534,27 @@ export namespace interfaces {
     }
 
     /**
+     * A request to change a shipment's chosen Customs Office, as the screens show it.
+     */
+    export interface CustomsOfficeRequestItem {
+        id: string
+        shipmentId: string
+        jobNumber: string
+        customer: string
+        fromOffice: string
+        toOffice: string
+        reason: string
+        status: "pending" | "approved" | "rejected"
+        requestedById: string
+        requestedByName: string
+        requestedAt: string
+        decidedByName: string
+        decidedAt: string | null
+        comment: string
+        answerSeenAt: string | null
+    }
+
+    /**
      * Customs priority of a shipment.
      */
     export type CustomsPriority = "Standard" | "Urgent"
@@ -12945,6 +13563,33 @@ export namespace interfaces {
      * Manual override of a Customs "received" tick: "" follows the uploads.
      */
     export type CustomsReceivedOverride = "" | "yes" | "no"
+
+    /**
+     * Customs' verdict on a document, as the bell of the shipment's people shows it.
+     */
+    export interface CustomsVerdictNotice {
+        /**
+         * The document's.
+         */
+        id: string
+
+        shipmentId: string
+        jobNumber: string
+        fileName: string
+        documentType: string
+        status: "approved" | "declined"
+        /**
+         * Declined: the reason.
+         */
+        note: string
+
+        reviewedAt: string
+        reviewedByName: string
+        /**
+         * Given since this user last opened the shipment's Alerts.
+         */
+        unread: boolean
+    }
 
     export interface DailyRow {
         date: string
@@ -13176,6 +13821,40 @@ export namespace interfaces {
          * ISO weekdays: 1 = Monday … 7 = Sunday
          */
         workingDays: number[]
+    }
+
+    /**
+     * A request to replace a document customs has approved, as the screens show it.
+     */
+    export interface DocumentChangeRequestItem {
+        id: string
+        shipmentId: string
+        jobNumber: string
+        customer: string
+        attachmentId: string
+        /**
+         * The approved document as it was when asked.
+         */
+        fileName: string
+
+        documentType: string
+        fileUrl: string
+        newFileName: string
+        newFileSize: number
+        /**
+         * The new file's link, only while the request waits.
+         */
+        newFileUrl: string | null
+
+        reason: string
+        status: "pending" | "approved" | "rejected"
+        requestedById: string
+        requestedByName: string
+        requestedAt: string
+        decidedByName: string
+        decidedAt: string | null
+        comment: string
+        answerSeenAt: string | null
     }
 
     export interface DocumentItem {
@@ -15371,6 +16050,22 @@ export namespace interfaces {
     export type MasterJobSplitMethod = "wm" | "shipment"
 
     /**
+     * One house of a master job on the master job's Tracking tab.
+     */
+    export interface MasterJobTrackingHouse {
+        shipmentId: string
+        jobNumber: string
+        customer: string
+        departed: string | null
+        arrived: string | null
+        customsCleared: boolean
+        customsStatus: string
+        gateIn: string | null
+        delivered: string | null
+        lastEvent: string
+    }
+
+    /**
      * Real − estimated buying cost: above 0 the cost came out higher than estimated (Profit Burning).
      */
     export interface MasterJobVsEstimateItem {
@@ -16254,6 +16949,41 @@ export namespace interfaces {
     }
 
     /**
+     * One step on the customer's page.
+     */
+    export interface PublicMilestone {
+        key: string
+        label: string
+        leg: string
+        place: string
+        planned: string | null
+        actual: string | null
+        detail: string
+        state: "done" | "next" | "open"
+    }
+
+    /**
+     * All a customer's link shows: nothing else leaves the app through it.
+     */
+    export interface PublicShipmentStatus {
+        /**
+         * Whose page it is; "" when it couldn't be read.
+         */
+        ourCompany: string
+
+        reference: string
+        customerReference: string
+        direction: string
+        freightMode: string
+        pol: string
+        pod: string
+        vessel: string
+        containers: string[]
+        milestones: PublicMilestone[]
+        asOf: string
+    }
+
+    /**
      * What the haulier sees via the link: no prices of the customer.
      */
     export interface PublicTransportOrder {
@@ -16327,7 +17057,7 @@ export namespace interfaces {
     /**
      * Views of the Invoicing queue: all (released for billing or invoiced, not cancelled) | to_bill (Shipment Status Billing, not invoiced yet) | not_invoiced | invoiced (Invoicing Status)
      */
-    export type QueueView = "all" | "to_bill" | "not_invoiced" | "invoiced"
+    export type QueueView = "all" | "to_bill" | "not_invoiced" | "invoiced" | "unbilled_arrivals"
 
     /**
      * A file sent with a chat message.
@@ -16371,6 +17101,11 @@ export namespace interfaces {
          * On the reader's own messages: a colleague has opened the chat since it was sent.
          */
         readByOthers: boolean
+
+        /**
+         * When its writer crossed it out; null while it stands.
+         */
+        struckAt: string | null
     }
 
     /**
@@ -17822,6 +18557,24 @@ export namespace interfaces {
     }
 
     /**
+     * A shipment's customer link as the desk sees it; the URL isn't kept.
+     */
+    export interface ShipmentCustomerLink {
+        createdAt: string
+        createdBy: string
+        lastOpenedAt: string | null
+        /**
+         * The last day it opens; null until the job is delivered.
+         */
+        openUntil: string | null
+
+        /**
+         * False once the job is cancelled or that day has passed.
+         */
+        open: boolean
+    }
+
+    /**
      * The operations dashboard: status KPIs and upcoming shipment dates.
      */
     export interface ShipmentDashboard {
@@ -17913,6 +18666,11 @@ export namespace interfaces {
         bookingNumber: string
         loadType: string
         shippingLine: string
+        /**
+         * The SCAC of the carrier shippingLine names; "" when it names none we know.
+         */
+        carrierCode: string
+
         pol: string
         pod: string
         destination: string
@@ -17947,6 +18705,11 @@ export namespace interfaces {
         customsStatus: string
         masterJobId: string | null
         masterJobMczNumber: string | null
+        /**
+         * What happened last ("Arrived 20.10.2026 · Warehouse"); "" when nothing has yet.
+         */
+        lastEvent: string
+
         /**
          * Meta
          */
@@ -18071,6 +18834,11 @@ export namespace interfaces {
         warehouseReference: string
         warehouseTruck: string
         plateNumber: string
+        /**
+         * The License Plates entered in the Pick-up tab (kept by the warehouse service), comma-separated; read-only here.
+         */
+        licensePlate: string
+
         plannedDeliveryDate: string | null
         /**
          * When a road job was delivered (written by Trucking when the delivery is stamped).
@@ -18087,6 +18855,11 @@ export namespace interfaces {
         approvedBy: string
         bookingConfirmation: string
         customsProcedure: string
+        /**
+         * The office of a T1 procedure, its code and name as one text; "" under any other procedure.
+         */
+        customsOffice: string
+
         customsPriority: CustomsPriority
         /**
          * Deadline of an Urgent shipment, "YYYY-MM-DD HH:mm"; "" for Standard.
@@ -18202,10 +18975,45 @@ export namespace interfaces {
     export interface ShipmentTileCounts {
         active: number
         attention: number
+        /**
+         * Active shipments whose ETD or ETA moved lately.
+         */
+        etaMoved: number
+
         import: number
         export: number
         week: number
         nextWeek: number
+    }
+
+    export interface ShipmentTracking {
+        /**
+         * Free time per box; empty for a job that runs no clock.
+         */
+        containerClocks: TrackingContainerClock[]
+
+        customerNotices: TrackingCustomerNotice[]
+        events: TrackingEventItem[]
+        /**
+         * Empty when nothing can be recorded here: a road job's stamps are set in Trucking.
+         */
+        recordable: TrackingRecordableKind[]
+
+        /**
+         * Whether this person may change the shipment's details, which confirming a date and striking an event take.
+         */
+        mayChangeDetails: boolean
+
+        milestones: TrackingMilestone[]
+        changes: TrackingChange[]
+        /**
+         * The log holds more than the newest rows read.
+         */
+        changesCapped: boolean
+
+        attention: TrackingAttention[]
+        ticks: TrackingTick[]
+        taxDate: TrackingTaxDate
     }
 
     /**
@@ -19244,6 +20052,359 @@ export namespace interfaces {
         share: number
     }
 
+    /**
+     * What needs a look on this shipment, worked out from its dates.
+     */
+    export interface TrackingAttention {
+        /**
+         * moved and late come from the dates; exception is one somebody reported, open until closed; not_told is a date the customer was told that moved.
+         */
+        kind: "moved" | "late" | "exception" | "not_told"
+
+        /**
+         * The reported exception, which can be closed; null for what the dates show.
+         */
+        eventId: string | null
+
+        /**
+         * Its reason; "" otherwise.
+         */
+        note: string
+
+        milestoneKey: string
+        /**
+         * "ETA", "ETD", …
+         */
+        what: string
+
+        days: number
+        from: string | null
+        to: string | null
+        at: string | null
+        by: string
+    }
+
+    /**
+     * Something a shipment's dates say needs doing, as Needs Attention lists it.
+     */
+    export interface TrackingAttentionFlag {
+        kind: "to_confirm" | "eta_passed" | "etd_passed" | "no_onward" | "no_event" | "not_told" | "not_released" | "tax_date" | "delivered_not_billed" | "free_time"
+        /**
+         * urgent is red, attention amber.
+         */
+        severity: "urgent" | "attention"
+
+        /**
+         * Whose desk it is.
+         */
+        area: "tracking" | "finance"
+
+        label: string
+        detail: string
+    }
+
+    export interface TrackingAttentionItem {
+        id: string
+        jobNumber: string
+        customerId: string | null
+        customer: string
+        tradeDirection: string
+        status: string
+        flags: TrackingAttentionFlag[]
+    }
+
+    /**
+     * A line under the bell about a shipment's dates.
+     */
+    export interface TrackingBellNotice {
+        key: string
+        kind: "date_moved" | "to_confirm" | "not_told"
+        shipmentId: string
+        jobNumber: string
+        title: string
+        text: string
+        by: string
+        at: string
+        unread: boolean
+    }
+
+    /**
+     * One logged change of a date or of the routing.
+     */
+    export interface TrackingChange {
+        id: string
+        field: string
+        label: string
+        isDate: boolean
+        oldValue: string | null
+        newValue: string | null
+        /**
+         * Between two dates, in days (later is positive); null otherwise.
+         */
+        movedDays: number | null
+
+        by: string
+        at: string
+    }
+
+    /**
+     * One box's free time at the carrier, on the Tracking tab.
+     */
+    export interface TrackingContainerClock {
+        containerId: string
+        containerNumber: string
+        freeTimeDays: number | null
+        freeTimeFrom: string
+        /**
+         * The last free day the carrier stated; null when it is only counted.
+         */
+        lastFreeDayStated: string | null
+
+        state: "unknown" | "not_started" | "running" | "ending" | "chargeable" | "returned"
+        startDay: string | null
+        lastFreeDay: string | null
+        daysLeft: number | null
+        chargeableDays: number
+        stopDay: string | null
+    }
+
+    /**
+     * What the customer was told, as the tab lists it.
+     */
+    export interface TrackingCustomerNotice {
+        id: string
+        kind: string
+        label: string
+        channel: string
+        toldTo: string
+        subject: string
+        note: string
+        etaPod: string | null
+        etaWarehouse: string | null
+        plannedDelivery: string | null
+        by: string
+        at: string
+    }
+
+    /**
+     * A stored fact about the shipment, as the tab lists it.
+     */
+    export interface TrackingEventItem {
+        id: string
+        kind: string
+        label: string
+        occurredOn: string
+        /**
+         * "HH:MM" in Prague when known; "" otherwise.
+         */
+        occurredTime: string
+
+        place: string
+        /**
+         * Vessel and voyage it names; "" when none.
+         */
+        vessel: string
+
+        containerNumber: string
+        note: string
+        /**
+         * Where it came from in words ("Trucking"); "" for a person.
+         */
+        source: string
+
+        by: string
+        recordedAt: string
+        effect: "none" | "proposed" | "applied" | "dismissed"
+        /**
+         * The day it would set or set; null when it sets none.
+         */
+        effectValue: string | null
+
+        /**
+         * The shipment field it would set or set, in words ("ATA"); "" when none.
+         */
+        sets: string
+
+        /**
+         * Only what a person recorded can be struck: the rest is changed where it comes from.
+         */
+        strikeable: boolean
+
+        resolvedAt: string | null
+    }
+
+    /**
+     * The last free day a notice states, and the boxes it goes on.
+     */
+    export interface TrackingLastFreeDayChange {
+        day: string
+        containerIds: string[]
+        containerNumbers: string[]
+    }
+
+    export type TrackingLeg = "origin" | "main" | "destination"
+
+    export interface TrackingMilestone {
+        key: string
+        label: string
+        /**
+         * Which dates the row shows ("ETA / ATA"); "" when it speaks for itself.
+         */
+        basis: string
+
+        leg: TrackingLeg
+        place: string
+        planned: string | null
+        /**
+         * "HH:MM" of the planned date when known; "" otherwise.
+         */
+        plannedTime: string
+
+        /**
+         * The planned date before its last change; null when it never moved.
+         */
+        wasPlanned: string | null
+
+        /**
+         * How far the last change moved it, in days (later is positive); null when it never moved.
+         */
+        movedDays: number | null
+
+        actual: string | null
+        /**
+         * "HH:MM" of the actual date in Prague when known; "" otherwise.
+         */
+        actualTime: string
+
+        /**
+         * A date a source reports and a person hasn't confirmed yet; null when there is none.
+         */
+        proposed: TrackingProposal | null
+
+        /**
+         * What stands in for a date ("Under Customs Clearance", the MRN); "" when nothing does.
+         */
+        detail: string
+
+        /**
+         * The container its event is about; "" for the shipment as a whole.
+         */
+        containerNumber: string
+
+        state: TrackingMilestoneState
+        /**
+         * Days past the planned date with nothing recorded; 0 when not late.
+         */
+        lateDays: number
+
+        /**
+         * This row's actual date is the job's tax date.
+         */
+        taxDate: boolean
+
+        recorded: TrackingRecorded | null
+    }
+
+    /**
+     * done: it happened. next: the first step still to happen. late: its planned date passed and it
+     * was not recorded. open: still to come. planned: a date we only plan by, with no actual to record.
+     */
+    export type TrackingMilestoneState = "done" | "next" | "late" | "open" | "planned"
+
+    export interface TrackingProposal {
+        eventId: string
+        day: string
+        /**
+         * Who reports it ("Carrier", "Document read").
+         */
+        source: string
+    }
+
+    /**
+     * A fact a read document states, for a person to look over.
+     */
+    export interface TrackingReadFact {
+        kind: string
+        label: string
+        occurredOn: string
+        place: string
+        vessel: string
+        note: string
+        effect: "apply" | "propose" | "none"
+        sets: string
+        alreadyKept: boolean
+        refusal: string
+    }
+
+    export interface TrackingReadingPreview {
+        facts: TrackingReadFact[]
+        /**
+         * The last free day it states, when the job has boxes that run a clock.
+         */
+        lastFreeDayChange: TrackingLastFreeDayChange | null
+
+        /**
+         * The vessel and voyage it names, when they differ and nothing has sailed yet.
+         */
+        vesselChange: TrackingVesselChange | null
+
+        containersFound: string[]
+        otherShipment: boolean
+    }
+
+    /**
+     * A kind of event this person may record on this shipment.
+     */
+    export interface TrackingRecordableKind {
+        kind: string
+        label: string
+        group: "milestone" | "exception" | "note"
+        reasonRequired: boolean
+        sets: string
+        taxDate: boolean
+    }
+
+    /**
+     * Who put a value there and when, from the audit log. No person is named for a system write or a user who left.
+     */
+    export interface TrackingRecorded {
+        at: string
+        by: string
+        /**
+         * The department or module that keeps this field ("Trucking", "Warehouse", "Customs"); "" when any person may.
+         */
+        source: string
+    }
+
+    export interface TrackingTaxDate {
+        /**
+         * Which date the job is taxed by now: an actual one is firm, an estimated one provisional.
+         */
+        basis: "ata" | "atd" | "eta" | "etd" | "delivery" | "plannedDelivery" | "none"
+
+        date: string | null
+        actual: boolean
+        recorded: TrackingRecorded | null
+        /**
+         * Whether an issued, not credited invoice makes the date final; null when Invoicing could not be asked.
+         */
+        invoiced: boolean | null
+    }
+
+    /**
+     * A ticked checklist task: the time is the click, not the event.
+     */
+    export interface TrackingTick {
+        taskKey: string
+        completedAt: string
+        by: string
+    }
+
+    export interface TrackingVesselChange {
+        vessel: string
+        voyage: string
+    }
+
     export interface TransportOrderState {
         number: string
         sentAt: string | null
@@ -20078,6 +21239,11 @@ export namespace interfaces {
 
         gatedOut: string
         detentionExpiry: string
+        /**
+         * The expiry is the job's free time, not what was typed here.
+         */
+        detentionFromJob?: boolean
+
         yardStatus: string
         tareKg: number | null
         cargoKg: number | null
@@ -20975,6 +22141,26 @@ export namespace services {
          * What the field means, which tells a port from an airport or a town, e.g. "port of loading".
          */
         role?: string
+    }
+
+    /**
+     * A fact of a read document a person chose to keep.
+     */
+    export interface KeptFact {
+        kind: string
+        occurredOn: string
+        place?: string
+        vessel?: string
+        note?: string
+    }
+
+    /**
+     * The document itself, to file on the shipment.
+     */
+    export interface KeptFile {
+        fileName: string
+        fileType: string
+        contentBase64: string
     }
 
     /**

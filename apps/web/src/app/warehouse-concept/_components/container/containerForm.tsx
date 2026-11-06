@@ -81,7 +81,7 @@ export function ContainerFormModal({
     { name: "arrivedAt", label: "Arrived at WH", type: "datetime" },
     { name: "houses", label: "Houses expected", type: "number" },
     { name: "dockSlot", label: "Dock slot", placeholder: "Dock 4 · 09:00" },
-    { name: "detentionExpiry", label: "Detention expiry", type: "date" },
+    { name: "detentionExpiry", label: "Detention expiry (the job's free time wins)", type: "date" },
     { name: "scheduleStatus", label: "Status", type: "select", options: SCHEDULE_STATUSES },
   ];
   const vgmFields: FieldDef[] = [

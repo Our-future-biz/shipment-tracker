@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { QueryClient } from "@tanstack/react-query";
-import { alertReadKey, markReadOptions } from "./useShipmentAlerts";
+import { alertReadKey, markReadOptions, shipmentAlerts } from "./useShipmentAlerts";
+import type { AttachmentItem } from "@/hooks/useShipmentAttachments";
 
 vi.mock("@/lib/api", () => ({ api: { shipments: { alertMarkRead: vi.fn(async () => ({ ok: true })) } } }));
 
@@ -20,5 +21,19 @@ describe("markReadOptions", () => {
     expect(options).not.toHaveProperty("onError");
     options.onSuccess();
     expect(qc.invalidateQueries).toHaveBeenCalledWith({ queryKey: alertReadKey("s1") });
+  });
+});
+
+describe("shipmentAlerts", () => {
+  const doc = (id: string, customsStatus: string, customsReviewedAt: string | null) => ({ id, customsStatus, customsReviewedAt }) as unknown as AttachmentItem;
+
+  it("lists what customs declined, newest first", () => {
+    const alerts = shipmentAlerts([doc("a", "declined", "2026-11-06T08:00:00Z"), doc("b", "declined", "2026-11-06T09:00:00Z")]);
+    expect(alerts.map((d) => d.id)).toEqual(["b", "a"]);
+  });
+
+  it("leaves out an approved document, and one not reviewed", () => {
+    const alerts = shipmentAlerts([doc("ok", "approved", "2026-11-06T08:00:00Z"), doc("new", "", null), doc("no", "declined", "2026-11-06T07:00:00Z")]);
+    expect(alerts.map((d) => d.id)).toEqual(["no"]);
   });
 });

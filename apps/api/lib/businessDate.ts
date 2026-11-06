@@ -43,3 +43,22 @@ export function businessMinutes(at: Date): number {
   const parts = Object.fromEntries(timeParts.formatToParts(at).map((part) => [part.type, part.value]));
   return Number(parts.hour) * 60 + Number(parts.minute);
 }
+
+/** "14:30": the time in Prague at the given instant. */
+export function businessTime(at: Date): string {
+  const minutes = businessMinutes(at);
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+}
+
+/** The instant of a Prague wall-clock day (YYYY-MM-DD) and time (HH:MM). */
+export function businessInstant(day: string, time: string): Date {
+  const wall = Date.parse(`${day}T${time}:00Z`);
+  const minutesOff = (at: number) => {
+    const shown = businessMinutes(new Date(at));
+    const dayOff = Date.parse(`${businessDay(new Date(at))}T00:00:00Z`) + shown * 60_000;
+    return Math.round((dayOff - Math.floor(at / 60_000) * 60_000) / 60_000);
+  };
+  // Two passes settle the offset on either side of a clock change.
+  const first = wall - minutesOff(wall) * 60_000;
+  return new Date(wall - minutesOff(first) * 60_000);
+}

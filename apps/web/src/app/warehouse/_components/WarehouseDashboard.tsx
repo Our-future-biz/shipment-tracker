@@ -6,6 +6,8 @@ import { Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { getFieldValue, useShipments, type ShipmentItem } from "@/hooks/useShipments";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { canChangeShipmentDetails } from "@/lib/shipmentEditRule";
+import { apiErrorMessage } from "@/lib/api";
 import { useColumnView } from "@/hooks/useColumnView";
 import { COLUMN_MAP, DATE_COLUMNS } from "@/lib/columnConfig";
 import { formatDate } from "@/lib/date";
@@ -94,6 +96,7 @@ export function WarehouseDashboard() {
     }),
     [inQuery.shipments, stockQuery.shipments, outQuery.shipments],
   );
+  const dimsShipment = ORDER.flatMap((k) => bySection[k]).find((s) => s.id === dimsShipmentId) ?? null;
 
   return (
     <div className="bg-slate-50 min-h-full px-8 py-6">
@@ -141,11 +144,13 @@ export function WarehouseDashboard() {
         ))}
 
         <DimensionsModal
-          shipment={ORDER.flatMap((k) => bySection[k]).find((s) => s.id === dimsShipmentId) ?? null}
+          shipment={dimsShipment}
+          // The dimensions are the shipment's details: only shown to whoever may not change them.
+          readOnly={!!dimsShipment && !canChangeShipmentDetails(user, dimsShipment)}
           onClose={() => setDimsShipmentId(null)}
           onSave={(shipment, cargoDimensions) =>
             updateShipment({ id: shipment.id, data: { cargoDimensions } }).catch((e) => {
-              toast.error("Could not save the dimensions");
+              toast.error(`Could not save the dimensions: ${apiErrorMessage(e)}`);
               throw e;
             })
           }

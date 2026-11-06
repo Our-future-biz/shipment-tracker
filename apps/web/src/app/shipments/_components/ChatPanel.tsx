@@ -1,12 +1,12 @@
 "use client";
 
 import { useState, useRef, useEffect, useMemo } from "react";
-import { Drawer, Input, Tooltip } from "antd";
+import { Drawer, Input, Popconfirm, Tooltip } from "antd";
 import type { TextAreaRef } from "antd/es/input/TextArea";
-import { SendOutlined, DeleteOutlined, PaperClipOutlined, DownloadOutlined, CloseOutlined } from "@ant-design/icons";
+import { SendOutlined, DeleteOutlined, PaperClipOutlined, DownloadOutlined, CloseOutlined, StrikethroughOutlined } from "@ant-design/icons";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, apiFileUrl } from "@/lib/api";
-import { useAuth } from "@/lib/auth/AuthContext";
+import { useAuth, useCanDeleteAnyChatMessage } from "@/lib/auth/AuthContext";
 import { useUsers } from "@/hooks/useUsers";
 import { useToast } from "@/lib/toast";
 import { fileToBase64, formatFileSize } from "@/lib/files";
@@ -21,6 +21,11 @@ import { BTN_PRIMARY, HINT, ICON_BTN_GHOST, REF } from "@/styles/ui";
 // three used most in this chat, or those matching what follows the @); a tagged colleague gets a
 // notification. The same panel serves a shipment's chat (ChatPanel) and
 // a quote's (QuoteChatPanel); what differs is where the messages come from (ChatSource).
+// The writer can pull a message back for 2 minutes; after that they can only cross it out, and only
+// an admin or a superadmin can still delete it. The server decides (lib/chatRule); this follows it.
+
+/** How long the writer can pull a message back after sending it. */
+const CHAT_PULL_BACK_MS = 2 * 60 * 1000;
 
 /** One message as the panel shows it (the shipments' and the quotes' messages both are). */
 export interface ChatMessage {
@@ -32,6 +37,8 @@ export interface ChatMessage {
   attachments: { id: string; fileName: string; fileSize: number; fileType: string; contentUrl: string }[];
   /** On the reader's own messages: a colleague has opened the chat since it was sent. */
   readByOthers: boolean;
+  /** When its writer crossed it out; null while it stands. */
+  struckAt: string | null;
   /** A quote's chat: the Sales Reference it was written on, when the thread spans revisions. */
   quoteNumber?: string;
 }
@@ -43,6 +50,7 @@ export interface ChatSource {
   list: () => Promise<ChatMessage[]>;
   send: (input: { message: string; files: File[]; mentionedUserIds: string[] }) => Promise<unknown>;
   remove: (id: string) => Promise<unknown>;
+  strike: (id: string) => Promise<unknown>;
   markRead: () => Promise<unknown>;
   /** Other lists to refresh: after a message was sent (with files or not), deleted, or the chat read. */
   refresh?: (what: "sent" | "sentFiles" | "deleted" | "read") => void;
@@ -155,6 +163,7 @@ export const ChatPanel = ({ shipmentId }: { shipmentId: string }) => {
         return api.shipments.commentCreate(shipmentId, { message, attachmentIds, mentionedUserIds });
       },
       remove: (id) => api.shipments.commentDelete(shipmentId, id),
+      strike: (id) => api.shipments.commentStrike(shipmentId, id),
       markRead: () => api.shipments.commentMarkRead(shipmentId),
       refresh: (what) => {
         // Reading clears both the unread badge and any mention notifications for this shipment.
@@ -191,8 +200,10 @@ export function ShipmentChatDrawer({ shipment, onClose }: { shipment: { id: stri
 
 export const ChatThread = ({ source }: { source: ChatSource }) => {
   const { user } = useAuth();
+  const canDeleteAny = useCanDeleteAnyChatMessage();
   const toast = useToast();
   const queryClient = useQueryClient();
+  const [now, setNow] = useState(() => Date.now());
   const [message, setMessage] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   // Colleagues picked from the @ list for the message being written.
@@ -234,10 +245,27 @@ export const ChatThread = ({ source }: { source: ChatSource }) => {
       // The message's files go with it.
       source.refresh?.("deleted");
     },
-    onError: () => toast.error("Failed to delete message"),
+    onError: (e) => toast.error(e instanceof Error && e.message ? e.message : "Failed to delete message"),
+  });
+
+  const strikeComment = useMutation({
+    mutationFn: (commentId: string) => source.strike(commentId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: source.key }),
+    onError: (e) => toast.error(e instanceof Error && e.message ? e.message : "Failed to cross out the message"),
   });
 
   const comments = useMemo(() => data ?? [], [data]);
+
+  // A message's Delete gives way to crossing it out the moment its 2 minutes are up.
+  useEffect(() => {
+    const ends = comments
+      .filter((c) => c.authorId === user?.id)
+      .map((c) => Date.parse(c.createdAt) + CHAT_PULL_BACK_MS)
+      .filter((end) => end > now);
+    if (!ends.length) return;
+    const timer = setTimeout(() => setNow(Date.now()), Math.max(0, Math.min(...ends) - Date.now()) + 50);
+    return () => clearTimeout(timer);
+  }, [comments, now, user?.id]);
 
   // Opening the chat (and anything arriving while it is open) counts as read.
   const keyText = JSON.stringify(source.key);
@@ -338,35 +366,62 @@ export const ChatThread = ({ source }: { source: ChatSource }) => {
   const writtenOn = (c: Comment) =>
     source.showQuoteNumber && c.quoteNumber ? <span className={`${REF} text-[11px] text-slate-500`}>{c.quoteNumber}</span> : null;
 
+  const LINE_ACTION = "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity text-slate-300 bg-transparent border-none cursor-pointer p-0";
+
+  // Within its 2 minutes the writer's Delete takes one click, as in any messenger; the rest can't be
+  // taken back that easily, so they ask first.
+  const lineActions = (c: Comment, isMe: boolean) => {
+    const pullBack = isMe && now - Date.parse(c.createdAt) <= CHAT_PULL_BACK_MS;
+    const deleteIcon = (
+      <button type="button" aria-label="Delete message" title="Delete" onClick={pullBack ? () => deleteComment.mutate(c.id) : undefined} className={`${LINE_ACTION} hover:text-red-600`}>
+        <DeleteOutlined className="text-[11px]" />
+      </button>
+    );
+    return (
+      <>
+        {isMe && !pullBack && !c.struckAt && (
+          <Popconfirm title="Cross out this message?" description="It stays in the chat, struck through. This can't be undone." okText="Cross out" onConfirm={() => strikeComment.mutate(c.id)}>
+            <button type="button" aria-label="Cross out message" title="Cross out" className={`${LINE_ACTION} hover:text-indigo-600`}>
+              <StrikethroughOutlined className="text-[11px]" />
+            </button>
+          </Popconfirm>
+        )}
+        {pullBack
+          ? deleteIcon
+          : canDeleteAny && (
+              <Popconfirm title="Delete this message?" okText="Delete" okButtonProps={{ danger: true }} onConfirm={() => deleteComment.mutate(c.id)}>
+                {deleteIcon}
+              </Popconfirm>
+            )}
+      </>
+    );
+  };
+
   const row = (c: Comment, isMe: boolean, firstOfGroup: boolean) => {
+    const struck = !!c.struckAt;
     const text = c.message && (
       <div
         className={`px-3.5 py-2 rounded-xl text-[13px] leading-snug whitespace-pre-wrap break-words ${
-          isMe ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-900"
+          struck ? "bg-slate-100 text-slate-500 line-through" : isMe ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-900"
         }`}
       >
-        {withMentions(c.message, isMe)}
+        {withMentions(c.message, isMe && !struck)}
       </div>
     );
+    const struckNote = struck && <span className="text-[11px] text-slate-500">Crossed out</span>;
 
     if (isMe) {
       return (
         <div className="group flex flex-col items-end gap-1">
           <span className="flex items-center gap-1.5 text-[11px] text-slate-500">
-            <button
-              type="button"
-              aria-label="Delete message"
-              onClick={() => deleteComment.mutate(c.id)}
-              className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity text-slate-300 hover:text-red-600 bg-transparent border-none cursor-pointer p-0"
-            >
-              <DeleteOutlined className="text-[11px]" />
-            </button>
+            {lineActions(c, true)}
             {writtenOn(c)}
             {timeLabel(c.createdAt)}
             <ReadTicks read={c.readByOthers} />
           </span>
           <div className="max-w-[80%] min-w-0 flex flex-col items-end gap-1.5">
             {text}
+            {struckNote}
             {c.attachments.map(fileCard)}
           </div>
         </div>
@@ -374,7 +429,7 @@ export const ChatThread = ({ source }: { source: ChatSource }) => {
     }
 
     return (
-      <div className="flex items-start gap-3">
+      <div className="group flex items-start gap-3">
         <span className="w-9 shrink-0">
           {firstOfGroup && (
             <span className={`flex items-center justify-center w-9 h-9 rounded-full text-[13px] font-bold ${toneFor(c.authorId)}`}>
@@ -391,8 +446,10 @@ export const ChatThread = ({ source }: { source: ChatSource }) => {
             </span>
           )}
           {text}
+          {struckNote}
           {c.attachments.map(fileCard)}
         </div>
+        {canDeleteAny && <span className="self-end pb-2 shrink-0 text-[11px]">{lineActions(c, false)}</span>}
       </div>
     );
   };

@@ -18,6 +18,7 @@ import {
   type MasterContainer,
 } from "../lib/masterJobSync";
 import type { MasterJobRecord, NewMasterJobRecord } from "../schemas/masterJob.schema";
+import { isDetailsManager, touchesDetails } from "../lib/shipmentEditRule";
 import type { MasterJobContainerRecord } from "../schemas/masterJobContainer.schema";
 import type { ContainerRecord } from "../schemas/container.schema";
 import type {
@@ -33,6 +34,12 @@ import { resplitMasterJobCosts } from "../lib/masterJobCosts";
 import { cargoDimensionRepository } from "../repositories/cargoDimension.repository";
 import { freightTons } from "../lib/freightTons";
 import { compareJobNumbers } from "../../../lib/jobNumber";
+
+/** The person saving a master job, held to who may change each house's details (lib/shipmentEditRule). */
+export interface MasterJobEditor {
+  userID: string;
+  role: string;
+}
 
 /** Editable master-job fields (everything but the id, MCZ number and bookkeeping). */
 export type MasterJobUpdate = Partial<
@@ -172,7 +179,11 @@ class MasterJobService {
     return toItem(row, 0);
   }
 
-  async update(id: string, companyId: string, data: MasterJobUpdate, userId: string): Promise<MasterJobItem> {
+  // `editor`: the person saving, when it is their edit (the Master Jobs page, and a date or vessel
+  // from a house's Tracking tab: an event recorded or confirmed, a notice kept). A save that writes
+  // a house's details is held to that house's rule, all houses before any is written. Left out only
+  // by the app's own writes, which aren't held to it.
+  async update(id: string, companyId: string, data: MasterJobUpdate, userId: string, editor?: MasterJobEditor): Promise<MasterJobItem> {
     const existing = await this.require(id, companyId);
     if (isLoadTypeChange(existing.loadType, data.loadType ?? undefined)) {
       throw APIError.failedPrecondition(`Load Type is already ${existing.loadType} and can't be changed`);
@@ -203,19 +214,20 @@ class MasterJobService {
         `ATA / ATD can't change: ${locked.join(", ")} ${locked.length === 1 ? "is" : "are"} already invoiced — credit the invoice first`,
       );
     }
+    if (editor && touchesDetails(synced)) await this.assertMayChangeHouses(houses, editor);
 
     const row = await masterJobRepository.updateForCompany(id, companyId, clean as MasterJobUpdate);
     if (!row) throw APIError.notFound("Master job not found");
     if (houses.length > 0) {
       for (const house of houses) {
         // The synced keys are shipment columns; blanks clear them (null on a date).
-        await shipmentService.update(house.id, companyId, synced as ShipmentUpdateData, userId);
+        await shipmentService.update(house.id, companyId, synced as ShipmentUpdateData, userId, undefined, "master_job");
       }
     }
     return toItem(row, await this.countShipments(id, companyId));
   }
 
-  async setContainers(id: string, companyId: string, lines: MasterJobContainerLine[], userId: string): Promise<MasterJobDetail> {
+  async setContainers(id: string, companyId: string, lines: MasterJobContainerLine[], userId: string, editor?: MasterJobEditor): Promise<MasterJobDetail> {
     const row = await this.require(id, companyId);
     const numbers = lines.map((l) => normalizeContainerNumber(l.containerNumber));
     const bad = lines.find((l, i) => !numbers[i] || !isValidContainerNumber(l.containerNumber));
@@ -238,17 +250,30 @@ class MasterJobService {
       row.loadType === FULL_LOAD
         ? containersFromHouses(await containerRepository.listByShipmentIds([...houseIds], companyId))
         : (await masterJobContainerRepository.listByMasterJobId(id, companyId)).map(toMasterContainerLine);
-    // A Full Load has no list of its own (it is read from the houses), so nothing is stored.
-    if (row.loadType !== FULL_LOAD) await masterJobContainerRepository.replaceForMasterJob(id, companyId, cleaned);
-
     // Containers removed from the master job stay "known" with no assignment, so
     // the houses that carried them drop them too.
     const kept = new Set(numbers);
     const removed: MasterContainer[] = previous
       .filter((p) => !kept.has(normalizeContainerNumber(p.containerNumber)))
       .map((p) => ({ ...p, shipmentIds: [] }));
+    const masterContainers = [...cleaned, ...removed];
+
+    // A house whose containers this save changes is held to its rule, all of them before anything is stored.
+    if (editor && !isDetailsManager(editor.role)) {
+      const lists = await containerRepository.listByShipmentIds([...houseIds], companyId);
+      const boxes = (ls: readonly ContainerLine[]) => JSON.stringify(ls.map((l) => [normalizeContainerNumber(l.containerNumber), l.sealNumber, l.type]));
+      const changed = houses.filter((h) => {
+        const now = lists.filter((c) => c.shipmentId === h.id).map(toContainerLine);
+        const next = houseContainerLines(h.id, now, masterContainers);
+        return next !== null && boxes(next) !== boxes(now);
+      });
+      await this.assertMayChangeHouses(changed, editor);
+    }
+
+    // A Full Load has no list of its own (it is read from the houses), so nothing is stored.
+    if (row.loadType !== FULL_LOAD) await masterJobContainerRepository.replaceForMasterJob(id, companyId, cleaned);
     for (const house of houses) {
-      await this.applyToHouse(house.id, companyId, userId, {}, [...cleaned, ...removed]);
+      await this.applyToHouse(house.id, companyId, userId, {}, masterContainers);
     }
     return this.get(id, companyId);
   }
@@ -327,6 +352,29 @@ class MasterJobService {
     const containers =
       row.loadType === FULL_LOAD ? [] : (await masterJobContainerRepository.listByMasterJobId(row.id, companyId)).map(toMasterContainerLine);
     await this.applyToHouse(shipmentId, companyId, userId, syncedShipmentData(row), containers);
+  }
+
+  /** Refuses the save, naming the houses, when the editor may not change every one of them. */
+  /** Refuses, naming them, a person who may not change the details of every house of the master job. */
+  async assertMayChangeEveryHouse(id: string, companyId: string, editor: MasterJobEditor): Promise<void> {
+    if (isDetailsManager(editor.role)) return;
+    await this.assertMayChangeHouses(await shipmentRepository.findByMasterJobId(id, companyId), editor);
+  }
+
+  private async assertMayChangeHouses(
+    houses: readonly { jobNumber: string; personInCharge: string; holidayCover: string }[],
+    editor: MasterJobEditor,
+  ): Promise<void> {
+    if (isDetailsManager(editor.role)) return;
+    const refused: string[] = [];
+    for (const house of houses) {
+      if (!(await shipmentService.mayChangeDetails(house, editor.userID, editor.role))) refused.push(house.jobNumber);
+    }
+    if (refused.length > 0) {
+      throw APIError.permissionDenied(
+        `Only the Person in Charge, Holiday Cover or a manager can change ${refused.join(", ")}, so this master job save would change ${refused.length === 1 ? "a shipment" : "shipments"} you can't`,
+      );
+    }
   }
 
   // One shipmentService.update per house, so the audit log and the shipment's

@@ -9,16 +9,15 @@ import { useToast } from "@/lib/toast";
 import { formatDateTime } from "@/lib/date";
 import { errorMessage, nf } from "../../gate-log/_lib/gate";
 import { Pill } from "@/components/Pill";
-import { BTN, BTN_DANGER, BTN_PRIMARY, CARD, CARD_BAR, CARD_TITLE, EMPTY, HINT, LABEL_TEXT, LINK, REF, TD, TH } from "@/styles/ui";
+import { BTN, BTN_DANGER, BTN_PRIMARY, CARD, CARD_BAR, CARD_TITLE, EMPTY, EMPTY_STATE, HINT, LABEL_TEXT, LINK, REF, TD, TEXTAREA, TH } from "@/styles/ui";
 
 // Sales' questions about pieces of 12.5 t or more (the quote's "Inquire Warehouse"): a warehouse
 // manager approves with the extra handling per piece, or rejects with a reason — the same two
 // buttons and reason box as Customs' review of a document. The answer goes to the one who asked
 // (their notifications) and into the quote's history; until it is approved the quote cannot be sent.
 
-// A text box of the answer: the app's field look (INPUT), as tall as its rows.
-const TEXTAREA =
-  "w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-[13px] text-slate-900 placeholder:text-slate-400 outline-none resize-y focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-colors";
+// A text box of the answer: the app's text box (TEXTAREA), as wide as the row, as tall as its rows.
+const ANSWER_BOX = `${TEXTAREA} w-full resize-y`;
 // The table's cells, with the card's 16px inset.
 const HEAD = `${TH} !px-4`;
 const CELL = `${TD} !px-4 !py-3 !align-top`;
@@ -89,7 +88,7 @@ export function QuoteInquiries() {
           <tbody>
             {listed.length === 0 && (
               <tr>
-                <td colSpan={6} className={`px-4 py-8 text-center ${isError ? "text-red-600" : "text-slate-400"}`}>
+                <td colSpan={6} className={`${EMPTY_STATE} px-4 ${isError ? "!text-red-600" : ""}`}>
                   {empty}
                 </td>
               </tr>
@@ -174,7 +173,7 @@ export function QuoteInquiries() {
                                 maxLength={1000}
                                 onChange={(e) => setComment(e.target.value)}
                                 placeholder="Conditions, crane booking, …"
-                                className={TEXTAREA}
+                                className={ANSWER_BOX}
                               />
                             </label>
                             <div className="flex gap-2">
@@ -204,7 +203,7 @@ export function QuoteInquiries() {
                               maxLength={1000}
                               onChange={(e) => setComment(e.target.value)}
                               placeholder="Why the warehouse cannot take these pieces…"
-                              className={`${TEXTAREA} max-w-[620px]`}
+                              className={`${ANSWER_BOX} max-w-[620px]`}
                             />
                             <div className="flex gap-2 mt-2">
                               <button

@@ -74,7 +74,7 @@ describe("import stripping tally", () => {
     expect(owed[0]).toMatchObject({ kind: "received", stamp: "tally", payload: { warehouseReceivedDate: "2026-10-14", warehouseReference: h.ref } });
     expect(shipmentUpdate).toHaveBeenCalledWith(
       { shipmentId: h.shipmentId, warehouseReceivedDate: "2026-10-14", warehouseReference: h.ref },
-      { authData: { userID: user, companyID: c, role: "user" } },
+      { authData: { userID: user, companyID: c, role: "user", appWrite: true } },
     );
     // The first tick starts the stripping; the house's received date is the tally's now.
     expect(res.container).toMatchObject({ status: "Stripped", strippingStartedAt: "2026-10-14T21:50:00.000Z" });

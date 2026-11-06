@@ -1,9 +1,10 @@
 import { APIError, ErrCode } from "encore.dev/api";
+import { businessDay } from "../../../lib/businessDate";
 import type { Actor } from "../../../lib/rbac";
 import { canManageSales, shipmentFromQuoteRefusal, shipmentLinkRefusal } from "../../../lib/salesPolicy";
 import { isSalesReference } from "../../../lib/salesReference";
 import log from "encore.dev/log";
-import { customers, invoicing, quotes } from "~encore/clients";
+import { customers, invoicing, quotes, warehouse } from "~encore/clients";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
 import type { Tx } from "../db/db";
 import { shipmentRepository, OVERDUE_DEADLINE_FIELDS, type NewShipmentData, type ShipmentReference } from "../repositories/shipment.repository";
@@ -14,6 +15,10 @@ import { containerRepository } from "../repositories/container.repository";
 import { cargoItemRepository } from "../repositories/cargoItem.repository";
 import { cargoDimensionRepository } from "../repositories/cargoDimension.repository";
 import { commercialInvoiceRepository } from "../repositories/commercialInvoice.repository";
+import { carrierCodeOf } from "../lib/carriers";
+import { EXCEPTIONS_CLOSED_BY, eventsFromChanges, heldFieldChanges, lastEventOf, ticksFromChanges, type TrackingSource } from "../lib/trackingEvents";
+import { shipmentTaskRepository } from "../repositories/shipmentTask.repository";
+import { shipmentTrackingEventRepository } from "../repositories/shipmentTrackingEvent.repository";
 import { invoiceValueByCurrency, isValidContainerNumber, matchContainerRows, normalizeContainerNumber, projectCargo } from "../lib/cargoProjection";
 import { actionStamp, cfsDefault, exportBolDefaults, isCreditApproval, startingStateDefaults, statusForDirection } from "../lib/fieldDefaults";
 import { quoteLinksService } from "./quoteLinks.service";
@@ -46,7 +51,9 @@ import { iso } from "../../../lib/db/serialize";
 import { isUuid } from "../../../lib/uuid";
 import { publicFields } from "../lib/rows";
 import { changesTaxDate } from "../lib/taxDate";
-import { normalizeCargoDimensions, normalizeStops } from "../lib/roadFreight";
+import { customsOfficeForProcedure, customsOfficeLockRefusal, customsOfficeShapeRefusal } from "../lib/customsOffice";
+import { DETAILS_REFUSAL, isDetailsManager, isOpenToPerson, touchesDetails } from "../lib/shipmentEditRule";
+import { dangerousFromAdr, normalizeCargoDimensions, normalizeStops } from "../lib/roadFreight";
 import { detailRowChanges, type DetailRowLists } from "../lib/detailRowsAudit";
 import { partyContact, partyStop, stopKeys, type Party } from "../lib/partyAddress";
 import { CONSIGNEE_CONTACT, CUSTOMER_PIC, SHIPPER_CONTACT, linkContact, type ContactMode } from "../lib/contactLinks";
@@ -253,9 +260,24 @@ function enrich(
 
 type EnrichedShipment = ReturnType<typeof enrich> & {
   masterJobMczNumber: string | null;
+  licensePlate: string;
   documentTypes: string[];
   customsStatus: string;
+  lastEvent: string;
 };
+
+// The Pick-up tab's License Plates, by shipment. A column of the grids: when the warehouse service
+// doesn't answer, the column stays empty rather than the whole list failing.
+async function pickupPlates(shipmentIds: string[], companyId: string): Promise<Map<string, string>> {
+  if (shipmentIds.length === 0) return new Map();
+  try {
+    const { plates } = await warehouse._internalPickupPlates({ companyId, shipmentIds });
+    return new Map(plates.map((p) => [p.shipmentId, p.licensePlate]));
+  } catch (err) {
+    log.warn(err, "pick-up license plates not read");
+    return new Map();
+  }
+}
 
 // The API shape of an enriched shipment: dates as ISO strings, no tenant/soft-delete columns.
 function toShipmentItem(s: EnrichedShipment): ShipmentItem {
@@ -655,6 +677,7 @@ class ShipmentService {
     const itemsByShipment = groupByShipment(await cargoItemRepository.listByShipmentIds(shipmentIds, companyId), toCargoItemLine);
     const dimensionsByShipment = groupByShipment(await cargoDimensionRepository.listByShipmentIds(shipmentIds, companyId), toCargoDimensionLine);
     const invoicesByShipment = groupByShipment(await commercialInvoiceRepository.listByShipmentIds(shipmentIds, companyId), toCommercialInvoiceLine);
+    const platesByShipment = await pickupPlates(shipmentIds, companyId);
 
     // Document types per shipment — the Customs screen shows a tick when the
     // required document is present.
@@ -667,6 +690,8 @@ class ShipmentService {
       docsByShipment.set(r.shipmentId, list);
     }
 
+    const latestEvents = await shipmentTrackingEventRepository.latestPerShipment(shipmentIds, companyId);
+
     const enriched = result.data.map((s) => toShipmentItem({
       ...enrich(
         s,
@@ -676,8 +701,10 @@ class ShipmentService {
         invoicesByShipment.get(s.id) ?? [],
       ),
       masterJobMczNumber: s.masterJobId ? mczMap.get(s.masterJobId) || null : null,
+      licensePlate: platesByShipment.get(s.id) ?? "",
       documentTypes: (docsByShipment.get(s.id) ?? []).map((d) => d.documentType),
       customsStatus: customsStatusFor(s.customsStatus, docsByShipment.get(s.id) ?? []),
+      lastEvent: lastEventOf(s, latestEvents.get(s.id) ?? null),
     }));
 
     return {
@@ -714,6 +741,40 @@ class ShipmentService {
     if (!(await shipmentRepository.getByIdForCompany(id, companyId))) throw APIError.notFound("Shipment not found");
   }
 
+  // What a change of the shipment is worth on the Tracking tab, in its write turn, whoever wrote it:
+  // an actual date set, corrected or cleared sets aside the facts of the old day and confirms what
+  // a source proposed of the new one; the fact as an event (once: one standing for that day is it);
+  // the exceptions it closes; the ticks it makes true. The turn's lock on the shipment keeps two
+  // writes of it from both finding no event and both adding one.
+  private async writeTrackingFacts(tx: Tx, existing: ShipmentRecord, changes: Partial<NewShipmentRecord>, userId: string, byPerson: boolean, origin?: TrackingSource): Promise<void> {
+    const { companyId, id: shipmentId } = existing;
+    for (const { field, value } of heldFieldChanges(existing, changes)) {
+      await shipmentTrackingEventRepository.supersede(shipmentId, companyId, field, value, userId, tx);
+      if (value) await shipmentTrackingEventRepository.settle(shipmentId, companyId, field, value, userId, tx);
+    }
+    for (const fact of eventsFromChanges(existing, changes, { byPerson, origin, today: businessDay(new Date()) })) {
+      if (!(await shipmentTrackingEventRepository.findSameDay(shipmentId, companyId, fact.kind, fact.occurredOn, tx))) {
+        await shipmentTrackingEventRepository.add({ ...fact, companyId, shipmentId, recordedById: userId }, tx);
+      }
+      const closes = EXCEPTIONS_CLOSED_BY[fact.kind];
+      if (closes) await shipmentTrackingEventRepository.resolveOpen(shipmentId, companyId, closes, userId, tx);
+    }
+    for (const taskKey of ticksFromChanges(existing, changes, changes.tradeDirection ?? existing.tradeDirection)) {
+      await shipmentTaskRepository.upsert(shipmentId, companyId, taskKey, true, userId, tx);
+    }
+  }
+
+  /** The customs status the shipment shows, which follows its paperwork. */
+  async customsStatusOf(shipment: { id: string; customsStatus: string }, companyId: string): Promise<string> {
+    return (await this.customsStatusesOf([shipment], companyId)).get(shipment.id)!;
+  }
+
+  /** The customs status each of these shipments shows, by id: their paperwork read in one query. */
+  async customsStatusesOf(shipments: readonly { id: string; customsStatus: string }[], companyId: string): Promise<Map<string, string>> {
+    const documents = await shipmentAttachmentRepository.documentTypesByShipmentIds(shipments.map((s) => s.id), companyId);
+    return new Map(shipments.map((s) => [s.id, customsStatusFor(s.customsStatus, documents.filter((d) => d.shipmentId === s.id && d.documentType))]));
+  }
+
   /** A live shipment of the company; not found otherwise. */
   async get(id: string, companyId: string): Promise<ShipmentItem> {
     const shipment = await this.getById(id, companyId);
@@ -734,11 +795,14 @@ class ShipmentService {
     const cargoDimensions = (await cargoDimensionRepository.listByShipmentId(id, companyId)).map(toCargoDimensionLine);
     const commercialInvoices = (await commercialInvoiceRepository.listByShipmentId(id, companyId)).map(toCommercialInvoiceLine);
     const documents = await this.documentsOf(id, companyId);
+    const plates = await pickupPlates([id], companyId);
     return toShipmentItem({
       ...enrich(shipment, containers, cargoItems, cargoDimensions, commercialInvoices),
       masterJobMczNumber,
+      licensePlate: plates.get(id) ?? "",
       documentTypes: documents.map((d) => d.documentType),
       customsStatus: customsStatusFor(shipment.customsStatus, documents),
+      lastEvent: lastEventOf(shipment, (await shipmentTrackingEventRepository.latestPerShipment([id], companyId)).get(id) ?? null),
     });
   }
 
@@ -932,9 +996,12 @@ class ShipmentService {
    */
   async create(companyId: string, data: ShipmentCreateData, creatorUserId?: string, { allowUnfinishedQuote = false } = {}): Promise<CreatedShipment> {
     const { containers, cargoItems, cargoDimensions: sentDimensions, commercialInvoices, fromQuoteNumber, allowSecondShipment, ...rest } = data;
+    const badOffice = customsOfficeShapeRefusal(rest.customsOffice);
+    if (badOffice) throw APIError.invalidArgument(badOffice);
     assertValidContainerNumbers(containers);
     const cargoDimensions = normalizeCargoDimensions(sentDimensions);
     const shipmentData = sanitizeTypedFields({ ...rest, ...legacyInvoiceFields(commercialInvoices) });
+    shipmentData.carrierCode = carrierCodeOf(shipmentData.shippingLine);
     const users = usersOnce();
     await checkPeople(shipmentData, users);
     // Who created it, by e-mail ("" when nobody can tell); when is the row's createdAt ("Created on").
@@ -967,6 +1034,8 @@ class ShipmentService {
         invoicingStatus: shipmentData.invoicingStatus,
       }),
       cfsDefault(shipmentData.hub, shipmentData.cfs),
+      dangerousFromAdr(cargoDimensions, shipmentData.dangerous),
+      customsOfficeForProcedure(shipmentData.customsProcedure, shipmentData.customsOffice),
     );
 
     if (fromQuote) {
@@ -1000,14 +1069,41 @@ class ShipmentService {
     return shipmentRefCounterRepository.peek(companyId, "CZ");
   }
 
-  async update(id: string, companyId: string, data: ShipmentUpdateData, userId: string): Promise<ShipmentItem> {
+  // At user level only the Person in Charge and the Holiday Cover change a shipment's details
+  // (lib/shipmentEditRule). An e-mail that can't be looked up is refused rather than guessed.
+  private async assertMayChangeDetails(shipment: { personInCharge: string; holidayCover: string }, userId: string, role: string): Promise<void> {
+    if (!(await this.mayChangeDetails(shipment, userId, role))) throw APIError.permissionDenied(DETAILS_REFUSAL);
+  }
+
+  /** Whether this person may change the shipment's details (lib/shipmentEditRule). */
+  async mayChangeDetails(shipment: { personInCharge: string; holidayCover: string }, userId: string, role: string): Promise<boolean> {
+    return isDetailsManager(role) || isOpenToPerson(shipment, "") || isOpenToPerson(shipment, await userEmailOf(userId));
+  }
+
+  /** For the actions that aren't a field edit but change the shipment: its master job, releasing its BoL. */
+  async requireDetailsEditor(id: string, actor: { companyID: string; userID: string; role: string }): Promise<void> {
+    if (!isUuid(id)) throw APIError.notFound("Shipment not found");
+    const shipment = await shipmentRepository.getByIdForCompany(id, actor.companyID);
+    if (shipment) await this.assertMayChangeDetails(shipment, actor.userID, actor.role);
+  }
+
+  // `role`: of the person editing, whose edit is held to what their role may change. Left out by
+  // the app's own writes (a master job's sync, an approved request). `origin`: where the write comes
+  // from, when the fields alone don't say, for the tracking events it causes.
+  async update(id: string, companyId: string, data: ShipmentUpdateData, userId: string, role?: string, origin?: TrackingSource): Promise<ShipmentItem> {
     const existing = await shipmentRepository.getByIdForCompany(id, companyId);
     if (!existing) throw APIError.notFound("Shipment not found");
+    const locked = role === undefined ? null : customsOfficeLockRefusal(existing, data, role);
+    if (locked) throw APIError.permissionDenied(locked);
+    const badOffice = customsOfficeShapeRefusal(data.customsOffice);
+    if (badOffice) throw APIError.invalidArgument(badOffice);
+    if (role !== undefined && touchesDetails(data)) await this.assertMayChangeDetails(existing, userId, role);
 
     const { containers, cargoItems, cargoDimensions: sentDimensions, commercialInvoices, ...rest } = data;
     assertValidContainerNumbers(containers);
     const cargoDimensions = normalizeCargoDimensions(sentDimensions);
     const shipmentData: Partial<NewShipmentRecord> = sanitizeTypedFields({ ...rest, ...legacyInvoiceFields(commercialInvoices) });
+    if (shipmentData.shippingLine !== undefined) shipmentData.carrierCode = carrierCodeOf(shipmentData.shippingLine);
     clearStaleTimes(shipmentData, existing);
     const users = usersOnce();
     await checkPeople(shipmentData, users, existing);
@@ -1038,7 +1134,7 @@ class ShipmentService {
     // 14 Oct 2026) — correct it by crediting the invoice first. A trade-direction switch
     // that changes which of the two is the tax date counts too.
     if (changesTaxDate(existing, shipmentData) && (await this.isInvoiced(id))) {
-      throw APIError.failedPrecondition("ATA / ATD and the trade direction can't change once the job is invoiced — credit the invoice first");
+      throw APIError.failedPrecondition("The tax date (ATA / ATD, or a road job's delivery) and the trade direction can't change once the job is invoiced — credit the invoice first");
     }
 
     // Seed the export BoL types against the values this update leaves behind, so
@@ -1067,6 +1163,8 @@ class ShipmentService {
         invoicingStatus: after("invoicingStatus"),
       }),
       cfsDefault(after("hub"), after("cfs")),
+      dangerousFromAdr(cargoDimensions, after("dangerous")),
+      customsOfficeForProcedure(after("customsProcedure"), after("customsOffice")),
     );
 
     // The Internal Reference's letters follow the Freight Mode and Load Type, the number kept
@@ -1128,6 +1226,7 @@ class ShipmentService {
           await audit(change.field, change.oldValue, change.newValue);
         }
       }
+      await this.writeTrackingFacts(tx, existing, shipmentData, userId, role !== undefined, origin);
       if (Object.keys(shipmentData).length === 0) return null;
       const saved = await shipmentRepository.updateForCompany(id, companyId, shipmentData, tx);
       return saved && lettersMayFollow ? this.followLetters(tx, companyId, userId, saved) : saved;

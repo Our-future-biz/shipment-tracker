@@ -10,6 +10,35 @@ import type { CancelExpectedInput, ExpectArrivalInput, ExpectDepartureInput } fr
 /** Exactly the ShipmentUpdate fields to send (planned / plate / delivered). */
 export type ShipmentFields = Record<string, string>;
 
+/** The POD on file when the job's POD was stamped; the bytes are read from the bucket when sent. */
+export interface PodPayload {
+  fileName: string;
+  contentType: string;
+  sha256: string;
+  storageKey: string;
+  stampedAt: string;
+}
+
+/** The POD stamp of `stampedAt` was voided: its fact leaves the job's timeline (the file stays in its Documents). */
+export interface PodVoidPayload {
+  stampedAt: string;
+  voided: true;
+}
+
+/** A delivery advice given, in words for the job's timeline. */
+export interface DeliveryAdvicePayload {
+  at: string;
+  text: string;
+}
+
+/** A stamp of a road job's timeline. */
+export interface StampPayload {
+  stamp: "confirmed" | "pickedUp";
+  at: string;
+  /** The stamp was voided: its fact leaves the job's timeline. */
+  voided?: boolean;
+}
+
 export interface TruckingOutboxPayloads {
   planned: ShipmentFields;
   plate: ShipmentFields;
@@ -20,6 +49,9 @@ export interface TruckingOutboxPayloads {
   expect_departure: ExpectDepartureInput;
   cancel_expected: CancelExpectedInput;
   real_costs: RealCostsPayload;
+  pod: PodPayload | PodVoidPayload;
+  delivery_advice: DeliveryAdvicePayload;
+  stamp: StampPayload;
 }
 
 export type TruckingOutboxPayload = TruckingOutboxPayloads[TruckingOutboxKind];
@@ -32,10 +64,29 @@ const isString = (v: unknown): v is string => typeof v === "string";
 const isShipmentFields = (p: TruckingOutboxPayload): p is ShipmentFields => Object.values(p).every(isString);
 const isCosts = (p: TruckingOutboxPayload): p is CostsPayload =>
   "sourceRef" in p && isString(p.sourceRef) && "buying" in p && Array.isArray(p.buying) && "selling" in p && Array.isArray(p.selling);
+const isPod = (p: TruckingOutboxPayload): p is PodPayload =>
+  "storageKey" in p && isString(p.storageKey) && "sha256" in p && isString(p.sha256) && "fileName" in p && isString(p.fileName) && "stampedAt" in p && isString(p.stampedAt);
+const isPodVoid = (p: TruckingOutboxPayload): p is PodVoidPayload => "voided" in p && p.voided === true && "stampedAt" in p && isString(p.stampedAt);
+const isDeliveryAdvice = (p: TruckingOutboxPayload): p is DeliveryAdvicePayload => "at" in p && isString(p.at) && "text" in p && isString(p.text);
+const isStamp = (p: TruckingOutboxPayload): p is StampPayload => "stamp" in p && (p.stamp === "confirmed" || p.stamp === "pickedUp") && "at" in p && isString(p.at);
 const isRealCosts = (p: TruckingOutboxPayload): p is RealCostsPayload => "sourceRef" in p && isString(p.sourceRef) && "realLines" in p && Array.isArray(p.realLines);
 const isCancelExpected = (p: TruckingOutboxPayload): p is CancelExpectedInput => "shipmentId" in p && isString(p.shipmentId) && "tripRef" in p && isString(p.tripRef);
 const isExpectDeparture = (p: TruckingOutboxPayload): p is ExpectDepartureInput => isCancelExpected(p) && "expectedAt" in p && isString(p.expectedAt);
 const isExpectArrival = (p: TruckingOutboxPayload): p is ExpectArrivalInput => isExpectDeparture(p) && "pieces" in p && typeof p.pieces === "number";
+
+// The external id of a stamp's fact on the job's timeline: the stamp and its void carry the same
+// one, so a void takes back exactly the fact its stamp added. It holds the stamp's instant, so a
+// stamp set again after a void is a fact of its own - even while that void has failed and waits for
+// a manager to send it again, which then takes back only the old one.
+
+/** The fact of a confirmed / picked-up stamp. */
+export const stampFactId = (consignmentId: string, p: Pick<StampPayload, "stamp" | "at">): string => `stamp:${consignmentId}:${p.stamp}:${p.at}`;
+
+/**
+ * The fact of a POD stamp. By the stamp's instant, not the file: a manager may replace the POD file
+ * while the stamp stays, and the void must still find the fact (the file has its own source ref).
+ */
+export const podFactId = (consignmentId: string, stampedAt: string): string => `pod:${consignmentId}:${stampedAt}`;
 
 /** The row's payload as its kind's type; throws when the stored JSON does not fit the kind. */
 export function parseOutboxRow(row: { id: string; kind: TruckingOutboxKind; payload: TruckingOutboxPayload }): TruckingOutboxMessage {
@@ -53,6 +104,12 @@ export function parseOutboxRow(row: { id: string; kind: TruckingOutboxKind; payl
         return isCosts(p) ? { kind: row.kind, payload: p } : null;
       case "real_costs":
         return isRealCosts(p) ? { kind: row.kind, payload: p } : null;
+      case "pod":
+        return isPodVoid(p) || isPod(p) ? { kind: row.kind, payload: p } : null;
+      case "delivery_advice":
+        return isDeliveryAdvice(p) ? { kind: row.kind, payload: p } : null;
+      case "stamp":
+        return isStamp(p) ? { kind: row.kind, payload: p } : null;
       case "expect_arrival":
         return isExpectArrival(p) ? { kind: row.kind, payload: p } : null;
       case "expect_departure":

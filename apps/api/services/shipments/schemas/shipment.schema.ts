@@ -19,6 +19,8 @@ export const shipmentTable = pgTable(
     bookingNumber: text("booking_number").notNull().default(""),
     loadType: text("load_type").notNull().default(""),
     shippingLine: text("shipping_line").notNull().default(""),
+    // The SCAC of the carrier shippingLine names; never typed, "" when it names none we know (lib/carriers).
+    carrierCode: text("carrier_code").notNull().default(""),
     pol: text("pol").notNull().default(""),
     pod: text("pod").notNull().default(""),
     destination: text("destination").notNull().default(""),
@@ -156,6 +158,8 @@ export const shipmentTable = pgTable(
     approvedBy: text("approved_by").notNull().default(""),
     bookingConfirmation: text("booking_confirmation").notNull().default(""),
     customsProcedure: text("customs_procedure").notNull().default(""),
+    // The office of a T1 procedure, its code and name as one text; "" under any other procedure.
+    customsOffice: text("customs_office").notNull().default(""),
     /** How soon customs has to clear the shipment: Standard | Urgent. */
     customsPriority: text("customs_priority").$type<CustomsPriority>().notNull().default("Standard"),
     /** When an Urgent shipment has to be cleared, local wall time "YYYY-MM-DD HH:mm"; "" for Standard. */

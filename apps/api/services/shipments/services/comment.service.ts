@@ -1,12 +1,17 @@
+import { exceptionNotice } from "../lib/trackingChatNotice";
+import { isUuid } from "../../../lib/uuid";
 import { APIError } from "encore.dev/api";
 import { shipmentCommentRepository } from "../repositories/shipmentComment.repository";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
 import type { ShipmentCommentRecord } from "../schemas/shipmentComment.schema";
 import { userEmails } from "../lib/userEmails";
 import { attachmentContentUrl } from "../lib/contentToken";
+import { customsOfficeRequestNotice, documentChangeNotice } from "../lib/customsOfficeNotice";
+import { canManageDocuments } from "../lib/documentRules";
 import { COMPARED_WITH, declaredFigures, dimensionFigures, remeasureNotice, type CargoFigures } from "../lib/remeasureNotice";
+import { chatDeleteRefusal, chatStrikeRefusal } from "../../../lib/chatRule";
 import { iso } from "../../../lib/db/serialize";
-import { companyUsers } from "../../../lib/companyUsers";
+import { companyUsers, companyUsersWithRoles } from "../../../lib/companyUsers";
 import type { CommentItem, CommentMentionItem, CommentUnreadItem, RemeasureNoticeResult } from "../interfaces/interfaces";
 import { attachmentService } from "./attachment.service";
 import { shipmentService } from "./shipment.service";
@@ -73,6 +78,7 @@ class CommentService {
           contentUrl: attachmentContentUrl(c.shipmentId, id, c.companyId),
         })),
       readByOthers: c.authorId === userId && !!othersReadAt && othersReadAt >= c.createdAt,
+      struckAt: c.struckAt ? iso(c.struckAt) : null,
     };
   }
 
@@ -148,12 +154,90 @@ class CommentService {
     return { commentId: comment.id, tagged: notice.tagged.map((u) => u.email) };
   }
 
-  // Deleting a message takes the files sent with it along (they also show on the Documents tab).
-  async delete(shipmentId: string, id: string, companyId: string, userId: string): Promise<void> {
-    const deleted = await shipmentCommentRepository.deleteOwn(id, companyId, userId);
-    if (!deleted) throw APIError.notFound("Message not found");
+  /**
+   * A reported exception in the shipment's chat, as the one reporting, tagging its Person in Charge
+   * and Holiday Cover: the reason is then where the conversation is, and under their bell.
+   */
+  async postExceptionNotice(
+    shipment: { id: string; personInCharge: string; holidayCover: string },
+    companyId: string,
+    authorId: string,
+    exception: { label: string; day: string; note: string },
+  ): Promise<void> {
+    const notice = exceptionNotice(shipment, await companyUsers(), exception, authorId);
+    await shipmentCommentRepository.createForCompany(companyId, {
+      shipmentId: shipment.id,
+      authorId,
+      message: notice.message,
+      mentionedUserIds: notice.tagged.map((u) => u.id),
+    });
+  }
+
+  /**
+   * A request to change a Customs Office in the shipment's chat, as the one asking, tagging everyone
+   * who can answer it: it then also shows under their bell, like any message that tags them.
+   */
+  async postCustomsOfficeRequestNotice(
+    shipmentId: string,
+    companyId: string,
+    authorId: string,
+    request: { fromOffice: string; toOffice: string; reason: string },
+  ): Promise<void> {
+    const notice = customsOfficeRequestNotice(request, await companyUsersWithRoles(), authorId);
+    await shipmentCommentRepository.createForCompany(companyId, {
+      shipmentId,
+      authorId,
+      message: notice.message,
+      mentionedUserIds: notice.tagged.map((u) => u.id),
+    });
+  }
+
+  /**
+   * A request to replace an approved document in the shipment's chat, as the one asking, tagging
+   * everyone who can answer it: it then also shows under their bell, like any message that tags them.
+   */
+  async postDocumentChangeNotice(
+    shipmentId: string,
+    companyId: string,
+    authorId: string,
+    request: { fileName: string; documentType: string; newFileName: string; reason: string },
+  ): Promise<void> {
+    const notice = documentChangeNotice(request, await companyUsersWithRoles(), authorId);
+    await shipmentCommentRepository.createForCompany(companyId, {
+      shipmentId,
+      authorId,
+      message: notice.message,
+      mentionedUserIds: notice.tagged.map((u) => u.id),
+    });
+  }
+
+  private async line(shipmentId: string, id: string, companyId: string): Promise<ShipmentCommentRecord> {
+    const comment = isUuid(id) ? await shipmentCommentRepository.getByIdForCompany(id, companyId) : null;
+    if (comment?.shipmentId !== shipmentId) throw APIError.notFound("Message not found");
+    return comment;
+  }
+
+  // Who may delete is lib/chatRule. Deleting a message takes the files sent with it along (they also
+  // show on the Documents tab) - but only a manager deletes a document, so a regular user's message
+  // goes and its files stay.
+  async delete(shipmentId: string, id: string, companyId: string, userId: string, role: string): Promise<void> {
+    const refusal = chatDeleteRefusal(await this.line(shipmentId, id, companyId), userId, role);
+    if (refusal) throw APIError.permissionDenied(refusal);
+    await shipmentCommentRepository.softDeleteForCompany(id, companyId);
+    if (!canManageDocuments(role)) {
+      await shipmentAttachmentRepository.unlinkFromComment(id, companyId);
+      return;
+    }
     const fileIds = await shipmentAttachmentRepository.listIdsByCommentId(id, companyId);
     for (const fileId of fileIds) await attachmentService.delete(shipmentId, fileId, companyId);
+  }
+
+  // The writer crosses out their own message: it stays in the chat, struck through, for good.
+  async strike(shipmentId: string, id: string, companyId: string, userId: string): Promise<void> {
+    const comment = await this.line(shipmentId, id, companyId);
+    const refusal = chatStrikeRefusal(comment, userId);
+    if (refusal) throw APIError.permissionDenied(refusal);
+    if (!comment.struckAt) await shipmentCommentRepository.updateForCompany(id, companyId, { struckAt: new Date() });
   }
 }
 

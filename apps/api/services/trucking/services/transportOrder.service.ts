@@ -6,6 +6,7 @@ import { consignmentRepository } from "../repositories/consignment.repository";
 import { tripRepository } from "../repositories/trip.repository";
 import { legRepository } from "../repositories/leg.repository";
 import { appendEvent } from "../repositories/event.repository";
+import { truckingOutboxRepository } from "../repositories/truckingOutbox.repository";
 import type { TruckingConsignmentRecord, TruckingTripRecord } from "../schemas/truckingConsignment.schema";
 import type { DocLanguageCode, FileDownload, LegKind, TripDetail, TruckingSettings } from "../interfaces/interfaces";
 import type { DocParty } from "../lib/documentTypes";
@@ -33,7 +34,7 @@ import { ltlTripStatus } from "../lib/ltlRules";
 import { inStopOrder } from "../lib/ltlView";
 import { userName } from "../lib/users";
 import { haulierService } from "./haulier.service";
-import { consignmentService } from "./consignment.service";
+import { consignmentService, owed } from "./consignment.service";
 import { tripService } from "./trip.service";
 import { deliverDue } from "./truckingOutbox.service";
 import { settingsService } from "./settings.service";
@@ -334,6 +335,8 @@ class TransportOrderService {
           { confirmedAt: now, confirmedBy: by, status: consignmentStatus({ ...factsOf(c, row), confirmedAt: now }) },
           { stampEmpty: "confirmed", tripId: trip.id },
         );
+        // The confirmation reaches the job's timeline, as a stamp or the haulier's own answer does.
+        await truckingOutboxRepository.enqueue(tx, companyId, [owed(actor, c, "stamp", { stamp: "confirmed", at: now.toISOString() })]);
       }
       await appendEvent(tx, companyId, {
         kind: "transport_order_confirmed",

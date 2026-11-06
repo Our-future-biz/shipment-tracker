@@ -11,7 +11,7 @@ import { useNoticeboard } from "@/hooks/useNoticeboard";
 import { useFxAlerts, useInvalidateFx } from "@/hooks/useFx";
 import { NoticeSeverityTag } from "@/app/dashboard/_components/NoticeSeverityTag";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { formatDate } from "@/lib/date";
+import { businessDateTime, formatDate } from "@/lib/date";
 import { formatAmount } from "@/lib/money";
 import { quoteChatHref } from "@/app/sales/_lib/quoteHref";
 import { salesManagersHref } from "@/app/sales/_lib/tabs";
@@ -19,10 +19,14 @@ import { useWarehouseInquiryAnswers, type WarehouseInquiryItem } from "@/hooks/u
 import { useMarginInquiryBell, type MarginInquiryItem, type MarginInquiryRow } from "@/hooks/useMarginInquiries";
 import { useSalesPermissions } from "@/hooks/useSalesPermissions";
 import { useSupplierApprovals, type SupplierApprovalItem } from "@/hooks/useSupplierApprovals";
+import { useCustomsOfficeAnswers, type CustomsOfficeRequestItem } from "@/hooks/useCustomsOfficeRequests";
+import { useCustomsVerdictNotices, type CustomsVerdictNotice } from "@/hooks/useShipmentAlerts";
+import { useTrackingBell, useTrackingMarkRead, type TrackingBellNotice } from "@/hooks/useShipmentTracking";
+import { useDocumentChangeAnswers, type DocumentChangeRequestItem } from "@/hooks/useDocumentChangeRequests";
 import { HINT, ICON_BTN_GHOST, LABEL_TEXT } from "@/styles/ui";
 
-const formatTime = (iso: string) =>
-  new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+// On the company's calendar and clock (Prague), wherever the browser is.
+const formatTime = (iso: string) => businessDateTime(iso);
 
 // A mention in a shipment's or a quote's chat, as the bell lists it.
 interface BellMention {
@@ -40,6 +44,22 @@ interface BellMention {
 // Where a notification about a Sales Reference leads: the Quotes list with that quote's chat
 // open (quoteChatHref). One about an Internal Reference opens the Shipments list with the shipment's chat.
 const shipmentChatHref = (shipmentId: string) => `/shipments?chat=${encodeURIComponent(shipmentId)}`;
+
+// Customs' verdict on a document of one of the user's shipments, as the bell says it.
+const verdictTitle = (v: CustomsVerdictNotice) => `Customs ${v.status} · ${v.jobNumber}`;
+const verdictText = (v: CustomsVerdictNotice) => `${v.fileName}${v.note ? ` — ${v.note}` : ""}`;
+
+// What the bell says about a shipment's dates.
+const trackingTitle = (n: TrackingBellNotice) => `${n.title} · ${n.jobNumber}`;
+const TRACKING_DOT: Record<TrackingBellNotice["kind"], string> = { date_moved: "bg-amber-500", to_confirm: "bg-indigo-500", not_told: "bg-red-500" };
+
+// A manager's answer to a request to replace an approved document, as the bell says it.
+const documentAnswerTitle = (a: DocumentChangeRequestItem) => `Document change ${a.status === "approved" ? "approved" : "rejected"} · ${a.jobNumber}`;
+const documentAnswerText = (a: DocumentChangeRequestItem) => `${a.newFileName}${a.comment ? ` — ${a.comment}` : ""}`;
+
+// A manager's answer to a request to change a Customs Office, as the bell says it.
+const officeAnswerTitle = (a: CustomsOfficeRequestItem) => `Customs Office ${a.status === "approved" ? "approved" : "rejected"} · ${a.jobNumber}`;
+const officeAnswerText = (a: CustomsOfficeRequestItem) => `${a.toOffice}${a.comment ? ` — ${a.comment}` : ""}`;
 
 // A warehouse answer as the bell says it.
 const answerTitle = (a: WarehouseInquiryItem) => `Warehouse ${a.inquiry.status === "approved" ? "approved" : "rejected"} ${a.quoteNumber}`;
@@ -132,6 +152,15 @@ export function NotificationBell() {
   const { announcements, viewer, hasLoaded: noticesLoaded } = useNoticeboard();
   // The warehouse answered a quote inquiry this user sent; it leaves the bell once opened.
   const { answers: warehouseAnswers, hasLoaded: answersLoaded, seen: answerSeen } = useWarehouseInquiryAnswers();
+  // A manager answered this user's request to change a Customs Office; it leaves the bell once opened.
+  const { answers: officeAnswers, hasLoaded: officeAnswersLoaded, seen: officeAnswerSeen } = useCustomsOfficeAnswers();
+  // A manager answered this user's request to replace an approved document.
+  const { answers: documentAnswers, hasLoaded: documentAnswersLoaded, seen: documentAnswerSeen } = useDocumentChangeAnswers();
+  // Customs approved or declined a document of a shipment this user is the Person in Charge or Holiday Cover of.
+  const { verdicts, hasLoaded: verdictsLoaded, seen: verdictSeen } = useCustomsVerdictNotices();
+  // A date of a shipment this user is on moved, waits to be confirmed, or no longer holds what the customer was told.
+  const { notices: trackingNotices, hasLoaded: trackingLoaded } = useTrackingBell();
+  const { mutate: markTrackingRead } = useTrackingMarkRead();
   // Margin questions this user is told about (the owner's manager, or an admin once it waits
   // long), and managers' answers to their questions or quotes (Council Outlay 6).
   const { waiting: marginWaiting, answers: marginAnswers, hasLoaded: marginLoaded, seen: marginSeen } = useMarginInquiryBell();
@@ -149,6 +178,14 @@ export function NotificationBell() {
   const notices = announcements.filter((a) => a.unread);
   const unreadMentions = allMentions.filter((m) => m.unread);
   const unreadAnswers = warehouseAnswers.filter((a) => !a.inquiry.answerSeenAt);
+  const unreadDocumentAnswers = documentAnswers.filter((a) => !a.answerSeenAt);
+  const documentAnswersShown = (view === "unread" ? unreadDocumentAnswers : documentAnswers).filter((a) => matchesAll(query, documentAnswerTitle(a), documentAnswerText(a), a.decidedByName));
+  const unreadVerdicts = verdicts.filter((v) => v.unread);
+  const verdictsShown = (view === "unread" ? unreadVerdicts : verdicts).filter((v) => matchesAll(query, verdictTitle(v), verdictText(v), v.reviewedByName));
+  const unreadTracking = trackingNotices.filter((n) => n.unread);
+  const trackingShown = (view === "unread" ? unreadTracking : trackingNotices).filter((n) => matchesAll(query, trackingTitle(n), n.text, n.by));
+  const unreadOfficeAnswers = officeAnswers.filter((a) => !a.answerSeenAt);
+  const officeAnswersShown = (view === "unread" ? unreadOfficeAnswers : officeAnswers).filter((a) => matchesAll(query, officeAnswerTitle(a), officeAnswerText(a), a.decidedByName));
   const unreadMarginAnswers = marginAnswers.filter((a) => !a.answerSeenAt);
   // "Last 7 days": everything unread, and what was read in the last 7 days (a mention: written in them).
   const viewNotices = view === "unread" ? notices : announcements.filter((a) => a.unread || keptSince(a.readAt, now));
@@ -198,6 +235,48 @@ export function NotificationBell() {
     seenAnswers.current = new Set(warehouseAnswers.map((a) => a.inquiry.id));
     for (const a of fresh) toast.notify({ title: answerTitle(a), description: answerText(a), type: a.inquiry.status === "approved" ? "info" : "warning" });
   }, [warehouseAnswers, answersLoaded, toast]);
+
+  // The same for answers about an approved document.
+  const seenDocumentAnswers = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!documentAnswersLoaded) return;
+    const before = seenDocumentAnswers.current;
+    const fresh = before ? documentAnswers.filter((a) => !a.answerSeenAt && !before.has(a.id)) : [];
+    seenDocumentAnswers.current = new Set(documentAnswers.map((a) => a.id));
+    for (const a of fresh) toast.notify({ title: documentAnswerTitle(a), description: documentAnswerText(a), type: a.status === "approved" ? "info" : "warning" });
+  }, [documentAnswers, documentAnswersLoaded, toast]);
+
+  // The same for customs' verdicts: a document can be reviewed again, so its time counts too.
+  const seenVerdicts = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!verdictsLoaded) return;
+    const keyOf = (v: CustomsVerdictNotice) => `${v.id}:${v.reviewedAt}`;
+    const before = seenVerdicts.current;
+    const fresh = before ? verdicts.filter((v) => v.unread && !before.has(keyOf(v))) : [];
+    seenVerdicts.current = new Set(verdicts.map(keyOf));
+    for (const v of fresh) toast.notify({ title: verdictTitle(v), description: verdictText(v), type: v.status === "approved" ? "info" : "warning" });
+  }, [verdicts, verdictsLoaded, toast]);
+
+  // The same for a shipment's dates.
+  const seenTracking = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!trackingLoaded) return;
+    const keyOf = (n: TrackingBellNotice) => `${n.key}:${n.at}`;
+    const before = seenTracking.current;
+    const fresh = before ? trackingNotices.filter((n) => n.unread && !before.has(keyOf(n))) : [];
+    seenTracking.current = new Set(trackingNotices.map(keyOf));
+    for (const n of fresh) toast.notify({ title: trackingTitle(n), description: n.text, type: n.kind === "date_moved" ? "info" : "warning" });
+  }, [trackingNotices, trackingLoaded, toast]);
+
+  // The same for answers about a Customs Office.
+  const seenOfficeAnswers = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!officeAnswersLoaded) return;
+    const before = seenOfficeAnswers.current;
+    const fresh = before ? officeAnswers.filter((a) => !a.answerSeenAt && !before.has(a.id)) : [];
+    seenOfficeAnswers.current = new Set(officeAnswers.map((a) => a.id));
+    for (const a of fresh) toast.notify({ title: officeAnswerTitle(a), description: officeAnswerText(a), type: a.status === "approved" ? "info" : "warning" });
+  }, [officeAnswers, officeAnswersLoaded, toast]);
 
   // The same for margin questions arriving and answers coming back.
   const seenMargin = useRef<Set<string> | null>(null);
@@ -278,7 +357,7 @@ export function NotificationBell() {
 
   // The badge counts what is unread, whatever the view or the search.
   const total =
-    unreadMentions.length + notices.length + fxAlerts.length + unreadAnswers.length + marginWaiting.length + unreadMarginAnswers.length + supplierWaiting.length + unreadSupplierAnswers.length;
+    unreadTracking.length + unreadDocumentAnswers.length + unreadVerdicts.length + unreadOfficeAnswers.length + unreadMentions.length + notices.length + fxAlerts.length + unreadAnswers.length + marginWaiting.length + unreadMarginAnswers.length + supplierWaiting.length + unreadSupplierAnswers.length;
   const openSupplierAnswer = (a: SupplierApprovalItem) => {
     if (!a.answerSeen) supplierSeen.mutate([a.customerId]);
     go(a.quoteNumber ? `/sales/quote/${encodeURIComponent(a.quoteNumber)}` : "/customers");
@@ -286,6 +365,21 @@ export function NotificationBell() {
   const openAnswer = (a: WarehouseInquiryItem) => {
     if (!a.inquiry.answerSeenAt) answerSeen.mutate({ quoteNumber: a.quoteNumber, inquiryId: a.inquiry.id });
     go(quoteChatHref(a.quoteNumber));
+  };
+  const openDocumentAnswer = (a: DocumentChangeRequestItem) => {
+    if (!a.answerSeenAt) documentAnswerSeen.mutate(a.id);
+    go(`/customs?open=${a.shipmentId}`);
+  };
+  const openVerdict = (v: CustomsVerdictNotice) => {
+    if (v.unread) verdictSeen.mutate(v.shipmentId);
+    // A decline is an alert; an approval isn't, so it leads to the document. Seen is per shipment, so
+    // an approval opened beside a new decline still leads to the decline it marks as seen.
+    const declineWaits = v.status === "declined" || verdicts.some((x) => x.shipmentId === v.shipmentId && x.unread && x.status === "declined");
+    go(`/shipments/${v.shipmentId}?tab=${declineWaits ? "alerts" : "documents"}`);
+  };
+  const openOfficeAnswer = (a: CustomsOfficeRequestItem) => {
+    if (!a.answerSeenAt) officeAnswerSeen.mutate(a.id);
+    go(`/shipments/${a.shipmentId}?tab=customs`);
   };
   const openMarginAnswer = (a: MarginInquiryItem) => {
     if (!a.answerSeenAt) marginSeen.mutate([a.id]);
@@ -403,7 +497,74 @@ export function NotificationBell() {
           </span>
         </button>
       ))}
-      {listed.length + mentions.length + fxShown.length + answersShown.length + marginWaitingShown.length + marginAnswersShown.length + supplierWaitingShown.length + supplierAnswersShown.length === 0 && (
+      {documentAnswersShown.length > 0 && <div className={headingClass}>Document change answers</div>}
+      {documentAnswersShown.map((a) => (
+        <button key={a.id} type="button" onClick={() => openDocumentAnswer(a)} className={rowClass}>
+          <span className="flex items-center gap-2">
+            {!a.answerSeenAt && (
+              <span role="img" aria-label="Unread" className={`shrink-0 w-2 h-2 rounded-full ${a.status === "approved" ? "bg-emerald-500" : "bg-red-500"}`} />
+            )}
+            <span className={`min-w-0 flex-1 text-[13px] truncate ${a.answerSeenAt ? "font-medium text-slate-500" : "font-semibold text-slate-900"}`}>{documentAnswerTitle(a)}</span>
+          </span>
+          <span className="text-[12px] text-slate-700 line-clamp-2">{documentAnswerText(a)}</span>
+          <span className="block text-[11px] text-slate-400 mt-0.5">
+            {a.decidedByName || "Manager"} · {a.decidedAt ? formatTime(a.decidedAt) : ""}
+          </span>
+        </button>
+      ))}
+      {trackingShown.length > 0 && <div className={headingClass}>Tracking</div>}
+      {trackingShown.map((n) => (
+        <button
+          key={n.key}
+          type="button"
+          onClick={() => {
+            // Read here, not only once the tab opens: the shipment may open on another tab.
+            if (n.unread) markTrackingRead(n.shipmentId);
+            go(`/shipments/${n.shipmentId}?tab=tracking`);
+          }}
+          className={rowClass}
+        >
+          <span className="flex items-center gap-2">
+            {n.unread && <span role="img" aria-label="Unread" className={`shrink-0 w-2 h-2 rounded-full ${TRACKING_DOT[n.kind]}`} />}
+            <span className={`min-w-0 flex-1 text-[13px] truncate ${n.unread ? "font-semibold text-slate-900" : "font-medium text-slate-500"}`}>{trackingTitle(n)}</span>
+          </span>
+          <span className="text-[12px] text-slate-700 line-clamp-2">{n.text}</span>
+          <span className="block text-[11px] text-slate-400 mt-0.5">
+            {[n.by, formatTime(n.at)].filter(Boolean).join(" · ")}
+          </span>
+        </button>
+      ))}
+      {verdictsShown.length > 0 && <div className={headingClass}>Customs</div>}
+      {verdictsShown.map((v) => (
+        <button key={`${v.id}:${v.reviewedAt}`} type="button" onClick={() => openVerdict(v)} className={rowClass}>
+          <span className="flex items-center gap-2">
+            {v.unread && (
+              <span role="img" aria-label="Unread" className={`shrink-0 w-2 h-2 rounded-full ${v.status === "approved" ? "bg-emerald-500" : "bg-red-500"}`} />
+            )}
+            <span className={`min-w-0 flex-1 text-[13px] truncate ${v.unread ? "font-semibold text-slate-900" : "font-medium text-slate-500"}`}>{verdictTitle(v)}</span>
+          </span>
+          <span className="text-[12px] text-slate-700 line-clamp-2">{verdictText(v)}</span>
+          <span className="block text-[11px] text-slate-400 mt-0.5">
+            {v.reviewedByName || "Customs"} · {formatTime(v.reviewedAt)}
+          </span>
+        </button>
+      ))}
+      {officeAnswersShown.length > 0 && <div className={headingClass}>Customs Office answers</div>}
+      {officeAnswersShown.map((a) => (
+        <button key={a.id} type="button" onClick={() => openOfficeAnswer(a)} className={rowClass}>
+          <span className="flex items-center gap-2">
+            {!a.answerSeenAt && (
+              <span role="img" aria-label="Unread" className={`shrink-0 w-2 h-2 rounded-full ${a.status === "approved" ? "bg-emerald-500" : "bg-red-500"}`} />
+            )}
+            <span className={`min-w-0 flex-1 text-[13px] truncate ${a.answerSeenAt ? "font-medium text-slate-500" : "font-semibold text-slate-900"}`}>{officeAnswerTitle(a)}</span>
+          </span>
+          <span className="text-[12px] text-slate-700 line-clamp-2">{officeAnswerText(a)}</span>
+          <span className="block text-[11px] text-slate-400 mt-0.5">
+            {a.decidedByName || "Manager"} · {a.decidedAt ? formatTime(a.decidedAt) : ""}
+          </span>
+        </button>
+      ))}
+      {trackingShown.length + documentAnswersShown.length + verdictsShown.length + officeAnswersShown.length + listed.length + mentions.length + fxShown.length + answersShown.length + marginWaitingShown.length + marginAnswersShown.length + supplierWaitingShown.length + supplierAnswersShown.length === 0 && (
         <p className={`px-4 py-6 text-center ${HINT}`}>
           {query.trim() ? `Nothing matches “${query.trim()}”.` : view === "unread" ? "Nothing new." : `Nothing in the last ${READ_KEEP_DAYS} days.`}
         </p>

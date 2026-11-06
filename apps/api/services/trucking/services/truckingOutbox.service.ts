@@ -1,9 +1,10 @@
+import { truckingDocumentBucket } from "../storage/documentBucket";
 import log from "encore.dev/log";
 import { invoicing, shipments } from "~encore/clients";
 import { truckingOutboxRepository } from "../repositories/truckingOutbox.repository";
 import { appendEvent } from "../repositories/event.repository";
 import type { TruckingOutboxKind, TruckingOutboxRecord } from "../schemas/truckingOutbox.schema";
-import { parseOutboxRow } from "../lib/outboxPayload";
+import { parseOutboxRow, podFactId, stampFactId } from "../lib/outboxPayload";
 import { cancelExpected, expectArrival, expectDeparture } from "../lib/warehouseLink";
 import { outboxErrorCode } from "../../../lib/outbox/outboxRetry";
 import { deliverOutboxRow, runOutboxDelivery, type OutboxHandlers } from "../../../lib/outbox/outboxDelivery";
@@ -33,6 +34,9 @@ export const OUTBOX_WHAT: Record<TruckingOutboxKind, string> = {
   expect_departure: "expected departure from our warehouse",
   cancel_expected: "trip withdrawn from our warehouse",
   real_costs: "real haulier cost in Costs Breakdown",
+  pod: "POD on the shipment's Documents and timeline",
+  delivery_advice: "delivery advice on the shipment's timeline",
+  stamp: "stamp on the shipment's timeline",
 };
 
 // What users see of a failed delivery (stored as last_error and in the history): our own
@@ -79,6 +83,41 @@ export async function sendRow(row: TruckingOutboxRecord): Promise<void> {
       return;
     case "real_costs":
       await invoicing._internalInvoicingTruckingReal({ shipmentId: row.shipmentId, ...message.payload }, { authData });
+      return;
+    case "pod": {
+      const p = message.payload;
+      const externalId = podFactId(row.consignmentId, p.stampedAt);
+      if ("voided" in p) {
+        // Only the fact leaves the timeline: the file stays in the shipment's Documents, where only
+        // a manager deletes a document.
+        await shipments._internalTrackingFactVoid({ shipmentId: row.shipmentId, externalId }, { authData });
+        return;
+      }
+      const bytes = await truckingDocumentBucket.download(p.storageKey);
+      await shipments._internalModuleDocument(
+        { shipmentId: row.shipmentId, fileName: p.fileName, fileType: p.contentType, contentBase64: bytes.toString("base64"), documentType: "CMR / POD", sourceRef: `trucking:${p.sha256}` },
+        { authData },
+      );
+      await shipments._internalTrackingFact({ shipmentId: row.shipmentId, kind: "pod_received", occurredAt: p.stampedAt, note: p.fileName, externalId }, { authData });
+      return;
+    }
+    case "stamp": {
+      const externalId = stampFactId(row.consignmentId, message.payload);
+      if (message.payload.voided) {
+        await shipments._internalTrackingFactVoid({ shipmentId: row.shipmentId, externalId }, { authData });
+        return;
+      }
+      await shipments._internalTrackingFact(
+        { shipmentId: row.shipmentId, kind: message.payload.stamp === "confirmed" ? "haulier_confirmed" : "picked_up", occurredAt: message.payload.at, note: "", externalId },
+        { authData },
+      );
+      return;
+    }
+    case "delivery_advice":
+      await shipments._internalTrackingFact(
+        { shipmentId: row.shipmentId, kind: "delivery_advised", occurredAt: message.payload.at, note: message.payload.text, externalId: `avizace:${row.consignmentId}:${message.payload.at}` },
+        { authData },
+      );
       return;
     case "costs": {
       const result = await invoicing._internalInvoicingTruckingLines({ shipmentId: row.shipmentId, ...message.payload }, { authData });

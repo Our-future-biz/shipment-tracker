@@ -29,6 +29,7 @@ export const attachmentReview = api(
       req.status,
       req.note ?? "",
       auth.userID,
+      auth.role,
     );
     return { attachment };
   },

@@ -5,14 +5,15 @@ import { Spin } from "antd";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { TopNav } from "@/components/TopNav";
 import { AppSidebar } from "@/components/AppSidebar";
-import { useEffect, useState } from "react";
+import { CustomerCameFromTracker } from "@/app/customers/_lib/customerCameFrom";
+import { Suspense, useEffect, useState } from "react";
 
 const PUBLIC_PATHS = ["/login"];
 // Pages anyone with the link opens, signed in or not, without the app around them and without a
 // redirect: the haulier's transport-order page (/haulier/order/<token>) and the haulier portal
-// (/haulier/portal/...). They call only the API's public endpoints, without the app session (the
+// (/haulier/portal/...), and the customer's link to a shipment (/track/<token>). They call only the API's public endpoints, without the app session (the
 // portal sends its own portal session instead).
-const OPEN_PATHS = ["/haulier/"];
+const OPEN_PATHS = ["/haulier/", "/track/"];
 // Signed-in pages shown full screen, without the sidebar and top bar (the warehouse phone floor mode).
 const FULL_SCREEN_PATHS = ["/warehouse-concept/floor"];
 
@@ -96,6 +97,9 @@ export const AppShell = ({ children }: AppShellProps) => {
   // Authenticated → show app
   return (
     <div className="flex min-h-screen">
+      <Suspense fallback={null}>
+        <CustomerCameFromTracker />
+      </Suspense>
       <AppSidebar />
       <div className="flex flex-col flex-1 min-w-0">
         <TopNav />

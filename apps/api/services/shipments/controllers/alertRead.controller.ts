@@ -1,5 +1,6 @@
 import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
+import type { CustomsVerdictNotice } from "../interfaces/interfaces";
 import { alertService } from "../services/alert.service";
 
 interface AlertReadResponse {
@@ -23,5 +24,14 @@ export const alertMarkRead = api(
     const { companyID, userID } = getAuthData()!;
     await alertService.markRead(shipmentId, companyID, userID);
     return { ok: true };
+  },
+);
+
+// The bell: customs' verdicts on the shipments this user is the Person in Charge or Holiday Cover of.
+export const customsVerdictNotices = api(
+  { expose: true, auth: true, method: "GET", path: "/shipment-alerts/customs-verdicts" },
+  async (): Promise<{ verdicts: CustomsVerdictNotice[] }> => {
+    const { companyID, userID } = getAuthData()!;
+    return { verdicts: await alertService.customsVerdicts(companyID, userID) };
   },
 );

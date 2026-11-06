@@ -10,6 +10,7 @@ vi.mock("~encore/clients", () => ({
   customers: { customerUpdate: vi.fn(), customerGet: vi.fn(), addressList: vi.fn(), contactList: vi.fn() },
   invoicing: { invoicingImportQuote: vi.fn(), openInvoiceCount: vi.fn(), _internalShipmentBillingStart: vi.fn(), _internalInvoicedShipments: vi.fn() },
   quotes: { salesQuoteGet: vi.fn() },
+  warehouse: { _internalPickupPlates: vi.fn() },
 }));
 // A shipment's write turn: its work runs at once, handed this stand-in for the transaction.
 const TX = vi.hoisted(() => ({ fake: "tx" }));
@@ -38,6 +39,10 @@ vi.mock("../../repositories/shipment.repository", () => ({
 }));
 vi.mock("../../repositories/shipmentAttachment.repository", () => ({ shipmentAttachmentRepository: { documentTypesByShipmentIds: vi.fn() } }));
 vi.mock("../../repositories/shipmentAudit.repository", () => ({ shipmentAuditRepository: { create: vi.fn() } }));
+vi.mock("../../repositories/shipmentTask.repository", () => ({ shipmentTaskRepository: { upsert: vi.fn() } }));
+vi.mock("../../repositories/shipmentTrackingEvent.repository", () => ({
+  shipmentTrackingEventRepository: { findSameDay: vi.fn(async () => null), add: vi.fn(), resolveOpen: vi.fn(), supersede: vi.fn(), settle: vi.fn(), latestPerShipment: vi.fn(async () => new Map()) },
+}));
 vi.mock("../../repositories/masterJob.repository", () => ({ masterJobRepository: {} }));
 vi.mock("../../repositories/shipmentRefCounter.repository", () => ({ shipmentRefCounterRepository: { peek: vi.fn() } }));
 vi.mock("../../repositories/container.repository", () => ({
@@ -50,7 +55,7 @@ vi.mock("../../topics", () => ({ shipmentDeleted: { publish: vi.fn() }, shipment
 vi.mock("../../services/quoteLinks.service", () => ({ quoteLinksService: { syncReference: vi.fn(), markDirty: vi.fn() } }));
 
 import log from "encore.dev/log";
-import { auth, customers, invoicing, quotes } from "~encore/clients";
+import { auth, customers, invoicing, quotes, warehouse } from "~encore/clients";
 import { APIError } from "../../../../lib/tests/encoreApi.stub";
 import type { QuoteSyncResult } from "../../interfaces/interfaces";
 import { cargoDimensionRepository } from "../../repositories/cargoDimension.repository";
@@ -61,6 +66,8 @@ import { shipmentRepository } from "../../repositories/shipment.repository";
 import { shipmentAttachmentRepository } from "../../repositories/shipmentAttachment.repository";
 import type { ShipmentRecord } from "../../schemas/shipment.schema";
 import { shipmentAuditRepository } from "../../repositories/shipmentAudit.repository";
+import { shipmentTaskRepository } from "../../repositories/shipmentTask.repository";
+import { shipmentTrackingEventRepository } from "../../repositories/shipmentTrackingEvent.repository";
 import { quoteLinksService } from "../../services/quoteLinks.service";
 import { shipmentService } from "../../services/shipment.service";
 import { shipmentPartiesChanged } from "../../topics";
@@ -159,6 +166,7 @@ beforeEach(() => {
   vi.mocked(containerRepository.listByShipmentId).mockResolvedValue([]);
   vi.mocked(cargoItemRepository.listByShipmentId).mockResolvedValue([]);
   vi.mocked(cargoDimensionRepository.listByShipmentId).mockResolvedValue([]);
+  vi.mocked(warehouse._internalPickupPlates).mockResolvedValue({ plates: [] });
   salesQuoteGet.mockResolvedValue(quote());
   vi.mocked(auth.usersList).mockResolvedValue({ users: MEMBERS } as never);
   vi.mocked(auth.userLookup).mockImplementation(
@@ -605,6 +613,96 @@ describe("update", () => {
     expect(links.markDirty).toHaveBeenCalledWith(COMPANY);
     // The old quote is still tried after the new one failed.
     expect(links.syncReference).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("what a change is worth on the Tracking tab", () => {
+  const update = (data: Record<string, unknown>, role?: string, origin?: "master_job") => shipmentService.update(SHIPMENT, COMPANY, data as never, USER, role, origin);
+  const events = vi.mocked(shipmentTrackingEventRepository);
+  const invoicedRow = () => stored.set(SHIPMENT, row({ tradeDirection: "Import", invoicingStatus: "Not Invoiced" }));
+
+  beforeEach(() => {
+    invoicedRow();
+    vi.mocked(invoicing.openInvoiceCount).mockResolvedValue({ count: 0 });
+    events.findSameDay.mockResolvedValue(null);
+  });
+
+  it("stores the fact in the write turn, with who and from where", async () => {
+    await update({ actualArrival: "2026-11-05" }, "admin");
+    expect(events.add).toHaveBeenCalledWith(
+      expect.objectContaining({ companyId: COMPANY, shipmentId: SHIPMENT, kind: "arrived", occurredOn: "2026-11-05", source: "user", recordedById: USER, effect: "applied", effectField: "actualArrival" }),
+      TX,
+    );
+  });
+
+  it("says a master job's sync came from the master job", async () => {
+    await update({ actualArrival: "2026-11-05" }, undefined, "master_job");
+    expect(events.add).toHaveBeenCalledWith(expect.objectContaining({ source: "master_job" }), TX);
+  });
+
+  it("doesn't store the same fact twice", async () => {
+    events.findSameDay.mockResolvedValue({ id: "e1" } as never);
+    await update({ actualArrival: "2026-11-05" }, "admin");
+    expect(events.add).not.toHaveBeenCalled();
+  });
+
+  it("closes the exceptions the fact ends", async () => {
+    await update({ actualArrival: "2026-11-05" }, "admin");
+    expect(events.resolveOpen).toHaveBeenCalledWith(SHIPMENT, COMPANY, ["delayed", "rolled"], USER, TX);
+  });
+
+  it("closes them also when the fact stood already, as a source's proposal now confirmed", async () => {
+    events.findSameDay.mockResolvedValue({ id: "e1" } as never);
+    await update({ actualArrival: "2026-11-05" }, "admin");
+    expect(events.resolveOpen).toHaveBeenCalledWith(SHIPMENT, COMPANY, ["delayed", "rolled"], USER, TX);
+  });
+
+  it("confirms what a source proposed of the day set, whoever set it, before looking for the fact", async () => {
+    await update({ actualArrival: "2026-11-05" }, undefined, "master_job");
+    expect(events.supersede).toHaveBeenCalledWith(SHIPMENT, COMPANY, "actualArrival", "2026-11-05", USER, TX);
+    expect(events.settle).toHaveBeenCalledWith(SHIPMENT, COMPANY, "actualArrival", "2026-11-05", USER, TX);
+    expect(events.settle.mock.invocationCallOrder[0]).toBeLessThan(events.findSameDay.mock.invocationCallOrder[0]!);
+  });
+
+  it("sets aside the facts of a date corrected or cleared, and stores none for a cleared one", async () => {
+    stored.set(SHIPMENT, row({ tradeDirection: "Import", invoicingStatus: "Not Invoiced", actualArrival: "2026-11-07" }));
+    await update({ actualArrival: null }, "admin");
+    expect(events.supersede).toHaveBeenCalledWith(SHIPMENT, COMPANY, "actualArrival", null, USER, TX);
+    expect(events.settle).not.toHaveBeenCalled();
+    expect(events.add).not.toHaveBeenCalled();
+  });
+
+  it("stores nothing for a field that is no fact", async () => {
+    await update({ freeComments: "hello" }, "admin");
+    expect(events.add).not.toHaveBeenCalled();
+    expect(vi.mocked(shipmentTaskRepository.upsert)).not.toHaveBeenCalled();
+  });
+
+  it("ticks Billed when the app marks the job invoiced", async () => {
+    await update({ invoicingStatus: "Invoiced" });
+    expect(vi.mocked(shipmentTaskRepository.upsert)).toHaveBeenCalledWith(SHIPMENT, COMPANY, "imp_billed", true, USER, TX);
+  });
+
+  it("ticks Delivered when the delivery date comes, and stores Trucking as its source", async () => {
+    await update({ actualDeliveryDate: "2026-11-05" });
+    expect(vi.mocked(shipmentTaskRepository.upsert)).toHaveBeenCalledWith(SHIPMENT, COMPANY, "imp_delivered", true, USER, TX);
+    expect(events.add).toHaveBeenCalledWith(expect.objectContaining({ kind: "delivered", source: "trucking" }), TX);
+  });
+});
+
+describe("the customs status of several shipments", () => {
+  it("reads their paperwork in one query and gives each its own", async () => {
+    const docs = vi.mocked(shipmentAttachmentRepository.documentTypesByShipmentIds);
+    docs.mockResolvedValue([
+      { shipmentId: "a", documentType: "Invoice", customsStatus: "approved" },
+      { shipmentId: "a", documentType: "Packing list", customsStatus: "approved" },
+      { shipmentId: "b", documentType: "Packing list", customsStatus: "" },
+    ] as never);
+    const statuses = await shipmentService.customsStatusesOf([{ id: "a", customsStatus: "Customs Cleared/Released" }, { id: "b", customsStatus: "Customs Cleared/Released" }], COMPANY);
+    expect(docs).toHaveBeenCalledTimes(1);
+    expect(docs).toHaveBeenCalledWith(["a", "b"], COMPANY);
+    expect(statuses.get("a")).toBe("Customs Cleared/Released");
+    expect(statuses.get("b")).not.toBe("Customs Cleared/Released");
   });
 });
 
@@ -1405,6 +1503,50 @@ describe("cargo lines and containers", () => {
     await expect(update({ cargoDimensions: [{ ...dim(A), heightCm: "", volumePerPcM3: "0.5 m3" }] })).rejects.toMatchObject({ code: "invalid_argument" });
     expect(cargoDimensionRepository.replaceForShipment).not.toHaveBeenCalled();
   });
+
+  describe("ADR details and Dangerous", () => {
+    const adrLine = { ...dim(A), adrUn: "UN 1203" };
+    const dangerousSaved = () =>
+      repository.updateForCompany.mock.calls.map(([, , data]) => (data as { dangerous?: string }).dangerous).filter((value) => value !== undefined);
+
+    beforeEach(() => containers(A));
+
+    it("a line saved with ADR details switches Dangerous to Yes, in the shipment's history", async () => {
+      stored.set(SHIPMENT, row({ dangerous: "" }));
+      await update({ cargoDimensions: [dim(A), adrLine] });
+      expect(dangerousSaved()).toEqual(["Yes"]);
+      expect(shipmentAuditRepository.create).toHaveBeenCalledWith(expect.objectContaining({ field: "dangerous", oldValue: "", newValue: "Yes" }), TX);
+    });
+
+    it("wins over a No, also one sent in the same write", async () => {
+      stored.set(SHIPMENT, row({ dangerous: "No" }));
+      await update({ dangerous: "No", cargoDimensions: [adrLine] });
+      expect(dangerousSaved()).toEqual(["Yes"]);
+    });
+
+    it("leaves Dangerous alone when the lines have no ADR details, the ADR details just removed included", async () => {
+      stored.set(SHIPMENT, row({ dangerous: "Yes" }));
+      await update({ cargoDimensions: [dim(A)] });
+      expect(dangerousSaved()).toEqual([]);
+    });
+
+    it("leaves a Dangerous picked by hand alone when the write does not touch the lines", async () => {
+      stored.set(SHIPMENT, row({ dangerous: "" }));
+      await update({ dangerous: "No" });
+      expect(dangerousSaved()).toEqual(["No"]);
+    });
+
+    it("a refused UN number changes nothing", async () => {
+      stored.set(SHIPMENT, row({ dangerous: "" }));
+      await expect(update({ cargoDimensions: [{ ...dim(A), adrUn: "12" }] })).rejects.toMatchObject({ code: "invalid_argument" });
+      expect(repository.updateForCompany).not.toHaveBeenCalled();
+    });
+
+    it("a new shipment with ADR details starts as Dangerous", async () => {
+      await shipmentService.create(COMPANY, { cargoDimensions: [dim(null), { ...dim(null), adrClass: "3" }] } as never);
+      expect(repository.createWithJobNumber.mock.calls[0]![1]).toMatchObject({ dangerous: "Yes" });
+    });
+  });
 });
 
 describe("removing the only container", () => {
@@ -1510,5 +1652,85 @@ describe("the detail rows of one write", () => {
     vi.mocked(containerRepository.listByShipmentId).mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValue([one, { ...one, id: B }] as never);
     await update({ containers: [{ ...one, id: CLIENT }, { ...one, id: B }], cargoDimensions: [dim(CLIENT), dim(B)] });
     expect(vi.mocked(cargoDimensionRepository.replaceForShipment).mock.calls[0]![2]).toMatchObject([dim(A), dim(B)]);
+  });
+});
+
+describe("the Pick-up tab's License Plate", () => {
+  it("comes with the shipment, read from the warehouse service", async () => {
+    stored.set(SHIPMENT, row());
+    vi.mocked(warehouse._internalPickupPlates).mockResolvedValue({ plates: [{ shipmentId: SHIPMENT, licensePlate: "1AB 2345, 3CD 4567" }] });
+    const shipment = await shipmentService.getById(SHIPMENT, COMPANY);
+    expect(shipment?.licensePlate).toBe("1AB 2345, 3CD 4567");
+    expect(warehouse._internalPickupPlates).toHaveBeenCalledWith({ companyId: COMPANY, shipmentIds: [SHIPMENT] });
+  });
+
+  it("is empty for a shipment without one", async () => {
+    stored.set(SHIPMENT, row());
+    expect((await shipmentService.getById(SHIPMENT, COMPANY))?.licensePlate).toBe("");
+  });
+
+  it("leaves the column empty, not the shipment unreadable, when the warehouse service fails", async () => {
+    stored.set(SHIPMENT, row());
+    vi.mocked(warehouse._internalPickupPlates).mockRejectedValue(new Error("warehouse down"));
+    const shipment = await shipmentService.getById(SHIPMENT, COMPANY);
+    expect(shipment?.jobNumber).toBe("CZ00000101");
+    expect(shipment?.licensePlate).toBe("");
+  });
+});
+
+describe("who may change a shipment's details", () => {
+  const asRole = (data: Record<string, unknown>, role?: string) => shipmentService.update(SHIPMENT, COMPANY, data as never, USER, role);
+  const named = (personInCharge: string, holidayCover = "") => stored.set(SHIPMENT, row({ personInCharge, holidayCover }));
+  const REFUSAL = "Only this shipment's Person in Charge, Holiday Cover or a manager can change its details";
+
+  it("refuses a user who is neither its Person in Charge nor its Holiday Cover, and writes nothing", async () => {
+    named(MARTIN.email, JANA.email);
+    await expect(asRole({ vessel: "SEASPAN" }, "user")).rejects.toThrow(REFUSAL);
+    await expect(asRole({ containers: [] }, "user")).rejects.toThrow(REFUSAL);
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
+  });
+
+  it("lets its Person in Charge and its Holiday Cover change them", async () => {
+    named(JAN.email);
+    await expect(asRole({ vessel: "SEASPAN" }, "user")).resolves.toBeTruthy();
+    named(MARTIN.email, JAN.email);
+    await expect(asRole({ voyage: "078W" }, "user")).resolves.toBeTruthy();
+  });
+
+  it("always lets a manager, an admin and a superadmin", async () => {
+    named(MARTIN.email);
+    for (const role of ["manager", "admin", "superadmin"]) await expect(asRole({ vessel: role }, role)).resolves.toBeTruthy();
+  });
+
+  it("leaves a shipment with nobody named open to any user", async () => {
+    named("");
+    await expect(asRole({ vessel: "SEASPAN" }, "user")).resolves.toBeTruthy();
+  });
+
+  it("leaves the departments' own fields open to any user", async () => {
+    named(MARTIN.email);
+    await expect(asRole({ mrn: "26CZ1" }, "user")).resolves.toBeTruthy();
+    await expect(asRole({ warehouseReceivedDate: "2026-11-06" }, "user")).resolves.toBeTruthy();
+    await expect(asRole({ invoicingStatus: "Billing" }, "user")).resolves.toBeTruthy();
+  });
+
+  it("refuses an edit that mixes a department's field with a detail", async () => {
+    named(MARTIN.email);
+    await expect(asRole({ mrn: "26CZ1", vessel: "SEASPAN" }, "user")).rejects.toThrow(REFUSAL);
+  });
+
+  it("does not hold the app's own writes to it", async () => {
+    named(MARTIN.email);
+    await expect(asRole({ vessel: "SEASPAN" })).resolves.toBeTruthy();
+  });
+
+  it("refuses a user the actions that aren't a field edit, on someone else's shipment", async () => {
+    named(MARTIN.email);
+    const actor = { companyID: COMPANY, userID: USER, role: "user" };
+    await expect(shipmentService.requireDetailsEditor(SHIPMENT, actor)).rejects.toThrow(REFUSAL);
+    named(JAN.email);
+    await expect(shipmentService.requireDetailsEditor(SHIPMENT, actor)).resolves.toBeUndefined();
+    named(MARTIN.email);
+    await expect(shipmentService.requireDetailsEditor(SHIPMENT, { ...actor, role: "manager" })).resolves.toBeUndefined();
   });
 });

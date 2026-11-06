@@ -122,6 +122,7 @@ export function MasterJobCostsTab({ masterJob }: Props) {
   const { lines, houses, shares } = data;
   const shareOf = (lineId: string, shipmentId: string) => shares.find((s) => s.lineId === lineId && s.shipmentId === shipmentId);
   const noWm = houses.filter((h) => !(h.freightTon > 0));
+  const totalWm = houses.reduce((sum, h) => sum + h.freightTon, 0);
   const anyWm = lines.some((l) => l.splitMethod === "wm");
   const busy = add.isPending || update.isPending || remove.isPending;
   // Each line and the whole master job against their estimates, worked out on the server at today's ČNB rates.
@@ -310,8 +311,12 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                 </tbody>
                 <tfoot>
                   <tr>
-                    <td className={TD_TOTAL} colSpan={2}>
-                      Line total
+                    <td className={TD_TOTAL}>Line total</td>
+                    <td className={`${TD_TOTAL} whitespace-nowrap text-right tabular-nums`}>
+                      <span className="mr-3 font-normal text-slate-500">
+                        {houses.length} shipment{houses.length === 1 ? "" : "s"}
+                      </span>
+                      {totalWm.toFixed(3)}
                     </td>
                     {lines.map((l) => {
                       const real = lineTotal(l.realAmount, l.realQty);

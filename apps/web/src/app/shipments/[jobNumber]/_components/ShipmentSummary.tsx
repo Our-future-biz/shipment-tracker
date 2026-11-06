@@ -6,7 +6,7 @@ import { useShipmentTasks } from "@/hooks/useShipmentTasks";
 import { formatDate } from "@/lib/date";
 import { StatusBadge } from "@/components/StatusBadge";
 import { CopyButton } from "@/components/CopyButton";
-import { getActiveStageFromTasks, getTasksForDirection } from "./taskDefinitions";
+import { CUSTOMS_CLEARED, getActiveStage, getTasksForDirection } from "./taskDefinitions";
 import { EMPTY } from "./detailStyles";
 import { CARD, LABEL_TEXT, LINK, PAGE_TITLE, REF } from "@/styles/ui";
 
@@ -22,13 +22,14 @@ const SHIPMENT_STAGES = [
 
 interface FactProps {
   label: string;
+  className?: string;
   children: React.ReactNode;
 }
 
 // One fact of the summary: a small caps label over its value.
-function Fact({ label, children }: FactProps) {
+function Fact({ label, className = "", children }: FactProps) {
   return (
-    <div className="min-w-0">
+    <div className={`min-w-0 ${className}`}>
       <div className={`${LABEL_TEXT} break-words`}>{label}</div>
       <div className="mt-0.5 min-h-[22px] flex items-center text-[13px] font-medium text-slate-900 min-w-0">{children}</div>
     </div>
@@ -55,8 +56,11 @@ export function ShipmentFacts({ shipment }: { shipment: ShipmentItem }) {
   return (
     // Two rows of six on a wide screen; the columns line up across both rows. The second row
     // always reads POL, ETD, POD, ETA. The status gets the widest column, so it stays on one line.
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,0.85fr)_minmax(0,0.9fr)_minmax(0,1.45fr)] 2xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.05fr)_minmax(0,0.8fr)_minmax(0,1.25fr)_minmax(0,1.35fr)] gap-x-6 gap-y-3 lg:gap-y-1.5 lg:[&>*:nth-child(n+7)]:pt-1.5 lg:[&>*:nth-child(n+7)]:border-t lg:[&>*:nth-child(n+7)]:border-indigo-100">
-      <Fact label="Job">
+    // The first column is never narrower than the job number (they run up to CZPROJECT00000023),
+    // and only the job number sizes it: a long POL below stays cut. Below xl six columns would
+    // leave the others too narrow for a date, so the job number has a row of its own there.
+    <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-[minmax(max-content,1.1fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,0.85fr)_minmax(0,0.9fr)_minmax(0,1.45fr)] 2xl:grid-cols-[minmax(max-content,1fr)_minmax(0,1fr)_minmax(0,1.05fr)_minmax(0,0.8fr)_minmax(0,1.25fr)_minmax(0,1.35fr)] gap-x-6 gap-y-3 xl:gap-y-1.5 xl:[&>*:not(:first-child)]:[contain:inline-size] xl:[&>*:nth-child(n+7)]:pt-1.5 xl:[&>*:nth-child(n+7)]:border-t xl:[&>*:nth-child(n+7)]:border-indigo-100">
+      <Fact label="Job" className="col-span-full xl:col-span-1">
         {/* The job number is the page's title. */}
         <div className="flex items-center gap-1 min-w-0">
           <h1 className={`${PAGE_TITLE} ${REF} truncate`} title={job}>
@@ -124,15 +128,22 @@ export function ShipmentFacts({ shipment }: { shipment: ShipmentItem }) {
 }
 
 /**
- * The shipment's progress through the six stages, driven by the completed tasks. Every segment is
- * full length - solid indigo done, light indigo in progress, grey not yet - so none reads as a
- * percentage. The names sit centred above the bars, the current one with a dot; the bars line up even when
- * a name wraps.
+ * The shipment's progress through the six stages, driven by the completed tasks and its dated facts
+ * (either only pushes it forward). Every segment is full length - solid indigo done, light indigo in
+ * progress, grey not yet - so none reads as a percentage. The names sit centred above the bars, the
+ * current one with a dot; the bars line up even when a name wraps.
  */
 export function ShipmentProgress({ shipment }: { shipment: ShipmentItem }) {
   const { byKey } = useShipmentTasks(shipment.id);
-  const taskList = getTasksForDirection(shipment.tradeDirection);
-  const activeIndex = getActiveStageFromTasks(taskList, (key) => !!byKey.get(key)?.completed);
+  const taskList = getTasksForDirection(shipment.tradeDirection, shipment.freightMode);
+  const activeIndex = getActiveStage(taskList, (key) => !!byKey.get(key)?.completed, shipment);
+  // Which fact a stage rests on, when it rests on one.
+  const factOf: Record<string, string> = {
+    "In transit": shipment.actualDeparture ? `ATD ${formatDate(shipment.actualDeparture)}` : "",
+    "Arrive at POD": shipment.actualArrival ? `ATA ${formatDate(shipment.actualArrival)}` : "",
+    "Customs clearance": shipment.customsStatus === CUSTOMS_CLEARED ? CUSTOMS_CLEARED : "",
+    Delivered: shipment.actualDeliveryDate ? `Delivered ${formatDate(shipment.actualDeliveryDate)}` : "",
+  };
 
   return (
     <ol
@@ -145,7 +156,7 @@ export function ShipmentProgress({ shipment }: { shipment: ShipmentItem }) {
         return (
           <li key={label} className="min-w-0 flex flex-col justify-end" aria-current={current ? "step" : undefined}>
             <div
-              title={label}
+              title={factOf[label] ? `${label}: ${factOf[label]}` : label}
               className={`mb-1.5 flex items-start justify-center gap-1 text-center text-[12px] leading-4 ${
                 done ? "text-slate-700" : current ? "text-indigo-700 font-semibold" : "text-slate-500"
               }`}

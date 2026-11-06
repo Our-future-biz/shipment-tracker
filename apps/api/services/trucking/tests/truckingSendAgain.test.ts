@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // "Not sent — Send again" and the warning about failed or long-waiting job updates.
+const bucket = vi.hoisted(() => ({ download: vi.fn(async () => Buffer.from("pdf bytes")) }));
+vi.mock("../storage/documentBucket", () => ({ truckingDocumentBucket: bucket }));
 vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("~encore/clients", () => ({ shipments: {}, invoicing: {}, auth: {} }));

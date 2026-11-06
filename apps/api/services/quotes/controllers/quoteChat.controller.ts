@@ -38,6 +38,13 @@ export const quoteCommentDelete = api(
   },
 );
 
+export const quoteCommentStrike = api(
+  { expose: true, auth: true, method: "POST", path: "/sales-quotes/:quoteNumber/comments/:commentId/strike" },
+  async ({ quoteNumber, commentId }: { quoteNumber: string; commentId: string }): Promise<void> => {
+    await quoteChatService.strike(getAuthData()!, quoteNumber, commentId);
+  },
+);
+
 export const quoteCommentMarkRead = api(
   { expose: true, auth: true, method: "POST", path: "/sales-quotes/:quoteNumber/comments/read" },
   async ({ quoteNumber }: { quoteNumber: string }): Promise<{ ok: boolean }> => {

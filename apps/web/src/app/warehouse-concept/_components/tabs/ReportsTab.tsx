@@ -78,7 +78,8 @@ export function ReportsTab() {
 // One line on the link with Shipments and on storage, both as they are now (not the period):
 // shipment updates the gate still owes (amber / red when not zero) and the cargo by free time.
 // Also on the managers' cockpit (Warehouse Concept → Managers), from its own figures.
-export function HealthLine({ report }: { report: Pick<Report, "shipmentUpdates" | "storage"> }) {
+// `linked`: offers the way to the Gate Log (not to someone who cannot open it).
+export function HealthLine({ report, linked = true }: { report: Pick<Report, "shipmentUpdates" | "storage">; linked?: boolean }) {
   const u = report.shipmentUpdates;
   const st = report.storage;
   const tone = u.failed > 0 ? "border-red-200 bg-red-50 text-red-700" : u.pending > 0 ? "border-amber-200 bg-amber-50 text-amber-700" : "border-slate-200 bg-white text-slate-700";
@@ -87,7 +88,7 @@ export function HealthLine({ report }: { report: Pick<Report, "shipmentUpdates" 
       <span>
         <b>Shipment updates now:</b> {u.pending} pending · {u.failed} failed
         {u.oldestPendingAt ? ` · oldest pending since ${formatDateTime(u.oldestPendingAt)}` : ""}
-        {u.pending + u.failed > 0 && (
+        {linked && u.pending + u.failed > 0 && (
           <Link href="/warehouse-concept?tab=gatelog" className={`${LINK} ml-2 font-semibold`}>
             Open the Gate Log
           </Link>

@@ -9,6 +9,7 @@ export const DOCUMENT_TYPES = [
   "Booking confirmation",
   "Customs document",
   "CMR / POD",
+  "Carrier notice",
   "Insurance",
   "Certificate of origin",
   "Airfreight Charges",

@@ -6,8 +6,9 @@ import { ContactsOutlined, DeleteOutlined, FilePdfOutlined, IdcardOutlined, Save
 import { useUsers } from "@/hooks/useUsers";
 import { EmailAddressListButton } from "./EmailAddressListButton";
 import { useCustomerContacts } from "@/hooks/useCustomerContacts";
-import { invalidAddress, splitAddresses, usedAddresses, withAddress, type AddressField } from "@/app/sales/_lib/emailAddresses";
+import { invalidAddress, usedAddresses, withAddress, type AddressField } from "@/app/sales/_lib/emailAddresses";
 import { useEmailAddresses } from "@/app/sales/_lib/useEmailAddresses";
+import { mailtoLink } from "@/lib/mailto";
 import { useToast } from "@/lib/toast";
 import { PLACEHOLDERS, STANDARD_TEMPLATE, asTemplate, filledTemplate, quoteValues } from "@/app/sales/_lib/emailTemplate";
 import { lastTemplateId, rememberTemplateId, useEmailTemplates, type SavedEmailTemplate } from "@/app/sales/_lib/useEmailTemplates";
@@ -31,20 +32,6 @@ const ADDRESS_RULE = {
     return wrong ? Promise.reject(new Error(`Not an email: ${wrong}`)) : Promise.resolve();
   },
 };
-
-// The message as a mailto: link (RFC 6068). Every value is percent-encoded - a space as %20,
-// because a "+" would arrive as a plus sign - line breaks travel as CRLF, and the "@" of an
-// address stays readable, as mail programs expect it. Several addresses go comma-separated.
-function mailtoLink({ to = "", cc = "", bcc = "", subject = "", message = "" }: Partial<EmailFormValues>): string {
-  const address = (value: string) => splitAddresses(value).map((a) => encodeURIComponent(a).replace(/%40/g, "@")).join(",");
-  const headers = [
-    cc.trim() && `cc=${address(cc)}`,
-    bcc.trim() && `bcc=${address(bcc)}`,
-    `subject=${encodeURIComponent(subject)}`,
-    `body=${encodeURIComponent(message.replace(/\r\n|\r|\n/g, "\r\n"))}`,
-  ].filter(Boolean);
-  return `mailto:${address(to)}?${headers.join("&")}`;
-}
 
 // The app cannot send email. This dialog prepares the message, hands it to the user's own email
 // program and then asks whether the quote went out - only the user knows that.

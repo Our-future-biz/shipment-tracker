@@ -133,14 +133,14 @@ class QuoteCommentRepository extends TenantRepository<typeof quoteCommentTable> 
       .onConflictDoUpdate({ target: [r.companyId, r.userId, r.threadRef], set: { readAt: now, updatedAt: now } });
   }
 
-  /** Only the author deletes a message (it is kept, marked deleted), with its files. Whether one was deleted. */
-  async deleteOwn(companyId: string, threadRef: string, id: string, authorId: string): Promise<boolean> {
+  /** Deletes a message (it is kept, marked deleted) with its files. Whether one was deleted. */
+  async deleteWithFiles(companyId: string, threadRef: string, id: string): Promise<boolean> {
     const now = new Date();
     return this.db.transaction(async (tx) => {
       const rows = await tx
         .update(c)
         .set({ deletedAt: now, updatedAt: now })
-        .where(and(eq(c.id, id), eq(c.companyId, companyId), eq(c.threadRef, threadRef), eq(c.authorId, authorId), isNull(c.deletedAt)))
+        .where(and(eq(c.id, id), eq(c.companyId, companyId), eq(c.threadRef, threadRef), isNull(c.deletedAt)))
         .returning({ id: c.id });
       if (!rows.length) return false;
       await tx.update(f).set({ deletedAt: now, updatedAt: now }).where(and(eq(f.companyId, companyId), eq(f.commentId, id), isNull(f.deletedAt)));

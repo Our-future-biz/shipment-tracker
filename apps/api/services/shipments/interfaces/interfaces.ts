@@ -78,6 +78,68 @@ export interface CommercialInvoiceLine {
   currency: string & MaxLen<200>;
 }
 
+/** A request to replace a document customs has approved, as the screens show it. */
+export interface DocumentChangeRequestItem {
+  id: string;
+  shipmentId: string;
+  jobNumber: string;
+  customer: string;
+  attachmentId: string;
+  /** The approved document as it was when asked. */
+  fileName: string;
+  documentType: string;
+  fileUrl: string;
+  newFileName: string;
+  newFileSize: number;
+  /** The new file's link, only while the request waits. */
+  newFileUrl: string | null;
+  reason: string;
+  status: "pending" | "approved" | "rejected";
+  requestedById: string;
+  requestedByName: string;
+  requestedAt: string;
+  decidedByName: string;
+  decidedAt: string | null;
+  comment: string;
+  answerSeenAt: string | null;
+}
+
+/** Customs' verdict on a document, as the bell of the shipment's people shows it. */
+export interface CustomsVerdictNotice {
+  /** The document's. */
+  id: string;
+  shipmentId: string;
+  jobNumber: string;
+  fileName: string;
+  documentType: string;
+  status: "approved" | "declined";
+  /** Declined: the reason. */
+  note: string;
+  reviewedAt: string;
+  reviewedByName: string;
+  /** Given since this user last opened the shipment's Alerts. */
+  unread: boolean;
+}
+
+/** A request to change a shipment's chosen Customs Office, as the screens show it. */
+export interface CustomsOfficeRequestItem {
+  id: string;
+  shipmentId: string;
+  jobNumber: string;
+  customer: string;
+  fromOffice: string;
+  toOffice: string;
+  reason: string;
+  status: "pending" | "approved" | "rejected";
+  requestedById: string;
+  requestedByName: string;
+  requestedAt: string;
+  decidedByName: string;
+  decidedAt: string | null;
+  comment: string;
+  answerSeenAt: string | null;
+}
+
 export interface ShipmentItem {
   id: string;
   jobNumber: string;
@@ -92,6 +154,8 @@ export interface ShipmentItem {
   bookingNumber: string;
   loadType: string;
   shippingLine: string;
+  /** The SCAC of the carrier shippingLine names; "" when it names none we know. */
+  carrierCode: string;
   pol: string;
   pod: string;
   destination: string;
@@ -126,6 +190,8 @@ export interface ShipmentItem {
   customsStatus: string;
   masterJobId: string | null;
   masterJobMczNumber: string | null;
+  /** What happened last ("Arrived 20.10.2026 · Warehouse"); "" when nothing has yet. */
+  lastEvent: string;
 
   // Meta
   shipmentsDate: string | null;
@@ -206,6 +272,8 @@ export interface ShipmentItem {
   warehouseReference: string;
   warehouseTruck: string;
   plateNumber: string;
+  /** The License Plates entered in the Pick-up tab (kept by the warehouse service), comma-separated; read-only here. */
+  licensePlate: string;
   plannedDeliveryDate: string | null;
   /** When a road job was delivered (written by Trucking when the delivery is stamped). */
   actualDeliveryDate: string | null;
@@ -217,6 +285,8 @@ export interface ShipmentItem {
   approvedBy: string;
   bookingConfirmation: string;
   customsProcedure: string;
+  /** The office of a T1 procedure, its code and name as one text; "" under any other procedure. */
+  customsOffice: string;
   customsPriority: CustomsPriority;
   /** Deadline of an Urgent shipment, "YYYY-MM-DD HH:mm"; "" for Standard. */
   customsDeadline: string;
@@ -433,6 +503,8 @@ export interface CommentItem {
   attachments: CommentAttachment[];
   /** On the reader's own messages: a colleague has opened the chat since it was sent. */
   readByOthers: boolean;
+  /** When its writer crossed it out; null while it stands. */
+  struckAt: string | null;
 }
 
 /** cargo = claim on the shipment · cost = claim on a supplier's invoice */
@@ -451,6 +523,8 @@ export interface ClaimItem {
   reason: string;
   /** Disputed amount, with currency. */
   amount: string;
+  /** The day the carrier or supplier was given notice; null when not yet. */
+  noticeDate: string | null;
   createdAt: string;
 }
 
@@ -461,6 +535,8 @@ export interface ClaimInput {
   invoiceNumber?: string;
   reason?: string;
   amount?: string;
+  /** yyyy-mm-dd; "" takes it back */
+  noticeDate?: string;
 }
 
 /** Unread chat messages of one shipment, for the user asking. */
@@ -550,6 +626,8 @@ export interface ShipmentDashboard {
 export interface ShipmentTileCounts {
   active: number;
   attention: number;
+  /** Active shipments whose ETD or ETA moved lately. */
+  etaMoved: number;
   import: number;
   export: number;
   week: number;
@@ -746,4 +824,319 @@ export interface LinksNormalizeResult {
   changed: number;
   /** The names left as they are, most frequent first: to be linked by hand. */
   unmatched: UnmatchedLink[];
+}
+
+// — Tracking: the shipment's dated facts, read from its dates, its audit log and its ticks —
+
+/** Who put a value there and when, from the audit log. No person is named for a system write or a user who left. */
+export interface TrackingRecorded {
+  at: string;
+  by: string;
+  /** The department or module that keeps this field ("Trucking", "Warehouse", "Customs"); "" when any person may. */
+  source: string;
+}
+
+export type TrackingLeg = "origin" | "main" | "destination";
+
+export interface TrackingProposal {
+  eventId: string;
+  day: string;
+  /** Who reports it ("Carrier", "Document read"). */
+  source: string;
+}
+
+/**
+ * done: it happened. next: the first step still to happen. late: its planned date passed and it
+ * was not recorded. open: still to come. planned: a date we only plan by, with no actual to record.
+ */
+export type TrackingMilestoneState = "done" | "next" | "late" | "open" | "planned";
+
+export interface TrackingMilestone {
+  key: string;
+  label: string;
+  /** Which dates the row shows ("ETA / ATA"); "" when it speaks for itself. */
+  basis: string;
+  leg: TrackingLeg;
+  place: string;
+  planned: string | null;
+  /** "HH:MM" of the planned date when known; "" otherwise. */
+  plannedTime: string;
+  /** The planned date before its last change; null when it never moved. */
+  wasPlanned: string | null;
+  /** How far the last change moved it, in days (later is positive); null when it never moved. */
+  movedDays: number | null;
+  actual: string | null;
+  /** "HH:MM" of the actual date in Prague when known; "" otherwise. */
+  actualTime: string;
+  /** A date a source reports and a person hasn't confirmed yet; null when there is none. */
+  proposed: TrackingProposal | null;
+  /** What stands in for a date ("Under Customs Clearance", the MRN); "" when nothing does. */
+  detail: string;
+  /** The container its event is about; "" for the shipment as a whole. */
+  containerNumber: string;
+  state: TrackingMilestoneState;
+  /** Days past the planned date with nothing recorded; 0 when not late. */
+  lateDays: number;
+  /** This row's actual date is the job's tax date. */
+  taxDate: boolean;
+  recorded: TrackingRecorded | null;
+}
+
+/** One logged change of a date or of the routing. */
+export interface TrackingChange {
+  id: string;
+  field: string;
+  label: string;
+  isDate: boolean;
+  oldValue: string | null;
+  newValue: string | null;
+  /** Between two dates, in days (later is positive); null otherwise. */
+  movedDays: number | null;
+  by: string;
+  at: string;
+}
+
+/** What needs a look on this shipment, worked out from its dates. */
+export interface TrackingAttention {
+  /** moved and late come from the dates; exception is one somebody reported, open until closed; not_told is a date the customer was told that moved. */
+  kind: "moved" | "late" | "exception" | "not_told";
+  /** The reported exception, which can be closed; null for what the dates show. */
+  eventId: string | null;
+  /** Its reason; "" otherwise. */
+  note: string;
+  milestoneKey: string;
+  /** "ETA", "ETD", … */
+  what: string;
+  days: number;
+  from: string | null;
+  to: string | null;
+  at: string | null;
+  by: string;
+}
+
+/** A ticked checklist task: the time is the click, not the event. */
+export interface TrackingTick {
+  taskKey: string;
+  completedAt: string;
+  by: string;
+}
+
+export interface TrackingTaxDate {
+  /** Which date the job is taxed by now: an actual one is firm, an estimated one provisional. */
+  basis: "ata" | "atd" | "eta" | "etd" | "delivery" | "plannedDelivery" | "none";
+  date: string | null;
+  actual: boolean;
+  recorded: TrackingRecorded | null;
+  /** Whether an issued, not credited invoice makes the date final; null when Invoicing could not be asked. */
+  invoiced: boolean | null;
+}
+
+/** A stored fact about the shipment, as the tab lists it. */
+export interface TrackingEventItem {
+  id: string;
+  kind: string;
+  label: string;
+  occurredOn: string;
+  /** "HH:MM" in Prague when known; "" otherwise. */
+  occurredTime: string;
+  place: string;
+  /** Vessel and voyage it names; "" when none. */
+  vessel: string;
+  containerNumber: string;
+  note: string;
+  /** Where it came from in words ("Trucking"); "" for a person. */
+  source: string;
+  by: string;
+  recordedAt: string;
+  effect: "none" | "proposed" | "applied" | "dismissed";
+  /** The day it would set or set; null when it sets none. */
+  effectValue: string | null;
+  /** The shipment field it would set or set, in words ("ATA"); "" when none. */
+  sets: string;
+  /** Only what a person recorded can be struck: the rest is changed where it comes from. */
+  strikeable: boolean;
+  resolvedAt: string | null;
+}
+
+/** A kind of event this person may record on this shipment. */
+export interface TrackingRecordableKind {
+  kind: string;
+  label: string;
+  group: "milestone" | "exception" | "note";
+  reasonRequired: boolean;
+  sets: string;
+  taxDate: boolean;
+}
+
+/** What the customer was told, as the tab lists it. */
+export interface TrackingCustomerNotice {
+  id: string;
+  kind: string;
+  label: string;
+  channel: string;
+  toldTo: string;
+  subject: string;
+  note: string;
+  etaPod: string | null;
+  etaWarehouse: string | null;
+  plannedDelivery: string | null;
+  by: string;
+  at: string;
+}
+
+/** A line under the bell about a shipment's dates. */
+export interface TrackingBellNotice {
+  key: string;
+  kind: "date_moved" | "to_confirm" | "not_told";
+  shipmentId: string;
+  jobNumber: string;
+  title: string;
+  text: string;
+  by: string;
+  at: string;
+  unread: boolean;
+}
+
+/** Something a shipment's dates say needs doing, as Needs Attention lists it. */
+export interface TrackingAttentionFlag {
+  kind: "to_confirm" | "eta_passed" | "etd_passed" | "no_onward" | "no_event" | "not_told" | "not_released" | "tax_date" | "delivered_not_billed" | "free_time";
+  /** urgent is red, attention amber. */
+  severity: "urgent" | "attention";
+  /** Whose desk it is. */
+  area: "tracking" | "finance";
+  label: string;
+  detail: string;
+}
+
+export interface TrackingAttentionItem {
+  id: string;
+  jobNumber: string;
+  customerId: string | null;
+  customer: string;
+  tradeDirection: string;
+  status: string;
+  flags: TrackingAttentionFlag[];
+}
+
+/** A fact a read document states, for a person to look over. */
+export interface TrackingReadFact {
+  kind: string;
+  label: string;
+  occurredOn: string;
+  place: string;
+  vessel: string;
+  note: string;
+  effect: "apply" | "propose" | "none";
+  sets: string;
+  alreadyKept: boolean;
+  refusal: string;
+}
+
+export interface TrackingVesselChange {
+  vessel: string;
+  voyage: string;
+}
+
+/** The last free day a notice states, and the boxes it goes on. */
+export interface TrackingLastFreeDayChange {
+  day: string;
+  containerIds: string[];
+  containerNumbers: string[];
+}
+
+/** A shipment's customer link as the desk sees it; the URL isn't kept. */
+export interface ShipmentCustomerLink {
+  createdAt: string;
+  createdBy: string;
+  lastOpenedAt: string | null;
+  /** The last day it opens; null until the job is delivered. */
+  openUntil: string | null;
+  /** False once the job is cancelled or that day has passed. */
+  open: boolean;
+}
+
+/** One step on the customer's page. */
+export interface PublicMilestone {
+  key: string;
+  label: string;
+  leg: string;
+  place: string;
+  planned: string | null;
+  actual: string | null;
+  detail: string;
+  state: "done" | "next" | "open";
+}
+
+/** All a customer's link shows: nothing else leaves the app through it. */
+export interface PublicShipmentStatus {
+  /** Whose page it is; "" when it couldn't be read. */
+  ourCompany: string;
+  reference: string;
+  customerReference: string;
+  direction: string;
+  freightMode: string;
+  pol: string;
+  pod: string;
+  vessel: string;
+  containers: string[];
+  milestones: PublicMilestone[];
+  asOf: string;
+}
+
+/** One box's free time at the carrier, on the Tracking tab. */
+export interface TrackingContainerClock {
+  containerId: string;
+  containerNumber: string;
+  freeTimeDays: number | null;
+  freeTimeFrom: string;
+  /** The last free day the carrier stated; null when it is only counted. */
+  lastFreeDayStated: string | null;
+  state: "unknown" | "not_started" | "running" | "ending" | "chargeable" | "returned";
+  startDay: string | null;
+  lastFreeDay: string | null;
+  daysLeft: number | null;
+  chargeableDays: number;
+  stopDay: string | null;
+}
+
+export interface TrackingReadingPreview {
+  facts: TrackingReadFact[];
+  /** The last free day it states, when the job has boxes that run a clock. */
+  lastFreeDayChange: TrackingLastFreeDayChange | null;
+  /** The vessel and voyage it names, when they differ and nothing has sailed yet. */
+  vesselChange: TrackingVesselChange | null;
+  containersFound: string[];
+  otherShipment: boolean;
+}
+
+/** One house of a master job on the master job's Tracking tab. */
+export interface MasterJobTrackingHouse {
+  shipmentId: string;
+  jobNumber: string;
+  customer: string;
+  departed: string | null;
+  arrived: string | null;
+  customsCleared: boolean;
+  customsStatus: string;
+  gateIn: string | null;
+  delivered: string | null;
+  lastEvent: string;
+}
+
+export interface ShipmentTracking {
+  /** Free time per box; empty for a job that runs no clock. */
+  containerClocks: TrackingContainerClock[];
+  customerNotices: TrackingCustomerNotice[];
+  events: TrackingEventItem[];
+  /** Empty when nothing can be recorded here: a road job's stamps are set in Trucking. */
+  recordable: TrackingRecordableKind[];
+  /** Whether this person may change the shipment's details, which confirming a date and striking an event take. */
+  mayChangeDetails: boolean;
+  milestones: TrackingMilestone[];
+  changes: TrackingChange[];
+  /** The log holds more than the newest rows read. */
+  changesCapped: boolean;
+  attention: TrackingAttention[];
+  ticks: TrackingTick[];
+  taxDate: TrackingTaxDate;
 }

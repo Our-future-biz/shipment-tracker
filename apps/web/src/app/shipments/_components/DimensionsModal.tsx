@@ -25,7 +25,7 @@ import {
   type CargoDimensionLine,
   type ContainerLine,
 } from "@/lib/cargo";
-import { CARD, EMPTY, HINT, ICON_BTN_GHOST, MODAL_TITLE, REF, TD as APP_TD, TD_TOTAL, TH } from "@/styles/ui";
+import { CARD, EMPTY, EMPTY_STATE, HINT, ICON_BTN_GHOST, MODAL_TITLE, REF, TD as APP_TD, TD_TOTAL, TH } from "@/styles/ui";
 
 // The Dimensions cell of a grid opens this: the shipment's dimension lines in a table that
 // works like the Cargo Dimensions card of Cargo Details (same columns, same lines), but
@@ -68,13 +68,19 @@ const fieldWidth = (key: string) =>
 // Same test as Cargo Details: a line with only a pallet type or ADR data is kept.
 const isEmpty = dimensionLineIsEmpty;
 
+// Why a read-only dialog has no Save.
+export const DIMENSIONS_READ_ONLY_HINT = "Only this shipment's Person in Charge, Holiday Cover or a manager can change its dimensions.";
+
 export function DimensionsModal({
   shipment,
   onClose,
   onSave,
+  readOnly = false,
 }: {
   /** The shipment whose dimensions are shown; null keeps the dialog closed. */
   shipment: ShipmentItem | null;
+  /** The user may not change the shipment's details: the lines are shown, with no Save. */
+  readOnly?: boolean;
   onClose: () => void;
   /** Saves the lines (empty ones already left out); the dialog closes when it resolves and
    * stays open with the lines as typed when it rejects (the caller says what went wrong). */
@@ -107,9 +113,9 @@ export function DimensionsModal({
     if (!shipment) return;
     // Each line in its own unit (cm or inches); sent back in cm (lineInCm on save).
     const saved = (shipment.cargoDimensions ?? []).map((l) => lineInUnit(only && l.containerId !== only ? { ...l, containerId: only } : l));
-    // Every container gets a line to type into (an untouched one is never saved).
+    // Every container gets a line to type into (an untouched one is never saved); read-only, only the saved lines.
     const targets: (string | null)[] = containerIds.length ? containerIds : [null];
-    const missing = targets.filter((id) => !saved.some((l) => (l.containerId ?? null) === id));
+    const missing = readOnly ? [] : targets.filter((id) => !saved.some((l) => (l.containerId ?? null) === id));
     setLines([...saved, ...missing.map((id) => emptyLine(id))]);
     // Only when another shipment is opened: a refetch must not wipe what is being typed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -139,7 +145,7 @@ export function DimensionsModal({
   const totals = dimensionTotals(lines.filter((l) => !isEmpty(l)).map(lineInCm));
 
   const save = async () => {
-    if (!shipment || saving) return;
+    if (!shipment || saving || readOnly) return;
     setSaving(true);
     try {
       await onSave(shipment, lines.filter((l) => !isEmpty(l)).map(lineInCm));
@@ -154,7 +160,10 @@ export function DimensionsModal({
   const field = (
     idx: number,
     key: "pieces" | "lengthCm" | "widthCm" | "heightCm" | "weightPerPcKg" | "volumePerPcM3",
-  ) => (
+  ) =>
+    readOnly ? (
+      <span className={`${READ_NUM} !text-slate-700`}>{lines[idx]![key] || <span className={EMPTY}>—</span>}</span>
+    ) : (
     // Numbers only, at most 4 digits (the weight 5): Pcs takes whole numbers, the measures and
     // the weight a decimal point too.
     // As wide as its most digits (fieldWidth), centred in its column under the header.
@@ -169,7 +178,9 @@ export function DimensionsModal({
         }
       />
     </div>
-  );
+    );
+  // A picked value as text, in a read-only dialog.
+  const readText = (value: string | null | undefined) => <span className="block truncate pl-[11px] text-[13px] text-slate-700">{value || <span className={EMPTY}>—</span>}</span>;
 
   // A total under the column it sums, its unit beneath.
   const total = (sum: number, decimals: number, unit: string) => (
@@ -195,12 +206,19 @@ export function DimensionsModal({
       destroyOnHidden
       onCancel={onClose}
       footer={
-        <div className="-mx-6 px-6 pt-4 border-t border-slate-200 flex items-center justify-end gap-2">
-          <Button onClick={onClose}>Cancel</Button>
-          <Button type="primary" loading={saving} onClick={save}>
-            Save
-          </Button>
-        </div>
+        readOnly ? (
+          <div className="-mx-6 px-6 pt-4 border-t border-slate-200 flex items-center justify-between gap-4">
+            <span className={`${HINT} text-left`}>{DIMENSIONS_READ_ONLY_HINT}</span>
+            <Button onClick={onClose}>Close</Button>
+          </div>
+        ) : (
+          <div className="-mx-6 px-6 pt-4 border-t border-slate-200 flex items-center justify-end gap-2">
+            <Button onClick={onClose}>Cancel</Button>
+            <Button type="primary" loading={saving} onClick={save}>
+              Save
+            </Button>
+          </div>
+        )
       }
     >
       <div className="pt-2 pb-2">
@@ -275,8 +293,36 @@ export function DimensionsModal({
                 </tr>
               </thead>
               <tbody>
+                {readOnly && active.rows.length === 0 && (
+                  <tr>
+                    <td colSpan={10} className={EMPTY_STATE}>
+                      No dimension lines yet.
+                    </td>
+                  </tr>
+                )}
                 {active.rows.map(({ l, idx }) => {
                   const vpc = dimensionVolumePerPiece(lineInCm(l));
+                  if (readOnly) {
+                    return (
+                      <tr key={rowKey(l)}>
+                        <td className={TD_NUM}>{field(idx, "pieces")}</td>
+                        <td className={TD}>{readText(l.packageType)}</td>
+                        <td className={TD_NUM}>{field(idx, "lengthCm")}</td>
+                        <td className={TD_NUM}>{field(idx, "widthCm")}</td>
+                        <td className={TD_NUM}>{field(idx, "heightCm")}</td>
+                        <td className={TD}>{readText(l.dimensionUnit === "in" ? "inch" : "cm")}</td>
+                        <td className={TD_NUM}>{field(idx, "weightPerPcKg")}</td>
+                        <td className={TD_NUM}>
+                          {/* Worked out from the sizes, else as typed. */}
+                          <span className={READ_NUM}>
+                            {vpc ? vpc.toFixed(3) : <span className={EMPTY}>—</span>}
+                          </span>
+                        </td>
+                        <td className={TD}>{readText(l.stackable)}</td>
+                        <td className={TD} />
+                      </tr>
+                    );
+                  }
                   return (
                     <tr key={rowKey(l)} className="hover:bg-slate-50/60">
                       <td className={TD_NUM}>{field(idx, "pieces")}</td>
@@ -340,6 +386,7 @@ export function DimensionsModal({
                     </tr>
                   );
                 })}
+                {!readOnly && (
                 <tr>
                   <td colSpan={10} className="px-2 py-1.5 border-b border-slate-100">
                     <Button
@@ -355,6 +402,7 @@ export function DimensionsModal({
                     </Button>
                   </td>
                 </tr>
+                )}
               </tbody>
               {/* The chosen container's figures under the columns they sum. */}
               <tfoot>

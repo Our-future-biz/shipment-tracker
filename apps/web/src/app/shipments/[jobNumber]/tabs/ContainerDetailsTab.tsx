@@ -3,14 +3,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { rowKey } from "@/app/shipments/_lib/rowKey";
 import { Input, Button, AutoComplete, Select, Tooltip, message } from "antd";
-import { PlusOutlined } from "@ant-design/icons";
+import { PlusOutlined, WarningOutlined } from "@ant-design/icons";
 import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
 import { SHIPMENT_WRITE_KEY, type ShipmentItem } from "@/hooks/useShipments";
 import { useIsMutating } from "@tanstack/react-query";
 import { ConfirmModal } from "@/components/ConfirmModal";
-import { CARD, LABEL_TEXT, REF } from "@/styles/ui";
+import { CARD, EMPTY, EMPTY_STATE, LABEL_TEXT, REF } from "@/styles/ui";
 import { uuid } from "@/lib/uuid";
-import { containerNumberInput, isValidContainerNumber, normalizeContainerNumber } from "@/lib/container";
+import { containerCheckDigitOk, containerNumberInput, isValidContainerNumber, normalizeContainerNumber } from "@/lib/container";
 import {
   CONTAINER_SIZES,
   CONTAINER_KINDS,
@@ -22,6 +22,9 @@ import {
   PACK_TYPE_OPTIONS,
   numberInput,
 } from "@/lib/cargo";
+
+// A warning, not a refusal: the number stays as typed, because a wrong-looking one can still be real.
+const CHECK_DIGIT_HINT = "The last digit doesn't fit this number's check digit: a typing mistake? Check it against the booking.";
 
 // A new row gets its id here, so every save names it and the server keeps that id
 // (cargo lines can point at it) — rows are never matched by position.
@@ -82,11 +85,17 @@ export function ContainerDetailsTab({
   shipment,
   onChange,
   onOpenCargo,
+  readOnly = false,
 }: {
   shipment: ShipmentItem;
   /** Saves the list; rejects when the server refuses it (the caller says why). */
   onChange: (containers: ContainerLine[]) => Promise<unknown>;
   onOpenCargo?: (containerId: string) => void;
+  /**
+   * The user may not change the shipment's details (lib/shipmentEditRule): the containers are shown,
+   * with no Add, no row menu and no editing; a container's number still opens its Cargo Details.
+   */
+  readOnly?: boolean;
 }) {
   const [rows, setRows] = useState<ContainerLine[]>(() => withFirstRow(shipment.containers));
   // Rows being edited. Rows without a container number are always editable; a row
@@ -235,7 +244,7 @@ export function ContainerDetailsTab({
   };
 
   const isEditing = (i: number) =>
-    editing.has(i) || !(rows[i]?.containerNumber ?? "").trim() || !isValidContainerNumber(rows[i]?.containerNumber);
+    !readOnly && (editing.has(i) || !(rows[i]?.containerNumber ?? "").trim() || !isValidContainerNumber(rows[i]?.containerNumber));
   const closeRow = (i: number) =>
     setEditing((e) => {
       if (!e.has(i)) return e;
@@ -271,9 +280,11 @@ export function ContainerDetailsTab({
     else inputRefs.current.delete(key);
   };
 
-  const totalPackages = rows.reduce((s, c) => s + num(c.packages), 0);
-  const totalWeight = rows.reduce((s, c) => s + num(c.grossWeight), 0);
-  const totalVolume = rows.reduce((s, c) => s + num(c.volume), 0);
+  // Read-only, the empty row kept to type into is not shown.
+  const shownRows = readOnly ? rows.filter((r) => !isBlankContainer(r)) : rows;
+  const totalPackages = shownRows.reduce((s, c) => s + num(c.packages), 0);
+  const totalWeight = shownRows.reduce((s, c) => s + num(c.grossWeight), 0);
+  const totalVolume = shownRows.reduce((s, c) => s + num(c.volume), 0);
 
   const [messageApi, contextHolder] = message.useMessage();
   // Only a saved container has a panel in Cargo Details to jump to.
@@ -306,7 +317,7 @@ export function ContainerDetailsTab({
 
   // A row's actions behind "⋯" (centred under the "+" in the header): Delete, one click
   // further away so a container (and its cargo) is not removed by a stray click.
-  const rowMenu = (c: ContainerLine, i: number) => (
+  const rowMenu = (c: ContainerLine, i: number) => readOnly ? <span /> : (
     <RowActionsMenu
       label="Container actions"
       // A row with anything in it asks first; an empty row just goes.
@@ -315,7 +326,7 @@ export function ContainerDetailsTab({
   );
 
   // A thin line between rows; the last row has none, so the totals row's thicker line is the only one under it.
-  const rowLine = (i: number) => (i < rows.length - 1 ? "border-b border-slate-100" : "");
+  const rowLine = (i: number) => (i < shownRows.length - 1 ? "border-b border-slate-100" : "");
 
   return (
     <div className={`${CARD} overflow-hidden`}>
@@ -337,16 +348,18 @@ export function ContainerDetailsTab({
         {/* Add container: a small "+" laid over the header row's right end, above the rows'
             "⋯" menus. Outside the scroll box so nothing clips it, and no taller than the column
             titles' line, so it neither grows the header nor touches its rule. */}
-        <Tooltip title="Add container">
-          <Button
-            size="small"
-            type="primary"
-            icon={<PlusOutlined className="text-[11px]" />}
-            aria-label="Add container"
-            onClick={add}
-            className="!absolute top-3 right-[31px] z-10 !w-[22px] !h-[22px] !min-w-0 !p-0"
-          />
-        </Tooltip>
+        {!readOnly && (
+          <Tooltip title="Add container">
+            <Button
+              size="small"
+              type="primary"
+              icon={<PlusOutlined className="text-[11px]" />}
+              aria-label="Add container"
+              onClick={add}
+              className="!absolute top-3 right-[31px] z-10 !w-[22px] !h-[22px] !min-w-0 !p-0"
+            />
+          </Tooltip>
+        )}
         <div className="overflow-x-auto">
           <div className="min-w-[880px]">
             <div className={`${COLS} px-2 pb-2 ${LABEL_TEXT} border-b border-slate-200`}>
@@ -361,7 +374,8 @@ export function ContainerDetailsTab({
               <span />
             </div>
 
-            {rows.map((c, i) =>
+            {readOnly && shownRows.length === 0 && <div className={EMPTY_STATE}>No containers yet.</div>}
+            {shownRows.map((c, i) =>
               isEditing(i) ? (
                 <div
                   key={rowKey(c)}
@@ -370,13 +384,13 @@ export function ContainerDetailsTab({
                   onKeyDown={onRowKeyDown(i)}
                 >
                   <Tooltip
-                    title={isValidContainerNumber(c.containerNumber) ? "" : "4 letters + 7 digits, e.g. MSKU1234567"}
-                    open={isValidContainerNumber(c.containerNumber) ? false : undefined}
+                    title={!isValidContainerNumber(c.containerNumber) ? "4 letters + 7 digits, e.g. MSKU1234567" : !containerCheckDigitOk(c.containerNumber) ? CHECK_DIGIT_HINT : ""}
+                    open={isValidContainerNumber(c.containerNumber) && containerCheckDigitOk(c.containerNumber) ? false : undefined}
                   >
                     <Input
                       ref={setInputRef(`${i}:containerNumber`)}
                       size="small"
-                      status={isValidContainerNumber(c.containerNumber) ? undefined : "error"}
+                      status={!isValidContainerNumber(c.containerNumber) ? "error" : !containerCheckDigitOk(c.containerNumber) ? "warning" : undefined}
                       value={c.containerNumber}
                       placeholder="MSKU1234567"
                       onChange={(e) => setContainerNumber(i, e.target.value)}
@@ -453,25 +467,39 @@ export function ContainerDetailsTab({
                 // clicked column; the container number is a link to its cargo panel.
                 <div
                   key={rowKey(c)}
-                  className={`${COLS} px-2 py-1.5 ${rowLine(i)} cursor-pointer hover:bg-slate-50 select-none`}
-                  onDoubleClick={(e) => {
-                    const field = (e.target as HTMLElement).closest<HTMLElement>("[data-field]")?.dataset.field as
-                      | Field
-                      | undefined;
-                    openRow(i, field ?? "containerNumber");
-                  }}
+                  className={`${COLS} px-2 py-1.5 ${rowLine(i)} ${readOnly ? "" : "cursor-pointer hover:bg-slate-50 select-none"}`}
+                  onDoubleClick={
+                    readOnly
+                      ? undefined
+                      : (e) => {
+                          const field = (e.target as HTMLElement).closest<HTMLElement>("[data-field]")?.dataset.field as
+                            | Field
+                            | undefined;
+                          openRow(i, field ?? "containerNumber");
+                        }
+                  }
                 >
                   <span data-field="containerNumber">
-                    <button
-                      type="button"
-                      className={`${REF} font-bold text-[13px] px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-600 ${
-                        savedIds.has(c.id ?? "") && onOpenCargo ? "hover:bg-indigo-100 hover:text-indigo-700 cursor-pointer" : "cursor-default"
-                      }`}
-                      title="Open Cargo Details"
-                      onClick={() => c.id && savedIds.has(c.id) && onOpenCargo?.(c.id)}
-                    >
-                      {c.containerNumber}
-                    </button>
+                    {c.containerNumber ? (
+                      <button
+                        type="button"
+                        className={`${REF} font-bold text-[13px] px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-600 ${
+                          savedIds.has(c.id ?? "") && onOpenCargo ? "hover:bg-indigo-100 hover:text-indigo-700 cursor-pointer" : "cursor-default"
+                        }`}
+                        title="Open Cargo Details"
+                        onClick={() => c.id && savedIds.has(c.id) && onOpenCargo?.(c.id)}
+                      >
+                        {c.containerNumber}
+                      </button>
+                    ) : (
+                      // A saved container whose number was cleared (only seen read-only: else its row is open).
+                      <span className={EMPTY}>—</span>
+                    )}
+                    {!containerCheckDigitOk(c.containerNumber) && (
+                      <Tooltip title={CHECK_DIGIT_HINT}>
+                        <WarningOutlined className="ml-1 text-amber-600" aria-label={CHECK_DIGIT_HINT} />
+                      </Tooltip>
+                    )}
                   </span>
                   <span data-field="sealNumber" className="text-[13px] text-slate-700 px-2 text-center truncate">{c.sealNumber}</span>
                   <span data-field="type" className="text-[13px] text-slate-700 px-2 text-center truncate">{c.type}</span>
@@ -486,7 +514,7 @@ export function ContainerDetailsTab({
 
             <div className={`${COLS} px-2 pt-3 mt-1 text-[13px] font-semibold text-slate-900 border-t-2 border-slate-200`}>
               <span className={LABEL_TEXT}>
-                {rows.length} container{rows.length === 1 ? "" : "s"}
+                {shownRows.length} container{shownRows.length === 1 ? "" : "s"}
               </span>
               <span />
               <span />

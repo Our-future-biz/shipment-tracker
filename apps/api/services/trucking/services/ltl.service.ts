@@ -637,6 +637,7 @@ class LtlService {
             byName: by,
             payload: { changes: { pickedUp: { before: null, after: time.toISOString() } }, summary: `Picked up: ${stampText(time)} (pick-up run ${trip.ref} arrived)`, facts: { kind: "pickedUp", source } },
           });
+          await truckingOutboxRepository.enqueue(tx, companyId, [owed(actor, c, "stamp", { stamp: "pickedUp", at: time.toISOString() })]);
         }
       }
       await ltlTrips.refreshStatuses(tx, companyId, [...new Set(legs.map((l) => l.consignmentId))]);

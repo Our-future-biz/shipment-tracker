@@ -5,8 +5,11 @@ import Link from "next/link";
 import { App, Button, Checkbox, Input, Modal, Popconfirm, Spin } from "antd";
 import { DisconnectOutlined, PlusOutlined, SearchOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, apiErrorMessage } from "@/lib/api";
 import { useDebounced } from "@/hooks/useDebounced";
+import { useAuth } from "@/lib/auth/AuthContext";
+import { canChangeShipmentDetails } from "@/lib/shipmentEditRule";
+import { LINK_REFUSED_HINT } from "@/app/shipments/_components/MasterJobDialog";
 import type { MasterJobItem, MasterJobShipmentItem } from "@/hooks/useMasterJobs";
 import { EMPTY_CELL } from "@/components/EmptyCell";
 import { HINT, LINK, REF, TD, TH } from "@/styles/ui";
@@ -27,8 +30,9 @@ export function MasterJobShipments({ masterJob, shipments, onLink, onUnlink }: M
     try {
       await onUnlink(s.id);
       message.success(`${s.jobNumber} removed from ${masterJob.mczNumber}`);
-    } catch {
-      message.error("Removing the shipment failed");
+    } catch (e) {
+      // Refused, e.g., for a shipment the user may not change (lib/shipmentEditRule): the server says why.
+      message.error(`Removing the shipment failed: ${apiErrorMessage(e)}`);
     }
   };
 
@@ -115,6 +119,10 @@ function AddShipmentsModal({ open, masterJob, linkedIds, onClose, onLink }: AddS
     enabled: open,
   });
   const candidates = (results.data?.data ?? []).filter((s) => !linkedIds.has(s.id) && !s.jobNumber.startsWith("CZQ"));
+  // The server links all of them or none, and refuses a shipment whose details the user may not
+  // change: such a one is shown, not offered.
+  const { user } = useAuth();
+  const mayLink = (s: (typeof candidates)[number]) => canChangeShipmentDetails(user, s);
 
   const handleClose = () => {
     setQuery("");
@@ -128,8 +136,8 @@ function AddShipmentsModal({ open, masterJob, linkedIds, onClose, onLink }: AddS
       await onLink(selected);
       message.success(`Linked ${selected.length} shipment${selected.length === 1 ? "" : "s"} to ${masterJob.mczNumber}`);
       handleClose();
-    } catch {
-      message.error("Linking the shipments failed");
+    } catch (e) {
+      message.error(`Linking the shipments failed: ${apiErrorMessage(e)}`);
     } finally {
       setLinking(false);
     }
@@ -168,9 +176,12 @@ function AddShipmentsModal({ open, masterJob, linkedIds, onClose, onLink }: AddS
             {candidates.map((s) => (
               <label
                 key={s.id}
-                className="flex items-center gap-3 px-3 py-2 border-b border-slate-100 last:border-b-0 text-xs cursor-pointer hover:bg-slate-50"
+                title={mayLink(s) ? undefined : LINK_REFUSED_HINT}
+                className={`flex items-center gap-3 px-3 py-2 border-b border-slate-100 last:border-b-0 text-[12px] ${
+                  mayLink(s) ? "cursor-pointer hover:bg-slate-50" : "cursor-not-allowed opacity-50"
+                }`}
               >
-                <Checkbox value={s.id} />
+                <Checkbox value={s.id} disabled={!mayLink(s)} />
                 <span className={`${REF} font-semibold w-[110px] shrink-0`}>{s.jobNumber}</span>
                 <span className="flex-1 min-w-0 truncate text-slate-700">{s.customer || s.shipper || EMPTY_CELL}</span>
                 <span className="w-[120px] shrink-0 text-slate-500 truncate">

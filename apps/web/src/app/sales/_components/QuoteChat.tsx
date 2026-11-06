@@ -54,6 +54,7 @@ export function QuoteChatPanel({ quoteNumber }: { quoteNumber: string }) {
         return api.quotes.quoteCommentCreate(quoteNumber, { message, fileIds, mentionedUserIds });
       },
       remove: (id) => api.quotes.quoteCommentDelete(quoteNumber, id),
+      strike: (id) => api.quotes.quoteCommentStrike(quoteNumber, id),
       markRead: () => api.quotes.quoteCommentMarkRead(quoteNumber),
       // Reading clears the thread's badge and its mentions under the bell; a message sent or
       // deleted changes the badges. The thread's own list is the panel's and is read again by it -

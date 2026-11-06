@@ -21,6 +21,6 @@ export const masterJobContainersUpdate = api(
   { expose: true, auth: true, method: "PUT", path: "/master-jobs/:masterJobId/containers" },
   async (req: MasterJobContainersUpdateRequest): Promise<MasterJobContainersUpdateResponse> => {
     const auth = getAuthData()!;
-    return masterJobService.setContainers(req.masterJobId, auth.companyID, req.containers, auth.userID);
+    return masterJobService.setContainers(req.masterJobId, auth.companyID, req.containers, auth.userID, auth);
   },
 );

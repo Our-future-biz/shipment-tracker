@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { warehouseSectionTable, type WarehouseSectionRecord } from "../schemas/warehouseSection.schema";
@@ -30,6 +30,21 @@ class WarehouseSectionRepository extends TenantRepository<typeof warehouseSectio
       )
       .limit(1);
     return row ?? null;
+  }
+
+  // The live section of a kind for a page of shipments, in one query.
+  async findManyBySection(shipmentIds: string[], section: string, companyId: string): Promise<Pick<WarehouseSectionRecord, "shipmentId" | "data">[]> {
+    return this.db
+      .select({ shipmentId: warehouseSectionTable.shipmentId, data: warehouseSectionTable.data })
+      .from(warehouseSectionTable)
+      .where(
+        and(
+          eq(warehouseSectionTable.companyId, companyId),
+          inArray(warehouseSectionTable.shipmentId, shipmentIds),
+          eq(warehouseSectionTable.section, section),
+          isNull(warehouseSectionTable.deletedAt),
+        ),
+      );
   }
 
   // One statement, so two saves at once can't both insert the same live section.

@@ -1,0 +1,2 @@
+ALTER TABLE "trucking_outbox" DROP CONSTRAINT IF EXISTS "trucking_outbox_kind_check";--> statement-breakpoint
+ALTER TABLE "trucking_outbox" ADD CONSTRAINT "trucking_outbox_kind_check" CHECK ("trucking_outbox"."kind" IN ('planned', 'plate', 'delivered', 'billing', 'costs', 'expect_arrival', 'expect_departure', 'cancel_expected', 'real_costs', 'pod', 'delivery_advice', 'stamp'));

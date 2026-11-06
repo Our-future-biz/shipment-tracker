@@ -1,6 +1,7 @@
 "use client";
 
 import { App, Tooltip } from "antd";
+import { apiErrorMessage } from "@/lib/api";
 import { BuildOutlined, EnvironmentOutlined, FileTextOutlined, InboxOutlined, LockOutlined } from "@ant-design/icons";
 import { CustomerLinkField } from "@/app/shipments/[jobNumber]/_components/CustomerLinkField";
 import { FreightModeContext } from "@/app/shipments/[jobNumber]/_components/EditableCell";
@@ -99,8 +100,9 @@ export function MblDetailsTab({
   const save = async (patch: MasterJobUpdate) => {
     try {
       await onSave(patch);
-    } catch {
-      message.error("Saving the master job failed");
+    } catch (e) {
+      // The server's word: e.g. a save that would change a house the user may not change (lib/shipmentEditRule).
+      message.error(`Saving the master job failed: ${apiErrorMessage(e)}`);
     }
   };
   // A closing / deadline comes as "YYYY-MM-DD HH:MM" and is saved as its date and its time.

@@ -14,7 +14,7 @@ interface ShipmentListRequest {
   status?: string;
   /** Coarse UI status bucket: active | in-transit | customs | delivered */
   statusBucket?: string;
-  /** Overview tile filter: active | attention | import | export | week | nextweek */
+  /** Overview tile filter: active | attention | etamoved | import | export | week | nextweek */
   tile?: string;
   /** Warehouse page filter: in | stock | out */
   warehouse?: string;

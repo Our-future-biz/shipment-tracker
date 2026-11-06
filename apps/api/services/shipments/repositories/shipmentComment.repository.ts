@@ -111,21 +111,6 @@ class ShipmentCommentRepository extends TenantRepository<typeof shipmentCommentT
         set: { readAt: new Date(), updatedAt: new Date() },
       });
   }
-
-  /** Only the author can delete a message. Returns whether one was deleted. */
-  async deleteOwn(id: string, companyId: string, authorId: string): Promise<boolean> {
-    const rows = await this.db
-      .update(shipmentCommentTable)
-      .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(and(
-        eq(shipmentCommentTable.id, id),
-        eq(shipmentCommentTable.companyId, companyId),
-        eq(shipmentCommentTable.authorId, authorId),
-        isNull(shipmentCommentTable.deletedAt),
-      ))
-      .returning({ id: shipmentCommentTable.id });
-    return rows.length > 0;
-  }
 }
 
 export const shipmentCommentRepository = new ShipmentCommentRepository();

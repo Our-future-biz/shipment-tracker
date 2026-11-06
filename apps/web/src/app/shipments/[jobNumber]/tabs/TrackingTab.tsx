@@ -1,58 +1,146 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
+import { Alert, Spin, Switch } from "antd";
+import { CopyButton } from "@/components/CopyButton";
+import { PillTabs } from "@/components/SectionCard";
+import { useJobFxRates } from "@/hooks/useFx";
 import type { ShipmentItem } from "@/hooks/useShipments";
-import { useShipmentTasks } from "@/hooks/useShipmentTasks";
-import { getTasksForDirection } from "../_components/taskDefinitions";
-import { formatDateTime } from "@/lib/date";
-import { CARD, HINT } from "@/styles/ui";
+import { useShipmentTracking, useTrackingBell, useTrackingMarkRead } from "@/hooks/useShipmentTracking";
+import { apiErrorMessage } from "@/lib/api";
+import { BTN_GHOST, BTN_PRIMARY, BTN_SM, CARD, HINT } from "@/styles/ui";
+import { jobFxDates } from "./costsRows";
+import { AttentionCard } from "./tracking/AttentionCard";
+import { ChangesCard } from "./tracking/ChangesCard";
+import { ChecklistCard } from "./tracking/ChecklistCard";
+import { CustomerLinkModal } from "./tracking/CustomerLinkModal";
+import { CustomerNoticesCard } from "./tracking/CustomerNoticesCard";
+import type { NoticeKindValue } from "./tracking/customerDraft";
+import { EventsCard } from "./tracking/EventsCard";
+import { FreeTimeCard } from "./tracking/FreeTimeCard";
+import { ReadNoticeModal } from "./tracking/ReadNoticeModal";
+import { RecordEventModal } from "./tracking/RecordEventModal";
+import { TellCustomerModal } from "./tracking/TellCustomerModal";
+import { RecordedBy } from "./tracking/RecordedBy";
+import { TimelineCard } from "./tracking/TimelineCard";
+import { mayRecordKind, taxDateParts, trackingStatusLine } from "./tracking/trackingText";
 
-export function TrackingTab({ shipment }: { shipment: ShipmentItem }) {
-  const taskList = getTasksForDirection(shipment.tradeDirection);
-  const { tasks } = useShipmentTasks(shipment.id);
+type View = "all" | "actuals" | "changes";
 
-  const completedTasks = tasks
-    .filter((t) => t.completed && t.completedAt)
-    .sort((a, b) => new Date(b.completedAt!).getTime() - new Date(a.completedAt!).getTime());
+const VIEWS: readonly { key: View; label: string; title: string }[] = [
+  { key: "all", label: "All", title: "Everything planned and recorded" },
+  { key: "actuals", label: "Actuals", title: "Only what has happened" },
+  { key: "changes", label: "Changes", title: "Only the logged changes of dates and routing" },
+];
 
-  if (completedTasks.length === 0) {
+/** The dated facts of a shipment: where the cargo is, what moved and who recorded it. */
+export function TrackingTab({ shipment, onOpen }: { shipment: ShipmentItem; onOpen: (tab: string) => void }) {
+  const [view, setView] = useState<View>("all");
+  const [customerView, setCustomerView] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [reading, setReading] = useState(false);
+  const [linking, setLinking] = useState(false);
+  const [telling, setTelling] = useState<NoticeKindValue | null>(null);
+  // Opening the tab is seeing what the bell says about this shipment, and so is having it open
+  // when something new about it arrives.
+  const { mutate: markRead } = useTrackingMarkRead();
+  const { notices } = useTrackingBell();
+  const unreadHere = notices
+    .filter((n) => n.unread && n.shipmentId === shipment.id)
+    .map((n) => `${n.key}:${n.at}`)
+    .join("|");
+  const markedFor = useRef<string | null>(null);
+  useEffect(() => {
+    const opened = markedFor.current === null;
+    if (!opened && (!unreadHere || unreadHere === markedFor.current)) return;
+    markedFor.current = unreadHere;
+    markRead(shipment.id);
+  }, [markRead, shipment.id, unreadHere]);
+  const { data, isLoading, error } = useShipmentTracking(shipment.id);
+  const { data: rates } = useJobFxRates(shipment.id, jobFxDates(shipment));
+
+  if (isLoading) {
     return (
-      <div className={`${CARD} p-5`}>
-        <p className={`text-center ${HINT} py-8`}>No tracking events yet</p>
+      <div className={`${CARD} p-8 flex justify-center`}>
+        <Spin />
       </div>
     );
   }
+  if (!data) {
+    return <Alert type="error" showIcon message={`Could not load the tracking: ${apiErrorMessage(error)}`} />;
+  }
+
+  const statusLine = trackingStatusLine(shipment, data.milestones);
+  const mayRecord = (kind: string) => mayRecordKind(data, kind);
+  const showChanges = !customerView && view !== "actuals";
+  const showTimeline = customerView || view !== "changes";
 
   return (
-    <div className={`${CARD} p-5`}>
-      <div className="relative pl-6">
-        <div className="absolute left-[7px] top-2 bottom-2 w-0.5 bg-slate-200 rounded-sm" />
-        {completedTasks.map((task, i) => {
-          const def = taskList.find((t) => t.key === task.taskKey);
-          const isLatest = i === 0;
-          return (
-            <div key={task.taskKey} className="relative mb-4">
-              <div
-                className={`absolute -left-[18px] top-1 w-3 h-3 rounded-full border-2 ${
-                  isLatest
-                    ? "border-indigo-600 bg-indigo-600"
-                    : "border-slate-300 bg-white"
-                }`}
-              />
-              <div>
-                <p className={`text-[13px] font-medium ${isLatest ? "text-indigo-600" : "text-slate-900"}`}>
-                  {def?.label || task.taskKey}
-                </p>
-                {def?.description && (
-                  <p className={HINT}>{def.description}</p>
-                )}
-                <p className="text-[11px] text-slate-500">
-                  {formatDateTime(task.completedAt!)}
-                </p>
-              </div>
-            </div>
-          );
-        })}
+    <div className="space-y-4">
+      <div className={`${CARD} px-4 py-2.5 flex items-center gap-2`}>
+        <p className="m-0 min-w-0 flex-1 text-[13px] text-slate-700 tabular-nums">{statusLine}</p>
+        <CopyButton text={statusLine} what="status line" />
       </div>
+
+      {!customerView && (
+        <div className={`${CARD} px-4 py-2.5 text-[13px] text-slate-700 tabular-nums`}>
+          {taxDateParts(data.taxDate, rates).join(" · ")}
+          {/* Who set the date it goes by; an invoiced job goes by its invoice, not by that estimate. */}
+          {data.taxDate.recorded && (data.taxDate.actual || !data.taxDate.invoiced) && (
+            <>
+              {" · "}
+              <RecordedBy recorded={data.taxDate.recorded} />
+            </>
+          )}
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        {customerView ? <span className={HINT}>What can be told to the customer: no names, no internal marks.</span> : <PillTabs tabs={VIEWS} active={view} onChange={setView} />}
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-[13px] text-slate-700 cursor-pointer">
+            <Switch size="small" checked={customerView} onChange={setCustomerView} />
+            Customer view
+          </label>
+          {!customerView && (
+            <button type="button" onClick={() => setTelling("status")} className={`${BTN_GHOST} ${BTN_SM}`}>
+              Tell the customer
+            </button>
+          )}
+          {!customerView && data.mayChangeDetails && (
+            <button type="button" onClick={() => setLinking(true)} className={`${BTN_GHOST} ${BTN_SM}`}>
+              Customer link
+            </button>
+          )}
+          {!customerView && data.mayChangeDetails && data.recordable.length > 0 && (
+            <button type="button" onClick={() => setReading(true)} className={`${BTN_GHOST} ${BTN_SM}`}>
+              Read a notice
+            </button>
+          )}
+          {!customerView &&
+            (data.recordable.length > 0 ? (
+              <button type="button" onClick={() => setRecording(true)} className={`${BTN_PRIMARY} ${BTN_SM}`}>
+                Record an event
+              </button>
+            ) : (
+              <span className={HINT}>A road job&apos;s stamps are set in Trucking.</span>
+            ))}
+        </div>
+      </div>
+
+      {!customerView && view === "all" && <AttentionCard shipmentId={shipment.id} items={data.attention} mayRecord={mayRecord} onTell={setTelling} />}
+      {showTimeline && (
+        <TimelineCard shipment={shipment} milestones={data.milestones} actualsOnly={!customerView && view === "actuals"} customerView={customerView} onOpen={onOpen} onTellPod={() => setTelling("pod_sent")} />
+      )}
+      {!customerView && view === "all" && data.containerClocks.length > 0 && <FreeTimeCard shipment={shipment} clocks={data.containerClocks} mayChangeDetails={data.mayChangeDetails} onOpen={onOpen} />}
+      {!customerView && view === "all" && <EventsCard shipmentId={shipment.id} events={data.events} mayChangeDetails={data.mayChangeDetails} mayRecord={mayRecord} containers={(shipment.containers ?? []).map((c) => c.containerNumber).filter(Boolean)} />}
+      {!customerView && view === "all" && data.customerNotices.length > 0 && <CustomerNoticesCard notices={data.customerNotices} />}
+      {showChanges && <ChangesCard changes={data.changes} capped={data.changesCapped} />}
+      {!customerView && view === "all" && <ChecklistCard tradeDirection={shipment.tradeDirection} freightMode={shipment.freightMode ?? ""} ticks={data.ticks} />}
+      {recording && <RecordEventModal shipment={shipment} tracking={data} onClose={() => setRecording(false)} />}
+      {linking && <CustomerLinkModal shipment={shipment} onClose={() => setLinking(false)} />}
+      {reading && <ReadNoticeModal shipment={shipment} onClose={() => setReading(false)} />}
+      {telling && <TellCustomerModal shipment={shipment} tracking={data} initialKind={telling} onClose={() => setTelling(null)} />}
     </div>
   );
 }

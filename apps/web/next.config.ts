@@ -52,6 +52,11 @@ const nextConfig: NextConfig = {
         source: "/haulier/:path*",
         headers: [{ key: "Referrer-Policy", value: "no-referrer" }],
       },
+      {
+        // The customer's link carries its token in the address: no site opened from it learns it.
+        source: "/track/:path*",
+        headers: [{ key: "Referrer-Policy", value: "no-referrer" }],
+      },
     ];
   },
 };

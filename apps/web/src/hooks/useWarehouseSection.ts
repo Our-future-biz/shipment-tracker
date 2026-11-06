@@ -29,7 +29,11 @@ export function useWarehouseSection(shipmentId: string, section: string) {
   const mutation = useMutation({
     mutationFn: (data: unknown) =>
       api.warehouse.warehouseSectionUpsert(shipmentId, section, { data }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: key }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: key });
+      // Its License Plates are a column of the shipment grids.
+      if (section === "pickup") queryClient.invalidateQueries({ queryKey: ["shipments"] });
+    },
   });
 
   // Field-by-field save (Shipment Details): only the listed fields are written, each sent with
@@ -74,6 +78,8 @@ export function useWarehouseSection(shipmentId: string, section: string) {
   return {
     data: query.data?.section?.data ?? null,
     isLoading: query.isLoading,
+    /** The section could not be read: an empty `data` then says nothing about what it holds. */
+    isError: query.isError,
     save: mutation.mutateAsync,
     saveKeys: patch.mutateAsync,
     informOperations: inform.mutateAsync,

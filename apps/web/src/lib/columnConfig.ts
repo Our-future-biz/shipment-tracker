@@ -179,6 +179,7 @@ export const COLUMNS: ColumnDef[] = [
   { key: "customsPriority", title: "Customs Priority", width: 150, type: "dropdown", options: DROPDOWN_OPTIONS["Customs Priority"], apiField: "customsPriority", readonly: true },
   { key: "customsDeadline", title: "Customs Deadline", width: 160, type: "text", readonly: true, apiField: "customsDeadline" },
   { key: "status", title: "Shipment Status", width: 320, type: "dropdown", options: DROPDOWN_OPTIONS["Shipment Status"], apiField: "status" },
+  { key: "lastEvent", title: "Last Event", width: 240, type: "text", readonly: true, apiField: "lastEvent" },
   { key: "freeComments", title: "Free Comments", width: 200, type: "text", apiField: "freeComments" },
   { key: "freightPayableAt", title: "Freight Payable At", width: 160, type: "dropdown", options: DROPDOWN_OPTIONS["Freight Payable At"], apiField: "freightPayableAt" },
   { key: "freightMode", title: "Freight Mode", width: 130, type: "dropdown", options: DROPDOWN_OPTIONS["Freight Mode"], apiField: "freightMode" },
@@ -226,6 +227,8 @@ export const COLUMNS: ColumnDef[] = [
   { key: "warehouseReference", title: "Warehouse Reference", width: 160, type: "text", readonly: true, apiField: "warehouseReference" },
   { key: "warehouseTruck", title: "Truck Reference", width: 150, type: "text", readonly: true, apiField: "warehouseTruck" },
   { key: "plateNumber", title: "Plate Number", width: 140, type: "text", apiField: "plateNumber" },
+  // The Pick-up tab's rows (one or several plates): entered there, only shown here.
+  { key: "licensePlate", title: "License Plate", width: 150, type: "text", readonly: true, apiField: "licensePlate" },
   { key: "warehouseReleasedDate", title: "Warehouse Released", width: 150, type: "date", apiField: "warehouseReleasedDate" },
   { key: "plannedDeliveryDate", title: "Planned Delivery Date", width: 160, type: "date", apiField: "plannedDeliveryDate", timeField: "plannedDeliveryTime" },
   { key: "cargoOrigin", title: "Cargo Origin", width: 160, type: "country", apiField: "cargoOrigin" },
@@ -247,6 +250,8 @@ export const COLUMNS: ColumnDef[] = [
   // Written by the release action on the detail page, never edited by hand.
   { key: "houseBolRelease", title: "House BoL Release", width: 200, type: "text", readonly: true, apiField: "houseBolRelease" },
   { key: "customsProcedure", title: "Customs Procedure", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Customs Procedure"], apiField: "customsProcedure" },
+  // Picked beside a T1 in the shipment's cards (CustomsProcedureRow), from a long list; only shown here.
+  { key: "customsOffice", title: "Customs Office", width: 260, type: "text", readonly: true, apiField: "customsOffice" },
   { key: "mrn", title: "MRN Number", width: 150, type: "text", apiField: "mrn" },
   // Manual override of the Customs "received" ticks: "" (follow documents) | "yes" | "no".
   { key: "csRecvInvoice", title: "Invoice Received", width: 130, type: "text", apiField: "csRecvInvoice" },

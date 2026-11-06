@@ -136,3 +136,13 @@ export function normalizeCargoDimension<T extends CargoDimensionLine>(line: T, r
 export function normalizeCargoDimensions<T extends CargoDimensionLine>(lines: T[] | undefined): T[] | undefined {
   return lines?.map((line, i) => normalizeCargoDimension(line, i + 1));
 }
+
+/**
+ * Cargo lines saved with ADR details make the shipment Dangerous: `current` is what the write would
+ * otherwise leave. Only ever towards Yes: lines without ADR say nothing, as Dangerous can also be
+ * picked by hand for goods that have no ADR details. `lines` as normalizeCargoDimensions leaves them.
+ */
+export function dangerousFromAdr(lines: CargoDimensionLine[] | undefined, current: string | null | undefined): { dangerous?: string } {
+  const hasAdr = lines?.some((l) => l.adrUn || l.adrClass || l.adrPackingGroup || l.adrLimitedQuantity);
+  return hasAdr && current !== "Yes" ? { dangerous: "Yes" } : {};
+}

@@ -1,10 +1,11 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useContext, useRef, useState } from "react";
 import { AutoComplete } from "antd";
 import { PartyContactLink } from "./PartyContactLink";
 import { contactNamed, useCustomerContacts } from "@/hooks/useCustomerContacts";
 import { FadeText } from "@/components/FadeText";
+import { ShipmentDetailsEditableContext } from "./EditableCell";
 import { EMPTY, LABEL, ROW } from "./detailStyles";
 
 interface PartyContactFieldProps {
@@ -24,6 +25,8 @@ interface PartyContactFieldProps {
 // typed. Anything typed by hand is still kept — a contact that isn't in the CRM
 // is perfectly valid. A picked contact is kept by its id too, so it follows a rename.
 export function PartyContactField({ label, value, contactId, customerId, onChange }: PartyContactFieldProps) {
+  // Read-only (lib/shipmentEditRule): the contact is shown, and opened, but not changed.
+  const editable = useContext(ShipmentDetailsEditableContext);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const justSelected = useRef(false);
@@ -104,19 +107,19 @@ export function PartyContactField({ label, value, contactId, customerId, onChang
           // A contact of a linked party: a click opens the whole contact (role, e-mail, phone),
           // a double click anywhere on the row changes it, like on the party's own row.
           <div
-            className="flex items-center gap-1.5 cursor-pointer rounded px-1 -mx-1 hover:bg-slate-100 transition-colors"
-            onDoubleClick={startEdit}
+            className={`flex items-center gap-1.5 rounded px-1 -mx-1 transition-colors ${editable ? "cursor-pointer hover:bg-slate-100" : ""}`}
+            onDoubleClick={editable ? startEdit : undefined}
           >
-            <PartyContactLink name={value} contactId={contactId} customerId={customerId} onEdit={startEdit} />
+            <PartyContactLink name={value} contactId={contactId} customerId={customerId} onEdit={editable ? startEdit : undefined} />
           </div>
         ) : (
           <span
-            className="cursor-pointer rounded px-1 -mx-1 hover:bg-slate-100 transition-colors block"
-            title={value ? undefined : "Double-click to pick a saved contact"}
-            onDoubleClick={startEdit}
+            className={`rounded px-1 -mx-1 transition-colors block ${editable ? "cursor-pointer hover:bg-slate-100" : ""}`}
+            title={value || !editable ? undefined : "Double-click to pick a saved contact"}
+            onDoubleClick={editable ? startEdit : undefined}
           >
             {value ? (
-              <FadeText className="text-slate-900" title="Double-click to pick a saved contact">
+              <FadeText className="text-slate-900" title={editable ? "Double-click to pick a saved contact" : undefined}>
                 {value}
               </FadeText>
             ) : (

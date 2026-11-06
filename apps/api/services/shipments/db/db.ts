@@ -10,6 +10,12 @@ import * as shipmentClaimSchema from "../schemas/shipmentClaim.schema";
 import * as shipmentTaskSchema from "../schemas/shipmentTask.schema";
 import * as shipmentAttachmentSchema from "../schemas/shipmentAttachment.schema";
 import * as userPreferenceSchema from "../schemas/userPreference.schema";
+import * as customsOfficeRequestSchema from "../schemas/customsOfficeRequest.schema";
+import * as documentChangeRequestSchema from "../schemas/documentChangeRequest.schema";
+import * as shipmentTrackingEventSchema from "../schemas/shipmentTrackingEvent.schema";
+import * as shipmentCustomerNoticeSchema from "../schemas/shipmentCustomerNotice.schema";
+import * as shipmentCustomerLinkSchema from "../schemas/shipmentCustomerLink.schema";
+import * as shipmentTrackingReadSchema from "../schemas/shipmentTrackingRead.schema";
 
 export const DB = new SQLDatabase("shipments", {
   migrations: { path: "migrations", source: "drizzle" },
@@ -28,6 +34,12 @@ export const db = drizzle(pool, {
     ...shipmentTaskSchema,
     ...shipmentAttachmentSchema,
     ...userPreferenceSchema,
+    ...customsOfficeRequestSchema,
+    ...documentChangeRequestSchema,
+    ...shipmentTrackingEventSchema,
+    ...shipmentCustomerNoticeSchema,
+    ...shipmentCustomerLinkSchema,
+    ...shipmentTrackingReadSchema,
   },
 });
 

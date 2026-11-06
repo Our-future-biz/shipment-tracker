@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { ContainerOutlined, EnvironmentOutlined, InboxOutlined, SwapOutlined } from "@ant-design/icons";
+import { ContainerOutlined, EnvironmentOutlined, InboxOutlined, SwapOutlined, TruckOutlined } from "@ant-design/icons";
 import { PartyContactLink } from "@/app/shipments/[jobNumber]/_components/PartyContactLink";
 import { DetailCard } from "@/app/shipments/[jobNumber]/ShipmentDetailContent";
 import { type ShipmentItem } from "@/hooks/useShipments";
+import { useWarehouseSection } from "@/hooks/useWarehouseSection";
+import { truckingLines } from "./_lib/truckingLines";
 import { formatDate, formatDateTime } from "@/lib/date";
 import { loadTypeLabel } from "@/lib/enums";
 import { CUSTOMS_DOCUMENT_TYPES } from "@/lib/documentTypes";
@@ -75,8 +77,9 @@ function Tile({ label, value, note, tone }: { label: string; value: React.ReactN
 
 // The first column (what the line is) reads from the left; the figures after it are centred
 // under their headings, like the cargo table in the shipment.
-function LinesTable({ head, rows, empty }: { head: string[]; rows: string[][]; empty: string }) {
-  if (rows.length === 0) return <div className={`py-3 ${HINT}`}>{empty}</div>;
+// `failed`: the lines could not be read, and `empty` says so (in red) rather than that there are none.
+function LinesTable({ head, rows, empty, failed = false }: { head: string[]; rows: string[][]; empty: string; failed?: boolean }) {
+  if (rows.length === 0) return <div className={`py-3 ${HINT} ${failed ? "!text-red-600" : ""}`}>{empty}</div>;
   return (
     <div className="overflow-x-auto">
       <table className="w-full border-collapse">
@@ -167,6 +170,7 @@ export function CustomsShipmentInfo({ shipment }: { shipment: ShipmentItem }) {
     c.grossWeight,
     c.volume,
   ]);
+  const { data: pickup, isLoading: pickupLoading, isError: pickupFailed } = useWarehouseSection(shipment.id, "pickup");
 
   return (
     <>
@@ -226,6 +230,21 @@ export function CustomsShipmentInfo({ shipment }: { shipment: ShipmentItem }) {
         />
       </DetailCard>
       </div>
+      <DetailCard icon={<TruckOutlined />} title="Trucking" columns={[[]]} shipment={shipment} onCommit={noCommit}>
+        {/* Not read (yet), the Pick-up tab says nothing: no "no truck yet", no office line without its plate. */}
+        <LinesTable
+          head={["License Plate", "Haulier", "Customs Office"]}
+          rows={pickupLoading || pickupFailed ? [] : truckingLines(pickup, shipment.customsOffice)}
+          failed={pickupFailed}
+          empty={
+            pickupLoading
+              ? "Loading…"
+              : pickupFailed
+                ? "The trucks could not be loaded — try again later."
+                : "No truck yet — it is entered in the shipment's Warehouse tab, under Pick-up."
+          }
+        />
+      </DetailCard>
     </>
   );
 }

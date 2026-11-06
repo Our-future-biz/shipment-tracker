@@ -99,6 +99,13 @@
       "when": 1793783189619,
       "tag": "0013_payment_tracking",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1793997973885,
+      "tag": "0014_outbox_tracking_kinds",
+      "breakpoints": true
     }
   ]
 }

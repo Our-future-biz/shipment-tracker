@@ -10,7 +10,7 @@ import { PlusOutlined } from "@ant-design/icons";
 import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { SectionCard } from "@/components/SectionCard";
-import { CARD, EMPTY, LABEL_TEXT } from "@/styles/ui";
+import { CARD, EMPTY, EMPTY_STATE, LABEL_TEXT } from "@/styles/ui";
 import { SHIPMENT_WRITE_KEY, type ShipmentItem } from "@/hooks/useShipments";
 import { useIsMutating } from "@tanstack/react-query";
 import {
@@ -252,11 +252,17 @@ export function CargoDetailsTab({
   shipment,
   onChange,
   focusContainerId,
+  readOnly = false,
 }: {
   shipment: ShipmentItem;
   /** Saves a table; rejects when the server refuses it (the caller says why). */
   onChange: (data: { cargoItems?: CargoItemLine[]; cargoDimensions?: CargoDimensionLine[] }) => Promise<unknown>;
   focusContainerId?: string | null;
+  /**
+   * The user may not change the shipment's details (lib/shipmentEditRule): the lines are shown, with
+   * no Add, no row menu and no editing; the container tabs and Per piece / All pieces still switch.
+   */
+  readOnly?: boolean;
 }) {
   // Containers that made it to the server (they have ids cargo lines can point
   // at). A row still being typed in the Container tab gets its panel after its
@@ -383,8 +389,8 @@ export function CargoDetailsTab({
 
   // Both tables behave like the container rows: a filled row collapses to a read-only
   // line when focus leaves it, and a double-click opens it again. An empty row stays open.
-  const itemIsOpen = (idx: number) => openItems.isOpen(idx) || itemIsEmpty(items[idx] ?? ({} as CargoItemLine));
-  const dimIsOpen = (idx: number) => openDims.isOpen(idx) || dimIsEmpty(dims[idx] ?? ({} as CargoDimensionLine));
+  const itemIsOpen = (idx: number) => !readOnly && (openItems.isOpen(idx) || itemIsEmpty(items[idx] ?? ({} as CargoItemLine)));
+  const dimIsOpen = (idx: number) => !readOnly && (openDims.isOpen(idx) || dimIsEmpty(dims[idx] ?? ({} as CargoDimensionLine)));
 
   const patchItem = (idx: number, p: Partial<CargoItemLine>) => {
     // Typing keeps the row open, so it cannot collapse mid-word.
@@ -536,7 +542,14 @@ export function CargoDetailsTab({
 
   const panels = panelKeys.map(panelOf);
   const active = panels.find((p) => p.key === activeKey) ?? panels[0]!;
-  const { panelItems, panelDims, check, descCheck, hasDesc } = active;
+  const { check, descCheck, hasDesc } = active;
+  // Read-only, the empty line each table keeps to type into is not shown.
+  const panelItems = readOnly ? active.panelItems.filter(({ l }) => !itemIsEmpty(l)) : active.panelItems;
+  const panelDims = readOnly ? active.panelDims.filter(({ l }) => !dimIsEmpty(l)) : active.panelDims;
+  // A row's "⋯" (Copy, Delete), or the empty cell that keeps its column when read-only.
+  const rowMenu = (label: string, onCopy: () => void, onDelete: () => void) =>
+    readOnly ? <span /> : <RowActionsMenu label={label} onCopy={onCopy} onDelete={onDelete} />;
+  const noLines = (what: string) => (readOnly ? <div className={EMPTY_STATE}>No {what} lines yet.</div> : null);
 
   // A total under the column it sums, its unit beneath.
   const totalCell = (sum: number, unit: string, decimals: number) => (
@@ -582,7 +595,7 @@ export function CargoDetailsTab({
   // Add: a small filled "+" laid over the table header's right end, above the rows' "⋯" -
   // as in Container Details. Outside the scroll box so nothing clips it; the header keeps
   // its height. Each table has its own.
-  const addButton = (table: Table) => (
+  const addButton = (table: Table) => readOnly ? null : (
     <Tooltip title={table === "dims" ? "Add dimension" : "Add description"}>
       <Button
         size="small"
@@ -690,9 +703,9 @@ export function CargoDetailsTab({
                   return (
                     <div
                       key={rowKey(l)}
-                      className={`${DIM_BANDS} px-1 ${rowLine(i, panelDims.length)} text-[13px] text-slate-700 cursor-pointer hover:bg-slate-50/60`}
-                      onDoubleClick={() => openDims.open(idx)}
-                      title="Double-click to edit"
+                      className={`${DIM_BANDS} px-1 ${rowLine(i, panelDims.length)} text-[13px] text-slate-700 ${readOnly ? "" : "cursor-pointer hover:bg-slate-50/60"}`}
+                      onDoubleClick={readOnly ? undefined : () => openDims.open(idx)}
+                      title={readOnly ? undefined : "Double-click to edit"}
                     >
                       <span className="text-center tabular-nums font-medium text-slate-900">{l.pieces || DASH}</span>
                       <span className="text-center truncate">{l.packageType || DASH}</span>
@@ -726,7 +739,7 @@ export function CargoDetailsTab({
                       <span className="text-center text-amber-700 font-medium leading-snug break-words" title={adrSummary(l)}>
                         {hasAdr(l) ? adrSummary(l) : <span className={`${EMPTY} font-normal`}>—</span>}
                       </span>
-                      <RowActionsMenu label="Dimension line actions" onCopy={() => copyDim(idx)} onDelete={() => askDelete({ table: "dims", line: l })} />
+                      {rowMenu("Dimension line actions", () => copyDim(idx), () => askDelete({ table: "dims", line: l }))}
                     </div>
                   );
                 }
@@ -863,6 +876,7 @@ export function CargoDetailsTab({
                 );
               })}
 
+              {panelDims.length === 0 && noLines("dimension")}
               {/* Each figure sits under the column it sums - only without a container: with
                   one, the pills under the table already show these sums. */}
               {!check && (
@@ -916,9 +930,9 @@ export function CargoDetailsTab({
                 !itemIsOpen(idx) ? (
                   <div
                     key={rowKey(l)}
-                    className={`${DESC_CELLS} px-1 ${rowLine(i, panelItems.length)} text-[13px] text-slate-700 cursor-pointer hover:bg-slate-50/60`}
-                    onDoubleClick={() => openItems.open(idx)}
-                    title="Double-click to edit"
+                    className={`${DESC_CELLS} px-1 ${rowLine(i, panelItems.length)} text-[13px] text-slate-700 ${readOnly ? "" : "cursor-pointer hover:bg-slate-50/60"}`}
+                    onDoubleClick={readOnly ? undefined : () => openItems.open(idx)}
+                    title={readOnly ? undefined : "Double-click to edit"}
                   >
                     <span className="font-medium text-slate-900 truncate">{l.cargoDescription || DASH}</span>
                     <span className="tabular-nums text-center truncate">{l.hsCode || DASH}</span>
@@ -927,7 +941,7 @@ export function CargoDetailsTab({
                     <span className="text-center tabular-nums">{l.grossWeight || DASH}</span>
                     <span className="text-center tabular-nums">{l.commercialInvoiceValue || DASH}</span>
                     <span className="text-center truncate">{l.currency || DASH}</span>
-                    <RowActionsMenu label="Description line actions" onCopy={() => copyItem(idx)} onDelete={() => askDelete({ table: "items", line: l })} />
+                    {rowMenu("Description line actions", () => copyItem(idx), () => askDelete({ table: "items", line: l }))}
                   </div>
                 ) : (
                   <div
@@ -984,6 +998,7 @@ export function CargoDetailsTab({
                 ),
               )}
 
+              {panelItems.length === 0 && noLines("description")}
               {/* Each figure sits under the column it sums - only when no pills follow (no
                   container, or no description lines yet): the pills show these sums then. */}
               {!(descCheck && hasDesc) && (

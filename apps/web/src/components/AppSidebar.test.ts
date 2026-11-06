@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { navItemVisible, visibleNavItems } from "./AppSidebar";
+import { navItemVisible, navLabelOf, visibleNavItems } from "./AppSidebar";
 
 const labels = (role: string) => visibleNavItems({ role }).map((i) => i.label);
 
@@ -17,6 +17,25 @@ describe("the menu", () => {
     const concept = visibleNavItems({ role: "superadmin" }).find((i) => i.label === "Warehouse Concept");
     expect(concept?.path).toBe("/warehouse-concept");
     expect(concept?.children).toEqual([{ path: "/warehouse-concept/managers", label: "Managers" }]);
+  });
+
+  it("gives admins and managers the warehouse managers' page, and nobody else a second link to it", () => {
+    for (const role of ["admin", "manager"]) {
+      expect(visibleNavItems({ role }).find((i) => i.label === "Warehouse Managers")?.path).toBe("/warehouse-concept/managers");
+    }
+    for (const role of ["user", "superadmin"]) {
+      expect(visibleNavItems({ role }).map((i) => i.label)).not.toContain("Warehouse Managers");
+    }
+  });
+
+  it("names a page as the user's own menu does", () => {
+    for (const role of ["admin", "manager"]) expect(navLabelOf("/warehouse-concept/managers/", { role })).toBe("Warehouse Managers");
+    expect(navLabelOf("/warehouse-concept/managers/", { role: "superadmin" })).toBe("Managers");
+    expect(navLabelOf("/warehouse-concept/", { role: "superadmin" })).toBe("Warehouse Concept");
+    expect(navLabelOf("/shipments/", { role: "user" })).toBe("Shipments");
+    // A page the user's menu does not list still has its name.
+    expect(navLabelOf("/trucking/", { role: "user" })).toBe("Trucking Concept");
+    expect(navLabelOf("/nowhere/", null)).toBeNull();
   });
 
   it("shows Tariffs to everyone with its three sections, opening the first", () => {

@@ -380,6 +380,7 @@ export const truckingDocumentRepository = {
   }),
   list: vi.fn(async (_companyId: string, consignmentId: string) => store.documents.filter((d) => d.consignmentId === consignmentId && !d.deletedAt).map(copy)),
   find: vi.fn(async (_companyId: string, id: string) => copy(store.documents.find((d) => d.id === id && !d.deletedAt) ?? null)),
+  podOf: vi.fn(async (_companyId: string, consignmentId: string) => store.documents.find((d) => d.consignmentId === consignmentId && d.kind === "POD" && !d.deletedAt) ?? null),
   hasPod: vi.fn(async (_companyId: string, consignmentId: string) => store.documents.some((d) => d.consignmentId === consignmentId && d.kind === "POD" && !d.deletedAt)),
   withPod: vi.fn(async (_companyId: string, ids: string[]) => new Set(store.documents.filter((d) => ids.includes(d.consignmentId) && d.kind === "POD" && !d.deletedAt).map((d) => d.consignmentId))),
   lockPod: vi.fn(async () => undefined),

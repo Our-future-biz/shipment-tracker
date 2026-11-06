@@ -8,7 +8,8 @@ import { useToast } from "@/lib/toast";
 import { quoteHref } from "@/app/sales/_lib/quoteHref";
 import { ShipmentsTable } from "./ShipmentsTable";
 import { CreateShipmentWizard } from "./CreateShipmentWizard";
-import { MasterJobDialog } from "./MasterJobDialog";
+import { MasterJobDialog, linkEach, linkedCount } from "./MasterJobDialog";
+import { apiErrorMessage } from "@/lib/api";
 
 // Search/status live in the URL (?q= / ?status=), written by the table's toolbar and read
 // here to drive the server-side query — so filtering covers the whole company dataset
@@ -26,7 +27,7 @@ export const ShipmentsView = () => {
 
   // The search looks only in the columns the table shows.
   const [searchColumns, setSearchColumns] = useState<string[]>();
-  const { shipments, total, isLoading, createShipment, linkMasterJob, isCreating } =
+  const { shipments, total, isLoading, isError, createShipment, linkMasterJob, isCreating } =
     useShipments({ search, searchColumns, statusBucket, tile });
   const toast = useToast();
   const [createOpen, setCreateOpen] = useState(false);
@@ -58,14 +59,16 @@ export const ShipmentsView = () => {
     if (fromQuote) router.replace(quoteHref(fromQuote));
   };
 
+  // One request per shipment, each may be refused on its own (the details rule): the rest still link,
+  // and the toasts say how many did and why the others did not.
   const handleLinkMasterJob = async (shipmentIds: string[], mczNumber: string) => {
-    try {
-      await Promise.all(shipmentIds.map((id) => linkMasterJob({ shipmentId: id, mczNumber })));
-      toast.success(`Linked ${shipmentIds.length} shipment${shipmentIds.length === 1 ? "" : "s"} to ${mczNumber}`);
+    const { linked, failed, error } = await linkEach(shipmentIds, (id) => linkMasterJob({ shipmentId: id, mczNumber }));
+    if (linked > 0) toast.success(`Linked ${linkedCount(linked)} to ${mczNumber}`);
+    if (failed === 0) {
       setMasterJobOpen(false);
-    } catch {
-      toast.error("Failed to link to master job");
+      return;
     }
+    toast.error(`${linkedCount(failed)} not linked to ${mczNumber}: ${apiErrorMessage(error)}`);
   };
 
   return (
@@ -75,6 +78,7 @@ export const ShipmentsView = () => {
         shipments={shipments}
         cap={{ shown: shipments.length, total }}
         isLoading={isLoading}
+        isError={isError}
         onVisibleColumnsChange={setSearchColumns}
         onCreateClick={() => setCreateOpen(true)}
         onAddMasterJob={(ids) => {

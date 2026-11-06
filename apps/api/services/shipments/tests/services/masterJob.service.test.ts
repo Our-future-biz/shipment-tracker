@@ -12,13 +12,14 @@ vi.mock("../../repositories/masterJob.repository", () => ({
 vi.mock("../../repositories/masterJobContainer.repository", () => ({ masterJobContainerRepository: {} }));
 vi.mock("../../repositories/shipment.repository", () => ({ shipmentRepository: { findByMasterJobId: vi.fn() } }));
 vi.mock("../../repositories/container.repository", () => ({ containerRepository: {} }));
-vi.mock("../../services/shipment.service", () => ({ shipmentService: { update: vi.fn(), isInvoiced: vi.fn() } }));
+vi.mock("../../services/shipment.service", () => ({ shipmentService: { update: vi.fn(), isInvoiced: vi.fn(), mayChangeDetails: vi.fn() } }));
 
 import { customers } from "~encore/clients";
 import { APIError } from "../../../../lib/tests/encoreApi.stub";
 import { masterJobRepository } from "../../repositories/masterJob.repository";
 import { shipmentRepository } from "../../repositories/shipment.repository";
 import { masterJobService } from "../../services/masterJob.service";
+import { shipmentService } from "../../services/shipment.service";
 
 const repository = vi.mocked(masterJobRepository);
 const customerGet = vi.mocked(customers.customerGet);
@@ -77,5 +78,60 @@ describe("the MBL Shipper and Consignee", () => {
   it("are not looked up for a save that does not link them", async () => {
     await update({ vessel: "MSC Anna" });
     expect(customerGet).not.toHaveBeenCalled();
+  });
+});
+
+describe("a save that writes onto the houses", () => {
+  const house = (jobNumber: string, personInCharge: string) => ({ id: jobNumber, jobNumber, personInCharge, holidayCover: "" });
+  const user = { userID: USER, role: "user" };
+  const save = (data: Record<string, unknown>, editor?: { userID: string; role: string }) => masterJobService.update(JOB, COMPANY, data as never, USER, editor);
+
+  beforeEach(() => {
+    vi.mocked(shipmentRepository.findByMasterJobId).mockResolvedValue([house("CZ1", "a@x.cz"), house("CZ2", "b@x.cz")] as never);
+    vi.mocked(shipmentService.isInvoiced).mockResolvedValue(false);
+    // The editor is CZ1's Person in Charge only.
+    vi.mocked(shipmentService.mayChangeDetails).mockImplementation(async (h) => h.personInCharge === "a@x.cz");
+  });
+
+  it("is refused, naming the houses and writing nothing, unless the editor may change every one", async () => {
+    await expect(save({ pol: "Hamburg" }, user)).rejects.toMatchObject({ code: "permission_denied", message: expect.stringContaining("CZ2") });
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
+    expect(shipmentService.update).not.toHaveBeenCalled();
+  });
+
+  it("goes through for a manager, and for someone who may change every house", async () => {
+    await save({ pol: "Hamburg" }, { userID: USER, role: "manager" });
+    expect(shipmentService.update).toHaveBeenCalledTimes(2);
+    vi.mocked(shipmentService.mayChangeDetails).mockResolvedValue(true);
+    await save({ pol: "Bremen" }, user);
+    expect(shipmentService.update).toHaveBeenCalledTimes(4);
+  });
+
+  it("keeps the departments' own fields open, and a save not reaching the houses free", async () => {
+    await save({ etaWarehouse: "2026-11-20", warehouseReceivedDate: "2026-11-21" }, user);
+    // Equipment stays on the master job.
+    await save({ equipment: "40HC" }, user);
+    expect(shipmentService.mayChangeDetails).not.toHaveBeenCalled();
+  });
+
+  it("holds a date from a house's Tracking tab to every house too, writing nothing when one isn't the person's", async () => {
+    await expect(save({ actualArrival: "2026-11-20" }, user)).rejects.toMatchObject({ code: "permission_denied", message: expect.stringContaining("CZ2") });
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
+    expect(shipmentService.update).not.toHaveBeenCalled();
+  });
+
+  it("leaves the app's own writes, which name no editor, unchecked", async () => {
+    await save({ actualArrival: "2026-11-20" });
+    expect(shipmentService.mayChangeDetails).not.toHaveBeenCalled();
+    expect(shipmentService.update).toHaveBeenCalledTimes(2);
+  });
+
+  it("checks every house on its own, before a caller writes anything", async () => {
+    await expect(masterJobService.assertMayChangeEveryHouse(JOB, COMPANY, user)).rejects.toMatchObject({ code: "permission_denied", message: expect.stringContaining("CZ2") });
+    vi.mocked(shipmentRepository.findByMasterJobId).mockClear();
+    await expect(masterJobService.assertMayChangeEveryHouse(JOB, COMPANY, { userID: USER, role: "manager" })).resolves.toBeUndefined();
+    expect(shipmentRepository.findByMasterJobId).not.toHaveBeenCalled();
+    vi.mocked(shipmentService.mayChangeDetails).mockResolvedValue(true);
+    await expect(masterJobService.assertMayChangeEveryHouse(JOB, COMPANY, user)).resolves.toBeUndefined();
   });
 });

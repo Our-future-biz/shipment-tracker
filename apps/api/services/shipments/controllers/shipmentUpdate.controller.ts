@@ -151,6 +151,7 @@ interface ShipmentUpdateRequest {
   approvedBy?: string;
   bookingConfirmation?: string;
   customsProcedure?: string;
+  customsOffice?: string;
   /** "" counts as Standard. */
   customsPriority?: CustomsPriority | "";
   customsDeadline?: string;
@@ -216,6 +217,8 @@ export const shipmentUpdate = api(
   async (req: ShipmentUpdateRequest): Promise<ShipmentUpdateResponse> => {
     const { shipmentId, ...data } = req;
     const auth = getAuthData()!;
-    return { shipment: await shipmentService.update(shipmentId, auth.companyID, data, auth.userID) };
+    // A person's edit is held to what their role may change; the app's own updates are not (see AuthData.appWrite).
+    const role = auth.appWrite ? undefined : auth.role;
+    return { shipment: await shipmentService.update(shipmentId, auth.companyID, data, auth.userID, role) };
   },
 );

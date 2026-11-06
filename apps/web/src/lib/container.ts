@@ -22,6 +22,31 @@ export function isValidContainerNumber(raw?: string | null): boolean {
   return n === "" || /^[A-Z]{4}[0-9]{7}$/.test(n);
 }
 
+// ISO 6346 values of the owner code's letters: A is 10, and every multiple of 11 is skipped.
+const LETTER_VALUES = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").reduce<{ next: number; values: Record<string, number> }>(
+  (acc, letter) => {
+    if (acc.next % 11 === 0) acc.next += 1;
+    acc.values[letter] = acc.next;
+    acc.next += 1;
+    return acc;
+  },
+  { next: 10, values: {} },
+).values;
+
+/**
+ * Whether the last digit of a complete number is the one ISO 6346 works out from the rest: a typing
+ * mistake usually breaks it. Empty or unfinished numbers don't count as wrong: the shape check says those.
+ */
+export function containerCheckDigitOk(raw?: string | null): boolean {
+  const n = normalizeContainerNumber(raw);
+  if (!/^[A-Z]{4}[0-9]{7}$/.test(n)) return true;
+  const sum = n
+    .slice(0, 10)
+    .split("")
+    .reduce((total, ch, i) => total + (LETTER_VALUES[ch] ?? Number(ch)) * 2 ** i, 0);
+  return (sum % 11) % 10 === Number(n[10]);
+}
+
 // Pull every canonical container number out of a free-text value. A document may
 // list several and use spaces/hyphens, so we strip separators first, then extract
 // each 4-letter + 7-digit number. Falls back to the cleaned string when nothing

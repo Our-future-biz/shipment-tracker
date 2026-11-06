@@ -71,7 +71,7 @@ export function CustomsView() {
   const urgentOnly = searchParams.get("urgent") === "1";
   // The search looks only in the columns the table shows.
   const [searchColumns, setSearchColumns] = useState<string[]>();
-  const { shipments, total, isLoading, updateField } = useShipments({
+  const { shipments, total, isLoading, isError, updateField } = useShipments({
     search,
     searchColumns,
     customs: urgentOnly ? "urgent" : undefined,
@@ -172,6 +172,7 @@ export function CustomsView() {
             shipments={rows}
             cap={{ shown: shipments.length, total }}
             isLoading={isLoading}
+            isError={isError}
             onVisibleColumnsChange={setSearchColumns}
             toolbarLead={
               <CountToggleButton

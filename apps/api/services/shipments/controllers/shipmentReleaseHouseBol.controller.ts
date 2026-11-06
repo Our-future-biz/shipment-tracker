@@ -18,6 +18,7 @@ export const shipmentReleaseHouseBol = api(
   { expose: true, auth: true, method: "POST", path: "/shipments/:shipmentId/house-bol-release" },
   async (req: ReleaseHouseBolRequest): Promise<ReleaseHouseBolResponse> => {
     const auth = getAuthData()!;
+    await shipmentService.requireDetailsEditor(req.shipmentId, auth);
     return { shipment: await shipmentService.releaseHouseBol(req.shipmentId, auth.companyID, auth.userID) };
   },
 );

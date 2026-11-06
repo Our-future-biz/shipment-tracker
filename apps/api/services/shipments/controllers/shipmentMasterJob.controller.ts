@@ -19,6 +19,7 @@ export const shipmentLinkMasterJob = api(
   { expose: true, auth: true, method: "POST", path: "/shipments/:shipmentId/master-job" },
   async (req: LinkMasterJobRequest): Promise<LinkMasterJobResponse> => {
     const auth = getAuthData()!;
+    await shipmentService.requireDetailsEditor(req.shipmentId, auth);
     await masterJobService.attachShipment(req.shipmentId, auth.companyID, req.mczNumber, auth.userID);
     return { shipment: await shipmentService.get(req.shipmentId, auth.companyID) };
   },
@@ -35,8 +36,9 @@ interface UnlinkMasterJobResponse {
 export const shipmentUnlinkMasterJob = api(
   { expose: true, auth: true, method: "DELETE", path: "/shipments/:shipmentId/master-job" },
   async (req: UnlinkMasterJobRequest): Promise<UnlinkMasterJobResponse> => {
-    const companyId = getAuthData()!.companyID;
-    await masterJobService.detachShipment(req.shipmentId, companyId);
-    return { shipment: await shipmentService.get(req.shipmentId, companyId) };
+    const auth = getAuthData()!;
+    await shipmentService.requireDetailsEditor(req.shipmentId, auth);
+    await masterJobService.detachShipment(req.shipmentId, auth.companyID);
+    return { shipment: await shipmentService.get(req.shipmentId, auth.companyID) };
   },
 );

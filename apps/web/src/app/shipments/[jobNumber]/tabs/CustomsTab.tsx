@@ -1,5 +1,8 @@
 "use client";
 
+import { useDocumentChangeRequests } from "@/hooks/useDocumentChangeRequests";
+import { useCanManageDocuments } from "@/lib/auth/AuthContext";
+import { ChangeAfterApprovalModal, ChangeRequestNote } from "./ChangeAfterApprovalModal";
 import { Fragment, useMemo, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { DatePicker, Input, Modal, Select, TimePicker, Tooltip } from "antd";
@@ -100,7 +103,7 @@ const DOC_COLUMNS: { label: string; widthClass?: string }[] = [
   { label: "File" },
   { label: "Document type", widthClass: "w-[190px]" },
   { label: "Uploaded by", widthClass: "w-[170px]" },
-  { label: REVIEW_COLUMN, widthClass: "w-[250px]" },
+  { label: REVIEW_COLUMN, widthClass: "w-[300px]" },
   { label: "", widthClass: "w-[84px]" },
 ];
 
@@ -311,6 +314,10 @@ export function CustomsTab({
   const { attachments, refresh: refreshDocuments } = useShipmentAttachments(shipment.id);
 
   const [declining, setDeclining] = useState<string | null>(null);
+  // A regular user changes an approved document by a request for a manager's approval, with the new file.
+  const canManageDocuments = useCanManageDocuments();
+  const changeRequests = useDocumentChangeRequests(shipment.id, !!canReview && section !== "details");
+  const [changing, setChanging] = useState<{ id: string; fileName: string; documentType: string } | null>(null);
   const [note, setNote] = useState("");
 
   // Customs can only approve or decline — the document type itself is set in the
@@ -400,6 +407,14 @@ export function CustomsTab({
         customsDocsCardHtml() z mockupu: .docs2.cx > .card - in the app's card (CARD, CARD_BAR,
         CARD_TITLE), as every card of the shipment.
       */}
+      {changing && (
+        <ChangeAfterApprovalModal
+          document={changing}
+          saving={changeRequests.ask.isPending}
+          onSend={(attachmentId, file, reason) => changeRequests.ask.mutateAsync({ attachmentId, file, reason })}
+          onClose={() => setChanging(null)}
+        />
+      )}
       {section !== "details" && CUSTOMS_TAB_GROUPS.map((group, index) => {
         const inGroup = (d: { documentType: string }) => documentGroupOf(d.documentType) === group;
         const documents = attachments.filter(inGroup);
@@ -508,7 +523,21 @@ export function CustomsTab({
                                 <span className="flex h-8 items-center">
                                   <CustomsPill status={d.customsStatus} />
                                 </span>
-                                {canReview ? (
+                                {canReview && d.customsStatus === "approved" && !canManageDocuments ? (
+                                  // An approved document changes only with a manager's approval.
+                                  changeRequests.newestOf.get(d.id)?.status === "pending" ? (
+                                    <span />
+                                  ) : (
+                                    // A link, as under an approved document in the Documents tab.
+                                    <button
+                                      type="button"
+                                      onClick={() => setChanging(d)}
+                                      className={`${LINK} whitespace-nowrap text-[12px] font-medium cursor-pointer bg-transparent border-none p-0`}
+                                    >
+                                      Change after approval
+                                    </button>
+                                  )
+                                ) : canReview ? (
                                   <button
                                     onClick={() => review.mutate({ id: d.id, status: "" })}
                                     className={BTN}
@@ -527,6 +556,7 @@ export function CustomsTab({
                                     <span className="flex-none">&nbsp;· {formatDateTime(d.customsReviewedAt)}</span>
                                   </small>
                                 )}
+                                {canReview && d.customsStatus === "approved" && <ChangeRequestNote request={changeRequests.newestOf.get(d.id)} canAnswer={canManageDocuments} />}
                               </>
                             ) : !canReview ? (
                               <span className="col-span-2 flex h-8 items-center">

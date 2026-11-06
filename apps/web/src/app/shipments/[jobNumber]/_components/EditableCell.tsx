@@ -1,10 +1,12 @@
 "use client";
 
 import { createContext, useContext, useState, useRef } from "react";
+import Link from "next/link";
 import { EditableLink } from "@/components/EditableLink";
-import { Input, Select, DatePicker } from "antd";
+import { ConfigProvider, Input, Select, DatePicker } from "antd";
 import type { InputRef } from "antd";
 import dayjs from "dayjs";
+import { DEPARTMENT_FIELDS } from "@/lib/shipmentEditRule";
 import { COLUMN_MAP, geoKindOf, getFilteredStatusOptions, splitDateTime } from "@/lib/columnConfig";
 import { GeoFlag, GeoSelect } from "@/components/GeoSelect";
 import { FadeText } from "@/components/FadeText";
@@ -40,6 +42,13 @@ function shownDate(value: string): string {
 }
 
 /**
+ * Whether the user may change the details of the shipment around these cells (lib/shipmentEditRule).
+ * Provided by the shipment page and per row by a grid. The departments' own fields stay editable
+ * either way; a locked cell shows its value just as an open one does, with nothing to edit.
+ */
+export const ShipmentDetailsEditableContext = createContext(true);
+
+/**
  * The Trade Direction of the shipment a page shows. A Shipment Status cell inside it offers
  * only that direction's statuses (see getFilteredStatusOptions); without it, all of them.
  */
@@ -71,6 +80,9 @@ export const ShipmentCustomerContext = createContext<string | null | undefined>(
 /** The id of the contact the Customer's PIC of the shipment a page shows is; a grid passes it per row. */
 export const ShipmentCustomerPicContext = createContext<string | null | undefined>(undefined);
 
+/** The subject of an email to the Customer's PIC of the shipment a page shows; a grid passes it per row. */
+export const ShipmentEmailSubjectContext = createContext<string | undefined>(undefined);
+
 interface EditableCellProps {
   /** columnConfig key (e.g. "shippingLine") — decides text vs dropdown. */
   fieldKey: string;
@@ -95,9 +107,23 @@ interface EditableCellProps {
   customerId?: string | null;
   /** The stored contact's id, for a contact column; defaults to ShipmentCustomerPicContext. */
   contactId?: string | null;
+  /** The subject of an email to the stored contact; defaults to ShipmentEmailSubjectContext. */
+  emailSubject?: string;
 }
 
-export function EditableCell({
+export function EditableCell(props: EditableCellProps) {
+  const editable = useContext(ShipmentDetailsEditableContext);
+  if (editable) return <EditableCellBody {...props} />;
+  if (!DEPARTMENT_FIELDS.has(props.fieldKey)) return <EditableCellBody {...props} locked />;
+  // A department's own field inside a read-only card: its picker isn't disabled with the card's.
+  return (
+    <ConfigProvider componentDisabled={false}>
+      <EditableCellBody {...props} />
+    </ConfigProvider>
+  );
+}
+
+function EditableCellBody({
   fieldKey,
   value,
   onCommit,
@@ -110,7 +136,9 @@ export function EditableCell({
   options: allowedOptions,
   customerId: customerIdProp,
   contactId: contactIdProp,
-}: EditableCellProps) {
+  emailSubject: emailSubjectProp,
+  locked = false,
+}: EditableCellProps & { locked?: boolean }) {
   const [editing, setEditing] = useState(false);
   // A contact cell stays open while its Add contact dialog is (the dialog takes the focus).
   const [addingContact, setAddingContact] = useState(false);
@@ -132,6 +160,8 @@ export function EditableCell({
   const customerId = customerIdProp !== undefined ? customerIdProp : contextCustomerId;
   const contextContactId = useContext(ShipmentCustomerPicContext);
   const contactId = (contactIdProp !== undefined ? contactIdProp : contextContactId) ?? null;
+  const contextEmailSubject = useContext(ShipmentEmailSubjectContext);
+  const emailSubject = emailSubjectProp ?? contextEmailSubject;
   // Places and countries are picked from the location database.
   const geoKind = geoKindOf(col);
   const tradeDirection = useContext(TradeDirectionContext);
@@ -149,6 +179,7 @@ export function EditableCell({
     statusLabels ? statusLabel(o) : fieldKey === "loadType" ? loadTypeLabel(o, freightMode) : o;
 
   const startEditing = () => {
+    if (locked) return;
     cancelledRef.current = false;
     setDraft(original);
     setEditing(true);
@@ -182,9 +213,10 @@ export function EditableCell({
     const textStyle = hasValue ? displayStyle : undefined;
     return (
       <span
-        className={`${className ?? ""} cursor-pointer rounded px-1 -mx-1 hover:bg-slate-100 transition-colors ${multiline ? "block" : "flex items-center"}`}
-        title={hasValue ? undefined : "Double-click to edit"}
-        onDoubleClick={startEditing}
+        // Locked, it reads as a plain value: no pointer, no hover and no hint to edit it.
+        className={`${className ?? ""} ${locked ? "" : "cursor-pointer hover:bg-slate-100"} rounded px-1 -mx-1 transition-colors ${multiline ? "block" : "flex items-center"}`}
+        title={hasValue || locked ? undefined : "Double-click to edit"}
+        onDoubleClick={locked ? undefined : startEditing}
       >
         {multiline ? (
           // Address blocks keep their lines.
@@ -197,26 +229,33 @@ export function EditableCell({
           // It is also a link to the contact in the Customer Database: a click opens it, a
           // double click changes the contact (as on every other cell).
           isContact && hasValue && customerId ? (
-            <ContactHoverCard name={original} contactId={contactId} customerId={customerId}>
-              <EditableLink
-                href={customerContactHref(customerId, original, contactId)}
-                onEdit={startEditing}
-                // The app's link (LINK in styles/ui.ts) without its "!" colour, so a conditional
-                // format's colour (textStyle) still wins.
-                className="block min-w-0 text-indigo-600 hover:!underline"
-                style={textStyle}
-              >
-                <FadeText>{shown}</FadeText>
-              </EditableLink>
+            <ContactHoverCard name={original} contactId={contactId} customerId={customerId} emailSubject={emailSubject}>
+              {locked ? (
+                // Nothing to edit: the link opens at once, with no wait for a second click.
+                <Link href={customerContactHref(customerId, original, contactId)} className="block min-w-0 text-indigo-600 hover:!underline" style={textStyle}>
+                  <FadeText>{shown}</FadeText>
+                </Link>
+              ) : (
+                <EditableLink
+                  href={customerContactHref(customerId, original, contactId)}
+                  onEdit={startEditing}
+                  // The app's link (LINK in styles/ui.ts) without its "!" colour, so a conditional
+                  // format's colour (textStyle) still wins.
+                  className="block min-w-0 text-indigo-600 hover:!underline"
+                  style={textStyle}
+                >
+                  <FadeText>{shown}</FadeText>
+                </EditableLink>
+              )}
             </ContactHoverCard>
           ) : (
-            <FadeText className={textClass} style={textStyle} title="Double-click to edit">
+            <FadeText className={textClass} style={textStyle} title={locked ? undefined : "Double-click to edit"}>
               {shown}
             </FadeText>
           )
         )}
         {geoKind && <GeoFlag kind={geoKind} value={original} />}
-        {isUser && hasValue && <UnlinkedPersonMark value={original} hint="double-click to pick one" />}
+        {isUser && hasValue && <UnlinkedPersonMark value={original} hint={locked ? "only its Person in Charge, Holiday Cover or a manager can pick one" : "double-click to pick one"} />}
       </span>
     );
   }

@@ -14,6 +14,9 @@ import type { TruckingOutboxPayload } from "../lib/outboxPayload";
  *  - expect_arrival / expect_departure: an LTL trip announced to our warehouse (lib/warehouseLink)
  *  - cancel_expected: that announcement withdrawn (the job left the trip, or the trip was cancelled)
  *  - real_costs: an approved haulier invoice's real cost on the job's Trucking buying rows (by sourceRef in invoicing)
+ *  - pod: the POD file and its stamp handed to the job's Documents and timeline
+ *  - delivery_advice: the avizace given, for the job's timeline
+ *  - stamp: the haulier's confirmation or the pick-up, for the job's timeline
  */
 export type TruckingOutboxKind =
   | "planned"
@@ -24,7 +27,10 @@ export type TruckingOutboxKind =
   | "expect_arrival"
   | "expect_departure"
   | "cancel_expected"
-  | "real_costs";
+  | "real_costs"
+  | "pod"
+  | "delivery_advice"
+  | "stamp";
 export type { OutboxStatus } from "../../../lib/outbox/outbox.columns";
 
 // One update owed to the consignment's job (Shipments) or its Costs Breakdown (Invoicing). It is
@@ -50,7 +56,7 @@ export const truckingOutboxTable = pgTable(
     index("trucking_outbox_due_idx").on(table.nextAttemptAt).where(sql`status = 'pending'`),
     index("trucking_outbox_shipment_idx").on(table.shipmentId, table.createdAt).where(sql`status = 'pending'`),
     index("trucking_outbox_consignment_idx").on(table.consignmentId),
-    check("trucking_outbox_kind_check", sql`${table.kind} IN ('planned', 'plate', 'delivered', 'billing', 'costs', 'expect_arrival', 'expect_departure', 'cancel_expected', 'real_costs')`),
+    check("trucking_outbox_kind_check", sql`${table.kind} IN ('planned', 'plate', 'delivered', 'billing', 'costs', 'expect_arrival', 'expect_departure', 'cancel_expected', 'real_costs', 'pod', 'delivery_advice', 'stamp')`),
     outboxStatusCheck("trucking_outbox_status_check", table),
   ],
 );

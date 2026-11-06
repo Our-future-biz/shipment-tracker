@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
+import { isUuid } from "../../../lib/uuid";
 import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
 import type { Actor } from "../../../lib/rbac";
+import { chatDeleteRefusal, chatStrikeRefusal } from "../../../lib/chatRule";
 import { revisionRoot } from "../../../lib/salesReference";
 import type { FileContent } from "../../../lib/fileContent";
 import { quoteCommentRepository } from "../repositories/quoteComment.repository";
@@ -93,10 +95,27 @@ class QuoteChatService {
     return toItem(comment, files, null, emails, actor.userID);
   }
 
-  // Only the author deletes a message; its files go with it.
-  async delete(actor: Actor, quoteNumber: string, commentId: string): Promise<void> {
+  private async line(actor: Actor, quoteNumber: string, commentId: string): Promise<QuoteCommentRecord> {
     const { threadRef } = await this.thread(actor, quoteNumber);
-    if (!(await quoteCommentRepository.deleteOwn(actor.companyID, threadRef, commentId, actor.userID))) throw APIError.notFound("Message not found");
+    const comment = isUuid(commentId) ? await quoteCommentRepository.getByIdForCompany(commentId, actor.companyID) : null;
+    if (comment?.threadRef !== threadRef) throw APIError.notFound("Message not found");
+    return comment;
+  }
+
+  // Who may delete is lib/chatRule; a message's files go with it.
+  async delete(actor: Actor, quoteNumber: string, commentId: string): Promise<void> {
+    const comment = await this.line(actor, quoteNumber, commentId);
+    const refusal = chatDeleteRefusal(comment, actor.userID, actor.role);
+    if (refusal) throw APIError.permissionDenied(refusal);
+    if (!(await quoteCommentRepository.deleteWithFiles(actor.companyID, comment.threadRef, commentId))) throw APIError.notFound("Message not found");
+  }
+
+  // The writer crosses out their own message: it stays in the chat, struck through, for good.
+  async strike(actor: Actor, quoteNumber: string, commentId: string): Promise<void> {
+    const comment = await this.line(actor, quoteNumber, commentId);
+    const refusal = chatStrikeRefusal(comment, actor.userID);
+    if (refusal) throw APIError.permissionDenied(refusal);
+    if (!comment.struckAt) await quoteCommentRepository.updateForCompany(commentId, actor.companyID, { struckAt: new Date() });
   }
 
   // Opening the chat (and anything arriving while it is open) counts as read.
@@ -151,6 +170,7 @@ function toItem(c: QuoteCommentRecord, files: ChatFile[], othersReadAt: Date | n
       .filter((f) => f.commentId === c.id)
       .map(({ id, fileName, fileSize, fileType }) => ({ id, fileName, fileSize, fileType, contentUrl: chatFileUrl(id, c.companyId) })),
     readByOthers: c.authorId === userId && !!othersReadAt && othersReadAt >= c.createdAt,
+    struckAt: c.struckAt?.toISOString() ?? null,
   };
 }
 

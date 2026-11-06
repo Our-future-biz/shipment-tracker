@@ -1,5 +1,6 @@
 "use client";
 
+import { useCanManageDocuments } from "@/lib/auth/AuthContext";
 import { useRef, useState } from "react";
 import { Button, Input, Modal, Tooltip, message } from "antd";
 import { DeleteOutlined, DownloadOutlined, EyeOutlined, PlusOutlined, SearchOutlined } from "@ant-design/icons";
@@ -15,6 +16,8 @@ import { HINT, ICON_BTN_GHOST } from "@/styles/ui";
 // The full page with the required-document checklist lives in the Documents tab.
 
 export function DocumentsPanel({ shipmentId }: { shipmentId: string }) {
+  // Anyone can add a document; only a manager, an admin or a superadmin can delete one.
+  const canManageDocuments = useCanManageDocuments();
   const [messageApi, contextHolder] = message.useMessage();
   const [search, setSearch] = useState("");
   const [dragOver, setDragOver] = useState(false);
@@ -154,6 +157,7 @@ export function DocumentsPanel({ shipmentId }: { shipmentId: string }) {
                 <DownloadOutlined />
               </a>
             </Tooltip>
+            {canManageDocuments && (
             <Tooltip title="Delete">
               <button
                 type="button"
@@ -164,6 +168,7 @@ export function DocumentsPanel({ shipmentId }: { shipmentId: string }) {
                 <DeleteOutlined />
               </button>
             </Tooltip>
+            )}
           </div>
         ))}
       </div>

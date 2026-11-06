@@ -15,6 +15,12 @@ export interface AuthData {
   role: string;
   /** The user's own company, where a superadmin working as another company still belongs; unset on service calls. */
   homeCompanyID?: string;
+  /**
+   * Set only by the app's own service-to-service calls: this update is something the app does
+   * (a gate stamp, a trucking date, an issued invoice's status) on behalf of the user who caused
+   * it, not that user's own edit. The auth handler never sets it, so no browser request can.
+   */
+  appWrite?: boolean;
 }
 
 export const auth = authHandler(async (params: AuthParams): Promise<AuthData> => {
