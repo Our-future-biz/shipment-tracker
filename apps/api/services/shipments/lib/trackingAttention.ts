@@ -8,7 +8,7 @@ import { workingDaysAfter } from "../../../lib/workingDays";
 import type { TrackingAttentionFlag } from "../interfaces/interfaces";
 import { toldDifferences } from "./customerNotice";
 import type { DetentionClock } from "./detentionClock";
-import { TRACKING_KINDS, SOURCE_LABELS, isRoadJob, isTrackingKind, type TrackingSource } from "./trackingEvents";
+import { TRACKING_KINDS, SOURCE_LABELS, isTrackingKind, isTruckingJob, type TrackingSource } from "./trackingEvents";
 import {
   ARRIVAL_LATE_AFTER_DAYS,
   EXPORT_DEPARTURE_LATE_AFTER_DAYS,
@@ -61,7 +61,7 @@ export function attentionFlags(s: AttentionShipment, facts: AttentionFacts, toda
   const add = (kind: TrackingAttentionFlag["kind"], severity: TrackingAttentionFlag["severity"], area: TrackingAttentionFlag["area"], label: string, detail: string) =>
     flags.push({ kind, severity, area, label, detail });
 
-  const road = isRoadJob(s);
+  const trucking = isTruckingJob(s);
   const isExport = s.tradeDirection.trim().toLowerCase() === "export";
 
   for (const p of facts.proposed) {
@@ -70,7 +70,7 @@ export function attentionFlags(s: AttentionShipment, facts: AttentionFacts, toda
     add("to_confirm", "urgent", "tracking", "Date to confirm", [`${what} ${czDay(p.effectValue ?? p.occurredOn)}`, source].filter(Boolean).join(" · "));
   }
 
-  if (!road) {
+  if (!trucking) {
     if (s.estimatedArrival && !s.actualArrival && !(isExport && s.actualDeliveryDate) && s.estimatedArrival <= addDays(today, -ARRIVAL_LATE_AFTER_DAYS)) {
       add("eta_passed", "urgent", "tracking", "ETA passed, no ATA", `ETA ${czDay(s.estimatedArrival)}, ${daysBetween(s.estimatedArrival, today)} days ago`);
     }
@@ -103,7 +103,7 @@ export function attentionFlags(s: AttentionShipment, facts: AttentionFacts, toda
       add("not_released", "attention", "finance", "Not released for billing", `${isExport ? "ATD" : "ATA"} ${czDay(taxDay)}`);
     }
   }
-  if (!road && s.actualDeliveryDate && !isReleased(s.status)) {
+  if (!trucking && s.actualDeliveryDate && !isReleased(s.status)) {
     add("delivered_not_billed", "attention", "finance", "Delivered, not billed", `Delivered ${czDay(s.actualDeliveryDate)}`);
   }
 

@@ -125,16 +125,23 @@ export interface LastFreeDayChange {
   containerNumbers: string[];
 }
 
-/** The last free day a notice states, for the boxes it names, or every box of the job when it names none of them. */
+/**
+ * The last free day a notice states, for the boxes it names, or every box of the job when it names
+ * no container at all. A notice naming only other boxes says nothing of this job's.
+ */
 export function lastFreeDayChangeOf(extracted: Record<string, string>, containers: readonly { id: string; containerNumber: string; lastFreeDay?: string | null }[]): LastFreeDayChange | null {
   const day = (extracted["Last Free Day"] ?? "").trim().slice(0, 10);
   if (!isRealYmd(day) || containers.length === 0) return null;
   const named = new Set(containersIn(extracted["Container Numbers"]));
-  const ofNotice = containers.filter((c) => named.has(c.containerNumber));
-  const boxes = (ofNotice.length > 0 ? ofNotice : containers).filter((c) => c.lastFreeDay !== day);
+  const boxes = (named.size > 0 ? containers.filter((c) => named.has(c.containerNumber)) : containers).filter((c) => c.lastFreeDay !== day);
   if (boxes.length === 0) return null;
   return { day, containerIds: boxes.map((c) => c.id), containerNumbers: boxes.map((c) => c.containerNumber) };
 }
 
-/** The id a kept fact goes by: reading the same document again adds nothing. */
-export const readingExternalId = (fact: { kind: string; occurredOn: string; note: string }) => `document:${fact.kind}:${fact.occurredOn}:${fact.note}`;
+// What a notice says with no day of its own (a customs hold, available from, the last free day) is
+// dated by the day it is read, so that day is no part of what it is.
+const UNDATED_KINDS: ReadonlySet<string> = new Set<TrackingKind>(["hold", "note"]);
+
+/** The id a kept fact goes by: reading the same document again, on any day, adds nothing. */
+export const readingExternalId = (fact: { kind: string; occurredOn: string; note: string }) =>
+  UNDATED_KINDS.has(fact.kind) ? `document:${fact.kind}:${fact.note}` : `document:${fact.kind}:${fact.occurredOn}:${fact.note}`;

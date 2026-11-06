@@ -45,7 +45,7 @@ import { hashToken } from "../lib/haulierToken";
 import type { HaulierDetail } from "../interfaces/interfaces";
 import type { TruckingConsignmentRecord } from "../schemas/truckingConsignment.schema";
 import type { TransportOrderDoc } from "../lib/documentTypes";
-import { COMPANY, CUSTOMER, HAULIER, SHIPMENT, TX, eventsOf, load, manager, resetStore, stop, store, user } from "./truckingFakes";
+import { COMPANY, CUSTOMER, HAULIER, SHIPMENT, TX, eventsOf, load, manager, outboxOf, resetStore, stop, store, user } from "./truckingFakes";
 
 const PIN = "482913";
 
@@ -267,6 +267,8 @@ describe("transport order: send and confirm", () => {
     const t = await transportOrderService.confirm(user, trip.id, "Called dispatcher");
     expect(t).toMatchObject({ status: "CONFIRMED", transportOrder: { confirmedVia: "USER" } });
     expect(store.consignments.find((x) => x.id === c.id)).toMatchObject({ status: "CONFIRMED", confirmedBy: "Jana Nováková" });
+    // The job's timeline hears of it, as it does of a stamp or the haulier's own answer.
+    expect(outboxOf("stamp")).toEqual([expect.objectContaining({ consignmentId: c.id, payload: { stamp: "confirmed", at: expect.any(String) } })]);
     await expect(transportOrderService.confirm(user, trip.id, "")).rejects.toMatchObject({ code: "already_exists" });
   });
 });

@@ -11,11 +11,13 @@ import {
   EXCEPTIONS_CLOSED_BY,
   TICK_EVENTS,
   TRACKING_KINDS,
+  TRUCKING_STAMP_KINDS,
   effectChanges,
   effectOf,
   isDepartmentKind,
   isExceptionKind,
   isTrackingKind,
+  isTruckingJob,
   lastEventOf,
   recordRefusal,
   type TrackingKind,
@@ -38,7 +40,7 @@ import type { ShipmentRecord } from "../schemas/shipment.schema";
 import type { ShipmentTrackingEventRecord } from "../schemas/shipmentTrackingEvent.schema";
 import { attachmentService } from "./attachment.service";
 import { commentService } from "./comment.service";
-import { masterJobService } from "./masterJob.service";
+import { masterJobService, type MasterJobEditor } from "./masterJob.service";
 import { shipmentService, type ShipmentUpdateData } from "./shipment.service";
 
 /** How many logged changes the tab reads, newest first. */
@@ -106,8 +108,8 @@ export interface RecordEventInput {
   taskKey?: string;
 }
 
-/** An event the app stored from a date alone, with nothing added by anyone yet. */
-const isBareFact = (e: ShipmentTrackingEventRecord) => !e.note && !e.place && !e.containerNumber && !e.occurredAt;
+/** An event the app stored from a date alone, with nothing added by anyone yet: no source's own. */
+const isBareFact = (e: ShipmentTrackingEventRecord) => !e.note && !e.place && !e.containerNumber && !e.occurredAt && !e.externalId;
 
 class TrackingService {
   /** The shipment's Tracking tab: read from what it already holds. */
@@ -173,10 +175,16 @@ class TrackingService {
       effectField: effect.field,
       effectValue: effect.value,
     };
-    // The write above stored the bare fact: this is the same fact with its details.
-    const same = effect.mode === "apply" ? await shipmentTrackingEventRepository.findSameDay(shipmentId, companyId, kind, input.occurredOn) : null;
+    // The write above stored the bare fact: this is the same fact with its details. The app dates a
+    // customs clearance by the day it was written, so that fact takes the day the person gives.
+    const same =
+      effect.mode !== "apply"
+        ? null
+        : effect.field === "customsStatus"
+          ? await shipmentTrackingEventRepository.latestOfKind(shipmentId, companyId, kind)
+          : await shipmentTrackingEventRepository.findSameDay(shipmentId, companyId, kind, input.occurredOn);
     const row =
-      (same && isBareFact(same) ? await shipmentTrackingEventRepository.change(same.id, companyId, details) : null) ??
+      (same && isBareFact(same) ? await shipmentTrackingEventRepository.change(same.id, companyId, { ...details, occurredOn: input.occurredOn }) : null) ??
       (await shipmentTrackingEventRepository.add({ ...details, companyId, shipmentId, kind, occurredOn: input.occurredOn }));
 
     const closes = EXCEPTIONS_CLOSED_BY[kind];
@@ -206,7 +214,9 @@ class TrackingService {
 
   /**
    * Keeps what a person chose of a read document: a source like any other, so ATA and ATD wait as
-   * proposals and the rest goes by the rule. Reading the same document again adds nothing.
+   * proposals and the rest goes by the rule. Reading the same document again adds nothing. All of
+   * it is checked before anything is written (the writes go through the normal updates, each in
+   * its own turn, so they can't share one transaction).
    */
   async keepReading(shipmentId: string, actor: TrackingActor, { facts, file, vesselChange, lastFreeDay }: KeptReading, now = new Date()): Promise<void> {
     const companyId = actor.companyID;
@@ -218,16 +228,27 @@ class TrackingService {
       const refusal = recordRefusal({ kind: fact.kind, occurredOn: fact.occurredOn, note: fact.note ?? "" }, shipment, today);
       if (refusal) throw APIError.invalidArgument(refusal);
     }
+    if (lastFreeDay) {
+      if (!isRealYmd(lastFreeDay.day)) throw APIError.invalidArgument("The last free day must be a day as YYYY-MM-DD");
+      if (!clockApplies(shipment)) throw APIError.failedPrecondition("Only an import by sea or rail runs a free time clock");
+    }
+    const freeTimeBoxes = lastFreeDay ? await this.chosenBoxes(shipmentId, companyId, lastFreeDay.containerIds) : [];
+    const effects = facts.map((fact) => documentEffect(fact.kind as TrackingKind, shipment, fact.occurredOn));
     // Vessel and voyage are a source's to set only while the actual departure is empty (D3).
-    if (vesselChange && !shipment.actualDeparture) {
-      if (shipment.masterJobId) await masterJobService.update(shipment.masterJobId, companyId, { ...vesselChange }, actor.userID);
+    const setsVessel = !!vesselChange && !shipment.actualDeparture;
+    // What goes on the master job goes on every house: held to all of their rules before anything is written.
+    const onMaster = setsVessel || effects.some((e) => e.mode === "apply" && effectChanges(e, shipment) && SYNCED_WITH_MASTER.has(e.field));
+    if (shipment.masterJobId && onMaster) await masterJobService.assertMayChangeEveryHouse(shipment.masterJobId, companyId, this.editorOf(actor));
+
+    if (setsVessel) {
+      if (shipment.masterJobId) await masterJobService.update(shipment.masterJobId, companyId, { ...vesselChange }, actor.userID, this.editorOf(actor));
       else await shipmentService.update(shipmentId, companyId, { ...vesselChange }, actor.userID, actor.role);
     }
-    if (lastFreeDay) await this.writeFreeTime(shipmentId, actor, lastFreeDay.containerIds, { lastFreeDay: lastFreeDay.day });
-    for (const fact of facts) {
+    if (lastFreeDay) await this.writeFreeTime(shipmentId, actor, freeTimeBoxes, { lastFreeDay: lastFreeDay.day });
+    for (const [i, fact] of facts.entries()) {
       const kind = fact.kind as TrackingKind;
       const note = (fact.note ?? "").trim();
-      const effect = documentEffect(kind, shipment, fact.occurredOn);
+      const effect = effects[i]!;
       if (effect.mode === "apply" && effectChanges(effect, shipment)) await this.applyField(shipment, effect.field, effect.value, actor);
       const details = {
         place: (fact.place ?? "").trim(),
@@ -261,18 +282,24 @@ class TrackingService {
     if (freeTimeDays !== null && (!Number.isInteger(freeTimeDays) || freeTimeDays < 0 || freeTimeDays > 365)) throw APIError.invalidArgument("Free days must be a whole number from 0 to 365");
     if (!(FREE_TIME_FROM as readonly string[]).includes(freeTimeFrom)) throw APIError.invalidArgument("Free time counts from discharge or from leaving the terminal");
     if (lastFreeDay !== null && !isRealYmd(lastFreeDay)) throw APIError.invalidArgument("The last free day must be a day as YYYY-MM-DD");
-    await this.writeFreeTime(shipmentId, actor, input.containerIds, { freeTimeDays, freeTimeFrom, lastFreeDay });
+    const boxes = await this.chosenBoxes(shipmentId, actor.companyID, input.containerIds);
+    await this.writeFreeTime(shipmentId, actor, boxes, { freeTimeDays, freeTimeFrom, lastFreeDay });
   }
 
-  /** Writes free time on the boxes, with who did it in the shipment's log. */
-  private async writeFreeTime(shipmentId: string, actor: TrackingActor, containerIds: readonly string[], values: FreeTimeValues): Promise<void> {
-    const companyId = actor.companyID;
+  /** The shipment's own boxes of these ids; refused when any is not one of them. */
+  private async chosenBoxes(shipmentId: string, companyId: string, containerIds: readonly string[]): Promise<ContainerRecord[]> {
     const boxes = await containerRepository.listByShipmentId(shipmentId, companyId);
     const chosen = containerIds.map((id) => boxes.find((b) => b.id === id));
     if (chosen.length === 0 || chosen.some((b) => !b)) throw APIError.invalidArgument("Choose the shipment's own containers");
+    return chosen as ContainerRecord[];
+  }
+
+  /** Writes free time on the boxes, with who did it in the shipment's log. */
+  private async writeFreeTime(shipmentId: string, actor: TrackingActor, chosen: readonly ContainerRecord[], values: FreeTimeValues): Promise<void> {
+    const companyId = actor.companyID;
     await db.transaction(async (tx) => {
-      await containerRepository.setFreeTime(shipmentId, companyId, containerIds, values, tx);
-      for (const box of chosen as ContainerRecord[]) {
+      await containerRepository.setFreeTime(shipmentId, companyId, chosen.map((b) => b.id), values, tx);
+      for (const box of chosen) {
         const before = freeTimeText(box);
         const after = freeTimeText({ ...box, ...values });
         if (before !== after) {
@@ -304,17 +331,17 @@ class TrackingService {
     const houses = await shipmentRepository.findByMasterJobId(masterJobId, companyId);
     const [latest, statuses] = await Promise.all([
       shipmentTrackingEventRepository.latestPerShipment(houses.map((h) => h.id), companyId),
-      Promise.all(houses.map((h) => shipmentService.customsStatusOf(h, companyId))),
+      shipmentService.customsStatusesOf(houses, companyId),
     ]);
     return houses
-      .map((h, i) => ({
+      .map((h) => ({
         shipmentId: h.id,
         jobNumber: h.jobNumber,
         customer: h.customer,
         departed: h.actualDeparture,
         arrived: h.actualArrival,
-        customsCleared: statuses[i] === CUSTOMS_CLEARED,
-        customsStatus: statuses[i]!,
+        customsCleared: statuses.get(h.id) === CUSTOMS_CLEARED,
+        customsStatus: statuses.get(h.id) ?? "",
         gateIn: h.warehouseReceivedDate,
         delivered: h.actualDeliveryDate,
         lastEvent: lastEventOf(h, latest.get(h.id) ?? null),
@@ -324,10 +351,16 @@ class TrackingService {
 
   /**
    * A fact another module sends (Trucking's delivery advice, the POD): stored once per `externalId`,
-   * so a retried delivery adds nothing, and it touches no date.
+   * so a retried delivery adds nothing, and it touches no date. Trucking's stamps of its truck (the
+   * haulier confirmed, picked up) are kept only on a Trucking job: on any other job that truck is
+   * the onward delivery, not the pick-up at the shipper's end.
    */
   async addFact(shipmentId: string, companyId: string, userId: string, fact: { kind: TrackingKind; source: TrackingSource; occurredAt: Date; note: string; externalId: string }): Promise<void> {
-    await this.requireShipment(shipmentId, companyId);
+    const shipment = await this.requireShipment(shipmentId, companyId);
+    if (fact.source === "trucking" && TRUCKING_STAMP_KINDS.has(fact.kind) && !isTruckingJob(shipment)) {
+      log.info("tracking: a Trucking stamp of a job that isn't a Trucking job is left out", { shipmentId, kind: fact.kind, externalId: fact.externalId });
+      return;
+    }
     await shipmentTrackingEventRepository.addOnce({
       companyId,
       shipmentId,
@@ -426,14 +459,19 @@ class TrackingService {
   }
 
   // A date a master job carries is written on the master job, which writes it onto every house:
-  // written on one house, its next save would undo it.
+  // written on one house, its next save would undo it. The person goes with it, so it is refused,
+  // naming the houses, unless they may change every one of them.
   private async applyField(shipment: ShipmentRecord, field: string, day: string | null, actor: TrackingActor): Promise<void> {
     const value = field === "customsStatus" ? CUSTOMS_CLEARED : (day ?? "");
     if (shipment.masterJobId && SYNCED_WITH_MASTER.has(field)) {
-      await masterJobService.update(shipment.masterJobId, actor.companyID, { [field]: value }, actor.userID);
+      await masterJobService.update(shipment.masterJobId, actor.companyID, { [field]: value }, actor.userID, this.editorOf(actor));
       return;
     }
     await shipmentService.update(shipment.id, actor.companyID, { [field]: value } as ShipmentUpdateData, actor.userID, actor.role);
+  }
+
+  private editorOf(actor: TrackingActor): MasterJobEditor {
+    return { userID: actor.userID, role: actor.role };
   }
 
   // Invoicing being away must not take the timeline with it; the tab then just doesn't say.

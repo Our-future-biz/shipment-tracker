@@ -4,9 +4,11 @@
 // ATA and ATD are the tax date and lock the ČNB rate: a machine only ever proposes them, a person
 // confirms, and the confirmation goes through the normal shipment update with its invoice lock.
 // A source may set ETD and ETA while the actual date is empty. Gate in and out belong to the
-// warehouse and a road job's delivery to Trucking: they are never recorded by hand here.
+// warehouse and a Trucking job's delivery to Trucking: they are never recorded by hand here.
 
+import { isDeliveryDated } from "../../../lib/deliveryDated";
 import type { ShipmentRecord } from "../schemas/shipment.schema";
+import { TICK_NOTICES } from "./customerNotice";
 
 export const CUSTOMS_CLEARED = "Customs Cleared/Released";
 
@@ -77,15 +79,33 @@ export const SOURCE_LABELS: Record<TrackingSource, string> = {
   system: "",
 };
 
-/** A truck's stamps are set in Trucking: its jobs record nothing here. */
-export const isRoadJob = (s: { tradeDirection: string; freightMode: string }): boolean =>
-  s.tradeDirection.trim().toLowerCase() === "domestic" || /road/i.test(s.freightMode);
+/** The fields that say whether a job is Trucking's and how it travels. */
+export interface JobMode {
+  tradeDirection: string;
+  freightMode: string;
+  department?: string | null;
+}
+
+/**
+ * A Trucking job: a Domestic job or one of the Road Department, the same jobs that are dated by
+ * their delivery (lib/deliveryDated). Its stamps are set in Trucking, so it records nothing here.
+ * An international Road Freight import or export is not one: it is taxed by its ATA or ATD, like
+ * any other.
+ */
+export const isTruckingJob = (s: { tradeDirection: string; department?: string | null }): boolean => isDeliveryDated(s);
+
+/**
+ * Trucking's stamps of a consignment's truck (the haulier confirmed it, it picked up). Trucking
+ * stamps every consignment, the delivery truck of a sea import too; only on a Trucking job is
+ * that truck the job's own pick-up, at the shipper's end.
+ */
+export const TRUCKING_STAMP_KINDS: ReadonlySet<string> = new Set<TrackingKind>(["haulier_confirmed", "picked_up"]);
 
 export type FreightKind = "sea" | "air" | "rail" | "road";
 
 /** How a job travels, by its freight mode: sea when nothing says otherwise. */
-export function freightKindOf(s: { tradeDirection: string; freightMode: string }): FreightKind {
-  if (isRoadJob(s)) return "road";
+export function freightKindOf(s: JobMode): FreightKind {
+  if (isTruckingJob(s) || /road/i.test(s.freightMode)) return "road";
   if (/^air/i.test(s.freightMode.trim())) return "air";
   if (/^rail/i.test(s.freightMode.trim())) return "rail";
   return "sea";
@@ -97,7 +117,7 @@ const LABELS_BY_MODE: Partial<Record<FreightKind, Partial<Record<TrackingKind, s
 };
 
 /** A kind's name on a job of this mode: a flight has no vessel to be loaded on. */
-export const labelOfKind = (kind: TrackingKind, s: { tradeDirection: string; freightMode: string }): string =>
+export const labelOfKind = (kind: TrackingKind, s: JobMode): string =>
   LABELS_BY_MODE[freightKindOf(s)]?.[kind] ?? TRACKING_KINDS[kind].label;
 
 export const isExceptionKind = (kind: string): boolean => isTrackingKind(kind) && kindDef(kind).group === "exception";
@@ -136,8 +156,8 @@ const SETS_LABEL: Record<NonNullable<KindDef["field"]>, string> = {
 export const setsWord = (field: string): string => SETS_LABEL[field as NonNullable<KindDef["field"]>] ?? "";
 
 /** What this person may record on this shipment. */
-export function recordableKinds(shipment: { tradeDirection: string; freightMode: string }, mayChangeDetails: boolean): RecordableKind[] {
-  if (isRoadJob(shipment)) return [];
+export function recordableKinds(shipment: JobMode, mayChangeDetails: boolean): RecordableKind[] {
+  if (isTruckingJob(shipment)) return [];
   const air = freightKindOf(shipment) === "air";
   return (Object.keys(TRACKING_KINDS) as TrackingKind[]).flatMap((kind) => {
     const def = kindDef(kind);
@@ -162,10 +182,10 @@ export interface RecordInput {
 }
 
 /** Why this can't be recorded, or null. The one recording is checked apart (the details rule). */
-export function recordRefusal(input: RecordInput, shipment: { tradeDirection: string; freightMode: string }, today: string): string | null {
+export function recordRefusal(input: RecordInput, shipment: JobMode, today: string): string | null {
   if (!isTrackingKind(input.kind) || !kindDef(input.kind).group) return `"${input.kind}" can't be recorded here`;
   const def = kindDef(input.kind);
-  if (isRoadJob(shipment)) return "A road job's stamps are set in Trucking";
+  if (isTruckingJob(shipment)) return "A Trucking job's stamps are set in Trucking";
   if (def.reason && !input.note.trim()) return `${def.label} needs a reason`;
   // A port ahead of Prague can already be on tomorrow.
   if (!def.planned && input.occurredOn > addDay(today)) return `${def.label} can't be in the future`;
@@ -191,8 +211,8 @@ function writeRule(source: TrackingSource, field: NonNullable<KindDef["field"]>,
   if (field === "estimatedDeparture") return shipment.actualDeparture ? "none" : "apply";
   if (field === "estimatedArrival") return shipment.actualArrival ? "none" : "apply";
   if (field === "customsStatus") return "none";
-  // A road job's delivery is Trucking's stamp.
-  if (field === "actualDeliveryDate" && isRoadJob(shipment)) return "none";
+  // A Trucking job's delivery is Trucking's stamp.
+  if (field === "actualDeliveryDate" && isTruckingJob(shipment)) return "none";
   return "propose";
 }
 
@@ -223,6 +243,25 @@ export const TICK_EVENTS: Readonly<Record<string, TrackingKind>> = {
   imp_customs_cleared: "customs_released",
   imp_delivered: "delivered",
 };
+
+/** The ticks the app writes itself, with what writes them (ticksFromChanges). */
+export const SELF_TICKS: Readonly<Record<string, string>> = {
+  imp_billed: "Billed ticks itself when the job is invoiced",
+  exp_billed: "Billed ticks itself when the job is invoiced",
+  imp_delivered: "Delivered ticks itself when the delivery date is set",
+};
+
+/**
+ * Why a task can't be ticked by itself, or null. A tick that is a dated fact comes with its event,
+ * one that means the customer was told with the notice, and Billed and Delivered tick themselves;
+ * a Trucking job records no event here, so its dated ticks stay plain ticks.
+ */
+export function plainTickRefusal(taskKey: string, shipment: JobMode): string | null {
+  if (Object.hasOwn(TICK_NOTICES, taskKey)) return "This tick is written when the customer is told: use Tell the customer on the Tracking tab";
+  const kind = Object.hasOwn(TICK_EVENTS, taskKey) ? TICK_EVENTS[taskKey] : undefined;
+  if (kind && !isTruckingJob(shipment)) return `Record "${labelOfKind(kind, shipment)}" on the Tracking tab: the tick comes with its date`;
+  return Object.hasOwn(SELF_TICKS, taskKey) ? SELF_TICKS[taskKey]! : null;
+}
 
 // The fields whose change is itself a fact, and what the app stores of it.
 const KIND_OF_FIELD: Record<string, TrackingKind> = {
@@ -264,7 +303,11 @@ interface ChangeContext {
   /** Who wrote it, when the caller knows better than the field does (a master job's sync). */
   origin?: TrackingSource;
   today: string;
-  now: Date;
+  /**
+   * The moment it happened, when the caller knows it. Left out, the fact has no hour: the moment
+   * of the write isn't it (a gate-in at 08:10 can reach here with a retry at 13:40).
+   */
+  at?: Date;
 }
 
 const filled = (v: unknown): v is string => typeof v === "string" && v.trim() !== "";
@@ -281,14 +324,13 @@ export function eventsFromChanges(before: Record<string, unknown>, changes: Reco
     const planned = field === "estimatedDeparture" || field === "estimatedArrival";
     // A plan's first filling-in is no change of plan.
     if (planned && !filled(old)) continue;
+    const occurredAt = ctx.at ?? null;
     if (field === "customsStatus") {
-      if (value === CUSTOMS_CLEARED) out.push({ kind, occurredOn: ctx.today, occurredAt: ctx.now, source, effect: "none", effectField: "", effectValue: null, note: "" });
+      if (value === CUSTOMS_CLEARED) out.push({ kind, occurredOn: ctx.today, occurredAt, source, effect: "none", effectField: "", effectValue: null, note: "" });
     } else if (field === "mrn" || field === "houseBolRelease") {
-      out.push({ kind, occurredOn: ctx.today, occurredAt: ctx.now, source, effect: "none", effectField: "", effectValue: null, note: field === "mrn" ? value : "" });
+      out.push({ kind, occurredOn: ctx.today, occurredAt, source, effect: "none", effectField: "", effectValue: null, note: field === "mrn" ? value : "" });
     } else {
-      // A stamp written on its own day was written as it happened; a typed date says nothing of the hour.
-      const stamped = source !== "user" && source !== "master_job" && value === ctx.today;
-      out.push({ kind, occurredOn: value, occurredAt: stamped ? ctx.now : null, source, effect: "applied", effectField: field, effectValue: value, note: "" });
+      out.push({ kind, occurredOn: value, occurredAt, source, effect: "applied", effectField: field, effectValue: value, note: "" });
     }
   }
   return out;
@@ -313,13 +355,47 @@ const LAST_FACT_COLUMNS: readonly { field: "actualDeparture" | "actualArrival" |
   { field: "actualDeliveryDate", kind: "delivered" },
 ];
 
-type LastEventDates = Partial<Record<(typeof LAST_FACT_COLUMNS)[number]["field"], string | null>>;
+/** The actual dates a fact stands on: corrected or cleared, what was stored of the old one no longer holds. */
+export const HELD_FACT_FIELDS = LAST_FACT_COLUMNS.map((c) => c.field);
+export type HeldFactField = (typeof LAST_FACT_COLUMNS)[number]["field"];
+
+const isHeldFactField = (field: string): field is HeldFactField => (HELD_FACT_FIELDS as readonly string[]).includes(field);
+
+/** The actual dates a write of `changes` onto `before` sets, corrects or clears: null for cleared. */
+export function heldFieldChanges(before: Record<string, unknown>, changes: Record<string, unknown>): { field: HeldFactField; value: string | null }[] {
+  return HELD_FACT_FIELDS.flatMap((field) => {
+    if (!(field in changes)) return [];
+    const value = filled(changes[field]) ? changes[field] : null;
+    const old = filled(before[field]) ? before[field] : null;
+    return value === old ? [] : [{ field, value }];
+  });
+}
+
+type LastEventDates = Partial<Record<HeldFactField, string | null>>;
+
+/** A stored event, as far as the last event goes by it. */
+interface LastEventFact {
+  kind: string;
+  occurredOn: string;
+  source: string;
+  effect?: string;
+  effectField?: string;
+  effectValue?: string | null;
+}
+
+/** Whether a stored fact still stands: one that set an actual date stands while the shipment holds that day. */
+function stillHolds(dates: LastEventDates, e: LastEventFact): boolean {
+  if (e.effect !== "applied" || !e.effectField || !isHeldFactField(e.effectField) || !(e.effectField in dates)) return true;
+  return (dates[e.effectField] ?? null) === (e.effectValue ?? null);
+}
 
 /**
  * The list's "Last event": what happened last on the shipment, from its latest stored event and
  * its actual dates (jobs older than the events have only those). The later step wins a day's tie.
+ * An event that set a date the shipment no longer holds (corrected or cleared since) didn't happen.
  */
-export function lastEventOf(dates: LastEventDates, event: { kind: string; occurredOn: string; source: string } | null): string {
+export function lastEventOf(dates: LastEventDates, stored: LastEventFact | null): string {
+  const event = stored && stillHolds(dates, stored) ? stored : null;
   let day = "";
   let kind = "";
   let source = "";

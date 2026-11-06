@@ -1,10 +1,12 @@
 import { APIError } from "encore.dev/api";
+import { shipmentRepository } from "../repositories/shipment.repository";
 import { shipmentAuditRepository } from "../repositories/shipmentAudit.repository";
 import { shipmentTaskRepository } from "../repositories/shipmentTask.repository";
 import type { ShipmentTaskRecord } from "../schemas/shipmentTask.schema";
 import { isoOrNull } from "../../../lib/db/serialize";
 import type { TaskItem } from "../interfaces/interfaces";
 import { isDetailsManager } from "../lib/shipmentEditRule";
+import { plainTickRefusal } from "../lib/trackingEvents";
 import { shipmentService } from "./shipment.service";
 
 const toItem = (r: ShipmentTaskRecord): TaskItem => ({
@@ -22,8 +24,13 @@ class TaskService {
     return (await shipmentTaskRepository.listByShipmentId(shipmentId, companyId)).map(toItem);
   }
 
+  // A plain tick, for what is no dated fact, no notice and no tick the app writes itself: those
+  // come with their event (record()), the notice (Tell the customer) or the write that makes them true.
   async upsert(shipmentId: string, companyId: string, taskKey: string, completed: boolean, completedById: string): Promise<TaskItem> {
-    await shipmentService.requireLive(shipmentId, companyId);
+    const shipment = await shipmentRepository.getByIdForCompany(shipmentId, companyId);
+    if (!shipment) throw APIError.notFound("Shipment not found");
+    const refusal = plainTickRefusal(taskKey, shipment);
+    if (refusal) throw APIError.failedPrecondition(refusal);
     return toItem(await shipmentTaskRepository.upsert(shipmentId, companyId, taskKey, completed, completedById));
   }
 

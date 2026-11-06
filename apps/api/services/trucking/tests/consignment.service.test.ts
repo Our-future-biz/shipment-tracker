@@ -398,6 +398,33 @@ describe("stamps", () => {
     expect(row(b.c.id)).toMatchObject({ status: "POD_RECEIVED", readyToBillAt: null });
     expect(eventsOf("stamp_voided")).toHaveLength(2);
   });
+
+  it("a voided stamp takes back the fact of that very stamp; set again, it is a fact of its own", async () => {
+    const { c } = await seed({}, { trip: true, sent: true });
+    await consignmentService.stamp(user, c.id, "confirmed", null);
+    await consignmentService.voidStamp(manager, c.id, "confirmed", "Wrong trip");
+    vi.setSystemTime(new Date("2026-10-15T11:30:00Z"));
+    await consignmentService.stamp(user, c.id, "confirmed", null);
+    expect(outboxOf("stamp").map((r) => r.payload)).toEqual([
+      { stamp: "confirmed", at: "2026-10-15T10:00:00.000Z" },
+      { stamp: "confirmed", at: "2026-10-15T10:00:00.000Z", voided: true },
+      { stamp: "confirmed", at: "2026-10-15T11:30:00.000Z" },
+    ]);
+  });
+
+  it("a voided POD takes its fact off the job's timeline (the file stays in its Documents); a corrected one is a new fact", async () => {
+    const { c } = await seed(delivered, { trip: true, sent: true });
+    store.documents.push({ consignmentId: c.id, kind: "POD", fileName: "pod.pdf", contentType: "application/pdf", sha256: "abc", storageKey: "k/1" } as never);
+    await consignmentService.stamp(user, c.id, "podReceived", null);
+    await consignmentService.voidStamp(manager, c.id, "podReceived", "Wrong file");
+    vi.setSystemTime(new Date("2026-10-15T11:30:00Z"));
+    await consignmentService.stamp(user, c.id, "podReceived", null);
+    expect(outboxOf("pod").map((r) => r.payload)).toEqual([
+      expect.objectContaining({ sha256: "abc", stampedAt: "2026-10-15T10:00:00.000Z" }),
+      { stampedAt: "2026-10-15T10:00:00.000Z", voided: true },
+      expect.objectContaining({ sha256: "abc", stampedAt: "2026-10-15T11:30:00.000Z" }),
+    ]);
+  });
 });
 
 describe("cancel and margin approval", () => {

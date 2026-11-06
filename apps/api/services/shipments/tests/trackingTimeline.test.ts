@@ -167,11 +167,18 @@ describe("by direction and mode", () => {
     expect(row(t, "delivered")?.taxDate).toBe(true);
   });
 
-  it("shows a road job no customs row for waiting paperwork alone, only once there is something to say", () => {
-    const road = { freightMode: "Road Freight" };
+  it("shows a Trucking job no customs row for waiting paperwork alone, only once there is something to say", () => {
+    const road = { freightMode: "Road Freight", department: "Road Department" };
     expect(row(build({ shipment: shipment(road), customsStatus: "Waiting For Commercial Paperwork" }), "customs")).toBeUndefined();
     expect(row(build({ shipment: shipment({ ...road, mrn: "26CZ1" }), customsStatus: "Waiting For Commercial Paperwork" }), "customs")).toBeDefined();
     expect(row(build({ shipment: shipment(road), customsStatus: CUSTOMS_CLEARED }), "customs")?.state).toBe("done");
+  });
+
+  it("gives an international Road Freight import its departure, arrival and customs, dated by the ATA", () => {
+    const t = build({ shipment: shipment({ freightMode: "Road Freight" }), customsStatus: "Waiting For Commercial Paperwork" });
+    expect(t.milestones.map((m) => m.key)).toEqual(expect.arrayContaining(["departed", "arrived", "customs", "delivered"]));
+    expect(row(t, "arrived")?.taxDate).toBe(true);
+    expect(row(t, "pickup")).toBeUndefined();
   });
 });
 
@@ -390,8 +397,10 @@ describe("what can be recorded", () => {
     expect(build({ mayChangeDetails: false }).recordable.map((k) => k.kind)).toEqual(["customs_released", "hold"]);
   });
 
-  it("is nothing on a road job", () => {
-    expect(build({ shipment: shipment({ freightMode: "Road Freight" }) }).recordable).toEqual([]);
+  it("is nothing on a Trucking job, and as on any job on an international Road Freight one", () => {
+    expect(build({ shipment: shipment({ freightMode: "Road Freight", department: "Road Department" }) }).recordable).toEqual([]);
+    expect(build({ shipment: shipment({ tradeDirection: "Domestic" }) }).recordable).toEqual([]);
+    expect(build({ shipment: shipment({ freightMode: "Road Freight" }) }).recordable.map((k) => k.kind)).toContain("arrived");
   });
 });
 

@@ -1,5 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { CUSTOMS_CLEARED, effectChanges, effectOf, eventsFromChanges, freightKindOf, labelOfKind, recordableKinds, recordRefusal, ticksFromChanges, TICK_EVENTS, TRACKING_KINDS } from "../lib/trackingEvents";
+import {
+  CUSTOMS_CLEARED,
+  effectChanges,
+  effectOf,
+  eventsFromChanges,
+  freightKindOf,
+  heldFieldChanges,
+  isTruckingJob,
+  labelOfKind,
+  plainTickRefusal,
+  recordableKinds,
+  recordRefusal,
+  ticksFromChanges,
+  TICK_EVENTS,
+  TRACKING_KINDS,
+} from "../lib/trackingEvents";
+import { TICK_NOTICES } from "../lib/customerNotice";
 import type { ShipmentRecord } from "../schemas/shipment.schema";
 
 const sea = { tradeDirection: "Import", freightMode: "Sea Freight" };
@@ -25,9 +41,12 @@ describe("the date rule: set, propose or leave alone", () => {
       expect(effectOf("etd_changed", source, shipment({ actualDeparture: "2026-11-05" }), "2026-12-01").mode).toBe("none");
     });
 
-    it(`never lets ${source} touch customs or a road job's delivery`, () => {
+    it(`never lets ${source} touch customs or a Trucking job's delivery`, () => {
       expect(effectOf("customs_released", source, shipment(), "2026-11-05").mode).toBe("none");
-      expect(effectOf("delivered", source, shipment({ freightMode: "Road Freight" }), "2026-11-05").mode).toBe("none");
+      expect(effectOf("delivered", source, shipment({ department: "Road Department" }), "2026-11-05").mode).toBe("none");
+      expect(effectOf("delivered", source, shipment({ tradeDirection: "Domestic" }), "2026-11-05").mode).toBe("none");
+      // An international road import is no Trucking job: its delivery is proposed like any other.
+      expect(effectOf("delivered", source, shipment({ freightMode: "Road Freight" }), "2026-11-05").mode).toBe("propose");
     });
   }
 
@@ -54,9 +73,13 @@ describe("what can't be recorded", () => {
     expect(recordRefusal(input("constructor"), sea, TODAY)).toContain("can't be recorded");
   });
 
-  it("nothing on a road job", () => {
+  it("nothing on a Trucking job: a Domestic one or one of the Road Department", () => {
     expect(recordRefusal(input("delivered"), { tradeDirection: "Domestic", freightMode: "" }, TODAY)).toContain("Trucking");
-    expect(recordRefusal(input("delivered"), { tradeDirection: "Import", freightMode: "Road Freight" }, TODAY)).toContain("Trucking");
+    expect(recordRefusal(input("delivered"), { tradeDirection: "Import", freightMode: "Road Freight", department: "Road Department" }, TODAY)).toContain("Trucking");
+  });
+
+  it("anything on an international Road Freight job, taxed by its ATA like any other", () => {
+    expect(recordRefusal(input("arrived"), { tradeDirection: "Import", freightMode: "Road Freight", department: "" }, TODAY)).toBeNull();
   });
 
   it("an exception, a note or a changed plan with no reason", () => {
@@ -75,7 +98,7 @@ describe("what can't be recorded", () => {
 
 describe("the facts a change of the shipment is worth", () => {
   const NOW = new Date("2026-11-06T12:00:00Z");
-  const ctx = { byPerson: true, today: "2026-11-06", now: NOW };
+  const ctx = { byPerson: true, today: "2026-11-06" };
 
   it("stores a typed ATA as a person's, with no hour", () => {
     expect(eventsFromChanges({ actualArrival: null }, { actualArrival: "2026-11-05" }, ctx)).toEqual([
@@ -88,11 +111,15 @@ describe("the facts a change of the shipment is worth", () => {
     expect(fact).toMatchObject({ kind: "departed", source: "master_job" });
   });
 
-  it("gives the app's own stamps their module, and the moment when written on the day", () => {
+  it("gives the app's own stamps their module, and no hour: the write's moment isn't when it happened", () => {
     const app = { ...ctx, byPerson: false };
-    expect(eventsFromChanges({}, { warehouseReceivedDate: "2026-11-06" }, app)[0]).toMatchObject({ kind: "gate_in", source: "warehouse", occurredAt: NOW });
+    expect(eventsFromChanges({}, { warehouseReceivedDate: "2026-11-06" }, app)[0]).toMatchObject({ kind: "gate_in", source: "warehouse", occurredAt: null });
     expect(eventsFromChanges({}, { warehouseReleasedDate: "2026-11-05" }, app)[0]).toMatchObject({ kind: "gate_out", source: "warehouse", occurredAt: null });
-    expect(eventsFromChanges({}, { actualDeliveryDate: "2026-11-06" }, app)[0]).toMatchObject({ kind: "delivered", source: "trucking", occurredAt: NOW });
+    expect(eventsFromChanges({}, { actualDeliveryDate: "2026-11-06" }, app)[0]).toMatchObject({ kind: "delivered", source: "trucking", occurredAt: null });
+  });
+
+  it("takes the moment the caller knows", () => {
+    expect(eventsFromChanges({}, { warehouseReceivedDate: "2026-11-06" }, { ...ctx, byPerson: false, at: NOW })[0]).toMatchObject({ kind: "gate_in", occurredAt: NOW });
   });
 
   it("calls the first filling-in of a plan no change", () => {
@@ -102,7 +129,7 @@ describe("the facts a change of the shipment is worth", () => {
 
   it("stores customs cleared, and no other customs step", () => {
     expect(eventsFromChanges({}, { customsStatus: "Under Customs Clearance" }, ctx)).toEqual([]);
-    expect(eventsFromChanges({}, { customsStatus: CUSTOMS_CLEARED }, ctx)[0]).toMatchObject({ kind: "customs_released", occurredOn: "2026-11-06", occurredAt: NOW });
+    expect(eventsFromChanges({}, { customsStatus: CUSTOMS_CLEARED }, ctx)[0]).toMatchObject({ kind: "customs_released", occurredOn: "2026-11-06", occurredAt: null });
   });
 
   it("stores the MRN and the BoL release", () => {
@@ -114,6 +141,22 @@ describe("the facts a change of the shipment is worth", () => {
     expect(eventsFromChanges({ actualArrival: "2026-11-05" }, { actualArrival: null }, ctx)).toEqual([]);
     expect(eventsFromChanges({ actualArrival: "2026-11-05" }, { actualArrival: "2026-11-05" }, ctx)).toEqual([]);
     expect(eventsFromChanges({}, { vessel: "MSC ANNA" }, ctx)).toEqual([]);
+  });
+});
+
+describe("the actual dates a change sets, corrects or clears", () => {
+  it("names each with its new day, null when cleared", () => {
+    expect(heldFieldChanges({ actualArrival: null }, { actualArrival: "2026-11-05" })).toEqual([{ field: "actualArrival", value: "2026-11-05" }]);
+    expect(heldFieldChanges({ actualArrival: "2026-11-07" }, { actualArrival: "2026-11-05" })).toEqual([{ field: "actualArrival", value: "2026-11-05" }]);
+    expect(heldFieldChanges({ actualDeliveryDate: "2026-11-07" }, { actualDeliveryDate: null })).toEqual([{ field: "actualDeliveryDate", value: null }]);
+    expect(heldFieldChanges({ warehouseReceivedDate: "2026-11-07" }, { warehouseReceivedDate: "" })).toEqual([{ field: "warehouseReceivedDate", value: null }]);
+  });
+
+  it("names nothing unchanged, no plan and no field left out", () => {
+    expect(heldFieldChanges({ actualArrival: "2026-11-05" }, { actualArrival: "2026-11-05" })).toEqual([]);
+    expect(heldFieldChanges({ actualArrival: null }, { actualArrival: "" })).toEqual([]);
+    expect(heldFieldChanges({ estimatedArrival: "2026-11-05" }, { estimatedArrival: "2026-11-09" })).toEqual([]);
+    expect(heldFieldChanges({ actualArrival: "2026-11-05" }, { vessel: "MSC ANNA" })).toEqual([]);
   });
 });
 
@@ -135,6 +178,47 @@ describe("the ticks a change makes true", () => {
 describe("the ticks that record an event", () => {
   it("only name kinds people may record", () => {
     for (const kind of Object.values(TICK_EVENTS)) expect((TRACKING_KINDS[kind] as { group?: string }).group).toBeDefined();
+  });
+});
+
+describe("a plain tick", () => {
+  const sea = { tradeDirection: "Import", freightMode: "Sea Freight", department: "" };
+  const trucking = { tradeDirection: "Domestic", freightMode: "Road Freight", department: "" };
+
+  it("is refused for a dated tick, pointing to the event that comes with it", () => {
+    for (const key of Object.keys(TICK_EVENTS)) expect(plainTickRefusal(key, sea)).toContain("on the Tracking tab");
+    expect(plainTickRefusal("imp_cargo_shipped", sea)).toBe('Record "Departed" on the Tracking tab: the tick comes with its date');
+  });
+
+  it("is refused for a tick the notice writes", () => {
+    for (const key of Object.keys(TICK_NOTICES)) expect(plainTickRefusal(key, sea)).toContain("Tell the customer");
+  });
+
+  it("is refused for Billed and Delivered, which tick themselves", () => {
+    expect(plainTickRefusal("imp_billed", sea)).toContain("invoiced");
+    expect(plainTickRefusal("exp_billed", sea)).toContain("invoiced");
+    expect(plainTickRefusal("imp_delivered", trucking)).toContain("delivery date");
+  });
+
+  it("goes through for any other task, and for a Trucking job's dated ticks, which record nothing here", () => {
+    expect(plainTickRefusal("imp_booking_confirmed", sea)).toBeNull();
+    expect(plainTickRefusal("imp_cargo_readiness", trucking)).toBeNull();
+  });
+});
+
+describe("a Trucking job", () => {
+  it("is a Domestic job or one of the Road Department, as the tax date says", () => {
+    expect(isTruckingJob({ tradeDirection: "Domestic" })).toBe(true);
+    expect(isTruckingJob({ tradeDirection: "Import", department: "Road Department" })).toBe(true);
+    expect(isTruckingJob({ tradeDirection: "Import", department: "" })).toBe(false);
+  });
+
+  it("isn't an international Road Freight job, which still travels by road", () => {
+    const road = { tradeDirection: "Import", freightMode: "Road Freight", department: "" };
+    expect(isTruckingJob(road)).toBe(false);
+    expect(freightKindOf(road)).toBe("road");
+    expect(recordableKinds(road, true).map((k) => k.kind)).toContain("arrived");
+    expect(recordableKinds({ ...road, department: "Road Department" }, true)).toEqual([]);
   });
 });
 

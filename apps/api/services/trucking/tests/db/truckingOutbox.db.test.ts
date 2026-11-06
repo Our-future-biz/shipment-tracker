@@ -29,6 +29,15 @@ async function insert(companyId: string, shipmentId: string, over: Partial<NewTr
   return row!;
 }
 
+describe("the kinds the database takes", () => {
+  it("takes every kind the service enqueues, the job timeline's own (stamp, POD, delivery advice) included", async () => {
+    const c = randomUUID();
+    const s = randomUUID();
+    const kinds: NewTruckingOutboxRecord["kind"][] = ["planned", "plate", "delivered", "billing", "costs", "expect_arrival", "expect_departure", "cancel_expected", "real_costs", "pod", "delivery_advice", "stamp"];
+    for (const kind of kinds) await expect(insert(c, s, { kind })).resolves.toMatchObject({ kind });
+  });
+});
+
 describe("claiming due job updates", () => {
   it("does not hold a job's later update back behind one that failed for good", async () => {
     const c = randomUUID();

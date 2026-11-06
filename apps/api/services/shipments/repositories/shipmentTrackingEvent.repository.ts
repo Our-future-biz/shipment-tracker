@@ -1,7 +1,29 @@
-import { and, desc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, inArray, isNull, ne, notInArray, or, sql } from "drizzle-orm";
+import type { PgColumn } from "drizzle-orm/pg-core";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db, type Tx } from "../db/db";
+import type { HeldFactField } from "../lib/trackingEvents";
+import { shipmentTable as s } from "../schemas/shipment.schema";
 import { shipmentTrackingEventTable as t, type NewShipmentTrackingEventRecord, type ShipmentTrackingEventRecord } from "../schemas/shipmentTrackingEvent.schema";
+
+// What happened, or a fact with no date to set: a proposal waits for somebody, a dismissed one is
+// set aside (turned down, or a date the shipment no longer holds).
+const STANDING = ["none", "applied"];
+
+const HELD_COLUMNS: Record<HeldFactField, PgColumn> = {
+  actualDeparture: s.actualDeparture,
+  actualArrival: s.actualArrival,
+  warehouseReceivedDate: s.warehouseReceivedDate,
+  warehouseReleasedDate: s.warehouseReleasedDate,
+  actualDeliveryDate: s.actualDeliveryDate,
+};
+
+// An event that set an actual date stands while the shipment holds that day; for any other the
+// CASE gives its own value back. Needs the shipment joined.
+const STILL_HELD = sql`(${t.effect} <> 'applied' OR CASE ${t.effectField} ${sql.join(
+  Object.entries(HELD_COLUMNS).map(([field, column]) => sql`WHEN ${field} THEN ${column}`),
+  sql` `,
+)} ELSE ${t.effectValue} END IS NOT DISTINCT FROM ${t.effectValue})`;
 
 class ShipmentTrackingEventRepository extends TenantRepository<typeof t> {
   constructor() {
@@ -18,18 +40,23 @@ class ShipmentTrackingEventRepository extends TenantRepository<typeof t> {
       .limit(limit);
   }
 
-  /** Each of these shipments' last standing event: no proposal, no plan change (those aren't things that happened). */
+  /**
+   * Each of these shipments' last standing event: no proposal, no plan change (those aren't things
+   * that happened), and no date the shipment no longer holds (corrected or cleared since).
+   */
   async latestPerShipment(shipmentIds: readonly string[], companyId: string): Promise<Map<string, ShipmentTrackingEventRecord>> {
     if (shipmentIds.length === 0) return new Map();
     const rows = await this.db
-      .selectDistinctOn([t.shipmentId])
+      .selectDistinctOn([t.shipmentId], getTableColumns(t))
       .from(t)
+      .innerJoin(s, eq(s.id, t.shipmentId))
       .where(and(
         eq(t.companyId, companyId),
         inArray(t.shipmentId, [...shipmentIds]),
         isNull(t.deletedAt),
-        inArray(t.effect, ["none", "applied"]),
+        inArray(t.effect, STANDING),
         notInArray(t.kind, ["eta_changed", "etd_changed", "note"]),
+        STILL_HELD,
       ))
       .orderBy(t.shipmentId, desc(t.occurredOn), desc(t.createdAt));
     return new Map(rows.map((r) => [r.shipmentId, r]));
@@ -63,15 +90,64 @@ class ShipmentTrackingEventRepository extends TenantRepository<typeof t> {
     return row ?? null;
   }
 
-  /** The newest live event of a kind on a day, in `tx` when given. */
+  /** The newest standing event of a kind on a day, in `tx` when given: a proposal or a dismissed one isn't the fact. */
   async findSameDay(shipmentId: string, companyId: string, kind: string, day: string, tx?: Tx): Promise<ShipmentTrackingEventRecord | null> {
     const [row] = await (tx ?? this.db)
       .select()
       .from(t)
-      .where(and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), eq(t.kind, kind), eq(t.occurredOn, day), isNull(t.deletedAt)))
+      .where(and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), eq(t.kind, kind), eq(t.occurredOn, day), inArray(t.effect, STANDING), isNull(t.deletedAt)))
       .orderBy(desc(t.createdAt))
       .limit(1);
     return row ?? null;
+  }
+
+  /** The newest standing event of a kind, whatever its day: the last one written. */
+  async latestOfKind(shipmentId: string, companyId: string, kind: string): Promise<ShipmentTrackingEventRecord | null> {
+    const [row] = await this.db
+      .select()
+      .from(t)
+      .where(and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), eq(t.kind, kind), inArray(t.effect, STANDING), isNull(t.deletedAt)))
+      .orderBy(desc(t.createdAt))
+      .limit(1);
+    return row ?? null;
+  }
+
+  /**
+   * The shipment's field now holds `value` (null: cleared): the facts that set it to another day are
+   * set aside as dismissed, by who changed it. They stay on record, off the timeline and the list.
+   */
+  async supersede(shipmentId: string, companyId: string, field: string, value: string | null, userId: string, tx?: Tx): Promise<void> {
+    const now = new Date();
+    await (tx ?? this.db)
+      .update(t)
+      .set({ effect: "dismissed", decidedById: userId, decidedAt: now, updatedAt: now })
+      .where(and(
+        eq(t.companyId, companyId),
+        eq(t.shipmentId, shipmentId),
+        eq(t.effect, "applied"),
+        eq(t.effectField, field),
+        isNull(t.deletedAt),
+        value === null ? undefined : or(isNull(t.effectValue), ne(t.effectValue, value)),
+      ));
+  }
+
+  /**
+   * The shipment's field now holds `value`: what a source proposed of that day is confirmed by who
+   * set it, and a fact set aside for it stands again.
+   */
+  async settle(shipmentId: string, companyId: string, field: string, value: string, userId: string, tx?: Tx): Promise<void> {
+    const now = new Date();
+    await (tx ?? this.db)
+      .update(t)
+      .set({ effect: "applied", decidedById: userId, decidedAt: now, updatedAt: now })
+      .where(and(
+        eq(t.companyId, companyId),
+        eq(t.shipmentId, shipmentId),
+        inArray(t.effect, ["proposed", "dismissed"]),
+        eq(t.effectField, field),
+        eq(t.effectValue, value),
+        isNull(t.deletedAt),
+      ));
   }
 
   async add(row: NewShipmentTrackingEventRecord, tx?: Tx): Promise<ShipmentTrackingEventRecord> {

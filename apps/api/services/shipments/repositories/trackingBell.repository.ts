@@ -1,6 +1,7 @@
 import { and, desc, eq, gte, inArray, isNull, ne, or, sql, type SQL } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import { db } from "../db/db";
+import { CANCELLED_STATUS } from "../lib/fieldDefaults";
 import { shipmentTable as s } from "../schemas/shipment.schema";
 import { shipmentAuditTable as audit } from "../schemas/shipmentAudit.schema";
 import { shipmentCustomerNoticeTable as notice } from "../schemas/shipmentCustomerNotice.schema";
@@ -10,7 +11,23 @@ import { shipmentTrackingReadTable as read } from "../schemas/shipmentTrackingRe
 // A person is kept by e-mail; an old value may carry a name after it ("a@b.cz — Name").
 const namedEmail = (column: PgColumn) => sql`lower(trim(split_part(${column}, ' — ', 1)))`;
 const isOwn = (email: string): SQL => or(sql`${namedEmail(s.personInCharge)} = ${email}`, sql`${namedEmail(s.holidayCover)} = ${email}`)!;
-const notCancelled = sql`${s.status} NOT ILIKE '%cancel%'`;
+const notCancelled = sql`${s.status} IS DISTINCT FROM ${CANCELLED_STATUS}`;
+
+// The shipment's newest notice: no later one is live.
+const isLatestNotice = sql`NOT EXISTS (
+  SELECT 1 FROM ${notice} newer
+  WHERE newer.shipment_id = ${notice.shipmentId} AND newer.deleted_at IS NULL
+    AND (newer.created_at, newer.id) > (${notice.createdAt}, ${notice.id})
+)`;
+
+// A date told that has moved since and hasn't happened yet: what lib/customerNotice toldDifferences
+// reports, so the limit only counts notices that are still news. A delivered or invoiced job has
+// nothing left to tell.
+const toldHasMoved = sql`(
+  (${notice.etaPod} IS NOT NULL AND ${s.actualArrival} IS NULL AND ${notice.etaPod} IS DISTINCT FROM ${s.estimatedArrival})
+  OR (${notice.etaWarehouse} IS NOT NULL AND ${s.warehouseReceivedDate} IS NULL AND ${notice.etaWarehouse} IS DISTINCT FROM ${s.etaWarehouse})
+  OR (${notice.plannedDelivery} IS NOT NULL AND ${notice.plannedDelivery} IS DISTINCT FROM ${s.plannedDeliveryDate})
+)`;
 
 /** What the bell reads about a shipment's dates, for one user. */
 class TrackingBellRepository {
@@ -71,10 +88,13 @@ class TrackingBellRepository {
       .limit(limit);
   }
 
-  /** The latest notice to the customer of each of this user's shipments, with the dates they hold now. */
+  /**
+   * The latest notice to the customer of each of this user's live shipments whose dates have moved
+   * from it, with the dates they hold now, the latest notice first.
+   */
   async latestToldOnOwnShipments(companyId: string, userId: string, email: string, limit: number) {
     return db
-      .selectDistinctOn([notice.shipmentId], {
+      .select({
         shipmentId: notice.shipmentId,
         jobNumber: s.jobNumber,
         noticeAt: notice.createdAt,
@@ -92,8 +112,20 @@ class TrackingBellRepository {
       .from(notice)
       .innerJoin(s, eq(s.id, notice.shipmentId))
       .leftJoin(read, and(eq(read.shipmentId, notice.shipmentId), eq(read.userId, userId)))
-      .where(and(eq(notice.companyId, companyId), isNull(notice.deletedAt), isNull(s.deletedAt), notCancelled, isOwn(email)))
-      .orderBy(notice.shipmentId, desc(notice.createdAt))
+      .where(
+        and(
+          eq(notice.companyId, companyId),
+          isNull(notice.deletedAt),
+          isLatestNotice,
+          isNull(s.deletedAt),
+          notCancelled,
+          sql`${s.invoicingStatus} IS DISTINCT FROM 'Invoiced'`,
+          isNull(s.actualDeliveryDate),
+          isOwn(email),
+          toldHasMoved,
+        ),
+      )
+      .orderBy(desc(notice.createdAt), desc(notice.id))
       .limit(limit);
   }
 

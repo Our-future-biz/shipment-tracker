@@ -54,6 +54,34 @@ describe("what the customer was told", () => {
   });
 });
 
+describe("the bell's customer not told", () => {
+  const told = (shipmentId: string, companyId: string) => customerNoticeService.record(shipmentId, companyId, USER, { kind: "status", channel: "email" });
+  const moveEta = (shipmentId: string, more: Partial<typeof shipmentTable.$inferInsert> = {}) =>
+    db.update(shipmentTable).set({ estimatedArrival: "2026-12-16", ...more }).where(eq(shipmentTable.id, shipmentId));
+
+  it("reads only the latest notices still news, so its limit can't hide a live job behind told ones", async () => {
+    const moved = await newShipment();
+    const { companyId } = moved;
+    await told(moved.id, companyId);
+    await moveEta(moved.id);
+    const quiet = await newShipment({ companyId, jobNumber: "CZ00000002" });
+    await told(quiet.id, companyId);
+    const delivered = await newShipment({ companyId, jobNumber: "CZ00000003" });
+    await told(delivered.id, companyId);
+    await moveEta(delivered.id, { actualDeliveryDate: "2026-12-17" });
+    const invoiced = await newShipment({ companyId, jobNumber: "CZ00000004" });
+    await told(invoiced.id, companyId);
+    await moveEta(invoiced.id, { invoicingStatus: "Invoiced" });
+    const cancelled = await newShipment({ companyId, jobNumber: "CZ00000005" });
+    await told(cancelled.id, companyId);
+    await moveEta(cancelled.id, { status: "Cancelled Shipment" });
+    expect((await trackingBellRepository.latestToldOnOwnShipments(companyId, USER, "jan@firma.cz", 1)).map((r) => r.shipmentId)).toEqual([moved.id]);
+    // Told again: only the latest notice counts, and it says the date as it is now.
+    await customerNoticeService.record(moved.id, companyId, USER, { kind: "eta_change", channel: "phone" });
+    expect(await trackingBellRepository.latestToldOnOwnShipments(companyId, USER, "jan@firma.cz", 10)).toEqual([]);
+  });
+});
+
 describe("the bell's read mark", () => {
   it("makes a moved date read, and a later move new again", async () => {
     const s = await newShipment();

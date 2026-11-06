@@ -1181,10 +1181,16 @@ class ConsignmentService {
           facts: { kind },
         },
       });
+      // The stamp's fact leaves the job's timeline (found by the stamp's instant, see stampFactId).
+      const stampedAt = (facts[cols.at] as Date).toISOString();
       if (kind === "confirmed" || kind === "pickedUp") {
-        await truckingOutboxRepository.enqueue(tx, companyId, [owed(actor, c, "stamp", { stamp: kind, at: (facts[cols.at] as Date).toISOString(), voided: true })]);
+        await truckingOutboxRepository.enqueue(tx, companyId, [owed(actor, c, "stamp", { stamp: kind, at: stampedAt, voided: true })]);
       }
       if (kind === "podReceived") {
+        // Only the POD's fact is taken back (a stamp that handed no file over added none, and the void
+        // then changes nothing). The file it handed over stays in the shipment's Documents: only a
+        // manager deletes a document there, and a corrected POD comes as a file of its own.
+        await truckingOutboxRepository.enqueue(tx, companyId, [owed(actor, c, "pod", { stampedAt, voided: true })]);
         await this.unsettleBilling(tx, actor, c, by);
         if (c.internal) await internalBillingService.reverseDelivered(tx, actor, c, by, `POD voided: ${why}`);
       }

@@ -1,9 +1,10 @@
-import { and, asc, desc, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db, type Tx } from "../db/db";
 import { containerTable, type ContainerRecord } from "../schemas/container.schema";
 import { shipmentTable } from "../schemas/shipment.schema";
 import { matchContainerRows, normalizeContainerNumber, teuForType } from "../lib/cargoProjection";
+import { CANCELLED_STATUS } from "../lib/fieldDefaults";
 import type { ContainerLine } from "../interfaces/interfaces";
 
 class ContainerRepository extends TenantRepository<typeof containerTable> {
@@ -61,14 +62,23 @@ class ContainerRepository extends TenantRepository<typeof containerTable> {
       );
   }
 
-  /** The rows of these numbers on live shipments, the newest first: a number comes back on a later job. */
+  /**
+   * The rows of these numbers on live shipments, the newest first: a number comes back on a later
+   * job. A cancelled job carries no box, so it can't hide the free time of the one that does.
+   */
   async byNumbers(numbers: readonly string[], companyId: string) {
     if (numbers.length === 0) return [];
     return db
       .select({ container: containerTable, tradeDirection: shipmentTable.tradeDirection, freightMode: shipmentTable.freightMode })
       .from(containerTable)
       .innerJoin(shipmentTable, eq(shipmentTable.id, containerTable.shipmentId))
-      .where(and(eq(containerTable.companyId, companyId), inArray(containerTable.containerNumber, [...numbers]), isNull(containerTable.deletedAt), isNull(shipmentTable.deletedAt)))
+      .where(and(
+        eq(containerTable.companyId, companyId),
+        inArray(containerTable.containerNumber, [...numbers]),
+        isNull(containerTable.deletedAt),
+        isNull(shipmentTable.deletedAt),
+        sql`${shipmentTable.status} IS DISTINCT FROM ${CANCELLED_STATUS}`,
+      ))
       .orderBy(desc(containerTable.createdAt));
   }
 

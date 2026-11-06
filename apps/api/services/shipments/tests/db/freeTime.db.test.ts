@@ -7,6 +7,7 @@ vi.mock("../../topics", () => ({ shipmentDeleted: { publish: vi.fn() }, shipment
 vi.mock("../../lib/userEmails", () => ({ userEmails: async () => new Map() }));
 
 import { db } from "../../db/db";
+import { CANCELLED_STATUS } from "../../lib/fieldDefaults";
 import { containerRepository } from "../../repositories/container.repository";
 import { shipmentTrackingEventRepository } from "../../repositories/shipmentTrackingEvent.repository";
 import { containerTable } from "../../schemas/container.schema";
@@ -87,6 +88,14 @@ describe("free time", () => {
     await shipmentTrackingEventRepository.add({ companyId, shipmentId: back.id, kind: "empty_returned", occurredOn: "2026-11-09" });
     expect(newer.box.freeTimeDays).toBeNull();
     await expect(trackingService.freeTimeByContainer(companyId, ["AAAU1111111", "BBBU2222222", "CCCU3333333"], NOW)).resolves.toEqual([{ containerNumber: "BBBU2222222", lastFreeDay: "2026-11-20" }]);
+  });
+
+  it("gives the warehouse the live job's date, not that of a newer job that was cancelled", async () => {
+    const companyId = randomUUID();
+    const live = await newJob(companyId, "DDDU4444444");
+    await trackingService.setFreeTime(live.id, live.actor, { containerIds: [live.box.id], freeTimeDays: null, freeTimeFrom: "discharge", lastFreeDay: "2026-11-20" });
+    await newJob(companyId, "DDDU4444444", { status: CANCELLED_STATUS });
+    await expect(trackingService.freeTimeByContainer(companyId, ["DDDU4444444"], NOW)).resolves.toEqual([{ containerNumber: "DDDU4444444", lastFreeDay: "2026-11-20" }]);
   });
 
   it("puts a box past its free time on the cockpit's tracking card", async () => {

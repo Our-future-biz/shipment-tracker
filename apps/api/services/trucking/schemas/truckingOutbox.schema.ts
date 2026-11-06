@@ -56,7 +56,7 @@ export const truckingOutboxTable = pgTable(
     index("trucking_outbox_due_idx").on(table.nextAttemptAt).where(sql`status = 'pending'`),
     index("trucking_outbox_shipment_idx").on(table.shipmentId, table.createdAt).where(sql`status = 'pending'`),
     index("trucking_outbox_consignment_idx").on(table.consignmentId),
-    check("trucking_outbox_kind_check", sql`${table.kind} IN ('planned', 'plate', 'delivered', 'billing', 'costs', 'expect_arrival', 'expect_departure', 'cancel_expected', 'real_costs')`),
+    check("trucking_outbox_kind_check", sql`${table.kind} IN ('planned', 'plate', 'delivered', 'billing', 'costs', 'expect_arrival', 'expect_departure', 'cancel_expected', 'real_costs', 'pod', 'delivery_advice', 'stamp')`),
     outboxStatusCheck("trucking_outbox_status_check", table),
   ],
 );

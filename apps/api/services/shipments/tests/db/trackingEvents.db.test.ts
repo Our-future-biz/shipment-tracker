@@ -33,12 +33,49 @@ describe("tracking events", () => {
     expect(ticks).toMatchObject([{ taskKey: "imp_delivered", completed: true }]);
   });
 
-  it("the same fact isn't stored twice", async () => {
+  it("the same fact isn't stored twice: cleared and set again, the one set aside stands again", async () => {
     const s = await newShipment();
     await shipmentService.update(s.id, s.companyId, { actualArrival: "2026-11-05" } as never, USER);
     await shipmentService.update(s.id, s.companyId, { actualArrival: "" } as never, USER);
+    expect(await eventsOf(s.id)).toMatchObject([{ effect: "dismissed" }]);
     await shipmentService.update(s.id, s.companyId, { actualArrival: "2026-11-05" } as never, USER);
-    expect(await eventsOf(s.id)).toHaveLength(1);
+    expect(await eventsOf(s.id)).toMatchObject([{ effect: "applied", effectValue: "2026-11-05" }]);
+  });
+
+  it("a date set for the day a source proposed confirms the proposal, closes the exceptions it ends and adds no fact", async () => {
+    const s = await newShipment();
+    const base = { companyId: s.companyId, shipmentId: s.id };
+    await shipmentTrackingEventRepository.add({ ...base, kind: "delayed", occurredOn: "2026-11-03", note: "Storm" });
+    await shipmentTrackingEventRepository.add({ ...base, kind: "arrived", occurredOn: "2026-11-05", source: "document", externalId: "document:arrived:2026-11-05:", effect: "proposed", effectField: "actualArrival", effectValue: "2026-11-05" });
+    await shipmentTrackingEventRepository.add({ ...base, kind: "arrived", occurredOn: "2026-11-04", source: "carrier", externalId: "c1", effect: "proposed", effectField: "actualArrival", effectValue: "2026-11-04" });
+    await shipmentService.update(s.id, s.companyId, { actualArrival: "2026-11-05" } as never, USER);
+    const rows = await eventsOf(s.id);
+    expect(rows.filter((e) => e.kind === "arrived" && e.effect === "applied")).toMatchObject([{ source: "document", occurredOn: "2026-11-05", decidedById: USER }]);
+    expect(rows.find((e) => e.kind === "delayed")?.resolvedAt).not.toBeNull();
+    // A source that says another day still waits for somebody.
+    expect(await shipmentTrackingEventRepository.proposedOn([s.id], s.companyId)).toMatchObject([{ source: "carrier", effectValue: "2026-11-04" }]);
+    expect(await shipmentTrackingEventRepository.findSameDay(s.id, s.companyId, "arrived", "2026-11-04")).toBeNull();
+  });
+
+  it("a corrected or cleared date leaves its old fact off the Last event", async () => {
+    const s = await newShipment();
+    const latest = async () => (await shipmentTrackingEventRepository.latestPerShipment([s.id], s.companyId)).get(s.id);
+    await shipmentService.update(s.id, s.companyId, { actualDeparture: "2026-10-01" } as never, USER);
+    await shipmentService.update(s.id, s.companyId, { actualArrival: "2026-11-07" } as never, USER);
+    await shipmentService.update(s.id, s.companyId, { actualArrival: "2026-11-05" } as never, USER);
+    expect(await latest()).toMatchObject({ kind: "arrived", occurredOn: "2026-11-05" });
+    expect((await eventsOf(s.id)).find((e) => e.occurredOn === "2026-11-07")).toMatchObject({ effect: "dismissed", decidedById: USER });
+    await shipmentService.update(s.id, s.companyId, { actualArrival: "" } as never, USER);
+    expect(await latest()).toMatchObject({ kind: "departed", occurredOn: "2026-10-01" });
+    expect((await shipmentService.get(s.id, s.companyId)).lastEvent).toBe("Departed 01.10.2026");
+  });
+
+  it("the Last event reads past a fact the shipment no longer holds, however it was left standing", async () => {
+    const s = await newShipment();
+    await shipmentService.update(s.id, s.companyId, { actualDeparture: "2026-10-01" } as never, USER);
+    await shipmentTrackingEventRepository.add({ companyId: s.companyId, shipmentId: s.id, kind: "delivered", occurredOn: "2026-11-09", effect: "applied", effectField: "actualDeliveryDate", effectValue: "2026-11-09" });
+    await shipmentTrackingEventRepository.add({ companyId: s.companyId, shipmentId: s.id, kind: "discharged", occurredOn: "2026-11-08" });
+    expect((await shipmentTrackingEventRepository.latestPerShipment([s.id], s.companyId)).get(s.id)).toMatchObject({ kind: "discharged" });
   });
 
   it("a replayed event from a source inserts nothing, until it is struck", async () => {

@@ -16,7 +16,7 @@ import { cargoItemRepository } from "../repositories/cargoItem.repository";
 import { cargoDimensionRepository } from "../repositories/cargoDimension.repository";
 import { commercialInvoiceRepository } from "../repositories/commercialInvoice.repository";
 import { carrierCodeOf } from "../lib/carriers";
-import { EXCEPTIONS_CLOSED_BY, eventsFromChanges, lastEventOf, ticksFromChanges, type TrackingSource } from "../lib/trackingEvents";
+import { EXCEPTIONS_CLOSED_BY, eventsFromChanges, heldFieldChanges, lastEventOf, ticksFromChanges, type TrackingSource } from "../lib/trackingEvents";
 import { shipmentTaskRepository } from "../repositories/shipmentTask.repository";
 import { shipmentTrackingEventRepository } from "../repositories/shipmentTrackingEvent.repository";
 import { invoiceValueByCurrency, isValidContainerNumber, matchContainerRows, normalizeContainerNumber, projectCargo } from "../lib/cargoProjection";
@@ -741,27 +741,38 @@ class ShipmentService {
     if (!(await shipmentRepository.getByIdForCompany(id, companyId))) throw APIError.notFound("Shipment not found");
   }
 
-  // What a change of the shipment is worth on the Tracking tab, in its write turn: the fact as an
-  // event (once: one already recorded for that day stands), the exceptions it closes, the ticks it
-  // makes true.
+  // What a change of the shipment is worth on the Tracking tab, in its write turn, whoever wrote it:
+  // an actual date set, corrected or cleared sets aside the facts of the old day and confirms what
+  // a source proposed of the new one; the fact as an event (once: one standing for that day is it);
+  // the exceptions it closes; the ticks it makes true. The turn's lock on the shipment keeps two
+  // writes of it from both finding no event and both adding one.
   private async writeTrackingFacts(tx: Tx, existing: ShipmentRecord, changes: Partial<NewShipmentRecord>, userId: string, byPerson: boolean, origin?: TrackingSource): Promise<void> {
-    const now = new Date();
-    const facts = eventsFromChanges(existing, changes, { byPerson, origin, today: businessDay(now), now });
-    for (const fact of facts) {
-      const { companyId, id: shipmentId } = existing;
-      if (await shipmentTrackingEventRepository.findSameDay(shipmentId, companyId, fact.kind, fact.occurredOn, tx)) continue;
-      await shipmentTrackingEventRepository.add({ ...fact, companyId, shipmentId, recordedById: userId }, tx);
+    const { companyId, id: shipmentId } = existing;
+    for (const { field, value } of heldFieldChanges(existing, changes)) {
+      await shipmentTrackingEventRepository.supersede(shipmentId, companyId, field, value, userId, tx);
+      if (value) await shipmentTrackingEventRepository.settle(shipmentId, companyId, field, value, userId, tx);
+    }
+    for (const fact of eventsFromChanges(existing, changes, { byPerson, origin, today: businessDay(new Date()) })) {
+      if (!(await shipmentTrackingEventRepository.findSameDay(shipmentId, companyId, fact.kind, fact.occurredOn, tx))) {
+        await shipmentTrackingEventRepository.add({ ...fact, companyId, shipmentId, recordedById: userId }, tx);
+      }
       const closes = EXCEPTIONS_CLOSED_BY[fact.kind];
       if (closes) await shipmentTrackingEventRepository.resolveOpen(shipmentId, companyId, closes, userId, tx);
     }
     for (const taskKey of ticksFromChanges(existing, changes, changes.tradeDirection ?? existing.tradeDirection)) {
-      await shipmentTaskRepository.upsert(existing.id, existing.companyId, taskKey, true, userId, tx);
+      await shipmentTaskRepository.upsert(shipmentId, companyId, taskKey, true, userId, tx);
     }
   }
 
   /** The customs status the shipment shows, which follows its paperwork. */
   async customsStatusOf(shipment: { id: string; customsStatus: string }, companyId: string): Promise<string> {
-    return customsStatusFor(shipment.customsStatus, await this.documentsOf(shipment.id, companyId));
+    return (await this.customsStatusesOf([shipment], companyId)).get(shipment.id)!;
+  }
+
+  /** The customs status each of these shipments shows, by id: their paperwork read in one query. */
+  async customsStatusesOf(shipments: readonly { id: string; customsStatus: string }[], companyId: string): Promise<Map<string, string>> {
+    const documents = await shipmentAttachmentRepository.documentTypesByShipmentIds(shipments.map((s) => s.id), companyId);
+    return new Map(shipments.map((s) => [s.id, customsStatusFor(s.customsStatus, documents.filter((d) => d.shipmentId === s.id && d.documentType))]));
   }
 
   /** A live shipment of the company; not found otherwise. */

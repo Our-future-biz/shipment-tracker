@@ -2,13 +2,15 @@
 
 import { useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, apiErrorMessage } from "@/lib/api";
+import { useToast } from "@/lib/toast";
 import type { interfaces } from "@/lib/api/client";
 
 export type TaskItem = interfaces.TaskItem;
 
 export function useShipmentTasks(shipmentId: string) {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const queryKey = ["shipment-tasks", shipmentId];
 
   const query = useQuery({
@@ -37,8 +39,9 @@ export function useShipmentTasks(shipmentId: string) {
       });
       return { prev };
     },
-    onError: (_err, _vars, ctx) => {
+    onError: (err, _vars, ctx) => {
       if (ctx?.prev) queryClient.setQueryData(queryKey, ctx.prev);
+      toast.error(apiErrorMessage(err));
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey }),
   });

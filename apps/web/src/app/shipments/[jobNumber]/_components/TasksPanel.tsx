@@ -12,7 +12,8 @@ import { RecordEventModal } from "../tabs/tracking/RecordEventModal";
 import { ReasonModal } from "../tabs/tracking/ReasonModal";
 import { TellCustomerModal } from "../tabs/tracking/TellCustomerModal";
 import type { NoticeKindValue } from "../tabs/tracking/customerDraft";
-import { TICK_EVENTS, TICK_NOTICES, getTasksForDirection } from "./taskDefinitions";
+import { SELF_TICKS, TICK_EVENTS, TICK_NOTICES, getTasksForDirection } from "./taskDefinitions";
+import { isDeliveryDated } from "@/lib/deliveryDated";
 import { businessDayOf, formatDate } from "@/lib/date";
 import { LINK } from "@/styles/ui";
 
@@ -24,8 +25,9 @@ export function TasksPanel({ shipment }: { shipment: ShipmentItem }) {
   const nextIdx = taskList.findIndex((d) => !byKey.get(d.key)?.completed);
   const { data: tracking } = useShipmentTracking(shipment.id, { staleTime: TRACKING_PEEK_STALE_MS });
   const { reopenTask } = useTrackingActions(shipment.id);
-  // A tick that is also a dated fact asks for its date, for whoever may record it; for anyone else
-  // (and on a road job, whose stamps are set in Trucking) it stays a plain tick.
+  // A tick that is also a dated fact asks for its date, and only whoever may record it ticks it; on a
+  // Trucking job, whose stamps are set in Trucking, it stays a plain tick. Billed and Delivered tick
+  // themselves. The server refuses the same (lib/trackingEvents plainTickRefusal).
   const [recording, setRecording] = useState<{ kind: string; taskKey: string } | null>(null);
   const [telling, setTelling] = useState<{ kind: NoticeKindValue; taskKey: string } | null>(null);
   const [takingBack, setTakingBack] = useState<{ taskKey: string; label: string } | null>(null);
@@ -38,7 +40,19 @@ export function TasksPanel({ shipment }: { shipment: ShipmentItem }) {
     }
     const kind = TICK_EVENTS[taskKey];
     if (kind && tracking?.recordable.some((r) => r.kind === kind)) setRecording({ kind, taskKey });
-    else setCompleted(taskKey, true, user?.id);
+    else if (!refusalOf(taskKey)) setCompleted(taskKey, true, user?.id);
+  };
+  const truckingJob = isDeliveryDated(shipment);
+  // Why a task can't be ticked here, or null.
+  const refusalOf = (taskKey: string): string | null => {
+    if (Object.hasOwn(TICK_NOTICES, taskKey)) return tracking ? null : "Loading…";
+    const kind = Object.hasOwn(TICK_EVENTS, taskKey) ? TICK_EVENTS[taskKey] : undefined;
+    if (kind && !truckingJob) {
+      if (!tracking) return "Loading…";
+      if (tracking.recordable.some((r) => r.kind === kind)) return null;
+      return "Only this shipment's Person in Charge, Holiday Cover or a manager can record this, with its date";
+    }
+    return Object.hasOwn(SELF_TICKS, taskKey) ? SELF_TICKS[taskKey]! : null;
   };
   const mayTakeBack = !!user && isDetailsManager(user.role);
 
@@ -47,15 +61,17 @@ export function TasksPanel({ shipment }: { shipment: ShipmentItem }) {
       {taskList.map((def, i) => {
         const state = byKey.get(def.key);
         const completed = !!state?.completed;
+        const refusal = completed ? null : refusalOf(def.key);
         return (
           <div key={def.key} className={`flex items-center gap-2.5 min-h-[30px] -mx-2 px-2 rounded-md text-[13px] transition-colors ${
               i === nextIdx ? "bg-indigo-50/70" : "hover:bg-slate-50"
             }`}>
-            <Tooltip title={completed ? (mayTakeBack ? "Take back beside the date" : "Only a manager can take a tick back") : def.description}>
+            <Tooltip title={completed ? (mayTakeBack ? "Take back beside the date" : "Only a manager can take a tick back") : (refusal ?? def.description)}>
               <input
                 type="checkbox"
                 checked={completed}
-                disabled={completed}
+                disabled={completed || !!refusal}
+                aria-label={def.label}
                 onChange={() => tick(def.key)}
                 className="w-4 h-4 shrink-0 rounded border-slate-300 accent-indigo-600 cursor-pointer disabled:cursor-default"
               />

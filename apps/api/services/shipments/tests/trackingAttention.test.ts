@@ -70,8 +70,13 @@ describe("what the dates say", () => {
     expect(f).toMatchObject([{ kind: "not_told", area: "tracking", detail: "ETA: told 09.12.2026, now 16.12.2026" }]);
   });
 
-  it("asks nothing of a road job's sea dates: its stamps are Trucking's", () => {
+  it("asks nothing of a Trucking job's sea dates: its stamps are Trucking's", () => {
     expect(kinds({ tradeDirection: "Domestic", freightMode: "Road Freight", estimatedArrival: "2026-10-01" })).toEqual([]);
+    expect(kinds({ department: "Road Department", freightMode: "Road Freight", estimatedArrival: "2026-10-01" })).toEqual([]);
+  });
+
+  it("asks an international Road Freight import for its ATA, which it is taxed by", () => {
+    expect(kinds({ freightMode: "Road Freight", estimatedArrival: "2026-10-01" })).toEqual(["eta_passed"]);
   });
 });
 
@@ -123,6 +128,13 @@ describe("the list's Last event", () => {
     expect(lastEventOf({ actualArrival: "2026-10-20" }, { kind: "discharged", occurredOn: "2026-10-21", source: "user" })).toBe("Discharged 21.10.2026");
     expect(lastEventOf({ actualArrival: "2026-10-20" }, { kind: "gate_in", occurredOn: "2026-10-20", source: "warehouse" })).toBe("Gate in 20.10.2026 · Warehouse");
     expect(lastEventOf({ actualArrival: "2026-10-22" }, { kind: "loaded", occurredOn: "2026-10-01", source: "user" })).toBe("Arrived 22.10.2026");
+  });
+
+  it("leaves out an event that set a date the shipment no longer holds", () => {
+    const arrived = { kind: "arrived", occurredOn: "2026-11-07", source: "user", effect: "applied", effectField: "actualArrival", effectValue: "2026-11-07" };
+    expect(lastEventOf({ actualDeparture: "2026-10-01", actualArrival: "2026-11-05" }, arrived)).toBe("Arrived 05.11.2026");
+    expect(lastEventOf({ actualDeparture: "2026-10-01", actualArrival: null }, arrived)).toBe("Departed 01.10.2026");
+    expect(lastEventOf({ actualArrival: "2026-11-07" }, { ...arrived, source: "carrier" })).toBe("Arrived 07.11.2026 · Carrier");
   });
 });
 

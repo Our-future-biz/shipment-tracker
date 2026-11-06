@@ -67,6 +67,16 @@ export const TICK_NOTICES: Readonly<Record<string, string>> = {
   exp_bl_provided: "bl_provided",
 };
 
+/**
+ * The ticks the app writes itself, with what writes them. The server refuses them as plain ticks
+ * (lib/trackingEvents SELF_TICKS); tests/taskCatalog.test fails if they drift.
+ */
+export const SELF_TICKS: Readonly<Record<string, string>> = {
+  imp_billed: "Billed ticks itself when the job is invoiced",
+  exp_billed: "Billed ticks itself when the job is invoiced",
+  imp_delivered: "Delivered ticks itself when the delivery date is set",
+};
+
 type FreightKind = "sea" | "air" | "rail" | "road";
 
 /** How a job travels. The server decides the same way (lib/trackingEvents freightKindOf). */

@@ -764,7 +764,8 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
   /**
    * The active shipments whose dates may need a look: something actual happened or a plan has passed,
    * or the customer was told something, or a source proposes a date. The rules are lib/trackingAttention;
-   * this only keeps them from reading every shipment. The newest first when there are more than `limit`.
+   * this only keeps them from reading every shipment. When there are more than `limit`, the ones that
+   * happened longest ago stay: those are the most likely past the tax date or delivered and not billed.
    */
   async trackingAttentionCandidates(companyId: string, limit: number) {
     return this.db
@@ -799,7 +800,11 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
           OR EXISTS (SELECT 1 FROM ${shipmentTrackingEventTable} proposed WHERE proposed.shipment_id = ${shipmentTable.id} AND proposed.effect = 'proposed' AND proposed.deleted_at IS NULL)
         )`,
       ))
-      .orderBy(desc(shipmentTable.createdAt))
+      // LEAST skips the dates a job doesn't have; one with none of them comes after, the newest first.
+      .orderBy(
+        sql`LEAST(${shipmentTable.actualDeparture}, ${shipmentTable.actualArrival}, ${shipmentTable.actualDeliveryDate}) ASC NULLS LAST`,
+        desc(shipmentTable.createdAt),
+      )
       .limit(limit);
   }
 

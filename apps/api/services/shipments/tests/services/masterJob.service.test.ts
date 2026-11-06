@@ -114,9 +114,24 @@ describe("a save that writes onto the houses", () => {
     expect(shipmentService.mayChangeDetails).not.toHaveBeenCalled();
   });
 
-  it("leaves the check to the caller when no editor is given (an event on a house's Tracking tab, already checked)", async () => {
+  it("holds a date from a house's Tracking tab to every house too, writing nothing when one isn't the person's", async () => {
+    await expect(save({ actualArrival: "2026-11-20" }, user)).rejects.toMatchObject({ code: "permission_denied", message: expect.stringContaining("CZ2") });
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
+    expect(shipmentService.update).not.toHaveBeenCalled();
+  });
+
+  it("leaves the app's own writes, which name no editor, unchecked", async () => {
     await save({ actualArrival: "2026-11-20" });
     expect(shipmentService.mayChangeDetails).not.toHaveBeenCalled();
     expect(shipmentService.update).toHaveBeenCalledTimes(2);
+  });
+
+  it("checks every house on its own, before a caller writes anything", async () => {
+    await expect(masterJobService.assertMayChangeEveryHouse(JOB, COMPANY, user)).rejects.toMatchObject({ code: "permission_denied", message: expect.stringContaining("CZ2") });
+    vi.mocked(shipmentRepository.findByMasterJobId).mockClear();
+    await expect(masterJobService.assertMayChangeEveryHouse(JOB, COMPANY, { userID: USER, role: "manager" })).resolves.toBeUndefined();
+    expect(shipmentRepository.findByMasterJobId).not.toHaveBeenCalled();
+    vi.mocked(shipmentService.mayChangeDetails).mockResolvedValue(true);
+    await expect(masterJobService.assertMayChangeEveryHouse(JOB, COMPANY, user)).resolves.toBeUndefined();
   });
 });

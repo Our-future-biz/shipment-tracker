@@ -40,7 +40,9 @@ vi.mock("../../repositories/shipment.repository", () => ({
 vi.mock("../../repositories/shipmentAttachment.repository", () => ({ shipmentAttachmentRepository: { documentTypesByShipmentIds: vi.fn() } }));
 vi.mock("../../repositories/shipmentAudit.repository", () => ({ shipmentAuditRepository: { create: vi.fn() } }));
 vi.mock("../../repositories/shipmentTask.repository", () => ({ shipmentTaskRepository: { upsert: vi.fn() } }));
-vi.mock("../../repositories/shipmentTrackingEvent.repository", () => ({ shipmentTrackingEventRepository: { findSameDay: vi.fn(async () => null), add: vi.fn(), resolveOpen: vi.fn(), latestPerShipment: vi.fn(async () => new Map()) } }));
+vi.mock("../../repositories/shipmentTrackingEvent.repository", () => ({
+  shipmentTrackingEventRepository: { findSameDay: vi.fn(async () => null), add: vi.fn(), resolveOpen: vi.fn(), supersede: vi.fn(), settle: vi.fn(), latestPerShipment: vi.fn(async () => new Map()) },
+}));
 vi.mock("../../repositories/masterJob.repository", () => ({ masterJobRepository: {} }));
 vi.mock("../../repositories/shipmentRefCounter.repository", () => ({ shipmentRefCounterRepository: { peek: vi.fn() } }));
 vi.mock("../../repositories/container.repository", () => ({
@@ -649,6 +651,27 @@ describe("what a change is worth on the Tracking tab", () => {
     expect(events.resolveOpen).toHaveBeenCalledWith(SHIPMENT, COMPANY, ["delayed", "rolled"], USER, TX);
   });
 
+  it("closes them also when the fact stood already, as a source's proposal now confirmed", async () => {
+    events.findSameDay.mockResolvedValue({ id: "e1" } as never);
+    await update({ actualArrival: "2026-11-05" }, "admin");
+    expect(events.resolveOpen).toHaveBeenCalledWith(SHIPMENT, COMPANY, ["delayed", "rolled"], USER, TX);
+  });
+
+  it("confirms what a source proposed of the day set, whoever set it, before looking for the fact", async () => {
+    await update({ actualArrival: "2026-11-05" }, undefined, "master_job");
+    expect(events.supersede).toHaveBeenCalledWith(SHIPMENT, COMPANY, "actualArrival", "2026-11-05", USER, TX);
+    expect(events.settle).toHaveBeenCalledWith(SHIPMENT, COMPANY, "actualArrival", "2026-11-05", USER, TX);
+    expect(events.settle.mock.invocationCallOrder[0]).toBeLessThan(events.findSameDay.mock.invocationCallOrder[0]!);
+  });
+
+  it("sets aside the facts of a date corrected or cleared, and stores none for a cleared one", async () => {
+    stored.set(SHIPMENT, row({ tradeDirection: "Import", invoicingStatus: "Not Invoiced", actualArrival: "2026-11-07" }));
+    await update({ actualArrival: null }, "admin");
+    expect(events.supersede).toHaveBeenCalledWith(SHIPMENT, COMPANY, "actualArrival", null, USER, TX);
+    expect(events.settle).not.toHaveBeenCalled();
+    expect(events.add).not.toHaveBeenCalled();
+  });
+
   it("stores nothing for a field that is no fact", async () => {
     await update({ freeComments: "hello" }, "admin");
     expect(events.add).not.toHaveBeenCalled();
@@ -664,6 +687,22 @@ describe("what a change is worth on the Tracking tab", () => {
     await update({ actualDeliveryDate: "2026-11-05" });
     expect(vi.mocked(shipmentTaskRepository.upsert)).toHaveBeenCalledWith(SHIPMENT, COMPANY, "imp_delivered", true, USER, TX);
     expect(events.add).toHaveBeenCalledWith(expect.objectContaining({ kind: "delivered", source: "trucking" }), TX);
+  });
+});
+
+describe("the customs status of several shipments", () => {
+  it("reads their paperwork in one query and gives each its own", async () => {
+    const docs = vi.mocked(shipmentAttachmentRepository.documentTypesByShipmentIds);
+    docs.mockResolvedValue([
+      { shipmentId: "a", documentType: "Invoice", customsStatus: "approved" },
+      { shipmentId: "a", documentType: "Packing list", customsStatus: "approved" },
+      { shipmentId: "b", documentType: "Packing list", customsStatus: "" },
+    ] as never);
+    const statuses = await shipmentService.customsStatusesOf([{ id: "a", customsStatus: "Customs Cleared/Released" }, { id: "b", customsStatus: "Customs Cleared/Released" }], COMPANY);
+    expect(docs).toHaveBeenCalledTimes(1);
+    expect(docs).toHaveBeenCalledWith(["a", "b"], COMPANY);
+    expect(statuses.get("a")).toBe("Customs Cleared/Released");
+    expect(statuses.get("b")).not.toBe("Customs Cleared/Released");
   });
 });
 

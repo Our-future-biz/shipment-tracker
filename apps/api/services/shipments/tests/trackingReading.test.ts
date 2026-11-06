@@ -53,6 +53,16 @@ describe("readingPreview", () => {
     ]);
   });
 
+  it("knows a hold or a note read again on another day as kept already", () => {
+    const keptYesterday = [
+      readingExternalId({ kind: "hold", occurredOn: "2026-11-05", note: "X-ray" }),
+      readingExternalId({ kind: "note", occurredOn: "2026-11-05", note: "Last free day 12.11.2026" }),
+      readingExternalId({ kind: "arrived", occurredOn: "2026-11-05", note: "" }),
+    ];
+    const { facts } = preview({ "Customs Hold": "X-ray", "Last Free Day": "2026-11-12", ATA: "2026-11-04" }, shipment, [], keptYesterday);
+    expect(facts.map((f) => [f.kind, f.alreadyKept])).toEqual([["arrived", false], ["hold", true], ["note", true]]);
+  });
+
   it("ignores what is not a day", () => {
     expect(preview({ ATA: "soon", ATD: "2026-02-31" }).facts).toEqual([]);
   });
@@ -103,9 +113,11 @@ describe("the last free day a notice states", () => {
   it("goes on the boxes it names", () => {
     expect(lastFreeDayChangeOf({ "Last Free Day": "2026-11-12", "Container Numbers": "csqu 305438-3" }, boxes)).toEqual({ day: "2026-11-12", containerIds: ["a"], containerNumbers: ["CSQU3054383"] });
   });
-  it("goes on all of them when it names none of the job's", () => {
+  it("goes on all of them when it names no container at all", () => {
     expect(lastFreeDayChangeOf({ "Last Free Day": "2026-11-12" }, boxes)?.containerIds).toEqual(["a", "b"]);
-    expect(lastFreeDayChangeOf({ "Last Free Day": "2026-11-12", "Container Numbers": "ZZZU1234567" }, boxes)?.containerIds).toEqual(["a", "b"]);
+  });
+  it("is nothing for this job when it names only other boxes", () => {
+    expect(lastFreeDayChangeOf({ "Last Free Day": "2026-11-12", "Container Numbers": "ZZZU1234567" }, boxes)).toBeNull();
   });
   it("is nothing without a day or a box, or when it is the day they have", () => {
     expect(lastFreeDayChangeOf({}, boxes)).toBeNull();

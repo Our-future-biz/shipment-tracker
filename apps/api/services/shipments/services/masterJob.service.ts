@@ -179,9 +179,10 @@ class MasterJobService {
     return toItem(row, 0);
   }
 
-  // `editor`: the person saving, when it is their edit (the Master Jobs page). A save that writes a
-  // house's details is held to that house's rule, all houses before any is written. Left out where
-  // the caller already checked the house the write starts from (an event on its Tracking tab).
+  // `editor`: the person saving, when it is their edit (the Master Jobs page, and a date or vessel
+  // from a house's Tracking tab: an event recorded or confirmed, a notice kept). A save that writes
+  // a house's details is held to that house's rule, all houses before any is written. Left out only
+  // by the app's own writes, which aren't held to it.
   async update(id: string, companyId: string, data: MasterJobUpdate, userId: string, editor?: MasterJobEditor): Promise<MasterJobItem> {
     const existing = await this.require(id, companyId);
     if (isLoadTypeChange(existing.loadType, data.loadType ?? undefined)) {
@@ -354,6 +355,12 @@ class MasterJobService {
   }
 
   /** Refuses the save, naming the houses, when the editor may not change every one of them. */
+  /** Refuses, naming them, a person who may not change the details of every house of the master job. */
+  async assertMayChangeEveryHouse(id: string, companyId: string, editor: MasterJobEditor): Promise<void> {
+    if (isDetailsManager(editor.role)) return;
+    await this.assertMayChangeHouses(await shipmentRepository.findByMasterJobId(id, companyId), editor);
+  }
+
   private async assertMayChangeHouses(
     houses: readonly { jobNumber: string; personInCharge: string; holidayCover: string }[],
     editor: MasterJobEditor,

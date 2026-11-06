@@ -6,7 +6,7 @@ vi.mock("../storage/documentBucket", () => ({ truckingDocumentBucket: bucket }))
 vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("~encore/clients", () => ({
-  shipments: { _internalShipmentMarkBilling: vi.fn(), shipmentUpdate: vi.fn(), _internalModuleDocument: vi.fn(), _internalTrackingFact: vi.fn() },
+  shipments: { _internalShipmentMarkBilling: vi.fn(), shipmentUpdate: vi.fn(), _internalModuleDocument: vi.fn(), _internalTrackingFact: vi.fn(), _internalTrackingFactVoid: vi.fn() },
   invoicing: { _internalInvoicingTruckingLines: vi.fn() },
   auth: { userLookup: vi.fn() },
 }));
@@ -43,7 +43,7 @@ describe("outbox delivery", () => {
     expect(shipments._internalShipmentMarkBilling).toHaveBeenCalledWith({ shipmentId: S }, { authData });
   });
 
-  it("hands the POD to the job's Documents and timeline, once per file", async () => {
+  it("hands the POD to the job's Documents once per file, and to its timeline once per stamp", async () => {
     await sendRow(row("pod", { fileName: "pod.pdf", contentType: "application/pdf", sha256: "abc", storageKey: "c/1/x", stampedAt: "2026-11-05T09:00:00.000Z" }));
     expect(bucket.download).toHaveBeenCalledWith("c/1/x");
     expect(shipments._internalModuleDocument).toHaveBeenCalledWith(
@@ -51,7 +51,37 @@ describe("outbox delivery", () => {
       { authData },
     );
     expect(shipments._internalTrackingFact).toHaveBeenCalledWith(
-      { shipmentId: S, kind: "pod_received", occurredAt: "2026-11-05T09:00:00.000Z", note: "pod.pdf", externalId: "pod:c1:abc" },
+      { shipmentId: S, kind: "pod_received", occurredAt: "2026-11-05T09:00:00.000Z", note: "pod.pdf", externalId: "pod:c1:2026-11-05T09:00:00.000Z" },
+      { authData },
+    );
+  });
+
+  it("takes a voided POD's fact off the job's timeline and leaves its file in the Documents", async () => {
+    await sendRow(row("pod", { stampedAt: "2026-11-05T09:00:00.000Z", voided: true }));
+    expect(shipments._internalTrackingFactVoid).toHaveBeenCalledWith({ shipmentId: S, externalId: "pod:c1:2026-11-05T09:00:00.000Z" }, { authData });
+    expect(bucket.download).not.toHaveBeenCalled();
+    expect(shipments._internalModuleDocument).not.toHaveBeenCalled();
+    expect(shipments._internalTrackingFact).not.toHaveBeenCalled();
+  });
+
+  it("puts a stamp on the job's timeline, and its void takes back that stamp's fact only", async () => {
+    const T1 = "2026-11-05T09:00:00.000Z";
+    const T2 = "2026-11-05T11:30:00.000Z";
+    await sendRow(row("stamp", { stamp: "confirmed", at: T1 }));
+    expect(shipments._internalTrackingFact).toHaveBeenLastCalledWith(
+      { shipmentId: S, kind: "haulier_confirmed", occurredAt: T1, note: "", externalId: `stamp:c1:confirmed:${T1}` },
+      { authData },
+    );
+    // Stamped again after a void that failed for good: a fact of its own, not deduplicated
+    // against the first one still on the timeline ...
+    await sendRow(row("stamp", { stamp: "confirmed", at: T2 }));
+    expect(shipments._internalTrackingFact).toHaveBeenLastCalledWith(expect.objectContaining({ externalId: `stamp:c1:confirmed:${T2}` }), { authData });
+    // ... and the failed void, sent again by a manager, takes back only the first.
+    await sendRow(row("stamp", { stamp: "confirmed", at: T1, voided: true }));
+    expect(shipments._internalTrackingFactVoid).toHaveBeenCalledWith({ shipmentId: S, externalId: `stamp:c1:confirmed:${T1}` }, { authData });
+    await sendRow(row("stamp", { stamp: "pickedUp", at: T2 }));
+    expect(shipments._internalTrackingFact).toHaveBeenLastCalledWith(
+      { shipmentId: S, kind: "picked_up", occurredAt: T2, note: "", externalId: `stamp:c1:pickedUp:${T2}` },
       { authData },
     );
   });

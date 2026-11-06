@@ -7,7 +7,7 @@ import { shipmentRepository } from "../repositories/shipment.repository";
 import { shipmentCustomerNoticeRepository } from "../repositories/shipmentCustomerNotice.repository";
 import { shipmentTrackingEventRepository } from "../repositories/shipmentTrackingEvent.repository";
 
-/** How many shipments are looked at, the newest first; the answer says when there were more. */
+/** How many shipments are looked at, those that happened longest ago first; the answer says when there were more. */
 export const TRACKING_ATTENTION_LIMIT = 1000;
 
 class TrackingAttentionService {
