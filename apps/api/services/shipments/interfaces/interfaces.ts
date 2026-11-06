@@ -815,3 +815,100 @@ export interface LinksNormalizeResult {
   /** The names left as they are, most frequent first: to be linked by hand. */
   unmatched: UnmatchedLink[];
 }
+
+// — Tracking: the shipment's dated facts, read from its dates, its audit log and its ticks —
+
+/** Who put a value there and when, from the audit log. No person is named for a system write or a user who left. */
+export interface TrackingRecorded {
+  at: string;
+  by: string;
+  /** The department or module that keeps this field ("Trucking", "Warehouse", "Customs"); "" when any person may. */
+  source: string;
+}
+
+export type TrackingLeg = "origin" | "main" | "destination";
+
+/**
+ * done: it happened. next: the first step still to happen. late: its planned date passed and it
+ * was not recorded. open: still to come. planned: a date we only plan by, with no actual to record.
+ */
+export type TrackingMilestoneState = "done" | "next" | "late" | "open" | "planned";
+
+export interface TrackingMilestone {
+  key: string;
+  label: string;
+  /** Which dates the row shows ("ETA / ATA"); "" when it speaks for itself. */
+  basis: string;
+  leg: TrackingLeg;
+  place: string;
+  planned: string | null;
+  /** "HH:MM" of the planned date when known; "" otherwise. */
+  plannedTime: string;
+  /** The planned date before its last change; null when it never moved. */
+  wasPlanned: string | null;
+  /** How far the last change moved it, in days (later is positive); null when it never moved. */
+  movedDays: number | null;
+  actual: string | null;
+  /** What stands in for a date ("Under Customs Clearance", the MRN); "" when nothing does. */
+  detail: string;
+  state: TrackingMilestoneState;
+  /** Days past the planned date with nothing recorded; 0 when not late. */
+  lateDays: number;
+  /** This row's actual date is the job's tax date. */
+  taxDate: boolean;
+  recorded: TrackingRecorded | null;
+}
+
+/** One logged change of a date or of the routing. */
+export interface TrackingChange {
+  id: string;
+  field: string;
+  label: string;
+  isDate: boolean;
+  oldValue: string | null;
+  newValue: string | null;
+  /** Between two dates, in days (later is positive); null otherwise. */
+  movedDays: number | null;
+  by: string;
+  at: string;
+}
+
+/** What needs a look on this shipment, worked out from its dates. */
+export interface TrackingAttention {
+  kind: "moved" | "late";
+  milestoneKey: string;
+  /** "ETA", "ETD", … */
+  what: string;
+  days: number;
+  from: string | null;
+  to: string | null;
+  at: string | null;
+  by: string;
+}
+
+/** A ticked checklist task: the time is the click, not the event. */
+export interface TrackingTick {
+  taskKey: string;
+  completedAt: string;
+  by: string;
+}
+
+export interface TrackingTaxDate {
+  /** Which date the job is taxed by now: an actual one is firm, an estimated one provisional. */
+  basis: "ata" | "atd" | "eta" | "etd" | "delivery" | "plannedDelivery" | "none";
+  date: string | null;
+  actual: boolean;
+  recorded: TrackingRecorded | null;
+  /** Whether an issued, not credited invoice makes the date final; null when Invoicing could not be asked. */
+  invoiced: boolean | null;
+}
+
+export interface ShipmentTracking {
+  milestones: TrackingMilestone[];
+  changes: TrackingChange[];
+  /** The log holds more than the newest rows read. */
+  changesCapped: boolean;
+  attention: TrackingAttention[];
+  ticks: TrackingTick[];
+  taxDate: TrackingTaxDate;
+}

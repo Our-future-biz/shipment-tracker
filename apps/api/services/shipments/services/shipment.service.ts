@@ -732,6 +732,11 @@ class ShipmentService {
     if (!(await shipmentRepository.getByIdForCompany(id, companyId))) throw APIError.notFound("Shipment not found");
   }
 
+  /** The customs status the shipment shows, which follows its paperwork. */
+  async customsStatusOf(shipment: { id: string; customsStatus: string }, companyId: string): Promise<string> {
+    return customsStatusFor(shipment.customsStatus, await this.documentsOf(shipment.id, companyId));
+  }
+
   /** A live shipment of the company; not found otherwise. */
   async get(id: string, companyId: string): Promise<ShipmentItem> {
     const shipment = await this.getById(id, companyId);

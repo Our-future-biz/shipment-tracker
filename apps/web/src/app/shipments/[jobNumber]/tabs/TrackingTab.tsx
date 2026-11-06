@@ -1,58 +1,86 @@
 "use client";
 
+import { useState } from "react";
+import { Alert, Spin, Switch } from "antd";
+import { CopyButton } from "@/components/CopyButton";
+import { PillTabs } from "@/components/SectionCard";
+import { useJobFxRates } from "@/hooks/useFx";
 import type { ShipmentItem } from "@/hooks/useShipments";
-import { useShipmentTasks } from "@/hooks/useShipmentTasks";
-import { getTasksForDirection } from "../_components/taskDefinitions";
-import { formatDateTime } from "@/lib/date";
+import { useShipmentTracking } from "@/hooks/useShipmentTracking";
+import { apiErrorMessage } from "@/lib/api";
 import { CARD, HINT } from "@/styles/ui";
+import { jobFxDates } from "./costsRows";
+import { AttentionCard } from "./tracking/AttentionCard";
+import { ChangesCard } from "./tracking/ChangesCard";
+import { ChecklistCard } from "./tracking/ChecklistCard";
+import { RecordedBy } from "./tracking/RecordedBy";
+import { TimelineCard } from "./tracking/TimelineCard";
+import { taxDateParts, trackingStatusLine } from "./tracking/trackingText";
 
-export function TrackingTab({ shipment }: { shipment: ShipmentItem }) {
-  const taskList = getTasksForDirection(shipment.tradeDirection);
-  const { tasks } = useShipmentTasks(shipment.id);
+type View = "all" | "actuals" | "changes";
 
-  const completedTasks = tasks
-    .filter((t) => t.completed && t.completedAt)
-    .sort((a, b) => new Date(b.completedAt!).getTime() - new Date(a.completedAt!).getTime());
+const VIEWS: readonly { key: View; label: string; title: string }[] = [
+  { key: "all", label: "All", title: "Everything planned and recorded" },
+  { key: "actuals", label: "Actuals", title: "Only what has happened" },
+  { key: "changes", label: "Changes", title: "Only the logged changes of dates and routing" },
+];
 
-  if (completedTasks.length === 0) {
+/** The dated facts of a shipment: where the cargo is, what moved and who recorded it. */
+export function TrackingTab({ shipment, onOpen }: { shipment: ShipmentItem; onOpen: (tab: string) => void }) {
+  const [view, setView] = useState<View>("all");
+  const [customerView, setCustomerView] = useState(false);
+  const { data, isLoading, error } = useShipmentTracking(shipment.id);
+  const { data: rates } = useJobFxRates(shipment.id, jobFxDates(shipment));
+
+  if (isLoading) {
     return (
-      <div className={`${CARD} p-5`}>
-        <p className={`text-center ${HINT} py-8`}>No tracking events yet</p>
+      <div className={`${CARD} p-8 flex justify-center`}>
+        <Spin />
       </div>
     );
   }
+  if (!data) {
+    return <Alert type="error" showIcon message={`Could not load the tracking: ${apiErrorMessage(error)}`} />;
+  }
+
+  const statusLine = trackingStatusLine(shipment, data.milestones);
+  const showChanges = !customerView && view !== "actuals";
+  const showTimeline = customerView || view !== "changes";
 
   return (
-    <div className={`${CARD} p-5`}>
-      <div className="relative pl-6">
-        <div className="absolute left-[7px] top-2 bottom-2 w-0.5 bg-slate-200 rounded-sm" />
-        {completedTasks.map((task, i) => {
-          const def = taskList.find((t) => t.key === task.taskKey);
-          const isLatest = i === 0;
-          return (
-            <div key={task.taskKey} className="relative mb-4">
-              <div
-                className={`absolute -left-[18px] top-1 w-3 h-3 rounded-full border-2 ${
-                  isLatest
-                    ? "border-indigo-600 bg-indigo-600"
-                    : "border-slate-300 bg-white"
-                }`}
-              />
-              <div>
-                <p className={`text-[13px] font-medium ${isLatest ? "text-indigo-600" : "text-slate-900"}`}>
-                  {def?.label || task.taskKey}
-                </p>
-                {def?.description && (
-                  <p className={HINT}>{def.description}</p>
-                )}
-                <p className="text-[11px] text-slate-500">
-                  {formatDateTime(task.completedAt!)}
-                </p>
-              </div>
-            </div>
-          );
-        })}
+    <div className="space-y-4">
+      <div className={`${CARD} px-4 py-2.5 flex items-center gap-2`}>
+        <p className="m-0 min-w-0 flex-1 text-[13px] text-slate-700 tabular-nums">{statusLine}</p>
+        <CopyButton text={statusLine} what="status line" />
       </div>
+
+      {!customerView && (
+        <p className={`${CARD} m-0 px-4 py-2.5 text-[13px] text-slate-700 tabular-nums`}>
+          {taxDateParts(data.taxDate, rates).join(" · ")}
+          {/* Who set the date it goes by; an invoiced job goes by its invoice, not by that estimate. */}
+          {data.taxDate.recorded && (data.taxDate.actual || !data.taxDate.invoiced) && (
+            <>
+              {" · "}
+              <RecordedBy recorded={data.taxDate.recorded} />
+            </>
+          )}
+        </p>
+      )}
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        {customerView ? <span className={HINT}>What can be told to the customer: no names, no internal marks.</span> : <PillTabs tabs={VIEWS} active={view} onChange={setView} />}
+        <label className="flex items-center gap-2 text-[13px] text-slate-700 cursor-pointer">
+          <Switch size="small" checked={customerView} onChange={setCustomerView} />
+          Customer view
+        </label>
+      </div>
+
+      {!customerView && view === "all" && <AttentionCard items={data.attention} />}
+      {showTimeline && (
+        <TimelineCard shipment={shipment} milestones={data.milestones} actualsOnly={!customerView && view === "actuals"} customerView={customerView} onOpen={onOpen} />
+      )}
+      {showChanges && <ChangesCard changes={data.changes} capped={data.changesCapped} />}
+      {!customerView && view === "all" && <ChecklistCard tradeDirection={shipment.tradeDirection} ticks={data.ticks} />}
     </div>
   );
 }

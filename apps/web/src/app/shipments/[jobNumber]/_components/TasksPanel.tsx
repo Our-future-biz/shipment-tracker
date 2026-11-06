@@ -5,7 +5,7 @@ import { useShipmentTasks } from "@/hooks/useShipmentTasks";
 import { useAuth } from "@/lib/auth/AuthContext";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { getTasksForDirection } from "./taskDefinitions";
-import { formatDate } from "@/lib/date";
+import { businessDayOf, formatDate } from "@/lib/date";
 
 export function TasksPanel({ shipment }: { shipment: ShipmentItem }) {
   const { user } = useAuth();
@@ -37,7 +37,7 @@ export function TasksPanel({ shipment }: { shipment: ShipmentItem }) {
             </span>
             {completed && state?.completedAt && (
               <span className="text-[11px] text-slate-500 ml-auto whitespace-nowrap tabular-nums">
-                {formatDate(state.completedAt)}
+                {formatDate(businessDayOf(state.completedAt))}
               </span>
             )}
           </div>

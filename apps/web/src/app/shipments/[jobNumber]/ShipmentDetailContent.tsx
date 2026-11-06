@@ -54,6 +54,7 @@ import { ContainerDetailsTab } from "./tabs/ContainerDetailsTab";
 import { CargoDetailsTab } from "./tabs/CargoDetailsTab";
 import { DocumentsTab } from "./tabs/DocumentsTab";
 import { TrackingTab } from "./tabs/TrackingTab";
+import { TaxDateLockNote } from "./tabs/tracking/TaxDateLockNote";
 import { NotificationsTab } from "./tabs/NotificationsTab";
 import { useShipmentAlerts } from "@/hooks/useShipmentAlerts";
 import { WarehouseTab } from "./tabs/WarehouseTab";
@@ -1366,7 +1367,19 @@ export function ShipmentDetailContent() {
               </div>
 
               {/* KEY DATES */}
-              <DetailCard icon={<CalendarOutlined />} title="Key Dates" cardId="dates" columns={[KEY_DATES_L, KEY_DATES_R]} shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
+              <DetailCard
+                icon={<CalendarOutlined />}
+                title="Key Dates"
+                cardId="dates"
+                columns={[KEY_DATES_L, KEY_DATES_R]}
+                shipment={shipment}
+                onCommit={handleCommit}
+                styleFor={styleFor}
+                renderAfter={{
+                  actualDeparture: <TaxDateLockNote shipmentId={shipment.id} />,
+                  actualArrival: <TaxDateLockNote shipmentId={shipment.id} />,
+                }}
+              />
 
               {/* COMMERCIAL PARTIES */}
               <div className={CARD}>
@@ -1682,7 +1695,7 @@ export function ShipmentDetailContent() {
 
         {activeTab === "warehouse" && <WarehouseTab shipment={shipment} />}
 
-        {activeTab === "tracking" && <TrackingTab shipment={shipment} />}
+        {activeTab === "tracking" && <TrackingTab shipment={shipment} onOpen={setActiveTab} />}
 
         {activeTab === "container" && (
           <DetailsGuard editable={detailsEditable} native>

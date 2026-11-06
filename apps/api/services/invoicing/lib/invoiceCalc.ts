@@ -1,5 +1,6 @@
 import { chargeLabel } from "../../../lib/chargeCodes";
 import type { VatCode } from "../interfaces/interfaces";
+import { ROAD_DEPARTMENT, isDeliveryDated } from "../../../lib/deliveryDated";
 
 /**
  * The invoice maths, done on the server from stored data only (never from numbers the
@@ -127,17 +128,7 @@ export function parseShipmentDate(raw: string | null | undefined): string {
 }
 
 /** The department of the jobs Trucking runs (domestic road jobs). */
-export const ROAD_DEPARTMENT = "Road Department";
-
-/**
- * Whether a job is dated by its delivery rather than by arrival or departure: a Domestic job or
- * one of the Road Department (owner decision: a trucking job's DUZP is its delivery date).
- */
-export function isDeliveryDated(shipment: { tradeDirection: string; department?: string | null }): boolean {
-  const direction = (shipment.tradeDirection ?? "").trim().toLowerCase();
-  const department = (shipment.department ?? "").trim().toLowerCase();
-  return direction === "domestic" || department === ROAD_DEPARTMENT.toLowerCase();
-}
+export { ROAD_DEPARTMENT, isDeliveryDated };
 
 /**
  * DUZP default = the tax date (owner decision, 14 Oct 2026): ATA for imports, ATD for

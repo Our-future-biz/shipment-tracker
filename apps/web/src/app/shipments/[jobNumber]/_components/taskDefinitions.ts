@@ -64,3 +64,33 @@ export function getActiveStageFromTasks(
   if (stageTasks.length > 0 && stageTasks.every((t) => isCompleted(t.key))) active += 1;
   return active;
 }
+
+/** The customs status that means the cargo is through. */
+export const CUSTOMS_CLEARED = "Customs Cleared/Released";
+
+export interface StageFacts {
+  tradeDirection?: string | null;
+  actualDeparture?: string | null;
+  actualArrival?: string | null;
+  customsStatus?: string | null;
+  actualDeliveryDate?: string | null;
+}
+
+/**
+ * The stage a shipment's own dates put it at, whatever is ticked: departed = In transit, arrived =
+ * past Arrive at POD, cleared = past Customs clearance, delivered = every stage done. An export is
+ * cleared before it sails, so its customs status says nothing about the stages.
+ */
+export function getStageFromFacts(facts: StageFacts): number {
+  if (facts.actualDeliveryDate) return 6;
+  const isExport = (facts.tradeDirection ?? "").trim().toLowerCase() === "export";
+  if (!isExport && facts.customsStatus === CUSTOMS_CLEARED) return 5;
+  if (facts.actualArrival) return 4;
+  if (facts.actualDeparture) return 2;
+  return 0;
+}
+
+/** The active stage: the ticks and the dates can each only push it forward, never back. */
+export function getActiveStage(taskList: TaskDef[], isCompleted: (taskKey: string) => boolean, facts: StageFacts): number {
+  return Math.max(getActiveStageFromTasks(taskList, isCompleted), getStageFromFacts(facts));
+}
