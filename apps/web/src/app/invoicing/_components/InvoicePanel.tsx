@@ -23,7 +23,10 @@ import type { interfaces } from "@/lib/api/client";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { useShipmentMutations } from "@/hooks/useShipments";
 import { useCustomers } from "@/hooks/useCustomers";
+import { useCustomerContacts } from "@/hooks/useCustomerContacts";
 import { downloadInvoicePdf, useInvoiceDocs, type InvoiceDoc } from "@/hooks/useInvoiceDocs";
+import { mailtoLink, openMailto } from "@/lib/mailto";
+import { invoiceEmailTo, shipmentEmailSubject } from "@/app/shipments/_lib/shipmentEmail";
 import { useToast } from "@/lib/toast";
 import { formatDate } from "@/lib/date";
 import { CURRENCIES } from "@/lib/enums";
@@ -39,6 +42,7 @@ import { Pill } from "@/components/Pill";
 import { CARD, HINT, ICON_BTN, ICON_BTN_GHOST, LABEL_TEXT, LINK, REF, TD, TH } from "@/styles/ui";
 import { useCostsData } from "@/app/shipments/[jobNumber]/tabs/useCostsData";
 import { lineTableRows, type LineTableRow as TableRow } from "../_lib/lineTable";
+import { IssuedInvoiceEmailModal, type IssuedInvoiceEmail } from "./IssuedInvoiceEmailModal";
 
 /** Billing currencies offered: the ones the company invoices in, out of the app's currencies. */
 // Offered for a shipment without a customer; one with a customer is billed in that customer's currencies.
@@ -125,6 +129,8 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
   const [creditTarget, setCreditTarget] = useState<{ doc: InvoiceDoc; key: string } | null>(null);
   const [creditReason, setCreditReason] = useState("");
   const [downloading, setDownloading] = useState<string | null>(null);
+  const [issuedEmail, setIssuedEmail] = useState<IssuedInvoiceEmail | null>(null);
+  const { contacts: picContacts } = useCustomerContacts(shipment.customerId ?? "");
   // display only: the customer picker behind the pencil, and the VAT breakdown table
   const [pickingCustomer, setPickingCustomer] = useState(false);
   const [vatOpen, setVatOpen] = useState(false);
@@ -243,6 +249,12 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
       setNote("");
       toast.success(`Invoice ${invoice.number} issued`);
       await download(invoice);
+      // The PDF first, then the email to put it in. The issued invoice stands whatever happens here.
+      const to = invoiceEmailTo(shipment, invoice.customerId, picContacts);
+      const subject = shipmentEmailSubject(shipment);
+      const href = mailtoLink({ to, subject });
+      setIssuedEmail({ id: invoice.id, number: invoice.number, to, subject, href });
+      openMailto(href);
     } catch (e) {
       toast.error(e instanceof Error && e.message ? e.message : "Failed to issue the invoice");
     }
@@ -919,6 +931,15 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts }: I
           </div>
         )}
       </Modal>
+
+      {issuedEmail && (
+        <IssuedInvoiceEmailModal
+          email={issuedEmail}
+          downloading={downloading === issuedEmail.id}
+          onDownload={() => void download(issuedEmail)}
+          onClose={() => setIssuedEmail(null)}
+        />
+      )}
 
       {/* ── Credit note ── */}
       <Modal

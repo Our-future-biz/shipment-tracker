@@ -1,5 +1,33 @@
 import { describe, expect, it } from "vitest";
-import { canBeCopied, otherContacts, shipmentEmailSubject } from "./shipmentEmail";
+import { canBeCopied, invoiceEmailTo, otherContacts, shipmentEmailSubject } from "./shipmentEmail";
+
+describe("invoiceEmailTo", () => {
+  const contacts = [
+    { id: "a", name: "Lukas Fousek", email: " lukfuk@carymary.com " },
+    { id: "b", name: "Anna Nova", email: "anna@alza.cz" },
+    { id: "c", name: "No Address", email: "" },
+  ];
+  const shipment = { customerId: "alza", customerPic: "Lukas Fousek", customerPicContactId: "a" };
+
+  it("is the Customer's PIC, when the invoice bills the shipment's customer", () => {
+    expect(invoiceEmailTo(shipment, "alza", contacts)).toBe("lukfuk@carymary.com");
+  });
+
+  it("finds a PIC stored before ids were kept by the name", () => {
+    expect(invoiceEmailTo({ ...shipment, customerPic: "Anna Nova", customerPicContactId: null }, "alza", contacts)).toBe("anna@alza.cz");
+  });
+
+  it("is empty when another company is billed: the PIC works for someone else", () => {
+    expect(invoiceEmailTo(shipment, "other", contacts)).toBe("");
+  });
+
+  it("is empty without a PIC, with a PIC not among the contacts, or with no address", () => {
+    expect(invoiceEmailTo({ customerId: "alza", customerPic: "", customerPicContactId: null }, "alza", contacts)).toBe("");
+    expect(invoiceEmailTo({ ...shipment, customerPic: "Somebody", customerPicContactId: null }, "alza", contacts)).toBe("");
+    expect(invoiceEmailTo({ ...shipment, customerPic: "No Address", customerPicContactId: "c" }, "alza", contacts)).toBe("");
+    expect(invoiceEmailTo(shipment, "alza", [])).toBe("");
+  });
+});
 
 describe("shipmentEmailSubject", () => {
   it("is the Internal Reference // the Customer Reference", () => {

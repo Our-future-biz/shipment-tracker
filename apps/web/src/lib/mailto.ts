@@ -22,3 +22,17 @@ export function mailtoLink({ to = "", cc = "", bcc = "", subject = "", message =
   ].filter(Boolean);
   return `mailto:${address(to)}${headers.length ? `?${headers.join("&")}` : ""}`;
 }
+
+// A mailto: link's link attributes. In a new tab: an email program takes it over from there, and
+// webmail opens beside the page instead of replacing it.
+export const MAILTO_LINK_TARGET = { target: "_blank", rel: "noreferrer" } as const;
+
+// Follows a mailto: link without a click on it. The browser may refuse once the click that led here
+// is too long ago, so the page has to offer the link itself as well.
+export function openMailto(href: string): void {
+  const link = document.createElement("a");
+  link.href = href;
+  link.target = MAILTO_LINK_TARGET.target;
+  link.rel = MAILTO_LINK_TARGET.rel;
+  link.click();
+}
