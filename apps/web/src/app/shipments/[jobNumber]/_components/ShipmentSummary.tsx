@@ -22,13 +22,14 @@ const SHIPMENT_STAGES = [
 
 interface FactProps {
   label: string;
+  className?: string;
   children: React.ReactNode;
 }
 
 // One fact of the summary: a small caps label over its value.
-function Fact({ label, children }: FactProps) {
+function Fact({ label, className = "", children }: FactProps) {
   return (
-    <div className="min-w-0">
+    <div className={`min-w-0 ${className}`}>
       <div className={`${LABEL_TEXT} break-words`}>{label}</div>
       <div className="mt-0.5 min-h-[22px] flex items-center text-[13px] font-medium text-slate-900 min-w-0">{children}</div>
     </div>
@@ -55,8 +56,11 @@ export function ShipmentFacts({ shipment }: { shipment: ShipmentItem }) {
   return (
     // Two rows of six on a wide screen; the columns line up across both rows. The second row
     // always reads POL, ETD, POD, ETA. The status gets the widest column, so it stays on one line.
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,0.85fr)_minmax(0,0.9fr)_minmax(0,1.45fr)] 2xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.05fr)_minmax(0,0.8fr)_minmax(0,1.25fr)_minmax(0,1.35fr)] gap-x-6 gap-y-3 lg:gap-y-1.5 lg:[&>*:nth-child(n+7)]:pt-1.5 lg:[&>*:nth-child(n+7)]:border-t lg:[&>*:nth-child(n+7)]:border-indigo-100">
-      <Fact label="Job">
+    // The first column is never narrower than the job number (they run up to CZPROJECT00000023),
+    // and only the job number sizes it: a long POL below stays cut. Below xl six columns would
+    // leave the others too narrow for a date, so the job number has a row of its own there.
+    <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-[minmax(max-content,1.1fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,0.85fr)_minmax(0,0.9fr)_minmax(0,1.45fr)] 2xl:grid-cols-[minmax(max-content,1fr)_minmax(0,1fr)_minmax(0,1.05fr)_minmax(0,0.8fr)_minmax(0,1.25fr)_minmax(0,1.35fr)] gap-x-6 gap-y-3 xl:gap-y-1.5 xl:[&>*:not(:first-child)]:[contain:inline-size] xl:[&>*:nth-child(n+7)]:pt-1.5 xl:[&>*:nth-child(n+7)]:border-t xl:[&>*:nth-child(n+7)]:border-indigo-100">
+      <Fact label="Job" className="col-span-full xl:col-span-1">
         {/* The job number is the page's title. */}
         <div className="flex items-center gap-1 min-w-0">
           <h1 className={`${PAGE_TITLE} ${REF} truncate`} title={job}>
