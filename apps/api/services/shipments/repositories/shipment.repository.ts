@@ -4,6 +4,11 @@ import { TenantRepository } from "../../../lib/db/repository";
 import { db, type Tx } from "../db/db";
 import { shipmentTable, type NewShipmentRecord, type ShipmentRecord } from "../schemas/shipment.schema";
 import { CANCELLED_STATUS } from "../lib/fieldDefaults";
+import { DATE_MOVED_WINDOW_DAYS } from "../lib/trackingThresholds";
+import { ROAD_DEPARTMENT } from "../../../lib/deliveryDated";
+import { shipmentAuditTable } from "../schemas/shipmentAudit.schema";
+import { shipmentCustomerNoticeTable } from "../schemas/shipmentCustomerNotice.schema";
+import { shipmentTrackingEventTable } from "../schemas/shipmentTrackingEvent.schema";
 import { shipmentRefCounterRepository, type Tx as CounterTx } from "./shipmentRefCounter.repository";
 import { jobNumberFor } from "../lib/jobNumber";
 import { masterJobTable } from "../schemas/masterJob.schema";
@@ -200,9 +205,21 @@ const NOT_CANCELLED = sql`${shipmentTable.status} IS DISTINCT FROM ${CANCELLED_S
 
 const ACTIVE = sql`${shipmentTable.invoicingStatus} IS DISTINCT FROM 'Invoiced' AND ${NOT_CANCELLED}`;
 
+// An ETD or ETA that moved lately, by somebody or by the app. EXISTS bounded by date: the audit log
+// is the longest table here, and this runs inside the list's and the tiles' own queries.
+const DATE_MOVED_LATELY = sql`EXISTS (
+  SELECT 1 FROM ${shipmentAuditTable} moved
+  WHERE moved.shipment_id = ${shipmentTable.id}
+    AND moved.field IN ('estimatedDeparture', 'estimatedArrival')
+    AND moved.changed_at >= now() - make_interval(days => ${DATE_MOVED_WINDOW_DAYS}::int)
+    AND COALESCE(moved.old_value, '') <> '' AND COALESCE(moved.new_value, '') <> ''
+    AND moved.old_value <> moved.new_value
+)`;
+
 const TILE_PREDICATES = {
   active: ACTIVE,
   attention: sql`${ACTIVE} AND ${anyDueWithin(1)}`,
+  etamoved: sql`${ACTIVE} AND ${DATE_MOVED_LATELY}`,
   import: sql`lower(${shipmentTable.tradeDirection}) = 'import' AND ${NOT_CANCELLED}`,
   export: sql`lower(${shipmentTable.tradeDirection}) = 'export' AND ${NOT_CANCELLED}`,
   week: sql`${RELEVANT_ETA} IS NOT NULL
@@ -273,14 +290,22 @@ export interface ShipmentListFilters {
 // Invoicing page queue. "Billing" is the Shipment Status operations set when a job is ready to
 // be invoiced (stored with its direction); Invoicing Status is Invoiced / Not Invoiced.
 // A job reaches the Invoicing page only once operations release it (Billing) or once it is invoiced.
-type InvoicingFilterId = "all" | "billing" | "not-invoiced" | "invoiced";
+type InvoicingFilterId = "all" | "billing" | "not-invoiced" | "invoiced" | "unbilled-arrivals";
 const BILLING_STATUS = sql`${shipmentTable.status} IN ('Billing [IMP]', 'Billing [EXP]', 'Billing [DOM]')`;
 const INVOICED = sql`${shipmentTable.invoicingStatus} = 'Invoiced'`;
+// The date a job is taxed by has passed: ATA, ATD by direction, or the delivery of a job dated by it.
+// Operations hasn't released it yet, so the page's other views don't show it.
+const IS_DELIVERY_DATED = sql`(lower(${shipmentTable.tradeDirection}) = 'domestic' OR lower(${shipmentTable.department}) = ${ROAD_DEPARTMENT.toLowerCase()})`;
+const TAX_DATE_REACHED = sql`CASE
+  WHEN ${IS_DELIVERY_DATED} THEN ${shipmentTable.actualDeliveryDate} IS NOT NULL
+  WHEN lower(${shipmentTable.tradeDirection}) = 'export' THEN ${shipmentTable.actualDeparture} IS NOT NULL
+  ELSE ${shipmentTable.actualArrival} IS NOT NULL END`;
 const INVOICING_PREDICATES: Record<InvoicingFilterId, ReturnType<typeof sql>> = {
   all: sql`(${BILLING_STATUS} OR ${INVOICED}) AND ${NOT_CANCELLED}`,
   billing: sql`${BILLING_STATUS} AND ${shipmentTable.invoicingStatus} IS DISTINCT FROM 'Invoiced'`,
   "not-invoiced": sql`${shipmentTable.invoicingStatus} IS DISTINCT FROM 'Invoiced' AND ${NOT_CANCELLED}`,
   invoiced: INVOICED,
+  "unbilled-arrivals": sql`${TAX_DATE_REACHED} AND ${shipmentTable.status} NOT ILIKE 'bill%' AND ${ACTIVE}`,
 };
 
 // The status column holds long free-text labels ("Booked For Further Transport [IMP]", …).
@@ -675,6 +700,7 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
       .select({
         active: sql<number>`COUNT(*) FILTER (WHERE ${TILE_PREDICATES.active})`,
         attention: sql<number>`COUNT(*) FILTER (WHERE ${TILE_PREDICATES.attention})`,
+        etaMoved: sql<number>`COUNT(*) FILTER (WHERE ${TILE_PREDICATES.etamoved})`,
         importCount: sql<number>`COUNT(*) FILTER (WHERE ${TILE_PREDICATES.import})`,
         exportCount: sql<number>`COUNT(*) FILTER (WHERE ${TILE_PREDICATES.export})`,
         week: sql<number>`COUNT(*) FILTER (WHERE ${TILE_PREDICATES.week})`,
@@ -686,6 +712,7 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
     return {
       active: Number(row?.active ?? 0),
       attention: Number(row?.attention ?? 0),
+      etaMoved: Number(row?.etaMoved ?? 0),
       import: Number(row?.importCount ?? 0),
       export: Number(row?.exportCount ?? 0),
       week: Number(row?.week ?? 0),
@@ -732,6 +759,47 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
       ))
       .orderBy(soonest, shipmentTable.jobNumber)
       .limit(200);
+  }
+
+  /**
+   * The active shipments whose dates may need a look: something actual happened or a plan has passed,
+   * or the customer was told something, or a source proposes a date. The rules are lib/trackingAttention;
+   * this only keeps them from reading every shipment. The newest first when there are more than `limit`.
+   */
+  async trackingAttentionCandidates(companyId: string, limit: number) {
+    return this.db
+      .select({
+        id: shipmentTable.id,
+        jobNumber: shipmentTable.jobNumber,
+        customerId: shipmentTable.customerId,
+        customer: shipmentTable.customer,
+        tradeDirection: shipmentTable.tradeDirection,
+        freightMode: shipmentTable.freightMode,
+        department: shipmentTable.department,
+        status: shipmentTable.status,
+        estimatedDeparture: shipmentTable.estimatedDeparture,
+        actualDeparture: shipmentTable.actualDeparture,
+        estimatedArrival: shipmentTable.estimatedArrival,
+        actualArrival: shipmentTable.actualArrival,
+        etaWarehouse: shipmentTable.etaWarehouse,
+        warehouseReceivedDate: shipmentTable.warehouseReceivedDate,
+        plannedDeliveryDate: shipmentTable.plannedDeliveryDate,
+        actualDeliveryDate: shipmentTable.actualDeliveryDate,
+      })
+      .from(shipmentTable)
+      .where(and(
+        eq(shipmentTable.companyId, companyId),
+        isNull(shipmentTable.deletedAt),
+        ACTIVE,
+        sql`(
+          ${shipmentTable.actualDeparture} IS NOT NULL OR ${shipmentTable.actualArrival} IS NOT NULL OR ${shipmentTable.actualDeliveryDate} IS NOT NULL
+          OR ${shipmentTable.estimatedArrival} < ${TODAY} OR ${shipmentTable.estimatedDeparture} < ${TODAY}
+          OR EXISTS (SELECT 1 FROM ${shipmentCustomerNoticeTable} told WHERE told.shipment_id = ${shipmentTable.id} AND told.deleted_at IS NULL)
+          OR EXISTS (SELECT 1 FROM ${shipmentTrackingEventTable} proposed WHERE proposed.shipment_id = ${shipmentTable.id} AND proposed.effect = 'proposed' AND proposed.deleted_at IS NULL)
+        )`,
+      ))
+      .orderBy(desc(shipmentTable.createdAt))
+      .limit(limit);
   }
 
   /** The plate number of a truck (TCZ…): the one its shipments carry, "" if none has it yet. */

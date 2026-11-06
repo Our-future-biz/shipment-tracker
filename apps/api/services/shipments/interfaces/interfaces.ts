@@ -188,6 +188,8 @@ export interface ShipmentItem {
   customsStatus: string;
   masterJobId: string | null;
   masterJobMczNumber: string | null;
+  /** What happened last ("Arrived 20.10.2026 · Warehouse"); "" when nothing has yet. */
+  lastEvent: string;
 
   // Meta
   shipmentsDate: string | null;
@@ -618,6 +620,8 @@ export interface ShipmentDashboard {
 export interface ShipmentTileCounts {
   active: number;
   attention: number;
+  /** Active shipments whose ETD or ETA moved lately. */
+  etaMoved: number;
   import: number;
   export: number;
   week: number;
@@ -981,6 +985,27 @@ export interface TrackingBellNotice {
   by: string;
   at: string;
   unread: boolean;
+}
+
+/** Something a shipment's dates say needs doing, as Needs Attention lists it. */
+export interface TrackingAttentionFlag {
+  kind: "to_confirm" | "eta_passed" | "etd_passed" | "no_onward" | "no_event" | "not_told" | "not_released" | "tax_date" | "delivered_not_billed";
+  /** urgent is red, attention amber. */
+  severity: "urgent" | "attention";
+  /** Whose desk it is. */
+  area: "tracking" | "finance";
+  label: string;
+  detail: string;
+}
+
+export interface TrackingAttentionItem {
+  id: string;
+  jobNumber: string;
+  customerId: string | null;
+  customer: string;
+  tradeDirection: string;
+  status: string;
+  flags: TrackingAttentionFlag[];
 }
 
 export interface ShipmentTracking {

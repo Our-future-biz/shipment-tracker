@@ -15,7 +15,7 @@ import { containerRepository } from "../repositories/container.repository";
 import { cargoItemRepository } from "../repositories/cargoItem.repository";
 import { cargoDimensionRepository } from "../repositories/cargoDimension.repository";
 import { commercialInvoiceRepository } from "../repositories/commercialInvoice.repository";
-import { EXCEPTIONS_CLOSED_BY, eventsFromChanges, ticksFromChanges, type TrackingSource } from "../lib/trackingEvents";
+import { EXCEPTIONS_CLOSED_BY, eventsFromChanges, lastEventOf, ticksFromChanges, type TrackingSource } from "../lib/trackingEvents";
 import { shipmentTaskRepository } from "../repositories/shipmentTask.repository";
 import { shipmentTrackingEventRepository } from "../repositories/shipmentTrackingEvent.repository";
 import { invoiceValueByCurrency, isValidContainerNumber, matchContainerRows, normalizeContainerNumber, projectCargo } from "../lib/cargoProjection";
@@ -262,6 +262,7 @@ type EnrichedShipment = ReturnType<typeof enrich> & {
   licensePlate: string;
   documentTypes: string[];
   customsStatus: string;
+  lastEvent: string;
 };
 
 // The Pick-up tab's License Plates, by shipment. A column of the grids: when the warehouse service
@@ -688,6 +689,8 @@ class ShipmentService {
       docsByShipment.set(r.shipmentId, list);
     }
 
+    const latestEvents = await shipmentTrackingEventRepository.latestPerShipment(shipmentIds, companyId);
+
     const enriched = result.data.map((s) => toShipmentItem({
       ...enrich(
         s,
@@ -700,6 +703,7 @@ class ShipmentService {
       licensePlate: platesByShipment.get(s.id) ?? "",
       documentTypes: (docsByShipment.get(s.id) ?? []).map((d) => d.documentType),
       customsStatus: customsStatusFor(s.customsStatus, docsByShipment.get(s.id) ?? []),
+      lastEvent: lastEventOf(s, latestEvents.get(s.id) ?? null),
     }));
 
     return {
@@ -786,6 +790,7 @@ class ShipmentService {
       licensePlate: plates.get(id) ?? "",
       documentTypes: documents.map((d) => d.documentType),
       customsStatus: customsStatusFor(shipment.customsStatus, documents),
+      lastEvent: lastEventOf(shipment, (await shipmentTrackingEventRepository.latestPerShipment([id], companyId)).get(id) ?? null),
     });
   }
 
@@ -1110,7 +1115,7 @@ class ShipmentService {
     // 14 Oct 2026) — correct it by crediting the invoice first. A trade-direction switch
     // that changes which of the two is the tax date counts too.
     if (changesTaxDate(existing, shipmentData) && (await this.isInvoiced(id))) {
-      throw APIError.failedPrecondition("ATA / ATD and the trade direction can't change once the job is invoiced — credit the invoice first");
+      throw APIError.failedPrecondition("The tax date (ATA / ATD, or a road job's delivery) and the trade direction can't change once the job is invoiced — credit the invoice first");
     }
 
     // Seed the export BoL types against the values this update leaves behind, so

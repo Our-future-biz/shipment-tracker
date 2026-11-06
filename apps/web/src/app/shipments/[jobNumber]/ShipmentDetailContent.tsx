@@ -1378,6 +1378,7 @@ export function ShipmentDetailContent() {
                 renderAfter={{
                   actualDeparture: <TaxDateLockNote shipmentId={shipment.id} />,
                   actualArrival: <TaxDateLockNote shipmentId={shipment.id} />,
+                  plannedDeliveryDate: <TaxDateLockNote shipmentId={shipment.id} whenDeliveryDated />,
                 }}
               />
 

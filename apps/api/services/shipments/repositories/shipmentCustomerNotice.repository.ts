@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { shipmentCustomerNoticeTable as t, type ShipmentCustomerNoticeRecord } from "../schemas/shipmentCustomerNotice.schema";
@@ -16,6 +16,17 @@ class ShipmentCustomerNoticeRepository extends TenantRepository<typeof t> {
       .where(and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), isNull(t.deletedAt)))
       .orderBy(desc(t.createdAt), desc(t.id))
       .limit(limit);
+  }
+
+  /** Each of these shipments' latest notice. */
+  async latestPerShipment(shipmentIds: readonly string[], companyId: string): Promise<Map<string, ShipmentCustomerNoticeRecord>> {
+    if (shipmentIds.length === 0) return new Map();
+    const rows = await this.db
+      .selectDistinctOn([t.shipmentId])
+      .from(t)
+      .where(and(eq(t.companyId, companyId), inArray(t.shipmentId, [...shipmentIds]), isNull(t.deletedAt)))
+      .orderBy(t.shipmentId, desc(t.createdAt));
+    return new Map(rows.map((r) => [r.shipmentId, r]));
   }
 }
 

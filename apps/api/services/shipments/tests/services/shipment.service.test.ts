@@ -40,7 +40,7 @@ vi.mock("../../repositories/shipment.repository", () => ({
 vi.mock("../../repositories/shipmentAttachment.repository", () => ({ shipmentAttachmentRepository: { documentTypesByShipmentIds: vi.fn() } }));
 vi.mock("../../repositories/shipmentAudit.repository", () => ({ shipmentAuditRepository: { create: vi.fn() } }));
 vi.mock("../../repositories/shipmentTask.repository", () => ({ shipmentTaskRepository: { upsert: vi.fn() } }));
-vi.mock("../../repositories/shipmentTrackingEvent.repository", () => ({ shipmentTrackingEventRepository: { findSameDay: vi.fn(async () => null), add: vi.fn(), resolveOpen: vi.fn() } }));
+vi.mock("../../repositories/shipmentTrackingEvent.repository", () => ({ shipmentTrackingEventRepository: { findSameDay: vi.fn(async () => null), add: vi.fn(), resolveOpen: vi.fn(), latestPerShipment: vi.fn(async () => new Map()) } }));
 vi.mock("../../repositories/masterJob.repository", () => ({ masterJobRepository: {} }));
 vi.mock("../../repositories/shipmentRefCounter.repository", () => ({ shipmentRefCounterRepository: { peek: vi.fn() } }));
 vi.mock("../../repositories/container.repository", () => ({

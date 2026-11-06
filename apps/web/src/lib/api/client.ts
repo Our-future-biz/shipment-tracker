@@ -2298,6 +2298,7 @@ export namespace shipments {
             this.shipmentReleaseHouseBol = this.shipmentReleaseHouseBol.bind(this)
             this.shipmentTileCounts = this.shipmentTileCounts.bind(this)
             this.shipmentTracking = this.shipmentTracking.bind(this)
+            this.shipmentTrackingAttention = this.shipmentTrackingAttention.bind(this)
             this.shipmentUnlinkMasterJob = this.shipmentUnlinkMasterJob.bind(this)
             this.shipmentUpdate = this.shipmentUpdate.bind(this)
             this.shipmentsNamingQuotes = this.shipmentsNamingQuotes.bind(this)
@@ -2877,6 +2878,15 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/shipments/${encodeURIComponent(shipmentId)}/tracking`)
             return await resp.json() as interfaces.ShipmentTracking
+        }
+
+        /**
+         * Active shipments whose dates need a look: passed with nothing recorded, unconfirmed, untold, unbilled.
+         */
+        public async shipmentTrackingAttention(): Promise<controllers.TrackingAttentionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipments/tracking-attention`)
+            return await resp.json() as controllers.TrackingAttentionResponse
         }
 
         public async shipmentUnlinkMasterJob(shipmentId: string): Promise<controllers.UnlinkMasterJobResponse> {
@@ -9505,7 +9515,7 @@ export namespace controllers {
         statusBucket?: string
 
         /**
-         * Overview tile filter: active | attention | import | export | week | nextweek
+         * Overview tile filter: active | attention | etamoved | import | export | week | nextweek
          */
         tile?: string
 
@@ -10079,6 +10089,14 @@ export namespace controllers {
 
     export interface TermsUpdateResponse {
         terms: interfaces.TermsConditionItem
+    }
+
+    export interface TrackingAttentionResponse {
+        items: interfaces.TrackingAttentionItem[]
+        /**
+         * There are more active shipments than were looked at: the oldest are left out.
+         */
+        capped: boolean
     }
 
     export interface TrackingEventRecordRequest {
@@ -11728,6 +11746,10 @@ export namespace interfaces {
         toBill: number
         notInvoiced: number
         invoiced: number
+        /**
+         * Their tax date has passed, not released for billing yet, not invoiced.
+         */
+        unbilledArrivals: number
     }
 
     /**
@@ -16816,7 +16838,7 @@ export namespace interfaces {
     /**
      * Views of the Invoicing queue: all (released for billing or invoiced, not cancelled) | to_bill (Shipment Status Billing, not invoiced yet) | not_invoiced | invoiced (Invoicing Status)
      */
-    export type QueueView = "all" | "to_bill" | "not_invoiced" | "invoiced"
+    export type QueueView = "all" | "to_bill" | "not_invoiced" | "invoiced" | "unbilled_arrivals"
 
     /**
      * A file sent with a chat message.
@@ -18442,6 +18464,11 @@ export namespace interfaces {
         masterJobId: string | null
         masterJobMczNumber: string | null
         /**
+         * What happened last ("Arrived 20.10.2026 · Warehouse"); "" when nothing has yet.
+         */
+        lastEvent: string
+
+        /**
          * Meta
          */
         shipmentsDate: string | null
@@ -18706,6 +18733,11 @@ export namespace interfaces {
     export interface ShipmentTileCounts {
         active: number
         attention: number
+        /**
+         * Active shipments whose ETD or ETA moved lately.
+         */
+        etaMoved: number
+
         import: number
         export: number
         week: number
@@ -19803,6 +19835,35 @@ export namespace interfaces {
         to: string | null
         at: string | null
         by: string
+    }
+
+    /**
+     * Something a shipment's dates say needs doing, as Needs Attention lists it.
+     */
+    export interface TrackingAttentionFlag {
+        kind: "to_confirm" | "eta_passed" | "etd_passed" | "no_onward" | "no_event" | "not_told" | "not_released" | "tax_date" | "delivered_not_billed"
+        /**
+         * urgent is red, attention amber.
+         */
+        severity: "urgent" | "attention"
+
+        /**
+         * Whose desk it is.
+         */
+        area: "tracking" | "finance"
+
+        label: string
+        detail: string
+    }
+
+    export interface TrackingAttentionItem {
+        id: string
+        jobNumber: string
+        customerId: string | null
+        customer: string
+        tradeDirection: string
+        status: string
+        flags: TrackingAttentionFlag[]
     }
 
     /**

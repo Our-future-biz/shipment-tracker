@@ -39,12 +39,13 @@ import { DocumentsPanel } from "@/app/shipments/_components/DocumentsPanel";
 import { ChatPanel } from "@/app/shipments/_components/ChatPanel";
 
 type View = BillingQueueView;
-const VIEWS = ["all", "to_bill", "invoiced"] as const satisfies readonly View[];
+const VIEWS = ["all", "to_bill", "invoiced", "unbilled_arrivals"] as const satisfies readonly View[];
 const VIEW_COUNT: Record<View, keyof interfaces.BillingQueueCounts> = {
   all: "all",
   to_bill: "toBill",
   not_invoiced: "notInvoiced",
   invoiced: "invoiced",
+  unbilled_arrivals: "unbilledArrivals",
 };
 const DEFAULT_VIEW: View = "all";
 type QueueParam = "queue" | "q";
@@ -59,6 +60,8 @@ const STAGE_TABS: { key: View; label: string; dividerBefore?: boolean }[] = [
   { key: "all", label: "All" },
   { key: "to_bill", label: "To bill", dividerBefore: true },
   { key: "invoiced", label: "Invoiced", dividerBefore: true },
+  // Not released by operations yet, so not to be invoiced from here: what finance chases.
+  { key: "unbilled_arrivals", label: "Unbilled arrivals", dividerBefore: true },
 ];
 
 interface BillingQueueProps {
@@ -68,7 +71,7 @@ interface BillingQueueProps {
 /**
  * The first Invoicing page: the queue. It lists only jobs operations released for billing
  * (Shipment Status "Billing") and jobs already invoiced: "To bill" are the released ones not
- * invoiced yet, "Invoiced" follows the Invoicing Status. The tab, search and filters are kept in the URL, so Back from a
+ * invoiced yet, "Invoiced" follows the Invoicing Status, "Unbilled arrivals" are jobs past their tax date that operations hasn't released. The tab, search and filters are kept in the URL, so Back from a
  * job returns to the queue as it was left.
  */
 export function BillingQueue({ onOpen }: BillingQueueProps) {

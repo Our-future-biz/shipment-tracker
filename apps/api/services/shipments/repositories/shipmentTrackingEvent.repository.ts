@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db, type Tx } from "../db/db";
 import { shipmentTrackingEventTable as t, type NewShipmentTrackingEventRecord, type ShipmentTrackingEventRecord } from "../schemas/shipmentTrackingEvent.schema";
@@ -16,6 +16,42 @@ class ShipmentTrackingEventRepository extends TenantRepository<typeof t> {
       .where(and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), isNull(t.deletedAt)))
       .orderBy(desc(t.occurredOn), desc(t.createdAt), desc(t.id))
       .limit(limit);
+  }
+
+  /** Each of these shipments' last standing event: no proposal, no plan change (those aren't things that happened). */
+  async latestPerShipment(shipmentIds: readonly string[], companyId: string): Promise<Map<string, ShipmentTrackingEventRecord>> {
+    if (shipmentIds.length === 0) return new Map();
+    const rows = await this.db
+      .selectDistinctOn([t.shipmentId])
+      .from(t)
+      .where(and(
+        eq(t.companyId, companyId),
+        inArray(t.shipmentId, [...shipmentIds]),
+        isNull(t.deletedAt),
+        inArray(t.effect, ["none", "applied"]),
+        notInArray(t.kind, ["eta_changed", "etd_changed", "note"]),
+      ))
+      .orderBy(t.shipmentId, desc(t.occurredOn), desc(t.createdAt));
+    return new Map(rows.map((r) => [r.shipmentId, r]));
+  }
+
+  /** Dates sources propose on these shipments, waiting for somebody. */
+  async proposedOn(shipmentIds: readonly string[], companyId: string): Promise<ShipmentTrackingEventRecord[]> {
+    if (shipmentIds.length === 0) return [];
+    return this.db
+      .select()
+      .from(t)
+      .where(and(eq(t.companyId, companyId), inArray(t.shipmentId, [...shipmentIds]), eq(t.effect, "proposed"), isNull(t.deletedAt)));
+  }
+
+  /** Of these shipments, those recorded as arrived at the hub. */
+  async arrivedAtHub(shipmentIds: readonly string[], companyId: string): Promise<Set<string>> {
+    if (shipmentIds.length === 0) return new Set();
+    const rows = await this.db
+      .selectDistinct({ shipmentId: t.shipmentId })
+      .from(t)
+      .where(and(eq(t.companyId, companyId), inArray(t.shipmentId, [...shipmentIds]), eq(t.kind, "hub_arrived"), isNull(t.deletedAt)));
+    return new Set(rows.map((r) => r.shipmentId));
   }
 
   async getLive(id: string, shipmentId: string, companyId: string): Promise<ShipmentTrackingEventRecord | null> {

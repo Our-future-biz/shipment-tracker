@@ -83,8 +83,8 @@ describe("the tax-date line", () => {
     ]);
   });
 
-  it("doesn't call a delivery date final: it isn't locked yet", () => {
-    expect(taxDateParts(tax({ basis: "delivery", invoiced: true }), undefined)).toEqual(["Tax date (DUZP) = delivery 09.10.2026", "Invoiced"]);
+  it("calls a job's delivery date final once invoiced, like an ATA", () => {
+    expect(taxDateParts(tax({ basis: "delivery", invoiced: true }), undefined)).toEqual(["Tax date (DUZP) = delivery 09.10.2026", "Invoiced: final, credit the invoice first to change it"]);
   });
 
   it("says nothing about an invoice when Invoicing couldn't be asked", () => {

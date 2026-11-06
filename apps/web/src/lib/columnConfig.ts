@@ -179,6 +179,7 @@ export const COLUMNS: ColumnDef[] = [
   { key: "customsPriority", title: "Customs Priority", width: 150, type: "dropdown", options: DROPDOWN_OPTIONS["Customs Priority"], apiField: "customsPriority", readonly: true },
   { key: "customsDeadline", title: "Customs Deadline", width: 160, type: "text", readonly: true, apiField: "customsDeadline" },
   { key: "status", title: "Shipment Status", width: 320, type: "dropdown", options: DROPDOWN_OPTIONS["Shipment Status"], apiField: "status" },
+  { key: "lastEvent", title: "Last Event", width: 240, type: "text", readonly: true, apiField: "lastEvent" },
   { key: "freeComments", title: "Free Comments", width: 200, type: "text", apiField: "freeComments" },
   { key: "freightPayableAt", title: "Freight Payable At", width: 160, type: "dropdown", options: DROPDOWN_OPTIONS["Freight Payable At"], apiField: "freightPayableAt" },
   { key: "freightMode", title: "Freight Mode", width: 130, type: "dropdown", options: DROPDOWN_OPTIONS["Freight Mode"], apiField: "freightMode" },

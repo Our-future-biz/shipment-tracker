@@ -3,7 +3,7 @@
 import { Tooltip } from "antd";
 import { useShipmentTileCounts } from "@/hooks/useShipmentTileCounts";
 
-export type TileId = "active" | "attention" | "import" | "export" | "week" | "nextweek";
+export type TileId = "active" | "attention" | "etamoved" | "import" | "export" | "week" | "nextweek";
 
 interface TileDef {
   id: TileId;
@@ -17,6 +17,7 @@ interface TileDef {
 const TILES: TileDef[] = [
   { id: "active", label: "Active Shipments", hint: "Everything except invoiced shipments" },
   { id: "attention", label: "Needs Attention", hint: "A deadline today or tomorrow, or an overdue VGM / SI / AMS / ISF — to finish within 24 hours", danger: true },
+  { id: "etamoved", label: "ETA Moved", hint: "An ETD or ETA moved in the last 7 days", danger: true },
   { id: "import", label: "Imports", hint: "Import shipments" },
   { id: "export", label: "Exports", hint: "Export shipments" },
   { id: "week", label: "Upcoming This Week", hint: "ETA/ETD falls in the current week" },
@@ -39,6 +40,7 @@ export function OverviewTiles({ active, onSelect }: Props) {
     const map: Record<TileId, number> = {
       active: counts.active,
       attention: counts.attention,
+      etamoved: counts.etaMoved,
       import: counts.import,
       export: counts.export,
       week: counts.week,

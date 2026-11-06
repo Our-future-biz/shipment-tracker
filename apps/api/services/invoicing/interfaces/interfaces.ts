@@ -218,7 +218,7 @@ export type InvoiceDocKind = "invoice" | "credit_note";
 export type InvoiceDocStatus = "issued" | "credited";
 
 /** Views of the Invoicing queue: all (released for billing or invoiced, not cancelled) | to_bill (Shipment Status Billing, not invoiced yet) | not_invoiced | invoiced (Invoicing Status) */
-export type QueueView = "all" | "to_bill" | "not_invoiced" | "invoiced";
+export type QueueView = "all" | "to_bill" | "not_invoiced" | "invoiced" | "unbilled_arrivals";
 
 /** Where a shipment stands with its ticked selling rows */
 export type BillingState = "to_bill" | "partly_invoiced" | "invoiced" | "none";
@@ -469,6 +469,8 @@ export interface BillingQueueCounts {
   toBill: number;
   notInvoiced: number;
   invoiced: number;
+  /** Their tax date has passed, not released for billing yet, not invoiced. */
+  unbilledArrivals: number;
 }
 
 /** One job in the job-profit report (CZK at the month's fixed ČNB average) */

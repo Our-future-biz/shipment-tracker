@@ -65,7 +65,6 @@ export interface TaxDateRates {
 
 /** What the invoice is taxed by, whether that is firm, and what the rates and an invoice make of it. */
 export function taxDateParts(tax: TrackingTaxDate, rates: TaxDateRates | undefined): string[] {
-  const deliveryDated = tax.basis === "delivery" || tax.basis === "plannedDelivery";
   const invoiced = tax.invoiced === true;
   let date: string;
   if (!tax.date) date = "No tax date (DUZP) yet: no date on this job says it";
@@ -82,13 +81,6 @@ export function taxDateParts(tax: TrackingTaxDate, rates: TaxDateRates | undefin
         ? `ČNB rates locked for ${formatDate(rates.rateDate)}${rates.previousRateDate ? ` (re-locked from ${formatDate(rates.previousRateDate)})` : ""}`
         : `ČNB rates provisional, ${formatDate(rates.rateDate)}`;
 
-  // ATA and ATD are refused once invoiced; a delivery date is not locked yet (Council Outlay 8, D16).
-  const invoice = !invoiced
-    ? ""
-    : deliveryDated
-      ? "Invoiced"
-      : tax.actual
-        ? "Invoiced: final, credit the invoice first to change it"
-        : "Credit the invoice first to set it";
+  const invoice = !invoiced ? "" : tax.actual ? "Invoiced: final, credit the invoice first to change it" : "Credit the invoice first to set it";
   return [date, fx, invoice].filter(Boolean);
 }

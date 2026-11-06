@@ -276,3 +276,41 @@ export function ticksFromChanges(before: Record<string, unknown>, changes: Recor
   if (filled(changes.actualDeliveryDate) && changes.actualDeliveryDate !== before.actualDeliveryDate && !isExport) out.push("imp_delivered");
   return out;
 }
+
+const czDay = (day: string) => `${day.slice(8, 10)}.${day.slice(5, 7)}.${day.slice(0, 4)}`;
+
+const LAST_FACT_COLUMNS: readonly { field: "actualDeparture" | "actualArrival" | "warehouseReceivedDate" | "warehouseReleasedDate" | "actualDeliveryDate"; kind: TrackingKind }[] = [
+  { field: "actualDeparture", kind: "departed" },
+  { field: "actualArrival", kind: "arrived" },
+  { field: "warehouseReceivedDate", kind: "gate_in" },
+  { field: "warehouseReleasedDate", kind: "gate_out" },
+  { field: "actualDeliveryDate", kind: "delivered" },
+];
+
+type LastEventDates = Partial<Record<(typeof LAST_FACT_COLUMNS)[number]["field"], string | null>>;
+
+/**
+ * The list's "Last event": what happened last on the shipment, from its latest stored event and
+ * its actual dates (jobs older than the events have only those). The later step wins a day's tie.
+ */
+export function lastEventOf(dates: LastEventDates, event: { kind: string; occurredOn: string; source: string } | null): string {
+  let day = "";
+  let kind = "";
+  let source = "";
+  for (const column of LAST_FACT_COLUMNS) {
+    const value = dates[column.field];
+    if (value && value >= day) {
+      day = value;
+      kind = column.kind;
+      source = "";
+    }
+  }
+  if (event && isTrackingKind(event.kind) && event.occurredOn >= day) {
+    day = event.occurredOn;
+    kind = event.kind;
+    source = SOURCE_LABELS[event.source as TrackingSource] ?? "";
+  }
+  if (!day) return "";
+  return [`${TRACKING_KINDS[kind as TrackingKind].label} ${czDay(day)}`, source].filter(Boolean).join(" · ");
+}
+

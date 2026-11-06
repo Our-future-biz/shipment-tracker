@@ -11,6 +11,7 @@ import { deadlineDayColor, deadlineDayLabel, deadlineLabel } from "@/lib/shipmen
 import { useShipmentsNeedingAttention } from "@/hooks/useShipmentsNeedingAttention";
 import type { ShipmentDueItem } from "@/hooks/useShipmentsNeedingAttention";
 import { CARD_TITLE, EMPTY, HINT, MODAL_TITLE, REF } from "@/styles/ui";
+import { TrackingAttentionCard } from "./TrackingAttentionCard";
 
 // A card lists only its soonest few; the count shows the total and the link opens them all.
 const VISIBLE_ROWS = 3;
@@ -140,6 +141,9 @@ export function NeedsAttentionTable() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {renderCard("within24h")}
         {renderCard("within48h")}
+        <div className="lg:col-span-2 min-w-0">
+          <TrackingAttentionCard />
+        </div>
       </div>
 
       {/* Wide enough for the five columns; the table scrolls sideways rather than spill out on a narrow window. */}

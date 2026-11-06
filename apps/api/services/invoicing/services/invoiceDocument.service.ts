@@ -409,7 +409,7 @@ async function applyStatusPatch(shipmentId: string, patch: StatusPatch, number: 
 }
 
 /** Queue views and the shipments-list filter behind each. */
-export const QUEUE_VIEWS: Record<QueueView, string> = { all: "all", to_bill: "billing", not_invoiced: "not-invoiced", invoiced: "invoiced" };
+export const QUEUE_VIEWS: Record<QueueView, string> = { all: "all", to_bill: "billing", not_invoiced: "not-invoiced", invoiced: "invoiced", unbilled_arrivals: "unbilled-arrivals" };
 
 /** How many shipments one queue view shows at most (shipments are fetched 200 per page). */
 const QUEUE_MAX = 1000;
@@ -669,7 +669,7 @@ class InvoiceDocumentService {
     // Shown oldest first, as before.
     listed.reverse();
 
-    const [rows, openInvoices, settings, today, all, toBill, notInvoiced, invoiced] = await Promise.all([
+    const [rows, openInvoices, settings, today, all, toBill, notInvoiced, invoiced, unbilledArrivals] = await Promise.all([
       sellingCostRepository.listLiveByCompany(companyId),
       invoiceRepository.listOpenInvoicesWithSources(companyId),
       billingSettingsRepository.listByCompany(companyId),
@@ -678,6 +678,7 @@ class InvoiceDocumentService {
       countOf(QUEUE_VIEWS.to_bill),
       countOf(QUEUE_VIEWS.not_invoiced),
       countOf(QUEUE_VIEWS.invoiced),
+      countOf(QUEUE_VIEWS.unbilled_arrivals),
     ]);
     const settingsById = new Map(settings.map((x) => [x.shipmentId, x.billingCurrency]));
     // The DUZP of each job's newest open invoice (the highest number).
@@ -721,7 +722,7 @@ class InvoiceDocumentService {
         invoicedLines: lineCounts.get(s.id)?.invoiced ?? 0,
       };
     });
-    return { queue, counts: { all, toBill, notInvoiced, invoiced }, truncated: total > listed.length };
+    return { queue, counts: { all, toBill, notInvoiced, invoiced, unbilledArrivals }, truncated: total > listed.length };
   }
 
   async list(shipmentId: string, companyId: string): Promise<InvoiceDocItem[]> {
