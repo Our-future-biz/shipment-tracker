@@ -3,7 +3,7 @@ import type { Actor } from "../../../lib/rbac";
 import { canManageSales, shipmentFromQuoteRefusal, shipmentLinkRefusal } from "../../../lib/salesPolicy";
 import { isSalesReference } from "../../../lib/salesReference";
 import log from "encore.dev/log";
-import { customers, invoicing, quotes } from "~encore/clients";
+import { customers, invoicing, quotes, warehouse } from "~encore/clients";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
 import type { Tx } from "../db/db";
 import { shipmentRepository, OVERDUE_DEADLINE_FIELDS, type NewShipmentData, type ShipmentReference } from "../repositories/shipment.repository";
@@ -253,9 +253,23 @@ function enrich(
 
 type EnrichedShipment = ReturnType<typeof enrich> & {
   masterJobMczNumber: string | null;
+  licensePlate: string;
   documentTypes: string[];
   customsStatus: string;
 };
+
+// The Pick-up tab's License Plates, by shipment. A column of the grids: when the warehouse service
+// doesn't answer, the column stays empty rather than the whole list failing.
+async function pickupPlates(shipmentIds: string[], companyId: string): Promise<Map<string, string>> {
+  if (shipmentIds.length === 0) return new Map();
+  try {
+    const { plates } = await warehouse._internalPickupPlates({ companyId, shipmentIds });
+    return new Map(plates.map((p) => [p.shipmentId, p.licensePlate]));
+  } catch (err) {
+    log.warn(err, "pick-up license plates not read");
+    return new Map();
+  }
+}
 
 // The API shape of an enriched shipment: dates as ISO strings, no tenant/soft-delete columns.
 function toShipmentItem(s: EnrichedShipment): ShipmentItem {
@@ -655,6 +669,7 @@ class ShipmentService {
     const itemsByShipment = groupByShipment(await cargoItemRepository.listByShipmentIds(shipmentIds, companyId), toCargoItemLine);
     const dimensionsByShipment = groupByShipment(await cargoDimensionRepository.listByShipmentIds(shipmentIds, companyId), toCargoDimensionLine);
     const invoicesByShipment = groupByShipment(await commercialInvoiceRepository.listByShipmentIds(shipmentIds, companyId), toCommercialInvoiceLine);
+    const platesByShipment = await pickupPlates(shipmentIds, companyId);
 
     // Document types per shipment — the Customs screen shows a tick when the
     // required document is present.
@@ -676,6 +691,7 @@ class ShipmentService {
         invoicesByShipment.get(s.id) ?? [],
       ),
       masterJobMczNumber: s.masterJobId ? mczMap.get(s.masterJobId) || null : null,
+      licensePlate: platesByShipment.get(s.id) ?? "",
       documentTypes: (docsByShipment.get(s.id) ?? []).map((d) => d.documentType),
       customsStatus: customsStatusFor(s.customsStatus, docsByShipment.get(s.id) ?? []),
     }));
@@ -734,9 +750,11 @@ class ShipmentService {
     const cargoDimensions = (await cargoDimensionRepository.listByShipmentId(id, companyId)).map(toCargoDimensionLine);
     const commercialInvoices = (await commercialInvoiceRepository.listByShipmentId(id, companyId)).map(toCommercialInvoiceLine);
     const documents = await this.documentsOf(id, companyId);
+    const plates = await pickupPlates([id], companyId);
     return toShipmentItem({
       ...enrich(shipment, containers, cargoItems, cargoDimensions, commercialInvoices),
       masterJobMczNumber,
+      licensePlate: plates.get(id) ?? "",
       documentTypes: documents.map((d) => d.documentType),
       customsStatus: customsStatusFor(shipment.customsStatus, documents),
     });

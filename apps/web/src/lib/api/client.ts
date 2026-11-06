@@ -18071,6 +18071,11 @@ export namespace interfaces {
         warehouseReference: string
         warehouseTruck: string
         plateNumber: string
+        /**
+         * The License Plates entered in the Pick-up tab (kept by the warehouse service), comma-separated; read-only here.
+         */
+        licensePlate: string
+
         plannedDeliveryDate: string | null
         /**
          * When a road job was delivered (written by Trucking when the delivery is stamped).

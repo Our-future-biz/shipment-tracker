@@ -5,7 +5,7 @@ const tasks = vi.hoisted(() => ({
   ensureForShipment: vi.fn(),
   softDeleteForShipment: vi.fn(),
 }));
-const sections = vi.hoisted(() => ({ findByShipmentAndSection: vi.fn(), upsert: vi.fn(), softDeleteForShipment: vi.fn(), patchKeys: vi.fn() }));
+const sections = vi.hoisted(() => ({ findManyBySection: vi.fn(), findByShipmentAndSection: vi.fn(), upsert: vi.fn(),softDeleteForShipment: vi.fn(), patchKeys: vi.fn() }));
 const shipments = vi.hoisted(() => ({ assertShipmentExists: vi.fn() }));
 const notice = vi.hoisted(() => ({ tellOperations: vi.fn() }));
 vi.mock("../repositories/warehouseTask.repository", () => ({ warehouseTaskRepository: tasks }));
@@ -15,7 +15,7 @@ vi.mock("../../../lib/operationsNotice", () => notice);
 // The Encore runtime isn't loaded under vitest; APIError only needs to carry its code and message here.
 vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
 
-import { remeasuredFigures, taskChanges, toSection, warehouseService } from "../services/warehouse.service";
+import { pickupLicensePlates, remeasuredFigures, taskChanges, toSection, warehouseService } from "../services/warehouse.service";
 
 const COMPANY = "c1";
 const SHIPMENT = "11111111-1111-1111-1111-111111111111";
@@ -36,6 +36,38 @@ describe("warehouse sections", () => {
     shipments.assertShipmentExists.mockRejectedValueOnce(new Error("Shipment not found"));
     await expect(warehouseService.patchSection(SHIPMENT, "job", COMPANY, [{ key: "notes", value: "x", expected: "" }])).rejects.toThrow("Shipment not found");
     expect(sections.patchKeys).not.toHaveBeenCalled();
+  });
+});
+
+describe("Pick-up license plates", () => {
+  const rows = (...plates: string[]) => JSON.stringify(plates.map((licensePlate) => ({ haulier: "H", licensePlate, driver: "D" })));
+
+  it("reads the plate of the rows as they are stored", () => {
+    expect(pickupLicensePlates({ pin: "1234", rows: rows("1AB 2345") })).toBe("1AB 2345");
+  });
+
+  it("lists every plate of several rows once, without blanks", () => {
+    expect(pickupLicensePlates({ rows: rows(" 1AB 2345 ", "", "3CD 4567", "1AB 2345") })).toBe("1AB 2345, 3CD 4567");
+  });
+
+  it("is empty with no rows or with rows that cannot be read", () => {
+    for (const data of [null, undefined, "x", {}, { rows: "" }, { rows: "not json" }, { rows: "{}" }, { rows: "[null, 5]" }, { rows: rows("") }]) {
+      expect(pickupLicensePlates(data)).toBe("");
+    }
+  });
+
+  it("answers only the shipments that have a plate", async () => {
+    sections.findManyBySection.mockResolvedValue([
+      { shipmentId: "a", data: { rows: rows("1AB 2345") } },
+      { shipmentId: "b", data: { pin: "1234", rows: "[]" } },
+    ]);
+    await expect(warehouseService.pickupPlates(["a", "b"], COMPANY)).resolves.toEqual([{ shipmentId: "a", licensePlate: "1AB 2345" }]);
+    expect(sections.findManyBySection).toHaveBeenCalledWith(["a", "b"], "pickup", COMPANY);
+  });
+
+  it("does not query for an empty page", async () => {
+    await expect(warehouseService.pickupPlates([], COMPANY)).resolves.toEqual([]);
+    expect(sections.findManyBySection).not.toHaveBeenCalled();
   });
 });
 

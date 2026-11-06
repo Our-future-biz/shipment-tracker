@@ -10,6 +10,7 @@ vi.mock("~encore/clients", () => ({
   customers: { customerUpdate: vi.fn(), customerGet: vi.fn(), addressList: vi.fn(), contactList: vi.fn() },
   invoicing: { invoicingImportQuote: vi.fn(), openInvoiceCount: vi.fn(), _internalShipmentBillingStart: vi.fn(), _internalInvoicedShipments: vi.fn() },
   quotes: { salesQuoteGet: vi.fn() },
+  warehouse: { _internalPickupPlates: vi.fn() },
 }));
 // A shipment's write turn: its work runs at once, handed this stand-in for the transaction.
 const TX = vi.hoisted(() => ({ fake: "tx" }));
@@ -50,7 +51,7 @@ vi.mock("../../topics", () => ({ shipmentDeleted: { publish: vi.fn() }, shipment
 vi.mock("../../services/quoteLinks.service", () => ({ quoteLinksService: { syncReference: vi.fn(), markDirty: vi.fn() } }));
 
 import log from "encore.dev/log";
-import { auth, customers, invoicing, quotes } from "~encore/clients";
+import { auth, customers, invoicing, quotes, warehouse } from "~encore/clients";
 import { APIError } from "../../../../lib/tests/encoreApi.stub";
 import type { QuoteSyncResult } from "../../interfaces/interfaces";
 import { cargoDimensionRepository } from "../../repositories/cargoDimension.repository";
@@ -159,6 +160,7 @@ beforeEach(() => {
   vi.mocked(containerRepository.listByShipmentId).mockResolvedValue([]);
   vi.mocked(cargoItemRepository.listByShipmentId).mockResolvedValue([]);
   vi.mocked(cargoDimensionRepository.listByShipmentId).mockResolvedValue([]);
+  vi.mocked(warehouse._internalPickupPlates).mockResolvedValue({ plates: [] });
   salesQuoteGet.mockResolvedValue(quote());
   vi.mocked(auth.usersList).mockResolvedValue({ users: MEMBERS } as never);
   vi.mocked(auth.userLookup).mockImplementation(
@@ -1554,5 +1556,28 @@ describe("the detail rows of one write", () => {
     vi.mocked(containerRepository.listByShipmentId).mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValue([one, { ...one, id: B }] as never);
     await update({ containers: [{ ...one, id: CLIENT }, { ...one, id: B }], cargoDimensions: [dim(CLIENT), dim(B)] });
     expect(vi.mocked(cargoDimensionRepository.replaceForShipment).mock.calls[0]![2]).toMatchObject([dim(A), dim(B)]);
+  });
+});
+
+describe("the Pick-up tab's License Plate", () => {
+  it("comes with the shipment, read from the warehouse service", async () => {
+    stored.set(SHIPMENT, row());
+    vi.mocked(warehouse._internalPickupPlates).mockResolvedValue({ plates: [{ shipmentId: SHIPMENT, licensePlate: "1AB 2345, 3CD 4567" }] });
+    const shipment = await shipmentService.getById(SHIPMENT, COMPANY);
+    expect(shipment?.licensePlate).toBe("1AB 2345, 3CD 4567");
+    expect(warehouse._internalPickupPlates).toHaveBeenCalledWith({ companyId: COMPANY, shipmentIds: [SHIPMENT] });
+  });
+
+  it("is empty for a shipment without one", async () => {
+    stored.set(SHIPMENT, row());
+    expect((await shipmentService.getById(SHIPMENT, COMPANY))?.licensePlate).toBe("");
+  });
+
+  it("leaves the column empty, not the shipment unreadable, when the warehouse service fails", async () => {
+    stored.set(SHIPMENT, row());
+    vi.mocked(warehouse._internalPickupPlates).mockRejectedValue(new Error("warehouse down"));
+    const shipment = await shipmentService.getById(SHIPMENT, COMPANY);
+    expect(shipment?.jobNumber).toBe("CZ00000101");
+    expect(shipment?.licensePlate).toBe("");
   });
 });
