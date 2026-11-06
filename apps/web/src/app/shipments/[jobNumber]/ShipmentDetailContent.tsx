@@ -894,6 +894,8 @@ export function ShipmentDetailContent() {
   const searchParams = useSearchParams();
   const { updateField, updateShipment, deleteShipment, linkMasterJob, unlinkMasterJob } = useShipmentMutations();
   const [assignOpen, setAssignOpen] = useState(false);
+  const [unlinkOpen, setUnlinkOpen] = useState(false);
+  const [unlinking, setUnlinking] = useState(false);
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const canDelete = useCanDeleteShipments();
@@ -1001,12 +1003,16 @@ export function ShipmentDetailContent() {
     }
   };
 
-  const handleUnlinkMasterJob = async () => {
+  const confirmUnlinkMasterJob = async () => {
+    setUnlinking(true);
     try {
       await unlinkMasterJob(shipment.id);
       toast.success("Removed from master job");
+      setUnlinkOpen(false);
     } catch {
       toast.error("Failed to remove from master job");
+    } finally {
+      setUnlinking(false);
     }
   };
 
@@ -1221,7 +1227,7 @@ export function ShipmentDetailContent() {
                               ) : (
                                 <span>#{shipment.masterJobMczNumber}</span>
                               )}
-                              <button onClick={handleUnlinkMasterJob} className="text-[10px] text-slate-500 hover:text-red-600 cursor-pointer bg-transparent border-none p-0">
+                              <button onClick={() => setUnlinkOpen(true)} className="text-[10px] text-slate-500 hover:text-red-600 cursor-pointer bg-transparent border-none p-0">
                                 unassign
                               </button>
                             </>
@@ -1645,6 +1651,23 @@ export function ShipmentDetailContent() {
         onLink={handleAssignMasterJob}
         initialSelectedIds={[shipment.id]}
       />
+
+      <Modal
+        open={unlinkOpen}
+        title="Unassign from master job?"
+        okText="Yes, unassign"
+        okButtonProps={{ danger: true, loading: unlinking }}
+        cancelText="Cancel"
+        onOk={confirmUnlinkMasterJob}
+        onCancel={() => setUnlinkOpen(false)}
+        destroyOnHidden
+      >
+        <p className="text-sm text-slate-700">
+          Do you really want to unassign the shipment{" "}
+          <b className="tabular-nums">{shipment.jobNumber ?? shipment.id}</b> from master job{" "}
+          <b className="tabular-nums">{shipment.masterJobMczNumber}</b>?
+        </p>
+      </Modal>
 
       <Drawer
         open={attachmentsOpen}
