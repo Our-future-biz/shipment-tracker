@@ -1,9 +1,8 @@
 "use client";
 
-import Link from "next/link";
-import { useDocumentChangeRequests, type DocumentChangeRequestItem } from "@/hooks/useDocumentChangeRequests";
+import { useDocumentChangeRequests } from "@/hooks/useDocumentChangeRequests";
 import { useCanManageDocuments } from "@/lib/auth/AuthContext";
-import { ChangeAfterApprovalModal } from "./ChangeAfterApprovalModal";
+import { ChangeAfterApprovalModal, ChangeRequestNote } from "./ChangeAfterApprovalModal";
 import { Fragment, useMemo, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { DatePicker, Input, Modal, Select, TimePicker, Tooltip } from "antd";
@@ -82,31 +81,6 @@ function ContainerNumberRow({ value }: { value: string }) {
       </div>
     </div>
   );
-}
-
-// What became of the newest request to replace an approved document, while it still says something:
-// an approved one is the document now shown.
-function ChangeRequestNote({ request, canAnswer }: { request?: DocumentChangeRequestItem; canAnswer: boolean }) {
-  if (request?.status === "pending") {
-    return (
-      <small className="col-span-2 block w-full whitespace-normal text-[11px] leading-4 text-amber-700">
-        {request.requestedByName || "Someone"} asked to replace it with {request.newFileName}: waiting for a manager&apos;s approval.
-        {canAnswer && (
-          <Link href="/warehouse-concept/managers?tab=approvals" className={`${LINK} ml-1`}>
-            Answer in Approvals
-          </Link>
-        )}
-      </small>
-    );
-  }
-  if (request?.status === "rejected") {
-    return (
-      <small className="col-span-2 block w-full whitespace-normal text-[11px] leading-4 text-red-700">
-        Change to {request.newFileName} rejected{request.decidedByName ? ` by ${request.decidedByName}` : ""}: {request.comment}
-      </small>
-    );
-  }
-  return null;
 }
 
 // Customs Priority is rendered as the first row of this column (see CustomsPriorityRow).

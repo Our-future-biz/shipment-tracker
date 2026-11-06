@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Button, Input, Modal } from "antd";
 import { UploadOutlined } from "@ant-design/icons";
+import type { DocumentChangeRequestItem } from "@/hooks/useDocumentChangeRequests";
 import { useToast } from "@/lib/toast";
 import { formatFileSize } from "./docsShared";
-import { HINT, LABEL_TEXT } from "@/styles/ui";
+import { HINT, LABEL_TEXT, LINK } from "@/styles/ui";
 
 interface ChangeAfterApprovalModalProps {
   document: { id: string; fileName: string; documentType: string };
@@ -66,4 +68,29 @@ export function ChangeAfterApprovalModal({ document, saving, onSend, onClose }: 
       <Input.TextArea rows={3} maxLength={1000} value={reason} aria-label="Why does it have to change?" onChange={(e) => setReason(e.target.value)} />
     </Modal>
   );
+}
+
+// What became of the newest request to replace an approved document, while it still says something:
+// an approved one is the document now shown.
+export function ChangeRequestNote({ request, canAnswer }: { request?: DocumentChangeRequestItem; canAnswer: boolean }) {
+  if (request?.status === "pending") {
+    return (
+      <small className="col-span-2 block w-full whitespace-normal text-[11px] leading-4 text-amber-700">
+        {request.requestedByName || "Someone"} asked to replace it with {request.newFileName}: waiting for a manager&apos;s approval.
+        {canAnswer && (
+          <Link href="/warehouse-concept/managers?tab=approvals" className={`${LINK} ml-1`}>
+            Answer in Approvals
+          </Link>
+        )}
+      </small>
+    );
+  }
+  if (request?.status === "rejected") {
+    return (
+      <small className="col-span-2 block w-full whitespace-normal text-[11px] leading-4 text-red-700">
+        Change to {request.newFileName} rejected{request.decidedByName ? ` by ${request.decidedByName}` : ""}: {request.comment}
+      </small>
+    );
+  }
+  return null;
 }

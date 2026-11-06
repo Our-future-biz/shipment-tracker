@@ -4,6 +4,8 @@ import { useMemo, useRef, useState } from "react";
 import { Select, Tooltip } from "antd";
 import { useToast } from "@/lib/toast";
 import { useCanManageDocuments } from "@/lib/auth/AuthContext";
+import { useDocumentChangeRequests } from "@/hooks/useDocumentChangeRequests";
+import { ChangeAfterApprovalModal, ChangeRequestNote } from "./ChangeAfterApprovalModal";
 import {
   InboxOutlined,
   FileTextOutlined,
@@ -188,6 +190,9 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
   const toast = useToast();
   // Anyone can add a document; only a manager, an admin or a superadmin can delete one.
   const canManageDocuments = useCanManageDocuments();
+  // A regular user changes an approved document by a request for a manager's approval, with the new file.
+  const changeRequests = useDocumentChangeRequests(shipment.id, true);
+  const [changing, setChanging] = useState<{ id: string; fileName: string; documentType: string } | null>(null);
   // A document added, removed or classified also changes the shipment itself: its customs
   // status follows the invoice and the packing list, and so do the "received" ticks.
   const { attachments, isLoading, refresh: refreshDocuments } = useShipmentAttachments(shipment.id);
@@ -310,6 +315,14 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
     // Adding files (with the required documents as milestones under it) and the list of files,
     // each in its own card.
     <div className="flex flex-col gap-3 min-w-0">
+      {changing && (
+        <ChangeAfterApprovalModal
+          document={changing}
+          saving={changeRequests.ask.isPending}
+          onSend={(attachmentId, file, reason) => changeRequests.ask.mutateAsync({ attachmentId, file, reason })}
+          onClose={() => setChanging(null)}
+        />
+      )}
       <ConfirmModal
         open={!!confirmDelete}
         danger
@@ -599,6 +612,16 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                               ) : (
                                 <span className={EMPTY} title="Not reviewed by customs">—</span>
                               )}
+                              {file.customsStatus === "approved" && !canManageDocuments && changeRequests.newestOf.get(file.id)?.status !== "pending" && (
+                                <button
+                                  type="button"
+                                  onClick={() => setChanging(file)}
+                                  className={`${LINK} whitespace-nowrap text-[12px] font-medium cursor-pointer bg-transparent border-none p-0`}
+                                >
+                                  Change after approval
+                                </button>
+                              )}
+                              {file.customsStatus === "approved" && <ChangeRequestNote request={changeRequests.newestOf.get(file.id)} canAnswer={canManageDocuments} />}
                               {file.customsStatus === "declined" && file.customsNote && (
                                 <span className="text-[12px] italic text-red-700/80 break-words max-w-full">
                                   “{file.customsNote}”
