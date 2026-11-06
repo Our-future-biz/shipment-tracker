@@ -978,6 +978,7 @@ export namespace extraction {
             this.extractInvoice = this.extractInvoice.bind(this)
             this.extractQuote = this.extractQuote.bind(this)
             this.extractText = this.extractText.bind(this)
+            this.extractTracking = this.extractTracking.bind(this)
             this.pipelineExtractHbl = this.pipelineExtractHbl.bind(this)
             this.pipelineExtractMbl = this.pipelineExtractMbl.bind(this)
             this.pipelinePrepare = this.pipelinePrepare.bind(this)
@@ -1017,6 +1018,15 @@ export namespace extraction {
         public async extractText(params: controllers.ExtractTextRequest): Promise<interfaces.ExtractionResult> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/extraction/text`, JSON.stringify(params))
+            return await resp.json() as interfaces.ExtractionResult
+        }
+
+        /**
+         * A notice about where a cargo is, for a shipment's Tracking tab.
+         */
+        public async extractTracking(params: controllers.ExtractTrackingRequest): Promise<interfaces.ExtractionResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/extraction/tracking`, JSON.stringify(params))
             return await resp.json() as interfaces.ExtractionResult
         }
 
@@ -2281,6 +2291,7 @@ export namespace shipments {
             this.masterJobList = this.masterJobList.bind(this)
             this.masterJobShipmentUnlink = this.masterJobShipmentUnlink.bind(this)
             this.masterJobShipmentsLink = this.masterJobShipmentsLink.bind(this)
+            this.masterJobTracking = this.masterJobTracking.bind(this)
             this.masterJobUpdate = this.masterJobUpdate.bind(this)
             this.shipmentCreate = this.shipmentCreate.bind(this)
             this.shipmentDashboard = this.shipmentDashboard.bind(this)
@@ -2312,6 +2323,8 @@ export namespace shipments {
             this.trackingEventResolve = this.trackingEventResolve.bind(this)
             this.trackingEventStrike = this.trackingEventStrike.bind(this)
             this.trackingMarkRead = this.trackingMarkRead.bind(this)
+            this.trackingReadingKeep = this.trackingReadingKeep.bind(this)
+            this.trackingReadingPreview = this.trackingReadingPreview.bind(this)
             this.userPrefGet = this.userPrefGet.bind(this)
             this.userPrefSet = this.userPrefSet.bind(this)
         }
@@ -2705,6 +2718,19 @@ export namespace shipments {
         }
 
         /**
+         * A master job's houses, each with where it stands.
+         */
+        public async masterJobTracking(masterJobId: string): Promise<{
+    houses: interfaces.MasterJobTrackingHouse[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/master-jobs/${encodeURIComponent(masterJobId)}/tracking`)
+            return await resp.json() as {
+    houses: interfaces.MasterJobTrackingHouse[]
+}
+        }
+
+        /**
          * Saves MBL details; the synced ones are written onto every linked shipment too.
          */
         public async masterJobUpdate(masterJobId: string, params: controllers.MasterJobUpdateRequest): Promise<controllers.MasterJobUpdateResponse> {
@@ -3022,6 +3048,28 @@ export namespace shipments {
             return await resp.json() as {
     ok: boolean
 }
+        }
+
+        /**
+         * Keeps what a person chose of a read document: ATA and ATD wait to be confirmed, the rest goes by the rule.
+         */
+        public async trackingReadingKeep(shipmentId: string, params: controllers.TrackingReadingKeepRequest): Promise<{
+    ok: boolean
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/tracking/reading/keep`, JSON.stringify(params))
+            return await resp.json() as {
+    ok: boolean
+}
+        }
+
+        /**
+         * What a read document says about this shipment, for a person to look over. Nothing is kept yet.
+         */
+        public async trackingReadingPreview(shipmentId: string, params: controllers.TrackingReadingPreviewRequest): Promise<interfaces.TrackingReadingPreview> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/tracking/reading/preview`, JSON.stringify(params))
+            return await resp.json() as interfaces.TrackingReadingPreview
         }
 
         public async userPrefGet(prefKey: string): Promise<controllers.UserPrefGetResponse> {
@@ -7288,11 +7336,16 @@ export namespace controllers {
 
     export interface ExtractTextRequest {
         /**
-         * up to 6000 characters for a quote request, 1500 otherwise (checked by the service)
+         * up to 6000 characters for a quote request or a tracking notice, 1500 otherwise (checked by the service)
          */
         text: string
 
         destination: string
+    }
+
+    export interface ExtractTrackingRequest {
+        fileBase64: string
+        fileName: string
     }
 
     export interface FileResponse {
@@ -10122,6 +10175,23 @@ export namespace controllers {
 
     export interface TrackingEventStrikeRequest {
         reason: string
+    }
+
+    export interface TrackingReadingKeepRequest {
+        facts: services.KeptFact[]
+        /**
+         * The document itself, when it was a file: filed on the shipment as a Carrier notice.
+         */
+        file?: services.KeptFile
+
+        vesselChange?: interfaces.TrackingVesselChange
+    }
+
+    export interface TrackingReadingPreviewRequest {
+        /**
+         * What document reading got from the notice.
+         */
+        extracted: { [key: string]: string }
     }
 
     export interface TruckCreateResponse {
@@ -15882,6 +15952,22 @@ export namespace interfaces {
     export type MasterJobSplitMethod = "wm" | "shipment"
 
     /**
+     * One house of a master job on the master job's Tracking tab.
+     */
+    export interface MasterJobTrackingHouse {
+        shipmentId: string
+        jobNumber: string
+        customer: string
+        departed: string | null
+        arrived: string | null
+        customsCleared: boolean
+        customsStatus: string
+        gateIn: string | null
+        delivered: string | null
+        lastEvent: string
+    }
+
+    /**
      * Real − estimated buying cost: above 0 the cost came out higher than estimated (Profit Burning).
      */
     export interface MasterJobVsEstimateItem {
@@ -16242,15 +16328,6 @@ export namespace interfaces {
     export type PalletType = "EUR" | "INDUSTRIAL" | "HALF" | "QUARTER" | "OTHER"
 
     /**
-     * What the people backfill did: values looked at, records changed, values left as they are.
-     */
-    export interface PeopleNormalizeResult {
-        checked: number
-        changed: number
-        unmatched: PeopleNormalizeUnmatched[]
-    }
-
-    /**
      * What the people backfill did to the company's live shipments.
      */
     export interface PeopleNormalizeResult {
@@ -16268,6 +16345,15 @@ export namespace interfaces {
          * The names left as they are, most frequent first: to be fixed by hand.
          */
         unmatched: UnmatchedPerson[]
+    }
+
+    /**
+     * What the people backfill did: values looked at, records changed, values left as they are.
+     */
+    export interface PeopleNormalizeResult {
+        checked: number
+        changed: number
+        unmatched: PeopleNormalizeUnmatched[]
     }
 
     /**
@@ -18429,6 +18515,11 @@ export namespace interfaces {
         bookingNumber: string
         loadType: string
         shippingLine: string
+        /**
+         * The SCAC of the carrier shippingLine names; "" when it names none we know.
+         */
+        carrierCode: string
+
         pol: string
         pod: string
         destination: string
@@ -19932,6 +20023,11 @@ export namespace interfaces {
         occurredTime: string
 
         place: string
+        /**
+         * Vessel and voyage it names; "" when none.
+         */
+        vessel: string
+
         containerNumber: string
         note: string
         /**
@@ -20004,6 +20100,11 @@ export namespace interfaces {
          */
         detail: string
 
+        /**
+         * The container its event is about; "" for the shipment as a whole.
+         */
+        containerNumber: string
+
         state: TrackingMilestoneState
         /**
          * Days past the planned date with nothing recorded; 0 when not late.
@@ -20031,6 +20132,33 @@ export namespace interfaces {
          * Who reports it ("Carrier", "Document read").
          */
         source: string
+    }
+
+    /**
+     * A fact a read document states, for a person to look over.
+     */
+    export interface TrackingReadFact {
+        kind: string
+        label: string
+        occurredOn: string
+        place: string
+        vessel: string
+        note: string
+        effect: "apply" | "propose" | "none"
+        sets: string
+        alreadyKept: boolean
+        refusal: string
+    }
+
+    export interface TrackingReadingPreview {
+        facts: TrackingReadFact[]
+        /**
+         * The vessel and voyage it names, when they differ and nothing has sailed yet.
+         */
+        vesselChange: TrackingVesselChange | null
+
+        containersFound: string[]
+        otherShipment: boolean
     }
 
     /**
@@ -20079,6 +20207,11 @@ export namespace interfaces {
         taskKey: string
         completedAt: string
         by: string
+    }
+
+    export interface TrackingVesselChange {
+        vessel: string
+        voyage: string
     }
 
     export interface TransportOrderState {
@@ -21812,6 +21945,26 @@ export namespace services {
          * What the field means, which tells a port from an airport or a town, e.g. "port of loading".
          */
         role?: string
+    }
+
+    /**
+     * A fact of a read document a person chose to keep.
+     */
+    export interface KeptFact {
+        kind: string
+        occurredOn: string
+        place?: string
+        vessel?: string
+        note?: string
+    }
+
+    /**
+     * The document itself, to file on the shipment.
+     */
+    export interface KeptFile {
+        fileName: string
+        fileType: string
+        contentBase64: string
     }
 
     /**

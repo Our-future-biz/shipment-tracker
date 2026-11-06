@@ -84,3 +84,12 @@ export function taxDateParts(tax: TrackingTaxDate, rates: TaxDateRates | undefin
   const invoice = !invoiced ? "" : tax.actual ? "Invoiced: final, credit the invoice first to change it" : "Credit the invoice first to set it";
   return [date, fx, invoice].filter(Boolean);
 }
+
+/** What keeping a fact of a read notice does, in a line. */
+export function readFactWords(fact: { effect: string; sets: string; alreadyKept: boolean; refusal: string }): string {
+  if (fact.refusal) return fact.refusal;
+  if (fact.alreadyKept) return "Already on record";
+  if (fact.effect === "apply") return `Sets the ${fact.sets}`;
+  if (fact.effect === "propose") return `Proposes the ${fact.sets}: someone confirms it under Events`;
+  return "Recorded, no date changes";
+}

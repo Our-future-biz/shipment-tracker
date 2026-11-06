@@ -16,6 +16,9 @@ export type TrackingEventItem = interfaces.TrackingEventItem;
 export type TrackingRecordableKind = interfaces.TrackingRecordableKind;
 export type TrackingCustomerNotice = interfaces.TrackingCustomerNotice;
 export type TrackingBellNotice = interfaces.TrackingBellNotice;
+export type TrackingReadFact = interfaces.TrackingReadFact;
+export type TrackingReadingPreview = interfaces.TrackingReadingPreview;
+export type MasterJobTrackingHouse = interfaces.MasterJobTrackingHouse;
 
 export interface CustomerNoticeInput {
   kind: string;
@@ -58,6 +61,21 @@ export function useShipmentTracking(shipmentId: string) {
   });
 }
 
+/** A master job's houses, each with where it stands. */
+export function useMasterJobTracking(masterJobId: string) {
+  return useQuery({
+    queryKey: ["master-job-tracking", masterJobId],
+    queryFn: async () => (await api.shipments.masterJobTracking(masterJobId)).houses,
+    staleTime: 0,
+  });
+}
+
+/** What was read from a notice, in the shipment's terms. Nothing is kept yet. */
+export const readTrackingNotice = async (shipmentId: string, source: { text: string } | { fileBase64: string; fileName: string }): Promise<TrackingReadingPreview> => {
+  const read = "text" in source ? await api.extraction.extractText({ text: source.text, destination: "tracking" }) : await api.extraction.extractTracking(source);
+  return api.shipments.trackingReadingPreview(shipmentId, { extracted: read.extracted });
+};
+
 /** What people do with the shipment's events. An event can set a date and tick a task, so those are read anew too. */
 export function useTrackingActions(shipmentId: string) {
   const queryClient = useQueryClient();
@@ -83,6 +101,16 @@ export function useTrackingActions(shipmentId: string) {
     confirm: useMutation({ mutationFn: (eventId: string) => api.shipments.trackingEventConfirm(shipmentId, eventId), onSettled, onError }),
     dismiss: useMutation({ mutationFn: (eventId: string) => api.shipments.trackingEventDismiss(shipmentId, eventId), onSettled, onError }),
     resolve: useMutation({ mutationFn: (eventId: string) => api.shipments.trackingEventResolve(shipmentId, eventId), onSettled, onError }),
+    /** Says nothing on failure: the dialog stays open and shows why. */
+    keepReading: useMutation({
+      mutationFn: (input: { facts: TrackingReadFact[]; file?: { fileName: string; fileType: string; contentBase64: string }; vesselChange?: interfaces.TrackingVesselChange }) =>
+        api.shipments.trackingReadingKeep(shipmentId, {
+          facts: input.facts.map((f) => ({ kind: f.kind, occurredOn: f.occurredOn, place: f.place, vessel: f.vessel, note: f.note })),
+          file: input.file,
+          vesselChange: input.vesselChange,
+        }),
+      onSettled,
+    }),
     /** Says nothing on failure: the dialog that asks why stays open and shows it. */
     strike: useMutation({
       mutationFn: ({ eventId, reason }: { eventId: string; reason: string }) => api.shipments.trackingEventStrike(shipmentId, eventId, { reason }),

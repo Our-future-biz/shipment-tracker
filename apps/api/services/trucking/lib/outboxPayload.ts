@@ -25,6 +25,14 @@ export interface DeliveryAdvicePayload {
   text: string;
 }
 
+/** A stamp of a road job's timeline. */
+export interface StampPayload {
+  stamp: "confirmed" | "pickedUp";
+  at: string;
+  /** The stamp was voided: its fact leaves the job's timeline. */
+  voided?: boolean;
+}
+
 export interface TruckingOutboxPayloads {
   planned: ShipmentFields;
   plate: ShipmentFields;
@@ -37,6 +45,7 @@ export interface TruckingOutboxPayloads {
   real_costs: RealCostsPayload;
   pod: PodPayload;
   delivery_advice: DeliveryAdvicePayload;
+  stamp: StampPayload;
 }
 
 export type TruckingOutboxPayload = TruckingOutboxPayloads[TruckingOutboxKind];
@@ -52,6 +61,7 @@ const isCosts = (p: TruckingOutboxPayload): p is CostsPayload =>
 const isPod = (p: TruckingOutboxPayload): p is PodPayload =>
   "storageKey" in p && isString(p.storageKey) && "sha256" in p && isString(p.sha256) && "fileName" in p && isString(p.fileName) && "stampedAt" in p && isString(p.stampedAt);
 const isDeliveryAdvice = (p: TruckingOutboxPayload): p is DeliveryAdvicePayload => "at" in p && isString(p.at) && "text" in p && isString(p.text);
+const isStamp = (p: TruckingOutboxPayload): p is StampPayload => "stamp" in p && (p.stamp === "confirmed" || p.stamp === "pickedUp") && "at" in p && isString(p.at);
 const isRealCosts = (p: TruckingOutboxPayload): p is RealCostsPayload => "sourceRef" in p && isString(p.sourceRef) && "realLines" in p && Array.isArray(p.realLines);
 const isCancelExpected = (p: TruckingOutboxPayload): p is CancelExpectedInput => "shipmentId" in p && isString(p.shipmentId) && "tripRef" in p && isString(p.tripRef);
 const isExpectDeparture = (p: TruckingOutboxPayload): p is ExpectDepartureInput => isCancelExpected(p) && "expectedAt" in p && isString(p.expectedAt);
@@ -77,6 +87,8 @@ export function parseOutboxRow(row: { id: string; kind: TruckingOutboxKind; payl
         return isPod(p) ? { kind: row.kind, payload: p } : null;
       case "delivery_advice":
         return isDeliveryAdvice(p) ? { kind: row.kind, payload: p } : null;
+      case "stamp":
+        return isStamp(p) ? { kind: row.kind, payload: p } : null;
       case "expect_arrival":
         return isExpectArrival(p) ? { kind: row.kind, payload: p } : null;
       case "expect_departure":

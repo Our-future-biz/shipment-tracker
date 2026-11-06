@@ -6,9 +6,9 @@ import { extractFromTextByDestination } from "../services/extraction.service";
 import type { ExtractionResult } from "../interfaces/interfaces";
 
 interface ExtractTextRequest {
-  /** up to 6000 characters for a quote request, 1500 otherwise (checked by the service) */
+  /** up to 6000 characters for a quote request or a tracking notice, 1500 otherwise (checked by the service) */
   text: string & MinLen<10> & MaxLen<6000>;
-  destination: string; // "shipment" | "invoicing" | "quote" | "customs" | "booking"
+  destination: string; // "shipment" | "invoicing" | "quote" | "customs" | "booking" | "tracking"
 }
 
 export const extractText = api(

@@ -52,6 +52,7 @@ export const TRACKING_KINDS = {
   mrn_issued: { label: "MRN issued" },
   hbl_released: { label: "House BoL released" },
   delivery_advised: { label: "Delivery advised" },
+  haulier_confirmed: { label: "Haulier confirmed" },
   pod_received: { label: "POD received" },
 } as const satisfies Record<string, KindDef>;
 
@@ -79,6 +80,25 @@ export const SOURCE_LABELS: Record<TrackingSource, string> = {
 /** A truck's stamps are set in Trucking: its jobs record nothing here. */
 export const isRoadJob = (s: { tradeDirection: string; freightMode: string }): boolean =>
   s.tradeDirection.trim().toLowerCase() === "domestic" || /road/i.test(s.freightMode);
+
+export type FreightKind = "sea" | "air" | "rail" | "road";
+
+/** How a job travels, by its freight mode: sea when nothing says otherwise. */
+export function freightKindOf(s: { tradeDirection: string; freightMode: string }): FreightKind {
+  if (isRoadJob(s)) return "road";
+  if (/^air/i.test(s.freightMode.trim())) return "air";
+  if (/^rail/i.test(s.freightMode.trim())) return "rail";
+  return "sea";
+}
+
+const LABELS_BY_MODE: Partial<Record<FreightKind, Partial<Record<TrackingKind, string>>>> = {
+  air: { loaded: "Loaded on the flight", discharged: "Ready for pick-up", terminal_out: "Left the airport", ts_arrived: "Transit: arrived", ts_departed: "Transit: departed" },
+  rail: { loaded: "Loaded on the train", departed: "Departed the terminal", arrived: "Arrived at the terminal", discharged: "Unloaded", ts_arrived: "Transfer: arrived", ts_departed: "Transfer: departed" },
+};
+
+/** A kind's name on a job of this mode: a flight has no vessel to be loaded on. */
+export const labelOfKind = (kind: TrackingKind, s: { tradeDirection: string; freightMode: string }): string =>
+  LABELS_BY_MODE[freightKindOf(s)]?.[kind] ?? TRACKING_KINDS[kind].label;
 
 export const isExceptionKind = (kind: string): boolean => isTrackingKind(kind) && kindDef(kind).group === "exception";
 
@@ -112,15 +132,21 @@ const SETS_LABEL: Record<NonNullable<KindDef["field"]>, string> = {
   customsStatus: "customs status",
 };
 
+/** A shipment field in the words people use; "" for none. */
+export const setsWord = (field: string): string => SETS_LABEL[field as NonNullable<KindDef["field"]>] ?? "";
+
 /** What this person may record on this shipment. */
 export function recordableKinds(shipment: { tradeDirection: string; freightMode: string }, mayChangeDetails: boolean): RecordableKind[] {
   if (isRoadJob(shipment)) return [];
+  const air = freightKindOf(shipment) === "air";
   return (Object.keys(TRACKING_KINDS) as TrackingKind[]).flatMap((kind) => {
     const def = kindDef(kind);
     if (!def.group || (!mayChangeDetails && !def.department)) return [];
+    // A plane leaves no empty to return.
+    if (air && kind === "empty_returned") return [];
     return [{
       kind,
-      label: def.label,
+      label: labelOfKind(kind, shipment),
       group: def.group,
       reasonRequired: !!def.reason,
       sets: def.field ? SETS_LABEL[def.field] : "",

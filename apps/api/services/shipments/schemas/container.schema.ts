@@ -22,6 +22,8 @@ export const containerTable = pgTable(
     ...defaultTableIndexes("container", table),
     tenantIndex("container", table),
     index("container_shipment_id_idx").on(table.shipmentId),
+    // A source reports by container number: finding the job by it.
+    index("container_company_number_idx").on(table.companyId, table.containerNumber),
   ],
 );
 

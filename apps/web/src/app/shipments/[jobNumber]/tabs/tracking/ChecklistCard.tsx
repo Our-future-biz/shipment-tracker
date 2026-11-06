@@ -10,9 +10,9 @@ import { getTasksForDirection } from "../../_components/taskDefinitions";
 import { personOrSystem } from "./RecordedBy";
 
 /** The checklist, read-only and folded: work the desk ticked, dated by the click, so it stays out of the timeline. */
-export function ChecklistCard({ tradeDirection, ticks }: { tradeDirection: string; ticks: readonly TrackingTick[] }) {
+export function ChecklistCard({ tradeDirection, freightMode, ticks }: { tradeDirection: string; freightMode: string; ticks: readonly TrackingTick[] }) {
   const [open, setOpen] = useState(false);
-  const tasks = getTasksForDirection(tradeDirection);
+  const tasks = getTasksForDirection(tradeDirection, freightMode);
   const byKey = new Map(ticks.map((t) => [t.taskKey, t]));
   const done = tasks.filter((t) => byKey.has(t.key)).length;
 

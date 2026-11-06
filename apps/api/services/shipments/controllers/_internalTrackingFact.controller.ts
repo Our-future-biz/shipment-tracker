@@ -6,7 +6,7 @@ import { trackingService } from "../services/tracking.service";
 
 interface TrackingFactRequest {
   shipmentId: string;
-  kind: "delivery_advised" | "pod_received";
+  kind: "delivery_advised" | "pod_received" | "picked_up" | "haulier_confirmed";
   occurredAt: string;
   note: string & MaxLen<1000>;
   externalId: string & MinLen<1> & MaxLen<300>;
@@ -18,6 +18,19 @@ export const _internalTrackingFact = api(
   async ({ shipmentId, kind, occurredAt, note, externalId }: TrackingFactRequest): Promise<void> => {
     const auth = getAuthData()!;
     await trackingService.addFact(shipmentId, auth.companyID, auth.userID, { kind, source: "trucking", occurredAt: new Date(occurredAt), note, externalId });
+  },
+);
+
+interface TrackingFactVoidRequest {
+  shipmentId: string;
+  externalId: string & MinLen<1> & MaxLen<300>;
+}
+
+/** Internal API of the trucking service: a stamp was voided, so its fact leaves the timeline. */
+export const _internalTrackingFactVoid = api(
+  { expose: false, auth: true, method: "POST", path: "/internal/shipments/:shipmentId/tracking/facts/void" },
+  async ({ shipmentId, externalId }: TrackingFactVoidRequest): Promise<void> => {
+    await trackingService.voidFact(shipmentId, getAuthData()!.companyID, "trucking", externalId);
   },
 );
 

@@ -26,6 +26,14 @@ describe("parseOutboxRow", () => {
 });
 
 describe("what the job's timeline gets", () => {
+  it("takes a stamp, and refuses one it doesn't know", () => {
+    const stamp = { stamp: "pickedUp", at: "2026-11-05T09:00:00.000Z" };
+    expect(parseOutboxRow(row("stamp", stamp))).toEqual({ kind: "stamp", payload: stamp });
+    expect(parseOutboxRow(row("stamp", { ...stamp, voided: true }))).toEqual({ kind: "stamp", payload: { ...stamp, voided: true } });
+    expect(() => parseOutboxRow(row("stamp", { stamp: "delivered", at: "x" }))).toThrow(/kind stamp/);
+    expect(() => parseOutboxRow(row("stamp", { stamp: "confirmed" }))).toThrow(/kind stamp/);
+  });
+
   it("takes a POD with its file, and refuses one without", () => {
     const pod = { fileName: "pod.pdf", contentType: "application/pdf", sha256: "abc", storageKey: "c/1/x", stampedAt: "2026-11-05T09:00:00.000Z" };
     expect(parseOutboxRow(row("pod", pod)).payload).toEqual(pod);

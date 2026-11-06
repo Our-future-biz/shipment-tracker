@@ -3,8 +3,8 @@ import { APIError } from "encore.dev/api";
 import { getClient, MODEL } from "../lib/anthropic";
 import { extractTextFromPdf, isImageType, isPdfType, detectMediaType } from "../lib/pdf";
 import { textReadingUsable } from "../lib/fields";
-import { filterExtracted, parseJsonFromResponse, parseJsonObjectFromResponse, SHIPMENT_FIELDS, BOOKING_FIELDS, INVOICE_FIELDS, QUOTE_FIELDS, CUSTOMS_FIELDS } from "../lib/fields";
-import { SHIPMENT_PROMPT, BOOKING_PROMPT, INVOICE_PROMPT, QUOTE_PROMPT, CUSTOMS_PROMPT } from "../lib/prompts";
+import { filterExtracted, parseJsonFromResponse, parseJsonObjectFromResponse, SHIPMENT_FIELDS, BOOKING_FIELDS, INVOICE_FIELDS, QUOTE_FIELDS, CUSTOMS_FIELDS, TRACKING_FIELDS } from "../lib/fields";
+import { SHIPMENT_PROMPT, BOOKING_PROMPT, INVOICE_PROMPT, QUOTE_PROMPT, CUSTOMS_PROMPT, TRACKING_PROMPT } from "../lib/prompts";
 import { normalizeQuoteFields } from "../lib/quoteFields";
 import type { ExtractionResult } from "../interfaces/interfaces";
 import { canonicalizeRecords, resolveGeo } from "./places.service";
@@ -190,6 +190,11 @@ export async function extractBookingFromFile(fileBase64: string, fileName: strin
   );
 }
 
+export async function extractTrackingFromFile(fileBase64: string, fileName: string): Promise<ExtractionResult> {
+  const mediaType = detectMediaType(fileName);
+  return extractFromDocument(fileBase64, fileName, mediaType, TRACKING_PROMPT, TRACKING_FIELDS, "Extract what this notice says about the cargo.");
+}
+
 export async function extractCustomsFromFile(fileBase64: string, fileName: string): Promise<ExtractionResult> {
   const mediaType = detectMediaType(fileName);
   return extractFromDocument(fileBase64, fileName, mediaType, CUSTOMS_PROMPT, CUSTOMS_FIELDS, "Extract the MRN number and shipment data from this customs document.", 512);
@@ -200,7 +205,7 @@ const MAX_TEXT = 1500;
 export const MAX_QUOTE_TEXT = 6000;
 
 export async function extractFromTextByDestination(text: string, destination: string): Promise<ExtractionResult> {
-  const maxLength = destination === "quote" ? MAX_QUOTE_TEXT : MAX_TEXT;
+  const maxLength = destination === "quote" || destination === "tracking" ? MAX_QUOTE_TEXT : MAX_TEXT;
   if (text.length > maxLength) throw APIError.invalidArgument(`text must be at most ${maxLength} characters`);
   let systemPrompt: string;
   let fields: string[];
@@ -222,6 +227,11 @@ export async function extractFromTextByDestination(text: string, destination: st
       fields = BOOKING_FIELDS;
       userPrompt = "Extract the booking details from this booking confirmation:";
       break;
+    case "tracking":
+      systemPrompt = TRACKING_PROMPT;
+      fields = TRACKING_FIELDS;
+      userPrompt = "Extract what this notice says about the cargo:";
+      break;
     case "quote":
       systemPrompt = QUOTE_PROMPT;
       fields = QUOTE_FIELDS;
@@ -236,7 +246,7 @@ export async function extractFromTextByDestination(text: string, destination: st
 
   const extracted = await extractViaText(text, systemPrompt, fields, userPrompt);
   if (destination === "quote") return asQuoteFields({ extracted, fieldCount: 0, method: "text", fileName: "(text input)" });
-  if (destination !== "invoicing") await canonicalizeRecords([extracted]);
+  if (destination !== "invoicing" && destination !== "tracking") await canonicalizeRecords([extracted]);
   return { extracted, fieldCount: Object.keys(extracted).length, method: "text", fileName: "(text input)" };
 }
 

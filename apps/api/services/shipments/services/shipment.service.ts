@@ -15,6 +15,7 @@ import { containerRepository } from "../repositories/container.repository";
 import { cargoItemRepository } from "../repositories/cargoItem.repository";
 import { cargoDimensionRepository } from "../repositories/cargoDimension.repository";
 import { commercialInvoiceRepository } from "../repositories/commercialInvoice.repository";
+import { carrierCodeOf } from "../lib/carriers";
 import { EXCEPTIONS_CLOSED_BY, eventsFromChanges, lastEventOf, ticksFromChanges, type TrackingSource } from "../lib/trackingEvents";
 import { shipmentTaskRepository } from "../repositories/shipmentTask.repository";
 import { shipmentTrackingEventRepository } from "../repositories/shipmentTrackingEvent.repository";
@@ -987,6 +988,7 @@ class ShipmentService {
     assertValidContainerNumbers(containers);
     const cargoDimensions = normalizeCargoDimensions(sentDimensions);
     const shipmentData = sanitizeTypedFields({ ...rest, ...legacyInvoiceFields(commercialInvoices) });
+    shipmentData.carrierCode = carrierCodeOf(shipmentData.shippingLine);
     const users = usersOnce();
     await checkPeople(shipmentData, users);
     // Who created it, by e-mail ("" when nobody can tell); when is the row's createdAt ("Created on").
@@ -1085,6 +1087,7 @@ class ShipmentService {
     assertValidContainerNumbers(containers);
     const cargoDimensions = normalizeCargoDimensions(sentDimensions);
     const shipmentData: Partial<NewShipmentRecord> = sanitizeTypedFields({ ...rest, ...legacyInvoiceFields(commercialInvoices) });
+    if (shipmentData.shippingLine !== undefined) shipmentData.carrierCode = carrierCodeOf(shipmentData.shippingLine);
     clearStaleTimes(shipmentData, existing);
     const users = usersOnce();
     await checkPeople(shipmentData, users, existing);

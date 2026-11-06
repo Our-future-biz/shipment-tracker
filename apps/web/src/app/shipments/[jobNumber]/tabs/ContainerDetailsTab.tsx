@@ -3,14 +3,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { rowKey } from "@/app/shipments/_lib/rowKey";
 import { Input, Button, AutoComplete, Select, Tooltip, message } from "antd";
-import { PlusOutlined } from "@ant-design/icons";
+import { PlusOutlined, WarningOutlined } from "@ant-design/icons";
 import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
 import { SHIPMENT_WRITE_KEY, type ShipmentItem } from "@/hooks/useShipments";
 import { useIsMutating } from "@tanstack/react-query";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { CARD, LABEL_TEXT, REF } from "@/styles/ui";
 import { uuid } from "@/lib/uuid";
-import { containerNumberInput, isValidContainerNumber, normalizeContainerNumber } from "@/lib/container";
+import { containerCheckDigitOk, containerNumberInput, isValidContainerNumber, normalizeContainerNumber } from "@/lib/container";
 import {
   CONTAINER_SIZES,
   CONTAINER_KINDS,
@@ -22,6 +22,9 @@ import {
   PACK_TYPE_OPTIONS,
   numberInput,
 } from "@/lib/cargo";
+
+// A warning, not a refusal: the number stays as typed, because a wrong-looking one can still be real.
+const CHECK_DIGIT_HINT = "The last digit doesn't fit this number's check digit: a typing mistake? Check it against the booking.";
 
 // A new row gets its id here, so every save names it and the server keeps that id
 // (cargo lines can point at it) — rows are never matched by position.
@@ -370,13 +373,13 @@ export function ContainerDetailsTab({
                   onKeyDown={onRowKeyDown(i)}
                 >
                   <Tooltip
-                    title={isValidContainerNumber(c.containerNumber) ? "" : "4 letters + 7 digits, e.g. MSKU1234567"}
-                    open={isValidContainerNumber(c.containerNumber) ? false : undefined}
+                    title={!isValidContainerNumber(c.containerNumber) ? "4 letters + 7 digits, e.g. MSKU1234567" : !containerCheckDigitOk(c.containerNumber) ? CHECK_DIGIT_HINT : ""}
+                    open={isValidContainerNumber(c.containerNumber) && containerCheckDigitOk(c.containerNumber) ? false : undefined}
                   >
                     <Input
                       ref={setInputRef(`${i}:containerNumber`)}
                       size="small"
-                      status={isValidContainerNumber(c.containerNumber) ? undefined : "error"}
+                      status={!isValidContainerNumber(c.containerNumber) ? "error" : !containerCheckDigitOk(c.containerNumber) ? "warning" : undefined}
                       value={c.containerNumber}
                       placeholder="MSKU1234567"
                       onChange={(e) => setContainerNumber(i, e.target.value)}
@@ -472,6 +475,11 @@ export function ContainerDetailsTab({
                     >
                       {c.containerNumber}
                     </button>
+                    {!containerCheckDigitOk(c.containerNumber) && (
+                      <Tooltip title={CHECK_DIGIT_HINT}>
+                        <WarningOutlined className="ml-1 text-amber-600" aria-label={CHECK_DIGIT_HINT} />
+                      </Tooltip>
+                    )}
                   </span>
                   <span data-field="sealNumber" className="text-[13px] text-slate-700 px-2 text-center truncate">{c.sealNumber}</span>
                   <span data-field="type" className="text-[13px] text-slate-700 px-2 text-center truncate">{c.type}</span>

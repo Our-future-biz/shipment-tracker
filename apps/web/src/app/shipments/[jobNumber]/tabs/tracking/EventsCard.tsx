@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CountChip, SectionCard } from "@/components/SectionCard";
+import { CountChip, PillTabs, SectionCard } from "@/components/SectionCard";
 import { Pill } from "@/components/Pill";
 import { useTrackingActions, type TrackingEventItem } from "@/hooks/useShipmentTracking";
 import { apiErrorMessage } from "@/lib/api";
@@ -14,17 +14,26 @@ interface EventsCardProps {
   shipmentId: string;
   events: readonly TrackingEventItem[];
   mayChangeDetails: boolean;
+  /** The shipment's container numbers: with more than one, the events can be read per container. */
+  containers?: readonly string[];
 }
 
 /** Every stored fact, a date waiting to be confirmed first: where it was, where it came from, and what can be done with it. */
-export function EventsCard({ shipmentId, events, mayChangeDetails }: EventsCardProps) {
+export function EventsCard({ shipmentId, events, mayChangeDetails, containers = [] }: EventsCardProps) {
   const { confirm, dismiss, strike } = useTrackingActions(shipmentId);
   const [striking, setStriking] = useState<TrackingEventItem | null>(null);
-  const shown = [...events].filter((e) => e.effect !== "dismissed").sort((a, b) => Number(b.effect === "proposed") - Number(a.effect === "proposed"));
+  const [container, setContainer] = useState("");
+  // An event about the shipment as a whole is about every box on it.
+  const shown = [...events].filter((e) => e.effect !== "dismissed" && (!container || !e.containerNumber || e.containerNumber === container)).sort((a, b) => Number(b.effect === "proposed") - Number(a.effect === "proposed"));
   const busy = confirm.isPending || dismiss.isPending;
 
   return (
     <SectionCard title="Events" extra={<CountChip count={shown.length} />} bodyClassName="p-0">
+      {containers.length > 1 && (
+        <div className="px-4 pt-3">
+          <PillTabs tabs={[{ key: "", label: "All containers" }, ...containers.map((c) => ({ key: c, label: c }))]} active={container} onChange={setContainer} />
+        </div>
+      )}
       {shown.length === 0 ? (
         <p className={EMPTY_STATE}>No events yet. The Gate Log, Trucking and what people record land here.</p>
       ) : (
@@ -54,6 +63,7 @@ export function EventsCard({ shipmentId, events, mayChangeDetails }: EventsCardP
                   </td>
                   <td className={TD}>
                     {e.place}
+                    {e.vessel && <div className={HINT}>{e.vessel}</div>}
                     {e.containerNumber && <div className={`${HINT} ${REF}`}>{e.containerNumber}</div>}
                   </td>
                   <td className={TD}>{e.note}</td>

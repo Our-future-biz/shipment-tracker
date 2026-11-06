@@ -5,6 +5,7 @@ import { SectionCard } from "@/components/SectionCard";
 import { Pill } from "@/components/Pill";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import type { TrackingMilestone } from "@/hooks/useShipmentTracking";
+import { airWaybillOk } from "@/lib/airWaybill";
 import { formatDate } from "@/lib/date";
 import { FULL_LOAD } from "@/lib/enums";
 import { EMPTY, EMPTY_STATE, HINT, LABEL_TEXT, LINK, REF, TD, TH } from "@/styles/ui";
@@ -32,6 +33,8 @@ const DOT_CLASS: Record<TrackingMilestone["state"], string> = {
   planned: "border-slate-200 bg-slate-100",
 };
 
+const containerChip = `${REF} text-[11px] font-bold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-600`;
+
 function MilestoneRow({ m, customerView, onOpen, onTellPod }: { m: TrackingMilestone; customerView: boolean; onOpen: (tab: string) => void; onTellPod: () => void }) {
   return (
     <tr>
@@ -44,6 +47,7 @@ function MilestoneRow({ m, customerView, onOpen, onTellPod }: { m: TrackingMiles
             <div className="flex flex-wrap items-center gap-x-2 font-medium text-slate-900">
               {m.label}
               {m.taxDate && !customerView && <Pill tone="slate">Tax date</Pill>}
+              {m.containerNumber && <span className={containerChip}>{m.containerNumber}</span>}
             </div>
             {(m.basis || m.place) && <div className={HINT}>{[m.place, m.basis].filter(Boolean).join(" · ")}</div>}
           </div>
@@ -98,7 +102,8 @@ function MilestoneRow({ m, customerView, onOpen, onTellPod }: { m: TrackingMiles
   );
 }
 
-const containerChip = `${REF} text-[11px] font-bold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-600`;
+/** Where a ship is, on a public map. Only a sea job has one to look up. */
+const vesselMapUrl = (vessel: string) => `https://www.vesselfinder.com/vessels?name=${encodeURIComponent(vessel)}`;
 
 /** What the main leg sails on: route, vessel, master job and containers. */
 function MainLegFacts({ shipment, customerView, onOpen }: { shipment: ShipmentItem; customerView: boolean; onOpen: (tab: string) => void }) {
@@ -111,6 +116,17 @@ function MainLegFacts({ shipment, customerView, onOpen }: { shipment: ShipmentIt
     <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] font-normal normal-case tracking-normal text-slate-700">
       {route && <span>{route}</span>}
       {vessel && <span>{vessel}</span>}
+      {shipment.vessel && !customerView && /sea/i.test(shipment.freightMode ?? "") && (
+        <a href={vesselMapUrl(shipment.vessel)} target="_blank" rel="noopener noreferrer" className={LINK}>
+          Where is the vessel?
+        </a>
+      )}
+      {/air/i.test(shipment.freightMode ?? "") && shipment.masterBolNumber && (
+        <span className={!customerView && !airWaybillOk(shipment.masterBolNumber) ? "text-amber-700" : undefined} title={!customerView && !airWaybillOk(shipment.masterBolNumber) ? "An air waybill is 3 + 8 digits, the last one the check digit: is this one mistyped?" : undefined}>
+          MAWB {shipment.masterBolNumber}
+        </span>
+      )}
+      {/air/i.test(shipment.freightMode ?? "") && shipment.houseBolNumber && <span>HAWB {shipment.houseBolNumber}</span>}
       {shipment.masterJobId && !customerView && (
         <Link href={`/master-jobs?open=${shipment.masterJobId}`} className={LINK}>
           Master job {shipment.masterJobMczNumber}

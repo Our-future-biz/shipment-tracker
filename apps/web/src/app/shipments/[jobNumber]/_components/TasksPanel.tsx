@@ -19,7 +19,7 @@ import { LINK } from "@/styles/ui";
 export function TasksPanel({ shipment }: { shipment: ShipmentItem }) {
   const { user } = useAuth();
   const { byKey, setCompleted } = useShipmentTasks(shipment.id);
-  const taskList = getTasksForDirection(shipment.tradeDirection);
+  const taskList = getTasksForDirection(shipment.tradeDirection, shipment.freightMode);
   // The first task not done yet is marked, so where the job stopped shows at a glance.
   const nextIdx = taskList.findIndex((d) => !byKey.get(d.key)?.completed);
   const { data: tracking } = useShipmentTracking(shipment.id);

@@ -154,6 +154,8 @@ export interface ShipmentItem {
   bookingNumber: string;
   loadType: string;
   shippingLine: string;
+  /** The SCAC of the carrier shippingLine names; "" when it names none we know. */
+  carrierCode: string;
   pol: string;
   pod: string;
   destination: string;
@@ -866,6 +868,8 @@ export interface TrackingMilestone {
   proposed: TrackingProposal | null;
   /** What stands in for a date ("Under Customs Clearance", the MRN); "" when nothing does. */
   detail: string;
+  /** The container its event is about; "" for the shipment as a whole. */
+  containerNumber: string;
   state: TrackingMilestoneState;
   /** Days past the planned date with nothing recorded; 0 when not late. */
   lateDays: number;
@@ -932,6 +936,8 @@ export interface TrackingEventItem {
   /** "HH:MM" in Prague when known; "" otherwise. */
   occurredTime: string;
   place: string;
+  /** Vessel and voyage it names; "" when none. */
+  vessel: string;
   containerNumber: string;
   note: string;
   /** Where it came from in words ("Trucking"); "" for a person. */
@@ -1006,6 +1012,47 @@ export interface TrackingAttentionItem {
   tradeDirection: string;
   status: string;
   flags: TrackingAttentionFlag[];
+}
+
+/** A fact a read document states, for a person to look over. */
+export interface TrackingReadFact {
+  kind: string;
+  label: string;
+  occurredOn: string;
+  place: string;
+  vessel: string;
+  note: string;
+  effect: "apply" | "propose" | "none";
+  sets: string;
+  alreadyKept: boolean;
+  refusal: string;
+}
+
+export interface TrackingVesselChange {
+  vessel: string;
+  voyage: string;
+}
+
+export interface TrackingReadingPreview {
+  facts: TrackingReadFact[];
+  /** The vessel and voyage it names, when they differ and nothing has sailed yet. */
+  vesselChange: TrackingVesselChange | null;
+  containersFound: string[];
+  otherShipment: boolean;
+}
+
+/** One house of a master job on the master job's Tracking tab. */
+export interface MasterJobTrackingHouse {
+  shipmentId: string;
+  jobNumber: string;
+  customer: string;
+  departed: string | null;
+  arrived: string | null;
+  customsCleared: boolean;
+  customsStatus: string;
+  gateIn: string | null;
+  delivered: string | null;
+  lastEvent: string;
 }
 
 export interface ShipmentTracking {

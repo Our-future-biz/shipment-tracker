@@ -24,7 +24,7 @@ import type { ShipmentTaskRecord } from "../schemas/shipmentTask.schema";
 import type { ShipmentTrackingEventRecord } from "../schemas/shipmentTrackingEvent.schema";
 import type { ShipmentCustomerNoticeRecord } from "../schemas/shipmentCustomerNotice.schema";
 import { NOTICE_KINDS, isNoticeKind, toldDifferences } from "./customerNotice";
-import { CUSTOMS_CLEARED, SOURCE_LABELS, TRACKING_KINDS, isExceptionKind, isRoadJob, isTrackingKind, recordableKinds, type TrackingSource } from "./trackingEvents";
+import { CUSTOMS_CLEARED, SOURCE_LABELS, TRACKING_KINDS, isExceptionKind, isRoadJob, isTrackingKind, labelOfKind, recordableKinds, setsWord, type TrackingKind, type TrackingSource } from "./trackingEvents";
 import { ARRIVAL_LATE_AFTER_DAYS, DATE_MOVED_WINDOW_DAYS, EXPORT_DEPARTURE_LATE_AFTER_DAYS } from "./trackingThresholds";
 
 type Field = keyof ShipmentRecord & string;
@@ -94,15 +94,17 @@ function rowsOf(s: ShipmentRecord): RowSpec[] {
   const road = isRoadJob(s);
   const atOrigin = isExport ? "origin" : "destination";
 
+  const label = (kind: TrackingKind) => labelOfKind(kind, s);
+  const confirmed: RowSpec = { key: "confirmed", label: label("haulier_confirmed"), leg: "origin", event: "haulier_confirmed", optional: true };
   const booking: RowSpec = { key: "booking", label: "Booking confirmed", leg: "origin", event: "booking_confirmed", optional: true };
   const cargoReady: RowSpec = { key: "cargoReady", label: "Cargo ready", leg: "origin", planned: "cargoReadinessDate", event: "cargo_ready", optional: true };
   const pickup: RowSpec = { key: "pickup", label: "Picked up", leg: "origin", planned: "pickupDate", plannedTime: "pickupTime", event: "picked_up", optional: !road };
   const equipment: RowSpec = { key: "equipment", label: "Equipment delivery / pick-up", leg: atOrigin, planned: "equipmentDeliveryDate", plannedTime: "equipmentDeliveryTime", optional: true };
-  const loaded: RowSpec = { key: "loaded", label: "Loaded on board", leg: "main", place: s.pol, event: "loaded", optional: true };
-  const departed: RowSpec = { key: "departed", label: "Departed", basis: "ETD / ATD", leg: "main", place: s.pol, planned: "estimatedDeparture", actual: "actualDeparture", event: "departed", optional: road };
-  const arrived: RowSpec = { key: "arrived", label: "Arrived", basis: "ETA / ATA", leg: "main", place: s.pod, planned: "estimatedArrival", actual: "actualArrival", event: "arrived", optional: road };
-  const discharged: RowSpec = { key: "discharged", label: "Discharged", leg: "main", place: s.pod, event: "discharged", optional: true };
-  const terminalOut: RowSpec = { key: "terminalOut", label: "Left the terminal", leg: "destination", place: s.pod, event: "terminal_out", optional: true };
+  const loaded: RowSpec = { key: "loaded", label: label("loaded"), leg: "main", place: s.pol, event: "loaded", optional: true };
+  const departed: RowSpec = { key: "departed", label: label("departed"), basis: "ETD / ATD", leg: "main", place: s.pol, planned: "estimatedDeparture", actual: "actualDeparture", event: "departed", optional: road };
+  const arrived: RowSpec = { key: "arrived", label: label("arrived"), basis: "ETA / ATA", leg: "main", place: s.pod, planned: "estimatedArrival", actual: "actualArrival", event: "arrived", optional: road };
+  const discharged: RowSpec = { key: "discharged", label: label("discharged"), leg: "main", place: s.pod, event: "discharged", optional: true };
+  const terminalOut: RowSpec = { key: "terminalOut", label: label("terminal_out"), leg: "destination", place: s.pod, event: "terminal_out", optional: true };
   const hub: RowSpec = { key: "hub", label: "Arrived at HUB", leg: "destination", place: s.hub, event: "hub_arrived", optional: true };
   const customs: RowSpec = { key: CUSTOMS_KEY, label: "Customs cleared", leg: atOrigin, event: "customs_released", optional: road };
   const gateIn: RowSpec = { key: "gateIn", label: "Gate in", basis: "ETA warehouse", leg: atOrigin, place: s.hub, planned: "etaWarehouse", actual: "warehouseReceivedDate", event: "gate_in", optional: true };
@@ -128,9 +130,9 @@ function rowsOf(s: ShipmentRecord): RowSpec[] {
       { key: "vgmClosing", label: "VGM closing", leg: "origin", planned: "vgmClosing", plannedTime: "vgmClosingTime", optional: true },
       { key: "siClosing", label: "SI closing", leg: "origin", planned: "siClosing", plannedTime: "siClosingTime", optional: true },
     ];
-    return [booking, cargoReady, pickup, equipment, gateIn, gateOut, customs, ...closings, loaded, departed, arrived, discharged, terminalOut, hub, advised, delivered, pod, emptyReturned];
+    return [booking, confirmed, cargoReady, pickup, equipment, gateIn, gateOut, customs, ...closings, loaded, departed, arrived, discharged, terminalOut, hub, advised, delivered, pod, emptyReturned];
   }
-  return [booking, cargoReady, pickup, loaded, departed, arrived, discharged, terminalOut, customs, hub, equipment, gateIn, gateOut, advised, delivered, pod, emptyReturned];
+  return [booking, confirmed, cargoReady, pickup, loaded, departed, arrived, discharged, terminalOut, customs, hub, equipment, gateIn, gateOut, advised, delivered, pod, emptyReturned];
 }
 
 const TRANSHIPMENT_KINDS = new Set<string>(["ts_arrived", "ts_departed"]);
@@ -191,6 +193,7 @@ export function buildTracking({ shipment, customsStatus, audit, events, notices,
   const taxDate = taxDateOfJob(shipment, recordedOf, invoiced);
   const taxKey = isDeliveryDated(shipment) ? "delivered" : shipment.tradeDirection.trim().toLowerCase() === "export" ? "departed" : "arrived";
 
+  const label = (kind: TrackingKind) => labelOfKind(kind, shipment);
   const rows = rowsOf(shipment).map((spec): { row: TrackingMilestone; trackable: boolean } | null => {
     const customs = spec.key === CUSTOMS_KEY;
     let planned = spec.planned ? dayOf(shipment[spec.planned]) : null;
@@ -244,6 +247,7 @@ export function buildTracking({ shipment, customsStatus, audit, events, notices,
         actualTime: done && event?.occurredAt ? businessTime(event.occurredAt) : "",
         proposed: proposal ? { eventId: proposal.id, day: proposal.effectValue ?? proposal.occurredOn, source: sourceLabel(proposal.source) } : null,
         detail,
+        containerNumber: text(event?.containerNumber),
         state: done ? "done" : "open",
         lateDays: 0,
         taxDate: spec.key === taxKey,
@@ -260,7 +264,7 @@ export function buildTracking({ shipment, customsStatus, audit, events, notices,
       trackable: false,
       row: {
         key: `ts-${e.id}`,
-        label: TRACKING_KINDS[e.kind as keyof typeof TRACKING_KINDS].label,
+        label: label(e.kind as TrackingKind),
         basis: "",
         leg: "main",
         place: text(e.place),
@@ -272,6 +276,7 @@ export function buildTracking({ shipment, customsStatus, audit, events, notices,
         actualTime: e.occurredAt ? businessTime(e.occurredAt) : "",
         proposed: null,
         detail: [e.vessel, e.voyage].filter(Boolean).join(" "),
+        containerNumber: text(e.containerNumber),
         state: "done",
         lateDays: 0,
         taxDate: false,
@@ -302,7 +307,7 @@ export function buildTracking({ shipment, customsStatus, audit, events, notices,
     changesCapped,
     attention: [...exceptionsOf(events, nameOf), ...notToldOf(notices, shipment, nameOf), ...attentionOf(milestones, shipment, lastChange, nameOf, today)],
     customerNotices: notices.map(toNoticeItem(nameOf)),
-    events: events.filter((e) => !PLAN_CHANGE_KINDS.has(e.kind) || !!e.note.trim()).map(toEventItem(nameOf, sourceLabel)),
+    events: events.filter((e) => !PLAN_CHANGE_KINDS.has(e.kind) || !!e.note.trim()).map(toEventItem(nameOf, sourceLabel, shipment)),
     recordable: recordableKinds(shipment, mayChangeDetails),
     mayChangeDetails,
     ticks: tasks
@@ -328,22 +333,14 @@ const toChange = (nameOf: (id: string) => string) => (row: ShipmentAuditRecord):
   };
 };
 
-const SETS_WORD: Record<string, string> = {
-  actualDeparture: "ATD",
-  actualArrival: "ATA",
-  actualDeliveryDate: "delivery date",
-  estimatedDeparture: "ETD",
-  estimatedArrival: "ETA",
-  customsStatus: "customs status",
-};
-
-const toEventItem = (nameOf: (id: string | null) => string, sourceLabel: (source: string) => string) => (e: ShipmentTrackingEventRecord): TrackingEventItem => ({
+const toEventItem = (nameOf: (id: string | null) => string, sourceLabel: (source: string) => string, shipment: ShipmentRecord) => (e: ShipmentTrackingEventRecord): TrackingEventItem => ({
   id: e.id,
   kind: e.kind,
-  label: isTrackingKind(e.kind) ? TRACKING_KINDS[e.kind].label : e.kind,
+  label: isTrackingKind(e.kind) ? labelOfKind(e.kind, shipment) : e.kind,
   occurredOn: e.occurredOn,
   occurredTime: e.occurredAt ? businessTime(e.occurredAt) : "",
   place: e.place,
+  vessel: [e.vessel, e.voyage].filter(Boolean).join(" "),
   containerNumber: e.containerNumber,
   note: e.note,
   source: sourceLabel(e.source),
@@ -351,8 +348,8 @@ const toEventItem = (nameOf: (id: string | null) => string, sourceLabel: (source
   recordedAt: e.createdAt.toISOString(),
   effect: e.effect as TrackingEventItem["effect"],
   effectValue: e.effectValue,
-  sets: SETS_WORD[e.effectField] ?? "",
-  strikeable: e.source === "user",
+  sets: setsWord(e.effectField),
+  strikeable: e.source === "user" || e.source === "document",
   resolvedAt: e.resolvedAt ? e.resolvedAt.toISOString() : null,
 });
 

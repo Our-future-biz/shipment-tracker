@@ -1261,6 +1261,7 @@ export function ShipmentDetailContent() {
                     { key: "shipmentsDate", label: "Shipments Month", ro: true },
                     { key: "shipmentsYear", label: "Year", ro: true },
                     { key: "shippingLine", label: "Shipping line / Coloader" },
+                    { key: "carrierCode", label: "Carrier code", ro: true },
                     { key: "containerNumber", label: "Container Number", ro: true },
                     { key: "sealNumber", label: "Seal Number", ro: true },
                     { key: "masterBolNumber", label: "Master BoL Number" },
@@ -1320,6 +1321,8 @@ export function ShipmentDetailContent() {
                         mark={<UnlinkedPersonMark value={shipment.salesPerson} hint="pick one in the Quote card" />}
                       />
                     ),
+                    // Worked out by the server from the shipping line, and no column of the grid either.
+                    carrierCode: <RoRow label="Carrier code" value={shipment.carrierCode} />,
                     incoterm: (
                       <div className={ROW}>
                         <span className={LABEL}>Incoterms Origin/Destination</span>

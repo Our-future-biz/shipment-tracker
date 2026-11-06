@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CUSTOMS_CLEARED, effectChanges, effectOf, eventsFromChanges, recordRefusal, ticksFromChanges, TICK_EVENTS, TRACKING_KINDS } from "../lib/trackingEvents";
+import { CUSTOMS_CLEARED, effectChanges, effectOf, eventsFromChanges, freightKindOf, labelOfKind, recordableKinds, recordRefusal, ticksFromChanges, TICK_EVENTS, TRACKING_KINDS } from "../lib/trackingEvents";
 import type { ShipmentRecord } from "../schemas/shipment.schema";
 
 const sea = { tradeDirection: "Import", freightMode: "Sea Freight" };
@@ -135,5 +135,30 @@ describe("the ticks a change makes true", () => {
 describe("the ticks that record an event", () => {
   it("only name kinds people may record", () => {
     for (const kind of Object.values(TICK_EVENTS)) expect((TRACKING_KINDS[kind] as { group?: string }).group).toBeDefined();
+  });
+});
+
+describe("by freight mode", () => {
+  const job = (freightMode: string, tradeDirection = "Import") => ({ freightMode, tradeDirection });
+
+  it("tells the modes apart, sea when nothing says otherwise", () => {
+    expect(freightKindOf(job("Air Freight"))).toBe("air");
+    expect(freightKindOf(job("Rail Freight"))).toBe("rail");
+    expect(freightKindOf(job("Road Freight"))).toBe("road");
+    expect(freightKindOf(job("Sea Freight", "Domestic"))).toBe("road");
+    expect(freightKindOf(job(""))).toBe("sea");
+  });
+
+  it("names a kind as that mode says it", () => {
+    expect(labelOfKind("discharged", job("Air Freight"))).toBe("Ready for pick-up");
+    expect(labelOfKind("arrived", job("Rail Freight"))).toBe("Arrived at the terminal");
+    expect(labelOfKind("arrived", job("Sea Freight"))).toBe(TRACKING_KINDS.arrived.label);
+  });
+
+  it("offers no empty to return on a flight", () => {
+    const kinds = (freightMode: string) => recordableKinds(job(freightMode), true).map((k) => k.kind);
+    expect(kinds("Air Freight")).not.toContain("empty_returned");
+    expect(kinds("Sea Freight")).toContain("empty_returned");
+    expect(recordableKinds(job("Air Freight"), true).find((k) => k.kind === "loaded")?.label).toBe("Loaded on the flight");
   });
 });

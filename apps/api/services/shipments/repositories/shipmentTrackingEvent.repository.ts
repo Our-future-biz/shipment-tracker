@@ -84,6 +84,13 @@ class ShipmentTrackingEventRepository extends TenantRepository<typeof t> {
     await this.db.insert(t).values(row).onConflictDoNothing();
   }
 
+  async softDeleteByExternalId(shipmentId: string, companyId: string, source: string, externalId: string): Promise<void> {
+    await this.db
+      .update(t)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), eq(t.source, source), eq(t.externalId, externalId), isNull(t.deletedAt)));
+  }
+
   async change(id: string, companyId: string, data: Partial<NewShipmentTrackingEventRecord>): Promise<ShipmentTrackingEventRecord | null> {
     const [row] = await this.db
       .update(t)

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import type { TrackingMilestone, TrackingTaxDate } from "@/hooks/useShipmentTracking";
-import { movedDaysLabel, taxDateParts, trackingStatusLine } from "./trackingText";
+import { movedDaysLabel, readFactWords, taxDateParts, trackingStatusLine } from "./trackingText";
 
 const shipment = (over: Partial<ShipmentItem> = {}) =>
   ({
@@ -96,5 +96,18 @@ describe("the tax-date line", () => {
       "No tax date (DUZP) yet: no date on this job says it",
       "ČNB rate missing for this date",
     ]);
+  });
+});
+
+describe("readFactWords", () => {
+  const fact = { effect: "none", sets: "", alreadyKept: false, refusal: "" };
+  it("says what keeping a fact does", () => {
+    expect(readFactWords({ ...fact, effect: "apply", sets: "ETA" })).toBe("Sets the ETA");
+    expect(readFactWords({ ...fact, effect: "propose", sets: "ATA" })).toBe("Proposes the ATA: someone confirms it under Events");
+    expect(readFactWords(fact)).toBe("Recorded, no date changes");
+  });
+  it("puts a refusal first, then what is on record", () => {
+    expect(readFactWords({ ...fact, alreadyKept: true })).toBe("Already on record");
+    expect(readFactWords({ ...fact, alreadyKept: true, refusal: "Can't be in the future" })).toBe("Can't be in the future");
   });
 });

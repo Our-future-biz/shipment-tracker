@@ -6,6 +6,7 @@ const taskRows = vi.hoisted(() => ({ listByShipmentId: vi.fn(), upsert: vi.fn() 
 const service = vi.hoisted(() => ({ isInvoiced: vi.fn(), customsStatusOf: vi.fn(), mayChangeDetails: vi.fn(), update: vi.fn() }));
 const masterJobs = vi.hoisted(() => ({ update: vi.fn() }));
 const comments = vi.hoisted(() => ({ postExceptionNotice: vi.fn() }));
+const attachments = vi.hoisted(() => ({ addFromModule: vi.fn() }));
 const events = vi.hoisted(() => ({
   listByShipmentId: vi.fn(),
   getLive: vi.fn(),
@@ -27,6 +28,9 @@ vi.mock("../../services/shipment.service", () => ({ shipmentService: service }))
 vi.mock("../../services/masterJob.service", () => ({ masterJobService: masterJobs }));
 vi.mock("../../repositories/shipmentCustomerNotice.repository", () => ({ shipmentCustomerNoticeRepository: { listByShipmentId: vi.fn(async () => []) } }));
 vi.mock("../../services/comment.service", () => ({ commentService: comments }));
+vi.mock("../../services/attachment.service", () => ({ attachmentService: attachments }));
+vi.mock("../../repositories/container.repository", () => ({ containerRepository: { listByShipmentId: vi.fn(async () => []) } }));
+vi.mock("../../repositories/masterJob.repository", () => ({ masterJobRepository: { getByIdForCompany: vi.fn() } }));
 
 import { TRACKING_AUDIT_FIELDS } from "../../lib/trackingTimeline";
 import { TRACKING_CHANGES_LIMIT, trackingService } from "../../services/tracking.service";
@@ -282,5 +286,64 @@ describe("a fact from another module", () => {
     await trackingService.addFact("s1", "c1", "u1", { kind: "pod_received", source: "trucking", occurredAt: new Date("2026-11-05T23:30:00Z"), note: "pod.pdf", externalId: "pod:c1:abc" });
     expect(events.addOnce).toHaveBeenCalledWith(expect.objectContaining({ kind: "pod_received", occurredOn: "2026-11-06", source: "trucking", externalId: "pod:c1:abc", note: "pod.pdf" }));
     expect(service.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("a read document", () => {
+  const keep = (facts: Parameters<typeof trackingService.keepReading>[2]["facts"], more: Omit<Parameters<typeof trackingService.keepReading>[2], "facts"> = {}) =>
+    trackingService.keepReading("s1", ACTOR, { facts, ...more }, NOW);
+
+  it("is kept by the details rule", async () => {
+    service.mayChangeDetails.mockResolvedValue(false);
+    await expect(keep([{ kind: "arrived", occurredOn: "2026-11-05" }])).rejects.toThrow();
+    expect(events.addOnce).not.toHaveBeenCalled();
+  });
+
+  it("proposes the ATA and never sets it", async () => {
+    await keep([{ kind: "arrived", occurredOn: "2026-11-05", place: "Hamburg" }]);
+    expect(service.update).not.toHaveBeenCalled();
+    expect(events.addOnce).toHaveBeenCalledWith(expect.objectContaining({ kind: "arrived", source: "document", effect: "proposed", effectField: "actualArrival", effectValue: "2026-11-05", externalId: "document:arrived:2026-11-05:" }));
+  });
+
+  it("moves the ETA while there is no ATA, and writes down where the move came from", async () => {
+    events.findSameDay.mockResolvedValue({ id: "bare", note: "", place: "", containerNumber: "", occurredAt: null });
+    await keep([{ kind: "eta_changed", occurredOn: "2026-12-20", note: "From a document" }]);
+    expect(service.update).toHaveBeenCalledWith("s1", "c1", { estimatedArrival: "2026-12-20" }, "u1", "user");
+    expect(events.change).toHaveBeenCalledWith("bare", "c1", expect.objectContaining({ source: "document", note: "From a document", effect: "applied" }));
+    expect(events.addOnce).not.toHaveBeenCalled();
+  });
+
+  it("leaves a date alone once the actual is known", async () => {
+    shipments.getByIdForCompany.mockResolvedValue({ ...shipment, actualArrival: "2026-11-04" });
+    await keep([{ kind: "eta_changed", occurredOn: "2026-12-20", note: "From a document" }]);
+    expect(service.update).not.toHaveBeenCalled();
+    expect(events.addOnce).toHaveBeenCalledWith(expect.objectContaining({ effect: "none" }));
+  });
+
+  it("refuses everything when one fact can't be kept", async () => {
+    await expect(keep([{ kind: "note", occurredOn: "2026-11-05", note: "Fine" }, { kind: "arrived", occurredOn: "2027-01-01" }])).rejects.toThrow("future");
+    expect(events.addOnce).not.toHaveBeenCalled();
+  });
+
+  it("sets the vessel while nothing has sailed, on the master job when there is one", async () => {
+    const vesselChange = { vessel: "EVER TEST", voyage: "123E" };
+    await keep([], { vesselChange });
+    expect(service.update).toHaveBeenCalledWith("s1", "c1", vesselChange, "u1", "user");
+    service.update.mockClear();
+    shipments.getByIdForCompany.mockResolvedValue({ ...shipment, masterJobId: "m1" });
+    await keep([], { vesselChange });
+    expect(masterJobs.update).toHaveBeenCalledWith("m1", "c1", vesselChange, "u1");
+    expect(service.update).not.toHaveBeenCalled();
+  });
+
+  it("leaves the vessel alone once it has sailed", async () => {
+    shipments.getByIdForCompany.mockResolvedValue({ ...shipment, actualDeparture: "2026-11-01" });
+    await keep([], { vesselChange: { vessel: "EVER TEST", voyage: "123E" } });
+    expect(service.update).not.toHaveBeenCalled();
+  });
+
+  it("files the document once, by what is in it", async () => {
+    await keep([{ kind: "note", occurredOn: "2026-11-05", note: "Fine" }], { file: { fileName: "an.pdf", fileType: "application/pdf", contentBase64: "QUJD" } });
+    expect(attachments.addFromModule).toHaveBeenCalledWith("s1", "c1", expect.objectContaining({ fileName: "an.pdf", documentType: "Carrier notice", sourceRef: expect.stringMatching(/^tracking-reading:[0-9a-f]{64}$/) }), "u1");
   });
 });

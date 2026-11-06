@@ -16,6 +16,7 @@ import type { TruckingOutboxPayload } from "../lib/outboxPayload";
  *  - real_costs: an approved haulier invoice's real cost on the job's Trucking buying rows (by sourceRef in invoicing)
  *  - pod: the POD file and its stamp handed to the job's Documents and timeline
  *  - delivery_advice: the avizace given, for the job's timeline
+ *  - stamp: the haulier's confirmation or the pick-up, for the job's timeline
  */
 export type TruckingOutboxKind =
   | "planned"
@@ -28,7 +29,8 @@ export type TruckingOutboxKind =
   | "cancel_expected"
   | "real_costs"
   | "pod"
-  | "delivery_advice";
+  | "delivery_advice"
+  | "stamp";
 export type { OutboxStatus } from "../../../lib/outbox/outbox.columns";
 
 // One update owed to the consignment's job (Shipments) or its Costs Breakdown (Invoicing). It is

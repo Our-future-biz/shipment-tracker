@@ -70,6 +70,21 @@ Rules:
 ${PLACE_RULES}
 - Return ONLY a JSON object. No markdown, no explanation, no code fences.`;
 
+export const TRACKING_PROMPT = `You read a notice about where a cargo is: an arrival notice, a carrier's delay or schedule-change notice, a terminal's availability mail, a rail operator's or airline's status message. It may be a forwarded e-mail with signatures and earlier mails: read only what this notice states about the cargo.
+
+Rules:
+- Date format: YYYY-MM-DD. Read day and month as the document means them: a month name settles it; for numbers only, follow the convention of the country that issued the document. Use the day as printed, local to the place named: do not convert time zones. Return the date only, without a time
+- Only what has HAPPENED goes in Loaded On Board, ATD, Transhipment Arrived, Transhipment Departed, ATA, Discharged, Gate Out, Delivered and Empty Returned. A plan or estimate never does
+- New ETA / New ETD: an estimated arrival / departure the notice announces
+- ATA is the vessel's, train's or flight's arrival at the destination port or terminal. Discharged is the container coming off it; Gate Out is the container leaving the terminal
+- Transhipment Port: the port of a transhipment the notice reports
+- Container Numbers: every container number the notice names, separated by commas
+- Customs Hold: the reason in a few words, only if the notice says the cargo is held by customs
+- Available From: when the cargo can be collected. Last Free Day: the last day without storage or demurrage
+- Vessel / Voyage: for a train or a flight, its name or number
+- Leave out anything the notice does not state. If nothing is found, return an empty JSON object
+- Return ONLY a JSON object. No markdown, no explanation, no code fences.`;
+
 export const MBL_PROMPT = `You read a Master Bill of Lading (MBL): the B/L, sea waybill or data freight receipt the ocean carrier issues for a whole container or consolidation, filed to a forwarder's master job. Its pages may include continuation pages and copies of the same B/L.
 
 Rules:

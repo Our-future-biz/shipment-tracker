@@ -1,8 +1,8 @@
 import { api } from "encore.dev/api";
 import type { MaxLen, MinLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
-import type { ShipmentTracking } from "../interfaces/interfaces";
-import { trackingService, type TrackingActor } from "../services/tracking.service";
+import type { MasterJobTrackingHouse, ShipmentTracking, TrackingReadingPreview, TrackingVesselChange } from "../interfaces/interfaces";
+import { trackingService, type KeptFact, type KeptFile, type TrackingActor } from "../services/tracking.service";
 
 const actor = (): TrackingActor => {
   const { userID, companyID, role } = getAuthData()!;
@@ -83,5 +83,44 @@ export const trackingEventStrike = api(
   async ({ shipmentId, eventId, reason }: TrackingEventStrikeRequest): Promise<{ ok: boolean }> => {
     await trackingService.strike(shipmentId, eventId, reason, actor());
     return { ok: true };
+  },
+);
+
+interface TrackingReadingPreviewRequest {
+  shipmentId: string;
+  /** What document reading got from the notice. */
+  extracted: Record<string, string>;
+}
+
+// What a read document says about this shipment, for a person to look over. Nothing is kept yet.
+export const trackingReadingPreview = api(
+  { expose: true, auth: true, method: "POST", path: "/shipments/:shipmentId/tracking/reading/preview" },
+  async ({ shipmentId, extracted }: TrackingReadingPreviewRequest): Promise<TrackingReadingPreview> => {
+    return trackingService.previewReading(shipmentId, actor().companyID, extracted);
+  },
+);
+
+interface TrackingReadingKeepRequest {
+  shipmentId: string;
+  facts: KeptFact[] & MaxLen<50>;
+  /** The document itself, when it was a file: filed on the shipment as a Carrier notice. */
+  file?: KeptFile;
+  vesselChange?: TrackingVesselChange;
+}
+
+// Keeps what a person chose of a read document: ATA and ATD wait to be confirmed, the rest goes by the rule.
+export const trackingReadingKeep = api(
+  { expose: true, auth: true, method: "POST", path: "/shipments/:shipmentId/tracking/reading/keep", bodyLimit: 50 * 1024 * 1024 },
+  async ({ shipmentId, facts, file, vesselChange }: TrackingReadingKeepRequest): Promise<{ ok: boolean }> => {
+    await trackingService.keepReading(shipmentId, actor(), { facts, file, vesselChange });
+    return { ok: true };
+  },
+);
+
+// A master job's houses, each with where it stands.
+export const masterJobTracking = api(
+  { expose: true, auth: true, method: "GET", path: "/master-jobs/:masterJobId/tracking" },
+  async ({ masterJobId }: { masterJobId: string }): Promise<{ houses: MasterJobTrackingHouse[] }> => {
+    return { houses: await trackingService.masterJobHouses(masterJobId, actor().companyID) };
   },
 );

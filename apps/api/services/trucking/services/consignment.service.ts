@@ -1073,6 +1073,9 @@ class ConsignmentService {
       byName: by,
       payload: { changes: { [kind]: { before: null, after: time.toISOString() } }, summary: `${STAMP_LABEL[kind]}: ${stampText(time)}${source === "HAULIER" ? " (by the haulier)" : ""}`, facts: { kind, source } },
     });
+    if (kind === "confirmed" || kind === "pickedUp") {
+      await truckingOutboxRepository.enqueue(tx, companyId, [owed(actor, c, "stamp", { stamp: kind, at: time.toISOString() })]);
+    }
     if (kind === "delivered") {
       await truckingOutboxRepository.enqueue(tx, companyId, [owed(actor, c, "delivered", { actualDeliveryDate: businessDay(time) })]);
       if (c.scope === "LTL") await this.markDeliveryLeg(tx, companyId, c.id, true);
@@ -1178,6 +1181,9 @@ class ConsignmentService {
           facts: { kind },
         },
       });
+      if (kind === "confirmed" || kind === "pickedUp") {
+        await truckingOutboxRepository.enqueue(tx, companyId, [owed(actor, c, "stamp", { stamp: kind, at: (facts[cols.at] as Date).toISOString(), voided: true })]);
+      }
       if (kind === "podReceived") {
         await this.unsettleBilling(tx, actor, c, by);
         if (c.internal) await internalBillingService.reverseDelivered(tx, actor, c, by, `POD voided: ${why}`);

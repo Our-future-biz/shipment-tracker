@@ -135,7 +135,7 @@ export function ShipmentFacts({ shipment }: { shipment: ShipmentItem }) {
  */
 export function ShipmentProgress({ shipment }: { shipment: ShipmentItem }) {
   const { byKey } = useShipmentTasks(shipment.id);
-  const taskList = getTasksForDirection(shipment.tradeDirection);
+  const taskList = getTasksForDirection(shipment.tradeDirection, shipment.freightMode);
   const activeIndex = getActiveStage(taskList, (key) => !!byKey.get(key)?.completed, shipment);
   // Which fact a stage rests on, when it rests on one.
   const factOf: Record<string, string> = {

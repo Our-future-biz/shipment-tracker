@@ -67,8 +67,62 @@ export const TICK_NOTICES: Readonly<Record<string, string>> = {
   exp_bl_provided: "bl_provided",
 };
 
-export function getTasksForDirection(tradeDirection?: string | null): TaskDef[] {
-  return tradeDirection === "Export" ? EXPORT_TASKS : IMPORT_TASKS;
+type FreightKind = "sea" | "air" | "rail" | "road";
+
+/** How a job travels. The server decides the same way (lib/trackingEvents freightKindOf). */
+export function freightKindOf(tradeDirection?: string | null, freightMode?: string | null): FreightKind {
+  const mode = (freightMode ?? "").trim();
+  if ((tradeDirection ?? "").trim().toLowerCase() === "domestic" || /road/i.test(mode)) return "road";
+  if (/^air/i.test(mode)) return "air";
+  if (/^rail/i.test(mode)) return "rail";
+  return "sea";
+}
+
+/** What a truck's job needs of the checklist: its stamps are set in Trucking. */
+const ROAD_TASKS: ReadonlySet<string> = new Set([
+  "imp_booking_confirmed",
+  "imp_cargo_readiness",
+  "imp_booked_transport",
+  "imp_delivered",
+  "imp_billed",
+  "imp_extra_costs",
+  "exp_cargo_readiness",
+  "exp_booked_line",
+  "exp_paperwork_customer",
+  "exp_billed",
+]);
+
+/** Filings that belong to the sea: a plane needs none of them, a train still takes shipping instructions. */
+const NOT_FILED: Partial<Record<FreightKind, ReadonlySet<string>>> = {
+  air: new Set(["exp_vgm_filed", "exp_si_filed", "exp_ams_filed"]),
+  rail: new Set(["exp_vgm_filed", "exp_ams_filed"]),
+};
+
+const TASK_WORDS: Partial<Record<FreightKind, Readonly<Record<string, string>>>> = {
+  air: {
+    exp_booked_line: "Booked with airline",
+    exp_booking_received: "Booking received",
+    exp_draft_sent: "Air Waybill draft sent to customer",
+    exp_bl_provided: "Air Waybill provided to customer",
+    imp_departed_port: "Cargo left the airport",
+  },
+  rail: {
+    exp_booked_line: "Booked with rail operator",
+    exp_draft_sent: "Rail waybill draft sent to customer",
+    exp_bl_provided: "Rail waybill provided to customer",
+    imp_departed_port: "Cargo left the terminal",
+  },
+  road: { exp_booked_line: "Booked with haulier" },
+};
+
+/** The checklist of a job, by its direction and how it travels. Without a mode it is the full list. */
+export function getTasksForDirection(tradeDirection?: string | null, freightMode?: string | null): TaskDef[] {
+  const tasks = tradeDirection === "Export" ? EXPORT_TASKS : IMPORT_TASKS;
+  const kind = freightKindOf(tradeDirection, freightMode);
+  const words = TASK_WORDS[kind] ?? {};
+  return tasks
+    .filter((t) => (kind === "road" ? ROAD_TASKS.has(t.key) : !NOT_FILED[kind]?.has(t.key)))
+    .map((t) => (words[t.key] ? { ...t, label: words[t.key]!, description: words[t.key]! } : t));
 }
 
 /**

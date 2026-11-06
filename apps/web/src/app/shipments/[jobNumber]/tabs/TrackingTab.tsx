@@ -16,6 +16,7 @@ import { ChecklistCard } from "./tracking/ChecklistCard";
 import { CustomerNoticesCard } from "./tracking/CustomerNoticesCard";
 import type { NoticeKindValue } from "./tracking/customerDraft";
 import { EventsCard } from "./tracking/EventsCard";
+import { ReadNoticeModal } from "./tracking/ReadNoticeModal";
 import { RecordEventModal } from "./tracking/RecordEventModal";
 import { TellCustomerModal } from "./tracking/TellCustomerModal";
 import { RecordedBy } from "./tracking/RecordedBy";
@@ -35,6 +36,7 @@ export function TrackingTab({ shipment, onOpen }: { shipment: ShipmentItem; onOp
   const [view, setView] = useState<View>("all");
   const [customerView, setCustomerView] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [reading, setReading] = useState(false);
   const [telling, setTelling] = useState<NoticeKindValue | null>(null);
   // Opening the tab is seeing what the bell says about this shipment.
   const { mutate: markRead } = useTrackingActions(shipment.id).markRead;
@@ -89,6 +91,11 @@ export function TrackingTab({ shipment, onOpen }: { shipment: ShipmentItem; onOp
               Tell the customer
             </button>
           )}
+          {!customerView && data.mayChangeDetails && data.recordable.length > 0 && (
+            <button type="button" onClick={() => setReading(true)} className={`${BTN_GHOST} ${BTN_SM}`}>
+              Read a notice
+            </button>
+          )}
           {!customerView &&
             (data.recordable.length > 0 ? (
               <button type="button" onClick={() => setRecording(true)} className={`${BTN_PRIMARY} ${BTN_SM}`}>
@@ -104,11 +111,12 @@ export function TrackingTab({ shipment, onOpen }: { shipment: ShipmentItem; onOp
       {showTimeline && (
         <TimelineCard shipment={shipment} milestones={data.milestones} actualsOnly={!customerView && view === "actuals"} customerView={customerView} onOpen={onOpen} onTellPod={() => setTelling("pod_sent")} />
       )}
-      {!customerView && view === "all" && <EventsCard shipmentId={shipment.id} events={data.events} mayChangeDetails={data.mayChangeDetails} />}
+      {!customerView && view === "all" && <EventsCard shipmentId={shipment.id} events={data.events} mayChangeDetails={data.mayChangeDetails} containers={(shipment.containers ?? []).map((c) => c.containerNumber).filter(Boolean)} />}
       {!customerView && view === "all" && data.customerNotices.length > 0 && <CustomerNoticesCard notices={data.customerNotices} />}
       {showChanges && <ChangesCard changes={data.changes} capped={data.changesCapped} />}
-      {!customerView && view === "all" && <ChecklistCard tradeDirection={shipment.tradeDirection} ticks={data.ticks} />}
+      {!customerView && view === "all" && <ChecklistCard tradeDirection={shipment.tradeDirection} freightMode={shipment.freightMode ?? ""} ticks={data.ticks} />}
       {recording && <RecordEventModal shipment={shipment} tracking={data} onClose={() => setRecording(false)} />}
+      {reading && <ReadNoticeModal shipment={shipment} onClose={() => setReading(false)} />}
       {telling && <TellCustomerModal shipment={shipment} tracking={data} initialKind={telling} onClose={() => setTelling(null)} />}
     </div>
   );

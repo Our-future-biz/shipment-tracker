@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CUSTOMS_CLEARED, EXPORT_TASKS, IMPORT_TASKS, getActiveStage, getActiveStageFromTasks, getStageFromFacts } from "./taskDefinitions";
+import { CUSTOMS_CLEARED, EXPORT_TASKS, IMPORT_TASKS, freightKindOf, getActiveStage, getActiveStageFromTasks, getStageFromFacts, getTasksForDirection } from "./taskDefinitions";
 
 const doneSet = (keys: string[]) => (key: string) => keys.includes(key);
 
@@ -63,5 +63,49 @@ describe("getActiveStage", () => {
 
   it("never moves it back: the ticks can be ahead of the dates", () => {
     expect(getActiveStage(IMPORT_TASKS, doneSet(["imp_customs_cleared"]), { actualDeparture: "2026-09-20" })).toBe(4);
+  });
+});
+
+describe("getTasksForDirection", () => {
+  const keys = (direction: string, mode?: string) => getTasksForDirection(direction, mode).map((t) => t.key);
+  const label = (direction: string, mode: string, key: string) => getTasksForDirection(direction, mode).find((t) => t.key === key)?.label;
+
+  it("is the full list for sea and for a job without a mode", () => {
+    expect(getTasksForDirection("Import", "Sea Freight")).toEqual(IMPORT_TASKS);
+    expect(getTasksForDirection("Export", "Sea Freight")).toEqual(EXPORT_TASKS);
+    expect(getTasksForDirection("Export")).toEqual(EXPORT_TASKS);
+  });
+
+  it("drops the sea's filings on a flight and words it for the air", () => {
+    const air = keys("Export", "Air Freight");
+    expect(air).not.toContain("exp_vgm_filed");
+    expect(air).not.toContain("exp_si_filed");
+    expect(air).not.toContain("exp_ams_filed");
+    expect(label("Export", "Air Freight", "exp_booked_line")).toBe("Booked with airline");
+    expect(label("Export", "Air Freight", "exp_bl_provided")).toBe("Air Waybill provided to customer");
+  });
+
+  it("keeps a train's shipping instructions", () => {
+    const rail = keys("Export", "Rail Freight");
+    expect(rail).toContain("exp_si_filed");
+    expect(rail).not.toContain("exp_vgm_filed");
+    expect(label("Export", "Rail Freight", "exp_booked_line")).toBe("Booked with rail operator");
+  });
+
+  it("gives a road job only what isn't a Trucking stamp", () => {
+    expect(keys("Domestic", "Sea Freight")).toEqual(["imp_booking_confirmed", "imp_cargo_readiness", "imp_booked_transport", "imp_billed", "imp_delivered", "imp_extra_costs"]);
+    expect(keys("Import", "Road Freight")).not.toContain("imp_cargo_shipped");
+    expect(label("Export", "Road Freight", "exp_booked_line")).toBe("Booked with haulier");
+  });
+
+  it("changes neither list it reads from", () => {
+    getTasksForDirection("Export", "Air Freight");
+    expect(EXPORT_TASKS.find((t) => t.key === "exp_booked_line")?.label).toBe("Booked with shipping line");
+  });
+
+  it("tells the modes apart as the server does", () => {
+    expect(freightKindOf("Import", "Air Freight")).toBe("air");
+    expect(freightKindOf("Domestic", "Rail Freight")).toBe("road");
+    expect(freightKindOf("Import", "")).toBe("sea");
   });
 });

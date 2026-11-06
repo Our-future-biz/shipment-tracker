@@ -10,11 +10,13 @@ import { useCreateMasterJob, useMasterJob, useMasterJobs } from "@/hooks/useMast
 import { MasterJobsList } from "./MasterJobsList";
 import { MblDetailsTab } from "./MblDetailsTab";
 import { MasterJobCostsTab } from "./MasterJobCostsTab";
+import { MasterJobTrackingTab } from "./MasterJobTrackingTab";
 
 // Tabs of an opened master job; more will follow.
 const DETAIL_TABS = [
   { key: "mbl", label: "MBL Details" },
   { key: "costs", label: "Costs Breakdown" },
+  { key: "tracking", label: "Tracking" },
 ] as const;
 
 // Master Jobs in the same shape as Customs: a list, and a master job opened
@@ -86,6 +88,8 @@ export function MasterJobsView() {
             {mj ? (
               detailTab === "costs" ? (
                 <MasterJobCostsTab masterJob={mj} />
+              ) : detailTab === "tracking" ? (
+                <MasterJobTrackingTab masterJobId={mj.id} />
               ) : (
                 <MblDetailsTab
                   masterJob={mj}

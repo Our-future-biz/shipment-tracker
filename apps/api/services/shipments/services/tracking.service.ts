@@ -1,6 +1,7 @@
+import { createHash } from "node:crypto";
 import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
-import type { ShipmentTracking } from "../interfaces/interfaces";
+import type { MasterJobTrackingHouse, ShipmentTracking, TrackingReadingPreview, TrackingVesselChange } from "../interfaces/interfaces";
 import { businessDay, businessInstant, isRealYmd } from "../../../lib/businessDate";
 import { MASTER_JOB_SYNCED_FIELDS } from "../lib/masterJobSync";
 import { normalizeContainerNumber } from "../lib/cargoProjection";
@@ -14,13 +15,17 @@ import {
   isDepartmentKind,
   isExceptionKind,
   isTrackingKind,
+  lastEventOf,
   recordRefusal,
   type TrackingKind,
   type TrackingSource,
 } from "../lib/trackingEvents";
 import { buildTracking, TRACKING_AUDIT_FIELDS } from "../lib/trackingTimeline";
+import { documentEffect, readingExternalId, readingPreview } from "../lib/trackingReading";
 import { DETAILS_REFUSAL } from "../lib/shipmentEditRule";
 import { userEmails } from "../lib/userEmails";
+import { containerRepository } from "../repositories/container.repository";
+import { masterJobRepository } from "../repositories/masterJob.repository";
 import { shipmentRepository } from "../repositories/shipment.repository";
 import { shipmentAuditRepository } from "../repositories/shipmentAudit.repository";
 import { shipmentTaskRepository } from "../repositories/shipmentTask.repository";
@@ -28,6 +33,7 @@ import { shipmentCustomerNoticeRepository } from "../repositories/shipmentCustom
 import { shipmentTrackingEventRepository } from "../repositories/shipmentTrackingEvent.repository";
 import type { ShipmentRecord } from "../schemas/shipment.schema";
 import type { ShipmentTrackingEventRecord } from "../schemas/shipmentTrackingEvent.schema";
+import { attachmentService } from "./attachment.service";
 import { commentService } from "./comment.service";
 import { masterJobService } from "./masterJob.service";
 import { shipmentService, type ShipmentUpdateData } from "./shipment.service";
@@ -46,6 +52,28 @@ export interface TrackingActor {
   userID: string;
   companyID: string;
   role: string;
+}
+
+/** A fact of a read document a person chose to keep. */
+export interface KeptFact {
+  kind: string;
+  occurredOn: string;
+  place?: string;
+  vessel?: string;
+  note?: string;
+}
+
+/** The document itself, to file on the shipment. */
+export interface KeptFile {
+  fileName: string;
+  fileType: string;
+  contentBase64: string;
+}
+
+export interface KeptReading {
+  facts: KeptFact[];
+  file?: KeptFile;
+  vesselChange?: TrackingVesselChange;
 }
 
 export interface RecordEventInput {
@@ -146,6 +174,85 @@ class TrackingService {
     }
   }
 
+  /** What a read document says about this shipment, for a person to look over. Nothing is kept yet. */
+  async previewReading(shipmentId: string, companyId: string, extracted: Record<string, string>, now = new Date()): Promise<TrackingReadingPreview> {
+    const shipment = await this.requireShipment(shipmentId, companyId);
+    const [containers, events] = await Promise.all([containerRepository.listByShipmentId(shipmentId, companyId), shipmentTrackingEventRepository.listByShipmentId(shipmentId, companyId, TRACKING_EVENTS_LIMIT)]);
+    const keptIds = new Set(events.filter((e) => e.source === "document").map((e) => e.externalId));
+    return readingPreview(extracted, shipment, containers.map((c) => c.containerNumber).filter(Boolean), keptIds, businessDay(now));
+  }
+
+  /**
+   * Keeps what a person chose of a read document: a source like any other, so ATA and ATD wait as
+   * proposals and the rest goes by the rule. Reading the same document again adds nothing.
+   */
+  async keepReading(shipmentId: string, actor: TrackingActor, { facts, file, vesselChange }: KeptReading, now = new Date()): Promise<void> {
+    const companyId = actor.companyID;
+    const shipment = await this.requireShipment(shipmentId, companyId);
+    if (!(await shipmentService.mayChangeDetails(shipment, actor.userID, actor.role))) throw APIError.permissionDenied(DETAILS_REFUSAL);
+    const today = businessDay(now);
+    for (const fact of facts) {
+      if (!isRealYmd(fact.occurredOn)) throw APIError.invalidArgument("A fact's date must be a day as YYYY-MM-DD");
+      const refusal = recordRefusal({ kind: fact.kind, occurredOn: fact.occurredOn, note: fact.note ?? "" }, shipment, today);
+      if (refusal) throw APIError.invalidArgument(refusal);
+    }
+    // Vessel and voyage are a source's to set only while the actual departure is empty (D3).
+    if (vesselChange && !shipment.actualDeparture) {
+      if (shipment.masterJobId) await masterJobService.update(shipment.masterJobId, companyId, { ...vesselChange }, actor.userID);
+      else await shipmentService.update(shipmentId, companyId, { ...vesselChange }, actor.userID, actor.role);
+    }
+    for (const fact of facts) {
+      const kind = fact.kind as TrackingKind;
+      const note = (fact.note ?? "").trim();
+      const effect = documentEffect(kind, shipment, fact.occurredOn);
+      if (effect.mode === "apply" && effectChanges(effect, shipment)) await this.applyField(shipment, effect.field, effect.value, actor);
+      const details = {
+        place: (fact.place ?? "").trim(),
+        vessel: (fact.vessel ?? "").trim(),
+        note,
+        source: "document" as TrackingSource,
+        recordedById: actor.userID,
+        effect: effect.mode === "apply" ? ("applied" as const) : effect.mode === "propose" ? ("proposed" as const) : ("none" as const),
+        effectField: effect.field,
+        effectValue: effect.value,
+        externalId: readingExternalId({ kind, occurredOn: fact.occurredOn, note }),
+      };
+      const same = effect.mode === "apply" ? await shipmentTrackingEventRepository.findSameDay(shipmentId, companyId, kind, fact.occurredOn) : null;
+      if (same && isBareFact(same)) await shipmentTrackingEventRepository.change(same.id, companyId, details);
+      else await shipmentTrackingEventRepository.addOnce({ ...details, companyId, shipmentId, kind, occurredOn: fact.occurredOn });
+      const closes = effect.mode === "propose" ? undefined : EXCEPTIONS_CLOSED_BY[kind];
+      if (closes) await shipmentTrackingEventRepository.resolveOpen(shipmentId, companyId, closes, actor.userID);
+    }
+    if (file) {
+      const sha = createHash("sha256").update(file.contentBase64).digest("hex");
+      await attachmentService.addFromModule(shipmentId, companyId, { ...file, documentType: "Carrier notice", sourceRef: `tracking-reading:${sha}` }, actor.userID);
+    }
+  }
+
+  /** A master job's houses, each with where it stands: one look says which is behind. */
+  async masterJobHouses(masterJobId: string, companyId: string): Promise<MasterJobTrackingHouse[]> {
+    if (!(await masterJobRepository.getByIdForCompany(masterJobId, companyId))) throw APIError.notFound("Master job not found");
+    const houses = await shipmentRepository.findByMasterJobId(masterJobId, companyId);
+    const [latest, statuses] = await Promise.all([
+      shipmentTrackingEventRepository.latestPerShipment(houses.map((h) => h.id), companyId),
+      Promise.all(houses.map((h) => shipmentService.customsStatusOf(h, companyId))),
+    ]);
+    return houses
+      .map((h, i) => ({
+        shipmentId: h.id,
+        jobNumber: h.jobNumber,
+        customer: h.customer,
+        departed: h.actualDeparture,
+        arrived: h.actualArrival,
+        customsCleared: statuses[i] === CUSTOMS_CLEARED,
+        customsStatus: statuses[i]!,
+        gateIn: h.warehouseReceivedDate,
+        delivered: h.actualDeliveryDate,
+        lastEvent: lastEventOf(h, latest.get(h.id) ?? null),
+      }))
+      .sort((a, b) => a.jobNumber.localeCompare(b.jobNumber));
+  }
+
   /**
    * A fact another module sends (Trucking's delivery advice, the POD): stored once per `externalId`,
    * so a retried delivery adds nothing, and it touches no date.
@@ -163,6 +270,12 @@ class TrackingService {
       recordedById: userId,
       note: fact.note,
     });
+  }
+
+  /** Another module took back a fact it sent: it goes off the timeline, and a later one can take its place. */
+  async voidFact(shipmentId: string, companyId: string, source: TrackingSource, externalId: string): Promise<void> {
+    await this.requireShipment(shipmentId, companyId);
+    await shipmentTrackingEventRepository.softDeleteByExternalId(shipmentId, companyId, source, externalId);
   }
 
   /** A person confirms the date a source proposed: only now does it reach the shipment. */
@@ -199,7 +312,7 @@ class TrackingService {
     const { shipment, event } = await this.event(shipmentId, eventId, actor.companyID);
     const why = reason.trim();
     if (!why) throw APIError.invalidArgument("Say why it is struck");
-    if (event.source !== "user") throw APIError.failedPrecondition("This came from another module: change it there");
+    if (event.source !== "user" && event.source !== "document") throw APIError.failedPrecondition("This came from another module: change it there");
     if (!isTrackingKind(event.kind)) throw APIError.failedPrecondition("This event can't be struck");
     await this.assertMayRecord(shipment, event.kind, actor);
     const setActual = event.effect === "applied" && event.effectValue && event.effectField.startsWith("actual");

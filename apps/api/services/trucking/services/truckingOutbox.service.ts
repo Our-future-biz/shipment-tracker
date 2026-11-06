@@ -36,6 +36,7 @@ export const OUTBOX_WHAT: Record<TruckingOutboxKind, string> = {
   real_costs: "real haulier cost in Costs Breakdown",
   pod: "POD on the shipment's Documents",
   delivery_advice: "delivery advice on the shipment's timeline",
+  stamp: "stamp on the shipment's timeline",
 };
 
 // What users see of a failed delivery (stored as last_error and in the history): our own
@@ -92,6 +93,18 @@ export async function sendRow(row: TruckingOutboxRecord): Promise<void> {
       );
       await shipments._internalTrackingFact(
         { shipmentId: row.shipmentId, kind: "pod_received", occurredAt: stampedAt, note: fileName, externalId: `pod:${row.consignmentId}:${sha256}` },
+        { authData },
+      );
+      return;
+    }
+    case "stamp": {
+      const externalId = `stamp:${row.consignmentId}:${message.payload.stamp}`;
+      if (message.payload.voided) {
+        await shipments._internalTrackingFactVoid({ shipmentId: row.shipmentId, externalId }, { authData });
+        return;
+      }
+      await shipments._internalTrackingFact(
+        { shipmentId: row.shipmentId, kind: message.payload.stamp === "confirmed" ? "haulier_confirmed" : "picked_up", occurredAt: message.payload.at, note: "", externalId },
         { authData },
       );
       return;
