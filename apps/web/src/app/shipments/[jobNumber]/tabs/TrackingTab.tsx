@@ -2,14 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Alert, Spin, Switch } from "antd";
-import { CopyButton } from "@/components/CopyButton";
 import { PillTabs } from "@/components/SectionCard";
-import { useJobFxRates } from "@/hooks/useFx";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { useShipmentTracking, useTrackingBell, useTrackingMarkRead } from "@/hooks/useShipmentTracking";
 import { apiErrorMessage } from "@/lib/api";
-import { BTN_GHOST, BTN_PRIMARY, BTN_SM, CARD, HINT } from "@/styles/ui";
-import { jobFxDates } from "./costsRows";
+import { CARD, HINT } from "@/styles/ui";
+import { FRAMED_BTN, MAIN_BTN } from "./tracking/trackingUi";
 import { AttentionCard } from "./tracking/AttentionCard";
 import { ChangesCard } from "./tracking/ChangesCard";
 import { ChecklistCard } from "./tracking/ChecklistCard";
@@ -21,9 +19,8 @@ import { FreeTimeCard } from "./tracking/FreeTimeCard";
 import { ReadNoticeModal } from "./tracking/ReadNoticeModal";
 import { RecordEventModal } from "./tracking/RecordEventModal";
 import { TellCustomerModal } from "./tracking/TellCustomerModal";
-import { RecordedBy } from "./tracking/RecordedBy";
 import { TimelineCard } from "./tracking/TimelineCard";
-import { mayRecordKind, taxDateParts, trackingStatusLine } from "./tracking/trackingText";
+import { mayRecordKind } from "./tracking/trackingText";
 
 type View = "all" | "actuals" | "changes";
 
@@ -57,7 +54,6 @@ export function TrackingTab({ shipment, onOpen }: { shipment: ShipmentItem; onOp
     markRead(shipment.id);
   }, [markRead, shipment.id, unreadHere]);
   const { data, isLoading, error } = useShipmentTracking(shipment.id);
-  const { data: rates } = useJobFxRates(shipment.id, jobFxDates(shipment));
 
   if (isLoading) {
     return (
@@ -70,31 +66,12 @@ export function TrackingTab({ shipment, onOpen }: { shipment: ShipmentItem; onOp
     return <Alert type="error" showIcon message={`Could not load the tracking: ${apiErrorMessage(error)}`} />;
   }
 
-  const statusLine = trackingStatusLine(shipment, data.milestones);
   const mayRecord = (kind: string) => mayRecordKind(data, kind);
   const showChanges = !customerView && view !== "actuals";
   const showTimeline = customerView || view !== "changes";
 
   return (
     <div className="space-y-4">
-      <div className={`${CARD} px-4 py-2.5 flex items-center gap-2`}>
-        <p className="m-0 min-w-0 flex-1 text-[13px] text-slate-700 tabular-nums">{statusLine}</p>
-        <CopyButton text={statusLine} what="status line" />
-      </div>
-
-      {!customerView && (
-        <div className={`${CARD} px-4 py-2.5 text-[13px] text-slate-700 tabular-nums`}>
-          {taxDateParts(data.taxDate, rates).join(" · ")}
-          {/* Who set the date it goes by; an invoiced job goes by its invoice, not by that estimate. */}
-          {data.taxDate.recorded && (data.taxDate.actual || !data.taxDate.invoiced) && (
-            <>
-              {" · "}
-              <RecordedBy recorded={data.taxDate.recorded} />
-            </>
-          )}
-        </div>
-      )}
-
       <div className="flex flex-wrap items-center justify-between gap-3">
         {customerView ? <span className={HINT}>What can be told to the customer: no names, no internal marks.</span> : <PillTabs tabs={VIEWS} active={view} onChange={setView} />}
         <div className="flex flex-wrap items-center gap-3">
@@ -103,23 +80,23 @@ export function TrackingTab({ shipment, onOpen }: { shipment: ShipmentItem; onOp
             Customer view
           </label>
           {!customerView && (
-            <button type="button" onClick={() => setTelling("status")} className={`${BTN_GHOST} ${BTN_SM}`}>
+            <button type="button" onClick={() => setTelling("status")} className={`${FRAMED_BTN}`}>
               Tell the customer
             </button>
           )}
           {!customerView && data.mayChangeDetails && (
-            <button type="button" onClick={() => setLinking(true)} className={`${BTN_GHOST} ${BTN_SM}`}>
+            <button type="button" onClick={() => setLinking(true)} className={`${FRAMED_BTN}`}>
               Customer link
             </button>
           )}
           {!customerView && data.mayChangeDetails && data.recordable.length > 0 && (
-            <button type="button" onClick={() => setReading(true)} className={`${BTN_GHOST} ${BTN_SM}`}>
+            <button type="button" onClick={() => setReading(true)} className={`${FRAMED_BTN}`}>
               Read a notice
             </button>
           )}
           {!customerView &&
             (data.recordable.length > 0 ? (
-              <button type="button" onClick={() => setRecording(true)} className={`${BTN_PRIMARY} ${BTN_SM}`}>
+              <button type="button" onClick={() => setRecording(true)} className={`${MAIN_BTN}`}>
                 Record an event
               </button>
             ) : (

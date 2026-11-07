@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Input, Button, Space } from "antd";
-import { DeleteOutlined } from "@ant-design/icons";
+import { Input, Button, Tooltip } from "antd";
+import { DeleteOutlined, LockOutlined, PlusOutlined } from "@ant-design/icons";
 import type { MessageInstance } from "antd/es/message/interface";
 import { useWarehouseSection } from "@/hooks/useWarehouseSection";
-import { Pill } from "@/components/Pill";
-import { KPI_VALUE, LABEL_TEXT, REF, TH } from "@/styles/ui";
+import { KPI_VALUE, LABEL_TEXT, REF } from "@/styles/ui";
+import { BAR_BTN, BAR_BTN_PRIMARY, ROW_DELETE, TD_CELL, TH_CELL, rowLine } from "./warehouseUi";
 
 interface PickupSectionData {
   pin?: string;
@@ -70,52 +70,81 @@ export function PickupSection({ ownerId, messageApi }: { ownerId: string; messag
   };
 
   return (
-    <div>
-      <div className="mb-5">
-        <div className={`${LABEL_TEXT} mb-2`}>PIN</div>
-        <Space align="center">
-          <span className={`${KPI_VALUE} tracking-[0.3em]`}>
-            {pin ? pin.split("").join(" ") : "– – – –"}
-          </span>
-          {!pin && <Button type="primary" size="small" onClick={generatePin} loading={isSaving}>Generate PIN</Button>}
-          {pin && <Pill tone="green">Locked</Pill>}
-        </Space>
+    <div className="flex flex-col gap-5">
+      {/* The pick-up's PIN: generated once, then locked */}
+      <div className="flex items-center gap-4 flex-wrap rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
+        <div>
+          <div className={LABEL_TEXT}>PIN</div>
+          <div className={`${KPI_VALUE} ${REF} tracking-[0.3em] mt-0.5`}>{pin ? pin.split("").join(" ") : "– – – –"}</div>
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          {pin ? (
+            <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-emerald-700">
+              <LockOutlined /> Locked
+            </span>
+          ) : (
+            <Button size="small" type="primary" onClick={generatePin} loading={isSaving} className={BAR_BTN_PRIMARY}>
+              Generate PIN
+            </Button>
+          )}
+        </div>
       </div>
 
-      <div className="flex justify-between mb-2">
-        <strong className={LABEL_TEXT}>Pickup Details</strong>
-        <Space size="small">
-          <Button size="small" onClick={addRow}>+ Row</Button>
-          {dirty && <Button size="small" type="primary" onClick={handleSave} loading={isSaving}>Save</Button>}
-        </Space>
-      </div>
-      <table className="w-full border-collapse text-[13px]">
-        <thead>
-          <tr>
-            {["PIN", "Haulier", "License Plate", "Driver", ""].map((h) => (
-              <th key={h} className={TH}>{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, idx) => (
-            <tr key={idx} className="border-b border-slate-100">
-              {/* The PIN belongs to the pick-up, so every row carries it. */}
-              <td className={`p-0.5 px-1.5 ${REF} text-slate-900`}>{pin ?? ""}</td>
-              {["haulier", "licensePlate", "driver"].map((f) => (
-                <td key={f} className="p-0.5">
-                  <Input size="small" value={row[f] || ""} onChange={(e) => update(idx, f, e.target.value)} />
-                </td>
+      <div>
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <span className={LABEL_TEXT}>Pick-up details</span>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={addRow} className={BAR_BTN}>
+              <PlusOutlined /> Add row
+            </button>
+            {dirty && (
+              <Button size="small" type="primary" onClick={handleSave} loading={isSaving} className={BAR_BTN_PRIMARY}>
+                Save
+              </Button>
+            )}
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[560px] border-collapse table-fixed text-[13px]">
+            <thead>
+              <tr>
+                <th className={`${TH_CELL} text-left w-[110px]`}>PIN</th>
+                <th className={`${TH_CELL} text-left`}>Haulier</th>
+                <th className={`${TH_CELL} text-left`}>License plate</th>
+                <th className={`${TH_CELL} text-left`}>Driver</th>
+                <th className={`${TH_CELL} w-[44px]`} />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, idx) => (
+                <tr key={idx} className={rowLine(idx, rows.length)}>
+                  {/* The PIN belongs to the pick-up, so every row carries it. */}
+                  <td className={`${TD_CELL} ${REF} text-slate-900`}>{pin ?? <span className="text-slate-400">—</span>}</td>
+                  {["haulier", "licensePlate", "driver"].map((f) => (
+                    <td key={f} className={TD_CELL}>
+                      <Input
+                        size="small"
+                        value={row[f] || ""}
+                        onChange={(e) => update(idx, f, e.target.value)}
+                        aria-label={`${f === "haulier" ? "Haulier" : f === "licensePlate" ? "License plate" : "Driver"} of row ${idx + 1}`}
+                      />
+                    </td>
+                  ))}
+                  <td className={`${TD_CELL} text-center`}>
+                    {rows.length > 1 && (
+                      <Tooltip title="Delete row">
+                        <button type="button" onClick={() => deleteRow(idx)} aria-label={`Delete row ${idx + 1}`} className={ROW_DELETE}>
+                          <DeleteOutlined />
+                        </button>
+                      </Tooltip>
+                    )}
+                  </td>
+                </tr>
               ))}
-              <td className="p-0.5">
-                {rows.length > 1 && (
-                  <Button type="text" size="small" danger icon={<DeleteOutlined className="text-[11px]" />} onClick={() => deleteRow(idx)} />
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }

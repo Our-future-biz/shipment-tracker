@@ -1,22 +1,25 @@
 "use client";
 
-import { DatePicker, Input, Select, Tooltip, message } from "antd";
-import dayjs from "dayjs";
-import { DeleteOutlined, FileTextOutlined, PlusOutlined, WarningOutlined } from "@ant-design/icons";
+import { useState } from "react";
+import { Tooltip, message } from "antd";
+import { FileTextOutlined, PlusOutlined, WarningOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import type { controllers, interfaces } from "@/lib/api/client";
 import { formatDate } from "@/lib/date";
-import { CARD, CARD_BAR, CARD_ICON, CARD_TITLE, EMPTY, HINT, ICON_BTN_GHOST, TD, TH } from "@/styles/ui";
+import { CARD, CARD_BAR, CARD_ICON, CARD_TITLE, EMPTY, HINT, TD, TH } from "@/styles/ui";
 import { noticeWords } from "./tracking/trackingText";
+import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
+import { ConfirmModal } from "@/components/ConfirmModal";
+import { ClaimFormModal, type ClaimValues } from "./ClaimFormModal";
 
 // Claim tab: claims on the shipment itself (how the cargo arrived) and claims on a
-// supplier's costs. Each card holds as many claims as needed — "+" adds a row.
+// supplier's costs. Each card holds as many claims as needed: "+" opens a dialog to fill one in,
+// and ⋯ > Edit opens it again; the rows themselves only show.
 
 type Claim = interfaces.ClaimItem;
 
-const CARGO_STATES = ["Damaged", "Incomplete", "Undamaged", "Lost"];
 const CARGO_STATE_TONE: Record<string, string> = {
   Undamaged: "bg-emerald-50",
   Incomplete: "bg-amber-50",
@@ -25,7 +28,6 @@ const CARGO_STATE_TONE: Record<string, string> = {
 };
 
 const CELL = TD;
-const FIELD = "!text-[13px]";
 
 export function ClaimsTab({ shipment }: { shipment: ShipmentItem }) {
   const queryClient = useQueryClient();
@@ -44,7 +46,7 @@ export function ClaimsTab({ shipment }: { shipment: ShipmentItem }) {
   const onError = (what: string) => () => messageApi.error(what);
 
   const create = useMutation({
-    mutationFn: (kind: "cargo" | "cost") => api.shipments.claimCreate(shipment.id, { kind }),
+    mutationFn: (req: controllers.ClaimCreateRequest) => api.shipments.claimCreate(shipment.id, req),
     onSuccess: invalidate,
     onError: onError("Could not add the claim"),
   });
@@ -59,35 +61,23 @@ export function ClaimsTab({ shipment }: { shipment: ShipmentItem }) {
     onError: onError("Could not delete the claim"),
   });
 
-  const save = (id: string, field: keyof controllers.ClaimUpdateRequest, value: string, current: string) => {
-    if (value !== current) update.mutate({ id, [field]: value });
+  // The claim dialog: a new claim of a kind, or one claim to change.
+  const [form, setForm] = useState<{ kind: "cargo" | "cost"; claim?: Claim } | null>(null);
+  const saveForm = async (values: ClaimValues) => {
+    if (!form) return;
+    if (form.claim) await update.mutateAsync({ id: form.claim.id, ...values });
+    else await create.mutateAsync({ kind: form.kind, ...values });
+    setForm(null);
   };
 
-  const text = (c: Claim, field: "note" | "supplier" | "invoiceNumber" | "reason" | "amount", placeholder?: string) => (
-    <Input
-      size="small"
-      variant="borderless"
-      className={FIELD}
-      placeholder={placeholder ?? "—"}
-      defaultValue={c[field]}
-      key={`${c.id}-${field}-${c[field]}`}
-      onBlur={(e) => save(c.id, field, e.target.value, c[field])}
-      onPressEnter={(e) => e.currentTarget.blur()}
-    />
-  );
+  // A row's value as text.
+  const read = (value: string) => <span className="block text-[13px] text-slate-900 truncate" title={value || undefined}>{value || <span className={EMPTY}>—</span>}</span>;
 
+  // A row's actions behind "⋯", as Container and Cargo Details have them; Delete asks first.
+  const [toDelete, setToDelete] = useState<Claim | null>(null);
   const deleteCell = (c: Claim) => (
     <td className={`${CELL} w-[44px]`}>
-      <Tooltip title="Delete claim">
-        <button
-          type="button"
-          aria-label="Delete claim"
-          onClick={() => remove.mutate(c.id)}
-          className={`${ICON_BTN_GHOST} hover:!text-red-600`}
-        >
-          <DeleteOutlined />
-        </button>
-      </Tooltip>
+      <RowActionsMenu label="Claim actions" onEdit={() => setForm({ kind: c.kind as "cargo" | "cost", claim: c })} onDelete={() => setToDelete(c)} />
     </td>
   );
 
@@ -100,10 +90,11 @@ export function ClaimsTab({ shipment }: { shipment: ShipmentItem }) {
           <button
             type="button"
             aria-label={`Add ${title.toLowerCase()}`}
-            onClick={() => create.mutate(kind)}
-            className={`${ICON_BTN_GHOST} ml-auto`}
+            onClick={() => setForm({ kind })}
+            // the small purple "+" of Container and Cargo Details
+            className="ml-auto inline-flex items-center justify-center w-[22px] h-[22px] rounded-md border-0 bg-indigo-600 text-white hover:bg-indigo-700 cursor-pointer shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1"
           >
-            <PlusOutlined />
+            <PlusOutlined className="text-[11px]" />
           </button>
         </Tooltip>
       </div>
@@ -137,6 +128,27 @@ export function ClaimsTab({ shipment }: { shipment: ShipmentItem }) {
   return (
     <>
       {contextHolder}
+      {form && (
+        <ClaimFormModal
+          kind={form.kind}
+          claim={form.claim}
+          saving={create.isPending || update.isPending}
+          onClose={() => setForm(null)}
+          onSave={saveForm}
+        />
+      )}
+      <ConfirmModal
+        open={!!toDelete}
+        danger
+        title="Delete claim?"
+        description="The claim is removed from this shipment. This can't be undone."
+        confirmLabel="Delete"
+        loading={remove.isPending}
+        onClose={() => setToDelete(null)}
+        onConfirm={() => {
+          if (toDelete) remove.mutate(toDelete.id, { onSettled: () => setToDelete(null) });
+        }}
+      />
       <div className="grid grid-cols-1 2xl:grid-cols-2 gap-5 items-start">
         {card(
           "Claim on the shipment",
@@ -147,30 +159,11 @@ export function ClaimsTab({ shipment }: { shipment: ShipmentItem }) {
             .filter((c) => c.kind === "cargo")
             .map((c) => (
               <tr key={c.id} className="hover:bg-slate-50">
-                <td className={`${CELL} w-[180px] ${CARGO_STATE_TONE[c.cargoState] ?? ""}`}>
-                  <Select
-                    size="small"
-                    variant="borderless"
-                    placeholder="—"
-                    className="w-full [&_.ant-select-selection-item]:!text-[13px]"
-                    value={c.cargoState || undefined}
-                    options={CARGO_STATES.map((v) => ({ value: v, label: v }))}
-                    onChange={(v) => update.mutate({ id: c.id, cargoState: v ?? "" })}
-                  />
-                </td>
-                <td className={CELL}>{text(c, "note", "What happened")}</td>
+                <td className={`${CELL} w-[180px] ${CARGO_STATE_TONE[c.cargoState] ?? ""}`}>{read(c.cargoState)}</td>
+                <td className={CELL}>{read(c.note)}</td>
                 <td className={`${CELL} whitespace-nowrap tabular-nums`}>{shipment.actualDeliveryDate ? formatDate(shipment.actualDeliveryDate) : <span className={EMPTY}>—</span>}</td>
                 <td className={`${CELL} w-[150px]`}>
-                  <DatePicker
-                    size="small"
-                    variant="borderless"
-                    format="DD.MM.YYYY"
-                    aria-label="Notice given"
-                    placeholder="—"
-                    className="w-full"
-                    value={c.noticeDate ? dayjs(c.noticeDate) : null}
-                    onChange={(day) => update.mutate({ id: c.id, noticeDate: day ? day.format("YYYY-MM-DD") : "" })}
-                  />
+                  {read(c.noticeDate ? formatDate(c.noticeDate) : "")}
                   {noticeWords(shipment.actualDeliveryDate, c.noticeDate) && <div className={HINT}>{noticeWords(shipment.actualDeliveryDate, c.noticeDate)}</div>}
                 </td>
                 {deleteCell(c)}
@@ -188,10 +181,10 @@ export function ClaimsTab({ shipment }: { shipment: ShipmentItem }) {
             .filter((c) => c.kind === "cost")
             .map((c) => (
               <tr key={c.id} className="hover:bg-slate-50">
-                <td className={CELL}>{text(c, "supplier")}</td>
-                <td className={CELL}>{text(c, "invoiceNumber")}</td>
-                <td className={CELL}>{text(c, "reason")}</td>
-                <td className={`${CELL} w-[150px]`}>{text(c, "amount", "CZK 0.00")}</td>
+                <td className={CELL}>{read(c.supplier)}</td>
+                <td className={CELL}>{read(c.invoiceNumber)}</td>
+                <td className={CELL}>{read(c.reason)}</td>
+                <td className={`${CELL} w-[150px]`}>{read(c.amount)}</td>
                 {deleteCell(c)}
               </tr>
             )),

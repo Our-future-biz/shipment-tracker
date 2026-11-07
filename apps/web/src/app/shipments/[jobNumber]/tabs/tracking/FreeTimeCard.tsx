@@ -10,7 +10,8 @@ import type { TrackingContainerClock } from "@/hooks/useShipmentTracking";
 import { api, apiErrorMessage } from "@/lib/api";
 import { formatDate } from "@/lib/date";
 import { useToast } from "@/lib/toast";
-import { BTN_GHOST, BTN_SM, EMPTY, HINT, LINK, REF, TD, TH } from "@/styles/ui";
+import { EMPTY, LINK, REF, TD, TH } from "@/styles/ui";
+import { CELL_TEXT, DATE_TEXT, FRAMED_BTN, MAIN_TEXT, TABLE, TABLE_BOX, TBODY, TROW } from "./trackingUi";
 import { FreeTimeModal } from "./FreeTimeModal";
 import { clockStatus, detentionLineOn, freeTimeWords } from "./trackingText";
 
@@ -55,28 +56,32 @@ export function FreeTimeCard({ shipment, clocks, mayChangeDetails, onOpen }: Fre
 
   return (
     <SectionCard title="Free time" extra={<CountChip count={clocks.length} />} bodyClassName="p-0">
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse [&_td:first-child]:!pl-4 [&_th:first-child]:!pl-4">
+      <div className={TABLE_BOX}>
+        <table className={`${TABLE} min-w-[760px]`}>
           <thead>
             <tr>
-              <th className={TH}>Container</th>
-              <th className={TH}>Free time</th>
-              <th className={TH}>Last free day</th>
-              <th className={TH}>Status</th>
-              <th className={TH} aria-label="Actions" />
+              <th scope="col" className={`${TH} w-[150px]`}>Container</th>
+              <th scope="col" className={TH}>Free time</th>
+              <th scope="col" className={`${TH} w-[120px]`}>Last free day</th>
+              <th scope="col" className={`${TH} w-[170px]`}>Status</th>
+              <th scope="col" className={`${TH} w-[200px]`}>
+                <span className="sr-only">Actions</span>
+              </th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className={TBODY}>
             {clocks.map((clock) => {
               const status = clockStatus(clock);
               const onCosts = !!costs && detentionLineOn(costs.costs, clock.containerNumber, clocks.length, DETENTION_CODE);
               return (
-                <tr key={clock.containerId}>
-                  <td className={`${TD} ${REF}`}>{clock.containerNumber}</td>
+                <tr key={clock.containerId} className={TROW}>
+                  <td className={`${TD} ${REF}`}>
+                    <span className={`${MAIN_TEXT} whitespace-nowrap`}>{clock.containerNumber}</span>
+                  </td>
                   <td className={TD}>{freeTimeWords(clock) || <span className={EMPTY}>—</span>}</td>
-                  <td className={`${TD} tabular-nums whitespace-nowrap`}>{clock.lastFreeDay ? formatDate(clock.lastFreeDay) : <span className={EMPTY}>—</span>}</td>
+                  <td className={`${TD} ${DATE_TEXT}`}>{clock.lastFreeDay ? formatDate(clock.lastFreeDay) : <span className={EMPTY}>—</span>}</td>
                   <td className={TD}>
-                    {status.tone ? <Pill tone={status.tone}>{status.text}</Pill> : <span className={HINT}>{status.text}</span>}
+                    {status.tone ? <Pill tone={status.tone}>{status.text}</Pill> : <span className={CELL_TEXT}>{status.text}</span>}
                   </td>
                   <td className={`${TD} whitespace-nowrap text-right`}>
                     <span className="inline-flex items-center gap-3">
@@ -90,14 +95,14 @@ export function FreeTimeCard({ shipment, clocks, mayChangeDetails, onOpen }: Fre
                             type="button"
                             disabled={!costs || addCost.isPending}
                             onClick={() => addCost.mutate(clock)}
-                            className={`${BTN_GHOST} ${BTN_SM}`}
+                            className={`${FRAMED_BTN}`}
                             title={costsWhy || "Adds a line to Costs with the days and no price: you fill in the rest"}
                           >
                             Add a cost line
                           </button>
                         ))}
                       {mayChangeDetails && (
-                        <button type="button" onClick={() => setEditing(clock)} className={`${BTN_GHOST} ${BTN_SM}`}>
+                        <button type="button" onClick={() => setEditing(clock)} className={`${FRAMED_BTN}`}>
                           Set
                         </button>
                       )}

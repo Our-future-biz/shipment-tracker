@@ -1,13 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { Input, Button, Space, Modal, Upload } from "antd";
-import { InboxOutlined } from "@ant-design/icons";
+import { Input, Button, Modal, Upload } from "antd";
+import { CheckCircleFilled, InboxOutlined, SendOutlined } from "@ant-design/icons";
 import type { MessageInstance } from "antd/es/message/interface";
 import { SectionChangedError, useWarehouseSection } from "@/hooks/useWarehouseSection";
 import { apiErrorMessage } from "@/lib/api";
 import { SectionCard as Card } from "@/components/SectionCard";
-import { Pill } from "@/components/Pill";
+import { formatDate } from "@/lib/date";
+import { HINT, LABEL_TEXT } from "@/styles/ui";
+import { BAR_BTN_PRIMARY, rowLine } from "./warehouseUi";
 
 interface JobSectionData {
   notes?: string;
@@ -46,6 +48,7 @@ export function JobNotes({ ownerId, messageApi }: { ownerId: string; messageApi:
           <Button
             size="small"
             type="primary"
+            className={BAR_BTN_PRIMARY}
             loading={isSaving}
             onClick={() =>
               saveKeys([{ key: "notes", value: notes, expected: savedNotes }])
@@ -58,7 +61,14 @@ export function JobNotes({ ownerId, messageApi }: { ownerId: string; messageApi:
         )
       }
     >
-      <Input.TextArea rows={2} value={notes} placeholder="Warehouse notes…" onChange={(e) => setNotes(e.target.value)} />
+      <Input.TextArea
+        autoSize={{ minRows: 4, maxRows: 10 }}
+        value={notes}
+        placeholder="Warehouse notes…"
+        aria-label="Warehouse notes"
+        onChange={(e) => setNotes(e.target.value)}
+        className="!text-[13px]"
+      />
     </Card>
   );
 }
@@ -104,23 +114,39 @@ export function ActionPushButtons({ ownerId, messageApi }: { ownerId: string; me
   };
 
   return (
-    <Card title="Push to suppliers">
-      <Space wrap>
-        {ACTIONS.map((action) => {
+    <Card title="Push to suppliers" bodyClassName="px-4 py-1">
+      {/* One row per push: what it is, sent or not (with its note), and Send while it is not */}
+      <ul className="m-0 p-0 list-none">
+        {ACTIONS.map((action, i) => {
           const parsed = parseActionData(section[action.key]);
-          return parsed ? (
-            // The note, if any, on a second line of the pill.
-            <Pill key={action.key} tone="green" className="flex-col !items-start">
-              {action.label} — {new Date(parsed.timestamp).toLocaleDateString()}
-              {parsed.note && <span className="block text-[10px] text-slate-500">{parsed.note}</span>}
-            </Pill>
-          ) : (
-            <Button key={action.key} size="small" onClick={() => setModalState({ actionKey: action.key, label: action.label, note: "", fileList: [] })}>
-              Send {action.label}
-            </Button>
+          return (
+            <li key={action.key} className={`flex items-center gap-3 min-h-[40px] py-1.5 ${rowLine(i, ACTIONS.length)}`}>
+              <span className={`${LABEL_TEXT} w-[120px] shrink-0`}>{action.label}</span>
+              <span className="flex-1 min-w-0">
+                {parsed ? (
+                  <>
+                    <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-emerald-700">
+                      <CheckCircleFilled /> Sent {formatDate(parsed.timestamp)}
+                    </span>
+                    {parsed.note && <span className={`block truncate ${HINT}`} title={parsed.note}>{parsed.note}</span>}
+                  </>
+                ) : (
+                  <span className="text-[13px] text-slate-400">Not sent</span>
+                )}
+              </span>
+              {!parsed && (
+                <button
+                  type="button"
+                  className={BAR_BTN_PRIMARY}
+                  onClick={() => setModalState({ actionKey: action.key, label: action.label, note: "", fileList: [] })}
+                >
+                  <SendOutlined /> Send {action.label}
+                </button>
+              )}
+            </li>
           );
         })}
-      </Space>
+      </ul>
 
       <Modal
         open={!!modalState}

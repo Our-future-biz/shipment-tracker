@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useMemo } from "react";
 import { Input, Button, Tooltip, message } from "antd";
-import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
+import { CheckCircleFilled, CopyOutlined, DeleteOutlined, PlusOutlined, WarningOutlined } from "@ant-design/icons";
 import type { MessageInstance } from "antd/es/message/interface";
 import { buildRowData, getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
 import type { interfaces } from "@/lib/api/client";
@@ -14,8 +14,9 @@ import { apiErrorMessage } from "@/lib/api";
 import { informedText } from "@/lib/informOperations";
 import { SectionCard as Card, PillTabs } from "@/components/SectionCard";
 import { Pill } from "@/components/Pill";
-import { LABEL_TEXT, TH } from "@/styles/ui";
-import { EMPTY, LABEL, ROW, VALUE } from "../_components/detailStyles";
+import { HINT } from "@/styles/ui";
+import { COLS2, EMPTY, LABEL, ROW, VALUE } from "../_components/detailStyles";
+import { ROW_BTN, ROW_DELETE, TD_CELL, TH_CELL, TOTAL_CELL, rowLine } from "./warehouse/warehouseUi";
 import { PickupSection } from "./warehouse/PickupSection";
 import { JobNotes, ActionPushButtons } from "./warehouse/JobExtras";
 
@@ -57,17 +58,25 @@ export function WarehouseTab({ shipment }: { shipment: ShipmentItem }) {
   const [subTab, setSubTab] = useState<string>("details");
   const [messageApi, contextHolder] = message.useMessage();
   const rowData = buildRowData(shipment);
+  // Weight and volume of the cargo as Cargo Details holds it (its lines' totals); a shipment with
+  // no cargo lines falls back to its own totals.
+  const cargo = dimensionTotals(shipment.cargoDimensions ?? []);
+  const ownKg = (parseFloat(String(shipment.totalWeightTons ?? "")) || 0) * 1000;
+  const ownCbm = parseFloat(String(shipment.totalVolumeCbm ?? "")) || 0;
+  const weightKg = cargo.kg > 0 ? cargo.kg : ownKg;
+  const volumeCbm = cargo.m3 > 0 ? cargo.m3 : ownCbm;
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-4">
       {contextHolder}
 
       <PillTabs tabs={SUB_TABS} active={subTab} onChange={setSubTab} />
 
       {subTab === "details" && (
         <>
-          <Card title="Shipment details" extra={<StackabilityBadge shipment={shipment} />}>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+          {/* The rows of the shipment's own detail cards */}
+          <Card title="Shipment details" extra={<StackabilityBadge shipment={shipment} />} bodyClassName="px-4 py-1.5">
+            <div className={COLS2}>
               <div>
                 <Row label="Container #" value={shipment.containerNumber} />
                 <Row label="Colli / PCS" value={shipment.pcs} />
@@ -75,18 +84,21 @@ export function WarehouseTab({ shipment }: { shipment: ShipmentItem }) {
                 <Row label="Customs procedure" value={rowData["customsProcedure"]} />
               </div>
               <div>
-                <Row label="Weight (tons)" value={shipment.totalWeightTons} />
-                <Row label="Volume (CBM)" value={shipment.totalVolumeCbm} />
-                <Row label="W/M" value={computeWM(shipment.totalWeightTons, shipment.totalVolumeCbm)} />
+                <Row label="Weight (kg)" value={weightKg > 0 ? weightKg.toFixed(1) : ""} />
+                <Row label="Volume (CBM)" value={volumeCbm > 0 ? volumeCbm.toFixed(3) : ""} />
+                <Row label="W/M" value={computeWM(String(weightKg / 1000), String(volumeCbm))} />
                 <Row label="Plate number" value={shipment.plateNumber} />
                 <Row label="Dimensions" value={getFieldValue(shipment, "dimensionsSummary")} />
               </div>
             </div>
           </Card>
 
-          <JobNotes ownerId={shipment.id} messageApi={messageApi} />
+          {/* the warehouse's own work first, then its notes and what it sent, side by side */}
           <DimensionsEditor shipment={shipment} messageApi={messageApi} />
-          <ActionPushButtons ownerId={shipment.id} messageApi={messageApi} />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
+            <JobNotes ownerId={shipment.id} messageApi={messageApi} />
+            <ActionPushButtons ownerId={shipment.id} messageApi={messageApi} />
+          </div>
         </>
       )}
 
@@ -142,39 +154,106 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
   const saved = jobSection.remeasure_rows;
 
   const [rows, setRows] = useState<DimensionRow[]>([{ ...EMPTY_DIM }]);
+  // Typed but not saved yet: the saved lines then don't replace what is on screen.
   const [dirty, setDirty] = useState(false);
   // The saved lines the edit started from: a save replaces exactly those, or is refused.
-  const [base, setBase] = useState(saved ?? "");
+  const baseRef = useRef(saved ?? "");
   // The saved lines fill the table while it holds no unsaved edit.
   useEffect(() => {
     if (dirty) return;
     const parsed = parseRemeasure(saved);
     setRows(parsed.length > 0 ? parsed : [{ ...EMPTY_DIM }]);
-    setBase(saved ?? "");
+    baseRef.current = saved ?? "";
   }, [saved, dirty]);
+  // The lines as they are now, for the click-outside handler.
+  const rowsRef = useRef(rows);
+  const dirtyRef = useRef(dirty);
+  useEffect(() => {
+    rowsRef.current = rows;
+    dirtyRef.current = dirty;
+  }, [rows, dirty]);
+
+  // Saved by itself, with no Save button: when a line is left (a click outside it, Enter), and at
+  // once after a copy or a delete. Saves run one after another, each replacing exactly the lines
+  // the one before wrote; only the lines of the warehouse's job section are written (notes saved
+  // meanwhile stay), and the shipment's cargo dimensions are not touched.
+  const chainRef = useRef<Promise<void>>(Promise.resolve());
+  const persist = (next: DimensionRow[]) => {
+    const value = serializeRows(next);
+    chainRef.current = chainRef.current.then(async () => {
+      if (value === baseRef.current) {
+        if (serializeRows(rowsRef.current) === value) setDirty(false);
+        return;
+      }
+      try {
+        await saveKeys([{ key: "remeasure_rows", value, expected: baseRef.current }]);
+        baseRef.current = value;
+        // nothing typed meanwhile: the saved lines show again
+        if (serializeRows(rowsRef.current) === value) setDirty(false);
+      } catch (e) {
+        if (e instanceof SectionChangedError) {
+          // Someone else saved the lines meanwhile: theirs show, as a note saved meanwhile does.
+          setDirty(false);
+          messageApi.warning("Someone else saved the remeasured lines meanwhile — theirs are shown; enter your changes again");
+        } else messageApi.error(`Failed to save the remeasured lines: ${apiErrorMessage(e)}`);
+      }
+    });
+  };
 
   const updateRow = (idx: number, field: keyof DimensionRow, value: string) => {
+    // typing keeps the line open, so it cannot close mid-number
+    setOpenRows((o) => (o.has(idx) ? o : new Set(o).add(idx)));
     setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
     setDirty(true);
   };
+  // A new line is empty, so nothing is saved until it is filled and left.
   const addRow = () => { setRows((prev) => [...prev, { ...EMPTY_DIM }]); setDirty(true); };
-  const deleteRow = (idx: number) => { setRows((prev) => prev.filter((_, i) => i !== idx)); setDirty(true); };
-
-  // Only the lines of the warehouse's job section are written (notes saved meanwhile stay); the
-  // shipment's cargo dimensions are not touched.
-  const save = async () => {
-    try {
-      await saveKeys([{ key: "remeasure_rows", value: serializeRows(rows), expected: base }]);
-      setDirty(false);
-      messageApi.success("Saved");
-    } catch (e) {
-      if (e instanceof SectionChangedError) {
-        // Someone else saved the lines meanwhile: theirs show, as a note saved meanwhile does.
-        setDirty(false);
-        messageApi.warning("Someone else saved the remeasured lines meanwhile — theirs are shown; enter your changes again");
-      } else messageApi.error(`Failed to save: ${apiErrorMessage(e)}`);
-    }
+  const deleteRow = (idx: number) => {
+    const next = rows.filter((_, i) => i !== idx);
+    setRows(next);
+    setOpenRows(new Set());
+    setDirty(true);
+    persist(next);
   };
+  // A copy of the line goes right under it.
+  const copyRow = (idx: number) => {
+    const next = [...rows.slice(0, idx + 1), { ...rows[idx]! }, ...rows.slice(idx + 1)];
+    setRows(next);
+    setOpenRows(new Set());
+    setDirty(true);
+    persist(next);
+  };
+
+  // A filled line reads as text; a double-click opens it, and a click anywhere else (or Enter)
+  // closes it again and saves it, as in Cargo Details. An empty line stays open to be typed in.
+  const [openRows, setOpenRows] = useState<Set<number>>(() => new Set());
+  const isFilled = (r: DimensionRow) => DIM_FIELDS.some((f) => r[f].trim());
+  const isOpen = (idx: number) => openRows.has(idx) || !isFilled(rows[idx] ?? EMPTY_DIM);
+  const anyOpen = openRows.size > 0;
+  const persistRef = useRef(persist);
+  useEffect(() => {
+    persistRef.current = persist;
+  });
+  useEffect(() => {
+    if (!anyOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const target = e.target as Element | null;
+      if (!target?.closest || target.closest("[data-remeasure-open], .ant-tooltip")) return;
+      setOpenRows(new Set());
+      if (dirtyRef.current) persistRef.current(rowsRef.current);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [anyOpen]);
+  const openRow = (idx: number) => setOpenRows((o) => (o.has(idx) ? o : new Set(o).add(idx)));
+  const closeRow = (idx: number) => setOpenRows((o) => { if (!o.has(idx)) return o; const n = new Set(o); n.delete(idx); return n; });
+  // Leaving the tab (or the page) with a line still open saves it too.
+  useEffect(
+    () => () => {
+      if (dirtyRef.current) persistRef.current(rowsRef.current);
+    },
+    [],
+  );
 
   const lines = rows.map(asLine);
   const rowCbms = lines.map(dimensionLineVolume);
@@ -185,7 +264,6 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
     return { colli: t.pcs, weightKg: t.kg, volumeCbm: t.m3 };
   }, [shipment.cargoDimensions]);
 
-  const mismatchCls = (a: number, b: number) => (a !== b && a > 0 && b > 0 ? "bg-amber-500/15 px-1.5 py-0.5 rounded" : "");
   const differs = (a: number, b: number) => a > 0 && b > 0 && Math.abs(a - b) > 0.001;
   const hasMismatch = differs(shipmentDims.colli, totalColli) || differs(shipmentDims.weightKg, totalWeightKg) || differs(shipmentDims.volumeCbm, totalVolumeCbm);
   const hasData = totalColli > 0 || totalWeightKg > 0 || totalVolumeCbm > 0;
@@ -195,7 +273,7 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
   // Holiday Cover (the server finds them) - both, or neither. Only with the lines saved, so what is
   // told is what is on screen; a second click while it runs is ignored.
   const informingRef = useRef(false);
-  const informBlocked = dirty ? "Save the lines first — Operations are told the saved figures" : null;
+  const informBlocked = dirty ? "Finish the line first (click outside it) — Operations are told the saved figures" : null;
   const informOperations = async () => {
     if (informingRef.current || informBlocked) return;
     informingRef.current = true;
@@ -210,97 +288,183 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
     }
   };
 
+  const fmtKg = (v: number) => (v > 0 ? v.toFixed(1) : "—");
+  const fmtCbm = (v: number) => (v > 0 ? v.toFixed(3) : "—");
+  const fmtPcs = (v: number) => (v > 0 ? String(v) : "—");
+  // the remeasured figure less the shipment's, where both are known
+  const diff = (a: number, b: number, digits: number) => {
+    if (!(a > 0 && b > 0) || Math.abs(a - b) <= 0.001) return "—";
+    const d = a - b;
+    const abs = Math.abs(d);
+    // a gap too small for the column's decimals still shows (up to 4 decimals), never as "0.0"
+    const shown = Number(abs.toFixed(digits)) > 0 ? abs.toFixed(digits) : String(Number(abs.toFixed(Math.max(digits, 4))));
+    return `${d > 0 ? "+" : "−"}${shown}`;
+  };
+  const COMPARE = [
+    { key: "colli", label: "Colli", ship: shipmentDims.colli, re: totalColli, fmt: fmtPcs, digits: 0 },
+    { key: "weight", label: "Weight (kg)", ship: shipmentDims.weightKg, re: totalWeightKg, fmt: fmtKg, digits: 1 },
+    { key: "volume", label: "Volume (CBM)", ship: shipmentDims.volumeCbm, re: totalVolumeCbm, fmt: fmtCbm, digits: 3 },
+  ];
+
   return (
     <Card
       title="Dimensions / Remeasurement"
       extra={
         <>
-          <Button size="small" icon={<PlusOutlined />} onClick={addRow}>
-            Row
-          </Button>
-          {dirty && (
-            <Button size="small" type="primary" onClick={save} loading={isSaving}>
-              Save
-            </Button>
-          )}
+          {/* saved by itself: only while it saves is that said */}
+          {isSaving && <span className={HINT}>Saving…</span>}
+          <Tooltip title="Add row">
+            {/* the small square "+" of Container Details */}
+            <button
+              type="button"
+              onClick={addRow}
+              aria-label="Add row"
+              className="inline-flex items-center justify-center w-[22px] h-[22px] rounded-md border-0 bg-indigo-600 text-white hover:bg-indigo-700 cursor-pointer shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1"
+            >
+              <PlusOutlined className="text-[11px]" />
+            </button>
+          </Tooltip>
         </>
       }
     >
-      <table className="w-full border-collapse text-[13px]">
-        <thead>
-          <tr>
-            {["Qty", "L (cm)", "W (cm)", "H (cm)", "Weight/pc (kg)"].map((h) => (
-              <th key={h} className={TH}>
-                {h}
-              </th>
-            ))}
-            <th className={`${TH} text-right`}>Vol (CBM)</th>
-            <th className={`${TH} w-[36px]`} />
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, idx) => (
-            <tr key={idx} className="border-b border-slate-100">
-              {(["pieces", "lengthCm", "widthCm", "heightCm", "weightPerPcKg"] as const).map((field) => (
-                <td key={field} className="p-0.5 px-1">
-                  {/* Numbers only, like Cargo Details: Qty whole, the rest may take a decimal point; at most 4 digits (weight 5). */}
-                  <Input
-                    size="small"
-                    value={row[field]}
-                    placeholder="0"
-                    inputMode={field === "pieces" ? "numeric" : "decimal"}
-                    onChange={(e) => updateRow(idx, field, numberInput(e.target.value, field !== "pieces", field === "weightPerPcKg" ? 5 : 4))}
-                    className="w-full"
-                  />
-                </td>
+      {/* The remeasured lines, as the Container Details table: centred figures, a totals row */}
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[680px] border-collapse table-fixed text-[13px]">
+          <thead>
+            <tr>
+              {["Qty", "L (cm)", "W (cm)", "H (cm)", "Weight/pc (kg)"].map((h) => (
+                <th key={h} className={`${TH_CELL} text-center`}>
+                  {h}
+                </th>
               ))}
-              {/* Worked out from the sizes, so text. */}
-              <td className="p-0.5 px-1 text-right text-[13px] text-slate-700 tabular-nums">
-                {(rowCbms[idx] ?? 0) > 0 ? rowCbms[idx]!.toFixed(4) : "—"}
-              </td>
-              <td className="p-0.5 px-1">
-                {rows.length > 1 && <Button type="text" size="small" danger icon={<DeleteOutlined className="text-[11px]" />} onClick={() => deleteRow(idx)} />}
-              </td>
+              <th className={`${TH_CELL} text-center`}>Volume (CBM)</th>
+              <th className={`${TH_CELL} w-[76px]`} />
             </tr>
-          ))}
-        </tbody>
-      </table>
-
-      <div className="flex flex-wrap gap-8 mt-3 pt-3 border-t border-slate-200">
-        {[
-          ["Total colli", totalColli ? String(totalColli) : "—"],
-          ["Total weight", totalWeightKg > 0 ? `${totalWeightKg.toFixed(1)} kg` : "—"],
-          ["Total volume", totalVolumeCbm > 0 ? `${totalVolumeCbm.toFixed(3)} CBM` : "—"],
-        ].map(([k, v]) => (
-          <div key={k}>
-            <div className={LABEL_TEXT}>{k}</div>
-            <div className="text-[14px] font-bold text-slate-900 mt-0.5">{v}</div>
-          </div>
-        ))}
+          </thead>
+          <tbody>
+            {rows.map((row, idx) => {
+              const open = isOpen(idx);
+              const actions = (
+                <td className={`${TD_CELL} text-center whitespace-nowrap`}>
+                  <Tooltip title="Duplicate line">
+                    <button type="button" onClick={() => copyRow(idx)} aria-label={`Duplicate line ${idx + 1}`} className={ROW_BTN}>
+                      <CopyOutlined />
+                    </button>
+                  </Tooltip>
+                  {rows.length > 1 && (
+                    <Tooltip title="Delete line">
+                      <button type="button" onClick={() => deleteRow(idx)} aria-label={`Delete line ${idx + 1}`} className={ROW_DELETE}>
+                        <DeleteOutlined />
+                      </button>
+                    </Tooltip>
+                  )}
+                </td>
+              );
+              const volume = (
+                // Worked out from the sizes, so text.
+                <td className={`${TD_CELL} text-center text-slate-700 tabular-nums`}>
+                  {(rowCbms[idx] ?? 0) > 0 ? rowCbms[idx]!.toFixed(4) : <span className={EMPTY}>—</span>}
+                </td>
+              );
+              if (!open) {
+                return (
+                  <tr
+                    key={idx}
+                    className={`${rowLine(idx, rows.length)} cursor-pointer hover:bg-slate-50/60`}
+                    onDoubleClick={() => openRow(idx)}
+                    title="Double-click to edit"
+                  >
+                    {DIM_FIELDS.map((field) => (
+                      // as tall as an open line's field, so a line keeps its height when it opens
+                      <td key={field} className={`${TD_CELL} h-[37px] text-center tabular-nums text-slate-900`}>
+                        {row[field].trim() || <span className={EMPTY}>—</span>}
+                      </td>
+                    ))}
+                    {volume}
+                    {actions}
+                  </tr>
+                );
+              }
+              return (
+                <tr
+                  key={idx}
+                  data-remeasure-open
+                  className={rowLine(idx, rows.length)}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter") return;
+                    (e.target as HTMLElement).blur?.();
+                    closeRow(idx);
+                    persist(rows);
+                  }}
+                >
+                  {DIM_FIELDS.map((field) => (
+                    <td key={field} className={TD_CELL}>
+                      {/* Numbers only, like Cargo Details: Qty whole, the rest may take a decimal point; at most 4 digits (weight 5). */}
+                      <Input
+                        size="small"
+                        value={row[field]}
+                        placeholder="0"
+                        inputMode={field === "pieces" ? "numeric" : "decimal"}
+                        onChange={(e) => updateRow(idx, field, numberInput(e.target.value, field !== "pieces", field === "weightPerPcKg" ? 5 : 4))}
+                        className="w-full text-center tabular-nums"
+                        aria-label={`${field === "pieces" ? "Qty" : field === "lengthCm" ? "Length" : field === "widthCm" ? "Width" : field === "heightCm" ? "Height" : "Weight per piece"} of line ${idx + 1}`}
+                      />
+                    </td>
+                  ))}
+                  {volume}
+                  {actions}
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td className={`${TOTAL_CELL} text-center`}>{fmtPcs(totalColli)}</td>
+              {/* the totals under their columns; the comparison below names them */}
+              <td className={TOTAL_CELL} colSpan={3} />
+              <td className={`${TOTAL_CELL} text-center`}>{totalWeightKg > 0 ? `${totalWeightKg.toFixed(1)} kg` : "—"}</td>
+              <td className={`${TOTAL_CELL} text-center`}>{totalVolumeCbm > 0 ? `${totalVolumeCbm.toFixed(3)} CBM` : "—"}</td>
+              <td className={TOTAL_CELL} />
+            </tr>
+          </tfoot>
+        </table>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-        <div className="border border-slate-200 rounded-xl px-4 py-3">
-          <div className={`${LABEL_TEXT} mb-2`}>Shipment values</div>
-          <div className="flex gap-4 text-[13px] text-slate-900">
-            <div><div className={LABEL_TEXT}>Colli</div><div className={`font-semibold ${mismatchCls(shipmentDims.colli, totalColli)}`}>{shipmentDims.colli || "—"}</div></div>
-            <div><div className={LABEL_TEXT}>Weight (kg)</div><div className={`font-semibold ${mismatchCls(shipmentDims.weightKg, totalWeightKg)}`}>{shipmentDims.weightKg > 0 ? shipmentDims.weightKg.toFixed(1) : "—"}</div></div>
-            <div><div className={LABEL_TEXT}>Volume (CBM)</div><div className={`font-semibold ${mismatchCls(shipmentDims.volumeCbm, totalVolumeCbm)}`}>{shipmentDims.volumeCbm > 0 ? shipmentDims.volumeCbm.toFixed(3) : "—"}</div></div>
-          </div>
-        </div>
-        <div className="border border-slate-200 rounded-xl px-4 py-3">
-          <div className={`${LABEL_TEXT} mb-2`}>Remeasured values</div>
-          <div className="flex gap-4 text-[13px] text-slate-900">
-            <div><div className={LABEL_TEXT}>Colli</div><div className={`font-semibold ${mismatchCls(totalColli, shipmentDims.colli)}`}>{totalColli || "—"}</div></div>
-            <div><div className={LABEL_TEXT}>Weight (kg)</div><div className={`font-semibold ${mismatchCls(totalWeightKg, shipmentDims.weightKg)}`}>{totalWeightKg > 0 ? totalWeightKg.toFixed(1) : "—"}</div></div>
-            <div><div className={LABEL_TEXT}>Volume (CBM)</div><div className={`font-semibold ${mismatchCls(totalVolumeCbm, shipmentDims.volumeCbm)}`}>{totalVolumeCbm > 0 ? totalVolumeCbm.toFixed(3) : "—"}</div></div>
-          </div>
-        </div>
+      {/* Shipment against remeasured, figure by figure (each centred under its title); a figure that differs is marked */}
+      <div className="mt-5 rounded-xl border border-slate-200 overflow-hidden">
+        <table className="w-full border-collapse table-fixed text-[13px]">
+          <thead>
+            <tr className="bg-slate-50">
+              <th className={`${TH_CELL} pt-2 text-left w-[34%]`}>Compared</th>
+              {COMPARE.map((c) => (
+                <th key={c.key} className={`${TH_CELL} pt-2 text-center`}>{c.label}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {[
+              { key: "ship", label: "Shipment values", pick: (c: (typeof COMPARE)[number]) => c.fmt(c.ship) },
+              { key: "re", label: "Remeasured values", pick: (c: (typeof COMPARE)[number]) => c.fmt(c.re) },
+              { key: "diff", label: "Difference", pick: (c: (typeof COMPARE)[number]) => diff(c.re, c.ship, c.digits) },
+            ].map((r, i) => (
+              <tr key={r.key} className={rowLine(i, 3)}>
+                <td className={`${TD_CELL} ${r.key === "diff" ? "text-slate-500" : "text-slate-700"}`}>{r.label}</td>
+                {COMPARE.map((c) => (
+                  <td key={c.key} className={`${TD_CELL} text-center tabular-nums`}>
+                    <span className={`font-semibold text-slate-900 ${differs(c.ship, c.re) ? "bg-amber-500/15 px-1.5 py-0.5 rounded" : ""}`}>{r.pick(c)}</span>
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
       {hasData && hasMismatch && (
-        <div className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5">
-          <span className="text-xs text-red-600">Remeasured values differ from the shipment values.</span>
+        <div className="mt-3 flex items-center justify-between gap-3 flex-wrap rounded-lg border border-red-200 bg-red-50 px-3.5 py-2.5">
+          <span className="flex items-center gap-2 text-[13px] text-red-700">
+            <WarningOutlined /> Remeasured values differ from the shipment values.
+          </span>
           <Tooltip title={informBlocked ?? undefined}>
             <span className="inline-flex">
               <Button danger size="small" onClick={informOperations} loading={isInforming} disabled={!!informBlocked}>
@@ -311,10 +475,12 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
         </div>
       )}
       {hasData && !hasMismatch && (
-        <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-xs text-emerald-700">✓ All values match</div>
+        <div className="mt-3 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-[13px] text-emerald-700">
+          <CheckCircleFilled /> All values match
+        </div>
       )}
       {/* Shown whatever the lines say now, e.g. for a shipment informed before its lines changed. */}
-      {informedAt && <div className="mt-2 text-[11px] text-slate-500">Operations informed on {formatDateTime(informedAt)}</div>}
+      {informedAt && <div className={`mt-2 ${HINT}`}>Operations informed on {formatDateTime(informedAt)}</div>}
     </Card>
   );
 }
