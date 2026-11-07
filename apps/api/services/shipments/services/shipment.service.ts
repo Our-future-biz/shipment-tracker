@@ -52,7 +52,7 @@ import { isUuid } from "../../../lib/uuid";
 import { publicFields } from "../lib/rows";
 import { changesTaxDate } from "../lib/taxDate";
 import { customsOfficeForProcedure, customsOfficeLockRefusal, customsOfficeShapeRefusal } from "../lib/customsOffice";
-import { DETAILS_REFUSAL, isDetailsManager, isOpenToPerson, touchesDetails } from "../lib/shipmentEditRule";
+import { approvedByLockRefusal, creditCheckLockRefusal, DETAILS_REFUSAL, isDetailsManager, isOpenToPerson, touchesDetails } from "../lib/shipmentEditRule";
 import { dangerousFromAdr, normalizeCargoDimensions, normalizeStops } from "../lib/roadFreight";
 import { detailRowChanges, type DetailRowLists } from "../lib/detailRowsAudit";
 import { partyContact, partyStop, stopKeys, type Party } from "../lib/partyAddress";
@@ -1093,7 +1093,7 @@ class ShipmentService {
   async update(id: string, companyId: string, data: ShipmentUpdateData, userId: string, role?: string, origin?: TrackingSource): Promise<ShipmentItem> {
     const existing = await shipmentRepository.getByIdForCompany(id, companyId);
     if (!existing) throw APIError.notFound("Shipment not found");
-    const locked = role === undefined ? null : customsOfficeLockRefusal(existing, data, role);
+    const locked = role === undefined ? null : (customsOfficeLockRefusal(existing, data, role) ?? creditCheckLockRefusal(existing, data, role) ?? approvedByLockRefusal(existing, data, role));
     if (locked) throw APIError.permissionDenied(locked);
     const badOffice = customsOfficeShapeRefusal(data.customsOffice);
     if (badOffice) throw APIError.invalidArgument(badOffice);

@@ -34,7 +34,7 @@ import { useShipment } from "@/hooks/useShipment";
 import { NOT_STACKABLE, STACKABLE_OPTIONS, shipmentStackability, withShipmentStackability } from "@/lib/cargo";
 import { useInvoicing } from "@/hooks/useInvoicing";
 import { useAuth, useCanDeleteShipments } from "@/lib/auth/AuthContext";
-import { canChangeShipmentDetails } from "@/lib/shipmentEditRule";
+import { canChangeShipmentDetails, isApprovedByLocked, isCreditCheckLocked } from "@/lib/shipmentEditRule";
 import { useShipmentMutations, getFieldValue, buildRowData, type ShipmentItem } from "@/hooks/useShipments";
 import { getCellConditionalStyle, getRowConditionalStyle } from "@/lib/columnConfig";
 import { businessToday, formatDate } from "@/lib/date";
@@ -61,7 +61,7 @@ import { useShipmentAlerts } from "@/hooks/useShipmentAlerts";
 import { WarehouseTab } from "./tabs/WarehouseTab";
 import { CustomsProcedureRow } from "./_components/CustomsProcedureRow";
 import { CustomsTab } from "./tabs/CustomsTab";
-import { EditableCell, ShipmentDetailsEditableContext, FreightModeContext, ShipmentCustomerContext, ShipmentCustomerPicContext, ShipmentEmailSubjectContext, TradeDirectionContext } from "./_components/EditableCell";
+import { ApprovedByLockedContext, CreditCheckLockedContext, EditableCell, ShipmentDetailsEditableContext, FreightModeContext, ShipmentCustomerContext, ShipmentCustomerPicContext, ShipmentEmailSubjectContext, TradeDirectionContext } from "./_components/EditableCell";
 import { shipmentEmailSubject } from "../_lib/shipmentEmail";
 import { MasterJobHoverCard } from "@/components/MasterJobHoverCard";
 import { FadeText } from "@/components/FadeText";
@@ -413,22 +413,29 @@ function MemberRow({
   labelW = LABEL_W,
 }: MemberRowProps) {
   const { person, when } = splitPersonStamp(value);
+  const approvedByLocked = React.useContext(ApprovedByLockedContext);
   return (
     <div className={ROW}>
       <span className={LABEL.replace(LABEL_W, labelW)}>{label}</span>
-      <UserPicker
-        variant="borderless"
-        size="small"
-        placeholder="—"
-        className="flex-1 min-w-0 -ml-2 text-[13px]"
-        popupMatchSelectWidth={false}
-        aria-label={label}
-        value={person}
-        onChange={(email) => {
-          const next = personChange(value, email);
-          if (next !== null) onCommit(fieldKey, next);
-        }}
-      />
+      {fieldKey === "approvedBy" && approvedByLocked ? (
+        <span className="flex-1 min-w-0 truncate text-[13px] text-slate-900" title="The credit check is approved: only a manager can change or delete this">
+          {person || "—"}
+        </span>
+      ) : (
+        <UserPicker
+          variant="borderless"
+          size="small"
+          placeholder="—"
+          className="flex-1 min-w-0 -ml-2 text-[13px]"
+          popupMatchSelectWidth={false}
+          aria-label={label}
+          value={person}
+          onChange={(email) => {
+            const next = personChange(value, email);
+            if (next !== null) onCommit(fieldKey, next);
+          }}
+        />
+      )}
       {when && <span className="shrink-0 text-[11px] text-slate-500 whitespace-nowrap">{when}</span>}
     </div>
   );
@@ -1949,7 +1956,11 @@ export function ShipmentDetailContent() {
       <FreightModeContext.Provider value={shipment.freightMode ?? undefined}>
         <ShipmentCustomerContext.Provider value={shipment.customerId ?? null}>
           <ShipmentCustomerPicContext.Provider value={shipment.customerPicContactId ?? null}>
-            <ShipmentEmailSubjectContext.Provider value={shipmentEmailSubject(shipment)}>{page}</ShipmentEmailSubjectContext.Provider>
+            <ShipmentEmailSubjectContext.Provider value={shipmentEmailSubject(shipment)}>
+              <ApprovedByLockedContext.Provider value={isApprovedByLocked(user, shipment)}>
+                <CreditCheckLockedContext.Provider value={isCreditCheckLocked(user, shipment)}>{page}</CreditCheckLockedContext.Provider>
+              </ApprovedByLockedContext.Provider>
+            </ShipmentEmailSubjectContext.Provider>
           </ShipmentCustomerPicContext.Provider>
         </ShipmentCustomerContext.Provider>
       </FreightModeContext.Provider>

@@ -49,6 +49,15 @@ function shownDate(value: string): string {
 export const ShipmentDetailsEditableContext = createContext(true);
 
 /**
+ * Whether Approved By of the shipment around these cells is closed to this user (lib/shipmentEditRule):
+ * the credit check is approved. Provided by the shipment page and per row by a grid.
+ */
+export const ApprovedByLockedContext = createContext(false);
+
+/** Whether the credit check around these cells is closed to this user: once approved, only a manager takes it back. */
+export const CreditCheckLockedContext = createContext(false);
+
+/**
  * The Trade Direction of the shipment a page shows. A Shipment Status cell inside it offers
  * only that direction's statuses (see getFilteredStatusOptions); without it, all of them.
  */
@@ -113,6 +122,9 @@ interface EditableCellProps {
 
 export function EditableCell(props: EditableCellProps) {
   const editable = useContext(ShipmentDetailsEditableContext);
+  const approvedByLocked = useContext(ApprovedByLockedContext);
+  const creditCheckLocked = useContext(CreditCheckLockedContext);
+  if ((props.fieldKey === "approvedBy" && approvedByLocked) || (props.fieldKey === "creditCheck" && creditCheckLocked)) return <EditableCellBody {...props} locked />;
   if (editable) return <EditableCellBody {...props} />;
   if (!DEPARTMENT_FIELDS.has(props.fieldKey)) return <EditableCellBody {...props} locked />;
   // A department's own field inside a read-only card: its picker isn't disabled with the card's.

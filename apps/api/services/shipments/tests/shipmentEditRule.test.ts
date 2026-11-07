@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isDetailsManager, isOpenToPerson, touchesDetails } from "../lib/shipmentEditRule";
+import { approvedByLockRefusal, creditCheckLockRefusal, isDetailsManager, isOpenToPerson, touchesDetails } from "../lib/shipmentEditRule";
 
 const EVA = "eva@firma.cz";
 
@@ -48,5 +48,66 @@ describe("touchesDetails", () => {
   it("ignores what wasn't sent", () => {
     expect(touchesDetails({ vessel: undefined })).toBe(false);
     expect(touchesDetails({})).toBe(false);
+  });
+});
+
+describe("Approved By once the credit check is approved", () => {
+  const STAMP = "eva@firma.cz — 7. 11. 2026 10:47:35";
+  const approved = { creditCheck: "Green", approvedBy: STAMP };
+
+  it("can't be deleted or replaced by a user", () => {
+    expect(approvedByLockRefusal(approved, { approvedBy: "" }, "user")).toContain("only a manager");
+    expect(approvedByLockRefusal(approved, { approvedBy: "  " }, "user")).toContain("only a manager");
+    expect(approvedByLockRefusal(approved, { approvedBy: null }, "user")).toContain("only a manager");
+    expect(approvedByLockRefusal(approved, { approvedBy: "jan@firma.cz" }, "user")).toContain("only a manager");
+  });
+
+  it("can by a manager, an admin and a superadmin", () => {
+    for (const role of ["manager", "admin", "superadmin"]) {
+      expect(approvedByLockRefusal(approved, { approvedBy: "" }, role)).toBeNull();
+      expect(approvedByLockRefusal(approved, { approvedBy: "jan@firma.cz" }, role)).toBeNull();
+    }
+  });
+
+  it("isn't touched by an edit of something else, or the same person sent again", () => {
+    expect(approvedByLockRefusal(approved, {}, "user")).toBeNull();
+    expect(approvedByLockRefusal(approved, { approvedBy: STAMP }, "user")).toBeNull();
+    expect(approvedByLockRefusal(approved, { approvedBy: " EVA@firma.cz " }, "user")).toBeNull();
+  });
+
+  it("stays open to a user while the credit check isn't approved, or nobody is named", () => {
+    expect(approvedByLockRefusal({ creditCheck: "Red", approvedBy: STAMP }, { approvedBy: "" }, "user")).toBeNull();
+    expect(approvedByLockRefusal({ creditCheck: "", approvedBy: STAMP }, { approvedBy: "" }, "user")).toBeNull();
+    expect(approvedByLockRefusal({ creditCheck: "Green", approvedBy: " " }, { approvedBy: "jan@firma.cz" }, "user")).toBeNull();
+  });
+
+  it("reads the credit check however it was written", () => {
+    expect(approvedByLockRefusal({ creditCheck: " green ", approvedBy: STAMP }, { approvedBy: "" }, "user")).toContain("only a manager");
+  });
+});
+
+describe("the credit check once it is approved", () => {
+  const approved = { creditCheck: "Green" };
+
+  it("can't be taken back by a user", () => {
+    for (const next of ["Red", "Yellow", "", " ", null]) {
+      expect(creditCheckLockRefusal(approved, { creditCheck: next }, "user")).toContain("only a manager");
+    }
+  });
+
+  it("can by a manager, an admin and a superadmin", () => {
+    for (const role of ["manager", "admin", "superadmin"]) expect(creditCheckLockRefusal(approved, { creditCheck: "Red" }, role)).toBeNull();
+  });
+
+  it("isn't touched by an edit of something else, or Green sent again", () => {
+    expect(creditCheckLockRefusal(approved, {}, "user")).toBeNull();
+    expect(creditCheckLockRefusal(approved, { creditCheck: "Green" }, "user")).toBeNull();
+    expect(creditCheckLockRefusal(approved, { creditCheck: " green " }, "user")).toBeNull();
+  });
+
+  it("stays open to a user until it is approved, approving included", () => {
+    expect(creditCheckLockRefusal({ creditCheck: "Red" }, { creditCheck: "Green" }, "user")).toBeNull();
+    expect(creditCheckLockRefusal({ creditCheck: "Red" }, { creditCheck: "Yellow" }, "user")).toBeNull();
+    expect(creditCheckLockRefusal({ creditCheck: "" }, { creditCheck: "Red" }, "user")).toBeNull();
   });
 });

@@ -25,7 +25,7 @@ import {
 import { getFieldValue, buildRowData, useShipmentMutations, type ShipmentItem } from "@/hooks/useShipments";
 import { ListCapNotice } from "@/components/ListCapNotice";
 import Link from "next/link";
-import { canChangeShipmentDetails, canChangeShipmentField } from "@/lib/shipmentEditRule";
+import { canChangeShipmentDetails, canChangeShipmentField, isApprovedByLocked, isCreditCheckLocked } from "@/lib/shipmentEditRule";
 import { CUSTOMS_PROCEDURE_LOCKED_HINT, customsProcedureLocked } from "@/lib/customsOffices";
 import { COLUMNS, COLUMN_MAP, getCellConditionalStyle, getFilteredStatusOptions, getRowConditionalStyle, getShipmentUrgency, isFixedColumn, type CellStyle } from "@/lib/columnConfig";
 import { useAuth, useCanChangeCustomsOffice } from "@/lib/auth/AuthContext";
@@ -44,7 +44,7 @@ import { MasterJobHoverCard } from "@/components/MasterJobHoverCard";
 import { ShipmentHoverCard } from "@/components/ShipmentHoverCard";
 import { CommercialInvoicesModal } from "./CommercialInvoicesModal";
 import { ShipmentChatDrawer } from "./ChatPanel";
-import { EditableCell, FreightModeContext, ShipmentDetailsEditableContext } from "@/app/shipments/[jobNumber]/_components/EditableCell";
+import { ApprovedByLockedContext, CreditCheckLockedContext, EditableCell, FreightModeContext, ShipmentDetailsEditableContext } from "@/app/shipments/[jobNumber]/_components/EditableCell";
 import { shipmentEmailSubject } from "@/app/shipments/_lib/shipmentEmail";
 import { CustomerCell } from "./CustomerCell";
 import { statusLabel } from "@/lib/shipmentStatus";
@@ -601,6 +601,8 @@ export const ShipmentsTable = ({
         // open), so dates, statuses, places and contacts read as they do everywhere else.
         return (
           <ShipmentDetailsEditableContext.Provider value={canChangeShipmentDetails(user, record)}>
+          <ApprovedByLockedContext.Provider value={isApprovedByLocked(user, record)}>
+          <CreditCheckLockedContext.Provider value={isCreditCheckLocked(user, record)}>
           <FreightModeContext.Provider value={record.freightMode ?? undefined}>
             <EditableCell
               fieldKey={col.key}
@@ -616,6 +618,8 @@ export const ShipmentsTable = ({
               displayStyle={textStyle}
             />
           </FreightModeContext.Provider>
+          </CreditCheckLockedContext.Provider>
+          </ApprovedByLockedContext.Provider>
           </ShipmentDetailsEditableContext.Provider>
         );
       },

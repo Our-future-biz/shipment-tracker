@@ -62,6 +62,9 @@ export function isCreditApproval(next: string | null | undefined, previous: stri
   return eq(next, APPROVED_CREDIT_CHECK) && !eq(previous, APPROVED_CREDIT_CHECK);
 }
 
+// True when the credit check stands approved.
+export const isCreditApproved = (value: string | null | undefined): boolean => eq(value, APPROVED_CREDIT_CHECK);
+
 // Record of a manual action on a shipment — who did it and when. Used for the
 // credit-check approval and the house BoL release. Falls back to the timestamp
 // alone if the acting user cannot be named.

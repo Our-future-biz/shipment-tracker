@@ -52,6 +52,20 @@ export function canChangeShipmentDetails(user: Viewer, shipment: People): boolea
   return named.length === 0 || named.includes(user.email.trim().toLowerCase());
 }
 
+/**
+ * Whether Approved By is closed to this user: the credit check is approved and someone is named,
+ * so only a manager, an admin or a superadmin may delete or replace it. The server refuses the same.
+ */
+export function isApprovedByLocked(user: Viewer, shipment: { creditCheck?: string | null; approvedBy?: string | null }): boolean {
+  return isCreditCheckLocked(user, shipment) && !!(shipment.approvedBy ?? "").trim();
+}
+
+/** Whether the credit check is closed to this user: once approved, only a manager, an admin or a superadmin may take it back. The server refuses the same. */
+export function isCreditCheckLocked(user: Viewer, shipment: { creditCheck?: string | null }): boolean {
+  if (MANAGER_ROLES.includes(user?.role ?? "")) return false;
+  return (shipment.creditCheck ?? "").trim().toLowerCase() === "green";
+}
+
 /** Whether this user may change this field: a department's own, or any when the details are theirs. */
 export const canChangeShipmentField = (user: Viewer, shipment: People, field: string): boolean =>
   DEPARTMENT_FIELDS.has(field) || canChangeShipmentDetails(user, shipment);
