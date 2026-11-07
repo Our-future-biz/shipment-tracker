@@ -4,7 +4,7 @@ import { masterJobCostService } from "../services/masterJobCost.service";
 import type { MasterJobCostInput, MasterJobCostsView, MasterJobCostUpdate } from "../interfaces/interfaces";
 
 // A master job's Costs Breakdown: buying lines shared out over its shipments. Every write answers
-// with the whole view, the shares as they now stand in the shipments.
+// with the whole view: the split as it now stands, and whether the shipments carry it yet.
 
 interface GetMasterJobCostsRequest {
   masterJobId: string;
@@ -34,6 +34,12 @@ export const invoicingMasterJobCostUpdate = api(
   { expose: true, auth: true, method: "PATCH", path: "/invoicing/master-jobs/:masterJobId/costs/:costId" },
   async ({ masterJobId, costId, ...input }: UpdateMasterJobCostRequest): Promise<MasterJobCostsView> =>
     masterJobCostService.update(getAuthData()!.companyID, masterJobId, costId, input),
+);
+
+/** Puts the split into the shipments' Costs Breakdowns: nothing else does. */
+export const invoicingMasterJobProcessSplit = api(
+  { expose: true, auth: true, method: "POST", path: "/invoicing/master-jobs/:masterJobId/process-split" },
+  async ({ masterJobId }: GetMasterJobCostsRequest): Promise<MasterJobCostsView> => masterJobCostService.process(getAuthData()!.companyID, masterJobId),
 );
 
 interface DeleteMasterJobCostRequest {

@@ -63,7 +63,7 @@ import { jobNumberDigits } from "../../../lib/jobNumber";
 import { companyUsers, matchUser, requireUserEmail, userEmailOf, type CompanyUser } from "../../../lib/companyUsers";
 import { PERSON_FIELDS, planPeopleNormalize, requireApprovedBy } from "../lib/people";
 import { assertTimes, clearStaleTimes } from "../lib/dateTimes";
-import { resplitMasterJobCosts } from "../lib/masterJobCosts";
+import { dropSharesOfLeftShipments } from "../lib/masterJobCosts";
 import { startShipmentBilling } from "../lib/shipmentBilling";
 
 // The customers a write links to, by the field holding the link: read once, for the link check
@@ -1253,14 +1253,6 @@ class ShipmentService {
     if (updated && updated.jobNumber !== existing.jobNumber && !salesNumberChanged) {
       await this.tellQuote(companyId, updated.salesNumber.trim());
     }
-    // A W/M split of its master job's costs follows the shipment's weight and volume - also when
-    // a removed container took its own cargo dimensions with it (writeDetailRows).
-    const weightMayHaveChanged =
-      cargoDimensions !== undefined || containers !== undefined || "totalWeightTons" in shipmentData || "totalVolumeCbm" in shipmentData;
-    if (existing.masterJobId && weightMayHaveChanged) {
-      await resplitMasterJobCosts([existing.masterJobId]);
-    }
-
     // A changed Sales Number takes the shipment from one quote and gives it to another: both
     // are told, the new one without being marked Won.
     if (salesNumberChanged) {
@@ -1441,8 +1433,8 @@ class ShipmentService {
     await shipmentDeleted.publish({ shipmentId: id, companyId });
     // The quote the shipment named loses it - and with its last shipment a Won it owed to one.
     await this.tellQuote(companyId, existing.salesNumber.trim());
-    // Its master job's costs are shared out again over the shipments left.
-    if (existing.masterJobId) await resplitMasterJobCosts([existing.masterJobId]);
+    // It carries nothing of its master job any more; the others keep theirs until the split is processed.
+    if (existing.masterJobId) await dropSharesOfLeftShipments([existing.masterJobId]);
   }
 
   // Release the house bill of lading, recording who released it and when.

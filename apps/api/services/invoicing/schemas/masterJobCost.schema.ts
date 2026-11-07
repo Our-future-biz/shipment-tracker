@@ -6,9 +6,9 @@ import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } 
 export type MasterJobSplitMethod = "wm" | "shipment";
 
 /**
- * A buying cost of a whole master job (its Costs Breakdown). It is never billed as it is: each
- * linked shipment carries its share as a row of its own Costs Breakdown (invoice_cost with
- * source_master_job_ref), worked out again whenever the line or the master job's shipments change.
+ * A buying cost of a whole master job (its Costs Breakdown). It is never billed as it is: once the
+ * split is processed, each linked shipment carries its share as a row of its own Costs Breakdown
+ * (invoice_cost with source_master_job_ref). Changes reach the shipments the next time it is processed.
  * Amounts as on a shipment's buying line: a unit amount times the quantity.
  */
 export const masterJobCostTable = pgTable(

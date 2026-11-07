@@ -45,8 +45,8 @@ interface Props {
 }
 
 // A master job's buying costs. Each line is shared out over the master job's shipments - by W/M or
-// the same part each, as the line says - and every shipment carries its share as a read-only row of
-// its own Costs Breakdown, worked out again on every change here and whenever its shipments change.
+// the same part each, as the line says. The split below always shows how that stands; a shipment
+// carries its share, as a read-only row of its own Costs Breakdown, once the split is processed.
 export function MasterJobCostsTab({ masterJob }: Props) {
   const { message } = App.useApp();
   const queryClient = useQueryClient();
@@ -55,7 +55,6 @@ export function MasterJobCostsTab({ masterJob }: Props) {
     queryFn: () => api.invoicing.invoicingMasterJobCosts(masterJob.id),
   });
 
-  // The shares are in the shipments' Costs Breakdowns (and their totals) the moment this answers.
   // With several saves on their way (fields left one after another) an answer can arrive after a
   // later one's: the view is then read again once the last is in, rather than taken from either.
   const writeKey = ["master-job-costs-write", masterJob.id];
@@ -99,6 +98,16 @@ export function MasterJobCostsTab({ masterJob }: Props) {
     onSuccess: applied,
     onError: failed("Could not delete the cost"),
   });
+  // The shares are in the shipments' Costs Breakdowns (and their totals) the moment this answers.
+  const processSplit = useMutation({
+    mutationKey: writeKey,
+    mutationFn: () => api.invoicing.invoicingMasterJobProcessSplit(masterJob.id),
+    onSuccess: (view: View) => {
+      applied(view);
+      message.success("The split is in the shipments' Costs Breakdowns");
+    },
+    onError: failed("Could not process the split"),
+  });
 
   const save = (line: Line, patch: Patch) => update.mutate({ id: line.id, patch });
   // An amount typed as people write it ("1 250,50"); one that isn't a number is refused here.
@@ -125,7 +134,7 @@ export function MasterJobCostsTab({ masterJob }: Props) {
     );
   }
 
-  const { lines, houses, shares } = data;
+  const { lines, houses, shares, split } = data;
   const shareOf = (lineId: string, shipmentId: string) => shares.find((s) => s.lineId === lineId && s.shipmentId === shipmentId);
   const splitLines = lines.filter((l) => l.inSplit);
   const housesInLine = (l: Line) => houses.filter((h) => !l.excludedShipmentIds.includes(h.shipmentId));
@@ -134,7 +143,7 @@ export function MasterJobCostsTab({ masterJob }: Props) {
   const totalWm = houses.reduce((sum, h) => sum + h.freightTon, 0);
   // Every shipment still in the line's split unlinked since: its cost lands on nobody.
   const nobodyCarries = splitLines.filter((l) => houses.length > 0 && housesInLine(l).length === 0);
-  const busy = add.isPending || update.isPending || remove.isPending;
+  const busy = add.isPending || update.isPending || remove.isPending || processSplit.isPending;
   // Each line and the whole master job against their estimates, worked out on the server at today's ČNB rates.
   const { vsEstimate, totalVsEstimate: totalVs } = data;
 
@@ -150,9 +159,9 @@ export function MasterJobCostsTab({ masterJob }: Props) {
         }
       >
         <p className={`mt-0 mb-3 ${HINT}`}>
-          Each line is split over the {houses.length} linked shipment{houses.length === 1 ? "" : "s"} and appears in their Costs
-          Breakdown, read-only there. Split by W/M (freight tons) or the same part for each shipment. Untick In split to keep a line on the
-          master job only: no shipment carries it.
+          Each line is split over the {houses.length} linked shipment{houses.length === 1 ? "" : "s"}, and Process the split puts it in their
+          Costs Breakdown, read-only there. Split by W/M (freight tons) or the same part for each shipment. Untick In split to keep a line on
+          the master job only: no shipment carries it.
         </p>
         <div className="overflow-x-auto">
           <table className="w-full border-collapse">
@@ -397,6 +406,19 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                   </tr>
                 </tfoot>
               </table>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center justify-end gap-3">
+              {!split.inSync && (
+                <span className="text-[12px] text-amber-700">
+                  {split.written > 0
+                    ? "Changed since it was processed: the shipments still carry the earlier split."
+                    : "Not processed yet: the shipments don't carry these costs."}
+                </span>
+              )}
+              {split.inSync && split.written > 0 && <span className="text-[12px] text-emerald-700">Processed: the shipments carry this split.</span>}
+              <Button type="primary" disabled={split.inSync || busy} loading={processSplit.isPending} onClick={() => processSplit.mutate()}>
+                Process the split
+              </Button>
             </div>
           </>
         )}

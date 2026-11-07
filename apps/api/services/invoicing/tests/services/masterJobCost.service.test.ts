@@ -7,7 +7,7 @@ vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 const houses = vi.hoisted(() => vi.fn());
 const ratesOn = vi.hoisted(() => vi.fn());
 vi.mock("~encore/clients", () => ({ shipments: { _internalMasterJobHouses: houses }, fx: { fxRatesOn: ratesOn } }));
-const costs = vi.hoisted(() => ({ list: vi.fn(), create: vi.fn(), get: vi.fn(), update: vi.fn(), softDelete: vi.fn(), replaceSplitRows: vi.fn() }));
+const costs = vi.hoisted(() => ({ list: vi.fn(), create: vi.fn(), get: vi.fn(), update: vi.fn(), softDelete: vi.fn(), replaceSplitRows: vi.fn(), splitState: vi.fn(), dropSplitRowsOutside: vi.fn() }));
 vi.mock("../../repositories/masterJobCost.repository", () => ({ masterJobCostRepository: costs }));
 const lines = vi.hoisted(() => ({ quotePricedAmong: vi.fn() }));
 vi.mock("../../repositories/invoiceCost.repository", () => ({ invoiceCostRepository: lines }));
@@ -49,14 +49,15 @@ beforeEach(() => {
   costs.replaceSplitRows.mockImplementation(async (_company: string, _master: string, compute: () => Promise<SplitRowValues[]>) => {
     written = await compute();
   });
+  costs.splitState.mockResolvedValue({ written: 0, inSync: false });
   lines.quotePricedAmong.mockResolvedValue(new Set());
   trucking.keptBuyingCodes.mockResolvedValue(new Set());
   ratesOn.mockResolvedValue({ rates: [{ currency: "EUR", rate: 25 }] });
 });
 
-describe("re-splitting a master job's costs", () => {
+describe("processing a master job's split", () => {
   it("writes each shipment's share of every line by W/M, tagged with the line, after the shipment's own lines", async () => {
-    const view = await masterJobCostService.resplit(COMPANY, MASTER);
+    const view = await masterJobCostService.process(COMPANY, MASTER);
     expect(written).toEqual([
       expect.objectContaining({ shipmentId: "s1", estAmount: "200.00", realAmount: "220.00", sourceMasterJobRef: `master:${MASTER}:${LINE}`, lineSort: 0 }),
       expect.objectContaining({ shipmentId: "s2", estAmount: "100.00", realAmount: "110.00", sourceMasterJobRef: `master:${MASTER}:${LINE}`, lineSort: 0 }),
@@ -71,7 +72,7 @@ describe("re-splitting a master job's costs", () => {
   it("gives a shipment priced from a quote the real part only, and nothing of a line that has only an estimate", async () => {
     lines.quotePricedAmong.mockResolvedValue(new Set(["s2"]));
     costs.list.mockResolvedValue([line(), line({ id: "estimate-only", realAmount: null, sortOrder: 1 })]);
-    await masterJobCostService.resplit(COMPANY, MASTER);
+    await masterJobCostService.process(COMPANY, MASTER);
     expect(written.map((r) => [r.shipmentId, r.sourceMasterJobRef?.endsWith(LINE) ? "line" : "estimate-only", r.estAmount, r.realAmount])).toEqual([
       ["s1", "line", "200.00", "220.00"],
       ["s2", "line", null, "110.00"],
@@ -83,13 +84,13 @@ describe("re-splitting a master job's costs", () => {
     costs.list.mockResolvedValue([line({ category: "road_freight" })]);
     // A "pickup" Trucking keeps is the same haulier cost as "road_freight".
     trucking.keptBuyingCodes.mockResolvedValue(new Set(["s1 pickup"]));
-    await masterJobCostService.resplit(COMPANY, MASTER);
+    await masterJobCostService.process(COMPANY, MASTER);
     expect(written.map((r) => r.shipmentId)).toEqual(["s2"]);
   });
 
   it("writes no rows when there is nothing to split by, so the shares that were there go", async () => {
     houses.mockResolvedValue({ houses: [{ ...HOUSES[0]!, freightTon: 0 }] });
-    await masterJobCostService.resplit(COMPANY, MASTER);
+    await masterJobCostService.process(COMPANY, MASTER);
     expect(costs.replaceSplitRows).toHaveBeenCalledTimes(1);
     expect(written).toEqual([]);
   });
@@ -122,7 +123,7 @@ describe("a master job's cost lines", () => {
 
     await masterJobCostService.add(COMPANY, MASTER, { category: "ocean_freight", splitMethod: "shipment" });
     expect(costs.create).toHaveBeenCalledWith(COMPANY, MASTER, { category: "ocean_freight", splitMethod: "shipment" });
-    expect(costs.replaceSplitRows).toHaveBeenCalledTimes(1);
+    expect(costs.replaceSplitRows).not.toHaveBeenCalled();
   });
 
   it("report a line that is not there, an id that is no id included, without writing", async () => {
@@ -148,15 +149,15 @@ describe("choosing the shipments in a line's split", () => {
 
   it("gives a shipment taken out no part, and the others the whole line", async () => {
     costs.list.mockResolvedValue([line({ excludedShipmentIds: ["s1"] })]);
-    const view = await masterJobCostService.resplit(COMPANY, MASTER);
+    const view = await masterJobCostService.process(COMPANY, MASTER);
     expect(written).toEqual([expect.objectContaining({ shipmentId: "s2", estAmount: "300.00", realAmount: "330.00" })]);
     expect(view.lines[0]!.excludedShipmentIds).toEqual(["s1"]);
   });
 
-  it("saves the shipments left out, keeping only those linked, and splits again", async () => {
+  it("saves the shipments left out, keeping only those linked, and writes nothing to the shipments", async () => {
     await masterJobCostService.update(COMPANY, MASTER, LINE, { excludedShipmentIds: ["s1", "s1", "gone"] });
     expect(costs.update).toHaveBeenCalledWith(LINE, COMPANY, MASTER, { excludedShipmentIds: ["s1"] });
-    expect(costs.replaceSplitRows).toHaveBeenCalledTimes(1);
+    expect(costs.replaceSplitRows).not.toHaveBeenCalled();
   });
 
   it("keeps at least one shipment in the split", async () => {
@@ -201,16 +202,16 @@ describe("choosing which of the costs go through the split", () => {
   it("writes no shipment a share of a line out of the split, and keeps the line in the view", async () => {
     const other = line({ id: "9a1c6f8e-2b7d-4c1e-8f3a-5d6b7c8e9f02", inSplit: false });
     costs.list.mockResolvedValue([line(), other]);
-    const view = await masterJobCostService.resplit(COMPANY, MASTER);
+    const view = await masterJobCostService.process(COMPANY, MASTER);
     expect(written.map((r) => r.sourceMasterJobRef)).toEqual([`master:${MASTER}:${LINE}`, `master:${MASTER}:${LINE}`]);
     expect(view.shares.every((s) => s.lineId === LINE)).toBe(true);
     expect(view.lines.map((l) => l.inSplit)).toEqual([true, false]);
   });
 
-  it("saves the choice and splits again", async () => {
+  it("saves the choice and writes nothing to the shipments", async () => {
     await masterJobCostService.update(COMPANY, MASTER, LINE, { inSplit: false });
     expect(costs.update).toHaveBeenCalledWith(LINE, COMPANY, MASTER, { inSplit: false });
-    expect(costs.replaceSplitRows).toHaveBeenCalledTimes(1);
+    expect(costs.replaceSplitRows).not.toHaveBeenCalled();
   });
 
   it("checks Trucking when a line goes in, not when it comes out", async () => {
@@ -227,5 +228,54 @@ describe("choosing which of the costs go through the split", () => {
     costs.get.mockResolvedValue(line({ inSplit: false }));
     await masterJobCostService.update(COMPANY, MASTER, LINE, { category: "road_freight" });
     expect(keptByTrucking).not.toHaveBeenCalled();
+  });
+});
+
+describe("the shipments carry a master job's costs only once the split is processed", () => {
+  beforeEach(() => {
+    costs.get.mockResolvedValue(line());
+    costs.update.mockResolvedValue(line());
+    costs.softDelete.mockResolvedValue(true);
+  });
+
+  it("writes nothing when a line is added, changed or deleted, but shows the split as it now stands", async () => {
+    const added = await masterJobCostService.add(COMPANY, MASTER, { category: "ocean_freight" });
+    const changed = await masterJobCostService.update(COMPANY, MASTER, LINE, { realAmount: "330.00" });
+    const deleted = await masterJobCostService.remove(COMPANY, MASTER, LINE);
+    expect(costs.replaceSplitRows).not.toHaveBeenCalled();
+    expect(costs.dropSplitRowsOutside).not.toHaveBeenCalled();
+    for (const view of [added, changed, deleted]) {
+      expect(view.shares).toEqual([
+        { lineId: LINE, shipmentId: "s1", est: "200.00", real: "220.00" },
+        { lineId: LINE, shipmentId: "s2", est: "100.00", real: "110.00" },
+      ]);
+      expect(view.split).toEqual({ written: 0, inSync: false });
+    }
+  });
+
+  it("compares the shipments with the rows the split would write", async () => {
+    costs.splitState.mockResolvedValue({ written: 2, inSync: true });
+    const view = await masterJobCostService.view(COMPANY, MASTER);
+    expect(view.split).toEqual({ written: 2, inSync: true });
+    expect(costs.splitState).toHaveBeenCalledWith(COMPANY, MASTER, [
+      expect.objectContaining({ shipmentId: "s1", estAmount: "200.00", realAmount: "220.00", sourceMasterJobRef: `master:${MASTER}:${LINE}` }),
+      expect.objectContaining({ shipmentId: "s2", estAmount: "100.00", realAmount: "110.00", sourceMasterJobRef: `master:${MASTER}:${LINE}` }),
+    ]);
+  });
+
+  it("answers processing with where the shipments now stand", async () => {
+    costs.splitState.mockResolvedValue({ written: 2, inSync: true });
+    const view = await masterJobCostService.process(COMPANY, MASTER);
+    expect(written).toHaveLength(2);
+    expect(view.split).toEqual({ written: 2, inSync: true });
+  });
+
+  it("takes the shares off only the shipments that left, and puts none on", async () => {
+    costs.dropSplitRowsOutside.mockImplementation(async (_c: string, _m: string, keep: () => Promise<string[]>) => {
+      expect(await keep()).toEqual(["s1", "s2"]);
+    });
+    await masterJobCostService.dropSharesOfLeftShipments(COMPANY, MASTER);
+    expect(costs.dropSplitRowsOutside).toHaveBeenCalledTimes(1);
+    expect(costs.replaceSplitRows).not.toHaveBeenCalled();
   });
 });

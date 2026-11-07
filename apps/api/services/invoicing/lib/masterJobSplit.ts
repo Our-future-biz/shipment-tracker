@@ -1,7 +1,46 @@
 import { splitCents } from "./costSplit";
+import type { InvoiceCostRecord, NewInvoiceCostRecord } from "../schemas/invoiceCost.schema";
 import type { MasterJobSplitMethod } from "../schemas/masterJobCost.schema";
 
 // How a master job's buying lines are shared out over its shipments. Pure, so the split has its test.
+
+/** A shipment's share of a line, as written into its Costs Breakdown. */
+export type SplitRowValues = Pick<
+  NewInvoiceCostRecord,
+  "shipmentId" | "category" | "description" | "vendor" | "estAmount" | "estCurrency" | "realAmount" | "realCurrency" | "invoiceNumber" | "received" | "sourceMasterJobRef"
+> & { lineSort: number };
+
+// Split rows go after a shipment's own lines.
+const SPLIT_SORT_BASE = 100_000;
+
+// The columns a split row takes from its line.
+export const SPLIT_FIELDS = [
+  "category", "description", "vendor", "estAmount", "estCurrency", "realAmount", "realCurrency", "invoiceNumber", "received", "sortOrder",
+] as const;
+
+/** The columns a share is written with: its line's, and its place after the shipment's own lines. */
+export function splitRowColumns({ lineSort, ...row }: SplitRowValues) {
+  return { ...row, sortOrder: SPLIT_SORT_BASE + lineSort };
+}
+
+/** Whether a row in a shipment's Costs Breakdown already says what its share would write. */
+export function splitRowUnchanged(written: Pick<InvoiceCostRecord, (typeof SPLIT_FIELDS)[number]>, row: SplitRowValues): boolean {
+  const values = splitRowColumns(row);
+  return SPLIT_FIELDS.every((f) => (written[f] ?? null) === (values[f] ?? null));
+}
+
+/** Whether the shipments carry exactly these shares: one row each, saying the same, and no others. */
+export function splitRowsInSync(
+  written: (Pick<InvoiceCostRecord, "shipmentId" | "sourceMasterJobRef" | (typeof SPLIT_FIELDS)[number]>)[],
+  rows: SplitRowValues[],
+): boolean {
+  if (written.length !== rows.length) return false;
+  const byKey = new Map(written.map((r) => [`${r.shipmentId} ${r.sourceMasterJobRef}`, r]));
+  return rows.every((row) => {
+    const current = byKey.get(`${row.shipmentId} ${row.sourceMasterJobRef}`);
+    return !!current && splitRowUnchanged(current, row);
+  });
+}
 
 /** A shipment of the master job and its freight tons (W/M: the greater of tons and cbm). */
 export interface SplitHouse {

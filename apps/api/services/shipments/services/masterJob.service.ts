@@ -30,7 +30,7 @@ import type {
   MasterJobDetail,
 } from "../interfaces/interfaces";
 import { assertTimes, clearStaleTimes } from "../lib/dateTimes";
-import { resplitMasterJobCosts } from "../lib/masterJobCosts";
+import { dropSharesOfLeftShipments } from "../lib/masterJobCosts";
 import { cargoDimensionRepository } from "../repositories/cargoDimension.repository";
 import { freightTons } from "../lib/freightTons";
 import { compareJobNumbers } from "../../../lib/jobNumber";
@@ -287,10 +287,10 @@ class MasterJobService {
       left.push(shipment.masterJobId);
     }
     for (const shipmentId of shipmentIds) {
-      await this.attachShipment(shipmentId, companyId, row.mczNumber, userId, { resplit: false });
+      await this.attachShipment(shipmentId, companyId, row.mczNumber, userId, { dropShares: false });
     }
-    // The costs are shared out once, with all of them in (and on the master jobs they left).
-    await resplitMasterJobCosts([id, ...left]);
+    // They carry nothing of the master jobs they left; this one's costs reach them when its split is processed.
+    await dropSharesOfLeftShipments(left.filter((masterJobId) => masterJobId !== id));
     return this.get(id, companyId);
   }
 
@@ -299,7 +299,7 @@ class MasterJobService {
    * the master job's values onto it. A shipment moved off another master job is taken
    * out of that one's container assignments.
    */
-  async attachShipment(shipmentId: string, companyId: string, mczNumber: string, userId: string, { resplit = true } = {}): Promise<void> {
+  async attachShipment(shipmentId: string, companyId: string, mczNumber: string, userId: string, { dropShares = true } = {}): Promise<void> {
     const shipment = await shipmentRepository.getByIdForCompany(shipmentId, companyId);
     if (!shipment) throw APIError.notFound(`Shipment ${shipmentId} not found`);
     const linked = await shipmentService.linkMasterJob(shipmentId, companyId, mczNumber);
@@ -307,8 +307,8 @@ class MasterJobService {
       await this.unassignFromContainers(shipment.masterJobId, companyId, shipmentId);
     }
     await this.syncShipment(shipmentId, companyId, userId);
-    // The master job's costs are shared out again with the shipment in (and the one it left without it).
-    if (resplit) await resplitMasterJobCosts([linked?.masterJobId, shipment.masterJobId]);
+    // It carries nothing of a master job it left; the new one's costs reach it when its split is processed.
+    if (dropShares && shipment.masterJobId !== linked?.masterJobId) await dropSharesOfLeftShipments([shipment.masterJobId]);
   }
 
   async unlinkShipment(id: string, companyId: string, shipmentId: string): Promise<MasterJobDetail> {
@@ -325,7 +325,7 @@ class MasterJobService {
     if (!shipment) throw APIError.notFound(`Shipment ${shipmentId} not found`);
     await shipmentService.unlinkMasterJob(shipmentId, companyId);
     if (shipment.masterJobId) await this.unassignFromContainers(shipment.masterJobId, companyId, shipmentId);
-    await resplitMasterJobCosts([shipment.masterJobId]);
+    await dropSharesOfLeftShipments([shipment.masterJobId]);
   }
 
   /** The master job's live shipments with their freight tons (W/M), what its costs are split over. */

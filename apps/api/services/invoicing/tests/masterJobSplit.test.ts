@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { lineTotalCents, masterJobRef, masterJobRefPrefix, splitLine, type SplitHouse } from "../lib/masterJobSplit";
+import { lineTotalCents, masterJobRef, masterJobRefPrefix, splitLine, splitRowColumns, splitRowsInSync, type SplitHouse, type SplitRowValues } from "../lib/masterJobSplit";
 
 const houses: SplitHouse[] = [
   { shipmentId: "a", jobNumber: "CZ00000021", freightTon: 2 },
@@ -52,8 +52,37 @@ describe("master job cost split", () => {
   it("names the master job in a split row's ref", () => {
     const id = "3d55a500-d6f8-4def-8e95-82e77493cabb";
     expect(masterJobRef(id, "line-1")).toBe(`master:${id}:line-1`);
-    // A re-split finds every row of the master job by the prefix, and no other master job's.
+    // Processing finds every row of the master job by the prefix, and no other master job's.
     expect(masterJobRef(id, "line-1").startsWith(masterJobRefPrefix(id))).toBe(true);
     expect(masterJobRef("4e66b611-e7f9-4ef0-9fa6-93f88504dbcc", "line-1").startsWith(masterJobRefPrefix(id))).toBe(false);
+  });
+});
+
+describe("whether the shipments carry the split", () => {
+  const row = (over: Partial<SplitRowValues> = {}): SplitRowValues => ({
+    shipmentId: "a", category: "ocean_freight", description: "", vendor: "Cosco", estAmount: "100.00", estCurrency: "EUR", realAmount: null,
+    realCurrency: "EUR", invoiceNumber: "", received: false, sourceMasterJobRef: "master:m:l", lineSort: 0, ...over,
+  });
+  const written = (over: Partial<SplitRowValues> = {}) => splitRowColumns(row(over)) as Parameters<typeof splitRowsInSync>[0][number];
+
+  it("does when every share has its row, saying the same", () => {
+    expect(splitRowsInSync([written(), written({ shipmentId: "b" })], [row({ shipmentId: "b" }), row()])).toBe(true);
+    expect(splitRowsInSync([], [])).toBe(true);
+  });
+
+  it("does not when an amount or anything else the row takes from its line changed", () => {
+    expect(splitRowsInSync([written()], [row({ estAmount: "120.00" })])).toBe(false);
+    expect(splitRowsInSync([written()], [row({ vendor: "Maersk" })])).toBe(false);
+    expect(splitRowsInSync([written()], [row({ lineSort: 1 })])).toBe(false);
+  });
+
+  it("does not when a share has no row yet, or a row has no share any more", () => {
+    expect(splitRowsInSync([], [row()])).toBe(false);
+    expect(splitRowsInSync([written()], [])).toBe(false);
+    expect(splitRowsInSync([written()], [row({ shipmentId: "b" })])).toBe(false);
+  });
+
+  it("does not when a shipment has two rows of one share", () => {
+    expect(splitRowsInSync([written(), written()], [row(), row({ shipmentId: "b" })])).toBe(false);
   });
 });

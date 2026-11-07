@@ -656,11 +656,21 @@ export interface MasterJobVsEstimateItem {
   currency: string;
 }
 
-/** The master job's Costs Breakdown: its lines, its shipments and what each one carries. */
+/** How the shipments stand against the split as it is now. */
+export interface MasterJobSplitState {
+  /** How many share rows the shipments' Costs Breakdowns carry */
+  written: number;
+  /** Whether those rows are exactly the split below: when not, processing it would change them */
+  inSync: boolean;
+}
+
+/** The master job's Costs Breakdown: its lines, its shipments and the split as it stands now. */
 export interface MasterJobCostsView {
   lines: MasterJobCostItem[];
   houses: MasterJobHouseItem[];
+  /** What each shipment gets when the split is processed; `split` says whether they carry it yet */
   shares: MasterJobShareItem[];
+  split: MasterJobSplitState;
   /** Each line against its estimate, by line id; a line without both (or without a rate) is left out */
   vsEstimate: Record<string, MasterJobVsEstimateItem>;
   /** The whole master job against its estimates; null without a comparison */

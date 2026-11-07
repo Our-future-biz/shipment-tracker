@@ -1,25 +1,23 @@
-import { and, asc, eq, inArray, isNull, like, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, like, notInArray, sql } from "drizzle-orm";
 import { db } from "../db/db";
 import { invoiceCostTable, type InvoiceCostRecord, type NewInvoiceCostRecord } from "../schemas/invoiceCost.schema";
 import { masterJobCostTable as t, type MasterJobCostRecord, type NewMasterJobCostRecord } from "../schemas/masterJobCost.schema";
-import { masterJobRefPrefix } from "../lib/masterJobSplit";
+import { masterJobRefPrefix, splitRowColumns, splitRowsInSync, splitRowUnchanged, type SplitRowValues } from "../lib/masterJobSplit";
 
-// Split rows go after a shipment's own lines.
-const SPLIT_SORT_BASE = 100_000;
+export type { SplitRowValues };
 
 const lineOf = (id: string, companyId: string, masterJobId: string) =>
   and(eq(t.id, id), eq(t.companyId, companyId), eq(t.masterJobId, masterJobId), isNull(t.deletedAt));
 
-/** A shipment's share of a line, as written into its Costs Breakdown. */
-export type SplitRowValues = Pick<
-  NewInvoiceCostRecord,
-  "shipmentId" | "category" | "description" | "vendor" | "estAmount" | "estCurrency" | "realAmount" | "realCurrency" | "invoiceNumber" | "received" | "sourceMasterJobRef"
-> & { lineSort: number };
+/** The live rows of a master job's shares in its shipments' Costs Breakdowns. */
+const liveSplitRows = (companyId: string, masterJobId: string) =>
+  and(
+    eq(invoiceCostTable.companyId, companyId),
+    like(invoiceCostTable.sourceMasterJobRef, `${masterJobRefPrefix(masterJobId)}%`),
+    isNull(invoiceCostTable.deletedAt),
+  );
 
-// The columns a split row takes from its line: an unchanged row is not written again.
-const SPLIT_FIELDS = [
-  "category", "description", "vendor", "estAmount", "estCurrency", "realAmount", "realCurrency", "invoiceNumber", "received", "sortOrder",
-] as const;
+const lockMasterJobCosts = (masterJobId: string) => sql`select pg_advisory_xact_lock(hashtext(${`master-job-costs:${masterJobId}`}))`;
 
 class MasterJobCostRepository {
   async list(companyId: string, masterJobId: string): Promise<MasterJobCostRecord[]> {
@@ -57,24 +55,44 @@ class MasterJobCostRepository {
     return rows.length > 0;
   }
 
+  /** How many share rows the shipments carry, and whether they are exactly these. */
+  async splitState(companyId: string, masterJobId: string, rows: SplitRowValues[]): Promise<{ written: number; inSync: boolean }> {
+    const written = await db.select().from(invoiceCostTable).where(liveSplitRows(companyId, masterJobId));
+    return { written: written.length, inSync: splitRowsInSync(written, rows) };
+  }
+
+  /**
+   * Takes the master job's shares off every shipment but these (worked out under its lock): a
+   * shipment that left carries no cost of it. Nothing is written to the shipments still on it.
+   */
+  async dropSplitRowsOutside(companyId: string, masterJobId: string, shipmentIds: () => Promise<string[]>): Promise<void> {
+    await db.transaction(async (tx) => {
+      await tx.execute(lockMasterJobCosts(masterJobId));
+      const keep = await shipmentIds();
+      const c = invoiceCostTable;
+      const now = new Date();
+      await tx
+        .update(c)
+        .set({ deletedAt: now, updatedAt: now })
+        .where(and(liveSplitRows(companyId, masterJobId), keep.length ? notInArray(c.shipmentId, keep) : undefined));
+    });
+  }
+
   /**
    * Writes the master job's shares into its shipments' Costs Breakdowns as one set, in one
    * transaction: a row whose shipment and line are still in the set is updated in place (so
    * what refers to its id - a selling row copied from it - keeps working), a new one comes in and
    * every other live row of the master job goes (also on a shipment no longer linked). The rows
-   * are worked out by `compute` while the master job's lock is held, so two re-splits can't
+   * are worked out by `compute` while the master job's lock is held, so two writes can't
    * interleave and the one that writes last has read the lines and shipments as they are then.
    */
   async replaceSplitRows(companyId: string, masterJobId: string, compute: () => Promise<SplitRowValues[]>): Promise<void> {
     await db.transaction(async (tx) => {
-      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`master-job-costs:${masterJobId}`}))`);
+      await tx.execute(lockMasterJobCosts(masterJobId));
       const rows = await compute();
       const c = invoiceCostTable;
       const now = new Date();
-      const existing = await tx
-        .select()
-        .from(c)
-        .where(and(eq(c.companyId, companyId), like(c.sourceMasterJobRef, `${masterJobRefPrefix(masterJobId)}%`), isNull(c.deletedAt)));
+      const existing = await tx.select().from(c).where(liveSplitRows(companyId, masterJobId));
       const byKey = new Map<string, InvoiceCostRecord>();
       const gone: string[] = [];
       for (const row of existing) {
@@ -83,8 +101,8 @@ class MasterJobCostRepository {
         else byKey.set(key, row);
       }
       const fresh: NewInvoiceCostRecord[] = [];
-      for (const { lineSort, ...row } of rows) {
-        const values = { ...row, sortOrder: SPLIT_SORT_BASE + lineSort };
+      for (const row of rows) {
+        const values = splitRowColumns(row);
         const key = `${row.shipmentId} ${row.sourceMasterJobRef}`;
         const current = byKey.get(key);
         if (!current) {
@@ -92,7 +110,7 @@ class MasterJobCostRepository {
           continue;
         }
         byKey.delete(key);
-        if (SPLIT_FIELDS.some((f) => (current[f] ?? null) !== (values[f] ?? null))) {
+        if (!splitRowUnchanged(current, row)) {
           await tx.update(c).set({ ...values, updatedAt: now }).where(eq(c.id, current.id));
         }
       }

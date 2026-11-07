@@ -13,9 +13,9 @@ import type { MasterJobCostRecord, MasterJobSplitMethod, NewMasterJobCostRecord 
 import type { MasterJobCostInput, MasterJobCostItem, MasterJobCostsView, MasterJobCostUpdate, MasterJobShareItem } from "../interfaces/interfaces";
 
 // A master job's buying costs (its Costs Breakdown). Each line is shared out over the master job's
-// shipments - by W/M or equally, as the line says - and every shipment carries its share as a
-// read-only row of its own Costs Breakdown. The shares are worked out again, as a set, whenever a
-// line changes and whenever the master job's shipments or their weights do (resplit).
+// shipments - by W/M or equally, as the line says. The view always shows that split as it stands,
+// but a shipment carries its share, as a read-only row of its own Costs Breakdown, only once someone
+// processes the split (process). Only a shipment that leaves loses its share by itself.
 
 const SPLIT_METHODS: readonly MasterJobSplitMethod[] = ["wm", "shipment"];
 
@@ -72,8 +72,30 @@ function sharesOf(lines: MasterJobCostRecord[], houses: SplitHouse[]): MasterJob
 
 const truckingKey = (shipmentId: string, code: string) => `${shipmentId} ${code}`;
 
-/** The lines, shipments and shares, as a re-split leaves them (the view without its estimates). */
-type SplitView = Pick<MasterJobCostsView, "lines" | "houses" | "shares">;
+/** The view without its estimates. */
+type SplitView = Pick<MasterJobCostsView, "lines" | "houses" | "shares" | "split">;
+
+/** The shares as rows of the shipments' Costs Breakdowns. */
+function splitRows(masterJobId: string, lines: MasterJobCostRecord[], shares: MasterJobShareItem[]): SplitRowValues[] {
+  const byId = new Map(lines.map((l) => [l.id, l]));
+  return shares.map((s) => {
+    const line = byId.get(s.lineId)!;
+    return {
+      shipmentId: s.shipmentId,
+      category: line.category,
+      description: line.description,
+      vendor: line.vendor,
+      estAmount: s.est,
+      estCurrency: line.estCurrency,
+      realAmount: s.real,
+      realCurrency: line.realCurrency,
+      invoiceNumber: line.invoiceNumber,
+      received: line.received,
+      sourceMasterJobRef: masterJobRef(masterJobId, line.id),
+      lineSort: line.sortOrder,
+    };
+  });
+}
 
 // CZK per 1 unit of a currency at today's ČNB fixing. Without the rates (fx can't be read) only
 // lines in one currency are compared.
@@ -139,7 +161,9 @@ class MasterJobCostService {
   async view(companyId: string, masterJobId: string): Promise<MasterJobCostsView> {
     assertMasterJobId(masterJobId);
     const [houses, lines] = await Promise.all([housesOf(masterJobId), masterJobCostRepository.list(companyId, masterJobId)]);
-    return withVsEstimate({ lines: lines.map(toItem), houses, shares: await sharesAsWritten(companyId, lines, houses) });
+    const shares = await sharesAsWritten(companyId, lines, houses);
+    const split = await masterJobCostRepository.splitState(companyId, masterJobId, splitRows(masterJobId, lines, shares));
+    return withVsEstimate({ lines: lines.map(toItem), houses, shares, split });
   }
 
   async add(companyId: string, masterJobId: string, input: MasterJobCostInput): Promise<MasterJobCostsView> {
@@ -148,7 +172,7 @@ class MasterJobCostService {
     // housesOf also refuses a master job that is not the company's.
     await assertNotKeptByTruckingFor(companyId, await housesOf(masterJobId), { category: values.category ?? "", splitMethod: values.splitMethod ?? "wm", inSplit: values.inSplit });
     await masterJobCostRepository.create(companyId, masterJobId, values);
-    return withVsEstimate(await this.resplit(companyId, masterJobId));
+    return this.view(companyId, masterJobId);
   }
 
   async update(companyId: string, masterJobId: string, id: string, input: MasterJobCostUpdate): Promise<MasterJobCostsView> {
@@ -174,47 +198,34 @@ class MasterJobCostService {
     }
     const row = await masterJobCostRepository.update(id, companyId, masterJobId, changes);
     if (!row) throw APIError.notFound("Master job cost not found");
-    return withVsEstimate(await this.resplit(companyId, masterJobId));
+    return this.view(companyId, masterJobId);
   }
 
   async remove(companyId: string, masterJobId: string, id: string): Promise<MasterJobCostsView> {
     assertMasterJobId(masterJobId);
     if (!isUuid(id) || !(await masterJobCostRepository.softDelete(id, companyId, masterJobId))) throw APIError.notFound("Master job cost not found");
-    return withVsEstimate(await this.resplit(companyId, masterJobId));
+    return this.view(companyId, masterJobId);
   }
 
   /**
-   * Works every line's shares out again over the master job's shipments as they are now and writes
-   * them into the shipments' Costs Breakdowns, replacing the previous shares (sharesAsWritten).
-   * Worked out under the master job's lock, so a re-split that writes last read the latest lines.
+   * Processes the split: works every line's shares out over the master job's shipments as they are
+   * now and writes them into the shipments' Costs Breakdowns, replacing the previous shares
+   * (sharesAsWritten). Worked out under the master job's lock, so the write that comes last read
+   * the latest lines. Nothing else puts a cost on a shipment.
    */
-  async resplit(companyId: string, masterJobId: string): Promise<SplitView> {
+  async process(companyId: string, masterJobId: string): Promise<MasterJobCostsView> {
     assertMasterJobId(masterJobId);
-    let view: SplitView = { lines: [], houses: [], shares: [] };
     await masterJobCostRepository.replaceSplitRows(companyId, masterJobId, async () => {
       const [houses, lines] = await Promise.all([housesOf(masterJobId), masterJobCostRepository.list(companyId, masterJobId)]);
-      const shares = await sharesAsWritten(companyId, lines, houses);
-      view = { lines: lines.map(toItem), houses, shares };
-      const byId = new Map(lines.map((l) => [l.id, l]));
-      return shares.map((s): SplitRowValues => {
-        const line = byId.get(s.lineId)!;
-        return {
-          shipmentId: s.shipmentId,
-          category: line.category,
-          description: line.description,
-          vendor: line.vendor,
-          estAmount: s.est,
-          estCurrency: line.estCurrency,
-          realAmount: s.real,
-          realCurrency: line.realCurrency,
-          invoiceNumber: line.invoiceNumber,
-          received: line.received,
-          sourceMasterJobRef: masterJobRef(masterJobId, line.id),
-          lineSort: line.sortOrder,
-        };
-      });
+      return splitRows(masterJobId, lines, await sharesAsWritten(companyId, lines, houses));
     });
-    return view;
+    return this.view(companyId, masterJobId);
+  }
+
+  /** A shipment that left the master job, or was deleted, carries none of its costs: only that is written without processing. */
+  async dropSharesOfLeftShipments(companyId: string, masterJobId: string): Promise<void> {
+    assertMasterJobId(masterJobId);
+    await masterJobCostRepository.dropSplitRowsOutside(companyId, masterJobId, async () => (await housesOf(masterJobId)).map((h) => h.shipmentId));
   }
 }
 
