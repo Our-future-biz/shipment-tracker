@@ -18,7 +18,7 @@ export function useMasterJobs() {
     queryKey: LIST_KEY,
     queryFn: () => api.shipments.masterJobList(),
   });
-  return { masterJobs: query.data?.data ?? [], isLoading: query.isLoading };
+  return { masterJobs: query.data?.data ?? [], isLoading: query.isLoading, isError: query.isError };
 }
 
 /**

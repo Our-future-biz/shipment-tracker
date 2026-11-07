@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Alert, Spin } from "antd";
 import { Pill } from "@/components/Pill";
-import { SectionCard } from "@/components/SectionCard";
+import { CountChip, SectionCard } from "@/components/SectionCard";
 import { useMasterJobTracking, type MasterJobTrackingHouse } from "@/hooks/useShipmentTracking";
 import { apiErrorMessage } from "@/lib/api";
 import { formatDate } from "@/lib/date";
@@ -13,9 +13,9 @@ const Day = ({ day }: { day: string | null }) => (day ? <span className="tabular
 
 function HouseRow({ house }: { house: MasterJobTrackingHouse }) {
   return (
-    <tr>
+    <tr className="hover:bg-slate-50/60">
       <td className={TD}>
-        <Link href={`/shipments/${house.shipmentId}?tab=tracking`} className={`${LINK} ${REF}`}>
+        <Link href={`/shipments/${house.shipmentId}?tab=tracking`} className={`${REF} font-semibold ${LINK}`}>
           {house.jobNumber}
         </Link>
         {house.customer && <div className={HINT}>{house.customer}</div>}
@@ -43,7 +43,16 @@ export function MasterJobTrackingTab({ masterJobId }: { masterJobId: string }) {
   if (!houses) return <Alert type="error" showIcon message={`Could not load the tracking: ${apiErrorMessage(error)}`} />;
 
   return (
-    <SectionCard title="Houses" extra={<span className={HINT}>ATD and ATA are set on the master job</span>} bodyClassName="p-0">
+    <SectionCard
+      title="Linked shipments"
+      extra={
+        <>
+          <span className={HINT}>ATD and ATA are set on the master job</span>
+          <CountChip count={houses.length} />
+        </>
+      }
+      bodyClassName="p-0 rounded-b-xl overflow-hidden"
+    >
       {houses.length === 0 ? (
         <p className={EMPTY_STATE}>No shipments linked yet</p>
       ) : (

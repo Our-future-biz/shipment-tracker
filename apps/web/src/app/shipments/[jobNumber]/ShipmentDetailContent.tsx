@@ -1385,15 +1385,15 @@ export function ShipmentDetailContent() {
                               {shipment.masterJobId ? (
                                 <MasterJobHoverCard masterJobId={shipment.masterJobId} mczNumber={String(shipment.masterJobMczNumber)}>
                                   {/* A link, so it also opens in a new tab. */}
-                                  <Link href={`/master-jobs?open=${shipment.masterJobId}`} className={LINK}>
-                                    #{shipment.masterJobMczNumber}
+                                  <Link href={`/master-jobs?open=${shipment.masterJobId}`} className={`${REF} ${LINK}`}>
+                                    {shipment.masterJobMczNumber}
                                   </Link>
                                 </MasterJobHoverCard>
                               ) : (
-                                <span>#{shipment.masterJobMczNumber}</span>
+                                <span className={REF}>{shipment.masterJobMczNumber}</span>
                               )}
                               {detailsEditable && (
-                                <button onClick={() => setUnlinkOpen(true)} className="text-[10px] text-slate-500 hover:text-red-600 cursor-pointer bg-transparent border-none p-0">
+                                <button onClick={() => setUnlinkOpen(true)} className="text-[12px] text-slate-500 hover:text-red-600 cursor-pointer bg-transparent border-none p-0">
                                   unassign
                                 </button>
                               )}

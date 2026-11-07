@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { App, Button, Checkbox, Input, Modal, Popconfirm, Spin } from "antd";
-import { DisconnectOutlined, PlusOutlined, SearchOutlined } from "@ant-design/icons";
+import { App, Button, Checkbox, Dropdown, Input, Modal, Spin, Tooltip } from "antd";
+import { DisconnectOutlined, EllipsisOutlined, PlusOutlined, SearchOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
 import { api, apiErrorMessage } from "@/lib/api";
 import { useDebounced } from "@/hooks/useDebounced";
@@ -12,7 +12,13 @@ import { canChangeShipmentDetails } from "@/lib/shipmentEditRule";
 import { LINK_REFUSED_HINT } from "@/app/shipments/_components/MasterJobDialog";
 import type { MasterJobItem, MasterJobShipmentItem } from "@/hooks/useMasterJobs";
 import { EMPTY_CELL } from "@/components/EmptyCell";
-import { HINT, LINK, REF, TD, TH } from "@/styles/ui";
+import { ConfirmModal } from "@/components/ConfirmModal";
+import { EMPTY_STATE, HINT, LABEL_TEXT, LINK, REF } from "@/styles/ui";
+
+// The Container Details table look: column titles over a slate-200 rule, rows split by thin
+// slate-100 lines (none under the last row).
+const TH = `px-2 pb-2 text-left align-bottom whitespace-nowrap ${LABEL_TEXT} border-b border-slate-200`;
+const TD = "px-2 py-2 align-middle text-[13px] text-slate-700";
 
 interface MasterJobShipmentsProps {
   masterJob: MasterJobItem;
@@ -36,28 +42,46 @@ export function MasterJobShipments({ masterJob, shipments, onLink, onUnlink }: M
     }
   };
 
+  // The row whose Remove waits for a yes (asked in a dialog, as the "⋯" menu closes on the click).
+  const [confirmUnlinkId, setConfirmUnlinkId] = useState<string | null>(null);
+  const [unlinking, setUnlinking] = useState(false);
+  const toUnlink = shipments.find((s) => s.id === confirmUnlinkId);
+
   return (
     <>
-      {shipments.length === 0 ? (
-        <div className={`py-4 text-center ${HINT}`}>No shipments linked yet.</div>
-      ) : (
+      <div className="relative">
+        {/* Add shipments: the small "+" laid over the header row's right end, above the rows' "⋯". */}
+        <Tooltip title="Add shipments">
+          <Button
+            size="small"
+            type="primary"
+            icon={<PlusOutlined className="text-[11px]" />}
+            aria-label="Add shipments"
+            onClick={() => setAdding(true)}
+            className="!absolute -top-1 right-[7px] z-10 !w-[22px] !h-[22px] !min-w-0 !p-0"
+          />
+        </Tooltip>
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full min-w-[760px] border-collapse">
             <thead>
               <tr>
                 <th className={TH}>Job Number</th>
                 <th className={TH}>Customer</th>
                 <th className={TH}>Shipper</th>
                 <th className={TH}>Consignee</th>
-                <th className={TH}>Direction</th>
+                <th className={`${TH} !text-center`}>Direction</th>
                 <th className={TH}>Containers</th>
-                <th className={`${TH} w-10`} />
+                {/* The actions column: the "+" above lies over it. */}
+                <th className={`${TH} w-9`} />
               </tr>
             </thead>
             <tbody>
-              {shipments.map((s) => (
-                <tr key={s.id}>
-                  <td className={TD}>
+              {shipments.map((s, i) => (
+                <tr
+                  key={s.id}
+                  className={`hover:bg-slate-50 transition-colors ${i < shipments.length - 1 ? "border-b border-slate-100" : ""}`}
+                >
+                  <td className={`${TD} whitespace-nowrap`}>
                     <Link href={`/shipments/${s.id}`} className={`${REF} font-semibold ${LINK}`}>
                       {s.jobNumber}
                     </Link>
@@ -65,27 +89,51 @@ export function MasterJobShipments({ masterJob, shipments, onLink, onUnlink }: M
                   <td className={TD}>{s.customer || EMPTY_CELL}</td>
                   <td className={TD}>{s.shipper || EMPTY_CELL}</td>
                   <td className={TD}>{s.consignee || EMPTY_CELL}</td>
-                  <td className={TD}>{s.tradeDirection || EMPTY_CELL}</td>
+                  <td className={`${TD} text-center`}>{s.tradeDirection || EMPTY_CELL}</td>
                   <td className={`${TD} ${REF}`}>{s.containerNumber || EMPTY_CELL}</td>
-                  <td className={`${TD} text-right`}>
-                    <Popconfirm
-                      title={`Remove ${s.jobNumber} from ${masterJob.mczNumber}?`}
-                      description="The shipment keeps the values it got from the master job."
-                      okText="Remove"
-                      onConfirm={() => handleUnlink(s)}
+                  <td className={`${TD} text-center`}>
+                    <Dropdown
+                      trigger={["click"]}
+                      placement="bottomRight"
+                      menu={{
+                        items: [{ key: "remove", label: "Remove from master job", icon: <DisconnectOutlined />, danger: true }],
+                        onClick: () => setConfirmUnlinkId(s.id),
+                      }}
                     >
-                      <Button size="small" type="text" icon={<DisconnectOutlined />} aria-label={`Remove ${s.jobNumber}`} />
-                    </Popconfirm>
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<EllipsisOutlined className="text-[22px] [&_svg]:stroke-current [&_svg]:stroke-[40]" />}
+                        aria-label={`Actions for ${s.jobNumber}`}
+                      />
+                    </Dropdown>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          {shipments.length === 0 && <div className={EMPTY_STATE}>No shipments linked yet.</div>}
         </div>
-      )}
-      <Button size="small" icon={<PlusOutlined />} className="mt-3" onClick={() => setAdding(true)}>
-        Add shipments
-      </Button>
+      </div>
+      <ConfirmModal
+        open={!!toUnlink}
+        title={toUnlink ? `Remove ${toUnlink.jobNumber} from ${masterJob.mczNumber}?` : ""}
+        description="The shipment keeps the values it got from the master job."
+        confirmLabel="Remove"
+        loading={unlinking}
+        onClose={() => setConfirmUnlinkId(null)}
+        // Remove waits for the server, as the old confirmation did; the dialog closes once it answered.
+        onConfirm={async () => {
+          if (!toUnlink) return;
+          setUnlinking(true);
+          try {
+            await handleUnlink(toUnlink);
+          } finally {
+            setUnlinking(false);
+            setConfirmUnlinkId(null);
+          }
+        }}
+      />
       <AddShipmentsModal
         open={adding}
         masterJob={masterJob}

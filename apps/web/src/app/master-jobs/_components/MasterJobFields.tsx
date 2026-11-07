@@ -4,14 +4,16 @@ import { useState } from "react";
 import { Select, Tooltip } from "antd";
 import { SyncOutlined } from "@ant-design/icons";
 import { EditableCell } from "@/app/shipments/[jobNumber]/_components/EditableCell";
-import { LABEL, ROW } from "@/app/shipments/[jobNumber]/_components/detailStyles";
-import { CARD, CARD_BAR, CARD_ICON, CARD_TITLE, EMPTY } from "@/styles/ui";
+import { CARD, CARD_BODY, LABEL, REF_KEYS, REF_VALUE, ROW } from "@/app/shipments/[jobNumber]/_components/detailStyles";
+import { FadeText } from "@/components/FadeText";
+import { CARD_BAR, CARD_ICON, CARD_TITLE, EMPTY } from "@/styles/ui";
 import { INCOTERM_NAMES, incotermLabel } from "@/lib/incoterms";
 
 // Rows and cards of the master-job detail. They mirror the shipment detail's
 // DetailCard / FieldRow markup, which is bound to ShipmentItem, so the master
-// job gets the same look over its own record: the app's card with its indigo
-// title bar (styles/ui.ts), and the shipment detail's own row and label.
+// job gets the same look over its own record: the shipment detail's card shell
+// and body (detailStyles), the app's indigo title bar (styles/ui.ts), and the
+// shipment detail's own row and label.
 
 export type MasterJobCommit = (fieldKey: string, value: string) => void;
 
@@ -23,18 +25,25 @@ interface CardProps {
   icon: React.ReactNode;
   title: string;
   actions?: React.ReactNode;
+  /** Extra classes on the card shell, e.g. h-full for cards side by side. */
+  className?: string;
+  /** The body's classes; the shipment card body by default, a padded one for tables and lists. */
+  bodyClassName?: string;
   children: React.ReactNode;
 }
 
-export function MasterJobCard({ id, icon, title, actions, children }: CardProps) {
+/** The body of a card holding a table or list rather than rows. */
+export const CARD_BODY_PADDED = "p-4 flex-1 min-w-0";
+
+export function MasterJobCard({ id, icon, title, actions, className, bodyClassName = CARD_BODY, children }: CardProps) {
   return (
-    <div id={id} data-jump="card" className={`scroll-mt-4 ${CARD}`}>
-      <div className={`${CARD_BAR} rounded-t-xl`}>
+    <div id={id} data-jump="card" className={`scroll-mt-4 ${CARD} ${className ?? ""}`}>
+      <div className={CARD_BAR}>
         <span className={CARD_ICON}>{icon}</span>
         <h3 className={CARD_TITLE}>{title}</h3>
         {actions && <span className="ml-auto flex items-center gap-1.5">{actions}</span>}
       </div>
-      <div className="p-4">{children}</div>
+      <div className={bodyClassName}>{children}</div>
     </div>
   );
 }
@@ -74,18 +83,24 @@ export function FieldRow({ label, fieldKey, value, onCommit, synced, id }: Field
         value={value}
         onCommit={onCommit}
         placeholder="—"
-        displayClassName="text-slate-900 font-medium"
+        // The shipment's value style: a code (booking, MBL, voyage, references) in its REF look.
+        displayClassName={REF_KEYS.has(fieldKey) ? REF_VALUE : "text-slate-900"}
         emptyClassName={EMPTY}
       />
     </div>
   );
 }
 
+// A read-only row in the shipment's RoRow look: a black value that fades out when too long.
 export function ReadOnlyRow({ label, value }: { label: string; value?: React.ReactNode }) {
   return (
     <div className={ROW}>
       <span className={LABEL}>{label}</span>
-      <span className="flex-1 min-w-0 text-slate-500 font-medium">{value || <span className={EMPTY}>—</span>}</span>
+      {value ? (
+        <FadeText className="flex-1 text-slate-900 tabular-nums">{value}</FadeText>
+      ) : (
+        <span className={`flex-1 min-w-0 ${EMPTY}`}>—</span>
+      )}
     </div>
   );
 }
@@ -116,7 +131,7 @@ export function IncotermRow({ label, fieldKey, value, onCommit }: FieldRowProps)
         />
       ) : (
         <span
-          className="flex-1 min-w-0 cursor-pointer rounded px-1 -mx-1 hover:bg-slate-100 transition-colors block text-slate-900 font-medium"
+          className="flex-1 min-w-0 cursor-pointer rounded px-1 -mx-1 hover:bg-slate-100 transition-colors block text-slate-900"
           title="Double-click to edit"
           onDoubleClick={() => setEditing(true)}
         >
