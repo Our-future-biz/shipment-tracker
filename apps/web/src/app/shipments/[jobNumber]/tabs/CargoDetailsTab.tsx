@@ -127,6 +127,9 @@ type DeleteRequest = { table: "dims"; line: CargoDimensionLine } | { table: "ite
 const panelSize = <T extends { containerId?: string | null }>(list: T[], line: T) =>
   list.filter((l) => keyOf(l.containerId) === keyOf(line.containerId)).length;
 
+// The figures of lines nothing declares any for (outside the containers of a shipment with some).
+const NOTHING_DECLARED = { packages: "", grossWeight: "", volume: "" } as ContainerLine;
+
 // One panel per saved container; the shipment-level panel shows when there are no
 // containers, or when containerless lines exist (e.g. LCL cargo).
 function panelKeysFor(containerIds: string[], items: CargoItemLine[], dims: CargoDimensionLine[]): string[] {
@@ -518,19 +521,38 @@ export function CargoDetailsTab({
     sendDims(next);
   };
 
+  // What a shipment with no container at all declares for its cargo (Pcs, Total Weight in tons,
+  // Total Volume in Shipment Details): its lines are checked against that, as a container's are.
+  // With containers, lines left outside them are only a part of the cargo: no figure to check against.
+  const shipmentDeclared = useMemo<ContainerLine | null>(
+    () =>
+      containers.length > 0
+        ? null
+        : ({
+            packages: shipment.pcs ?? "",
+            grossWeight: num(shipment.totalWeightTons) ? String(num(shipment.totalWeightTons) * 1000) : "",
+            volume: shipment.totalVolumeCbm ?? "",
+          } as ContainerLine),
+    [containers.length, shipment.pcs, shipment.totalWeightTons, shipment.totalVolumeCbm],
+  );
+
   // Everything one tab shows: its lines, their totals and how they compare with what the
   // container declares (dimensions always; descriptions once there are any).
   const panelOf = (key: string) => {
     const container = containers.find((c) => c.id === key) ?? null;
+    // The figures the lines are checked against: their container's, or a container-less shipment's
+    // own. Lines outside the containers of a shipment that has some have none ("/ —"): the pills
+    // still show, as every table shows them.
+    const declared = container ?? shipmentDeclared ?? NOTHING_DECLARED;
     const panelItems = items.map((l, idx) => ({ l, idx })).filter(({ l }) => keyOf(l.containerId) === key);
     const panelDims = dims.map((l, idx) => ({ l, idx })).filter(({ l }) => keyOf(l.containerId) === key);
     const filledDims = panelDims.filter(({ l }) => !dimIsEmpty(l)).length;
     const filledItems = panelItems.filter(({ l }) => !itemIsEmpty(l)).length;
-    const check = container ? checkConsistency(container, panelDims.map(({ l }) => lineInCm(l))) : null;
+    const check = declared ? checkConsistency(declared, panelDims.map(({ l }) => lineInCm(l))) : null;
     const descPcs = panelItems.reduce((s, { l }) => s + num(l.pieces), 0);
     const descKg = panelItems.reduce((s, { l }) => s + num(l.grossWeight), 0);
-    const descCheck = container
-      ? { pcs: compareFigure(descPcs, num(container.packages), 0), kg: compareFigure(descKg, num(container.grossWeight), 2) }
+    const descCheck = declared
+      ? { pcs: compareFigure(descPcs, num(declared.packages), 0), kg: compareFigure(descKg, num(declared.grossWeight), 2) }
       : null;
     const hasDesc = filledItems > 0;
     const hasLines = filledDims > 0 || hasDesc;
@@ -542,7 +564,9 @@ export function CargoDetailsTab({
 
   const panels = panelKeys.map(panelOf);
   const active = panels.find((p) => p.key === activeKey) ?? panels[0]!;
-  const { check, descCheck, hasDesc } = active;
+  const { check, descCheck } = active;
+  // whose figures the pills hold: the tab's container, or the container-less shipment's own
+  const against = active.container ? ("Container" as const) : ("Shipment" as const);
   // Read-only, the empty line each table keeps to type into is not shown.
   const panelItems = readOnly ? active.panelItems.filter(({ l }) => !itemIsEmpty(l)) : active.panelItems;
   const panelDims = readOnly ? active.panelDims.filter(({ l }) => !dimIsEmpty(l)) : active.panelDims;
@@ -896,9 +920,9 @@ export function CargoDetailsTab({
             {check &&
               checkStrip(
                 <>
-                  <CheckPill label="Pcs" m={check.pcs} decimals={0} />
-                  <CheckPill label="Weight" m={check.kg} decimals={2} unit="kg" />
-                  <CheckPill label="Volume" m={check.m3} decimals={3} unit="m³" />
+                  <CheckPill against={against} label="Pcs" m={check.pcs} decimals={0} />
+                  <CheckPill against={against} label="Weight" m={check.kg} decimals={2} unit="kg" />
+                  <CheckPill against={against} label="Volume" m={check.m3} decimals={3} unit="m³" />
                 </>,
               )}
           </div>
@@ -1001,7 +1025,7 @@ export function CargoDetailsTab({
               {panelItems.length === 0 && noLines("description")}
               {/* Each figure sits under the column it sums - only when no pills follow (no
                   container, or no description lines yet): the pills show these sums then. */}
-              {!(descCheck && hasDesc) && (
+              {!descCheck && (
                 <div className={`${DESC_COLS} px-1 pt-2.5 pb-1 mt-1 border-t-2 border-slate-200`}>
                   <span />
                   <span />
@@ -1015,14 +1039,13 @@ export function CargoDetailsTab({
             </div>
             {/* Compared once the container has description lines (the tab's dot counts them then too). */}
             {descCheck &&
-              hasDesc &&
               checkStrip(
                 <>
-                  <CheckPill label="Pcs" m={descCheck.pcs} decimals={0} />
-                  <CheckPill label="Weight" m={descCheck.kg} decimals={2} unit="kg" />
+                  <CheckPill against={against} label="Pcs" m={descCheck.pcs} decimals={0} />
+                  <CheckPill against={against} label="Weight" m={descCheck.kg} decimals={2} unit="kg" />
                   {/* The invoice value total, which nothing declares: a plain pill. */}
                   {descCiv && (
-                    <Tooltip title={`Lines: ${descCiv} · the container declares no invoice value`}>
+                    <Tooltip title={`Lines: ${descCiv} · the ${against.toLowerCase()} declares no invoice value`}>
                       <span className={`${CHECK_PILL_CLASS} ring-slate-200 bg-slate-50 text-slate-700`}>
                         <span className="font-semibold uppercase tracking-wide text-[10px] text-slate-500">Invoice value</span>
                         <span className="font-semibold">{descCiv}</span>
