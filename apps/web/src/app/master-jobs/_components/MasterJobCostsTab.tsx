@@ -321,9 +321,18 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                     {lines.map((l) => {
                       const real = lineTotal(l.realAmount, l.realQty);
                       const est = lineTotal(l.estAmount, l.estQty);
+                      const total = real ?? est;
+                      const currency = real != null ? l.realCurrency : l.estCurrency;
                       return (
                         <td key={l.id} className={`${TD_TOTAL} text-right tabular-nums`}>
-                          {real != null ? `${amountOf(real)} ${l.realCurrency}` : est != null ? `${amountOf(est)} ${l.estCurrency}` : EMPTY_CELL}
+                          {total != null ? `${amountOf(total)} ${currency}` : EMPTY_CELL}
+                          {/* What one W/M costs on a line split by W/M. */}
+                          {total != null && l.splitMethod === "wm" && totalWm > 0 && (
+                            <span className="block text-[11px] font-normal text-slate-500">
+                              ({currency}
+                              {(total / totalWm).toFixed(2)} W/M)
+                            </span>
+                          )}
                         </td>
                       );
                     })}
