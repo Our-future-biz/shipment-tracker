@@ -1384,7 +1384,7 @@ export function QuoteWorkflow() {
                     <th scope="col" className={LINE_TH_CLASS}>L (cm)</th>
                     <th scope="col" className={LINE_TH_CLASS}>W (cm)</th>
                     <th scope="col" className={LINE_TH_CLASS}>H (cm)</th>
-                    <th scope="col" className={LINE_TH_CLASS}>Kg/ea</th>
+                    <th scope="col" className={LINE_TH_CLASS}>Kg/each</th>
                     <th scope="col" className={LINE_TH_CLASS}>Stack</th>
                     <th scope="col" aria-label="Remove package" className={LINE_TH_CLASS} />
                   </tr>
