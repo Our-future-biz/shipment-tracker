@@ -46,6 +46,12 @@ import {
   buildFields,
   withBookingEquipment,
   containerRowsFromNumbers,
+  containersAfterReading,
+  SEAL_LABEL,
+  sealContainers,
+  sealNote,
+  sealsOnFileThatDiffer,
+  withMblSeals,
   customerNamed,
   type CustomerRef,
   type Destination,
@@ -513,6 +519,9 @@ export function DocumentReadingWorkflow() {
         const target = shipmentMode === "existing" ? shipments.find((s) => s.id === targetShipmentId) : undefined;
         setFields(
           buildFields(merged.values, (label) => {
+            if (label === SEAL_LABEL) {
+              return target ? sealsOnFileThatDiffer(target.containers ?? [], merged.values["Container Number"], merged.values[SEAL_LABEL] ?? "") : "";
+            }
             const apiField = SHIPMENT_FIELD_MAP[label];
             return target && apiField ? getFieldValue(target, apiField) : "";
           }).map((f) => {
@@ -625,7 +634,14 @@ export function DocumentReadingWorkflow() {
     const approved = fieldsToLabelValues(fields);
     if (Object.keys(approved).length === 0) return toast.warning("No fields approved.");
     if (docNameMissing) return toast.warning("Enter a file name for the document, or untick saving it.");
-    const newContainers = containerRowsFromNumbers(parseContainerNumbers(approved["Container Number"]));
+    // Containers ticked are added, seals ticked go on their containers (the numbers read pair them, ticked or not).
+    const containersFrom = (existing: interfaces.ContainerLine[]) =>
+      containersAfterReading(existing, {
+        numbers: fields.find((f) => f.column === "Container Number")?.extractedValue,
+        addNumbers: !!approved["Container Number"],
+        seals: approved[SEAL_LABEL],
+      });
+    const containersRead = !!(approved["Container Number"] || approved[SEAL_LABEL]);
     let shipmentId = targetShipmentId;
     let jobNumber = "";
     try {
@@ -633,8 +649,9 @@ export function DocumentReadingWorkflow() {
         const target = shipments.find((s) => s.id === targetShipmentId);
         let data = toShipmentUpdate(approved);
         data = await withPartyLinks(data, async () => target ?? (await api.shipments.shipmentGet(targetShipmentId)).shipment, keptPartyDetails);
-        // Append extracted containers to the shipment's existing rows (never replace).
-        if (newContainers.length > 0) data.containers = [...(target?.containers ?? []), ...newContainers];
+        // Extracted containers join the shipment's existing rows (never replace).
+        const after = containersRead ? containersFrom(target?.containers ?? []) : [];
+        if (after.length > 0) data.containers = after;
         // An approved package type goes onto all of the shipment's containers and cargo lines.
         if (approved["Type Of Packages"] && !data.containers?.length && target?.containers?.length) {
           data.containers = target.containers;
@@ -648,7 +665,8 @@ export function DocumentReadingWorkflow() {
         const created = await createShipment(baseCreatePayload());
         shipmentId = created.shipment.id;
         let data = await withPartyLinks(toShipmentUpdate(approved), async () => created.shipment, keptPartyDetails);
-        if (newContainers.length > 0) data.containers = newContainers;
+        const after = containersRead ? containersFrom([]) : [];
+        if (after.length > 0) data.containers = after;
         data = withContainerType(data, approved);
         data = withCargoLine(data, approved);
         data = withPackageType(data, approved["Type Of Packages"]);
@@ -873,15 +891,15 @@ export function DocumentReadingWorkflow() {
     setError(null);
     try {
       const mbl = await api.extraction.pipelineExtractMbl({ sessionId: pipelineSessionId }).catch(() => null);
-      if (mbl?.mblInfo) {
-        const info = normalizeExtracted(mbl.mblInfo);
+      const info = mbl?.mblInfo ? normalizeExtracted(mbl.mblInfo) : null;
+      if (info) {
         setMblInfo(info);
         setMblTicked(mblDefaultTicks(info));
         setMblFiled(false);
       }
 
       const hbl = await api.extraction.pipelineExtractHbl({ sessionId: pipelineSessionId, batchIndex: 0 });
-      const extracted = (hbl.shipments || []).map(normalizeExtracted);
+      const extracted = (hbl.shipments || []).map((house) => withMblSeals(normalizeExtracted(house), info));
       setMasterShipments(extracted);
       setMasterDocs(batchDocs(hbl));
       setMasterDocsSaved(0);
@@ -904,14 +922,14 @@ export function DocumentReadingWorkflow() {
     setError(null);
     try {
       const res = await api.extraction.pipelineExtractHbl({ sessionId: pipelineSessionId, batchIndex: hblBatchIndex });
-      setMasterShipments((prev) => [...prev, ...(res.shipments || []).map(normalizeExtracted)]);
+      setMasterShipments((prev) => [...prev, ...(res.shipments || []).map((house) => withMblSeals(normalizeExtracted(house), mblInfo))]);
       setMasterDocs((prev) => [...prev, ...batchDocs(res)]);
       setHblBatchIndex((prev) => prev + 1);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load next batch.");
     }
     setHblLoading(false);
-  }, [hblLoading, hblBatchIndex, hblTotalBatches, pipelineSessionId]);
+  }, [hblLoading, hblBatchIndex, hblTotalBatches, pipelineSessionId, mblInfo]);
 
   const advanceMaster = () => {
     const nextIdx = masterIdx + 1;
@@ -964,22 +982,21 @@ export function DocumentReadingWorkflow() {
       const added = mblTicked[MBL_CONTAINERS_LABEL] ? mblContainers(mblInfo) : [];
       if (added.length > 0) {
         const current = await api.shipments.masterJobGet(masterJobId);
-        // A Full Load master job reads its containers from the shipments.
-        if (current.masterJob.loadType !== FULL_LOAD) {
-          const read = new Map(added.map((c) => [c.containerNumber, c]));
-          const known = new Set(current.containers.map((c) => c.containerNumber));
-          const fresh = added.filter((c) => !known.has(c.containerNumber));
-          // A container the master job has already gets the MBL's seal, unless it has one of its own.
-          let sealed = 0;
-          const containers = current.containers.map((c) => {
-            const seal = read.get(c.containerNumber)?.sealNumber ?? "";
-            if (c.sealNumber || !seal) return c;
-            sealed += 1;
-            return { ...c, sealNumber: seal };
-          });
-          if (fresh.length > 0 || sealed > 0) {
-            await api.shipments.masterJobContainersUpdate(masterJobId, { containers: [...containers, ...fresh] });
-          }
+        const read = new Map(added.map((c) => [c.containerNumber, c]));
+        const known = new Set(current.containers.map((c) => c.containerNumber));
+        // A Full Load master job reads its containers from the shipments, so it adds none of its own.
+        const fresh = current.masterJob.loadType === FULL_LOAD ? [] : added.filter((c) => !known.has(c.containerNumber));
+        // A container the master job has already gets the MBL's seal, unless it has one of its own;
+        // on a Full Load that writes it to the shipments carrying the container.
+        let sealed = 0;
+        const containers = current.containers.map((c) => {
+          const seal = read.get(c.containerNumber)?.sealNumber ?? "";
+          if (c.sealNumber || !seal) return c;
+          sealed += 1;
+          return { ...c, sealNumber: seal };
+        });
+        if (fresh.length > 0 || sealed > 0) {
+          await api.shipments.masterJobContainersUpdate(masterJobId, { containers: [...containers, ...fresh] });
         }
       }
       setMblFiled(true);
@@ -1024,7 +1041,9 @@ export function DocumentReadingWorkflow() {
     try {
       const created = await createShipment(baseCreatePayload());
       let data = await withPartyLinks(toShipmentUpdate(approved), async () => created.shipment, keptPartyDetails);
-      const newContainers = containerRowsFromNumbers(parseContainerNumbers(approved["Container Number"]));
+      const newContainers = approved["Container Number"]
+        ? containersAfterReading([], { numbers: approved["Container Number"], addNumbers: true, seals: approved[SEAL_LABEL] })
+        : [];
       if (newContainers.length > 0) data.containers = newContainers;
       data = withContainerType(data, approved);
       data = withCargoLine(data, approved);
@@ -1428,7 +1447,18 @@ export function DocumentReadingWorkflow() {
           }
         >
           {error && <Alert className="mb-3" type="error" showIcon message={error} />}
-          <FieldReviewTable fields={fields} onToggle={toggleField} editable onEdit={editField} onPick={pickField} />
+          <FieldReviewTable
+            fields={fields}
+            onToggle={toggleField}
+            editable
+            onEdit={editField}
+            onPick={pickField}
+            containersOnFile={
+              shipmentMode === "existing"
+                ? (shipments.find((s) => s.id === targetShipmentId)?.containers ?? []).map((c) => c.containerNumber).filter(Boolean)
+                : []
+            }
+          />
           {shipmentDocViews.map((d) => (
             <SaveDocumentBox
               key={d.file.uid}
@@ -2092,9 +2122,16 @@ function MblDetailsBox({ info, ticked, onToggle, filed, mcz, masterJob, loadType
               <span className="flex-1 min-w-0">
                 <span className="text-slate-900 font-medium break-words">{value}</span>
                 {cntrDetail && <span className={`block ${HINT}`}>Used for the container type</span>}
-                {label === MBL_SEALS_LABEL && (
-                  <span className={`block ${HINT}`}>Filed with the containers, one seal each</span>
-                )}
+                {label === MBL_SEALS_LABEL &&
+                  (() => {
+                    const note = sealNote(sealContainers(info[MBL_CONTAINERS_LABEL]), value);
+                    return (
+                      <span className={`block ${note?.warn ? "text-[12px] text-amber-600" : HINT}`}>
+                        {note?.warn ? note.text : "Filed with the containers, one seal each"}
+                        {note && !note.warn && <span className="block">{note.text}</span>}
+                      </span>
+                    );
+                  })()}
                 {label === MBL_CONTAINERS_LABEL && fullLoad && (
                   <span className={`block ${HINT}`}>Full Load: the containers come from the shipments</span>
                 )}

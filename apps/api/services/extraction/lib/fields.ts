@@ -1,5 +1,5 @@
 export const SHIPMENT_FIELDS = [
-  "Shipper", "Consignee", "Personal Reference", "Container Number",
+  "Shipper", "Consignee", "Personal Reference", "Container Number", "Seal Number",
   "Booking Number", "Load Type", "Shipping line / Coloader",
   "POL", "POD", "Destination", "HS Code", "Cargo Description",
   "House BoL Number", "Master BoL Number", "House BoL Type", "Master BoL Type",

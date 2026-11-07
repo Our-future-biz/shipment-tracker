@@ -3,7 +3,7 @@
 import { Table, Checkbox, Input, Tag } from "antd";
 import { Pill } from "@/components/Pill";
 import { EMPTY } from "@/styles/ui";
-import type { ExtractedField } from "../_lib/extraction";
+import { parseContainerNumbers, SEAL_LABEL, sealContainers, sealNote, type ExtractedField } from "../_lib/extraction";
 import { GeoFlag, GeoSelect } from "@/components/GeoSelect";
 import { LABEL_GEO_FIELDS } from "@/lib/places";
 
@@ -17,6 +17,8 @@ interface FieldReviewTableProps {
   showExisting?: boolean;
   /** The colour of the values read: the app's indigo, or amber (the master job's shipments). */
   accent?: "indigo" | "amber";
+  /** The containers already on the shipment: a seal read without a container number goes on them. */
+  containersOnFile?: string[];
 }
 
 export function FieldReviewTable({
@@ -27,9 +29,14 @@ export function FieldReviewTable({
   onPick,
   showExisting = true,
   accent = "indigo",
+  containersOnFile = [],
 }: FieldReviewTableProps) {
   const valueClass = accent === "amber" ? "text-amber-600" : "text-indigo-600";
   const rows = fields.map((f, index) => ({ ...f, index, key: `${f.column}-${index}` }));
+  const containerRow = fields.find((f) => f.column === "Container Number");
+  const sealTargets = sealContainers(containerRow?.extractedValue, containersOnFile);
+  // A seal goes on a container: one that is neither on file nor ticked to be added leaves it nowhere.
+  const sealStranded = !!containerRow && !containerRow.approved && parseContainerNumbers(containerRow.extractedValue).some((n) => !containersOnFile.includes(n));
 
   type Row = (typeof rows)[number];
 
@@ -77,11 +84,26 @@ export function FieldReviewTable({
         ) : (
           <span className={`tabular-nums ${valueClass}`}>{v}</span>
         );
-        if (!row.choices || !onPick) return value;
+        // Which container each seal goes on, or why it can't be filed yet.
+        const note =
+          row.column !== SEAL_LABEL || !v.trim()
+            ? null
+            : row.approved && sealStranded
+              ? { text: "Tick Container Number too: the seal goes on its container", warn: true }
+              : sealNote(sealTargets, v);
+        const noted = note ? (
+          <div>
+            {value}
+            <div className={`mt-0.5 text-[11px] leading-snug ${note.warn ? "text-amber-600" : "text-slate-500"}`}>{note.text}</div>
+          </div>
+        ) : (
+          value
+        );
+        if (!row.choices || !onPick) return noted;
         // The files read together disagree: each value with the files it came from, to pick one.
         return (
           <div>
-            {value}
+            {noted}
             <div className="mt-1 flex flex-wrap gap-1">
               {row.choices.map((c) => (
                 <Tag.CheckableTag

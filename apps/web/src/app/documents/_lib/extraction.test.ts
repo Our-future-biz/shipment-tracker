@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { customerNamed, keepsPartyLink, keptPartyDetails, mblContainers, mblDefaultTicks, mblToMasterJobUpdate, partyLinks, type ShipmentPartyDetails } from "./extraction";
+import { containersAfterReading, customerNamed, keepsPartyLink, keptPartyDetails, mblContainers, mblDefaultTicks, mblToMasterJobUpdate, normalizeExtracted, partyLinks, sealNote, sealsOf, sealsOnFileThatDiffer, withMblSeals, type ShipmentPartyDetails } from "./extraction";
 
 const acme = { id: "k1", companyName: "Acme Logistics s.r.o." };
 const zelezny = { id: "k2", companyName: "Železný a syn" };
@@ -133,5 +133,82 @@ describe("Master B/L to master job", () => {
       shippingLine: "Atlantic Container Line",
       closingDate: "2026-02-20",
     });
+  });
+});
+
+describe("seal numbers read with containers", () => {
+  const A = "ACLU9821217";
+  const B = "MSKU1234565";
+  const line = (containerNumber: string, sealNumber = "") => ({ containerNumber, sealNumber, type: "40' HC", teu: "2", packages: "", packageType: "", grossWeight: "", volume: "" });
+
+  it("pairs one seal per container, and leaves any other list unpaired", () => {
+    expect(sealsOf([A, B], "S1, S2")).toEqual(["S1", "S2"]);
+    expect(sealsOf([A, B], ", S2")).toEqual(["", "S2"]);
+    expect(sealsOf([A, B], "S1")).toBeNull();
+    expect(sealsOf([], "S1")).toBeNull();
+  });
+
+  it("gives a single container every seal read", () => {
+    expect(sealsOf([A], "S1, S2")).toEqual(["S1 / S2"]);
+    expect(sealsOf([A], "S1 / S2")).toEqual(["S1 / S2"]);
+  });
+
+  it("adds containers with their seals on a new shipment", () => {
+    const rows = containersAfterReading([], { numbers: `${A}, ${B}`, addNumbers: true, seals: "S1, S2" });
+    expect(rows.map((c) => [c.containerNumber, c.sealNumber])).toEqual([[A, "S1"], [B, "S2"]]);
+  });
+
+  it("puts the seal on a container on file instead of adding it twice, keeping its other details", () => {
+    const rows = containersAfterReading([line(A)], { numbers: A, addNumbers: true, seals: "S1" });
+    expect(rows).toEqual([{ ...line(A), sealNumber: "S1" }]);
+  });
+
+  it("files a ticked seal without adding its unticked container", () => {
+    const rows = containersAfterReading([line(A)], { numbers: `${A}, ${B}`, addNumbers: false, seals: "S1, S2" });
+    expect(rows).toEqual([{ ...line(A), sealNumber: "S1" }]);
+  });
+
+  it("leaves seals on file alone when the seal row is not ticked", () => {
+    const rows = containersAfterReading([line(A, "OLD")], { numbers: `${A}, ${B}`, addNumbers: true });
+    expect(rows.map((c) => [c.containerNumber, c.sealNumber])).toEqual([[A, "OLD"], [B, ""]]);
+  });
+
+  it("puts a seal read without a container number on the shipment's only container", () => {
+    expect(containersAfterReading([line(A)], { addNumbers: false, seals: "S1" })[0]!.sealNumber).toBe("S1");
+    expect(containersAfterReading([line(A), line(B)], { addNumbers: false, seals: "S1" }).map((c) => c.sealNumber)).toEqual(["", ""]);
+  });
+
+  it("names only the seals on file that the reading would change", () => {
+    const onFile = [line(A, "S1"), line(B)];
+    expect(sealsOnFileThatDiffer(onFile, `${A}, ${B}`, "S1, S2")).toBe("");
+    expect(sealsOnFileThatDiffer([line(A, "OLD"), line(B)], `${A}, ${B}`, "S1, S2")).toBe("OLD");
+  });
+
+  it("gives a House B/L without a seal the Master B/L's for the same container", () => {
+    const mbl = { "Container Number": `${A}, ${B}`, "Seal Number": "S1, S2" };
+    const house = { Shipper: "Acme", "Container Number": B, POL: "Hamburg" };
+    const filled = withMblSeals(house, mbl);
+    expect(filled["Seal Number"]).toBe("S2");
+    expect(Object.keys(filled)).toEqual(["Shipper", "Container Number", "Seal Number", "POL"]);
+    expect(withMblSeals({ ...house, "Seal Number": "OWN" }, mbl)["Seal Number"]).toBe("OWN");
+    expect(withMblSeals({ "Container Number": "TCLU1234560" }, mbl)["Seal Number"]).toBeUndefined();
+    expect(withMblSeals(house, null)).toBe(house);
+  });
+
+  it("says where each seal goes, or why it can't be filed", () => {
+    expect(sealNote([A], "S1")).toBeNull();
+    expect(sealNote([A, B], ", S2")).toEqual({ text: `${A}: no seal · ${B}: S2`, warn: false });
+    expect(sealNote([A, B], "S1")?.warn).toBe(true);
+    expect(sealNote([], "S1")?.warn).toBe(true);
+  });
+
+  it("does not file an MBL's seal on the wrong container when the list is short", () => {
+    const two = mblContainers({ "Container Number": `${A}, ${B}`, "Seal Number": "S1" });
+    expect(two.map((c) => c.sealNumber)).toEqual(["", ""]);
+  });
+
+  it("tidies a seal list and drops one with no seal in it", () => {
+    expect(normalizeExtracted({ "Seal Number": "S1 ,S2" })["Seal Number"]).toBe("S1, S2");
+    expect(normalizeExtracted({ "Seal Number": " , " })["Seal Number"]).toBeUndefined();
   });
 });

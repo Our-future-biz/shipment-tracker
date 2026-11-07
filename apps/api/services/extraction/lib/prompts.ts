@@ -21,6 +21,7 @@ Rules:
 - CNTR type: "DRY", "REEFER", "OT" (Open Top), "FR" (Flat Rack), "TANK"
 - CNTR count: return as number string (e.g., "2")
 - Container Number: actual container ID (e.g., "MSMU1234567"), not a count
+- Seal Number: the seal number of each container, comma-separated in the same order as Container Number ("" for a container without one, so the two lists stay the same length). Several seals on one container are joined with " / ". Seals are printed as "Seal", "Seal #", "Seal No.", "SN" or next to the container number, often as "MSMU1234567 / 40HC / SEAL 351072". A seal is never a container number, a booking number or a B/L number. Leave it out when the document prints no seal
 ${PLACE_RULES}
 - Return ONLY a JSON object. No markdown, no explanation, no code fences.`;
 
@@ -104,7 +105,7 @@ Rules:
 - Estimated Departure: the shipped-on-board date (or the ETD if no on-board date). Estimated Arrival: the ETA at the POD, if printed
 - Cargo Closing, VGM Closing, SI Closing, Release Reference / Release Depot, Redelivery Reference / Redelivery Depot: only if the B/L states them
 - Container Number: every container number (4 letters + 7 digits), comma-separated in the order printed
-- Seal Number: the seal number of each container, comma-separated in the same order as Container Number ("" for a container without one). Seals are printed as "Seal", "Seal #", "Seal No." or next to the container number
+- Seal Number: the seal number of each container, comma-separated in the same order as Container Number ("" for a container without one, so the two lists stay the same length). Several seals on one container are joined with " / ". Seals are printed as "Seal", "Seal #", "Seal No.", "SN" or next to the container number, often as "MSMU1234567 / 40HC / SEAL 351072". A seal is never a container number, a booking number or a B/L number. Leave it out when the document prints no seal
 - Equipment: one CNTR group per container type, e.g. "1 X 40 ft. High Cube" → CNTR count [1] "1", CNTR length [1] "40HC", CNTR type [1] "DRY". CNTR length: "20", "40", "40HC", "45". CNTR type: "DRY", "REEFER", "OT", "FR", "TANK"
 - PCS / Type Of Packages / Total Weight In Tons / Total Volume In CBM: the B/L's totals (sum the cargo lines when no total is printed; weight in metric tons, volume in CBM)
 - Date format: YYYY-MM-DD. Read day and month as the document means them; US documents write MM/DD/YYYY
@@ -155,6 +156,8 @@ Rules:
 - CNTR length: "20", "40", "40HC", "45"
 - CNTR type: "DRY", "REEFER", "OT", "FR", "TANK"
 - CNTR count: number as string
+- Container Number: every container number (4 letters + 7 digits), comma-separated in the order printed
+- Seal Number: the seal number of each container, comma-separated in the same order as Container Number ("" for a container without one, so the two lists stay the same length). Several seals on one container are joined with " / ". Seals are printed as "Seal", "Seal #", "Seal No.", "SN" or next to the container number, often as "MSMU1234567 / 40HC / SEAL 351072". A seal is never a container number, a booking number or a B/L number. Leave it out when the document prints no seal
 - For MBL pages: return 1 object with shared info + "__type__": "MBL"
 ${PLACE_RULES}
 - Return ONLY a JSON array. No markdown, no explanation, no code fences.`;

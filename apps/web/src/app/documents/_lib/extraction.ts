@@ -105,6 +105,13 @@ export const INVOICE_FIELD_LABELS: Record<string, string> = {
 export function normalizeExtracted(raw: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = { ...raw };
 
+  // One list for every document, so the same seals read the same; none at all is no seal read.
+  if (out[SEAL_LABEL] !== undefined) {
+    const seals = out[SEAL_LABEL].split(/[,;\n]/).map((v) => v.trim());
+    if (seals.some(Boolean)) out[SEAL_LABEL] = seals.join(", ");
+    else delete out[SEAL_LABEL];
+  }
+
   const lt = (out["Load Type"] || "").trim().toUpperCase();
   // Documents also write "FCL/FCL", "LCL/FCL" (origin/destination); the origin side decides.
   if (lt.startsWith("FCL")) out["Load Type"] = "Full Load";
@@ -131,7 +138,8 @@ export function normalizeExtracted(raw: Record<string, string>): Record<string, 
     if (hasVessel || hasContainer) out["Freight Mode"] = "Sea Freight";
   }
 
-  return out;
+  // The review shows the seals right under their containers, whatever order they were read in.
+  return out[SEAL_LABEL] && out["Container Number"] ? withSeal(out, out[SEAL_LABEL]) : out;
 }
 
 // A document's "Container Number" field can hold several numbers and use spaces or
@@ -141,12 +149,12 @@ export function parseContainerNumbers(raw?: string): string[] {
   return extractContainerNumbers(raw);
 }
 
-// Build container rows from parsed numbers (only the number is known from extraction;
-// seal/type/weight/etc. are filled in later in the Container Details tab).
-export function containerRowsFromNumbers(numbers: string[]): interfaces.ContainerLine[] {
-  return numbers.map((containerNumber) => ({
+// Build container rows from parsed numbers and their seals, when read (type/weight/etc. are filled
+// in later in the Container Details tab).
+export function containerRowsFromNumbers(numbers: string[], seals: string[] = []): interfaces.ContainerLine[] {
+  return numbers.map((containerNumber, i) => ({
     containerNumber,
-    sealNumber: "",
+    sealNumber: seals[i] ?? "",
     type: "",
     teu: "",
     packages: "",
@@ -154,6 +162,90 @@ export function containerRowsFromNumbers(numbers: string[]): interfaces.Containe
     grossWeight: "",
     volume: "",
   }));
+}
+
+/** The detail holding what was read for each container's seal. */
+export const SEAL_LABEL = "Seal Number";
+
+/**
+ * The seal of each of these containers, in their order ("" where a container has none). Seals are
+ * written one per container, so only a list as long as the containers can be paired; any other is
+ * null, because a seal on the wrong container is worse than none. One container takes all of them.
+ */
+export function sealsOf(numbers: string[], raw?: string): string[] | null {
+  const seals = (raw ?? "").split(/[,;\n]/).map((s) => s.trim());
+  if (numbers.length === 1) return [seals.filter(Boolean).join(" / ")];
+  return numbers.length > 1 && seals.length === numbers.length ? seals : null;
+}
+
+/** The containers a read seal belongs to: the ones read, or those on file when the document names none. */
+export function sealContainers(readNumbers: string | undefined, onFile: string[] = []): string[] {
+  const read = parseContainerNumbers(readNumbers);
+  return read.length > 0 ? read : onFile;
+}
+
+/** What the review says about a read seal, when more than its value is needed. */
+export function sealNote(numbers: string[], raw: string): { text: string; warn: boolean } | null {
+  if (numbers.length === 0) return { text: "No container to file it on: add the container number", warn: true };
+  const seals = sealsOf(numbers, raw);
+  if (!seals) {
+    return { text: `${numbers.length} containers: not filed until there is one seal for each, separated by commas`, warn: true };
+  }
+  if (numbers.length === 1) return null;
+  return { text: numbers.map((n, i) => `${n}: ${seals[i] || "no seal"}`).join(" · "), warn: false };
+}
+
+/**
+ * A shipment's containers after a reading: the ones read and not on file are added when
+ * addNumbers is given, and each container named gets the seal ticked for it. A container on file
+ * keeps its other details, and its seal unless one was read for it.
+ */
+export function containersAfterReading(
+  existing: interfaces.ContainerLine[],
+  read: { numbers?: string; addNumbers: boolean; seals?: string },
+): interfaces.ContainerLine[] {
+  const known = existing.map((c) => c.containerNumber);
+  const targets = sealContainers(read.numbers, known);
+  const seals = sealsOf(targets, read.seals) ?? [];
+  const sealFor = (number: string) => seals[targets.indexOf(number)] ?? "";
+  const kept = existing.map((c) => (sealFor(c.containerNumber) ? { ...c, sealNumber: sealFor(c.containerNumber) } : c));
+  if (!read.addNumbers) return kept;
+  const added = parseContainerNumbers(read.numbers).filter((n) => !known.includes(n));
+  return [...kept, ...containerRowsFromNumbers(added, added.map(sealFor))];
+}
+
+/** The seals on file that differ from the ones read for the same containers, for the review's Existing Value. */
+export function sealsOnFileThatDiffer(existing: interfaces.ContainerLine[], readNumbers: string | undefined, raw: string): string {
+  const targets = sealContainers(readNumbers, existing.map((c) => c.containerNumber));
+  const seals = sealsOf(targets, raw) ?? [];
+  return existing
+    .filter((c) => {
+      const read = seals[targets.indexOf(c.containerNumber)];
+      return !!c.sealNumber && !!read && read !== c.sealNumber;
+    })
+    .map((c) => c.sealNumber)
+    .join(", ");
+}
+
+/** A record with this seal, right after its container numbers. */
+function withSeal(record: Record<string, string>, seal: string): Record<string, string> {
+  const entries = Object.entries(record).filter(([label]) => label !== SEAL_LABEL);
+  entries.splice(entries.findIndex(([label]) => label === "Container Number") + 1, 0, [SEAL_LABEL, seal]);
+  return Object.fromEntries(entries);
+}
+
+/**
+ * A House B/L that prints no seal takes the Master B/L's for the same containers: it is the same
+ * box, and on a Full Load the master job reads its containers from the shipments.
+ */
+export function withMblSeals(house: Record<string, string>, mbl: Record<string, string> | null | undefined): Record<string, string> {
+  if (!mbl || house[SEAL_LABEL]) return house;
+  const numbers = parseContainerNumbers(house["Container Number"]);
+  const mblNumbers = parseContainerNumbers(mbl["Container Number"]);
+  const mblSeals = sealsOf(mblNumbers, mbl[SEAL_LABEL]);
+  if (!mblSeals) return house;
+  const seals = numbers.map((n) => mblSeals[mblNumbers.indexOf(n)] ?? "");
+  return seals.some(Boolean) ? withSeal(house, seals.join(", ")) : house;
 }
 
 // Map approved {label: value} pairs to a ShipmentUpdateRequest, dropping unknown
@@ -496,7 +588,7 @@ export const MBL_TO_MASTER_JOB: Record<string, MasterJobTextField> = {
 export const MBL_CONTAINERS_LABEL = "Container Number";
 
 /** The containers' seals, in the order of their numbers: filed with the containers, no tick of their own. */
-export const MBL_SEALS_LABEL = "Seal Number";
+export const MBL_SEALS_LABEL = SEAL_LABEL;
 
 /** CNTR count/length/type rows only describe the containers; they have no tick of their own. */
 export const isMblContainerDetail = (label: string) => /^CNTR (count|length|type) \[\d\]$/.test(label);
@@ -530,7 +622,7 @@ export function containerTypeFrom(length: string, kind: string): string {
 export function mblContainers(info: Record<string, string>): interfaces.MasterJobContainerLine[] {
   const numbers = parseContainerNumbers(info[MBL_CONTAINERS_LABEL]);
   // One seal per container, in the same order ("" where a container has none).
-  const seals = (info[MBL_SEALS_LABEL] ?? "").split(/[,;\n]/).map((s) => s.trim());
+  const seals = sealsOf(numbers, info[MBL_SEALS_LABEL]) ?? [];
   const groups = [1, 2, 3, 4]
     .map((i) => containerTypeFrom(info[`CNTR length [${i}]`] ?? "", info[`CNTR type [${i}]`] ?? ""))
     .filter(Boolean);

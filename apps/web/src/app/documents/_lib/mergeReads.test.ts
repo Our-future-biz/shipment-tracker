@@ -40,4 +40,31 @@ describe("mergeReads", () => {
     ]);
     expect(merged.values).toEqual({ Shipper: "ACME" });
   });
+
+  it("keeps each seal with its container when the files name different containers", () => {
+    const { values, choices } = mergeReads([
+      { source: "a.pdf", values: { "Container Number": "ACLU9821217", "Seal Number": "S1" } },
+      { source: "b.pdf", values: { "Container Number": "MSKU1234565", "Seal Number": "S2" } },
+    ]);
+    expect(values["Container Number"]).toBe("ACLU9821217, MSKU1234565");
+    expect(values["Seal Number"]).toBe("S1, S2");
+    expect(choices["Seal Number"]).toBeUndefined();
+  });
+
+  it("offers a choice when two files give one container different seals", () => {
+    const { values, choices } = mergeReads([
+      { source: "a.pdf", values: { "Container Number": "ACLU9821217", "Seal Number": "S1" } },
+      { source: "b.pdf", values: { "Container Number": "ACLU9821217", "Seal Number": "S9" } },
+    ]);
+    expect(values["Seal Number"]).toBe("S1");
+    expect(choices["Seal Number"]?.map((c) => c.value)).toEqual(["S1", "S9"]);
+  });
+
+  it("keeps the seal of a container one file leaves out", () => {
+    const { values } = mergeReads([
+      { source: "a.pdf", values: { "Container Number": "ACLU9821217, MSKU1234565", "Seal Number": "S1, S2" } },
+      { source: "b.pdf", values: { "Container Number": "MSKU1234565" } },
+    ]);
+    expect(values["Seal Number"]).toBe("S1, S2");
+  });
 });
