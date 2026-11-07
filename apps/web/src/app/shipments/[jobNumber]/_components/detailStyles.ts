@@ -46,3 +46,5 @@ export const REF_VALUE = `${REF} text-[13px] text-slate-900`;
 export const HEADER_BTN = BTN;
 /** An icon-only button of the header row (Notes, Attachments). */
 export const HEADER_ICON_BTN = ICON_BTN;
+// The same button when what it opens has something in it: the app's primary blue.
+export const HEADER_ICON_BTN_ON = `${ICON_BTN} !bg-indigo-600 !border-indigo-600 !text-white hover:!bg-indigo-700 hover:!border-indigo-700 hover:!text-white`;

@@ -72,7 +72,7 @@ import { SalesQuoteLink } from "./_components/SalesQuoteLink";
 import type { controllers } from "@/lib/api/client";
 import { TasksPanel } from "./_components/TasksPanel";
 import { ShipmentFacts, ShipmentProgress } from "./_components/ShipmentSummary";
-import { CARD, CARD_BODY, COLS2, EMPTY, HEADER_BTN, HEADER_ICON_BTN, LABEL, LABEL_TOP, LABEL_W, REF_KEYS, REF_VALUE, ROW, ROW_TOP, VALUE } from "./_components/detailStyles";
+import { CARD, CARD_BODY, COLS2, EMPTY, HEADER_BTN, HEADER_ICON_BTN, HEADER_ICON_BTN_ON, LABEL, LABEL_TOP, LABEL_W, REF_KEYS, REF_VALUE, ROW, ROW_TOP, VALUE } from "./_components/detailStyles";
 import {
   BTN,
   BTN_GHOST,
@@ -1213,6 +1213,8 @@ export function ShipmentDetailContent() {
   };
 
   // Shipment Status cells on this page offer only the shipment's Trade Direction statuses.
+  // Spaces alone are no note.
+  const hasNote = !!shipment.freeComments?.trim();
   const page = (
     <div className="bg-slate-50 min-h-full">
       {/* ── Header ── */}
@@ -1238,8 +1240,12 @@ export function ShipmentDetailContent() {
             )}
 
             {/* Notes */}
-            <Tooltip title="Notes">
-              <button onClick={() => setNotesOpen(true)} className={HEADER_ICON_BTN}>
+            <Tooltip title={hasNote ? "Notes - there is a note" : "Notes"}>
+              <button
+                onClick={() => setNotesOpen(true)}
+                aria-label={hasNote ? "Notes - there is a note" : "Notes"}
+                className={hasNote ? HEADER_ICON_BTN_ON : HEADER_ICON_BTN}
+              >
                 <FileTextOutlined />
               </button>
             </Tooltip>
