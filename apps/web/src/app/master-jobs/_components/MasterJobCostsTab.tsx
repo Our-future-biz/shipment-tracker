@@ -40,6 +40,14 @@ function lineTotal(amount: string | null, qty: string | null): number | null {
   return Number(amount) * (Number.isFinite(q) ? q : 1);
 }
 
+/** What a line comes to in the split: its real cost, or else its estimate; null when it has neither. */
+function shownTotal(l: Line): { total: number; currency: string } | null {
+  const real = lineTotal(l.realAmount, l.realQty);
+  if (real != null) return { total: real, currency: l.realCurrency };
+  const est = lineTotal(l.estAmount, l.estQty);
+  return est != null ? { total: est, currency: l.estCurrency } : null;
+}
+
 interface Props {
   masterJob: interfaces.MasterJobItem;
 }
@@ -137,6 +145,12 @@ export function MasterJobCostsTab({ masterJob }: Props) {
   const { lines, houses, shares, split } = data;
   const shareOf = (lineId: string, shipmentId: string) => shares.find((s) => s.lineId === lineId && s.shipmentId === shipmentId);
   const splitLines = lines.filter((l) => l.inSplit);
+  // All the split shares out, per currency: adding currencies up would take an exchange rate.
+  const allIn = new Map<string, number>();
+  for (const l of splitLines) {
+    const shown = shownTotal(l);
+    if (shown) allIn.set(shown.currency, (allIn.get(shown.currency) ?? 0) + shown.total);
+  }
   const housesInLine = (l: Line) => houses.filter((h) => !l.excludedShipmentIds.includes(h.shipmentId));
   // Only a shipment still in a W/M line's split is missing a share by having no W/M.
   const noWm = houses.filter((h) => !(h.freightTon > 0) && splitLines.some((l) => l.splitMethod === "wm" && !l.excludedShipmentIds.includes(h.shipmentId)));
@@ -378,10 +392,9 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                       {totalWm.toFixed(3)}
                     </td>
                     {splitLines.map((l) => {
-                      const real = lineTotal(l.realAmount, l.realQty);
-                      const est = lineTotal(l.estAmount, l.estQty);
-                      const total = real ?? est;
-                      const currency = real != null ? l.realCurrency : l.estCurrency;
+                      const shown = shownTotal(l);
+                      const total = shown?.total ?? null;
+                      const currency = shown?.currency;
                       const inLine = housesInLine(l);
                       const lineWm = inLine.reduce((sum, h) => sum + h.freightTon, 0);
                       const byWm = l.splitMethod === "wm";
@@ -416,6 +429,14 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                 </span>
               )}
               {split.inSync && split.written > 0 && <span className="text-[12px] text-emerald-700">Processed: the shipments carry this split.</span>}
+              {allIn.size > 0 && (
+                <span className="whitespace-nowrap text-[13px] font-semibold tabular-nums text-slate-900">
+                  All in:{" "}
+                  {[...allIn]
+                    .map(([currency, total]) => `${amountOf(total)} ${currency}`)
+                    .join(" + ")}
+                </span>
+              )}
               <Button type="primary" disabled={split.inSync || busy} loading={processSplit.isPending} onClick={() => processSplit.mutate()}>
                 Process the split
               </Button>
