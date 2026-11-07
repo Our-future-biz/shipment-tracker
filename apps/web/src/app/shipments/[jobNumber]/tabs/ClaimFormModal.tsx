@@ -4,11 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import { Button, DatePicker, Input, Select, type InputRef, type RefSelectProps } from "antd";
 import dayjs from "dayjs";
 import { AppModal } from "@/components/AppModal";
-import type { controllers, interfaces } from "@/lib/api/client";
+import type { interfaces } from "@/lib/api/client";
 import { LABEL_TEXT } from "@/styles/ui";
+import { claimChanges, claimFilled, type ClaimValues } from "./claimValues";
 
 type Claim = interfaces.ClaimItem;
-export type ClaimValues = controllers.ClaimUpdateRequest;
+export type { ClaimValues };
 
 export const CARGO_STATES = ["Damaged", "Incomplete", "Undamaged", "Lost"];
 
@@ -18,7 +19,7 @@ interface ClaimFormModalProps {
   claim?: Claim;
   saving: boolean;
   onClose: () => void;
-  /** Saves the values; rejects when the server refuses them (the dialog then stays open). */
+  /** Saves the values (for a claim being changed, only the fields changed); rejects when the server refuses them (the dialog then stays open). */
   onSave: (values: ClaimValues) => Promise<unknown>;
 }
 
@@ -47,20 +48,29 @@ export function ClaimFormModal({ kind, claim, saving, onClose, onSave }: ClaimFo
     return () => clearTimeout(t);
   }, []);
   const title = `${claim ? "Edit" : "New"} ${kind === "cargo" ? "claim on the shipment" : "claim on costs"}`;
+  // A changed claim sends only what changed; a new one needs something filled in.
+  const changed = claimChanges(claim, values);
+  const filled = claimFilled(values);
   const save = () => {
-    onSave(values).catch(() => undefined);
+    if (!claim && !filled) return;
+    onSave(changed).catch(() => undefined);
   };
 
   return (
+    // Holds what was typed: a click beside it leaves it open, and while it saves it stays.
     <AppModal
       open
+      maskClosable={false}
+      closable={!saving}
       onClose={onClose}
       title={title}
       size="medium"
       footer={
         <div className="flex justify-end gap-2">
-          <Button onClick={onClose}>Cancel</Button>
-          <Button type="primary" loading={saving} onClick={save}>
+          <Button onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          <Button type="primary" loading={saving} disabled={!claim && !filled} onClick={save}>
             {claim ? "Save" : "Add claim"}
           </Button>
         </div>

@@ -6,8 +6,8 @@ import { Pill } from "@/components/Pill";
 import { useTrackingActions, type TrackingEventItem } from "@/hooks/useShipmentTracking";
 import { apiErrorMessage } from "@/lib/api";
 import { businessDateTime, formatDate } from "@/lib/date";
-import { EMPTY_STATE, HINT, REF, TD, TH } from "@/styles/ui";
-import { CELL_LINE, DATE_TEXT, FRAMED_BTN, MAIN_BTN, MAIN_TEXT, TABLE, TABLE_BOX, TBODY, TROW } from "./trackingUi";
+import { BTN_BAR, BTN_BAR_PRIMARY, EMPTY_STATE, HINT, REF, TD, TH } from "@/styles/ui";
+import { CELL_LINE, DATE_TEXT, MAIN_TEXT, TABLE, TABLE_BOX, TBODY, TROW } from "./trackingUi";
 import { personOrSystem } from "./RecordedBy";
 import { ReasonModal } from "./ReasonModal";
 
@@ -49,7 +49,8 @@ export function EventsCard({ shipmentId, events, mayChangeDetails, mayRecord, co
                 <th scope="col" className={TH}>Event</th>
                 <th scope="col" className={`${TH} w-[140px]`}>Where</th>
                 <th scope="col" className={`${TH} w-[14%]`}>Note</th>
-                <th scope="col" className={`${TH} w-[360px]`}>Recorded</th>
+                {/* cut with "…" (the whole of it in its title), so the Event keeps the room it needs */}
+                <th scope="col" className={`${TH} w-[240px]`}>Recorded</th>
                 <th scope="col" className={`${TH} w-[170px]`}>
                   <span className="sr-only">Actions</span>
                 </th>
@@ -82,12 +83,12 @@ export function EventsCard({ shipmentId, events, mayChangeDetails, mayRecord, co
                   <td className={`${TD} whitespace-nowrap text-right`}>
                     {e.effect === "proposed" && mayChangeDetails && (
                       <span className="inline-flex gap-1">
-                        <button type="button" disabled={busy} onClick={() => confirm.mutate(e.id)} className={`${MAIN_BTN}`}>Confirm</button>
-                        <button type="button" disabled={busy} onClick={() => dismiss.mutate(e.id)} className={`${FRAMED_BTN}`}>Dismiss</button>
+                        <button type="button" disabled={busy} onClick={() => confirm.mutate(e.id)} className={`${BTN_BAR_PRIMARY}`}>Confirm</button>
+                        <button type="button" disabled={busy} onClick={() => dismiss.mutate(e.id)} className={`${BTN_BAR}`}>Dismiss</button>
                       </span>
                     )}
                     {e.strikeable && e.effect !== "proposed" && mayRecord(e.kind) && (
-                      <button type="button" onClick={() => setStriking(e)} className={`${FRAMED_BTN}`}>Strike</button>
+                      <button type="button" onClick={() => setStriking(e)} className={`${BTN_BAR}`}>Strike</button>
                     )}
                   </td>
                 </tr>

@@ -10,7 +10,7 @@ import { PlusOutlined } from "@ant-design/icons";
 import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { SectionCard } from "@/components/SectionCard";
-import { CARD, EMPTY, EMPTY_STATE, LABEL_TEXT } from "@/styles/ui";
+import { ADD_BTN, CARD, EMPTY, EMPTY_STATE, LABEL_TEXT } from "@/styles/ui";
 import { SHIPMENT_WRITE_KEY, type ShipmentItem } from "@/hooks/useShipments";
 import { useIsMutating } from "@tanstack/react-query";
 import {
@@ -604,7 +604,7 @@ export function CargoDetailsTab({
         aria-label={table === "dims" ? "Add dimension" : "Add description"}
         onClick={() => (table === "dims" ? addDim(active.key) : addItem(active.key))}
         // On the column titles' line (under the group labels), the same place in both tables.
-        className="!absolute top-[19px] right-[9px] z-10 !w-[22px] !h-[22px] !min-w-0 !p-0"
+        className={`${ADD_BTN} !absolute top-[19px] right-[9px] z-10`}
       />
     </Tooltip>
   );

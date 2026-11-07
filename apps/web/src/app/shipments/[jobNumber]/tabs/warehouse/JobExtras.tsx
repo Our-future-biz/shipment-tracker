@@ -8,8 +8,8 @@ import { SectionChangedError, useWarehouseSection } from "@/hooks/useWarehouseSe
 import { apiErrorMessage } from "@/lib/api";
 import { SectionCard as Card } from "@/components/SectionCard";
 import { formatDate } from "@/lib/date";
-import { HINT, LABEL_TEXT } from "@/styles/ui";
-import { BAR_BTN_PRIMARY, rowLine } from "./warehouseUi";
+import { BTN_BAR_PRIMARY, HINT, LABEL_TEXT } from "@/styles/ui";
+import { rowLine } from "./warehouseUi";
 
 interface JobSectionData {
   notes?: string;
@@ -48,7 +48,7 @@ export function JobNotes({ ownerId, messageApi }: { ownerId: string; messageApi:
           <Button
             size="small"
             type="primary"
-            className={BAR_BTN_PRIMARY}
+            className={BTN_BAR_PRIMARY}
             loading={isSaving}
             onClick={() =>
               saveKeys([{ key: "notes", value: notes, expected: savedNotes }])
@@ -137,7 +137,7 @@ export function ActionPushButtons({ ownerId, messageApi }: { ownerId: string; me
               {!parsed && (
                 <button
                   type="button"
-                  className={BAR_BTN_PRIMARY}
+                  className={BTN_BAR_PRIMARY}
                   onClick={() => setModalState({ actionKey: action.key, label: action.label, note: "", fileList: [] })}
                 >
                   <SendOutlined /> Send {action.label}

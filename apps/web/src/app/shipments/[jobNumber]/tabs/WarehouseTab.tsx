@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useMemo } from "react";
-import { Input, Button, Tooltip, message } from "antd";
+import { App, Input, Button, Tooltip } from "antd";
 import { CheckCircleFilled, PlusOutlined, WarningOutlined } from "@ant-design/icons";
 import type { MessageInstance } from "antd/es/message/interface";
 import { buildRowData, getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
@@ -14,10 +14,11 @@ import { apiErrorMessage } from "@/lib/api";
 import { informedText } from "@/lib/informOperations";
 import { SectionCard as Card, PillTabs } from "@/components/SectionCard";
 import { Pill } from "@/components/Pill";
-import { HINT } from "@/styles/ui";
+import { ADD_BTN, BTN_BAR, HINT } from "@/styles/ui";
 import { COLS2, EMPTY, LABEL, ROW, VALUE } from "../_components/detailStyles";
 import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { rowKey } from "@/app/shipments/_lib/rowKey";
 import { TD_CELL, TH_CELL, TOTAL_CELL, rowLine } from "./warehouse/warehouseUi";
 import { PickupSection } from "./warehouse/PickupSection";
 import { JobNotes, ActionPushButtons } from "./warehouse/JobExtras";
@@ -58,7 +59,8 @@ const SUB_TABS = [
 
 export function WarehouseTab({ shipment }: { shipment: ShipmentItem }) {
   const [subTab, setSubTab] = useState<string>("details");
-  const [messageApi, contextHolder] = message.useMessage();
+  // The app's own toasts, so a save that ends after the tab is left still says how it went.
+  const { message: messageApi } = App.useApp();
   const rowData = buildRowData(shipment);
   // Weight and volume of the cargo as Cargo Details holds it (its lines' totals); a shipment with
   // no cargo lines falls back to its own totals.
@@ -70,8 +72,6 @@ export function WarehouseTab({ shipment }: { shipment: ShipmentItem }) {
 
   return (
     <div className="flex flex-col gap-4">
-      {contextHolder}
-
       <PillTabs tabs={SUB_TABS} active={subTab} onChange={setSubTab} />
 
       {subTab === "details" && (
@@ -129,7 +129,8 @@ function StackabilityBadge({ shipment }: { shipment: ShipmentItem }) {
 // stay as Cargo Details holds them: the difference is what the customer is told about.
 
 const DIM_FIELDS = ["pieces", "lengthCm", "widthCm", "heightCm", "weightPerPcKg"] as const;
-type DimensionRow = Record<(typeof DIM_FIELDS)[number], string>;
+type DimField = (typeof DIM_FIELDS)[number];
+type DimensionRow = Record<DimField, string>;
 
 const EMPTY_DIM: DimensionRow = { pieces: "", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "" };
 
@@ -146,6 +147,11 @@ function parseRemeasure(json: string | undefined): DimensionRow[] {
 const serializeRows = (rows: DimensionRow[]) =>
   JSON.stringify(rows.filter((r) => DIM_FIELDS.some((f) => r[f].trim())).map((r) => Object.fromEntries(DIM_FIELDS.map((f) => [f, r[f].trim()]))));
 
+// A copy of a line: its figures only, so it gets a row key of its own.
+const copyOf = (r: DimensionRow): DimensionRow => ({ pieces: r.pieces, lengthCm: r.lengthCm, widthCm: r.widthCm, heightCm: r.heightCm, weightPerPcKg: r.weightPerPcKg });
+
+const FIELD_NAMES: Record<DimField, string> = { pieces: "Qty", lengthCm: "Length", widthCm: "Width", heightCm: "Height", weightPerPcKg: "Weight per piece" };
+
 // A remeasured line counted as a cargo dimension line (lib/cargo): its volume from its sizes.
 const asLine = (r: DimensionRow): interfaces.CargoDimensionLine => ({ containerId: null, packageType: "", stackable: "", volumePerPcM3: "", ...r });
 
@@ -155,17 +161,23 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
   const informedAt = jobSection.inform_operations_sent;
   const saved = jobSection.remeasure_rows;
 
+  // Each line keeps its own key (rowKey), so a delete or an open line always means the line it was
+  // asked for, also after the lines changed meanwhile.
   const [rows, setRows] = useState<DimensionRow[]>([{ ...EMPTY_DIM }]);
-  // Typed but not saved yet: the saved lines then don't replace what is on screen.
+  // Typed but not saved yet: the saved lines then don't replace what is on screen. A line just
+  // added is empty, so nothing yet.
   const [dirty, setDirty] = useState(false);
+  // The last save was refused (not by somebody else's save): the lines stay unsaved, with a Retry.
+  const [failed, setFailed] = useState(false);
   // The saved lines the edit started from: a save replaces exactly those, or is refused.
   const baseRef = useRef(saved ?? "");
-  // The saved lines fill the table while it holds no unsaved edit.
+  // The saved lines fill the table while it holds no unsaved edit. A screen that already shows them
+  // (its own save come back) stays as it is, with a line just added and every line's key.
   useEffect(() => {
     if (dirty) return;
-    const parsed = parseRemeasure(saved);
-    setRows(parsed.length > 0 ? parsed : [{ ...EMPTY_DIM }]);
     baseRef.current = saved ?? "";
+    const parsed = parseRemeasure(saved);
+    setRows((prev) => (serializeRows(prev) === serializeRows(parsed) ? prev : parsed.length > 0 ? parsed : [{ ...EMPTY_DIM }]));
   }, [saved, dirty]);
   // The lines as they are now, for the click-outside handler.
   const rowsRef = useRef(rows);
@@ -175,82 +187,88 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
     dirtyRef.current = dirty;
   }, [rows, dirty]);
 
-  // Saved by itself, with no Save button: when a line is left (a click outside it, Enter), and at
-  // once after a copy or a delete. Saves run one after another, each replacing exactly the lines
-  // the one before wrote; only the lines of the warehouse's job section are written (notes saved
-  // meanwhile stay), and the shipment's cargo dimensions are not touched.
+  // Saved by itself, with no Save button: when a line is left (a click outside it, Tab out of it,
+  // Enter), and at once after a copy or a delete. Saves run one after another, each replacing
+  // exactly the lines the one before wrote; only the lines of the warehouse's job section are
+  // written (notes saved meanwhile stay), and the shipment's cargo dimensions are not touched.
   const chainRef = useRef<Promise<void>>(Promise.resolve());
   const persist = (next: DimensionRow[]) => {
     const value = serializeRows(next);
     chainRef.current = chainRef.current.then(async () => {
-      if (value === baseRef.current) {
+      // nothing to write: the lines are as saved (no lines saved yet and none filled, too)
+      if (value === baseRef.current || (baseRef.current === "" && value === "[]")) {
+        setFailed(false);
         if (serializeRows(rowsRef.current) === value) setDirty(false);
         return;
       }
       try {
         await saveKeys([{ key: "remeasure_rows", value, expected: baseRef.current }]);
         baseRef.current = value;
+        setFailed(false);
         // nothing typed meanwhile: the saved lines show again
         if (serializeRows(rowsRef.current) === value) setDirty(false);
       } catch (e) {
         if (e instanceof SectionChangedError) {
           // Someone else saved the lines meanwhile: theirs show, as a note saved meanwhile does.
+          setFailed(false);
           setDirty(false);
           messageApi.warning("Someone else saved the remeasured lines meanwhile — theirs are shown; enter your changes again");
-        } else messageApi.error(`Failed to save the remeasured lines: ${apiErrorMessage(e)}`);
+        } else {
+          setFailed(true);
+          messageApi.error(`Failed to save the remeasured lines: ${apiErrorMessage(e)}`);
+        }
       }
     });
   };
-
-  const updateRow = (idx: number, field: keyof DimensionRow, value: string) => {
-    // typing keeps the line open, so it cannot close mid-number
-    setOpenRows((o) => (o.has(idx) ? o : new Set(o).add(idx)));
-    setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
-    setDirty(true);
-  };
-  // A new line is empty, so nothing is saved until it is filled and left.
-  const addRow = () => { setRows((prev) => [...prev, { ...EMPTY_DIM }]); setDirty(true); };
-  const deleteRow = (idx: number) => {
-    const next = rows.filter((_, i) => i !== idx);
-    setRows(next);
-    setOpenRows(new Set());
-    setDirty(true);
-    persist(next);
-  };
-  // A copy of the line goes right under it.
-  const copyRow = (idx: number) => {
-    const next = [...rows.slice(0, idx + 1), { ...rows[idx]! }, ...rows.slice(idx + 1)];
-    setRows(next);
-    setOpenRows(new Set());
-    setDirty(true);
-    persist(next);
-  };
-
-  // A filled line reads as text; a double-click opens it, and a click anywhere else (or Enter)
-  // closes it again and saves it, as in Cargo Details. An empty line stays open to be typed in.
-  const [openRows, setOpenRows] = useState<Set<number>>(() => new Set());
-  const isFilled = (r: DimensionRow) => DIM_FIELDS.some((f) => r[f].trim());
-  const isOpen = (idx: number) => openRows.has(idx) || !isFilled(rows[idx] ?? EMPTY_DIM);
-  const anyOpen = openRows.size > 0;
   const persistRef = useRef(persist);
   useEffect(() => {
     persistRef.current = persist;
   });
+
+  // A filled line reads as text; a double-click (or ⋯ > Edit) opens it, and a click anywhere else,
+  // Tab out of it or Enter closes it again and saves it, as in Cargo Details. An empty line stays
+  // open to be typed in. `openRef` follows the open lines at once, so a line left by a click and
+  // by its focus leaving with it is saved once.
+  const [openRows, setOpenRowsState] = useState<Set<string>>(() => new Set());
+  const openRef = useRef(openRows);
+  const setOpen = (next: Set<string>) => {
+    openRef.current = next;
+    setOpenRowsState(next);
+  };
+  // The field that takes the cursor when its line opens.
+  const [focus, setFocus] = useState<{ key: string; field: DimField } | null>(null);
+  const openRow = (key: string, field: DimField = "pieces") => {
+    if (!openRef.current.has(key)) setOpen(new Set(openRef.current).add(key));
+    setFocus({ key, field });
+  };
+  const leaveRow = (key: string) => {
+    if (!openRef.current.has(key)) return;
+    const next = new Set(openRef.current);
+    next.delete(key);
+    setOpen(next);
+    if (dirtyRef.current) persist(rowsRef.current);
+  };
+  const leaveAllRef = useRef(() => {});
+  useEffect(() => {
+    leaveAllRef.current = () => {
+      if (openRef.current.size === 0) return;
+      setOpen(new Set());
+      if (dirtyRef.current) persistRef.current(rowsRef.current);
+    };
+  });
+  const isFilled = (r: DimensionRow) => DIM_FIELDS.some((f) => r[f].trim());
+  const isOpen = (r: DimensionRow) => openRows.has(rowKey(r)) || !isFilled(r);
+  const anyOpen = openRows.size > 0;
   useEffect(() => {
     if (!anyOpen) return;
     const onDown = (e: MouseEvent) => {
       const target = e.target as Element | null;
       if (!target?.closest || target.closest("[data-remeasure-open], .ant-tooltip")) return;
-      setOpenRows(new Set());
-      if (dirtyRef.current) persistRef.current(rowsRef.current);
+      leaveAllRef.current();
     };
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
   }, [anyOpen]);
-  // the line Delete asks about
-  const [toDelete, setToDelete] = useState<number | null>(null);
-  const openRow = (idx: number) => setOpenRows((o) => (o.has(idx) ? o : new Set(o).add(idx)));
-  const closeRow = (idx: number) => setOpenRows((o) => { if (!o.has(idx)) return o; const n = new Set(o); n.delete(idx); return n; });
   // Leaving the tab (or the page) with a line still open saves it too.
   useEffect(
     () => () => {
@@ -259,10 +277,47 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
     [],
   );
 
+  const updateRow = (key: string, field: DimField, value: string) => {
+    // typing keeps the line open, so it cannot close mid-number
+    if (!openRef.current.has(key)) setOpen(new Set(openRef.current).add(key));
+    setRows((prev) => prev.map((r) => (rowKey(r) === key ? { ...r, [field]: value } : r)));
+    setDirty(true);
+  };
+  // A new line is empty, so nothing is saved until it is filled and left; the cursor goes into it.
+  const addRow = () => {
+    const line = { ...EMPTY_DIM };
+    setRows((prev) => [...prev, line]);
+    setFocus({ key: rowKey(line), field: "pieces" });
+  };
+  const deleteRow = (key: string) => {
+    const left = rows.filter((r) => rowKey(r) !== key);
+    if (left.length === rows.length) return;
+    const next = left.length > 0 ? left : [{ ...EMPTY_DIM }];
+    setRows(next);
+    setOpen(new Set());
+    setDirty(true);
+    persist(next);
+  };
+  // A copy of the line goes right under it.
+  const copyRow = (key: string) => {
+    const idx = rows.findIndex((r) => rowKey(r) === key);
+    if (idx < 0) return;
+    const next = [...rows.slice(0, idx + 1), copyOf(rows[idx]!), ...rows.slice(idx + 1)];
+    setRows(next);
+    setOpen(new Set());
+    setDirty(true);
+    persist(next);
+  };
+  // The line Delete asks about, by its key: gone meanwhile (somebody else's lines shown), the
+  // question goes with it.
+  const [toDelete, setToDelete] = useState<string | null>(null);
+  const deleting = toDelete === null ? undefined : rows.find((r) => rowKey(r) === toDelete);
+
   const lines = rows.map(asLine);
   const rowCbms = lines.map(dimensionLineVolume);
   const { pcs: totalColli, kg: totalWeightKg, m3: totalVolumeCbm } = dimensionTotals(lines);
 
+  // What the server compares with when Operations are told (the shipment's cargo dimension lines).
   const shipmentDims = useMemo(() => {
     const t = dimensionTotals(shipment.cargoDimensions ?? []);
     return { colli: t.pcs, weightKg: t.kg, volumeCbm: t.m3 };
@@ -277,7 +332,11 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
   // Holiday Cover (the server finds them) - both, or neither. Only with the lines saved, so what is
   // told is what is on screen; a second click while it runs is ignored.
   const informingRef = useRef(false);
-  const informBlocked = dirty ? "Finish the line first (click outside it) — Operations are told the saved figures" : null;
+  const informBlocked = failed
+    ? "The lines aren't saved — Retry first; Operations are told the saved figures"
+    : dirty
+      ? "Finish the line first (click outside it, Tab out of it or press Enter) — Operations are told the saved figures"
+      : null;
   const informOperations = async () => {
     if (informingRef.current || informBlocked) return;
     informingRef.current = true;
@@ -311,30 +370,33 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
     { key: "weight", label: "Weight (kg)", ship: shipmentDims.weightKg, re: totalWeightKg, fmt: fmtKg, digits: 1 },
     { key: "volume", label: "Volume (CBM)", ship: shipmentDims.volumeCbm, re: totalVolumeCbm, fmt: fmtCbm, digits: 3 },
   ];
+  // At least one figure known on both sides: only then can they be said to match.
+  const compared = COMPARE.some((c) => c.ship > 0 && c.re > 0);
 
   return (
     <Card
       title="Dimensions / Remeasurement"
       extra={
         <>
-          {/* saved by itself: only while it saves is that said */}
+          {/* saved by itself: only while it saves, or when a save failed, is that said */}
           {isSaving && <span className={HINT}>Saving…</span>}
+          {failed && !isSaving && (
+            <>
+              <span className="text-[12px] text-red-600">Not saved</span>
+              <button type="button" className={BTN_BAR} onClick={() => persist(rowsRef.current)}>
+                Retry
+              </button>
+            </>
+          )}
           <Tooltip title="Add row">
             {/* the small square "+" of Container Details */}
-            <button
-              type="button"
-              onClick={addRow}
-              aria-label="Add row"
-              className="inline-flex items-center justify-center w-[22px] h-[22px] rounded-md border-0 bg-indigo-600 text-white hover:bg-indigo-700 cursor-pointer shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1"
-            >
-              <PlusOutlined className="text-[11px]" />
-            </button>
+            <Button size="small" type="primary" icon={<PlusOutlined className="text-[11px]" />} aria-label="Add row" onClick={addRow} className={ADD_BTN} />
           </Tooltip>
         </>
       }
     >
       <ConfirmModal
-        open={toDelete !== null}
+        open={!!deleting}
         danger
         title="Delete line?"
         description="The remeasured line is removed and the change is saved."
@@ -361,15 +423,16 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
           </thead>
           <tbody>
             {rows.map((row, idx) => {
-              const open = isOpen(idx);
+              const key = rowKey(row);
+              const open = isOpen(row);
               const actions = (
                 // the line's actions behind "⋯", as in Container and Cargo Details; Delete asks first
                 <td className={`${TD_CELL} text-center whitespace-nowrap`}>
                   <RowActionsMenu
                     label={`Line ${idx + 1} actions`}
-                    onEdit={isOpen(idx) ? undefined : () => openRow(idx)}
-                    onCopy={() => copyRow(idx)}
-                    onDelete={rows.length > 1 ? () => setToDelete(idx) : undefined}
+                    onEdit={open ? undefined : () => openRow(key)}
+                    onCopy={() => copyRow(key)}
+                    onDelete={rows.length > 1 ? () => setToDelete(key) : undefined}
                   />
                 </td>
               );
@@ -382,14 +445,15 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
               if (!open) {
                 return (
                   <tr
-                    key={idx}
+                    key={key}
                     className={`${rowLine(idx, rows.length)} cursor-pointer hover:bg-slate-50/60`}
-                    onDoubleClick={() => openRow(idx)}
+                    // the field double-clicked takes the cursor
+                    onDoubleClick={(e) => openRow(key, ((e.target as Element).closest("[data-field]")?.getAttribute("data-field") as DimField | null) ?? "pieces")}
                     title="Double-click to edit"
                   >
                     {DIM_FIELDS.map((field) => (
                       // as tall as an open line's field, so a line keeps its height when it opens
-                      <td key={field} className={`${TD_CELL} h-[37px] text-center tabular-nums text-slate-900`}>
+                      <td key={field} data-field={field} className={`${TD_CELL} h-[37px] text-center tabular-nums text-slate-900`}>
                         {row[field].trim() || <span className={EMPTY}>—</span>}
                       </td>
                     ))}
@@ -400,14 +464,19 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
               }
               return (
                 <tr
-                  key={idx}
+                  key={key}
                   data-remeasure-open
                   className={rowLine(idx, rows.length)}
                   onKeyDown={(e) => {
                     if (e.key !== "Enter") return;
                     (e.target as HTMLElement).blur?.();
-                    closeRow(idx);
-                    persist(rows);
+                    leaveRow(key);
+                  }}
+                  // Tab out of the line (or a click on something that takes the focus) leaves it; a
+                  // click on nothing in particular is the click-outside handler's.
+                  onBlur={(e) => {
+                    const next = e.relatedTarget as Node | null;
+                    if (next && !e.currentTarget.contains(next)) leaveRow(key);
                   }}
                 >
                   {DIM_FIELDS.map((field) => (
@@ -417,10 +486,11 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
                         size="small"
                         value={row[field]}
                         placeholder="0"
+                        autoFocus={focus?.key === key && focus.field === field}
                         inputMode={field === "pieces" ? "numeric" : "decimal"}
-                        onChange={(e) => updateRow(idx, field, numberInput(e.target.value, field !== "pieces", field === "weightPerPcKg" ? 5 : 4))}
+                        onChange={(e) => updateRow(key, field, numberInput(e.target.value, field !== "pieces", field === "weightPerPcKg" ? 5 : 4))}
                         className="w-full text-center tabular-nums"
-                        aria-label={`${field === "pieces" ? "Qty" : field === "lengthCm" ? "Length" : field === "widthCm" ? "Width" : field === "heightCm" ? "Height" : "Weight per piece"} of line ${idx + 1}`}
+                        aria-label={`${FIELD_NAMES[field]} of line ${idx + 1}`}
                       />
                     </td>
                   ))}
@@ -498,10 +568,14 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
           </Tooltip>
         </div>
       )}
-      {hasData && !hasMismatch && (
+      {hasData && compared && !hasMismatch && (
         <div className="mt-3 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-[13px] text-emerald-700">
           <CheckCircleFilled /> All values match
         </div>
+      )}
+      {/* nothing to hold the remeasured figures against: not "match", which would say they were checked */}
+      {hasData && !compared && (
+        <div className={`mt-3 ${HINT}`}>The shipment has no cargo dimension lines to compare with — Cargo Details holds them.</div>
       )}
       {/* Shown whatever the lines say now, e.g. for a shipment informed before its lines changed. */}
       {informedAt && <div className={`mt-2 ${HINT}`}>Operations informed on {formatDateTime(informedAt)}</div>}

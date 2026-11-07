@@ -4,7 +4,8 @@ import { CountChip, SectionCard } from "@/components/SectionCard";
 import { Pill } from "@/components/Pill";
 import { useTrackingActions, type TrackingAttention } from "@/hooks/useShipmentTracking";
 import { businessDateTime, formatDate } from "@/lib/date";
-import { CELL_TEXT, FRAMED_BTN } from "./trackingUi";
+import { BTN_BAR } from "@/styles/ui";
+import { CELL_TEXT } from "./trackingUi";
 import { personOrSystem } from "./RecordedBy";
 import type { NoticeKindValue } from "./customerDraft";
 import { movedDaysLabel, noticeKindOfMoved } from "./trackingText";
@@ -37,7 +38,7 @@ function Row({ item, onClose, closing, onTell }: RowProps) {
           {item.what}: told {formatDate(item.from)}, now {item.to ? formatDate(item.to) : "no date"}
         </span>
         <span className={META}>told {businessDateTime(item.at)} · {personOrSystem(item.by)}</span>
-        <button type="button" onClick={onTell} className={`${FRAMED_BTN} ${BUTTON_CELL}`}>
+        <button type="button" onClick={onTell} className={`${BTN_BAR} ${BUTTON_CELL}`}>
           Tell the customer
         </button>
       </li>
@@ -50,7 +51,7 @@ function Row({ item, onClose, closing, onTell }: RowProps) {
         <span className={ROW_TEXT}>{item.note}</span>
         <span className={META}>since {formatDate(item.to)} · {personOrSystem(item.by)}</span>
         {onClose && item.eventId && (
-          <button type="button" disabled={closing} onClick={() => onClose(item.eventId!)} className={`${FRAMED_BTN} ${BUTTON_CELL}`}>
+          <button type="button" disabled={closing} onClick={() => onClose(item.eventId!)} className={`${BTN_BAR} ${BUTTON_CELL}`}>
             Close
           </button>
         )}

@@ -5,8 +5,8 @@ import { Input, Button, Tooltip } from "antd";
 import { DeleteOutlined, LockOutlined, PlusOutlined } from "@ant-design/icons";
 import type { MessageInstance } from "antd/es/message/interface";
 import { useWarehouseSection } from "@/hooks/useWarehouseSection";
-import { KPI_VALUE, LABEL_TEXT, REF } from "@/styles/ui";
-import { BAR_BTN, BAR_BTN_PRIMARY, ROW_DELETE, TD_CELL, TH_CELL, rowLine } from "./warehouseUi";
+import { BTN_BAR, BTN_BAR_PRIMARY, ICON_BTN_DANGER, KPI_VALUE, LABEL_TEXT, REF } from "@/styles/ui";
+import { TD_CELL, TH_CELL, rowLine } from "./warehouseUi";
 
 interface PickupSectionData {
   pin?: string;
@@ -83,7 +83,7 @@ export function PickupSection({ ownerId, messageApi }: { ownerId: string; messag
               <LockOutlined /> Locked
             </span>
           ) : (
-            <Button size="small" type="primary" onClick={generatePin} loading={isSaving} className={BAR_BTN_PRIMARY}>
+            <Button size="small" type="primary" onClick={generatePin} loading={isSaving} className={BTN_BAR_PRIMARY}>
               Generate PIN
             </Button>
           )}
@@ -94,11 +94,11 @@ export function PickupSection({ ownerId, messageApi }: { ownerId: string; messag
         <div className="flex items-center justify-between gap-2 mb-2">
           <span className={LABEL_TEXT}>Pick-up details</span>
           <div className="flex items-center gap-2">
-            <button type="button" onClick={addRow} className={BAR_BTN}>
+            <button type="button" onClick={addRow} className={BTN_BAR}>
               <PlusOutlined /> Add row
             </button>
             {dirty && (
-              <Button size="small" type="primary" onClick={handleSave} loading={isSaving} className={BAR_BTN_PRIMARY}>
+              <Button size="small" type="primary" onClick={handleSave} loading={isSaving} className={BTN_BAR_PRIMARY}>
                 Save
               </Button>
             )}
@@ -133,7 +133,7 @@ export function PickupSection({ ownerId, messageApi }: { ownerId: string; messag
                   <td className={`${TD_CELL} text-center`}>
                     {rows.length > 1 && (
                       <Tooltip title="Delete row">
-                        <button type="button" onClick={() => deleteRow(idx)} aria-label={`Delete row ${idx + 1}`} className={ROW_DELETE}>
+                        <button type="button" onClick={() => deleteRow(idx)} aria-label={`Delete row ${idx + 1}`} className={ICON_BTN_DANGER}>
                           <DeleteOutlined />
                         </button>
                       </Tooltip>

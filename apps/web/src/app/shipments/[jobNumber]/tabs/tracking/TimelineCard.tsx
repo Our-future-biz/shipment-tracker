@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Tooltip } from "antd";
 import { SectionCard } from "@/components/SectionCard";
 import { Pill } from "@/components/Pill";
 import type { ShipmentItem } from "@/hooks/useShipments";
@@ -35,7 +36,7 @@ const DOT_CLASS: Record<TrackingMilestone["state"], string> = {
   planned: "border-slate-200 bg-slate-100",
 };
 
-function MilestoneRow({ m, customerView, onOpen, onTellPod }: { m: TrackingMilestone; customerView: boolean; onOpen: (tab: string) => void; onTellPod: () => void }) {
+function MilestoneRow({ m, customerView, taxDateWords, onOpen, onTellPod }: { m: TrackingMilestone; customerView: boolean; taxDateWords: string; onOpen: (tab: string) => void; onTellPod: () => void }) {
   // The customer view shows what the customer's link shows (the server's publicStatusOf): late is
   // ours to chase, and of the details only the customs row's wording is meant for a customer.
   const state = customerView ? customerState(m.state) : m.state;
@@ -50,7 +51,14 @@ function MilestoneRow({ m, customerView, onOpen, onTellPod }: { m: TrackingMiles
           <div className="min-w-0">
             <div className={`flex flex-wrap items-center gap-x-2 gap-y-1 ${MAIN_TEXT}`}>
               {m.label}
-              {m.taxDate && !customerView && <Pill tone="slate">Tax date</Pill>}
+              {/* what the tax date goes by, whether it is firm, the ČNB rates and an invoice, on the pill */}
+              {m.taxDate && !customerView && (
+                <Tooltip title={taxDateWords || undefined}>
+                  <span className="inline-flex" tabIndex={taxDateWords ? 0 : undefined}>
+                    <Pill tone="slate">Tax date</Pill>
+                  </span>
+                </Tooltip>
+              )}
               {m.containerNumber && <Pill tone="indigo" className={REF}>{m.containerNumber}</Pill>}
             </div>
             {(m.basis || m.place) && <div className={HINT}>{[m.place, m.basis].filter(Boolean).join(" · ")}</div>}
@@ -158,12 +166,14 @@ interface TimelineCardProps {
   actualsOnly: boolean;
   /** What can be told to a customer: no names, marks or who-recorded-it. */
   customerView: boolean;
+  /** What the tax date (DUZP) goes by and the rates locked for it, in a line (the Tax date pill's tooltip). */
+  taxDateWords: string;
   onOpen: (tab: string) => void;
   onTellPod: () => void;
 }
 
 /** The dated facts by leg, planned beside actual. */
-export function TimelineCard({ shipment, milestones, actualsOnly, customerView, onOpen, onTellPod }: TimelineCardProps) {
+export function TimelineCard({ shipment, milestones, actualsOnly, customerView, taxDateWords, onOpen, onTellPod }: TimelineCardProps) {
   const rows = actualsOnly ? milestones.filter((m) => m.state === "done") : milestones;
   const nothingDated = milestones.every((m) => !m.planned && !m.actual && !m.detail);
   const columns = customerView ? 3 : 4;
@@ -216,7 +226,7 @@ export function TimelineCard({ shipment, milestones, actualsOnly, customerView, 
                     </th>
                   </tr>
                   {ofLeg.map((m) => (
-                    <MilestoneRow key={m.key} m={m} customerView={customerView} onOpen={onOpen} onTellPod={onTellPod} />
+                    <MilestoneRow key={m.key} m={m} customerView={customerView} taxDateWords={taxDateWords} onOpen={onOpen} onTellPod={onTellPod} />
                   ))}
                 </tbody>
               );

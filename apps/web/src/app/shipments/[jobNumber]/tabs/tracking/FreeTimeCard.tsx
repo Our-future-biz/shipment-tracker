@@ -10,8 +10,8 @@ import type { TrackingContainerClock } from "@/hooks/useShipmentTracking";
 import { api, apiErrorMessage } from "@/lib/api";
 import { formatDate } from "@/lib/date";
 import { useToast } from "@/lib/toast";
-import { EMPTY, LINK, REF, TD, TH } from "@/styles/ui";
-import { CELL_TEXT, DATE_TEXT, FRAMED_BTN, MAIN_TEXT, TABLE, TABLE_BOX, TBODY, TROW } from "./trackingUi";
+import { BTN_BAR, EMPTY, LINK, REF, TD, TH } from "@/styles/ui";
+import { CELL_TEXT, DATE_TEXT, MAIN_TEXT, TABLE, TABLE_BOX, TBODY, TROW } from "./trackingUi";
 import { FreeTimeModal } from "./FreeTimeModal";
 import { clockStatus, detentionLineOn, freeTimeWords } from "./trackingText";
 
@@ -95,14 +95,14 @@ export function FreeTimeCard({ shipment, clocks, mayChangeDetails, onOpen }: Fre
                             type="button"
                             disabled={!costs || addCost.isPending}
                             onClick={() => addCost.mutate(clock)}
-                            className={`${FRAMED_BTN}`}
+                            className={`${BTN_BAR}`}
                             title={costsWhy || "Adds a line to Costs with the days and no price: you fill in the rest"}
                           >
                             Add a cost line
                           </button>
                         ))}
                       {mayChangeDetails && (
-                        <button type="button" onClick={() => setEditing(clock)} className={`${FRAMED_BTN}`}>
+                        <button type="button" onClick={() => setEditing(clock)} className={`${BTN_BAR}`}>
                           Set
                         </button>
                       )}

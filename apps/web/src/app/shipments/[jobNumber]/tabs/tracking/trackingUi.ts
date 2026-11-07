@@ -1,14 +1,9 @@
-import { BTN, BTN_PRIMARY, BTN_SM, CARD_TITLE } from "@/styles/ui";
+import { CARD_TITLE } from "@/styles/ui";
 
 // The Tracking tab's look, the same as the shipment's newer tabs (Documents, Costs Breakdown,
-// Warehouse): framed buttons, and tables built like the Documents table - inside the card's 16px
+// Warehouse): framed buttons (BTN_BAR, BTN_BAR_PRIMARY in styles/ui), and tables built like the Documents table - inside the card's 16px
 // padding, fixed columns, the app's TH / TD cells, a row lit on hover, no line under the last row,
 // and groups under an indigo band in the card title's type.
-
-/** A small white framed button (Tell the customer, Close, Strike, Set…). */
-export const FRAMED_BTN = `${BTN} ${BTN_SM} shadow-sm`;
-/** The main action (Record an event, Confirm): purple. */
-export const MAIN_BTN = `${BTN_PRIMARY} ${BTN_SM} !text-white hover:!text-white shadow-sm`;
 
 /** The box a card's table sits in: the card's padding, scrolling sideways on a narrow screen. */
 export const TABLE_BOX = "p-4 overflow-x-auto";

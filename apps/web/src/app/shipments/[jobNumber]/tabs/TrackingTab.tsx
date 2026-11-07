@@ -3,11 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Alert, Spin, Switch } from "antd";
 import { PillTabs } from "@/components/SectionCard";
+import { useJobFxRates } from "@/hooks/useFx";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { useShipmentTracking, useTrackingBell, useTrackingMarkRead } from "@/hooks/useShipmentTracking";
 import { apiErrorMessage } from "@/lib/api";
-import { CARD, HINT } from "@/styles/ui";
-import { FRAMED_BTN, MAIN_BTN } from "./tracking/trackingUi";
+import { BTN_BAR, BTN_BAR_PRIMARY, CARD, HINT } from "@/styles/ui";
+import { jobFxDates } from "./costsRows";
 import { AttentionCard } from "./tracking/AttentionCard";
 import { ChangesCard } from "./tracking/ChangesCard";
 import { ChecklistCard } from "./tracking/ChecklistCard";
@@ -20,7 +21,7 @@ import { ReadNoticeModal } from "./tracking/ReadNoticeModal";
 import { RecordEventModal } from "./tracking/RecordEventModal";
 import { TellCustomerModal } from "./tracking/TellCustomerModal";
 import { TimelineCard } from "./tracking/TimelineCard";
-import { mayRecordKind } from "./tracking/trackingText";
+import { mayRecordKind, taxDateParts } from "./tracking/trackingText";
 
 type View = "all" | "actuals" | "changes";
 
@@ -54,6 +55,7 @@ export function TrackingTab({ shipment, onOpen }: { shipment: ShipmentItem; onOp
     markRead(shipment.id);
   }, [markRead, shipment.id, unreadHere]);
   const { data, isLoading, error } = useShipmentTracking(shipment.id);
+  const { data: rates } = useJobFxRates(shipment.id, jobFxDates(shipment));
 
   if (isLoading) {
     return (
@@ -80,23 +82,23 @@ export function TrackingTab({ shipment, onOpen }: { shipment: ShipmentItem; onOp
             Customer view
           </label>
           {!customerView && (
-            <button type="button" onClick={() => setTelling("status")} className={`${FRAMED_BTN}`}>
+            <button type="button" onClick={() => setTelling("status")} className={`${BTN_BAR}`}>
               Tell the customer
             </button>
           )}
           {!customerView && data.mayChangeDetails && (
-            <button type="button" onClick={() => setLinking(true)} className={`${FRAMED_BTN}`}>
+            <button type="button" onClick={() => setLinking(true)} className={`${BTN_BAR}`}>
               Customer link
             </button>
           )}
           {!customerView && data.mayChangeDetails && data.recordable.length > 0 && (
-            <button type="button" onClick={() => setReading(true)} className={`${FRAMED_BTN}`}>
+            <button type="button" onClick={() => setReading(true)} className={`${BTN_BAR}`}>
               Read a notice
             </button>
           )}
           {!customerView &&
             (data.recordable.length > 0 ? (
-              <button type="button" onClick={() => setRecording(true)} className={`${MAIN_BTN}`}>
+              <button type="button" onClick={() => setRecording(true)} className={`${BTN_BAR_PRIMARY}`}>
                 Record an event
               </button>
             ) : (
@@ -107,7 +109,7 @@ export function TrackingTab({ shipment, onOpen }: { shipment: ShipmentItem; onOp
 
       {!customerView && view === "all" && <AttentionCard shipmentId={shipment.id} items={data.attention} mayRecord={mayRecord} onTell={setTelling} />}
       {showTimeline && (
-        <TimelineCard shipment={shipment} milestones={data.milestones} actualsOnly={!customerView && view === "actuals"} customerView={customerView} onOpen={onOpen} onTellPod={() => setTelling("pod_sent")} />
+        <TimelineCard shipment={shipment} milestones={data.milestones} actualsOnly={!customerView && view === "actuals"} customerView={customerView} taxDateWords={taxDateParts(data.taxDate, rates).join(" · ")} onOpen={onOpen} onTellPod={() => setTelling("pod_sent")} />
       )}
       {!customerView && view === "all" && data.containerClocks.length > 0 && <FreeTimeCard shipment={shipment} clocks={data.containerClocks} mayChangeDetails={data.mayChangeDetails} onOpen={onOpen} />}
       {!customerView && view === "all" && <EventsCard shipmentId={shipment.id} events={data.events} mayChangeDetails={data.mayChangeDetails} mayRecord={mayRecord} containers={(shipment.containers ?? []).map((c) => c.containerNumber).filter(Boolean)} />}
