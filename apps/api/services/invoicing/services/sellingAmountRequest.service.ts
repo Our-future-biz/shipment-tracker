@@ -28,6 +28,7 @@ const toItem = (r: SellingAmountRequestRecord): SellingAmountRequestItem => ({
   shipmentId: r.shipmentId,
   jobNumber: r.jobNumber,
   sellingCostId: r.sellingCostId,
+  kind: r.kind,
   category: r.category,
   currency: r.currency,
   costAmount: r.costAmount,
@@ -70,6 +71,27 @@ class SellingAmountRequestService {
         return { outcome: "saved", request: null };
       case "asked":
         return { outcome: "asked", request: toItem(result.request) };
+    }
+  }
+
+  /** Asks a manager to take the row off the shipment's selling: it stays until a manager approves. */
+  async askRemoval(actor: Actor, shipmentId: string, sellingId: string, input: { reason: string }): Promise<SellingAmountRequestItem> {
+    if (!isUuid(shipmentId) || !isUuid(sellingId)) throw notFound();
+    const reason = (input.reason ?? "").trim();
+    if (reason.length < 3) throw APIError.invalidArgument("Say why the row should go");
+    const [job, userEmail] = await Promise.all([assertShipmentExists(shipmentId), userEmailOf(actor.userID)]);
+    const result = await requests.askRemoval(actor.companyID, shipmentId, sellingId, { reason, userId: actor.userID, userEmail, jobNumber: job.jobNumber });
+    switch (result.outcome) {
+      case "asked":
+        return toItem(result.request);
+      case "invoiced":
+        throw APIError.failedPrecondition(INVOICED);
+      case "no_cost":
+        throw APIError.failedPrecondition("This row's share is no longer on the shipment: process the master job's split");
+      case "already_waiting":
+        throw APIError.failedPrecondition("A request for this row is already waiting for a manager: take it back to ask again");
+      default:
+        throw notFound();
     }
   }
 

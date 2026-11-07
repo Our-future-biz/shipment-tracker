@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { App, Input, Modal } from "antd";
+import { App, Input, Modal, Tooltip } from "antd";
+import { DeleteOutlined } from "@ant-design/icons";
 import { apiErrorMessage } from "@/lib/api";
 import { formatDateTime } from "@/lib/date";
 import { normaliseAmount } from "@/lib/money";
@@ -97,7 +98,7 @@ export function SoldAtCostAmount({ amount, currency, cost, request, onChange, on
       />
       {waiting && (
         <div className="mt-1 text-[11px] leading-snug text-amber-700">
-          {Number(waiting.requestedAmount).toFixed(2)} {currency} waits for a manager
+          {waiting.kind === "remove" ? "Deleting it waits for a manager" : `${Number(waiting.requestedAmount).toFixed(2)} ${currency} waits for a manager`}
           <button
             type="button"
             className="ml-1 underline bg-transparent border-none p-0 cursor-pointer text-amber-700"
@@ -113,7 +114,7 @@ export function SoldAtCostAmount({ amount, currency, cost, request, onChange, on
       )}
       {rejected && (
         <div className="mt-1 text-[11px] leading-snug text-red-600" title={rejected.decidedAt ? formatDateTime(rejected.decidedAt) : undefined}>
-          {Number(rejected.requestedAmount).toFixed(2)} {currency} rejected{rejected.decidedByName ? ` by ${rejected.decidedByName}` : ""}: {rejected.comment}
+          {rejected.kind === "remove" ? "Deleting it" : `${Number(rejected.requestedAmount).toFixed(2)} ${currency}`} rejected{rejected.decidedByName ? ` by ${rejected.decidedByName}` : ""}: {rejected.comment}
         </div>
       )}
       <Modal
@@ -137,5 +138,73 @@ export function SoldAtCostAmount({ amount, currency, cost, request, onChange, on
         </label>
       </Modal>
     </div>
+  );
+}
+
+interface RemoveProps {
+  amount: string;
+  currency: string;
+  /** A request for this row waits for a manager: a second one is refused. */
+  waiting: boolean;
+  className: string;
+  onAsk: (reason: string) => Promise<unknown>;
+}
+
+/** Deleting a selling row a shipment sells on at cost: a window asks why, and a manager decides on Quote inquiries. */
+export function SoldAtCostRemove({ amount, currency, waiting, className, onAsk }: RemoveProps) {
+  const { message } = App.useApp();
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const send = async () => {
+    setBusy(true);
+    try {
+      await onAsk(reason.trim());
+      message.success("Sent to a manager for approval");
+      setOpen(false);
+    } catch (err) {
+      message.error(apiErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <Tooltip title={waiting ? "A request for this row is already waiting for a manager" : "Delete row - a manager approves it"}>
+        <button
+          type="button"
+          disabled={waiting}
+          aria-label="Delete selling cost row"
+          className={`${className} disabled:opacity-40 disabled:cursor-not-allowed`}
+          onClick={() => {
+            setReason("");
+            setOpen(true);
+          }}
+        >
+          <DeleteOutlined />
+        </button>
+      </Tooltip>
+      <Modal
+        open={open}
+        title="Delete this selling row"
+        okText="Send for approval"
+        cancelText="Cancel"
+        confirmLoading={busy}
+        okButtonProps={{ disabled: reason.trim().length < MIN_REASON }}
+        onOk={() => void send()}
+        onCancel={() => setOpen(false)}
+        destroyOnHidden
+      >
+        <p className="mt-0 mb-3 text-[13px] text-slate-700 text-left whitespace-normal">
+          A manager approves it on Sales → Managers → Quote inquiries; until then the row stays at {Number(amount).toFixed(2)} {currency}.
+        </p>
+        <label className="block text-left">
+          <span className="block text-[12px] font-semibold text-slate-700 mb-1">Reason</span>
+          <Input.TextArea autoFocus rows={3} maxLength={1000} value={reason} onChange={(e) => setReason(e.target.value)} aria-label="Reason for deleting the row" />
+        </label>
+      </Modal>
+    </>
   );
 }

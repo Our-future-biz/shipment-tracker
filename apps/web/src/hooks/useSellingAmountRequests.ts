@@ -31,11 +31,15 @@ export const useShipmentSellingAmountRequests = (shipmentId: string, enabled: bo
       api.invoicing.invoicingSellingAmountChange(shipmentId, sellingId, { amount, reason }),
     onSettled: done,
   });
+  const askRemoval = useMutation({
+    mutationFn: ({ sellingId, reason }: { sellingId: string; reason: string }) => api.invoicing.invoicingSellingRemovalAsk(shipmentId, sellingId, { reason }),
+    onSettled: done,
+  });
   const withdraw = useMutation({
     mutationFn: (id: string) => api.invoicing.sellingAmountRequestWithdraw(id),
     onSettled: done,
   });
-  return { requests: query.data ?? [], change, withdraw };
+  return { requests: query.data ?? [], change, askRemoval, withdraw };
 };
 
 /** The managers' list: what waits and what was answered in the last 30 days, and their answer. */

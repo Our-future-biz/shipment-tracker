@@ -91,12 +91,16 @@ const marginAnswerText = (a: MarginInquiryItem) =>
     : a.comment;
 // A shipment's request to sell below the cost, waiting for a manager, and the answer to whoever asked.
 const sellingMoney = (amount: string, currency: string) => `${Number(amount).toFixed(2)} ${currency}`;
-const sellingWaitingTitle = (r: SellingAmountRequest) => `Selling below cost waiting · ${r.jobNumber}`;
+const sellingWaitingTitle = (r: SellingAmountRequest) => `${r.kind === "remove" ? "Selling row to delete" : "Selling below cost"} waiting · ${r.jobNumber}`;
 const sellingWaitingText = (r: SellingAmountRequest) =>
-  `${r.requestedByName || "A colleague"} asks ${sellingMoney(r.requestedAmount, r.currency)}, the cost is ${sellingMoney(r.costAmount, r.currency)} — ${r.reason}`;
-const sellingAnswerTitle = (r: SellingAmountRequest) => `Selling amount ${r.status === "approved" ? "approved" : "rejected"} · ${r.jobNumber}`;
+  `${r.requestedByName || "A colleague"} ${r.kind === "remove" ? "asks to delete it" : `asks ${sellingMoney(r.requestedAmount, r.currency)}`}, the cost is ${sellingMoney(r.costAmount, r.currency)} — ${r.reason}`;
+const sellingAnswerTitle = (r: SellingAmountRequest) => `${r.kind === "remove" ? "Deleting the selling row" : "Selling amount"} ${r.status === "approved" ? "approved" : "rejected"} · ${r.jobNumber}`;
 const sellingAnswerText = (r: SellingAmountRequest) =>
-  r.status === "approved" ? `${sellingMoney(r.requestedAmount, r.currency)}${r.comment ? ` — ${r.comment}` : ""}` : `${sellingMoney(r.requestedAmount, r.currency)}: ${r.comment}`;
+  r.kind === "remove"
+    ? r.comment || (r.status === "approved" ? "The row is off the shipment's selling" : "")
+    : r.status === "approved"
+      ? `${sellingMoney(r.requestedAmount, r.currency)}${r.comment ? ` — ${r.comment}` : ""}`
+      : `${sellingMoney(r.requestedAmount, r.currency)}: ${r.comment}`;
 
 // How long a read notification stays under the bell, in the "Last 7 days" view.
 const READ_KEEP_DAYS = 7;

@@ -105,17 +105,17 @@ export interface SoldAtCostPlan {
 
 /**
  * What to write so the shipments sell on what the split says. A row on an issued invoice is part of
- * a tax document and stays as it is. A share someone already copied with Copy from buying (`copied`,
- * by shipment and ref) gets no second row, or the shipment would bill it twice.
+ * a tax document and stays as it is. A share in `noRowFor` (by shipment and ref) gets no row: someone
+ * already copied it with Copy from buying, so it would bill twice, or a manager approved taking it off.
  */
-export function planSoldAtCost(current: CurrentSoldAtCostRow[], wanted: SoldAtCostRow[], invoiced: Set<string>, copied: Set<string> = new Set()): SoldAtCostPlan {
+export function planSoldAtCost(current: CurrentSoldAtCostRow[], wanted: SoldAtCostRow[], invoiced: Set<string>, noRowFor: Set<string> = new Set()): SoldAtCostPlan {
   const plan: SoldAtCostPlan = { add: [], change: [], remove: [], onInvoices: 0 };
   const byKey = new Map(current.map((r) => [soldAtCostKey(r), r]));
   const wantedKeys = new Set(wanted.map(soldAtCostKey));
   for (const row of wanted) {
     const existing = byKey.get(soldAtCostKey(row));
     if (!existing) {
-      if (!copied.has(soldAtCostKey(row))) plan.add.push(row);
+      if (!noRowFor.has(soldAtCostKey(row))) plan.add.push(row);
       continue;
     }
     const keepAmount = keepsOwnAmount(existing, row);
@@ -136,6 +136,15 @@ export function planSoldAtCost(current: CurrentSoldAtCostRow[], wanted: SoldAtCo
     else plan.remove.push(row.id);
   }
   return plan;
+}
+
+/**
+ * The shares a manager approved taking off the selling, by shipment and ref: only at the very cost
+ * approved. An approval for one cost doesn't cover another, so at a new cost the row comes back.
+ */
+export function waivedShares(waived: { shipmentId: string; sourceMasterJobRef: string | null; amountOverrideCost: string | null }[], wanted: SoldAtCostRow[]): Set<string> {
+  const approvedAt = new Set(waived.map((w) => `${soldAtCostKey(w)} ${w.amountOverrideCost}`));
+  return new Set(wanted.filter((w) => approvedAt.has(`${soldAtCostKey(w)} ${w.amount}`)).map(soldAtCostKey));
 }
 
 /** Whether the plan writes nothing. */

@@ -3,6 +3,8 @@ import { pgTable, text, numeric, uuid, timestamp, boolean, index, uniqueIndex, c
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 export type SellingAmountRequestStatus = "pending" | "approved" | "rejected" | "withdrawn";
+/** What is asked: to sell for a lower amount, or to take the row off the shipment's selling altogether. */
+export type SellingAmountRequestKind = "amount" | "remove";
 
 // A request to sell a cost a shipment sells on at cost (a master job's demurrage) for less than it
 // costs: asked from the shipment's Costs Breakdown with a reason, answered by a manager on Sales →
@@ -17,6 +19,7 @@ export const sellingAmountRequestTable = pgTable(
     // The job as it was named when asked: the managers' list reads it without asking Shipments.
     jobNumber: text("job_number").notNull().default(""),
     sellingCostId: uuid("selling_cost_id").notNull(),
+    kind: text("kind").$type<SellingAmountRequestKind>().notNull().default("amount"),
     category: text("category").notNull().default(""),
     currency: text("currency").notNull(),
     // What the shipment's share cost, what it sold at, and what is asked, when asked.
@@ -46,6 +49,7 @@ export const sellingAmountRequestTable = pgTable(
     // One request waits per selling row; a second one is refused until it is answered.
     uniqueIndex("selling_amount_request_pending_unique").on(table.sellingCostId).where(sql`status = 'pending' AND deleted_at IS NULL`),
     check("selling_amount_request_status_check", sql`${table.status} IN ('pending', 'approved', 'rejected', 'withdrawn')`),
+    check("selling_amount_request_kind_check", sql`${table.kind} IN ('amount', 'remove')`),
   ],
 );
 

@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, like, notInArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, like, notInArray, sql } from "drizzle-orm";
 import { db } from "../db/db";
 import { invoiceCostTable, type InvoiceCostRecord, type NewInvoiceCostRecord } from "../schemas/invoiceCost.schema";
 import { invoiceSellingCostTable } from "../schemas/invoiceSellingCost.schema";
@@ -12,6 +12,7 @@ import {
   splitRowsInSync,
   splitRowUnchanged,
   SPLIT_SORT_BASE,
+  waivedShares,
   type SoldAtCostPlan,
   type SoldAtCostRow,
   type SplitRowValues,
@@ -79,6 +80,16 @@ async function buyingSharesOf(reader: Reader, companyId: string, masterJobId: st
   return { idOf, copied: new Set(buying.filter((b) => copiedIds.has(b.id)).map((b) => `${b.shipmentId} ${b.ref}`)) };
 }
 
+/** The shares that get no selling row: copied by hand already, or taken off with a manager's approval at this cost. */
+async function sharesWithoutRow(reader: Reader, companyId: string, masterJobId: string, wanted: SoldAtCostRow[], copied: Set<string>): Promise<Set<string>> {
+  const s = invoiceSellingCostTable;
+  const waived = await reader
+    .select({ shipmentId: s.shipmentId, sourceMasterJobRef: s.sourceMasterJobRef, amountOverrideCost: s.amountOverrideCost })
+    .from(s)
+    .where(and(eq(s.companyId, companyId), like(s.sourceMasterJobRef, `${masterJobRefPrefix(masterJobId)}%`), isNotNull(s.waivedAt)));
+  return new Set([...copied, ...waivedShares(waived, wanted)]);
+}
+
 class MasterJobCostRepository {
   async list(companyId: string, masterJobId: string): Promise<MasterJobCostRecord[]> {
     return db
@@ -122,7 +133,7 @@ class MasterJobCostRepository {
     const current = await currentSoldAtCost(db, companyId, masterJobId);
     const invoiced = await invoicedAmong(db, companyId, new Set(current.map((r) => r.shipmentId)));
     const { copied } = await buyingSharesOf(db, companyId, masterJobId);
-    const plan = planSoldAtCost(current, wanted, invoiced, copied);
+    const plan = planSoldAtCost(current, wanted, invoiced, await sharesWithoutRow(db, companyId, masterJobId, wanted, copied));
     return { written: written.length, inSync: splitRowsInSync(written, rows) && soldAtCostInSync(plan), sellingOnInvoices: plan.onInvoices };
   }
 
@@ -160,7 +171,7 @@ class MasterJobCostRepository {
     for (const shipmentId of shipments) await truckingLinesLock(tx, shipmentId);
     const invoiced = await invoicedAmong(tx, companyId, shipments);
     const { idOf, copied } = await buyingSharesOf(tx, companyId, masterJobId);
-    const plan: SoldAtCostPlan = planSoldAtCost(current, wanted, invoiced, copied);
+    const plan: SoldAtCostPlan = planSoldAtCost(current, wanted, invoiced, await sharesWithoutRow(tx, companyId, masterJobId, wanted, copied));
     const s = invoiceSellingCostTable;
     const now = new Date();
     const sortOf = new Map(rows.map((r) => [`${r.shipmentId} ${r.sourceMasterJobRef}`, SPLIT_SORT_BASE + r.lineSort]));

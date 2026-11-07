@@ -204,6 +204,13 @@
       "when": 1794041766179,
       "tag": "0028_selling_amount_answer_seen",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1794042556528,
+      "tag": "0029_selling_removal_request",
+      "breakpoints": true
     }
   ]
 }

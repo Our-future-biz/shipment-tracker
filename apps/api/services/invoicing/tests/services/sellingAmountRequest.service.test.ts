@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // The rules around the number, against a stand-in for the repository (which holds the writes).
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
-const repo = vi.hoisted(() => ({ change: vi.fn(), answer: vi.fn(), byId: vi.fn(), withdraw: vi.fn(), list: vi.fn(), ofShipment: vi.fn(), pending: vi.fn(), answersFor: vi.fn(), markSeen: vi.fn() }));
+const repo = vi.hoisted(() => ({ change: vi.fn(), answer: vi.fn(), byId: vi.fn(), withdraw: vi.fn(), list: vi.fn(), ofShipment: vi.fn(), pending: vi.fn(), answersFor: vi.fn(), markSeen: vi.fn(), askRemoval: vi.fn() }));
 vi.mock("../../repositories/sellingAmountRequest.repository", () => ({ sellingAmountRequestRepository: repo }));
 vi.mock("../../../../lib/companyUsers", () => ({ userEmailOf: async () => "rep@example.test" }));
 vi.mock("../../../../lib/shipmentRefs", () => ({ assertShipmentExists: async () => ({ jobNumber: "CZ00000024" }) }));
@@ -16,7 +16,7 @@ const rep = { userID: "u1", companyID: "c1", role: "user" };
 const manager = { userID: "m1", companyID: "c1", role: "manager" };
 
 const record = (over: Record<string, unknown> = {}) => ({
-  id: REQUEST, shipmentId: SHIPMENT, jobNumber: "CZ00000024", sellingCostId: SELLING, category: "container_demurrage", currency: "EUR", costAmount: "89.89",
+  id: REQUEST, shipmentId: SHIPMENT, jobNumber: "CZ00000024", sellingCostId: SELLING, kind: "amount", category: "container_demurrage", currency: "EUR", costAmount: "89.89",
   currentAmount: "89.89", requestedAmount: "50.00", reason: "Customer goodwill", status: "pending", requestedById: "u1", requestedByName: "rep@example.test",
   requestedAt: new Date("2026-11-07T10:00:00Z"), decidedByName: "", decidedAt: null, comment: "", selfDecision: false, ...over,
 });
@@ -120,5 +120,29 @@ describe("the bell", () => {
   it("marks only real ids as seen, for the one who opened them", async () => {
     await service.seen(rep, [REQUEST, "not-an-id"]);
     expect(repo.markSeen).toHaveBeenCalledWith("c1", "u1", [REQUEST], expect.any(Date));
+  });
+});
+
+describe("asking to take the row off", () => {
+  it("passes the reason on, with who asks and the job", async () => {
+    repo.askRemoval.mockResolvedValue({ outcome: "asked", request: record({ kind: "remove", requestedAmount: "0.00" }) });
+    const out = await service.askRemoval(rep, SHIPMENT, SELLING, { reason: "  Customer disputes it " });
+    expect(repo.askRemoval).toHaveBeenCalledWith("c1", SHIPMENT, SELLING, { reason: "Customer disputes it", userId: "u1", userEmail: "rep@example.test", jobNumber: "CZ00000024" });
+    expect(out).toMatchObject({ kind: "remove", status: "pending" });
+  });
+
+  it("wants a reason, before anything is written", async () => {
+    await expect(service.askRemoval(rep, SHIPMENT, SELLING, { reason: " x " })).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(repo.askRemoval).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["not_found", "not_found"],
+    ["invoiced", "failed_precondition"],
+    ["no_cost", "failed_precondition"],
+    ["already_waiting", "failed_precondition"],
+  ])("answers %s with %s", async (outcome, code) => {
+    repo.askRemoval.mockResolvedValue({ outcome });
+    await expect(service.askRemoval(rep, SHIPMENT, SELLING, { reason: "Disputed" })).rejects.toMatchObject({ code });
   });
 });

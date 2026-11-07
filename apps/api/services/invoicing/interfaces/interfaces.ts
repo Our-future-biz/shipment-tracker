@@ -57,12 +57,14 @@ export interface SellingCostItem {
   sourceMasterJobRef: string | null;
 }
 
-/** A request to sell a cost a shipment sells on at cost for less than it costs. */
+/** A request about a cost a shipment sells on at cost: to sell it for less, or to take it off the selling. */
 export interface SellingAmountRequestItem {
   id: string;
   shipmentId: string;
   jobNumber: string;
   sellingCostId: string;
+  /** "amount": sell it for requestedAmount. "remove": take the row off the shipment's selling. */
+  kind: "amount" | "remove";
   category: string;
   currency: string;
   /** What the shipment's share cost when asked */

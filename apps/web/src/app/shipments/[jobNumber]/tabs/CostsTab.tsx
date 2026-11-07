@@ -14,7 +14,7 @@ import { amountTypingAllowed, normaliseAmount } from "@/lib/money";
 import { asData, computeTotals, isSalesQuoteRef, quoteProfitIn } from "@/app/sales/_lib/salesQuote";
 import { useSalesQuoteByRef } from "@/hooks/useSalesQuote";
 import { useShipmentSellingAmountRequests } from "@/hooks/useSellingAmountRequests";
-import { SoldAtCostAmount } from "./SoldAtCostAmount";
+import { SoldAtCostAmount, SoldAtCostRemove } from "./SoldAtCostAmount";
 import { INVOICE_KEYS } from "@/hooks/useInvoiceQueue";
 import { openInvoicePdf, useInvoiceDocList, type InvoiceDoc } from "@/hooks/useInvoiceDocs";
 import { isOpenInvoice } from "@/app/invoicing/_lib/openInvoices";
@@ -580,7 +580,8 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
      used. Rows copied before are skipped (linked by sourceBuyId). */
   const copyFromBuying = async () => {
     const already = new Set(sellRows.map((r) => r.sourceBuyId).filter(Boolean));
-    const rows = buyRows.filter((r) => !already.has(r.id) && !truckingRefs.has(r.id) && (r.category || num(r.estAmount)));
+    // A master job's demurrage reaches selling through its split: a manager may have approved taking it off.
+    const rows = buyRows.filter((r) => !already.has(r.id) && !truckingRefs.has(r.id) && !(masterJobRows.has(r.id) && r.category === "container_demurrage") && (r.category || num(r.estAmount)));
     if (!rows.length) {
       message.info(already.size ? "All buying rows are already copied" : "No buying costs to copy");
       return;
@@ -1054,6 +1055,15 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                             </button>
                           </Tooltip>
                         ))}
+                        {masterJobRows.has(r.id) && !invoicedOn && (
+                          <SoldAtCostRemove
+                            amount={r.amount}
+                            currency={r.currency}
+                            waiting={sellingRequests.requests.some((q) => q.sellingCostId === r.id && q.status === "pending")}
+                            className={ROW_DELETE_BTN}
+                            onAsk={(reason) => sellingRequests.askRemoval.mutateAsync({ sellingId: r.id, reason })}
+                          />
+                        )}
                         {invoicedOn && <InvoicedMark doc={invoicedOn} shipmentId={shipment.id} />}
                       </td>
                     </tr>

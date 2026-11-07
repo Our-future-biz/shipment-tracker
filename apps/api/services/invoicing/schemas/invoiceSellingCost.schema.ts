@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, numeric, uuid, integer, boolean, index, check } from "drizzle-orm/pg-core";
+import { pgTable, text, numeric, uuid, integer, boolean, index, check, timestamp } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 import type { SellingVatCode } from "../interfaces/interfaces";
 
@@ -47,6 +47,11 @@ export const invoiceSellingCostTable = pgTable(
      * (a person raised it, or a manager approved it lower). Null = it follows the cost.
      */
     amountOverrideCost: numeric("amount_override_cost", { precision: 14, scale: 2 }),
+    /**
+     * A row the split keeps that a manager approved taking off the shipment: deleted, and remembered,
+     * so processing the split doesn't put it back while the cost is the one approved (amountOverrideCost).
+     */
+    waivedAt: timestamp("waived_at", { withTimezone: true }),
   },
   (table) => [
     ...defaultTableIndexes("invoice_selling_cost", table),

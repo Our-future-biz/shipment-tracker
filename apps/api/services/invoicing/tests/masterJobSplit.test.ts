@@ -9,6 +9,7 @@ import {
   splitLine,
   splitRowColumns,
   splitRowsInSync,
+  waivedShares,
   type SplitHouse,
   type SplitRowValues,
 } from "../lib/masterJobSplit";
@@ -209,5 +210,33 @@ describe("a selling row with a number of its own, when the split is processed ag
 
   it("stays on an issued invoice whatever the cost does", () => {
     expect(planSoldAtCost([current("60.00", "100.00")], [wanted({ realAmount: "110.00" })], new Set(["s1"]))).toEqual({ add: [], change: [], remove: [], onInvoices: 1 });
+  });
+});
+
+describe("a selling row a manager approved taking off", () => {
+  const share = (over: Partial<SplitRowValues> = {}): SplitRowValues => ({
+    shipmentId: "a", category: "container_demurrage", description: "", vendor: "", estAmount: null, estCurrency: "EUR", realAmount: "100.00",
+    realCurrency: "EUR", invoiceNumber: "", received: false, sourceMasterJobRef: "master:m:l", lineSort: 0, ...over,
+  });
+  const wanted = (over: Partial<SplitRowValues> = {}) => soldAtCostRows([share(over)])[0]!;
+  const waived = { shipmentId: "a", sourceMasterJobRef: "master:m:l", amountOverrideCost: "100.00" };
+
+  it("stays off at the cost it was approved for, and the split reads as processed", () => {
+    const skip = waivedShares([waived], [wanted()]);
+    expect(skip).toEqual(new Set(["a master:m:l"]));
+    const plan = planSoldAtCost([], [wanted()], new Set(), skip);
+    expect(plan.add).toEqual([]);
+    expect(soldAtCostInSync(plan)).toBe(true);
+  });
+
+  it("comes back at another cost: the approval doesn't cover it", () => {
+    const moved = wanted({ realAmount: "110.00" });
+    expect(waivedShares([waived], [moved]).size).toBe(0);
+    expect(planSoldAtCost([], [moved], new Set(), waivedShares([waived], [moved])).add).toEqual([moved]);
+  });
+
+  it("covers only its own shipment and line", () => {
+    expect(waivedShares([waived], [wanted({ shipmentId: "b" })]).size).toBe(0);
+    expect(waivedShares([waived], [wanted({ sourceMasterJobRef: "master:m:other" })]).size).toBe(0);
   });
 });

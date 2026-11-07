@@ -97,6 +97,44 @@ class SellingAmountRequestRepository {
     });
   }
 
+  /** Asks a manager to take a selling row the split keeps off the shipment. The row stays until a manager approves. */
+  async askRemoval(
+    companyId: string,
+    shipmentId: string,
+    sellingId: string,
+    input: { reason: string; userId: string; userEmail: string; jobNumber: string },
+  ): Promise<AmountChange> {
+    return db.transaction(async (tx): Promise<AmountChange> => {
+      await truckingLinesLock(tx, shipmentId);
+      const [row] = await tx.select().from(s).where(soldAtCostRow(sellingId, companyId, shipmentId)).limit(1);
+      if (!row?.sourceMasterJobRef) return { outcome: "not_found" };
+      if ((await invoiceRepository.invoicedSellingRowIds(shipmentId, companyId, tx)).has(row.id)) return { outcome: "invoiced" };
+      const cost = await costOf(tx, row);
+      if (cost == null) return { outcome: "no_cost" };
+      const [request] = await tx
+        .insert(t)
+        .values({
+          companyId,
+          shipmentId,
+          jobNumber: input.jobNumber,
+          sellingCostId: row.id,
+          kind: "remove",
+          category: row.category,
+          currency: row.currency,
+          costAmount: cost,
+          currentAmount: row.amount,
+          requestedAmount: "0.00",
+          reason: input.reason,
+          requestedById: input.userId,
+          requestedByName: input.userEmail,
+          requestedAt: new Date(),
+        })
+        .onConflictDoNothing()
+        .returning();
+      return request ? { outcome: "asked", request } : { outcome: "already_waiting" };
+    });
+  }
+
   /** A manager's answer. An approval writes the row, unless it is on an invoice, gone, or its cost moved since it was asked. */
   async answer(
     companyId: string,
@@ -119,7 +157,15 @@ class SellingAmountRequestRepository {
         if (cost == null) return { outcome: "row_gone" };
         // What was approved is this amount at this cost: a cost that moved is another question.
         if (centsOf(cost) !== centsOf(request.costAmount)) return { outcome: "cost_changed", cost };
-        await tx.update(s).set({ amount: request.requestedAmount, amountOverrideCost: cost, updatedAt: now }).where(eq(s.id, row.id));
+        await tx
+          .update(s)
+          .set(
+            request.kind === "remove"
+              ? // Deleted and remembered: processing the split doesn't put it back at this cost.
+                { deletedAt: now, waivedAt: now, amountOverrideCost: cost, updatedAt: now }
+              : { amount: request.requestedAmount, amountOverrideCost: cost, updatedAt: now },
+          )
+          .where(eq(s.id, row.id));
       }
       const [done] = await tx
         .update(t)

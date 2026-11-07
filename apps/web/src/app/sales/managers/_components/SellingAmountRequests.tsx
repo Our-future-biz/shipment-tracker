@@ -51,7 +51,7 @@ export function SellingAmountRequests() {
       <div className={`${CARD_BAR} flex-wrap justify-between`}>
         <div>
           <h3 className={CARD_TITLE}>Quote inquiries · selling below the cost</h3>
-          <div className={HINT}>Approve to change the shipment&apos;s selling to the amount asked, or reject with a reason. The answer shows on the shipment&apos;s Costs Breakdown.</div>
+          <div className={HINT}>Approve to change the shipment&apos;s selling to the amount asked or delete the row, or reject with a reason. The answer shows on the shipment&apos;s Costs Breakdown.</div>
         </div>
         <Segmented
           size="small"
@@ -96,10 +96,16 @@ export function SellingAmountRequests() {
                     </td>
                     <td className={`${CELL} tabular-nums`}>
                       <div className="text-slate-700">Cost {money(r.costAmount, r.currency)}</div>
-                      <div>
-                        <span className="font-semibold text-red-600">Asked {money(r.requestedAmount, r.currency)}</span>{" "}
-                        <span className="text-slate-500">({money(String(below), r.currency)} below)</span>
-                      </div>
+                      {r.kind === "remove" ? (
+                        <div>
+                          <span className="font-semibold text-red-600">Asked to delete it</span> <span className="text-slate-500">(sells at {money(r.currentAmount, r.currency)})</span>
+                        </div>
+                      ) : (
+                        <div>
+                          <span className="font-semibold text-red-600">Asked {money(r.requestedAmount, r.currency)}</span>{" "}
+                          <span className="text-slate-500">({money(String(below), r.currency)} below)</span>
+                        </div>
+                      )}
                     </td>
                     <td className={`${CELL} max-w-[300px] whitespace-pre-wrap`}>{r.reason}</td>
                     <td className={`${CELL} whitespace-nowrap`}>

@@ -21,6 +21,21 @@ export const invoicingSellingAmountChange = api(
     sellingAmountRequestService.change(getAuthData()!, shipmentId, sellingId, input),
 );
 
+interface AskRemovalRequest {
+  shipmentId: string;
+  sellingId: string;
+  /** Why the row should go. */
+  reason: string & MaxLen<1000>;
+}
+
+/** Asks a manager to take the row off the shipment's selling: it stays until a manager approves. */
+export const invoicingSellingRemovalAsk = api(
+  { expose: true, auth: true, method: "POST", path: "/invoicing/:shipmentId/selling/:sellingId/removal" },
+  async ({ shipmentId, sellingId, ...input }: AskRemovalRequest): Promise<{ request: SellingAmountRequestItem }> => ({
+    request: await sellingAmountRequestService.askRemoval(getAuthData()!, shipmentId, sellingId, input),
+  }),
+);
+
 export const invoicingSellingAmountRequestsOfShipment = api(
   { expose: true, auth: true, method: "GET", path: "/invoicing/:shipmentId/selling-amount-requests" },
   async ({ shipmentId }: { shipmentId: string }): Promise<{ requests: SellingAmountRequestItem[] }> => ({

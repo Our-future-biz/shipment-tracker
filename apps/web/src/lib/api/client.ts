@@ -1284,6 +1284,7 @@ export namespace invoicing {
             this.invoicingRestoreBuyingCost = this.invoicingRestoreBuyingCost.bind(this)
             this.invoicingSellingAmountChange = this.invoicingSellingAmountChange.bind(this)
             this.invoicingSellingAmountRequestsOfShipment = this.invoicingSellingAmountRequestsOfShipment.bind(this)
+            this.invoicingSellingRemovalAsk = this.invoicingSellingRemovalAsk.bind(this)
             this.invoicingSplitCost = this.invoicingSplitCost.bind(this)
             this.invoicingSupplierCosts = this.invoicingSupplierCosts.bind(this)
             this.invoicingSupplierUsage = this.invoicingSupplierUsage.bind(this)
@@ -1509,6 +1510,19 @@ export namespace invoicing {
             const resp = await this.baseClient.callTypedAPI("GET", `/invoicing/${encodeURIComponent(shipmentId)}/selling-amount-requests`)
             return await resp.json() as {
     requests: interfaces.SellingAmountRequestItem[]
+}
+        }
+
+        /**
+         * Asks a manager to take the row off the shipment's selling: it stays until a manager approves.
+         */
+        public async invoicingSellingRemovalAsk(shipmentId: string, sellingId: string, params: controllers.AskRemovalRequest): Promise<{
+    request: interfaces.SellingAmountRequestItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/selling/${encodeURIComponent(sellingId)}/removal`, JSON.stringify(params))
+            return await resp.json() as {
+    request: interfaces.SellingAmountRequestItem
 }
         }
 
@@ -6293,6 +6307,13 @@ export namespace controllers {
          * True when the name fits too many companies to list; nothing is returned then.
          */
         tooMany: boolean
+    }
+
+    export interface AskRemovalRequest {
+        /**
+         * Why the row should go.
+         */
+        reason: string
     }
 
     export interface AskRequest {
@@ -18631,13 +18652,18 @@ export namespace interfaces {
     }
 
     /**
-     * A request to sell a cost a shipment sells on at cost for less than it costs.
+     * A request about a cost a shipment sells on at cost: to sell it for less, or to take it off the selling.
      */
     export interface SellingAmountRequestItem {
         id: string
         shipmentId: string
         jobNumber: string
         sellingCostId: string
+        /**
+         * "amount": sell it for requestedAmount. "remove": take the row off the shipment's selling.
+         */
+        kind: "amount" | "remove"
+
         category: string
         currency: string
         /**
