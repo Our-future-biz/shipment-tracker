@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useMemo } from "react";
 import { Input, Button, Tooltip, message } from "antd";
-import { CheckCircleFilled, CopyOutlined, DeleteOutlined, PlusOutlined, WarningOutlined } from "@ant-design/icons";
+import { CheckCircleFilled, PlusOutlined, WarningOutlined } from "@ant-design/icons";
 import type { MessageInstance } from "antd/es/message/interface";
 import { buildRowData, getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
 import type { interfaces } from "@/lib/api/client";
@@ -16,7 +16,9 @@ import { SectionCard as Card, PillTabs } from "@/components/SectionCard";
 import { Pill } from "@/components/Pill";
 import { HINT } from "@/styles/ui";
 import { COLS2, EMPTY, LABEL, ROW, VALUE } from "../_components/detailStyles";
-import { ROW_BTN, ROW_DELETE, TD_CELL, TH_CELL, TOTAL_CELL, rowLine } from "./warehouse/warehouseUi";
+import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
+import { ConfirmModal } from "@/components/ConfirmModal";
+import { TD_CELL, TH_CELL, TOTAL_CELL, rowLine } from "./warehouse/warehouseUi";
 import { PickupSection } from "./warehouse/PickupSection";
 import { JobNotes, ActionPushButtons } from "./warehouse/JobExtras";
 
@@ -245,6 +247,8 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
   }, [anyOpen]);
+  // the line Delete asks about
+  const [toDelete, setToDelete] = useState<number | null>(null);
   const openRow = (idx: number) => setOpenRows((o) => (o.has(idx) ? o : new Set(o).add(idx)));
   const closeRow = (idx: number) => setOpenRows((o) => { if (!o.has(idx)) return o; const n = new Set(o); n.delete(idx); return n; });
   // Leaving the tab (or the page) with a line still open saves it too.
@@ -293,7 +297,9 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
   const fmtPcs = (v: number) => (v > 0 ? String(v) : "—");
   // the remeasured figure less the shipment's, where both are known
   const diff = (a: number, b: number, digits: number) => {
-    if (!(a > 0 && b > 0) || Math.abs(a - b) <= 0.001) return "—";
+    if (!(a > 0 && b > 0)) return "—";
+    // the same (within the rounding the figures are compared with): no difference
+    if (Math.abs(a - b) <= 0.001) return "0";
     const d = a - b;
     const abs = Math.abs(d);
     // a gap too small for the column's decimals still shows (up to 4 decimals), never as "0.0"
@@ -327,6 +333,18 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
         </>
       }
     >
+      <ConfirmModal
+        open={toDelete !== null}
+        danger
+        title="Delete line?"
+        description="The remeasured line is removed and the change is saved."
+        confirmLabel="Delete"
+        onClose={() => setToDelete(null)}
+        onConfirm={() => {
+          if (toDelete !== null) deleteRow(toDelete);
+          setToDelete(null);
+        }}
+      />
       {/* The remeasured lines, as the Container Details table: centred figures, a totals row */}
       <div className="overflow-x-auto">
         <table className="w-full min-w-[680px] border-collapse table-fixed text-[13px]">
@@ -345,19 +363,14 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
             {rows.map((row, idx) => {
               const open = isOpen(idx);
               const actions = (
+                // the line's actions behind "⋯", as in Container and Cargo Details; Delete asks first
                 <td className={`${TD_CELL} text-center whitespace-nowrap`}>
-                  <Tooltip title="Duplicate line">
-                    <button type="button" onClick={() => copyRow(idx)} aria-label={`Duplicate line ${idx + 1}`} className={ROW_BTN}>
-                      <CopyOutlined />
-                    </button>
-                  </Tooltip>
-                  {rows.length > 1 && (
-                    <Tooltip title="Delete line">
-                      <button type="button" onClick={() => deleteRow(idx)} aria-label={`Delete line ${idx + 1}`} className={ROW_DELETE}>
-                        <DeleteOutlined />
-                      </button>
-                    </Tooltip>
-                  )}
+                  <RowActionsMenu
+                    label={`Line ${idx + 1} actions`}
+                    onEdit={isOpen(idx) ? undefined : () => openRow(idx)}
+                    onCopy={() => copyRow(idx)}
+                    onDelete={rows.length > 1 ? () => setToDelete(idx) : undefined}
+                  />
                 </td>
               );
               const volume = (
@@ -451,7 +464,18 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
                 <td className={`${TD_CELL} ${r.key === "diff" ? "text-slate-500" : "text-slate-700"}`}>{r.label}</td>
                 {COMPARE.map((c) => (
                   <td key={c.key} className={`${TD_CELL} text-center tabular-nums`}>
-                    <span className={`font-semibold text-slate-900 ${differs(c.ship, c.re) ? "bg-amber-500/15 px-1.5 py-0.5 rounded" : ""}`}>{r.pick(c)}</span>
+                    {/* Only the difference is coloured: green when the figures match, red when they don't. */}
+                    <span
+                      className={`font-semibold ${
+                        r.key !== "diff" || !(c.ship > 0 && c.re > 0)
+                          ? "text-slate-900"
+                          : differs(c.ship, c.re)
+                            ? "text-red-600"
+                            : "text-emerald-600"
+                      }`}
+                    >
+                      {r.pick(c)}
+                    </span>
                   </td>
                 ))}
               </tr>
