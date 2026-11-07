@@ -870,6 +870,23 @@ describe("people are users of the company, stored by e-mail", () => {
     expect(auth.usersList).not.toHaveBeenCalled();
   });
 
+  it("makes a user's credit approval their own: an approver sent with it is replaced by the stamp", async () => {
+    stored.set(SHIPMENT, row({ creditCheck: "Red", approvedBy: "" }));
+    await shipmentService.update(SHIPMENT, COMPANY, { creditCheck: "Green", approvedBy: "jana@firma.cz" } as never, USER, "user");
+    expect(written(0).approvedBy).toMatch(/^jan@firma\.cz — \S/);
+    // a manager may name who approved it
+    stored.set(SHIPMENT, row({ creditCheck: "Red", approvedBy: "" }));
+    await shipmentService.update(SHIPMENT, COMPANY, { creditCheck: "Green", approvedBy: "jana@firma.cz" } as never, USER, "manager");
+    expect(written(1).approvedBy).toBe("jana@firma.cz");
+  });
+
+  it("stamps a shipment a user creates already approved with that user", async () => {
+    await shipmentService.create(COMPANY, { creditCheck: "Green", approvedBy: "jana@firma.cz" } as never, USER, { creatorRole: "user" });
+    expect(repository.createWithJobNumber.mock.calls.at(-1)![1].approvedBy).toMatch(/^jan@firma\.cz — \S/);
+    await shipmentService.create(COMPANY, { creditCheck: "Green", approvedBy: "jana@firma.cz" } as never, USER, { creatorRole: "admin" });
+    expect(repository.createWithJobNumber.mock.calls.at(-1)![1].approvedBy).toBe("jana@firma.cz");
+  });
+
   describe("the Sales Person a shipment takes from its quote", () => {
     const takenFrom = async (over: Record<string, unknown>) => {
       salesQuoteGet.mockResolvedValue(quote(over));

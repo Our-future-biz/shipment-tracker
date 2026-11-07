@@ -225,6 +225,6 @@ export const shipmentCreate = api(
   async (req: ShipmentCreateRequest): Promise<ShipmentCreateResponse> => {
     const { jobNumber, ...data } = req;
     const auth = getAuthData()!;
-    return shipmentService.create(auth.companyID, data, auth.userID);
+    return shipmentService.create(auth.companyID, data, auth.userID, { creatorRole: auth.role });
   },
 );

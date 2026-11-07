@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { App, Input, Modal, Tooltip } from "antd";
 import { DeleteOutlined } from "@ant-design/icons";
 import { apiErrorMessage } from "@/lib/api";
+import { useAuth } from "@/lib/auth/AuthContext";
+import { INPUT } from "@/styles/ui";
 import { formatDateTime } from "@/lib/date";
 import { normaliseAmount } from "@/lib/money";
 import type { SellingAmountRequest } from "@/hooks/useSellingAmountRequests";
@@ -30,6 +32,7 @@ const MIN_REASON = 3;
 
 export function SoldAtCostAmount({ amount, currency, cost, request, onChange, onWithdraw, onDone }: Props) {
   const { message } = App.useApp();
+  const { user } = useAuth();
   const [text, setText] = useState(amount);
   const [asking, setAsking] = useState<string | null>(null);
   const [reason, setReason] = useState("");
@@ -38,6 +41,10 @@ export function SoldAtCostAmount({ amount, currency, cost, request, onChange, on
   useEffect(() => setText(amount), [amount]);
 
   const waiting = request?.status === "pending" ? request : undefined;
+  // Only the one who asked takes it back (a manager rejects it instead, with a reason).
+  const mine = !!waiting && !!user?.id && waiting.requestedById === user.id;
+  // The row's share left the shipment: nothing to change until the master job's split is processed.
+  const gone = cost === null;
   const rejected = request?.status === "rejected" ? request : undefined;
 
   const save = async (value: string, why?: string) => {
@@ -69,6 +76,12 @@ export function SoldAtCostAmount({ amount, currency, cost, request, onChange, on
       return;
     }
     if (cost !== null && Math.round(Number(value) * 100) < Math.round(cost * 100)) {
+      // one request per row: a second would be refused
+      if (waiting) {
+        message.warning(mine ? "A request for this row already waits for a manager — take it back to ask again" : "A request for this row already waits for a manager");
+        setText(amount);
+        return;
+      }
       setReason("");
       setAsking(value);
       return;
@@ -84,12 +97,16 @@ export function SoldAtCostAmount({ amount, currency, cost, request, onChange, on
   return (
     <div className="text-right">
       <input
-        className="w-full h-[30px] px-[9px] text-[13px] text-right tabular-nums text-slate-900 bg-white border border-slate-200 rounded-md outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-50"
+        className={`${INPUT} w-full !h-[30px] text-right tabular-nums disabled:bg-slate-50 disabled:cursor-not-allowed`}
         value={text}
         inputMode="decimal"
-        disabled={busy}
+        disabled={busy || gone}
         aria-label="Selling amount"
-        title={cost !== null ? `The cost is ${cost.toFixed(2)} ${currency}: less than that needs a manager's approval` : undefined}
+        title={
+          gone
+            ? "This row's share is no longer on the shipment: process the master job's split"
+            : `The cost is ${cost.toFixed(2)} ${currency}: less than that needs a manager's approval`
+        }
         onChange={(e) => setText(e.target.value)}
         onBlur={leave}
         onKeyDown={(e) => {
@@ -99,17 +116,19 @@ export function SoldAtCostAmount({ amount, currency, cost, request, onChange, on
       {waiting && (
         <div className="mt-1 text-[11px] leading-snug text-amber-700">
           {waiting.kind === "remove" ? "Deleting it waits for a manager" : `${Number(waiting.requestedAmount).toFixed(2)} ${currency} waits for a manager`}
-          <button
-            type="button"
-            className="ml-1 underline bg-transparent border-none p-0 cursor-pointer text-amber-700"
-            onClick={() =>
-              void onWithdraw(waiting.id)
-                .then(onDone)
-                .catch((err) => message.error(apiErrorMessage(err)))
-            }
-          >
-            Take back
-          </button>
+          {mine && (
+            <button
+              type="button"
+              className="ml-1 underline bg-transparent border-none p-0 cursor-pointer text-amber-700"
+              onClick={() =>
+                void onWithdraw(waiting.id)
+                  .then(onDone)
+                  .catch((err) => message.error(apiErrorMessage(err)))
+              }
+            >
+              Take back
+            </button>
+          )}
         </div>
       )}
       {rejected && (
@@ -146,12 +165,14 @@ interface RemoveProps {
   currency: string;
   /** A request for this row waits for a manager: a second one is refused. */
   waiting: boolean;
+  /** The row's share left the shipment: the server refuses until the master job's split is processed. */
+  gone: boolean;
   className: string;
   onAsk: (reason: string) => Promise<unknown>;
 }
 
 /** Deleting a selling row a shipment sells on at cost: a window asks why, and a manager decides on Quote inquiries. */
-export function SoldAtCostRemove({ amount, currency, waiting, className, onAsk }: RemoveProps) {
+export function SoldAtCostRemove({ amount, currency, waiting, gone, className, onAsk }: RemoveProps) {
   const { message } = App.useApp();
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
@@ -172,10 +193,18 @@ export function SoldAtCostRemove({ amount, currency, waiting, className, onAsk }
 
   return (
     <>
-      <Tooltip title={waiting ? "A request for this row is already waiting for a manager" : "Delete row - a manager approves it"}>
+      <Tooltip
+        title={
+          gone
+            ? "This row's share is no longer on the shipment: process the master job's split"
+            : waiting
+              ? "A request for this row is already waiting for a manager"
+              : "Delete row - a manager approves it"
+        }
+      >
         <button
           type="button"
-          disabled={waiting}
+          disabled={waiting || gone}
           aria-label="Delete selling cost row"
           className={`${className} disabled:opacity-40 disabled:cursor-not-allowed`}
           onClick={() => {

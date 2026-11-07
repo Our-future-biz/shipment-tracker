@@ -4,7 +4,20 @@ import { BUSINESS_TZ } from "../../../lib/businessDate";
 import { db } from "../db/db";
 import { invoiceCostTable as t, type InvoiceCostRecord, type NewInvoiceCostRecord } from "../schemas/invoiceCost.schema";
 import type { ExpectedGroupRow, ReceivedTotalsRow } from "../lib/supplierCosts";
+import { invoiceNumberKey, ontoEstimates, type OpenEstimateRow } from "../lib/invoiceLines";
 import { truckingLinesLock } from "./truckingLines.repository";
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+type Reader = typeof db | Tx;
+
+/** A buying row of an invoice read line by line, as addInvoiceRows writes it. */
+export interface InvoiceRowWrite {
+  shipmentId: string;
+  category: string;
+  description: string;
+  realAmount: string;
+  realCurrency: string;
+}
 
 // Every query on a line also matches its shipment, so a line can only be written through its
 // own shipment's URL. Rows pushed by Trucking (source_trucking_ref) are kept by Trucking, and a
@@ -16,6 +29,10 @@ const deletedLineOf = (id: string, companyId: string, shipmentId: string) =>
 
 // Rows entered in Costs Breakdown itself (not pushed by Trucking, not a master job's share).
 const ENTERED_HERE = [isNull(t.sourceTruckingRef), isNull(t.sourceMasterJobRef)];
+
+// A row an invoice's real cost can go onto: live, entered here, an estimate with no real cost and no
+// invoice number yet. Filled, it is no longer open, so a second invoice never overwrites the first.
+const OPEN_ESTIMATE = and(isNull(t.deletedAt), ...ENTERED_HERE, isNotNull(t.estAmount), isNull(t.realAmount), sql`btrim(${t.invoiceNumber}) = ''`);
 
 // A supplier's live rows entered here and not yet paid, linked to its company (picked, or its haulier id): the
 // predicates of the two open-line indexes (invoicing migration 0022).
@@ -224,46 +241,127 @@ class InvoiceCostRepository extends TenantRepository<typeof t> {
     return rows.length > 0;
   }
 
-  /** The live rows of an invoice number on these shipments. */
-  async ofInvoiceNumber(companyId: string, shipmentIds: string[], invoiceNumber: string): Promise<Pick<InvoiceCostRecord, "shipmentId" | "category">[]> {
+  /**
+   * The live rows of an invoice number on these shipments, the number compared without spaces or case
+   * (lib/invoiceLines invoiceNumberKey), so "AS 260707595" is the same invoice as "as260707595".
+   */
+  async ofInvoiceNumber(companyId: string, shipmentIds: string[], invoiceNumber: string, reader: Reader = db): Promise<Pick<InvoiceCostRecord, "shipmentId" | "category">[]> {
     if (!shipmentIds.length) return [];
-    return this.db
+    return reader
       .select({ shipmentId: t.shipmentId, category: t.category })
       .from(t)
-      .where(and(eq(t.companyId, companyId), inArray(t.shipmentId, shipmentIds), eq(t.invoiceNumber, invoiceNumber), isNull(t.deletedAt)));
+      .where(
+        and(
+          eq(t.companyId, companyId),
+          inArray(t.shipmentId, shipmentIds),
+          sql`upper(regexp_replace(${t.invoiceNumber}, '[[:space:]]+', '', 'g')) = ${invoiceNumberKey(invoiceNumber)}`,
+          isNull(t.deletedAt),
+        ),
+      );
   }
 
   /**
-   * New buying rows of one invoice, all or none, after each shipment's own lines. Written under the
-   * shipments' trucking-lines locks, in one order so two writers can't wait on each other; `check`
-   * runs once they are held.
+   * The rows of these charges on these shipments that an invoice's real cost can go onto, in the order
+   * Costs Breakdown lists them: live, entered here, with an estimate and no real cost or invoice number yet.
    */
-  async addInvoiceRows(companyId: string, rows: Omit<NewInvoiceCostRecord, "companyId">[], check: () => Promise<void>): Promise<void> {
-    await this.db.transaction(async (tx) => {
+  async openEstimateRows(companyId: string, shipmentIds: string[], categories: string[], reader: Reader = db): Promise<OpenEstimateRow[]> {
+    if (!shipmentIds.length || !categories.length) return [];
+    return reader
+      .select({ id: t.id, shipmentId: t.shipmentId, category: t.category })
+      .from(t)
+      .where(and(eq(t.companyId, companyId), inArray(t.shipmentId, shipmentIds), inArray(t.category, categories), OPEN_ESTIMATE))
+      .orderBy(asc(t.sortOrder), asc(t.createdAt), asc(t.id));
+  }
+
+  /**
+   * One invoice's buying rows, all or none, written under the shipments' trucking-lines locks taken in
+   * one order (so two writers can't wait on each other). Once they are held `check` runs, and then a
+   * row of this invoice number under the same charge, unless `allowRepeat`: a second post of the same
+   * invoice waits for the first and sees its rows, so it is refused ("repeated") instead of counted
+   * twice. With `fillEstimates` a row's real cost goes onto the open estimate row of its shipment and
+   * charge (openEstimateRows); any other is a new row after the shipment's own lines. Every row written
+   * is marked postedFromLines. Answers, per row, whether it went onto an estimate.
+   */
+  async addInvoiceRows(
+    companyId: string,
+    invoiceNumber: string,
+    rows: InvoiceRowWrite[],
+    opts: { vendor: string; fillEstimates: boolean; allowRepeat: boolean; check: () => Promise<void> },
+  ): Promise<"repeated" | { ontoEstimate: boolean[] }> {
+    return this.db.transaction(async (tx) => {
       const shipmentIds = [...new Set(rows.map((r) => r.shipmentId))].sort();
       for (const id of shipmentIds) await truckingLinesLock(tx, id);
-      await check();
-      const lasts = await tx
-        .select({ shipmentId: t.shipmentId, last: max(t.sortOrder) })
-        .from(t)
-        .where(and(eq(t.companyId, companyId), inArray(t.shipmentId, shipmentIds), isNull(t.deletedAt)))
-        .groupBy(t.shipmentId);
-      const next = new Map(lasts.map((l) => [l.shipmentId, (l.last ?? -1) + 1]));
-      const values = rows.map((row) => {
-        const sortOrder = next.get(row.shipmentId) ?? 0;
-        next.set(row.shipmentId, sortOrder + 1);
-        return { ...row, companyId, sortOrder };
-      });
-      await tx.insert(t).values(values);
+      await opts.check();
+      if (!opts.allowRepeat) {
+        const earlier = new Set((await this.ofInvoiceNumber(companyId, shipmentIds, invoiceNumber, tx)).map((r) => `${r.shipmentId} ${r.category}`));
+        if (rows.some((r) => earlier.has(`${r.shipmentId} ${r.category}`))) return "repeated";
+      }
+      const open = opts.fillEstimates ? await this.openEstimateRows(companyId, shipmentIds, [...new Set(rows.map((r) => r.category))], tx) : [];
+      const targets = ontoEstimates(rows, open);
+      const vendor = opts.vendor.trim();
+      const ontoEstimate: boolean[] = [];
+      const fresh: InvoiceRowWrite[] = [];
+      for (const [i, row] of rows.entries()) {
+        const estimateId = targets[i];
+        // The estimate keeps its charge and words (a quote's stay the quote's); a vendor named here
+        // replaces the one it was estimated with, and a supplier picked for another name goes with it.
+        const filled = estimateId
+          ? await tx
+              .update(t)
+              .set({
+                realAmount: row.realAmount,
+                realCurrency: row.realCurrency,
+                invoiceNumber,
+                postedFromLines: true,
+                updatedAt: new Date(),
+                ...(vendor ? { vendor, supplierCustomerId: sql`CASE WHEN ${t.vendor} = ${vendor} THEN ${t.supplierCustomerId} ELSE NULL END` } : {}),
+              })
+              // Open still: someone may have typed a real cost on it since it was read.
+              .where(and(eq(t.id, estimateId), eq(t.companyId, companyId), eq(t.shipmentId, row.shipmentId), OPEN_ESTIMATE))
+              .returning({ id: t.id })
+          : [];
+        ontoEstimate.push(filled.length > 0);
+        if (!filled.length) fresh.push(row);
+      }
+      if (fresh.length) {
+        const lasts = await tx
+          .select({ shipmentId: t.shipmentId, last: max(t.sortOrder) })
+          .from(t)
+          .where(and(eq(t.companyId, companyId), inArray(t.shipmentId, shipmentIds), isNull(t.deletedAt)))
+          .groupBy(t.shipmentId);
+        const next = new Map(lasts.map((l) => [l.shipmentId, (l.last ?? -1) + 1]));
+        const values = fresh.map((row) => {
+          const sortOrder = next.get(row.shipmentId) ?? 0;
+          next.set(row.shipmentId, sortOrder + 1);
+          return { ...row, companyId, vendor, invoiceNumber, postedFromLines: true, sortOrder };
+        });
+        await tx.insert(t).values(values);
+      }
+      return { ontoEstimate };
     });
   }
 
-  /** The first live line of a charge code of a shipment, in the order Costs Breakdown lists them (Trucking's and master jobs' rows left out). */
+  /**
+   * The first live line of a charge code of a shipment, in the order Costs Breakdown lists them: the one
+   * a cost posted by charge code goes onto. Trucking's and master jobs' rows are left out, and so are the
+   * rows of an invoice or credit note read line by line (postedFromLines): a later invoice never
+   * overwrites them, and a credit is never taken for the real cost a shipment already has.
+   */
   async findByCategory(shipmentId: string, companyId: string, category: string): Promise<InvoiceCostRecord | null> {
     const [row] = await this.db
       .select()
       .from(t)
-      .where(and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), eq(t.category, category), isNull(t.deletedAt), isNull(t.sourceTruckingRef), isNull(t.sourceMasterJobRef)))
+      .where(
+        and(
+          eq(t.companyId, companyId),
+          eq(t.shipmentId, shipmentId),
+          eq(t.category, category),
+          isNull(t.deletedAt),
+          isNull(t.sourceTruckingRef),
+          isNull(t.sourceMasterJobRef),
+          eq(t.postedFromLines, false),
+        ),
+      )
       .orderBy(asc(t.sortOrder), asc(t.createdAt))
       .limit(1);
     return row ?? null;

@@ -38,8 +38,10 @@ export const invoicingSplitCost = api(
 );
 
 /**
- * Posts an invoice read line by line as new buying rows: each line on the shipment its B/L names, any
- * other shared out by weight. With dryRun, only answers what it comes to.
+ * Posts an invoice read line by line as buying rows: each line on the shipment its B/L names, any other
+ * shared out over the master job's shipments. A shipment's real cost of a charge goes onto its estimate
+ * of that charge while it has no real cost or invoice yet, else onto a new row; a credit note is always
+ * a new minus row. With dryRun, makes the same checks and only answers what it comes to.
  */
 export const invoicingPostInvoiceLines = api(
   { expose: true, auth: true, method: "POST", path: "/invoicing/invoice-lines" },

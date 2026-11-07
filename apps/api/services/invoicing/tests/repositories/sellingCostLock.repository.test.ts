@@ -10,8 +10,9 @@ const fake = vi.hoisted(() => {
   const tx = {
     update: () => ({
       set: (values: Record<string, unknown>) => ({
-        where: () => ({
+        where: (w: unknown) => ({
           returning: async () => {
+            state.where = w;
             state.steps.push("update");
             return [{ id: "row", ...values }];
           },
@@ -55,6 +56,23 @@ describe("writing a selling row unless it is invoiced", () => {
     await expect(sellingCostRepository.writeUnlessInvoiced("row", "c1", "s1", { data: { amount: "200.00" } })).resolves.toBe("invoiced");
     await expect(sellingCostRepository.writeUnlessInvoiced("row", "c1", "s1", { delete: true })).resolves.toBe("invoiced");
     expect(fake.state.steps).not.toContain("update");
+  });
+});
+
+describe("a row a master job's split keeps", () => {
+  const written = () => new PgDialect().sqlToQuery(fake.state.where as SQL).sql;
+
+  it("takes how it is billed: the Invoice tick, its own text, its VAT code", async () => {
+    await sellingCostRepository.writeUnlessInvoiced("row", "c1", "s1", { data: { invoice: false, customer: "Demurrage", vatCode: null } });
+    expect(written()).not.toContain('"source_master_job_ref" is null');
+    expect(written()).toContain('"source_trucking_ref" is null');
+  });
+
+  it("keeps the split's charge and amount: any other write doesn't reach it", async () => {
+    await sellingCostRepository.writeUnlessInvoiced("row", "c1", "s1", { data: { invoice: false, amount: "10.00" } });
+    expect(written()).toContain('"source_master_job_ref" is null');
+    await sellingCostRepository.writeUnlessInvoiced("row", "c1", "s1", { delete: true });
+    expect(written()).toContain('"source_master_job_ref" is null');
   });
 });
 

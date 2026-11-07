@@ -20,7 +20,7 @@ import { EXCEPTIONS_CLOSED_BY, eventsFromChanges, heldFieldChanges, lastEventOf,
 import { shipmentTaskRepository } from "../repositories/shipmentTask.repository";
 import { shipmentTrackingEventRepository } from "../repositories/shipmentTrackingEvent.repository";
 import { invoiceValueByCurrency, isValidContainerNumber, matchContainerRows, normalizeContainerNumber, projectCargo } from "../lib/cargoProjection";
-import { actionStamp, cfsDefault, exportBolDefaults, isCreditApproval, startingStateDefaults, statusForDirection } from "../lib/fieldDefaults";
+import { actionStamp, cfsDefault, exportBolDefaults, isCreditApproval, isCreditApproved, startingStateDefaults, statusForDirection } from "../lib/fieldDefaults";
 import { quoteLinksService } from "./quoteLinks.service";
 import type { ShipmentListFilters } from "../repositories/shipment.repository";
 import type { NewShipmentRecord, ShipmentRecord } from "../schemas/shipment.schema";
@@ -51,7 +51,7 @@ import { iso } from "../../../lib/db/serialize";
 import { isUuid } from "../../../lib/uuid";
 import { publicFields } from "../lib/rows";
 import { changesTaxDate } from "../lib/taxDate";
-import { customsOfficeForProcedure, customsOfficeLockRefusal, customsOfficeShapeRefusal } from "../lib/customsOffice";
+import { customsOfficeForProcedure, customsOfficeLockRefusal, customsOfficeRefusal } from "../lib/customsOffice";
 import { approvedByLockRefusal, creditCheckLockRefusal, DETAILS_REFUSAL, isDetailsManager, isOpenToPerson, touchesDetails } from "../lib/shipmentEditRule";
 import { dangerousFromAdr, normalizeCargoDimensions, normalizeStops } from "../lib/roadFreight";
 import { detailRowChanges, type DetailRowLists } from "../lib/detailRowsAudit";
@@ -994,9 +994,14 @@ class ShipmentService {
    * the caller's own createdBy is kept. `allowUnfinishedQuote`: the Sales Number may name a quote
    * that is not Won - Trucking's road jobs, made for an order as it comes.
    */
-  async create(companyId: string, data: ShipmentCreateData, creatorUserId?: string, { allowUnfinishedQuote = false } = {}): Promise<CreatedShipment> {
+  async create(
+    companyId: string,
+    data: ShipmentCreateData,
+    creatorUserId?: string,
+    { allowUnfinishedQuote = false, creatorRole }: { allowUnfinishedQuote?: boolean; creatorRole?: string } = {},
+  ): Promise<CreatedShipment> {
     const { containers, cargoItems, cargoDimensions: sentDimensions, commercialInvoices, fromQuoteNumber, allowSecondShipment, ...rest } = data;
-    const badOffice = customsOfficeShapeRefusal(rest.customsOffice);
+    const badOffice = customsOfficeRefusal(rest.customsOffice);
     if (badOffice) throw APIError.invalidArgument(badOffice);
     assertValidContainerNumbers(containers);
     const cargoDimensions = normalizeCargoDimensions(sentDimensions);
@@ -1006,6 +1011,10 @@ class ShipmentService {
     await checkPeople(shipmentData, users);
     // Who created it, by e-mail ("" when nobody can tell); when is the row's createdAt ("Created on").
     if (creatorUserId) shipmentData.createdBy = (await this.actorOf(creatorUserId)).trim();
+    // Created with the credit check approved by a user: the approval is theirs, as on an update.
+    if (creatorUserId && creatorRole !== undefined && !isDetailsManager(creatorRole) && isCreditApproved(shipmentData.creditCheck)) {
+      shipmentData.approvedBy = actionStamp(await this.actorOf(creatorUserId), new Date());
+    }
     Object.assign(shipmentData, normalizeStops(shipmentData));
     // A new shipment has no paperwork yet, so its customs status starts where the paperwork does.
     delete shipmentData.customsStatus;
@@ -1095,7 +1104,7 @@ class ShipmentService {
     if (!existing) throw APIError.notFound("Shipment not found");
     const locked = role === undefined ? null : (customsOfficeLockRefusal(existing, data, role) ?? creditCheckLockRefusal(existing, data, role) ?? approvedByLockRefusal(existing, data, role));
     if (locked) throw APIError.permissionDenied(locked);
-    const badOffice = customsOfficeShapeRefusal(data.customsOffice);
+    const badOffice = customsOfficeRefusal(data.customsOffice, existing.customsOffice);
     if (badOffice) throw APIError.invalidArgument(badOffice);
     if (role !== undefined && touchesDetails(data)) await this.assertMayChangeDetails(existing, userId, role);
 
@@ -1188,10 +1197,12 @@ class ShipmentService {
       if (truckPlate || !truck) shipmentData.plateNumber = truckPlate;
     }
 
-    // Approving the credit check records who did it and when. An explicit
-    // approvedBy in the same request wins — the stamp only fills the field the
-    // approval itself would leave untouched.
-    if (isCreditApproval(shipmentData.creditCheck, existing.creditCheck) && !("approvedBy" in shipmentData)) {
+    // Approving the credit check records who did it and when. A manager's explicit approvedBy in
+    // the same request wins - the stamp only fills the field the approval would leave untouched. A
+    // user's approval is always their own: once Green, Approved By is locked to them
+    // (approvedByLockRefusal), so it can't name someone else.
+    const userApproves = role !== undefined && !isDetailsManager(role);
+    if (isCreditApproval(shipmentData.creditCheck, existing.creditCheck) && (userApproves || !("approvedBy" in shipmentData))) {
       shipmentData.approvedBy = actionStamp(await this.actorOf(userId), new Date());
     }
 

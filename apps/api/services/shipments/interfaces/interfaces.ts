@@ -455,6 +455,14 @@ export interface MasterJobHouseItem {
   freightTon: number;
 }
 
+/** A house shipment as an invoice read line by line is checked against: its B/L says which lines are its. */
+export interface MasterJobInvoiceHouseItem extends MasterJobHouseItem {
+  /** As typed on the shipment; may hold more than one number ("A1, B2") */
+  houseBolNumber: string;
+  /** Cancelled Shipment: nothing is posted to it */
+  cancelled: boolean;
+}
+
 /** A house shipment as listed on its master job. */
 export interface MasterJobShipmentItem {
   id: string;

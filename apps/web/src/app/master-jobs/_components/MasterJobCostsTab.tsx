@@ -152,11 +152,15 @@ export function MasterJobCostsTab({ masterJob }: Props) {
     if (shown) allIn.set(shown.currency, (allIn.get(shown.currency) ?? 0) + shown.total);
   }
   const housesInLine = (l: Line) => houses.filter((h) => !l.excludedShipmentIds.includes(h.shipmentId));
+  // The shipments that would carry a part of the line: by W/M, only those with a W/M.
+  const carriersOf = (l: Line) => houses.filter((h) => l.splitMethod !== "wm" || h.freightTon > 0);
+  const carriersInLine = (l: Line) => carriersOf(l).filter((h) => !l.excludedShipmentIds.includes(h.shipmentId));
   // Only a shipment still in a W/M line's split is missing a share by having no W/M.
   const noWm = houses.filter((h) => !(h.freightTon > 0) && splitLines.some((l) => l.splitMethod === "wm" && !l.excludedShipmentIds.includes(h.shipmentId)));
   const totalWm = houses.reduce((sum, h) => sum + h.freightTon, 0);
-  // Every shipment still in the line's split unlinked since: its cost lands on nobody.
-  const nobodyCarries = splitLines.filter((l) => houses.length > 0 && housesInLine(l).length === 0);
+  // Every shipment still in the line's split unlinked since (or, by W/M, left with no W/M): its cost
+  // lands on nobody. A W/M line no shipment has a W/M for is the "no W/M" warning's.
+  const nobodyCarries = splitLines.filter((l) => carriersOf(l).length > 0 && carriersInLine(l).length === 0);
   const busy = add.isPending || update.isPending || remove.isPending || processSplit.isPending;
   // Each line and the whole master job against their estimates, worked out on the server at today's ČNB rates.
   const { vsEstimate, totalVsEstimate: totalVs } = data;
@@ -358,8 +362,9 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                         const real = s?.real != null ? `${amountOf(Number(s.real))} ${l.realCurrency}` : null;
                         const est = s?.est != null ? `${amountOf(Number(s.est))} ${l.estCurrency}` : null;
                         const inSplit = !l.excludedShipmentIds.includes(h.shipmentId);
-                        // The last shipment stays in: the line's cost has to land somewhere.
-                        const last = inSplit && housesInLine(l).length === 1;
+                        // The last shipment that carries it stays in: the line's cost has to land somewhere.
+                        const carriers = carriersInLine(l);
+                        const last = inSplit && carriers.length === 1 && carriers[0]!.shipmentId === h.shipmentId;
                         return (
                           <td key={l.id} className={`${TD} text-right tabular-nums`}>
                             <div className="flex items-start justify-end gap-3">

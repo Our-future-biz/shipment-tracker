@@ -25,7 +25,7 @@ Rules:
 ${PLACE_RULES}
 - Return ONLY a JSON object. No markdown, no explanation, no code fences.`;
 
-export const INVOICE_PROMPT = `You are an invoice data extractor. You extract cost/billing data from:
+const INVOICE_HEADER_RULES = `You are an invoice data extractor. You extract cost/billing data from:
 - Commercial Invoices, Debit Notes, Credit Notes
 - Proforma Invoices, Freight Bills
 - Customs Declarations
@@ -38,14 +38,21 @@ Rules:
 - invoice_date: DD/MM/YYYY format
 - due_date: DD/MM/YYYY format
 - description: brief summary, max 80 characters
-- service_type: the charge the invoice is for, one of ${OFFERED_CHARGE_CODES.map((c) => `"${c}"`).join(", ")}
-- lines: when the invoice lists charges in rows, a JSON array with one object per charge row, in the order printed, leaving out total rows:
+- service_type: the charge the invoice is for, one of ${OFFERED_CHARGE_CODES.map((c) => `"${c}"`).join(", ")}`;
+
+const INVOICE_LINE_RULES = `- lines: when the invoice lists charges in rows, a JSON array with one object per charge row, in the order printed, leaving out total rows:
   - bl: the B/L number printed on that row, exactly as printed; "" when the row names none. A B/L printed once for several rows belongs to each of them. A master B/L printed only in the header is not a row's B/L
   - item: the charge as printed
   - amount: the row's final amount as a number string, after any exchange rate or quantity it is multiplied by (the DEBIT or Total column, not RATE). A credit is negative
   - currency: the row's ISO 4217 code, if it differs from the invoice's or is printed on the row
-  - service_type: the row's charge, one of the codes above; "" when none fits
-- Return ONLY a JSON object. No markdown, no explanation, no code fences.`;
+  - service_type: the row's charge, one of the codes above; "" when none fits`;
+
+const INVOICE_ENDING = `- Return ONLY a JSON object. No markdown, no explanation, no code fences.`;
+
+export const INVOICE_PROMPT = `${INVOICE_HEADER_RULES}\n${INVOICE_LINE_RULES}\n${INVOICE_ENDING}`;
+
+// The same reading without the charge rows: for an invoice whose rows run past what one reply holds.
+export const INVOICE_HEADER_PROMPT = `${INVOICE_HEADER_RULES}\n${INVOICE_ENDING}`;
 
 export const CUSTOMS_PROMPT = `You are a customs document data extractor. You read the MRN (Movement Reference Number) and basic shipment data from:
 - Export / import customs declarations (e.g. EX-A, ECS, EAD, CUSDEC, Czech "JSD")

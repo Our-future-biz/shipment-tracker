@@ -20,6 +20,8 @@ export interface ExtractionResult {
   fileName: string;
   /** An invoice's charge rows, when it lists them */
   invoiceLines?: InvoiceLineRead[];
+  /** The invoice's charge rows ran past what one reading holds: only its header fields were read */
+  invoiceLinesSkipped?: boolean;
 }
 
 /** One uploaded file of a pre-alert. */

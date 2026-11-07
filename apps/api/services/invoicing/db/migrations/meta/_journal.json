@@ -211,6 +211,20 @@
       "when": 1794042556528,
       "tag": "0029_selling_removal_request",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1794085282426,
+      "tag": "0030_invoice_cost_posted_from_lines",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1794086202410,
+      "tag": "0031_selling_request_fk",
+      "breakpoints": true
     }
   ]
 }

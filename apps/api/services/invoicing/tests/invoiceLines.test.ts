@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { creditNoteProblem, invoiceLineProblem, invoiceRows, type InvoicePostLine } from "../lib/invoiceLines";
+import { invoiceLineProblem, invoiceNumberKey, invoiceRows, invoiceRowsProblem, onMasterJob, ontoEstimates, type InvoiceHouse, type InvoicePostLine } from "../lib/invoiceLines";
 
 const A = "aaaaaaaa-0000-4000-8000-000000000001";
 const B = "aaaaaaaa-0000-4000-8000-000000000002";
@@ -93,9 +93,110 @@ describe("a credit note's rows", () => {
     expect(rows.map((r) => r.amount)).toEqual(["-33.33", "-66.67"]);
   });
 
-  it("must come to a deduction in every currency", () => {
-    expect(creditNoteProblem([line({ amount: "-100.00" }), line({ amount: "10.00" })])).toBeNull();
-    expect(creditNoteProblem([line({ amount: "100.00" })])).toMatch(/deducts/);
-    expect(creditNoteProblem([line({ amount: "-100.00" }), line({ amount: "5.00", currency: "EUR" })])).toMatch(/deducts/);
+  it("must be a deduction, every one of them", () => {
+    const credit = (lines: InvoicePostLine[]) => invoiceRowsProblem(invoiceRows(lines, { creditNote: true }), { creditNote: true });
+    // A charge printed among the credits, under the same charge of the same shipment, stays within its deduction.
+    expect(credit([line({ amount: "-100.00" }), line({ amount: "10.00" })])).toBeNull();
+    // Anywhere else it would add buying, whatever the credit note comes to in all.
+    expect(credit([line({ amount: "-100.00" }), line({ amount: "10.00", category: "cfs_destination" })])).toMatch(/deducts/);
+    expect(credit([line({ amount: "-100.00" }), line({ amount: "10.00", shipmentId: B })])).toMatch(/deducts/);
+    expect(credit([line({ amount: "-100.00" }), line({ amount: "5.00", currency: "EUR" })])).toMatch(/deducts/);
+    expect(credit([line({ amount: "100.00" })])).toMatch(/deducts/);
+    // An invoice may add and take off as it likes.
+    expect(invoiceRowsProblem(invoiceRows([line({ amount: "-100.00" }), line({ amount: "10.00", shipmentId: B })]))).toBeNull();
+  });
+});
+
+describe("rows that can't be posted", () => {
+  it("are none at all: lines that cancel out", () => {
+    expect(invoiceRowsProblem(invoiceRows([line({ amount: "100.00" }), line({ amount: "-100.00" })]))).toMatch(/nothing/);
+  });
+
+  it("hold more than an amount can", () => {
+    const big = Array.from({ length: 2 }, () => line({ amount: "999999999999.99" }));
+    expect(invoiceRowsProblem(invoiceRows(big))).toMatch(/more than an amount can hold/);
+    expect(invoiceRowsProblem(invoiceRows([line({ amount: "999999999999.99" })]))).toBeNull();
+  });
+});
+
+describe("an invoice number as compared for a repeat", () => {
+  it("is the same without spaces or case", () => {
+    expect(invoiceNumberKey(" as 2607 07595 ")).toBe("AS260707595");
+    expect(invoiceNumberKey("AS260707595")).toBe("AS260707595");
+  });
+});
+
+describe("a master job's invoice", () => {
+  const C = "aaaaaaaa-0000-4000-8000-000000000003";
+  const OTHER = "aaaaaaaa-0000-4000-8000-000000000009";
+  const houses: InvoiceHouse[] = [
+    { shipmentId: A, jobNumber: "CZ00000001", houseBolNumber: "GLSL26060771", cancelled: false, freightTon: 3 },
+    { shipmentId: B, jobNumber: "CZ00000002", houseBolNumber: "glsl-2606 0963, GLGL26050536", cancelled: false, freightTon: 1 },
+    { shipmentId: C, jobNumber: "CZ00000003", houseBolNumber: "GLSL26069999", cancelled: true, freightTon: 5 },
+  ];
+  const placed = (lines: InvoicePostLine[], method?: "wm" | "shipment") => onMasterJob(lines, houses, method);
+
+  it("goes to a shipment by its House B/L, however it is written there", () => {
+    expect(placed([line({ shipmentId: A, bl: "GLSL26060771" }), line({ shipmentId: B, bl: "GLSL26060963" })])).toEqual({
+      lines: [expect.objectContaining({ shipmentId: A }), expect.objectContaining({ shipmentId: B })],
+    });
+    expect(placed([line({ shipmentId: B, bl: "GLGL26050536" })])).not.toHaveProperty("problem");
+  });
+
+  it("refuses a line placed by a B/L that is not that shipment's House B/L", () => {
+    expect(placed([line({ shipmentId: A, bl: "GLSL26060963" })])).toEqual({ problem: expect.stringContaining("not the House B/L of CZ00000001") });
+    expect(placed([line({ shipmentId: A, bl: "" })])).toEqual({ problem: expect.stringContaining("names no B/L of CZ00000001") });
+  });
+
+  it("lets a person send a line to any shipment of the master job, and to none outside it", () => {
+    expect(placed([line({ shipmentId: B, bl: "GLSL26060771", chosen: true })])).not.toHaveProperty("problem");
+    expect(placed([line({ shipmentId: OTHER, chosen: true })])).toEqual({ problem: expect.stringContaining("not on this master job") });
+  });
+
+  it("posts nothing to a cancelled shipment, by its B/L, by hand or in a split", () => {
+    expect(placed([line({ shipmentId: C, bl: "GLSL26069999" })])).toEqual({ problem: expect.stringContaining("CZ00000003 is cancelled") });
+    expect(placed([line({ shipmentId: C, chosen: true })])).toEqual({ problem: expect.stringContaining("cancelled") });
+    expect(placed([line({ shipmentId: undefined, split: [{ shipmentId: A, weight: 1 }, { shipmentId: C, weight: 1 }] })], "wm")).toEqual({ problem: expect.stringContaining("cancelled") });
+  });
+
+  it("weighs a shared line by the master job's own W/M, not the browser's", () => {
+    const out = placed([line({ shipmentId: undefined, split: [{ shipmentId: A, weight: 1 }, { shipmentId: B, weight: 1 }] })], "wm");
+    expect(out).toEqual({ lines: [expect.objectContaining({ split: [{ shipmentId: A, weight: 3 }, { shipmentId: B, weight: 1 }] })] });
+    expect(invoiceRows((out as { lines: InvoicePostLine[] }).lines).map((r) => r.amount)).toEqual(["75.00", "25.00"]);
+    const equal = placed([line({ shipmentId: undefined, split: [{ shipmentId: A, weight: 9 }, { shipmentId: B, weight: 0 }] })], "shipment");
+    expect(equal).toEqual({ lines: [expect.objectContaining({ split: [{ shipmentId: A, weight: 1 }, { shipmentId: B, weight: 1 }] })] });
+  });
+
+  it("asks how to split, and over shipments of the master job only, each once", () => {
+    const shared = (split: { shipmentId: string; weight: number }[]) => line({ shipmentId: undefined, split });
+    expect(placed([shared([{ shipmentId: A, weight: 1 }])])).toEqual({ problem: expect.stringContaining("how to split") });
+    expect(placed([shared([{ shipmentId: OTHER, weight: 1 }])], "wm")).toEqual({ problem: expect.stringContaining("not on this master job") });
+    expect(placed([shared([{ shipmentId: A, weight: 1 }, { shipmentId: A, weight: 1 }])], "wm")).toEqual({ problem: expect.stringContaining("twice") });
+    const noWm = onMasterJob([shared([{ shipmentId: A, weight: 1 }])], [{ ...houses[0]!, freightTon: 0 }], "wm");
+    expect(noWm).toEqual({ problem: expect.stringContaining("W/M") });
+  });
+});
+
+describe("the estimates an invoice's real cost goes onto", () => {
+  const open = [
+    { id: "e1", shipmentId: A, category: "ocean_freight" },
+    { id: "e2", shipmentId: A, category: "ocean_freight" },
+    { id: "e3", shipmentId: B, category: "cfs_destination" },
+  ];
+
+  it("are the open estimates of the same shipment and charge, each taken once, in their order", () => {
+    const rows = [
+      { shipmentId: A, category: "ocean_freight" },
+      { shipmentId: B, category: "ocean_freight" },
+      { shipmentId: A, category: "ocean_freight" },
+      { shipmentId: A, category: "ocean_freight" },
+      { shipmentId: B, category: "cfs_destination" },
+    ];
+    expect(ontoEstimates(rows, open)).toEqual(["e1", null, "e2", null, "e3"]);
+  });
+
+  it("are none without an open estimate: a new row is added", () => {
+    expect(ontoEstimates([{ shipmentId: A, category: "customs" }], open)).toEqual([null]);
+    expect(ontoEstimates([{ shipmentId: A, category: "ocean_freight" }], [])).toEqual([null]);
   });
 });

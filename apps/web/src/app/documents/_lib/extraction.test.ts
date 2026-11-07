@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { containersAfterReading, customerNamed, keepsPartyLink, keptPartyDetails, mblContainers, mblDefaultTicks, mblToMasterJobUpdate, normalizeExtracted, partyLinks, sealNote, sealsOf, sealsOnFileThatDiffer, withMblSeals, type ShipmentPartyDetails } from "./extraction";
+import { containerNumbersOnFile, containersAfterReading, customerNamed, keepsPartyLink, keptPartyDetails, mblContainers, mblDefaultTicks, mblToMasterJobUpdate, normalizeExtracted, partyLinks, sealNote, sealsOf, sealsOnFileThatDiffer, withMblSeals, type ShipmentPartyDetails } from "./extraction";
 
 const acme = { id: "k1", companyName: "Acme Logistics s.r.o." };
 const zelezny = { id: "k2", companyName: "Železný a syn" };
@@ -148,9 +148,28 @@ describe("seal numbers read with containers", () => {
     expect(sealsOf([], "S1")).toBeNull();
   });
 
-  it("gives a single container every seal read", () => {
-    expect(sealsOf([A], "S1, S2")).toEqual(["S1 / S2"]);
+  it("pairs a single container with one seal only: a comma list for it is a count that doesn't match", () => {
+    expect(sealsOf([A], "S1")).toEqual(["S1"]);
+    // Several seals on one container are read as one value.
     expect(sealsOf([A], "S1 / S2")).toEqual(["S1 / S2"]);
+    expect(sealsOf([A], "S1, S2")).toBeNull();
+    expect(sealNote([A], "S1, S2")).toEqual({ text: expect.stringContaining("One container"), warn: true });
+    expect(containersAfterReading([line(A, "OLD")], { numbers: A, addNumbers: true, seals: "S1, S2" })[0]!.sealNumber).toBe("OLD");
+  });
+
+  it("pairs seals with the shipment's numbered rows only, a row without a number left out alike everywhere", () => {
+    const onFile = [line(""), line(A, "OLD")];
+    expect(containerNumbersOnFile(onFile)).toEqual([A]);
+    // One seal and one numbered container: it goes there, and the seal it replaces shows as on file.
+    expect(containersAfterReading(onFile, { addNumbers: false, seals: "S1" }).map((c) => c.sealNumber)).toEqual(["", "S1"]);
+    expect(sealsOnFileThatDiffer(onFile, undefined, "S1")).toBe("OLD");
+  });
+
+  it("warns when seals are paired with the shipment's rows by their order because the document names no container", () => {
+    expect(sealNote([A, B], "S1, S2", { byRowOrder: true })).toEqual({ text: expect.stringContaining(`${A}: S1 · ${B}: S2`), warn: true });
+    expect(sealNote([A, B], "S1, S2")).toEqual({ text: `${A}: S1 · ${B}: S2`, warn: false });
+    // With one container on file there is no order to get wrong.
+    expect(sealNote([A], "S1", { byRowOrder: true })).toEqual({ text: expect.stringContaining(A), warn: false });
   });
 
   it("adds containers with their seals on a new shipment", () => {

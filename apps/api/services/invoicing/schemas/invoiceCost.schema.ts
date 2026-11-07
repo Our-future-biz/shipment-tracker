@@ -56,6 +56,12 @@ export const invoiceCostTable = pgTable(
      * as a set) and read-only here.
      */
     sourceMasterJobRef: text("source_master_job_ref"),
+    /**
+     * Posted from a vendor invoice or credit note read line by line (POST /invoicing/invoice-lines), as a
+     * row of its own or onto the estimate it belongs to. A cost posted by charge code later (one shipment's
+     * invoice, a master job's split) never lands on it, so it is neither overwritten nor taken for that cost.
+     */
+    postedFromLines: boolean("posted_from_lines").notNull().default(false),
   },
   (table) => [
     ...defaultTableIndexes("invoice_cost", table),

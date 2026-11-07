@@ -1,4 +1,4 @@
-import { parseMoney } from "@/lib/money";
+import { num } from "@/lib/money";
 import type { MasterInvoiceRow, SplitMethod } from "./masterInvoice";
 import { splitLines } from "./masterInvoice";
 
@@ -24,6 +24,8 @@ export interface BlShipment {
   shipmentId: string;
   jobNumber: string;
   houseBol: string;
+  /** Cancelled Shipment: nothing is posted to it, so its B/L places no line */
+  cancelled?: boolean;
 }
 
 export type LineMatch =
@@ -36,7 +38,9 @@ export type LineMatch =
   /** no shipment of the master job has its B/L */
   | { kind: "not-found" }
   /** more than one shipment has its B/L */
-  | { kind: "ambiguous"; jobNumbers: string[] };
+  | { kind: "ambiguous"; jobNumbers: string[] }
+  /** only a cancelled shipment has its B/L */
+  | { kind: "cancelled"; jobNumber: string };
 
 /** A B/L as compared: capitals, without spaces or punctuation. */
 export const blKey = (bl: string | null | undefined): string => (bl ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -47,13 +51,18 @@ const blKeysOf = (field: string): string[] => field.split(/[,;]+/).map(blKey).fi
 /** Whether the invoice names a B/L on any line: only then is it sorted by them. */
 export const namesBls = (lines: readonly InvoiceLineDraft[]): boolean => lines.some((l) => blKey(l.bl));
 
-/** What a line's B/L says about where it belongs, among the shipments of the chosen master job. */
+/**
+ * What a line's B/L says about where it belongs, among the shipments of the chosen master job. A
+ * cancelled shipment takes nothing: its B/L only says so, and the line goes to the split.
+ */
 export function matchLine(line: Pick<InvoiceLineDraft, "bl">, shipments: readonly BlShipment[], masterBols: readonly string[] = []): LineMatch {
   const key = blKey(line.bl);
   if (!key) return { kind: "no-bl" };
   const found = shipments.filter((s) => blKeysOf(s.houseBol).includes(key));
-  if (found.length === 1) return { kind: "bl", shipmentId: found[0]!.shipmentId };
-  if (found.length > 1) return { kind: "ambiguous", jobNumbers: found.map((s) => s.jobNumber) };
+  const live = found.filter((s) => !s.cancelled);
+  if (live.length === 1) return { kind: "bl", shipmentId: live[0]!.shipmentId };
+  if (live.length > 1) return { kind: "ambiguous", jobNumbers: live.map((s) => s.jobNumber) };
+  if (found.length > 0) return { kind: "cancelled", jobNumber: found[0]!.jobNumber };
   return masterBols.flatMap(blKeysOf).includes(key) ? { kind: "master" } : { kind: "not-found" };
 }
 
@@ -69,17 +78,48 @@ export function matchNote(match: LineMatch): string | null {
   if (match.kind === "no-bl") return "No B/L on this line: goes to the split unless you choose";
   if (match.kind === "not-found") return "This B/L is on no shipment of the master job: goes to the split unless you choose";
   if (match.kind === "ambiguous") return `${match.jobNumbers.join(", ")} have this B/L: goes to the split unless you choose`;
+  if (match.kind === "cancelled") return `This B/L is ${match.jobNumber}'s, which is cancelled: goes to the split unless you choose`;
   return null;
 }
+
+/**
+ * A line's amount as typed or read ("1,177.20", "1 177,20", "-45"), or null when it is no amount: anything
+ * but digits, separators and a minus in front, or 0. Read as the money fields read it (money.ts num).
+ */
+export function lineAmount(text: string | undefined): number | null {
+  const t = (text ?? "").trim();
+  if (!/^-?[\d\s\u00a0\u202f.,]+$/.test(t)) return null;
+  const n = Math.round(num(t) * 100) / 100;
+  return Number.isFinite(n) && n !== 0 ? n : null;
+}
+
+const centsOf = (l: InvoiceLineDraft) => Math.round((lineAmount(l.amount) ?? 0) * 100);
 
 /** The sum of the lines in cents, per currency. */
 export function linesTotals(lines: readonly InvoiceLineDraft[], fallbackCurrency: string): Map<string, number> {
   const totals = new Map<string, number>();
   for (const l of lines) {
     const currency = l.currency || fallbackCurrency;
-    totals.set(currency, (totals.get(currency) ?? 0) + Math.round((Number(l.amount) || 0) * 100));
+    totals.set(currency, (totals.get(currency) ?? 0) + centsOf(l));
   }
   return totals;
+}
+
+/**
+ * On a credit note, the lines that would add buying: the server refuses any row above 0. A line printed
+ * plus is fine while the lines going the same way under its charge and currency come to a deduction
+ * (a charge among the credits); otherwise it is marked, and nothing is posted until it is corrected.
+ */
+export function creditLinesAbove0(lines: readonly InvoiceLineDraft[], matches: readonly LineMatch[], fallbackCurrency: string): Set<number> {
+  const keyOf = (l: InvoiceLineDraft, i: number) => `${lineTarget(l, matches[i]!)} ${l.category} ${l.currency || fallbackCurrency}`;
+  const sums = new Map<string, number>();
+  lines.forEach((l, i) => sums.set(keyOf(l, i), (sums.get(keyOf(l, i)) ?? 0) + centsOf(l)));
+  return new Set(lines.flatMap((l, i) => (centsOf(l) > 0 && sums.get(keyOf(l, i))! > 0 ? [i] : [])));
+}
+
+/** Whether a line stops the invoice from being posted: an amount that is none, or a credit note's line adding buying. */
+export function invoiceLinesInvalid(lines: readonly InvoiceLineDraft[], matches: readonly LineMatch[], currency: string, creditNote: boolean): boolean {
+  return lines.some((l) => lineAmount(l.amount) === null) || (creditNote && creditLinesAbove0(lines, matches, currency).size > 0);
 }
 
 /**
@@ -94,15 +134,17 @@ export function invoicePostLines(
   method: SplitMethod | null,
   fallbackCurrency: string,
 ) {
-  if (!lines.length || lines.some((l) => !l.category || !Number(l.amount))) return null;
+  if (!lines.length || lines.some((l) => !l.category || lineAmount(l.amount) === null)) return null;
   const toSplit = lines.some((l, i) => lineTarget(l, matches[i]!) === SPLIT_TARGET);
   if (toSplit && !method) return null;
   const split = toSplit ? splitLines([...rows], ticked, method!) : [];
   if (toSplit && !split.some((s) => s.weight > 0)) return null;
   return lines.map((l, i) => {
     const target = lineTarget(l, matches[i]!);
-    const base = { category: l.category, amount: Number(l.amount).toFixed(2), currency: l.currency || fallbackCurrency, item: l.item };
-    return target === SPLIT_TARGET ? { ...base, split } : { ...base, shipmentId: target };
+    // The B/L goes along: the server checks a line placed by it against its shipment's House B/L, and
+    // one a person sent elsewhere only against the master job.
+    const base = { category: l.category, amount: lineAmount(l.amount)!.toFixed(2), currency: l.currency || fallbackCurrency, item: l.item.slice(0, 300), bl: l.bl || undefined };
+    return target === SPLIT_TARGET ? { ...base, split } : { ...base, shipmentId: target, chosen: l.target !== undefined };
   });
 }
 
@@ -113,7 +155,7 @@ export const anyToSplit = (lines: readonly InvoiceLineDraft[], matches: readonly
 /** A credit note's total as it is posted: minus, however it is printed; left as it is when it is no number. */
 export function creditAmount(amount: string | undefined): string {
   if (!amount?.trim()) return "";
-  const n = parseMoney(amount);
+  const n = lineAmount(amount);
   return n === null ? amount : (-Math.abs(n)).toFixed(2);
 }
 
@@ -122,7 +164,10 @@ export function creditAmount(amount: string | undefined): string {
  * minus: lines that come to more than 0 are turned round, and a charge among credits stays one.
  */
 export function creditLines(lines: readonly InvoiceLineDraft[]): InvoiceLineDraft[] {
-  const cents = lines.reduce((sum, l) => sum + Math.round((Number(l.amount) || 0) * 100), 0);
+  const cents = lines.reduce((sum, l) => sum + centsOf(l), 0);
   if (cents <= 0) return [...lines];
-  return lines.map((l) => (Number(l.amount) ? { ...l, amount: (-Number(l.amount)).toFixed(2) } : l));
+  return lines.map((l) => {
+    const amount = lineAmount(l.amount);
+    return amount === null ? l : { ...l, amount: (-amount).toFixed(2) };
+  });
 }

@@ -308,8 +308,9 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
         title: "This shipment's share of a master job cost - change it in the master job's Costs Breakdown",
       }
     : { label: "Split from a master job", href: null, title: "This shipment's share of a master job cost" };
-  // Trucking's rows and a master job's shares are read-only here: a reorder leaves them where they are.
-  const ownBuyRow = (r: { id: string }) => !truckingRefs.has(r.id) && !masterJobRows.has(r.id);
+  // Trucking's rows and a master job's shares are read-only here: a reorder leaves them where they are
+  // (the server refuses to move them), on both sides.
+  const ownRow = (r: { id: string }) => !truckingRefs.has(r.id) && !masterJobRows.has(r.id);
   const truckingTagOf = (id: string) =>
     truckingCostTag(truckingRefs.get(id), { consignments: jobConsignments, tripRefs, shipmentId: shipment.id, linkable: truckingOn }) ??
     (masterJobRows.has(id) ? masterJobTag : null);
@@ -487,7 +488,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
     // and the rows after it move down
     await Promise.all([
       api.invoicing.invoicingRestoreBuyingCost(shipment.id, entry.id, { sortOrder: entry.index }),
-      ...buyRows.flatMap((r, i) => i >= entry.index && ownBuyRow(r)
+      ...buyRows.flatMap((r, i) => i >= entry.index && ownRow(r)
         ? [api.invoicing.invoicingUpdateBuyingCost(shipment.id, r.id, { sortOrder: i + 1 })]
         : []),
     ]);
@@ -508,7 +509,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
     if (!entry) return;
     await Promise.all([
       api.invoicing.invoicingAddSellingCost(shipment.id, { ...entry.values, sortOrder: entry.index }),
-      ...sellRows.flatMap((r, i) => i >= entry.index
+      ...sellRows.flatMap((r, i) => i >= entry.index && ownRow(r)
         ? [api.invoicing.invoicingUpdateSellingCost(shipment.id, r.id, { sortOrder: i + 1 })]
         : []),
     ]);
@@ -528,7 +529,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
       realQty: r.realQty, realAmount: r.realAmount, realCurrency: r.realCurrency,
       sortOrder: index + 1,
     });
-    await Promise.all(buyRows.flatMap((row, i) => i > index && ownBuyRow(row)
+    await Promise.all(buyRows.flatMap((row, i) => i > index && ownRow(row)
       ? [api.invoicing.invoicingUpdateBuyingCost(shipment.id, row.id, { sortOrder: i + 1 })]
       : []));
     invalidate();
@@ -544,7 +545,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
       qty: r.qty, amount: r.amount, currency: r.currency,
       sortOrder: index + 1,
     });
-    await Promise.all(sellRows.flatMap((row, i) => i > index
+    await Promise.all(sellRows.flatMap((row, i) => i > index && ownRow(row)
       ? [api.invoicing.invoicingUpdateSellingCost(shipment.id, row.id, { sortOrder: i + 1 })]
       : []));
     invalidate();
@@ -1010,7 +1011,16 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                   return (
                     <tr key={r.id} className={invoicedOn ? "bg-emerald-50/70" : "bg-indigo-50/40"}>
                       <td className={`${CELL} text-center`}>
-                        <Checkbox checked={r.invoice} disabled aria-label="Include in the invoice" />
+                        {/* A cost sold on from a master job is billed as the shipment decides: on the invoice or not. */}
+                        {masterJobRows.has(r.id) && !invoicedOn ? (
+                          <Checkbox
+                            aria-label="Include in the invoice"
+                            checked={r.invoice}
+                            onChange={(e) => updateSell.mutate({ id: r.id, invoice: e.target.checked })}
+                          />
+                        ) : (
+                          <Checkbox checked={r.invoice} disabled aria-label="Include in the invoice" />
+                        )}
                       </td>
                       <td className={CELL}><span className={READ_SELECT}>{r.category ? chargeLabel(r.category) : "—"}</span></td>
                       <td className={CELL}>
@@ -1061,6 +1071,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                             amount={r.amount}
                             currency={r.currency}
                             waiting={sellingRequests.requests.some((q) => q.sellingCostId === r.id && q.status === "pending")}
+                            gone={soldAtCostOf(r.id) === null}
                             className={ROW_DELETE_BTN}
                             onAsk={(reason) => sellingRequests.askRemoval.mutateAsync({ sellingId: r.id, reason })}
                           />

@@ -5,7 +5,7 @@ import type { Actor } from "../../../lib/rbac";
 import { iso } from "../../../lib/db/serialize";
 import { isUuid } from "../../../lib/uuid";
 import type { CustomsOfficeRequestItem } from "../interfaces/interfaces";
-import { CUSTOMS_OFFICE_SHAPE, canChangeCustomsOffice } from "../lib/customsOffice";
+import { canChangeCustomsOffice, isListedCustomsOffice } from "../lib/customsOffice";
 import { customsOfficeRequestRepository as requests, type CustomsOfficeRequestRow } from "../repositories/customsOfficeRequest.repository";
 import { shipmentRepository } from "../repositories/shipment.repository";
 import { commentService } from "./comment.service";
@@ -55,7 +55,7 @@ class CustomsOfficeRequestService {
   async ask(actor: Actor, shipmentId: string, input: { toOffice: string; reason: string }): Promise<CustomsOfficeRequestItem> {
     const toOffice = input.toOffice.trim();
     const reason = input.reason.trim();
-    if (!CUSTOMS_OFFICE_SHAPE.test(toOffice)) throw APIError.invalidArgument("Choose the new Customs Office from the list");
+    if (!isListedCustomsOffice(toOffice)) throw APIError.invalidArgument("Choose the new Customs Office from the list");
     if (reason.length < MIN_REASON) throw APIError.invalidArgument("Say why the Customs Office has to change");
     if (reason.length > MAX_TEXT) throw APIError.invalidArgument(`The reason is too long (at most ${MAX_TEXT} characters)`);
     const shipment = isUuid(shipmentId) ? await shipmentRepository.getByIdForCompany(shipmentId, actor.companyID) : null;
@@ -120,6 +120,8 @@ class CustomsOfficeRequestService {
       if (!isT1(shipment.customsProcedure) || shipment.customsOffice !== request.fromOffice) {
         throw APIError.failedPrecondition("The shipment's Customs Office or procedure has changed since this was asked: reject the request instead");
       }
+      // asked before the office left the list
+      if (!isListedCustomsOffice(request.toOffice)) throw APIError.failedPrecondition("That office is no longer on the list: reject the request instead");
     }
 
     const answered = await requests.answer(id, actor.companyID, {

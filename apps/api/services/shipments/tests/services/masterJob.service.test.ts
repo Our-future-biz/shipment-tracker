@@ -135,3 +135,23 @@ describe("a save that writes onto the houses", () => {
     await expect(masterJobService.assertMayChangeEveryHouse(JOB, COMPANY, user)).resolves.toBeUndefined();
   });
 });
+
+describe("the houses a vendor invoice read by B/L is checked against", () => {
+  it("are the master job's shipments with their House B/L, whether cancelled and their W/M", async () => {
+    const { cargoDimensionRepository } = await import("../../repositories/cargoDimension.repository");
+    vi.mocked(cargoDimensionRepository.listByShipmentIds).mockResolvedValue([]);
+    vi.mocked(shipmentRepository.findByMasterJobId).mockResolvedValue([
+      { id: "s2", jobNumber: "CZ00000002", houseBolNumber: "GLSL26060963", status: "Cancelled Shipment", totalWeightTons: "1.5", totalVolumeCbm: "2" },
+      { id: "s1", jobNumber: "CZ00000001", houseBolNumber: "GLSL26060771", status: "Arrived", totalWeightTons: "3", totalVolumeCbm: "1" },
+    ] as never);
+    await expect(masterJobService.invoiceHouses(JOB, COMPANY)).resolves.toEqual([
+      { shipmentId: "s1", jobNumber: "CZ00000001", houseBolNumber: "GLSL26060771", cancelled: false, freightTon: 3 },
+      { shipmentId: "s2", jobNumber: "CZ00000002", houseBolNumber: "GLSL26060963", cancelled: true, freightTon: 2 },
+    ]);
+    // What a master job's costs are split over stays as it was.
+    await expect(masterJobService.houses(JOB, COMPANY)).resolves.toEqual([
+      { shipmentId: "s1", jobNumber: "CZ00000001", freightTon: 3 },
+      { shipmentId: "s2", jobNumber: "CZ00000002", freightTon: 2 },
+    ]);
+  });
+});

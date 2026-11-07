@@ -170,12 +170,20 @@ export const SEAL_LABEL = "Seal Number";
 /**
  * The seal of each of these containers, in their order ("" where a container has none). Seals are
  * written one per container, so only a list as long as the containers can be paired; any other is
- * null, because a seal on the wrong container is worse than none. One container takes all of them.
+ * null, because a seal on the wrong container is worse than none. A container with several seals has
+ * them as one value ("S1 / S2"), so a list of two for one container doesn't pair either.
  */
 export function sealsOf(numbers: string[], raw?: string): string[] | null {
   const seals = (raw ?? "").split(/[,;\n]/).map((s) => s.trim());
-  if (numbers.length === 1) return [seals.filter(Boolean).join(" / ")];
-  return numbers.length > 1 && seals.length === numbers.length ? seals : null;
+  return numbers.length > 0 && seals.length === numbers.length ? seals : null;
+}
+
+/**
+ * The container numbers of a shipment's rows, in their order, leaving out a row with no number yet:
+ * the review, the containers written and the seals on file all pair seals with this one list.
+ */
+export function containerNumbersOnFile(existing: readonly interfaces.ContainerLine[]): string[] {
+  return existing.map((c) => c.containerNumber.trim()).filter(Boolean);
 }
 
 /** The containers a read seal belongs to: the ones read, or those on file when the document names none. */
@@ -184,15 +192,25 @@ export function sealContainers(readNumbers: string | undefined, onFile: string[]
   return read.length > 0 ? read : onFile;
 }
 
-/** What the review says about a read seal, when more than its value is needed. */
-export function sealNote(numbers: string[], raw: string): { text: string; warn: boolean } | null {
+/**
+ * What the review says about a read seal, when more than its value is needed. `byRowOrder`: the
+ * document names no container, so the seals go on the shipment's containers in the order of its rows -
+ * which nothing on the document confirms, so with more than one container it is a warning to check.
+ */
+export function sealNote(numbers: string[], raw: string, { byRowOrder = false } = {}): { text: string; warn: boolean } | null {
   if (numbers.length === 0) return { text: "No container to file it on: add the container number", warn: true };
   const seals = sealsOf(numbers, raw);
   if (!seals) {
-    return { text: `${numbers.length} containers: not filed until there is one seal for each, separated by commas`, warn: true };
+    return numbers.length === 1
+      ? { text: "One container: not filed until there is one seal for it (several seals on it separated by /)", warn: true }
+      : { text: `${numbers.length} containers: not filed until there is one seal for each, separated by commas`, warn: true };
   }
-  if (numbers.length === 1) return null;
-  return { text: numbers.map((n, i) => `${n}: ${seals[i] || "no seal"}`).join(" · "), warn: false };
+  const pairs = numbers.map((n, i) => `${n}: ${seals[i] || "no seal"}`).join(" · ");
+  if (byRowOrder && numbers.length > 1) {
+    return { text: `The document names no container: paired with the shipment's containers in their order. Check: ${pairs}`, warn: true };
+  }
+  if (numbers.length === 1) return byRowOrder ? { text: `Goes on the shipment's container ${numbers[0]}`, warn: false } : null;
+  return { text: pairs, warn: false };
 }
 
 /**
@@ -204,10 +222,10 @@ export function containersAfterReading(
   existing: interfaces.ContainerLine[],
   read: { numbers?: string; addNumbers: boolean; seals?: string },
 ): interfaces.ContainerLine[] {
-  const known = existing.map((c) => c.containerNumber);
+  const known = containerNumbersOnFile(existing);
   const targets = sealContainers(read.numbers, known);
   const seals = sealsOf(targets, read.seals) ?? [];
-  const sealFor = (number: string) => seals[targets.indexOf(number)] ?? "";
+  const sealFor = (number: string) => (number.trim() ? (seals[targets.indexOf(number.trim())] ?? "") : "");
   const kept = existing.map((c) => (sealFor(c.containerNumber) ? { ...c, sealNumber: sealFor(c.containerNumber) } : c));
   if (!read.addNumbers) return kept;
   const added = parseContainerNumbers(read.numbers).filter((n) => !known.includes(n));
@@ -216,11 +234,11 @@ export function containersAfterReading(
 
 /** The seals on file that differ from the ones read for the same containers, for the review's Existing Value. */
 export function sealsOnFileThatDiffer(existing: interfaces.ContainerLine[], readNumbers: string | undefined, raw: string): string {
-  const targets = sealContainers(readNumbers, existing.map((c) => c.containerNumber));
+  const targets = sealContainers(readNumbers, containerNumbersOnFile(existing));
   const seals = sealsOf(targets, raw) ?? [];
   return existing
     .filter((c) => {
-      const read = seals[targets.indexOf(c.containerNumber)];
+      const read = seals[targets.indexOf(c.containerNumber.trim())];
       return !!c.sealNumber && !!read && read !== c.sealNumber;
     })
     .map((c) => c.sealNumber)

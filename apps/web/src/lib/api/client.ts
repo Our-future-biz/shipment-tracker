@@ -14085,6 +14085,11 @@ export namespace interfaces {
          * An invoice's charge rows, when it lists them
          */
         invoiceLines?: InvoiceLineRead[]
+
+        /**
+         * The invoice's charge rows ran past what one reading holds: only its header fields were read
+         */
+        invoiceLinesSkipped?: boolean
     }
 
     export type FailedReason = "CLOSED" | "ABSENT" | "REFUSED" | "WRONG_ADDRESS" | "REFUSED_DAMAGED" | "NO_AVIZACE" | "OTHER"
@@ -15668,12 +15673,22 @@ export namespace interfaces {
         item?: string
 
         /**
+         * the B/L the line names, as read; on a master job a line placed by it must name its shipment's House B/L
+         */
+        bl?: string
+
+        /**
          * the shipment its B/L names, or the one a person chose
          */
         shipmentId?: string
 
         /**
-         * otherwise: the shipments it is shared out over, by weight
+         * shipmentId was chosen by a person, not by the line's B/L: it need only be a shipment of the master job
+         */
+        chosen?: boolean
+
+        /**
+         * otherwise: the shipments it is shared out over, by weight (on a master job, by splitMethod)
          */
         split?: CostSplitLine[]
     }
@@ -15705,11 +15720,22 @@ export namespace interfaces {
     }
 
     /**
-     * An invoice's lines to post as new buying rows of the shipments they belong to.
+     * An invoice's lines to post as buying rows of the shipments they belong to.
      */
     export interface InvoiceLinesInput {
         invoiceNumber: string
         vendor?: string
+        /**
+         * the master job the invoice is for: every shipment a line goes to must be one of its shipments, not
+         * cancelled. Left out for one shipment's invoice, whose lines all name their shipment
+         */
+        masterJobId?: string
+
+        /**
+         * on a master job: a line going to the split is shared by each shipment's W/M as the master job has it, or equally
+         */
+        splitMethod?: InvoiceLinesSplitMethod
+
         lines: InvoiceLinePost[]
         /**
          * it credits money: its amounts are minus, and its rows say so
@@ -15728,7 +15754,7 @@ export namespace interfaces {
     }
 
     /**
-     * A new buying row an invoice comes to.
+     * A buying row an invoice comes to.
      */
     export interface InvoiceLinesRow {
         shipmentId: string
@@ -15739,7 +15765,17 @@ export namespace interfaces {
          * the shipment already has a row of this invoice number and charge: posting would count it twice
          */
         repeated: boolean
+
+        /**
+         * the real cost goes onto the shipment's estimate of the charge (one with no real cost or invoice yet), not a new row
+         */
+        ontoEstimate: boolean
     }
+
+    /**
+     * How an invoice line going to the split is shared out over a master job's shipments.
+     */
+    export type InvoiceLinesSplitMethod = "wm" | "shipment"
 
     /**
      * Party details printed on the invoice (snapshot taken when it was issued)

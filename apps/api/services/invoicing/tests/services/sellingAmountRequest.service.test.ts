@@ -82,12 +82,12 @@ describe("a manager's answer", () => {
 });
 
 describe("taking a request back", () => {
-  it("is for the one who asked, or a manager", async () => {
+  it("is for the one who asked only: a manager rejects it, with a reason", async () => {
     repo.byId.mockResolvedValue(record());
     repo.withdraw.mockResolvedValue(record({ status: "withdrawn" }));
     await expect(service.withdraw({ ...rep, userID: "someone" }, REQUEST)).rejects.toMatchObject({ code: "permission_denied" });
+    await expect(service.withdraw(manager, REQUEST)).rejects.toMatchObject({ code: "permission_denied" });
     expect((await service.withdraw(rep, REQUEST)).status).toBe("withdrawn");
-    expect((await service.withdraw(manager, REQUEST)).status).toBe("withdrawn");
   });
 
   it("says when it no longer waits", async () => {

@@ -12,7 +12,7 @@ import { userEmailOf } from "../../../lib/companyUsers";
 import { constraintOf } from "../../../lib/db/errors";
 import { definedOnly, toDecimal } from "../lib/amounts";
 import { splitAmount } from "../lib/costSplit";
-import { creditNoteProblem, invoiceLineProblem, invoiceRows } from "../lib/invoiceLines";
+import { invoiceLineProblem, invoiceRows, invoiceRowsProblem, onMasterJob, ontoEstimates } from "../lib/invoiceLines";
 import { invoiceCostRepository } from "../repositories/invoiceCost.repository";
 import { additionalChargeRepository } from "../repositories/additionalCharge.repository";
 import { billingSettingsRepository } from "../repositories/billingSettings.repository";
@@ -504,45 +504,71 @@ class InvoicingService {
   }
 
   /**
-   * An invoice read line by line: each line on the shipment its B/L names, any other shared out, and
-   * every shipment gets a new buying row per charge, so a second invoice never overwrites the first.
-   * The same invoice number under the same charge would count twice: said, and refused unless allowed.
+   * An invoice read line by line: each line on the shipment its B/L names, any other shared out. Per
+   * shipment and charge its real cost goes onto the estimate it belongs to while that has no real cost
+   * or invoice yet (a quote's estimate is then not counted beside it), else onto a new buying row, so a
+   * second invoice never overwrites the first. A credit note is always a new row with the minus. The
+   * same invoice number under the same charge would count twice: said, and refused unless allowed. A
+   * master job's invoice only reaches the master job's live shipments (onMasterJob). A dry run makes
+   * every check the post makes and writes nothing.
    */
   async postInvoiceLines(companyId: string, input: InvoiceLinesInput): Promise<InvoiceLinesRow[]> {
     const invoiceNumber = input.invoiceNumber.trim();
     if (!invoiceNumber) throw APIError.invalidArgument("the invoice number is missing");
     if (!input.lines.length) throw APIError.invalidArgument("the invoice has no lines");
-    for (const line of input.lines) {
+    const creditNote = input.creditNote === true;
+    let lines = input.lines.map((line) => {
+      const label = line.item?.trim() || line.category || "A line";
+      const ids = [line.shipmentId, ...(line.split ?? []).map((s) => s.shipmentId)].filter((id): id is string => id !== undefined);
+      if (!ids.every(isUuid)) throw APIError.invalidArgument("shipmentId must be a shipment id");
+      // "0x1F", "1e3" or a third decimal would be read as some other number than the one meant.
+      return { ...line, amount: toDecimal(line.amount, `${label}: the amount`) ?? "" };
+    });
+    if (input.masterJobId !== undefined) {
+      if (!isUuid(input.masterJobId)) throw APIError.invalidArgument("masterJobId must be a master job id");
+      // Read as the caller: a master job that is not the company's is refused there.
+      const { houses } = await shipments._internalMasterJobInvoiceHouses({ masterJobId: input.masterJobId });
+      const placed = onMasterJob(lines, houses, input.splitMethod);
+      if ("problem" in placed) throw APIError.invalidArgument(placed.problem);
+      lines = placed.lines;
+    } else if (lines.some((l) => !l.shipmentId)) {
+      // Weights come from the master job's own data, so a line is only shared out over one.
+      throw APIError.invalidArgument("A line without a shipment is shared over a master job's shipments: give the master job");
+    }
+    for (const line of lines) {
       const problem = invoiceLineProblem(line);
       if (problem) throw APIError.invalidArgument(problem);
-      if (![line.shipmentId, ...(line.split ?? []).map((s) => s.shipmentId)].filter((id) => id !== undefined).every((id) => isUuid(id!))) {
-        throw APIError.invalidArgument("shipmentId must be a shipment id");
-      }
     }
-    const creditProblem = input.creditNote ? creditNoteProblem(input.lines) : null;
-    if (creditProblem) throw APIError.invalidArgument(creditProblem);
-    const rows = invoiceRows(input.lines, { creditNote: input.creditNote });
+    const rows = invoiceRows(lines, { creditNote });
+    const rowsProblem = invoiceRowsProblem(rows, { creditNote });
+    if (rowsProblem) throw APIError.invalidArgument(rowsProblem);
     const shipmentIds = [...new Set(rows.map((r) => r.shipmentId))];
-    const earlier = await invoiceCostRepository.ofInvoiceNumber(companyId, shipmentIds, invoiceNumber);
-    const already = new Set(earlier.map((r) => `${r.shipmentId} ${r.category}`));
-    const answer = rows.map(({ shipmentId, category, amount, currency }) => ({ shipmentId, category, amount, currency, repeated: already.has(`${shipmentId} ${category}`) }));
-    if (input.dryRun) return answer;
-    if (answer.some((r) => r.repeated) && !input.allowRepeat) {
-      throw APIError.failedPrecondition(`Invoice ${invoiceNumber} is already on one of these shipments under the same charge`);
-    }
     for (const id of shipmentIds) await assertShipmentExists(id);
     const kept = async () => {
       for (const row of rows) await assertNotKeptByTrucking(companyId, [row.shipmentId], row.category);
     };
-    // Checked first so nothing starts, and again under the shipments' locks: a Trucking push can't slip in between.
+    // Checked first so nothing starts (and a dry run says it), and again under the shipments' locks:
+    // a Trucking push can't slip in between.
     await kept();
-    const vendor = input.vendor?.trim() ?? "";
-    await invoiceCostRepository.addInvoiceRows(
+    const key = (r: { shipmentId: string; category: string }) => `${r.shipmentId} ${r.category}`;
+    const earlier = new Set((await invoiceCostRepository.ofInvoiceNumber(companyId, shipmentIds, invoiceNumber)).map(key));
+    const repeatedRefusal = () => APIError.failedPrecondition(`${creditNote ? "Credit note" : "Invoice"} ${invoiceNumber} is already on one of these shipments under the same charge`);
+    const answer = (ontoEstimate: boolean[]): InvoiceLinesRow[] =>
+      rows.map((r, i) => ({ shipmentId: r.shipmentId, category: r.category, amount: r.amount, currency: r.currency, repeated: earlier.has(key(r)), ontoEstimate: ontoEstimate[i] ?? false }));
+    if (input.dryRun) {
+      const open = creditNote ? [] : await invoiceCostRepository.openEstimateRows(companyId, shipmentIds, [...new Set(rows.map((r) => r.category))]);
+      return answer(ontoEstimates(rows, open).map((id) => id !== null));
+    }
+    if (earlier.size && rows.some((r) => earlier.has(key(r))) && !input.allowRepeat) throw repeatedRefusal();
+    // The repeat is checked again under the locks, where two posts of one invoice wait for each other.
+    const written = await invoiceCostRepository.addInvoiceRows(
       companyId,
-      rows.map((r) => ({ shipmentId: r.shipmentId, category: r.category, description: r.description, vendor, realAmount: r.amount, realCurrency: r.currency, invoiceNumber })),
-      kept,
+      invoiceNumber,
+      rows.map((r) => ({ shipmentId: r.shipmentId, category: r.category, description: r.description, realAmount: r.amount, realCurrency: r.currency })),
+      { vendor: input.vendor?.trim() ?? "", fillEstimates: !creditNote, allowRepeat: input.allowRepeat === true, check: kept },
     );
-    return answer;
+    if (written === "repeated") throw repeatedRefusal();
+    return answer(written.ontoEstimate);
   }
 
   // ── Selling costs ──

@@ -17,7 +17,7 @@ interface FieldReviewTableProps {
   showExisting?: boolean;
   /** The colour of the values read: the app's indigo, or amber (the master job's shipments). */
   accent?: "indigo" | "amber";
-  /** The containers already on the shipment: a seal read without a container number goes on them. */
+  /** The shipment's container numbers (containerNumbersOnFile): a seal read without a container number goes on them. */
   containersOnFile?: string[];
 }
 
@@ -35,6 +35,8 @@ export function FieldReviewTable({
   const rows = fields.map((f, index) => ({ ...f, index, key: `${f.column}-${index}` }));
   const containerRow = fields.find((f) => f.column === "Container Number");
   const sealTargets = sealContainers(containerRow?.extractedValue, containersOnFile);
+  // The document names no container: the seals go on the shipment's rows in their order, unconfirmed.
+  const sealsByRowOrder = parseContainerNumbers(containerRow?.extractedValue).length === 0 && containersOnFile.length > 0;
   // A seal goes on a container: one that is neither on file nor ticked to be added leaves it nowhere.
   const sealStranded = !!containerRow && !containerRow.approved && parseContainerNumbers(containerRow.extractedValue).some((n) => !containersOnFile.includes(n));
 
@@ -90,7 +92,7 @@ export function FieldReviewTable({
             ? null
             : row.approved && sealStranded
               ? { text: "Tick Container Number too: the seal goes on its container", warn: true }
-              : sealNote(sealTargets, v);
+              : sealNote(sealTargets, v, { byRowOrder: sealsByRowOrder });
         const noted = note ? (
           <div>
             {value}

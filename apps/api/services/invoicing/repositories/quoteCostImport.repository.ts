@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, isNull, max, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, max, sql } from "drizzle-orm";
 import type { PgTable } from "drizzle-orm/pg-core";
 import { db } from "../db/db";
 import { billingSettingsTable } from "../schemas/billingSettings.schema";
@@ -6,6 +6,9 @@ import { invoiceCostTable, type NewInvoiceCostRecord } from "../schemas/invoiceC
 import { invoiceSellingCostTable, type NewInvoiceSellingCostRecord } from "../schemas/invoiceSellingCost.schema";
 import type { CostSide, QuoteImportResult } from "../interfaces/interfaces";
 import type { QuoteBuyingRow, QuoteSellingRow } from "../utils/quoteCostImport.utils";
+import { invoiceRepository } from "./invoice.repository";
+import { sellingAmountRequestRepository } from "./sellingAmountRequest.repository";
+import { truckingLinesLock } from "./truckingLines.repository";
 
 type ImportTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -97,13 +100,34 @@ class QuoteCostImportRepository {
   /**
    * A shipment now priced from a quote carries only the real part of its master job's shares (as a
    * re-split writes them): their estimates go, and a share with nothing but an estimate goes with it.
+   * What it sold on at that estimate (a demurrage selling row) goes too, as processing the split
+   * would take it: no cost is left behind it. A row on an issued invoice stays, under the lock an
+   * invoice issue takes.
    */
   private async dropSplitEstimates(tx: ImportTransaction, companyId: string, shipmentId: string): Promise<void> {
     const c = invoiceCostTable;
     const now = new Date();
     const splitRows = [eq(c.companyId, companyId), eq(c.shipmentId, shipmentId), isNull(c.deletedAt), isNotNull(c.sourceMasterJobRef)];
-    await tx.update(c).set({ deletedAt: now, updatedAt: now }).where(and(...splitRows, isNull(c.realAmount)));
+    const dropped = await tx
+      .update(c)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(and(...splitRows, isNull(c.realAmount)))
+      .returning({ ref: c.sourceMasterJobRef });
     await tx.update(c).set({ estQty: null, estAmount: null, updatedAt: now }).where(and(...splitRows));
+    const refs = dropped.flatMap((d) => (d.ref ? [d.ref] : []));
+    if (!refs.length) return;
+    await truckingLinesLock(tx, shipmentId);
+    const s = invoiceSellingCostTable;
+    const sold = await tx
+      .select({ id: s.id })
+      .from(s)
+      .where(and(eq(s.companyId, companyId), eq(s.shipmentId, shipmentId), isNull(s.deletedAt), inArray(s.sourceMasterJobRef, refs)));
+    const invoiced = await invoiceRepository.invoicedSellingRowIds(shipmentId, companyId, tx);
+    const remove = sold.map((r) => r.id).filter((id) => !invoiced.has(id));
+    if (!remove.length) return;
+    await tx.update(s).set({ deletedAt: now, updatedAt: now }).where(and(eq(s.companyId, companyId), inArray(s.id, remove)));
+    // A row that went has nothing left to approve.
+    await sellingAmountRequestRepository.withdrawFor(tx, companyId, remove);
   }
 
   // How one side of a shipment's Costs Breakdown stands: how many of its rows came from the

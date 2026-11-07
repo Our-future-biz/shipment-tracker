@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { linkEach, linkedCount, shipmentsOffered } from "./MasterJobDialog";
+import { chosenIds, linkEach, linkedCount, shipmentsOffered } from "./MasterJobDialog";
 
 describe("linkEach", () => {
   it("links the others when one is refused, and says how many and why", async () => {
@@ -44,5 +44,12 @@ describe("the shipments the dialog lists", () => {
 
   it("leaves out a quote's number and a shipment without one, chosen or not", () => {
     expect(shipmentsOffered(all, "", ["q", "n", "a"]).map((s) => s.id)).toEqual(["a"]);
+  });
+
+  it("links only what it lists when the grid chose: a ticked quote's number is not linked unseen", () => {
+    const listed = shipmentsOffered(all, "", ["q", "a", "b"]);
+    expect(chosenIds(["q", "a", "b"], new Set(["b"]), listed)).toEqual(["a"]);
+    // picked in the dialog itself: whatever is ticked and may be linked
+    expect(chosenIds(["a", "c"], new Set())).toEqual(["a", "c"]);
   });
 });

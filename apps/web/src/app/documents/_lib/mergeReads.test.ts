@@ -60,6 +60,11 @@ describe("mergeReads", () => {
     expect(choices["Seal Number"]?.map((c) => c.value)).toEqual(["S1", "S9"]);
   });
 
+  it("keeps a comma list of seals for one container as read, unpaired, so the review says it doesn't match", () => {
+    const { values } = mergeReads([{ source: "a.pdf", values: { "Container Number": "ACLU9821217", "Seal Number": "S1, S2" } }]);
+    expect(values["Seal Number"]).toBe("S1, S2");
+  });
+
   it("keeps the seal of a container one file leaves out", () => {
     const { values } = mergeReads([
       { source: "a.pdf", values: { "Container Number": "ACLU9821217, MSKU1234565", "Seal Number": "S1, S2" } },

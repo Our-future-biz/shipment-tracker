@@ -37,6 +37,16 @@ export function shipmentsOffered<T extends Pick<ShipmentItem, "id" | "jobNumber"
   return list.filter((s) => s.jobNumber.toLowerCase().includes(q) || s.shipper.toLowerCase().includes(q) || s.consignee.toLowerCase().includes(q));
 }
 
+/**
+ * The shipments a link goes to: those ticked that the user may link. Opened with the grid's
+ * choice, only those listed - a quote's number, or a shipment ticked in the grid and filtered
+ * away since, is not linked unseen.
+ */
+export function chosenIds(selected: Iterable<string>, lockedIds: ReadonlySet<string>, listed?: readonly { id: string }[]): string[] {
+  const shown = listed && new Set(listed.map((s) => s.id));
+  return Array.from(selected).filter((id) => !lockedIds.has(id) && (!shown || shown.has(id)));
+}
+
 /** "1 shipment", "3 shipments". */
 export const linkedCount = (n: number) => `${n} shipment${n === 1 ? "" : "s"}`;
 
@@ -68,8 +78,6 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
   const { user } = useAuth();
   const lockedIds = useMemo(() => new Set(shipments.filter((s) => !canChangeShipmentDetails(user, s)).map((s) => s.id)), [shipments, user]);
   const onlyIds = limitToSelected ? initialSelectedIds : undefined;
-  // What is listed is what goes: a shipment ticked in the grid and filtered away since is not linked unseen.
-  const chosen = Array.from(selected).filter((id) => !lockedIds.has(id) && (!onlyIds || shipments.some((s) => s.id === id)));
 
   // Every master job on the server counts: one created on the Master Jobs page has
   // no shipments yet, so the loaded shipments alone would hand out its number again.
@@ -93,6 +101,8 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
   }, [shipments, masterJobs]);
 
   const filteredShipments = useMemo(() => shipmentsOffered(shipments, search, onlyIds), [shipments, search, onlyIds]);
+  // What is listed is what goes, when the grid chose them.
+  const chosen = chosenIds(selected, lockedIds, onlyIds ? filteredShipments : undefined);
 
   const toggleShipment = (id: string) => {
     if (lockedIds.has(id)) return;

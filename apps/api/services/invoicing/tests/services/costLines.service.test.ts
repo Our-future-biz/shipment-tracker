@@ -53,6 +53,7 @@ vi.mock("../../repositories/invoiceCost.repository", async () => {
     sourceQuoteNumber: "",
     sourceTruckingRef: null,
     sourceMasterJobRef: null,
+    postedFromLines: false,
   });
   return {
     rows,

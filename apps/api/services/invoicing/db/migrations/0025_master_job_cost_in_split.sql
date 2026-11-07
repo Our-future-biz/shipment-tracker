@@ -1,1 +1,1 @@
-ALTER TABLE "master_job_cost" ADD COLUMN "in_split" boolean DEFAULT true NOT NULL;
+ALTER TABLE "master_job_cost" ADD COLUMN IF NOT EXISTS "in_split" boolean DEFAULT true NOT NULL;

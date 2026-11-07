@@ -13,6 +13,7 @@ import {
   splitRowUnchanged,
   SPLIT_SORT_BASE,
   waivedShares,
+  type CurrentSoldAtCostRow,
   type SoldAtCostPlan,
   type SoldAtCostRow,
   type SplitRowValues,
@@ -84,7 +85,7 @@ async function buyingSharesOf(reader: Reader, companyId: string, masterJobId: st
 async function sharesWithoutRow(reader: Reader, companyId: string, masterJobId: string, wanted: SoldAtCostRow[], copied: Set<string>): Promise<Set<string>> {
   const s = invoiceSellingCostTable;
   const waived = await reader
-    .select({ shipmentId: s.shipmentId, sourceMasterJobRef: s.sourceMasterJobRef, amountOverrideCost: s.amountOverrideCost })
+    .select({ shipmentId: s.shipmentId, sourceMasterJobRef: s.sourceMasterJobRef, currency: s.currency, amountOverrideCost: s.amountOverrideCost })
     .from(s)
     .where(and(eq(s.companyId, companyId), like(s.sourceMasterJobRef, `${masterJobRefPrefix(masterJobId)}%`), isNotNull(s.waivedAt)));
   return new Set([...copied, ...waivedShares(waived, wanted)]);
@@ -152,23 +153,30 @@ class MasterJobCostRepository {
         .update(c)
         .set({ deletedAt: now, updatedAt: now })
         .where(and(liveSplitRows(companyId, masterJobId), keep.length ? notInArray(c.shipmentId, keep) : undefined));
-      const gone = (await currentSoldAtCost(tx, companyId, masterJobId)).filter((r) => !keep.includes(r.shipmentId));
-      const shipments = [...new Set(gone.map((r) => r.shipmentId))].sort();
+      const outside = (rows: CurrentSoldAtCostRow[]) => rows.filter((r) => !keep.includes(r.shipmentId));
+      const shipments = [...new Set(outside(await currentSoldAtCost(tx, companyId, masterJobId)).map((r) => r.shipmentId))].sort();
       for (const shipmentId of shipments) await truckingLinesLock(tx, shipmentId);
+      // Read again under the shipments' locks: what an answer wrote meanwhile is what is removed from.
+      const gone = outside(await currentSoldAtCost(tx, companyId, masterJobId));
       const invoiced = await invoicedAmong(tx, companyId, shipments);
       const remove = gone.filter((r) => !invoiced.has(r.id)).map((r) => r.id);
-      if (remove.length) await tx.update(invoiceSellingCostTable).set({ deletedAt: now, updatedAt: now }).where(inArray(invoiceSellingCostTable.id, remove));
-      await sellingAmountRequestRepository.withdrawFor(tx, remove);
+      const s = invoiceSellingCostTable;
+      if (remove.length) await tx.update(s).set({ deletedAt: now, updatedAt: now }).where(and(inArray(s.id, remove), eq(s.companyId, companyId), isNull(s.deletedAt)));
+      await sellingAmountRequestRepository.withdrawFor(tx, companyId, remove);
     });
   }
 
   /** Writes the selling rows the shares call for, under each shipment's invoice lock. Rows on an issued invoice stay. */
   private async writeSoldAtCost(tx: Tx, companyId: string, masterJobId: string, rows: SplitRowValues[]): Promise<void> {
     const wanted = soldAtCostRows(rows);
-    const current = await currentSoldAtCost(tx, companyId, masterJobId);
-    const shipments = [...new Set([...wanted.map((r) => r.shipmentId), ...current.map((r) => r.shipmentId)])].sort();
+    // The master job's lock is held, so no selling row of it comes or goes on another shipment
+    // meanwhile; a manager's answer still writes one under that shipment's lock alone.
+    const before = await currentSoldAtCost(tx, companyId, masterJobId);
+    const shipments = [...new Set([...wanted.map((r) => r.shipmentId), ...before.map((r) => r.shipmentId)])].sort();
     if (shipments.length === 0) return;
     for (const shipmentId of shipments) await truckingLinesLock(tx, shipmentId);
+    // Read again under the shipments' locks, so an approval answered meanwhile is kept, not overwritten.
+    const current = await currentSoldAtCost(tx, companyId, masterJobId);
     const invoiced = await invoicedAmong(tx, companyId, shipments);
     const { idOf, copied } = await buyingSharesOf(tx, companyId, masterJobId);
     const plan: SoldAtCostPlan = planSoldAtCost(current, wanted, invoiced, await sharesWithoutRow(tx, companyId, masterJobId, wanted, copied));
@@ -189,12 +197,13 @@ class MasterJobCostRepository {
         sortOrder: sortOf.get(key) ?? SPLIT_SORT_BASE,
       };
     };
-    if (plan.remove.length) await tx.update(s).set({ deletedAt: now, updatedAt: now }).where(inArray(s.id, plan.remove));
+    const live = (ids: string[]) => and(inArray(s.id, ids), eq(s.companyId, companyId), isNull(s.deletedAt));
+    if (plan.remove.length) await tx.update(s).set({ deletedAt: now, updatedAt: now }).where(live(plan.remove));
     // A row that left the split has nothing left to approve.
-    await sellingAmountRequestRepository.withdrawFor(tx, plan.remove);
+    await sellingAmountRequestRepository.withdrawFor(tx, companyId, plan.remove);
     for (const { id, row, keepAmount } of plan.change) {
       const { amount, ...others } = columns(row);
-      await tx.update(s).set({ ...others, ...(keepAmount ? {} : { amount, amountOverrideCost: null }), updatedAt: now }).where(eq(s.id, id));
+      await tx.update(s).set({ ...others, ...(keepAmount ? {} : { amount, amountOverrideCost: null }), updatedAt: now }).where(live([id]));
     }
     if (plan.add.length) await tx.insert(s).values(plan.add.map((row) => ({ ...columns(row), companyId, shipmentId: row.shipmentId })));
   }

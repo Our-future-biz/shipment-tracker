@@ -69,10 +69,15 @@ describe("Approved By once the credit check is approved", () => {
     }
   });
 
-  it("isn't touched by an edit of something else, or the same person sent again", () => {
+  it("isn't touched by an edit of something else, or the value sent back as it is", () => {
     expect(approvedByLockRefusal(approved, {}, "user")).toBeNull();
     expect(approvedByLockRefusal(approved, { approvedBy: STAMP }, "user")).toBeNull();
-    expect(approvedByLockRefusal(approved, { approvedBy: " EVA@firma.cz " }, "user")).toBeNull();
+    expect(approvedByLockRefusal(approved, { approvedBy: ` ${STAMP} ` }, "user")).toBeNull();
+  });
+
+  it("keeps the approval's date: the same person with another date, or none, is a change", () => {
+    expect(approvedByLockRefusal(approved, { approvedBy: "eva@firma.cz — 1. 1. 2026 08:00" }, "user")).toContain("only a manager");
+    expect(approvedByLockRefusal(approved, { approvedBy: " EVA@firma.cz " }, "user")).toContain("only a manager");
   });
 
   it("stays open to a user while the credit check isn't approved, or nobody is named", () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { customsOfficeForProcedure, customsOfficeLockRefusal, customsOfficeShapeRefusal } from "../lib/customsOffice";
+import { customsOfficeForProcedure, customsOfficeLockRefusal, customsOfficeRefusal } from "../lib/customsOffice";
 
 const OFFICE = "CZ100000 Celní úřad v Brně, Brno";
 
@@ -54,16 +54,24 @@ describe("customsOfficeForProcedure", () => {
   });
 });
 
-describe("customsOfficeShapeRefusal", () => {
+describe("customsOfficeRefusal", () => {
   it("takes an office from the list, or none", () => {
-    expect(customsOfficeShapeRefusal(OFFICE)).toBeNull();
-    expect(customsOfficeShapeRefusal("")).toBeNull();
-    expect(customsOfficeShapeRefusal(undefined)).toBeNull();
-    expect(customsOfficeShapeRefusal(null)).toBeNull();
+    expect(customsOfficeRefusal(OFFICE)).toBeNull();
+    expect(customsOfficeRefusal(` ${OFFICE} `)).toBeNull();
+    expect(customsOfficeRefusal("")).toBeNull();
+    expect(customsOfficeRefusal(undefined)).toBeNull();
+    expect(customsOfficeRefusal(null)).toBeNull();
   });
 
-  it("refuses a typed one", () => {
-    expect(customsOfficeShapeRefusal("Praha")).toMatch(/from the list/);
-    expect(customsOfficeShapeRefusal("CZ51 Praha")).toMatch(/from the list/);
+  it("refuses a typed one, and one taken off the list", () => {
+    expect(customsOfficeRefusal("Praha")).toMatch(/from the list/);
+    expect(customsOfficeRefusal("CZ51 Praha")).toMatch(/from the list/);
+    expect(customsOfficeRefusal("CZ101000 Odbor CÚ kanceláře CÚ, Brno")).toMatch(/from the list/);
+  });
+
+  it("lets a shipment keep the office it holds, also one taken off the list since", () => {
+    const removed = "CZ101000 Odbor CÚ kanceláře CÚ, Brno";
+    expect(customsOfficeRefusal(removed, removed)).toBeNull();
+    expect(customsOfficeRefusal("CZ51 Praha", OFFICE)).toMatch(/from the list/);
   });
 });

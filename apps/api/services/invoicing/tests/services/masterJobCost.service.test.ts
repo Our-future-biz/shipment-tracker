@@ -165,6 +165,16 @@ describe("choosing the shipments in a line's split", () => {
     expect(costs.update).not.toHaveBeenCalled();
   });
 
+  it("keeps a shipment with a W/M in a line split by W/M: one with none would carry nothing", async () => {
+    houses.mockResolvedValue({ houses: [HOUSES[0]!, { ...HOUSES[1]!, freightTon: 0 }] });
+    await expect(masterJobCostService.update(COMPANY, MASTER, LINE, { excludedShipmentIds: ["s1"] })).rejects.toMatchObject({ code: "failed_precondition" });
+    expect(costs.update).not.toHaveBeenCalled();
+    // split per shipment, the one without a W/M carries it
+    costs.get.mockResolvedValue(line({ splitMethod: "shipment" }));
+    await masterJobCostService.update(COMPANY, MASTER, LINE, { excludedShipmentIds: ["s1"] });
+    expect(costs.update).toHaveBeenCalledWith(LINE, COMPANY, MASTER, { excludedShipmentIds: ["s1"] });
+  });
+
   it("refuses a list that is no list", async () => {
     await expect(masterJobCostService.update(COMPANY, MASTER, LINE, { excludedShipmentIds: "s1" as never })).rejects.toMatchObject({ code: "invalid_argument" });
     expect(costs.update).not.toHaveBeenCalled();

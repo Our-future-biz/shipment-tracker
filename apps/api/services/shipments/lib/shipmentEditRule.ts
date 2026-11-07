@@ -49,8 +49,9 @@ export const isDetailsManager = (role: string): boolean => MANAGER_ROLES.include
 
 /**
  * Why this user may not make this change to Approved By, or null when they may. Once the credit
- * check is approved, who approved it stands: only a manager, an admin or a superadmin may delete or
- * replace it. The stamp's date doesn't count as a change, and an empty field may still be filled.
+ * check is approved, who approved it and when stands: only a manager, an admin or a superadmin may
+ * delete or replace it, or change its date. The value sent back as it is passes, and an empty field
+ * may still be filled.
  */
 export function approvedByLockRefusal(
   existing: { creditCheck: string; approvedBy: string },
@@ -59,7 +60,7 @@ export function approvedByLockRefusal(
 ): string | null {
   if (isDetailsManager(role) || !("approvedBy" in data)) return null;
   if (!isCreditApproved(existing.creditCheck) || !existing.approvedBy.trim()) return null;
-  if (personEmail(data.approvedBy) === personEmail(existing.approvedBy)) return null;
+  if ((data.approvedBy ?? "").trim() === existing.approvedBy.trim()) return null;
   return "The credit check is approved: only a manager can change or delete Approved By";
 }
 

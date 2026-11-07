@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { anyToSplit, blKey, invoicePostLines, lineFlagged, linesTotals, lineTarget, matchLine, matchNote, namesBls, SPLIT_TARGET, type BlShipment, type InvoiceLineDraft, creditAmount, creditLines } from "./invoiceLines";
+import { anyToSplit, blKey, invoicePostLines, lineAmount, lineFlagged, linesTotals, lineTarget, matchLine, matchNote, namesBls, SPLIT_TARGET, type BlShipment, type InvoiceLineDraft, creditAmount, creditLines, creditLinesAbove0, invoiceLinesInvalid } from "./invoiceLines";
 
 const shipments: BlShipment[] = [
   { shipmentId: "s1", jobNumber: "CZ00000001", houseBol: "GLSL26060771" },
@@ -58,6 +58,18 @@ describe("where a line's B/L says it belongs", () => {
 
   it("is nothing for a line with no B/L", () => {
     expect(matchLine(line({ bl: "" }), shipments)).toEqual({ kind: "no-bl" });
+  });
+
+  it("is never a cancelled shipment: it is said, and the line asks to be looked at", () => {
+    const withCancelled = [...shipments, { shipmentId: "s9", jobNumber: "CZ00000009", houseBol: "GLSL26069999", cancelled: true }];
+    const match = matchLine(line({ bl: "GLSL26069999" }), withCancelled);
+    expect(match).toEqual({ kind: "cancelled", jobNumber: "CZ00000009" });
+    expect(lineTarget(line(), match)).toBe(SPLIT_TARGET);
+    expect(lineFlagged(line(), match)).toBe(true);
+    expect(matchNote(match)).toContain("CZ00000009");
+    // A live shipment with the same House B/L takes it.
+    const copy = [...withCancelled, { shipmentId: "s10", jobNumber: "CZ00000010", houseBol: "GLSL26069999" }];
+    expect(matchLine(line({ bl: "GLSL26069999" }), copy)).toEqual({ kind: "bl", shipmentId: "s10" });
   });
 });
 
@@ -129,8 +141,20 @@ describe("what is posted", () => {
   const match = { kind: "bl", shipmentId: "s1" } as const;
   const none = { kind: "not-found" } as const;
 
-  it("sends an identified line to its shipment, without asking how to split", () => {
-    expect(invoicePostLines([line()], [match], rows, ticked, null, "USD")).toEqual([{ category: "other", amount: "399.60", currency: "USD", item: "POD COST", shipmentId: "s1" }]);
+  it("sends an identified line to its shipment with its B/L, without asking how to split", () => {
+    expect(invoicePostLines([line()], [match], rows, ticked, null, "USD")).toEqual([
+      { category: "other", amount: "399.60", currency: "USD", item: "POD COST", bl: "GLSL26060771", shipmentId: "s1", chosen: false },
+    ]);
+  });
+
+  it("says when a person chose the shipment, so it is checked against the master job only", () => {
+    expect(invoicePostLines([line({ target: "s2" })], [match], rows, ticked, null, "USD")![0]).toMatchObject({ shipmentId: "s2", chosen: true });
+  });
+
+  it("posts an amount typed with thousands or a decimal comma to the cent", () => {
+    expect(invoicePostLines([line({ amount: "1,177.20" })], [match], rows, ticked, null, "USD")![0]!.amount).toBe("1177.20");
+    expect(invoicePostLines([line({ amount: "1 177,2" })], [match], rows, ticked, null, "USD")![0]!.amount).toBe("1177.20");
+    expect(invoicePostLines([line({ amount: "12abc" })], [match], rows, ticked, null, "USD")).toBeNull();
   });
 
   it("shares any other line over the ticked shipments only", () => {
@@ -158,6 +182,19 @@ describe("what is posted", () => {
   });
 });
 
+describe("a line's amount", () => {
+  it("is read as the money fields read it", () => {
+    expect(lineAmount("1,177.20")).toBe(1177.2);
+    expect(lineAmount("1.177,20")).toBe(1177.2);
+    expect(lineAmount(" -45 ")).toBe(-45);
+    expect(lineAmount("399.60")).toBe(399.6);
+  });
+
+  it("is none when it is no number or 0", () => {
+    for (const text of ["", " ", "abc", "12abc", "0", "0,00", "1e3", undefined]) expect(lineAmount(text)).toBeNull();
+  });
+});
+
 describe("a credit note", () => {
   const draft = (amount: string) => ({ bl: "", item: "x", amount, currency: "EUR", category: "ocean_freight" });
 
@@ -175,6 +212,26 @@ describe("a credit note", () => {
 
   it("leaves lines printed minus", () => {
     expect(creditLines([draft("-100"), draft("-50")]).map((l) => l.amount)).toEqual(["-100", "-50"]);
+  });
+
+  it("marks a line that would add buying, not one among credits of its own charge", () => {
+    const one = { kind: "bl", shipmentId: "s1" } as const;
+    const two = { kind: "bl", shipmentId: "s2" } as const;
+    // Under the same charge and shipment it stays within the deduction.
+    expect(creditLinesAbove0([draft("-100"), draft("10")], [one, one], "EUR")).toEqual(new Set());
+    // On another shipment, or another charge, it would add buying there.
+    expect(creditLinesAbove0([draft("-100"), draft("10")], [one, two], "EUR")).toEqual(new Set([1]));
+    expect(creditLinesAbove0([draft("-100"), { ...draft("10"), category: "customs" }], [one, one], "EUR")).toEqual(new Set([1]));
+    // A line edited to a plus amount on its own.
+    expect(creditLinesAbove0([draft("1,177.20")], [one], "EUR")).toEqual(new Set([0]));
+  });
+
+  it("waits to be posted while a line adds buying or isn't an amount, as the table marks them", () => {
+    const one = { kind: "bl", shipmentId: "s1" } as const;
+    expect(invoiceLinesInvalid([draft("-100"), draft("10")], [one, one], "EUR", true)).toBe(false);
+    expect(invoiceLinesInvalid([draft("10")], [one], "EUR", true)).toBe(true);
+    expect(invoiceLinesInvalid([draft("10")], [one], "EUR", false)).toBe(false);
+    expect(invoiceLinesInvalid([draft("ten")], [one], "EUR", false)).toBe(true);
   });
 
   it("keeps a charge among the credits, so the lines still add up to the credit", () => {

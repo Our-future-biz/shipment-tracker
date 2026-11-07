@@ -11,7 +11,7 @@ import { chargeLabel } from "@/lib/chargeCodes";
 import { formatDateTime } from "@/lib/date";
 import { useToast } from "@/lib/toast";
 import { useSellingAmountRequests } from "@/hooks/useSellingAmountRequests";
-import { BTN, BTN_DANGER, BTN_PRIMARY, CARD, CARD_BAR, CARD_TITLE, HINT, LABEL_TEXT, TD, TH } from "@/styles/ui";
+import { BTN, BTN_DANGER, BTN_PRIMARY, CARD, CARD_BAR, CARD_TITLE, HINT, LABEL_TEXT, TD, TEXTAREA, TH } from "@/styles/ui";
 
 // Sales → Managers → Quote inquiries: a shipment asks to sell a cost it sells on at cost (a master
 // job's demurrage) for less than it costs. A manager approves it, which changes the selling row, or
@@ -149,7 +149,8 @@ export function SellingAmountRequests() {
                               value={comment}
                               maxLength={1000}
                               onChange={(e) => setComment(e.target.value)}
-                              className="w-full text-[13px] text-slate-900 border border-slate-300 rounded-lg px-2.5 py-2 bg-white outline-none resize-y focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-colors"
+                              aria-label={open.decision === "reject" ? "Reason for rejection" : "Comment"}
+                              className={`${TEXTAREA} w-full resize-y`}
                             />
                           </label>
                           <div className="flex gap-2">

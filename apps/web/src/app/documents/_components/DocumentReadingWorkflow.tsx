@@ -23,7 +23,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api, apiErrorMessage } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
 import { fileToBase64, formatFileSize } from "@/lib/files";
-import { CURRENCIES, FULL_LOAD } from "@/lib/enums";
+import { CANCELLED_STATUS, CURRENCIES, FULL_LOAD } from "@/lib/enums";
 import { existingMczNumbers, nextMczNumber } from "@/lib/mcz";
 import { useToast } from "@/lib/toast";
 import { useShipments, getFieldValue } from "@/hooks/useShipments";
@@ -45,6 +45,7 @@ import {
   invalidBookingDates,
   buildFields,
   withBookingEquipment,
+  containerNumbersOnFile,
   containerRowsFromNumbers,
   containersAfterReading,
   SEAL_LABEL,
@@ -87,7 +88,7 @@ import { mergeReads } from "../_lib/mergeReads";
 import { missingWm, splitLines, type SplitMethod } from "../_lib/masterInvoice";
 import { MasterInvoiceShipments, type MasterInvoiceShipment } from "./MasterInvoiceShipments";
 import { InvoiceLinesPreview, InvoiceLinesTable } from "./InvoiceLinesTable";
-import { anyToSplit, creditAmount, creditLines, invoicePostLines, matchLine, namesBls, type BlShipment, type InvoiceLineDraft } from "../_lib/invoiceLines";
+import { anyToSplit, creditAmount, creditLines, invoiceLinesInvalid, invoicePostLines, lineAmount, matchLine, namesBls, type BlShipment, type InvoiceLineDraft } from "../_lib/invoiceLines";
 import { shipmentFreight } from "@/lib/freightTons";
 
 type PipelineStep = "idle" | "classified" | "extracting" | "ready";
@@ -226,6 +227,8 @@ export function DocumentReadingWorkflow() {
   const [invoiceLines, setInvoiceLines] = useState<InvoiceLineDraft[]>([]);
   const [linesPreview, setLinesPreview] = useState<interfaces.InvoiceLinesRow[] | null>(null);
   const [allowRepeat, setAllowRepeat] = useState(false);
+  // The invoice listed more charge rows than one reading holds: only its header was read.
+  const [invoiceLinesSkipped, setInvoiceLinesSkipped] = useState(false);
 
   // Master Job pipeline
   const [masterMode, setMasterMode] = useState<TargetMode>("new");
@@ -309,7 +312,8 @@ export function DocumentReadingWorkflow() {
     [invoiceRows, invoiceUnticked],
   );
   const invoiceMissingWm = splitMethod ? missingWm(invoiceRows, invoiceTicked, splitMethod) : [];
-  const invoiceTotal = Number(invoiceData.total_amount ?? "");
+  // Typed or read with thousands or a decimal comma ("1,177.20"); 0 when it is no amount.
+  const invoiceTotal = lineAmount(invoiceData.total_amount) ?? 0;
   const invoiceCurrency = normalizeCurrency(invoiceData.currency);
   // The split as the server will post it; asked as a dry run while the user reviews.
   const splitRequest = useMemo(
@@ -334,31 +338,45 @@ export function DocumentReadingWorkflow() {
   const postsLines = invoiceByBl || creditNote;
   const docWord = creditNote ? "Credit note" : "Invoice";
   const blShipments = useMemo<BlShipment[]>(
-    () => mczShipments.filter((s) => String(s.masterJobMczNumber ?? "").trim() === invoiceMcz).map((s) => ({ shipmentId: s.id, jobNumber: s.jobNumber || s.id, houseBol: s.houseBolNumber ?? "" })),
+    () =>
+      mczShipments
+        .filter((s) => String(s.masterJobMczNumber ?? "").trim() === invoiceMcz)
+        .map((s) => ({ shipmentId: s.id, jobNumber: s.jobNumber || s.id, houseBol: s.houseBolNumber ?? "", cancelled: s.status === CANCELLED_STATUS })),
     [mczShipments, invoiceMcz],
   );
+  // What goes line by line reaches no cancelled shipment (the server refuses it), so its split leaves them out.
+  const cancelledJobs = useMemo(() => blShipments.filter((s) => s.cancelled), [blShipments]);
+  const lineRows = useMemo(() => invoiceRows.filter((r) => !cancelledJobs.some((s) => s.shipmentId === r.shipmentId)), [invoiceRows, cancelledJobs]);
+  const lineTicked = useMemo(() => new Set(lineRows.filter((r) => invoiceTicked.has(r.shipmentId)).map((r) => r.shipmentId)), [lineRows, invoiceTicked]);
+  const lineMissingWm = splitMethod ? missingWm(lineRows, lineTicked, splitMethod) : [];
+  // The server checks every line against this master job's own shipments, B/Ls and W/M.
+  const invoiceMasterJobId = masterJobs.find((m) => m.mczNumber === invoiceMcz)?.id ?? mczShipments.find((s) => s.masterJobId)?.masterJobId ?? "";
   const lineMatches = useMemo(() => {
     const masterBols = [...new Set(mczShipments.map((s) => s.masterBolNumber ?? "").filter(Boolean))];
     return invoiceLines.map((l) => matchLine(l, blShipments, masterBols));
   }, [invoiceLines, blShipments, mczShipments]);
   const linesToSplit = invoiceByBl ? anyToSplit(invoiceLines, lineMatches) : creditNote && invoiceToMaster;
-  const linesRequest = useMemo(() => {
+  // A line whose amount is no number, or a credit note's line adding buying, waits to be corrected.
+  const linesInvalid = invoiceByBl && invoiceLinesInvalid(invoiceLines, lineMatches, invoiceCurrency, creditNote);
+  const linesRequest = useMemo((): interfaces.InvoiceLinesInput | null => {
     const invoiceNumber = invoiceData.invoice_number?.trim();
     if (!invoiceNumber) return null;
     const vendor = invoiceData.vendor?.trim() || undefined;
+    const onMaster = invoiceToMaster ? { masterJobId: invoiceMasterJobId, splitMethod: splitMethod ?? undefined } : {};
+    if (invoiceToMaster && !invoiceMasterJobId) return null;
     if (invoiceByBl) {
-      const lines = invoicePostLines(invoiceLines, lineMatches, invoiceRows, invoiceTicked, splitMethod, invoiceCurrency);
-      return lines ? { invoiceNumber, vendor, lines, creditNote } : null;
+      const lines = invoicePostLines(invoiceLines, lineMatches, lineRows, lineTicked, splitMethod, invoiceCurrency);
+      return lines ? { invoiceNumber, vendor, lines, creditNote, ...onMaster } : null;
     }
     // A credit note without B/Ls is one line, on its shipment or shared out as an invoice would be.
     const amount = creditAmount(invoiceData.total_amount);
     if (!creditNote || !invoiceCategory || !(Number(amount) < 0)) return null;
-    const line = { category: invoiceCategory, amount, currency: invoiceCurrency, item: invoiceData.description?.trim() || undefined };
+    const line = { category: invoiceCategory, amount, currency: invoiceCurrency, item: invoiceData.description?.trim().slice(0, 300) || undefined };
     if (!invoiceToMaster) return invoiceTargetShipmentId ? { invoiceNumber, vendor, creditNote, lines: [{ ...line, shipmentId: invoiceTargetShipmentId }] } : null;
-    const split = splitMethod ? splitLines(invoiceRows, invoiceTicked, splitMethod) : [];
-    return split.some((l) => l.weight > 0) ? { invoiceNumber, vendor, creditNote, lines: [{ ...line, split }] } : null;
-  }, [invoiceByBl, creditNote, invoiceToMaster, invoiceTargetShipmentId, invoiceCategory, invoiceData.total_amount, invoiceData.description, invoiceData.invoice_number, invoiceData.vendor, invoiceLines, lineMatches, invoiceRows, invoiceTicked, splitMethod, invoiceCurrency]);
-  const linesReady = !!linesRequest && (!linesToSplit || invoiceMissingWm.length === 0);
+    const split = splitMethod ? splitLines(lineRows, lineTicked, splitMethod) : [];
+    return split.some((l) => l.weight > 0) ? { invoiceNumber, vendor, creditNote, lines: [{ ...line, split }], ...onMaster } : null;
+  }, [invoiceByBl, creditNote, invoiceToMaster, invoiceMasterJobId, invoiceTargetShipmentId, invoiceCategory, invoiceData.total_amount, invoiceData.description, invoiceData.invoice_number, invoiceData.vendor, invoiceLines, lineMatches, lineRows, lineTicked, splitMethod, invoiceCurrency]);
+  const linesReady = !!linesRequest && !linesInvalid && (!linesToSplit || lineMissingWm.length === 0);
   const linesRepeated = !!linesPreview?.some((r) => r.repeated);
   const postShipments = new Set(linesPreview?.map((r) => r.shipmentId)).size;
   const tickInvoiceShipment = (shipmentId: string, ticked: boolean) =>
@@ -573,6 +591,7 @@ export function DocumentReadingWorkflow() {
             return { bl: l.bl, item: l.item, amount: l.amount, currency: l.currency, category: chargeOptions().some((c) => c.value === code) ? code : "" };
           });
         setInvoiceLines(creditNote ? creditLines(readLines) : readLines);
+        setInvoiceLinesSkipped(!!result.invoiceLinesSkipped);
         setAllowRepeat(false);
         setStep("review");
       } else if (destination === "customs") {
@@ -778,6 +797,8 @@ export function DocumentReadingWorkflow() {
   useEffect(() => {
     if (step !== "review" || !postsLines || !linesReady || !linesRequest) {
       setLinesPreview(null);
+      // Lines waiting to be corrected aren't asked about: the server's answer to earlier ones no longer holds.
+      if (postsLines) setSplitError("");
       return;
     }
     let cancelled = false;
@@ -990,6 +1011,26 @@ export function DocumentReadingWorkflow() {
     }
   }, [waitingForBatch, masterShipments, masterIdx, hblBatchIndex, hblTotalBatches, hblLoading]);
 
+  // The MBL's seals written to a Full Load's shipments: each house carrying a container gets the seal
+  // on its own row of it while that row has none. Its other rows, seals and types stay as they are.
+  const sealHousesFromMbl = async (houses: interfaces.MasterJobShipmentItem[], read: Map<string, interfaces.MasterJobContainerLine>) => {
+    const sealOf = new Map([...read].filter(([, c]) => c.sealNumber).map(([n, c]) => [n, c.sealNumber]));
+    if (sealOf.size === 0) return;
+    const numberOf = (raw: string) => parseContainerNumbers(raw)[0] ?? "";
+    for (const house of houses) {
+      if (!parseContainerNumbers(house.containerNumber).some((n) => sealOf.has(n))) continue;
+      const { shipment } = await api.shipments.shipmentGet(house.id);
+      let sealed = 0;
+      const containers = (shipment.containers ?? []).map((c) => {
+        const seal = sealOf.get(numberOf(c.containerNumber));
+        if (c.sealNumber || !seal) return c;
+        sealed += 1;
+        return { ...c, sealNumber: seal };
+      });
+      if (sealed > 0) await api.shipments.shipmentUpdate(house.id, { containers });
+    }
+  };
+
   // Files the ticked MBL details onto the master job — once per batch, right after its first
   // shipment is linked, so the master job exists and its synced fields reach that shipment too.
   // A failure here doesn't undo the shipment; the user is told and can fill in MBL Details by hand.
@@ -1005,20 +1046,25 @@ export function DocumentReadingWorkflow() {
       if (added.length > 0) {
         const current = await api.shipments.masterJobGet(masterJobId);
         const read = new Map(added.map((c) => [c.containerNumber, c]));
-        const known = new Set(current.containers.map((c) => c.containerNumber));
-        // A Full Load master job reads its containers from the shipments, so it adds none of its own.
-        const fresh = current.masterJob.loadType === FULL_LOAD ? [] : added.filter((c) => !known.has(c.containerNumber));
-        // A container the master job has already gets the MBL's seal, unless it has one of its own;
-        // on a Full Load that writes it to the shipments carrying the container.
-        let sealed = 0;
-        const containers = current.containers.map((c) => {
-          const seal = read.get(c.containerNumber)?.sealNumber ?? "";
-          if (c.sealNumber || !seal) return c;
-          sealed += 1;
-          return { ...c, sealNumber: seal };
-        });
-        if (fresh.length > 0 || sealed > 0) {
-          await api.shipments.masterJobContainersUpdate(masterJobId, { containers: [...containers, ...fresh] });
+        if (current.masterJob.loadType === FULL_LOAD) {
+          // A Full Load reads its containers from the shipments and adds none of its own. Saving its list
+          // would write one house's seal and type over every house carrying the container, so the MBL's
+          // seal goes onto each house's own row of the container instead, only where that row has none.
+          await sealHousesFromMbl(current.shipments, read);
+        } else {
+          const known = new Set(current.containers.map((c) => c.containerNumber));
+          const fresh = added.filter((c) => !known.has(c.containerNumber));
+          // A container the master job has already gets the MBL's seal, unless it has one of its own.
+          let sealed = 0;
+          const containers = current.containers.map((c) => {
+            const seal = read.get(c.containerNumber)?.sealNumber ?? "";
+            if (c.sealNumber || !seal) return c;
+            sealed += 1;
+            return { ...c, sealNumber: seal };
+          });
+          if (fresh.length > 0 || sealed > 0) {
+            await api.shipments.masterJobContainersUpdate(masterJobId, { containers: [...containers, ...fresh] });
+          }
         }
       }
       setMblFiled(true);
@@ -1116,6 +1162,7 @@ export function DocumentReadingWorkflow() {
     setBookingCreated(null);
     setInvoiceData({});
     setInvoiceLines([]);
+    setInvoiceLinesSkipped(false);
     setLinesPreview(null);
     setAllowRepeat(false);
     setInvoiceCategory("");
@@ -1152,6 +1199,22 @@ export function DocumentReadingWorkflow() {
   };
 
   const stepIndex = { upload: 0, extracting: 1, review: 2, committed: 3 }[step];
+
+  const linesSkippedAlert = invoiceLinesSkipped && (
+    <Alert
+      className="mb-3"
+      type="info"
+      showIcon
+      message={`This ${docWord.toLowerCase()} lists more charge rows than one reading holds`}
+      description="Only its total, number and vendor were read, so it is posted by its total. Check them before posting."
+    />
+  );
+  // The houses a line-by-line post leaves out of its split.
+  const cancelledNote = cancelledJobs.length > 0 && (
+    <p className={`mt-1.5 mb-0 ${HINT}`}>
+      {cancelledJobs.map((s) => s.jobNumber).join(", ")} {cancelledJobs.length === 1 ? "is" : "are"} cancelled: nothing is posted to {cancelledJobs.length === 1 ? "it" : "them"}.
+    </p>
+  );
 
   const repeatedAlert = linesRepeated && (
     <Alert
@@ -1500,11 +1563,7 @@ export function DocumentReadingWorkflow() {
             editable
             onEdit={editField}
             onPick={pickField}
-            containersOnFile={
-              shipmentMode === "existing"
-                ? (shipments.find((s) => s.id === targetShipmentId)?.containers ?? []).map((c) => c.containerNumber).filter(Boolean)
-                : []
-            }
+            containersOnFile={shipmentMode === "existing" ? containerNumbersOnFile(shipments.find((s) => s.id === targetShipmentId)?.containers ?? []) : []}
           />
           {shipmentDocViews.map((d) => (
             <SaveDocumentBox
@@ -1560,14 +1619,16 @@ export function DocumentReadingWorkflow() {
       {step === "review" && invoiceToMaster && (
         <SectionCard title={`${docWord} for master job ${invoiceMcz}`}>
           {error && <Alert className="mb-3" type="error" showIcon message={error} />}
+          {linesSkippedAlert}
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_110px_1fr_1fr] gap-3 mb-4">
             <div>
               <div className={`${LABEL_TEXT} mb-1.5`}>
                 {docWord} total <span className="text-red-500">*</span>
               </div>
               <Input
+                aria-label={`${docWord} total`}
                 value={invoiceData.total_amount ?? ""}
-                onChange={(e) => setInvoiceData((d) => ({ ...d, total_amount: e.target.value.replace(",", ".") }))}
+                onChange={(e) => setInvoiceData((d) => ({ ...d, total_amount: e.target.value }))}
                 status={invoiceTotal > 0 || (creditNote && invoiceTotal < 0) ? undefined : "error"}
               />
             </div>
@@ -1603,19 +1664,21 @@ export function DocumentReadingWorkflow() {
                 shipments={blShipments}
                 currency={invoiceCurrency}
                 total={creditNote ? -Math.abs(invoiceTotal) : invoiceTotal}
+                creditNote={creditNote}
                 onLine={(index, patch) => setInvoiceLines((all) => all.map((l, i) => (i === index ? { ...l, ...patch } : l)))}
               />
               {linesToSplit && (
                 <div className="mb-4">
                   <MasterInvoiceShipments
-                    rows={invoiceRows}
-                    ticked={invoiceTicked}
+                    rows={lineRows}
+                    ticked={lineTicked}
                     onTick={tickInvoiceShipment}
                     onTickAll={(on) => setInvoiceUnticked(on ? new Set() : new Set(invoiceRows.map((r) => r.shipmentId)))}
                     method={splitMethod}
                     onMethod={setSplitMethod}
                   />
                   <p className={`mt-1.5 mb-0 ${HINT}`}>This is only for the lines going to the split. A line matched by its B/L goes to its shipment, ticked or not.</p>
+                  {cancelledNote}
                 </div>
               )}
               {linesPreview && <InvoiceLinesPreview rows={linesPreview} jobOf={jobOf} />}
@@ -1642,8 +1705,8 @@ export function DocumentReadingWorkflow() {
             />
           </div>
           <MasterInvoiceShipments
-            rows={invoiceRows}
-            ticked={invoiceTicked}
+            rows={creditNote ? lineRows : invoiceRows}
+            ticked={creditNote ? lineTicked : invoiceTicked}
             onTick={tickInvoiceShipment}
             onTickAll={(on) => setInvoiceUnticked(on ? new Set() : new Set(invoiceRows.map((r) => r.shipmentId)))}
             method={splitMethod}
@@ -1665,6 +1728,7 @@ export function DocumentReadingWorkflow() {
             }
             currency={invoiceCurrency}
           />
+          {creditNote && cancelledNote}
           {creditNote && <div className="mt-3">{repeatedAlert}</div>}
             </>
           )}
@@ -1685,7 +1749,7 @@ export function DocumentReadingWorkflow() {
             {postsLines ? (
               <Button
                 type="primary"
-                disabled={!linesReady || !linesPreview || !!splitError || docNameMissing || (linesRepeated && !allowRepeat)}
+                disabled={!linesReady || !linesPreview?.length || !!splitError || docNameMissing || (linesRepeated && !allowRepeat)}
                 loading={splitSaving}
                 onClick={commitInvoiceLines}
               >
@@ -1712,6 +1776,7 @@ export function DocumentReadingWorkflow() {
       {step === "review" && destination === "invoicing" && !invoiceToMaster && (
         <SectionCard title={creditNote ? "Credit note data extracted" : "Invoice data extracted"}>
           {error && <Alert className="mb-3" type="error" showIcon message={error} />}
+          {linesSkippedAlert}
           <Descriptions
             bordered
             size="small"
@@ -1749,15 +1814,41 @@ export function DocumentReadingWorkflow() {
           </div>
           {creditNote && (
             <div className="mt-4">
-              <div className={`${LABEL_TEXT} mb-1.5`}>
-                Credit note number <span className="text-red-500">*</span>
+              <div className="grid grid-cols-1 sm:grid-cols-[180px_110px_288px] gap-3">
+                <div>
+                  <div className={`${LABEL_TEXT} mb-1.5`}>
+                    Credit note total <span className="text-red-500">*</span>
+                  </div>
+                  <Input
+                    aria-label="Credit note total"
+                    value={invoiceData.total_amount ?? ""}
+                    onChange={(e) => setInvoiceData((d) => ({ ...d, total_amount: e.target.value }))}
+                    status={invoiceTotal !== 0 ? undefined : "error"}
+                  />
+                </div>
+                <div>
+                  <div className={`${LABEL_TEXT} mb-1.5`}>Currency</div>
+                  <Select
+                    className="w-full"
+                    aria-label="Credit note currency"
+                    value={invoiceCurrency}
+                    onChange={(v) => setInvoiceData((d) => ({ ...d, currency: v }))}
+                    options={CURRENCIES.map((c) => ({ value: c, label: c }))}
+                  />
+                </div>
+                <div>
+                  <div className={`${LABEL_TEXT} mb-1.5`}>
+                    Credit note number <span className="text-red-500">*</span>
+                  </div>
+                  <Input
+                    aria-label="Credit note number"
+                    value={invoiceData.invoice_number ?? ""}
+                    onChange={(e) => setInvoiceData((d) => ({ ...d, invoice_number: e.target.value }))}
+                    status={invoiceData.invoice_number?.trim() ? undefined : "error"}
+                  />
+                </div>
               </div>
-              <Input
-                className="!w-72"
-                value={invoiceData.invoice_number ?? ""}
-                onChange={(e) => setInvoiceData((d) => ({ ...d, invoice_number: e.target.value }))}
-                status={invoiceData.invoice_number?.trim() ? undefined : "error"}
-              />
+              <p className={`mt-1.5 mb-0 ${HINT}`}>Deducted from buying as a minus, however it is printed.</p>
               <div className="mt-4">
                 {linesPreview && <InvoiceLinesPreview rows={linesPreview} jobOf={jobOf} />}
                 {repeatedAlert}
@@ -1770,7 +1861,7 @@ export function DocumentReadingWorkflow() {
             {creditNote ? (
               <Button
                 type="primary"
-                disabled={!linesReady || !linesPreview || !!splitError || (linesRepeated && !allowRepeat)}
+                disabled={!linesReady || !linesPreview?.length || !!splitError || (linesRepeated && !allowRepeat)}
                 loading={splitSaving}
                 onClick={commitInvoiceLines}
               >

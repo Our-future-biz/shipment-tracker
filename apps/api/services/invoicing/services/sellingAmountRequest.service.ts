@@ -119,12 +119,15 @@ class SellingAmountRequestService {
     }
   }
 
-  /** The one who asked takes a waiting request back (a manager may too). */
+  /**
+   * The one who asked takes a waiting request back. A manager answers it instead: a rejection
+   * carries its reason and reaches the one who asked, a withdrawal would do neither.
+   */
   async withdraw(actor: Actor, id: string): Promise<SellingAmountRequestItem> {
     if (!isUuid(id)) throw APIError.notFound("This request is not there");
     const row = await requests.byId(actor.companyID, id);
     if (!row) throw APIError.notFound("This request is not there");
-    if (row.requestedById !== actor.userID && !canDecideQuoteInquiry(actor.role)) throw APIError.permissionDenied("Only the one who asked can take it back");
+    if (row.requestedById !== actor.userID) throw APIError.permissionDenied("Only the one who asked can take it back — a manager rejects it, with a reason");
     const done = await requests.withdraw(actor.companyID, id, { id: actor.userID, name: await userEmailOf(actor.userID) });
     if (!done) throw APIError.failedPrecondition("This request no longer waits for an answer");
     return toItem(done);
@@ -140,10 +143,11 @@ class SellingAmountRequestService {
   async forMe(actor: Actor): Promise<{ waiting: SellingAmountRequestItem[]; answers: SellingAmountRequestItem[] }> {
     const now = Date.now();
     const [waiting, answers] = await Promise.all([
-      canDecideQuoteInquiry(actor.role) ? requests.pending(actor.companyID, BELL_LIMIT) : Promise.resolve([]),
+      canDecideQuoteInquiry(actor.role) ? requests.pending(actor.companyID, BELL_LIMIT) : Promise.resolve([] as SellingAmountRequestRecord[]),
       requests.answersFor(actor.companyID, actor.userID, new Date(now - ANSWERED_DAYS * DAY), new Date(now - SEEN_KEEP_DAYS * DAY), BELL_LIMIT),
     ]);
-    return { waiting: waiting.map(toItem), answers: answers.map(toItem) };
+    // A manager's own request waits for another manager: it is not news to the one who asked.
+    return { waiting: waiting.filter((r) => r.requestedById !== actor.userID).map(toItem), answers: answers.map(toItem) };
   }
 
   /** The answers were opened by the one who asked: the bell keeps them 7 more days. */

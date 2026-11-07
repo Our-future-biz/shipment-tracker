@@ -219,7 +219,7 @@ describe("a selling row a manager approved taking off", () => {
     realCurrency: "EUR", invoiceNumber: "", received: false, sourceMasterJobRef: "master:m:l", lineSort: 0, ...over,
   });
   const wanted = (over: Partial<SplitRowValues> = {}) => soldAtCostRows([share(over)])[0]!;
-  const waived = { shipmentId: "a", sourceMasterJobRef: "master:m:l", amountOverrideCost: "100.00" };
+  const waived = { shipmentId: "a", sourceMasterJobRef: "master:m:l", currency: "EUR", amountOverrideCost: "100.00" };
 
   it("stays off at the cost it was approved for, and the split reads as processed", () => {
     const skip = waivedShares([waived], [wanted()]);
@@ -233,6 +233,10 @@ describe("a selling row a manager approved taking off", () => {
     const moved = wanted({ realAmount: "110.00" });
     expect(waivedShares([waived], [moved]).size).toBe(0);
     expect(planSoldAtCost([], [moved], new Set(), waivedShares([waived], [moved])).add).toEqual([moved]);
+  });
+
+  it("comes back when the cost is the same number in another currency", () => {
+    expect(waivedShares([waived], [wanted({ realCurrency: "USD" })]).size).toBe(0);
   });
 
   it("covers only its own shipment and line", () => {

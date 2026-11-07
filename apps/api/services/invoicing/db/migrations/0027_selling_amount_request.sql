@@ -1,4 +1,4 @@
-CREATE TABLE "selling_amount_request" (
+CREATE TABLE IF NOT EXISTS "selling_amount_request" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
@@ -25,8 +25,8 @@ CREATE TABLE "selling_amount_request" (
 	CONSTRAINT "selling_amount_request_status_check" CHECK ("selling_amount_request"."status" IN ('pending', 'approved', 'rejected', 'withdrawn'))
 );
 --> statement-breakpoint
-ALTER TABLE "invoice_selling_cost" ADD COLUMN "amount_override_cost" numeric(14, 2);--> statement-breakpoint
-CREATE INDEX "selling_amount_request_company_id_idx" ON "selling_amount_request" USING btree ("company_id","created_at");--> statement-breakpoint
-CREATE INDEX "selling_amount_request_company_status_idx" ON "selling_amount_request" USING btree ("company_id","status","requested_at");--> statement-breakpoint
-CREATE INDEX "selling_amount_request_company_shipment_idx" ON "selling_amount_request" USING btree ("company_id","shipment_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "selling_amount_request_pending_unique" ON "selling_amount_request" USING btree ("selling_cost_id") WHERE status = 'pending' AND deleted_at IS NULL;
+ALTER TABLE "invoice_selling_cost" ADD COLUMN IF NOT EXISTS "amount_override_cost" numeric(14, 2);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "selling_amount_request_company_id_idx" ON "selling_amount_request" USING btree ("company_id","created_at");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "selling_amount_request_company_status_idx" ON "selling_amount_request" USING btree ("company_id","status","requested_at");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "selling_amount_request_company_shipment_idx" ON "selling_amount_request" USING btree ("company_id","shipment_id");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "selling_amount_request_pending_unique" ON "selling_amount_request" USING btree ("selling_cost_id") WHERE status = 'pending' AND deleted_at IS NULL;

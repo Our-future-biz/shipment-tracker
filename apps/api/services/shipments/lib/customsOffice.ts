@@ -1,12 +1,20 @@
+import { CUSTOMS_OFFICES } from "./customsOfficeList";
+
 const isT1 = (procedure: string | null | undefined) => (procedure ?? "").trim().toUpperCase() === "T1";
 
-/** A customs office as the shipment keeps it: its code, then its name ("CZ510000 Celní úřad pro …"). */
-export const CUSTOMS_OFFICE_SHAPE = /^CZ\d{6} \S/;
+const OFFICES: ReadonlySet<string> = new Set(CUSTOMS_OFFICES);
 
-/** Why this office can't be stored, or null: an office is picked from the list, never typed freely. */
-export function customsOfficeShapeRefusal(office: string | null | undefined): string | null {
+/** Whether this is an office of the list, as the list words it. */
+export const isListedCustomsOffice = (office: string | null | undefined): boolean => OFFICES.has((office ?? "").trim());
+
+/**
+ * Why this office can't be stored, or null: an office is picked from the list, never typed freely.
+ * The office a shipment already holds passes as it is, so one taken off the list since still saves.
+ */
+export function customsOfficeRefusal(office: string | null | undefined, stored?: string | null): string | null {
   const value = (office ?? "").trim();
-  return value && !CUSTOMS_OFFICE_SHAPE.test(value) ? "Choose the Customs Office from the list" : null;
+  if (!value || value === (stored ?? "").trim()) return null;
+  return isListedCustomsOffice(value) ? null : "Choose the Customs Office from the list";
 }
 
 /**

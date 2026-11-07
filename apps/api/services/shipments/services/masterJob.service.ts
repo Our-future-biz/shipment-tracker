@@ -26,6 +26,7 @@ import type {
   MasterJobContainerLine,
   MasterJobItem,
   MasterJobHouseItem,
+  MasterJobInvoiceHouseItem,
   MasterJobShipmentItem,
   MasterJobDetail,
 } from "../interfaces/interfaces";
@@ -34,6 +35,7 @@ import { dropSharesOfLeftShipments } from "../lib/masterJobCosts";
 import { cargoDimensionRepository } from "../repositories/cargoDimension.repository";
 import { freightTons } from "../lib/freightTons";
 import { compareJobNumbers } from "../../../lib/jobNumber";
+import { CANCELLED_STATUS } from "../lib/fieldDefaults";
 
 /** The person saving a master job, held to who may change each house's details (lib/shipmentEditRule). */
 export interface MasterJobEditor {
@@ -330,6 +332,11 @@ class MasterJobService {
 
   /** The master job's live shipments with their freight tons (W/M), what its costs are split over. */
   async houses(id: string, companyId: string): Promise<MasterJobHouseItem[]> {
+    return (await this.invoiceHouses(id, companyId)).map(({ shipmentId, jobNumber, freightTon }) => ({ shipmentId, jobNumber, freightTon }));
+  }
+
+  /** The same shipments with their House B/L and whether they are cancelled: what a vendor invoice read by B/L is checked against. */
+  async invoiceHouses(id: string, companyId: string): Promise<MasterJobInvoiceHouseItem[]> {
     await this.require(id, companyId);
     const rows = await shipmentRepository.findByMasterJobId(id, companyId);
     const dims = await cargoDimensionRepository.listByShipmentIds(rows.map((r) => r.id), companyId);
@@ -338,6 +345,8 @@ class MasterJobService {
         shipmentId: r.id,
         jobNumber: r.jobNumber,
         freightTon: freightTons(dims.filter((d) => d.shipmentId === r.id), r).freightTon,
+        houseBolNumber: r.houseBolNumber,
+        cancelled: r.status === CANCELLED_STATUS,
       }))
       .sort((a, b) => compareJobNumbers(a.jobNumber, b.jobNumber));
   }

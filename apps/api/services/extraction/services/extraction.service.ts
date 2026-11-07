@@ -1,10 +1,10 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { APIError } from "encore.dev/api";
-import { getClient, MODEL } from "../lib/anthropic";
+import { getClient, MODEL, replyText } from "../lib/anthropic";
 import { extractTextFromPdf, isImageType, isPdfType, detectMediaType } from "../lib/pdf";
 import { textReadingUsable } from "../lib/fields";
-import { filterExtracted, parseJsonFromResponse, parseJsonObjectFromResponse, SHIPMENT_FIELDS, BOOKING_FIELDS, INVOICE_FIELDS, QUOTE_FIELDS, CUSTOMS_FIELDS, TRACKING_FIELDS } from "../lib/fields";
-import { SHIPMENT_PROMPT, BOOKING_PROMPT, INVOICE_PROMPT, QUOTE_PROMPT, CUSTOMS_PROMPT, TRACKING_PROMPT } from "../lib/prompts";
+import { filterExtracted, parseJsonFromResponse, parseJsonObjectFromResponse, SHIPMENT_FIELDS, BOOKING_FIELDS, INVOICE_FIELDS, INVOICE_HEADER_FIELDS, QUOTE_FIELDS, CUSTOMS_FIELDS, TRACKING_FIELDS } from "../lib/fields";
+import { SHIPMENT_PROMPT, BOOKING_PROMPT, INVOICE_PROMPT, INVOICE_HEADER_PROMPT, QUOTE_PROMPT, CUSTOMS_PROMPT, TRACKING_PROMPT } from "../lib/prompts";
 import { normalizeQuoteFields } from "../lib/quoteFields";
 import { withInvoiceLines } from "../lib/invoiceLines";
 import type { ExtractionResult } from "../interfaces/interfaces";
@@ -37,6 +37,22 @@ function mediaBlock(fileBase64: string, mediaType: string): Anthropic.ContentBlo
   };
 }
 
+/** What a reply read, and whether it was cut off: past its token limit, or no JSON object at all. */
+interface Reply {
+  extracted: Record<string, string>;
+  cut: boolean;
+}
+
+/**
+ * The fields of a reply. A reply that ran past max_tokens ends mid-JSON, so nothing of it can be
+ * read: it counts as cut, as does one that holds no JSON object.
+ */
+function replyFields(response: Anthropic.Message, validFields: string[]): Reply {
+  const parsed = parseJsonObjectFromResponse(replyText(response));
+  const cut = response.stop_reason === "max_tokens" || !parsed;
+  return { extracted: parsed ? filterExtracted(parsed, validFields) : {}, cut };
+}
+
 async function extractViaVision(
   fileBase64: string,
   mediaType: string,
@@ -44,7 +60,7 @@ async function extractViaVision(
   validFields: string[],
   userPrompt: string,
   maxTokens = 2048,
-): Promise<Record<string, string>> {
+): Promise<Reply> {
   const client = getClient();
   const response = await client.messages.create({
     model: MODEL,
@@ -55,15 +71,7 @@ async function extractViaVision(
       content: [mediaBlock(fileBase64, mediaType), { type: "text", text: userPrompt }],
     }],
   });
-
-  const text = response.content
-    .filter((b): b is Anthropic.TextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("");
-
-  const parsed = parseJsonObjectFromResponse(text);
-  if (!parsed) return {};
-  return filterExtracted(parsed, validFields);
+  return replyFields(response, validFields);
 }
 
 async function extractViaText(
@@ -72,7 +80,7 @@ async function extractViaText(
   validFields: string[],
   userPrompt: string,
   maxTokens = 2048,
-): Promise<Record<string, string>> {
+): Promise<Reply> {
   const client = getClient();
   const response = await client.messages.create({
     model: MODEL,
@@ -83,15 +91,73 @@ async function extractViaText(
       content: `${userPrompt}\n\n---\n${documentText.substring(0, 15000)}\n---\n\nReturn ONLY a JSON object with the extracted fields.`,
     }],
   });
+  return replyFields(response, validFields);
+}
 
-  const text = response.content
-    .filter((b): b is Anthropic.TextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("");
+/**
+ * What a reading asks for instead when its reply is cut off: the same document read for less (an
+ * invoice's header without its charge rows), so a long document still gives what fits.
+ */
+export interface ShorterReading {
+  systemPrompt: string;
+  validFields: string[];
+  maxTokens: number;
+}
 
-  const parsed = parseJsonObjectFromResponse(text);
-  if (!parsed) return {};
-  return filterExtracted(parsed, validFields);
+/** A reading through `ask`, read again the shorter way when its reply is cut off; `shortened` says it was. */
+async function readWithin(
+  ask: (systemPrompt: string, validFields: string[], maxTokens: number) => Promise<Reply>,
+  reading: ShorterReading,
+  shorter?: ShorterReading,
+): Promise<{ extracted: Record<string, string>; shortened: boolean }> {
+  const first = await ask(reading.systemPrompt, reading.validFields, reading.maxTokens);
+  if (!first.cut || !shorter) return { extracted: first.extracted, shortened: false };
+  const again = await ask(shorter.systemPrompt, shorter.validFields, shorter.maxTokens);
+  return { extracted: again.extracted, shortened: true };
+}
+
+/** A reading of a document, saying whether it was read again the shorter way (see readWithin). */
+async function readDocument(
+  fileBase64: string,
+  fileName: string,
+  mediaType: string,
+  systemPrompt: string,
+  validFields: string[],
+  userPrompt: string,
+  maxTokens = 2048,
+  /** Fields a reading of the PDF's text layer must find to be kept; without them the page is read as an image. */
+  requiredFields: string[] = [],
+  shorter?: ShorterReading,
+): Promise<ExtractionResult & { shortened: boolean }> {
+  const reading = { systemPrompt, validFields, maxTokens };
+  const viaVision = (prompt: string, fields: string[], tokens: number) => extractViaVision(fileBase64, mediaType, prompt, fields, userPrompt, tokens);
+
+  // Image files → go straight to vision
+  if (isImageType(mediaType)) {
+    const { extracted, shortened } = await readWithin(viaVision, reading, shorter);
+    return { extracted, fieldCount: Object.keys(extracted).length, method: "vision", fileName, shortened };
+  }
+
+  // PDF → try text extraction first
+  if (isPdfType(mediaType)) {
+    const buffer = Buffer.from(fileBase64, "base64");
+    const pdfText = await extractTextFromPdf(buffer);
+
+    if (pdfText.length >= 20) {
+      const viaText = (prompt: string, fields: string[], tokens: number) => extractViaText(pdfText, prompt, fields, userPrompt, tokens);
+      const { extracted, shortened } = await readWithin(viaText, reading, shorter);
+      // A scan may carry only a stamp as text (a recipient's "REF NO."): the document itself is the image.
+      if (textReadingUsable(extracted, requiredFields)) {
+        return { extracted, fieldCount: Object.keys(extracted).length, method: "text", fileName, shortened };
+      }
+    }
+
+    // Fallback: send PDF as image to vision (Claude can read PDFs directly)
+    const { extracted, shortened } = await readWithin(viaVision, reading, shorter);
+    return { extracted, fieldCount: Object.keys(extracted).length, method: "vision", fileName, shortened };
+  }
+
+  return { extracted: {}, fieldCount: 0, method: "text", fileName, shortened: false };
 }
 
 export async function extractFromDocument(
@@ -105,31 +171,8 @@ export async function extractFromDocument(
   /** Fields a reading of the PDF's text layer must find to be kept; without them the page is read as an image. */
   requiredFields: string[] = [],
 ): Promise<ExtractionResult> {
-  // Image files → go straight to vision
-  if (isImageType(mediaType)) {
-    const extracted = await extractViaVision(fileBase64, mediaType, systemPrompt, validFields, userPrompt, maxTokens);
-    return { extracted, fieldCount: Object.keys(extracted).length, method: "vision", fileName };
-  }
-
-  // PDF → try text extraction first
-  if (isPdfType(mediaType)) {
-    const buffer = Buffer.from(fileBase64, "base64");
-    const pdfText = await extractTextFromPdf(buffer);
-
-    if (pdfText.length >= 20) {
-      const extracted = await extractViaText(pdfText, systemPrompt, validFields, userPrompt, maxTokens);
-      // A scan may carry only a stamp as text (a recipient's "REF NO."): the document itself is the image.
-      if (textReadingUsable(extracted, requiredFields)) {
-        return { extracted, fieldCount: Object.keys(extracted).length, method: "text", fileName };
-      }
-    }
-
-    // Fallback: send PDF as image to vision (Claude can read PDFs directly)
-    const extracted = await extractViaVision(fileBase64, mediaType, systemPrompt, validFields, userPrompt, maxTokens);
-    return { extracted, fieldCount: Object.keys(extracted).length, method: "vision", fileName };
-  }
-
-  return { extracted: {}, fieldCount: 0, method: "text", fileName };
+  const read = await readDocument(fileBase64, fileName, mediaType, systemPrompt, validFields, userPrompt, maxTokens, requiredFields);
+  return { extracted: read.extracted, fieldCount: read.fieldCount, method: read.method, fileName: read.fileName };
 }
 
 // ─── Public API (called by controllers) ──────────────────────────
@@ -167,13 +210,21 @@ export async function extractShipmentFromFile(fileBase64: string, fileName: stri
   );
 }
 
+// Room for an invoice's charge rows. One that lists more than fit is read again for its header
+// alone, so its total, number and vendor still come through and it is posted by its total.
 const INVOICE_MAX_TOKENS = 8000;
+const INVOICE_HEADER_READING: ShorterReading = { systemPrompt: INVOICE_HEADER_PROMPT, validFields: INVOICE_HEADER_FIELDS, maxTokens: 2048 };
+
+/** An invoice's reading with its rows apart, saying when they were too many to read. */
+function asInvoice({ shortened, ...result }: ExtractionResult & { shortened: boolean }): ExtractionResult {
+  const read = withInvoiceLines(result);
+  return shortened ? { ...read, invoiceLinesSkipped: true } : read;
+}
 
 export async function extractInvoiceFromFile(fileBase64: string, fileName: string): Promise<ExtractionResult> {
   const mediaType = detectMediaType(fileName);
-  // Room for an invoice's charge rows, however many it lists.
-  return withInvoiceLines(
-    await extractFromDocument(fileBase64, fileName, mediaType, INVOICE_PROMPT, INVOICE_FIELDS, "Extract invoice/cost data from this document.", INVOICE_MAX_TOKENS, ["total_amount"]),
+  return asInvoice(
+    await readDocument(fileBase64, fileName, mediaType, INVOICE_PROMPT, INVOICE_FIELDS, "Extract invoice/cost data from this document.", INVOICE_MAX_TOKENS, ["total_amount"], INVOICE_HEADER_READING),
   );
 }
 
@@ -202,7 +253,8 @@ export async function extractTrackingFromFile(fileBase64: string, fileName: stri
 
 export async function extractCustomsFromFile(fileBase64: string, fileName: string): Promise<ExtractionResult> {
   const mediaType = detectMediaType(fileName);
-  return extractFromDocument(fileBase64, fileName, mediaType, CUSTOMS_PROMPT, CUSTOMS_FIELDS, "Extract the MRN number and shipment data from this customs document.", 512);
+  // The default room: a scan read as an image takes more of it than the few fields suggest.
+  return extractFromDocument(fileBase64, fileName, mediaType, CUSTOMS_PROMPT, CUSTOMS_FIELDS, "Extract the MRN number and shipment data from this customs document.");
 }
 
 // A customer's e-mail, with its signature and the mail it answers, is longer than a line of shipping data.
@@ -249,8 +301,12 @@ export async function extractFromTextByDestination(text: string, destination: st
       break;
   }
 
-  const extracted = await extractViaText(text, systemPrompt, fields, userPrompt, destination === "invoicing" ? INVOICE_MAX_TOKENS : undefined);
-  if (destination === "invoicing") return withInvoiceLines({ extracted, fieldCount: 0, method: "text", fileName: "(text input)" });
+  const viaText = (prompt: string, validFields: string[], tokens: number) => extractViaText(text, prompt, validFields, userPrompt, tokens);
+  if (destination === "invoicing") {
+    const { extracted, shortened } = await readWithin(viaText, { systemPrompt, validFields: fields, maxTokens: INVOICE_MAX_TOKENS }, INVOICE_HEADER_READING);
+    return asInvoice({ extracted, fieldCount: 0, method: "text", fileName: "(text input)", shortened });
+  }
+  const { extracted } = await viaText(systemPrompt, fields, 2048);
   if (destination === "quote") return asQuoteFields({ extracted, fieldCount: 0, method: "text", fileName: "(text input)" });
   if (destination !== "invoicing" && destination !== "tracking") await canonicalizeRecords([extracted]);
   return { extracted, fieldCount: Object.keys(extracted).length, method: "text", fileName: "(text input)" };

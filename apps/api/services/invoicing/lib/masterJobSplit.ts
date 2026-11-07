@@ -142,9 +142,13 @@ export function planSoldAtCost(current: CurrentSoldAtCostRow[], wanted: SoldAtCo
  * The shares a manager approved taking off the selling, by shipment and ref: only at the very cost
  * approved. An approval for one cost doesn't cover another, so at a new cost the row comes back.
  */
-export function waivedShares(waived: { shipmentId: string; sourceMasterJobRef: string | null; amountOverrideCost: string | null }[], wanted: SoldAtCostRow[]): Set<string> {
-  const approvedAt = new Set(waived.map((w) => `${soldAtCostKey(w)} ${w.amountOverrideCost}`));
-  return new Set(wanted.filter((w) => approvedAt.has(`${soldAtCostKey(w)} ${w.amount}`)).map(soldAtCostKey));
+export function waivedShares(
+  waived: { shipmentId: string; sourceMasterJobRef: string | null; currency: string; amountOverrideCost: string | null }[],
+  wanted: SoldAtCostRow[],
+): Set<string> {
+  // approved at a cost: its amount and its currency (100 EUR is not 100 USD)
+  const approvedAt = new Set(waived.map((w) => `${soldAtCostKey(w)} ${w.amountOverrideCost} ${w.currency}`));
+  return new Set(wanted.filter((w) => approvedAt.has(`${soldAtCostKey(w)} ${w.amount} ${w.currency}`)).map(soldAtCostKey));
 }
 
 /** Whether the plan writes nothing. */

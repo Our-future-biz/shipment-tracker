@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { pgTable, text, numeric, uuid, timestamp, boolean, index, uniqueIndex, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
+import { invoiceSellingCostTable } from "./invoiceSellingCost.schema";
 
 export type SellingAmountRequestStatus = "pending" | "approved" | "rejected" | "withdrawn";
 /** What is asked: to sell for a lower amount, or to take the row off the shipment's selling altogether. */
@@ -18,7 +19,10 @@ export const sellingAmountRequestTable = pgTable(
     shipmentId: uuid("shipment_id").notNull(),
     // The job as it was named when asked: the managers' list reads it without asking Shipments.
     jobNumber: text("job_number").notNull().default(""),
-    sellingCostId: uuid("selling_cost_id").notNull(),
+    // The row asked about; its requests go with it.
+    sellingCostId: uuid("selling_cost_id")
+      .notNull()
+      .references(() => invoiceSellingCostTable.id, { onDelete: "cascade" }),
     kind: text("kind").$type<SellingAmountRequestKind>().notNull().default("amount"),
     category: text("category").notNull().default(""),
     currency: text("currency").notNull(),

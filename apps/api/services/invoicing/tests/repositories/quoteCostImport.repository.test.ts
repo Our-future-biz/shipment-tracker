@@ -8,13 +8,15 @@ import { PgDialect } from "drizzle-orm/pg-core";
 const fake = vi.hoisted(() => {
   const state = {
     /** What the next reads of a side find, first come first served; nothing = an empty side. */
-    sides: [] as { copied: string; quoted?: string; last: number | null }[],
+    sides: [] as ({ copied: string; quoted?: string; last: number | null } | { id: string })[],
     steps: [] as { did: string; table?: unknown }[],
     locks: [] as unknown[],
     reads: [] as { table: unknown; fields: Record<string, unknown>; where: unknown }[],
     updates: [] as { table: unknown; values: Record<string, unknown>; where: unknown }[],
     inserts: [] as { table: unknown; rows: Record<string, unknown>[] }[],
     upserts: [] as { table: unknown; row: Record<string, unknown>; conflict: Record<string, unknown> }[],
+    /** What the next updates' `returning` give back, first come first served; nothing = no rows. */
+    returned: [] as Record<string, unknown>[][],
   };
   const tx = {
     execute: async (query: unknown) => {
@@ -32,9 +34,11 @@ const fake = vi.hoisted(() => {
     }),
     update: (table: unknown) => ({
       set: (values: Record<string, unknown>) => ({
-        where: async (where: unknown) => {
+        where: (where: unknown) => {
           state.steps.push({ did: "update", table });
           state.updates.push({ table, values, where });
+          const done = Promise.resolve();
+          return Object.assign(done, { returning: async () => state.returned.shift() ?? [] });
         },
       }),
     }),
@@ -64,6 +68,17 @@ const fake = vi.hoisted(() => {
 });
 
 vi.mock("../../db/db", () => ({ db: fake.db }));
+vi.mock("../../repositories/invoice.repository", () => ({
+  invoiceRepository: { invoicedSellingRowIds: vi.fn(async () => new Set(["on-invoice"])) },
+}));
+vi.mock("../../repositories/truckingLines.repository", () => ({
+  truckingLinesLock: vi.fn(async (tx: { execute: (q: unknown) => Promise<void> }) => tx.execute("trucking-lines lock")),
+}));
+vi.mock("../../repositories/sellingAmountRequest.repository", () => ({
+  sellingAmountRequestRepository: {
+    withdrawFor: vi.fn(async (_tx: unknown, _companyId: string, ids: string[]) => fake.state.steps.push({ did: `withdraw ${ids.join(",")}` })),
+  },
+}));
 
 import { quoteCostImportRepository } from "../../repositories/quoteCostImport.repository";
 import { billingSettingsTable } from "../../schemas/billingSettings.schema";
@@ -102,6 +117,7 @@ const copy = (rows: Parameters<typeof quoteCostImportRepository.copy>[3], again 
 
 beforeEach(() => {
   fake.state.sides = [];
+  fake.state.returned = [];
   fake.state.steps = [];
   fake.state.locks = [];
   fake.state.reads = [];
@@ -231,6 +247,19 @@ describe("copy", () => {
     expect(sent(gone!.where)).toEqual({ sql: `(${splitRows} and "invoice_cost"."real_amount" is null)`, params: [COMPANY, SHIPMENT] });
     expect(kept!.values).toEqual({ estQty: null, estAmount: null, updatedAt: expect.any(Date) });
     expect(sent(kept!.where)).toEqual({ sql: `(${splitRows})`, params: [COMPANY, SHIPMENT] });
+  });
+
+  it("takes off what a share that went sold on, unless it is on an issued invoice", async () => {
+    // the share with only an estimate goes; it sold on in two rows, one of them on an issued invoice
+    fake.state.returned = [[{ ref: "master:m:l" }]];
+    fake.state.sides = [{ copied: "0", last: null }, { id: "free" }];
+    await copy({ buying: BUYING });
+    const [, , sold] = fake.state.updates;
+    expect(sent(sold!.where).params).toEqual([COMPANY, "free"]);
+    expect(steps()).toEqual([
+      "begin", "lock", "read invoice_cost", "insert invoice_cost", "update invoice_cost", "update invoice_cost",
+      "lock", "read invoice_selling_cost", "update invoice_selling_cost", "withdraw free", "upsert billing_settings", "commit",
+    ]);
   });
 
   it("makes way for the new buying lines: an earlier quote's line with nothing of the user's on it goes, one with a real cost, an invoice or a receipt stays as a line of its own, without the estimate", async () => {

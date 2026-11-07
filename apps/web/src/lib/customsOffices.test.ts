@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { CUSTOMS_OFFICES, customsProcedureLocked, namesCustomsOffice } from "./customsOffices";
+// The server keeps the same list and refuses an office not on it (shipments lib/customsOfficeList).
+import { CUSTOMS_OFFICES as SERVER_OFFICES } from "../../../api/services/shipments/lib/customsOfficeList";
 
 describe("the customs office list", () => {
   it("holds the 49 offices the company works with, each a code and a name, each once", () => {
@@ -34,5 +36,11 @@ describe("customsProcedureLocked", () => {
     expect(customsProcedureLocked("T1", "", false)).toBe(false);
     expect(customsProcedureLocked("T1", null, false)).toBe(false);
     expect(customsProcedureLocked("SCP", office, false)).toBe(false);
+  });
+});
+
+describe("the list the server keeps", () => {
+  it("is this one, office for office", () => {
+    expect([...CUSTOMS_OFFICES]).toEqual([...SERVER_OFFICES]);
   });
 });

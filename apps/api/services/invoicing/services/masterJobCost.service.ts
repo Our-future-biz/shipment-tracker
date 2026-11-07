@@ -48,11 +48,18 @@ function changesOf(input: MasterJobCostInput): Partial<NewMasterJobCostRecord> {
   return { ...line, ...(input.splitMethod !== undefined ? { splitMethod: input.splitMethod } : {}) } as Partial<NewMasterJobCostRecord>;
 }
 
-/** The shipments to leave out of a line, kept to those linked now; a line can't leave out all of them. */
-function excludedAmong(ids: string[], houses: SplitHouse[]): string[] {
+/**
+ * The shipments to leave out of a line, kept to those linked now. A line can't leave out every
+ * shipment that would carry it: a line split by W/M is carried only by the shipments with a W/M,
+ * so the last of those stays in too.
+ */
+export function excludedAmong(ids: string[], houses: SplitHouse[], splitMethod: string): string[] {
   if (!Array.isArray(ids)) throw APIError.invalidArgument("excludedShipmentIds must be a list of shipments");
   const excluded = houses.filter((h) => ids.includes(h.shipmentId)).map((h) => h.shipmentId);
-  if (houses.length > 0 && excluded.length === houses.length) throw APIError.failedPrecondition("At least one shipment stays in the split");
+  const carriers = splitMethod === "wm" ? houses.filter((h) => h.freightTon > 0) : houses;
+  if (carriers.length > 0 && carriers.every((h) => excluded.includes(h.shipmentId))) {
+    throw APIError.failedPrecondition(splitMethod === "wm" ? "At least one shipment with a W/M stays in the split" : "At least one shipment stays in the split");
+  }
   return excluded;
 }
 
@@ -184,7 +191,7 @@ class MasterJobCostService {
     if (!current) throw APIError.notFound("Master job cost not found");
     const newCodeOrSplit = changes.category !== undefined || changes.splitMethod !== undefined || changes.inSplit !== undefined;
     const houses = excludedShipmentIds !== undefined || newCodeOrSplit ? await housesOf(masterJobId) : [];
-    if (excludedShipmentIds !== undefined) changes.excludedShipmentIds = excludedAmong(excludedShipmentIds, houses);
+    if (excludedShipmentIds !== undefined) changes.excludedShipmentIds = excludedAmong(excludedShipmentIds, houses, changes.splitMethod ?? current.splitMethod);
     // A new charge code or split, a line put in the split and a shipment put back in it are checked
     // against Trucking (a line out of the split has no shares to check); a share Trucking came to
     // keep since is left out of the split (sharesAsWritten), so the line's other fields, and taking

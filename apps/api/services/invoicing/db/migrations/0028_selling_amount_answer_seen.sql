@@ -1,1 +1,1 @@
-ALTER TABLE "selling_amount_request" ADD COLUMN "answer_seen_at" timestamp with time zone;
+ALTER TABLE "selling_amount_request" ADD COLUMN IF NOT EXISTS "answer_seen_at" timestamp with time zone;

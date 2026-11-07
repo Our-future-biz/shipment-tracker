@@ -10,10 +10,21 @@ import {
 } from "../schemas/invoiceSellingCost.schema";
 
 // Every query on a line also matches its shipment, so a line can only be written through its
-// own shipment's URL. Rows pushed by Trucking (source_trucking_ref) or kept by a master job's split
-// (source_master_job_ref) are read-only here: no line write reaches them.
-const lineOf = (id: string, companyId: string, shipmentId: string) =>
-  and(eq(t.id, id), eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), isNull(t.deletedAt), isNull(t.sourceTruckingRef), isNull(t.sourceMasterJobRef));
+// own shipment's URL. Rows pushed by Trucking (source_trucking_ref) are read-only here: no line
+// write reaches them. A row a master job's split keeps (source_master_job_ref) has its charge,
+// amount and currency from the split, but how it is billed is the shipment's: whether it goes on
+// an invoice, its own line text and its VAT code - a write of only those reaches it too.
+const SPLIT_ROW_BILLING = new Set<string>(["invoice", "customer", "vatCode"]);
+const billingOnly = (data: Partial<NewInvoiceSellingCostRecord>) => Object.keys(data).every((k) => SPLIT_ROW_BILLING.has(k));
+const lineOf = (id: string, companyId: string, shipmentId: string, splitRowToo = false) =>
+  and(
+    eq(t.id, id),
+    eq(t.companyId, companyId),
+    eq(t.shipmentId, shipmentId),
+    isNull(t.deletedAt),
+    isNull(t.sourceTruckingRef),
+    splitRowToo ? undefined : isNull(t.sourceMasterJobRef),
+  );
 
 class SellingCostRepository extends TenantRepository<typeof t> {
   constructor() {
@@ -56,7 +67,7 @@ class SellingCostRepository extends TenantRepository<typeof t> {
     const [row] = await this.db
       .update(t)
       .set({ ...data, updatedAt: new Date() })
-      .where(lineOf(id, companyId, shipmentId))
+      .where(lineOf(id, companyId, shipmentId, billingOnly(data)))
       .returning();
     return row ?? null;
   }
@@ -80,7 +91,7 @@ class SellingCostRepository extends TenantRepository<typeof t> {
       const [row] = await tx
         .update(t)
         .set("delete" in change ? { deletedAt: now, updatedAt: now } : { ...change.data, updatedAt: now })
-        .where(lineOf(id, companyId, shipmentId))
+        .where(lineOf(id, companyId, shipmentId, "data" in change && billingOnly(change.data)))
         .returning();
       return row ?? null;
     });

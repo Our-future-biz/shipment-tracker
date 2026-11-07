@@ -13,16 +13,22 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 const soldAtCostRow = (id: string, companyId: string, shipmentId: string) =>
   and(eq(s.id, id), eq(s.companyId, companyId), eq(s.shipmentId, shipmentId), isNull(s.deletedAt));
 
-/** What the shipment's share of the row's line costs: its real cost, or else its estimate; null when the share has gone. */
+/**
+ * What the shipment's share of the row's line costs: its real cost, or else its estimate. Null when
+ * the share has gone, or is in another currency than the row (the split not processed since the
+ * real cost came in another currency): the row's number can't be held against it until it is.
+ */
 async function costOf(tx: Tx, row: InvoiceSellingCostRecord): Promise<string | null> {
   if (!row.sourceMasterJobRef) return null;
   const c = invoiceCostTable;
   const [share] = await tx
-    .select({ real: c.realAmount, est: c.estAmount })
+    .select({ real: c.realAmount, realCurrency: c.realCurrency, est: c.estAmount, estCurrency: c.estCurrency })
     .from(c)
     .where(and(eq(c.companyId, row.companyId), eq(c.shipmentId, row.shipmentId), eq(c.sourceMasterJobRef, row.sourceMasterJobRef), isNull(c.deletedAt)))
     .limit(1);
-  return share ? (share.real ?? share.est) : null;
+  if (!share) return null;
+  const [amount, currency] = share.real != null ? [share.real, share.realCurrency] : [share.est, share.estCurrency];
+  return amount != null && currency === row.currency ? amount : null;
 }
 
 export type AmountChange =
@@ -68,9 +74,9 @@ class SellingAmountRequestRepository {
           .update(s)
           // The same as the cost is no number of its own: the row follows its cost again.
           .set({ amount: input.amount, amountOverrideCost: centsOf(input.amount) === centsOf(cost) ? null : cost, updatedAt: now })
-          .where(eq(s.id, row.id))
+          .where(and(eq(s.id, row.id), eq(s.companyId, companyId)))
           .returning();
-        await this.withdrawFor(tx, [row.id], { id: input.userId, name: input.userEmail });
+        await this.withdrawFor(tx, companyId, [row.id], { id: input.userId, name: input.userEmail });
         return { outcome: "saved", row: saved! };
       }
       if (!input.reason) return { outcome: "reason_needed", cost };
@@ -145,7 +151,7 @@ class SellingAmountRequestRepository {
     if (!found) return { outcome: "not_found" };
     return db.transaction(async (tx): Promise<AnswerResult> => {
       await truckingLinesLock(tx, found.shipmentId);
-      const [request] = await tx.select().from(t).where(eq(t.id, id)).limit(1);
+      const [request] = await tx.select().from(t).where(and(eq(t.id, id), eq(t.companyId, companyId))).limit(1);
       if (!request) return { outcome: "not_found" };
       if (request.status !== "pending") return { outcome: "answered_already", request };
       const now = new Date();
@@ -155,8 +161,8 @@ class SellingAmountRequestRepository {
         if ((await invoiceRepository.invoicedSellingRowIds(request.shipmentId, companyId, tx)).has(row.id)) return { outcome: "invoiced" };
         const cost = await costOf(tx, row);
         if (cost == null) return { outcome: "row_gone" };
-        // What was approved is this amount at this cost: a cost that moved is another question.
-        if (centsOf(cost) !== centsOf(request.costAmount)) return { outcome: "cost_changed", cost };
+        // What was approved is this amount at this cost, in this currency: a cost that moved is another question.
+        if (centsOf(cost) !== centsOf(request.costAmount) || row.currency !== request.currency) return { outcome: "cost_changed", cost: `${cost} ${row.currency}` };
         await tx
           .update(s)
           .set(
@@ -165,7 +171,7 @@ class SellingAmountRequestRepository {
                 { deletedAt: now, waivedAt: now, amountOverrideCost: cost, updatedAt: now }
               : { amount: request.requestedAmount, amountOverrideCost: cost, updatedAt: now },
           )
-          .where(eq(s.id, row.id));
+          .where(and(eq(s.id, row.id), eq(s.companyId, companyId), isNull(s.deletedAt)));
       }
       const [done] = await tx
         .update(t)
@@ -178,20 +184,20 @@ class SellingAmountRequestRepository {
           selfDecision: request.requestedById === answer.userId,
           updatedAt: now,
         })
-        .where(eq(t.id, id))
+        .where(and(eq(t.id, id), eq(t.companyId, companyId)))
         .returning();
       return { outcome: "done", request: done! };
     });
   }
 
   /** Takes these rows' waiting requests back: the row said otherwise, or left the split. */
-  async withdrawFor(tx: Tx, sellingIds: string[], by?: { id: string; name: string }): Promise<void> {
+  async withdrawFor(tx: Tx, companyId: string, sellingIds: string[], by?: { id: string; name: string }): Promise<void> {
     if (!sellingIds.length) return;
     const now = new Date();
     await tx
       .update(t)
       .set({ status: "withdrawn", decidedById: by?.id ?? null, decidedByName: by?.name ?? "", updatedAt: now })
-      .where(and(inArray(t.sellingCostId, sellingIds), eq(t.status, "pending"), isNull(t.deletedAt)));
+      .where(and(eq(t.companyId, companyId), inArray(t.sellingCostId, sellingIds), eq(t.status, "pending"), isNull(t.deletedAt)));
   }
 
   async byId(companyId: string, id: string): Promise<SellingAmountRequestRecord | null> {

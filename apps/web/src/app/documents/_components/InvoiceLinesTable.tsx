@@ -3,8 +3,20 @@
 import { Alert, Input, Select } from "antd";
 import { chargeLabel, chargeOptions } from "@/lib/chargeCodes";
 import type { interfaces } from "@/lib/api/client";
+import { CURRENCIES } from "@/lib/enums";
 import { HINT, TD, TD_TOTAL, TH } from "@/styles/ui";
-import { lineFlagged, lineTarget, linesTotals, matchNote, SPLIT_TARGET, type BlShipment, type InvoiceLineDraft, type LineMatch } from "../_lib/invoiceLines";
+import {
+  creditLinesAbove0,
+  lineAmount,
+  lineFlagged,
+  lineTarget,
+  linesTotals,
+  matchNote,
+  SPLIT_TARGET,
+  type BlShipment,
+  type InvoiceLineDraft,
+  type LineMatch,
+} from "../_lib/invoiceLines";
 
 const money = (cents: number, currency: string) => `${(cents / 100).toFixed(2)} ${currency}`;
 
@@ -15,20 +27,26 @@ interface Props {
   currency: string;
   /** the invoice's total as read */
   total: number;
+  /** a credit note deducts: a line that would add buying is marked (see creditLinesAbove0) */
+  creditNote?: boolean;
   onLine: (index: number, patch: Partial<InvoiceLineDraft>) => void;
 }
 
 // An invoice's lines, each with the shipment it goes to. A line whose B/L is a shipment's goes there;
-// any other goes to the split, marked amber, and a person may send it to one shipment instead.
-export function InvoiceLinesTable({ lines, matches, shipments, currency, total, onLine }: Props) {
+// any other goes to the split, marked amber, and a person may send it to one shipment instead. Only a
+// shipment that isn't cancelled is offered: the server posts nothing to a cancelled one.
+export function InvoiceLinesTable({ lines, matches, shipments, currency, total, creditNote = false, onLine }: Props) {
   const targets = [
     { value: SPLIT_TARGET, label: "Split over the ticked shipments" },
-    ...shipments.map((s) => ({ value: s.shipmentId, label: s.jobNumber })),
+    ...shipments.filter((s) => !s.cancelled).map((s) => ({ value: s.shipmentId, label: s.jobNumber })),
   ];
   const totals = linesTotals(lines, currency);
   const lineCents = totals.get(currency) ?? 0;
   const off = totals.size === 1 && total !== 0 && lineCents !== Math.round(total * 100);
   const flagged = lines.filter((l, i) => lineFlagged(l, matches[i]!)).length;
+  const addsBuying = creditNote ? creditLinesAbove0(lines, matches, currency) : new Set<number>();
+  // A line's own currency may be one the list doesn't have; it stays offered.
+  const currencyOptions = (own: string) => [...new Set([...CURRENCIES, own].filter(Boolean))].map((c) => ({ value: c, label: c }));
 
   return (
     <div className="mb-4">
@@ -42,13 +60,14 @@ export function InvoiceLinesTable({ lines, matches, shipments, currency, total, 
         />
       )}
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[860px] border-collapse text-[13px]">
+        <table className="w-full min-w-[960px] border-collapse text-[13px]">
           <thead>
             <tr>
               <th className={TH}>B/L</th>
               <th className={TH}>On the invoice</th>
               <th className={TH}>Charge</th>
               <th className={`${TH} !text-right`}>Amount</th>
+              <th className={TH}>Currency</th>
               <th className={TH}>Goes to</th>
             </tr>
           </thead>
@@ -81,8 +100,24 @@ export function InvoiceLinesTable({ lines, matches, shipments, currency, total, 
                       className="text-right tabular-nums"
                       aria-label={`Amount of ${l.item || "this line"}`}
                       value={l.amount}
-                      suffix={<span className="text-[11px] text-slate-400">{l.currency || currency}</span>}
-                      onChange={(e) => onLine(i, { amount: e.target.value.replace(",", ".") })}
+                      status={lineAmount(l.amount) === null || addsBuying.has(i) ? "error" : undefined}
+                      onChange={(e) => onLine(i, { amount: e.target.value })}
+                    />
+                    {lineAmount(l.amount) === null ? (
+                      <div className="mt-0.5 text-[11px] text-red-600">Not an amount, or 0</div>
+                    ) : (
+                      addsBuying.has(i) && <div className="mt-0.5 text-[11px] text-red-600">A credit note deducts: this would add buying. Make it minus</div>
+                    )}
+                  </td>
+                  <td className={`${TD} w-[96px]`}>
+                    <Select
+                      size="small"
+                      className="w-full"
+                      showSearch
+                      aria-label={`Currency of ${l.item || "this line"}`}
+                      value={l.currency || currency}
+                      options={currencyOptions(l.currency || currency)}
+                      onChange={(c: string) => onLine(i, { currency: c })}
                     />
                   </td>
                   <td className={`${TD} min-w-[220px]`}>
@@ -107,7 +142,7 @@ export function InvoiceLinesTable({ lines, matches, shipments, currency, total, 
               <td className={TD_TOTAL} colSpan={3}>
                 Lines total
               </td>
-              <td className={`${TD_TOTAL} text-right tabular-nums whitespace-nowrap`} colSpan={1}>
+              <td className={`${TD_TOTAL} text-right tabular-nums whitespace-nowrap`} colSpan={2}>
                 {[...totals].map(([c, cents]) => money(cents, c)).join(" + ")}
               </td>
               <td className={TD_TOTAL} />
@@ -120,11 +155,15 @@ export function InvoiceLinesTable({ lines, matches, shipments, currency, total, 
   );
 }
 
-/** What each shipment gets: the new buying rows, as the server works them out. */
+/**
+ * What each shipment gets: its buying rows, as the server works them out. A real cost that goes onto the
+ * shipment's estimate of the charge says so; any other is a new row.
+ */
 export function InvoiceLinesPreview({ rows, jobOf }: { rows: interfaces.InvoiceLinesRow[]; jobOf: (shipmentId: string) => string }) {
+  if (!rows.length) return null;
   return (
     <div className="mb-4">
-      <div className={`${HINT} mb-1.5`}>New buying rows, as they will be posted:</div>
+      <div className={`${HINT} mb-1.5`}>Buying rows, as they will be posted:</div>
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-[13px]">
           <thead>
@@ -141,6 +180,7 @@ export function InvoiceLinesPreview({ rows, jobOf }: { rows: interfaces.InvoiceL
                 <td className={TD}>
                   {chargeLabel(r.category)}
                   {r.repeated && <span className="block text-[11px] text-amber-700">Already posted from this invoice number</span>}
+                  <span className="block text-[11px] text-slate-500">{r.ontoEstimate ? "Onto its estimate row, which gets this real cost" : "A new row"}</span>
                 </td>
                 <td className={`${TD} text-right tabular-nums whitespace-nowrap`}>
                   {r.amount} {r.currency}

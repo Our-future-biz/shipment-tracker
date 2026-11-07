@@ -224,23 +224,37 @@ export interface CostSplitInput {
 /** One line of an invoice read line by line. */
 export interface InvoiceLinePost {
   /** the charge code it is posted under */
-  category: string;
+  category: string & MaxLen<200>;
   /** a decimal string ("399.60"); a credit is negative */
-  amount: string;
-  currency: string;
+  amount: string & MaxLen<20>;
+  currency: string & MaxLen<10>;
   /** the charge as the invoice prints it */
-  item?: string;
+  item?: string & MaxLen<300>;
+  /** the B/L the line names, as read; on a master job a line placed by it must name its shipment's House B/L */
+  bl?: string & MaxLen<100>;
   /** the shipment its B/L names, or the one a person chose */
-  shipmentId?: string;
-  /** otherwise: the shipments it is shared out over, by weight */
-  split?: CostSplitLine[];
+  shipmentId?: string & MaxLen<64>;
+  /** shipmentId was chosen by a person, not by the line's B/L: it need only be a shipment of the master job */
+  chosen?: boolean;
+  /** otherwise: the shipments it is shared out over, by weight (on a master job, by splitMethod) */
+  split?: CostSplitLine[] & MaxLen<500>;
 }
 
-/** An invoice's lines to post as new buying rows of the shipments they belong to. */
+/** How an invoice line going to the split is shared out over a master job's shipments. */
+export type InvoiceLinesSplitMethod = "wm" | "shipment";
+
+/** An invoice's lines to post as buying rows of the shipments they belong to. */
 export interface InvoiceLinesInput {
-  invoiceNumber: string;
-  vendor?: string;
-  lines: InvoiceLinePost[];
+  invoiceNumber: string & MaxLen<100>;
+  vendor?: string & MaxLen<200>;
+  /**
+   * the master job the invoice is for: every shipment a line goes to must be one of its shipments, not
+   * cancelled. Left out for one shipment's invoice, whose lines all name their shipment
+   */
+  masterJobId?: string & MaxLen<64>;
+  /** on a master job: a line going to the split is shared by each shipment's W/M as the master job has it, or equally */
+  splitMethod?: InvoiceLinesSplitMethod;
+  lines: InvoiceLinePost[] & MaxLen<500>;
   /** it credits money: its amounts are minus, and its rows say so */
   creditNote?: boolean;
   /** post it although a row of this invoice number and charge is already on the shipment */
@@ -249,7 +263,7 @@ export interface InvoiceLinesInput {
   dryRun?: boolean;
 }
 
-/** A new buying row an invoice comes to. */
+/** A buying row an invoice comes to. */
 export interface InvoiceLinesRow {
   shipmentId: string;
   category: string;
@@ -257,6 +271,8 @@ export interface InvoiceLinesRow {
   currency: string;
   /** the shipment already has a row of this invoice number and charge: posting would count it twice */
   repeated: boolean;
+  /** the real cost goes onto the shipment's estimate of the charge (one with no real cost or invoice yet), not a new row */
+  ontoEstimate: boolean;
 }
 
 /** A shipment's part of a split cost. */

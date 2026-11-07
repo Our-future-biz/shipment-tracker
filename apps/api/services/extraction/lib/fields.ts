@@ -27,10 +27,13 @@ export const QUOTE_FIELDS = [
   "Cargo Description", "Gross weight (kg)", "Volume (cbm)",
 ];
 
-export const INVOICE_FIELDS = [
+// An invoice's header fields, read on their own when its charge rows don't fit one reply.
+export const INVOICE_HEADER_FIELDS = [
   "total_amount", "currency", "vendor", "invoice_number",
-  "invoice_date", "due_date", "description", "service_type", "lines",
+  "invoice_date", "due_date", "description", "service_type",
 ];
+
+export const INVOICE_FIELDS = [...INVOICE_HEADER_FIELDS, "lines"];
 
 // A carrier's booking confirmation, filed to a master job (named as the operators call them).
 export const BOOKING_FIELDS = [
