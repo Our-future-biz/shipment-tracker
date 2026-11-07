@@ -38,6 +38,12 @@ describe("master job cost split", () => {
     ]);
   });
 
+  it("gives nobody a part of a line that is not in the split", () => {
+    const line = { splitMethod: "wm" as const, estQty: null, estAmount: "100.00", realQty: null, realAmount: "120.00" };
+    expect(splitLine({ ...line, inSplit: false }, houses)).toEqual([]);
+    expect(splitLine({ ...line, inSplit: true }, houses)).toHaveLength(2);
+  });
+
   it("splits nothing when there is nothing to split by", () => {
     expect(splitLine({ splitMethod: "wm", estQty: null, estAmount: "10", realQty: null, realAmount: null }, [houses[2]!])).toEqual([]);
     expect(splitLine({ splitMethod: "shipment", estQty: null, estAmount: "10", realQty: null, realAmount: null }, [])).toEqual([]);

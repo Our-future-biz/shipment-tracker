@@ -16,6 +16,8 @@ export interface SplitLineInput {
   estAmount: string | null;
   realQty: string | null;
   realAmount: string | null;
+  /** False: the line is not shared out, so no shipment carries a part (none given counts as in). */
+  inSplit?: boolean;
   /** The shipments taken out of this line's split. */
   excludedShipmentIds?: string[];
 }
@@ -54,9 +56,10 @@ export function housesInSplit(line: Pick<SplitLineInput, "excludedShipmentIds">,
 /**
  * Each shipment's part of a line, adding up to the line's total to the cent. A shipment taken out
  * of the line's split, or that weighs nothing (W/M 0 under a W/M split), gets no part; with nothing
- * to split by - no shipments, or none with a W/M - nobody does.
+ * to split by - a line not in the split, no shipments, or none with a W/M - nobody does.
  */
 export function splitLine(line: SplitLineInput, houses: SplitHouse[]): SplitShare[] {
+  if (line.inSplit === false) return [];
   const inSplit = housesInSplit(line, houses);
   const weights = splitWeights(line.splitMethod, inSplit);
   if (!weights.some((w) => w > 0)) return [];

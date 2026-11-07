@@ -34,6 +34,7 @@ const toItem = (r: MasterJobCostRecord): MasterJobCostItem => ({
   invoiceNumber: r.invoiceNumber,
   received: r.received,
   splitMethod: r.splitMethod,
+  inSplit: r.inSplit,
   excludedShipmentIds: r.excludedShipmentIds,
   sortOrder: r.sortOrder,
 });
@@ -126,9 +127,9 @@ async function sharesAsWritten(companyId: string, lines: MasterJobCostRecord[], 
 async function assertNotKeptByTruckingFor(
   companyId: string,
   houses: SplitHouse[],
-  line: Pick<MasterJobCostRecord, "category" | "splitMethod"> & Partial<Pick<MasterJobCostRecord, "excludedShipmentIds">>,
+  line: Pick<MasterJobCostRecord, "category" | "splitMethod"> & Partial<Pick<MasterJobCostRecord, "inSplit" | "excludedShipmentIds">>,
 ): Promise<void> {
-  if (!line.category) return;
+  if (!line.category || line.inSplit === false) return;
   const inSplit = housesInSplit(line, houses);
   const weights = splitWeights(line.splitMethod, inSplit);
   await assertNotKeptByTrucking(companyId, inSplit.filter((_, i) => weights[i]! > 0).map((h) => h.shipmentId), line.category);
@@ -145,7 +146,7 @@ class MasterJobCostService {
     assertMasterJobId(masterJobId);
     const values = { category: "", ...changesOf(input) };
     // housesOf also refuses a master job that is not the company's.
-    await assertNotKeptByTruckingFor(companyId, await housesOf(masterJobId), { category: values.category ?? "", splitMethod: values.splitMethod ?? "wm" });
+    await assertNotKeptByTruckingFor(companyId, await housesOf(masterJobId), { category: values.category ?? "", splitMethod: values.splitMethod ?? "wm", inSplit: values.inSplit });
     await masterJobCostRepository.create(companyId, masterJobId, values);
     return withVsEstimate(await this.resplit(companyId, masterJobId));
   }
@@ -157,12 +158,13 @@ class MasterJobCostService {
     const changes = changesOf(fields);
     const current = await masterJobCostRepository.get(id, companyId, masterJobId);
     if (!current) throw APIError.notFound("Master job cost not found");
-    const newCodeOrSplit = changes.category !== undefined || changes.splitMethod !== undefined;
+    const newCodeOrSplit = changes.category !== undefined || changes.splitMethod !== undefined || changes.inSplit !== undefined;
     const houses = excludedShipmentIds !== undefined || newCodeOrSplit ? await housesOf(masterJobId) : [];
     if (excludedShipmentIds !== undefined) changes.excludedShipmentIds = excludedAmong(excludedShipmentIds, houses);
-    // A new charge code or split is checked against Trucking, and so is a shipment put back in the
-    // split; a share Trucking came to keep since is left out of the split (sharesAsWritten), so the
-    // line's other fields, and taking another shipment out, stay possible.
+    // A new charge code or split, a line put in the split and a shipment put back in it are checked
+    // against Trucking (a line out of the split has no shares to check); a share Trucking came to
+    // keep since is left out of the split (sharesAsWritten), so the line's other fields, and taking
+    // another shipment out, stay possible.
     const next = { ...current, ...changes } as MasterJobCostRecord;
     if (next.category && newCodeOrSplit) {
       await assertNotKeptByTruckingFor(companyId, houses, next);

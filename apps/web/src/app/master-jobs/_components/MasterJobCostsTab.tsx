@@ -127,12 +127,13 @@ export function MasterJobCostsTab({ masterJob }: Props) {
 
   const { lines, houses, shares } = data;
   const shareOf = (lineId: string, shipmentId: string) => shares.find((s) => s.lineId === lineId && s.shipmentId === shipmentId);
+  const splitLines = lines.filter((l) => l.inSplit);
   const housesInLine = (l: Line) => houses.filter((h) => !l.excludedShipmentIds.includes(h.shipmentId));
   // Only a shipment still in a W/M line's split is missing a share by having no W/M.
-  const noWm = houses.filter((h) => !(h.freightTon > 0) && lines.some((l) => l.splitMethod === "wm" && !l.excludedShipmentIds.includes(h.shipmentId)));
+  const noWm = houses.filter((h) => !(h.freightTon > 0) && splitLines.some((l) => l.splitMethod === "wm" && !l.excludedShipmentIds.includes(h.shipmentId)));
   const totalWm = houses.reduce((sum, h) => sum + h.freightTon, 0);
   // Every shipment still in the line's split unlinked since: its cost lands on nobody.
-  const nobodyCarries = lines.filter((l) => houses.length > 0 && housesInLine(l).length === 0);
+  const nobodyCarries = splitLines.filter((l) => houses.length > 0 && housesInLine(l).length === 0);
   const busy = add.isPending || update.isPending || remove.isPending;
   // Each line and the whole master job against their estimates, worked out on the server at today's ČNB rates.
   const { vsEstimate, totalVsEstimate: totalVs } = data;
@@ -150,12 +151,14 @@ export function MasterJobCostsTab({ masterJob }: Props) {
       >
         <p className={`mt-0 mb-3 ${HINT}`}>
           Each line is split over the {houses.length} linked shipment{houses.length === 1 ? "" : "s"} and appears in their Costs
-          Breakdown, read-only there. Split by W/M (freight tons) or the same part for each shipment.
+          Breakdown, read-only there. Split by W/M (freight tons) or the same part for each shipment. Untick In split to keep a line on the
+          master job only: no shipment carries it.
         </p>
         <div className="overflow-x-auto">
           <table className="w-full border-collapse">
             <thead>
               <tr>
+                <th className={`${TH} whitespace-nowrap`} title="Share this cost out over the shipments">In split</th>
                 <th className={TH}>Category</th>
                 <th className={TH}>Description</th>
                 <th className={TH}>Vendor</th>
@@ -175,13 +178,21 @@ export function MasterJobCostsTab({ masterJob }: Props) {
             <tbody>
               {lines.length === 0 && (
                 <tr>
-                  <td colSpan={14} className={`px-2 py-6 text-center ${HINT}`}>
+                  <td colSpan={15} className={`px-2 py-6 text-center ${HINT}`}>
                     No buying costs yet - add one and it is split over the linked shipments.
                   </td>
                 </tr>
               )}
               {lines.map((line) => (
                 <tr key={line.id}>
+                  <td className={`${TD} text-center`}>
+                    <Checkbox
+                      checked={line.inSplit}
+                      disabled={busy}
+                      onChange={(e) => save(line, { inSplit: e.target.checked })}
+                      aria-label={`${line.category ? chargeLabel(line.category) : "This cost"} in the split`}
+                    />
+                  </td>
                   <td className={`${TD} min-w-[170px]`}>
                     <Select
                       size="small"
@@ -235,6 +246,7 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                     <Segmented
                       size="small"
                       value={line.splitMethod}
+                      disabled={!line.inSplit}
                       options={SPLIT_OPTIONS}
                       onChange={(v) => save(line, { splitMethod: v as Line["splitMethod"] })}
                       aria-label="Split"
@@ -251,7 +263,7 @@ export function MasterJobCostsTab({ masterJob }: Props) {
             {totalVs && (
               <tfoot>
                 <tr>
-                  <td className={TD_TOTAL} colSpan={11}>
+                  <td className={TD_TOTAL} colSpan={12}>
                     Against the estimates
                   </td>
                   <td className={TD_TOTAL} colSpan={3}>
@@ -288,14 +300,18 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                 </span>
               </div>
             )}
-            <p className={`mt-0 mb-3 ${HINT}`}>Untick a shipment to take it out of a line&apos;s split: the ticked shipments share the whole line.</p>
+            <p className={`mt-0 mb-3 ${HINT}`}>
+              {splitLines.length > 0
+                ? "Untick a shipment to take it out of a line's split: the ticked shipments share the whole line."
+                : "No cost is in the split: tick In split on a buying cost to share it out."}
+            </p>
             <div className="overflow-x-auto">
               <table className="w-full border-collapse">
                 <thead>
                   <tr>
                     <th className={TH}>Shipment</th>
                     <th className={`${TH} !text-right`}>W/M</th>
-                    {lines.map((l) => (
+                    {splitLines.map((l) => (
                       <th key={l.id} className={`${TH} !text-right`} title={l.description}>
                         {l.category ? chargeLabel(l.category) : "Cost"}
                         <span className="block font-normal normal-case text-slate-400">{l.splitMethod === "wm" ? "by W/M" : "per shipment"}</span>
@@ -314,7 +330,7 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                       <td className={`${TD} text-right tabular-nums`}>
                         {h.freightTon > 0 ? h.freightTon.toFixed(3) : <span className="text-amber-600">—</span>}
                       </td>
-                      {lines.map((l) => {
+                      {splitLines.map((l) => {
                         const s = shareOf(l.id, h.shipmentId);
                         const real = s?.real != null ? `${amountOf(Number(s.real))} ${l.realCurrency}` : null;
                         const est = s?.est != null ? `${amountOf(Number(s.est))} ${l.estCurrency}` : null;
@@ -352,7 +368,7 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                       </span>
                       {totalWm.toFixed(3)}
                     </td>
-                    {lines.map((l) => {
+                    {splitLines.map((l) => {
                       const real = lineTotal(l.realAmount, l.realQty);
                       const est = lineTotal(l.estAmount, l.estQty);
                       const total = real ?? est;

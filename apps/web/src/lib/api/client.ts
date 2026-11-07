@@ -6844,6 +6844,7 @@ export namespace controllers {
         invoiceNumber?: string
         received?: boolean
         splitMethod?: interfaces.MasterJobSplitMethod
+        inSplit?: boolean
         sortOrder?: number
     }
 
@@ -11188,6 +11189,7 @@ export namespace controllers {
         invoiceNumber?: string
         received?: boolean
         splitMethod?: interfaces.MasterJobSplitMethod
+        inSplit?: boolean
         sortOrder?: number
     }
 
@@ -15901,6 +15903,11 @@ export namespace interfaces {
          * "wm": by each shipment's freight tons; "shipment": the same part for each
          */
         splitMethod: MasterJobSplitMethod
+
+        /**
+         * Whether the line is shared out: without it the cost stays on the master job and no shipment carries a part
+         */
+        inSplit: boolean
 
         /**
          * The shipments taken out of this line's split: the line is shared out over the others

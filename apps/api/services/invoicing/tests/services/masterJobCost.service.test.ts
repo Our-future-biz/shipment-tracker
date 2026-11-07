@@ -35,7 +35,7 @@ const HOUSES = [
 const line = (over: Record<string, unknown> = {}) => ({
   id: LINE, masterJobId: MASTER, category: "ocean_freight", description: "", vendor: "Maersk", estQty: null, estAmount: "300.00",
   estCurrency: "EUR", realQty: null, realAmount: "330.00", realCurrency: "EUR", invoiceNumber: "", received: false, splitMethod: "wm",
-  excludedShipmentIds: [], sortOrder: 0, ...over,
+  inSplit: true, excludedShipmentIds: [], sortOrder: 0, ...over,
 });
 
 // The rows the re-split writes: worked out by the callback the repository runs under its lock.
@@ -189,5 +189,43 @@ describe("choosing the shipments in a line's split", () => {
   it("takes no shipments out when a line is added", async () => {
     await masterJobCostService.add(COMPANY, MASTER, { category: "ocean_freight" });
     expect(costs.create).toHaveBeenCalledWith(COMPANY, MASTER, { category: "ocean_freight" });
+  });
+});
+
+describe("choosing which of the costs go through the split", () => {
+  beforeEach(() => {
+    costs.get.mockResolvedValue(line());
+    costs.update.mockResolvedValue(line());
+  });
+
+  it("writes no shipment a share of a line out of the split, and keeps the line in the view", async () => {
+    const other = line({ id: "9a1c6f8e-2b7d-4c1e-8f3a-5d6b7c8e9f02", inSplit: false });
+    costs.list.mockResolvedValue([line(), other]);
+    const view = await masterJobCostService.resplit(COMPANY, MASTER);
+    expect(written.map((r) => r.sourceMasterJobRef)).toEqual([`master:${MASTER}:${LINE}`, `master:${MASTER}:${LINE}`]);
+    expect(view.shares.every((s) => s.lineId === LINE)).toBe(true);
+    expect(view.lines.map((l) => l.inSplit)).toEqual([true, false]);
+  });
+
+  it("saves the choice and splits again", async () => {
+    await masterJobCostService.update(COMPANY, MASTER, LINE, { inSplit: false });
+    expect(costs.update).toHaveBeenCalledWith(LINE, COMPANY, MASTER, { inSplit: false });
+    expect(costs.replaceSplitRows).toHaveBeenCalledTimes(1);
+  });
+
+  it("checks Trucking when a line goes in, not when it comes out", async () => {
+    await masterJobCostService.update(COMPANY, MASTER, LINE, { inSplit: false });
+    expect(keptByTrucking).not.toHaveBeenCalled();
+
+    costs.get.mockResolvedValue(line({ inSplit: false }));
+    keptByTrucking.mockRejectedValueOnce(APIError.failedPrecondition("Job CZ00000021 has its ocean freight cost from Trucking"));
+    await expect(masterJobCostService.update(COMPANY, MASTER, LINE, { inSplit: true })).rejects.toMatchObject({ code: "failed_precondition" });
+    expect(keptByTrucking).toHaveBeenCalledWith(COMPANY, ["s1", "s2"], "ocean_freight");
+  });
+
+  it("lets a line out of the split change its code without a Trucking check", async () => {
+    costs.get.mockResolvedValue(line({ inSplit: false }));
+    await masterJobCostService.update(COMPANY, MASTER, LINE, { category: "road_freight" });
+    expect(keptByTrucking).not.toHaveBeenCalled();
   });
 });

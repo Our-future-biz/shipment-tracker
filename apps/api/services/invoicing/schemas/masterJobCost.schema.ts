@@ -30,6 +30,8 @@ export const masterJobCostTable = pgTable(
     invoiceNumber: text("invoice_number").notNull().default(""),
     received: boolean("received").notNull().default(false),
     splitMethod: text("split_method").$type<MasterJobSplitMethod>().notNull().default("wm"),
+    /** Whether the line is shared out at all: without it the cost stays on the master job and no shipment carries a part. */
+    inSplit: boolean("in_split").notNull().default(true),
     /** The shipments taken out of this line's split; one linked later is in it until someone takes it out. */
     excludedShipmentIds: text("excluded_shipment_ids").array().notNull().default(sql`'{}'::text[]`),
     sortOrder: integer("sort_order").notNull().default(0),
