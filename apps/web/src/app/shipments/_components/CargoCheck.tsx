@@ -8,13 +8,15 @@ import { fmtFixed, type FigureCheck } from "@/lib/cargo";
 // as the invoice value in Cargo Details, which nothing declares).
 export const CHECK_PILL_CLASS = "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs ring-1 ring-inset tabular-nums whitespace-nowrap cursor-default";
 
+export type CheckAgainst = "Container" | "Shipment" | "No container";
+
 interface CheckPillProps {
   label: string;
   m: FigureCheck;
   decimals: number;
   unit?: string;
-  /** What declares the figure, for the hover text: a container, or a shipment with none. */
-  against?: "Container" | "Shipment";
+  /** What declares the figure, for the hover text: a container, a shipment with none, or nothing (lines outside the containers). */
+  against?: CheckAgainst;
 }
 
 /** One figure: what the lines add up to / what the container declares - green when they

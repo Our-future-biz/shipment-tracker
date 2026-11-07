@@ -11,6 +11,7 @@ import {
   PACK_TYPE_OPTIONS,
   STACKABLE_OPTIONS,
   checkConsistency,
+  shipmentDeclaredFigures,
   dimensionTotals,
   dimensionVolumePerPiece,
   hasAllSizes,
@@ -190,7 +191,11 @@ export function DimensionsModal({
     </td>
   );
   const activeFilled = filledOf(active);
-  const activeCheck = active.container ? checkConsistency(active.container, activeFilled) : null;
+  // The chosen container against what it declares; a shipment with no container against its own
+  // Pcs, Total Weight and Total Volume, as Cargo Details checks it.
+  const activeDeclared = active.container ?? (containers.length === 0 && shipment ? shipmentDeclaredFigures(shipment) : null);
+  const activeCheck = activeDeclared ? checkConsistency(activeDeclared, activeFilled) : null;
+  const against = active.container ? "Container" : "Shipment";
   const activeSum = dimensionTotals(activeFilled);
 
   return (
@@ -427,9 +432,9 @@ export function DimensionsModal({
           <div className="mt-3 flex items-center justify-between gap-4 flex-wrap">
             {activeCheck ? (
               <div className="flex items-center gap-2 flex-wrap">
-                <CheckPill label="Pcs" m={activeCheck.pcs} decimals={0} />
-                <CheckPill label="Weight" m={activeCheck.kg} decimals={2} unit="kg" />
-                <CheckPill label="Volume" m={activeCheck.m3} decimals={3} unit="m³" />
+                <CheckPill against={against} label="Pcs" m={activeCheck.pcs} decimals={0} />
+                <CheckPill against={against} label="Weight" m={activeCheck.kg} decimals={2} unit="kg" />
+                <CheckPill against={against} label="Volume" m={activeCheck.m3} decimals={3} unit="m³" />
               </div>
             ) : (
               <span />

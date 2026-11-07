@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { rowKey } from "@/app/shipments/_lib/rowKey";
 import { Input, Button, AutoComplete, Select, Checkbox, Tooltip } from "antd";
 import { CargoDimensionAdrFields } from "./CargoDimensionAdrFields";
-import { CheckPill, CHECK_PILL_CLASS } from "@/app/shipments/_components/CargoCheck";
+import { CheckPill, CHECK_PILL_CLASS, type CheckAgainst } from "@/app/shipments/_components/CargoCheck";
 import { ContainerTabs } from "@/app/shipments/_components/ContainerTabs";
 import { PlusOutlined } from "@ant-design/icons";
 import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
@@ -21,7 +21,6 @@ import {
   CURRENCIES,
   num,
   fmtNum,
-  fmtFixed,
   numberInput,
   piecesOf,
   perPieceText,
@@ -29,7 +28,6 @@ import {
   lineTotal,
   MAX_VOLUME_PER_PIECE_M3,
   dimensionVolumePerPiece,
-  dimensionTotals,
   hasAllSizes,
   lineInCm,
   lineInUnit,
@@ -41,6 +39,7 @@ import {
   checkConsistency,
   compareFigure,
   civByCurrency,
+  shipmentDeclaredFigures,
   type CargoItemLine,
   type CargoDimensionLine,
   type ContainerLine,
@@ -158,18 +157,12 @@ const currencyOptions = (query: string) => {
   }));
 };
 
-// Words read better than codes in a total's tooltip.
-const UNIT_LABEL: Record<string, string> = { PCS: "pieces", KG: "kg", "M³": "m³" };
-
 // minmax(0, …): every row keeps the same column widths, whatever a cell holds. The space
 // between columns is inside each cell (not a grid gap), so the column bands below meet
 // edge to edge.
 const DIM_GRID =
   // ADR gets room for its whole summary ("UN 2382 / Cls: 3 / PG II / LQ"); the number columns stay narrow.
   "grid grid-cols-[minmax(0,0.55fr)_minmax(0,1fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_minmax(0,0.75fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,1.9fr)_minmax(0,1.6fr)_32px] gap-x-0";
-// Same room either way: padding inside a banded cell, margin around a field being edited
-// (padding would squeeze the field's own padding).
-const DIM_COLS = `${DIM_GRID} items-center [&>*]:mx-1 [&>*:last-child]:!mx-0`;
 // Header and read rows group related columns on soft bands: Length / Width / Height
 // with their Unit ("Size") and Weight / Volume ("Per piece"), split by a white gap. The cells stretch
 // to the row's height and carry the row's padding, so the bands run unbroken down the table.
@@ -525,15 +518,8 @@ export function CargoDetailsTab({
   // Total Volume in Shipment Details): its lines are checked against that, as a container's are.
   // With containers, lines left outside them are only a part of the cargo: no figure to check against.
   const shipmentDeclared = useMemo<ContainerLine | null>(
-    () =>
-      containers.length > 0
-        ? null
-        : ({
-            packages: shipment.pcs ?? "",
-            grossWeight: num(shipment.totalWeightTons) ? String(num(shipment.totalWeightTons) * 1000) : "",
-            volume: shipment.totalVolumeCbm ?? "",
-          } as ContainerLine),
-    [containers.length, shipment.pcs, shipment.totalWeightTons, shipment.totalVolumeCbm],
+    () => (containers.length > 0 ? null : shipmentDeclaredFigures(shipment)),
+    [containers.length, shipment],
   );
 
   // Everything one tab shows: its lines, their totals and how they compare with what the
@@ -548,25 +534,23 @@ export function CargoDetailsTab({
     const panelDims = dims.map((l, idx) => ({ l, idx })).filter(({ l }) => keyOf(l.containerId) === key);
     const filledDims = panelDims.filter(({ l }) => !dimIsEmpty(l)).length;
     const filledItems = panelItems.filter(({ l }) => !itemIsEmpty(l)).length;
-    const check = declared ? checkConsistency(declared, panelDims.map(({ l }) => lineInCm(l))) : null;
+    const check = checkConsistency(declared, panelDims.map(({ l }) => lineInCm(l)));
     const descPcs = panelItems.reduce((s, { l }) => s + num(l.pieces), 0);
     const descKg = panelItems.reduce((s, { l }) => s + num(l.grossWeight), 0);
-    const descCheck = declared
-      ? { pcs: compareFigure(descPcs, num(declared.packages), 0), kg: compareFigure(descKg, num(declared.grossWeight), 2) }
-      : null;
+    const descCheck = { pcs: compareFigure(descPcs, num(declared.packages), 0), kg: compareFigure(descKg, num(declared.grossWeight), 2) };
     const hasDesc = filledItems > 0;
     const hasLines = filledDims > 0 || hasDesc;
-    const matched = !!check && check.matched && (!hasDesc || (!!descCheck && descCheck.pcs.ok && descCheck.kg.ok));
+    const matched = check.matched && (!hasDesc || (descCheck.pcs.ok && descCheck.kg.ok));
     const index = container ? containers.indexOf(container) : -1;
     const label = container ? container.containerNumber || `Container #${index + 1}` : "No container";
-    return { key, container, label, panelItems, panelDims, check, descPcs, descKg, descCheck, hasDesc, hasLines, matched };
+    return { key, container, label, panelItems, panelDims, check, descCheck, hasDesc, hasLines, matched };
   };
 
   const panels = panelKeys.map(panelOf);
   const active = panels.find((p) => p.key === activeKey) ?? panels[0]!;
   const { check, descCheck } = active;
-  // whose figures the pills hold: the tab's container, or the container-less shipment's own
-  const against = active.container ? ("Container" as const) : ("Shipment" as const);
+  // whose figures the pills hold: the tab's container, the container-less shipment's own, or none
+  const against: CheckAgainst = active.container ? "Container" : shipmentDeclared ? "Shipment" : "No container";
   // Read-only, the empty line each table keeps to type into is not shown.
   const panelItems = readOnly ? active.panelItems.filter(({ l }) => !itemIsEmpty(l)) : active.panelItems;
   const panelDims = readOnly ? active.panelDims.filter(({ l }) => !dimIsEmpty(l)) : active.panelDims;
@@ -575,14 +559,6 @@ export function CargoDetailsTab({
     readOnly ? <span /> : <RowActionsMenu label={label} onCopy={onCopy} onDelete={onDelete} />;
   const noLines = (what: string) => (readOnly ? <div className={EMPTY_STATE}>No {what} lines yet.</div> : null);
 
-  // A total under the column it sums, its unit beneath.
-  const totalCell = (sum: number, unit: string, decimals: number) => (
-    <span key={unit} className="flex flex-col items-center tabular-nums whitespace-nowrap" title={`${fmtFixed(sum, decimals)} ${UNIT_LABEL[unit] ?? unit}`}>
-      <span className="text-[13px] font-semibold text-slate-900">{decimals === 0 ? fmtNum(sum) : fmtFixed(sum, decimals)}</span>
-      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">{unit}</span>
-    </span>
-  );
-  const dimTotals = dimensionTotals(panelDims.map(({ l }) => lineInCm(l)));
   const descCiv = civByCurrency(panelItems.map(({ l }) => l));
 
   // A thin line between rows; the last row has none, so the line of the totals row (or of the
@@ -901,24 +877,9 @@ export function CargoDetailsTab({
               })}
 
               {panelDims.length === 0 && noLines("dimension")}
-              {/* Each figure sits under the column it sums - only without a container: with
-                  one, the pills under the table already show these sums. */}
-              {!check && (
-                <div className={`${DIM_COLS} px-1 pt-2.5 pb-1 mt-1 border-t-2 border-slate-200`}>
-                  {totalCell(dimTotals.pcs, "PCS", 0)}
-                  <span />
-                  <span />
-                  <span />
-                  <span />
-                  <span />
-                  {totalCell(dimTotals.kg, "KG", 2)}
-                  {totalCell(dimTotals.m3, "M³", 3)}
-                  <span className="col-span-3" />
-                </div>
-              )}
             </div>
-            {check &&
-              checkStrip(
+            {/* The sums of the lines against what is declared, under every table. */}
+            {checkStrip(
                 <>
                   <CheckPill against={against} label="Pcs" m={check.pcs} decimals={0} />
                   <CheckPill against={against} label="Weight" m={check.kg} decimals={2} unit="kg" />
@@ -1023,29 +984,15 @@ export function CargoDetailsTab({
               )}
 
               {panelItems.length === 0 && noLines("description")}
-              {/* Each figure sits under the column it sums - only when no pills follow (no
-                  container, or no description lines yet): the pills show these sums then. */}
-              {!descCheck && (
-                <div className={`${DESC_COLS} px-1 pt-2.5 pb-1 mt-1 border-t-2 border-slate-200`}>
-                  <span />
-                  <span />
-                  {totalCell(active.descPcs, "PCS", 0)}
-                  <span />
-                  {totalCell(active.descKg, "KG", 2)}
-                  <span className={`text-center text-[13px] font-semibold tabular-nums whitespace-nowrap ${descCiv ? "text-slate-900" : "text-slate-300"}`}>{descCiv || "—"}</span>
-                  <span className="col-span-2" />
-                </div>
-              )}
             </div>
-            {/* Compared once the container has description lines (the tab's dot counts them then too). */}
-            {descCheck &&
-              checkStrip(
+            {/* The tab's dot counts these once the container has description lines. */}
+            {checkStrip(
                 <>
                   <CheckPill against={against} label="Pcs" m={descCheck.pcs} decimals={0} />
                   <CheckPill against={against} label="Weight" m={descCheck.kg} decimals={2} unit="kg" />
                   {/* The invoice value total, which nothing declares: a plain pill. */}
                   {descCiv && (
-                    <Tooltip title={`Lines: ${descCiv} · the ${against.toLowerCase()} declares no invoice value`}>
+                    <Tooltip title={`Lines: ${descCiv} · no invoice value is declared to check against`}>
                       <span className={`${CHECK_PILL_CLASS} ring-slate-200 bg-slate-50 text-slate-700`}>
                         <span className="font-semibold uppercase tracking-wide text-[10px] text-slate-500">Invoice value</span>
                         <span className="font-semibold">{descCiv}</span>

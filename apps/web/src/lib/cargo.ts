@@ -315,6 +315,21 @@ export function compareFigure(sum: number, declared: number, decimals: number): 
   return { sum, declared, empty, ok: empty || fmtFixed(sum, decimals) === fmtFixed(declared, decimals) };
 }
 
+/**
+ * What a shipment with no container declares for its cargo - its Pcs, Total Weight (tons) and Total
+ * Volume - as a container's figures, so its cargo lines are checked against them the way a
+ * container's are. Pcs may carry thousands separators ("1,200"), read as the server reads them
+ * (remeasureNotice.declaredFigures); the weight in kg is kept to grams, so 2.345 t is 2345 kg.
+ */
+export function shipmentDeclaredFigures(s: { pcs?: string | null; totalWeightTons?: string | null; totalVolumeCbm?: string | null }): ContainerLine {
+  const tons = num(s.totalWeightTons);
+  return {
+    packages: (s.pcs ?? "").replace(/,/g, ""),
+    grossWeight: tons ? String(Math.round(tons * 1_000_000) / 1000) : "",
+    volume: s.totalVolumeCbm ?? "",
+  } as ContainerLine;
+}
+
 export function checkConsistency(container: ContainerLine, dims: CargoDimensionLine[]): ConsistencyCheck {
   const t = dimensionTotals(dims);
   const pcs = compareFigure(t.pcs, num(container.packages), 0);
