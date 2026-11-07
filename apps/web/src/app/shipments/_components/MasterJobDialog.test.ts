@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { linkEach, linkedCount } from "./MasterJobDialog";
+import { linkEach, linkedCount, shipmentsOffered } from "./MasterJobDialog";
 
 describe("linkEach", () => {
   it("links the others when one is refused, and says how many and why", async () => {
@@ -22,5 +22,27 @@ describe("linkedCount", () => {
   it("counts shipments", () => {
     expect(linkedCount(1)).toBe("1 shipment");
     expect(linkedCount(3)).toBe("3 shipments");
+  });
+});
+
+describe("the shipments the dialog lists", () => {
+  const ship = (id: string, jobNumber: string, shipper = "") => ({ id, jobNumber, shipper, consignee: "" });
+  const all = [ship("a", "CZLCL1", "Acme"), ship("b", "CZLCL2", "Beta"), ship("c", "CZLCL3", "Gamma"), ship("q", "CZQ9", "Acme"), ship("n", "")];
+
+  it("lists only those chosen in the grid", () => {
+    expect(shipmentsOffered(all, "", ["a", "c"]).map((s) => s.id)).toEqual(["a", "c"]);
+  });
+
+  it("does not let a search bring in others when the shipments were chosen", () => {
+    expect(shipmentsOffered(all, "beta", ["a", "c"]).map((s) => s.id)).toEqual(["a", "c"]);
+  });
+
+  it("offers every shipment, narrowed by the search, when none were chosen", () => {
+    expect(shipmentsOffered(all, "").map((s) => s.id)).toEqual(["a", "b", "c"]);
+    expect(shipmentsOffered(all, "beta").map((s) => s.id)).toEqual(["b"]);
+  });
+
+  it("leaves out a quote's number and a shipment without one, chosen or not", () => {
+    expect(shipmentsOffered(all, "", ["q", "n", "a"]).map((s) => s.id)).toEqual(["a"]);
   });
 });

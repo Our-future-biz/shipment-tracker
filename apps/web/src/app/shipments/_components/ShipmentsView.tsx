@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useDebounced } from "@/hooks/useDebounced";
-import { useShipments } from "@/hooks/useShipments";
+import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
 import { useToast } from "@/lib/toast";
 import { quoteHref } from "@/app/sales/_lib/quoteHref";
 import { ShipmentsTable } from "./ShipmentsTable";
@@ -34,6 +34,17 @@ export const ShipmentsView = () => {
   const [masterJobOpen, setMasterJobOpen] = useState(false);
   // Shipments ticked in the table when "Add to Master Job" was pressed.
   const [masterJobPreselected, setMasterJobPreselected] = useState<string[]>([]);
+  // The grid keeps its ticks through a search, so a ticked shipment may no longer be in the loaded
+  // list: every one seen is remembered, and the dialog gets those ticked along with the list.
+  const seenShipments = useRef(new Map<string, ShipmentItem>());
+  useEffect(() => {
+    for (const s of shipments) seenShipments.current.set(s.id, s);
+  }, [shipments]);
+  const [masterJobTickedAway, setMasterJobTickedAway] = useState<ShipmentItem[]>([]);
+  const masterJobShipments = useMemo(
+    () => (masterJobTickedAway.length ? [...shipments, ...masterJobTickedAway.filter((t) => !shipments.some((s) => s.id === t.id))] : shipments),
+    [shipments, masterJobTickedAway],
+  );
   // An address that names a quote opens New Shipment for that quote, until the wizard is closed
   // (the address is left then, but that navigation takes a moment).
   const [dismissedQuote, setDismissedQuote] = useState<string | null>(null);
@@ -83,6 +94,7 @@ export const ShipmentsView = () => {
         onCreateClick={() => setCreateOpen(true)}
         onAddMasterJob={(ids) => {
           setMasterJobPreselected(ids);
+          setMasterJobTickedAway(ids.flatMap((id) => seenShipments.current.get(id) ?? []));
           setMasterJobOpen(true);
         }}
       />
@@ -90,8 +102,9 @@ export const ShipmentsView = () => {
       <MasterJobDialog
         open={masterJobOpen}
         onClose={() => setMasterJobOpen(false)}
-        shipments={shipments}
+        shipments={masterJobShipments}
         initialSelectedIds={masterJobPreselected}
+        limitToSelected={masterJobPreselected.length > 0}
         onLink={handleLinkMasterJob}
       />
 

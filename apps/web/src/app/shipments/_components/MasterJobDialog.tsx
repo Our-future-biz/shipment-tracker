@@ -24,6 +24,19 @@ export async function linkEach(ids: string[], link: (id: string) => Promise<unkn
   return { linked: results.length - refused.length, failed: refused.length, error: refused[0]?.reason };
 }
 
+/**
+ * The shipments the dialog lists. Those chosen in the grid, when it was opened with them, and nobody
+ * else: searching is for picking more. Otherwise every shipment that is one (a CZQ number is a
+ * quote's), narrowed by the search.
+ */
+export function shipmentsOffered<T extends Pick<ShipmentItem, "id" | "jobNumber" | "shipper" | "consignee">>(shipments: T[], search: string, onlyIds?: readonly string[]): T[] {
+  const list = shipments.filter((s) => s.jobNumber && !s.jobNumber.startsWith("CZQ"));
+  if (onlyIds) return list.filter((s) => onlyIds.includes(s.id));
+  if (!search) return list;
+  const q = search.toLowerCase();
+  return list.filter((s) => s.jobNumber.toLowerCase().includes(q) || s.shipper.toLowerCase().includes(q) || s.consignee.toLowerCase().includes(q));
+}
+
 /** "1 shipment", "3 shipments". */
 export const linkedCount = (n: number) => `${n} shipment${n === 1 ? "" : "s"}`;
 
@@ -34,9 +47,11 @@ interface MasterJobDialogProps {
   shipments?: ShipmentItem[];
   onLink: (shipmentIds: string[], mczNumber: string) => void | Promise<void>;
   initialSelectedIds?: string[];
+  /** Only the shipments of initialSelectedIds are listed: chosen in the grid, none can be added here. */
+  limitToSelected?: boolean;
 }
 
-export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initialSelectedIds }: MasterJobDialogProps) => {
+export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initialSelectedIds, limitToSelected = false }: MasterJobDialogProps) => {
   // A page with no list of its own (a shipment's page) has the newest loaded here, only while open.
   const own = useShipments({ enabled: open && !given });
   const shipments = given ?? own.shipments;
@@ -52,7 +67,9 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
   // A shipment whose details the user may not change cannot be linked by them either: shown, not picked.
   const { user } = useAuth();
   const lockedIds = useMemo(() => new Set(shipments.filter((s) => !canChangeShipmentDetails(user, s)).map((s) => s.id)), [shipments, user]);
-  const chosen = Array.from(selected).filter((id) => !lockedIds.has(id));
+  const onlyIds = limitToSelected ? initialSelectedIds : undefined;
+  // What is listed is what goes: a shipment ticked in the grid and filtered away since is not linked unseen.
+  const chosen = Array.from(selected).filter((id) => !lockedIds.has(id) && (!onlyIds || shipments.some((s) => s.id === id)));
 
   // Every master job on the server counts: one created on the Master Jobs page has
   // no shipments yet, so the loaded shipments alone would hand out its number again.
@@ -75,17 +92,7 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
     return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
   }, [shipments, masterJobs]);
 
-  // Filtered shipments
-  const filteredShipments = useMemo(() => {
-    const list = shipments.filter((s) => s.jobNumber && !s.jobNumber.startsWith("CZQ"));
-    if (!search) return list;
-    const q = search.toLowerCase();
-    return list.filter((s) =>
-      s.jobNumber.toLowerCase().includes(q) ||
-      s.shipper.toLowerCase().includes(q) ||
-      s.consignee.toLowerCase().includes(q)
-    );
-  }, [shipments, search]);
+  const filteredShipments = useMemo(() => shipmentsOffered(shipments, search, onlyIds), [shipments, search, onlyIds]);
 
   const toggleShipment = (id: string) => {
     if (lockedIds.has(id)) return;
@@ -172,16 +179,18 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
         </p>
       )}
 
-      {/* Search */}
-      <Input
-        prefix={<SearchOutlined />}
-        placeholder="Search shipments..."
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        size="small"
-        allowClear
-        className="mb-2"
-      />
+      {/* Search, to pick more: not when the shipments were chosen in the grid. */}
+      {!limitToSelected && (
+        <Input
+          prefix={<SearchOutlined />}
+          placeholder="Search shipments..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          size="small"
+          allowClear
+          className="mb-2"
+        />
+      )}
 
       {/* Shipment selection list */}
       <div className="max-h-[320px] overflow-y-auto border border-slate-200 rounded-lg">
