@@ -1510,7 +1510,7 @@ export function QuoteWorkflow() {
                     hint="1 t or 1 cbm, the greater"
                   />
                 )}
-                <KpiTile size="text" label="Chargeable wt" value={airFreight ? `${fmtQuantity(cargo.chargeableWeight)} kg` : AIR_ONLY} />
+                <KpiTile size="text" wrapLabel label={<>Chargeable weight <span className="normal-case whitespace-nowrap">(ChW)</span></>} value={airFreight ? `${fmtQuantity(cargo.chargeableWeight)} kg` : AIR_ONLY} />
                 <KpiTile
                   size="text"
                   label="Weight ratio"

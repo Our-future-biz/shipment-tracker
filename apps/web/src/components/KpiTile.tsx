@@ -13,7 +13,9 @@ export const KPI_TONE_CLASS: Record<KpiTone, string> = {
 export const KPI_TILE_CLASS = "bg-white border border-slate-200 rounded-xl shadow-sm px-3 py-2.5 min-w-0";
 
 interface KpiTileProps {
-  label: string;
+  label: ReactNode;
+  /** A long label takes a second line where it doesn't fit, instead of being cut off. */
+  wrapLabel?: boolean;
   value: ReactNode;
   tone?: KpiTone;
   // Small print under the value, e.g. a count behind an amount.
@@ -33,13 +35,13 @@ interface KpiTileProps {
 }
 
 // The app's one KPI tile. Lay tiles out with KPI_GRID_CLASS so every row wraps the same way.
-export function KpiTile({ label, value, tone, hint, hintTone, size = "figure", onClick, action, centered = false }: KpiTileProps) {
+export function KpiTile({ label, wrapLabel = false, value, tone, hint, hintTone, size = "figure", onClick, action, centered = false }: KpiTileProps) {
   const valueClass =
     (size === "figure" ? "text-[20px] leading-7 font-bold tabular-nums truncate" : "flex items-center gap-1.5 min-h-6 text-[14px] font-semibold") +
     (centered ? " flex-1 flex items-center justify-center text-center" : "");
   const content = (
     <>
-      <div className={`${LABEL_TEXT} truncate${centered ? " text-center" : ""}`}>{label}</div>
+      <div className={`${LABEL_TEXT}${wrapLabel ? "" : " truncate"}${centered ? " text-center" : ""}`}>{label}</div>
       <div className={`mt-0.5 ${valueClass} ${tone ? KPI_TONE_CLASS[tone] : "text-slate-900"}`}>{value}</div>
       {hint && <div className={`text-[12px] truncate${centered ? " text-center" : ""} ${hintTone ? KPI_TONE_CLASS[hintTone] : "text-slate-500"}`}>{hint}</div>}
     </>
