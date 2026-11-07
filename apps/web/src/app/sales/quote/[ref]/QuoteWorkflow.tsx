@@ -87,7 +87,7 @@ import { PdfPreviewModal } from "./_components/PdfPreviewModal";
 import { EmailQuoteModal } from "./_components/EmailQuoteModal";
 import { AddToSellingDialog } from "./_components/AddToSellingDialog";
 import { RemoveBothDialog } from "./_components/RemoveBothDialog";
-import { buyingBasis, counterpartIndex, lineRemovals, newPairId, offerToSelling, pairedCopies, type LineRemoval, type LineSide } from "../../_lib/costPairs";
+import { buyingBasis, buyingQuantity, counterpartIndex, lineRemovals, newPairId, offerToSelling, pairedCopies, type LineRemoval, type LineSide } from "../../_lib/costPairs";
 import { CostLinesEditor } from "./_components/CostLinesEditor";
 import { FclPricingEditor } from "./_components/FclPricingEditor";
 import { FclTruckingBlock } from "./_components/FclTruckingBlock";
@@ -1629,6 +1629,7 @@ export function QuoteWorkflow() {
                 lineTag={sellingTag}
                 lineKeys={sellingKeys}
                 basisOf={(line) => buyingBasis(line, buyingLines)}
+                quantityOf={(line) => buyingQuantity(line, buyingLines)}
                 onAmountChanged={(line, index, before) => {
                   if (line.pairId === WAREHOUSE_PAIR_ID) setFeeChange({ index, amount: Number(line.amount) || 0, before, currency: line.currency, reason: line.changeReason });
                 }}

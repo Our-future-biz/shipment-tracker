@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { counterpartIndex, lineRemovals, offerToSelling, pairedCopies } from "./costPairs";
+import { buyingQuantity, counterpartIndex, lineRemovals, offerToSelling, pairedCopies, withBuyingTerms } from "./costPairs";
 import type { CostLine } from "./types";
 
 const line = (over: Partial<CostLine> = {}): CostLine => ({ type: "Air freight", chargeCode: "air_freight", description: "Air freight", currency: "EUR", amount: 100, ...over });
@@ -63,5 +63,50 @@ describe("pairedCopies", () => {
     expect(selling[0]).toMatchObject({ pairId: buying[0]!.pairId, supplier: undefined });
     expect(buying[1]!.pairId).toBe("keep");
     expect(selling[1]!.pairId).toBe("keep");
+  });
+});
+
+describe("buyingQuantity", () => {
+  it("is the buying line's quantity on a line charged as a lump sum", () => {
+    expect(buyingQuantity(line({ pairId: "p", value: 2 }), [line({ pairId: "p", value: 1 })])).toEqual({ value: 1 });
+  });
+
+  it("holds an empty buying quantity too", () => {
+    expect(buyingQuantity(line({ pairId: "p", value: 2 }), [line({ pairId: "p" })])).toEqual({ value: undefined });
+  });
+
+  it("is nothing for a line with no buying line: it stays free", () => {
+    expect(buyingQuantity(line({ pairId: "p", value: 2 }), [])).toBeNull();
+    expect(buyingQuantity(line({ pairId: "p", value: 2 }), [line({ pairId: "other", value: 1 })])).toBeNull();
+  });
+
+  it("is nothing per W/M or per container: the cargo sets those", () => {
+    expect(buyingQuantity(line({ pairId: "p" }), [line({ pairId: "p", basis: "wm", value: 3 })])).toBeNull();
+    expect(buyingQuantity(line({ pairId: "p" }), [line({ pairId: "p", basis: "container", value: 3 })])).toBeNull();
+  });
+});
+
+describe("withBuyingTerms", () => {
+  it("gives a selling line its buying line's quantity, and leaves its amount alone", () => {
+    const out = withBuyingTerms([line({ pairId: "p", value: 1, amount: 1259 })], [line({ pairId: "p", value: 2, amount: 1410.08 })]);
+    expect(out).toEqual([expect.objectContaining({ pairId: "p", value: 1, amount: 1410.08 })]);
+  });
+
+  it("clears the quantity when the buying line has none", () => {
+    expect(withBuyingTerms([line({ pairId: "p" })], [line({ pairId: "p", value: 2 })])![0]!.value).toBeUndefined();
+  });
+
+  it("gives it the buying line's basis, and doesn't copy a quantity the cargo sets", () => {
+    const out = withBuyingTerms([line({ pairId: "p", basis: "wm", value: 3.638 })], [line({ pairId: "p", value: 2 })]);
+    expect(out![0]).toMatchObject({ basis: "wm", value: 2 });
+  });
+
+  it("leaves a selling line with no buying line as it is", () => {
+    expect(withBuyingTerms([line({ pairId: "other", value: 1 })], [line({ pairId: "p", value: 2 })])).toBeNull();
+  });
+
+  it("is null when every line has them already, a lump sum left unstated included", () => {
+    expect(withBuyingTerms([line({ pairId: "p", value: 1 })], [line({ pairId: "p", value: 1, basis: "lumpsum" })])).toBeNull();
+    expect(withBuyingTerms(undefined, undefined)).toBeNull();
   });
 });

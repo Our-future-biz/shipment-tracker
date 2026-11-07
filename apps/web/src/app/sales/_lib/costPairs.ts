@@ -51,14 +51,28 @@ export function buyingBasis(line: CostLine, buying: readonly CostLine[]): Charge
   return i < 0 ? undefined : (buying[i]!.basis ?? "lumpsum");
 }
 
-/** The selling lines with the basis of their buying lines; null when every one has it already. */
-export function withBuyingBasis(buying: readonly CostLine[] | undefined, selling: readonly CostLine[] | undefined): CostLine[] | null {
+/**
+ * The quantity a selling line charged as a lump sum shows: its buying line's, when it has one (which
+ * may be none). Null when the line has no buying line, or is charged per unit: the cargo sets those.
+ */
+export function buyingQuantity(line: CostLine, buying: readonly CostLine[]): { value: number | undefined } | null {
+  const i = counterpartIndex(line, buying);
+  if (i < 0 || (buying[i]!.basis ?? "lumpsum") !== "lumpsum") return null;
+  return { value: buying[i]!.value };
+}
+
+/** The selling lines with the basis and quantity of their buying lines; null when every one has them already. */
+export function withBuyingTerms(buying: readonly CostLine[] | undefined, selling: readonly CostLine[] | undefined): CostLine[] | null {
   let changed = false;
   const lines = (selling ?? []).map((l) => {
     const basis = buyingBasis(l, buying ?? []);
-    if (basis === undefined || basis === (l.basis ?? "lumpsum")) return l;
+    if (basis === undefined) return l;
+    const quantity = buyingQuantity(l, buying ?? []);
+    const sameBasis = basis === (l.basis ?? "lumpsum");
+    const sameQuantity = !quantity || quantity.value === l.value;
+    if (sameBasis && sameQuantity) return l;
     changed = true;
-    return { ...l, basis };
+    return { ...l, ...(sameBasis ? {} : { basis }), ...(sameQuantity ? {} : { value: quantity!.value }) };
   });
   return changed ? lines : null;
 }

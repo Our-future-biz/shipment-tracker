@@ -4,7 +4,7 @@ import type { ExchangeRates } from "@/lib/exchangeRates";
 import { fmtMoney, roundCents } from "@/lib/money";
 import type { ChargeBasis, SalesQuoteData, CostLine, PackageLine, QuoteContainerLine, TimelineEntry } from "./types";
 import { containerType, teuForType } from "@/lib/cargo";
-import { withBuyingBasis } from "./costPairs";
+import { withBuyingTerms } from "./costPairs";
 import { businessDay, businessToday, formatDate } from "@/lib/date";
 import { FX_DRAFT_STATUSES, PRICING_CLOSED_STATUSES, PRICING_KEYS, PROTECTED_KEYS, type QuoteStatus } from "./types";
 
@@ -376,15 +376,16 @@ function asLumpsum(line: CostLine): CostLine {
 }
 
 /**
- * The quote's lines as their basis has them: a selling line is charged by its buying line's basis;
+ * The quote's lines as their basis has them: a selling line is charged by its buying line's basis,
+ * and as a lump sum has its buying line's quantity;
  * a line charged per W/M has the cargo's weight / measure as its quantity, one charged per
  * container the quote's number of containers (quoteContainerCount), and costs its rate times that - taken as it is set
  * to the basis, and followed while the cargo changes; a line set back to a lump sum costs its rate
  * again. Null when every line has them already.
  */
 export function withLineBasis(data: SalesQuoteData): Pick<SalesQuoteData, "buyingLines" | "sellingLines"> | null {
-  const basisCopied = withBuyingBasis(data.buyingLines, data.sellingLines);
-  const sellingLines = basisCopied ?? data.sellingLines;
+  const termsCopied = withBuyingTerms(data.buyingLines, data.sellingLines);
+  const sellingLines = termsCopied ?? data.sellingLines;
   const wm = computeCargo(data).weightMeasure;
   const asBasis = (l: CostLine): CostLine => {
     if (l.basis === "wm") return withRate(l, lineRate(l), wm);
@@ -393,7 +394,7 @@ export function withLineBasis(data: SalesQuoteData): Pick<SalesQuoteData, "buyin
     return perUnit ? asLumpsum(l) : l;
   };
   const same = (a: CostLine, b: CostLine) => a.value === b.value && a.qty === b.qty && a.unit === b.unit && a.unitPrice === b.unitPrice && a.amount === b.amount;
-  let changed = !!basisCopied;
+  let changed = !!termsCopied;
   const counted = (side: CostLine[] | undefined) =>
     side?.map((l) => {
       const next = asBasis(l);

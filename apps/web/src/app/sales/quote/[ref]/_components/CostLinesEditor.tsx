@@ -105,6 +105,8 @@ interface CostLinesEditorProps {
   onRemove?: (index: number) => void;
   // The basis a line has from elsewhere (a selling line its buying line's): shown and not chosen here.
   basisOf?: (line: CostLine) => ChargeBasis | undefined;
+  // The quantity a line has from elsewhere (a selling line its buying line's): shown and not typed here.
+  quantityOf?: (line: CostLine) => { value: number | undefined } | null;
 }
 
 // The buying or the selling lines of a quote. Every line keeps its own currency; the "In EUR"
@@ -127,6 +129,7 @@ export function CostLinesEditor({
   onAmountChanged,
   onRemove,
   basisOf,
+  quantityOf,
 }: CostLinesEditorProps) {
   const buying = kind === "buying";
   const currency = quoteCurrency(quote);
@@ -265,11 +268,11 @@ export function CostLinesEditor({
                       // per container: the number of containers.
                       precision={l.basis === "wm" ? 3 : 2}
                       // `undefined`, not `false`, when open: antd's own `false` overrides the lock of a closed quote.
-                      disabled={perUnitBasis(l.basis) || undefined}
-                      title={l.basis === "wm" ? "Weight / measure from Cargo details" : l.basis === "container" ? "Number of containers from Cargo details" : undefined}
+                      disabled={perUnitBasis(l.basis) || !!quantityOf?.(l) || undefined}
+                      title={l.basis === "wm" ? "Weight / measure from Cargo details" : l.basis === "container" ? "Number of containers from Cargo details" : quantityOf?.(l) ? "The same as its buying line" : undefined}
                       parser={moneyInputParser}
                       placeholder="=amt"
-                      value={l.value}
+                      value={quantityOf?.(l) ? quantityOf(l)!.value : l.value}
                       onChange={(v) => patch(i, { value: v ?? undefined })}
                     />
                   </td>
