@@ -29,7 +29,7 @@ export const QUOTE_FIELDS = [
 
 export const INVOICE_FIELDS = [
   "total_amount", "currency", "vendor", "invoice_number",
-  "invoice_date", "due_date", "description", "service_type",
+  "invoice_date", "due_date", "description", "service_type", "lines",
 ];
 
 // A carrier's booking confirmation, filed to a master job (named as the operators call them).
@@ -87,6 +87,9 @@ export function filterExtracted(
     if (!fieldSet.has(key) && key !== "__type__" && key !== "Personal Reference") continue;
     if (typeof value === "string" && value.trim()) {
       result[key] = value.trim();
+    } else if (key === "lines" && Array.isArray(value)) {
+      // An invoice's charge rows, kept as JSON until they are read apart (lib/invoiceLines).
+      result[key] = JSON.stringify(value);
     }
   }
   return result;

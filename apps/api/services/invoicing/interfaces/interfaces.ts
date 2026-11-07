@@ -221,6 +221,42 @@ export interface CostSplitInput {
   dryRun?: boolean;
 }
 
+/** One line of an invoice read line by line. */
+export interface InvoiceLinePost {
+  /** the charge code it is posted under */
+  category: string;
+  /** a decimal string ("399.60"); a credit is negative */
+  amount: string;
+  currency: string;
+  /** the charge as the invoice prints it */
+  item?: string;
+  /** the shipment its B/L names, or the one a person chose */
+  shipmentId?: string;
+  /** otherwise: the shipments it is shared out over, by weight */
+  split?: CostSplitLine[];
+}
+
+/** An invoice's lines to post as new buying rows of the shipments they belong to. */
+export interface InvoiceLinesInput {
+  invoiceNumber: string;
+  vendor?: string;
+  lines: InvoiceLinePost[];
+  /** post it although a row of this invoice number and charge is already on the shipment */
+  allowRepeat?: boolean;
+  /** only answer what it comes to, write nothing */
+  dryRun?: boolean;
+}
+
+/** A new buying row an invoice comes to. */
+export interface InvoiceLinesRow {
+  shipmentId: string;
+  category: string;
+  amount: string;
+  currency: string;
+  /** the shipment already has a row of this invoice number and charge: posting would count it twice */
+  repeated: boolean;
+}
+
 /** A shipment's part of a split cost. */
 export interface CostSplitResultLine {
   shipmentId: string;

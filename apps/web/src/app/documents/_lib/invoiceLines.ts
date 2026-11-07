@@ -1,0 +1,110 @@
+import type { MasterInvoiceRow, SplitMethod } from "./masterInvoice";
+import { splitLines } from "./masterInvoice";
+
+// An invoice read line by line. A line whose B/L is a shipment's House B/L goes to that shipment.
+// Any other is shared out over the ticked shipments by W/M or per shipment, unless a person chooses
+// a shipment for it: the split is only for what can't be identified. Pure, so the sorting has its test.
+
+/** A line that goes to the split instead of to one shipment. */
+export const SPLIT_TARGET = "split";
+
+export interface InvoiceLineDraft {
+  bl: string;
+  item: string;
+  amount: string;
+  currency: string;
+  /** the charge code it is posted under; empty until one is chosen */
+  category: string;
+  /** chosen by a person: a shipment, or SPLIT_TARGET; absent = as its B/L says */
+  target?: string;
+}
+
+export interface BlShipment {
+  shipmentId: string;
+  jobNumber: string;
+  houseBol: string;
+}
+
+export type LineMatch =
+  /** its B/L is this shipment's House B/L */
+  | { kind: "bl"; shipmentId: string }
+  /** its B/L is the master job's: it belongs to all of them */
+  | { kind: "master" }
+  /** it names no B/L */
+  | { kind: "no-bl" }
+  /** no shipment of the master job has its B/L */
+  | { kind: "not-found" }
+  /** more than one shipment has its B/L */
+  | { kind: "ambiguous"; jobNumbers: string[] };
+
+/** A B/L as compared: capitals, without spaces or punctuation. */
+export const blKey = (bl: string | null | undefined): string => (bl ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+
+// A shipment's field may hold more than one number ("A1, B2"); a space may sit inside one ("GLSL 2606").
+const blKeysOf = (field: string): string[] => field.split(/[,;]+/).map(blKey).filter(Boolean);
+
+/** Whether the invoice names a B/L on any line: only then is it sorted by them. */
+export const namesBls = (lines: readonly InvoiceLineDraft[]): boolean => lines.some((l) => blKey(l.bl));
+
+/** What a line's B/L says about where it belongs, among the shipments of the chosen master job. */
+export function matchLine(line: Pick<InvoiceLineDraft, "bl">, shipments: readonly BlShipment[], masterBols: readonly string[] = []): LineMatch {
+  const key = blKey(line.bl);
+  if (!key) return { kind: "no-bl" };
+  const found = shipments.filter((s) => blKeysOf(s.houseBol).includes(key));
+  if (found.length === 1) return { kind: "bl", shipmentId: found[0]!.shipmentId };
+  if (found.length > 1) return { kind: "ambiguous", jobNumbers: found.map((s) => s.jobNumber) };
+  return masterBols.flatMap(blKeysOf).includes(key) ? { kind: "master" } : { kind: "not-found" };
+}
+
+/** Where a line goes: where a person sent it, else the shipment its B/L names, else the split. */
+export const lineTarget = (line: InvoiceLineDraft, match: LineMatch): string => line.target ?? (match.kind === "bl" ? match.shipmentId : SPLIT_TARGET);
+
+/** Whether a line asks to be looked at: its shipment couldn't be identified and nobody chose one. */
+export const lineFlagged = (line: InvoiceLineDraft, match: LineMatch): boolean => !line.target && match.kind !== "bl" && match.kind !== "master";
+
+/** What the screen says about a line that goes to the split by itself. */
+export function matchNote(match: LineMatch): string | null {
+  if (match.kind === "master") return "Master B/L: shared by all its shipments";
+  if (match.kind === "no-bl") return "No B/L on this line: goes to the split unless you choose";
+  if (match.kind === "not-found") return "This B/L is on no shipment of the master job: goes to the split unless you choose";
+  if (match.kind === "ambiguous") return `${match.jobNumbers.join(", ")} have this B/L: goes to the split unless you choose`;
+  return null;
+}
+
+/** The sum of the lines in cents, per currency. */
+export function linesTotals(lines: readonly InvoiceLineDraft[], fallbackCurrency: string): Map<string, number> {
+  const totals = new Map<string, number>();
+  for (const l of lines) {
+    const currency = l.currency || fallbackCurrency;
+    totals.set(currency, (totals.get(currency) ?? 0) + Math.round((Number(l.amount) || 0) * 100));
+  }
+  return totals;
+}
+
+/**
+ * The lines as the server posts them, or null while something is missing: a charge or an amount on
+ * any line, or, when a line goes to the split, how to split and somebody to split it over.
+ */
+export function invoicePostLines(
+  lines: readonly InvoiceLineDraft[],
+  matches: readonly LineMatch[],
+  rows: readonly MasterInvoiceRow[],
+  ticked: ReadonlySet<string>,
+  method: SplitMethod | null,
+  fallbackCurrency: string,
+) {
+  if (!lines.length || lines.some((l) => !l.category || !Number(l.amount))) return null;
+  const toSplit = lines.some((l, i) => lineTarget(l, matches[i]!) === SPLIT_TARGET);
+  if (toSplit && !method) return null;
+  const split = toSplit ? splitLines([...rows], ticked, method!) : [];
+  if (toSplit && !split.some((s) => s.weight > 0)) return null;
+  return lines.map((l, i) => {
+    const target = lineTarget(l, matches[i]!);
+    const base = { category: l.category, amount: Number(l.amount).toFixed(2), currency: l.currency || fallbackCurrency, item: l.item };
+    return target === SPLIT_TARGET ? { ...base, split } : { ...base, shipmentId: target };
+  });
+}
+
+/** Whether anything goes to the split, so how to split must be asked. */
+export const anyToSplit = (lines: readonly InvoiceLineDraft[], matches: readonly LineMatch[]): boolean =>
+  lines.some((l, i) => lineTarget(l, matches[i]!) === SPLIT_TARGET);

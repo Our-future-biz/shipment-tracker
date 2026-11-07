@@ -2,7 +2,7 @@ import { api } from "encore.dev/api";
 import type { MaxLen, MinLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { invoicingService } from "../services/invoicing.service";
-import type { CostSplitLine, CostSplitResultLine } from "../interfaces/interfaces";
+import type { CostSplitLine, CostSplitResultLine, InvoiceLinesInput, InvoiceLinesRow } from "../interfaces/interfaces";
 
 interface SplitCostRequest {
   /** the charge code the parts are posted under */
@@ -35,4 +35,15 @@ export const invoicingSplitCost = api(
   async (req: SplitCostRequest): Promise<SplitCostResponse> => {
     return { lines: await invoicingService.splitCost(getAuthData()!.companyID, req) };
   },
+);
+
+/**
+ * Posts an invoice read line by line as new buying rows: each line on the shipment its B/L names, any
+ * other shared out by weight. With dryRun, only answers what it comes to.
+ */
+export const invoicingPostInvoiceLines = api(
+  { expose: true, auth: true, method: "POST", path: "/invoicing/invoice-lines" },
+  async (req: InvoiceLinesInput): Promise<{ rows: InvoiceLinesRow[] }> => ({
+    rows: await invoicingService.postInvoiceLines(getAuthData()!.companyID, req),
+  }),
 );

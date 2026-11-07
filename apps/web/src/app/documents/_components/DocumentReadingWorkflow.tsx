@@ -80,6 +80,8 @@ import { documentNumber, numberedFileName, savedDocumentName, suggestedDocumentT
 import { mergeReads } from "../_lib/mergeReads";
 import { missingWm, splitLines, type SplitMethod } from "../_lib/masterInvoice";
 import { MasterInvoiceShipments, type MasterInvoiceShipment } from "./MasterInvoiceShipments";
+import { InvoiceLinesPreview, InvoiceLinesTable } from "./InvoiceLinesTable";
+import { anyToSplit, invoicePostLines, matchLine, namesBls, type BlShipment, type InvoiceLineDraft } from "../_lib/invoiceLines";
 import { shipmentFreight } from "@/lib/freightTons";
 
 type PipelineStep = "idle" | "classified" | "extracting" | "ready";
@@ -212,6 +214,10 @@ export function DocumentReadingWorkflow() {
   const [splitError, setSplitError] = useState("");
   const [splitSaving, setSplitSaving] = useState(false);
   const [splitDone, setSplitDone] = useState<{ written: string[]; kept: string[]; docs: number } | null>(null);
+  // The invoice's charge rows, when it lists them: naming a B/L, it is sorted by them (invoiceLines).
+  const [invoiceLines, setInvoiceLines] = useState<InvoiceLineDraft[]>([]);
+  const [linesPreview, setLinesPreview] = useState<interfaces.InvoiceLinesRow[] | null>(null);
+  const [allowRepeat, setAllowRepeat] = useState(false);
 
   // Master Job pipeline
   const [masterMode, setMasterMode] = useState<TargetMode>("new");
@@ -313,6 +319,25 @@ export function DocumentReadingWorkflow() {
     [splitMethod, invoiceCategory, invoiceTotal, invoiceCurrency, invoiceData.invoice_number, invoiceData.vendor, invoiceRows, invoiceTicked],
   );
   const splitReady = !!splitRequest && invoiceMissingWm.length === 0;
+  // An invoice whose lines name a B/L goes line by line; W/M or per shipment is only for what can't be placed.
+  const invoiceByBl = invoiceToMaster && namesBls(invoiceLines);
+  const blShipments = useMemo<BlShipment[]>(
+    () => mczShipments.filter((s) => String(s.masterJobMczNumber ?? "").trim() === invoiceMcz).map((s) => ({ shipmentId: s.id, jobNumber: s.jobNumber || s.id, houseBol: s.houseBolNumber ?? "" })),
+    [mczShipments, invoiceMcz],
+  );
+  const lineMatches = useMemo(() => {
+    const masterBols = [...new Set(mczShipments.map((s) => s.masterBolNumber ?? "").filter(Boolean))];
+    return invoiceLines.map((l) => matchLine(l, blShipments, masterBols));
+  }, [invoiceLines, blShipments, mczShipments]);
+  const linesToSplit = invoiceByBl && anyToSplit(invoiceLines, lineMatches);
+  const linesRequest = useMemo(() => {
+    const invoiceNumber = invoiceData.invoice_number?.trim();
+    const lines = invoiceByBl && invoiceNumber ? invoicePostLines(invoiceLines, lineMatches, invoiceRows, invoiceTicked, splitMethod, invoiceCurrency) : null;
+    return lines ? { invoiceNumber: invoiceNumber!, vendor: invoiceData.vendor?.trim() || undefined, lines } : null;
+  }, [invoiceByBl, invoiceData.invoice_number, invoiceData.vendor, invoiceLines, lineMatches, invoiceRows, invoiceTicked, splitMethod, invoiceCurrency]);
+  const linesReady = !!linesRequest && (!linesToSplit || invoiceMissingWm.length === 0);
+  const linesRepeated = !!linesPreview?.some((r) => r.repeated);
+  const postShipments = new Set(linesPreview?.map((r) => r.shipmentId)).size;
   const tickInvoiceShipment = (shipmentId: string, ticked: boolean) =>
     setInvoiceUnticked((prev) => {
       const next = new Set(prev);
@@ -513,6 +538,14 @@ export function DocumentReadingWorkflow() {
         // The reader suggests a charge code; one the picker does not offer is not taken.
         const suggested = toChargeCode(extracted.service_type || "");
         setInvoiceCategory(chargeOptions().some((c) => c.value === suggested) ? suggested : "");
+        // Each line's charge as suggested, and only one the picker offers.
+        setInvoiceLines(
+          (result.invoiceLines ?? []).map((l) => {
+            const code = toChargeCode(l.serviceType);
+            return { bl: l.bl, item: l.item, amount: l.amount, currency: l.currency, category: chargeOptions().some((c) => c.value === code) ? code : "" };
+          }),
+        );
+        setAllowRepeat(false);
         setStep("review");
       } else if (destination === "customs") {
         const result =
@@ -688,7 +721,7 @@ export function DocumentReadingWorkflow() {
   // While the user reviews a master job's invoice: each ticked shipment's part, and the real
   // cost it already has under the charge (asked of the server without writing anything).
   useEffect(() => {
-    if (step !== "review" || !invoiceToMaster || !splitReady || !splitRequest) {
+    if (step !== "review" || !invoiceToMaster || invoiceByBl || !splitReady || !splitRequest) {
       setSplitPreview(null);
       return;
     }
@@ -702,7 +735,47 @@ export function DocumentReadingWorkflow() {
     return () => {
       cancelled = true;
     };
-  }, [step, invoiceToMaster, splitReady, splitRequest]);
+  }, [step, invoiceToMaster, invoiceByBl, splitReady, splitRequest]);
+
+  // What each shipment gets from the lines (asked of the server without writing anything).
+  useEffect(() => {
+    if (step !== "review" || !invoiceByBl || !linesReady || !linesRequest) {
+      setLinesPreview(null);
+      return;
+    }
+    let cancelled = false;
+    setLinesPreview(null);
+    setSplitError("");
+    api.invoicing
+      .invoicingPostInvoiceLines({ ...linesRequest, dryRun: true })
+      .then(({ rows }) => !cancelled && setLinesPreview(rows))
+      .catch((err) => !cancelled && setSplitError(apiErrorMessage(err)));
+    return () => {
+      cancelled = true;
+    };
+  }, [step, invoiceByBl, linesReady, linesRequest]);
+
+  // ─── Commit: invoice sorted by its B/Ls ──────────────────────────
+  const commitInvoiceLines = async () => {
+    if (!linesRequest || !linesReady || splitSaving) return;
+    if (docNameMissing) return toast.warning("Enter a file name for the document, or untick saving it.");
+    setSplitSaving(true);
+    try {
+      const { rows } = await api.invoicing.invoicingPostInvoiceLines({ ...linesRequest, allowRepeat });
+      const jobOf = (id: string) => blShipments.find((s) => s.shipmentId === id)?.jobNumber ?? id;
+      const posted = [...new Set(rows.map((r) => r.shipmentId))];
+      for (const id of posted) queryClient.invalidateQueries({ queryKey: ["invoicing", id] });
+      // The invoice goes to the documents of each shipment it was posted to.
+      let docs = 0;
+      for (const id of posted) if (await saveReadDocument(id, jobOf(id))) docs += 1;
+      setSplitDone({ written: posted.map(jobOf), kept: [], docs });
+      setStep("committed");
+    } catch (err) {
+      toast.error(`Failed to post the invoice: ${apiErrorMessage(err)}`);
+    } finally {
+      setSplitSaving(false);
+    }
+  };
 
   // ─── Commit: invoice split over a master job ─────────────────────
   const commitMasterInvoice = async () => {
@@ -1001,6 +1074,9 @@ export function DocumentReadingWorkflow() {
     setBookingMcz("");
     setBookingCreated(null);
     setInvoiceData({});
+    setInvoiceLines([]);
+    setLinesPreview(null);
+    setAllowRepeat(false);
     setInvoiceCategory("");
     setInvoiceTargetShipmentId("");
     setInvoiceTarget("shipment");
@@ -1442,6 +1518,46 @@ export function DocumentReadingWorkflow() {
               <Input value={invoiceData.vendor ?? ""} onChange={(e) => setInvoiceData((d) => ({ ...d, vendor: e.target.value }))} />
             </div>
           </div>
+          {invoiceByBl ? (
+            <>
+              <InvoiceLinesTable
+                lines={invoiceLines}
+                matches={lineMatches}
+                shipments={blShipments}
+                currency={invoiceCurrency}
+                total={invoiceTotal}
+                onLine={(index, patch) => setInvoiceLines((all) => all.map((l, i) => (i === index ? { ...l, ...patch } : l)))}
+              />
+              {linesToSplit && (
+                <div className="mb-4">
+                  <MasterInvoiceShipments
+                    rows={invoiceRows}
+                    ticked={invoiceTicked}
+                    onTick={tickInvoiceShipment}
+                    onTickAll={(on) => setInvoiceUnticked(on ? new Set() : new Set(invoiceRows.map((r) => r.shipmentId)))}
+                    method={splitMethod}
+                    onMethod={setSplitMethod}
+                  />
+                  <p className={`mt-1.5 mb-0 ${HINT}`}>This is only for the lines going to the split. A line matched by its B/L goes to its shipment, ticked or not.</p>
+                </div>
+              )}
+              {linesPreview && <InvoiceLinesPreview rows={linesPreview} jobOf={(id) => blShipments.find((s) => s.shipmentId === id)?.jobNumber ?? id} />}
+              {linesRepeated && (
+                <Alert
+                  className="mb-3"
+                  type="warning"
+                  showIcon
+                  message={`Invoice ${invoiceData.invoice_number ?? ""} is already on these shipments under the same charge`}
+                  description={
+                    <Checkbox checked={allowRepeat} onChange={(e) => setAllowRepeat(e.target.checked)}>
+                      Post it again anyway (the cost would count twice)
+                    </Checkbox>
+                  }
+                />
+              )}
+            </>
+          ) : (
+            <>
           <div className="mb-4">
             <div className={`${LABEL_TEXT} mb-1.5`}>
               Cost Category <span className="text-red-500">*</span>
@@ -1480,6 +1596,8 @@ export function DocumentReadingWorkflow() {
             }
             currency={invoiceCurrency}
           />
+            </>
+          )}
           {splitError && <Alert className="mt-3" type="error" showIcon message={splitError} />}
           {docToSave && (
             <SaveDocumentBox
@@ -1494,14 +1612,25 @@ export function DocumentReadingWorkflow() {
           )}
           <div className="flex gap-2 mt-4">
             <Button onClick={() => setStep("upload")}>Back</Button>
-            <Button
-              type="primary"
-              disabled={!splitReady || !splitPreview || !!splitError || docNameMissing}
-              loading={splitSaving}
-              onClick={commitMasterInvoice}
-            >
-              Split to {invoiceTicked.size} shipment{invoiceTicked.size !== 1 ? "s" : ""} (Real Cost)
-            </Button>
+            {invoiceByBl ? (
+              <Button
+                type="primary"
+                disabled={!linesReady || !linesPreview || !!splitError || docNameMissing || (linesRepeated && !allowRepeat)}
+                loading={splitSaving}
+                onClick={commitInvoiceLines}
+              >
+                {postShipments ? `Post to ${postShipments} shipment${postShipments !== 1 ? "s" : ""} (Real Cost)` : "Post (Real Cost)"}
+              </Button>
+            ) : (
+              <Button
+                type="primary"
+                disabled={!splitReady || !splitPreview || !!splitError || docNameMissing}
+                loading={splitSaving}
+                onClick={commitMasterInvoice}
+              >
+                Split to {invoiceTicked.size} shipment{invoiceTicked.size !== 1 ? "s" : ""} (Real Cost)
+              </Button>
+            )}
           </div>
         </SectionCard>
       )}

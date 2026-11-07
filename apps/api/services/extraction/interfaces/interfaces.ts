@@ -1,10 +1,25 @@
 import type { MinLen } from "encore.dev/validate";
 
+/** One charge row of an invoice, as read. */
+export interface InvoiceLineRead {
+  /** The B/L number on the row; empty when it names none */
+  bl: string;
+  item: string;
+  /** The row's final amount as a decimal ("399.60"); a credit is negative */
+  amount: string;
+  /** The row's own currency; empty when it is the invoice's */
+  currency: string;
+  /** The charge suggested for the row; empty when none fits */
+  serviceType: string;
+}
+
 export interface ExtractionResult {
   extracted: Record<string, string>;
   fieldCount: number;
   method: "text" | "vision";
   fileName: string;
+  /** An invoice's charge rows, when it lists them */
+  invoiceLines?: InvoiceLineRead[];
 }
 
 /** One uploaded file of a pre-alert. */

@@ -1281,6 +1281,7 @@ export namespace invoicing {
             this.invoicingMasterJobCostUpdate = this.invoicingMasterJobCostUpdate.bind(this)
             this.invoicingMasterJobCosts = this.invoicingMasterJobCosts.bind(this)
             this.invoicingMasterJobProcessSplit = this.invoicingMasterJobProcessSplit.bind(this)
+            this.invoicingPostInvoiceLines = this.invoicingPostInvoiceLines.bind(this)
             this.invoicingRestoreBuyingCost = this.invoicingRestoreBuyingCost.bind(this)
             this.invoicingSellingAmountChange = this.invoicingSellingAmountChange.bind(this)
             this.invoicingSellingAmountRequestsOfShipment = this.invoicingSellingAmountRequestsOfShipment.bind(this)
@@ -1486,6 +1487,20 @@ export namespace invoicing {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/master-jobs/${encodeURIComponent(masterJobId)}/process-split`)
             return await resp.json() as interfaces.MasterJobCostsView
+        }
+
+        /**
+         * Posts an invoice read line by line as new buying rows: each line on the shipment its B/L names, any
+         * other shared out by weight. With dryRun, only answers what it comes to.
+         */
+        public async invoicingPostInvoiceLines(params: interfaces.InvoiceLinesInput): Promise<{
+    rows: interfaces.InvoiceLinesRow[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/invoice-lines`, JSON.stringify(params))
+            return await resp.json() as {
+    rows: interfaces.InvoiceLinesRow[]
+}
         }
 
         /**
@@ -14061,6 +14076,10 @@ export namespace interfaces {
         fieldCount: number
         method: "text" | "vision"
         fileName: string
+        /**
+         * An invoice's charge rows, when it lists them
+         */
+        invoiceLines?: InvoiceLineRead[]
     }
 
     export type FailedReason = "CLOSED" | "ABSENT" | "REFUSED" | "WRONG_ADDRESS" | "REFUSED_DAMAGED" | "NO_AVIZACE" | "OTHER"
@@ -15621,6 +15640,95 @@ export namespace interfaces {
 
         createdAt: string
         updatedAt: string
+    }
+
+    /**
+     * One line of an invoice read line by line.
+     */
+    export interface InvoiceLinePost {
+        /**
+         * the charge code it is posted under
+         */
+        category: string
+
+        /**
+         * a decimal string ("399.60"); a credit is negative
+         */
+        amount: string
+
+        currency: string
+        /**
+         * the charge as the invoice prints it
+         */
+        item?: string
+
+        /**
+         * the shipment its B/L names, or the one a person chose
+         */
+        shipmentId?: string
+
+        /**
+         * otherwise: the shipments it is shared out over, by weight
+         */
+        split?: CostSplitLine[]
+    }
+
+    /**
+     * One charge row of an invoice, as read.
+     */
+    export interface InvoiceLineRead {
+        /**
+         * The B/L number on the row; empty when it names none
+         */
+        bl: string
+
+        item: string
+        /**
+         * The row's final amount as a decimal ("399.60"); a credit is negative
+         */
+        amount: string
+
+        /**
+         * The row's own currency; empty when it is the invoice's
+         */
+        currency: string
+
+        /**
+         * The charge suggested for the row; empty when none fits
+         */
+        serviceType: string
+    }
+
+    /**
+     * An invoice's lines to post as new buying rows of the shipments they belong to.
+     */
+    export interface InvoiceLinesInput {
+        invoiceNumber: string
+        vendor?: string
+        lines: InvoiceLinePost[]
+        /**
+         * post it although a row of this invoice number and charge is already on the shipment
+         */
+        allowRepeat?: boolean
+
+        /**
+         * only answer what it comes to, write nothing
+         */
+        dryRun?: boolean
+    }
+
+    /**
+     * A new buying row an invoice comes to.
+     */
+    export interface InvoiceLinesRow {
+        shipmentId: string
+        category: string
+        amount: string
+        currency: string
+        /**
+         * the shipment already has a row of this invoice number and charge: posting would count it twice
+         */
+        repeated: boolean
     }
 
     /**

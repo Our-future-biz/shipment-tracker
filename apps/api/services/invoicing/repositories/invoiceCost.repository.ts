@@ -1,9 +1,10 @@
-import { and, asc, count, desc, eq, inArray, isNotNull, isNull, ne, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, max, ne, notInArray, or, sql } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { BUSINESS_TZ } from "../../../lib/businessDate";
 import { db } from "../db/db";
 import { invoiceCostTable as t, type InvoiceCostRecord, type NewInvoiceCostRecord } from "../schemas/invoiceCost.schema";
 import type { ExpectedGroupRow, ReceivedTotalsRow } from "../lib/supplierCosts";
+import { truckingLinesLock } from "./truckingLines.repository";
 
 // Every query on a line also matches its shipment, so a line can only be written through its
 // own shipment's URL. Rows pushed by Trucking (source_trucking_ref) are kept by Trucking, and a
@@ -221,6 +222,40 @@ class InvoiceCostRepository extends TenantRepository<typeof t> {
       .where(lineOf(id, companyId, shipmentId))
       .returning({ id: t.id });
     return rows.length > 0;
+  }
+
+  /** The live rows of an invoice number on these shipments. */
+  async ofInvoiceNumber(companyId: string, shipmentIds: string[], invoiceNumber: string): Promise<Pick<InvoiceCostRecord, "shipmentId" | "category">[]> {
+    if (!shipmentIds.length) return [];
+    return this.db
+      .select({ shipmentId: t.shipmentId, category: t.category })
+      .from(t)
+      .where(and(eq(t.companyId, companyId), inArray(t.shipmentId, shipmentIds), eq(t.invoiceNumber, invoiceNumber), isNull(t.deletedAt)));
+  }
+
+  /**
+   * New buying rows of one invoice, all or none, after each shipment's own lines. Written under the
+   * shipments' trucking-lines locks, in one order so two writers can't wait on each other; `check`
+   * runs once they are held.
+   */
+  async addInvoiceRows(companyId: string, rows: Omit<NewInvoiceCostRecord, "companyId">[], check: () => Promise<void>): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      const shipmentIds = [...new Set(rows.map((r) => r.shipmentId))].sort();
+      for (const id of shipmentIds) await truckingLinesLock(tx, id);
+      await check();
+      const lasts = await tx
+        .select({ shipmentId: t.shipmentId, last: max(t.sortOrder) })
+        .from(t)
+        .where(and(eq(t.companyId, companyId), inArray(t.shipmentId, shipmentIds), isNull(t.deletedAt)))
+        .groupBy(t.shipmentId);
+      const next = new Map(lasts.map((l) => [l.shipmentId, (l.last ?? -1) + 1]));
+      const values = rows.map((row) => {
+        const sortOrder = next.get(row.shipmentId) ?? 0;
+        next.set(row.shipmentId, sortOrder + 1);
+        return { ...row, companyId, sortOrder };
+      });
+      await tx.insert(t).values(values);
+    });
   }
 
   /** The first live line of a charge code of a shipment, in the order Costs Breakdown lists them (Trucking's and master jobs' rows left out). */

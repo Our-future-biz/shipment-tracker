@@ -6,6 +6,7 @@ import { textReadingUsable } from "../lib/fields";
 import { filterExtracted, parseJsonFromResponse, parseJsonObjectFromResponse, SHIPMENT_FIELDS, BOOKING_FIELDS, INVOICE_FIELDS, QUOTE_FIELDS, CUSTOMS_FIELDS, TRACKING_FIELDS } from "../lib/fields";
 import { SHIPMENT_PROMPT, BOOKING_PROMPT, INVOICE_PROMPT, QUOTE_PROMPT, CUSTOMS_PROMPT, TRACKING_PROMPT } from "../lib/prompts";
 import { normalizeQuoteFields } from "../lib/quoteFields";
+import { withInvoiceLines } from "../lib/invoiceLines";
 import type { ExtractionResult } from "../interfaces/interfaces";
 import { canonicalizeRecords, resolveGeo } from "./places.service";
 
@@ -42,11 +43,12 @@ async function extractViaVision(
   systemPrompt: string,
   validFields: string[],
   userPrompt: string,
+  maxTokens = 2048,
 ): Promise<Record<string, string>> {
   const client = getClient();
   const response = await client.messages.create({
     model: MODEL,
-    max_tokens: 2048,
+    max_tokens: maxTokens,
     system: withFieldList(systemPrompt, validFields),
     messages: [{
       role: "user",
@@ -105,7 +107,7 @@ export async function extractFromDocument(
 ): Promise<ExtractionResult> {
   // Image files → go straight to vision
   if (isImageType(mediaType)) {
-    const extracted = await extractViaVision(fileBase64, mediaType, systemPrompt, validFields, userPrompt);
+    const extracted = await extractViaVision(fileBase64, mediaType, systemPrompt, validFields, userPrompt, maxTokens);
     return { extracted, fieldCount: Object.keys(extracted).length, method: "vision", fileName };
   }
 
@@ -123,7 +125,7 @@ export async function extractFromDocument(
     }
 
     // Fallback: send PDF as image to vision (Claude can read PDFs directly)
-    const extracted = await extractViaVision(fileBase64, mediaType, systemPrompt, validFields, userPrompt);
+    const extracted = await extractViaVision(fileBase64, mediaType, systemPrompt, validFields, userPrompt, maxTokens);
     return { extracted, fieldCount: Object.keys(extracted).length, method: "vision", fileName };
   }
 
@@ -165,11 +167,14 @@ export async function extractShipmentFromFile(fileBase64: string, fileName: stri
   );
 }
 
+const INVOICE_MAX_TOKENS = 8000;
+
 export async function extractInvoiceFromFile(fileBase64: string, fileName: string): Promise<ExtractionResult> {
   const mediaType = detectMediaType(fileName);
-  return extractFromDocument(fileBase64, fileName, mediaType, INVOICE_PROMPT, INVOICE_FIELDS, "Extract invoice/cost data from this document.", 1024, [
-    "total_amount",
-  ]);
+  // Room for an invoice's charge rows, however many it lists.
+  return withInvoiceLines(
+    await extractFromDocument(fileBase64, fileName, mediaType, INVOICE_PROMPT, INVOICE_FIELDS, "Extract invoice/cost data from this document.", INVOICE_MAX_TOKENS, ["total_amount"]),
+  );
 }
 
 export async function extractQuoteFromFile(fileBase64: string, fileName: string): Promise<ExtractionResult> {
@@ -244,7 +249,8 @@ export async function extractFromTextByDestination(text: string, destination: st
       break;
   }
 
-  const extracted = await extractViaText(text, systemPrompt, fields, userPrompt);
+  const extracted = await extractViaText(text, systemPrompt, fields, userPrompt, destination === "invoicing" ? INVOICE_MAX_TOKENS : undefined);
+  if (destination === "invoicing") return withInvoiceLines({ extracted, fieldCount: 0, method: "text", fileName: "(text input)" });
   if (destination === "quote") return asQuoteFields({ extracted, fieldCount: 0, method: "text", fileName: "(text input)" });
   if (destination !== "invoicing" && destination !== "tracking") await canonicalizeRecords([extracted]);
   return { extracted, fieldCount: Object.keys(extracted).length, method: "text", fileName: "(text input)" };

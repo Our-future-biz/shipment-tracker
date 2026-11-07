@@ -12,6 +12,7 @@ import { userEmailOf } from "../../../lib/companyUsers";
 import { constraintOf } from "../../../lib/db/errors";
 import { definedOnly, toDecimal } from "../lib/amounts";
 import { splitAmount } from "../lib/costSplit";
+import { invoiceLineProblem, invoiceRows } from "../lib/invoiceLines";
 import { invoiceCostRepository } from "../repositories/invoiceCost.repository";
 import { additionalChargeRepository } from "../repositories/additionalCharge.repository";
 import { billingSettingsRepository } from "../repositories/billingSettings.repository";
@@ -43,6 +44,8 @@ import type {
   BuyingCostInput,
   CategoryCostInput,
   CostSplitInput,
+  InvoiceLinesInput,
+  InvoiceLinesRow,
   CostSplitResultLine,
   CostsQuoteItem,
   GeneratedInvoiceItem,
@@ -498,6 +501,46 @@ class InvoicingService {
       result.push({ shipmentId: line.shipmentId, amount, existing, written: write });
     }
     return result;
+  }
+
+  /**
+   * An invoice read line by line: each line on the shipment its B/L names, any other shared out, and
+   * every shipment gets a new buying row per charge, so a second invoice never overwrites the first.
+   * The same invoice number under the same charge would count twice: said, and refused unless allowed.
+   */
+  async postInvoiceLines(companyId: string, input: InvoiceLinesInput): Promise<InvoiceLinesRow[]> {
+    const invoiceNumber = input.invoiceNumber.trim();
+    if (!invoiceNumber) throw APIError.invalidArgument("the invoice number is missing");
+    if (!input.lines.length) throw APIError.invalidArgument("the invoice has no lines");
+    for (const line of input.lines) {
+      const problem = invoiceLineProblem(line);
+      if (problem) throw APIError.invalidArgument(problem);
+      if (![line.shipmentId, ...(line.split ?? []).map((s) => s.shipmentId)].filter((id) => id !== undefined).every((id) => isUuid(id!))) {
+        throw APIError.invalidArgument("shipmentId must be a shipment id");
+      }
+    }
+    const rows = invoiceRows(input.lines);
+    const shipmentIds = [...new Set(rows.map((r) => r.shipmentId))];
+    const earlier = await invoiceCostRepository.ofInvoiceNumber(companyId, shipmentIds, invoiceNumber);
+    const already = new Set(earlier.map((r) => `${r.shipmentId} ${r.category}`));
+    const answer = rows.map(({ shipmentId, category, amount, currency }) => ({ shipmentId, category, amount, currency, repeated: already.has(`${shipmentId} ${category}`) }));
+    if (input.dryRun) return answer;
+    if (answer.some((r) => r.repeated) && !input.allowRepeat) {
+      throw APIError.failedPrecondition(`Invoice ${invoiceNumber} is already on one of these shipments under the same charge`);
+    }
+    for (const id of shipmentIds) await assertShipmentExists(id);
+    const kept = async () => {
+      for (const row of rows) await assertNotKeptByTrucking(companyId, [row.shipmentId], row.category);
+    };
+    // Checked first so nothing starts, and again under the shipments' locks: a Trucking push can't slip in between.
+    await kept();
+    const vendor = input.vendor?.trim() ?? "";
+    await invoiceCostRepository.addInvoiceRows(
+      companyId,
+      rows.map((r) => ({ shipmentId: r.shipmentId, category: r.category, description: r.description, vendor, realAmount: r.amount, realCurrency: r.currency, invoiceNumber })),
+      kept,
+    );
+    return answer;
   }
 
   // ── Selling costs ──
