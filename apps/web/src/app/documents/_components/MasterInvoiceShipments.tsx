@@ -54,6 +54,8 @@ export function MasterInvoiceShipments({
   const tickedCount = rows.filter((r) => ticked.has(r.shipmentId)).length;
   const noWm = method ? missingWm(rows, ticked, method) : [];
   const showParts = !!parts;
+  // A credit note adds a row of its own, so what a shipment has already doesn't come into it.
+  const showExisting = showParts && !!existing;
   // Totals of the ticked shipments: what the invoice is split over.
   const tickedRows = rows.filter((r) => ticked.has(r.shipmentId));
   const sum = (pick: (r: MasterInvoiceShipment) => number) =>
@@ -103,7 +105,7 @@ export function MasterInvoiceShipments({
                       Part{currency ? ` (${currency})` : ""}
                     </th>
                   )}
-                  {showParts && <th className={TH}>Real cost now</th>}
+                  {showExisting && <th className={TH}>Real cost now</th>}
                 </tr>
               </thead>
               <tbody>
@@ -138,7 +140,7 @@ export function MasterInvoiceShipments({
                           {on && part ? part : DASH}
                         </td>
                       )}
-                      {showParts && (
+                      {showExisting && (
                         <td className={td}>
                           {on && had ? (
                             <span className="flex items-center gap-2">
@@ -175,10 +177,10 @@ export function MasterInvoiceShipments({
                   </td>
                   {showParts && (
                     <td className={`${TD_TOTAL} text-right tabular-nums`}>
-                      {partsTotal > 0 ? partsTotal.toFixed(2) : DASH}
+                      {partsTotal !== 0 ? partsTotal.toFixed(2) : DASH}
                     </td>
                   )}
-                  {showParts && <td className={TD_TOTAL} />}
+                  {showExisting && <td className={TD_TOTAL} />}
                 </tr>
               </tfoot>
             </table>

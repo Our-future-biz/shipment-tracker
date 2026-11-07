@@ -15707,6 +15707,11 @@ export namespace interfaces {
         vendor?: string
         lines: InvoiceLinePost[]
         /**
+         * it credits money: its amounts are minus, and its rows say so
+         */
+        creditNote?: boolean
+
+        /**
          * post it although a row of this invoice number and charge is already on the shipment
          */
         allowRepeat?: boolean

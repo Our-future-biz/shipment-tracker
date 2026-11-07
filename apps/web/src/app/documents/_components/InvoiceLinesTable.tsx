@@ -27,7 +27,7 @@ export function InvoiceLinesTable({ lines, matches, shipments, currency, total, 
   ];
   const totals = linesTotals(lines, currency);
   const lineCents = totals.get(currency) ?? 0;
-  const off = totals.size === 1 && total > 0 && lineCents !== Math.round(total * 100);
+  const off = totals.size === 1 && total !== 0 && lineCents !== Math.round(total * 100);
   const flagged = lines.filter((l, i) => lineFlagged(l, matches[i]!)).length;
 
   return (

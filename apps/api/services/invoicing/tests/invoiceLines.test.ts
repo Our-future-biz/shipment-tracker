@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { invoiceLineProblem, invoiceRows, type InvoicePostLine } from "../lib/invoiceLines";
+import { creditNoteProblem, invoiceLineProblem, invoiceRows, type InvoicePostLine } from "../lib/invoiceLines";
 
 const A = "aaaaaaaa-0000-4000-8000-000000000001";
 const B = "aaaaaaaa-0000-4000-8000-000000000002";
@@ -76,5 +76,26 @@ describe("a line that can't be posted", () => {
     expect(invoiceLineProblem(line())).toBeNull();
     expect(invoiceLineProblem(line({ amount: "-5.00" }))).toBeNull();
     expect(invoiceLineProblem(line({ shipmentId: undefined, split: [{ shipmentId: A, weight: 1 }] }))).toBeNull();
+  });
+});
+
+describe("a credit note's rows", () => {
+  it("are minus and say they are a credit note", () => {
+    expect(invoiceRows([line({ item: "OCEAN FREIGHT", amount: "-100.00", shipmentId: A })], { creditNote: true })).toEqual([
+      { shipmentId: A, category: "ocean_freight", amount: "-100.00", currency: "USD", description: "Credit note: OCEAN FREIGHT" },
+    ]);
+    expect(invoiceRows([line({ item: "", amount: "-100.00", shipmentId: A })], { creditNote: true })[0]!.description).toBe("Credit note");
+    expect(invoiceRows([line({ item: "Credit note - overcharge", amount: "-100.00", shipmentId: A })], { creditNote: true })[0]!.description).toBe("Credit note - overcharge");
+  });
+
+  it("share a split to the cent", () => {
+    const rows = invoiceRows([line({ amount: "-100.00", shipmentId: undefined, split: [{ shipmentId: A, weight: 1 }, { shipmentId: B, weight: 2 }] })], { creditNote: true });
+    expect(rows.map((r) => r.amount)).toEqual(["-33.33", "-66.67"]);
+  });
+
+  it("must come to a deduction in every currency", () => {
+    expect(creditNoteProblem([line({ amount: "-100.00" }), line({ amount: "10.00" })])).toBeNull();
+    expect(creditNoteProblem([line({ amount: "100.00" })])).toMatch(/deducts/);
+    expect(creditNoteProblem([line({ amount: "-100.00" }), line({ amount: "5.00", currency: "EUR" })])).toMatch(/deducts/);
   });
 });

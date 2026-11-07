@@ -241,6 +241,8 @@ export interface InvoiceLinesInput {
   invoiceNumber: string;
   vendor?: string;
   lines: InvoiceLinePost[];
+  /** it credits money: its amounts are minus, and its rows say so */
+  creditNote?: boolean;
   /** post it although a row of this invoice number and charge is already on the shipment */
   allowRepeat?: boolean;
   /** only answer what it comes to, write nothing */

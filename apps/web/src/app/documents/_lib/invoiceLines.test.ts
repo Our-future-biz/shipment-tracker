@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { anyToSplit, blKey, invoicePostLines, lineFlagged, linesTotals, lineTarget, matchLine, matchNote, namesBls, SPLIT_TARGET, type BlShipment, type InvoiceLineDraft } from "./invoiceLines";
+import { anyToSplit, blKey, invoicePostLines, lineFlagged, linesTotals, lineTarget, matchLine, matchNote, namesBls, SPLIT_TARGET, type BlShipment, type InvoiceLineDraft, creditAmount, creditLines } from "./invoiceLines";
 
 const shipments: BlShipment[] = [
   { shipmentId: "s1", jobNumber: "CZ00000001", houseBol: "GLSL26060771" },
@@ -155,5 +155,30 @@ describe("what is posted", () => {
     expect(invoicePostLines([line({ category: "" })], [match], rows, ticked, null, "USD")).toBeNull();
     expect(invoicePostLines([line({ amount: "" })], [match], rows, ticked, null, "USD")).toBeNull();
     expect(invoicePostLines([], [], rows, ticked, null, "USD")).toBeNull();
+  });
+});
+
+describe("a credit note", () => {
+  const draft = (amount: string) => ({ bl: "", item: "x", amount, currency: "EUR", category: "ocean_freight" });
+
+  it("posts its total as a minus, however it is printed", () => {
+    expect(creditAmount("150")).toBe("-150.00");
+    expect(creditAmount("-150.50")).toBe("-150.50");
+    expect(creditAmount("1 234,50")).toBe("-1234.50");
+    expect(creditAmount("not a number")).toBe("not a number");
+    expect(creditAmount(undefined)).toBe("");
+  });
+
+  it("turns round lines printed plus", () => {
+    expect(creditLines([draft("100"), draft("50.5")]).map((l) => l.amount)).toEqual(["-100.00", "-50.50"]);
+  });
+
+  it("leaves lines printed minus", () => {
+    expect(creditLines([draft("-100"), draft("-50")]).map((l) => l.amount)).toEqual(["-100", "-50"]);
+  });
+
+  it("keeps a charge among the credits, so the lines still add up to the credit", () => {
+    expect(creditLines([draft("100"), draft("-10")]).map((l) => l.amount)).toEqual(["-100.00", "10.00"]);
+    expect(creditLines([draft("-100"), draft("10")]).map((l) => l.amount)).toEqual(["-100", "10"]);
   });
 });

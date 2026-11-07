@@ -41,11 +41,28 @@ export function invoiceLineProblem(line: InvoicePostLine): string | null {
   return weights.some((w) => w > 0) ? null : `${label}: no shipment to split it over`;
 }
 
+/** Why these lines are no credit note, or null: a credit note deducts, so no currency may come to more than 0. */
+export function creditNoteProblem(lines: InvoicePostLine[]): string | null {
+  const totals = new Map<string, number>();
+  for (const line of lines) {
+    const currency = line.currency.trim().toUpperCase();
+    totals.set(currency, (totals.get(currency) ?? 0) + Math.round(Number(line.amount) * 100));
+  }
+  return [...totals.values()].some((cents) => cents >= 0) ? "A credit note deducts: its amounts must come to less than 0" : null;
+}
+
+/** A buying row's description on a credit note, which the row must say as well as its minus. */
+function creditDescription(items: string[]): string {
+  const text = items.join(", ");
+  if (!text) return "Credit note";
+  return /^credit note/i.test(text) ? text : `Credit note: ${text}`;
+}
+
 /**
  * The rows the lines come to, in the order the shipments and charges first appear. A shared line
  * adds up to its amount to the cent; a row that comes to nothing (a charge and its credit) is left out.
  */
-export function invoiceRows(lines: InvoicePostLine[]): InvoicePostRow[] {
+export function invoiceRows(lines: InvoicePostLine[], opts: { creditNote?: boolean } = {}): InvoicePostRow[] {
   const rows = new Map<string, { shipmentId: string; category: string; cents: number; currency: string; items: string[] }>();
   const add = (shipmentId: string, line: InvoicePostLine, cents: number) => {
     if (cents === 0) return;
@@ -70,5 +87,5 @@ export function invoiceRows(lines: InvoicePostLine[]): InvoicePostRow[] {
   }
   return [...rows.values()]
     .filter((r) => r.cents !== 0)
-    .map((r) => ({ shipmentId: r.shipmentId, category: r.category, amount: (r.cents / 100).toFixed(2), currency: r.currency, description: r.items.join(", ") }));
+    .map((r) => ({ shipmentId: r.shipmentId, category: r.category, amount: (r.cents / 100).toFixed(2), currency: r.currency, description: opts.creditNote ? creditDescription(r.items) : r.items.join(", ") }));
 }

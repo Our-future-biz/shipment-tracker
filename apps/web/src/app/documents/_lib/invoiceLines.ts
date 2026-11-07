@@ -1,3 +1,4 @@
+import { parseMoney } from "@/lib/money";
 import type { MasterInvoiceRow, SplitMethod } from "./masterInvoice";
 import { splitLines } from "./masterInvoice";
 
@@ -108,3 +109,20 @@ export function invoicePostLines(
 /** Whether anything goes to the split, so how to split must be asked. */
 export const anyToSplit = (lines: readonly InvoiceLineDraft[], matches: readonly LineMatch[]): boolean =>
   lines.some((l, i) => lineTarget(l, matches[i]!) === SPLIT_TARGET);
+
+/** A credit note's total as it is posted: minus, however it is printed; left as it is when it is no number. */
+export function creditAmount(amount: string | undefined): string {
+  if (!amount?.trim()) return "";
+  const n = parseMoney(amount);
+  return n === null ? amount : (-Math.abs(n)).toFixed(2);
+}
+
+/**
+ * A credit note's lines as they are posted, adding up to a deduction. Documents print them plus or
+ * minus: lines that come to more than 0 are turned round, and a charge among credits stays one.
+ */
+export function creditLines(lines: readonly InvoiceLineDraft[]): InvoiceLineDraft[] {
+  const cents = lines.reduce((sum, l) => sum + Math.round((Number(l.amount) || 0) * 100), 0);
+  if (cents <= 0) return [...lines];
+  return lines.map((l) => (Number(l.amount) ? { ...l, amount: (-Number(l.amount)).toFixed(2) } : l));
+}

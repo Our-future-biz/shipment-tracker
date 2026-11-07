@@ -12,7 +12,7 @@ import { userEmailOf } from "../../../lib/companyUsers";
 import { constraintOf } from "../../../lib/db/errors";
 import { definedOnly, toDecimal } from "../lib/amounts";
 import { splitAmount } from "../lib/costSplit";
-import { invoiceLineProblem, invoiceRows } from "../lib/invoiceLines";
+import { creditNoteProblem, invoiceLineProblem, invoiceRows } from "../lib/invoiceLines";
 import { invoiceCostRepository } from "../repositories/invoiceCost.repository";
 import { additionalChargeRepository } from "../repositories/additionalCharge.repository";
 import { billingSettingsRepository } from "../repositories/billingSettings.repository";
@@ -519,7 +519,9 @@ class InvoicingService {
         throw APIError.invalidArgument("shipmentId must be a shipment id");
       }
     }
-    const rows = invoiceRows(input.lines);
+    const creditProblem = input.creditNote ? creditNoteProblem(input.lines) : null;
+    if (creditProblem) throw APIError.invalidArgument(creditProblem);
+    const rows = invoiceRows(input.lines, { creditNote: input.creditNote });
     const shipmentIds = [...new Set(rows.map((r) => r.shipmentId))];
     const earlier = await invoiceCostRepository.ofInvoiceNumber(companyId, shipmentIds, invoiceNumber);
     const already = new Set(earlier.map((r) => `${r.shipmentId} ${r.category}`));
