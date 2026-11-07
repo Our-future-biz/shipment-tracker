@@ -16,6 +16,7 @@ const selling = (id: string, partial: Partial<interfaces.SellingCostItem> = {}):
   vatCode: null,
   sortOrder: 0,
   sourceTruckingRef: null,
+  sourceMasterJobRef: null,
   ...partial,
 });
 const line = (sourceSellingCostId: string | null, description = "line") =>

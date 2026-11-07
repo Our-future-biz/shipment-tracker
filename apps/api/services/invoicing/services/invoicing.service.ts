@@ -97,6 +97,7 @@ const toSellingItem = (r: InvoiceSellingCostRecord): SellingCostItem => ({
   vatCode: r.vatCode,
   sortOrder: r.sortOrder,
   sourceTruckingRef: r.sourceTruckingRef,
+  sourceMasterJobRef: r.sourceMasterJobRef,
 });
 
 const toChargeItem = (r: InvoiceAdditionalChargeRecord): AdditionalChargeItem => ({

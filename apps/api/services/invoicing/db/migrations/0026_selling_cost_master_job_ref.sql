@@ -1,0 +1,2 @@
+ALTER TABLE "invoice_selling_cost" ADD COLUMN "source_master_job_ref" text;--> statement-breakpoint
+CREATE INDEX "invoice_selling_cost_master_job_ref_idx" ON "invoice_selling_cost" USING btree ("company_id","source_master_job_ref") WHERE source_master_job_ref IS NOT NULL;

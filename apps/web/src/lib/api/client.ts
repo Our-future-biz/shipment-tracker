@@ -16094,6 +16094,11 @@ export namespace interfaces {
          * Whether those rows are exactly the split below: when not, processing it would change them
          */
         inSync: boolean
+
+        /**
+         * Selling rows of the split that differ from it but stay as they are, being on an issued invoice
+         */
+        sellingOnInvoices: number
     }
 
     /**
@@ -18551,6 +18556,11 @@ export namespace interfaces {
          * The Trucking consignment the row was pushed from ("trucking:consignment:<id>"); null otherwise. Read-only then.
          */
         sourceTruckingRef: string | null
+
+        /**
+         * The master job's line the row sells on at cost ("master:<masterJobId>:<lineId>"); null otherwise. Read-only then.
+         */
+        sourceMasterJobRef: string | null
     }
 
     /**

@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { lineTotalCents, masterJobRef, masterJobRefPrefix, splitLine, splitRowColumns, splitRowsInSync, type SplitHouse, type SplitRowValues } from "../lib/masterJobSplit";
+import {
+  lineTotalCents,
+  masterJobRef,
+  masterJobRefPrefix,
+  planSoldAtCost,
+  soldAtCostInSync,
+  soldAtCostRows,
+  splitLine,
+  splitRowColumns,
+  splitRowsInSync,
+  type SplitHouse,
+  type SplitRowValues,
+} from "../lib/masterJobSplit";
 
 const houses: SplitHouse[] = [
   { shipmentId: "a", jobNumber: "CZ00000021", freightTon: 2 },
@@ -84,5 +96,71 @@ describe("whether the shipments carry the split", () => {
 
   it("does not when a shipment has two rows of one share", () => {
     expect(splitRowsInSync([written(), written()], [row(), row({ shipmentId: "b" })])).toBe(false);
+  });
+});
+
+describe("demurrage sold on at cost", () => {
+  const share = (over: Partial<SplitRowValues> = {}): SplitRowValues => ({
+    shipmentId: "a", category: "container_demurrage", description: "", vendor: "Cosco", estAmount: "100.00", estCurrency: "EUR", realAmount: "120.00",
+    realCurrency: "USD", invoiceNumber: "", received: false, sourceMasterJobRef: "master:m:l", lineSort: 0, ...over,
+  });
+  const wanted = (over: Partial<SplitRowValues> = {}) => soldAtCostRows([share(over)])[0]!;
+  const current = (over: Record<string, unknown> = {}) => ({ id: "s1", ...wanted(), ...over });
+
+  it("calls for the share's real cost, in its currency", () => {
+    expect(soldAtCostRows([share()])).toEqual([
+      { shipmentId: "a", category: "container_demurrage", description: "", amount: "120.00", currency: "USD", sourceMasterJobRef: "master:m:l" },
+    ]);
+  });
+
+  it("calls for the estimate while there is no real cost, in the estimate's currency", () => {
+    expect(wanted({ realAmount: null })).toMatchObject({ amount: "100.00", currency: "EUR" });
+  });
+
+  it("calls for nothing for other costs, or a share with no amount", () => {
+    expect(soldAtCostRows([share({ category: "ocean_freight" }), share({ category: "container_detention" })])).toEqual([]);
+    expect(soldAtCostRows([share({ realAmount: null, estAmount: null })])).toEqual([]);
+  });
+
+  it("adds a row a share has none of, and writes nothing once it says the same", () => {
+    expect(planSoldAtCost([], [wanted()], new Set()).add).toHaveLength(1);
+    const same = planSoldAtCost([current()], [wanted()], new Set());
+    expect(soldAtCostInSync(same)).toBe(true);
+    expect(same.onInvoices).toBe(0);
+  });
+
+  it("changes a row whose amount, currency or description moved", () => {
+    const plan = planSoldAtCost([current({ amount: "90.00" })], [wanted()], new Set());
+    expect(plan.change).toEqual([{ id: "s1", row: wanted() }]);
+    expect(planSoldAtCost([current({ currency: "EUR" })], [wanted()], new Set()).change).toHaveLength(1);
+    expect(planSoldAtCost([current({ description: "old" })], [wanted()], new Set()).change).toHaveLength(1);
+  });
+
+  it("removes a row whose share is gone", () => {
+    const plan = planSoldAtCost([current()], [], new Set());
+    expect(plan.remove).toEqual(["s1"]);
+    expect(plan.onInvoices).toBe(0);
+  });
+
+  it("leaves a row on an issued invoice as it is, and counts it, whether it changed or its share is gone", () => {
+    const changed = planSoldAtCost([current({ amount: "90.00" })], [wanted()], new Set(["s1"]));
+    expect(changed).toEqual({ add: [], change: [], remove: [], onInvoices: 1 });
+    const gone = planSoldAtCost([current()], [], new Set(["s1"]));
+    expect(gone).toEqual({ add: [], change: [], remove: [], onInvoices: 1 });
+    expect(soldAtCostInSync(gone)).toBe(true);
+    // Unchanged, nothing needs saying.
+    expect(planSoldAtCost([current()], [wanted()], new Set(["s1"])).onInvoices).toBe(0);
+  });
+
+  it("adds no second row of a share someone copied with Copy from buying", () => {
+    const plan = planSoldAtCost([], [wanted()], new Set(), new Set(["a master:m:l"]));
+    expect(plan.add).toEqual([]);
+    expect(soldAtCostInSync(plan)).toBe(true);
+  });
+
+  it("removes a second row of one share", () => {
+    const plan = planSoldAtCost([current(), current({ id: "s2" })], [wanted()], new Set());
+    expect(plan.remove).toHaveLength(1);
+    expect(plan.add).toEqual([]);
   });
 });

@@ -421,6 +421,15 @@ export function MasterJobCostsTab({ masterJob }: Props) {
               </table>
             </div>
             <div className="mt-3 flex flex-wrap items-center justify-end gap-3">
+              {splitLines.some((l) => l.category === "container_demurrage") && (
+                <span className={`${HINT} mr-auto`}>Container demurrage also goes to each shipment&apos;s selling, at the same amount.</span>
+              )}
+              {split.sellingOnInvoices > 0 && (
+                <span className="text-[12px] text-amber-700">
+                  {split.sellingOnInvoices} demurrage selling row{split.sellingOnInvoices === 1 ? " is" : "s are"} on an issued invoice and stay
+                  {split.sellingOnInvoices === 1 ? "s" : ""} as invoiced: credit the invoice to change {split.sellingOnInvoices === 1 ? "it" : "them"}.
+                </span>
+              )}
               {!split.inSync && (
                 <span className="text-[12px] text-amber-700">
                   {split.written > 0

@@ -37,12 +37,18 @@ export const invoiceSellingCostTable = pgTable(
      * set) and read-only in Costs Breakdown.
      */
     sourceTruckingRef: text("source_trucking_ref"),
+    /**
+     * The master job's line the row sells on at cost ("master:<masterJobId>:<lineId>", as on the
+     * buying share); null for any other row. Kept by the master job's split and read-only in Costs Breakdown.
+     */
+    sourceMasterJobRef: text("source_master_job_ref"),
   },
   (table) => [
     ...defaultTableIndexes("invoice_selling_cost", table),
     tenantIndex("invoice_selling_cost", table),
     index("invoice_selling_cost_shipment_id_idx").on(table.shipmentId),
     index("invoice_selling_cost_trucking_ref_idx").on(table.companyId, table.sourceTruckingRef).where(sql`source_trucking_ref IS NOT NULL`),
+    index("invoice_selling_cost_master_job_ref_idx").on(table.companyId, table.sourceMasterJobRef).where(sql`source_master_job_ref IS NOT NULL`),
     check("invoice_selling_cost_vat_code_check", sql`${table.vatCode} IN ('S21', 'Z69', 'RC', 'OUT')`),
   ],
 );

@@ -279,9 +279,9 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
   const truckingOn = canSeeConcepts;
   const { consignments: jobConsignments } = useConsignments({ shipmentId: shipment.id }, { enabled: truckingOn && truckingRefs.size > 0 });
   const tripRefs = useTripRefs(truckingOn ? tripIds : []);
-  // A master job's share of its own costs (Master Jobs → Costs Breakdown) is read-only here too,
-  // tagged with the master job and linked to it, where it changes.
-  const masterJobRows = new Set((data?.costs ?? []).filter((c) => c.sourceMasterJobRef).map((c) => c.id));
+  // A master job's share of its own costs (Master Jobs → Costs Breakdown), and the selling row of a
+  // share sold on at cost, are read-only here too, tagged with the master job and linked to it, where they change.
+  const masterJobRows = new Set([...(data?.costs ?? []), ...(data?.sellingCosts ?? [])].filter((c) => c.sourceMasterJobRef).map((c) => c.id));
   const masterJobTag = shipment.masterJobId
     ? {
         label: `Split from ${shipment.masterJobMczNumber ?? "the master job"}`,

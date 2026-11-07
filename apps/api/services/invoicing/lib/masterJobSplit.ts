@@ -11,7 +11,7 @@ export type SplitRowValues = Pick<
 > & { lineSort: number };
 
 // Split rows go after a shipment's own lines.
-const SPLIT_SORT_BASE = 100_000;
+export const SPLIT_SORT_BASE = 100_000;
 
 // The columns a split row takes from its line.
 export const SPLIT_FIELDS = [
@@ -41,6 +41,91 @@ export function splitRowsInSync(
     return !!current && splitRowUnchanged(current, row);
   });
 }
+
+// The costs a shipment sells on at what they cost: a share of one gets a selling row of the same amount.
+const SOLD_AT_COST = new Set(["container_demurrage"]);
+
+/** A selling row a share of a sold-at-cost line calls for. */
+export interface SoldAtCostRow {
+  shipmentId: string;
+  category: string;
+  description: string;
+  amount: string;
+  currency: string;
+  sourceMasterJobRef: string;
+}
+
+/** A selling row the split keeps, as it is now. */
+export type CurrentSoldAtCostRow = Omit<SoldAtCostRow, "amount" | "sourceMasterJobRef"> & {
+  id: string;
+  amount: string | null;
+  sourceMasterJobRef: string | null;
+};
+
+const soldAtCostKey = (row: { shipmentId: string; sourceMasterJobRef: string | null }) => `${row.shipmentId} ${row.sourceMasterJobRef}`;
+
+/** The selling rows these shares call for: the same amount as the share, its real cost or else its estimate. */
+export function soldAtCostRows(rows: SplitRowValues[]): SoldAtCostRow[] {
+  return rows.flatMap((row) => {
+    if (!SOLD_AT_COST.has(row.category ?? "") || !row.sourceMasterJobRef) return [];
+    const real = row.realAmount != null;
+    const amount = real ? row.realAmount : row.estAmount;
+    if (amount == null) return [];
+    return [{
+      shipmentId: row.shipmentId,
+      category: row.category!,
+      description: row.description ?? "",
+      amount,
+      currency: (real ? row.realCurrency : row.estCurrency) ?? "CZK",
+      sourceMasterJobRef: row.sourceMasterJobRef,
+    }];
+  });
+}
+
+export interface SoldAtCostPlan {
+  add: SoldAtCostRow[];
+  change: { id: string; row: SoldAtCostRow }[];
+  remove: string[];
+  /** Rows that differ from the split, or have left it, but stay: they are on an issued invoice. */
+  onInvoices: number;
+}
+
+/**
+ * What to write so the shipments sell on what the split says. A row on an issued invoice is part of
+ * a tax document and stays as it is. A share someone already copied with Copy from buying (`copied`,
+ * by shipment and ref) gets no second row, or the shipment would bill it twice.
+ */
+export function planSoldAtCost(current: CurrentSoldAtCostRow[], wanted: SoldAtCostRow[], invoiced: Set<string>, copied: Set<string> = new Set()): SoldAtCostPlan {
+  const plan: SoldAtCostPlan = { add: [], change: [], remove: [], onInvoices: 0 };
+  const byKey = new Map(current.map((r) => [soldAtCostKey(r), r]));
+  const wantedKeys = new Set(wanted.map(soldAtCostKey));
+  for (const row of wanted) {
+    const existing = byKey.get(soldAtCostKey(row));
+    if (!existing) {
+      if (!copied.has(soldAtCostKey(row))) plan.add.push(row);
+      continue;
+    }
+    const same = existing.amount === row.amount && existing.currency === row.currency && existing.category === row.category && existing.description === row.description;
+    if (same) continue;
+    if (invoiced.has(existing.id)) plan.onInvoices += 1;
+    else plan.change.push({ id: existing.id, row });
+  }
+  const seen = new Set<string>();
+  for (const row of current) {
+    const key = soldAtCostKey(row);
+    // A second row of one share (none should exist) goes the way of a row that left the split.
+    if (wantedKeys.has(key) && !seen.has(key) && byKey.get(key)?.id === row.id) {
+      seen.add(key);
+      continue;
+    }
+    if (invoiced.has(row.id)) plan.onInvoices += 1;
+    else plan.remove.push(row.id);
+  }
+  return plan;
+}
+
+/** Whether the plan writes nothing. */
+export const soldAtCostInSync = (plan: SoldAtCostPlan) => plan.add.length === 0 && plan.change.length === 0 && plan.remove.length === 0;
 
 /** A shipment of the master job and its freight tons (W/M: the greater of tons and cbm). */
 export interface SplitHouse {
