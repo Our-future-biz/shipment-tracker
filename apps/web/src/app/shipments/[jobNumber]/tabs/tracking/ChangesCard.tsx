@@ -7,6 +7,7 @@ import { businessDateTime, formatDate } from "@/lib/date";
 import { EMPTY, EMPTY_STATE, HINT, TD, TH } from "@/styles/ui";
 import { personOrSystem } from "./RecordedBy";
 import { movedDaysLabel } from "./trackingText";
+import { DATE_TEXT, MAIN_TEXT, TABLE, TABLE_BOX, TBODY, TROW } from "./trackingUi";
 
 function Value({ change, value }: { change: TrackingChange; value: string | null }) {
   if (!value) return <span className={EMPTY}>—</span>;
@@ -20,36 +21,37 @@ export function ChangesCard({ changes, capped }: { changes: readonly TrackingCha
       {changes.length === 0 ? (
         <p className={EMPTY_STATE}>No changes logged yet</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse [&_td:first-child]:!pl-4 [&_th:first-child]:!pl-4">
+        <div className={TABLE_BOX}>
+          <table className={`${TABLE} min-w-[760px]`}>
             <thead>
               <tr>
-                <th className={TH}>When</th>
-                <th className={TH}>What</th>
-                <th className={TH}>From</th>
-                <th className={TH}>To</th>
-                <th className={TH}>Moved</th>
-                <th className={TH}>Who</th>
+                <th scope="col" className={`${TH} w-[150px]`}>When</th>
+                {/* From and To share what is left, so a long port name has room */}
+                <th scope="col" className={`${TH} w-[170px]`}>What</th>
+                <th scope="col" className={TH}>From</th>
+                <th scope="col" className={TH}>To</th>
+                <th scope="col" className={`${TH} w-[96px]`}>Moved</th>
+                <th scope="col" className={`${TH} w-[200px]`}>Who</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className={TBODY}>
               {changes.map((c) => (
-                <tr key={c.id}>
-                  <td className={`${TD} tabular-nums whitespace-nowrap`}>{businessDateTime(c.at)}</td>
-                  <td className={`${TD} whitespace-nowrap font-medium text-slate-900`}>{c.label}</td>
-                  <td className={`${TD} tabular-nums whitespace-nowrap`}><Value change={c} value={c.oldValue} /></td>
-                  <td className={`${TD} tabular-nums whitespace-nowrap`}><Value change={c} value={c.newValue} /></td>
-                  <td className={TD}>
+                <tr key={c.id} className={TROW}>
+                  <td className={`${TD} ${DATE_TEXT}`}>{businessDateTime(c.at)}</td>
+                  <td className={`${TD} ${MAIN_TEXT}`}>{c.label}</td>
+                  <td className={`${TD} tabular-nums ${c.isDate ? "whitespace-nowrap" : "break-words"}`}><Value change={c} value={c.oldValue} /></td>
+                  <td className={`${TD} tabular-nums ${c.isDate ? "whitespace-nowrap" : "break-words"}`}><Value change={c} value={c.newValue} /></td>
+                  <td className={`${TD} whitespace-nowrap`}>
                     {c.movedDays ? <Pill tone={c.movedDays > 0 ? "amber" : "slate"}>{movedDaysLabel(c.movedDays)}</Pill> : <span className={EMPTY}>—</span>}
                   </td>
-                  <td className={TD}>{personOrSystem(c.by)}</td>
+                  <td className={`${TD} truncate`}>{personOrSystem(c.by)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
-      {capped && <p className={`${HINT} m-0 px-4 py-2`}>Showing the newest {changes.length} changes.</p>}
+      {capped && <p className={`${HINT} m-0 px-6 pb-4 -mt-1`}>Showing the newest {changes.length} changes.</p>}
     </SectionCard>
   );
 }

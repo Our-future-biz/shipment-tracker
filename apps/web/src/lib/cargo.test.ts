@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  shipmentDeclaredFigures,
   piecesOf,
   perPieceText,
   totalText,
@@ -129,6 +130,19 @@ describe("compareFigure / checkConsistency", () => {
     const line = { pieces: "3", lengthCm: "100", widthCm: "100", heightCm: "100", weightPerPcKg: "33.333", packageType: "", stackable: "" };
     const c = { containerNumber: "", sealNumber: "", type: "", teu: "", packages: "3", packageType: "", grossWeight: "100", volume: "3" };
     expect(checkConsistency(c, [line]).matched).toBe(true);
+  });
+});
+
+describe("shipmentDeclaredFigures", () => {
+  it("reads Pcs with thousands separators as the server does, and tons as kg", () => {
+    expect(shipmentDeclaredFigures({ pcs: "1,200", totalWeightTons: "2.345", totalVolumeCbm: "14.5" })).toEqual({ packages: "1200", grossWeight: "2345", volume: "14.5" });
+  });
+  it("leaves what the shipment doesn't declare empty", () => {
+    expect(shipmentDeclaredFigures({ pcs: null, totalWeightTons: "", totalVolumeCbm: null })).toEqual({ packages: "", grossWeight: "", volume: "" });
+  });
+  it("checks a container-less shipment's lines as a container's", () => {
+    const line = { pieces: "1200", lengthCm: "10", widthCm: "10", heightCm: "10", weightPerPcKg: "2", packageType: "", stackable: "" };
+    expect(checkConsistency(shipmentDeclaredFigures({ pcs: "1,200", totalWeightTons: "2.4", totalVolumeCbm: "1.2" }), [line]).matched).toBe(true);
   });
 });
 

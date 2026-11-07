@@ -8,7 +8,7 @@ import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
 import { SHIPMENT_WRITE_KEY, type ShipmentItem } from "@/hooks/useShipments";
 import { useIsMutating } from "@tanstack/react-query";
 import { ConfirmModal } from "@/components/ConfirmModal";
-import { CARD, EMPTY, EMPTY_STATE, LABEL_TEXT, REF } from "@/styles/ui";
+import { ADD_BTN, CARD, EMPTY, EMPTY_STATE, LABEL_TEXT, REF } from "@/styles/ui";
 import { uuid } from "@/lib/uuid";
 import { containerCheckDigitOk, containerNumberInput, isValidContainerNumber, normalizeContainerNumber } from "@/lib/container";
 import {
@@ -356,7 +356,7 @@ export function ContainerDetailsTab({
               icon={<PlusOutlined className="text-[11px]" />}
               aria-label="Add container"
               onClick={add}
-              className="!absolute top-3 right-[31px] z-10 !w-[22px] !h-[22px] !min-w-0 !p-0"
+              className={`${ADD_BTN} !absolute top-3 right-[31px] z-10`}
             />
           </Tooltip>
         )}

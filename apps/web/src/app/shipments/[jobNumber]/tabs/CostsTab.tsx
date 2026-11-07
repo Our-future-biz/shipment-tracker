@@ -38,6 +38,7 @@ import {
   EMPTY,
   HINT,
   ICON_BTN_GHOST,
+  ICON_BTN_DANGER,
   LABEL_TEXT,
   LINK,
   REF,
@@ -159,7 +160,7 @@ const FOOT_UNIT = `px-[6px] py-2 ${FOOT_LINE} ${HINT}`;
 const ROW_FOCUS = "focus-visible:outline-2 focus-visible:outline-solid focus-visible:-outline-offset-2 focus-visible:outline-indigo-500";
 /** A row's Duplicate / Delete. */
 const ROW_BTN = ICON_BTN_GHOST;
-const ROW_DELETE_BTN = `${ICON_BTN_GHOST} hover:!bg-red-50 hover:!text-red-600`;
+const ROW_DELETE_BTN = ICON_BTN_DANGER;
 /** "No … costs yet — add the first one": a link-like button. */
 const ADD_FIRST_BTN = `${LINK} text-[13px] font-semibold border-0 bg-transparent cursor-pointer disabled:opacity-50`;
 /** A report cell: TD with its figure on the right; the colour goes on the figure's own span. */

@@ -1,39 +1,7 @@
-import type { ShipmentItem } from "@/hooks/useShipments";
-import type { TrackingMilestone, TrackingTaxDate } from "@/hooks/useShipmentTracking";
+import type { TrackingTaxDate } from "@/hooks/useShipmentTracking";
 import { formatDate } from "@/lib/date";
-import { shipmentEmailSubject } from "../../../_lib/shipmentEmail";
 
 // The Tracking tab's sentences. Pure, so they are unit-tested.
-
-const SEPARATOR = " · ";
-const CONTAINERS_NAMED = 3;
-
-/** The one line to read out on the phone or paste into a message. */
-export function trackingStatusLine(shipment: ShipmentItem, milestones: readonly TrackingMilestone[]): string {
-  const row = (key: string) => milestones.find((m) => m.key === key);
-  const dated = (actualName: string, plannedName: string, m: TrackingMilestone | undefined) => {
-    if (m?.actual) return `${actualName} ${formatDate(m.actual)}`;
-    if (!m?.planned) return "";
-    return `${plannedName} ${formatDate(m.planned)}${m.wasPlanned ? ` (was ${formatDate(m.wasPlanned)})` : ""}`;
-  };
-
-  const containers = (shipment.containers ?? []).map((c) => c.containerNumber).filter(Boolean);
-  const named = containers.slice(0, CONTAINERS_NAMED).join(", ");
-  const more = containers.length > CONTAINERS_NAMED ? ` +${containers.length - CONTAINERS_NAMED}` : "";
-  const last = [...milestones].filter((m) => m.actual).reduce<TrackingMilestone | null>((latest, m) => (!latest || m.actual! >= latest.actual! ? m : latest), null);
-
-  return [
-    shipmentEmailSubject(shipment),
-    [shipment.freightMode, shipment.tradeDirection].filter(Boolean).join(" "),
-    named && `${named}${more}`,
-    [shipment.pol, shipment.pod].filter(Boolean).join(" → "),
-    dated("ATD", "ETD", row("departed")),
-    dated("ATA", "ETA", row("arrived")),
-    last ? `last: ${last.label} ${formatDate(last.actual)}` : "",
-  ]
-    .filter(Boolean)
-    .join(SEPARATOR);
-}
 
 /** "ETA moved 7 days later", as a mark. */
 export const movedDaysLabel = (days: number): string => `${days > 0 ? "+" : "−"}${Math.abs(days)} d`;

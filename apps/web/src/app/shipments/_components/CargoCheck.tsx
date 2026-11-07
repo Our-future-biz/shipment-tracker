@@ -8,18 +8,22 @@ import { fmtFixed, type FigureCheck } from "@/lib/cargo";
 // as the invoice value in Cargo Details, which nothing declares).
 export const CHECK_PILL_CLASS = "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs ring-1 ring-inset tabular-nums whitespace-nowrap cursor-default";
 
+export type CheckAgainst = "Container" | "Shipment" | "No container";
+
 interface CheckPillProps {
   label: string;
   m: FigureCheck;
   decimals: number;
   unit?: string;
+  /** What declares the figure, for the hover text: a container, a shipment with none, or nothing (lines outside the containers). */
+  against?: CheckAgainst;
 }
 
 /** One figure: what the lines add up to / what the container declares - green when they
  * agree, red when not (also lines with a figure the container does not declare, as the tab's
  * Matched / Mismatch dot counts it), grey when neither has one. Hovering says which number is
  * which ("Lines: 11 · Container: 11"). */
-export function CheckPill({ label, m, decimals, unit = "" }: CheckPillProps) {
+export function CheckPill({ label, m, decimals, unit = "", against = "Container" }: CheckPillProps) {
   const declared = !!m.declared;
   const tone = m.empty
     ? "bg-slate-50 text-slate-500 ring-slate-200"
@@ -27,7 +31,7 @@ export function CheckPill({ label, m, decimals, unit = "" }: CheckPillProps) {
       ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
       : "bg-red-50 text-red-700 ring-red-200";
   const u = unit ? ` ${unit}` : "";
-  const explain = `Lines: ${fmtFixed(m.sum, decimals)}${u} · Container: ${declared ? `${fmtFixed(m.declared, decimals)}${u}` : "not declared"}`;
+  const explain = `Lines: ${fmtFixed(m.sum, decimals)}${u} · ${against}: ${declared ? `${fmtFixed(m.declared, decimals)}${u}` : "not declared"}`;
   return (
     <Tooltip title={explain}>
       <span className={`${CHECK_PILL_CLASS} ${tone}`}>

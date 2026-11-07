@@ -6,7 +6,8 @@ import { Pill } from "@/components/Pill";
 import { useTrackingActions, type TrackingEventItem } from "@/hooks/useShipmentTracking";
 import { apiErrorMessage } from "@/lib/api";
 import { businessDateTime, formatDate } from "@/lib/date";
-import { BTN_GHOST, BTN_PRIMARY, BTN_SM, EMPTY_STATE, HINT, REF, TD, TH } from "@/styles/ui";
+import { BTN_BAR, BTN_BAR_PRIMARY, EMPTY_STATE, HINT, REF, TD, TH } from "@/styles/ui";
+import { CELL_LINE, DATE_TEXT, MAIN_TEXT, TABLE, TABLE_BOX, TBODY, TROW } from "./trackingUi";
 import { personOrSystem } from "./RecordedBy";
 import { ReasonModal } from "./ReasonModal";
 
@@ -32,34 +33,38 @@ export function EventsCard({ shipmentId, events, mayChangeDetails, mayRecord, co
   return (
     <SectionCard title="Events" extra={<CountChip count={shown.length} />} bodyClassName="p-0">
       {containers.length > 1 && (
-        <div className="px-4 pt-3">
+        <div className="px-6 pt-4">
           <PillTabs tabs={[{ key: "", label: "All containers" }, ...containers.map((c) => ({ key: c, label: c }))]} active={container} onChange={setContainer} />
         </div>
       )}
       {shown.length === 0 ? (
         <p className={EMPTY_STATE}>No events yet. The Gate Log, Trucking and what people record land here.</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse [&_td:first-child]:!pl-4 [&_th:first-child]:!pl-4">
+        // Under the container tabs the table keeps a shorter gap, so the tabs read as its filter.
+        <div className={`${TABLE_BOX} ${containers.length > 1 ? "pt-3" : ""}`}>
+          <table className={`${TABLE} min-w-[1000px]`}>
             <thead>
               <tr>
-                <th className={TH}>When</th>
-                <th className={TH}>Event</th>
-                <th className={TH}>Where</th>
-                <th className={TH}>Note</th>
-                <th className={TH}>Recorded</th>
-                <th className={TH} aria-label="Actions" />
+                <th scope="col" className={`${TH} w-[150px]`}>When</th>
+                <th scope="col" className={TH}>Event</th>
+                <th scope="col" className={`${TH} w-[140px]`}>Where</th>
+                <th scope="col" className={`${TH} w-[14%]`}>Note</th>
+                {/* cut with "…" (the whole of it in its title), so the Event keeps the room it needs */}
+                <th scope="col" className={`${TH} w-[240px]`}>Recorded</th>
+                <th scope="col" className={`${TH} w-[170px]`}>
+                  <span className="sr-only">Actions</span>
+                </th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className={TBODY}>
               {shown.map((e) => (
-                <tr key={e.id}>
-                  <td className={`${TD} tabular-nums whitespace-nowrap`}>
+                <tr key={e.id} className={TROW}>
+                  <td className={`${TD} ${DATE_TEXT}`}>
                     {formatDate(e.occurredOn)}
                     {e.occurredTime && ` ${e.occurredTime}`}
                   </td>
                   <td className={TD}>
-                    <span className="font-medium text-slate-900">{e.label}</span>
+                    <span className={MAIN_TEXT}>{e.label}</span>
                     {e.effect === "proposed" && <Pill tone="indigo" className="ml-2">Sets the {e.sets} once confirmed</Pill>}
                     {e.resolvedAt && <Pill tone="slate" className="ml-2">Closed</Pill>}
                   </td>
@@ -70,17 +75,20 @@ export function EventsCard({ shipmentId, events, mayChangeDetails, mayRecord, co
                   </td>
                   <td className={TD}>{e.note}</td>
                   <td className={TD}>
-                    <span className={HINT}>{[e.source, e.by || (e.source ? "" : personOrSystem("")), businessDateTime(e.recordedAt)].filter(Boolean).join(" · ")}</span>
+                    {(() => {
+                      const text = [e.source, e.by || (e.source ? "" : personOrSystem("")), businessDateTime(e.recordedAt)].filter(Boolean).join(" · ");
+                      return <span className={CELL_LINE} title={text}>{text}</span>;
+                    })()}
                   </td>
                   <td className={`${TD} whitespace-nowrap text-right`}>
                     {e.effect === "proposed" && mayChangeDetails && (
                       <span className="inline-flex gap-1">
-                        <button type="button" disabled={busy} onClick={() => confirm.mutate(e.id)} className={`${BTN_PRIMARY} ${BTN_SM}`}>Confirm</button>
-                        <button type="button" disabled={busy} onClick={() => dismiss.mutate(e.id)} className={`${BTN_GHOST} ${BTN_SM}`}>Dismiss</button>
+                        <button type="button" disabled={busy} onClick={() => confirm.mutate(e.id)} className={`${BTN_BAR_PRIMARY}`}>Confirm</button>
+                        <button type="button" disabled={busy} onClick={() => dismiss.mutate(e.id)} className={`${BTN_BAR}`}>Dismiss</button>
                       </span>
                     )}
                     {e.strikeable && e.effect !== "proposed" && mayRecord(e.kind) && (
-                      <button type="button" onClick={() => setStriking(e)} className={`${BTN_GHOST} ${BTN_SM}`}>Strike</button>
+                      <button type="button" onClick={() => setStriking(e)} className={`${BTN_BAR}`}>Strike</button>
                     )}
                   </td>
                 </tr>

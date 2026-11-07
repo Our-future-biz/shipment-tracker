@@ -89,12 +89,21 @@ export const BTN_DANGER = `${BTN_BASE} border border-transparent bg-red-600 text
 export const BTN_GHOST = `${BTN_BASE} border border-transparent bg-transparent text-slate-700 hover:bg-slate-100 hover:text-slate-900`;
 /** The smaller size of any button above: add after it. */
 export const BTN_SM = "!h-7 !px-2.5 !text-[12px]";
+/** A button in a card's title bar (Add row, Tell the customer, Close…): BTN, small, lifted. */
+export const BTN_BAR = `${BTN} ${BTN_SM} shadow-sm`;
+/** The card's main action in its title bar (Save, Record an event, Confirm): BTN_PRIMARY, small. */
+export const BTN_BAR_PRIMARY = `${BTN_PRIMARY} ${BTN_SM} !text-white hover:!text-white shadow-sm`;
+/** The small square "+" that adds a row to a table or a card: on antd's `<Button size="small" type="primary">`. */
+export const ADD_BTN = "!w-[22px] !h-[22px] !min-w-0 !p-0";
 /** A square icon-only button. */
 export const ICON_BTN =
   "inline-flex items-center justify-center shrink-0 w-8 h-8 rounded-lg border border-slate-300 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-900 transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-1";
 /** An icon-only button with no frame (a row's action). */
 export const ICON_BTN_GHOST =
   "inline-flex items-center justify-center shrink-0 w-7 h-7 rounded-md border-0 bg-transparent text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500";
+
+/** A row's delete: ICON_BTN_GHOST turning red on hover. */
+export const ICON_BTN_DANGER = `${ICON_BTN_GHOST} hover:!bg-red-50 hover:!text-red-600`;
 
 /** A chip that switches on and off (a filter among several): PillTabs' shape. Add CHIP_ON when on. */
 export const CHIP =
