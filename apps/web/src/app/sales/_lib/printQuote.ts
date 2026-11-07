@@ -265,8 +265,6 @@ export function quoteDocument(
       <div><span>Cargo ready</span>${esc(cargoReady) || "—"}</div>
       <div><span>POL</span>${esc(data.pol) || "—"}</div>
       <div><span>POD</span>${esc(data.pod) || "—"}</div>
-      <div><span>Pickup Address</span>${esc(data.pickup) || "—"}</div>
-      <div><span>Delivery Address</span>${esc(data.delivery) || "—"}</div>
     </div>
 
     <h2>Cargo</h2>

@@ -16,4 +16,16 @@ describe("quoteDocument", () => {
     expect(quoteDocument("Q1", { salesOwner: "Austromar" }, exchange, company, { users: [], isLoading: true }).blocked).not.toBe(LOADING);
     expect(quoteDocument("Q1", { salesOwner: "lukas@ourfuture.biz" }, exchange, company, { users: [], isLoading: false }).blocked).not.toBe(LOADING);
   });
+
+  it("names the route's places but not the pickup and delivery addresses", () => {
+    const { html } = quoteDocument(
+      "Q1",
+      { origin: "Hamburg (USHG7)", destination: "Lincoln Park, Chicago (USLPD)", pol: "Bremerhaven (DEBRV)", pod: "Chicago (USCHI)", pickup: "Alza, V jame, Praha", delivery: "Dock 9, Chicago" },
+      exchange,
+      company,
+      { users: [], isLoading: false },
+    );
+    for (const place of ["Hamburg (USHG7)", "Lincoln Park, Chicago (USLPD)", "Bremerhaven (DEBRV)", "Chicago (USCHI)"]) expect(html).toContain(place);
+    for (const gone of ["Pickup Address", "Delivery Address", "Alza, V jame", "Dock 9"]) expect(html).not.toContain(gone);
+  });
 });
