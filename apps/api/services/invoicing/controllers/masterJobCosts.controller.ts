@@ -1,7 +1,7 @@
 import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import { masterJobCostService } from "../services/masterJobCost.service";
-import type { MasterJobCostInput, MasterJobCostsView } from "../interfaces/interfaces";
+import type { MasterJobCostInput, MasterJobCostsView, MasterJobCostUpdate } from "../interfaces/interfaces";
 
 // A master job's Costs Breakdown: buying lines shared out over its shipments. Every write answers
 // with the whole view, the shares as they now stand in the shipments.
@@ -25,7 +25,7 @@ export const invoicingMasterJobCostAdd = api(
     masterJobCostService.add(getAuthData()!.companyID, masterJobId, input),
 );
 
-interface UpdateMasterJobCostRequest extends MasterJobCostInput {
+interface UpdateMasterJobCostRequest extends MasterJobCostUpdate {
   masterJobId: string;
   costId: string;
 }

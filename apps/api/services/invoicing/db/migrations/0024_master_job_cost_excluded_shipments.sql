@@ -1,0 +1,1 @@
+ALTER TABLE "master_job_cost" ADD COLUMN "excluded_shipment_ids" text[] DEFAULT '{}'::text[] NOT NULL;

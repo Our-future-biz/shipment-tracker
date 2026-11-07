@@ -626,6 +626,8 @@ export interface MasterJobCostItem {
   received: boolean;
   /** "wm": by each shipment's freight tons; "shipment": the same part for each */
   splitMethod: MasterJobSplitMethod;
+  /** The shipments taken out of this line's split: the line is shared out over the others */
+  excludedShipmentIds: string[];
   sortOrder: number;
 }
 
@@ -677,6 +679,11 @@ export interface MasterJobCostInput {
   received?: boolean;
   splitMethod?: MasterJobSplitMethod;
   sortOrder?: number;
+}
+
+export interface MasterJobCostUpdate extends MasterJobCostInput {
+  /** The shipments to leave out of this line's split, all of them: at least one shipment stays in */
+  excludedShipmentIds?: string[];
 }
 
 /**

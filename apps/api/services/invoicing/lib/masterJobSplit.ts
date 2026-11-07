@@ -16,6 +16,8 @@ export interface SplitLineInput {
   estAmount: string | null;
   realQty: string | null;
   realAmount: string | null;
+  /** The shipments taken out of this line's split. */
+  excludedShipmentIds?: string[];
 }
 
 /** One shipment's part of a line: the estimated and the real total, or null where the line has none. */
@@ -43,18 +45,25 @@ export function splitWeights(method: MasterJobSplitMethod, houses: SplitHouse[])
   return houses.map((h) => (method === "shipment" ? 1 : Math.max(0, Number.isFinite(h.freightTon) ? h.freightTon : 0)));
 }
 
+/** The shipments a line is shared out over: the master job's, without those taken out of its split. */
+export function housesInSplit(line: Pick<SplitLineInput, "excludedShipmentIds">, houses: SplitHouse[]): SplitHouse[] {
+  const out = new Set(line.excludedShipmentIds ?? []);
+  return houses.filter((h) => !out.has(h.shipmentId));
+}
+
 /**
- * Each shipment's part of a line, adding up to the line's total to the cent. A shipment that
- * weighs nothing (W/M 0 under a W/M split) gets no part; with nothing to split by - no shipments,
- * or none with a W/M - nobody does.
+ * Each shipment's part of a line, adding up to the line's total to the cent. A shipment taken out
+ * of the line's split, or that weighs nothing (W/M 0 under a W/M split), gets no part; with nothing
+ * to split by - no shipments, or none with a W/M - nobody does.
  */
 export function splitLine(line: SplitLineInput, houses: SplitHouse[]): SplitShare[] {
-  const weights = splitWeights(line.splitMethod, houses);
+  const inSplit = housesInSplit(line, houses);
+  const weights = splitWeights(line.splitMethod, inSplit);
   if (!weights.some((w) => w > 0)) return [];
   const parts = (cents: number | null) => (cents == null ? null : splitCents(cents, weights));
   const est = parts(lineTotalCents(line.estAmount, line.estQty));
   const real = parts(lineTotalCents(line.realAmount, line.realQty));
-  return houses.flatMap((h, i) =>
+  return inSplit.flatMap((h, i) =>
     weights[i]! > 0
       ? [{ shipmentId: h.shipmentId, est: est ? (est[i]! / 100).toFixed(2) : null, real: real ? (real[i]! / 100).toFixed(2) : null }]
       : [],

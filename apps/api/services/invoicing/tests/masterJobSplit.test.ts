@@ -28,6 +28,16 @@ describe("master job cost split", () => {
     expect(shares.every((s) => s.est === null)).toBe(true);
   });
 
+  it("shares a line over the shipments left in its split only, to the cent", () => {
+    const byWm = splitLine({ splitMethod: "wm", estQty: null, estAmount: null, realQty: null, realAmount: "100.00", excludedShipmentIds: ["a"] }, houses);
+    expect(byWm).toEqual([{ shipmentId: "b", est: null, real: "100.00" }]);
+    const each = splitLine({ splitMethod: "shipment", estQty: null, estAmount: null, realQty: null, realAmount: "100.00", excludedShipmentIds: ["b"] }, houses);
+    expect(each).toEqual([
+      { shipmentId: "a", est: null, real: "50.00" },
+      { shipmentId: "c", est: null, real: "50.00" },
+    ]);
+  });
+
   it("splits nothing when there is nothing to split by", () => {
     expect(splitLine({ splitMethod: "wm", estQty: null, estAmount: "10", realQty: null, realAmount: null }, [houses[2]!])).toEqual([]);
     expect(splitLine({ splitMethod: "shipment", estQty: null, estAmount: "10", realQty: null, realAmount: null }, [])).toEqual([]);

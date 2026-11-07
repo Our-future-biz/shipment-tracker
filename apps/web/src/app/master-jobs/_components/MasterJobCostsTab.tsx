@@ -24,6 +24,7 @@ const costsKey = (masterJobId: string) => ["master-jobs", masterJobId, "costs"] 
 
 // The line between the estimate and the real cost.
 const SPLIT_LINE = "border-l border-l-slate-200";
+const SPLIT_WARNING = "mb-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-800";
 const CURRENCY_OPTIONS = CURRENCIES.map(({ code }) => ({ value: code, label: code }));
 const SPLIT_OPTIONS = [
   { value: "wm", label: "W/M" },
@@ -109,6 +110,11 @@ export function MasterJobCostsTab({ masterJob }: Props) {
   const saveText = (line: Line, field: "description" | "vendor" | "invoiceNumber", text: string) => {
     if (text.trim() !== line[field]) save(line, { [field]: text.trim() });
   };
+  // A shipment in or out of a line's split: the other shipments share the line out between them.
+  const saveInSplit = (line: Line, shipmentId: string, inSplit: boolean) =>
+    save(line, {
+      excludedShipmentIds: inSplit ? line.excludedShipmentIds.filter((id) => id !== shipmentId) : [...line.excludedShipmentIds, shipmentId],
+    });
 
   if (isError) return <div className="py-10 text-center text-sm text-red-600">The master job&apos;s costs could not be loaded.</div>;
   if (isLoading || !data) {
@@ -121,9 +127,12 @@ export function MasterJobCostsTab({ masterJob }: Props) {
 
   const { lines, houses, shares } = data;
   const shareOf = (lineId: string, shipmentId: string) => shares.find((s) => s.lineId === lineId && s.shipmentId === shipmentId);
-  const noWm = houses.filter((h) => !(h.freightTon > 0));
+  const housesInLine = (l: Line) => houses.filter((h) => !l.excludedShipmentIds.includes(h.shipmentId));
+  // Only a shipment still in a W/M line's split is missing a share by having no W/M.
+  const noWm = houses.filter((h) => !(h.freightTon > 0) && lines.some((l) => l.splitMethod === "wm" && !l.excludedShipmentIds.includes(h.shipmentId)));
   const totalWm = houses.reduce((sum, h) => sum + h.freightTon, 0);
-  const anyWm = lines.some((l) => l.splitMethod === "wm");
+  // Every shipment still in the line's split unlinked since: its cost lands on nobody.
+  const nobodyCarries = lines.filter((l) => houses.length > 0 && housesInLine(l).length === 0);
   const busy = add.isPending || update.isPending || remove.isPending;
   // Each line and the whole master job against their estimates, worked out on the server at today's ČNB rates.
   const { vsEstimate, totalVsEstimate: totalVs } = data;
@@ -260,8 +269,8 @@ export function MasterJobCostsTab({ masterJob }: Props) {
           <p className={`m-0 ${HINT}`}>No shipments are linked yet - the costs are split once there are some (MBL Details → Linked shipments).</p>
         ) : (
           <>
-            {anyWm && noWm.length > 0 && (
-              <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-800">
+            {noWm.length > 0 && (
+              <div className={SPLIT_WARNING}>
                 <WarningOutlined className="mt-0.5" />
                 <span>
                   {noWm.map((h) => h.jobNumber).join(", ")} {noWm.length === 1 ? "has" : "have"} no weight or volume, so{" "}
@@ -270,6 +279,16 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                 </span>
               </div>
             )}
+            {nobodyCarries.length > 0 && (
+              <div className={SPLIT_WARNING}>
+                <WarningOutlined className="mt-0.5" />
+                <span>
+                  {nobodyCarries.map((l) => (l.category ? chargeLabel(l.category) : "A cost")).join(", ")}: no shipment carries this cost. Tick a shipment to
+                  include it.
+                </span>
+              </div>
+            )}
+            <p className={`mt-0 mb-3 ${HINT}`}>Untick a shipment to take it out of a line&apos;s split: the ticked shipments share the whole line.</p>
             <div className="overflow-x-auto">
               <table className="w-full border-collapse">
                 <thead>
@@ -299,10 +318,25 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                         const s = shareOf(l.id, h.shipmentId);
                         const real = s?.real != null ? `${amountOf(Number(s.real))} ${l.realCurrency}` : null;
                         const est = s?.est != null ? `${amountOf(Number(s.est))} ${l.estCurrency}` : null;
+                        const inSplit = !l.excludedShipmentIds.includes(h.shipmentId);
+                        // The last shipment stays in: the line's cost has to land somewhere.
+                        const last = inSplit && housesInLine(l).length === 1;
                         return (
                           <td key={l.id} className={`${TD} text-right tabular-nums`}>
-                            {real ?? est ?? EMPTY_CELL}
-                            {real && est && <span className="block text-[11px] text-slate-400">est. {est}</span>}
+                            <div className="flex items-start justify-end gap-3">
+                              <Tooltip title={last ? "At least one shipment stays in the split" : undefined}>
+                                <Checkbox
+                                  checked={inSplit}
+                                  disabled={busy || last}
+                                  onChange={(e) => saveInSplit(l, h.shipmentId, e.target.checked)}
+                                  aria-label={`${h.jobNumber} in the split of ${l.category ? chargeLabel(l.category) : "this cost"}`}
+                                />
+                              </Tooltip>
+                              <div className="min-w-[110px]">
+                                {real ?? est ?? EMPTY_CELL}
+                                {real && est && <span className="block text-[11px] text-slate-400">est. {est}</span>}
+                              </div>
+                            </div>
                           </td>
                         );
                       })}
@@ -323,14 +357,22 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                       const est = lineTotal(l.estAmount, l.estQty);
                       const total = real ?? est;
                       const currency = real != null ? l.realCurrency : l.estCurrency;
+                      const inLine = housesInLine(l);
+                      const lineWm = inLine.reduce((sum, h) => sum + h.freightTon, 0);
+                      const byWm = l.splitMethod === "wm";
                       return (
                         <td key={l.id} className={`${TD_TOTAL} text-right tabular-nums`}>
                           {total != null ? `${amountOf(total)} ${currency}` : EMPTY_CELL}
-                          {/* What one W/M costs on a line split by W/M. */}
-                          {total != null && l.splitMethod === "wm" && totalWm > 0 && (
+                          {/* What one W/M costs on a line split by W/M, over the shipments in its split. */}
+                          {total != null && byWm && lineWm > 0 && (
                             <span className="block text-[11px] font-normal text-slate-500">
                               ({currency}
-                              {(total / totalWm).toFixed(2)} W/M)
+                              {(total / lineWm).toFixed(2)} W/M)
+                            </span>
+                          )}
+                          {inLine.length < houses.length && (
+                            <span className="block text-[11px] font-normal text-slate-500">
+                              {inLine.length} of {houses.length} shipments{byWm ? ` · ${lineWm.toFixed(3)} W/M` : ""}
                             </span>
                           )}
                         </td>

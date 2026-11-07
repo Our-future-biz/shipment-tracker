@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { pgTable, text, numeric, uuid, integer, boolean, index } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
@@ -29,6 +30,8 @@ export const masterJobCostTable = pgTable(
     invoiceNumber: text("invoice_number").notNull().default(""),
     received: boolean("received").notNull().default(false),
     splitMethod: text("split_method").$type<MasterJobSplitMethod>().notNull().default("wm"),
+    /** The shipments taken out of this line's split; one linked later is in it until someone takes it out. */
+    excludedShipmentIds: text("excluded_shipment_ids").array().notNull().default(sql`'{}'::text[]`),
     sortOrder: integer("sort_order").notNull().default(0),
   },
   (table) => [

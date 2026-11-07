@@ -35,7 +35,7 @@ const HOUSES = [
 const line = (over: Record<string, unknown> = {}) => ({
   id: LINE, masterJobId: MASTER, category: "ocean_freight", description: "", vendor: "Maersk", estQty: null, estAmount: "300.00",
   estCurrency: "EUR", realQty: null, realAmount: "330.00", realCurrency: "EUR", invoiceNumber: "", received: false, splitMethod: "wm",
-  sortOrder: 0, ...over,
+  excludedShipmentIds: [], sortOrder: 0, ...over,
 });
 
 // The rows the re-split writes: worked out by the callback the repository runs under its lock.
@@ -137,5 +137,57 @@ describe("a master job's cost lines", () => {
 
   it("refuse a split method other than by W/M or per shipment", async () => {
     await expect(masterJobCostService.add(COMPANY, MASTER, { splitMethod: "weight" as never })).rejects.toMatchObject({ code: "invalid_argument" });
+  });
+});
+
+describe("choosing the shipments in a line's split", () => {
+  beforeEach(() => {
+    costs.get.mockResolvedValue(line());
+    costs.update.mockResolvedValue(line());
+  });
+
+  it("gives a shipment taken out no part, and the others the whole line", async () => {
+    costs.list.mockResolvedValue([line({ excludedShipmentIds: ["s1"] })]);
+    const view = await masterJobCostService.resplit(COMPANY, MASTER);
+    expect(written).toEqual([expect.objectContaining({ shipmentId: "s2", estAmount: "300.00", realAmount: "330.00" })]);
+    expect(view.lines[0]!.excludedShipmentIds).toEqual(["s1"]);
+  });
+
+  it("saves the shipments left out, keeping only those linked, and splits again", async () => {
+    await masterJobCostService.update(COMPANY, MASTER, LINE, { excludedShipmentIds: ["s1", "s1", "gone"] });
+    expect(costs.update).toHaveBeenCalledWith(LINE, COMPANY, MASTER, { excludedShipmentIds: ["s1"] });
+    expect(costs.replaceSplitRows).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps at least one shipment in the split", async () => {
+    await expect(masterJobCostService.update(COMPANY, MASTER, LINE, { excludedShipmentIds: ["s1", "s2"] })).rejects.toMatchObject({ code: "failed_precondition" });
+    expect(costs.update).not.toHaveBeenCalled();
+  });
+
+  it("refuses a list that is no list", async () => {
+    await expect(masterJobCostService.update(COMPANY, MASTER, LINE, { excludedShipmentIds: "s1" as never })).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(costs.update).not.toHaveBeenCalled();
+  });
+
+  it("checks Trucking only for a shipment put back in, so taking another out still works", async () => {
+    await masterJobCostService.update(COMPANY, MASTER, LINE, { excludedShipmentIds: ["s1"] });
+    expect(keptByTrucking).toHaveBeenCalledWith(COMPANY, [], "ocean_freight");
+
+    keptByTrucking.mockClear();
+    costs.get.mockResolvedValue(line({ excludedShipmentIds: ["s1"] }));
+    keptByTrucking.mockRejectedValueOnce(APIError.failedPrecondition("Job CZ00000021 has its ocean freight cost from Trucking"));
+    await expect(masterJobCostService.update(COMPANY, MASTER, LINE, { excludedShipmentIds: [] })).rejects.toMatchObject({ code: "failed_precondition" });
+    expect(keptByTrucking).toHaveBeenCalledWith(COMPANY, ["s1"], "ocean_freight");
+  });
+
+  it("checks a new split method over the shipments left in only", async () => {
+    costs.get.mockResolvedValue(line({ excludedShipmentIds: ["s1"] }));
+    await masterJobCostService.update(COMPANY, MASTER, LINE, { splitMethod: "shipment" });
+    expect(keptByTrucking).toHaveBeenCalledWith(COMPANY, ["s2"], "ocean_freight");
+  });
+
+  it("takes no shipments out when a line is added", async () => {
+    await masterJobCostService.add(COMPANY, MASTER, { category: "ocean_freight" });
+    expect(costs.create).toHaveBeenCalledWith(COMPANY, MASTER, { category: "ocean_freight" });
   });
 });

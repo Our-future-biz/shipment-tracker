@@ -169,6 +169,13 @@
       "when": 1793817305557,
       "tag": "0023_clear_invoice_text",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1794034919953,
+      "tag": "0024_master_job_cost_excluded_shipments",
+      "breakpoints": true
     }
   ]
 }
