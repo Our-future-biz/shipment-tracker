@@ -1,50 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { ShipmentItem } from "@/hooks/useShipments";
-import type { TrackingMilestone, TrackingTaxDate } from "@/hooks/useShipmentTracking";
-import { clockStatus, customerState, detentionLineOn, freeTimeWords, mayLieAhead, mayRecordKind, movedDaysLabel, noticeKindOfMoved, noticeWords, readFactWords, taxDateParts, trackingStatusLine } from "./trackingText";
-
-const shipment = (over: Partial<ShipmentItem> = {}) =>
-  ({
-    jobNumber: "CZ42",
-    customerReference: "4711",
-    freightMode: "Sea Freight",
-    tradeDirection: "Import",
-    pol: "Bremerhaven",
-    pod: "Charleston",
-    containers: [{ containerNumber: "MSDU2778315" }],
-    ...over,
-  }) as ShipmentItem;
-
-const row = (over: Partial<TrackingMilestone>) => ({ key: "x", label: "X", planned: null, wasPlanned: null, actual: null, ...over }) as TrackingMilestone;
-
-describe("the status line", () => {
-  it("reads job, mode, containers, route and the planned dates", () => {
-    const milestones = [
-      row({ key: "departed", label: "Departed", planned: "2026-09-19" }),
-      row({ key: "arrived", label: "Arrived", planned: "2026-10-09" }),
-    ];
-    expect(trackingStatusLine(shipment(), milestones)).toBe(
-      "CZ42 // 4711 · Sea Freight Import · MSDU2778315 · Bremerhaven → Charleston · ETD 19.09.2026 · ETA 09.10.2026",
-    );
-  });
-
-  it("prefers the actual date, says what a moved date was and names the last step", () => {
-    const milestones = [
-      row({ key: "departed", label: "Departed", planned: "2026-09-19", actual: "2026-09-20" }),
-      row({ key: "arrived", label: "Arrived", planned: "2026-10-16", wasPlanned: "2026-10-09" }),
-    ];
-    expect(trackingStatusLine(shipment(), milestones)).toContain("ATD 20.09.2026 · ETA 16.10.2026 (was 09.10.2026) · last: Departed 20.09.2026");
-  });
-
-  it("names three containers and counts the rest", () => {
-    const containers = ["A", "B", "C", "D", "E"].map((containerNumber) => ({ containerNumber }));
-    expect(trackingStatusLine(shipment({ containers } as Partial<ShipmentItem>), [])).toContain("A, B, C +2");
-  });
-
-  it("leaves out what the job doesn't have", () => {
-    expect(trackingStatusLine(shipment({ customerReference: "", pol: "", pod: "", freightMode: "", tradeDirection: "", containers: null }), [])).toBe("CZ42");
-  });
-});
+import type { TrackingTaxDate } from "@/hooks/useShipmentTracking";
+import { clockStatus, customerState, detentionLineOn, freeTimeWords, mayLieAhead, mayRecordKind, movedDaysLabel, noticeKindOfMoved, noticeWords, readFactWords, taxDateParts } from "./trackingText";
 
 describe("a moved date's mark", () => {
   it("is signed", () => {

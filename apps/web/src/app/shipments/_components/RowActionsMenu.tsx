@@ -1,11 +1,13 @@
 "use client";
 
 import { Button, Dropdown } from "antd";
-import { CopyOutlined, DeleteOutlined, DownloadOutlined, EllipsisOutlined } from "@ant-design/icons";
+import { CopyOutlined, DeleteOutlined, DownloadOutlined, EditOutlined, EllipsisOutlined } from "@ant-design/icons";
 
 interface RowActionsMenuProps {
   /** Left out, the menu offers no Delete. */
   onDelete?: () => void;
+  /** Opens a locked row for editing (first in the menu). Left out, no Edit. */
+  onEdit?: () => void;
   onCopy?: () => void;
   // With a link, the menu also offers Download (above Delete): the file at that address.
   downloadHref?: string;
@@ -17,13 +19,14 @@ interface RowActionsMenuProps {
 // menu, one click further away, so a row is not removed by a stray click and the table does
 // not look like it is about deleting. The caller decides whether Delete asks first. With
 // onCopy the menu also offers Copy, and with downloadHref Download (both above Delete).
-export function RowActionsMenu({ onDelete, onCopy, downloadHref, label = "Row actions" }: RowActionsMenuProps) {
+export function RowActionsMenu({ onDelete, onEdit, onCopy, downloadHref, label = "Row actions" }: RowActionsMenuProps) {
   return (
     <Dropdown
       trigger={["click"]}
       placement="bottomRight"
       menu={{
         items: [
+          ...(onEdit ? [{ key: "edit", label: "Edit", icon: <EditOutlined /> }] : []),
           ...(onCopy ? [{ key: "copy", label: "Copy", icon: <CopyOutlined /> }] : []),
           ...(downloadHref
             ? [{ key: "download", label: "Download", icon: <DownloadOutlined /> }]
@@ -31,6 +34,7 @@ export function RowActionsMenu({ onDelete, onCopy, downloadHref, label = "Row ac
           ...(onDelete ? [{ key: "delete", label: "Delete", icon: <DeleteOutlined />, danger: true }] : []),
         ],
         onClick: ({ key }) => {
+          if (key === "edit") onEdit?.();
           if (key === "copy") onCopy?.();
           // Handled for the whole item, not a link in its label, so a click on the icon or the
           // item's edge downloads too. The address answers with the file as a download, so the

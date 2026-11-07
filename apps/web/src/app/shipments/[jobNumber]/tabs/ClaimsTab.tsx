@@ -1,22 +1,26 @@
 "use client";
 
-import { DatePicker, Input, Select, Tooltip, message } from "antd";
-import dayjs from "dayjs";
-import { DeleteOutlined, FileTextOutlined, PlusOutlined, WarningOutlined } from "@ant-design/icons";
+import { useState } from "react";
+import { Button, Tooltip } from "antd";
+import { FileTextOutlined, PlusOutlined, WarningOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, apiErrorMessage } from "@/lib/api";
+import { useToast } from "@/lib/toast";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import type { controllers, interfaces } from "@/lib/api/client";
 import { formatDate } from "@/lib/date";
-import { CARD, CARD_BAR, CARD_ICON, CARD_TITLE, EMPTY, HINT, ICON_BTN_GHOST, TD, TH } from "@/styles/ui";
+import { ADD_BTN, CARD, CARD_BAR, CARD_ICON, CARD_TITLE, EMPTY, HINT, TD, TH } from "@/styles/ui";
 import { noticeWords } from "./tracking/trackingText";
+import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
+import { ConfirmModal } from "@/components/ConfirmModal";
+import { ClaimFormModal, type ClaimValues } from "./ClaimFormModal";
 
 // Claim tab: claims on the shipment itself (how the cargo arrived) and claims on a
-// supplier's costs. Each card holds as many claims as needed — "+" adds a row.
+// supplier's costs. Each card holds as many claims as needed: "+" opens a dialog to fill one in,
+// and ⋯ > Edit opens it again; the rows themselves only show.
 
 type Claim = interfaces.ClaimItem;
 
-const CARGO_STATES = ["Damaged", "Incomplete", "Undamaged", "Lost"];
 const CARGO_STATE_TONE: Record<string, string> = {
   Undamaged: "bg-emerald-50",
   Incomplete: "bg-amber-50",
@@ -25,11 +29,10 @@ const CARGO_STATE_TONE: Record<string, string> = {
 };
 
 const CELL = TD;
-const FIELD = "!text-[13px]";
 
 export function ClaimsTab({ shipment }: { shipment: ShipmentItem }) {
   const queryClient = useQueryClient();
-  const [messageApi, contextHolder] = message.useMessage();
+  const toast = useToast();
 
   const { data, isLoading } = useQuery({
     queryKey: ["shipment-claims", shipment.id],
@@ -41,10 +44,11 @@ export function ClaimsTab({ shipment }: { shipment: ShipmentItem }) {
     // The shipment's Claim field (Yes/No) follows the claims.
     queryClient.invalidateQueries({ queryKey: ["shipments"] });
   };
-  const onError = (what: string) => () => messageApi.error(what);
+  // the server's reason with it (not found: the claim was deleted meanwhile, …)
+  const onError = (what: string) => (e: unknown) => toast.error(`${what}: ${apiErrorMessage(e)}`);
 
   const create = useMutation({
-    mutationFn: (kind: "cargo" | "cost") => api.shipments.claimCreate(shipment.id, { kind }),
+    mutationFn: (req: controllers.ClaimCreateRequest) => api.shipments.claimCreate(shipment.id, req),
     onSuccess: invalidate,
     onError: onError("Could not add the claim"),
   });
@@ -59,64 +63,69 @@ export function ClaimsTab({ shipment }: { shipment: ShipmentItem }) {
     onError: onError("Could not delete the claim"),
   });
 
-  const save = (id: string, field: keyof controllers.ClaimUpdateRequest, value: string, current: string) => {
-    if (value !== current) update.mutate({ id, [field]: value });
+  // The claim dialog: a new claim of a kind, or one claim to change.
+  const [form, setForm] = useState<{ kind: "cargo" | "cost"; claim?: Claim } | null>(null);
+  const saveForm = async (values: ClaimValues) => {
+    const saving = form;
+    if (!saving) return;
+    if (saving.claim) {
+      // nothing changed: nothing to write
+      if (Object.keys(values).length > 0) await update.mutateAsync({ id: saving.claim.id, ...values });
+    } else await create.mutateAsync({ kind: saving.kind, ...values });
+    // only the dialog that was saved closes (not one opened since)
+    setForm((f) => (f === saving ? null : f));
   };
 
-  const text = (c: Claim, field: "note" | "supplier" | "invoiceNumber" | "reason" | "amount", placeholder?: string) => (
-    <Input
-      size="small"
-      variant="borderless"
-      className={FIELD}
-      placeholder={placeholder ?? "—"}
-      defaultValue={c[field]}
-      key={`${c.id}-${field}-${c[field]}`}
-      onBlur={(e) => save(c.id, field, e.target.value, c[field])}
-      onPressEnter={(e) => e.currentTarget.blur()}
-    />
+  // A row's value as text, cut with "…" where its column ends (the whole of it in its title); a
+  // note or a reason keeps its lines, two at most.
+  const read = (value: string, lines: "one" | "two" = "one") => (
+    <span
+      className={`block text-[13px] text-slate-900 ${lines === "one" ? "truncate" : "line-clamp-2 whitespace-pre-line break-words"}`}
+      title={value || undefined}
+    >
+      {value || <span className={EMPTY}>—</span>}
+    </span>
   );
 
+  // A row's actions behind "⋯", as Container and Cargo Details have them; Delete asks first.
+  const [toDelete, setToDelete] = useState<Claim | null>(null);
   const deleteCell = (c: Claim) => (
-    <td className={`${CELL} w-[44px]`}>
-      <Tooltip title="Delete claim">
-        <button
-          type="button"
-          aria-label="Delete claim"
-          onClick={() => remove.mutate(c.id)}
-          className={`${ICON_BTN_GHOST} hover:!text-red-600`}
-        >
-          <DeleteOutlined />
-        </button>
-      </Tooltip>
+    <td className={CELL}>
+      <RowActionsMenu label="Claim actions" onEdit={() => setForm({ kind: c.kind as "cargo" | "cost", claim: c })} onDelete={() => setToDelete(c)} />
     </td>
   );
 
-  const card = (title: string, icon: React.ReactNode, kind: "cargo" | "cost", columns: string[], body: React.ReactNode, empty: string) => (
+  // Fixed columns (each head gives its width, the rest share what is left), so a long value is
+  // cut instead of pushing the ⋯ off the card.
+  const card = (title: string, icon: React.ReactNode, kind: "cargo" | "cost", columns: { label: string; width?: string }[], body: React.ReactNode, empty: string) => (
     <section className={`${CARD} min-w-0 overflow-hidden`}>
       <div className={CARD_BAR}>
         <span className={`${CARD_ICON} shrink-0`}>{icon}</span>
         <h3 className={`${CARD_TITLE} min-w-0`}>{title}</h3>
         <Tooltip title="Add claim">
-          <button
-            type="button"
+          {/* the small purple "+" of Container and Cargo Details */}
+          <Button
+            size="small"
+            type="primary"
+            icon={<PlusOutlined className="text-[11px]" />}
             aria-label={`Add ${title.toLowerCase()}`}
-            onClick={() => create.mutate(kind)}
-            className={`${ICON_BTN_GHOST} ml-auto`}
-          >
-            <PlusOutlined />
-          </button>
+            onClick={() => setForm({ kind })}
+            className={`${ADD_BTN} ml-auto`}
+          />
         </Tooltip>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse">
+        <table className="w-full min-w-[560px] table-fixed border-collapse">
           <thead>
             <tr>
               {columns.map((c) => (
-                <th key={c} className={TH}>
-                  {c}
+                <th key={c.label} className={`${TH} ${c.width ?? ""}`}>
+                  {c.label}
                 </th>
               ))}
-              <th className={TH} />
+              <th className={`${TH} w-[44px]`}>
+                <span className="sr-only">Actions</span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -136,41 +145,42 @@ export function ClaimsTab({ shipment }: { shipment: ShipmentItem }) {
 
   return (
     <>
-      {contextHolder}
+      {form && (
+        <ClaimFormModal
+          kind={form.kind}
+          claim={form.claim}
+          saving={create.isPending || update.isPending}
+          onClose={() => setForm(null)}
+          onSave={saveForm}
+        />
+      )}
+      <ConfirmModal
+        open={!!toDelete}
+        danger
+        title="Delete claim?"
+        description="The claim is removed from this shipment. This can't be undone."
+        confirmLabel="Delete"
+        loading={remove.isPending}
+        onClose={() => setToDelete(null)}
+        onConfirm={() => {
+          if (toDelete) remove.mutate(toDelete.id, { onSettled: () => setToDelete(null) });
+        }}
+      />
       <div className="grid grid-cols-1 2xl:grid-cols-2 gap-5 items-start">
         {card(
           "Claim on the shipment",
           <WarningOutlined />,
           "cargo",
-          ["Cargo state", "Note", "Delivered", "Notice given"],
+          [{ label: "Cargo state", width: "w-[150px]" }, { label: "Note" }, { label: "Delivered", width: "w-[110px]" }, { label: "Notice given", width: "w-[150px]" }],
           claims
             .filter((c) => c.kind === "cargo")
             .map((c) => (
               <tr key={c.id} className="hover:bg-slate-50">
-                <td className={`${CELL} w-[180px] ${CARGO_STATE_TONE[c.cargoState] ?? ""}`}>
-                  <Select
-                    size="small"
-                    variant="borderless"
-                    placeholder="—"
-                    className="w-full [&_.ant-select-selection-item]:!text-[13px]"
-                    value={c.cargoState || undefined}
-                    options={CARGO_STATES.map((v) => ({ value: v, label: v }))}
-                    onChange={(v) => update.mutate({ id: c.id, cargoState: v ?? "" })}
-                  />
-                </td>
-                <td className={CELL}>{text(c, "note", "What happened")}</td>
+                <td className={`${CELL} ${CARGO_STATE_TONE[c.cargoState] ?? ""}`}>{read(c.cargoState)}</td>
+                <td className={CELL}>{read(c.note, "two")}</td>
                 <td className={`${CELL} whitespace-nowrap tabular-nums`}>{shipment.actualDeliveryDate ? formatDate(shipment.actualDeliveryDate) : <span className={EMPTY}>—</span>}</td>
-                <td className={`${CELL} w-[150px]`}>
-                  <DatePicker
-                    size="small"
-                    variant="borderless"
-                    format="DD.MM.YYYY"
-                    aria-label="Notice given"
-                    placeholder="—"
-                    className="w-full"
-                    value={c.noticeDate ? dayjs(c.noticeDate) : null}
-                    onChange={(day) => update.mutate({ id: c.id, noticeDate: day ? day.format("YYYY-MM-DD") : "" })}
-                  />
+                <td className={CELL}>
+                  {read(c.noticeDate ? formatDate(c.noticeDate) : "")}
                   {noticeWords(shipment.actualDeliveryDate, c.noticeDate) && <div className={HINT}>{noticeWords(shipment.actualDeliveryDate, c.noticeDate)}</div>}
                 </td>
                 {deleteCell(c)}
@@ -183,15 +193,15 @@ export function ClaimsTab({ shipment }: { shipment: ShipmentItem }) {
           "Claim on costs",
           <FileTextOutlined />,
           "cost",
-          ["Supplier", "Invoice number", "Claim reason", "Disputed amount"],
+          [{ label: "Supplier", width: "w-[24%]" }, { label: "Invoice number", width: "w-[18%]" }, { label: "Claim reason" }, { label: "Disputed amount", width: "w-[140px]" }],
           claims
             .filter((c) => c.kind === "cost")
             .map((c) => (
               <tr key={c.id} className="hover:bg-slate-50">
-                <td className={CELL}>{text(c, "supplier")}</td>
-                <td className={CELL}>{text(c, "invoiceNumber")}</td>
-                <td className={CELL}>{text(c, "reason")}</td>
-                <td className={`${CELL} w-[150px]`}>{text(c, "amount", "CZK 0.00")}</td>
+                <td className={CELL}>{read(c.supplier)}</td>
+                <td className={CELL}>{read(c.invoiceNumber)}</td>
+                <td className={CELL}>{read(c.reason, "two")}</td>
+                <td className={CELL}>{read(c.amount)}</td>
                 {deleteCell(c)}
               </tr>
             )),

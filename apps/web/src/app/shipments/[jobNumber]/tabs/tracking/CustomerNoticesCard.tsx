@@ -5,6 +5,7 @@ import type { TrackingCustomerNotice } from "@/hooks/useShipmentTracking";
 import { businessDateTime, formatDate } from "@/lib/date";
 import { HINT, TD, TH } from "@/styles/ui";
 import { personOrSystem } from "./RecordedBy";
+import { DATE_TEXT, MAIN_TEXT, TABLE, TABLE_BOX, TBODY, TROW } from "./trackingUi";
 
 const CHANNEL: Record<string, string> = { email: "E-mail", phone: "Phone", other: "Other" };
 
@@ -21,31 +22,31 @@ const datesTold = (n: TrackingCustomerNotice) =>
 export function CustomerNoticesCard({ notices }: { notices: readonly TrackingCustomerNotice[] }) {
   return (
     <SectionCard title="Told the customer" extra={<CountChip count={notices.length} />} bodyClassName="p-0">
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse [&_td:first-child]:!pl-4 [&_th:first-child]:!pl-4">
+      <div className={TABLE_BOX}>
+        <table className={`${TABLE} min-w-[860px]`}>
           <thead>
             <tr>
-              <th className={TH}>When</th>
-              <th className={TH}>What</th>
-              <th className={TH}>To</th>
-              <th className={TH}>Dates told</th>
-              <th className={TH}>Who</th>
+              <th scope="col" className={`${TH} w-[150px]`}>When</th>
+              <th scope="col" className={TH}>What</th>
+              <th scope="col" className={`${TH} w-[180px]`}>To</th>
+              <th scope="col" className={`${TH} w-[240px]`}>Dates told</th>
+              <th scope="col" className={`${TH} w-[180px]`}>Who</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className={TBODY}>
             {notices.map((n) => (
-              <tr key={n.id}>
-                <td className={`${TD} tabular-nums whitespace-nowrap`}>{businessDateTime(n.at)}</td>
-                <td className={TD}>
-                  <span className="font-medium text-slate-900">{n.label}</span>
-                  {n.note && <div className={HINT}>{n.note}</div>}
+              <tr key={n.id} className={TROW}>
+                <td className={`${TD} ${DATE_TEXT}`}>{businessDateTime(n.at)}</td>
+                <td className={`${TD} break-words`}>
+                  <span className={MAIN_TEXT}>{n.label}</span>
+                  {n.note && <div className={`${HINT} mt-0.5`}>{n.note}</div>}
                 </td>
-                <td className={TD}>
+                <td className={`${TD} break-words`}>
                   {n.toldTo}
-                  <div className={HINT}>{CHANNEL[n.channel] ?? n.channel}</div>
+                  <div className={`${HINT} mt-0.5`}>{CHANNEL[n.channel] ?? n.channel}</div>
                 </td>
                 <td className={`${TD} tabular-nums`}>{datesTold(n)}</td>
-                <td className={TD}>{personOrSystem(n.by)}</td>
+                <td className={`${TD} truncate`}>{personOrSystem(n.by)}</td>
               </tr>
             ))}
           </tbody>
