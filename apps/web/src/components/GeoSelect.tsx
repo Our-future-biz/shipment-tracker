@@ -37,23 +37,34 @@ interface GeoSelectProps {
   airports?: boolean;
   /** Also offer ocean container terminals (CYs) and inland terminals beside the places (the Origin / Destination of a sea quote or shipment). */
   terminals?: boolean;
+  /** Say where the chosen place is, in light grey behind it ("Hamburg (USHG7)  Iowa, US"), to tell places of one name apart. */
+  showWhere?: boolean;
 }
 
 interface GeoOption {
   value: string;
   label: ReactNode;
   code?: string;
+  /** where it is, as the list says it at the side */
+  where?: string;
 }
 
+// Where a place, airport or terminal is, as its option says it at the side.
+const placeWhere = (p: geo.Place) => [p.subdivisionName, p.countryCode].filter(Boolean).join(", ");
+const airportWhere = (a: geo.Airport) => [a.city, a.countryCode].filter(Boolean).join(", ");
+const terminalWhere = (t: geo.Terminal) => [t.port, t.countryCode].filter(Boolean).join(", ");
+const inlandWhere = (t: geo.InlandTerminal) => [INLAND_KIND[t.kind], t.town, t.countryCode].filter(Boolean).join(", ");
+
 // An airport or terminal: its code first, then its name, and where it is at the side.
-const codedOption = (code: string, name: string, where: (string | null | undefined)[]): GeoOption => ({
+const codedOption = (code: string, name: string, where: string): GeoOption => ({
   value: `${name} (${code})`,
+  where,
   label: (
     <span className="flex items-baseline justify-between gap-2">
       <span className="truncate">
         <span className="font-medium">{code}</span> <span className="text-slate-400">-</span> {name}
       </span>
-      <span className="shrink-0 text-xs text-slate-400 truncate max-w-[40%]">{where.filter(Boolean).join(", ")}</span>
+      <span className="shrink-0 text-xs text-slate-400 truncate max-w-[40%]">{where}</span>
     </span>
   ),
 });
@@ -78,6 +89,7 @@ export function GeoSelect({
   allowClear = true,
   airports = false,
   terminals = false,
+  showWhere = false,
 }: GeoSelectProps) {
   const current = (value ?? "").trim();
   const unmatched = isUnmatched(kind, current);
@@ -97,6 +109,24 @@ export function GeoSelect({
   // Each place picked is counted for the user: the lists show the ones they pick most first
   // (sorted by the server, before it cuts a list).
   const recordPick = useRecordPlacePick();
+  // Where the chosen place is: said by the list it was just picked from, else asked by its code
+  // (a place saved earlier). The stored value stays the name and code.
+  const [picked, setPicked] = useState<{ value: string; where: string } | null>(null);
+  const chosenCode = showWhere && kind === "place" && !unmatched ? placeCodeOf(current) : null;
+  const known = picked?.value === current;
+  const placeOfCode = usePlaceSearch(chosenCode ?? "", !!chosenCode && !known);
+  const airportOfCode = useAirportSearch(chosenCode ?? "", !!chosenCode && !known && airports);
+  const terminalOfCode = useTerminalSearch(chosenCode ?? "", !!chosenCode && !known && terminals);
+  const chosenWhere = !chosenCode
+    ? ""
+    : known
+      ? picked!.where
+      : whereOfCode(chosenCode, {
+          airports: airports ? airportOfCode.data?.airports : undefined,
+          terminals: terminals ? terminalOfCode.data?.terminals : undefined,
+          inland: terminals ? terminalOfCode.data?.inland : undefined,
+          places: placeOfCode.data?.places,
+        });
 
   const options = useMemo((): (GeoOption | { label: ReactNode; options: GeoOption[] })[] => {
     if (kind !== "place") {
@@ -104,22 +134,23 @@ export function GeoSelect({
     }
     const found: GeoOption[] = (places.data?.places ?? []).map((p) => ({
       value: `${p.name} (${p.code})`,
+      where: placeWhere(p),
       label: (
         <span className="flex items-baseline justify-between gap-2">
           <span className="truncate">
             {p.name} <span className="text-slate-400">({p.code})</span>
           </span>
           <span className="shrink-0 text-xs text-slate-400 truncate max-w-[45%]">
-            {[p.subdivisionName, p.countryCode].filter(Boolean).join(", ")}
+            {placeWhere(p)}
           </span>
         </span>
       ),
     }));
     // Only the kinds this field offers: a search turned off still hands back what an earlier field
     // of another kind cached for the same text.
-    const airportOptions = (airports ? (airportList.data?.airports ?? []) : []).map((a) => codedOption(a.code, a.name, [a.city, a.countryCode]));
-    const terminalOptions = (terminals ? (terminalList.data?.terminals ?? []) : []).map((t) => codedOption(t.code, t.name, [t.port, t.countryCode]));
-    const inlandOptions = (terminals ? (terminalList.data?.inland ?? []) : []).map((t) => codedOption(t.code, t.name, [INLAND_KIND[t.kind], t.town, t.countryCode]));
+    const airportOptions = (airports ? (airportList.data?.airports ?? []) : []).map((a) => codedOption(a.code, a.name, airportWhere(a)));
+    const terminalOptions = (terminals ? (terminalList.data?.terminals ?? []) : []).map((t) => codedOption(t.code, t.name, terminalWhere(t)));
+    const inlandOptions = (terminals ? (terminalList.data?.inland ?? []) : []).map((t) => codedOption(t.code, t.name, inlandWhere(t)));
     // Keep the current place listed so the box shows it before anything is searched.
     const listed = [...airportOptions, ...terminalOptions, ...inlandOptions, ...found].some((o) => o.value === current);
     const pinned: GeoOption[] = !debounced && current && !unmatched && !listed ? [{ value: current, label: <>{current}</> }] : [];
@@ -159,6 +190,17 @@ export function GeoSelect({
       searchValue={search}
       onSearch={onSearch}
       options={options}
+      labelRender={
+        showWhere
+          ? ({ value: shown }) => (
+              <span className="flex items-baseline gap-2 min-w-0" title={chosenWhere ? `${shown}, ${chosenWhere}` : undefined}>
+                {/* In a tight field the place keeps its room: where it is gives way first. */}
+                <span className="shrink-0 max-w-full truncate">{shown}</span>
+                {chosenWhere && <span className="min-w-0 truncate text-xs text-slate-400">{chosenWhere}</span>}
+              </span>
+            )
+          : undefined
+      }
       // Places are filtered by the server; countries by their label here.
       filterOption={
         kind === "place"
@@ -166,7 +208,9 @@ export function GeoSelect({
           : (input, option) => countryMatches((option as { code?: string } | undefined)?.code ?? "", input)
       }
       notFoundContent={notFound()}
-      onChange={(v) => {
+      onChange={(v, option) => {
+        const chosen = Array.isArray(option) ? undefined : (option as GeoOption | undefined);
+        setPicked(v && chosen?.where ? { value: v, where: chosen.where } : null);
         onChange(v ?? "");
         const code = kind === "place" && v && v !== current ? placeCodeOf(v) : null;
         if (code) void recordPick(code);
@@ -175,6 +219,21 @@ export function GeoSelect({
       popupMatchSelectWidth={kind === "place" ? (airports || terminals ? 420 : 340) : true}
     />
   );
+}
+
+/** Where the place, airport or terminal of exactly this code is, from what a search for it found; "" when it found none. */
+function whereOfCode(
+  code: string,
+  found: { airports?: geo.Airport[]; terminals?: geo.Terminal[]; inland?: geo.InlandTerminal[]; places?: geo.Place[] },
+): string {
+  const airport = found.airports?.find((a) => a.code === code);
+  if (airport) return airportWhere(airport);
+  const terminal = found.terminals?.find((t) => t.code === code);
+  if (terminal) return terminalWhere(terminal);
+  const inland = found.inland?.find((t) => t.code === code);
+  if (inland) return inlandWhere(inland);
+  const place = found.places?.find((p) => p.code === code);
+  return place ? placeWhere(place) : "";
 }
 
 /** The part of a free-text place worth searching: "PORT OF HALIFAX, CANADA" → "HALIFAX". */
