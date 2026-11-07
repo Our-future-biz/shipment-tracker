@@ -3,9 +3,11 @@ import type { NextConfig } from "next";
 // Security headers on every page. The Content-Security-Policy fits what the app does: Next's own
 // inline bootstrap scripts and antd's CSS-in-JS need 'unsafe-inline' (no nonces on a static app);
 // the dev server also needs 'unsafe-eval' and its HMR websocket. Files are previewed from blob:
-// URLs (iframes, images) or opened from the API (signed links). Nobody may frame the app
-// (clickjacking). The haulier pages carry a token in the URL (the order link, the set-password
-// link): they send no Referer at all, so the token never leaks to another site.
+// URLs (iframes, images) or opened from the API (signed links). No other site may frame the app
+// (clickjacking). frame-ancestors stays 'self', not 'none': a blob: frame inherits this policy, and
+// Safari then refuses to show the app's own PDF previews, leaving a blank frame. The haulier pages
+// carry a token in the URL (the order link, the set-password link): they send no Referer at all, so
+// the token never leaks to another site.
 
 const dev = process.env.NODE_ENV !== "production";
 const apiOrigin = (() => {
@@ -29,7 +31,7 @@ const csp = [
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
-  "frame-ancestors 'none'",
+  "frame-ancestors 'self'",
 ]
   .map((d) => d.trim())
   .join("; ");
