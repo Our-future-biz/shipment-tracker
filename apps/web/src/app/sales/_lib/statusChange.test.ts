@@ -11,16 +11,16 @@ describe("asksValidity", () => {
 
 describe("transitionRequest", () => {
   it("sends validity only to Quoted and the reason only to Lost", () => {
-    expect(transitionRequest({ status: "quoted", validityDays: 15, lostReason: "x" })).toEqual({
+    expect(transitionRequest({ status: "quoted", validUntil: "2026-11-30", lostReason: "x" })).toEqual({
       to: "quoted",
       comment: undefined,
-      validityDays: 15,
+      validUntil: "2026-11-30",
       lostReason: undefined,
     });
-    expect(transitionRequest({ status: "lost", validityDays: 15, lostReason: "Pricing: Price too high" })).toEqual({
+    expect(transitionRequest({ status: "lost", validUntil: "2026-11-30", lostReason: "Pricing: Price too high" })).toEqual({
       to: "lost",
       comment: undefined,
-      validityDays: undefined,
+      validUntil: undefined,
       lostReason: "Pricing: Price too high",
     });
   });

@@ -9,7 +9,9 @@ interface SalesQuoteTransitionRequest {
   /** The status to set. Expired is not one: a quote expires when its validity date has passed. */
   to: SettableQuoteStatus;
   comment?: string & MaxLen<20000>;
-  /** To Quoted: "valid N days" from today (1-365), used only when the quote has no validity that still holds. */
+  /** To Quoted: the date chosen (YYYY-MM-DD), used only when the quote has no validity that still holds. */
+  validUntil?: string & MaxLen<10>;
+  /** To Quoted: "valid N days" from today (1-365), for a screen opened before the date could be chosen. */
   validityDays?: number & Min<1> & Max<365>;
   /** To Lost: "Category: reason". */
   lostReason?: string & MaxLen<500>;

@@ -9368,7 +9368,12 @@ export namespace controllers {
 
         comment?: string
         /**
-         * To Quoted: "valid N days" from today (1-365), used only when the quote has no validity that still holds.
+         * To Quoted: the date chosen (YYYY-MM-DD), used only when the quote has no validity that still holds.
+         */
+        validUntil?: string
+
+        /**
+         * To Quoted: "valid N days" from today (1-365), for a screen opened before the date could be chosen.
          */
         validityDays?: number
 

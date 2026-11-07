@@ -328,6 +328,25 @@ describe("applyTransition", () => {
   });
 
   describe("to Quoted", () => {
+    it("takes the date chosen in the calendar when the quote has no validity that still holds", () => {
+      const today = ctx.today;
+      const later = "2099-12-31";
+      expect(changed(state({ status: "ready_to_send" }), { to: "quoted", validUntil: later }).state.validUntil).toBe(later);
+      expect(changed(state({ status: "ready_to_send" }), { to: "quoted", validUntil: today }).state.validUntil).toBe(today);
+      expect(changed(state({ status: "ready_to_send", validUntil: "2000-01-01" }), { to: "quoted", validUntil: later }).state.validUntil).toBe(later);
+    });
+
+    it("keeps a validity that still holds, whatever date is sent", () => {
+      const holds = "2099-01-15";
+      expect(changed(state({ status: "ready_to_send", validUntil: holds }), { to: "quoted", validUntil: "2099-06-01" }).state.validUntil).toBe(holds);
+    });
+
+    it("refuses a date that has passed or is not a date", () => {
+      for (const validUntil of ["2000-01-01", "2026-02-30", "soon", "2100-01-01"]) {
+        expect(refusal(() => applyTransition(state({ status: "ready_to_send" }), { to: "quoted", validUntil }, ctx))).toBe("invalid");
+      }
+    });
+
     it("stamps the sending and the first sending, and restarts the follow-up clock", () => {
       const { state: next } = changed(state({ status: "ready_to_send" }), { to: "quoted" });
       expect(next.status).toBe("quoted");

@@ -496,7 +496,7 @@ export function QuotesList() {
   // The print window is opened on the click itself - after the server's answer the browser would
   // take it for a pop-up - and gets the quote as the server stored it when it was sent. A window
   // that does not open closes nothing: the user allows pop-ups and tries again.
-  const exportAndClose = async (validityDays?: number) => {
+  const exportAndClose = async (validUntil?: string) => {
     if (!exportTarget) return;
     const quote = exportTarget;
     const target = window.open("", "_blank");
@@ -509,7 +509,7 @@ export function QuotesList() {
     const { failed } = await runOnQuotes({
       quoteNumbers: [quote.quoteNumber],
       call: async (quoteNumber) => {
-        const answer = await api.quotes.salesQuoteTransition(quoteNumber, { ...transitionRequest({ status: "quoted", validityDays }), expectedStatus: quote.status });
+        const answer = await api.quotes.salesQuoteTransition(quoteNumber, { ...transitionRequest({ status: "quoted", validUntil }), expectedStatus: quote.status });
         answers.push(asData(answer.quote.data));
         return answer;
       },
@@ -883,7 +883,6 @@ export function QuotesList() {
         <ExportCloseDialog
           quoteNumber={exportTarget.quoteNumber}
           validUntil={exportTarget.validUntil}
-          validityDays={exportTarget.data.validityDays}
           onConfirm={exportAndClose}
           onClose={() => setExportTarget(null)}
         />

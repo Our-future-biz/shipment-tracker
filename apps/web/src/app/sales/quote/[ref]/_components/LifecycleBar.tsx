@@ -16,12 +16,12 @@ import {
   SETTABLE_QUOTE_STATUSES,
   OPEN_QUOTE_STATUSES,
   LOST_REASONS,
-  VALIDITY_OPTIONS,
   winProbClass,
 } from "../../../_lib/types";
 import { asData, businessToday, statusLines, validUntilAfter } from "../../../_lib/salesQuote";
 import { DEFAULT_VALIDITY_DAYS, asksValidity, type StatusChange } from "../../../_lib/statusChange";
 import { SalesDialog } from "../../../_components/SalesDialog";
+import { ValidUntilField } from "../../../_components/ValidUntilField";
 import { toolbarButtonClass } from "../../../_components/ToolbarButton";
 import { OwnerTile } from "./OwnerTile";
 
@@ -118,10 +118,10 @@ export function LifecycleBar({ quote, sendBlocked, onChange, hrefOf, changingOwn
   // use them: the quote has no validity date, or the one it has is past - by the same calendar
   // day the server goes by.
   const today = businessToday();
-  const askValidityDays = asksValidity(quote.validUntil, today);
+  const askValidity = asksValidity(quote.validUntil, today);
 
   const [target, setTarget] = useState<SettableQuoteStatus | null>(null);
-  const [validityDays, setValidityDays] = useState<number>(DEFAULT_VALIDITY_DAYS);
+  const [validUntil, setValidUntil] = useState<string>("");
   const [lostCategory, setLostCategory] = useState<string>(Object.keys(LOST_REASONS)[0] ?? "Pricing");
   const [lostReason, setLostReason] = useState<string>("");
   const [comment, setComment] = useState<string>("");
@@ -135,8 +135,7 @@ export function LifecycleBar({ quote, sendBlocked, onChange, hrefOf, changingOwn
     setTarget(next);
     setComment("");
     setRefusal(null);
-    // A quote sent with days before is offered the same number again.
-    if (next === "quoted") setValidityDays(VALIDITY_OPTIONS.find((d) => d === data.validityDays) ?? DEFAULT_VALIDITY_DAYS);
+    if (next === "quoted") setValidUntil(validUntilAfter(today, DEFAULT_VALIDITY_DAYS) ?? today);
     if (next === "lost") {
       const firstCat = Object.keys(LOST_REASONS)[0] ?? "Pricing";
       setLostCategory(firstCat);
@@ -153,7 +152,7 @@ export function LifecycleBar({ quote, sendBlocked, onChange, hrefOf, changingOwn
     const refused = await onChange({
       status: target,
       comment,
-      validityDays: target === "quoted" && askValidityDays ? validityDays : undefined,
+      validUntil: target === "quoted" && askValidity ? validUntil : undefined,
       lostReason: target === "lost" ? `${lostCategory}: ${lostReason}` : undefined,
     });
     setApplying(false);
@@ -310,20 +309,11 @@ export function LifecycleBar({ quote, sendBlocked, onChange, hrefOf, changingOwn
           </div>
         )}
         <Form layout="vertical" disabled={applying}>
-          {/* The quote has one validity date. Days are asked for only while it has none that
-              still holds, and what they come to is shown, so this dialog and Shipping terms never
-              say different things. */}
+          {/* The quote has one validity date. It is asked for only while the quote has none that
+              still holds, so this dialog and Shipping terms never say different things. */}
           {target === "quoted" &&
-            (askValidityDays ? (
-              <Form.Item label="Validity (days)" extra={`Valid until ${formatDate(validUntilAfter(today, validityDays))}`}>
-                {quote.validUntil && <div className="text-xs text-red-600 mb-1">The previous validity {formatDate(quote.validUntil)} has passed.</div>}
-                <Select
-                  aria-label="Validity (days)"
-                  value={validityDays}
-                  onChange={setValidityDays}
-                  options={VALIDITY_OPTIONS.map((d) => ({ value: d, label: `${d} days` }))}
-                />
-              </Form.Item>
+            (askValidity ? (
+              <ValidUntilField value={validUntil} onChange={setValidUntil} today={today} passed={quote.validUntil} />
             ) : (
               // A validity that still holds is not this dialog's to change: shown locked, not as a field.
               <Form.Item label="Validity" extra="To change it, set Valid until under Shipping terms before you confirm.">

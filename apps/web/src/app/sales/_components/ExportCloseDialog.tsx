@@ -1,38 +1,36 @@
 "use client";
 
 import { useState } from "react";
-import { Button, Form, Modal, Select } from "antd";
-import { formatDate } from "@/lib/date";
+import { Button, Form, Modal } from "antd";
 import { MODAL_TITLE } from "@/styles/ui";
 import { businessToday, validUntilAfter } from "../_lib/salesQuote";
 import { DEFAULT_VALIDITY_DAYS, asksValidity } from "../_lib/statusChange";
-import { VALIDITY_OPTIONS } from "../_lib/types";
+import { ValidUntilField } from "./ValidUntilField";
 import { EXPORT_CLOSE_LABEL, EXPORT_CLOSE_TITLE, exportCloseDescription } from "../_lib/exportClose";
 
 interface ExportCloseDialogProps {
   quoteNumber: string;
-  // The quote's validity as stored, and the days it was last sent with (data.validityDays).
+  // The quote's validity as stored.
   validUntil: string | null;
-  validityDays?: number;
-  // Exports and closes, with the days chosen when the dialog asked for them.
-  onConfirm: (validityDays?: number) => Promise<void> | void;
+  // Exports and closes, with the date chosen when the dialog asked for one.
+  onConfirm: (validUntil?: string) => Promise<void> | void;
   onClose: () => void;
 }
 
 // Asked before Export PDF closes a quote that has not gone out yet. Like the lifecycle bar's
-// sending, it asks for the validity days only while the quote has no validity that still holds -
+// sending, it asks for the validity date only while the quote has no validity that still holds -
 // a revision of an expired quote starts with the validity that passed.
-export function ExportCloseDialog({ quoteNumber, validUntil, validityDays: lastDays, onConfirm, onClose }: ExportCloseDialogProps) {
+export function ExportCloseDialog({ quoteNumber, validUntil, onConfirm, onClose }: ExportCloseDialogProps) {
   const today = businessToday();
-  const askDays = asksValidity(validUntil, today);
-  const [days, setDays] = useState<number>(VALIDITY_OPTIONS.find((d) => d === lastDays) ?? DEFAULT_VALIDITY_DAYS);
+  const askDate = asksValidity(validUntil, today);
+  const [chosen, setChosen] = useState<string>(() => validUntilAfter(today, DEFAULT_VALIDITY_DAYS) ?? today);
   // The request is on its way: the dialog waits for the answer.
   const [busy, setBusy] = useState(false);
 
   const confirm = async () => {
     setBusy(true);
     try {
-      await onConfirm(askDays ? days : undefined);
+      await onConfirm(askDate ? chosen : undefined);
     } finally {
       setBusy(false);
     }
@@ -42,12 +40,9 @@ export function ExportCloseDialog({ quoteNumber, validUntil, validityDays: lastD
     <Modal open onCancel={onClose} footer={null} width={420} closable={false} destroyOnHidden>
       <div className={`${MODAL_TITLE} mb-1`}>{EXPORT_CLOSE_TITLE}</div>
       <div className="text-[13px] text-slate-600 leading-relaxed">{exportCloseDescription(quoteNumber)}</div>
-      {askDays && (
+      {askDate && (
         <Form layout="vertical" disabled={busy} className="mt-4">
-          <Form.Item label="Validity (days)" extra={`Valid until ${formatDate(validUntilAfter(today, days))}`}>
-            {validUntil && <div className="text-xs text-red-600 mb-1">The previous validity {formatDate(validUntil)} has passed.</div>}
-            <Select aria-label="Validity (days)" value={days} onChange={setDays} options={VALIDITY_OPTIONS.map((d) => ({ value: d, label: `${d} days` }))} />
-          </Form.Item>
+          <ValidUntilField value={chosen} onChange={setChosen} today={today} passed={validUntil} />
         </Form>
       )}
       <div className="flex justify-end gap-2 mt-5">

@@ -427,7 +427,6 @@ export const SERVICE_TYPES = ["Air", "Sea FCL", "Sea LCL", "Sea Break Bulk", "Ra
 const SERVICE_TYPE_LABELS: Record<string, string> = { Air: "Air Freight", Rail: "Rail Freight", Road: "Road Freight" };
 export const serviceTypeLabel = (s: string) => SERVICE_TYPE_LABELS[s] ?? s;
 export const DIRECTIONS = ["Export", "Import"] as const;
-export const VALIDITY_OPTIONS = [7, 10, 15, 21, 30] as const;
 
 /** Background class of the win-probability bar. */
 export function winProbClass(p: number): string {

@@ -127,7 +127,9 @@ export interface StatusChange {
   /** Checked here, not trusted: internal callers and old data can name anything. */
   to: string;
   comment?: string;
-  /** To Quoted: "valid N days" from today, used only when the quote has no validity that still holds. */
+  /** To Quoted: the date chosen, used only when the quote has no validity that still holds. */
+  validUntil?: string;
+  /** To Quoted: "valid N days" from today, for a screen opened before the date could be chosen. */
   validityDays?: number;
   /** To Lost: "Category: reason". */
   lostReason?: string;
@@ -321,11 +323,19 @@ export function expectStatus(state: LifecycleState, expected: string, today: str
 }
 
 // The validity of a quote that is being sent. One that still holds is kept, days or not.
-function validityOnSending(validUntil: string | null, validityDays: number | undefined, today: string): string | null {
+function validityOnSending(validUntil: string | null, { validUntil: chosen, validityDays }: StatusChange, today: string): string | null {
+  // Only what quote_lifecycle_of reads back as the same date.
+  if (chosen !== undefined && (!isRealYmd(chosen) || chosen > "2099-12-31")) {
+    throw new LifecycleError("invalid", "the validity must be a real date (YYYY-MM-DD)");
+  }
+  if (chosen !== undefined && chosen < today) {
+    throw new LifecycleError("invalid", "the validity date chosen has passed - choose a later one");
+  }
   if (validityDays !== undefined && !(Number.isInteger(validityDays) && validityDays >= 1 && validityDays <= 365)) {
     throw new LifecycleError("invalid", "the validity must be between 1 and 365 days");
   }
   if (validUntil !== null && validUntil >= today) return validUntil;
+  if (chosen !== undefined) return chosen;
   if (validityDays !== undefined) return addDays(today, validityDays);
   if (validUntil === null) return null;
   // Kept as it is, the quote would be Expired the moment it is sent.
@@ -369,7 +379,7 @@ export function applyTransition(state: LifecycleState, change: StatusChange, ctx
     next.sentAt = ctx.at;
     next.firstSentAt = state.firstSentAt ?? ctx.at;
     next.lastContactAt = ctx.at;
-    next.validUntil = validityOnSending(state.validUntil, change.validityDays, ctx.today);
+    next.validUntil = validityOnSending(state.validUntil, change, ctx.today);
   }
   if (to === "feedback") next.lastContactAt = ctx.at;
 

@@ -632,7 +632,7 @@ export function QuoteWorkflow() {
   // The print window is opened on the click itself - after the server's answer the browser would
   // take it for a pop-up - and gets the quote as the server stored it when it was sent. A window
   // that does not open closes nothing: the user allows pop-ups and tries again.
-  const exportAndClose = async (validityDays?: number) => {
+  const exportAndClose = async (validUntil?: string) => {
     const target = window.open("", "_blank");
     if (!target) {
       toast.error(PRINT_WINDOW_BLOCKED);
@@ -640,7 +640,7 @@ export function QuoteWorkflow() {
     }
     let sent: SalesQuoteData | null = null;
     const refused = await act(async (expectedDataVersion) => {
-      const answer = await api.quotes.salesQuoteTransition(ref, { ...transitionRequest({ status: "quoted", validityDays }), expectedDataVersion });
+      const answer = await api.quotes.salesQuoteTransition(ref, { ...transitionRequest({ status: "quoted", validUntil }), expectedDataVersion });
       sent = asData(answer.quote.data);
       return answer;
     }, { versioned: true });
@@ -2275,7 +2275,7 @@ export function QuoteWorkflow() {
         />
       )}
       {modal === "closeQuote" && (
-        <ExportCloseDialog quoteNumber={ref} validUntil={quote.validUntil} validityDays={draft.validityDays} onConfirm={exportAndClose} onClose={() => setModal(null)} />
+        <ExportCloseDialog quoteNumber={ref} validUntil={quote.validUntil} onConfirm={exportAndClose} onClose={() => setModal(null)} />
       )}
       {modal === "allIn" && (
         <ConfirmModal
