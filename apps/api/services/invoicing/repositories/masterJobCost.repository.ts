@@ -17,6 +17,7 @@ import {
   type SplitRowValues,
 } from "../lib/masterJobSplit";
 import { invoiceRepository } from "./invoice.repository";
+import { sellingAmountRequestRepository } from "./sellingAmountRequest.repository";
 import { truckingLinesLock } from "./truckingLines.repository";
 
 export type { SplitRowValues };
@@ -49,7 +50,7 @@ const liveSoldAtCostRows = (companyId: string, masterJobId: string) =>
 const currentSoldAtCost = (reader: Reader, companyId: string, masterJobId: string) => {
   const s = invoiceSellingCostTable;
   return reader
-    .select({ id: s.id, shipmentId: s.shipmentId, category: s.category, description: s.description, amount: s.amount, currency: s.currency, sourceMasterJobRef: s.sourceMasterJobRef })
+    .select({ id: s.id, shipmentId: s.shipmentId, category: s.category, description: s.description, amount: s.amount, currency: s.currency, sourceMasterJobRef: s.sourceMasterJobRef, amountOverrideCost: s.amountOverrideCost })
     .from(s)
     .where(liveSoldAtCostRows(companyId, masterJobId));
 };
@@ -146,6 +147,7 @@ class MasterJobCostRepository {
       const invoiced = await invoicedAmong(tx, companyId, shipments);
       const remove = gone.filter((r) => !invoiced.has(r.id)).map((r) => r.id);
       if (remove.length) await tx.update(invoiceSellingCostTable).set({ deletedAt: now, updatedAt: now }).where(inArray(invoiceSellingCostTable.id, remove));
+      await sellingAmountRequestRepository.withdrawFor(tx, remove);
     });
   }
 
@@ -177,7 +179,12 @@ class MasterJobCostRepository {
       };
     };
     if (plan.remove.length) await tx.update(s).set({ deletedAt: now, updatedAt: now }).where(inArray(s.id, plan.remove));
-    for (const { id, row } of plan.change) await tx.update(s).set({ ...columns(row), updatedAt: now }).where(eq(s.id, id));
+    // A row that left the split has nothing left to approve.
+    await sellingAmountRequestRepository.withdrawFor(tx, plan.remove);
+    for (const { id, row, keepAmount } of plan.change) {
+      const { amount, ...others } = columns(row);
+      await tx.update(s).set({ ...others, ...(keepAmount ? {} : { amount, amountOverrideCost: null }), updatedAt: now }).where(eq(s.id, id));
+    }
     if (plan.add.length) await tx.insert(s).values(plan.add.map((row) => ({ ...columns(row), companyId, shipmentId: row.shipmentId })));
   }
 

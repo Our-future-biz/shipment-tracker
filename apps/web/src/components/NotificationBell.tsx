@@ -17,6 +17,7 @@ import { quoteChatHref } from "@/app/sales/_lib/quoteHref";
 import { salesManagersHref } from "@/app/sales/_lib/tabs";
 import { useWarehouseInquiryAnswers, type WarehouseInquiryItem } from "@/hooks/useWarehouseInquiries";
 import { useMarginInquiryBell, type MarginInquiryItem, type MarginInquiryRow } from "@/hooks/useMarginInquiries";
+import { useSellingAmountBell, type SellingAmountRequest } from "@/hooks/useSellingAmountRequests";
 import { useSalesPermissions } from "@/hooks/useSalesPermissions";
 import { useSupplierApprovals, type SupplierApprovalItem } from "@/hooks/useSupplierApprovals";
 import { useCustomsOfficeAnswers, type CustomsOfficeRequestItem } from "@/hooks/useCustomsOfficeRequests";
@@ -88,6 +89,14 @@ const marginAnswerText = (a: MarginInquiryItem) =>
   a.status === "approved"
     ? `${a.decision === "counter" ? "Down to " : ""}${czkText(a.approvedMarginCzk)}${a.comment ? ` — ${a.comment}` : ""}`
     : a.comment;
+// A shipment's request to sell below the cost, waiting for a manager, and the answer to whoever asked.
+const sellingMoney = (amount: string, currency: string) => `${Number(amount).toFixed(2)} ${currency}`;
+const sellingWaitingTitle = (r: SellingAmountRequest) => `Selling below cost waiting · ${r.jobNumber}`;
+const sellingWaitingText = (r: SellingAmountRequest) =>
+  `${r.requestedByName || "A colleague"} asks ${sellingMoney(r.requestedAmount, r.currency)}, the cost is ${sellingMoney(r.costAmount, r.currency)} — ${r.reason}`;
+const sellingAnswerTitle = (r: SellingAmountRequest) => `Selling amount ${r.status === "approved" ? "approved" : "rejected"} · ${r.jobNumber}`;
+const sellingAnswerText = (r: SellingAmountRequest) =>
+  r.status === "approved" ? `${sellingMoney(r.requestedAmount, r.currency)}${r.comment ? ` — ${r.comment}` : ""}` : `${sellingMoney(r.requestedAmount, r.currency)}: ${r.comment}`;
 
 // How long a read notification stays under the bell, in the "Last 7 days" view.
 const READ_KEEP_DAYS = 7;
@@ -164,6 +173,8 @@ export function NotificationBell() {
   // Margin questions this user is told about (the owner's manager, or an admin once it waits
   // long), and managers' answers to their questions or quotes (Council Outlay 6).
   const { waiting: marginWaiting, answers: marginAnswers, hasLoaded: marginLoaded, seen: marginSeen } = useMarginInquiryBell();
+  // Requests to sell below the cost: waiting, for every manager; answered, for whoever asked.
+  const { waiting: sellingWaiting, answers: sellingAnswers, hasLoaded: sellingLoaded, seen: sellingSeen } = useSellingAmountBell();
   // New suppliers added from quotes: a manager is told what waits, whoever added one the answer.
   const { canManageSales } = useSalesPermissions();
   const { approvals: supplierApprovals, hasLoaded: suppliersLoaded, seen: supplierSeen } = useSupplierApprovals();
@@ -187,6 +198,7 @@ export function NotificationBell() {
   const unreadOfficeAnswers = officeAnswers.filter((a) => !a.answerSeenAt);
   const officeAnswersShown = (view === "unread" ? unreadOfficeAnswers : officeAnswers).filter((a) => matchesAll(query, officeAnswerTitle(a), officeAnswerText(a), a.decidedByName));
   const unreadMarginAnswers = marginAnswers.filter((a) => !a.answerSeenAt);
+  const unreadSellingAnswers = sellingAnswers.filter((a) => !a.answerSeenAt);
   // "Last 7 days": everything unread, and what was read in the last 7 days (a mention: written in them).
   const viewNotices = view === "unread" ? notices : announcements.filter((a) => a.unread || keptSince(a.readAt, now));
   const viewMentions = view === "unread" ? unreadMentions : allMentions;
@@ -197,6 +209,8 @@ export function NotificationBell() {
   const fxShown = fxAlerts.filter((a) => matchesAll(query, "ČNB exchange rates missing", a.reason, a.fixingDate));
   // A waiting question stays until someone answers it, whatever the view.
   const marginWaitingShown = marginWaiting.filter((r) => matchesAll(query, waitingTitle(r), waitingText(r)));
+  const sellingWaitingShown = sellingWaiting.filter((r) => matchesAll(query, sellingWaitingTitle(r), sellingWaitingText(r)));
+  const sellingAnswersShown = (view === "unread" ? unreadSellingAnswers : sellingAnswers).filter((a) => matchesAll(query, sellingAnswerTitle(a), sellingAnswerText(a), a.decidedByName));
   const marginAnswersShown = (view === "unread" ? unreadMarginAnswers : marginAnswers).filter((a) => matchesAll(query, marginAnswerTitle(a), marginAnswerText(a), a.decidedByName));
   const unreadSupplierAnswers = supplierAnswers.filter((a) => !a.answerSeen);
   const supplierWaitingShown = supplierWaiting.filter((a) => matchesAll(query, supplierWaitingTitle(a), supplierWaitingText(a)));
@@ -291,6 +305,19 @@ export function NotificationBell() {
     seenMargin.current = new Set(keys);
   }, [marginWaiting, marginAnswers, marginLoaded, toast]);
 
+  // The same for requests to sell below the cost.
+  const seenSelling = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!sellingLoaded) return;
+    const before = seenSelling.current;
+    const keys = [...sellingWaiting.map((r) => `w:${r.id}`), ...sellingAnswers.map((a) => `a:${a.id}`)];
+    if (before) {
+      for (const r of sellingWaiting) if (!before.has(`w:${r.id}`)) toast.notify({ title: sellingWaitingTitle(r), description: sellingWaitingText(r), type: "warning" });
+      for (const a of sellingAnswers) if (!a.answerSeenAt && !before.has(`a:${a.id}`)) toast.notify({ title: sellingAnswerTitle(a), description: sellingAnswerText(a), type: a.status === "approved" ? "info" : "warning" });
+    }
+    seenSelling.current = new Set(keys);
+  }, [sellingWaiting, sellingAnswers, sellingLoaded, toast]);
+
   // And new suppliers waiting, and answers to the ones this user added. Every waiting one is remembered,
   // whoever the user is: the sales permissions may arrive after the list, and a manager is then not told
   // of the whole backlog as news.
@@ -357,7 +384,7 @@ export function NotificationBell() {
 
   // The badge counts what is unread, whatever the view or the search.
   const total =
-    unreadTracking.length + unreadDocumentAnswers.length + unreadVerdicts.length + unreadOfficeAnswers.length + unreadMentions.length + notices.length + fxAlerts.length + unreadAnswers.length + marginWaiting.length + unreadMarginAnswers.length + supplierWaiting.length + unreadSupplierAnswers.length;
+    unreadTracking.length + unreadDocumentAnswers.length + unreadVerdicts.length + unreadOfficeAnswers.length + unreadMentions.length + notices.length + fxAlerts.length + unreadAnswers.length + marginWaiting.length + unreadMarginAnswers.length + sellingWaiting.length + unreadSellingAnswers.length + supplierWaiting.length + unreadSupplierAnswers.length;
   const openSupplierAnswer = (a: SupplierApprovalItem) => {
     if (!a.answerSeen) supplierSeen.mutate([a.customerId]);
     go(a.quoteNumber ? `/sales/quote/${encodeURIComponent(a.quoteNumber)}` : "/customers");
@@ -384,6 +411,10 @@ export function NotificationBell() {
   const openMarginAnswer = (a: MarginInquiryItem) => {
     if (!a.answerSeenAt) marginSeen.mutate([a.id]);
     go(`/sales/quote/${encodeURIComponent(a.quoteNumber)}`);
+  };
+  const openSellingAnswer = (a: SellingAmountRequest) => {
+    if (!a.answerSeenAt) sellingSeen.mutate([a.id]);
+    go(`/shipments/${a.shipmentId}?tab=costs`);
   };
   const rowClass = "block w-full text-left px-4 py-2.5 border-b border-slate-100 last:border-b-0 bg-white hover:bg-slate-50 cursor-pointer";
   const headingClass = `px-4 py-2 border-b border-slate-200 bg-slate-50 ${LABEL_TEXT}`;
@@ -442,6 +473,30 @@ export function NotificationBell() {
           </span>
           <span className="text-[12px] text-slate-700 line-clamp-2">{waitingText(r)}</span>
           <span className="block text-[11px] text-slate-400 mt-0.5">{formatTime(r.inquiry.requestedAt)}</span>
+        </button>
+      ))}
+      {sellingWaitingShown.length > 0 && <div className={headingClass}>Selling below cost, waiting</div>}
+      {sellingWaitingShown.map((r) => (
+        <button key={`sw:${r.id}`} type="button" onClick={() => go(salesManagersHref({ tab: "inquiries" }))} className={rowClass}>
+          <span className="flex items-center gap-2">
+            <span role="img" aria-label="Waiting" className="shrink-0 w-2 h-2 rounded-full bg-amber-500" />
+            <span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-900 truncate">{sellingWaitingTitle(r)}</span>
+          </span>
+          <span className="text-[12px] text-slate-700 line-clamp-2">{sellingWaitingText(r)}</span>
+          <span className="block text-[11px] text-slate-400 mt-0.5">{formatTime(r.requestedAt)}</span>
+        </button>
+      ))}
+      {sellingAnswersShown.length > 0 && <div className={headingClass}>Selling below cost, answers</div>}
+      {sellingAnswersShown.map((a) => (
+        <button key={`sa:${a.id}`} type="button" onClick={() => openSellingAnswer(a)} className={rowClass}>
+          <span className="flex items-center gap-2">
+            {!a.answerSeenAt && <span role="img" aria-label="Unread" className={`shrink-0 w-2 h-2 rounded-full ${a.status === "approved" ? "bg-emerald-500" : "bg-red-500"}`} />}
+            <span className={`min-w-0 flex-1 text-[13px] truncate ${a.answerSeenAt ? "font-medium text-slate-500" : "font-semibold text-slate-900"}`}>{sellingAnswerTitle(a)}</span>
+          </span>
+          <span className="text-[12px] text-slate-700 line-clamp-2">{sellingAnswerText(a)}</span>
+          <span className="block text-[11px] text-slate-400 mt-0.5">
+            {a.decidedByName || "A manager"} · {a.decidedAt ? formatTime(a.decidedAt) : ""}
+          </span>
         </button>
       ))}
       {marginAnswersShown.length > 0 && <div className={headingClass}>Discount answers</div>}
@@ -564,7 +619,7 @@ export function NotificationBell() {
           </span>
         </button>
       ))}
-      {trackingShown.length + documentAnswersShown.length + verdictsShown.length + officeAnswersShown.length + listed.length + mentions.length + fxShown.length + answersShown.length + marginWaitingShown.length + marginAnswersShown.length + supplierWaitingShown.length + supplierAnswersShown.length === 0 && (
+      {trackingShown.length + documentAnswersShown.length + verdictsShown.length + officeAnswersShown.length + listed.length + mentions.length + fxShown.length + answersShown.length + marginWaitingShown.length + marginAnswersShown.length + sellingWaitingShown.length + sellingAnswersShown.length + supplierWaitingShown.length + supplierAnswersShown.length === 0 && (
         <p className={`px-4 py-6 text-center ${HINT}`}>
           {query.trim() ? `Nothing matches “${query.trim()}”.` : view === "unread" ? "Nothing new." : `Nothing in the last ${READ_KEEP_DAYS} days.`}
         </p>

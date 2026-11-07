@@ -1282,6 +1282,8 @@ export namespace invoicing {
             this.invoicingMasterJobCosts = this.invoicingMasterJobCosts.bind(this)
             this.invoicingMasterJobProcessSplit = this.invoicingMasterJobProcessSplit.bind(this)
             this.invoicingRestoreBuyingCost = this.invoicingRestoreBuyingCost.bind(this)
+            this.invoicingSellingAmountChange = this.invoicingSellingAmountChange.bind(this)
+            this.invoicingSellingAmountRequestsOfShipment = this.invoicingSellingAmountRequestsOfShipment.bind(this)
             this.invoicingSplitCost = this.invoicingSplitCost.bind(this)
             this.invoicingSupplierCosts = this.invoicingSupplierCosts.bind(this)
             this.invoicingSupplierUsage = this.invoicingSupplierUsage.bind(this)
@@ -1292,6 +1294,11 @@ export namespace invoicing {
             this.invoicingUpsertBillingSettings = this.invoicingUpsertBillingSettings.bind(this)
             this.invoicingUpsertCost = this.invoicingUpsertCost.bind(this)
             this.jobProfitReportGet = this.jobProfitReportGet.bind(this)
+            this.sellingAmountRequestDecide = this.sellingAmountRequestDecide.bind(this)
+            this.sellingAmountRequestForMe = this.sellingAmountRequestForMe.bind(this)
+            this.sellingAmountRequestList = this.sellingAmountRequestList.bind(this)
+            this.sellingAmountRequestSeen = this.sellingAmountRequestSeen.bind(this)
+            this.sellingAmountRequestWithdraw = this.sellingAmountRequestWithdraw.bind(this)
         }
 
         public async customsInvoicingAddLine(shipmentId: string, params: controllers.AddCustomsLineRequest): Promise<controllers.CustomsLineResponse> {
@@ -1489,6 +1496,22 @@ export namespace invoicing {
             return await resp.json() as controllers.BuyingResponse
         }
 
+        public async invoicingSellingAmountChange(shipmentId: string, sellingId: string, params: controllers.ChangeAmountRequest): Promise<interfaces.SellingAmountChangeResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/selling/${encodeURIComponent(sellingId)}/amount`, JSON.stringify(params))
+            return await resp.json() as interfaces.SellingAmountChangeResult
+        }
+
+        public async invoicingSellingAmountRequestsOfShipment(shipmentId: string): Promise<{
+    requests: interfaces.SellingAmountRequestItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/invoicing/${encodeURIComponent(shipmentId)}/selling-amount-requests`)
+            return await resp.json() as {
+    requests: interfaces.SellingAmountRequestItem[]
+}
+        }
+
         /**
          * Splits one vendor invoice over shipments by weight - a master job's invoice by each
          * shipment's freight tons - so the parts add up to the total to the cent, and posts each part
@@ -1578,6 +1601,60 @@ export namespace invoicing {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/reports/job-profit`, undefined, {query})
             return await resp.json() as interfaces.JobProfitReport
+        }
+
+        public async sellingAmountRequestDecide(id: string, params: controllers.DecideAmountRequest): Promise<{
+    request: interfaces.SellingAmountRequestItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/selling-amount-requests/${encodeURIComponent(id)}/decide`, JSON.stringify(params))
+            return await resp.json() as {
+    request: interfaces.SellingAmountRequestItem
+}
+        }
+
+        /**
+         * The bell: requests waiting, for a manager, and answers to what the user asked.
+         */
+        public async sellingAmountRequestForMe(): Promise<{
+    waiting: interfaces.SellingAmountRequestItem[]
+    answers: interfaces.SellingAmountRequestItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/selling-amount-requests/for-me`)
+            return await resp.json() as {
+    waiting: interfaces.SellingAmountRequestItem[]
+    answers: interfaces.SellingAmountRequestItem[]
+}
+        }
+
+        /**
+         * The managers' list: what waits, and what was answered in the last 30 days.
+         */
+        public async sellingAmountRequestList(): Promise<{
+    requests: interfaces.SellingAmountRequestItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/selling-amount-requests`)
+            return await resp.json() as {
+    requests: interfaces.SellingAmountRequestItem[]
+}
+        }
+
+        public async sellingAmountRequestSeen(params: {
+    ids: string[]
+}): Promise<void> {
+            await this.baseClient.callTypedAPI("POST", `/selling-amount-requests/seen`, JSON.stringify(params))
+        }
+
+        public async sellingAmountRequestWithdraw(id: string): Promise<{
+    request: interfaces.SellingAmountRequestItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/selling-amount-requests/${encodeURIComponent(id)}/withdraw`)
+            return await resp.json() as {
+    request: interfaces.SellingAmountRequestItem
+}
         }
     }
 }
@@ -6396,6 +6473,14 @@ export namespace controllers {
         cost: interfaces.InvoiceCostItem
     }
 
+    export interface ChangeAmountRequest {
+        amount: string
+        /**
+         * Why it is lower than the cost; required then.
+         */
+        reason?: string
+    }
+
     export interface ChargeResponse {
         charge: interfaces.AdditionalChargeItem
     }
@@ -7228,6 +7313,11 @@ export namespace controllers {
         currencies: string[]
         days: interfaces.DailyRow[]
         retired: interfaces.RetiredCurrencyItem[]
+    }
+
+    export interface DecideAmountRequest {
+        decision: "approve" | "reject"
+        comment?: string
     }
 
     export interface DecideRequest {
@@ -18530,6 +18620,54 @@ export namespace interfaces {
              */
             canApproveMargin: boolean
         }
+    }
+
+    /**
+     * What changing the number did: written at once, or asked of a manager.
+     */
+    export interface SellingAmountChangeResult {
+        outcome: "saved" | "asked"
+        request: SellingAmountRequestItem | null
+    }
+
+    /**
+     * A request to sell a cost a shipment sells on at cost for less than it costs.
+     */
+    export interface SellingAmountRequestItem {
+        id: string
+        shipmentId: string
+        jobNumber: string
+        sellingCostId: string
+        category: string
+        currency: string
+        /**
+         * What the shipment's share cost when asked
+         */
+        costAmount: string
+
+        /**
+         * What the row sold at when asked
+         */
+        currentAmount: string | null
+
+        requestedAmount: string
+        reason: string
+        status: "pending" | "approved" | "rejected" | "withdrawn"
+        requestedById: string
+        requestedByName: string
+        requestedAt: string
+        decidedByName: string
+        decidedAt: string | null
+        comment: string
+        /**
+         * The manager who answered is the one who asked
+         */
+        selfDecision: boolean
+
+        /**
+         * When the one who asked opened the answer in the bell
+         */
+        answerSeenAt: string | null
     }
 
     /**

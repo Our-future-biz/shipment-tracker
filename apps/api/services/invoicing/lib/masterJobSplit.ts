@@ -60,7 +60,19 @@ export type CurrentSoldAtCostRow = Omit<SoldAtCostRow, "amount" | "sourceMasterJ
   id: string;
   amount: string | null;
   sourceMasterJobRef: string | null;
+  /** A number of its own: what the share cost when it was set. Absent or null = it follows the cost. */
+  amountOverrideCost?: string | null;
 };
+
+/**
+ * Whether a row keeps its own number at this cost. A number at or above the cost stays (a margin
+ * someone set). One below it stays only at the very cost it was approved for: an approval for one
+ * cost doesn't cover another, so the row goes back to the cost.
+ */
+export function keepsOwnAmount(row: CurrentSoldAtCostRow, wanted: SoldAtCostRow): boolean {
+  if (row.amountOverrideCost == null || row.currency !== wanted.currency) return false;
+  return row.amountOverrideCost === wanted.amount || Number(row.amount ?? 0) >= Number(wanted.amount);
+}
 
 const soldAtCostKey = (row: { shipmentId: string; sourceMasterJobRef: string | null }) => `${row.shipmentId} ${row.sourceMasterJobRef}`;
 
@@ -84,7 +96,8 @@ export function soldAtCostRows(rows: SplitRowValues[]): SoldAtCostRow[] {
 
 export interface SoldAtCostPlan {
   add: SoldAtCostRow[];
-  change: { id: string; row: SoldAtCostRow }[];
+  /** keepAmount: the row's own number stays, and only what else it takes from its line is written. */
+  change: { id: string; row: SoldAtCostRow; keepAmount: boolean }[];
   remove: string[];
   /** Rows that differ from the split, or have left it, but stay: they are on an issued invoice. */
   onInvoices: number;
@@ -105,10 +118,11 @@ export function planSoldAtCost(current: CurrentSoldAtCostRow[], wanted: SoldAtCo
       if (!copied.has(soldAtCostKey(row))) plan.add.push(row);
       continue;
     }
-    const same = existing.amount === row.amount && existing.currency === row.currency && existing.category === row.category && existing.description === row.description;
+    const keepAmount = keepsOwnAmount(existing, row);
+    const same = (keepAmount || existing.amount === row.amount) && existing.currency === row.currency && existing.category === row.category && existing.description === row.description;
     if (same) continue;
     if (invoiced.has(existing.id)) plan.onInvoices += 1;
-    else plan.change.push({ id: existing.id, row });
+    else plan.change.push({ id: existing.id, row, keepAmount });
   }
   const seen = new Set<string>();
   for (const row of current) {

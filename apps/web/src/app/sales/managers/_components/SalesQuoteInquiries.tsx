@@ -19,6 +19,7 @@ import { quoteChatHref, quoteHref } from "../../_lib/quoteHref";
 import { floorText, marginText } from "../../_lib/roadQuote";
 import { serviceTypeLabel } from "../../_lib/types";
 import { COCKPIT_MODES, inCockpitMode } from "../_lib/cockpitModes";
+import { SellingAmountRequests } from "./SellingAmountRequests";
 import { BTN, BTN_DANGER, BTN_PRIMARY, CARD, CARD_BAR, CARD_TITLE, HINT, LABEL_TEXT, TD, TH } from "@/styles/ui";
 
 // Sales → Managers → Quote inquiries (Council Outlay 6, step 3): reps ask a manager to approve a
@@ -274,6 +275,7 @@ export function SalesQuoteInquiries({ mode }: { mode: SalesCockpitMode }) {
           </table>
         </div>
       </section>
+      <SellingAmountRequests />
       {warehouseWaiting > 0 && (
         <div role="status" className={`${CARD} px-4 py-2 text-xs text-slate-700`}>
           <b>{warehouseWaiting}</b> heavy-piece question{warehouseWaiting === 1 ? "" : "s"} waiting for the warehouse (decided there) ·{" "}

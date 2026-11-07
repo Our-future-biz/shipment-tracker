@@ -42,6 +42,11 @@ export const invoiceSellingCostTable = pgTable(
      * buying share); null for any other row. Kept by the master job's split and read-only in Costs Breakdown.
      */
     sourceMasterJobRef: text("source_master_job_ref"),
+    /**
+     * A row the split keeps, with a number of its own: what the share cost when the number was set
+     * (a person raised it, or a manager approved it lower). Null = it follows the cost.
+     */
+    amountOverrideCost: numeric("amount_override_cost", { precision: 14, scale: 2 }),
   },
   (table) => [
     ...defaultTableIndexes("invoice_selling_cost", table),

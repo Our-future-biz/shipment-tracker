@@ -13,6 +13,8 @@ import { businessDayOf, formatDate, formatDateTime } from "@/lib/date";
 import { amountTypingAllowed, normaliseAmount } from "@/lib/money";
 import { asData, computeTotals, isSalesQuoteRef, quoteProfitIn } from "@/app/sales/_lib/salesQuote";
 import { useSalesQuoteByRef } from "@/hooks/useSalesQuote";
+import { useShipmentSellingAmountRequests } from "@/hooks/useSellingAmountRequests";
+import { SoldAtCostAmount } from "./SoldAtCostAmount";
 import { INVOICE_KEYS } from "@/hooks/useInvoiceQueue";
 import { openInvoicePdf, useInvoiceDocList, type InvoiceDoc } from "@/hooks/useInvoiceDocs";
 import { isOpenInvoice } from "@/app/invoicing/_lib/openInvoices";
@@ -282,6 +284,22 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
   // A master job's share of its own costs (Master Jobs → Costs Breakdown), and the selling row of a
   // share sold on at cost, are read-only here too, tagged with the master job and linked to it, where they change.
   const masterJobRows = new Set([...(data?.costs ?? []), ...(data?.sellingCosts ?? [])].filter((c) => c.sourceMasterJobRef).map((c) => c.id));
+  // What a selling row of a master job's share is compared with: the share's real cost, or else its estimate.
+  const soldAtCostOf = (sellingId: string): number | null => {
+    const ref = data?.sellingCosts?.find((c) => c.id === sellingId)?.sourceMasterJobRef;
+    const share = ref ? data?.costs?.find((c) => c.sourceMasterJobRef === ref) : undefined;
+    const amount = share?.realAmount ?? share?.estAmount;
+    return amount == null ? null : Number(amount);
+  };
+  const hasSoldAtCost = (data?.sellingCosts ?? []).some((c) => c.sourceMasterJobRef);
+  const sellingRequests = useShipmentSellingAmountRequests(shipment.id, hasSoldAtCost);
+  // A manager's answer changes the row: the costs are read again when a waiting request is answered.
+  const requestsWaiting = sellingRequests.requests.filter((q) => q.status === "pending").length;
+  const lastWaiting = useRef(requestsWaiting);
+  useEffect(() => {
+    if (requestsWaiting < lastWaiting.current) void queryClient.invalidateQueries({ queryKey: ["invoicing", shipment.id] });
+    lastWaiting.current = requestsWaiting;
+  }, [requestsWaiting, queryClient, shipment.id]);
   const masterJobTag = shipment.masterJobId
     ? {
         label: `Split from ${shipment.masterJobMczNumber ?? "the master job"}`,
@@ -1002,7 +1020,22 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                         {truckingTag && <TruckingCostTagLink tag={truckingTag} />}
                       </td>
                       <td className={CELL}><span className={`${READ} text-center`}>{r.qty}</span></td>
-                      <td className={CELL}><span className={`${READ} text-right tabular-nums`}>{r.amount}</span></td>
+                      <td className={CELL}>
+                        {/* A cost sold on from a master job: its number is the one thing that changes here. */}
+                        {masterJobRows.has(r.id) && !invoicedOn ? (
+                          <SoldAtCostAmount
+                            amount={r.amount}
+                            currency={r.currency}
+                            cost={soldAtCostOf(r.id)}
+                            request={sellingRequests.requests.find((q) => q.sellingCostId === r.id && q.status !== "withdrawn")}
+                            onChange={async (amount, reason) => (await sellingRequests.change.mutateAsync({ sellingId: r.id, amount, reason })).outcome}
+                            onWithdraw={(id) => sellingRequests.withdraw.mutateAsync(id)}
+                            onDone={invalidate}
+                          />
+                        ) : (
+                          <span className={`${READ} text-right tabular-nums`}>{r.amount}</span>
+                        )}
+                      </td>
                       <td className={CELL}><span className={READ_SELECT}>{r.currency}</span></td>
                       <td className={`${CELL} text-right text-[13px] font-semibold tabular-nums ${r.invoice ? "text-slate-900" : "text-slate-400 line-through"}`}>{sellRowTotal(r)}</td>
                       <td className={`${CELL} text-center whitespace-nowrap`}>

@@ -131,7 +131,7 @@ describe("demurrage sold on at cost", () => {
 
   it("changes a row whose amount, currency or description moved", () => {
     const plan = planSoldAtCost([current({ amount: "90.00" })], [wanted()], new Set());
-    expect(plan.change).toEqual([{ id: "s1", row: wanted() }]);
+    expect(plan.change).toEqual([{ id: "s1", row: wanted(), keepAmount: false }]);
     expect(planSoldAtCost([current({ currency: "EUR" })], [wanted()], new Set()).change).toHaveLength(1);
     expect(planSoldAtCost([current({ description: "old" })], [wanted()], new Set()).change).toHaveLength(1);
   });
@@ -162,5 +162,52 @@ describe("demurrage sold on at cost", () => {
     const plan = planSoldAtCost([current(), current({ id: "s2" })], [wanted()], new Set());
     expect(plan.remove).toHaveLength(1);
     expect(plan.add).toEqual([]);
+  });
+});
+
+describe("a selling row with a number of its own, when the split is processed again", () => {
+  const share = (over: Partial<SplitRowValues> = {}): SplitRowValues => ({
+    shipmentId: "a", category: "container_demurrage", description: "", vendor: "", estAmount: null, estCurrency: "EUR", realAmount: "100.00",
+    realCurrency: "EUR", invoiceNumber: "", received: false, sourceMasterJobRef: "master:m:l", lineSort: 0, ...over,
+  });
+  const wanted = (over: Partial<SplitRowValues> = {}) => soldAtCostRows([share(over)])[0]!;
+  const current = (amount: string, amountOverrideCost: string | null) => ({ id: "s1", ...wanted(), amount, amountOverrideCost });
+
+  it("keeps a raised number, also when the cost moves but stays below it", () => {
+    expect(soldAtCostInSync(planSoldAtCost([current("150.00", "100.00")], [wanted()], new Set()))).toBe(true);
+    expect(soldAtCostInSync(planSoldAtCost([current("150.00", "100.00")], [wanted({ realAmount: "120.00" })], new Set()))).toBe(true);
+  });
+
+  it("puts a raised number back to the cost once the cost passes it", () => {
+    const plan = planSoldAtCost([current("150.00", "100.00")], [wanted({ realAmount: "200.00" })], new Set());
+    expect(plan.change).toEqual([{ id: "s1", row: wanted({ realAmount: "200.00" }), keepAmount: false }]);
+  });
+
+  it("keeps an approved lower number at the cost it was approved for", () => {
+    expect(soldAtCostInSync(planSoldAtCost([current("60.00", "100.00")], [wanted()], new Set()))).toBe(true);
+  });
+
+  it("puts an approved lower number back to the cost when the cost moved: the approval doesn't cover it", () => {
+    const plan = planSoldAtCost([current("60.00", "100.00")], [wanted({ realAmount: "110.00" })], new Set());
+    expect(plan.change[0]).toMatchObject({ keepAmount: false, row: { amount: "110.00" } });
+    expect(planSoldAtCost([current("60.00", "100.00")], [wanted({ realAmount: "90.00" })], new Set()).change[0]).toMatchObject({ keepAmount: false });
+  });
+
+  it("puts it back in another currency, where the number means nothing", () => {
+    const plan = planSoldAtCost([current("150.00", "100.00")], [wanted({ realCurrency: "USD" })], new Set());
+    expect(plan.change[0]).toMatchObject({ keepAmount: false, row: { currency: "USD" } });
+  });
+
+  it("keeps the number when only the description changes", () => {
+    const plan = planSoldAtCost([current("150.00", "100.00")], [wanted({ description: "new" })], new Set());
+    expect(plan.change).toEqual([{ id: "s1", row: wanted({ description: "new" }), keepAmount: true }]);
+  });
+
+  it("still follows the cost without a number of its own", () => {
+    expect(planSoldAtCost([current("100.00", null)], [wanted({ realAmount: "90.00" })], new Set()).change[0]).toMatchObject({ keepAmount: false, row: { amount: "90.00" } });
+  });
+
+  it("stays on an issued invoice whatever the cost does", () => {
+    expect(planSoldAtCost([current("60.00", "100.00")], [wanted({ realAmount: "110.00" })], new Set(["s1"]))).toEqual({ add: [], change: [], remove: [], onInvoices: 1 });
   });
 });

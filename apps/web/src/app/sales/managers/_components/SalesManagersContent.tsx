@@ -19,6 +19,7 @@ import { quoteHref } from "../../_lib/quoteHref";
 import { SALES_PAGES, salesManagersHref, type SalesManagersTab } from "../../_lib/tabs";
 import { OPEN_QUOTE_STATUSES, serviceTypeLabel, type QuoteStatus } from "../../_lib/types";
 import { useMarginInquiries } from "@/hooks/useMarginInquiries";
+import { useSellingAmountRequests } from "@/hooks/useSellingAmountRequests";
 import { COCKPIT_MODES, cockpitModeOf, inCockpitMode } from "../_lib/cockpitModes";
 import { SalesQuoteInquiries } from "./SalesQuoteInquiries";
 import { SalesCompanyApprovals } from "./SalesCompanyApprovals";
@@ -313,8 +314,10 @@ function SalesManagersCockpit() {
   // The list of questions is read only where it is shown. The tab's count is the cockpit's
   // Awaiting approval there - the same mode, the same figure as the tile.
   const { inquiries } = useMarginInquiries({ enabled: tab === "inquiries" });
+  // Selling amounts waiting are counted too; they belong to a shipment, not a freight mode of a quote.
+  const { waiting: sellingAmountsWaiting } = useSellingAmountRequests();
   const inquiriesWaiting =
-    tab === "inquiries" ? inquiries.filter((r) => r.inquiry.status === "pending" && inCockpitMode(r.serviceType, mode)).length : (cockpit?.tiles.awaitingApproval ?? 0);
+    (tab === "inquiries" ? inquiries.filter((r) => r.inquiry.status === "pending" && inCockpitMode(r.serviceType, mode)).length : (cockpit?.tiles.awaitingApproval ?? 0)) + sellingAmountsWaiting;
   // New suppliers waiting for a manager, counted on their tab (they have no freight mode).
   const { waiting: suppliersWaiting } = useSupplierApprovals();
   const [openCard, setOpenCard] = useState<CardKey | null>(null);

@@ -57,6 +57,39 @@ export interface SellingCostItem {
   sourceMasterJobRef: string | null;
 }
 
+/** A request to sell a cost a shipment sells on at cost for less than it costs. */
+export interface SellingAmountRequestItem {
+  id: string;
+  shipmentId: string;
+  jobNumber: string;
+  sellingCostId: string;
+  category: string;
+  currency: string;
+  /** What the shipment's share cost when asked */
+  costAmount: string;
+  /** What the row sold at when asked */
+  currentAmount: string | null;
+  requestedAmount: string;
+  reason: string;
+  status: "pending" | "approved" | "rejected" | "withdrawn";
+  requestedById: string;
+  requestedByName: string;
+  requestedAt: string;
+  decidedByName: string;
+  decidedAt: string | null;
+  comment: string;
+  /** The manager who answered is the one who asked */
+  selfDecision: boolean;
+  /** When the one who asked opened the answer in the bell */
+  answerSeenAt: string | null;
+}
+
+/** What changing the number did: written at once, or asked of a manager. */
+export interface SellingAmountChangeResult {
+  outcome: "saved" | "asked";
+  request: SellingAmountRequestItem | null;
+}
+
 export interface AdditionalChargeItem {
   id: string;
   shipmentId: string;

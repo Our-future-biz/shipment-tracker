@@ -190,6 +190,20 @@
       "when": 1794038777813,
       "tag": "0026_selling_cost_master_job_ref",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1794040686866,
+      "tag": "0027_selling_amount_request",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1794041766179,
+      "tag": "0028_selling_amount_answer_seen",
+      "breakpoints": true
     }
   ]
 }
