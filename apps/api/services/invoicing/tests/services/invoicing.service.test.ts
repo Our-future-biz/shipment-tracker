@@ -263,24 +263,26 @@ describe("selling rows on an issued invoice", () => {
   const RECORD = { id: ROW, shipmentId: SHIPMENT, category: "", description: "", customer: "", qty: "1", amount: "0", currency: "CZK", invoice: true, vatCode: null, sortOrder: 0 };
   const updateLine = vi.fn();
   const writeUnlessInvoiced = vi.fn();
+  const isSplitRow = vi.fn();
 
   beforeEach(() => {
-    Object.assign(sellingCostRepository, { updateLine, writeUnlessInvoiced });
+    Object.assign(sellingCostRepository, { updateLine, writeUnlessInvoiced, isSplitRow });
     updateLine.mockResolvedValue(RECORD);
+    isSplitRow.mockResolvedValue(false);
   });
 
   it("can be neither changed nor deleted: the user is told to credit the invoice", async () => {
     writeUnlessInvoiced.mockResolvedValue("invoiced");
     await expect(invoicingService.updateSellingCost(ROW, COMPANY, SHIPMENT, { amount: "100" })).rejects.toThrow(/issued invoice/);
     await expect(invoicingService.deleteSellingCost(ROW, COMPANY, SHIPMENT)).rejects.toThrow(/issued invoice/);
-    expect(writeUnlessInvoiced).toHaveBeenNthCalledWith(1, ROW, COMPANY, SHIPMENT, { data: expect.objectContaining({ amount: "100" }) });
+    expect(writeUnlessInvoiced).toHaveBeenNthCalledWith(1, ROW, COMPANY, SHIPMENT, { data: expect.objectContaining({ amount: "100" }) }, { mayUntickSplit: true });
     expect(writeUnlessInvoiced).toHaveBeenNthCalledWith(2, ROW, COMPANY, SHIPMENT, { delete: true });
     expect(updateLine).not.toHaveBeenCalled();
   });
 
   it("may still move in the list (Duplicate / Undo renumber the rows below)", async () => {
     await expect(invoicingService.updateSellingCost(ROW, COMPANY, SHIPMENT, { sortOrder: 3 })).resolves.toBeTruthy();
-    expect(updateLine).toHaveBeenCalledWith(ROW, COMPANY, SHIPMENT, { sortOrder: 3 });
+    expect(updateLine).toHaveBeenCalledWith(ROW, COMPANY, SHIPMENT, { sortOrder: 3 }, { mayUntickSplit: true });
     expect(writeUnlessInvoiced).not.toHaveBeenCalled();
   });
 
@@ -288,6 +290,18 @@ describe("selling rows on an issued invoice", () => {
     writeUnlessInvoiced.mockResolvedValue(RECORD);
     await expect(invoicingService.updateSellingCost(ROW, COMPANY, SHIPMENT, { amount: "100" })).resolves.toBeTruthy();
     await expect(invoicingService.deleteSellingCost(ROW, COMPANY, SHIPMENT)).resolves.toBeUndefined();
+  });
+
+  it("takes a master job's demurrage off the invoice only for a manager: a user asks for its deletion", async () => {
+    isSplitRow.mockResolvedValue(true);
+    writeUnlessInvoiced.mockResolvedValue(RECORD);
+    await expect(invoicingService.updateSellingCost(ROW, COMPANY, SHIPMENT, { invoice: false }, "user")).rejects.toMatchObject({ code: "permission_denied" });
+    expect(writeUnlessInvoiced).not.toHaveBeenCalled();
+    // putting it on the invoice, or a manager taking it off, goes through
+    await invoicingService.updateSellingCost(ROW, COMPANY, SHIPMENT, { invoice: true }, "user");
+    expect(writeUnlessInvoiced).toHaveBeenLastCalledWith(ROW, COMPANY, SHIPMENT, { data: { invoice: true } }, { mayUntickSplit: false });
+    await invoicingService.updateSellingCost(ROW, COMPANY, SHIPMENT, { invoice: false }, "manager");
+    expect(writeUnlessInvoiced).toHaveBeenLastCalledWith(ROW, COMPANY, SHIPMENT, { data: { invoice: false } }, { mayUntickSplit: true });
   });
 
   it("answers a row that is not there as before", async () => {

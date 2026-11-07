@@ -25,7 +25,8 @@ import { useConsignments, useTripRefs } from "@/hooks/useTruckingConsignments";
 import { isTruckingCost, parseTruckingRef, truckingCostTag } from "@/lib/truckingCosts";
 import { TruckingCostTagLink } from "@/components/TruckingCostTagLink";
 import { ProfitVsEstimate } from "@/components/ProfitVsEstimate";
-import { useCanSeeConcepts } from "@/lib/auth/AuthContext";
+import { useAuth, useCanSeeConcepts } from "@/lib/auth/AuthContext";
+import { isDetailsManager } from "@/lib/shipmentEditRule";
 import { SupplierPicker, type SupplierValue } from "@/components/SupplierPicker";
 import { CostPaidCell } from "./CostPaidCell";
 import { SectionCard } from "@/components/SectionCard";
@@ -284,6 +285,10 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
   const tripRefs = useTripRefs(truckingOn ? tripIds : []);
   // A master job's share of its own costs (Master Jobs → Costs Breakdown), and the selling row of a
   // share sold on at cost, are read-only here too, tagged with the master job and linked to it, where they change.
+  // A master job's demurrage taken off the invoice is sold for nothing: only a manager may (the
+  // server refuses anyone else, who asks for the row's deletion instead).
+  const { user } = useAuth();
+  const mayUntickSplit = isDetailsManager(user?.role ?? "");
   const masterJobRows = new Set([...(data?.costs ?? []), ...(data?.sellingCosts ?? [])].filter((c) => c.sourceMasterJobRef).map((c) => c.id));
   // What a selling row of a master job's share is compared with: the share's real cost, or else its estimate.
   const soldAtCostOf = (sellingId: string): number | null => {
@@ -1013,11 +1018,14 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                       <td className={`${CELL} text-center`}>
                         {/* A cost sold on from a master job is billed as the shipment decides: on the invoice or not. */}
                         {masterJobRows.has(r.id) && !invoicedOn ? (
-                          <Checkbox
-                            aria-label="Include in the invoice"
-                            checked={r.invoice}
-                            onChange={(e) => updateSell.mutate({ id: r.id, invoice: e.target.checked })}
-                          />
+                          <Tooltip title={r.invoice && !mayUntickSplit ? "Only a manager takes it off the invoice — ask for the row's deletion instead" : undefined}>
+                            <Checkbox
+                              aria-label="Include in the invoice"
+                              checked={r.invoice}
+                              disabled={r.invoice && !mayUntickSplit}
+                              onChange={(e) => updateSell.mutate({ id: r.id, invoice: e.target.checked })}
+                            />
+                          </Tooltip>
                         ) : (
                           <Checkbox checked={r.invoice} disabled aria-label="Include in the invoice" />
                         )}

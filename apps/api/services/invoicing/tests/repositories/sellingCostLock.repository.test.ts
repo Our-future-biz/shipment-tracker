@@ -62,10 +62,17 @@ describe("writing a selling row unless it is invoiced", () => {
 describe("a row a master job's split keeps", () => {
   const written = () => new PgDialect().sqlToQuery(fake.state.where as SQL).sql;
 
-  it("takes how it is billed: the Invoice tick, its own text, its VAT code", async () => {
-    await sellingCostRepository.writeUnlessInvoiced("row", "c1", "s1", { data: { invoice: false, customer: "Demurrage", vatCode: null } });
+  it("takes how it is billed: put on the invoice, its own text, its VAT code", async () => {
+    await sellingCostRepository.writeUnlessInvoiced("row", "c1", "s1", { data: { invoice: true, customer: "Demurrage", vatCode: null } });
     expect(written()).not.toContain('"source_master_job_ref" is null');
     expect(written()).toContain('"source_trucking_ref" is null');
+  });
+
+  it("is taken off the invoice only by a manager: billed for nothing, as a deletion would", async () => {
+    await sellingCostRepository.writeUnlessInvoiced("row", "c1", "s1", { data: { invoice: false } });
+    expect(written()).toContain('"source_master_job_ref" is null');
+    await sellingCostRepository.writeUnlessInvoiced("row", "c1", "s1", { data: { invoice: false } }, { mayUntickSplit: true });
+    expect(written()).not.toContain('"source_master_job_ref" is null');
   });
 
   it("keeps the split's charge and amount: any other write doesn't reach it", async () => {

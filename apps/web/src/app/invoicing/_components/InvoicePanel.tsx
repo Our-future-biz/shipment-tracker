@@ -21,7 +21,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, apiErrorMessage } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { canChangeShipmentDetails } from "@/lib/shipmentEditRule";
+import { canChangeShipmentDetails, isDetailsManager } from "@/lib/shipmentEditRule";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { useShipmentMutations } from "@/hooks/useShipments";
 import { useCustomers } from "@/hooks/useCustomers";
@@ -358,7 +358,12 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
   );
   // Rows Trucking pushed are kept by Trucking: read-only here, as in Costs Breakdown.
   const isReadOnly = (t: TableRow) => isTruckingCost(sellingRows.find((r) => r.id === t.sellingId)?.sourceTruckingRef);
-  const tickable = shownRows.filter((t) => t.sellingId && !isReadOnly(t));
+  // A master job's demurrage taken off the invoice is sold for nothing: only a manager may (the
+  // server refuses anyone else, who asks for the row's deletion in Costs Breakdown).
+  const untickLocked = (t: TableRow) =>
+    t.ticked && !isDetailsManager(user?.role ?? "") && !!sellingRows.find((r) => r.id === t.sellingId)?.sourceMasterJobRef;
+  const tickLocked = (t: TableRow) => isReadOnly(t) || untickLocked(t);
+  const tickable = shownRows.filter((t) => t.sellingId && !tickLocked(t));
   const tickedCount = tickable.filter((t) => t.ticked).length;
   const setTicks = (invoice: boolean) => {
     const sellingIds = tickable.filter((t) => t.ticked !== invoice).map((t) => t.sellingId!);
@@ -665,8 +670,14 @@ export function InvoicePanel({ shipment, section, onDuzpChange, onOpenCosts, bil
                             {t.sellingId && (
                               <Checkbox
                                 checked={t.ticked}
-                                disabled={lineTick.isPending || isReadOnly(t)}
-                                title={isReadOnly(t) ? "Kept by Trucking — change it there" : undefined}
+                                disabled={lineTick.isPending || tickLocked(t)}
+                                title={
+                                  isReadOnly(t)
+                                    ? "Kept by Trucking — change it there"
+                                    : untickLocked(t)
+                                      ? "A master job's demurrage: only a manager takes it off the invoice"
+                                      : undefined
+                                }
                                 onChange={(e) => lineTick.mutate({ sellingIds: [t.sellingId!], invoice: e.target.checked })}
                                 aria-label={`Put ${description} on the invoice`}
                               />

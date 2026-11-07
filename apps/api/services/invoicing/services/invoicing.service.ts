@@ -4,7 +4,7 @@ import { customers, quotes, shipments } from "~encore/clients";
 import { iso } from "../../../lib/db/serialize";
 import { assertShipmentExists } from "../../../lib/shipmentRefs";
 import { toChargeCode } from "../../../lib/chargeCodes";
-import { quoteCostCopyRefusal } from "../../../lib/salesPolicy";
+import { canDecideQuoteInquiry, quoteCostCopyRefusal } from "../../../lib/salesPolicy";
 import { isSalesReference } from "../../../lib/salesReference";
 import { isUuid } from "../../../lib/uuid";
 import { businessDay, isRealYmd } from "../../../lib/businessDate";
@@ -578,12 +578,18 @@ class InvoicingService {
     return toSellingItem(await sellingCostRepository.createForCompany(companyId, values));
   }
 
-  async updateSellingCost(id: string, companyId: string, shipmentId: string, input: SellingCostInput): Promise<SellingCostItem> {
+  async updateSellingCost(id: string, companyId: string, shipmentId: string, input: SellingCostInput, role?: string): Promise<SellingCostItem> {
+    // A master job's demurrage taken off the invoice is sold for nothing: a manager's to do, as its
+    // deletion is (asked for, then approved). A call from inside the app (no role) may.
+    const mayUntickSplit = role === undefined || canDecideQuoteInquiry(role);
+    if (input.invoice === false && !mayUntickSplit && (await sellingCostRepository.isSplitRow(id, companyId, shipmentId))) {
+      throw APIError.permissionDenied("Only a manager can take a master job's demurrage off the invoice — ask for the row's deletion instead");
+    }
     // A selling row on an issued invoice (not credited) is part of a tax document: it stays as it
     // was invoiced until the invoice is credited. Only its place in the list may move.
     const row = onlyReorders(input)
-      ? await sellingCostRepository.updateLine(id, companyId, shipmentId, sellingChanges(input))
-      : await sellingCostRepository.writeUnlessInvoiced(id, companyId, shipmentId, { data: sellingChanges(input) });
+      ? await sellingCostRepository.updateLine(id, companyId, shipmentId, sellingChanges(input), { mayUntickSplit })
+      : await sellingCostRepository.writeUnlessInvoiced(id, companyId, shipmentId, { data: sellingChanges(input) }, { mayUntickSplit });
     if (row === "invoiced") throw APIError.failedPrecondition(INVOICED_ROW);
     if (!row) throw APIError.notFound("Selling cost not found");
     return toSellingItem(row);

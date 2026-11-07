@@ -37,7 +37,8 @@ interface UpdateSellingRequest {
 export const invoicingUpdateSellingCost = api(
   { expose: true, auth: true, method: "PATCH", path: "/invoicing/:shipmentId/selling/:sellingId" },
   async ({ shipmentId, sellingId, ...input }: UpdateSellingRequest): Promise<SellingResponse> => {
-    return { sellingCost: await invoicingService.updateSellingCost(sellingId, getAuthData()!.companyID, shipmentId, input) };
+    const auth = getAuthData()!;
+    return { sellingCost: await invoicingService.updateSellingCost(sellingId, auth.companyID, shipmentId, input, auth.role) };
   },
 );
 

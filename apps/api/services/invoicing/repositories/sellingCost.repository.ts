@@ -12,10 +12,13 @@ import {
 // Every query on a line also matches its shipment, so a line can only be written through its
 // own shipment's URL. Rows pushed by Trucking (source_trucking_ref) are read-only here: no line
 // write reaches them. A row a master job's split keeps (source_master_job_ref) has its charge,
-// amount and currency from the split, but how it is billed is the shipment's: whether it goes on
-// an invoice, its own line text and its VAT code - a write of only those reaches it too.
+// amount and currency from the split, but how it is billed is the shipment's: putting it on an
+// invoice, its own line text and its VAT code - a write of only those reaches it too. Taking it
+// off the invoice bills it for nothing, so that is a manager's (`mayUntickSplit`); anyone else asks
+// for the row's deletion, which a manager approves.
 const SPLIT_ROW_BILLING = new Set<string>(["invoice", "customer", "vatCode"]);
-const billingOnly = (data: Partial<NewInvoiceSellingCostRecord>) => Object.keys(data).every((k) => SPLIT_ROW_BILLING.has(k));
+const billingOnly = (data: Partial<NewInvoiceSellingCostRecord>, mayUntickSplit: boolean) =>
+  Object.keys(data).every((k) => SPLIT_ROW_BILLING.has(k)) && (data.invoice !== false || mayUntickSplit);
 const lineOf = (id: string, companyId: string, shipmentId: string, splitRowToo = false) =>
   and(
     eq(t.id, id),
@@ -63,11 +66,12 @@ class SellingCostRepository extends TenantRepository<typeof t> {
     companyId: string,
     shipmentId: string,
     data: Partial<NewInvoiceSellingCostRecord>,
+    { mayUntickSplit = false } = {},
   ): Promise<InvoiceSellingCostRecord | null> {
     const [row] = await this.db
       .update(t)
       .set({ ...data, updatedAt: new Date() })
-      .where(lineOf(id, companyId, shipmentId, billingOnly(data)))
+      .where(lineOf(id, companyId, shipmentId, billingOnly(data, mayUntickSplit)))
       .returning();
     return row ?? null;
   }
@@ -83,6 +87,7 @@ class SellingCostRepository extends TenantRepository<typeof t> {
     companyId: string,
     shipmentId: string,
     change: { delete: true } | { data: Partial<NewInvoiceSellingCostRecord> },
+    { mayUntickSplit = false } = {},
   ): Promise<InvoiceSellingCostRecord | "invoiced" | null> {
     return this.db.transaction(async (tx) => {
       await truckingLinesLock(tx, shipmentId);
@@ -91,10 +96,20 @@ class SellingCostRepository extends TenantRepository<typeof t> {
       const [row] = await tx
         .update(t)
         .set("delete" in change ? { deletedAt: now, updatedAt: now } : { ...change.data, updatedAt: now })
-        .where(lineOf(id, companyId, shipmentId, "data" in change && billingOnly(change.data)))
+        .where(lineOf(id, companyId, shipmentId, "data" in change && billingOnly(change.data, mayUntickSplit)))
         .returning();
       return row ?? null;
     });
+  }
+
+  /** Whether this is a live row a master job's split keeps on the shipment. */
+  async isSplitRow(id: string, companyId: string, shipmentId: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({ ref: t.sourceMasterJobRef })
+      .from(t)
+      .where(and(eq(t.id, id), eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), isNull(t.deletedAt)))
+      .limit(1);
+    return !!row?.ref;
   }
 
   async softDeleteForShipment(shipmentId: string, companyId: string): Promise<void> {
