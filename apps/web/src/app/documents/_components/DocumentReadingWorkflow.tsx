@@ -247,6 +247,8 @@ export function DocumentReadingWorkflow() {
   // Distinct House B/Ls found — continuation pages and copies of one HBL count once.
   const [hblCount, setHblCount] = useState(0);
   const [mblInfo, setMblInfo] = useState<Record<string, string> | null>(null);
+  // A seal typed or corrected on the MBL, in place of what was read.
+  const setMblSeals = (seals: string) => setMblInfo((info) => (info ? { ...info, [MBL_SEALS_LABEL]: seals } : info));
   // MBL details the user ticked to file onto the master job — once per batch,
   // with the batch's first shipment.
   const [mblTicked, setMblTicked] = useState<Record<string, boolean>>({});
@@ -1962,6 +1964,7 @@ export function DocumentReadingWorkflow() {
                   masterJob={currentMasterJob}
                   loadTypeLocked={mblLoadTypeLocked}
                   alone
+                  onSealChange={setMblSeals}
                 />
                 {error && <Alert className="mb-3" type="error" showIcon message={error} />}
                 <div className="flex gap-2 mt-4">
@@ -1995,6 +1998,7 @@ export function DocumentReadingWorkflow() {
                     mcz={activeMcz}
                     masterJob={currentMasterJob}
                     loadTypeLocked={mblLoadTypeLocked}
+                    onSealChange={setMblSeals}
                   />
                 )}
 
@@ -2235,13 +2239,19 @@ interface MblDetailsBoxProps {
   loadTypeLocked: boolean;
   /** The MBL is filed on its own (no House B/Ls), not with the first shipment. */
   alone?: boolean;
+  /** The seals typed or corrected by the user, in place of what was read. */
+  onSealChange: (seals: string) => void;
 }
 
 // The MBL details read from the pre-alert, each with a tick: ticked ones are filed to the
 // master job (once, with the batch's first shipment). When the master job already holds a
 // different value, it is shown so the overwrite is visible before saving.
-function MblDetailsBox({ info, ticked, onToggle, filed, mcz, masterJob, loadTypeLocked, alone = false }: MblDetailsBoxProps) {
-  const rows = Object.entries(info).filter(([, value]) => value);
+function MblDetailsBox({ info, ticked, onToggle, filed, mcz, masterJob, loadTypeLocked, alone = false, onSealChange }: MblDetailsBoxProps) {
+  // The seals sit next to the container numbers and show even when none was read, so a seal the
+  // reading missed can be typed in; they are filed with the containers.
+  const rows = Object.entries(info).filter(([label, value]) => value && label !== MBL_SEALS_LABEL);
+  const containersAt = rows.findIndex(([label]) => label === MBL_CONTAINERS_LABEL);
+  if (containersAt >= 0) rows.splice(containersAt + 1, 0, [MBL_SEALS_LABEL, info[MBL_SEALS_LABEL] ?? ""]);
   const current = (label: string): string => {
     const field = MBL_TO_MASTER_JOB[label];
     if (!field || !masterJob) return "";
@@ -2284,10 +2294,23 @@ function MblDetailsBox({ info, ticked, onToggle, filed, mcz, masterJob, loadType
               </span>
               <span className={`w-[150px] shrink-0 pt-0.5 ${LABEL_TEXT}`}>{label}</span>
               <span className="flex-1 min-w-0">
-                <span className="text-slate-900 font-medium break-words">{value}</span>
+                {label === MBL_SEALS_LABEL && !filed ? (
+                  <Input
+                    size="small"
+                    value={value}
+                    placeholder="Type the seal"
+                    onChange={(e) => onSealChange(e.target.value)}
+                    aria-label="Seal Number"
+                  />
+                ) : (
+                  <span className="text-slate-900 font-medium break-words">{value}</span>
+                )}
                 {cntrDetail && <span className={`block ${HINT}`}>Used for the container type</span>}
                 {label === MBL_SEALS_LABEL &&
                   (() => {
+                    if (!value.trim()) {
+                      return <span className={`block ${HINT}`}>{filed ? "No seal" : "Not read from the B/L: a seal typed here is filed with the container"}</span>;
+                    }
                     const note = sealNote(sealContainers(info[MBL_CONTAINERS_LABEL]), value);
                     return (
                       <span className={`block ${note?.warn ? "text-[12px] text-amber-600" : HINT}`}>
