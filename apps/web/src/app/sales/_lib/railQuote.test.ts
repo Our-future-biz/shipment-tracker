@@ -42,14 +42,14 @@ const offer = (over: Partial<RailOffer> = {}): RailOffer => ({
 const haulage: CostLine = { type: "Inland container haulage", chargeCode: "inland_haulage", description: "Inland container haulage", supplier: "", currency: "EUR", amount: 0, value: 2, basis: "container" };
 
 describe("railRouteOf", () => {
-  it("reads an import from the port of discharge to the postcode of the delivery address, on the ready date", () => {
+  it("reads an import from the port of discharge to the postcode of the delivery address, today whatever the ready date", () => {
     expect(railRouteOf(QUOTE, TODAY)).toEqual({
       port: "DEHAM",
       direction: "import",
       directionChosen: true,
       place: "602 00",
       country: "CZ",
-      date: "2026-11-15",
+      date: TODAY,
       containers: [{ type: "20' DC", qty: 2, cargoKg: 12000 }],
     });
   });

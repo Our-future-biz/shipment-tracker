@@ -73,20 +73,20 @@ const collectionLine: CostLine = {
 };
 
 describe("collectionRouteOf", () => {
-  it("reads an import as a delivery from our LCL hub to the delivery address's postcode, with the cargo and the ready date", () => {
+  it("reads an import as a delivery from our LCL hub to the delivery address's postcode, with the cargo, today whatever the ready date", () => {
     expect(collectionRouteOf(QUOTE, HUBS, TODAY)).toEqual({
       freightMode: "sea_lcl",
       leg: "delivery",
       hubPostcode: "252 61",
       customerPostcode: "602 00",
-      date: "2026-11-15",
+      date: TODAY,
       weightKg: 800,
       cbm: 3.792,
       longestCm: 380,
     });
   });
 
-  it("reads an export as a collection from the pickup address to our air hub, today when no ready date", () => {
+  it("reads an export as a collection from the pickup address to our air hub, today", () => {
     const route = collectionRouteOf({ ...QUOTE, direction: "Export", serviceType: "Air", readyDate: "" }, HUBS, TODAY);
     expect(route).toMatchObject({ freightMode: "air", leg: "collection", hubPostcode: "161 00", customerPostcode: "110 00", date: TODAY });
   });
@@ -109,7 +109,7 @@ describe("collectionRouteProblem", () => {
   });
 
   it("sends the postcodes as 5 digits", () => {
-    expect(collectionOffersRequest(route)).toEqual({ freightMode: "sea_lcl", hubPostcode: "25261", customerPostcode: "60200", date: "2026-11-15", weightKg: 800, cbm: 3.792, longestCm: 380 });
+    expect(collectionOffersRequest(route)).toEqual({ freightMode: "sea_lcl", hubPostcode: "25261", customerPostcode: "60200", date: TODAY, weightKg: 800, cbm: 3.792, longestCm: 380 });
     expect(collectionOffersRequest({ ...route, hubPostcode: "" })).toBeNull();
   });
 });

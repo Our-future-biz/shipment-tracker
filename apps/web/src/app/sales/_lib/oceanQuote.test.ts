@@ -62,7 +62,7 @@ const offer = (over: Partial<OceanOffer> = {}): OceanOffer => ({
 const freightLine: CostLine = { type: "Ocean freight (OF / BAS)", chargeCode: "ocean_freight", description: "Ocean freight", supplier: "", currency: "USD", amount: 0, value: 2, basis: "container", pairId: "p1" };
 
 describe("oceanRouteOf", () => {
-  it("reads the ports, an export, the ready date and the containers of a Sea FCL quote", () => {
+  it("reads the ports, an export, today (not the cargo's ready date) and the containers of a Sea FCL quote", () => {
     expect(oceanRouteOf(QUOTE, TODAY)).toEqual({
       fcl: true,
       direction: "export",
@@ -70,13 +70,13 @@ describe("oceanRouteOf", () => {
       pol: "Hamburg (DEHAM)",
       pod: "Shanghai (CNSHA)",
       comparePols: false,
-      date: "2026-05-12",
+      date: TODAY,
       containers: [{ type: "40' HC", qty: 2 }],
       dangerous: false,
     });
   });
 
-  it("reads an import, today without a ready date, dangerous goods, and leaves a port that is no place empty", () => {
+  it("reads an import, today, dangerous goods, and leaves a port that is no place empty", () => {
     expect(oceanRouteOf({ ...QUOTE, direction: "Import", readyDate: "", dangerous: true, pod: "Shanghai" }, TODAY)).toMatchObject({
       direction: "import",
       date: TODAY,
@@ -110,7 +110,7 @@ describe("oceanRouteProblem and oceanOffersRequest", () => {
       polCode: "DEHAM",
       podCode: "CNSHA",
       comparePols: false,
-      date: "2026-05-12",
+      date: TODAY,
       containers: [{ type: "40' HC", qty: 2 }],
       dangerous: false,
     });

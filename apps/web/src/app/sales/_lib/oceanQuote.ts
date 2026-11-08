@@ -1,7 +1,7 @@
 import type { controllers, interfaces } from "@/lib/api/client";
 import { containerType } from "@/lib/cargo";
 import { chargeLabel } from "@/lib/chargeCodes";
-import { cargoReadyDay, isContainerQuote } from "./salesQuote";
+import { isContainerQuote } from "./salesQuote";
 import { containerFreightLines, hasTariffRef, isChargeLine, tariffRefVersionId, TRADE_DIRECTION_FIRST, tradeDirectionOf, withTariffLines, type ToQuoteCurrency, type TariffPick } from "./tariffQuote";
 import type { CostLine, SalesQuoteData } from "./types";
 
@@ -61,7 +61,8 @@ export function oceanContainersOf(data: SalesQuoteData): { type: string; qty: nu
 
 /**
  * The route as the quote gives it: its ports of loading and discharge, an import when the quote
- * says so (else an export), the cargo's ready date (else today), the containers of Cargo details,
+ * says so (else an export), today as the day the rates are valid on (the user can pick another
+ * in the drawer), the containers of Cargo details,
  * and whether the cargo is dangerous goods (IMO surcharges).
  */
 export function oceanRouteOf(data: SalesQuoteData, today: string): OceanRoute {
@@ -72,7 +73,7 @@ export function oceanRouteOf(data: SalesQuoteData, today: string): OceanRoute {
     pol: oceanPlaceCode(data.pol) ? (data.pol ?? "").trim() : "",
     pod: oceanPlaceCode(data.pod) ? (data.pod ?? "").trim() : "",
     comparePols: false,
-    date: cargoReadyDay(data) || today,
+    date: today,
     containers: oceanContainersOf(data),
     dangerous: !!data.dangerous,
   };

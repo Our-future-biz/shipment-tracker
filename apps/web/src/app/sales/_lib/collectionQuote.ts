@@ -1,6 +1,6 @@
 import type { controllers, interfaces } from "@/lib/api/client";
 import { postcodeText } from "@/app/tariffs/_lib/collectionTariffs";
-import { cargoReadyDay, computeCargo } from "./salesQuote";
+import { computeCargo } from "./salesQuote";
 import { ADDRESS_POSTCODE, hasTariffRef, isChargeLine, tariffRefVersionId } from "./tariffQuote";
 import type { CostLine, SalesQuoteData } from "./types";
 
@@ -83,7 +83,8 @@ export function longestPieceCm(data: SalesQuoteData): number | null {
  * The route as the quote gives it. An export is a collection from the Pickup Address to our hub, an
  * import (or a quote without a direction) a delivery from our hub to the Delivery Address; the
  * customer's postcode is the one in that address. Our hub is the one set for the freight. The day
- * is the cargo's ready date, else today; the weight, volume and longest piece those of Cargo details.
+ * the prices are valid on is today (another can be picked in the drawer); the weight, volume and
+ * longest piece those of Cargo details.
  */
 export function collectionRouteOf(data: SalesQuoteData, hubs: readonly interfaces.CollectionHub[], today: string): CollectionRoute {
   const freightMode = collectionFreightOf(data.serviceType);
@@ -94,7 +95,7 @@ export function collectionRouteOf(data: SalesQuoteData, hubs: readonly interface
     leg,
     hubPostcode: hubPostcodeOf(hubs, freightMode),
     customerPostcode: customerPostcodeOf(data, leg),
-    date: cargoReadyDay(data) || today,
+    date: today,
     weightKg: cargo.grossWeight > 0 ? cargo.grossWeight : null,
     cbm: cargo.cbm > 0 ? cargo.cbm : null,
     longestCm: longestPieceCm(data),

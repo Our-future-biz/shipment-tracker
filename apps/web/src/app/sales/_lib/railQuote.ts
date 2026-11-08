@@ -2,7 +2,7 @@ import type { controllers, interfaces } from "@/lib/api/client";
 import { containerType } from "@/lib/cargo";
 import { formatPostcode } from "@/lib/postcode";
 import { TARIFF_PORTS, portsText } from "@/app/tariffs/_lib/railTariffs";
-import { cargoReadyDay, isContainerQuote } from "./salesQuote";
+import { isContainerQuote } from "./salesQuote";
 import { ADDRESS_POSTCODE, containerFreightLines, hasTariffRef, isChargeLine, tariffRefVersionId, TRADE_DIRECTION_FIRST, tradeDirectionOf, withTariffLines, type TariffPick } from "./tariffQuote";
 import type { CostLine, SalesQuoteData } from "./types";
 
@@ -58,7 +58,8 @@ function tariffPortOf(value: string | undefined): interfaces.TariffPortCode | nu
  * The route as the quote gives it. An import runs from the port of discharge to the delivery
  * address, an export from the pickup address to the port of loading. The inland place is the
  * postcode in that address, else the town of Destination (import) or Origin (export); the
- * country is that town's. The day is the cargo's ready date, else today. The containers are those
+ * country is that town's. The day the prices are valid on is today (another can be picked in the
+ * drawer). The containers are those
  * of Cargo details, with their cargo weight per box.
  */
 export function railRouteOf(data: SalesQuoteData, today: string): RailRoute {
@@ -73,7 +74,7 @@ export function railRouteOf(data: SalesQuoteData, today: string): RailRoute {
     directionChosen: tradeDirectionOf(data) !== null,
     place: postcode ? formatPostcode(`${postcode[1]}${postcode[2]}`, country) : town.replace(PLACE_CODE, "").trim(),
     country,
-    date: cargoReadyDay(data) || today,
+    date: today,
     containers: railContainersOf(data),
   };
 }
