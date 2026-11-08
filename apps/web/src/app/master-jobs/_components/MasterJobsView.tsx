@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { App, Spin } from "antd";
+import { App, Button, Spin } from "antd";
 import { InboxOutlined } from "@ant-design/icons";
 import { CARD } from "@/styles/ui";
 import { BackLink } from "@/components/BackLink";
@@ -20,15 +20,17 @@ import { MasterJobTrackingTab } from "./MasterJobTrackingTab";
 // Tabs of an opened master job; more will follow.
 const DETAIL_TABS = [
   { key: "mbl", label: "MBL Details" },
-  { key: "containers", label: "Containers" },
+  { key: "containers", label: "Container Details" },
   { key: "shipments", label: "Linked Shipments" },
   { key: "costs", label: "Costs Breakdown" },
   { key: "tracking", label: "Tracking" },
 ] as const;
+type DetailTab = (typeof DETAIL_TABS)[number]["key"];
+const isDetailTab = (key: string | null): key is DetailTab => DETAIL_TABS.some((t) => t.key === key);
 
 // Master Jobs in the same shape as Customs: a list, and a master job opened
-// inside the page (?open=<id>) with its tabs. Back returns to the list exactly
-// as it was left — only the opened master job leaves the URL.
+// inside the page (?open=<id>) with its tabs (?tab=<key>). Back returns to the
+// list exactly as it was left — only the opened master job and its tab leave the URL.
 export function MasterJobsView() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -38,21 +40,28 @@ export function MasterJobsView() {
   const { masterJobs, isLoading, isError } = useMasterJobs();
   const createMasterJob = useCreateMasterJob();
   const detail = useMasterJob(openId);
-  // Every master job opens on its first tab: the chosen tab belongs to the job it was picked on.
-  type DetailTab = (typeof DETAIL_TABS)[number]["key"];
-  const [tabPick, setTabPick] = useState<{ id: string | null; tab: DetailTab }>({ id: openId, tab: "mbl" });
-  const detailTab: DetailTab = tabPick.id === openId ? tabPick.tab : "mbl";
-  const setDetailTab = (tab: DetailTab) => setTabPick({ id: openId, tab });
+  // The tab is in the URL, as on a shipment: a reload or a link opens it. MBL Details, the
+  // first, is left out, so a master job opened from the list starts there.
+  const rawTab = searchParams.get("tab");
+  const detailTab: DetailTab = isDetailTab(rawTab) ? rawTab : "mbl";
+  const setDetailTab = (tab: DetailTab) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (tab === "mbl") params.delete("tab");
+    else params.set("tab", tab);
+    router.replace(`/master-jobs?${params.toString()}`, { scroll: false });
+  };
 
   const openMasterJob = (id: string) => {
     const params = new URLSearchParams(searchParams.toString());
     params.set("open", id);
+    params.delete("tab");
     router.push(`/master-jobs?${params.toString()}`);
   };
 
-  // Back to the list as it was left: its search and filters stay, only the opened master job goes.
+  // Back to the list as it was left: its search and filters stay, only the opened master job and its tab go.
   const listParams = new URLSearchParams(searchParams.toString());
   listParams.delete("open");
+  listParams.delete("tab");
   const listQs = listParams.toString();
   const listHref = listQs ? `/master-jobs?${listQs}` : "/master-jobs";
 
@@ -68,8 +77,16 @@ export function MasterJobsView() {
 
   const mj = detail.masterJob;
 
-  // A count in the summary opens its tab (Containers, Linked Shipments); a date jumps to its row on
-  // MBL Details, opening that tab first when another is open.
+  // A date that waits for MBL Details: the tab follows the URL, so it is shown a moment later.
+  const pendingJump = useRef<string | null>(null);
+  useEffect(() => {
+    if (detailTab !== "mbl" || !pendingJump.current) return;
+    jumpTo(pendingJump.current);
+    pendingJump.current = null;
+  }, [detailTab]);
+
+  // A count in the summary opens its tab (Container Details, Linked Shipments); a date jumps to its
+  // row on MBL Details, opening that tab first when another is open.
   const jumpFromFacts = (target: string) => {
     if (target === MJ_ANCHORS.shipments || target === MJ_ANCHORS.containers) {
       setDetailTab(target === MJ_ANCHORS.shipments ? "shipments" : "containers");
@@ -79,8 +96,8 @@ export function MasterJobsView() {
       jumpTo(target);
       return;
     }
+    pendingJump.current = target;
     setDetailTab("mbl");
-    window.setTimeout(() => jumpTo(target), 60);
   };
 
   // An opened master job: the shipment detail page's shape - a white header band with the
@@ -100,12 +117,7 @@ export function MasterJobsView() {
             <>
               {/* The master job at a glance - its number first - above the tabs, on every tab */}
               <div className={`${CARD} mt-3 px-5 pt-3 pb-2.5`}>
-                <MasterJobFacts
-                  masterJob={mj}
-                  containers={detail.containers}
-                  shipments={detail.shipments}
-                  onJump={jumpFromFacts}
-                />
+                <MasterJobFacts masterJob={mj} shipments={detail.shipments} onJump={jumpFromFacts} />
               </div>
 
               {/* Tabs, in the shipment header's look */}
@@ -117,7 +129,11 @@ export function MasterJobsView() {
                       key={tab.key}
                       type="button"
                       aria-current={selected ? "page" : undefined}
-                      onClick={() => setDetailTab(tab.key)}
+                      onClick={() => {
+                        // A tab picked by hand drops a date's jump still on its way.
+                        pendingJump.current = null;
+                        setDetailTab(tab.key);
+                      }}
                       className={`px-[9px] min-[1400px]:px-3.5 2xl:px-4 py-2.5 text-[13px] whitespace-nowrap cursor-pointer transition-colors bg-transparent border-0 border-b-2 ${
                         selected
                           ? "font-semibold text-indigo-600 border-indigo-600"
@@ -170,11 +186,23 @@ export function MasterJobsView() {
               <MblDetailsTab masterJob={mj} onSave={(data) => detail.update.mutateAsync(data)} />
             )
           ) : detail.isLoading ? (
-            <div className="flex items-center justify-center py-20">
-              <Spin />
+            <div className="flex justify-center p-20">
+              <Spin size="large" />
             </div>
           ) : (
-            <div className="px-3 py-7 text-center text-[13px] text-slate-400">Master job not found.</div>
+            <div className="p-10 text-center text-slate-500">
+              {/* "Not found" is said only when the server said so; a request that failed is tried again. */}
+              {detail.isError ? (
+                <>
+                  Could not load the master job - {detail.error}.{" "}
+                  <Button size="small" onClick={() => detail.reload()}>
+                    Retry
+                  </Button>
+                </>
+              ) : (
+                "Master job not found."
+              )}
+            </div>
           )}
         </div>
       </div>

@@ -16,10 +16,10 @@ class MasterJobRepository extends TenantRepository<typeof masterJobTable> {
 
   // Inserts a master job under the company's next MCZ number, taken in the same transaction
   // as the insert, so two creates at the same moment never get the same number.
-  async createWithMczNumber(companyId: string): Promise<MasterJobRecord> {
+  async createWithMczNumber(companyId: string, createdBy = ""): Promise<MasterJobRecord> {
     return this.db.transaction(async (tx) => {
       const mczNumber = await shipmentRefCounterRepository.allocate(tx, companyId, "MCZ");
-      const [created] = await tx.insert(masterJobTable).values({ companyId, mczNumber }).returning();
+      const [created] = await tx.insert(masterJobTable).values({ companyId, mczNumber, createdBy }).returning();
       return created!;
     });
   }

@@ -1526,10 +1526,12 @@ class ShipmentService {
     return { checked: rows.length, renamed, keptInvoiced };
   }
 
-  async linkMasterJob(shipmentId: string, companyId: string, mczNumber: string): Promise<ShipmentRecord | null> {
+  async linkMasterJob(shipmentId: string, companyId: string, mczNumber: string, userId?: string): Promise<ShipmentRecord | null> {
     let masterJob = await masterJobRepository.findByMczNumber(mczNumber, companyId);
     if (!masterJob) {
-      masterJob = await masterJobRepository.createForCompany(companyId, { mczNumber });
+      // A master job made by linking (Create new in the Master Job dialog) records who made it.
+      const createdBy = userId ? await this.actorOf(userId) : "";
+      masterJob = await masterJobRepository.createForCompany(companyId, { mczNumber, createdBy });
     }
     return shipmentRepository.updateForCompany(shipmentId, companyId, { masterJobId: masterJob.id });
   }

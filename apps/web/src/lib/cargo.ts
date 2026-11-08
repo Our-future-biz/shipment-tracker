@@ -30,6 +30,30 @@ export function teuForType(type: string): number {
   return 0;
 }
 
+// Grouped "20' DC … 40' FR" options, filtered the way the reference UI does:
+// compare with apostrophes/spaces stripped, and "2"/"20"/"4"/"40" narrows to
+// that size group. Container Details and the master job's containers both pick from it.
+export function containerTypeOptions(query: string) {
+  const q = query.toLowerCase().replace(/['’\s]/g, "");
+  return CONTAINER_SIZES.map((size) => {
+    const sizeKey = size.replace("'", "");
+    const options = (CONTAINER_KINDS_BY_SIZE[size] ?? CONTAINER_KINDS).map((k) => `${size} ${k}`).filter((o) =>
+      o.toLowerCase().replace(/['’\s]/g, "").includes(q),
+    );
+    if (q && ["2", "20", "4", "40", "45"].includes(q) && !sizeKey.startsWith(q)) return null;
+    if (options.length === 0) return null;
+    return {
+      label: `${size} containers · ${teuForType(size)} TEU`,
+      options: options.map((o) => ({ value: o, label: o })),
+    };
+  }).filter((g): g is NonNullable<typeof g> => g !== null);
+}
+
+// What a container number field says about a wrong one (Container Details, the master job's containers).
+export const CONTAINER_NUMBER_HINT = "4 letters + 7 digits, e.g. MSKU1234567";
+// A warning, not a refusal: the number stays as typed, because a wrong-looking one can still be real.
+export const CHECK_DIGIT_HINT = "The last digit doesn't fit this number's check digit: a typing mistake? Check it against the booking.";
+
 export const PACK_TYPES = ["Pallet(s)", "Cartons", "Colli", "Boxes", "Wooden boxes", "Drums"];
 
 /** The package types as the options of a package-type Select (picked from the list only). */

@@ -66,6 +66,11 @@ export const masterJobTable = pgTable(
     masterBolType: text("master_bol_type").notNull().default(""),
     vessel: text("vessel").notNull().default(""),
     voyage: text("voyage").notNull().default(""),
+
+    // Master job only: its own people, kept by e-mail as on a shipment, and who created it.
+    personInCharge: text("person_in_charge").notNull().default(""),
+    holidayCover: text("holiday_cover").notNull().default(""),
+    createdBy: text("created_by").notNull().default(""),
   },
   (table) => [
     ...defaultTableIndexes("master_job", table),

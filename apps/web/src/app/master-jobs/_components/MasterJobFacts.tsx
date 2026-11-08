@@ -2,10 +2,10 @@
 
 import { CopyButton } from "@/components/CopyButton";
 import { formatDate } from "@/lib/date";
-import { teuForType } from "@/lib/cargo";
 import { loadTypeLabel } from "@/lib/enums";
 import { EMPTY, LABEL_TEXT, PAGE_TITLE, REF } from "@/styles/ui";
-import type { MasterJobContainerLine, MasterJobItem, MasterJobShipmentItem } from "@/hooks/useMasterJobs";
+import type { MasterJobItem, MasterJobShipmentItem } from "@/hooks/useMasterJobs";
+import { linkedCount } from "@/app/shipments/_components/MasterJobDialog";
 import { MJ_ANCHORS } from "./MblDetailsTab";
 import { jumpTo } from "./MasterJobFields";
 
@@ -30,23 +30,8 @@ const dash = <span className={EMPTY}>—</span>;
 /** A plain value that fades out instead of widening its column. */
 const text = (v: string | null | undefined) => (v ? <span className="truncate" title={v}>{v}</span> : dash);
 
-// A count that opens its tab (Containers, Linked Shipments), as the old summary tiles jumped to their cards.
-function JumpCount({ label, target, onJump, children }: { label: string; target: string; onJump: (target: string) => void; children: React.ReactNode }) {
-  return (
-    <button
-      type="button"
-      onClick={() => onJump(target)}
-      title={`Go to ${label}`}
-      className="min-w-0 truncate tabular-nums text-left text-[13px] font-medium text-indigo-600 hover:text-indigo-700 hover:underline cursor-pointer bg-transparent border-0 p-0 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-    >
-      {children}
-    </button>
-  );
-}
-
 interface MasterJobFactsProps {
   masterJob: MasterJobItem;
-  containers: MasterJobContainerLine[];
   shipments: MasterJobShipmentItem[];
   /** How a count reaches its tab, and a date its row on MBL Details; by default it jumps on the page as it is. */
   onJump?: (target: string) => void;
@@ -60,13 +45,16 @@ interface MasterJobFactsProps {
 // A date that jumps to its row: it reads as the bold date it is, a link only on hover.
 const DATE_JUMP = "tabular-nums text-[14px] font-semibold text-slate-900 bg-transparent border-0 p-0 cursor-pointer hover:text-indigo-600 hover:underline";
 
-export function MasterJobFacts({ masterJob: mj, containers, shipments, onJump = jumpTo }: MasterJobFactsProps) {
-  const teu = containers.reduce((sum, c) => sum + teuForType(c.type), 0);
+// The chip the shipment's summary gives its container number; here it holds the linked shipments.
+const CHIP = `${REF} truncate text-[12px] font-bold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-600`;
 
+export function MasterJobFacts({ masterJob: mj, shipments, onJump = jumpTo }: MasterJobFactsProps) {
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-[minmax(max-content,1.1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.85fr)_minmax(0,1fr)_minmax(0,1.3fr)] gap-x-6 gap-y-3 xl:gap-y-1.5 xl:[&>*:not(:first-child)]:[contain:inline-size] xl:[&>*:nth-child(n+7)]:pt-1.5 xl:[&>*:nth-child(n+7)]:border-t xl:[&>*:nth-child(n+7)]:border-indigo-100">
+    // The shipment header's columns (ShipmentFacts), so POL, ETD, POD and ETA stay where they are
+    // when you go from a house to its master job.
+    <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-[minmax(max-content,1.1fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,0.85fr)_minmax(0,0.9fr)_minmax(0,1.45fr)] 2xl:grid-cols-[minmax(max-content,1fr)_minmax(0,1fr)_minmax(0,1.05fr)_minmax(0,0.8fr)_minmax(0,1.25fr)_minmax(0,1.35fr)] gap-x-6 gap-y-3 xl:gap-y-1.5 xl:[&>*:not(:first-child)]:[contain:inline-size] xl:[&>*:nth-child(n+7)]:pt-1.5 xl:[&>*:nth-child(n+7)]:border-t xl:[&>*:nth-child(n+7)]:border-indigo-100">
       <Fact label="Master Job" className="col-span-full xl:col-span-1">
-        {/* The master job number is the page's title. */}
+        {/* The master job number is the page's title, as the job number is on a shipment. */}
         <div className="flex items-center gap-1 min-w-0">
           <h1 className={`${PAGE_TITLE} ${REF} truncate`} title={mj.mczNumber}>
             {mj.mczNumber}
@@ -74,7 +62,7 @@ export function MasterJobFacts({ masterJob: mj, containers, shipments, onJump = 
           <CopyButton text={mj.mczNumber} what="master job number" />
         </div>
       </Fact>
-      <Fact label="MBL Number">
+      <Fact label="Master BoL Number">
         {mj.masterBolNumber ? (
           <span className={`${REF} truncate`} title={mj.masterBolNumber}>
             {mj.masterBolNumber}
@@ -110,16 +98,20 @@ export function MasterJobFacts({ masterJob: mj, containers, shipments, onJump = 
           {formatDate(mj.estimatedArrival) || dash}
         </button>
       </Fact>
-      <Fact label="Linked Shipments">
-        <JumpCount label="Linked shipments" target={MJ_ANCHORS.shipments} onJump={onJump}>
-          {shipments.length}
-        </JumpCount>
+      <Fact label="ETA Warehouse/HUB">
+        <span className="tabular-nums">{formatDate(mj.etaWarehouse) || dash}</span>
       </Fact>
-      <Fact label="Containers">
-        <JumpCount label="Containers" target={MJ_ANCHORS.containers} onJump={onJump}>
-          {containers.length}
-          {teu ? <span className="text-slate-500 font-normal"> · {teu} TEU</span> : null}
-        </JumpCount>
+      {/* Where the shipment shows its container number in a chip, the master job shows its houses:
+          the same chip, which opens Linked Shipments. */}
+      <Fact label="Linked Shipments">
+        <button
+          type="button"
+          onClick={() => onJump(MJ_ANCHORS.shipments)}
+          title="Go to Linked Shipments"
+          className={`${CHIP} border-0 cursor-pointer transition-colors hover:bg-indigo-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500`}
+        >
+          {linkedCount(shipments.length)}
+        </button>
       </Fact>
     </div>
   );

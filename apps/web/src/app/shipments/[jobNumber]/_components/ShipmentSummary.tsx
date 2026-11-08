@@ -4,6 +4,7 @@ import Link from "next/link";
 import { getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
 import { useShipmentTasks } from "@/hooks/useShipmentTasks";
 import { formatDate } from "@/lib/date";
+import { loadTypeLabel } from "@/lib/enums";
 import { StatusBadge } from "@/components/StatusBadge";
 import { CopyButton } from "@/components/CopyButton";
 import { CUSTOMS_CLEARED, getActiveStage, getTasksForDirection } from "./taskDefinitions";
@@ -84,7 +85,8 @@ export function ShipmentFacts({ shipment }: { shipment: ShipmentItem }) {
       </Fact>
       <Fact label="Trade Direction">{text(getFieldValue(shipment, "tradeDirection"))}</Fact>
       <Fact label="Freight Mode">{text(getFieldValue(shipment, "freightMode"))}</Fact>
-      <Fact label="Load Type">{text(getFieldValue(shipment, "loadType"))}</Fact>
+      {/* As the Overview and the grid show it: an air Full Load reads "Single Shipment". */}
+      <Fact label="Load Type">{text(loadTypeLabel(shipment.loadType, shipment.freightMode))}</Fact>
       <Fact label="Shipment Status">
         {status ? (
           <StatusBadge status={status} className="max-w-full truncate" />
@@ -98,7 +100,8 @@ export function ShipmentFacts({ shipment }: { shipment: ShipmentItem }) {
       </Fact>
       <Fact label="POD">
         <span className="min-w-0">
-          {text(pod)}
+          {/* A block, so a long port is cut short rather than running into the ETA column. */}
+          {pod ? <span className="block truncate" title={pod}>{pod}</span> : dash}
           {/* the final destination, which the header's route line also showed */}
           {destination && destination !== pod && (
             <span className="block truncate text-[12px] font-normal text-slate-500" title={destination}>

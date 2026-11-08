@@ -32,7 +32,7 @@ export const ShipmentsView = () => {
   const toast = useToast();
   const [createOpen, setCreateOpen] = useState(false);
   const [masterJobOpen, setMasterJobOpen] = useState(false);
-  // Shipments ticked in the table when "Add to Master Job" was pressed.
+  // Shipments ticked in the table when "Link to Master Job" was pressed.
   const [masterJobPreselected, setMasterJobPreselected] = useState<string[]>([]);
   // The grid keeps its ticks through a search, so a ticked shipment may no longer be in the loaded
   // list: every one seen is remembered, and the dialog gets those ticked along with the list.

@@ -759,7 +759,7 @@ export const ShipmentsTable = ({
               }}
               className={BTN}
             >
-              Add to Master Job
+              Link to Master Job
             </button>
           )}
         </div>

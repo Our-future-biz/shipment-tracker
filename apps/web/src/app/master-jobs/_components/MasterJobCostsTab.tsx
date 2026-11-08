@@ -2,18 +2,20 @@
 
 import { useRef } from "react";
 import Link from "next/link";
-import { Alert, App, Checkbox, Input, Segmented, Select, Spin, Tooltip, type SelectProps } from "antd";
-import { DeleteOutlined, LoadingOutlined, PlusOutlined, WarningOutlined } from "@ant-design/icons";
+import { Alert, App, Checkbox, Segmented, Select, Spin, Tooltip } from "antd";
+import { CopyOutlined, DeleteOutlined, LoadingOutlined, PlusOutlined, WarningOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, apiErrorMessage } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
-import { CURRENCIES } from "@/lib/cargo";
 import { chargeLabel, chargeOptions } from "@/lib/chargeCodes";
 import { money, normaliseAmount } from "@/lib/money";
 import { ProfitVsEstimate } from "@/components/ProfitVsEstimate";
 import { EMPTY_CELL } from "@/components/EmptyCell";
+import { Pill, type PillTone } from "@/components/Pill";
+import { CurrencyPicker } from "@/components/CurrencyPicker";
+import { CATEGORY_SELECT, FIELD, WARNING_BANNER, WARNING_ICON, WARNING_TEXT, notAnAmount, onlyNumbers } from "@/components/costFields";
 import { CountChip, SectionCard } from "@/components/SectionCard";
-import { BTN_PRIMARY, BTN_SM, CARD, EMPTY_STATE, HINT, ICON_BTN_GHOST, LABEL_TEXT, LINK, REF, TD_TOTAL, TH } from "@/styles/ui";
+import { BTN_PRIMARY, BTN_SM, CARD, EMPTY_STATE, HINT, ICON_BTN_DANGER, ICON_BTN_GHOST, LABEL_TEXT, LINK, REF, TD_TOTAL, TH } from "@/styles/ui";
 import { LOCKED_CONTROL, LOCKED_INPUT, OPEN_ROW_ATTR, lockOnEnter, useOpenRow } from "../_lib/rowLock";
 
 type View = interfaces.MasterJobCostsView;
@@ -31,20 +33,10 @@ const SPLIT_LINE = "border-l-[3px] border-l-slate-900";
 const FOOT_LINE = "border-t-2 border-slate-200";
 const FOOT_LABEL = `px-[6px] py-2 ${FOOT_LINE} ${LABEL_TEXT}`;
 const FOOT = `${TD_TOTAL} !px-[6px] text-right tabular-nums`;
-const SPLIT_WARNING = "mx-4 mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-800";
-/** A row's Delete: grey, red on hover. */
-const ROW_DELETE_BTN = `${ICON_BTN_GHOST} hover:!bg-red-50 hover:!text-red-600`;
+/** The currency under a total, in the Cur column. */
+const FOOT_UNIT = `px-[6px] py-2 ${FOOT_LINE} ${HINT}`;
 /** "No buying costs yet — add the first one": a link-like button. */
 const ADD_FIRST_BTN = `${LINK} text-[13px] font-semibold border-0 bg-transparent cursor-pointer disabled:opacity-50`;
-// The open list shows the name too, the cell only the code.
-const CURRENCY_OPTIONS = CURRENCIES.map(({ code, name }) => ({ value: code, title: name, label: `${code} — ${name}` }));
-const currencyOption: SelectProps["optionRender"] = (opt) => (
-  <span className="text-[13px]">
-    <span className="font-semibold">{String(opt.value)}</span>
-    <span className="text-slate-400"> — {String(opt.data?.title ?? "")}</span>
-  </span>
-);
-const currencyLabel: SelectProps["labelRender"] = (p) => String(p.value ?? "");
 const SPLIT_OPTIONS = [
   { value: "wm", label: "W/M" },
   { value: "shipment", label: "Per shipment" },
@@ -63,6 +55,23 @@ function shownTotal(l: Line): { total: number; currency: string } | null {
   if (real != null) return { total: real, currency: l.realCurrency };
   const est = lineTotal(l.estAmount, l.estQty);
   return est != null ? { total: est, currency: l.estCurrency } : null;
+}
+
+/** Totals per currency, in the order the currencies first come: adding currencies up would take an exchange rate. */
+function byCurrency(totals: ({ total: number; currency: string } | null)[]): [string, number][] {
+  const sums = new Map<string, number>();
+  for (const t of totals) if (t) sums.set(t.currency, (sums.get(t.currency) ?? 0) + t.total);
+  return [...sums];
+}
+
+/** Where the shipments stand against the split: a pill, with the whole sentence as its tooltip. */
+function splitStatus(split: View["split"]): { tone: PillTone; label: string; sentence: string } | null {
+  if (!split.inSync) {
+    return split.written > 0
+      ? { tone: "amber", label: "Changed", sentence: "Changed since it was processed: the shipments still carry the earlier split." }
+      : { tone: "amber", label: "Not processed", sentence: "Not processed yet: the shipments don't carry these costs." };
+  }
+  return split.written > 0 ? { tone: "green", label: "Processed", sentence: "Processed: the shipments carry this split." } : null;
 }
 
 interface Props {
@@ -109,23 +118,63 @@ export function MasterJobCostsTab({ masterJob }: Props) {
     void queryClient.invalidateQueries({ queryKey: costsKey(masterJob.id) });
   };
 
+  // A new line: Qty = 1 on both sides (the currencies are CZK until changed).
   const add = useMutation({
     mutationKey: writeKey,
-    mutationFn: () => api.invoicing.invoicingMasterJobCostAdd(masterJob.id, { splitMethod: "wm" }),
+    mutationFn: () => api.invoicing.invoicingMasterJobCostAdd(masterJob.id, { splitMethod: "wm", estQty: "1", realQty: "1" }),
     onSuccess: applied,
-    onError: failed("Could not add the cost"),
+    onError: failed("Could not add the buying cost"),
   });
   const update = useMutation({
     mutationKey: writeKey,
     mutationFn: ({ id, patch }: { id: string; patch: Patch }) => api.invoicing.invoicingMasterJobCostUpdate(masterJob.id, id, patch),
     onSuccess: applied,
-    onError: failed("Could not save the cost"),
+    onError: failed("Could not save the change"),
   });
   const remove = useMutation({
     mutationKey: writeKey,
     mutationFn: (id: string) => api.invoicing.invoicingMasterJobCostDelete(masterJob.id, id),
     onSuccess: applied,
-    onError: failed("Could not delete the cost"),
+    onError: failed("Could not delete the row"),
+  });
+  // A copy goes in below its line, with what it costs and how it is split; not its invoice number or
+  // Received, which belong to one invoice. The lines below it move down one.
+  const duplicate = useMutation({
+    mutationKey: writeKey,
+    mutationFn: async ({ line, index, all }: { line: Line; index: number; all: Line[] }) => {
+      // The shipments taken out of the line stay out of the copy too. They are set once it is added,
+      // so it comes out of the split until then (the server checks a line in it against Trucking).
+      const excluded = line.excludedShipmentIds.length > 0;
+      const added = await api.invoicing.invoicingMasterJobCostAdd(masterJob.id, {
+        category: line.category,
+        description: line.description,
+        vendor: line.vendor,
+        estQty: line.estQty ?? undefined,
+        estAmount: line.estAmount ?? undefined,
+        estCurrency: line.estCurrency,
+        realQty: line.realQty ?? undefined,
+        realAmount: line.realAmount ?? undefined,
+        realCurrency: line.realCurrency,
+        splitMethod: line.splitMethod,
+        inSplit: excluded ? false : line.inSplit,
+        sortOrder: index + 1,
+      });
+      const fresh = added.lines.filter((l) => !all.some((o) => o.id === l.id));
+      const copy = fresh.find((l) => l.sortOrder === index + 1) ?? fresh[0];
+      await Promise.all([
+        ...all.flatMap((l, i) => {
+          const sortOrder = i <= index ? i : i + 1;
+          return l.sortOrder === sortOrder ? [] : [api.invoicing.invoicingMasterJobCostUpdate(masterJob.id, l.id, { sortOrder })];
+        }),
+        ...(copy && excluded
+          ? [api.invoicing.invoicingMasterJobCostUpdate(masterJob.id, copy.id, { inSplit: line.inSplit, excludedShipmentIds: line.excludedShipmentIds })]
+          : []),
+      ]);
+      // The answers came in any order: the view is read once they are all in.
+      return api.invoicing.invoicingMasterJobCosts(masterJob.id);
+    },
+    onSuccess: applied,
+    onError: failed("Could not duplicate the row"),
   });
   // The shares are in the shipments' Costs Breakdowns (and their totals) the moment this answers.
   const processSplit = useMutation({
@@ -142,12 +191,21 @@ export function MasterJobCostsTab({ masterJob }: Props) {
   // An amount typed as people write it ("1 250,50"); one that isn't a number is refused here.
   const saveAmount = (line: Line, field: "estQty" | "estAmount" | "realQty" | "realAmount", text: string) => {
     const value = normaliseAmount(text);
-    if (value === null) return message.warning(`"${text}" is not a number`);
+    if (value === null) return message.error(`Could not save the change: ${notAnAmount(text)}`);
     if (value !== (line[field] == null ? "" : String(Number(line[field])))) save(line, { [field]: value });
   };
-  const saveText = (line: Line, field: "description" | "vendor" | "invoiceNumber", text: string) => {
+  const saveText = (line: Line, field: "description" | "vendor", text: string) => {
     if (text.trim() !== line[field]) save(line, { [field]: text.trim() });
   };
+  // Received follows the invoice number being filled in; it can't be ticked by hand.
+  const saveInvoiceNumber = (line: Line, text: string) => {
+    const invoiceNumber = text.trim();
+    const received = invoiceNumber !== "";
+    if (invoiceNumber !== line.invoiceNumber || received !== line.received) save(line, { invoiceNumber, received });
+  };
+  // A currency change on Estimated is mirrored to Real while Real is empty.
+  const saveEstCurrency = (line: Line, currency: string) =>
+    save(line, { estCurrency: currency, ...(Number(line.realAmount) ? {} : { realCurrency: currency }) });
   // A shipment in or out of a line's split: the other shipments share the line out between them.
   const saveInSplit = (line: Line, shipmentId: string, inSplit: boolean) =>
     save(line, {
@@ -166,12 +224,17 @@ export function MasterJobCostsTab({ masterJob }: Props) {
   const { lines, houses, shares, split } = data;
   const shareOf = (lineId: string, shipmentId: string) => shares.find((s) => s.lineId === lineId && s.shipmentId === shipmentId);
   const splitLines = lines.filter((l) => l.inSplit);
-  // All the split shares out, per currency: adding currencies up would take an exchange rate.
-  const allIn = new Map<string, number>();
-  for (const l of splitLines) {
-    const shown = shownTotal(l);
-    if (shown) allIn.set(shown.currency, (allIn.get(shown.currency) ?? 0) + shown.total);
-  }
+  // All the split shares out, per currency.
+  const allIn = byCurrency(splitLines.map(shownTotal));
+  // The table's totals under Est. Amount and Real Cost, per currency: every line, the filled ones.
+  const estTotals = byCurrency(lines.map((l) => {
+    const total = lineTotal(l.estAmount, l.estQty);
+    return total ? { total, currency: l.estCurrency } : null;
+  }));
+  const realTotals = byCurrency(lines.map((l) => {
+    const total = lineTotal(l.realAmount, l.realQty);
+    return total ? { total, currency: l.realCurrency } : null;
+  }));
   const housesInLine = (l: Line) => houses.filter((h) => !l.excludedShipmentIds.includes(h.shipmentId));
   // The shipments that would carry a part of the line: by W/M, only those with a W/M.
   const carriersOf = (l: Line) => houses.filter((h) => l.splitMethod !== "wm" || h.freightTon > 0);
@@ -182,9 +245,11 @@ export function MasterJobCostsTab({ masterJob }: Props) {
   // Every shipment still in the line's split unlinked since (or, by W/M, left with no W/M): its cost
   // lands on nobody. A W/M line no shipment has a W/M for is the "no W/M" warning's.
   const nobodyCarries = splitLines.filter((l) => carriersOf(l).length > 0 && carriersInLine(l).length === 0);
-  const busy = add.isPending || update.isPending || remove.isPending || processSplit.isPending;
+  const busy = add.isPending || update.isPending || remove.isPending || duplicate.isPending || processSplit.isPending;
   // Each line and the whole master job against their estimates, worked out on the server at today's ČNB rates.
   const { vsEstimate, totalVsEstimate: totalVs } = data;
+  const status = splitStatus(split);
+  const duplicateLine = (line: Line, index: number) => duplicate.mutate({ line, index, all: lines });
 
   return (
     <div className="flex flex-col gap-4">
@@ -200,8 +265,7 @@ export function MasterJobCostsTab({ masterJob }: Props) {
       >
         <p className={`m-0 px-4 pt-3 pb-2 ${HINT}`}>
           Each line is split over the {houses.length} linked shipment{houses.length === 1 ? "" : "s"}, and Process the split puts it in their
-          Costs Breakdown, read-only there. Split by W/M (freight tons) or the same part for each shipment. Untick In split to keep a line on
-          the master job only: no shipment carries it.
+          Costs Breakdown, read-only there.
         </p>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1300px] border-separate border-spacing-0">
@@ -217,21 +281,30 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                 <th colSpan={3} className="border-b border-slate-200" />
               </tr>
               <tr>
-                <th className={`${HEAD} !text-center whitespace-nowrap`} title="Share this cost out over the shipments">In split</th>
-                <th className={HEAD}>Category</th>
-                <th className={HEAD}>Description</th>
-                <th className={HEAD}>Vendor</th>
-                <th className={`${HEAD} !text-center`}>Qty</th>
-                <th className={`${HEAD} text-right`}>Est. amount</th>
-                <th className={HEAD}>Cur</th>
-                <th className={`${HEAD} ${SPLIT_LINE} !text-center`}>Qty</th>
-                <th className={`${HEAD} text-right`}>Real cost</th>
-                <th className={HEAD}>Cur</th>
-                <th className={HEAD}>Invoice number</th>
-                <th className={`${HEAD} !text-center`} title="Supplier invoice received">Received</th>
+                <th
+                  className={`${HEAD} !text-center whitespace-nowrap`}
+                  title="Share this cost out over the shipments. Untick it to keep the line on the master job only: no shipment carries it."
+                >
+                  In split
+                </th>
+                {/* The shipment's column widths. The master job's own columns (In split, Vs estimate, Split)
+                    leave less room, so each keeps at least its width in the shipment's narrowest table (1240px). */}
+                <th className={`${HEAD} w-[13%] min-w-[160px]`}>Category</th>
+                <th className={`${HEAD} w-[12%] min-w-[150px]`}>Description</th>
+                <th className={`${HEAD} w-[8%] min-w-[100px]`}>Vendor</th>
+                <th className={`${HEAD} !text-center w-[4%] min-w-[50px]`}>Qty</th>
+                <th className={`${HEAD} text-right w-[8%] min-w-[100px]`}>Est. Amount</th>
+                <th className={`${HEAD} w-[6%] min-w-[75px]`}>Cur</th>
+                <th className={`${HEAD} ${SPLIT_LINE} !text-center w-[4%] min-w-[50px]`}>Qty</th>
+                <th className={`${HEAD} text-right w-[8%] min-w-[100px]`}>Real Cost</th>
+                <th className={`${HEAD} w-[6%] min-w-[75px]`}>Cur</th>
+                <th className={`${HEAD} w-[8%] min-w-[100px]`}>Invoice number</th>
+                <th className={`${HEAD} !text-center w-[5%]`} title="Supplier invoice received">Received</th>
                 <th className={`${HEAD} text-right`} title="The real cost against the estimate">Vs estimate</th>
-                <th className={HEAD}>Split</th>
-                <th className={HEAD} />
+                <th className={HEAD} title="How the line is shared out: by W/M (freight tons), or the same part for each shipment.">
+                  Split
+                </th>
+                <th className={`${HEAD} w-[70px]`} />
               </tr>
             </thead>
             <tbody>
@@ -244,7 +317,7 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                   </td>
                 </tr>
               )}
-              {lines.map((line) => {
+              {lines.map((line, index) => {
                 const locked = openKey !== line.id && filled(line);
                 const control = locked ? LOCKED_CONTROL : "";
                 const input = locked ? LOCKED_INPUT : "";
@@ -253,7 +326,7 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                 <tr
                   key={line.id}
                   {...(locked ? {} : { [OPEN_ROW_ATTR]: "" })}
-                  onDoubleClick={locked ? () => open(line.id) : undefined}
+                  onDoubleClick={locked ? (e) => open(line.id, e) : undefined}
                   // The row being typed in is the open one.
                   onFocus={locked ? undefined : () => openKey !== line.id && open(line.id)}
                   onKeyDown={locked ? undefined : lockOnEnter(close)}
@@ -270,14 +343,14 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                       aria-label={`${line.category ? chargeLabel(line.category) : "This cost"} in the split`}
                     />
                   </td>
-                  <td className={`${CELL} min-w-[170px]`}>
+                  <td className={CELL}>
                     <Select
-                      size="small"
-                      className={`w-full ${control}`}
+                      variant="borderless"
+                      className={`${CATEGORY_SELECT} ${control}`}
                       {...lockedProps}
                       showSearch
                       optionFilterProp="label"
-                      placeholder="Category"
+                      placeholder="—"
                       value={line.category || undefined}
                       options={chargeOptions(line.category, masterJob.freightMode)}
                       popupMatchSelectWidth={380}
@@ -285,61 +358,39 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                       aria-label="Category"
                     />
                   </td>
-                  <td className={`${CELL} min-w-[140px]`}>
-                    <Input size="small" readOnly={locked} className={input} key={`d${line.description}`} defaultValue={line.description} onBlur={(e) => saveText(line, "description", e.target.value)} aria-label="Description" />
+                  <td className={CELL}>
+                    <input readOnly={locked} className={`${FIELD} ${input}`} key={`d${line.description}`} defaultValue={line.description} onBlur={(e) => saveText(line, "description", e.target.value)} aria-label="Description" />
                   </td>
-                  <td className={`${CELL} min-w-[120px]`}>
-                    <Input size="small" readOnly={locked} className={input} key={`v${line.vendor}`} defaultValue={line.vendor} onBlur={(e) => saveText(line, "vendor", e.target.value)} aria-label="Vendor" />
+                  <td className={CELL}>
+                    <input readOnly={locked} className={`${FIELD} ${input}`} key={`v${line.vendor}`} defaultValue={line.vendor} placeholder="—" onBlur={(e) => saveText(line, "vendor", e.target.value)} aria-label="Vendor" />
                   </td>
-                  <td className={`${CELL} w-[70px]`}>
-                    <Input size="small" key={`eq${line.estQty}`} defaultValue={line.estQty ?? ""} onBlur={(e) => saveAmount(line, "estQty", e.target.value)} readOnly={locked} className={`text-right ${input}`} aria-label="Estimated quantity" />
+                  <td className={CELL}>
+                    <input key={`eq${line.estQty}`} defaultValue={line.estQty ?? ""} inputMode="decimal" onKeyDown={onlyNumbers} onBlur={(e) => saveAmount(line, "estQty", e.target.value)} readOnly={locked} className={`${FIELD} text-center ${input}`} aria-label="Estimated quantity" />
                   </td>
-                  <td className={`${CELL} w-[100px]`}>
-                    <Input size="small" key={`ea${line.estAmount}`} defaultValue={line.estAmount ?? ""} onBlur={(e) => saveAmount(line, "estAmount", e.target.value)} readOnly={locked} className={`text-right ${input}`} aria-label="Estimated amount" />
+                  <td className={CELL}>
+                    <input key={`ea${line.estAmount}`} defaultValue={line.estAmount ?? ""} inputMode="decimal" onKeyDown={onlyNumbers} onBlur={(e) => saveAmount(line, "estAmount", e.target.value)} readOnly={locked} className={`${FIELD} text-right ${input}`} aria-label="Estimated amount" />
                   </td>
-                  <td className={`${CELL} w-[86px]`}>
-                    <Select
-                      size="small"
-                      className={`w-full ${control}`}
-                      {...lockedProps}
-                      showSearch
-                      optionFilterProp="label"
-                      value={line.estCurrency}
-                      options={CURRENCY_OPTIONS}
-                      optionRender={currencyOption}
-                      labelRender={currencyLabel}
-                      popupMatchSelectWidth={false}
-                      onChange={(v: string) => save(line, { estCurrency: v })}
-                      aria-label="Estimated currency"
-                    />
+                  <td className={CELL}>
+                    <CurrencyPicker locked={locked} value={line.estCurrency} onChange={(v) => saveEstCurrency(line, v)} ariaLabel="Estimated currency" />
                   </td>
-                  <td className={`${CELL} w-[70px] ${SPLIT_LINE}`}>
-                    <Input size="small" key={`rq${line.realQty}`} defaultValue={line.realQty ?? ""} onBlur={(e) => saveAmount(line, "realQty", e.target.value)} readOnly={locked} className={`text-right ${input}`} aria-label="Real quantity" />
+                  <td className={`${CELL} ${SPLIT_LINE}`}>
+                    <input key={`rq${line.realQty}`} defaultValue={line.realQty ?? ""} inputMode="decimal" onKeyDown={onlyNumbers} onBlur={(e) => saveAmount(line, "realQty", e.target.value)} readOnly={locked} className={`${FIELD} text-center ${input}`} aria-label="Real quantity" />
                   </td>
-                  <td className={`${CELL} w-[100px]`}>
-                    <Input size="small" key={`ra${line.realAmount}`} defaultValue={line.realAmount ?? ""} onBlur={(e) => saveAmount(line, "realAmount", e.target.value)} readOnly={locked} className={`text-right ${input}`} aria-label="Real cost" />
+                  <td className={CELL}>
+                    <input key={`ra${line.realAmount}`} defaultValue={line.realAmount ?? ""} inputMode="decimal" onKeyDown={onlyNumbers} onBlur={(e) => saveAmount(line, "realAmount", e.target.value)} readOnly={locked} className={`${FIELD} text-right ${input}`} aria-label="Real Cost" />
                   </td>
-                  <td className={`${CELL} w-[86px]`}>
-                    <Select
-                      size="small"
-                      className={`w-full ${control}`}
-                      {...lockedProps}
-                      showSearch
-                      optionFilterProp="label"
-                      value={line.realCurrency}
-                      options={CURRENCY_OPTIONS}
-                      optionRender={currencyOption}
-                      labelRender={currencyLabel}
-                      popupMatchSelectWidth={false}
-                      onChange={(v: string) => save(line, { realCurrency: v })}
-                      aria-label="Real currency"
-                    />
+                  <td className={CELL}>
+                    <CurrencyPicker locked={locked} value={line.realCurrency} onChange={(v) => save(line, { realCurrency: v })} ariaLabel="Real currency" />
                   </td>
-                  <td className={`${CELL} min-w-[120px]`}>
-                    <Input size="small" readOnly={locked} className={input} key={`in${line.invoiceNumber}`} defaultValue={line.invoiceNumber} onBlur={(e) => saveText(line, "invoiceNumber", e.target.value)} aria-label="Invoice number" />
+                  <td className={CELL}>
+                    <input readOnly={locked} className={`${FIELD} ${input}`} key={`in${line.invoiceNumber}`} defaultValue={line.invoiceNumber} onBlur={(e) => saveInvoiceNumber(line, e.target.value)} aria-label="Invoice number" />
                   </td>
                   <td className={`${CELL} text-center`}>
-                    <Checkbox className={control} tabIndex={locked ? -1 : undefined} checked={line.received} onChange={(e) => save(line, { received: e.target.checked })} aria-label="Supplier invoice received" />
+                    <Tooltip title="Received is ticked automatically once the invoice number is filled in">
+                      <span>
+                        <Checkbox checked={line.received} disabled tabIndex={-1} aria-label="Supplier invoice received" />
+                      </span>
+                    </Tooltip>
                   </td>
                   <td className={`${CELL} text-right whitespace-nowrap`}>
                     {(() => {
@@ -358,10 +409,15 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                       aria-label="Split"
                     />
                   </td>
-                  {/* Delete works on a locked row too, without opening it. */}
-                  <td className={`${CELL} text-center`} onDoubleClick={(e) => e.stopPropagation()}>
-                    <Tooltip title="Delete - it leaves the shipments too">
-                      <button type="button" disabled={busy} onClick={() => remove.mutate(line.id)} aria-label="Delete cost" className={ROW_DELETE_BTN}>
+                  {/* Duplicate and Delete work on a locked row too, without opening it. */}
+                  <td className={`${CELL} text-center whitespace-nowrap`} onDoubleClick={(e) => e.stopPropagation()}>
+                    <Tooltip title="Duplicate row">
+                      <button type="button" disabled={busy} onClick={() => duplicateLine(line, index)} aria-label="Duplicate buying cost row" className={ICON_BTN_GHOST}>
+                        <CopyOutlined />
+                      </button>
+                    </Tooltip>
+                    <Tooltip title="Delete row">
+                      <button type="button" disabled={busy} onClick={() => remove.mutate(line.id)} aria-label="Delete buying cost row" className={ICON_BTN_DANGER}>
                         <DeleteOutlined />
                       </button>
                     </Tooltip>
@@ -370,8 +426,29 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                 );
               })}
             </tbody>
-            {totalVs && (
-              <tfoot>
+            {/* Totals under Est. Amount and Real Cost, a line per currency, the currency under Cur. */}
+            <tfoot>
+              {/* Lined up at the top: with several currencies, the label and each side's first total share a line. */}
+              <tr className="bg-slate-50 align-top">
+                <td className={`${FOOT_LABEL} !leading-5`} colSpan={5}>
+                  Total buying
+                </td>
+                <td className={FOOT}>
+                  {estTotals.length > 0 ? estTotals.map(([currency, total]) => <div key={currency} className="leading-5">{money(total)}</div>) : EMPTY_CELL}
+                </td>
+                <td className={FOOT_UNIT}>
+                  {estTotals.map(([currency]) => <div key={currency} className="leading-5">{currency}</div>)}
+                </td>
+                <td className={`${SPLIT_LINE} ${FOOT_LINE}`} />
+                <td className={FOOT}>
+                  {realTotals.length > 0 ? realTotals.map(([currency, total]) => <div key={currency} className="leading-5">{money(total)}</div>) : EMPTY_CELL}
+                </td>
+                <td className={FOOT_UNIT}>
+                  {realTotals.map(([currency]) => <div key={currency} className="leading-5">{currency}</div>)}
+                </td>
+                <td className={FOOT_LINE} colSpan={5} />
+              </tr>
+              {totalVs && (
                 <tr className="bg-slate-50">
                   <td className={FOOT_LABEL} colSpan={7}>
                     Against the estimates
@@ -382,33 +459,35 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                   </td>
                   <td className={FOOT_LINE} colSpan={2} />
                 </tr>
-              </tfoot>
-            )}
+              )}
+            </tfoot>
           </table>
         </div>
       </SectionCard>
 
       <SectionCard title="Split over the shipments" extra={<CountChip count={houses.length} />} bodyClassName="rounded-b-xl overflow-hidden">
         {houses.length === 0 ? (
-          <p className={`m-0 px-4 ${EMPTY_STATE}`}>No shipments are linked yet - the costs are split once there are some (the Linked Shipments tab).</p>
+          <p className={`m-0 px-4 ${EMPTY_STATE}`}>No shipments are linked yet — the costs are split once there are some (Linked Shipments tab).</p>
         ) : (
           <>
             {noWm.length > 0 && (
-              <div className={SPLIT_WARNING}>
-                <WarningOutlined className="mt-0.5" />
-                <span>
-                  {noWm.map((h) => h.jobNumber).join(", ")} {noWm.length === 1 ? "has" : "have"} no weight or volume, so{" "}
-                  {noWm.length === 1 ? "it gets" : "they get"} no share of the lines split by W/M. Fill in the cargo to include{" "}
+              <div className={`${WARNING_BANNER} mx-4 mt-3`}>
+                <WarningOutlined className={WARNING_ICON} />
+                <span className={WARNING_TEXT}>
+                  <strong>
+                    {noWm.map((h) => h.jobNumber).join(", ")} {noWm.length === 1 ? "has" : "have"} no weight or volume
+                  </strong>
+                  , so {noWm.length === 1 ? "it gets" : "they get"} no share of the lines split by W/M. Fill in the cargo to include{" "}
                   {noWm.length === 1 ? "it" : "them"}.
                 </span>
               </div>
             )}
             {nobodyCarries.length > 0 && (
-              <div className={SPLIT_WARNING}>
-                <WarningOutlined className="mt-0.5" />
-                <span>
-                  {nobodyCarries.map((l) => (l.category ? chargeLabel(l.category) : "A cost")).join(", ")}: no shipment carries this cost. Tick a shipment to
-                  include it.
+              <div className={`${WARNING_BANNER} mx-4 mt-3`}>
+                <WarningOutlined className={WARNING_ICON} />
+                <span className={WARNING_TEXT}>
+                  <strong>{nobodyCarries.map((l) => (l.category ? chargeLabel(l.category) : "A cost")).join(", ")}: no shipment carries this cost.</strong>{" "}
+                  Tick a shipment to include it.
                 </span>
               </div>
             )}
@@ -440,7 +519,13 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                         </Link>
                       </td>
                       <td className={`${CELL} text-right tabular-nums`}>
-                        {h.freightTon > 0 ? h.freightTon.toFixed(3) : <span className="text-amber-600">—</span>}
+                        {h.freightTon > 0 ? (
+                          h.freightTon.toFixed(3)
+                        ) : (
+                          <Tooltip title="No weight or volume — no share of the lines split by W/M">
+                            <span className="text-amber-600 cursor-help">—</span>
+                          </Tooltip>
+                        )}
                       </td>
                       {splitLines.map((l) => {
                         const s = shareOf(l.id, h.shipmentId);
@@ -520,18 +605,15 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                   {split.sellingOnInvoices === 1 ? "s" : ""} as invoiced: credit the invoice to change {split.sellingOnInvoices === 1 ? "it" : "them"}.
                 </span>
               )}
-              {!split.inSync && (
-                <span className="text-[12px] text-amber-700">
-                  {split.written > 0
-                    ? "Changed since it was processed: the shipments still carry the earlier split."
-                    : "Not processed yet: the shipments don't carry these costs."}
-                </span>
+              {status && (
+                <Tooltip title={status.sentence}>
+                  <Pill tone={status.tone}>{status.label}</Pill>
+                </Tooltip>
               )}
-              {split.inSync && split.written > 0 && <span className="text-[12px] text-emerald-700">Processed: the shipments carry this split.</span>}
-              {allIn.size > 0 && (
+              {allIn.length > 0 && (
                 <span className="whitespace-nowrap text-[13px] font-semibold tabular-nums text-slate-900">
                   All in:{" "}
-                  {[...allIn]
+                  {allIn
                     .map(([currency, total]) => `${money(total)} ${currency}`)
                     .join(" + ")}
                 </span>

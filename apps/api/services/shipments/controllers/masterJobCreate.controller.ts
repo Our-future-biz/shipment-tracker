@@ -11,6 +11,7 @@ interface MasterJobCreateResponse {
 export const masterJobCreate = api(
   { expose: true, auth: true, method: "POST", path: "/master-jobs" },
   async (): Promise<MasterJobCreateResponse> => {
-    return { masterJob: await masterJobService.create(getAuthData()!.companyID) };
+    const auth = getAuthData()!;
+    return { masterJob: await masterJobService.create(auth.companyID, auth.userID) };
   },
 );

@@ -1410,13 +1410,13 @@ export function ShipmentDetailContent() {
                               )}
                               {detailsEditable && (
                                 <button onClick={() => setUnlinkOpen(true)} className="text-[12px] text-slate-500 hover:text-red-600 cursor-pointer bg-transparent border-none p-0">
-                                  unassign
+                                  remove
                                 </button>
                               )}
                             </>
                           ) : detailsEditable ? (
                             <button type="button" onClick={() => setAssignOpen(true)} className={`${BTN_PRIMARY} ${BTN_SM} !text-white hover:!text-white`}>
-                              Assign to master job
+                              Link to master job
                             </button>
                           ) : (
                             <span className={EMPTY}>—</span>
@@ -1896,8 +1896,8 @@ export function ShipmentDetailContent() {
 
       <Modal
         open={unlinkOpen}
-        title="Unassign from master job?"
-        okText="Yes, unassign"
+        title="Remove from master job?"
+        okText="Yes, remove"
         okButtonProps={{ danger: true, loading: unlinking }}
         cancelText="Cancel"
         onOk={confirmUnlinkMasterJob}
@@ -1905,7 +1905,7 @@ export function ShipmentDetailContent() {
         destroyOnHidden
       >
         <p className="text-[13px] text-slate-700">
-          Do you really want to unassign the shipment{" "}
+          Do you really want to remove the shipment{" "}
           <b className={REF}>{shipment.jobNumber ?? shipment.id}</b> from master job{" "}
           <b className={REF}>{shipment.masterJobMczNumber}</b>?
         </p>

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { CURRENCIES } from "@/lib/cargo";
 import Link from "next/link";
 import { App, Input, Select, Checkbox, Tooltip, Modal, Popover } from "antd";
 import { CloseOutlined, DeleteOutlined, FileDoneOutlined, PlusOutlined, RollbackOutlined, SendOutlined, DownOutlined, CopyOutlined, WarningOutlined, LockOutlined } from "@ant-design/icons";
@@ -10,7 +9,7 @@ import { api, apiErrorMessage, ErrCode, isAPIError } from "@/lib/api";
 import type { controllers } from "@/lib/api/client";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { businessDayOf, formatDate, formatDateTime } from "@/lib/date";
-import { amountTypingAllowed, normaliseAmount } from "@/lib/money";
+import { normaliseAmount } from "@/lib/money";
 import { asData, computeTotals, isSalesQuoteRef, quoteProfitIn } from "@/app/sales/_lib/salesQuote";
 import { useSalesQuoteByRef } from "@/hooks/useSalesQuote";
 import { useShipmentSellingAmountRequests } from "@/hooks/useSellingAmountRequests";
@@ -31,6 +30,8 @@ import { SupplierPicker, type SupplierValue } from "@/components/SupplierPicker"
 import { CostPaidCell } from "./CostPaidCell";
 import { SectionCard } from "@/components/SectionCard";
 import { Pill } from "@/components/Pill";
+import { CurrencyPicker } from "@/components/CurrencyPicker";
+import { CATEGORY_SELECT, CATEGORY_SELECT_LOCKED, FIELD, WARNING_BANNER, WARNING_ICON, WARNING_TEXT, notAnAmount, onlyNumbers } from "@/components/costFields";
 import {
   BTN,
   BTN_PRIMARY,
@@ -48,66 +49,6 @@ import {
   TH,
 } from "@/styles/ui";
 
-interface CurrencyPickerProps {
-  value: string;
-  onChange: (v: string) => void;
-  /** A locked row: the code reads as text, as the row's other fields (a double-click opens the row). */
-  locked?: boolean;
-}
-
-/** Currency picker, searching by code and name. */
-function CurrencyPicker({ value, onChange, locked = false }: CurrencyPickerProps) {
-  return (
-    <Select
-      value={value || undefined}
-      onChange={onChange}
-      showSearch
-      placeholder="CUR"
-      // matches the code or the name
-      filterOption={(input, option) => {
-        const q = (input || "").toLowerCase().trim();
-        if (!q) return true;
-        const code = String(option?.value ?? "").toLowerCase();
-        const name = String(option?.title ?? "").toLowerCase();
-        return code.includes(q) || name.includes(q);
-      }}
-      options={CURRENCIES.map(({ code, name }) => ({
-        value: code, title: name, label: `${code} — ${name}`,
-      }))}
-      // the open list shows the name too, the cell only the code
-      optionRender={(opt) => (
-        <span className="text-[13px]">
-          <span className="font-semibold">{String(opt.value)}</span>
-          <span className="text-slate-400"> — {String(opt.data?.title ?? "")}</span>
-        </span>
-      )}
-      labelRender={(p) => <span className="text-[13px]">{String(p.value ?? "")}</span>}
-      popupMatchSelectWidth={false}
-      className={`w-full [&_.ant-select-selector]:!h-[30px] [&_.ant-select-selector]:!border
-                 [&_.ant-select-selector]:!border-slate-300 [&_.ant-select-selector]:!rounded-md
-                 [&_.ant-select-selection-item]:!text-[13px] [&_.ant-select-selection-search-input]:!text-[13px]${
-        locked ? " [&_.ant-select-selector]:!border-transparent [&_.ant-select-selector]:!bg-transparent [&_.ant-select-arrow]:!hidden pointer-events-none" : ""
-      }`}
-      tabIndex={locked ? -1 : undefined}
-    />
-  );
-}
-
-/**
- * A quantity or amount field: a key that would type anything but a number (a digit, "," or ".", a
- * space, a minus in front) types nothing. Shortcuts (copy, paste, select all) and what is pasted are
- * left alone: pasted text goes in as it is, and the save refuses it when it is no amount (cleanAmounts)
- * rather than saving what is left of it once its letters are gone ("2 x 40HC" is not 240).
- */
-function onlyNumbers(e: React.KeyboardEvent<HTMLInputElement>) {
-  // Ctrl / Cmd shortcuts pass; AltGr (Ctrl + Alt on Windows) and Option types a character, judged below
-  if (e.key.length !== 1 || e.metaKey || (e.ctrlKey && !e.altKey) || e.nativeEvent.isComposing) return;
-  const el = e.currentTarget;
-  if (el.readOnly) return;
-  const start = el.selectionStart ?? el.value.length;
-  if (!amountTypingAllowed(e.key, el.value, start, el.selectionEnd ?? start)) e.preventDefault();
-}
-
 /** Amount fields of a row: the database (numeric) takes "4999.5", not "4 999,50". */
 const AMOUNT_FIELDS = ["estQty", "estAmount", "realQty", "realAmount", "qty", "amount"];
 
@@ -121,7 +62,7 @@ function cleanAmounts<T extends object>(params: T): T {
   for (const key of AMOUNT_FIELDS) {
     if (typeof out[key] !== "string") continue;
     const clean = normaliseAmount(out[key] as string);
-    if (clean === null) throw new Error(`"${out[key]}" is not a valid amount (max. 2 decimals)`);
+    if (clean === null) throw new Error(notAnAmount(out[key] as string));
     out[key] = clean;
   }
   return out as T;
@@ -133,9 +74,6 @@ function cleanAmounts<T extends object>(params: T): T {
 const CELL = "px-[6px] py-[6px] border-b border-slate-100 align-middle";
 /** Splits estimated from real buying costs: a thick line down the whole table. */
 const SPLIT = "border-l-[3px] border-l-slate-900";
-const FIELD =
-  "w-full h-[30px] px-2 text-[13px] text-slate-900 border border-slate-300 rounded-md outline-none " +
-  "focus:border-indigo-500 bg-white";
 /** A read-only row's value (Trucking, invoiced): plain text, readable by screen readers, as tall
  *  as a field, its text where a field's is (an input's 8px padding + 1px border). */
 const READ = "block min-h-[30px] px-[9px] py-[5px] text-[13px] text-slate-900";
@@ -776,6 +714,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                 <tr
                   key={r.id}
                   className={`hover:bg-slate-50/60 ${locked ? `cursor-pointer ${ROW_FOCUS}` : ""}`}
+                  title={locked ? "Double-click to edit" : undefined}
                   data-cost-row={r.id}
                   onDoubleClick={() => unlock(r.id)}
                   {...rowKeys(r.id, locked)}
@@ -785,11 +724,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                       value={r.category || undefined}
                       placeholder="—"
                       variant="borderless"
-                      className={`w-full [&_.ant-select-selector]:!h-[30px] [&_.ant-select-selector]:!border
-                                 [&_.ant-select-selector]:!border-slate-200 [&_.ant-select-selector]:!rounded-md
-                                 [&_.ant-select-selection-item]:!text-[13px]${
-                        locked || fromQuote ? " [&_.ant-select-selector]:!border-transparent [&_.ant-select-arrow]:!hidden pointer-events-none" : ""
-                      }`}
+                      className={`${CATEGORY_SELECT}${locked || fromQuote ? ` ${CATEGORY_SELECT_LOCKED}` : ""}`}
                       options={chargeOptions(r.category, shipment.freightMode)}
                       showSearch
                       optionFilterProp="label"
@@ -1095,6 +1030,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                 <tr
                   key={r.id}
                   className={`hover:bg-slate-50/60 ${locked ? `cursor-pointer ${ROW_FOCUS}` : ""}`}
+                  title={locked ? "Double-click to edit" : undefined}
                   data-cost-row={r.id}
                   onDoubleClick={() => unlock(r.id)}
                   {...rowKeys(r.id, locked)}
@@ -1111,11 +1047,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                       value={r.category || undefined}
                       placeholder="—"
                       variant="borderless"
-                      className={`w-full [&_.ant-select-selector]:!h-[30px] [&_.ant-select-selector]:!border
-                                 [&_.ant-select-selector]:!border-slate-200 [&_.ant-select-selector]:!rounded-md
-                                 [&_.ant-select-selection-item]:!text-[13px]${
-                        locked ? " [&_.ant-select-selector]:!border-transparent [&_.ant-select-arrow]:!hidden pointer-events-none" : ""
-                      }`}
+                      className={`${CATEGORY_SELECT}${locked ? ` ${CATEGORY_SELECT_LOCKED}` : ""}`}
                       options={chargeOptions(r.category, shipment.freightMode)}
                       showSearch
                       optionFilterProp="label"
@@ -1331,9 +1263,9 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
       {/* Rows in a currency the rate sheet does not cover are left out of every
           total — say so rather than letting the numbers look complete. */}
       {t.missingCurrencies.length > 0 && (
-        <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-4">
-          <WarningOutlined className="text-amber-600 mt-[2px]" />
-          <span className="text-[13px] text-amber-900">
+        <div className={`${WARNING_BANNER} mb-4`}>
+          <WarningOutlined className={WARNING_ICON} />
+          <span className={WARNING_TEXT}>
             <strong>ČNB publishes no rate for {t.missingCurrencies.join(", ")}.</strong>{" "}
             {t.unconvertibleRowCount} row{t.unconvertibleRowCount === 1 ? " is" : "s are"} left out of
             the totals below.

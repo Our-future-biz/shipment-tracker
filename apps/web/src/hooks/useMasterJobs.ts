@@ -1,8 +1,9 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, apiErrorMessage, isNotFound } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
+import { isUuid } from "@/lib/uuid";
 
 export type MasterJobItem = interfaces.MasterJobItem;
 export type MasterJobContainerLine = interfaces.MasterJobContainerLine;
@@ -39,11 +40,20 @@ export function useMasterJobShipments(id: string, enabled: boolean) {
 // the "Master job" column), so both caches are refreshed after every write.
 export function useMasterJob(id: string | null) {
   const qc = useQueryClient();
+  // Anything else cannot name a master job, and the server would answer it with an error of its own.
+  const isId = !!id && isUuid(id);
   const query = useQuery({
     queryKey: detailKey(id ?? ""),
     queryFn: () => api.shipments.masterJobGet(id as string),
-    enabled: !!id,
+    enabled: isId,
+    // "Not found" is an answer, not a failure worth asking about again.
+    retry: (failures, err) => !isNotFound(err) && failures < 1,
   });
+  // Only the server's word that there is no such master job makes it "not found" (as useShipment):
+  // a request that failed for another reason says nothing about the master job.
+  const notFound = !!id && (!isId || isNotFound(query.error));
+  const masterJob = notFound ? null : (query.data?.masterJob ?? null);
+  const failed = !masterJob && !notFound && query.isError;
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: LIST_KEY });
@@ -71,10 +81,15 @@ export function useMasterJob(id: string | null) {
   });
 
   return {
-    masterJob: query.data?.masterJob ?? null,
+    masterJob,
     containers: query.data?.containers ?? [],
     shipments: query.data?.shipments ?? [],
-    isLoading: query.isLoading,
+    isLoading: isId && !masterJob && !notFound && query.isPending,
+    notFound,
+    isError: failed,
+    /** Why the master job could not be read, when that is not because it does not exist. */
+    error: failed ? apiErrorMessage(query.error) : null,
+    reload: query.refetch,
     update,
     setContainers,
     linkShipments,

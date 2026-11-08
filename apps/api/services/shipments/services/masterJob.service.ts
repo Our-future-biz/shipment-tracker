@@ -36,6 +36,8 @@ import { cargoDimensionRepository } from "../repositories/cargoDimension.reposit
 import { freightTons } from "../lib/freightTons";
 import { compareJobNumbers } from "../../../lib/jobNumber";
 import { CANCELLED_STATUS } from "../lib/fieldDefaults";
+import { companyUsers, userEmailOf } from "../../../lib/companyUsers";
+import { requireUserEmail } from "../../../lib/personPick";
 
 /** The person saving a master job, held to who may change each house's details (lib/shipmentEditRule). */
 export interface MasterJobEditor {
@@ -43,10 +45,13 @@ export interface MasterJobEditor {
   role: string;
 }
 
-/** Editable master-job fields (everything but the id, MCZ number and bookkeeping). */
+/** Editable master-job fields (everything but the id, MCZ number, who created it and bookkeeping). */
 export type MasterJobUpdate = Partial<
-  Omit<NewMasterJobRecord, "id" | "companyId" | "mczNumber" | "createdAt" | "updatedAt" | "deletedAt">
+  Omit<NewMasterJobRecord, "id" | "companyId" | "mczNumber" | "createdBy" | "createdAt" | "updatedAt" | "deletedAt">
 >;
+
+/** The master job's own people: a user of the company, kept by e-mail, or nobody. */
+const MASTER_JOB_PEOPLE = { personInCharge: "Person In Charge", holidayCover: "Holiday Cover" } as const;
 
 // Real `date` columns reject "" — the UI sends an empty string when a date is cleared.
 const DATE_FIELDS = new Set([
@@ -178,8 +183,10 @@ class MasterJobService {
 
   // MCZ numbers are a per-company sequence over all rows incl. archived ones,
   // so a number is never reused.
-  async create(companyId: string): Promise<MasterJobItem> {
-    const row = await masterJobRepository.createWithMczNumber(companyId);
+  async create(companyId: string, userId?: string): Promise<MasterJobItem> {
+    // Who created it, by e-mail as on a shipment ("" when the user can't be looked up).
+    const createdBy = userId ? await userEmailOf(userId) : "";
+    const row = await masterJobRepository.createWithMczNumber(companyId, createdBy);
     return toItem(row, 0);
   }
 
@@ -194,6 +201,14 @@ class MasterJobService {
     }
     const clean: Record<string, unknown> = { ...data };
     await resolveParties(clean);
+    // Person in Charge / Holiday Cover name a user of the company, or nobody; the value it holds passes as it is.
+    for (const [key, label] of Object.entries(MASTER_JOB_PEOPLE)) {
+      const value = clean[key];
+      if (typeof value !== "string") continue;
+      const current = String(existing[key as keyof MasterJobRecord] ?? "");
+      if (value.trim() === current.trim()) clean[key] = current;
+      else clean[key] = value.trim() ? requireUserEmail(value, label, await companyUsers()) : "";
+    }
     assertTimes(clean);
     for (const key of Object.keys(clean)) {
       if (!DATE_FIELDS.has(key)) continue;
@@ -306,7 +321,7 @@ class MasterJobService {
   async attachShipment(shipmentId: string, companyId: string, mczNumber: string, userId: string, { dropShares = true } = {}): Promise<void> {
     const shipment = await shipmentRepository.getByIdForCompany(shipmentId, companyId);
     if (!shipment) throw APIError.notFound(`Shipment ${shipmentId} not found`);
-    const linked = await shipmentService.linkMasterJob(shipmentId, companyId, mczNumber);
+    const linked = await shipmentService.linkMasterJob(shipmentId, companyId, mczNumber, userId);
     if (shipment.masterJobId && shipment.masterJobId !== linked?.masterJobId) {
       await this.unassignFromContainers(shipment.masterJobId, companyId, shipmentId);
     }

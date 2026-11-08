@@ -50,6 +50,9 @@ interface MasterJobUpdateRequest {
   masterBolType?: string;
   vessel?: string;
   voyage?: string;
+  /** A user of the company by e-mail, "" for nobody. */
+  personInCharge?: string;
+  holidayCover?: string;
 }
 
 interface MasterJobUpdateResponse {

@@ -423,6 +423,11 @@ export interface MasterJobItem {
   masterBolType: string;
   vessel: string;
   voyage: string;
+  /** The master job's own people, by e-mail; not copied onto the houses. */
+  personInCharge: string;
+  holidayCover: string;
+  /** Who created it, by e-mail; "" for one made before this was kept. */
+  createdBy: string;
 
   /** Number of live shipments linked to this master job. */
   shipmentCount: number;

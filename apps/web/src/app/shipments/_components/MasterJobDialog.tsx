@@ -228,14 +228,14 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
             scroll-pt-9: a box reached from the keyboard stops below the sticky head, focus ring and all. */}
         <div className="max-h-[360px] overflow-auto scroll-pt-9 rounded-lg border border-slate-200">
           {/* Fixed columns, so the table fits the dialog: a long customer is cut short (in full on hover).
-              Job Number fits the longest reference, CZPROJECT00000023. */}
+              Internal Reference fits the longest reference, CZPROJECT00000023. */}
           <table className="w-full min-w-[720px] table-fixed border-separate border-spacing-0">
             <thead>
               <tr>
                 <th className={`${TH} w-10 !pl-3`}>
                   <span className="sr-only">Selected</span>
                 </th>
-                <th className={`${TH} w-[172px]`}>Job Number</th>
+                <th className={`${TH} w-[172px]`}>Internal Reference</th>
                 <th className={TH}>Customer</th>
                 <th className={`${TH} w-[150px]`}>Route</th>
                 <th className={`${TH} w-[96px]`}>ETD</th>

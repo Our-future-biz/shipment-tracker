@@ -17,6 +17,9 @@ import { INCOTERM_NAMES, incotermLabel } from "@/lib/incoterms";
 
 export type MasterJobCommit = (fieldKey: string, value: string) => void;
 
+/** A field's conditional-format colours (the Shipments list's rules), as Shipment Details colours its rows. */
+export type StyleFor = (fieldKey: string, value?: string | null) => React.CSSProperties | undefined;
+
 export { ROW };
 
 interface CardProps {
@@ -58,6 +61,7 @@ interface FieldRowProps {
   synced?: boolean;
   /** Anchor for the summary tiles that jump to this row. */
   id?: string;
+  styleFor?: StyleFor;
 }
 
 export function Label({ label, synced }: { label: string; synced?: boolean }) {
@@ -73,9 +77,9 @@ export function Label({ label, synced }: { label: string; synced?: boolean }) {
   );
 }
 
-export function FieldRow({ label, fieldKey, value, onCommit, synced, id }: FieldRowProps) {
+export function FieldRow({ label, fieldKey, value, onCommit, synced, id, styleFor }: FieldRowProps) {
   return (
-    <div id={id} data-jump={id ? "row" : undefined} className={`${ROW} scroll-mt-24 rounded`}>
+    <div id={id} data-jump={id ? "row" : undefined} className={`${ROW} scroll-mt-24`}>
       <Label label={label} synced={synced} />
       <EditableCell
         className="flex-1 min-w-0"
@@ -86,18 +90,20 @@ export function FieldRow({ label, fieldKey, value, onCommit, synced, id }: Field
         // The shipment's value style: a code (booking, MBL, voyage, references) in its REF look.
         displayClassName={REF_KEYS.has(fieldKey) ? REF_VALUE : "text-slate-900"}
         emptyClassName={EMPTY}
+        displayStyle={styleFor?.(fieldKey, value)}
       />
     </div>
   );
 }
 
 // A read-only row in the shipment's RoRow look: a black value that fades out when too long.
-export function ReadOnlyRow({ label, value }: { label: string; value?: React.ReactNode }) {
+// A code (the MCZ number) takes the REF look of the editable codes.
+export function ReadOnlyRow({ label, value, code }: { label: string; value?: React.ReactNode; code?: boolean }) {
   return (
     <div className={ROW}>
       <span className={LABEL}>{label}</span>
       {value ? (
-        <FadeText className="flex-1 text-slate-900 tabular-nums">{value}</FadeText>
+        <FadeText className={`flex-1 ${code ? REF_VALUE : "text-slate-900 tabular-nums"}`}>{value}</FadeText>
       ) : (
         <span className={`flex-1 min-w-0 ${EMPTY}`}>—</span>
       )}
@@ -143,9 +149,10 @@ export function IncotermRow({ label, fieldKey, value, onCommit }: FieldRowProps)
 }
 
 // Cards are white, so they flash with a ring only; rows have no background of their own
-// and also tint, which is easier to spot on a single line.
+// and also tint, which is easier to spot on a single line. Only the flash is rounded: a row
+// is square, as on Shipment Details.
 const FLASH_CARD = ["ring-4", "ring-indigo-400", "ring-offset-2"];
-const FLASH_ROW = ["ring-2", "ring-indigo-400", "bg-indigo-100"];
+const FLASH_ROW = ["ring-2", "ring-indigo-400", "bg-indigo-100", "rounded"];
 const FLASH_MS = 2200;
 const flashTimers = new WeakMap<HTMLElement, number>();
 

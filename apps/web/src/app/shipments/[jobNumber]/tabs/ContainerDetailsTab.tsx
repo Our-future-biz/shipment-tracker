@@ -12,19 +12,15 @@ import { ADD_BTN, CARD, EMPTY, EMPTY_STATE, LABEL_TEXT, REF } from "@/styles/ui"
 import { uuid } from "@/lib/uuid";
 import { containerCheckDigitOk, containerNumberInput, isValidContainerNumber, normalizeContainerNumber } from "@/lib/container";
 import {
-  CONTAINER_SIZES,
-  CONTAINER_KINDS,
-  CONTAINER_KINDS_BY_SIZE,
-  teuForType,
+  CHECK_DIGIT_HINT,
+  CONTAINER_NUMBER_HINT,
+  containerTypeOptions,
   num,
   fmtNum,
   type ContainerLine,
   PACK_TYPE_OPTIONS,
   numberInput,
 } from "@/lib/cargo";
-
-// A warning, not a refusal: the number stays as typed, because a wrong-looking one can still be real.
-const CHECK_DIGIT_HINT = "The last digit doesn't fit this number's check digit: a typing mistake? Check it against the booking.";
 
 // A new row gets its id here, so every save names it and the server keeps that id
 // (cargo lines can point at it) — rows are never matched by position.
@@ -56,25 +52,6 @@ const isBlankContainer = (c: ContainerLine) =>
 // so an untouched row is never persisted.
 const withFirstRow = (list: ContainerLine[] | null | undefined): ContainerLine[] =>
   list && list.length > 0 ? list : [emptyContainer()];
-
-// Grouped "20' DC … 40' FR" options, filtered the way the reference UI does:
-// compare with apostrophes/spaces stripped, and "2"/"20"/"4"/"40" narrows to
-// that size group.
-function containerTypeOptions(query: string) {
-  const q = query.toLowerCase().replace(/['’\s]/g, "");
-  return CONTAINER_SIZES.map((size) => {
-    const sizeKey = size.replace("'", "");
-    const options = (CONTAINER_KINDS_BY_SIZE[size] ?? CONTAINER_KINDS).map((k) => `${size} ${k}`).filter((o) =>
-      o.toLowerCase().replace(/['’\s]/g, "").includes(q),
-    );
-    if (q && ["2", "20", "4", "40", "45"].includes(q) && !sizeKey.startsWith(q)) return null;
-    if (options.length === 0) return null;
-    return {
-      label: `${size} containers · ${teuForType(size)} TEU`,
-      options: options.map((o) => ({ value: o, label: o })),
-    };
-  }).filter((g): g is NonNullable<typeof g> => g !== null);
-}
 
 type Field = "containerNumber" | "sealNumber" | "type" | "packages" | "packageType" | "grossWeight" | "volume";
 
@@ -316,10 +293,12 @@ export function ContainerDetailsTab({
     .join(" ");
 
   // A row's actions behind "⋯" (centred under the "+" in the header): Delete, one click
-  // further away so a container (and its cargo) is not removed by a stray click.
-  const rowMenu = (c: ContainerLine, i: number) => readOnly ? <span /> : (
+  // further away so a container (and its cargo) is not removed by a stray click. A row in
+  // read mode also offers Edit, as Cargo Details and the master job's containers do.
+  const rowMenu = (c: ContainerLine, i: number, locked = false) => readOnly ? <span /> : (
     <RowActionsMenu
       label="Container actions"
+      onEdit={locked ? () => openRow(i, "containerNumber") : undefined}
       // A row with anything in it asks first; an empty row just goes.
       onDelete={() => (isBlankContainer(c) || !c.id ? remove(i) : setConfirmDeleteId(c.id))}
     />
@@ -384,7 +363,7 @@ export function ContainerDetailsTab({
                   onKeyDown={onRowKeyDown(i)}
                 >
                   <Tooltip
-                    title={!isValidContainerNumber(c.containerNumber) ? "4 letters + 7 digits, e.g. MSKU1234567" : !containerCheckDigitOk(c.containerNumber) ? CHECK_DIGIT_HINT : ""}
+                    title={!isValidContainerNumber(c.containerNumber) ? CONTAINER_NUMBER_HINT : !containerCheckDigitOk(c.containerNumber) ? CHECK_DIGIT_HINT : ""}
                     open={isValidContainerNumber(c.containerNumber) && containerCheckDigitOk(c.containerNumber) ? false : undefined}
                   >
                     <Input
@@ -468,6 +447,7 @@ export function ContainerDetailsTab({
                 <div
                   key={rowKey(c)}
                   className={`${COLS} px-2 py-1.5 ${rowLine(i)} ${readOnly ? "" : "cursor-pointer hover:bg-slate-50 select-none"}`}
+                  title={readOnly ? undefined : "Double-click to edit"}
                   onDoubleClick={
                     readOnly
                       ? undefined
@@ -507,7 +487,7 @@ export function ContainerDetailsTab({
                   <span data-field="packageType" className="text-[13px] text-slate-700 px-2 text-center truncate">{c.packageType}</span>
                   <span data-field="grossWeight" className="text-[13px] text-slate-700 px-2 text-center tabular-nums">{c.grossWeight}</span>
                   <span data-field="volume" className="text-[13px] text-slate-700 px-2 text-center tabular-nums">{c.volume}</span>
-                  {rowMenu(c, i)}
+                  {rowMenu(c, i, true)}
                 </div>
               ),
             )}

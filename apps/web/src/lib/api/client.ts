@@ -1490,8 +1490,10 @@ export namespace invoicing {
         }
 
         /**
-         * Posts an invoice read line by line as new buying rows: each line on the shipment its B/L names, any
-         * other shared out by weight. With dryRun, only answers what it comes to.
+         * Posts an invoice read line by line as buying rows: each line on the shipment its B/L names, any other
+         * shared out over the master job's shipments. A shipment's real cost of a charge goes onto its estimate
+         * of that charge while it has no real cost or invoice yet, else onto a new row; a credit note is always
+         * a new minus row. With dryRun, makes the same checks and only answers what it comes to.
          */
         public async invoicingPostInvoiceLines(params: interfaces.InvoiceLinesInput): Promise<{
     rows: interfaces.InvoiceLinesRow[]
@@ -8410,6 +8412,12 @@ export namespace controllers {
         masterBolType?: string
         vessel?: string
         voyage?: string
+        /**
+         * A user of the company by e-mail, "" for nobody.
+         */
+        personInCharge?: string
+
+        holidayCover?: string
     }
 
     export interface MasterJobUpdateResponse {
@@ -16309,6 +16317,17 @@ export namespace interfaces {
         vessel: string
         voyage: string
         /**
+         * The master job's own people, by e-mail; not copied onto the houses.
+         */
+        personInCharge: string
+
+        holidayCover: string
+        /**
+         * Who created it, by e-mail; "" for one made before this was kept.
+         */
+        createdBy: string
+
+        /**
          * Number of live shipments linked to this master job.
          */
         shipmentCount: number
@@ -16748,15 +16767,6 @@ export namespace interfaces {
     export type PalletType = "EUR" | "INDUSTRIAL" | "HALF" | "QUARTER" | "OTHER"
 
     /**
-     * What the people backfill did: values looked at, records changed, values left as they are.
-     */
-    export interface PeopleNormalizeResult {
-        checked: number
-        changed: number
-        unmatched: PeopleNormalizeUnmatched[]
-    }
-
-    /**
      * What the people backfill did to the company's live shipments.
      */
     export interface PeopleNormalizeResult {
@@ -16774,6 +16784,15 @@ export namespace interfaces {
          * The names left as they are, most frequent first: to be fixed by hand.
          */
         unmatched: UnmatchedPerson[]
+    }
+
+    /**
+     * What the people backfill did: values looked at, records changed, values left as they are.
+     */
+    export interface PeopleNormalizeResult {
+        checked: number
+        changed: number
+        unmatched: PeopleNormalizeUnmatched[]
     }
 
     /**
