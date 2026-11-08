@@ -250,10 +250,13 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
                 const route = [s.pol, s.pod].filter(Boolean).map((p) => placeCodeOf(p) ?? p).join(" → ");
                 const routeInFull = [s.pol, s.pod].filter(Boolean).join(" → ");
                 const etd = formatDate(s.estimatedDeparture);
-                // A shipment with no customer yet is named by its shipper or consignee, muted, as the master
-                // job's own picker does; the hover says which it is.
+                // A shipment with no customer yet is named by its shipper, else its consignee, muted (the colour
+                // is the cell's own, so a cut-off name's "…" is muted too); the hover says which it is.
                 const party = s.customer || s.shipper || s.consignee;
                 const partyTitle = s.customer || (s.shipper ? `Shipper: ${s.shipper}` : s.consignee ? `Consignee: ${s.consignee}` : undefined);
+                // On a locked row the hover gives what a cell cuts short or names in a customer's place, then
+                // why the row is locked, so the reason shows wherever you point.
+                const lockedTitle = (own?: string) => [own, LINK_REFUSED_HINT].filter(Boolean).join("\n");
                 return (
                   <tr
                     key={s.id}
@@ -271,23 +274,24 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
                         if (!(e.target as Element).closest(".ant-checkbox-wrapper")) toggleShipment(s.id);
                       }}
                     >
-                      {/* A shipment the user may not link has a lock where its box would be; the row says why. */}
+                      {/* A shipment the user may not link has a lock where its box would be, a 16px block centred
+                          as the box is; the row says why. */}
                       {locked ? (
-                        <span className="inline-flex w-4 justify-center text-[13px] text-slate-400">
+                        <span className="flex h-4 w-4 items-center justify-center text-[13px] text-slate-400">
                           <LockOutlined aria-label="Not yours to link" />
                         </span>
                       ) : (
                         <Checkbox checked={isChecked} onChange={() => toggleShipment(s.id)} aria-label={`Link ${s.jobNumber}`} />
                       )}
                     </td>
-                    {/* A locked row's cells have no hover text of their own: the row's says why it is locked. */}
+                    {/* A locked row's hover always ends with why it is locked. */}
                     <td className={`${TD} truncate`} title={locked ? undefined : s.jobNumber}>
                       <span className={`${REF} font-semibold ${locked ? "text-slate-400" : "text-slate-900"}`}>{s.jobNumber}</span>
                     </td>
-                    <td className={`${TD} truncate ${locked ? "!text-slate-400" : ""}`} title={locked ? undefined : partyTitle}>
-                      {s.customer || (party ? <span className="text-slate-400">{party}</span> : EMPTY_CELL)}
+                    <td className={`${TD} truncate ${locked || (!s.customer && party) ? "!text-slate-400" : ""}`} title={locked ? lockedTitle(partyTitle) : partyTitle}>
+                      {party || EMPTY_CELL}
                     </td>
-                    <td className={`${TD} truncate tabular-nums ${locked ? "!text-slate-400" : ""}`} title={locked ? undefined : routeInFull || undefined}>
+                    <td className={`${TD} truncate tabular-nums ${locked ? "!text-slate-400" : ""}`} title={locked ? lockedTitle(routeInFull) : routeInFull || undefined}>
                       {route || EMPTY_CELL}
                     </td>
                     <td className={`${TD} whitespace-nowrap tabular-nums ${locked ? "!text-slate-400" : ""}`}>{etd || EMPTY_CELL}</td>
