@@ -161,10 +161,25 @@ describe("quote ↔ shipment dangerous goods", () => {
     expect(req.cargoDimensions?.[0]).toMatchObject({ adrUn: "1203", adrClass: "3", adrPackingGroup: "II", adrLimitedQuantity: true });
   });
 
-  it("puts them on no line when there are several, and leaves out a UN number the shipment would refuse", () => {
-    const several = quoteToCreateRequest("QCZ1", { dangerous: true, adr: ADR, packages: [pallet, pallet] }, NO_RATES);
+  it("prefills them on every cargo line when there are several", () => {
+    const several = quoteToCreateRequest("QCZ1", { dangerous: true, adr: ADR, packages: [pallet, { ...pallet, qty: 3 }] }, NO_RATES);
     expect(several.dangerous).toBe("Yes");
-    expect(several.cargoDimensions?.every((d) => d.adrUn === undefined)).toBe(true);
+    expect(several.cargoDimensions).toHaveLength(2);
+    expect(several.cargoDimensions?.every((d) => d.adrUn === "1203" && d.adrPackingGroup === "II")).toBe(true);
+  });
+
+  it("gives a container quote, which has no package lines, one cargo line carrying them", () => {
+    const req = quoteToCreateRequest("QCZ1", { dangerous: true, adr: ADR, containers: [{ qty: 3, type: "40' HC", weight: 15000 }] }, NO_RATES);
+    expect(req.containers).toHaveLength(3);
+    expect(req.cargoDimensions).toEqual([
+      { containerId: null, pieces: "", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "", packageType: "", stackable: "", adrUn: "1203", adrClass: "3", adrPackingGroup: "II", adrLimitedQuantity: true },
+    ]);
+  });
+
+  it("adds no cargo line for a dangerous quote that names no ADR details, and leaves out a UN number the shipment would refuse", () => {
+    const bare = quoteToCreateRequest("QCZ1", { dangerous: true, containers: [{ qty: 1, type: "20' DC" }] }, NO_RATES);
+    expect(bare.dangerous).toBe("Yes");
+    expect(bare.cargoDimensions).toBeUndefined();
     const badUn = quoteToCreateRequest("QCZ1", { dangerous: true, adr: { ...ADR, adrUn: "12" }, packages: [pallet] }, NO_RATES);
     expect(badUn.cargoDimensions?.[0]).toMatchObject({ adrUn: null, adrClass: "3" });
   });

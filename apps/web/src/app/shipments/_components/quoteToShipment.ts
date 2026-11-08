@@ -110,11 +110,16 @@ export function quoteToCreateRequest(quoteNumber: string, data: SalesQuoteData, 
       packageType: packageType(p.type),
       stackable: p.stackable === true ? STACKABLE : p.stackable === false ? NOT_STACKABLE : "",
     }));
-  // The quote's ADR details belong to its cargo as a whole: they go onto the cargo line when there
-  // is just one. With several, nothing says which of them is the dangerous one, and the shipment
-  // is only marked Dangerous (above).
+  // The quote's ADR details belong to its cargo as a whole, so the shipment gets them prefilled on
+  // every cargo line (a line that is not dangerous is unticked there). A quote without package
+  // lines - a container quote - gets one cargo line that carries them, its pieces and sizes to fill in.
   const adr = quoteAdr(data);
-  if (adr && dimensions.length === 1) Object.assign(dimensions[0]!, adr);
+  if (adr) {
+    if (dimensions.length === 0) {
+      dimensions.push({ containerId: null, pieces: "", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "", packageType: "", stackable: "" });
+    }
+    for (const line of dimensions) Object.assign(line, adr);
+  }
   if (dimensions.length > 0) out.cargoDimensions = dimensions;
 
   const totalPieces = packages.reduce((t, p) => t + (Number(p.qty) || 0), 0);
