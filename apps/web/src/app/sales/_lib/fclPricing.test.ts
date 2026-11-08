@@ -184,8 +184,41 @@ describe("a block's selling, rounded up to full fives", () => {
     // The 20' DC lines on the totals: 2 containers at the card's price, to the cent.
     const of20 = priced.sellingLines!.filter((l) => l.containerType === "20' DC");
     const sold = of20.reduce((sum, l) => sum + convertLine(l, { ...data, ...priced }, SHEET, { selling: true, live })!, 0);
-    expect(Math.abs(sold - card * 2)).toBeLessThanOrEqual(0.02);
+    expect(Math.round(sold * 100)).toBe(Math.round(card * 200));
     expect(computeTotals({ ...data, ...priced }, SHEET, live).roePct).toBe(102);
+  });
+
+  // Charges in another currency than the quote's: the amounts that once left 6,915.01 on the totals.
+  it.each([
+    ["all in EUR", () => true],
+    ["freight in USD, the rest in EUR", (l: CostLine) => l.chargeCode !== "ocean_freight"],
+    ["freight in EUR, the rest in USD", (l: CostLine) => l.chargeCode === "ocean_freight"],
+  ])("comes to full fives on the totals with %s, whatever the rates and profit", (_name, inEur) => {
+    const sheets = [{ USD: 21.804, EUR: 24.345 }, { USD: 23, EUR: 25 }, { USD: 21.777, EUR: 24.513 }];
+    for (const sheet of sheets) {
+      for (const roePct of [100, 102, 101.5]) {
+        for (let profit = 37.13; profit < 900; profit += 83.37) {
+          const lines = quote().buyingLines!.filter((l) => l.basis === "container").map((l) => ({ ...l, currency: inEur(l) ? "EUR" : "USD", unitPrice: (l.unitPrice ?? 0) + 0.37, amount: l.amount + 0.37 * (l.qty ?? 1) }));
+          const data = quote({
+            buyingLines: lines,
+            fclPricing: { blocks: { "20' DC": { mode: "sum", value: profit }, "40' HC": { mode: "percent", value: 11 } } },
+          });
+          const live = { roePct, fixingDate: "2026-11-06" };
+          const priced = withFclPricing(data, sheet, live, { roundUp: true })!;
+          const { selling } = computeTotals({ ...data, ...priced }, sheet, live);
+          expect(Math.round(selling * 100) % 500).toBe(0);
+        }
+      }
+    }
+  });
+
+  it("is the same when priced again, so nothing is saved for it", () => {
+    const lines = quote().buyingLines!.map((l) => ({ ...l, currency: "EUR" }));
+    const data = quote({ buyingLines: lines, fclPricing: { blocks: { "20' DC": { mode: "sum", value: 123.45 } } } });
+    const live = { roePct: 101.5, fixingDate: "2026-11-06" };
+    const first = withFclPricing(data, SHEET, live, { roundUp: true })!;
+    const again = withFclPricing({ ...data, ...first }, SHEET, live, { roundUp: true })!;
+    expect(fclChanges(again, { ...data, ...first })).toEqual({});
   });
 
   it("is asked for when an open quote is priced, and its selling lines follow", () => {

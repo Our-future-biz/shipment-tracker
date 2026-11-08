@@ -4,7 +4,7 @@ import type { ExchangeRates } from "@/lib/exchangeRates";
 import { roundCents } from "@/lib/money";
 import { counterpartIndex, newPairId } from "./costPairs";
 import { isTruckingLine } from "./roadQuote";
-import { basisUnits, isContainerQuote, lineRate, perUnitBasis, quoteContainerCount, quoteCurrencyFactor, sellingRoeFactor, withRate, type LivePricing } from "./salesQuote";
+import { basisUnits, convertLine, isContainerQuote, lineRate, perUnitBasis, quoteContainerCount, quoteCurrencyFactor, sellingRoeFactor, withRate, type LivePricing } from "./salesQuote";
 import type { CostLine, FclBlockProfit, FclPricing, FclProfit, SalesQuoteData } from "./types";
 
 // FCL pricing: how a Sea FCL quote is priced (the Pricing step's FCL layout). The buying lines are
@@ -33,6 +33,8 @@ export const PER_SHIPMENT = "";
  * charge the rounding cents go to (the ocean freight, else the dearest), one in the quote's currency first.
  */
 export const SELLING_ROUNDS_TO = 5;
+// How far off the full five a block's lines can come from their own rounding alone.
+const MAX_ROUNDING_LEFT = 1;
 
 /** The highest profit % a charge can take: at 100 % of the selling price there is no price. */
 export const MAX_PROFIT_PERCENT = 99;
@@ -152,6 +154,8 @@ export interface FclBlockPrice {
   percent: number | null;
   /** No charge of it takes profit, so a profit set for it is put nowhere. */
   profitUnplaced: boolean;
+  /** The buying line that took the rounding up to full fives; null when the block is not rounded. */
+  roundedOn: number | null;
 }
 
 const wholePercent = (profit: number, selling: number | null) => (selling ? Math.round((profit / selling) * 100) : null);
@@ -186,7 +190,7 @@ export function priceFclBlock(data: SalesQuoteData, sheet: ExchangeRates, block:
   }
   for (const c of charges) if (c.buying !== null) sell(c, lines[c.index]!, data, live);
   const blockSetsProfit = setting.perCharge || (Number(setting.value) || 0) !== 0;
-  if (data.fclPricing?.roundUp && blockSetsProfit) roundSellingUp(charges, taking, lines, data, live);
+  const roundedOn = data.fclPricing?.roundUp && blockSetsProfit ? roundSellingUp(charges, taking, lines, data, live) : null;
   const sum = (pick: (c: FclChargePrice) => number | null) => roundCents(charges.reduce((s, c) => s + (pick(c) ?? 0), 0));
   const profit = sum((c) => c.profit);
   const roe = sum((c) => c.roe);
@@ -199,6 +203,7 @@ export function priceFclBlock(data: SalesQuoteData, sheet: ExchangeRates, block:
     selling,
     percent: wholePercent(profit, roundCents(selling - roe)),
     profitUnplaced: blockSetsProfit && taking.length === 0,
+    roundedOn,
   };
 }
 
@@ -212,15 +217,15 @@ function sell(c: FclChargePrice, line: CostLine, data: SalesQuoteData, live?: Li
 
 // The block's selling up to full fives (SELLING_ROUNDS_TO), the difference put on the charge the rounding
 // cents go to as more profit; with the ROE % on it, the cents it rounds to are made up one at a time.
-function roundSellingUp(charges: FclChargePrice[], taking: FclChargePrice[], lines: readonly CostLine[], data: SalesQuoteData, live?: LivePricing) {
-  if (!taking.length) return;
+function roundSellingUp(charges: FclChargePrice[], taking: FclChargePrice[], lines: readonly CostLine[], data: SalesQuoteData, live?: LivePricing): number | null {
+  if (!taking.length) return null;
   const total = () => roundCents(charges.reduce((s, c) => s + (c.selling ?? 0), 0));
   // In whole cents, so 6,275.01 goes to 6,280 and 6,275.00 stays.
   const target = (Math.ceil(Math.round(total() * 100) / (SELLING_ROUNDS_TO * 100)) * SELLING_ROUNDS_TO);
-  if (total() >= target) return;
   const inQuoteCurrency = taking.filter((c) => sellingRoeFactor(lines[c.index]!.currency, data, live) === 1);
   const pool = inQuoteCurrency.length ? inQuoteCurrency : taking;
   const anchor = pool.find((c) => codeOf(lines[c.index]!) === "ocean_freight") ?? pool.reduce((best, c) => (c.buying! > best.buying! ? c : best), pool[0]!);
+  if (total() >= target) return anchor.index;
   const line = lines[anchor.index]!;
   anchor.profit = roundCents(anchor.profit + (target - total()) / sellingRoeFactor(line.currency, data, live));
   sell(anchor, line, data, live);
@@ -228,6 +233,27 @@ function roundSellingUp(charges: FclChargePrice[], taking: FclChargePrice[], lin
     anchor.profit = roundCents(anchor.profit + 0.01);
     sell(anchor, line, data, live);
   }
+  // A step of the ROE % can pass the full five by a cent: the five is what the block sells for.
+  if (total() > target) anchor.selling = roundCents(anchor.selling! - (total() - target));
+  return anchor.index;
+}
+
+// Each selling line is rounded to the cents of its own currency and then converted, so a block whose
+// card comes to a full five can reach the totals a cent or more off it. The line the rounding went
+// to takes up the difference, in as many decimals as that needs: only its amount changes.
+function settleRounding(priced: FclBlockPrice, block: FclBlock, selling: Map<number, CostLine>, quote: SalesQuoteData, sheet: ExchangeRates, live?: LivePricing) {
+  const anchor = priced.roundedOn === null ? undefined : selling.get(priced.roundedOn);
+  if (!anchor) return;
+  const sold = priced.charges.flatMap((c) => (selling.has(c.index) ? [selling.get(c.index)!] : []));
+  const converted = sold.map((l) => convertLine(l, quote, sheet, { selling: true, live }));
+  const factor = quoteCurrencyFactor(anchor.currency, quote, sheet);
+  if (factor === null || converted.some((v) => v === null)) return;
+  const units = block.perContainer ? basisUnits(quote, anchor.basis, anchor.containerType) : 1;
+  const difference = roundCents(priced.selling * units - converted.reduce<number>((sum, v) => sum + v!, 0));
+  // Only what rounding left: anything more is a real difference, not for this to hide.
+  if (difference === 0 || Math.abs(difference) > MAX_ROUNDING_LEFT) return;
+  const own = convertLine(anchor, quote, sheet, { selling: true, live })! + difference;
+  selling.set(priced.roundedOn!, { ...anchor, amount: Math.round((own / (factor * sellingRoeFactor(anchor.currency, quote, live))) * 1e6) / 1e6 });
 }
 
 // The block's profit on the charges that take it, pro rata to their buying, each to the cent; what
@@ -280,6 +306,7 @@ export function fclLines(data: SalesQuoteData, sheet: ExchangeRates, live?: Live
       const sold = withRate(sellingCopy(line), rate, units);
       if (Number(sold.amount) || lineRate(sold)) selling.set(c.index, sold);
     }
+    settleRounding(priced, block, selling, quote, sheet, live);
   }
   const trucking = (data.sellingLines ?? []).filter(isTruckingLine);
   return { buyingLines, sellingLines: [...buyingLines.flatMap((_, i) => (selling.has(i) ? [selling.get(i)!] : [])), ...trucking] };
