@@ -20,7 +20,7 @@ import { EXCEPTIONS_CLOSED_BY, eventsFromChanges, heldFieldChanges, lastEventOf,
 import { shipmentTaskRepository } from "../repositories/shipmentTask.repository";
 import { shipmentTrackingEventRepository } from "../repositories/shipmentTrackingEvent.repository";
 import { invoiceValueByCurrency, isValidContainerNumber, matchContainerRows, normalizeContainerNumber, projectCargo } from "../lib/cargoProjection";
-import { actionStamp, cfsDefault, exportBolDefaults, isCreditApproval, isCreditApproved, startingStateDefaults, statusForDirection } from "../lib/fieldDefaults";
+import { actionStamp, cfsDefault, exportBolDefaults, isCreditApproval, isCreditApproved, startingStateDefaults, startingStatusFor, statusForDirection } from "../lib/fieldDefaults";
 import { quoteLinksService } from "./quoteLinks.service";
 import type { ShipmentListFilters } from "../repositories/shipment.repository";
 import type { NewShipmentRecord, ShipmentRecord } from "../schemas/shipment.schema";
@@ -1156,7 +1156,7 @@ class ShipmentService {
     normalizeCustomsPriority(written, after);
     // A Trade Direction change carries the shipment status over to the new direction.
     if ("tradeDirection" in shipmentData && after("tradeDirection") !== existing.tradeDirection) {
-      const moved = statusForDirection(after("status"), after("tradeDirection"));
+      const moved = after("status").trim() ? statusForDirection(after("status"), after("tradeDirection")) : startingStatusFor(after("tradeDirection"));
       if (moved) shipmentData.status = moved;
     }
     Object.assign(

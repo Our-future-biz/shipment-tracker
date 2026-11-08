@@ -8,6 +8,7 @@ import { SalesDialog } from "@/app/sales/_components/SalesDialog";
 import type { SalesQuoteData } from "@/app/sales/_lib/types";
 import { parseInquiry, type InquiryData } from "@/app/sales/_lib/parseInquiry";
 import { api } from "@/lib/api";
+import { tradeDirectionTo } from "@/lib/places";
 import { GeoFlag } from "@/components/GeoSelect";
 
 interface ImportInquiryModalProps {
@@ -88,6 +89,9 @@ export function ImportInquiryModal({ open, onClose, onApply }: ImportInquiryModa
       if (version !== textVersion.current) return;
       setParsing(false);
     }
+    // Where the cargo ends up decides, over what the text calls it; a place not matched says nothing.
+    const direction = tradeDirectionTo(result.destination);
+    if (direction) result.direction = direction;
     setParsed(result);
   };
 

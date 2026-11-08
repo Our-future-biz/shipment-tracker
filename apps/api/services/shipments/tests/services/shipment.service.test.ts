@@ -439,6 +439,20 @@ describe("Created by", () => {
 describe("update", () => {
   const update = (data: Record<string, unknown>) => shipmentService.update(SHIPMENT, COMPANY, data as never, USER);
 
+  describe("a shipment read with no Trade Direction", () => {
+    it("starts its status on the side of the direction it is given", async () => {
+      stored.set(SHIPMENT, row({ tradeDirection: "", status: "" }));
+      await update({ tradeDirection: "Export" });
+      expect(repository.updateForCompany.mock.calls[0]![2]).toMatchObject({ tradeDirection: "Export", status: "Booking Confirmation Pending [EXP]" });
+    });
+
+    it("keeps a status someone already picked", async () => {
+      stored.set(SHIPMENT, row({ tradeDirection: "", status: "Cancelled Shipment" }));
+      await update({ tradeDirection: "Import" });
+      expect(repository.updateForCompany.mock.calls[0]![2]).not.toHaveProperty("status");
+    });
+  });
+
   describe("the Internal Reference's letters", () => {
     const renamedTo = () => repository.renameJobNumber.mock.calls.map((call) => call[3]);
     // The shipment row as the write in the turn finds it: `meanwhile` was saved by a parallel write

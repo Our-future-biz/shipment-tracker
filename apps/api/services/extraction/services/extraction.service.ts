@@ -7,6 +7,7 @@ import { filterExtracted, parseJsonFromResponse, parseJsonObjectFromResponse, SH
 import { SHIPMENT_PROMPT, BOOKING_PROMPT, INVOICE_PROMPT, INVOICE_HEADER_PROMPT, QUOTE_PROMPT, CUSTOMS_PROMPT, TRACKING_PROMPT } from "../lib/prompts";
 import { normalizeQuoteFields } from "../lib/quoteFields";
 import { withInvoiceLines } from "../lib/invoiceLines";
+import { applyTradeDirection, QUOTE_DESTINATION_LABELS } from "../lib/tradeDirection";
 import type { ExtractionResult } from "../interfaces/interfaces";
 import { canonicalizeRecords, resolveGeo } from "./places.service";
 
@@ -200,14 +201,17 @@ async function asQuoteFields(done: ExtractionResult): Promise<ExtractionResult> 
   labels.forEach((label, i) => {
     if (places[i]) extracted[label] = places[i]!;
   });
+  applyTradeDirection(extracted, QUOTE_DESTINATION_LABELS);
   return { ...done, extracted, fieldCount: Object.keys(extracted).length };
 }
 
 export async function extractShipmentFromFile(fileBase64: string, fileName: string): Promise<ExtractionResult> {
   const mediaType = detectMediaType(fileName);
-  return withCanonicalPlaces(
+  const done = await withCanonicalPlaces(
     extractFromDocument(fileBase64, fileName, mediaType, SHIPMENT_PROMPT, SHIPMENT_FIELDS, "Extract all shipping data from this document."),
   );
+  applyTradeDirection(done.extracted);
+  return { ...done, fieldCount: Object.keys(done.extracted).length };
 }
 
 // Room for an invoice's charge rows. One that lists more than fit is read again for its header
@@ -309,6 +313,7 @@ export async function extractFromTextByDestination(text: string, destination: st
   const { extracted } = await viaText(systemPrompt, fields, 2048);
   if (destination === "quote") return asQuoteFields({ extracted, fieldCount: 0, method: "text", fileName: "(text input)" });
   if (destination !== "invoicing" && destination !== "tracking") await canonicalizeRecords([extracted]);
+  if (fields === SHIPMENT_FIELDS) applyTradeDirection(extracted);
   return { extracted, fieldCount: Object.keys(extracted).length, method: "text", fileName: "(text input)" };
 }
 

@@ -6,6 +6,9 @@ export const PLACE_RULES = `Places and countries:
 - Cargo Origin: the name of the country the goods come from (not a state or city).
 - Country code: the 2-letter ISO country code, e.g. "US".`;
 
+// Twin of lib/tradeDirection.ts, which settles the direction whenever the place's country is known.
+const TRADE_DIRECTION_RULE = `Work it out from where the cargo ends up, whatever the document calls the shipment: the forwarder operates from the Czech Republic, so cargo whose place of delivery or port or airport of discharge is in the Czech Republic is an import, and cargo whose place of delivery is anywhere else is an export. A port or airport of discharge abroad says nothing on its own, as it may be just where the cargo comes off on its way. Leave it out when the document does not show the final destination`;
+
 export const SHIPMENT_PROMPT = `You are a shipping document data extractor. You extract structured data from:
 - Bills of Lading (B/L), Sea Waybills (SWB)
 - Booking Confirmations
@@ -16,7 +19,7 @@ Rules:
 - Date format: YYYY-MM-DD (e.g., 2025-03-15). Read day and month as the document means them: a month name (APR) settles it; for numbers only, follow the convention of the country that issued the document
 - Load Type: return exactly "FCL" or "LCL"
 - House/Master BoL Type: "OBL", "SWB", "TLX" (Telex release), or "Express"
-- Trade Direction: "IMP" (import) or "EXP" (export)
+- Trade Direction: "IMP" (import) or "EXP" (export). ${TRADE_DIRECTION_RULE}
 - CNTR length: "20", "40", "40HC", "45"
 - CNTR type: "DRY", "REEFER", "OT" (Open Top), "FR" (Flat Rack), "TANK"
 - CNTR count: return as number string (e.g., "2")
@@ -109,6 +112,7 @@ Rules:
 - Shipping line / Coloader: the carrier that issued the B/L (the shipping line's name, e.g. "Atlantic Container Line")
 - Shipper and Consignee: the parties as named on the B/L (company name only)
 - Load Type, as the receiving forwarder sees the container (a carrier's B/L always covers whole containers, so that alone says nothing): "Consolidation" when the container holds a groupage of many consignments - several cargo lines of different goods, each with its own marks, HS code or export reference (ITN), or a consolidator / NVOCC (e.g. Vanguard, ECU, Shipco, CTL) as shipper; "Full Load" when one shipper's own cargo fills the containers (one consignment, FCL). If unsure, leave it out
+- Trade Direction: "IMP" or "EXP". ${TRADE_DIRECTION_RULE}
 - Estimated Departure: the shipped-on-board date (or the ETD if no on-board date). Estimated Arrival: the ETA at the POD, if printed
 - Cargo Closing, VGM Closing, SI Closing, Release Reference / Release Depot, Redelivery Reference / Redelivery Depot: only if the B/L states them
 - Container Number: every container number (4 letters + 7 digits), comma-separated in the order printed
@@ -135,7 +139,7 @@ Rules:
 - Every value is a JSON string, numbers too.
 - Customer: the company that asks for the quotation - the company of the person who wrote the request (signature, letterhead, sender). The company name only, with its legal form (e.g. "ACME s.r.o."), no address. Not the forwarder the request is addressed to, not a carrier, and not a shipper or consignee that is only named in it. If the document is only a packing list or an invoice and nobody asks for anything in it, leave out Customer, Contact person, Email and Phone.
 - Contact person, Email, Phone: the person at the customer who wrote the request, from the signature or the mail header. In a forwarded thread that is the original sender at the customer, not whoever forwarded it. Email: the address only. Phone: as printed.
-- Trade Direction: exactly "Export" or "Import", and only when the document itself calls the shipment an export or an import. Do not work it out from the route.
+- Trade Direction: exactly "Export" or "Import". ${TRADE_DIRECTION_RULE}.
 - Freight Mode: exactly one of "Air", "Sea FCL", "Sea LCL", "Sea Break Bulk", "Rail", "Road". When the document says the cargo goes by rail, by truck or by air, the mode is "Rail", "Road" or "Air", containers and groupage included. Otherwise "Sea FCL" when full containers are asked for (FCL, 20'/40' containers); "Sea LCL" when the document says LCL, groupage or less than a container load; "Sea Break Bulk" when the cargo goes by sea not in containers (break bulk, breakbulk). Leave it out when sea freight is asked for and it is not clear which of them, and when several modes are asked for as alternatives.
 - Incoterms: the three-letter Incoterms code only, e.g. "FOB" (not "FOB Shanghai").
 - Cargo Readiness Date: the day the cargo is ready to be collected or shipped, as YYYY-MM-DD (e.g. 2026-03-15). Read day and month as the document means them: a month name (APR) settles it; for numbers only, follow the convention of the country the request comes from. If the year is missing, take the year of the request's own date, or the year after when the day would otherwise lie before that date; if the request shows no date, leave the field out. Leave it out for "ASAP", "next week" and the like. It is never the date the request was written or sent.
@@ -161,7 +165,7 @@ Rules:
 - Date format: YYYY-MM-DD (e.g., 2025-03-15). Read day and month as the document means them: a month name (APR) settles it; for numbers only, follow the convention of the country that issued the document
 - Load Type: "FCL" or "LCL"
 - H/BL & M/BL type: "OBL", "SWB", "TLX", "Express"
-- Trade Direction: "IMP" or "EXP"
+- Trade Direction: "IMP" or "EXP". ${TRADE_DIRECTION_RULE}
 - CNTR length: "20", "40", "40HC", "45"
 - CNTR type: "DRY", "REEFER", "OT", "FR", "TANK"
 - CNTR count: number as string

@@ -161,6 +161,31 @@ describe("reading a customer's request for a quote", () => {
     expect(result.extracted).toEqual({ Origin: "DEHAM" });
   });
 
+  it("sets a quote's Trade Direction from where the cargo ends up", async () => {
+    create.mockResolvedValueOnce(reply({ "Trade Direction": "Export", Destination: "Prague, Czech Republic" }));
+
+    const result = await extractFromTextByDestination(TEXT, "quote");
+
+    expect(result.extracted["Trade Direction"]).toBe("Import");
+  });
+
+  it("sets a shipment's Trade Direction from where the cargo ends up", async () => {
+    create.mockResolvedValueOnce(reply({ "Trade Direction": "IMP", Destination: "Hamburg, Germany" }));
+
+    const result = await extractFromTextByDestination(TEXT, "shipment");
+
+    expect(result.extracted["Trade Direction"]).toBe("Export");
+    expect(result.fieldCount).toBe(2);
+  });
+
+  it("adds no Trade Direction to a booking confirmation", async () => {
+    create.mockResolvedValueOnce(reply({ POD: "Hamburg, Germany" }));
+
+    const result = await extractFromTextByDestination(TEXT, "booking");
+
+    expect(result.extracted["Trade Direction"]).toBeUndefined();
+  });
+
   it("does not touch what the shipment reader returns", async () => {
     create.mockResolvedValueOnce(reply({ "Trade Direction": "IMP", "Load Type": "FCL" }));
 
