@@ -12,7 +12,6 @@ import {
   DownOutlined,
   InfoCircleOutlined,
   CheckSquareOutlined,
-  CheckCircleOutlined,
   ClockCircleOutlined,
   CalendarOutlined,
   ContainerOutlined,
@@ -30,7 +29,6 @@ import {
   CalculatorOutlined,
   SafetyCertificateOutlined,
   HomeOutlined,
-  MailOutlined,
 } from "@ant-design/icons";
 import { useShipment } from "@/hooks/useShipment";
 import { NOT_STACKABLE, STACKABLE_OPTIONS, shipmentStackability, withShipmentStackability } from "@/lib/cargo";
@@ -68,8 +66,7 @@ import { shipmentEmailSubject } from "../_lib/shipmentEmail";
 import { MasterJobHoverCard } from "@/components/MasterJobHoverCard";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { LOCKED_BOX } from "@/components/LockedBox";
-import { Pill } from "@/components/Pill";
-import { HoverCard } from "@/components/HoverCard";
+import { ReleasedMark } from "./_components/ReleasedMark";
 import { FadeText } from "@/components/FadeText";
 import { CustomerLinkField } from "./_components/CustomerLinkField";
 import { PartyContactField } from "./_components/PartyContactField";
@@ -692,13 +689,6 @@ interface HouseBolReleaseRowProps {
 // House BoL release: a one-off action rather than an editable field. Until it is
 // released it shows the button; afterwards it shows who released it and when.
 function HouseBolReleaseRow({ releasedAt, onRelease }: HouseBolReleaseRowProps) {
-  // The server's stamp, "<who> — <date and time>", as who and when.
-  const { person, when } = splitPersonStamp(releasedAt);
-  // "8. 11. 2026 10:29:57": the date, then the time after the last space (when there is one).
-  const cut = when.lastIndexOf(" ");
-  const hasTime = cut > 0 && when.slice(cut + 1).includes(":");
-  const releaseDate = hasTime ? when.slice(0, cut) : when;
-  const releaseTime = hasTime ? when.slice(cut + 1) : "";
   return (
     <div className={ROW}>
       <span className={LABEL}>
@@ -706,34 +696,8 @@ function HouseBolReleaseRow({ releasedAt, onRelease }: HouseBolReleaseRowProps) 
       </span>
       <div className="flex-1 min-w-0">
         {releasedAt ? (
-          // A green Released mark; who released it and when show in a hover card, as a contact's.
-          <HoverCard
-            delay={0.3}
-            content={
-              <div className="w-[240px]">
-                <div className="text-[13px] font-semibold text-slate-900">Bill of Lading released</div>
-                <div className="mt-0.5 text-[11px] text-slate-500">House BoL</div>
-                <div className="mt-2.5 flex flex-col gap-1.5 border-t border-slate-100 pt-2.5 text-xs">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <MailOutlined className="text-slate-400 text-[12px] shrink-0" />
-                    <span className="truncate text-slate-900">{person || "—"}</span>
-                  </div>
-                  <div className="flex items-center gap-2 min-w-0">
-                    <CalendarOutlined className="text-slate-400 text-[12px] shrink-0" />
-                    <span className="text-slate-900">{releaseDate || "—"}</span>
-                  </div>
-                  <div className="flex items-center gap-2 min-w-0">
-                    <ClockCircleOutlined className="text-slate-400 text-[12px] shrink-0" />
-                    <span className="text-slate-900">{releaseTime || "—"}</span>
-                  </div>
-                </div>
-              </div>
-            }
-          >
-            <Pill tone="green" className="cursor-default">
-              <CheckCircleOutlined /> Released
-            </Pill>
-          </HoverCard>
+          // A green Released mark; who released it and when show on hover.
+          <ReleasedMark stamp={releasedAt} />
         ) : (
           // Red, as its confirmation: a release cannot be undone.
           <Button size="small" type="primary" danger onClick={onRelease}>
