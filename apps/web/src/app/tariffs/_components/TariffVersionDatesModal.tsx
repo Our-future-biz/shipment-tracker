@@ -37,7 +37,7 @@ export function TariffVersionDatesModal({ open, onClose, version, label, tariffN
       toast.success(`Dates of ${label} changed`);
       onClose();
     } catch (e) {
-      toast.error(`Could not change the dates: ${apiErrorMessage(e)}`, 8);
+      toast.error(`Could not change the dates: ${apiErrorMessage(e)}`);
     }
   };
 

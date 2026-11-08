@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { rowKey } from "@/app/shipments/_lib/rowKey";
-import { App, Button, Input, Select, Tooltip } from "antd";
+import { Button, Input, Select, Tooltip } from "antd";
+import { useMessages } from "@/lib/toast";
 import { apiErrorMessage } from "@/lib/api";
 import { ContainerOutlined, PlusOutlined } from "@ant-design/icons";
 import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
@@ -33,7 +34,7 @@ const emptyLine = (): MasterJobContainerLine => ({ containerNumber: "", sealNumb
 // carries. Edited as one list and saved together; a save copies every house's
 // assigned containers onto that house.
 export function MasterJobContainers({ id, fromShipments, containers, shipments, onSave }: MasterJobContainersProps) {
-  const { message } = App.useApp();
+  const message = useMessages();
   // The draft belongs to the server copy it was edited from: a fresh copy (after any save)
   // replaces it.
   const [edit, setEdit] = useState({ base: containers, rows: containers });

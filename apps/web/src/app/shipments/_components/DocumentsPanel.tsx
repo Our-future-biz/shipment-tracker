@@ -2,7 +2,8 @@
 
 import { useCanManageDocuments } from "@/lib/auth/AuthContext";
 import { useRef, useState } from "react";
-import { Button, Input, Modal, Tooltip, message } from "antd";
+import { Button, Input, Modal, Tooltip } from "antd";
+import { useMessages } from "@/lib/toast";
 import { DeleteOutlined, DownloadOutlined, EyeOutlined, PlusOutlined, SearchOutlined } from "@ant-design/icons";
 import { useMutation } from "@tanstack/react-query";
 import { api, apiFileUrl } from "@/lib/api";
@@ -18,7 +19,7 @@ import { HINT, ICON_BTN_GHOST } from "@/styles/ui";
 export function DocumentsPanel({ shipmentId }: { shipmentId: string }) {
   // Anyone can add a document; only a manager, an admin or a superadmin can delete one.
   const canManageDocuments = useCanManageDocuments();
-  const [messageApi, contextHolder] = message.useMessage();
+  const messageApi = useMessages();
   const [search, setSearch] = useState("");
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -93,7 +94,6 @@ export function DocumentsPanel({ shipmentId }: { shipmentId: string }) {
         void upload(e.dataTransfer.files);
       }}
     >
-      {contextHolder}
       <input ref={fileInputRef} type="file" multiple hidden onChange={(e) => void upload(e.target.files).finally(() => (e.target.value = ""))} />
 
       <div className="shrink-0 flex items-center gap-2 px-4 py-3 border-b border-slate-200">

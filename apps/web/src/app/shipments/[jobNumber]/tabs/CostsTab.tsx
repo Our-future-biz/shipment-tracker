@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { CURRENCIES } from "@/lib/cargo";
 import Link from "next/link";
 import { App, Input, Select, Checkbox, Tooltip, Modal, Popover } from "antd";
+import { useMessages } from "@/lib/toast";
 import { CloseOutlined, DeleteOutlined, FileDoneOutlined, PlusOutlined, RollbackOutlined, SendOutlined, DownOutlined, CopyOutlined, WarningOutlined, LockOutlined } from "@ant-design/icons";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, apiErrorMessage, ErrCode, isAPIError } from "@/lib/api";
@@ -208,7 +209,8 @@ interface CostsTabProps {
 export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
   const queryClient = useQueryClient();
   // Toasts go through the App context: antd's static `message` shows nothing under React 19.
-  const { message, modal } = App.useApp();
+  const { modal } = App.useApp();
+  const message = useMessages();
   const [quoteInput, setQuoteInput] = useState("");
   const [quoteLoading, setQuoteLoading] = useState(false);
   // the Copy from quote dialog
@@ -1634,7 +1636,7 @@ interface InvoicedMarkProps {
  * number (a link to its PDF) and where to find it in Invoicing; a click (or Enter) shows the PDF.
  */
 function InvoicedMark({ doc, shipmentId }: InvoicedMarkProps) {
-  const { message } = App.useApp();
+  const message = useMessages();
   const show = () => openInvoicePdf(doc.id).catch(() => message.error(`Could not open the PDF of ${doc.number}`));
   return (
     <Popover

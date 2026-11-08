@@ -1,6 +1,7 @@
 "use client";
 
-import { App, Tooltip } from "antd";
+import { Tooltip } from "antd";
+import { useMessages } from "@/lib/toast";
 import { apiErrorMessage } from "@/lib/api";
 import {
   BuildOutlined,
@@ -59,7 +60,7 @@ export const MJ_ANCHORS = {
 } as const;
 
 export function MblDetailsTab({ masterJob: mj, onSave }: MblDetailsTabProps) {
-  const { message } = App.useApp();
+  const message = useMessages();
   const data = rowData(mj);
 
   const save = async (patch: MasterJobUpdate) => {

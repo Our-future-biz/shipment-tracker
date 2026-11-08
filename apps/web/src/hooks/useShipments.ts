@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useMemo, useCallback } from "react";
+import { useMessages } from "@/lib/toast";
 import { useQuery, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { App } from "antd";
 import { invalidateQuoteLists } from "./useSalesQuotes";
 import { NEEDS_ATTENTION_KEY } from "./useShipmentsNeedingAttention";
 import { api } from "@/lib/api";
@@ -170,7 +170,7 @@ function cachedShipment(queryClient: QueryClient, id: string): ShipmentItem | un
  */
 export const useShipmentMutations = () => {
   const queryClient = useQueryClient();
-  const { message } = App.useApp();
+  const message = useMessages();
 
   // Shipment writes recompute the linked customer's rollups server-side and change the rows of
   // the customer page, so its caches must not keep serving the old copy.

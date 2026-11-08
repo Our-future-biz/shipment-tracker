@@ -1,13 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, App, Button, Form, Input, Spin } from "antd";
+import { Alert, Button, Form, Input, Spin } from "antd";
 import { PlusOutlined, DeleteOutlined } from "@ant-design/icons";
 import { useSalesPermissions } from "@/hooks/useSalesPermissions";
 import { useTermsConditions, type TermsConditionItem } from "@/hooks/useTermsConditions";
 import { apiErrorMessage, ErrCode, isAPIError } from "@/lib/api";
 import { formatDate } from "@/lib/date";
-import { useToast } from "@/lib/toast";
+import { useMessages, useToast } from "@/lib/toast";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { Pill } from "@/components/Pill";
 import { SectionCard } from "@/components/SectionCard";
@@ -88,7 +88,7 @@ function useTemplateEditor(canEdit: boolean) {
   // antd's message API itself rather than useToast(): it is the same object on every render,
   // which the leave effect below needs - it must run when the page is left, not on each render -
   // and it lets a toast be replaced and taken down by its key.
-  const { message } = App.useApp();
+  const message = useMessages();
 
   const [copies, setCopies] = useState<Record<string, Copy>>({});
   // The template whose header says "Saved" for a moment.
@@ -210,7 +210,7 @@ function useTemplateEditor(canEdit: boolean) {
       const copy = session.current.copies[id];
       const reason = copy ? notSaved(copy) : null;
       if (copy && reason && (always || reason !== NO_NAME)) {
-        message.error({ key: saveToastKey(id), content: `Template ${copy.stored.name} is not being saved - ${reason}`, duration: 8 });
+        message.error({ key: saveToastKey(id), content: `Template ${copy.stored.name} is not being saved - ${reason}` });
       }
       return reason;
     },
@@ -304,7 +304,7 @@ function useTemplateEditor(canEdit: boolean) {
           const copy = s.copies[stored.id];
           const reason = copy ? notSaved(copy) : null;
           if (reason && !s.mounted) {
-            message.error({ key: saveToastKey(stored.id), content: `Template ${stored.name}: your last changes were not saved - ${reason}`, duration: 8 });
+            message.error({ key: saveToastKey(stored.id), content: `Template ${stored.name}: your last changes were not saved - ${reason}` });
           }
         });
       }

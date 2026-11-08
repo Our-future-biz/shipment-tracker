@@ -19,7 +19,7 @@ export const useTariffRelayout = <L, V extends ReadCounts>(relayout: (req: { id:
       toast.success(`Read again: ${readText(read)}, ${read.errorCount} errors, ${read.warningCount} warnings`);
       return read;
     } catch (e) {
-      toast.error(`Could not read the file again: ${apiErrorMessage(e)}`, 8);
+      toast.error(`Could not read the file again: ${apiErrorMessage(e)}`);
       throw e;
     }
   };

@@ -2,7 +2,8 @@
 
 import { useRef } from "react";
 import Link from "next/link";
-import { Alert, App, Checkbox, Input, Segmented, Select, Spin, Tooltip, type SelectProps } from "antd";
+import { Alert, Checkbox, Input, Segmented, Select, Spin, Tooltip, type SelectProps } from "antd";
+import { useMessages } from "@/lib/toast";
 import { DeleteOutlined, LoadingOutlined, PlusOutlined, WarningOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, apiErrorMessage } from "@/lib/api";
@@ -72,7 +73,7 @@ interface Props {
 // the same part each, as the line says. The split below always shows how that stands; a shipment
 // carries its share, as a read-only row of its own Costs Breakdown, once the split is processed.
 export function MasterJobCostsTab({ masterJob }: Props) {
-  const { message } = App.useApp();
+  const message = useMessages();
   const queryClient = useQueryClient();
   const { data, isLoading, isError, error } = useQuery({
     queryKey: costsKey(masterJob.id),

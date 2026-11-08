@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, useMemo } from "react";
-import { App, Input, Button, Tooltip } from "antd";
+import { Input, Button, Tooltip } from "antd";
+import { useMessages } from "@/lib/toast";
 import { CheckCircleFilled, PlusOutlined, WarningOutlined } from "@ant-design/icons";
 import type { MessageInstance } from "antd/es/message/interface";
 import { buildRowData, getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
@@ -60,7 +61,7 @@ const SUB_TABS = [
 export function WarehouseTab({ shipment }: { shipment: ShipmentItem }) {
   const [subTab, setSubTab] = useState<string>("details");
   // The app's own toasts, so a save that ends after the tab is left still says how it went.
-  const { message: messageApi } = App.useApp();
+  const messageApi = useMessages();
   const rowData = buildRowData(shipment);
   // Weight and volume of the cargo as Cargo Details holds it (its lines' totals); a shipment with
   // no cargo lines falls back to its own totals.

@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { App, Spin } from "antd";
+import { Spin } from "antd";
+import { useMessages } from "@/lib/toast";
 import { InboxOutlined } from "@ant-design/icons";
 import { CARD } from "@/styles/ui";
 import { BackLink } from "@/components/BackLink";
@@ -32,7 +33,7 @@ const DETAIL_TABS = [
 export function MasterJobsView() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { message } = App.useApp();
+  const message = useMessages();
   const openId = searchParams.get("open");
 
   const { masterJobs, isLoading, isError } = useMasterJobs();

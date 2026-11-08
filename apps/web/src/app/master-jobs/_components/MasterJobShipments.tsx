@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Alert, App, Button, Checkbox, Dropdown, Input, Modal, Spin, Tooltip } from "antd";
+import { Alert, Button, Checkbox, Dropdown, Input, Modal, Spin, Tooltip } from "antd";
+import { useMessages } from "@/lib/toast";
 import { DisconnectOutlined, EllipsisOutlined, PlusOutlined, SearchOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
 import { api, apiErrorMessage } from "@/lib/api";
@@ -50,7 +51,7 @@ interface MasterJobShipmentsProps {
 // The house shipments under the master job, with linking and unlinking right here. A switch shows
 // either who they are (Details) or where each one stands (Status, what the Tracking tab listed).
 export function MasterJobShipments({ masterJob, shipments, onLink, onUnlink }: MasterJobShipmentsProps) {
-  const { message } = App.useApp();
+  const message = useMessages();
   const [adding, setAdding] = useState(false);
   const [view, setView] = useState<View>("details");
   // Where each house stands, read only while Status is shown. The rows stay the linked list's, in its
@@ -232,7 +233,7 @@ interface AddShipmentsModalProps {
 }
 
 function AddShipmentsModal({ open, masterJob, linkedIds, onClose, onLink }: AddShipmentsModalProps) {
-  const { message } = App.useApp();
+  const message = useMessages();
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [linking, setLinking] = useState(false);

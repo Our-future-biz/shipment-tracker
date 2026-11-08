@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { rowKey } from "@/app/shipments/_lib/rowKey";
-import { Input, Button, AutoComplete, Select, Tooltip, message } from "antd";
+import { Input, Button, AutoComplete, Select, Tooltip } from "antd";
+import { useMessages } from "@/lib/toast";
 import { PlusOutlined, WarningOutlined } from "@ant-design/icons";
 import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
 import { SHIPMENT_WRITE_KEY, type ShipmentItem } from "@/hooks/useShipments";
@@ -286,7 +287,7 @@ export function ContainerDetailsTab({
   const totalWeight = shownRows.reduce((s, c) => s + num(c.grossWeight), 0);
   const totalVolume = shownRows.reduce((s, c) => s + num(c.volume), 0);
 
-  const [messageApi, contextHolder] = message.useMessage();
+  const messageApi = useMessages();
   // Only a saved container has a panel in Cargo Details to jump to.
   const savedIds = new Set((shipment.containers ?? []).map((c) => c.id ?? ""));
   const [typeQuery, setTypeQuery] = useState("");
@@ -330,7 +331,6 @@ export function ContainerDetailsTab({
 
   return (
     <div className={`${CARD} overflow-hidden`}>
-      {contextHolder}
       <ConfirmModal
         open={!!toDelete}
         danger

@@ -263,7 +263,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
     setPending(clearedWhenDone);
 
     if (failed.length > 0) {
-      toast.error(failed[0] ?? "Could not add the document", 8);
+      toast.error(failed[0] ?? "Could not add the document");
     } else {
       toast.success(lines.length === 1 ? "Document added" : `${lines.length} documents added`);
     }
