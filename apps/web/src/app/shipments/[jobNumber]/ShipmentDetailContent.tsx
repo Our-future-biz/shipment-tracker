@@ -64,6 +64,8 @@ import { CustomsTab } from "./tabs/CustomsTab";
 import { ApprovedByLockedContext, CreditCheckLockedContext, EditableCell, ShipmentDetailsEditableContext, FreightModeContext, ShipmentCustomerContext, ShipmentCustomerPicContext, ShipmentEmailSubjectContext, TradeDirectionContext } from "./_components/EditableCell";
 import { shipmentEmailSubject } from "../_lib/shipmentEmail";
 import { MasterJobHoverCard } from "@/components/MasterJobHoverCard";
+import { ConfirmModal } from "@/components/ConfirmModal";
+import { Pill } from "@/components/Pill";
 import { FadeText } from "@/components/FadeText";
 import { CustomerLinkField } from "./_components/CustomerLinkField";
 import { PartyContactField } from "./_components/PartyContactField";
@@ -686,6 +688,8 @@ interface HouseBolReleaseRowProps {
 // House BoL release: a one-off action rather than an editable field. Until it is
 // released it shows the button; afterwards it shows who released it and when.
 function HouseBolReleaseRow({ releasedAt, onRelease }: HouseBolReleaseRowProps) {
+  // The server's stamp, "<who> — <date and time>", as who and when.
+  const { person, when } = splitPersonStamp(releasedAt);
   return (
     <div className={ROW}>
       <span className={LABEL}>
@@ -693,12 +697,24 @@ function HouseBolReleaseRow({ releasedAt, onRelease }: HouseBolReleaseRowProps) 
       </span>
       <div className="flex-1 min-w-0">
         {releasedAt ? (
-          <span className="inline-flex items-center gap-1.5 text-emerald-700 font-medium">
-            <CheckCircleOutlined /> Released by {releasedAt}
-          </span>
+          // A green Released mark, then who (by e-mail, as the people fields) with when small under it.
+          <div className="flex items-center gap-2.5 min-w-0">
+            <Pill tone="green" className="shrink-0">
+              <CheckCircleOutlined /> Released
+            </Pill>
+            <div className="min-w-0 leading-tight">
+              {person && (
+                <div className="truncate text-[13px] text-slate-900" title={person}>
+                  {person}
+                </div>
+              )}
+              {when && <div className="whitespace-nowrap text-[11px] text-slate-500">{when}</div>}
+            </div>
+          </div>
         ) : (
-          <Button size="small" onClick={onRelease}>
-            RELEASE BoL
+          // Red, as its confirmation: a release cannot be undone.
+          <Button size="small" type="primary" danger onClick={onRelease}>
+            Release Bill of Lading
           </Button>
         )}
       </div>
@@ -1399,8 +1415,8 @@ export function ShipmentDetailContent() {
                               )}
                             </>
                           ) : detailsEditable ? (
-                            <button onClick={() => setAssignOpen(true)} className={`${LINK} cursor-pointer bg-transparent border-none p-0 text-left`}>
-                              + Assign to master job
+                            <button type="button" onClick={() => setAssignOpen(true)} className={`${BTN_PRIMARY} ${BTN_SM} !text-white hover:!text-white`}>
+                              Assign to master job
                             </button>
                           ) : (
                             <span className={EMPTY}>—</span>
@@ -1918,24 +1934,23 @@ export function ShipmentDetailContent() {
       />
 
 
-      <Modal
+      {/* The app's confirmation: the question once, in the title, and what the release does.
+          Wide enough for the title on one line with the longest job number (CZPROJECT…). */}
+      <ConfirmModal
         open={releaseOpen}
-        title="Release Bill of Lading?"
-        okText="Yes, release the BoL"
-        okButtonProps={{ danger: true, loading: releasing }}
-        cancelText="Cancel"
-        onOk={confirmReleaseHouseBol}
-        onCancel={() => setReleaseOpen(false)}
-        destroyOnHidden
-      >
-        <p className="text-[13px] text-slate-700">
-          Do you really want to release the shipment{" "}
-          <b className={REF}>{shipment.jobNumber ?? shipment.id}</b>?
-        </p>
-        <p className="text-[13px] text-slate-500 mt-2">
-          Your name and the current date and time will be recorded as the release. This cannot be undone.
-        </p>
-      </Modal>
+        danger
+        width={520}
+        title={
+          <>
+            Release the Bill of Lading for <span className={`${REF} font-bold`}>{shipment.jobNumber ?? shipment.id}</span>?
+          </>
+        }
+        description="Your name and the current date and time are recorded as the release. This cannot be undone."
+        confirmLabel="Release"
+        loading={releasing}
+        onConfirm={confirmReleaseHouseBol}
+        onClose={() => setReleaseOpen(false)}
+      />
 
       <Modal
         open={deleteOpen}

@@ -7,12 +7,15 @@ interface ConfirmModalProps {
   open: boolean;
   onClose: () => void;
   onConfirm: () => void;
-  title: string;
+  /** Text, or text with a part marked out (a bold reference). */
+  title: React.ReactNode;
   description: string;
   confirmLabel?: string;
   cancelLabel?: string;
   danger?: boolean;
   loading?: boolean;
+  /** Wider than the usual 380px, for a title that should stay on one line. */
+  width?: number;
 }
 
 export function ConfirmModal({
@@ -25,13 +28,14 @@ export function ConfirmModal({
   cancelLabel = "Cancel",
   danger = false,
   loading = false,
+  width = 380,
 }: ConfirmModalProps) {
   return (
     <Modal
       open={open}
       onCancel={onClose}
       footer={null}
-      width={380}
+      width={width}
       closable={false}
       destroyOnHidden
     >
