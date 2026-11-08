@@ -186,11 +186,11 @@ export function MblDetailsTab({ masterJob: mj, onSave }: MblDetailsTabProps) {
             )}
             <IncotermRow label="Incoterms Origin" fieldKey="incotermOrigin" value={mj.incotermOrigin} onCommit={handleCommit} />
             <IncotermRow label="Incoterms Destination" fieldKey="incotermDestination" value={mj.incotermDestination} onCommit={handleCommit} />
-          </div>
-          <div className="min-w-0">
-            {/* In the overview ahead of the carrier, as on a shipment. */}
+            {/* Under the incoterms, so the two columns come out even (7 and 6). */}
             <ReadOnlyRow label="Shipments Month" value={getComputedValue("shipmentsDate", data)} />
             <ReadOnlyRow label="Year" value={getComputedValue("shipmentsYear", data)} />
+          </div>
+          <div className="min-w-0">
             <FieldRow label="Equipment" fieldKey="equipment" value={mj.equipment} onCommit={handleCommit} styleFor={styleFor} />
             <FieldRow label="Shipping line / Coloader" fieldKey="shippingLine" value={mj.shippingLine} onCommit={handleCommit} styleFor={styleFor} synced />
             <FieldRow label="Service Name" fieldKey="serviceName" value={mj.serviceName} onCommit={handleCommit} styleFor={styleFor} synced />
@@ -214,21 +214,23 @@ export function MblDetailsTab({ masterJob: mj, onSave }: MblDetailsTabProps) {
 
       {/* KEY DATES — as on the shipment: the second card, in two columns */}
       <MasterJobCard icon={<CalendarOutlined />} title="Key Dates">
+        {/* Evened out, 8 and 7: the voyage on the left, each date with its week under it; the warehouse
+            and the closings on the right. */}
         <div className={COLS2}>
           <div className="min-w-0">
             <FieldRow id={MJ_ANCHORS.etd} label="ETD Estimated" fieldKey="estimatedDeparture" value={mj.estimatedDeparture} onCommit={handleCommit} styleFor={styleFor} synced />
+            <ReadOnlyRow label="Est. Departure Week" value={getComputedValue("estimatedDepartureWeek", data)} />
             <FieldRow label="ATD Actual" fieldKey="actualDeparture" value={mj.actualDeparture} onCommit={handleCommit} styleFor={styleFor} synced />
+            <ReadOnlyRow label="Actual Departure Week" value={getComputedValue("actualDepartureWeek", data)} />
             <FieldRow id={MJ_ANCHORS.eta} label="ETA Estimated" fieldKey="estimatedArrival" value={mj.estimatedArrival} onCommit={handleCommit} styleFor={styleFor} synced />
+            <ReadOnlyRow label="Est. Arrival Week" value={getComputedValue("estimatedArrivalWeek", data)} />
             <FieldRow label="ATA Actual" fieldKey="actualArrival" value={mj.actualArrival} onCommit={handleCommit} styleFor={styleFor} synced />
-            <FieldRow label="ETA Warehouse/HUB" fieldKey="etaWarehouse" value={mj.etaWarehouse} onCommit={handleCommit} styleFor={styleFor} synced />
-            {/* The warehouse's actual date right under its estimate, as ATD under ETD. */}
-            <FieldRow label="Warehouse Received" fieldKey="warehouseReceivedDate" value={mj.warehouseReceivedDate} onCommit={handleCommit} styleFor={styleFor} synced />
+            <ReadOnlyRow label="Actual Arrival Week" value={getComputedValue("actualArrivalWeek", data)} />
           </div>
           <div className="min-w-0">
-            <ReadOnlyRow label="Est. Departure Week" value={getComputedValue("estimatedDepartureWeek", data)} />
-            <ReadOnlyRow label="Actual Departure Week" value={getComputedValue("actualDepartureWeek", data)} />
-            <ReadOnlyRow label="Est. Arrival Week" value={getComputedValue("estimatedArrivalWeek", data)} />
-            <ReadOnlyRow label="Actual Arrival Week" value={getComputedValue("actualArrivalWeek", data)} />
+            <FieldRow label="ETA Warehouse/HUB" fieldKey="etaWarehouse" value={mj.etaWarehouse} onCommit={handleCommit} styleFor={styleFor} synced />
+            {/* The warehouse's actual date right under its estimate. */}
+            <FieldRow label="Warehouse Received" fieldKey="warehouseReceivedDate" value={mj.warehouseReceivedDate} onCommit={handleCommit} styleFor={styleFor} synced />
             <FieldRow label="Closing Date (Cargo Closing)" fieldKey="closingDate" value={joinDateTime(mj.closingDate, mj.closingTime)} onCommit={handleCommit} styleFor={styleFor} synced />
             <FieldRow label="VGM Closing" fieldKey="vgmClosing" value={joinDateTime(mj.vgmClosing, mj.vgmClosingTime)} onCommit={handleCommit} styleFor={styleFor} synced />
             <FieldRow label="SI Closing" fieldKey="siClosing" value={joinDateTime(mj.siClosing, mj.siClosingTime)} onCommit={handleCommit} styleFor={styleFor} synced />
@@ -275,14 +277,13 @@ export function MblDetailsTab({ masterJob: mj, onSave }: MblDetailsTabProps) {
 
       {/* BASIC INFORMATION — the master job's own record, at the bottom as on a shipment */}
       <MasterJobCard icon={<InfoCircleOutlined />} title="Basic Information">
+        {/* Its people (a user picked by e-mail) on the left, who created it and when on the right. */}
         <div className={COLS2}>
-          <div className="min-w-0">
-            <ReadOnlyRow label="Master Job" value={mj.mczNumber} code />
-          </div>
-          {/* As the shipment's Basic Information: its people (a user picked by e-mail), who created it and when. */}
           <div className="min-w-0">
             <FieldRow label="Person In Charge" fieldKey="personInCharge" value={mj.personInCharge} onCommit={handleCommit} />
             <FieldRow label="Holiday Cover" fieldKey="holidayCover" value={mj.holidayCover} onCommit={handleCommit} />
+          </div>
+          <div className="min-w-0">
             <ReadOnlyRow label="Created By" value={mj.createdBy} />
             <ReadOnlyRow label="Created On" value={formatDateTime(mj.createdAt)} />
           </div>
