@@ -3,6 +3,7 @@ import { cargoReadyDay, stripProtected } from "@/app/sales/_lib/salesQuote";
 import { DIRECTIONS, INCOTERMS, SERVICE_TYPES } from "@/app/sales/_lib/types";
 import type { PROTECTED_KEYS, SalesQuoteData } from "@/app/sales/_lib/types";
 import { toIsoDate, type ExtractedField } from "./extraction";
+import { containersFromText, containersText, packagesFromText, packagesText } from "./quoteCargoText";
 
 // Reading a customer's request into a Sales quote: which labels of the reader
 // (QUOTE_FIELDS in apps/api/services/extraction/lib/fields.ts) fill which keys of the quote, what
@@ -19,7 +20,10 @@ type KeyOf<V> = { [K in ReadingKey]-?: NonNullable<SalesQuoteData[K]> extends V 
 type QuoteReadingField =
   | { label: string; key: KeyOf<string>; kind: "text" | "date" }
   | { label: string; key: KeyOf<string>; kind: "option"; options: readonly string[] }
-  | { label: string; key: KeyOf<number>; kind: "number" };
+  | { label: string; key: KeyOf<number>; kind: "number" }
+  // The quote's container or package lines, as one line of text (quoteCargoText.ts).
+  | { label: string; key: "containers"; kind: "containers" }
+  | { label: string; key: "packages"; kind: "packages" };
 
 // In the order of the quote page, under its labels. An API test reads these rows as text
 // (quoteFields.test.ts), so each stays on one line in this shape.
@@ -37,6 +41,8 @@ export const QUOTE_READING_FIELDS: readonly QuoteReadingField[] = [
   { label: "Destination", key: "destination", kind: "text" },
   { label: "Delivery", key: "delivery", kind: "text" },
   { label: "Cargo Description", key: "commodity", kind: "text" },
+  { label: "Containers", key: "containers", kind: "containers" },
+  { label: "Packages", key: "packages", kind: "packages" },
   { label: "Gross weight (kg)", key: "weight", kind: "number" },
   { label: "Volume (cbm)", key: "cbm", kind: "number" },
 ];
@@ -53,6 +59,8 @@ const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().t
 export function quoteExistingValue(data: SalesQuoteData, field: QuoteReadingField): string {
   // A readiness that is no date (older imports left such texts) counts as empty, as on the quote page.
   if (field.kind === "date") return cargoReadyDay(data);
+  if (field.kind === "containers") return containersText(data.containers ?? []);
+  if (field.kind === "packages") return packagesText(data.packages ?? []);
   const value = data[field.key];
   return value ? String(value).trim() : "";
 }
@@ -127,12 +135,19 @@ export function quoteReviewRows(extracted: Record<string, string>, quote: SalesQ
 }
 
 // What a field takes, to finish "<Label> must be …".
-const expected = (field: QuoteReadingField): string =>
-  field.kind === "option" ? `one of ${field.options.join(", ")}` : field.kind === "date" ? "a full date, e.g. 20.10.2026" : "a plain number, e.g. 2400 or 2400.5";
+const expected = (field: QuoteReadingField): string => {
+  if (field.kind === "option") return `one of ${field.options.join(", ")}`;
+  if (field.kind === "date") return "a full date, e.g. 20.10.2026";
+  if (field.kind === "containers") return `entries like "2 x 20' DC, 18000 kg; 1 x 40' HC" (a container type of Cargo details)`;
+  if (field.kind === "packages") return `entries like "4 x Pallets, 120 x 80 x 150 cm, 450 kg each; 3 pcs" (a package type of Cargo details)`;
+  return "a plain number, e.g. 2400 or 2400.5";
+};
 
 // The value a row's text stands for, in the form the quote stores it; undefined when the text does not fit.
-function readValue(field: QuoteReadingField, text: string): string | number | undefined {
+function readValue(field: QuoteReadingField, text: string): SalesQuoteData[keyof SalesQuoteData] | undefined {
   const value = text.trim();
+  if (field.kind === "containers") return containersFromText(value);
+  if (field.kind === "packages") return packagesFromText(value);
   if (field.kind === "option") return field.options.find((option) => option.toLowerCase() === value.toLowerCase());
   if (field.kind === "date") return toIsoDate(value) || undefined;
   // Digits with a dot only: a comma could be a decimal mark or group thousands.

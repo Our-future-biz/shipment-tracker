@@ -10,6 +10,14 @@ export const QUOTE_DIRECTIONS = ["Export", "Import"] as const;
 export const QUOTE_FREIGHT_MODES = ["Air", "Sea FCL", "Sea LCL", "Sea Break Bulk", "Rail", "Road"] as const;
 // The order of the rules (E, F, C, D groups), as the web's one list in lib/incoterms.ts.
 export const QUOTE_INCOTERMS = ["EXW", "FCA", "FAS", "FOB", "CFR", "CIF", "CPT", "CIP", "DPU", "DAP", "DDP"] as const;
+// The container types a quote line takes, per size: twins of CONTAINER_KINDS_BY_SIZE in the web's
+// lib/cargo.ts, and the package types of PACKING_TYPES in its Sales types; a test compares them.
+export const QUOTE_CONTAINER_KINDS: Record<string, readonly string[]> = {
+  "20'": ["DC", "RF", "OT", "HOT", "FR"],
+  "40'": ["DC", "HC", "HRF", "OT", "HOT", "FR", "HFR"],
+  "45'": ["HQ"],
+};
+export const QUOTE_PACKING_TYPES = ["Pallets", "Colli", "Cartons", "Boxes", "Wooden boxes", "Crates", "Drums"] as const;
 
 const MAX_TEXT = 300;
 const MAX_PHONE = 50;
@@ -83,6 +91,107 @@ function amount(text: string, unit: RegExp): string | undefined {
 const KG = /\s*kgs?\.?$/i;
 const weight = (text: string) => (/^[1-9]\d{0,2}\.\d{3}$/.test(text.replace(KG, "").trim()) ? undefined : amount(text, KG));
 
+// ─── Containers and packages ────────────────────────────────────────
+// Each is one line of text the review shows and the user may correct: entries joined with "; ", in
+// the form the web turns into the quote's lines (quoteCargoText.ts there). A list with any entry
+// that cannot be read is left out whole: half the containers would price as the whole cargo.
+
+// A plain number above zero from "12500", "12 500" or "12500.5"; the unit is cut off before.
+const plain = (text: string) => amount(text, /$^/);
+
+// "40HC", "40' high cube", "20GP", "40 reefer" → the quote's type ("40' HC"); undefined for none.
+export function containerType(text: string): string | undefined {
+  const t = text.toUpperCase().replace(/FEET|FOOT|FT|['’"´`]/g, " ").replace(/[\s\-_]+/g, " ").trim();
+  const size = t.match(/^(20|40|45)\b|^(20|40|45)(?=[A-Z])/)?.[0];
+  if (!size) return undefined;
+  const rest = t.slice(size.length).replace(/\s+/g, "");
+  const kinds = QUOTE_CONTAINER_KINDS[`${size}'`]!;
+  let kind: string | undefined;
+  if (size === "45") kind = /^(HC|HQ|HIGHCUBE|)$/.test(rest) ? "HQ" : undefined;
+  else if (/^(HFR|HCFR|FRHC|HIGHCUBEFLATRACK)$/.test(rest)) kind = "HFR";
+  else if (/^(HOT|HCOT|OTHC|OPENTOPHC|OPENTOPHIGHCUBE|HIGHCUBEOPENTOP)$/.test(rest)) kind = "HOT";
+  else if (/^(HC|HQ|HIGHCUBE|HCDRY|HCDC|HCGP|HIGHCUBEDRY)$/.test(rest)) kind = "HC";
+  else if (/^(RF|RE|RH|HR|HRF|RFHC|HCRF|REEFER|REEFERHC|HCREEFER|HIGHCUBEREEFER)$/.test(rest)) kind = size === "40" ? "HRF" : "RF";
+  else if (/^(OT|OPENTOP)$/.test(rest)) kind = "OT";
+  else if (/^(FR|FLATRACK|FLAT|PL|PLATFORM)$/.test(rest)) kind = "FR";
+  else if (/^(DC|DV|GP|DRY|STD|ST|STANDARD|BOX|DRYVAN|GENERALPURPOSE|)$/.test(rest)) kind = "DC";
+  return kind && kinds.includes(kind) ? `${size}' ${kind}` : undefined;
+}
+
+const PACKAGE_WORDS: [RegExp, string][] = [
+  [/^(pallets?|plts?|skids?|euro ?pallets?|epal)$/i, "Pallets"],
+  [/^(cartons?|ctns?|cardboard boxes)$/i, "Cartons"],
+  [/^(wooden (boxes|box|cases?)|cases?)$/i, "Wooden boxes"],
+  [/^(boxes|box|bx)$/i, "Boxes"],
+  [/^(crates?)$/i, "Crates"],
+  [/^(drums?|barrels?)$/i, "Drums"],
+  [/^(colli|collis|packages?|pkgs?)$/i, "Colli"],
+];
+
+// The quote's package type for a word, "" for plain pieces; undefined for a word it has no type for.
+export function packageType(text: string): string | undefined {
+  const word = text.trim().replace(/\.$/, "");
+  if (/^(pcs?|pieces?|units?|items?)$/i.test(word)) return "";
+  return PACKAGE_WORDS.find(([pattern]) => pattern.test(word))?.[1];
+}
+
+const COUNT = /^(\d{1,4})\s*[x×*]?\s*/i;
+
+// "2 x 20' DC, 18000 kg; 1 x 40' HC" with each entry in the quote's form.
+function containers(text: string): string | undefined {
+  const entries = text.split(";").map((e) => e.trim()).filter(Boolean);
+  if (!entries.length) return undefined;
+  const out: string[] = [];
+  for (const entry of entries) {
+    const m = entry.match(/^(\d{1,3})\s*[x×*]\s*([^,]+?)\s*(?:,\s*(.+))?$/i);
+    if (!m) return undefined;
+    const qty = Number(m[1]);
+    const type = containerType(m[2]!);
+    if (!qty || !type) return undefined;
+    let line = `${qty} x ${type}`;
+    if (m[3]) {
+      const kg = weight(m[3]);
+      if (!kg || !KG.test(m[3])) return undefined;
+      line += `, ${kg} kg`;
+    }
+    out.push(line);
+  }
+  return out.join("; ");
+}
+
+const SIZE = /^(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)\s*[x×*]\s*(\d+(?:\.\d+)?)\s*cm$/i;
+
+// "4 x Pallets, 120 x 80 x 150 cm, 450 kg each; 3 pcs, 200 x 100 x 90 cm" with each entry in the quote's form.
+function packages(text: string): string | undefined {
+  const entries = text.split(";").map((e) => e.trim()).filter(Boolean);
+  if (!entries.length) return undefined;
+  const out: string[] = [];
+  for (const entry of entries) {
+    const [head = "", ...parts] = entry.split(",").map((p) => p.trim());
+    const count = head.match(COUNT);
+    const qty = Number(count?.[1]);
+    if (!count || !qty) return undefined;
+    const type = packageType(head.slice(count[0].length));
+    if (type === undefined) return undefined;
+    let line = type ? `${qty} x ${type}` : `${qty} pcs`;
+    for (const part of parts) {
+      const size = part.match(SIZE);
+      if (size) {
+        const [l, w, h] = size.slice(1).map((n) => plain(n!));
+        if (!l || !w || !h) return undefined;
+        line += `, ${l} x ${w} x ${h} cm`;
+        continue;
+      }
+      const each = part.replace(/\s*(each|per (piece|pc|unit))$/i, "");
+      const kg = KG.test(each) ? weight(each) : undefined;
+      if (!kg) return undefined;
+      line += `, ${kg} kg each`;
+    }
+    out.push(line);
+  }
+  return out.join("; ");
+}
+
 // Every label without a reader of its own is plain text.
 const READERS: Record<string, (text: string) => string | undefined> = {
   Email: (text) => text.match(EMAIL)?.[0],
@@ -93,7 +202,12 @@ const READERS: Record<string, (text: string) => string | undefined> = {
   "Cargo Readiness Date": day,
   "Gross weight (kg)": weight,
   "Volume (cbm)": (text) => amount(text, /\s*(?:cbm|m3|m³)$/i),
+  Containers: containers,
+  Packages: packages,
 };
+
+// Lists whose entries may come one per line: each line becomes an entry.
+const LISTS: readonly string[] = ["Containers", "Packages"];
 
 /**
  * The quote fields of a read record, each in the form the quote stores it. Only the labels of
@@ -103,7 +217,8 @@ const READERS: Record<string, (text: string) => string | undefined> = {
 export function normalizeQuoteFields(raw: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {};
   for (const label of QUOTE_FIELDS) {
-    const text = typeof raw[label] === "string" ? oneLine(raw[label]) : "";
+    const given = typeof raw[label] === "string" ? raw[label] : "";
+    const text = oneLine(LISTS.includes(label) ? given.replace(/\s*[\r\n]+\s*/g, "; ") : given);
     if (!text || isNothing(text)) continue;
     const read = READERS[label];
     const value = read ? read(text) : text.slice(0, MAX_TEXT);

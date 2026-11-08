@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { QUOTE_FIELDS } from "../lib/fields";
 import { QUOTE_PROMPT } from "../lib/prompts";
-import { QUOTE_DIRECTIONS, QUOTE_FREIGHT_MODES, QUOTE_INCOTERMS, normalizeQuoteFields } from "../lib/quoteFields";
+import { QUOTE_CONTAINER_KINDS, QUOTE_DIRECTIONS, QUOTE_FREIGHT_MODES, QUOTE_INCOTERMS, QUOTE_PACKING_TYPES, containerType, normalizeQuoteFields, packageType } from "../lib/quoteFields";
 
 const webFile = (path: string) => readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "../../../../web/src", path), "utf8");
 const one = (label: string, value: string) => normalizeQuoteFields({ [label]: value })[label];
@@ -169,6 +169,56 @@ describe("normalizeQuoteFields", () => {
   });
 });
 
+describe("containers and packages", () => {
+  it("names a container type the way the quote does, from the ways documents write it", () => {
+    expect(containerType("40HC")).toBe("40' HC");
+    expect(containerType("40' high cube")).toBe("40' HC");
+    expect(containerType("40ft HQ")).toBe("40' HC");
+    expect(containerType("20GP")).toBe("20' DC");
+    expect(containerType("20' DV")).toBe("20' DC");
+    expect(containerType("40 dry")).toBe("40' DC");
+    expect(containerType("40' reefer")).toBe("40' HRF");
+    expect(containerType("20RF")).toBe("20' RF");
+    expect(containerType("45HC")).toBe("45' HQ");
+    expect(containerType("40 open top")).toBe("40' OT");
+    expect(containerType("20' FR")).toBe("20' FR");
+  });
+
+  it("has no type for a size or kind the quote does not offer", () => {
+    expect(containerType("20HC")).toBeUndefined();
+    expect(containerType("53' HC")).toBeUndefined();
+    expect(containerType("40 tank")).toBeUndefined();
+    expect(containerType("container")).toBeUndefined();
+  });
+
+  it("reads the containers asked for, with the cargo weight in one when stated", () => {
+    expect(one("Containers", "1 x 40' HC")).toBe("1 x 40' HC");
+    expect(one("Containers", "2x20GP, 18 000 kg; 1 x 40HC")).toBe("2 x 20' DC, 18000 kg; 1 x 40' HC");
+    expect(one("Containers", "1 x 40HC\n3 x 20' DC")).toBe("1 x 40' HC; 3 x 20' DC");
+  });
+
+  it("leaves out the whole list when one entry cannot be read", () => {
+    expect(one("Containers", "1 x 40' HC; 2 x 40 tank")).toBeUndefined();
+    expect(one("Containers", "1 x 40' HC, 18 t")).toBeUndefined();
+    expect(one("Containers", "some containers")).toBeUndefined();
+  });
+
+  it("reads the pieces with their package type, size and weight per piece", () => {
+    expect(one("Packages", "4 x Pallets, 120 x 80 x 150 cm, 450 kg each")).toBe("4 x Pallets, 120 x 80 x 150 cm, 450 kg each");
+    expect(one("Packages", "2 cartons, 60x40x40 cm; 3 pcs, 200 x 100 x 90 cm, 120 kg")).toBe("2 x Cartons, 60 x 40 x 40 cm; 3 pcs, 200 x 100 x 90 cm, 120 kg each");
+    expect(one("Packages", "6 x euro pallets")).toBe("6 x Pallets");
+    expect(one("Packages", "1 x Wooden box, 250 x 120 x 140 cm, 1 200 kg each")).toBe("1 x Wooden boxes, 250 x 120 x 140 cm, 1200 kg each");
+  });
+
+  it("leaves out the whole list when one entry cannot be read", () => {
+    expect(one("Packages", "4 x Pallets; 2 x rolls")).toBeUndefined();
+    expect(one("Packages", "4 x Pallets, 1.2 x 0.8 x 1.5 m")).toBeUndefined();
+    expect(one("Packages", "pallets")).toBeUndefined();
+    expect(packageType("rolls")).toBeUndefined();
+    expect(packageType("pcs")).toBe("");
+  });
+});
+
 describe("the quote's lists and the web's", () => {
   const list = (name: string) => {
     const found = webFile("app/sales/_lib/types.ts").match(new RegExp(`export const ${name} = \\[([^\\]]*)\\]`));
@@ -183,6 +233,12 @@ describe("the quote's lists and the web's", () => {
     const names = webFile("lib/incoterms.ts").match(/export const INCOTERM_NAMES[^{]*\{([^}]*)\}/);
     expect(names, "INCOTERM_NAMES not found in lib/incoterms.ts").not.toBeNull();
     expect([...names![1]!.matchAll(/^\s*([A-Z]{3}):/gm)].map((m) => m[1])).toEqual([...QUOTE_INCOTERMS]);
+    expect(list("PACKING_TYPES")).toEqual([...QUOTE_PACKING_TYPES]);
+    // The container types are CONTAINER_KINDS_BY_SIZE of lib/cargo.ts, a line per size.
+    const kinds = webFile("lib/cargo.ts").match(/export const CONTAINER_KINDS_BY_SIZE[^{]*\{([^}]*)\}/);
+    expect(kinds, "CONTAINER_KINDS_BY_SIZE not found in lib/cargo.ts").not.toBeNull();
+    const bySize = Object.fromEntries([...kinds![1]!.matchAll(/"(\d+')": \[([^\]]*)\]/g)].map((m) => [m[1], [...m[2]!.matchAll(/"([^"]+)"/g)].map((k) => k[1])]));
+    expect(bySize).toEqual(QUOTE_CONTAINER_KINDS);
   });
 
   /**
@@ -205,6 +261,8 @@ describe("the quote's lists and the web's", () => {
     expect(ofKind("number")).toEqual(["Gross weight (kg)", "Volume (cbm)"]);
     expect(ofKind("option")).toEqual(["Trade Direction", "Freight Mode", "Incoterms"]);
     expect(ofKind("date")).toEqual(["Cargo Readiness Date"]);
+    expect(ofKind("containers")).toEqual(["Containers"]);
+    expect(ofKind("packages")).toEqual(["Packages"]);
   });
 
   it("read the two places with the place picker", () => {
@@ -216,9 +274,9 @@ describe("the quote's lists and the web's", () => {
 });
 
 describe("QUOTE_FIELDS and QUOTE_PROMPT", () => {
-  it("hold 15 labels and nothing about money", () => {
-    expect(QUOTE_FIELDS).toHaveLength(15);
-    expect(new Set(QUOTE_FIELDS).size).toBe(15);
+  it("hold 17 labels and nothing about money", () => {
+    expect(QUOTE_FIELDS).toHaveLength(17);
+    expect(new Set(QUOTE_FIELDS).size).toBe(17);
     expect(QUOTE_FIELDS.filter((label) => /price|rate|amount|currency|cost|value/i.test(label))).toEqual([]);
   });
 

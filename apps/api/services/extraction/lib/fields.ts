@@ -24,7 +24,7 @@ export const QUOTE_FIELDS = [
   "Customer", "Contact person", "Email", "Phone",
   "Trade Direction", "Freight Mode", "Incoterms", "Cargo Readiness Date",
   "Origin", "Pickup", "Destination", "Delivery",
-  "Cargo Description", "Gross weight (kg)", "Volume (cbm)",
+  "Cargo Description", "Containers", "Packages", "Gross weight (kg)", "Volume (cbm)",
 ];
 
 // An invoice's header fields, read on their own when its charge rows don't fit one reply.
