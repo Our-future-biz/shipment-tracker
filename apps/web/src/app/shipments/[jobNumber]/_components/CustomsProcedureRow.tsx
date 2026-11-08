@@ -38,6 +38,9 @@ export function CustomsProcedureRow({ label, value, shipmentId, customsOffice, o
   const locked = customsProcedureLocked(value, customsOffice, canChange);
   const { request, ask } = useCustomsOfficeRequest(shipmentId, !!office);
   const [asking, setAsking] = useState(false);
+  // A chosen office reads as text; a double-click opens the list again, and picking one, leaving
+  // the field or Esc closes it. With none chosen yet the list stays open, to be filled in.
+  const [editing, setEditing] = useState(false);
   const waiting = request?.status === "pending";
 
   return (
@@ -66,11 +69,21 @@ export function CustomsProcedureRow({ label, value, shipmentId, customsOffice, o
           <span className={`${LABEL_TEXT} shrink-0`}>Customs Office</span>
           {locked ? (
             <span className="flex-1 min-w-0 truncate text-slate-900">{office}</span>
+          ) : office && !editing ? (
+            <span
+              className="flex-1 min-w-0 truncate text-slate-900 cursor-pointer"
+              title={`${office} - double-click to change`}
+              onDoubleClick={() => setEditing(true)}
+            >
+              {office}
+            </span>
           ) : (
             <Select
               size="small"
               showSearch
               allowClear
+              autoFocus={editing}
+              defaultOpen={editing}
               aria-label="Customs Office"
               className="flex-1 min-w-0"
               popupMatchSelectWidth={520}
@@ -79,7 +92,14 @@ export function CustomsProcedureRow({ label, value, shipmentId, customsOffice, o
               value={office || undefined}
               options={OFFICE_OPTIONS}
               filterOption={filterOffice}
-              onChange={(next) => onCommit("customsOffice", next ?? "")}
+              onChange={(next) => {
+                onCommit("customsOffice", next ?? "");
+                setEditing(false);
+              }}
+              onBlur={() => setEditing(false)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setEditing(false);
+              }}
             />
           )}
         </div>

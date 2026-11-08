@@ -31,7 +31,7 @@ export function useWarehouseSection(shipmentId: string, section: string) {
       api.warehouse.warehouseSectionUpsert(shipmentId, section, { data }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: key });
-      // Its License Plates are a column of the shipment grids.
+      // Its Plate Numbers are a column of the shipment grids.
       if (section === "pickup") queryClient.invalidateQueries({ queryKey: ["shipments"] });
     },
   });

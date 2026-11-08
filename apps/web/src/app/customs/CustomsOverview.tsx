@@ -233,7 +233,7 @@ export function CustomsShipmentInfo({ shipment }: { shipment: ShipmentItem }) {
       <DetailCard icon={<TruckOutlined />} title="Trucking" columns={[[]]} shipment={shipment} onCommit={noCommit}>
         {/* Not read (yet), the Pick-up tab says nothing: no "no truck yet", no office line without its plate. */}
         <LinesTable
-          head={["License Plate", "Haulier", "Customs Office"]}
+          head={["Plate Number", "Haulier", "Customs Office"]}
           rows={pickupLoading || pickupFailed ? [] : truckingLines(pickup, shipment.customsOffice)}
           failed={pickupFailed}
           empty={
