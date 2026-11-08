@@ -185,6 +185,11 @@ export function DocumentReadingWorkflow() {
   // one review, and each file is saved to the shipment's documents.
   const [shipmentFiles, setShipmentFiles] = useState<UploadedFile[]>([]);
   const [shipmentDocs, setShipmentDocs] = useState<ShipmentDoc[]>([]);
+  // Several invoices can be dropped at once: each is read, reviewed and posted on its own, one
+  // after another, to the same shipment or master job. Done: posted or skipped.
+  const [invoiceFiles, setInvoiceFiles] = useState<UploadedFile[]>([]);
+  const [invoiceFilesDone, setInvoiceFilesDone] = useState<ReadonlySet<string>>(new Set());
+  const [invoiceFileUid, setInvoiceFileUid] = useState("");
   const [textInput, setTextInput] = useState("");
 
   // Shipment review
@@ -477,8 +482,8 @@ export function DocumentReadingWorkflow() {
 
   // ─── Input handling ──────────────────────────────────────────────
   const beforeUpload = (file: File) => {
-    if (destination === "masterjob" || destination === "shipment") {
-      const setFiles = destination === "masterjob" ? setMasterFiles : setShipmentFiles;
+    if (destination === "masterjob" || destination === "shipment" || destination === "invoicing") {
+      const setFiles = destination === "masterjob" ? setMasterFiles : destination === "invoicing" ? setInvoiceFiles : setShipmentFiles;
       fileToBase64(file)
         .then((base64) => {
           // The same file dropped twice is kept once.
@@ -506,8 +511,12 @@ export function DocumentReadingWorkflow() {
     return false;
   };
 
-  // A pre-alert and a Shipments read take several files; the other reads take one.
-  const severalFiles = destination === "masterjob" || destination === "shipment";
+  // A pre-alert, a Shipments read and costs take several files; the other reads take one.
+  const severalFiles = destination === "masterjob" || destination === "shipment" || destination === "invoicing";
+  // The invoices still to read, in the order they were added; the one on screen is invoiceFileUid.
+  const invoiceQueue = invoiceFiles.filter((f) => !invoiceFilesDone.has(f.uid));
+  const invoiceAt = invoiceFiles.findIndex((f) => f.uid === invoiceFileUid);
+  const nextInvoice = invoiceQueue.find((f) => f.uid !== invoiceFileUid);
   const masterFilesSize = masterFiles.reduce((sum, f) => sum + f.size, 0);
   const masterFilesTooLarge = masterFilesSize > MASTER_FILES_MAX_BYTES;
 
@@ -517,7 +526,8 @@ export function DocumentReadingWorkflow() {
   const canExtract = (() => {
     const textLength = textInput.trim().length;
     const hasInput = inputMode === "file" ? !!fileBase64 : textLength >= 10 && textLength <= textMaxLength;
-    if (destination === "invoicing") return hasInput && (invoiceToMaster ? invoiceTicked.size > 0 : !!invoiceTargetShipmentId);
+    const hasInvoiceInput = inputMode === "file" ? invoiceQueue.length > 0 : hasInput;
+    if (destination === "invoicing") return hasInvoiceInput && (invoiceToMaster ? invoiceTicked.size > 0 : !!invoiceTargetShipmentId);
     if (destination === "quote") return hasInput && quoteReading.ready;
     if (destination === "booking") return hasInput && (bookingMode === "new" || !!bookingMasterJob);
     if (destination === "customs") return hasInput && !!customsShipmentId;
@@ -527,7 +537,8 @@ export function DocumentReadingWorkflow() {
   })();
 
   // ─── Extraction ──────────────────────────────────────────────────
-  const handleExtract = async () => {
+  // `invoiceFile`: the invoice of the queue to read; else the first one not done yet.
+  const handleExtract = async (invoiceFile?: UploadedFile) => {
     setStep("extracting");
     setError(null);
     // A new read starts from its own name and type, not ones edited for an earlier file.
@@ -578,10 +589,21 @@ export function DocumentReadingWorkflow() {
         setExtractionMethod([...new Set(reads.map((r) => r.method))].join(", "));
         setStep("review");
       } else if (destination === "invoicing") {
-        const result =
-          inputMode === "file"
-            ? await api.extraction.extractInvoice({ fileBase64, fileName })
-            : await api.extraction.extractText({ text: textInput.trim(), destination: "invoicing" });
+        // Nothing of the invoice read before stays on screen.
+        setLinesPreview(null);
+        setSplitError("");
+        const file = inputMode === "file" ? (invoiceFile ?? invoiceQueue[0]) : undefined;
+        if (file) {
+          setInvoiceFileUid(file.uid);
+          setFileBase64(file.base64);
+          setFileName(file.name);
+          setFileMeta({ type: file.type, size: file.size });
+        }
+        const result = file
+          ? await api.extraction.extractInvoice({ fileBase64: file.base64, fileName: file.name }).catch((err: unknown) => {
+              throw new Error(`${file.name} could not be read: ${apiErrorMessage(err)}`);
+            })
+          : await api.extraction.extractText({ text: textInput.trim(), destination: "invoicing" });
         const extracted = result.extracted as InvoiceExtracted;
         setInvoiceData(creditNote ? { ...extracted, total_amount: creditAmount(extracted.total_amount) } : extracted);
         // The reader suggests a charge code; one the picker does not offer is not taken.
@@ -657,6 +679,13 @@ export function DocumentReadingWorkflow() {
       setError(err instanceof Error ? err.message : "Extraction failed. Please try again.");
       setStep("upload");
     }
+  };
+
+  // The invoice on screen is done (posted, or skipped from its review): the next one is read for
+  // the same shipment or master job, with the same split.
+  const readNextInvoice = (file: UploadedFile) => {
+    setInvoiceFilesDone((prev) => new Set(prev).add(invoiceFileUid));
+    void handleExtract(file);
   };
 
   // ─── Field toggles ───────────────────────────────────────────────
@@ -1150,6 +1179,9 @@ export function DocumentReadingWorkflow() {
     setMasterFiles([]);
     setShipmentFiles([]);
     setShipmentDocs([]);
+    setInvoiceFiles([]);
+    setInvoiceFilesDone(new Set());
+    setInvoiceFileUid("");
     setPreparedFiles([]);
     setTextInput("");
     setFields([]);
@@ -1463,7 +1495,9 @@ export function DocumentReadingWorkflow() {
                 <InboxOutlined />
               </p>
               <p className="ant-upload-text">
-                {severalFiles
+                {destination === "invoicing"
+                  ? "Click or drag files (PDF, JPG, PNG) — several invoices are read and posted one after another"
+                  : severalFiles
                   ? "Click or drag files (PDF, JPG, PNG) — you can add several"
                   : fileName || "Click or drag a file (PDF, JPG, PNG)"}
               </p>
@@ -1497,6 +1531,13 @@ export function DocumentReadingWorkflow() {
           {destination === "masterjob" && masterFiles.length > 0 && (
             <UploadedFileList files={masterFiles} onRemove={(uid) => setMasterFiles((prev) => prev.filter((f) => f.uid !== uid))} />
           )}
+          {destination === "invoicing" && inputMode === "file" && invoiceFiles.length > 0 && (
+            <UploadedFileList
+              files={invoiceFiles}
+              done={invoiceFilesDone}
+              onRemove={(uid) => setInvoiceFiles((prev) => prev.filter((f) => f.uid !== uid))}
+            />
+          )}
           {destination === "shipment" && inputMode === "file" && shipmentFiles.length > 0 && (
             <UploadedFileList files={shipmentFiles} onRemove={(uid) => setShipmentFiles((prev) => prev.filter((f) => f.uid !== uid))} />
           )}
@@ -1511,7 +1552,7 @@ export function DocumentReadingWorkflow() {
 
           {error && <Alert className="mt-3" type="error" showIcon message={error} />}
 
-          <Button type="primary" className="mt-4" disabled={!canExtract} onClick={handleExtract}>
+          <Button type="primary" className="mt-4" disabled={!canExtract} onClick={() => handleExtract()}>
             {destination === "masterjob" ? "Extract Pre-Alert" : "Extract Data"}
           </Button>
         </AppCard>
@@ -1618,6 +1659,22 @@ export function DocumentReadingWorkflow() {
       )}
 
       {/* ─── STEP: Review — invoicing ─── */}
+      {step === "review" && destination === "invoicing" && invoiceFiles.length > 1 && invoiceAt >= 0 && (
+        <Alert
+          className="mb-3"
+          type="info"
+          showIcon
+          message={`${docWord} ${invoiceAt + 1} of ${invoiceFiles.length}: ${invoiceFiles[invoiceAt]!.name}`}
+          description={nextInvoice ? `Next: ${nextInvoice.name}, read once this one is posted or skipped.` : "The last one of this upload."}
+          action={
+            nextInvoice && (
+              <Button size="small" onClick={() => readNextInvoice(nextInvoice)}>
+                Skip to the next
+              </Button>
+            )
+          }
+        />
+      )}
       {step === "review" && invoiceToMaster && (
         <SectionCard title={`${docWord} for master job ${invoiceMcz}`}>
           {error && <Alert className="mb-3" type="error" showIcon message={error} />}
@@ -2073,8 +2130,17 @@ export function DocumentReadingWorkflow() {
             title={successTitle}
             subTitle={successSubtitle}
             extra={
-              <Space>
-                <Button type="primary" icon={<ReloadOutlined />} onClick={reset}>
+              <Space wrap>
+                {destination === "invoicing" && nextInvoice && (
+                  <Button type="primary" onClick={() => readNextInvoice(nextInvoice)}>
+                    Read the next {docWord.toLowerCase()} ({invoiceFiles.indexOf(nextInvoice) + 1} of {invoiceFiles.length}): {nextInvoice.name}
+                  </Button>
+                )}
+                <Button
+                  type={destination === "invoicing" && nextInvoice ? "default" : "primary"}
+                  icon={<ReloadOutlined />}
+                  onClick={reset}
+                >
                   New Extraction
                 </Button>
                 {destination === "quote" && quoteReading.written && <QuoteOpenButton quoteNumber={quoteReading.written.quoteNumber} />}
@@ -2112,6 +2178,8 @@ interface ShipmentDoc {
 interface UploadedFileListProps {
   files: UploadedFile[];
   onRemove: (uid: string) => void;
+  /** Files already read and posted or skipped, marked as done. */
+  done?: ReadonlySet<string>;
 }
 
 // The type to show a picked file as; a browser sometimes leaves `type` empty, so the name decides.
@@ -2122,7 +2190,7 @@ function previewType(f: UploadedFile): string {
 }
 
 // The files picked for one read, so it is clear exactly what will be read.
-function UploadedFileList({ files, onRemove }: UploadedFileListProps) {
+function UploadedFileList({ files, onRemove, done }: UploadedFileListProps) {
   // Opened from the bytes already in the page: nothing is uploaded to look at a file.
   const [preview, setPreview] = useState<{ name: string; url: string; type: string } | null>(null);
 
@@ -2148,6 +2216,7 @@ function UploadedFileList({ files, onRemove }: UploadedFileListProps) {
           <li key={f.uid} className="flex items-center gap-2 px-3 py-2 border-b border-slate-100 last:border-b-0 text-xs">
             <FileOutlined className="text-indigo-400" />
             <span className="flex-1 min-w-0 truncate text-slate-900 font-medium">{f.name}</span>
+            {done?.has(f.uid) && <Pill tone="slate">Done</Pill>}
             <span className="shrink-0 text-slate-400">{formatFileSize(f.size)}</span>
             <Tooltip title="Preview">
               <Button size="small" type="text" icon={<EyeOutlined />} aria-label={`Preview ${f.name}`} onClick={() => openPreview(f)} />
