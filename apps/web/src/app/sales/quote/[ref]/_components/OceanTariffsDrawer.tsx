@@ -1,28 +1,22 @@
 "use client";
 
 import { useState } from "react";
-import { DatePicker, Segmented, Switch, Table } from "antd";
+import { DatePicker, Switch, Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import dayjs from "dayjs";
 import { GeoSelect } from "@/components/GeoSelect";
 import { useDebounced } from "@/hooks/useDebounced";
 import { useOceanOffers } from "@/hooks/useOceanTariffs";
-import type { interfaces } from "@/lib/api/client";
 import { businessToday, formatDate } from "@/lib/date";
 import { fmtMoney } from "@/lib/money";
 import { equipmentLabel, oceanVersionHref } from "@/app/tariffs/_lib/oceanTariffs";
 import { offerPorts, oceanAllIn, oceanOffersRequest, oceanRouteOf, oceanRouteProblem, type OceanOffer, type OceanRoute } from "../../../_lib/oceanQuote";
 import { rankOffers, viaTerminals, type ToQuoteCurrency } from "../../../_lib/tariffQuote";
 import type { SalesQuoteData } from "../../../_lib/types";
-import { TariffDrawerField } from "./TariffDrawerField";
+import { TariffDirectionField, TariffDrawerField } from "./TariffDrawerField";
 import { TariffOffersDrawer } from "./TariffOffersDrawer";
 import { TariffViaFilter } from "./TariffViaFilter";
 import { pickColumn, rankColumn, tariffColumn } from "./tariffOfferColumns";
-
-const DIRECTION_OPTIONS: { value: interfaces.RailDirection; label: string }[] = [
-  { value: "export", label: "Export" },
-  { value: "import", label: "Import" },
-];
 
 interface OceanTariffsDrawerProps {
   open: boolean;
@@ -151,10 +145,7 @@ export const OceanTariffsDrawer = ({ open, quote, quoteCurrency, toQuoteCurrency
   const form = (
     <>
       <div className="grid grid-cols-2 md:grid-cols-[auto_1fr_1fr_150px] gap-3 items-end">
-        {/* The quote's Trade Direction: a tariff prices only the directions it is for, so it is not changed here. */}
-        <TariffDrawerField label="Trade Direction" group>
-          <Segmented<interfaces.RailDirection> size="middle" aria-label="Direction" value={route.direction} options={DIRECTION_OPTIONS} disabled />
-        </TariffDrawerField>
+        <TariffDirectionField direction={route.direction} exportFirst />
         <TariffDrawerField label="Port of loading">
           <GeoSelect kind="place" className="w-full" placeholder="Port of loading" value={route.pol} onChange={(v) => set({ pol: v })} />
         </TariffDrawerField>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { DatePicker, Input, Segmented, Select, Table } from "antd";
+import { DatePicker, Input, Select, Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import dayjs from "dayjs";
 import { useDebounced } from "@/hooks/useDebounced";
@@ -14,16 +14,12 @@ import { TARIFF_PORTS, railVersionHref } from "@/app/tariffs/_lib/railTariffs";
 import { railOffersRequest, railRouteOf, railRouteProblem, type RailOffer, type RailRoute } from "../../../_lib/railQuote";
 import { offerInQuoteCurrency, rankOffers, viaTerminals, type ToQuoteCurrency } from "../../../_lib/tariffQuote";
 import type { SalesQuoteData } from "../../../_lib/types";
-import { TariffDrawerField } from "./TariffDrawerField";
+import { TariffDirectionField, TariffDrawerField } from "./TariffDrawerField";
 import { TariffOffersDrawer } from "./TariffOffersDrawer";
 import { TariffViaFilter } from "./TariffViaFilter";
 import { pickColumn, rankColumn, tariffColumn, totalColumn } from "./tariffOfferColumns";
 
 const PORT_OPTIONS = TARIFF_PORTS.map((p) => ({ value: p.code, label: `${p.name} (${p.code})` }));
-const DIRECTION_OPTIONS: { value: interfaces.RailDirection; label: string }[] = [
-  { value: "import", label: "Import" },
-  { value: "export", label: "Export" },
-];
 
 const tonnes = (kg: number) => `${(kg / 1000).toLocaleString("cs-CZ", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} t`;
 
@@ -120,10 +116,7 @@ export const RailTariffsDrawer = ({ open, quote, quoteCurrency, toQuoteCurrency,
   const form = (
     <>
       <div className="grid grid-cols-2 md:grid-cols-[auto_1fr_1.2fr_64px_150px] gap-3 items-end">
-        {/* The quote's Trade Direction: a tariff prices only the directions it is for, so it is not changed here. */}
-        <TariffDrawerField label="Trade Direction" group>
-          <Segmented<interfaces.RailDirection> size="middle" aria-label="Direction" value={route.direction} options={DIRECTION_OPTIONS} disabled />
-        </TariffDrawerField>
+        <TariffDirectionField direction={route.direction} />
         <TariffDrawerField label="Port">
           <Select aria-label="Port" placeholder="Port" value={route.port} options={PORT_OPTIONS} onChange={(port: interfaces.TariffPortCode) => set({ port })} />
         </TariffDrawerField>
