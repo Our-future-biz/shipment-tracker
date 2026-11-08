@@ -24,6 +24,9 @@ import { EMPTY_STATE, HINT, LABEL_TEXT, LINK, REF } from "@/styles/ui";
 const TH = `px-2 pb-2 text-left align-bottom whitespace-nowrap ${LABEL_TEXT} border-b border-slate-200`;
 const TD = "px-2 py-2 align-middle text-[13px] text-slate-700";
 
+/** Why a shipment the user may not change offers no Remove (the server refuses it: lib/shipmentEditRule). */
+const UNLINK_REFUSED_HINT = "Only its Person in Charge, Holiday Cover or a manager can remove it from the master job";
+
 // Two views of the same houses: who they are, and where each one stands.
 type View = "details" | "status";
 const VIEWS: readonly { key: View; label: string; title: string }[] = [
@@ -70,6 +73,8 @@ export function MasterJobShipments({ masterJob, shipments, onLink, onUnlink }: M
   const [confirmUnlinkId, setConfirmUnlinkId] = useState<string | null>(null);
   const [unlinking, setUnlinking] = useState(false);
   const toUnlink = shipments.find((s) => s.id === confirmUnlinkId);
+  // A shipment the user may not change cannot be taken off by them either (the server refuses it).
+  const { user } = useAuth();
 
   return (
     <>
@@ -159,7 +164,16 @@ export function MasterJobShipments({ masterJob, shipments, onLink, onUnlink }: M
                         trigger={["click"]}
                         placement="bottomRight"
                         menu={{
-                          items: [{ key: "remove", label: "Remove from master job", icon: <DisconnectOutlined />, danger: true }],
+                          items: [
+                            canChangeShipmentDetails(user, s)
+                              ? { key: "remove", label: "Remove from master job", icon: <DisconnectOutlined />, danger: true }
+                              : {
+                                  key: "remove",
+                                  disabled: true,
+                                  icon: <DisconnectOutlined />,
+                                  label: <span title={UNLINK_REFUSED_HINT}>Remove from master job</span>,
+                                },
+                          ],
                           onClick: () => setConfirmUnlinkId(s.id),
                         }}
                       >

@@ -363,7 +363,7 @@ export function MasterJobCostsTab({ masterJob }: Props) {
 
       <SectionCard title="Split over the shipments" extra={<CountChip count={houses.length} />} bodyClassName="rounded-b-xl overflow-hidden">
         {houses.length === 0 ? (
-          <p className={`m-0 px-4 ${EMPTY_STATE}`}>No shipments are linked yet - the costs are split once there are some (MBL Details → Linked shipments).</p>
+          <p className={`m-0 px-4 ${EMPTY_STATE}`}>No shipments are linked yet - the costs are split once there are some (the Linked Shipments tab).</p>
         ) : (
           <>
             {noWm.length > 0 && (

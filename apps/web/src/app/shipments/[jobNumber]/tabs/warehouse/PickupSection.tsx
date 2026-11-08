@@ -32,7 +32,15 @@ const driverInput = (text: string) => text.replace(/[^\p{L}\s'.-]/gu, "");
 export function PickupSection({ ownerId, messageApi }: { ownerId: string; messageApi: MessageInstance }) {
   const { data: sectionData, save, isSaving } = useWarehouseSection(ownerId, "pickup");
   const section = (sectionData && typeof sectionData === "object" ? sectionData : {}) as PickupSectionData;
-  const [pin, setPin] = useState<string | null>(section.pin || null);
+  // The PIN and the rows are saved together (one section): each save sends the other's last value,
+  // read from these refs, so a row saved and a PIN made at nearly the same moment keep each other.
+  const [pin, setPinState] = useState<string | null>(section.pin || null);
+  const pinRef = useRef(pin);
+  const setPin = (next: string | null) => {
+    pinRef.current = next;
+    setPinState(next);
+  };
+  const savedRowsRef = useRef(section.rows || "[]");
   const [rows, setRowsState] = useState<PickupRow[]>(() => [emptyRow()]);
   const rowsRef = useRef(rows);
   const setRows = (next: PickupRow[]) => {
@@ -62,6 +70,7 @@ export function PickupSection({ ownerId, messageApi }: { ownerId: string; messag
   useEffect(() => {
     const sec = (sectionData && typeof sectionData === "object" ? sectionData : {}) as PickupSectionData;
     if (sec.pin) setPin(sec.pin);
+    if (typeof sec.rows === "string") savedRowsRef.current = sec.rows;
     // What is being typed, or not saved yet, is not replaced by what the server sends back meanwhile.
     if (dirtyRef.current || openRef.current.size > 0) return;
     try {
@@ -77,7 +86,9 @@ export function PickupSection({ ownerId, messageApi }: { ownerId: string; messag
   const persist = (next: PickupRow[]) => {
     chainRef.current = chainRef.current.then(async () => {
       try {
-        await save({ pin: pin || "", rows: JSON.stringify(next) });
+        const json = JSON.stringify(next);
+        await save({ pin: pinRef.current || "", rows: json });
+        savedRowsRef.current = json;
         // nothing typed meanwhile: the rows are as saved
         if (rowsRef.current === next) setDirty(false);
       } catch (e) {
@@ -130,15 +141,21 @@ export function PickupSection({ ownerId, messageApi }: { ownerId: string; messag
     [],
   );
 
-  const generatePin = async () => {
+  // In the rows' queue, with the rows as last saved: a row being left as the button is clicked is
+  // saved first, and neither save undoes the other.
+  const generatePin = () => {
     const newPin = String(Math.floor(1000 + Math.random() * 9000));
     setPin(newPin);
-    try {
-      await save({ pin: newPin, rows: section.rows || "[]" });
-      messageApi.success("PIN generated");
-    } catch {
-      messageApi.error("Failed to save");
-    }
+    chainRef.current = chainRef.current.then(async () => {
+      try {
+        await save({ pin: newPin, rows: savedRowsRef.current });
+        messageApi.success("PIN generated");
+      } catch (e) {
+        // Not kept, so it is not shown as locked: it can be generated again.
+        setPin(null);
+        messageApi.error(`Failed to save the PIN: ${apiErrorMessage(e)}`);
+      }
+    });
   };
 
   const update = (key: string, field: PickupField, value: string) => {

@@ -166,6 +166,8 @@ class MasterJobService {
           .filter((c) => c.shipmentId === h.id && c.containerNumber)
           .map((c) => c.containerNumber)
           .join(", "),
+        personInCharge: h.personInCharge,
+        holidayCover: h.holidayCover,
       }));
     return {
       masterJob: toItem(row, houses.length),

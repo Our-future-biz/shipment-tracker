@@ -183,7 +183,8 @@ export function MasterJobsList({ masterJobs, isLoading, isError, creating, onCre
 
   const filtered = !!(q || load || etdFrom || etdTo);
 
-  let emptyText = filtered ? "No master jobs match these filters." : "No master jobs yet - create the first one with New Master Job.";
+  // With master jobs there, an empty list is a filtered one (the URL's or the grid's column filters).
+  let emptyText = masterJobs.length > 0 ? "No master jobs match these filters." : "No master jobs yet - create the first one with New Master Job.";
   // A list that is still being read is not an empty one, and neither is one that could not be read.
   if (isLoading) emptyText = "Loading master jobs…";
   if (isError) emptyText = "Could not load master jobs.";
