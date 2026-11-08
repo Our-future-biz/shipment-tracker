@@ -8,13 +8,14 @@ import { ClearOutlined, LoadingOutlined, PlusOutlined } from "@ant-design/icons"
 import dayjs from "dayjs";
 import { AppGrid, type AppGridColumn } from "@/components/AppGrid";
 import { TOOLBAR_BUTTON_CLASS } from "@/components/gridFilters";
-import { DROPDOWN_OPTIONS } from "@/lib/columnConfig";
+import { COLUMN_MAP, DROPDOWN_OPTIONS, joinDateTime } from "@/lib/columnConfig";
 import { formatDate } from "@/lib/date";
 import { LOAD_TYPE_FILTER_OPTIONS, loadTypeLabel } from "@/lib/enums";
 import type { MasterJobItem } from "@/hooks/useMasterJobs";
 import { PillTabs } from "@/components/SectionCard";
 import { Pill } from "@/components/Pill";
 import { BTN_PRIMARY, EMPTY, LINK, REF } from "@/styles/ui";
+import { kgFromTons } from "../_lib/mblWeight";
 
 // An empty cell reads "—", as in every list of the app.
 const orDash = (v: string | null | undefined) => (v ? v : <span className={EMPTY}>—</span>);
@@ -38,6 +39,61 @@ type FilterKey = "q" | "load" | "etd";
 
 const byText = (a: string, b: string) => a.localeCompare(b);
 const byDate = (a: string | null, b: string | null) => (a ?? "").localeCompare(b ?? "");
+
+/** The Shipments grid's title and width for a field; one only the master job has takes `ownTitle`. */
+const asShipments = (key: string, ownTitle?: string) => {
+  const col = COLUMN_MAP.get(key);
+  return { title: col?.title ?? ownTitle ?? key, width: col?.width ?? 140 };
+};
+
+interface ColumnOptions {
+  /** The title of a field the shipments do not have (as MBL Details names it). */
+  title?: string;
+  /** Not shown until picked under Columns. */
+  hidden?: boolean;
+  /** A reference people read out (BoL, booking, release): even figures and a slashed zero. */
+  code?: boolean;
+  /** A number: right-aligned figures. */
+  number?: boolean;
+  filterOptions?: string[];
+}
+
+function textColumn(key: string, get: (m: MasterJobItem) => string, o: ColumnOptions = {}): AppGridColumn<MasterJobItem> {
+  return {
+    key,
+    ...asShipments(key, o.title),
+    ...(o.hidden ? { defaultVisible: false } : {}),
+    ...(o.number ? { align: "right" as const } : {}),
+    ...(o.filterOptions ? { filterOptions: o.filterOptions } : {}),
+    text: (m) => get(m),
+    // A number sorts by its value ("250" before "1000"), text by its letters.
+    sorter: o.number ? (a, b) => (parseFloat(get(a)) || 0) - (parseFloat(get(b)) || 0) : (a, b) => byText(get(a), get(b)),
+    render: (_, m) => {
+      const v = get(m);
+      return v && (o.code || o.number) ? <span className={o.code ? REF : "tabular-nums"}>{v}</span> : orDash(v);
+    },
+  };
+}
+
+/** A date as the Shipments grid shows it (DD.MM.YYYY), with its time after it where the field has one. */
+function dateColumn(
+  key: string,
+  get: (m: MasterJobItem) => string | null,
+  o: { hidden?: boolean; time?: (m: MasterJobItem) => string } = {},
+): AppGridColumn<MasterJobItem> {
+  const shown = (m: MasterJobItem) => {
+    const [date, time] = joinDateTime(get(m), o.time?.(m)).split(" ");
+    return date ? [formatDate(date), time].filter(Boolean).join(" ") : "";
+  };
+  return {
+    key,
+    ...asShipments(key),
+    ...(o.hidden ? { defaultVisible: false } : {}),
+    text: shown,
+    sorter: (a, b) => byDate(get(a), get(b)),
+    render: (_, m) => <span className="tabular-nums whitespace-nowrap">{orDash(shown(m))}</span>,
+  };
+}
 
 export function MasterJobsList({ masterJobs, isLoading, isError, creating, onCreate }: MasterJobsListProps) {
   const router = useRouter();
@@ -75,8 +131,8 @@ export function MasterJobsList({ masterJobs, isLoading, isError, creating, onCre
 
   const rows = useMemo(
     () =>
-      // The search itself is the grid's (it reads every column, the hidden Booking, Shipper and
-      // Consignee too); the page keeps its text in the URL.
+      // The search itself is the grid's (it reads every column, the hidden ones too); the page
+      // keeps its text in the URL.
       masterJobs.filter((m) => {
         if (load && loadTypeLabel(m.loadType, m.freightMode) !== load) return false;
         if (etdFrom && (!m.estimatedDeparture || m.estimatedDeparture < etdFrom)) return false;
@@ -87,15 +143,15 @@ export function MasterJobsList({ masterJobs, isLoading, isError, creating, onCre
   );
 
   // The Shipments grid's columns (AppGrid): one line each, a plain-text value for search,
-  // column filters and export, and "—" for an empty cell.
-  const dateText = (v: string | null) => formatDate(v ?? "");
+  // column filters and export, and "—" for an empty cell. A field the shipments have too takes its
+  // title and width from the Shipments grid's own column (lib/columnConfig), so both lists name it
+  // the same way.
   const columns: AppGridColumn<MasterJobItem>[] = [
     {
       key: "mczNumber",
-      title: "Master Job",
+      ...asShipments("masterJob"),
       // The MCZ stays frozen on the left while the rest scrolls.
       fixed: "left",
-      width: 140,
       text: (m) => m.mczNumber,
       sorter: (a, b) => byText(a.mczNumber, b.mczNumber),
       render: (_, m) => (
@@ -106,66 +162,26 @@ export function MasterJobsList({ masterJobs, isLoading, isError, creating, onCre
         </Link>
       ),
     },
-    {
-      key: "masterBolNumber",
-      title: "Master BoL Number",
-      width: 160,
-      text: (m) => m.masterBolNumber,
-      sorter: (a, b) => byText(a.masterBolNumber, b.masterBolNumber),
-      render: (_, m) => (m.masterBolNumber ? <span className={REF}>{m.masterBolNumber}</span> : orDash("")),
-    },
+    textColumn("masterBolNumber", (m) => m.masterBolNumber, { code: true }),
     // By air a Full Load reads Single Shipment (and is filtered as one). A category, so a pill.
     {
       key: "loadType",
-      title: "Load Type",
-      width: 150,
+      ...asShipments("loadType"),
       text: (m) => loadTypeLabel(m.loadType, m.freightMode),
       filterOptions: LOAD_TYPE_FILTER_OPTIONS,
       render: (_, m) => (m.loadType ? <Pill tone="slate">{loadTypeLabel(m.loadType, m.freightMode)}</Pill> : orDash("")),
     },
-    {
-      key: "tradeDirection",
-      title: "Trade Direction",
-      width: 130,
-      text: (m) => m.tradeDirection,
-      filterOptions: DROPDOWN_OPTIONS["Trade Direction"],
-      render: (_, m) => orDash(m.tradeDirection),
-    },
-    {
-      key: "shippingLine",
-      title: "Shipping line / Coloader",
-      width: 200,
-      text: (m) => m.shippingLine,
-      // picked under Filters from the lines the master jobs have
-      filterOptions: lines,
-      sorter: (a, b) => byText(a.shippingLine, b.shippingLine),
-      render: (_, m) => orDash(m.shippingLine),
-    },
-    {
-      key: "vessel",
-      title: "Vessel / Voyage",
-      width: 180,
-      text: (m) => [m.vessel, m.voyage].filter(Boolean).join(" / "),
-      render: (_, m) => orDash([m.vessel, m.voyage].filter(Boolean).join(" / ")),
-    },
-    { key: "pol", title: "POL", width: 160, text: (m) => m.pol, render: (_, m) => orDash(m.pol) },
-    { key: "pod", title: "POD", width: 160, text: (m) => m.pod, render: (_, m) => orDash(m.pod) },
-    {
-      key: "estimatedDeparture",
-      title: "ETD",
-      width: 110,
-      text: (m) => dateText(m.estimatedDeparture),
-      sorter: (a, b) => byDate(a.estimatedDeparture, b.estimatedDeparture),
-      render: (_, m) => <span className="tabular-nums">{orDash(dateText(m.estimatedDeparture))}</span>,
-    },
-    {
-      key: "estimatedArrival",
-      title: "ETA",
-      width: 110,
-      text: (m) => dateText(m.estimatedArrival),
-      sorter: (a, b) => byDate(a.estimatedArrival, b.estimatedArrival),
-      render: (_, m) => <span className="tabular-nums">{orDash(dateText(m.estimatedArrival))}</span>,
-    },
+    textColumn("tradeDirection", (m) => m.tradeDirection, { filterOptions: DROPDOWN_OPTIONS["Trade Direction"] }),
+    // picked under Filters from the lines the master jobs have
+    textColumn("shippingLine", (m) => m.shippingLine, { filterOptions: lines }),
+    textColumn("vessel", (m) => m.vessel),
+    textColumn("voyage", (m) => m.voyage),
+    textColumn("pol", (m) => m.pol),
+    textColumn("pod", (m) => m.pod),
+    dateColumn("estimatedDeparture", (m) => m.estimatedDeparture),
+    dateColumn("actualDeparture", (m) => m.actualDeparture),
+    dateColumn("estimatedArrival", (m) => m.estimatedArrival),
+    dateColumn("actualArrival", (m) => m.actualArrival),
     {
       key: "shipmentCount",
       title: "Shipments",
@@ -175,10 +191,35 @@ export function MasterJobsList({ masterJobs, isLoading, isError, creating, onCre
       sorter: (a, b) => a.shipmentCount - b.shipmentCount,
       render: (_, m) => <span className="tabular-nums">{m.shipmentCount}</span>,
     },
-    // Searched as before (booking, shipper, consignee), and shown when picked under Columns.
-    { key: "bookingNumber", title: "Booking Number", width: 150, defaultVisible: false, text: (m) => m.bookingNumber, render: (_, m) => orDash(m.bookingNumber) },
-    { key: "shipper", title: "Shipper", width: 200, defaultVisible: false, text: (m) => m.shipper, render: (_, m) => orDash(m.shipper) },
-    { key: "consignee", title: "Consignee", width: 200, defaultVisible: false, text: (m) => m.consignee, render: (_, m) => orDash(m.consignee) },
+    // Every other field of the master job, shown when picked under Columns (and searched always).
+    textColumn("bookingNumber", (m) => m.bookingNumber, { hidden: true, code: true }),
+    textColumn("shipper", (m) => m.shipper, { hidden: true }),
+    textColumn("consignee", (m) => m.consignee, { hidden: true }),
+    textColumn("freightMode", (m) => m.freightMode, { hidden: true, filterOptions: DROPDOWN_OPTIONS["Freight Mode"] }),
+    textColumn("serviceName", (m) => m.serviceName, { hidden: true }),
+    textColumn("incotermOrigin", (m) => m.incotermOrigin, { hidden: true }),
+    textColumn("incotermDestination", (m) => m.incotermDestination, { hidden: true }),
+    textColumn("destination", (m) => m.destination, { hidden: true }),
+    textColumn("masterBolType", (m) => m.masterBolType, { hidden: true }),
+    textColumn("equipment", (m) => m.equipment, { hidden: true, title: "Equipment" }),
+    dateColumn("etaWarehouse", (m) => m.etaWarehouse, { hidden: true }),
+    dateColumn("warehouseReceivedDate", (m) => m.warehouseReceivedDate, { hidden: true }),
+    dateColumn("closingDate", (m) => m.closingDate, { hidden: true, time: (m) => m.closingTime }),
+    dateColumn("vgmClosing", (m) => m.vgmClosing, { hidden: true, time: (m) => m.vgmClosingTime }),
+    dateColumn("siClosing", (m) => m.siClosing, { hidden: true, time: (m) => m.siClosingTime }),
+    dateColumn("amsDeadline", (m) => m.amsDeadline, { hidden: true, time: (m) => m.amsDeadlineTime }),
+    dateColumn("isfDeadline", (m) => m.isfDeadline, { hidden: true, time: (m) => m.isfDeadlineTime }),
+    textColumn("releaseReference", (m) => m.releaseReference, { hidden: true, code: true }),
+    textColumn("releaseDepot", (m) => m.releaseDepot, { hidden: true }),
+    textColumn("redeliveryReference", (m) => m.redeliveryReference, { hidden: true, code: true }),
+    textColumn("redeliveryDepot", (m) => m.redeliveryDepot, { hidden: true }),
+    textColumn("supplierPic", (m) => m.supplierPic, { hidden: true }),
+    // The MBL's own cargo totals, as the shipments' columns name them.
+    textColumn("pcs", (m) => m.pcs, { hidden: true, number: true }),
+    textColumn("typeOfPackages", (m) => m.typeOfPackages, { hidden: true }),
+    // In kg, as the Shipments grid shows it; the master job keeps tons.
+    textColumn("totalWeightTons", (m) => kgFromTons(m.totalWeightTons), { hidden: true, number: true }),
+    textColumn("totalVolumeCbm", (m) => m.totalVolumeCbm, { hidden: true, number: true }),
   ];
 
   const filtered = !!(q || load || etdFrom || etdTo);

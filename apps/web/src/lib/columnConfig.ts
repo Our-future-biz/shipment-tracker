@@ -212,13 +212,13 @@ export const COLUMNS: ColumnDef[] = [
   { key: "siClosing", title: "SI Closing", width: 140, type: "date", apiField: "siClosing", timeField: "siClosingTime" },
   { key: "amsDeadline", title: "AMS Deadline", width: 140, type: "date", apiField: "amsDeadline", timeField: "amsDeadlineTime" },
   { key: "isfDeadline", title: "ISF Deadline", width: 140, type: "date", apiField: "isfDeadline", timeField: "isfDeadlineTime" },
-  { key: "estimatedDeparture", title: "Estimated Departure", width: 130, type: "date", apiField: "estimatedDeparture" },
+  { key: "estimatedDeparture", title: "ETD Estimated", width: 130, type: "date", apiField: "estimatedDeparture" },
   { key: "estimatedDepartureWeek", title: "Estimated Departure Week", width: 120, type: "computed", readonly: true },
-  { key: "estimatedArrival", title: "Estimated Arrival", width: 130, type: "date", apiField: "estimatedArrival" },
+  { key: "estimatedArrival", title: "ETA Estimated", width: 130, type: "date", apiField: "estimatedArrival" },
   { key: "estimatedArrivalWeek", title: "Estimated Arrival Week", width: 120, type: "computed", readonly: true },
-  { key: "actualDeparture", title: "Actual Departure", width: 130, type: "date", apiField: "actualDeparture" },
+  { key: "actualDeparture", title: "ATD Actual", width: 130, type: "date", apiField: "actualDeparture" },
   { key: "actualDepartureWeek", title: "Actual Departure Week", width: 120, type: "computed", readonly: true },
-  { key: "actualArrival", title: "Actual Arrival", width: 130, type: "date", apiField: "actualArrival" },
+  { key: "actualArrival", title: "ATA Actual", width: 130, type: "date", apiField: "actualArrival" },
   { key: "actualArrivalWeek", title: "Actual Arrival Week", width: 120, type: "computed", readonly: true },
   { key: "etaWarehouse", title: "ETA Warehouse/HUB", width: 140, type: "date", apiField: "etaWarehouse" },
   { key: "hub", title: "HUB", width: 160, type: "place", apiField: "hub" },
@@ -291,7 +291,8 @@ export const COLUMNS: ColumnDef[] = [
   // Read-only projections computed by the backend from containers + cargo lines
   { key: "containerTypeSummary", title: "Container Type", width: 150, type: "text", readonly: true, apiField: "containerTypeSummary" },
   { key: "totalTeu", title: "Total TEU", width: 90, type: "text", readonly: true, apiField: "totalTeu" },
-  { key: "totalWeightTons", title: "Total Weight In Tons", width: 140, type: "computed", readonly: true, apiField: "totalWeightTons" },
+  // Shown in kg, as the shipment detail shows weights; the shipment keeps it in tons (the key stays).
+  { key: "totalWeightTons", title: "Total Weight In KG", width: 140, type: "computed", readonly: true, apiField: "totalWeightTons" },
   { key: "totalVolumeCbm", title: "Total Volume In CBM", width: 140, type: "computed", readonly: true, apiField: "totalVolumeCbm" },
   { key: "freightTon", title: "Freight Ton", width: 110, type: "computed", readonly: true },
   { key: "surface", title: "Surface", width: 100, type: "computed", readonly: true },
@@ -654,8 +655,9 @@ export function getComputedValue(key: string, rowData: Record<string, string>): 
 
   switch (key) {
     case "totalWeightTons": {
-      if (dims.weightKg > 0) return (dims.weightKg / 1000).toFixed(3);
-      return rowData["totalWeightTons"] || "";
+      // In kg: the dimension lines' weight, else the stored tons × 1000.
+      const kg = dims.weightKg > 0 ? dims.weightKg : (parseFloat(rowData["totalWeightTons"] || "") || 0) * 1000;
+      return kg > 0 ? String(Number(kg.toFixed(2))) : "";
     }
     case "totalVolumeCbm": {
       if (dims.volumeCbm > 0) return dims.volumeCbm.toFixed(3);
