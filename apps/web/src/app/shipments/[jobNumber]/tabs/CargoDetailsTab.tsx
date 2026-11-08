@@ -691,7 +691,8 @@ export function CargoDetailsTab({
                 <span className="text-center truncate">Weight (kg)</span>
                 <span className="text-center truncate">Volume (m³)</span>
                 <span className="text-center truncate">Stackability</span>
-                <span className="text-center truncate">ADR</span>
+                {/* The longest header: it wraps onto two lines on a narrow screen rather than being cut. */}
+                <span className="text-center leading-tight">Dangerous goods</span>
                 <span />
               </div>
 
@@ -867,7 +868,7 @@ export function CargoDetailsTab({
                         />
                       </div>
                       <div className="flex justify-center">
-                        <Checkbox aria-label="Dangerous goods (ADR)" checked={adrShown} onChange={(e) => handleAdrToggle(idx, l, e.target.checked)} />
+                        <Checkbox aria-label="Dangerous goods" checked={adrShown} onChange={(e) => handleAdrToggle(idx, l, e.target.checked)} />
                       </div>
                       <RowActionsMenu label="Dimension line actions" onCopy={() => copyDim(idx)} onDelete={() => askDelete({ table: "dims", line: l })} />
                     </div>
