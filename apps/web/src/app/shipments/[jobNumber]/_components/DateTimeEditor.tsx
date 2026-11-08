@@ -33,18 +33,23 @@ export function DateTimeEditor({ value, onCommit, onCancel, className }: Props) 
   // saves in the same keystroke, before the state has re-rendered.
   const latest = useRef({ date, time });
   const finished = useRef(false);
+  // What was typed on the keyboard into each box since its picker last set it, or null. A picker
+  // passes on a typed or emptied value only when it loses focus, which Enter or the ✓ comes before.
+  // The box's own text can't be read instead: hovering a day or an hour in an open panel writes a
+  // preview into it, which is not what was picked.
+  const typedText = useRef<Record<string, string | null>>({ [DATE_LABEL]: null, [TIME_LABEL]: null });
   const setDate = (d: Dayjs | null) => {
     latest.current = { ...latest.current, date: d };
+    typedText.current[DATE_LABEL] = null;
     setDateState(d);
   };
   const setTime = (t: string) => {
     latest.current = { ...latest.current, time: t };
+    typedText.current[TIME_LABEL] = null;
     setTimeState(t);
   };
 
-  // What the two boxes show wins: a picker passes on a typed or emptied value only when it
-  // loses focus, which Enter or the ✓ comes before.
-  const typed = (label: string) => wrapperRef.current?.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)?.value.trim();
+  const typed = (label: string) => typedText.current[label]?.trim();
   const save = () => {
     if (finished.current) return;
     finished.current = true;
@@ -79,6 +84,12 @@ export function DateTimeEditor({ value, onCommit, onCancel, className }: Props) 
     <div
       ref={wrapperRef}
       className={`flex items-center gap-1 ${className ?? ""}`}
+      // Only real typing fires input events; a panel's hover preview doesn't.
+      onInput={(e) => {
+        const box = e.target as HTMLInputElement;
+        const label = box.getAttribute("aria-label");
+        if (label === DATE_LABEL || label === TIME_LABEL) typedText.current[label] = box.value;
+      }}
       onKeyDown={(e) => {
         if (e.key === "Escape") cancel();
         else if (e.key === "Enter") save();
@@ -108,6 +119,12 @@ export function DateTimeEditor({ value, onCommit, onCancel, className }: Props) 
         className="w-[84px]"
         value={time ? dayjs(`2000-01-01T${time}`) : null}
         onChange={(t) => setTime(t ? t.format("HH:mm") : "")}
+        // An hour or minute clicked in the panel counts at once: the picker itself passes it on
+        // only when it loses focus, after the ✓ or a click elsewhere has saved.
+        onCalendarChange={(t) => {
+          const picked = Array.isArray(t) ? t[0] : t;
+          if (picked) setTime(picked.format("HH:mm"));
+        }}
         aria-label={TIME_LABEL}
       />
       <Tooltip title="Save">
