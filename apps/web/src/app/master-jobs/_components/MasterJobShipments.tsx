@@ -80,7 +80,6 @@ export function MasterJobShipments({ masterJob, shipments, onLink, onUnlink }: M
     <>
       <div className="mb-3 flex flex-wrap items-center gap-3">
         <PillTabs tabs={VIEWS} active={view} onChange={setView} />
-        {status && <span className={HINT}>ATD and ATA are set on the master job</span>}
         {status && tracking.isFetching && <Spin size="small" />}
       </div>
       {status && tracking.isError && (

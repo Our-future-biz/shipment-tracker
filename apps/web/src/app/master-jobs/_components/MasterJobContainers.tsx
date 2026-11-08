@@ -11,6 +11,7 @@ import { containerNumberInput, isValidContainerNumber } from "@/lib/container";
 import type { MasterJobContainerLine, MasterJobShipmentItem } from "@/hooks/useMasterJobs";
 import { EMPTY_STATE, LABEL_TEXT } from "@/styles/ui";
 import { CARD_BODY_PADDED, MasterJobCard } from "./MasterJobFields";
+import { LOCKED_CONTROL, LOCKED_INPUT, OPEN_ROW_ATTR, lockOnEnter, useOpenRow } from "../_lib/rowLock";
 
 interface MasterJobContainersProps {
   /** Anchor for the summary tile that jumps here. */
@@ -46,6 +47,9 @@ export function MasterJobContainers({ id, fromShipments, containers, shipments, 
   const [saving, setSaving] = useState(false);
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(containers);
+  // A row with a valid number is locked: a double-click opens it, a click elsewhere locks it again. A
+  // row still being typed (no valid number yet) stays open.
+  const { openKey, open, close } = useOpenRow();
   const houseOptions = shipments.map((s) => ({ value: s.id, label: s.jobNumber }));
 
   const handleChange = (index: number, patch: Partial<MasterJobContainerLine>) =>
@@ -83,11 +87,6 @@ export function MasterJobContainers({ id, fromShipments, containers, shipments, 
         </>
       }
     >
-      {fromShipments && (
-        <div className="mb-3 px-3 py-2 rounded-lg bg-indigo-50 text-[12px] text-indigo-700">
-          Full Load: these are the containers of the linked shipments. Changes saved here are written back to them.
-        </div>
-      )}
       <div className="relative">
         {/* Add container: the small "+" laid over the header row's right end, above the rows' "⋯". */}
         <Tooltip title="Add container">
@@ -113,12 +112,27 @@ export function MasterJobContainers({ id, fromShipments, containers, shipments, 
               </tr>
             </thead>
             <tbody>
-              {draft.map((c, i) => (
-                <tr key={c.id ?? rowKey(c)} className={i < draft.length - 1 ? "border-b border-slate-100" : ""}>
+              {draft.map((c, i) => {
+                const key = c.id ?? rowKey(c);
+                // An empty number counts as valid (it can be left out), so a row needs one to lock.
+                const locked = openKey !== key && !!c.containerNumber.trim() && isValidContainerNumber(c.containerNumber);
+                return (
+                <tr
+                  key={key}
+                  {...(locked ? {} : { [OPEN_ROW_ATTR]: "" })}
+                  onDoubleClick={locked ? () => open(key) : undefined}
+                  // A row being typed in is the open one, so it stays open when its number turns valid.
+                  onFocus={locked ? undefined : () => openKey !== key && open(key)}
+                  onKeyDown={locked ? undefined : lockOnEnter(close)}
+                  title={locked ? "Double-click to edit" : undefined}
+                  className={`${i < draft.length - 1 ? "border-b border-slate-100" : ""} ${locked ? "cursor-pointer hover:bg-slate-50/60" : ""}`}
+                >
                   <td className={TD}>
                     <Input
                       size="small"
                       placeholder="MSKU1234567"
+                      readOnly={locked}
+                      className={locked ? LOCKED_INPUT : undefined}
                       value={c.containerNumber}
                       // Incomplete (not 4 letters + 7 digits) shows red and blocks Save.
                       status={isValidContainerNumber(c.containerNumber) ? undefined : "error"}
@@ -129,7 +143,8 @@ export function MasterJobContainers({ id, fromShipments, containers, shipments, 
                   <td className={TD}>
                     <Input
                       size="small"
-                      className="text-center"
+                      readOnly={locked}
+                      className={`text-center ${locked ? LOCKED_INPUT : ""}`}
                       value={c.sealNumber}
                       aria-label="Seal number"
                       onChange={(e) => handleChange(i, { sealNumber: e.target.value })}
@@ -138,7 +153,9 @@ export function MasterJobContainers({ id, fromShipments, containers, shipments, 
                   <td className={TD}>
                     <Select
                       size="small"
-                      className="w-full [&_.ant-select-selection-item]:!text-center [&_.ant-select-selection-placeholder]:!text-center"
+                      className={`w-full [&_.ant-select-selection-item]:!text-center [&_.ant-select-selection-placeholder]:!text-center ${locked ? LOCKED_CONTROL : ""}`}
+                      open={locked ? false : undefined}
+                      tabIndex={locked ? -1 : undefined}
                       value={containerType(c.type) || undefined}
                       placeholder="Type"
                       aria-label="Container type"
@@ -150,7 +167,9 @@ export function MasterJobContainers({ id, fromShipments, containers, shipments, 
                     <Select
                       size="small"
                       mode="multiple"
-                      className="w-full"
+                      className={`w-full ${locked ? LOCKED_CONTROL : ""}`}
+                      open={locked ? false : undefined}
+                      tabIndex={locked ? -1 : undefined}
                       value={c.shipmentIds}
                       placeholder={shipments.length ? "Pick shipments" : "Link shipments first"}
                       aria-label="Assigned shipments"
@@ -158,14 +177,17 @@ export function MasterJobContainers({ id, fromShipments, containers, shipments, 
                       onChange={(shipmentIds) => handleChange(i, { shipmentIds })}
                     />
                   </td>
-                  <td className={`${TD} text-center`}>
+                  {/* The row's menu works on a locked row too, without opening it; Edit opens it. */}
+                  <td className={`${TD} text-center`} onDoubleClick={(e) => e.stopPropagation()}>
                     <RowActionsMenu
                       label="Container actions"
+                      onEdit={locked ? () => open(key) : undefined}
                       onDelete={() => setDraft((rows) => rows.filter((_, j) => j !== i))}
                     />
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
           {draft.length === 0 && (

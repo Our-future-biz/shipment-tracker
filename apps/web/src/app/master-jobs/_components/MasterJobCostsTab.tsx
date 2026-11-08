@@ -14,6 +14,7 @@ import { ProfitVsEstimate } from "@/components/ProfitVsEstimate";
 import { EMPTY_CELL } from "@/components/EmptyCell";
 import { CountChip, SectionCard } from "@/components/SectionCard";
 import { BTN_PRIMARY, BTN_SM, CARD, EMPTY_STATE, HINT, ICON_BTN_GHOST, LABEL_TEXT, LINK, REF, TD_TOTAL, TH } from "@/styles/ui";
+import { LOCKED_CONTROL, LOCKED_INPUT, OPEN_ROW_ATTR, lockOnEnter, useOpenRow } from "../_lib/rowLock";
 
 type View = interfaces.MasterJobCostsView;
 type Line = interfaces.MasterJobCostItem;
@@ -78,6 +79,10 @@ export function MasterJobCostsTab({ masterJob }: Props) {
     queryKey: costsKey(masterJob.id),
     queryFn: () => api.invoicing.invoicingMasterJobCosts(masterJob.id),
   });
+  // A filled buying cost is locked: a double-click opens its row, a click elsewhere locks it again. A
+  // line not filled yet (just added) stays open. Each field still saves as before.
+  const { openKey, open, close } = useOpenRow();
+  const filled = (l: Line) => !!(l.category || Number(l.estAmount) || Number(l.realAmount));
 
   // With several saves on their way (fields left one after another) an answer can arrive after a
   // later one's: the view is then read again once the last is in, rather than taken from either.
@@ -239,10 +244,26 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                   </td>
                 </tr>
               )}
-              {lines.map((line) => (
-                <tr key={line.id} className="hover:bg-slate-50/60">
+              {lines.map((line) => {
+                const locked = openKey !== line.id && filled(line);
+                const control = locked ? LOCKED_CONTROL : "";
+                const input = locked ? LOCKED_INPUT : "";
+                const lockedProps = locked ? { open: false, tabIndex: -1 } : {};
+                return (
+                <tr
+                  key={line.id}
+                  {...(locked ? {} : { [OPEN_ROW_ATTR]: "" })}
+                  onDoubleClick={locked ? () => open(line.id) : undefined}
+                  // The row being typed in is the open one.
+                  onFocus={locked ? undefined : () => openKey !== line.id && open(line.id)}
+                  onKeyDown={locked ? undefined : lockOnEnter(close)}
+                  title={locked ? "Double-click to edit" : undefined}
+                  className={`hover:bg-slate-50/60 ${locked ? "cursor-pointer" : ""}`}
+                >
                   <td className={`${CELL} text-center`}>
                     <Checkbox
+                      className={control}
+                      tabIndex={locked ? -1 : undefined}
                       checked={line.inSplit}
                       disabled={busy}
                       onChange={(e) => save(line, { inSplit: e.target.checked })}
@@ -252,7 +273,8 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                   <td className={`${CELL} min-w-[170px]`}>
                     <Select
                       size="small"
-                      className="w-full"
+                      className={`w-full ${control}`}
+                      {...lockedProps}
                       showSearch
                       optionFilterProp="label"
                       placeholder="Category"
@@ -264,21 +286,22 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                     />
                   </td>
                   <td className={`${CELL} min-w-[140px]`}>
-                    <Input size="small" key={`d${line.description}`} defaultValue={line.description} onBlur={(e) => saveText(line, "description", e.target.value)} aria-label="Description" />
+                    <Input size="small" readOnly={locked} className={input} key={`d${line.description}`} defaultValue={line.description} onBlur={(e) => saveText(line, "description", e.target.value)} aria-label="Description" />
                   </td>
                   <td className={`${CELL} min-w-[120px]`}>
-                    <Input size="small" key={`v${line.vendor}`} defaultValue={line.vendor} onBlur={(e) => saveText(line, "vendor", e.target.value)} aria-label="Vendor" />
+                    <Input size="small" readOnly={locked} className={input} key={`v${line.vendor}`} defaultValue={line.vendor} onBlur={(e) => saveText(line, "vendor", e.target.value)} aria-label="Vendor" />
                   </td>
                   <td className={`${CELL} w-[70px]`}>
-                    <Input size="small" key={`eq${line.estQty}`} defaultValue={line.estQty ?? ""} onBlur={(e) => saveAmount(line, "estQty", e.target.value)} className="text-right" aria-label="Estimated quantity" />
+                    <Input size="small" key={`eq${line.estQty}`} defaultValue={line.estQty ?? ""} onBlur={(e) => saveAmount(line, "estQty", e.target.value)} readOnly={locked} className={`text-right ${input}`} aria-label="Estimated quantity" />
                   </td>
                   <td className={`${CELL} w-[100px]`}>
-                    <Input size="small" key={`ea${line.estAmount}`} defaultValue={line.estAmount ?? ""} onBlur={(e) => saveAmount(line, "estAmount", e.target.value)} className="text-right" aria-label="Estimated amount" />
+                    <Input size="small" key={`ea${line.estAmount}`} defaultValue={line.estAmount ?? ""} onBlur={(e) => saveAmount(line, "estAmount", e.target.value)} readOnly={locked} className={`text-right ${input}`} aria-label="Estimated amount" />
                   </td>
                   <td className={`${CELL} w-[86px]`}>
                     <Select
                       size="small"
-                      className="w-full"
+                      className={`w-full ${control}`}
+                      {...lockedProps}
                       showSearch
                       optionFilterProp="label"
                       value={line.estCurrency}
@@ -291,15 +314,16 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                     />
                   </td>
                   <td className={`${CELL} w-[70px] ${SPLIT_LINE}`}>
-                    <Input size="small" key={`rq${line.realQty}`} defaultValue={line.realQty ?? ""} onBlur={(e) => saveAmount(line, "realQty", e.target.value)} className="text-right" aria-label="Real quantity" />
+                    <Input size="small" key={`rq${line.realQty}`} defaultValue={line.realQty ?? ""} onBlur={(e) => saveAmount(line, "realQty", e.target.value)} readOnly={locked} className={`text-right ${input}`} aria-label="Real quantity" />
                   </td>
                   <td className={`${CELL} w-[100px]`}>
-                    <Input size="small" key={`ra${line.realAmount}`} defaultValue={line.realAmount ?? ""} onBlur={(e) => saveAmount(line, "realAmount", e.target.value)} className="text-right" aria-label="Real cost" />
+                    <Input size="small" key={`ra${line.realAmount}`} defaultValue={line.realAmount ?? ""} onBlur={(e) => saveAmount(line, "realAmount", e.target.value)} readOnly={locked} className={`text-right ${input}`} aria-label="Real cost" />
                   </td>
                   <td className={`${CELL} w-[86px]`}>
                     <Select
                       size="small"
-                      className="w-full"
+                      className={`w-full ${control}`}
+                      {...lockedProps}
                       showSearch
                       optionFilterProp="label"
                       value={line.realCurrency}
@@ -312,10 +336,10 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                     />
                   </td>
                   <td className={`${CELL} min-w-[120px]`}>
-                    <Input size="small" key={`in${line.invoiceNumber}`} defaultValue={line.invoiceNumber} onBlur={(e) => saveText(line, "invoiceNumber", e.target.value)} aria-label="Invoice number" />
+                    <Input size="small" readOnly={locked} className={input} key={`in${line.invoiceNumber}`} defaultValue={line.invoiceNumber} onBlur={(e) => saveText(line, "invoiceNumber", e.target.value)} aria-label="Invoice number" />
                   </td>
                   <td className={`${CELL} text-center`}>
-                    <Checkbox checked={line.received} onChange={(e) => save(line, { received: e.target.checked })} aria-label="Supplier invoice received" />
+                    <Checkbox className={control} tabIndex={locked ? -1 : undefined} checked={line.received} onChange={(e) => save(line, { received: e.target.checked })} aria-label="Supplier invoice received" />
                   </td>
                   <td className={`${CELL} text-right whitespace-nowrap`}>
                     {(() => {
@@ -326,6 +350,7 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                   <td className={CELL}>
                     <Segmented
                       size="small"
+                      className={control}
                       value={line.splitMethod}
                       disabled={!line.inSplit}
                       options={SPLIT_OPTIONS}
@@ -333,7 +358,8 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                       aria-label="Split"
                     />
                   </td>
-                  <td className={`${CELL} text-center`}>
+                  {/* Delete works on a locked row too, without opening it. */}
+                  <td className={`${CELL} text-center`} onDoubleClick={(e) => e.stopPropagation()}>
                     <Tooltip title="Delete - it leaves the shipments too">
                       <button type="button" disabled={busy} onClick={() => remove.mutate(line.id)} aria-label="Delete cost" className={ROW_DELETE_BTN}>
                         <DeleteOutlined />
@@ -341,7 +367,8 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                     </Tooltip>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
             {totalVs && (
               <tfoot>
