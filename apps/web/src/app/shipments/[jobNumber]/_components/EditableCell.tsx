@@ -4,6 +4,8 @@ import { createContext, useContext, useState, useRef } from "react";
 import Link from "next/link";
 import { EditableLink } from "@/components/EditableLink";
 import { ConfigProvider, Input, Select, DatePicker } from "antd";
+import { CalendarOutlined, ClockCircleOutlined } from "@ant-design/icons";
+import { LockedBox } from "@/components/LockedBox";
 import type { InputRef } from "antd";
 import dayjs from "dayjs";
 import { DEPARTMENT_FIELDS } from "@/lib/shipmentEditRule";
@@ -33,6 +35,17 @@ function toInputISO(s: string): string {
   if (!/^\d{1,2}$/.test(mm) || !/^\d{1,2}$/.test(dd) || !/^\d{1,4}$/.test(yy)) return "";
   const year = yy.length <= 2 ? `20${yy.padStart(2, "0")}` : yy;
   return `${year}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
+}
+
+/** A date with an optional time as two locked boxes, the date and the time apart; a double-click opens them. */
+function DateTimeBoxes({ value, style, title }: { value: string; style?: React.CSSProperties; title?: string }) {
+  const { date, time } = splitDateTime(value);
+  return (
+    <span className="flex items-center gap-1.5 min-w-0" title={title}>
+      <LockedBox className="w-[118px]" value={date ? formatDate(date) : ""} placeholder="Date" icon={<CalendarOutlined />} style={style} />
+      <LockedBox className="w-[78px]" value={time} placeholder="Time" icon={<ClockCircleOutlined />} style={style} />
+    </span>
+  );
 }
 
 /** "2026-11-20 12:00" → "20.11.2026 12:00"; a date alone → "20.11.2026". */
@@ -102,6 +115,8 @@ interface EditableCellProps {
   multiline?: boolean;
   /** Text shown when the value is empty. */
   placeholder?: string;
+  /** A date with a time shows as two locked boxes (the detail cards); a grid row keeps it as one text. */
+  dateTimeBoxes?: boolean;
   /** Class for the value text in display mode. */
   displayClassName?: string;
   /** Class for the placeholder text in display mode (falls back to displayClassName). */
@@ -141,6 +156,7 @@ function EditableCellBody({
   onCommit,
   multiline = false,
   placeholder = "—",
+  dateTimeBoxes = true,
   displayClassName = "text-slate-700 font-medium",
   emptyClassName,
   className,
@@ -260,6 +276,10 @@ function EditableCellBody({
                 </EditableLink>
               )}
             </ContactHoverCard>
+          ) : isDate && col?.timeField && dateTimeBoxes ? (
+            // A date with a time keeps its two boxes, locked, when it isn't being edited (the detail
+            // cards; a grid row keeps one text).
+            <DateTimeBoxes value={original} style={textStyle} title={locked ? undefined : "Double-click to edit"} />
           ) : (
             <FadeText className={textClass} style={textStyle} title={locked ? undefined : "Double-click to edit"}>
               {shown}

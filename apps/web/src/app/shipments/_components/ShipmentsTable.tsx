@@ -613,6 +613,7 @@ export const ShipmentsTable = ({
               emailSubject={shipmentEmailSubject(record)}
               onCommit={(fieldKey, value, links) => updateField(record.id, fieldKey, value, record, links)}
               placeholder={"\u2014"}
+              dateTimeBoxes={false}
               displayClassName="text-slate-700"
               emptyClassName={EMPTY}
               displayStyle={textStyle}

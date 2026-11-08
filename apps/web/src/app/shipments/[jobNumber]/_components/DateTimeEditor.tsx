@@ -113,7 +113,13 @@ export function DateTimeEditor({ value, onCommit, onCancel, className }: Props) 
         size="small"
         format="HH:mm"
         placeholder="Time"
-        needConfirm={false}
+        // The panel's OK, as on Commercial Parties' opening hours (no "Now"), saves the date and time.
+        needConfirm
+        showNow={false}
+        onOk={(t) => {
+          if (t) setTime(t.format("HH:mm"));
+          save();
+        }}
         open={timeOpen}
         onOpenChange={setTimeOpen}
         className="w-[84px]"

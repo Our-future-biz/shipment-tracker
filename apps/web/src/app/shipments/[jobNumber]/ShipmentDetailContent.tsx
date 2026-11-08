@@ -13,6 +13,7 @@ import {
   InfoCircleOutlined,
   CheckSquareOutlined,
   CheckCircleOutlined,
+  ClockCircleOutlined,
   CalendarOutlined,
   ContainerOutlined,
   SplitCellsOutlined,
@@ -65,6 +66,7 @@ import { ApprovedByLockedContext, CreditCheckLockedContext, EditableCell, Shipme
 import { shipmentEmailSubject } from "../_lib/shipmentEmail";
 import { MasterJobHoverCard } from "@/components/MasterJobHoverCard";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { LOCKED_BOX } from "@/components/LockedBox";
 import { Pill } from "@/components/Pill";
 import { FadeText } from "@/components/FadeText";
 import { CustomerLinkField } from "./_components/CustomerLinkField";
@@ -729,18 +731,42 @@ interface OpeningHoursRowProps {
   onChange: (from: string, to: string) => void;
 }
 
-// Opening hours as a plain time range (from–to), no date, rendered as a card row.
+// Opening hours as a plain time range (from–to), no date, rendered as a card row. It reads as text,
+// as every other row; a double-click opens the picker, and picking (or closing it) locks it again.
 function OpeningHoursRow({
   from,
   to,
   onChange,
 }: OpeningHoursRowProps) {
   const editable = React.useContext(ShipmentDetailsEditableContext);
+  const [editing, setEditing] = useState(false);
   const parse = (v?: string | null) => {
     if (!v) return null;
     const d = dayjs(`1970-01-01T${v}`);
     return d.isValid() ? d : null;
   };
+  if (!editing) {
+    // The range picker's frame stays drawn, locked: start → end, grey where a time is missing.
+    return (
+      <div className={ROW}>
+        <span className={LABEL}>Opening Hours</span>
+        <span
+          className={`flex-1 min-w-0 ${editable ? "cursor-pointer" : ""}`}
+          title={editable ? "Double-click to edit" : undefined}
+          onDoubleClick={editable ? () => setEditing(true) : undefined}
+        >
+          <span className={`${LOCKED_BOX} w-full`}>
+            <span className="flex items-center gap-3 min-w-0">
+              <span className={from ? "" : "text-slate-400"}>{from || "Start time"}</span>
+              <span className="text-slate-300">→</span>
+              <span className={to ? "" : "text-slate-400"}>{to || "End time"}</span>
+            </span>
+            <ClockCircleOutlined className="text-slate-300 text-[12px]" />
+          </span>
+        </span>
+      </div>
+    );
+  }
   return (
     <div className={ROW}>
       <span className={LABEL}>Opening Hours</span>
@@ -750,10 +776,18 @@ function OpeningHoursRow({
           className="w-full"
           format="HH:mm"
           minuteStep={15}
+          autoFocus
+          defaultOpen
           value={[parse(from), parse(to)]}
-          // Disabled and empty in a read-only card, which the picker wants to be told it may be.
-          allowEmpty={editable ? undefined : [true, true]}
-          onChange={(_, strs) => onChange(strs[0] || "", strs[1] || "")}
+          onChange={(_, strs) => {
+            onChange(strs[0] || "", strs[1] || "");
+            setEditing(false);
+          }}
+          // Closed without a new range (click-away, Escape): back to the text - after the tick, so a
+          // range confirmed with OK is passed on first.
+          onOpenChange={(open) => {
+            if (!open) setTimeout(() => setEditing(false), 0);
+          }}
         />
       </div>
     </div>
