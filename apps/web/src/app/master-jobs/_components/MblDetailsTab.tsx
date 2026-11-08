@@ -8,19 +8,19 @@ import {
   EnvironmentOutlined,
   FileProtectOutlined,
   FileTextOutlined,
-  InboxOutlined,
   LockOutlined,
   TeamOutlined,
 } from "@ant-design/icons";
 import { CustomerLinkField } from "@/app/shipments/[jobNumber]/_components/CustomerLinkField";
 import { FreightModeContext } from "@/app/shipments/[jobNumber]/_components/EditableCell";
 import { COLUMN_MAP, dateTimeUpdate, getComputedValue, joinDateTime } from "@/lib/columnConfig";
-import { FULL_LOAD, loadTypeLabel } from "@/lib/enums";
+import { loadTypeLabel } from "@/lib/enums";
 import { COLS2 } from "@/app/shipments/[jobNumber]/_components/detailStyles";
-import type { MasterJobContainerLine, MasterJobItem, MasterJobShipmentItem, MasterJobUpdate } from "@/hooks/useMasterJobs";
-import { CARD_BODY_PADDED, FieldRow, IncotermRow, Label, MasterJobCard, ROW, ReadOnlyRow } from "./MasterJobFields";
-import { MasterJobContainers } from "./MasterJobContainers";
-import { MasterJobShipments } from "./MasterJobShipments";
+import type { MasterJobItem, MasterJobUpdate } from "@/hooks/useMasterJobs";
+import { FieldRow, IncotermRow, Label, MasterJobCard, ROW, ReadOnlyRow } from "./MasterJobFields";
+import { ProgressStages } from "@/app/shipments/[jobNumber]/_components/ShipmentSummary";
+import { getStageFromFacts } from "@/app/shipments/[jobNumber]/_components/taskDefinitions";
+import { formatDate } from "@/lib/date";
 
 // Load Type is chosen once; the server refuses switching it, so the row stops being editable.
 function LockedLoadType({ value }: { value: string }) {
@@ -37,14 +37,10 @@ function LockedLoadType({ value }: { value: string }) {
   );
 }
 
+// The master job's own fields; its containers and linked shipments have tabs of their own.
 interface MblDetailsTabProps {
   masterJob: MasterJobItem;
-  containers: MasterJobContainerLine[];
-  shipments: MasterJobShipmentItem[];
   onSave: (data: MasterJobUpdate) => Promise<unknown>;
-  onSaveContainers: (containers: MasterJobContainerLine[]) => Promise<unknown>;
-  onLinkShipments: (shipmentIds: string[]) => Promise<unknown>;
-  onUnlinkShipment: (shipmentId: string) => Promise<unknown>;
 }
 
 // The master job's field values in the string shape the shipment column helpers expect.
@@ -62,15 +58,7 @@ export const MJ_ANCHORS = {
   eta: "mj-estimated-arrival",
 } as const;
 
-export function MblDetailsTab({
-  masterJob: mj,
-  containers,
-  shipments,
-  onSave,
-  onSaveContainers,
-  onLinkShipments,
-  onUnlinkShipment,
-}: MblDetailsTabProps) {
+export function MblDetailsTab({ masterJob: mj, onSave }: MblDetailsTabProps) {
   const { message } = App.useApp();
   const data = rowData(mj);
 
@@ -97,8 +85,19 @@ export function MblDetailsTab({
 
   // Laid out like the Shipment Details tab's main column: the overview, the Key Dates
   // (two columns, as the shipment's), then cards in pairs once the column is wide enough.
+  // The stages, as the shipment's progress bar shows them. A master job has no task ticks, customs
+  // status or delivery (those are its shipments'), so its own dates move it, by the shipment's
+  // rule: departed = In transit, arrived = past Arrive at POD.
+  const stage = getStageFromFacts({ tradeDirection: mj.tradeDirection, actualDeparture: mj.actualDeparture, actualArrival: mj.actualArrival });
+  const stageFacts: Record<string, string> = {
+    "In transit": mj.actualDeparture ? `ATD ${formatDate(mj.actualDeparture)}` : "",
+    "Arrive at POD": mj.actualArrival ? `ATA ${formatDate(mj.actualArrival)}` : "",
+  };
+
   return (
     <div className="@container flex flex-col gap-4 min-w-0">
+      {/* The master job's progress, above its cards as on Shipment Details */}
+      <ProgressStages activeIndex={stage} factOf={stageFacts} ariaLabel="Master job progress" />
       <MasterJobCard icon={<FileTextOutlined />} title="Master Job Overview">
         <div className={COLS2}>
           <div className="min-w-0">
@@ -202,21 +201,6 @@ export function MblDetailsTab({
         </MasterJobCard>
       </div>
 
-      <MasterJobContainers id={MJ_ANCHORS.containers} fromShipments={mj.loadType === FULL_LOAD} containers={containers} shipments={shipments} onSave={onSaveContainers} />
-
-      <MasterJobCard
-        id={MJ_ANCHORS.shipments}
-        icon={<InboxOutlined />}
-        title={`Linked shipments (${shipments.length})`}
-        bodyClassName={CARD_BODY_PADDED}
-      >
-        <MasterJobShipments
-          masterJob={mj}
-          shipments={shipments}
-          onLink={onLinkShipments}
-          onUnlink={onUnlinkShipment}
-        />
-      </MasterJobCard>
     </div>
   );
 }

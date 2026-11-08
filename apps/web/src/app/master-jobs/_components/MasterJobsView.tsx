@@ -3,19 +3,25 @@
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { App, Spin } from "antd";
+import { InboxOutlined } from "@ant-design/icons";
 import { CARD } from "@/styles/ui";
 import { BackLink } from "@/components/BackLink";
 import { useCreateMasterJob, useMasterJob, useMasterJobs } from "@/hooks/useMasterJobs";
 import { MasterJobsList } from "./MasterJobsList";
-import { MblDetailsTab } from "./MblDetailsTab";
+import { MJ_ANCHORS, MblDetailsTab } from "./MblDetailsTab";
+import { MasterJobShipments } from "./MasterJobShipments";
+import { MasterJobContainers } from "./MasterJobContainers";
+import { FULL_LOAD } from "@/lib/enums";
 import { MasterJobFacts } from "./MasterJobFacts";
-import { jumpTo } from "./MasterJobFields";
+import { CARD_BODY_PADDED, MasterJobCard, jumpTo } from "./MasterJobFields";
 import { MasterJobCostsTab } from "./MasterJobCostsTab";
 import { MasterJobTrackingTab } from "./MasterJobTrackingTab";
 
 // Tabs of an opened master job; more will follow.
 const DETAIL_TABS = [
   { key: "mbl", label: "MBL Details" },
+  { key: "containers", label: "Containers" },
+  { key: "shipments", label: "Linked Shipments" },
   { key: "costs", label: "Costs Breakdown" },
   { key: "tracking", label: "Tracking" },
 ] as const;
@@ -62,8 +68,13 @@ export function MasterJobsView() {
 
   const mj = detail.masterJob;
 
-  // A count in the summary jumps to its card on MBL Details, opening that tab first when another is open.
+  // A count in the summary opens its tab (Containers, Linked Shipments); a date jumps to its row on
+  // MBL Details, opening that tab first when another is open.
   const jumpFromFacts = (target: string) => {
+    if (target === MJ_ANCHORS.shipments || target === MJ_ANCHORS.containers) {
+      setDetailTab(target === MJ_ANCHORS.shipments ? "shipments" : "containers");
+      return;
+    }
     if (detailTab === "mbl") {
       jumpTo(target);
       return;
@@ -126,20 +137,36 @@ export function MasterJobsView() {
         {/* ── Tab content ── */}
         <div className="px-4 md:px-6 pt-4 pb-8">
           {mj ? (
-            detailTab === "costs" ? (
+            detailTab === "containers" ? (
+              // The master job's containers, which go on to its houses (as the card used to show them on MBL Details).
+              <MasterJobContainers
+                id={MJ_ANCHORS.containers}
+                fromShipments={mj.loadType === FULL_LOAD}
+                containers={detail.containers}
+                shipments={detail.shipments}
+                onSave={(containers) => detail.setContainers.mutateAsync(containers)}
+              />
+            ) : detailTab === "shipments" ? (
+              // The houses on this master job, with Add and Remove, as the card used to show them on MBL Details.
+              <MasterJobCard
+                id={MJ_ANCHORS.shipments}
+                icon={<InboxOutlined />}
+                title={`Linked shipments (${detail.shipments.length})`}
+                bodyClassName={CARD_BODY_PADDED}
+              >
+                <MasterJobShipments
+                  masterJob={mj}
+                  shipments={detail.shipments}
+                  onLink={(ids) => detail.linkShipments.mutateAsync(ids)}
+                  onUnlink={(id) => detail.unlinkShipment.mutateAsync(id)}
+                />
+              </MasterJobCard>
+            ) : detailTab === "costs" ? (
               <MasterJobCostsTab masterJob={mj} />
             ) : detailTab === "tracking" ? (
               <MasterJobTrackingTab masterJobId={mj.id} />
             ) : (
-              <MblDetailsTab
-                masterJob={mj}
-                containers={detail.containers}
-                shipments={detail.shipments}
-                onSave={(data) => detail.update.mutateAsync(data)}
-                onSaveContainers={(containers) => detail.setContainers.mutateAsync(containers)}
-                onLinkShipments={(ids) => detail.linkShipments.mutateAsync(ids)}
-                onUnlinkShipment={(id) => detail.unlinkShipment.mutateAsync(id)}
-              />
+              <MblDetailsTab masterJob={mj} onSave={(data) => detail.update.mutateAsync(data)} />
             )
           ) : detail.isLoading ? (
             <div className="flex items-center justify-center py-20">
