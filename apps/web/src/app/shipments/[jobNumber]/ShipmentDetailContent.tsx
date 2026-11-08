@@ -30,6 +30,7 @@ import {
   CalculatorOutlined,
   SafetyCertificateOutlined,
   HomeOutlined,
+  MailOutlined,
 } from "@ant-design/icons";
 import { useShipment } from "@/hooks/useShipment";
 import { NOT_STACKABLE, STACKABLE_OPTIONS, shipmentStackability, withShipmentStackability } from "@/lib/cargo";
@@ -68,6 +69,7 @@ import { MasterJobHoverCard } from "@/components/MasterJobHoverCard";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { LOCKED_BOX } from "@/components/LockedBox";
 import { Pill } from "@/components/Pill";
+import { HoverCard } from "@/components/HoverCard";
 import { FadeText } from "@/components/FadeText";
 import { CustomerLinkField } from "./_components/CustomerLinkField";
 import { PartyContactField } from "./_components/PartyContactField";
@@ -692,6 +694,11 @@ interface HouseBolReleaseRowProps {
 function HouseBolReleaseRow({ releasedAt, onRelease }: HouseBolReleaseRowProps) {
   // The server's stamp, "<who> — <date and time>", as who and when.
   const { person, when } = splitPersonStamp(releasedAt);
+  // "8. 11. 2026 10:29:57": the date, then the time after the last space (when there is one).
+  const cut = when.lastIndexOf(" ");
+  const hasTime = cut > 0 && when.slice(cut + 1).includes(":");
+  const releaseDate = hasTime ? when.slice(0, cut) : when;
+  const releaseTime = hasTime ? when.slice(cut + 1) : "";
   return (
     <div className={ROW}>
       <span className={LABEL}>
@@ -699,20 +706,34 @@ function HouseBolReleaseRow({ releasedAt, onRelease }: HouseBolReleaseRowProps) 
       </span>
       <div className="flex-1 min-w-0">
         {releasedAt ? (
-          // A green Released mark, then who (by e-mail, as the people fields) with when small under it.
-          <div className="flex items-center gap-2.5 min-w-0">
-            <Pill tone="green" className="shrink-0">
+          // A green Released mark; who released it and when show in a hover card, as a contact's.
+          <HoverCard
+            delay={0.3}
+            content={
+              <div className="w-[240px]">
+                <div className="text-[13px] font-semibold text-slate-900">Bill of Lading released</div>
+                <div className="mt-0.5 text-[11px] text-slate-500">House BoL</div>
+                <div className="mt-2.5 flex flex-col gap-1.5 border-t border-slate-100 pt-2.5 text-xs">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <MailOutlined className="text-slate-400 text-[12px] shrink-0" />
+                    <span className="truncate text-slate-900">{person || "—"}</span>
+                  </div>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <CalendarOutlined className="text-slate-400 text-[12px] shrink-0" />
+                    <span className="text-slate-900">{releaseDate || "—"}</span>
+                  </div>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <ClockCircleOutlined className="text-slate-400 text-[12px] shrink-0" />
+                    <span className="text-slate-900">{releaseTime || "—"}</span>
+                  </div>
+                </div>
+              </div>
+            }
+          >
+            <Pill tone="green" className="cursor-default">
               <CheckCircleOutlined /> Released
             </Pill>
-            <div className="min-w-0 leading-tight">
-              {person && (
-                <div className="truncate text-[13px] text-slate-900" title={person}>
-                  {person}
-                </div>
-              )}
-              {when && <div className="whitespace-nowrap text-[11px] text-slate-500">{when}</div>}
-            </div>
-          </div>
+          </HoverCard>
         ) : (
           // Red, as its confirmation: a release cannot be undone.
           <Button size="small" type="primary" danger onClick={onRelease}>
@@ -853,7 +874,6 @@ const PARTIES_AGENTS: FieldDef[] = [
   { key: "supplierPic", label: "Supplier's PIC" },
   { key: "equipmentDelivery", label: "Equipment Delivery/Pick-Up Address" },
   { key: "equipmentDeliveryDate", label: "Equipment Delivery/Pick-Up Date" },
-  { key: "bookingConfirmation", label: "Booking Confirmation" },
   { key: "customsProcedure", label: "Customs Procedure" },
 ];
 // The Quote card is read-only: it shows the quote uploaded in the Costs Breakdown tab, and its
@@ -870,8 +890,10 @@ const QUOTE_R: FieldDef[] = [
   { key: "salesPerson", label: "Sales Person", ro: true },
 ];
 const COMPLIANCE_FIELDS: FieldDef[] = [
+  { key: "bookingConfirmation", label: "Booking Confirmation" },
   { key: "vgm", label: "VGM" },
   { key: "shippingInstructions", label: "Shipping Instructions" },
+  { key: "insurance", label: "Insurance" },
   { key: "ams", label: "AMS (if any)" },
   { key: "isf", label: "ISF (if any)" },
   { key: "bolDraft", label: "BoL Draft" },
@@ -913,7 +935,6 @@ const CARGO_COMMERCIAL_R: CargoField[] = [
   { key: "containerTypeSummary", label: "Container type", ro: true },
   { key: "totalTeu", label: "Total TEU", ro: true },
   { key: "dimensionsSummary", label: "Dimensions", ro: true },
-  { key: "insurance", label: "Insurance" },
   { key: "creditCheck", label: "Credit check" },
   { key: "approvedBy", label: "Approved by" },
 ];
