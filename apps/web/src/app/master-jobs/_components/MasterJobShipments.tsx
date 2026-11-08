@@ -2,17 +2,43 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { App, Button, Checkbox, Input, Modal, Popconfirm, Spin } from "antd";
-import { DisconnectOutlined, PlusOutlined, SearchOutlined } from "@ant-design/icons";
+import { Alert, App, Button, Checkbox, Dropdown, Input, Modal, Spin, Tooltip } from "antd";
+import { DisconnectOutlined, EllipsisOutlined, PlusOutlined, SearchOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
 import { api, apiErrorMessage } from "@/lib/api";
 import { useDebounced } from "@/hooks/useDebounced";
+import { useMasterJobTracking, type MasterJobTrackingHouse } from "@/hooks/useShipmentTracking";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { canChangeShipmentDetails } from "@/lib/shipmentEditRule";
 import { LINK_REFUSED_HINT } from "@/app/shipments/_components/MasterJobDialog";
 import type { MasterJobItem, MasterJobShipmentItem } from "@/hooks/useMasterJobs";
 import { EMPTY_CELL } from "@/components/EmptyCell";
-import { HINT, LINK, REF, TD, TH } from "@/styles/ui";
+import { ConfirmModal } from "@/components/ConfirmModal";
+import { Pill } from "@/components/Pill";
+import { PillTabs } from "@/components/SectionCard";
+import { formatDate } from "@/lib/date";
+import { EMPTY_STATE, HINT, LABEL_TEXT, LINK, REF } from "@/styles/ui";
+
+// The Container Details table look: column titles over a slate-200 rule, rows split by thin
+// slate-100 lines (none under the last row).
+const TH = `px-2 pb-2 text-left align-bottom whitespace-nowrap ${LABEL_TEXT} border-b border-slate-200`;
+const TD = "px-2 py-2 align-middle text-[13px] text-slate-700";
+
+/** Why a shipment the user may not change offers no Remove (the server refuses it: lib/shipmentEditRule). */
+const UNLINK_REFUSED_HINT = "Only its Person in Charge, Holiday Cover or a manager can remove it from the master job";
+
+// Two views of the same houses: who they are, and where each one stands.
+type View = "details" | "status";
+const VIEWS: readonly { key: View; label: string; title: string }[] = [
+  { key: "details", label: "Details", title: "Customer, shipper, consignee, direction and containers" },
+  { key: "status", label: "Status", title: "Departed, arrived, customs, gate in, delivered and the last event" },
+];
+
+const Day = ({ day }: { day: string | null | undefined }) => (day ? <span className="tabular-nums whitespace-nowrap">{formatDate(day)}</span> : EMPTY_CELL);
+
+// A house's customs: Cleared as a green pill, else its status as a hint.
+const Customs = ({ house }: { house: MasterJobTrackingHouse | undefined }) =>
+  house?.customsCleared ? <Pill tone="green">Cleared</Pill> : house?.customsStatus ? <span className={HINT}>{house.customsStatus}</span> : EMPTY_CELL;
 
 interface MasterJobShipmentsProps {
   masterJob: MasterJobItem;
@@ -21,10 +47,17 @@ interface MasterJobShipmentsProps {
   onUnlink: (shipmentId: string) => Promise<unknown>;
 }
 
-// The house shipments under the master job, with linking and unlinking right here.
+// The house shipments under the master job, with linking and unlinking right here. A switch shows
+// either who they are (Details) or where each one stands (Status, what the Tracking tab listed).
 export function MasterJobShipments({ masterJob, shipments, onLink, onUnlink }: MasterJobShipmentsProps) {
   const { message } = App.useApp();
   const [adding, setAdding] = useState(false);
+  const [view, setView] = useState<View>("details");
+  // Where each house stands, read only while Status is shown. The rows stay the linked list's, in its
+  // order; a house is matched by its id, and one linked a moment ago shows "—" until it is read.
+  const tracking = useMasterJobTracking(masterJob.id, view === "status");
+  const standing = new Map((tracking.data ?? []).map((h) => [h.shipmentId, h]));
+  const status = view === "status";
 
   const handleUnlink = async (s: MasterJobShipmentItem) => {
     try {
@@ -36,56 +69,149 @@ export function MasterJobShipments({ masterJob, shipments, onLink, onUnlink }: M
     }
   };
 
+  // The row whose Remove waits for a yes (asked in a dialog, as the "⋯" menu closes on the click).
+  const [confirmUnlinkId, setConfirmUnlinkId] = useState<string | null>(null);
+  const [unlinking, setUnlinking] = useState(false);
+  const toUnlink = shipments.find((s) => s.id === confirmUnlinkId);
+  // A shipment the user may not change cannot be taken off by them either (the server refuses it).
+  const { user } = useAuth();
+
   return (
     <>
-      {shipments.length === 0 ? (
-        <div className={`py-4 text-center ${HINT}`}>No shipments linked yet.</div>
-      ) : (
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <PillTabs tabs={VIEWS} active={view} onChange={setView} />
+        {status && <span className={HINT}>ATD and ATA are set on the master job</span>}
+        {status && tracking.isFetching && <Spin size="small" />}
+      </div>
+      {status && tracking.isError && (
+        <Alert type="error" showIcon className="!mb-3" message={`Could not load where the shipments stand: ${apiErrorMessage(tracking.error)}`} />
+      )}
+      <div className="relative">
+        {/* Add shipments: the small "+" laid over the header row's right end, above the rows' "⋯". */}
+        <Tooltip title="Add shipments">
+          <Button
+            size="small"
+            type="primary"
+            icon={<PlusOutlined className="text-[11px]" />}
+            aria-label="Add shipments"
+            onClick={() => setAdding(true)}
+            className="!absolute -top-1 right-[7px] z-10 !w-[22px] !h-[22px] !min-w-0 !p-0"
+          />
+        </Tooltip>
         <div className="overflow-x-auto">
-          <table className="w-full">
+          {/* Job Number and Customer stay put when the view changes; the "⋯" column is last in both. In
+              Status a long customs status or last event wraps rather than widening the table. */}
+          <table className={`w-full border-collapse ${status ? "min-w-[860px]" : "min-w-[760px]"}`}>
             <thead>
               <tr>
                 <th className={TH}>Job Number</th>
                 <th className={TH}>Customer</th>
-                <th className={TH}>Shipper</th>
-                <th className={TH}>Consignee</th>
-                <th className={TH}>Direction</th>
-                <th className={TH}>Containers</th>
-                <th className={`${TH} w-10`} />
+                {status ? (
+                  <>
+                    <th className={TH}>Departed</th>
+                    <th className={TH}>Arrived</th>
+                    <th className={TH}>Customs</th>
+                    <th className={TH}>Gate in</th>
+                    <th className={TH}>Delivered</th>
+                    <th className={TH}>Last event</th>
+                  </>
+                ) : (
+                  <>
+                    <th className={TH}>Shipper</th>
+                    <th className={TH}>Consignee</th>
+                    <th className={`${TH} !text-center`}>Direction</th>
+                    <th className={TH}>Containers</th>
+                  </>
+                )}
+                {/* The actions column: the "+" above lies over it. */}
+                <th className={`${TH} w-9`} />
               </tr>
             </thead>
             <tbody>
-              {shipments.map((s) => (
-                <tr key={s.id}>
-                  <td className={TD}>
-                    <Link href={`/shipments/${s.id}`} className={`${REF} font-semibold ${LINK}`}>
-                      {s.jobNumber}
-                    </Link>
-                  </td>
-                  <td className={TD}>{s.customer || EMPTY_CELL}</td>
-                  <td className={TD}>{s.shipper || EMPTY_CELL}</td>
-                  <td className={TD}>{s.consignee || EMPTY_CELL}</td>
-                  <td className={TD}>{s.tradeDirection || EMPTY_CELL}</td>
-                  <td className={`${TD} ${REF}`}>{s.containerNumber || EMPTY_CELL}</td>
-                  <td className={`${TD} text-right`}>
-                    <Popconfirm
-                      title={`Remove ${s.jobNumber} from ${masterJob.mczNumber}?`}
-                      description="The shipment keeps the values it got from the master job."
-                      okText="Remove"
-                      onConfirm={() => handleUnlink(s)}
-                    >
-                      <Button size="small" type="text" icon={<DisconnectOutlined />} aria-label={`Remove ${s.jobNumber}`} />
-                    </Popconfirm>
-                  </td>
-                </tr>
-              ))}
+              {shipments.map((s, i) => {
+                const house = standing.get(s.id);
+                return (
+                  <tr
+                    key={s.id}
+                    className={`hover:bg-slate-50 transition-colors ${i < shipments.length - 1 ? "border-b border-slate-100" : ""}`}
+                  >
+                    <td className={`${TD} whitespace-nowrap`}>
+                      {/* From Status, the shipment opens on its own Tracking. */}
+                      <Link href={status ? `/shipments/${s.id}?tab=tracking` : `/shipments/${s.id}`} className={`${REF} font-semibold ${LINK}`}>
+                        {s.jobNumber}
+                      </Link>
+                    </td>
+                    <td className={TD}>{s.customer || EMPTY_CELL}</td>
+                    {status ? (
+                      <>
+                        <td className={TD}><Day day={house?.departed} /></td>
+                        <td className={TD}><Day day={house?.arrived} /></td>
+                        <td className={TD}><Customs house={house} /></td>
+                        <td className={TD}><Day day={house?.gateIn} /></td>
+                        <td className={TD}><Day day={house?.delivered} /></td>
+                        <td className={TD}>{house?.lastEvent || EMPTY_CELL}</td>
+                      </>
+                    ) : (
+                      <>
+                        <td className={TD}>{s.shipper || EMPTY_CELL}</td>
+                        <td className={TD}>{s.consignee || EMPTY_CELL}</td>
+                        <td className={`${TD} text-center`}>{s.tradeDirection || EMPTY_CELL}</td>
+                        <td className={`${TD} ${REF}`}>{s.containerNumber || EMPTY_CELL}</td>
+                      </>
+                    )}
+                    <td className={`${TD} text-center`}>
+                      <Dropdown
+                        trigger={["click"]}
+                        placement="bottomRight"
+                        menu={{
+                          items: [
+                            canChangeShipmentDetails(user, s)
+                              ? { key: "remove", label: "Remove from master job", icon: <DisconnectOutlined />, danger: true }
+                              : {
+                                  key: "remove",
+                                  disabled: true,
+                                  icon: <DisconnectOutlined />,
+                                  label: <span title={UNLINK_REFUSED_HINT}>Remove from master job</span>,
+                                },
+                          ],
+                          onClick: () => setConfirmUnlinkId(s.id),
+                        }}
+                      >
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<EllipsisOutlined className="text-[22px] [&_svg]:stroke-current [&_svg]:stroke-[40]" />}
+                          aria-label={`Actions for ${s.jobNumber}`}
+                        />
+                      </Dropdown>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
+          {shipments.length === 0 && <div className={EMPTY_STATE}>No shipments linked yet.</div>}
         </div>
-      )}
-      <Button size="small" icon={<PlusOutlined />} className="mt-3" onClick={() => setAdding(true)}>
-        Add shipments
-      </Button>
+      </div>
+      <ConfirmModal
+        open={!!toUnlink}
+        title={toUnlink ? `Remove ${toUnlink.jobNumber} from ${masterJob.mczNumber}?` : ""}
+        description="The shipment keeps the values it got from the master job."
+        confirmLabel="Remove"
+        loading={unlinking}
+        onClose={() => setConfirmUnlinkId(null)}
+        // Remove waits for the server, as the old confirmation did; the dialog closes once it answered.
+        onConfirm={async () => {
+          if (!toUnlink) return;
+          setUnlinking(true);
+          try {
+            await handleUnlink(toUnlink);
+          } finally {
+            setUnlinking(false);
+            setConfirmUnlinkId(null);
+          }
+        }}
+      />
       <AddShipmentsModal
         open={adding}
         masterJob={masterJob}

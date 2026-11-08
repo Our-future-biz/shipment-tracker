@@ -16342,6 +16342,11 @@ export namespace interfaces {
          * The house's own container numbers, comma separated.
          */
         containerNumber: string
+        /**
+         * Who may take it off the master job besides a manager (lib/shipmentEditRule): its Person in Charge and Holiday Cover.
+         */
+        personInCharge: string
+        holidayCover: string
     }
 
     export type MasterJobSplitMethod = "wm" | "shipment"

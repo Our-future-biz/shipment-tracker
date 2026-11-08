@@ -67,6 +67,12 @@ interface AppGridProps<T> {
   /** Extra filter controls between search and the column filters (e.g. a status select). */
   filters?: ReactNode;
   searchPlaceholder?: string;
+  /**
+   * The search text, when the page keeps it itself (e.g. in the URL, so a list left for a record
+   * comes back as it was). Left out, the grid keeps its own.
+   */
+  search?: string;
+  onSearchChange?: (text: string) => void;
   columns: AppGridColumn<T>[];
   rows: T[];
   rowKey: (row: T) => string;
@@ -84,6 +90,11 @@ interface AppGridProps<T> {
   emptyText?: string;
   /** Changes to this reset paging (e.g. an outside filter). */
   resetKey?: unknown;
+  /**
+   * Keep the column filters for this browser tab (sessionStorage, under `storageKey`), so a list
+   * left for a record and come back to keeps them. Off, they last while the grid is shown.
+   */
+  rememberFilters?: boolean;
 }
 
 export function AppGrid<T extends object>({
@@ -93,6 +104,8 @@ export function AppGrid<T extends object>({
   actions,
   filters: extraFilters,
   searchPlaceholder = "Search…",
+  search: searchProp,
+  onSearchChange,
   columns,
   rows,
   rowKey,
@@ -105,6 +118,7 @@ export function AppGrid<T extends object>({
   hideExport,
   emptyText = "No records found",
   resetKey,
+  rememberFilters = false,
 }: AppGridProps<T>) {
   const columnMap = useMemo(() => new Map(columns.map((c) => [c.key, c])), [columns]);
   const defaultVisible = useMemo(() => columns.filter((c) => c.defaultVisible !== false).map((c) => c.key), [columns]);
@@ -132,7 +146,9 @@ export function AppGrid<T extends object>({
   const { user } = useAuth();
   const { widthOf, resizeProps, resetAll: resetWidths, hasWidths } = useColumnWidths(user?.id, storageKey);
 
-  const [search, setSearch] = useState("");
+  const [ownSearch, setOwnSearch] = useState("");
+  const search = searchProp ?? ownSearch;
+  const setSearch = (text: string) => (onSearchChange ? onSearchChange(text) : setOwnSearch(text));
   const searchRef = useRef<InputRef>(null);
 
   // "/" jumps to the search, unless the user is typing somewhere. The first grid on screen
@@ -155,7 +171,28 @@ export function AppGrid<T extends object>({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-  const [colFilters, setColFilters] = useState<GridFilter[]>([]);
+  const filtersKey = `${storageKey}:column-filters`;
+  const [colFilters, setColFiltersState] = useState<GridFilter[]>([]);
+  // Brought back after the first render, as the columns are, so the server's page and the
+  // browser's first one match.
+  useEffect(() => {
+    if (!rememberFilters) return;
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(filtersKey) ?? "null");
+      if (Array.isArray(saved)) setColFiltersState(saved);
+    } catch {
+      // Storage unavailable: no filters to bring back.
+    }
+  }, [rememberFilters, filtersKey]);
+  const setColFilters = (next: GridFilter[]) => {
+    setColFiltersState(next);
+    if (!rememberFilters) return;
+    try {
+      sessionStorage.setItem(filtersKey, JSON.stringify(next));
+    } catch {
+      // Storage unavailable: the filters last while the grid is shown.
+    }
+  };
   const [pageSize, setPageSize] = useState(50);
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);

@@ -20,7 +20,7 @@ function pickupRows(section: unknown): { licensePlate: string; haulier: string }
     .filter((r) => r.licensePlate || r.haulier);
 }
 
-/** One line per truck: License Plate, Haulier, Customs Office. */
+/** One line per truck: Plate Number, Haulier, Customs Office. */
 export function truckingLines(pickupSection: unknown, customsOffice: string | null | undefined): string[][] {
   const office = text(customsOffice);
   const trucks = pickupRows(pickupSection);

@@ -83,11 +83,12 @@ export function useShipmentTracking(shipmentId: string, { staleTime = 0 }: { sta
   });
 }
 
-/** A master job's houses, each with where it stands. */
-export function useMasterJobTracking(masterJobId: string) {
+/** A master job's houses, each with where it stands; read only while `enabled` (the Status view is shown). */
+export function useMasterJobTracking(masterJobId: string, enabled = true) {
   return useQuery({
     queryKey: ["master-job-tracking", masterJobId],
     queryFn: async () => (await api.shipments.masterJobTracking(masterJobId)).houses,
+    enabled: enabled && !!masterJobId,
     staleTime: 0,
   });
 }

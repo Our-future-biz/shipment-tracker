@@ -42,6 +42,11 @@ describe("the shipments the dialog lists", () => {
     expect(shipmentsOffered(all, "beta").map((s) => s.id)).toEqual(["b"]);
   });
 
+  it("finds a shipment by its customer too", () => {
+    const withCustomer = [{ ...ship("r", "CZFCL25", "Shipper Co"), customer: "RAVAK a.s." }, ...all];
+    expect(shipmentsOffered(withCustomer, "ravak").map((s) => s.id)).toEqual(["r"]);
+  });
+
   it("leaves out a quote's number and a shipment without one, chosen or not", () => {
     expect(shipmentsOffered(all, "", ["q", "n", "a"]).map((s) => s.id)).toEqual(["a"]);
   });

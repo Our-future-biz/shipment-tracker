@@ -18,7 +18,7 @@ export function useMasterJobs() {
     queryKey: LIST_KEY,
     queryFn: () => api.shipments.masterJobList(),
   });
-  return { masterJobs: query.data?.data ?? [], isLoading: query.isLoading };
+  return { masterJobs: query.data?.data ?? [], isLoading: query.isLoading, isError: query.isError };
 }
 
 /**
@@ -48,6 +48,8 @@ export function useMasterJob(id: string | null) {
   const refresh = () => {
     qc.invalidateQueries({ queryKey: LIST_KEY });
     qc.invalidateQueries({ queryKey: ["shipments"] });
+    // Where the houses stand (Linked shipments → Status): linking, unlinking and dates change it.
+    qc.invalidateQueries({ queryKey: ["master-job-tracking"] });
   };
 
   const update = useMutation({
@@ -88,6 +90,7 @@ export function useUpdateMasterJob() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: LIST_KEY });
       qc.invalidateQueries({ queryKey: ["shipments"] });
+      qc.invalidateQueries({ queryKey: ["master-job-tracking"] });
     },
   });
 }

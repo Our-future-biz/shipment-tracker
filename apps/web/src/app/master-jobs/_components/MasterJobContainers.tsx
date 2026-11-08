@@ -2,14 +2,15 @@
 
 import { useState } from "react";
 import { rowKey } from "@/app/shipments/_lib/rowKey";
-import { App, Button, Input, Select } from "antd";
+import { App, Button, Input, Select, Tooltip } from "antd";
 import { apiErrorMessage } from "@/lib/api";
-import { ContainerOutlined, DeleteOutlined, PlusOutlined } from "@ant-design/icons";
+import { ContainerOutlined, PlusOutlined } from "@ant-design/icons";
+import { RowActionsMenu } from "@/app/shipments/_components/RowActionsMenu";
 import { CONTAINER_TYPES, containerType } from "@/lib/cargo";
 import { containerNumberInput, isValidContainerNumber } from "@/lib/container";
 import type { MasterJobContainerLine, MasterJobShipmentItem } from "@/hooks/useMasterJobs";
-import { HINT, TD, TH } from "@/styles/ui";
-import { MasterJobCard } from "./MasterJobFields";
+import { EMPTY_STATE, LABEL_TEXT } from "@/styles/ui";
+import { CARD_BODY_PADDED, MasterJobCard } from "./MasterJobFields";
 
 interface MasterJobContainersProps {
   /** Anchor for the summary tile that jumps here. */
@@ -20,6 +21,11 @@ interface MasterJobContainersProps {
   shipments: MasterJobShipmentItem[];
   onSave: (containers: MasterJobContainerLine[]) => Promise<unknown>;
 }
+
+// The Container Details table look: column titles over a slate-200 rule, rows split by thin
+// slate-100 lines (none under the last row), centred short codes.
+const TH = `px-2 pb-2 text-left align-bottom whitespace-nowrap ${LABEL_TEXT} border-b border-slate-200`;
+const TD = "px-2 py-1.5 align-middle text-[13px] text-slate-700";
 
 const emptyLine = (): MasterJobContainerLine => ({ containerNumber: "", sealNumber: "", type: "", shipmentIds: [] });
 
@@ -60,6 +66,8 @@ export function MasterJobContainers({ id, fromShipments, containers, shipments, 
   return (
     <MasterJobCard
       id={id}
+      // a table, as Container Details has it: the card's full padding
+      bodyClassName={CARD_BODY_PADDED}
       icon={<ContainerOutlined />}
       title={`Containers (${containers.length})`}
       actions={
@@ -80,25 +88,33 @@ export function MasterJobContainers({ id, fromShipments, containers, shipments, 
           Full Load: these are the containers of the linked shipments. Changes saved here are written back to them.
         </div>
       )}
-      {draft.length === 0 ? (
-        <div className={`py-4 text-center ${HINT}`}>
-          {fromShipments ? "The linked shipments have no containers yet." : "No containers on this master job yet."}
-        </div>
-      ) : (
+      <div className="relative">
+        {/* Add container: the small "+" laid over the header row's right end, above the rows' "⋯". */}
+        <Tooltip title="Add container">
+          <Button
+            size="small"
+            type="primary"
+            icon={<PlusOutlined className="text-[11px]" />}
+            aria-label="Add container"
+            onClick={() => setDraft((rows) => [...rows, emptyLine()])}
+            className="!absolute -top-1 right-[7px] z-10 !w-[22px] !h-[22px] !min-w-0 !p-0"
+          />
+        </Tooltip>
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full min-w-[760px] border-collapse">
             <thead>
               <tr>
-                <th className={`${TH} w-[170px]`}>Container Number</th>
-                <th className={`${TH} w-[150px]`}>Seal Number</th>
-                <th className={`${TH} w-[140px]`}>Type</th>
+                <th className={`${TH} w-[190px]`}>Container Number</th>
+                <th className={`${TH} w-[160px] !text-center`}>Seal Number</th>
+                <th className={`${TH} w-[150px] !text-center`}>Type</th>
                 <th className={TH}>Assigned shipments</th>
-                <th className={`${TH} w-10`} />
+                {/* The actions column: the "+" above lies over it. */}
+                <th className={`${TH} w-9`} />
               </tr>
             </thead>
             <tbody>
               {draft.map((c, i) => (
-                <tr key={c.id ?? rowKey(c)}>
+                <tr key={c.id ?? rowKey(c)} className={i < draft.length - 1 ? "border-b border-slate-100" : ""}>
                   <td className={TD}>
                     <Input
                       size="small"
@@ -113,6 +129,7 @@ export function MasterJobContainers({ id, fromShipments, containers, shipments, 
                   <td className={TD}>
                     <Input
                       size="small"
+                      className="text-center"
                       value={c.sealNumber}
                       aria-label="Seal number"
                       onChange={(e) => handleChange(i, { sealNumber: e.target.value })}
@@ -121,7 +138,7 @@ export function MasterJobContainers({ id, fromShipments, containers, shipments, 
                   <td className={TD}>
                     <Select
                       size="small"
-                      className="w-full"
+                      className="w-full [&_.ant-select-selection-item]:!text-center [&_.ant-select-selection-placeholder]:!text-center"
                       value={containerType(c.type) || undefined}
                       placeholder="Type"
                       aria-label="Container type"
@@ -141,29 +158,23 @@ export function MasterJobContainers({ id, fromShipments, containers, shipments, 
                       onChange={(shipmentIds) => handleChange(i, { shipmentIds })}
                     />
                   </td>
-                  <td className={`${TD} text-right`}>
-                    <Button
-                      size="small"
-                      type="text"
-                      icon={<DeleteOutlined />}
-                      aria-label="Remove container"
-                      onClick={() => setDraft((rows) => rows.filter((_, j) => j !== i))}
+                  <td className={`${TD} text-center`}>
+                    <RowActionsMenu
+                      label="Container actions"
+                      onDelete={() => setDraft((rows) => rows.filter((_, j) => j !== i))}
                     />
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          {draft.length === 0 && (
+            <div className={EMPTY_STATE}>
+              {fromShipments ? "The linked shipments have no containers yet." : "No containers on this master job yet."}
+            </div>
+          )}
         </div>
-      )}
-      <Button
-        size="small"
-        icon={<PlusOutlined />}
-        className="mt-3"
-        onClick={() => setDraft((rows) => [...rows, emptyLine()])}
-      >
-        Add container
-      </Button>
+      </div>
     </MasterJobCard>
   );
 }

@@ -89,7 +89,8 @@ export function WarehouseTab({ shipment }: { shipment: ShipmentItem }) {
                 <Row label="Weight (kg)" value={weightKg > 0 ? weightKg.toFixed(1) : ""} />
                 <Row label="Volume (CBM)" value={volumeCbm > 0 ? volumeCbm.toFixed(3) : ""} />
                 <Row label="W/M" value={computeWM(String(weightKg / 1000), String(volumeCbm))} />
-                <Row label="Plate number" value={shipment.plateNumber} />
+                {/* The Pick-up's plates when it has any (several: "1AB 2345, 3CD 4567"), else the shipment's own. Display only. */}
+                <Row label="Plate number" value={shipment.licensePlate?.trim() || shipment.plateNumber} />
                 <Row label="Dimensions" value={getFieldValue(shipment, "dimensionsSummary")} />
               </div>
             </div>

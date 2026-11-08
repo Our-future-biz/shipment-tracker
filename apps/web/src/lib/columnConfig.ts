@@ -228,7 +228,7 @@ export const COLUMNS: ColumnDef[] = [
   { key: "warehouseTruck", title: "Truck Reference", width: 150, type: "text", readonly: true, apiField: "warehouseTruck" },
   { key: "plateNumber", title: "Plate Number", width: 140, type: "text", apiField: "plateNumber" },
   // The Pick-up tab's rows (one or several plates): entered there, only shown here.
-  { key: "licensePlate", title: "License Plate", width: 150, type: "text", readonly: true, apiField: "licensePlate" },
+  { key: "licensePlate", title: "Pick-up Plate Number", width: 150, type: "text", readonly: true, apiField: "licensePlate" },
   { key: "warehouseReleasedDate", title: "Warehouse Released", width: 150, type: "date", apiField: "warehouseReleasedDate" },
   { key: "plannedDeliveryDate", title: "Planned Delivery Date", width: 160, type: "date", apiField: "plannedDeliveryDate", timeField: "plannedDeliveryTime" },
   { key: "cargoOrigin", title: "Cargo Origin", width: 160, type: "country", apiField: "cargoOrigin" },

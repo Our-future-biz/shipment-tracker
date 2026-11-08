@@ -145,9 +145,23 @@ export function ShipmentProgress({ shipment }: { shipment: ShipmentItem }) {
     Delivered: shipment.actualDeliveryDate ? `Delivered ${formatDate(shipment.actualDeliveryDate)}` : "",
   };
 
+  return <ProgressStages activeIndex={activeIndex} factOf={factOf} ariaLabel="Shipment progress" />;
+}
+
+interface ProgressStagesProps {
+  /** The stage in progress (0-based); the ones before it are done. */
+  activeIndex: number;
+  /** Which fact a stage rests on, for its hover text ("ATD 13.10.2026"). */
+  factOf: Record<string, string>;
+  /** What the bar is, for screen readers. */
+  ariaLabel: string;
+}
+
+/** The six stages as a bar of segments: the shipment's (ShipmentProgress) and a master job's. */
+export function ProgressStages({ activeIndex, factOf, ariaLabel }: ProgressStagesProps) {
   return (
     <ol
-      aria-label="Shipment progress"
+      aria-label={ariaLabel}
       className={`${CARD} list-none grid grid-cols-3 md:grid-cols-6 gap-x-1 gap-y-3 px-5 pt-3 pb-3.5`}
     >
       {SHIPMENT_STAGES.map((label, i) => {
