@@ -516,7 +516,8 @@ export function DocumentReadingWorkflow() {
   // The invoices still to read, in the order they were added; the one on screen is invoiceFileUid.
   const invoiceQueue = invoiceFiles.filter((f) => !invoiceFilesDone.has(f.uid));
   const invoiceAt = invoiceFiles.findIndex((f) => f.uid === invoiceFileUid);
-  const nextInvoice = invoiceQueue.find((f) => f.uid !== invoiceFileUid);
+  // A pasted text is no file of the queue: no file comes after it.
+  const nextInvoice = inputMode === "file" ? invoiceQueue.find((f) => f.uid !== invoiceFileUid) : undefined;
   const masterFilesSize = masterFiles.reduce((sum, f) => sum + f.size, 0);
   const masterFilesTooLarge = masterFilesSize > MASTER_FILES_MAX_BYTES;
 
@@ -593,8 +594,9 @@ export function DocumentReadingWorkflow() {
         setLinesPreview(null);
         setSplitError("");
         const file = inputMode === "file" ? (invoiceFile ?? invoiceQueue[0]) : undefined;
+        // A pasted text is none of the files: the review then names no file of the queue.
+        setInvoiceFileUid(file?.uid ?? "");
         if (file) {
-          setInvoiceFileUid(file.uid);
           setFileBase64(file.base64);
           setFileName(file.name);
           setFileMeta({ type: file.type, size: file.size });
@@ -2318,9 +2320,12 @@ interface MblDetailsBoxProps {
 function MblDetailsBox({ info, ticked, onToggle, filed, mcz, masterJob, loadTypeLocked, alone = false, onSealChange }: MblDetailsBoxProps) {
   // The seals sit next to the container numbers and show even when none was read, so a seal the
   // reading missed can be typed in; they are filed with the containers.
+  // A seal read without container numbers still shows, with the warning that it has none to go on.
   const rows = Object.entries(info).filter(([label, value]) => value && label !== MBL_SEALS_LABEL);
   const containersAt = rows.findIndex(([label]) => label === MBL_CONTAINERS_LABEL);
-  if (containersAt >= 0) rows.splice(containersAt + 1, 0, [MBL_SEALS_LABEL, info[MBL_SEALS_LABEL] ?? ""]);
+  const seals = info[MBL_SEALS_LABEL] ?? "";
+  if (containersAt >= 0) rows.splice(containersAt + 1, 0, [MBL_SEALS_LABEL, seals]);
+  else if (seals) rows.push([MBL_SEALS_LABEL, seals]);
   const current = (label: string): string => {
     const field = MBL_TO_MASTER_JOB[label];
     if (!field || !masterJob) return "";

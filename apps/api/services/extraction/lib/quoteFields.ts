@@ -99,12 +99,13 @@ const weight = (text: string) => (/^[1-9]\d{0,2}\.\d{3}$/.test(text.replace(KG, 
 // A plain number above zero from "12500", "12 500" or "12500.5"; the unit is cut off before.
 const plain = (text: string) => amount(text, /$^/);
 
-// "40HC", "40' high cube", "20GP", "40 reefer" → the quote's type ("40' HC"); undefined for none.
+// "40HC", "40' high cube", "20GP", "40 reefer", "40ft container" → the quote's type ("40' HC"); undefined for none.
 export function containerType(text: string): string | undefined {
   const t = text.toUpperCase().replace(/FEET|FOOT|FT|['’"´`]/g, " ").replace(/[\s\-_]+/g, " ").trim();
   const size = t.match(/^(20|40|45)\b|^(20|40|45)(?=[A-Z])/)?.[0];
   if (!size) return undefined;
-  const rest = t.slice(size.length).replace(/\s+/g, "");
+  // "40' HC container", "40ft container": the word for a container says nothing of its kind.
+  const rest = t.slice(size.length).replace(/\s+/g, "").replace(/(CONTAINERS?|CNTRS?|CTNRS?)$/, "");
   const kinds = QUOTE_CONTAINER_KINDS[`${size}'`]!;
   let kind: string | undefined;
   if (size === "45") kind = /^(HC|HQ|HIGHCUBE|)$/.test(rest) ? "HQ" : undefined;

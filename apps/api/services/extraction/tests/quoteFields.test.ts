@@ -182,6 +182,9 @@ describe("containers and packages", () => {
     expect(containerType("45HC")).toBe("45' HQ");
     expect(containerType("40 open top")).toBe("40' OT");
     expect(containerType("20' FR")).toBe("20' FR");
+    expect(containerType("40' HC container")).toBe("40' HC");
+    expect(containerType("40ft container")).toBe("40' DC");
+    expect(containerType("20' reefer cntr")).toBe("20' RF");
   });
 
   it("has no type for a size or kind the quote does not offer", () => {
@@ -195,6 +198,7 @@ describe("containers and packages", () => {
     expect(one("Containers", "1 x 40' HC")).toBe("1 x 40' HC");
     expect(one("Containers", "2x20GP, 18 000 kg; 1 x 40HC")).toBe("2 x 20' DC, 18000 kg; 1 x 40' HC");
     expect(one("Containers", "1 x 40HC\n3 x 20' DC")).toBe("1 x 40' HC; 3 x 20' DC");
+    expect(one("Containers", "2 x 40' HC containers")).toBe("2 x 40' HC");
   });
 
   it("leaves out the whole list when one entry cannot be read", () => {
