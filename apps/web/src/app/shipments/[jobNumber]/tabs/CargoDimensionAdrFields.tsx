@@ -3,9 +3,12 @@
 import { Checkbox, Input, Select } from "antd";
 import { ADR_PACKING_GROUPS, type CargoDimensionLine } from "@/lib/cargo";
 
+// The ADR fields alone: a shipment's cargo line has them, and so has a quote's dangerous goods.
+type AdrDetails = Pick<CargoDimensionLine, "adrUn" | "adrClass" | "adrPackingGroup" | "adrLimitedQuantity">;
+
 interface CargoDimensionAdrFieldsProps {
-  line: CargoDimensionLine;
-  onPatch: (patch: Partial<CargoDimensionLine>) => void;
+  line: AdrDetails;
+  onPatch: (patch: Partial<AdrDetails>) => void;
   // Saves the dimension lines; text boxes save when left, the pickers right away.
   onCommit: () => void;
 }

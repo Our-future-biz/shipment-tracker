@@ -6,6 +6,9 @@ import type { interfaces } from "@/lib/api/client";
 
 type ServiceLevelCode = interfaces.ServiceLevelCode;
 
+/** UN number, class, packing group and limited quantity of a quote's dangerous goods. */
+export type QuoteAdr = Pick<interfaces.CargoDimensionLine, "adrUn" | "adrClass" | "adrPackingGroup" | "adrLimitedQuantity">;
+
 export interface PackageLine {
   qty: number;
   type: string;
@@ -260,6 +263,9 @@ export interface SalesQuoteData {
   commodity?: string;
   stackable?: boolean;
   dangerous?: boolean;
+  // The dangerous goods' ADR details while Dangerous goods is ticked, named as on a shipment's
+  // cargo line (Cargo Details), where they go when a shipment is made from the quote.
+  adr?: QuoteAdr;
   packages?: PackageLine[];
   // The equipment of a full-container quote (isContainerQuote), in place of package lines.
   containers?: QuoteContainerLine[];

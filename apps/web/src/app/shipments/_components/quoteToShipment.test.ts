@@ -151,6 +151,40 @@ describe("quote ↔ shipment stackable", () => {
   });
 });
 
+describe("quote ↔ shipment dangerous goods", () => {
+  const ADR = { adrUn: "UN 1203", adrClass: "3", adrPackingGroup: "II" as const, adrLimitedQuantity: true };
+  const pallet = { qty: 2, type: "Pallets", weight: 400 };
+
+  it("marks the shipment Dangerous and puts the ADR details on its one cargo line, the UN number as four digits", () => {
+    const req = quoteToCreateRequest("QCZ1", { dangerous: true, adr: ADR, packages: [pallet] }, NO_RATES);
+    expect(req.dangerous).toBe("Yes");
+    expect(req.cargoDimensions?.[0]).toMatchObject({ adrUn: "1203", adrClass: "3", adrPackingGroup: "II", adrLimitedQuantity: true });
+  });
+
+  it("puts them on no line when there are several, and leaves out a UN number the shipment would refuse", () => {
+    const several = quoteToCreateRequest("QCZ1", { dangerous: true, adr: ADR, packages: [pallet, pallet] }, NO_RATES);
+    expect(several.dangerous).toBe("Yes");
+    expect(several.cargoDimensions?.every((d) => d.adrUn === undefined)).toBe(true);
+    const badUn = quoteToCreateRequest("QCZ1", { dangerous: true, adr: { ...ADR, adrUn: "12" }, packages: [pallet] }, NO_RATES);
+    expect(badUn.cargoDimensions?.[0]).toMatchObject({ adrUn: null, adrClass: "3" });
+  });
+
+  it("takes nothing of ADR details left on a quote that is not dangerous", () => {
+    const req = quoteToCreateRequest("QCZ1", { dangerous: false, adr: ADR, packages: [pallet] }, NO_RATES);
+    expect(req.dangerous).toBeUndefined();
+    expect(req.cargoDimensions?.[0]?.adrUn).toBeUndefined();
+  });
+
+  it("ticks Dangerous goods on a quote copied from a shipment with ADR details on a cargo line, and takes them", () => {
+    const line = { pieces: "1", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "", packageType: "Pallet(s)", stackable: "" };
+    const data = shipmentToQuoteData({
+      cargoDimensions: [line, { ...line, adrUn: "1203", adrClass: "3", adrPackingGroup: "II", adrLimitedQuantity: false }],
+    } as unknown as interfaces.ShipmentItem);
+    expect(data).toMatchObject({ dangerous: true, adr: { adrUn: "1203", adrClass: "3", adrPackingGroup: "II", adrLimitedQuantity: false } });
+    expect(shipmentToQuoteData({ dangerous: "No", cargoDimensions: [line] } as unknown as interfaces.ShipmentItem).dangerous).toBeUndefined();
+  });
+});
+
 describe("quote → shipment Customer's PIC", () => {
   it("gives the shipment the quote's contact person with the contact's id", () => {
     const data = { customerId: "k1", customerName: "Acme", customerContact: "Petr Masák", customerContactId: "c1" };

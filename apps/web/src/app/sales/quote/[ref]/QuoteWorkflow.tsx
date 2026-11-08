@@ -152,6 +152,7 @@ import { QuotePriceTile } from "./_components/QuotePriceTile";
 import { useQuoteShipments } from "@/hooks/useQuoteShipments";
 import { useAuth, useCanSeeConcepts } from "@/lib/auth/AuthContext";
 import { limitCzechPhone } from "@/lib/phone";
+import { CargoDimensionAdrFields } from "@/app/shipments/[jobNumber]/tabs/CargoDimensionAdrFields";
 import { LABEL_TEXT, PAGE_TITLE } from "@/styles/ui";
 
 // A new package has no dimensions and no weight: made-up ones would print as real cargo and drive
@@ -1238,19 +1239,27 @@ export function QuoteWorkflow() {
                   Stackable
                 </Checkbox>
               )}
-              <Checkbox checked={!!draft.dangerous} onChange={(e) => set({ dangerous: e.target.checked })}>
+              {/* Unticked, the ADR details go with it: they describe dangerous goods. */}
+              <Checkbox
+                checked={!!draft.dangerous}
+                onChange={(e) => set(e.target.checked ? { dangerous: true } : { dangerous: false, adr: undefined })}
+              >
                 Dangerous goods
               </Checkbox>
             </div>
           </div>
 
           {draft.dangerous && (
-            <Alert
-              type="warning"
-              showIcon
-              message="Dangerous goods declared"
-              description="Provide UN number, class, packing group and an SDS before booking. DG surcharges may apply."
-            />
+            <>
+              {/* The same fields as a shipment's cargo line, where they go when a shipment is made from the quote. */}
+              <CargoDimensionAdrFields line={draft.adr ?? {}} onPatch={(patch) => set({ adr: { ...draft.adr, ...patch } })} onCommit={() => {}} />
+              <Alert
+                type="warning"
+                showIcon
+                message="Dangerous goods declared"
+                description="An SDS is needed before booking. DG surcharges may apply."
+              />
+            </>
           )}
 
           {/* A full-container quote lists its boxes; container lines a quote still has after its

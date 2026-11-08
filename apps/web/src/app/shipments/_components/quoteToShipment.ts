@@ -7,7 +7,7 @@
 // from a shipment ("Copy from shipment").
 
 import { computeCargo, computeTotals, quoteCurrency } from "@/app/sales/_lib/salesQuote";
-import { DIRECTIONS, type PackageLine, type QuoteContainerLine, type SalesQuoteData } from "@/app/sales/_lib/types";
+import { DIRECTIONS, type PackageLine, type QuoteAdr, type QuoteContainerLine, type SalesQuoteData } from "@/app/sales/_lib/types";
 import type { controllers, interfaces } from "@/lib/api/client";
 import { NOT_STACKABLE, STACKABLE, hasAllSizes, num } from "@/lib/cargo";
 import type { ExchangeRates } from "@/lib/exchangeRates";
@@ -59,6 +59,7 @@ export function quoteToCreateRequest(quoteNumber: string, data: SalesQuoteData, 
   set("freightMode", FREIGHT_MODE[data.serviceType ?? ""] ?? "");
   set("loadType", LOAD_TYPE[data.serviceType ?? ""] ?? "");
   set("incotermOrigin", data.incoterm ?? "");
+  if (data.dangerous) set("dangerous", "Yes");
 
   // The ports the quote names; a quote from before POL / POD has only its origin and destination.
   set("pol", data.pol || data.origin || "");
@@ -109,6 +110,11 @@ export function quoteToCreateRequest(quoteNumber: string, data: SalesQuoteData, 
       packageType: packageType(p.type),
       stackable: p.stackable === true ? STACKABLE : p.stackable === false ? NOT_STACKABLE : "",
     }));
+  // The quote's ADR details belong to its cargo as a whole: they go onto the cargo line when there
+  // is just one. With several, nothing says which of them is the dangerous one, and the shipment
+  // is only marked Dangerous (above).
+  const adr = quoteAdr(data);
+  if (adr && dimensions.length === 1) Object.assign(dimensions[0]!, adr);
   if (dimensions.length > 0) out.cargoDimensions = dimensions;
 
   const totalPieces = packages.reduce((t, p) => t + (Number(p.qty) || 0), 0);
@@ -140,6 +146,30 @@ export function quoteToCreateRequest(quoteNumber: string, data: SalesQuoteData, 
   return out;
 }
 
+/**
+ * The ADR details a dangerous-goods quote names, as a shipment's cargo line takes them; undefined
+ * when it names none. A UN number that is not four digits stays behind: the shipment would refuse it.
+ */
+export function quoteAdr(data: SalesQuoteData): QuoteAdr | undefined {
+  if (!data.dangerous || !data.adr) return undefined;
+  const un = (data.adr.adrUn ?? "").trim().replace(/^UN\s*/i, "");
+  const adr: QuoteAdr = {
+    adrUn: /^\d{4}$/.test(un) ? un : null,
+    adrClass: data.adr.adrClass?.trim() || null,
+    adrPackingGroup: data.adr.adrPackingGroup ?? null,
+    adrLimitedQuantity: data.adr.adrLimitedQuantity === true,
+  };
+  return adr.adrUn || adr.adrClass || adr.adrPackingGroup || adr.adrLimitedQuantity ? adr : undefined;
+}
+
+// "UN 1203 · class 3 · PG II · limited quantity".
+const adrText = (adr: QuoteAdr | undefined): string =>
+  adr
+    ? [adr.adrUn && `UN ${adr.adrUn}`, adr.adrClass && `class ${adr.adrClass}`, adr.adrPackingGroup && `PG ${adr.adrPackingGroup}`, adr.adrLimitedQuantity && "limited quantity"]
+        .filter(Boolean)
+        .join(" · ")
+    : "";
+
 // ── Preview shown in the wizard before creating ──
 
 export function quotePreview(data: SalesQuoteData, sheet: ExchangeRates): { label: string; value: string }[] {
@@ -162,6 +192,7 @@ export function quotePreview(data: SalesQuoteData, sheet: ExchangeRates): { labe
     { label: "POL", value: data.origin ?? "" },
     { label: "POD", value: data.destination ?? "" },
     { label: "Commodity", value: data.commodity ?? "" },
+    { label: "Dangerous goods", value: data.dangerous ? adrText(quoteAdr(data)) || "Yes" : "" },
     { label: "Containers", value: equipment ? `${equipment} (${teu} TEU)` : "" },
     { label: "Packages", value: pieces ? String(pieces) : "" },
     { label: "Gross Weight", value: weight ? `${weight.toLocaleString("en-US", { maximumFractionDigits: 2 })} kg` : "" },
@@ -251,6 +282,9 @@ export function shipmentToQuoteData(shipment: interfaces.ShipmentItem): SalesQuo
   const weight = shownTotal(shipment.totalGrossWeightKg) || Math.round(Number(shipment.totalWeightTons) * 1e6) / 1e3 || 0;
   const cbm = shownTotal(shipment.totalVolumeM3) || Number(shipment.totalVolumeCbm) || 0;
 
+  const adrLine = (shipment.cargoDimensions ?? []).find((l) => l.adrUn || l.adrClass || l.adrPackingGroup || l.adrLimitedQuantity);
+  const dangerous = word(shipment.dangerous) === "yes" || !!adrLine;
+
   const carried: SalesQuoteData = {
     customerName,
     customerId,
@@ -273,6 +307,12 @@ export function shipmentToQuoteData(shipment: interfaces.ShipmentItem): SalesQuo
     // The commodity went into the first cargo item; a shipment from before cargo items has its
     // description on itself.
     commodity: text(shipment.cargoItems?.[0]?.cargoDescription) ?? text(shipment.cargoDescription),
+    // Dangerous as the shipment says, or as its cargo lines' ADR details make it; the first line's
+    // details come along, a quote having room for one set.
+    dangerous: dangerous || undefined,
+    adr: adrLine
+      ? { adrUn: adrLine.adrUn ?? null, adrClass: adrLine.adrClass ?? null, adrPackingGroup: adrLine.adrPackingGroup ?? null, adrLimitedQuantity: adrLine.adrLimitedQuantity === true }
+      : undefined,
     packages: packages.length > 0 ? packages : undefined,
     containers: containers.length > 0 ? containers : undefined,
     weight: weight || undefined,
