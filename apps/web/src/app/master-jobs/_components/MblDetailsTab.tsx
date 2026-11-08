@@ -9,7 +9,6 @@ import {
   FileProtectOutlined,
   FileTextOutlined,
   LockOutlined,
-  TeamOutlined,
 } from "@ant-design/icons";
 import { CustomerLinkField } from "@/app/shipments/[jobNumber]/_components/CustomerLinkField";
 import { FreightModeContext } from "@/app/shipments/[jobNumber]/_components/EditableCell";
@@ -21,6 +20,7 @@ import { FieldRow, IncotermRow, Label, MasterJobCard, ROW, ReadOnlyRow } from ".
 import { ProgressStages } from "@/app/shipments/[jobNumber]/_components/ShipmentSummary";
 import { getStageFromFacts } from "@/app/shipments/[jobNumber]/_components/taskDefinitions";
 import { formatDate } from "@/lib/date";
+import { kgFromTons, tonsFromKg } from "../_lib/mblWeight";
 
 // Load Type is chosen once; the server refuses switching it, so the row stops being editable.
 function LockedLoadType({ value }: { value: string }) {
@@ -76,6 +76,16 @@ export function MblDetailsTab({ masterJob: mj, onSave }: MblDetailsTabProps) {
     save((col ? dateTimeUpdate(col, v) : { [fieldKey]: v }) as MasterJobUpdate);
   };
 
+  // The MBL's total weight is typed in kg and kept in tons; text that is no weight is refused.
+  const commitWeightKg = (_fieldKey: string, typed: string) => {
+    const tons = tonsFromKg(typed);
+    if (tons === null) {
+      message.warning(`"${typed}" is not a weight in kg`);
+      return;
+    }
+    if (tons !== mj.totalWeightTons) save({ totalWeightTons: tons });
+  };
+
   // The actual date that matters follows the direction: an export is tracked by its
   // departure, an import by its arrival. Without a direction both are shown.
   const direction = mj.tradeDirection.trim().toLowerCase();
@@ -83,8 +93,9 @@ export function MblDetailsTab({ masterJob: mj, onSave }: MblDetailsTabProps) {
   const showArrival = direction !== "export";
   const isConsolidation = mj.loadType === "Consolidation";
 
-  // Laid out like the Shipment Details tab's main column: the overview, the Key Dates
-  // (two columns, as the shipment's), then cards in pairs once the column is wide enough.
+  // Laid out like the Shipment Details tab's main column: the overview (with the parties), the Key
+  // Dates and Carrier & Bill of Lading, each in two columns, then Equipment & Depot beside MBL Cargo
+  // once the column is wide enough.
   // The stages, as the shipment's progress bar shows them. A master job has no task ticks, customs
   // status or delivery (those are its shipments'), so its own dates move it, by the shipment's
   // rule: departed = In transit, arrived = past Arrive at POD.
@@ -120,6 +131,20 @@ export function MblDetailsTab({ masterJob: mj, onSave }: MblDetailsTabProps) {
             {isConsolidation && (
               <FieldRow label="Service Name" fieldKey="serviceName" value={mj.serviceName} onCommit={handleCommit} synced />
             )}
+            {/* The parties, here in the overview rather than in a card of their own. */}
+            <CustomerLinkField
+              label="Shipper"
+              name={mj.shipper}
+              customerId={mj.shipperId}
+              onChange={(name, id) => save({ shipper: name, shipperId: id })}
+            />
+            <CustomerLinkField
+              label="Consignee"
+              name={mj.consignee}
+              customerId={mj.consigneeId}
+              onChange={(name, id) => save({ consignee: name, consigneeId: id })}
+            />
+            <FieldRow label="Supplier's PIC" fieldKey="supplierPic" value={mj.supplierPic} onCommit={handleCommit} synced />
           </div>
         </div>
       </MasterJobCard>
@@ -137,6 +162,8 @@ export function MblDetailsTab({ masterJob: mj, onSave }: MblDetailsTabProps) {
               <FieldRow label="ATA Actual" fieldKey="actualArrival" value={mj.actualArrival} onCommit={handleCommit} synced />
             )}
             <FieldRow label="ETA Warehouse/HUB" fieldKey="etaWarehouse" value={mj.etaWarehouse} onCommit={handleCommit} synced />
+            {/* The warehouse's actual date right under its estimate, as ATD under ETD. */}
+            <FieldRow label="Warehouse Received" fieldKey="warehouseReceivedDate" value={mj.warehouseReceivedDate} onCommit={handleCommit} synced />
             {/* The shipment has these two in its overview; here they close the dates' left column. */}
             <ReadOnlyRow label="Shipments Month" value={getComputedValue("shipmentsDate", data)} />
             <ReadOnlyRow label="Year" value={getComputedValue("shipmentsYear", data)} />
@@ -155,33 +182,22 @@ export function MblDetailsTab({ masterJob: mj, onSave }: MblDetailsTabProps) {
         </div>
       </MasterJobCard>
 
-      {/* CARRIER & BILL OF LADING  |  PARTIES */}
-      <div className="grid grid-cols-1 @min-[760px]:grid-cols-2 gap-4">
-        <MasterJobCard icon={<FileProtectOutlined />} title="Carrier & Bill of Lading" className="h-full">
-          <FieldRow label="Master BoL Number" fieldKey="masterBolNumber" value={mj.masterBolNumber} onCommit={handleCommit} synced />
-          <FieldRow label="Master BoL Type" fieldKey="masterBolType" value={mj.masterBolType} onCommit={handleCommit} synced />
-          <FieldRow label="Vessel" fieldKey="vessel" value={mj.vessel} onCommit={handleCommit} synced />
-          <FieldRow label="Voyage" fieldKey="voyage" value={mj.voyage} onCommit={handleCommit} synced />
-          <FieldRow label="POL" fieldKey="pol" value={mj.pol} onCommit={handleCommit} synced />
-          <FieldRow label="POD" fieldKey="pod" value={mj.pod} onCommit={handleCommit} synced />
-          <FieldRow label="Destination" fieldKey="destination" value={mj.destination} onCommit={handleCommit} />
-        </MasterJobCard>
-        <MasterJobCard icon={<TeamOutlined />} title="Parties" className="h-full">
-          <CustomerLinkField
-            label="Shipper"
-            name={mj.shipper}
-            customerId={mj.shipperId}
-            onChange={(name, id) => save({ shipper: name, shipperId: id })}
-          />
-          <CustomerLinkField
-            label="Consignee"
-            name={mj.consignee}
-            customerId={mj.consigneeId}
-            onChange={(name, id) => save({ consignee: name, consigneeId: id })}
-          />
-          <FieldRow label="Supplier's PIC" fieldKey="supplierPic" value={mj.supplierPic} onCommit={handleCommit} synced />
-        </MasterJobCard>
-      </div>
+      {/* CARRIER & BILL OF LADING — across the width in two columns, now that the parties are in the overview */}
+      <MasterJobCard icon={<FileProtectOutlined />} title="Carrier & Bill of Lading">
+        <div className={COLS2}>
+          <div className="min-w-0">
+            <FieldRow label="Master BoL Number" fieldKey="masterBolNumber" value={mj.masterBolNumber} onCommit={handleCommit} synced />
+            <FieldRow label="Master BoL Type" fieldKey="masterBolType" value={mj.masterBolType} onCommit={handleCommit} synced />
+            <FieldRow label="Vessel" fieldKey="vessel" value={mj.vessel} onCommit={handleCommit} synced />
+            <FieldRow label="Voyage" fieldKey="voyage" value={mj.voyage} onCommit={handleCommit} synced />
+          </div>
+          <div className="min-w-0">
+            <FieldRow label="POL" fieldKey="pol" value={mj.pol} onCommit={handleCommit} synced />
+            <FieldRow label="POD" fieldKey="pod" value={mj.pod} onCommit={handleCommit} synced />
+            <FieldRow label="Destination" fieldKey="destination" value={mj.destination} onCommit={handleCommit} />
+          </div>
+        </div>
+      </MasterJobCard>
 
       {/* EQUIPMENT & DEPOT  |  MBL CARGO */}
       <div className="grid grid-cols-1 @min-[760px]:grid-cols-2 gap-4">
@@ -190,13 +206,13 @@ export function MblDetailsTab({ masterJob: mj, onSave }: MblDetailsTabProps) {
           <FieldRow label="Release Depot" fieldKey="releaseDepot" value={mj.releaseDepot} onCommit={handleCommit} synced />
           <FieldRow label="Redelivery Reference" fieldKey="redeliveryReference" value={mj.redeliveryReference} onCommit={handleCommit} synced />
           <FieldRow label="Redelivery Depot" fieldKey="redeliveryDepot" value={mj.redeliveryDepot} onCommit={handleCommit} synced />
-          <FieldRow label="Warehouse Received" fieldKey="warehouseReceivedDate" value={mj.warehouseReceivedDate} onCommit={handleCommit} synced />
         </MasterJobCard>
         {/* Totals of the whole MBL; each house keeps its own cargo, so these are not copied. */}
         <MasterJobCard icon={<BuildOutlined />} title="MBL Cargo" className="h-full">
           <FieldRow label="Pieces (PCS)" fieldKey="pcs" value={mj.pcs} onCommit={handleCommit} />
           <FieldRow label="Type Of Packages" fieldKey="typeOfPackages" value={mj.typeOfPackages} onCommit={handleCommit} />
-          <FieldRow label="Total Weight In Tons" fieldKey="totalWeightTons" value={mj.totalWeightTons} onCommit={handleCommit} />
+          {/* In kg, as the shipments show their weights; the master job keeps it in tons. */}
+          <FieldRow label="Total Weight (kg)" fieldKey="totalWeightKg" value={kgFromTons(mj.totalWeightTons)} onCommit={commitWeightKg} />
           <FieldRow label="Total Volume In CBM" fieldKey="totalVolumeCbm" value={mj.totalVolumeCbm} onCommit={handleCommit} />
         </MasterJobCard>
       </div>
