@@ -78,6 +78,19 @@ export function searchTokens(text: string): string[] {
 export const foldSql = (text: SQL): SQL =>
   sql`replace(lower(translate(regexp_replace(normalize(${text}, NFD), ${COMBINING_MARKS}, '', 'g'), ${FOLD_FROM}, ${FOLD_TO})), ${FINAL_SIGMA}, ${SIGMA})`;
 
+// Postgres takes at most 100 arguments in one function call, and concat_ws spends one of them on
+// its separator. A grid that shows most of its columns searches in more than that, so the columns
+// are joined in groups and the groups joined again.
+const MAX_JOINED = 90;
+
+/** `columns` as one text, separated by spaces, however many there are (see MAX_JOINED). */
+export function joinedText(columns: (PgColumn | SQL)[]): SQL {
+  if (columns.length <= MAX_JOINED) return sql`concat_ws(' ', ${sql.join(columns, sql`, `)})`;
+  const groups: SQL[] = [];
+  for (let at = 0; at < columns.length; at += MAX_JOINED) groups.push(joinedText(columns.slice(at, at + MAX_JOINED)));
+  return joinedText(groups);
+}
+
 /**
  * Rows whose `columns`, joined and folded, contain every word of `search` (see searchTokens),
  * ignoring diacritics and case; % and _ typed by the user are literal. Undefined for no words.
@@ -88,7 +101,7 @@ export const foldSql = (text: SQL): SQL =>
 export function containsAllWords(columns: (PgColumn | SQL)[], search: string, orWord?: (word: string) => SQL | undefined): SQL | undefined {
   const words = searchTokens(search);
   if (!words.length) return undefined;
-  const text = foldSql(sql`concat_ws(' ', ${sql.join(columns, sql`, `)})`);
+  const text = foldSql(joinedText(columns));
   return and(
     ...words.map((word) => {
       const contains = sql`${text} LIKE ${`%${word}%`}`;

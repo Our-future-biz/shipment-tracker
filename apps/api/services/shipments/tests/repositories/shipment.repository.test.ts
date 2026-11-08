@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { sql, type SQL } from "drizzle-orm";
+import { getTableColumns, sql, type SQL } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 
 // The parts of the repository that find the shipments of a sales quote and tell what the
@@ -305,6 +305,30 @@ describe("searchMatch", () => {
   it("looks for no number in a word that is no reference: plain digits, a quote's CZQ…", () => {
     for (const search of ["00000023", "CZQ00000023", "QCZ20261010001"]) expect(sent(searchMatch(search)).sql).not.toContain("substring(");
     expect(searchMatch("   ")).toBeUndefined();
+  });
+
+  it("searches a grid that shows every column: no call gets more than the 100 arguments Postgres takes", () => {
+    const keys = Object.keys(getTableColumns(shipmentTable)).concat("masterJob", "containerNumber", "sealNumber");
+    expect(searchedColumns(keys).length).toBeGreaterThan(100);
+    const text = sent(searchMatch("czlcl00000035", keys)).sql;
+    // The arguments of each concat_ws: its commas outside any inner brackets or quotes, plus one.
+    const argCounts = [...text.matchAll(/concat_ws\(/g)].map((m) => {
+      let depth = 1, quoted = false, args = 1;
+      for (let at = m.index! + m[0].length; depth > 0; at++) {
+        const c = text[at];
+        if (c === "'") quoted = !quoted;
+        else if (quoted) continue;
+        else if (c === "(") depth++;
+        else if (c === ")") depth--;
+        else if (c === "," && depth === 1) args++;
+      }
+      return args;
+    });
+    expect(argCounts.length).toBeGreaterThan(1);
+    expect(Math.max(...argCounts)).toBeLessThanOrEqual(100);
+    // Every column is still in the text that is searched.
+    expect(text).toContain('"shipment"."house_bol_number"');
+    expect(text).toContain('string_agg("container"."seal_number"');
   });
 });
 
