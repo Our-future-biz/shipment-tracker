@@ -147,7 +147,8 @@ export function MasterJobsView() {
                 onSave={(containers) => detail.setContainers.mutateAsync(containers)}
               />
             ) : detailTab === "shipments" ? (
-              // The houses on this master job, with Add and Remove, as the card used to show them on MBL Details.
+              // The houses on this master job, with Add and Remove: who they are (Details) or where each
+              // one stands (Status), switched inside the card.
               <MasterJobCard
                 id={MJ_ANCHORS.shipments}
                 icon={<InboxOutlined />}
@@ -164,7 +165,7 @@ export function MasterJobsView() {
             ) : detailTab === "costs" ? (
               <MasterJobCostsTab masterJob={mj} />
             ) : detailTab === "tracking" ? (
-              <MasterJobTrackingTab masterJobId={mj.id} />
+              <MasterJobTrackingTab />
             ) : (
               <MblDetailsTab masterJob={mj} onSave={(data) => detail.update.mutateAsync(data)} />
             )

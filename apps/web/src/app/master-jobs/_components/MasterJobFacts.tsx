@@ -30,7 +30,7 @@ const dash = <span className={EMPTY}>—</span>;
 /** A plain value that fades out instead of widening its column. */
 const text = (v: string | null | undefined) => (v ? <span className="truncate" title={v}>{v}</span> : dash);
 
-// A count that jumps to its card further down the MBL Details tab, as the old summary tiles did.
+// A count that opens its tab (Containers, Linked Shipments), as the old summary tiles jumped to their cards.
 function JumpCount({ label, target, onJump, children }: { label: string; target: string; onJump: (target: string) => void; children: React.ReactNode }) {
   return (
     <button
@@ -48,7 +48,7 @@ interface MasterJobFactsProps {
   masterJob: MasterJobItem;
   containers: MasterJobContainerLine[];
   shipments: MasterJobShipmentItem[];
-  /** How a count reaches its card; by default it jumps on the page as it is (the MBL Details tab). */
+  /** How a count reaches its tab, and a date its row on MBL Details; by default it jumps on the page as it is. */
   onJump?: (target: string) => void;
 }
 
