@@ -13,12 +13,13 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { formatDate } from "@/lib/date";
 import { placeCodeOf } from "@/lib/places";
 import { canChangeShipmentDetails } from "@/lib/shipmentEditRule";
-import { EMPTY_STATE, HINT, LABEL_TEXT, MODAL_TITLE, REF } from "@/styles/ui";
+import { EMPTY_STATE, HINT, LABEL_TEXT, MODAL_TITLE, REF, TD } from "@/styles/ui";
 
 /* The app's table look (Container Details, Linked shipments): column titles over a slate-200 rule
-   that stays put while the rows scroll, rows split by thin slate-100 lines. */
-const TH = `sticky top-0 z-[1] bg-white px-2 py-2 text-left align-bottom whitespace-nowrap ${LABEL_TEXT} border-b border-slate-200`;
-const TD = "px-2 py-2 align-middle text-[13px] text-slate-700 border-b border-slate-100";
+   that stays put while the rows scroll, rows split by thin slate-100 lines (none under the last row:
+   the frame closes it). z-10 keeps the head over antd's checkbox inputs (z-index 1), so a row
+   scrolled under it can't be ticked through it. */
+const TH = `sticky top-0 z-10 bg-white px-2 py-2 text-left align-bottom whitespace-nowrap ${LABEL_TEXT} border-b border-slate-200`;
 
 /** What a shipment the user may not link says (the server refuses it: lib/shipmentEditRule). */
 export const LINK_REFUSED_HINT = "Only its Person in Charge, Holiday Cover or a manager can link it to a master job";
@@ -152,7 +153,7 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
       title={<span className={MODAL_TITLE}>Master Job</span>}
       open={open}
       onCancel={handleClose}
-      width={760}
+      width={820}
       destroyOnHidden
       footer={
         <div className="flex justify-between items-center gap-3">
@@ -223,23 +224,25 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
           />
         )}
 
-        {/* The shipments to link, in the app's table look; a click anywhere on a row ticks it. */}
-        <div className="max-h-[360px] overflow-auto rounded-lg border border-slate-200">
-          {/* Fixed columns, so the table fits the dialog: a long customer is cut short (in full on hover). */}
-          <table className="w-full min-w-[600px] table-fixed border-separate border-spacing-0">
+        {/* The shipments to link, in the app's table look; a click anywhere on a row ticks it.
+            scroll-pt-9: a box reached from the keyboard stops below the sticky head, focus ring and all. */}
+        <div className="max-h-[360px] overflow-auto scroll-pt-9 rounded-lg border border-slate-200">
+          {/* Fixed columns, so the table fits the dialog: a long customer is cut short (in full on hover).
+              Job Number fits the longest reference, CZPROJECT00000023. */}
+          <table className="w-full min-w-[720px] table-fixed border-separate border-spacing-0">
             <thead>
               <tr>
                 <th className={`${TH} w-10 !pl-3`}>
                   <span className="sr-only">Selected</span>
                 </th>
-                <th className={`${TH} w-[140px]`}>Job Number</th>
+                <th className={`${TH} w-[172px]`}>Job Number</th>
                 <th className={TH}>Customer</th>
                 <th className={`${TH} w-[150px]`}>Route</th>
                 <th className={`${TH} w-[96px]`}>ETD</th>
                 <th className={`${TH} w-[124px] !pr-3`}>Master Job</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="[&>tr:last-child>td]:border-b-0">
               {filteredShipments.map((s) => {
                 const locked = lockedIds.has(s.id);
                 const isChecked = !locked && selected.has(s.id);
@@ -247,6 +250,10 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
                 const route = [s.pol, s.pod].filter(Boolean).map((p) => placeCodeOf(p) ?? p).join(" → ");
                 const routeInFull = [s.pol, s.pod].filter(Boolean).join(" → ");
                 const etd = formatDate(s.estimatedDeparture);
+                // A shipment with no customer yet is named by its shipper or consignee, muted, as the master
+                // job's own picker does; the hover says which it is.
+                const party = s.customer || s.shipper || s.consignee;
+                const partyTitle = s.customer || (s.shipper ? `Shipper: ${s.shipper}` : s.consignee ? `Consignee: ${s.consignee}` : undefined);
                 return (
                   <tr
                     key={s.id}
@@ -264,22 +271,33 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
                         if (!(e.target as Element).closest(".ant-checkbox-wrapper")) toggleShipment(s.id);
                       }}
                     >
-                      <Checkbox checked={isChecked} disabled={locked} onChange={() => toggleShipment(s.id)} aria-label={`Link ${s.jobNumber}`} />
+                      {/* A shipment the user may not link has a lock where its box would be; the row says why. */}
+                      {locked ? (
+                        <span className="inline-flex w-4 justify-center text-[13px] text-slate-400">
+                          <LockOutlined aria-label="Not yours to link" />
+                        </span>
+                      ) : (
+                        <Checkbox checked={isChecked} onChange={() => toggleShipment(s.id)} aria-label={`Link ${s.jobNumber}`} />
+                      )}
                     </td>
-                    <td className={`${TD} whitespace-nowrap`}>
+                    {/* A locked row's cells have no hover text of their own: the row's says why it is locked. */}
+                    <td className={`${TD} truncate`} title={locked ? undefined : s.jobNumber}>
                       <span className={`${REF} font-semibold ${locked ? "text-slate-400" : "text-slate-900"}`}>{s.jobNumber}</span>
-                      {locked && <LockOutlined className="ml-1.5 text-[11px] text-slate-400" aria-label="Not yours to link" />}
                     </td>
-                    <td className={`${TD} truncate ${locked ? "!text-slate-400" : ""}`} title={s.customer || undefined}>
-                      {s.customer || EMPTY_CELL}
+                    <td className={`${TD} truncate ${locked ? "!text-slate-400" : ""}`} title={locked ? undefined : partyTitle}>
+                      {s.customer || (party ? <span className="text-slate-400">{party}</span> : EMPTY_CELL)}
                     </td>
-                    <td className={`${TD} truncate tabular-nums ${locked ? "!text-slate-400" : ""}`} title={routeInFull || undefined}>
+                    <td className={`${TD} truncate tabular-nums ${locked ? "!text-slate-400" : ""}`} title={locked ? undefined : routeInFull || undefined}>
                       {route || EMPTY_CELL}
                     </td>
                     <td className={`${TD} whitespace-nowrap tabular-nums ${locked ? "!text-slate-400" : ""}`}>{etd || EMPTY_CELL}</td>
                     <td className={`${TD} whitespace-nowrap !pr-3`}>
                       {s.masterJobMczNumber ? (
-                        <Badge tone="a" className={REF} title={s.masterJobMczNumber === activeMCZ ? undefined : "Linking moves it to this master job"}>
+                        <Badge
+                          tone={locked ? "" : "a"}
+                          className={`${REF} ${locked ? "!text-slate-400" : ""}`}
+                          title={locked || s.masterJobMczNumber === activeMCZ ? undefined : `Linking takes it off ${s.masterJobMczNumber}`}
+                        >
                           {s.masterJobMczNumber}
                         </Badge>
                       ) : (
