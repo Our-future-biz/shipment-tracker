@@ -68,6 +68,21 @@ export interface QuoteOog {
 
 export type ChargeBasis = "lumpsum" | "wm" | "container";
 
+/** A new rate the overnight tariff check found. Twin of TariffUpdate in the API's lib/tariffOvernight. */
+export interface TariffUpdate {
+  oldRef: string;
+  kind: "ocean" | "rail" | "collection" | "road";
+  newVersionId: string;
+  newRateId: string | null;
+  supplierName: string;
+  // On a road quote the selling price, which its tariff also sets.
+  was: { currency: string; amount: number }[];
+  now: { currency: string; amount: number }[];
+  // On a road quote with a haulier: its buying price.
+  buyWas?: { currency: string; amount: number }[];
+  buyNow?: { currency: string; amount: number }[];
+}
+
 export interface CostLine {
   // The label of the charge ("Road freight"); quotes saved before the catalogue hold only this.
   type: string;
@@ -283,6 +298,8 @@ export interface SalesQuoteData {
   weight?: number;
   cbm?: number;
   // Pricing
+  // New rates of lapsed tariffs waiting for the user's approval (_lib/tariffUpdates.ts).
+  tariffUpdates?: TariffUpdate[];
   buyingLines?: CostLine[];
   sellingLines?: CostLine[];
   // Quoted as an all-in rate: the customer's document shows the selling total as one price, without

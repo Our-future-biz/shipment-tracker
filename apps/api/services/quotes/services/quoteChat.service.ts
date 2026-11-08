@@ -11,6 +11,7 @@ import { salesQuoteRepository } from "../repositories/salesQuote.repository";
 import { quoteAttachmentBucket } from "../storage/quoteAttachmentBucket";
 import { chatFileUrl, companyOfChatFileToken } from "../lib/chatFileToken";
 import { companyPeople } from "../lib/people";
+import { TARIFF_CHECK_AUTHOR_ID, TARIFF_CHECK_AUTHOR_NAME } from "../lib/tariffOvernight";
 import type { QuoteCommentRecord } from "../schemas/quoteComment.schema";
 import type { QuoteCommentItem, QuoteCommentMentionItem, QuoteCommentUnreadItem } from "../interfaces/interfaces";
 
@@ -135,7 +136,7 @@ class QuoteChatService {
       id: m.id,
       quoteNumber: m.quoteNumber,
       threadRef: m.threadRef,
-      authorName: emails.get(m.authorId) ?? "",
+      authorName: authorNameOf(m.authorId, emails),
       message: m.message,
       createdAt: m.createdAt.toISOString(),
       unread: !m.readAt || m.createdAt > m.readAt,
@@ -157,13 +158,17 @@ class QuoteChatService {
   }
 }
 
+// A message of the overnight tariff check has no colleague behind it.
+const authorNameOf = (authorId: string, emails: Map<string, string>) =>
+  authorId === TARIFF_CHECK_AUTHOR_ID ? TARIFF_CHECK_AUTHOR_NAME : (emails.get(authorId) ?? "");
+
 function toItem(c: QuoteCommentRecord, files: ChatFile[], othersReadAt: Date | null, emails: Map<string, string>, userId: string): QuoteCommentItem {
   return {
     id: c.id,
     quoteNumber: c.quoteNumber,
     threadRef: c.threadRef,
     authorId: c.authorId,
-    authorName: emails.get(c.authorId) ?? "",
+    authorName: authorNameOf(c.authorId, emails),
     message: c.message,
     createdAt: c.createdAt.toISOString(),
     attachments: files

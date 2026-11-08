@@ -508,6 +508,21 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
     return rows.flatMap((r) => (r.shipmentId ? [{ quoteNumber: r.quoteNumber, shipmentId: r.shipmentId }] : []));
   }
 
+  /** Every company's live quotes not yet sent with a buying line priced from a tariff, for the overnight check. */
+  async unsentWithTariffLines(): Promise<SalesQuoteRecord[]> {
+    const rows = await db
+      .select()
+      .from(quoteTable)
+      .where(
+        and(
+          isNull(quoteTable.deletedAt),
+          sql`${quoteTable.status} IN ('draft', 'ready_to_send', 'revised')`,
+          sql`${quoteTable.data}::text LIKE '%"tariffRef"%'`,
+        ),
+      );
+    return salesRows(rows);
+  }
+
   /**
    * How many of the company's live sales quotes that are still open - not won, lost or replaced
    * by a revision - were road-priced (the document's roadPricing) with one of these trucking

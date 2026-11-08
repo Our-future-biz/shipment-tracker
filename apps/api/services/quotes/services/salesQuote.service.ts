@@ -30,7 +30,7 @@ import { customerIdOf, linkForSave, refreshCopies, withRefresh } from "../utils/
 import { tryCustomerRefs } from "../lib/customerRefs";
 import { linkedSupplierIds, supplierGate, type LinkedSupplierState } from "../utils/supplierApproval.utils";
 import { shippingTermsGateMessage } from "../utils/shippingTerms.utils";
-import { tariffDirectionGateMessage } from "../utils/tariffDirection.utils";
+import { tariffDirectionGateMessage, tariffUpdateGateMessage, withoutRoadUpdates } from "../utils/tariffDirection.utils";
 import { columnFiltersOf } from "../utils/quoteColumnFilters.utils";
 import { approvedPricing, inquiryGateMessage, MAX_INQUIRY_NOTE, MAX_INQUIRY_PIECES, MAX_PRICE_PER_PIECE, MIN_REJECT_REASON, readInquiry } from "../utils/warehouseInquiry.utils";
 import { fxWriteFor, mayStampFx, type StoredFx } from "../lib/quoteFx";
@@ -607,6 +607,9 @@ class SalesQuoteService {
         // A rail or ocean tariff prices only its Trade Direction: a line priced in the other is priced again first.
         const directionGate = tariffDirectionGateMessage(quote.data);
         if (directionGate) throw APIError.failedPrecondition(directionGate);
+        // A new tariff rate is approved knowingly first.
+        const tariffUpdateGate = tariffUpdateGateMessage(quote.data);
+        if (tariffUpdateGate) throw APIError.failedPrecondition(tariffUpdateGate);
         // Judged as the quote will be once moved: a validity the sending sets is part of what an approval covers (D10).
         const judged = isPlainObject(quote.data) ? { ...quote.data, validUntil: change.state.validUntil ?? undefined } : quote.data;
         const margin = margins ? roadMargin(judged, margins) : null;
@@ -761,6 +764,7 @@ class SalesQuoteService {
         document: {
           road: request.road,
           roadPricing,
+          ...withoutRoadUpdates(data),
           sellingLines: replaceTruckingLines(data.sellingLines, sellLines),
           buyingLines: replaceTruckingLines(data.buyingLines, buyLines),
         },

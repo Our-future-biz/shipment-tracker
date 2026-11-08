@@ -49,7 +49,7 @@ import { NewSupplierFromQuote } from "@/components/SupplierPicker";
 import { useSupplierApprovals } from "@/hooks/useSupplierApprovals";
 import { useSupplierDirectory } from "@/hooks/useSupplierDirectory";
 import { supplierSendBlock } from "../../_lib/supplierApproval";
-import type { SalesQuoteData, PackageLine, QuoteContainerLine, CostLine } from "../../_lib/types";
+import type { SalesQuoteData, PackageLine, QuoteContainerLine, CostLine, TariffUpdate } from "../../_lib/types";
 import type { QuoteProblem } from "../../_lib/quoteProblem";
 import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, PACKING_TYPES, serviceTypeLabel } from "../../_lib/types";
 import { createShipmentHint, shipmentFromQuoteBlockedText } from "../../_lib/shipmentLink";
@@ -94,6 +94,7 @@ import { FclTruckingBlock } from "./_components/FclTruckingBlock";
 import { fclChanges, usesFclPricing, withFclPricing } from "../../_lib/fclPricing";
 import { templateTerms, termsDifferFromTemplate } from "../../_lib/shippingTerms";
 import { linesForOtherDirection, linesToRecheck, otherDirectionBlock, rechecked, stampDirection, stampPricedFor, withPricedForNow } from "../../_lib/tariffRecheck";
+import { isOfferOfUpdate, linesWaitingForRate, roadForToday, tariffUpdateChange, tariffUpdateSelling, waitingTariffUpdates } from "../../_lib/tariffUpdates";
 import { QuoteAddressField } from "./_components/QuoteAddressField";
 import { QuoteContactField } from "./_components/QuoteContactField";
 import { QuoteRatesEditor } from "./_components/QuoteRatesEditor";
@@ -214,6 +215,7 @@ export function QuoteWorkflow() {
   // The quote's chat (shared by the original and all its revisions); ?chat=1 (a mention under the
   // bell) opens it.
   const [chatOpen, setChatOpen] = useState(false);
+  const [approvingRate, setApprovingRate] = useState<string | null>(null);
   const chatUnread = useQuoteChatUnread().get(quoteThreadOf(ref)) ?? 0;
   useEffect(() => {
     if (searchParams.get("chat") !== "1") return;
@@ -396,8 +398,7 @@ export function QuoteWorkflow() {
   // "Price from tariff": the server prices the road input at the picked level and haulier, writes
   // the trucking lines and the road pricing, and answers with the quote. Those are document keys
   // the page edits too, so the stored quote is read again whole rather than merged.
-  const priceRoad = async (pick: RatePick) => {
-    const road = draft.road ?? roadInputDefaults(draft);
+  const priceRoad = async (pick: RatePick, road: NonNullable<SalesQuoteData["road"]> = draft.road ?? roadInputDefaults(draft)) => {
     const refused = await act(
       (expectedDataVersion) => api.quotes.salesQuoteRoadPrice(ref, { road, ...pick, expectedDataVersion }),
       { versioned: true },
@@ -565,7 +566,10 @@ export function QuoteWorkflow() {
   const recheck = quoteClosed ? [] : linesToRecheck(draft);
   // And those priced from a tariff in another Trade Direction than the quote has now: picked again before sending.
   const otherDirection = quoteClosed ? [] : linesForOtherDirection(draft);
-  const toRecheck = (index: number) => recheck.includes(index) || otherDirection.includes(index);
+  // And those whose lapsed tariff has a new rate waiting for approval.
+  const waitingUpdates = quoteClosed ? [] : waitingTariffUpdates(draft);
+  const waitingRate = quoteClosed ? [] : linesWaitingForRate(draft);
+  const toRecheck = (index: number) => recheck.includes(index) || otherDirection.includes(index) || waitingRate.includes(index);
   // A warehouse approval from before the server put its fee to Pricing: the lines are added as the
   // quote opens (once per answer; autosave stores them). Not on a quote whose pricing is closed.
   const missingFee = quote && !quoteClosed ? missingWarehouseFee(draft) : null;
@@ -910,6 +914,53 @@ export function QuoteWorkflow() {
     toast.success(`Priced from ${offer.supplierName}: ${fmtMoney(offer.freight, offer.currency)} freight${surcharges}`);
     const freight = pick.lines[pick.at];
     if (!fclLayout && freight && !(Number(before?.amount) > 0) && offerToSelling(freight, sellingLines)) setToSelling({ line: freight, index: pick.at });
+  };
+
+  // The new rate of a lapsed tariff, approved: the offer is asked for again as of today and put in the
+  // place of the old lines. Selling is left as it is; the user sees the new margin.
+  const approveTariffUpdate = async (update: TariffUpdate) => {
+    const today = businessToday();
+    if (update.kind === "road") {
+      if (quoteClosed || !draft.roadPricing) return;
+      setApprovingRate(update.oldRef);
+      const refused = await priceRoad(
+        { serviceLevel: draft.roadPricing.serviceLevel, haulierCustomerId: draft.roadPricing.buy?.haulierCustomerId ?? null },
+        roadForToday(draft.road ?? roadInputDefaults(draft), today),
+      );
+      setApprovingRate(null);
+      if (refused) toast.error(refused);
+      return;
+    }
+    const at = buyingLines.findIndex((l) => l.tariffRef === update.oldRef);
+    if (quoteClosed || at < 0) return;
+    const gone = () => toast.error(`The new ${update.supplierName} rate is no longer offered for this route: pick a tariff under Tariffs available`);
+    setApprovingRate(update.oldRef);
+    try {
+      if (update.kind === "ocean") {
+        const route = oceanRouteOf(draft, today);
+        const request = oceanOffersRequest(route);
+        const offer = request && (await api.tariffs.oceanOffers(request)).offers.find((o) => isOfferOfUpdate(o, update));
+        if (!offer) return gone();
+        putPick(withOceanOffer(buyingLines, at, offer, route, draft));
+      } else if (update.kind === "rail") {
+        const route = railRouteOf(draft, today);
+        const request = railOffersRequest(route);
+        const offer = request && (await api.tariffs.railOffers(request)).offers.find((o) => isOfferOfUpdate(o, update));
+        if (!offer || !route.port) return gone();
+        putPick(withRailOffer(buyingLines, at, offer, route.port, route.direction, draft));
+      } else {
+        const route = collectionRouteOf(draft, collectionHubs, today);
+        const request = collectionOffersRequest(route);
+        const offer = request && (await api.tariffs.collectionOffers(request)).offers.find((o) => isOfferOfUpdate(o, update));
+        if (!offer) return gone();
+        updateLines("buyingLines", stampPricedFor(withCollectionOffer(buyingLines, at, offer, route), [at], draft));
+      }
+      toast.success(`New ${update.supplierName} rate approved`);
+    } catch (err) {
+      toast.error(`Could not approve the new rate: ${apiErrorMessage(err)}`);
+    } finally {
+      setApprovingRate(null);
+    }
   };
 
   const linesOf = (side: LineSide) => (side === "buying" ? buyingLines : sellingLines);
@@ -1564,6 +1615,20 @@ export function QuoteWorkflow() {
               onPrice={() => setModal("roadPrice")}
             />
           )}
+          {waitingUpdates.map((update) => (
+            <Alert
+              key={update.oldRef}
+              type="warning"
+              showIcon
+              message={update.kind === "road" ? `The road tariff "${update.supplierName}" has a new rate` : `The ${update.supplierName} tariff has a new rate`}
+              description={`${tariffUpdateChange(update)} ${update.kind === "road" ? "" : "The old tariff is no longer valid. "}${tariffUpdateSelling(update)} The quote can't be sent until you approve this or pick another tariff.`}
+              action={
+                <Button size="small" type="primary" loading={approvingRate === update.oldRef} onClick={() => void approveTariffUpdate(update)}>
+                  Approve new rate
+                </Button>
+              }
+            />
+          ))}
           {otherDirection.length > 0 && (
             <Alert
               type="warning"
