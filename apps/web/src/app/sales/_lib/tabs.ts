@@ -9,21 +9,39 @@ export interface SalesNavItem {
   managersOnly?: boolean;
   // Set apart from the items above it by a thin line.
   divided?: boolean;
+  // One line on what the page is for, on its section's overview (SectionOverview).
+  description?: string;
 }
 
 // The pages of Sales. A page's title is its label, so the menu and the page say the same word.
 export const SALES_PAGES = {
-  quotes: { label: "Quotes", path: "/sales/quotes", alsoActiveUnder: ["/sales/quote"] },
-  followup: { label: "Follow-up", path: "/sales/followup" },
-  pipeline: { label: "Pipeline", path: "/sales/pipeline" },
-  report: { label: "Sales Report", path: "/sales/report" },
+  quotes: {
+    label: "Quotes",
+    path: "/sales/quotes",
+    alsoActiveUnder: ["/sales/quote"],
+    description: "Every quote: start one, price it and send it to the customer.",
+  },
+  followup: { label: "Follow-up", path: "/sales/followup", description: "Quotes that are with a customer, and the team's follow-up tasks." },
+  pipeline: { label: "Pipeline", path: "/sales/pipeline", description: "The quotes by stage, for the period you choose." },
+  report: { label: "Sales Report", path: "/sales/report", description: "Quotes and results, counted by person and period." },
   // Job profit in CZK at the month's ČNB average; the page keeps the old Shipment Reports address.
-  jobProfit: { label: "Job Profit", path: "/sales/shipments" },
+  jobProfit: { label: "Job Profit", path: "/sales/shipments", description: "Each job's profit in CZK, at the month's ČNB average rate." },
   // The managers' pages, set apart by one line: what the team needs from a manager today
   // (Council Outlay 6), then the settings all of Sales shares - not daily work. Only managers and
   // admins see them and open them (the pages say so to anybody else).
-  managers: { label: "Managers", path: "/sales/managers", managersOnly: true, divided: true },
-  settings: { label: "Settings", path: "/sales/settings", managersOnly: true },
+  managers: {
+    label: "Managers",
+    path: "/sales/managers",
+    managersOnly: true,
+    divided: true,
+    description: "What the sales team needs from a manager today.",
+  },
+  settings: {
+    label: "Settings",
+    path: "/sales/settings",
+    managersOnly: true,
+    description: "Company details, terms & conditions and guardrails for all of Sales.",
+  },
 } satisfies Record<string, SalesNavItem>;
 
 // The Sales submenu of the sidebar, in the order a salesperson needs the pages.

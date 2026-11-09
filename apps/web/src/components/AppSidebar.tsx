@@ -1,97 +1,106 @@
 "use client";
 
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Tooltip, Dropdown } from "antd";
 import {
-  DashboardOutlined,
-  ContainerOutlined,
-  FileTextOutlined,
-  DollarOutlined,
-  InboxOutlined,
-  TeamOutlined,
-  LineChartOutlined,
-  SafetyCertificateOutlined,
-  ClusterOutlined,
-  ControlOutlined,
-  LeftOutlined,
-  RightOutlined,
-  DownOutlined,
-  UsergroupAddOutlined,
-  ApartmentOutlined,
-  SwapOutlined,
-  BankOutlined,
-  CalendarOutlined,
-  CarOutlined,
-  TagsOutlined,
-} from "@ant-design/icons";
+  AddressBookIcon,
+  BuildingsIcon,
+  CalendarDotsIcon,
+  CaretDownIcon,
+  CaretLeftIcon,
+  CaretRightIcon,
+  ChartLineUpIcon,
+  ClipboardTextIcon,
+  CurrencyCircleDollarIcon,
+  FileMagnifyingGlassIcon,
+  HardDrivesIcon,
+  PackageIcon,
+  ReceiptIcon,
+  SealCheckIcon,
+  SquaresFourIcon,
+  StackIcon,
+  TruckIcon,
+  UsersIcon,
+  type Icon,
+} from "@phosphor-icons/react";
 import { useSalesPermissions } from "@/hooks/useSalesPermissions";
 import { useSidebarState } from "@/hooks/useSidebarState";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { SALES_NAV, SALES_PAGES, type SalesNavItem } from "@/app/sales/_lib/tabs";
-import { TARIFF_NAV, TARIFF_PAGES } from "@/app/tariffs/_lib/tariffPages";
-import type { ReactNode } from "react";
+import { SALES_NAV, type SalesNavItem } from "@/app/sales/_lib/tabs";
+import { TARIFF_NAV } from "@/app/tariffs/_lib/tariffPages";
+import { ContainerHookIcon } from "@/components/icons/ContainerHookIcon";
+import { MonitorChartIcon } from "@/components/icons/MonitorChartIcon";
 import { ICON_BTN_GHOST } from "@/styles/ui";
 
 // An item of a submenu. Its shape is defined with the Sales menu, the one that uses all of it.
 type NavChild = SalesNavItem;
 
-interface NavItem {
+export interface NavItem {
   path: string;
   label: string;
-  icon: ReactNode;
-  // A group: clicking it opens its own page, the arrow folds the submenu.
+  // A Phosphor icon, drawn as an outline and filled where you are (NavIcon).
+  icon: Icon;
+  // A section: clicking it opens its own page at `path` (Sales, Tariffs and Finance show their
+  // pages there to pick from, SectionOverview) and unfolds its pages in the menu.
   children?: NavChild[];
-  // A group's own page, when that is not `path` itself.
-  home?: string;
+  // One line on what the section is for, under its title on its own page.
+  description?: string;
   // If set, the item only shows for these roles.
   roles?: string[];
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { path: "/dashboard", label: "Dashboard", icon: <DashboardOutlined /> },
-  { path: "/shipments", label: "Shipments", icon: <ContainerOutlined /> },
-  { path: "/customers", label: "Customer Database", icon: <TeamOutlined /> },
-  // The Quotes list is where work in Sales starts, so that is what "Sales" opens. /sales itself
-  // only redirects there: going straight saves the detour.
-  { path: "/sales", label: "Sales", icon: <LineChartOutlined />, home: SALES_PAGES.quotes.path, children: SALES_NAV },
-  // Tariffs has no page of its own yet: it opens its first section, as Sales opens Quotes.
+  { path: "/dashboard", label: "Dashboard", icon: SquaresFourIcon },
+  { path: "/shipments", label: "Shipments", icon: ContainerHookIcon },
+  { path: "/master-jobs", label: "Master Jobs", icon: StackIcon },
+  { path: "/customers", label: "Customer Database", icon: AddressBookIcon },
   {
-    path: "/tariffs",
-    label: "Tariffs",
-    icon: <TagsOutlined />,
-    home: TARIFF_PAGES.railOperators.path,
-    children: TARIFF_NAV,
+    path: "/sales",
+    label: "Sales",
+    icon: ChartLineUpIcon,
+    description: "Quotes for customers, their follow-up and the results.",
+    children: SALES_NAV,
   },
-  { path: "/documents", label: "Document / Text Reading", icon: <FileTextOutlined /> },
-  { path: "/invoicing", label: "Invoicing", icon: <DollarOutlined /> },
-  { path: "/exchange", label: "Exchange", icon: <SwapOutlined /> },
-  { path: "/customs", label: "Customs", icon: <SafetyCertificateOutlined /> },
-  { path: "/warehouse", label: "Warehouse", icon: <InboxOutlined /> },
+  { path: "/tariffs", label: "Tariffs", icon: ReceiptIcon, description: "Our suppliers' tariffs, by kind of transport.", children: TARIFF_NAV },
+  { path: "/documents", label: "Document / Text Reading", icon: FileMagnifyingGlassIcon },
+  // Finance's pages keep their own addresses (/invoicing, /exchange); /finance is its overview.
+  {
+    path: "/finance",
+    label: "Finance",
+    icon: CurrencyCircleDollarIcon,
+    description: "Invoicing of the jobs, and the exchange rates the app works with.",
+    children: [
+      { path: "/invoicing", label: "Invoicing", description: "Invoices to customers for the jobs." },
+      { path: "/exchange", label: "Exchange", description: "The exchange rates amounts are converted with." },
+    ],
+  },
+  { path: "/customs", label: "Customs", icon: SealCheckIcon },
+  // The warehouse and its concept prototype share the package box.
+  { path: "/warehouse", label: "Warehouse", icon: PackageIcon },
   // The concept modules are prototypes shown to superadmins only (Gate Log is a tab of Warehouse Concept).
   // Warehouse Concept opens its own page; its Managers cockpit is a page of its own under it.
   {
     path: "/warehouse-concept",
     label: "Warehouse Concept",
-    icon: <InboxOutlined />,
+    icon: PackageIcon,
     roles: ["superadmin"],
     children: [{ path: "/warehouse-concept/managers", label: "Managers" }],
   },
   // The same page for admins and managers, who don't see the rest of the concept module.
-  { path: "/warehouse-concept/managers", label: "Warehouse Managers", icon: <InboxOutlined />, roles: ["admin", "manager"] },
-  { path: "/trucking", label: "Trucking Concept", icon: <CarOutlined />, roles: ["superadmin"] },
-  { path: "/master-jobs", label: "Master Jobs", icon: <ClusterOutlined /> },
-  { path: "/cockpit", label: "Cockpit", icon: <ControlOutlined /> },
+  { path: "/warehouse-concept/managers", label: "Warehouse Managers", icon: ClipboardTextIcon, roles: ["admin", "manager"] },
+  { path: "/trucking", label: "Trucking Concept", icon: TruckIcon, roles: ["superadmin"] },
+  { path: "/cockpit", label: "Cockpit", icon: MonitorChartIcon },
   {
     path: "/calendar",
     label: "Calendar",
-    icon: <CalendarOutlined />,
+    icon: CalendarDotsIcon,
     children: [{ path: "/calendar/public-holidays", label: "Public Holidays" }],
   },
   // Company admins/managers manage their own users; superadmins manage all companies.
-  { path: "/settings/users", label: "Users", icon: <UsergroupAddOutlined />, roles: ["admin", "manager"] },
-  { path: "/settings/organization", label: "Organization", icon: <BankOutlined />, roles: ["admin", "superadmin"] },
-  { path: "/platform/companies", label: "Platform", icon: <ApartmentOutlined />, roles: ["superadmin"] },
+  { path: "/settings/users", label: "Users", icon: UsersIcon, roles: ["admin", "manager"] },
+  { path: "/settings/organization", label: "Organization", icon: BuildingsIcon, roles: ["admin", "superadmin"] },
+  { path: "/platform/companies", label: "Platform", icon: HardDrivesIcon, roles: ["superadmin"] },
 ];
 
 /** Hide role-restricted items the user can't access. */
@@ -102,22 +111,136 @@ export function navItemVisible(item: Pick<NavItem, "roles">, user: { role: strin
 /** The menu items `user` sees. */
 export const visibleNavItems = (user: { role: string } | null) => NAV_ITEMS.filter((item) => navItemVisible(item, user));
 
+/** The section at `path` (a menu item with pages under it), for its own page. */
+export const navSection = (path: string): NavItem | undefined => NAV_ITEMS.find((i) => i.children && i.path === path);
+
+// The menu's text: dark enough to read crisply on white (the app's body slate-700, a submenu one
+// step lighter), black on hover. "Here" is marked in bold white on indigo: the page you are on, or
+// the group you last clicked to pick a page from (navLooks). A group open over the page you are on
+// is tinted, bold indigo. Each state carries its own weight, so a row never has two weights for
+// the stylesheet's order to decide between.
+const NAV_IDLE = "font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-100";
+const NAV_CHILD_IDLE = "font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100";
+const NAV_ACTIVE = "font-semibold bg-indigo-600 text-white";
+const NAV_GROUP_LIT = "font-semibold text-indigo-700 bg-indigo-50";
+
+/** How a row is marked: "here" (solid), the group open over "here" (tint), or not at all. */
+export type NavLook = "active" | "lit" | "idle";
+const LOOK_CLASS: Record<NavLook, string> = { active: NAV_ACTIVE, lit: NAV_GROUP_LIT, idle: NAV_IDLE };
+
+// A menu icon: Phosphor's outline, filled on a marked row. Its colour is the row's text colour.
+function NavIcon({ icon: I, filled }: { icon: Icon; filled: boolean }) {
+  return <I size={20} weight={filled ? "fill" : "regular"} aria-hidden className="shrink-0" />;
+}
+
+// The rows are buttons, so the menu works from the keyboard too; the ring shows for the keyboard only.
+const FOCUS = "outline-none focus-visible:ring-2 focus-visible:ring-indigo-500";
+
+// The row of a menu item: a 40px square tile in the folded menu, a full-width row otherwise.
+const navRow = (collapsed: boolean) =>
+  `flex items-center rounded-xl text-[14px] cursor-pointer transition-all duration-150 ${FOCUS} ${
+    collapsed ? "justify-center w-10 h-10 mx-auto mb-1" : "w-full text-left gap-3 px-4 py-3 mb-0.5"
+  }`;
+
 const EXPANDED_WIDTH = 260;
 const COLLAPSED_WIDTH = 64;
 
 // Whether `pathname` is the page at `path` or anything below it.
 const isUnder = (pathname: string, path: string) => pathname === path || pathname.startsWith(path + "/");
 
+// Whether a submenu item is lit at `pathname`: its page, or one of the addresses it stays lit under.
+const childOwns = (child: NavChild, pathname: string) => [child.path, ...(child.alsoActiveUnder ?? [])].some((path) => isUnder(pathname, path));
+
+/**
+ * Whether the page at `pathname` belongs to a menu item: its own address or anything below it, or
+ * for a group one of its submenu's pages, which may have addresses of their own (Finance's).
+ */
+export const navItemOwns = (item: Pick<NavItem, "path" | "children">, pathname: string): boolean =>
+  isUnder(pathname, item.path) || (item.children ?? []).some((c) => childOwns(c, pathname));
+
+/**
+ * The submenu item lit at `pathname`: the most specific one holding it, so Managers wins over the
+ * concept's Overview, whose address is above it. None when no item holds the page.
+ */
+export function navActiveChild<T extends NavChild>(children: T[], pathname: string): T | undefined {
+  let lit: T | undefined;
+  let depth = -1;
+  for (const c of children) {
+    for (const path of [c.path, ...(c.alsoActiveUnder ?? [])]) {
+      if (isUnder(pathname, path) && path.length > depth) {
+        lit = c;
+        depth = path.length;
+      }
+    }
+  }
+  return lit;
+}
+
+/** The group holding the page at `pathname`, if any. */
+export const navGroupHolding = (items: NavItem[], pathname: string): string | null =>
+  items.find((i) => i.children && navItemOwns(i, pathname))?.path ?? null;
+
+/** The menu's groups: the one unfolded (at most one), and the one you last clicked. */
+export interface NavGroups {
+  open: string | null;
+  selected: string | null;
+}
+
+/** What changes the menu's groups. */
+export type NavGroupEvent =
+  // A click on a group.
+  | { type: "toggle"; group: string }
+  // A click on any other item, or on the logo.
+  | { type: "leaf" }
+  // A page reached by any route: a click here, a link elsewhere, Back.
+  | { type: "arrive"; holding: string | null };
+
+/**
+ * The groups after an event. A click on a group unfolds it and folds any other, or folds it when it
+ * is the unfolded one; either way that group is the one you are on until you pick a page, so folding
+ * it again never hands the mark back to the page you came from. A click on any other item folds
+ * the group, and arriving on a page leaves unfolded only the group holding that page.
+ */
+export function nextNavGroups(groups: NavGroups, event: NavGroupEvent): NavGroups {
+  switch (event.type) {
+    case "toggle":
+      return { open: groups.open === event.group ? null : event.group, selected: event.group };
+    case "leaf":
+      return { open: null, selected: null };
+    case "arrive":
+      return { open: event.holding, selected: null };
+  }
+}
+
+/**
+ * How the unfolded menu marks where you are. One place only is marked "here": the page you are on,
+ * or the section you just clicked while its page is on its way. A section on its own page is
+ * marked itself; on one of its pages it is tinted while that page shows under it, and marked
+ * itself when folded over it.
+ */
+export function navLooks({ open, selected }: NavGroups, holding: string | null) {
+  const picking = selected !== null && selected !== holding;
+  return {
+    item: (isPage: boolean): NavLook => (isPage && !picking ? "active" : "idle"),
+    group: (path: string, holdsPage: boolean, ownPage = false): NavLook => {
+      if (picking) return path === selected ? "active" : "idle";
+      if (holdsPage) return !ownPage && path === open ? "lit" : "active";
+      return "idle";
+    },
+  };
+}
+
 /**
  * What `user`'s menu calls the page at `pathname`: its submenu item when it has one, otherwise its
  * item. The item `user` sees comes first (an admin's Warehouse Managers, a superadmin's Managers
- * under Warehouse Concept); a page their menu does not list takes the name it has in anyone's.
+ * under Warehouse Concept); a page their menu does not list takes the name it has in anyone's. A
+ * group's own page keeps the group's name, not "Overview".
  */
 export function navLabelOf(pathname: string, user: { role: string } | null): string | null {
   const path = pathname.replace(/\/$/, "");
-  const owns = (i: NavItem) => isUnder(path, i.path);
+  const owns = (i: NavItem) => navItemOwns(i, path);
   const item = visibleNavItems(user).find(owns) ?? NAV_ITEMS.find(owns);
-  return item?.children?.find((c) => isUnder(path, c.path))?.label ?? item?.label ?? null;
+  return item?.children?.find((c) => c.path !== item.path && isUnder(path, c.path))?.label ?? item?.label ?? null;
 }
 
 export function AppSidebar() {
@@ -127,120 +250,162 @@ export function AppSidebar() {
   const { collapsed, toggle } = useSidebarState();
   const { user } = useAuth();
   const { canManageSales } = useSalesPermissions();
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
-
-  const isChildActive = (child: NavChild) => [child.path, ...(child.alsoActiveUnder ?? [])].some((path) => isUnder(pathname, path));
 
   // Hide role-restricted items the current user can't access.
   const navItems = NAV_ITEMS.filter((item) => navItemVisible(item, user));
+  const holding = navGroupHolding(navItems, pathname);
 
-  // Auto-expand the group that owns the current route.
-  useEffect(() => {
-    for (const item of NAV_ITEMS) {
-      if (item.children && isUnder(pathname, item.path)) {
-        setOpenGroups((g) => (g[item.path] ? g : { ...g, [item.path]: true }));
-      }
-    }
-  }, [pathname]);
+  // The unfolded group and the one you last clicked (nextNavGroups). Arriving on a page resets them
+  // while rendering, so no frame shows the group of the page you left.
+  const [groups, setGroups] = useState<NavGroups>({ open: holding, selected: null });
+  const arrival = `${user?.role ?? ""} ${pathname}`;
+  const [arrivedAt, setArrivedAt] = useState(arrival);
+  // The folded menu: the group whose flyout is open. Folding or unfolding the menu closes it, or it
+  // would open by itself the next time the menu is folded.
+  const [flyout, setFlyout] = useState<string | null>(null);
+  const [flyoutMenu, setFlyoutMenu] = useState(collapsed);
+  if (arrivedAt !== arrival) {
+    setArrivedAt(arrival);
+    setGroups(nextNavGroups(groups, { type: "arrive", holding }));
+    setFlyout(null);
+  }
+  if (flyoutMenu !== collapsed) {
+    setFlyoutMenu(collapsed);
+    setFlyout(null);
+  }
+
+  const fold = (event: NavGroupEvent) => setGroups((g) => nextNavGroups(g, event));
+  // Another page than a group's: the group you had unfolded folds, even when the page is this one.
+  const goTo = (path: string) => {
+    fold({ type: "leaf" });
+    router.push(path);
+  };
+  const looks = navLooks(groups, holding);
 
   const width = collapsed ? COLLAPSED_WIDTH : EXPANDED_WIDTH;
 
   const renderLeaf = (item: NavItem) => {
-    const isActive = isUnder(pathname, item.path);
-    const navItem = (
-      <div
-        onClick={() => router.push(item.path)}
-        className={`flex items-center gap-3 rounded-xl text-[14px] cursor-pointer mb-0.5 transition-all duration-150 ${
-          collapsed ? "justify-center px-2 py-3" : "px-4 py-3"
-        } ${isActive ? "bg-indigo-600 text-white font-medium" : "text-slate-500 hover:text-slate-900 hover:bg-slate-100"}`}
+    const isPage = isUnder(pathname, item.path);
+    // The folded menu unfolds no group: the page is the one marked there.
+    const look: NavLook = collapsed ? (isPage ? "active" : "idle") : looks.item(isPage);
+    const row = (
+      <button
+        type="button"
+        onClick={() => goTo(item.path)}
+        // Folded, the tile shows only the icon, which is hidden from screen readers: the tile is named.
+        aria-label={collapsed ? item.label : undefined}
+        aria-current={isPage ? "page" : undefined}
+        className={`${navRow(collapsed)} ${LOOK_CLASS[look]}`}
       >
-        <span className="text-base shrink-0">{item.icon}</span>
+        <NavIcon icon={item.icon} filled={look !== "idle"} />
         {!collapsed && <span className="whitespace-nowrap overflow-hidden">{item.label}</span>}
-      </div>
+      </button>
     );
     return collapsed ? (
       <Tooltip key={item.path} title={item.label} placement="right">
-        {navItem}
+        {row}
       </Tooltip>
     ) : (
-      <div key={item.path}>{navItem}</div>
+      <div key={item.path}>{row}</div>
     );
   };
 
   const renderGroup = (item: NavItem) => {
     const children = (item.children ?? []).filter((c) => !c.managersOnly || canManageSales);
-    const groupActive = isUnder(pathname, item.path);
-    const open = !!openGroups[item.path];
-    const onOwnPage = pathname === item.path;
-    const openOwnPage = () => router.push(item.home ?? item.path);
-    const toggleGroup = () => setOpenGroups((g) => ({ ...g, [item.path]: !g[item.path] }));
+    const holdsPage = navItemOwns(item, pathname);
+    const current = navActiveChild(children, pathname);
+    // The section's own page, or one of its pages its menu doesn't list (the concept's Gate Log).
+    const ownPage = holdsPage && !current;
+    // From outside the section, a click opens the section's own page, its menu unfolding; inside
+    // it, the click only folds or unfolds the menu, and you stay on your page.
+    const openSection = () => {
+      fold({ type: "toggle", group: item.path });
+      if (!holdsPage) router.push(item.path);
+    };
 
-    // Collapsed: submenu shown as a right-side flyout.
+    // Folded menu: the tile shows its pages as a flyout to the right of the rail, on hover, and a
+    // click opens the section's page (from inside the section, the flyout). Beside the rail, not
+    // below the tile, so it never covers the tiles under it and a click meant for one of them can't
+    // land in it. The tile holding the page is marked; one being picked from is tinted.
     if (collapsed) {
+      const picking = flyout === item.path;
+      const look: NavLook = holdsPage ? "active" : picking ? "lit" : "idle";
       return (
         <Dropdown
           key={item.path}
-          placement="bottomRight"
-          trigger={["click", "hover"]}
+          // Its top left corner by the tile's top right one, past the rail's edge; moved up or
+          // left when it would leave the window.
+          align={{ points: ["tl", "tr"], offset: [20, 0], overflow: { adjustX: true, adjustY: true } }}
+          trigger={["hover"]}
+          // Time to cross the gap from the tile to the flyout.
+          mouseLeaveDelay={0.2}
+          open={picking}
+          onOpenChange={(isOpen) => setFlyout((f) => (isOpen ? item.path : f === item.path ? null : f))}
           menu={{
             items: children.flatMap((c) => [
               ...(c.divided ? [{ type: "divider" as const }] : []),
-              { key: c.path, label: c.label, onClick: () => router.push(c.path) },
+              { key: c.path, label: c === current ? <span className="font-semibold">{c.label}</span> : c.label, onClick: () => router.push(c.path) },
             ]),
-            selectedKeys: children.filter(isChildActive).map((c) => c.path),
+            selectedKeys: current ? [current.path] : [],
           }}
         >
-          <div
-            onClick={openOwnPage}
-            className={`flex items-center justify-center px-2 py-3 rounded-xl text-[14px] cursor-pointer mb-0.5 transition-all duration-150 ${
-              groupActive ? "bg-indigo-600 text-white font-medium" : "text-slate-500 hover:text-slate-900 hover:bg-slate-100"
-            }`}
+          <button
+            type="button"
+            onClick={() => (holdsPage ? setFlyout(item.path) : router.push(item.path))}
+            aria-label={item.label}
+            aria-haspopup="menu"
+            aria-expanded={picking}
+            className={`${navRow(true)} ${LOOK_CLASS[look]}`}
           >
-            <span className="text-base shrink-0">{item.icon}</span>
-          </div>
+            <NavIcon icon={item.icon} filled={look !== "idle"} />
+          </button>
         </Dropdown>
       );
     }
 
+    const isOpen = groups.open === item.path;
+    const look = looks.group(item.path, holdsPage, ownPage);
     return (
       <div key={item.path}>
-        <div
-          onClick={() => {
-            setOpenGroups((g) => ({ ...g, [item.path]: true }));
-            openOwnPage();
-          }}
-          className={`flex items-center gap-3 rounded-xl text-[14px] cursor-pointer mb-0.5 px-4 py-3 transition-all duration-150 ${
-            onOwnPage
-              ? "bg-indigo-600 text-white font-medium"
-              : groupActive && !open
-                ? "text-indigo-600 font-medium bg-indigo-50"
-                : "text-slate-500 hover:text-slate-900 hover:bg-slate-100"
-          }`}
+        <button
+          type="button"
+          onClick={openSection}
+          aria-expanded={isOpen}
+          className={`${navRow(false)} ${LOOK_CLASS[look]}`}
         >
-          <span className="text-base shrink-0">{item.icon}</span>
+          <NavIcon icon={item.icon} filled={look !== "idle"} />
           <span className="whitespace-nowrap overflow-hidden flex-1">{item.label}</span>
-          <DownOutlined
-            onClick={(e) => { e.stopPropagation(); toggleGroup(); }}
-            className={`text-[10px] transition-transform duration-150 p-1.5 -m-1.5 ${open ? "" : "-rotate-90"}`}
-          />
-        </div>
-        {open && (
-          <div className="ml-4 pl-3 border-l border-slate-100 mb-1 space-y-0.5">
-            {children.map((c) => (
-              <Fragment key={c.path}>
-                {c.divided && <div role="separator" className="h-px mx-3 my-1 bg-slate-100" />}
-                <div
-                  onClick={() => router.push(c.path)}
-                  className={`px-3 py-2 rounded-lg text-[13px] cursor-pointer transition-all duration-150 ${
-                    isChildActive(c) ? "bg-indigo-600 text-white font-medium" : "text-slate-500 hover:text-slate-900 hover:bg-slate-100"
-                  }`}
-                >
-                  {c.label}
-                </div>
-              </Fragment>
-            ))}
+          <CaretDownIcon size={12} weight="bold" aria-hidden className={`shrink-0 transition-transform duration-150 ${isOpen ? "" : "-rotate-90"}`} />
+        </button>
+        {/* The pages slide open and shut (the grid row grows from 0 to its height), so the rows
+            below move rather than jump; folded, they are out of reach of the mouse and the keyboard. */}
+        <div
+          className={`grid transition-[grid-template-rows] duration-200 ease-out ${isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}
+          inert={!isOpen}
+        >
+          <div className="min-h-0 overflow-hidden">
+            <div className="ml-4 pl-3 border-l border-slate-100 mb-1 space-y-0.5">
+              {children.map((c) => {
+                const isPage = c === current;
+                return (
+                  <Fragment key={c.path}>
+                    {c.divided && <div role="separator" className="h-px mx-3 my-1 bg-slate-100" />}
+                    <button
+                      type="button"
+                      onClick={() => router.push(c.path)}
+                      aria-current={isPage ? "page" : undefined}
+                      className={`block w-full text-left px-3 py-2 rounded-lg text-[13px] cursor-pointer transition-all duration-150 ${FOCUS} ${
+                        looks.item(isPage) === "active" ? NAV_ACTIVE : NAV_CHILD_IDLE
+                      }`}
+                    >
+                      {c.label}
+                    </button>
+                  </Fragment>
+                );
+              })}
+            </div>
           </div>
-        )}
+        </div>
       </div>
     );
   };
@@ -259,7 +424,7 @@ export function AppSidebar() {
         {collapsed ? (
           <>
             <div
-              onClick={() => router.push("/dashboard")}
+              onClick={() => goTo("/dashboard")}
               className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold text-[11px] shrink-0 cursor-pointer"
             >
               ST
@@ -269,12 +434,12 @@ export function AppSidebar() {
               aria-label="Expand sidebar"
               className={ICON_BTN_GHOST}
             >
-              <RightOutlined className="text-[11px]" />
+              <CaretRightIcon size={14} weight="bold" aria-hidden />
             </button>
           </>
         ) : (
           <>
-            <div className="flex items-center gap-2 cursor-pointer min-w-0 flex-1" onClick={() => router.push("/dashboard")}>
+            <div className="flex items-center gap-2 cursor-pointer min-w-0 flex-1" onClick={() => goTo("/dashboard")}>
               <div className="w-9 h-9 bg-indigo-600 rounded-xl flex items-center justify-center text-white font-bold text-[12px] shrink-0">ST</div>
               <div className="overflow-hidden">
                 <div className="text-[14px] font-semibold text-slate-900 whitespace-nowrap">Shipment Tracker</div>
@@ -285,7 +450,7 @@ export function AppSidebar() {
               className={ICON_BTN_GHOST}
               aria-label="Collapse sidebar"
             >
-              <LeftOutlined className="text-xs" />
+              <CaretLeftIcon size={14} weight="bold" aria-hidden />
             </button>
           </>
         )}

@@ -1,7 +1,9 @@
-import { redirect } from "next/navigation";
-import { SALES_PAGES } from "./_lib/tabs";
+import type { Metadata } from "next";
+import { SectionOverview } from "@/components/SectionOverview";
 
-// "Sales" in the sidebar opens the Quotes list: that is where the work starts.
-export default function SalesRedirectPage() {
-  redirect(SALES_PAGES.quotes.path);
+export const metadata: Metadata = { title: "Sales" };
+
+// Sales' own page: what "Sales" in the sidebar opens, its pages to pick from.
+export default function SalesOverviewPage() {
+  return <SectionOverview path="/sales" />;
 }

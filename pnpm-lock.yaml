@@ -101,6 +101,9 @@ importers:
       '@dnd-kit/utilities':
         specifier: ^3.2.2
         version: 3.2.2(react@19.2.6)
+      '@phosphor-icons/react':
+        specifier: 2.1.10
+        version: 2.1.10(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@tanstack/react-query':
         specifier: ^5.60.0
         version: 5.100.10(react@19.2.6)
@@ -1392,6 +1395,13 @@ packages:
 
   '@pdf-lib/upng@1.0.1':
     resolution: {integrity: sha512-dQK2FUMQtowVP00mtIksrlZhdFXQZPC+taih1q4CvPZ5vqdxR/LKBaFg0oAfzd1GlHZXXSPdQfzQnt+ViGvEIQ==}
+
+  '@phosphor-icons/react@2.1.10':
+    resolution: {integrity: sha512-vt8Tvq8GLjheAZZYa+YG/pW7HDbov8El/MANW8pOAz4eGxrwhnbfrQZq0Cp4q8zBEu8NIhHdnr+r8thnfRSNYA==}
+    engines: {node: '>=10'}
+    peerDependencies:
+      react: '>= 16.8'
+      react-dom: '>= 16.8'
 
   '@rc-component/async-validator@5.1.0':
     resolution: {integrity: sha512-n4HcR5siNUXRX23nDizbZBQPO0ZM/5oTtmKZ6/eqL0L2bo747cklFdZGRN2f+c9qWGICwDzrhW0H7tE9PptdcA==}
@@ -5233,6 +5243,11 @@ snapshots:
   '@pdf-lib/upng@1.0.1':
     dependencies:
       pako: 1.0.11
+
+  '@phosphor-icons/react@2.1.10(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
+    dependencies:
+      react: 19.2.6
+      react-dom: 19.2.6(react@19.2.6)
 
   '@rc-component/async-validator@5.1.0':
     dependencies:

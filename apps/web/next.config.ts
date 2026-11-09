@@ -38,6 +38,11 @@ const csp = [
 
 const nextConfig: NextConfig = {
   trailingSlash: true,
+  experimental: {
+    // Phosphor ships each of its icons as a module of its own: only the icons the app imports are
+    // compiled and bundled, not the whole set (Next.js does this for antd's icons by itself).
+    optimizePackageImports: ["@phosphor-icons/react"],
+  },
   async headers() {
     return [
       {

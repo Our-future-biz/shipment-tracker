@@ -1,7 +1,9 @@
-import { redirect } from "next/navigation";
-import { TARIFF_PAGES } from "./_lib/tariffPages";
+import type { Metadata } from "next";
+import { SectionOverview } from "@/components/SectionOverview";
 
-// "Tariffs" in the sidebar opens its first section: the module has no overview page yet.
-export default function TariffsRedirectPage() {
-  redirect(TARIFF_PAGES.railOperators.path);
+export const metadata: Metadata = { title: "Tariffs" };
+
+// Tariffs' own page: what "Tariffs" in the sidebar opens, its sections to pick from.
+export default function TariffsOverviewPage() {
+  return <SectionOverview path="/tariffs" />;
 }
