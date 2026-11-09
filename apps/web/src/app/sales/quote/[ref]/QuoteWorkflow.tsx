@@ -92,7 +92,7 @@ import { buyingBasis, buyingQuantity, counterpartIndex, lineRemovals, newPairId,
 import { CostLinesEditor } from "./_components/CostLinesEditor";
 import { FclPricingEditor } from "./_components/FclPricingEditor";
 import { FclTruckingBlock } from "./_components/FclTruckingBlock";
-import { fclChanges, fclProfitBlock, usesFclPricing, withFclPricing } from "../../_lib/fclPricing";
+import { fclChanges, fclProfitBlock, usesFclPricing, withContainerTypes, withFclPricing } from "../../_lib/fclPricing";
 import { templateTerms, termsDifferFromTemplate } from "../../_lib/shippingTerms";
 import { linesForOtherDirection, linesToRecheck, otherDirectionBlock, rechecked, stampDirection, stampPricedFor, withPricedForNow } from "../../_lib/tariffRecheck";
 import { isOfferOfUpdate, linesWaitingForRate, roadForToday, tariffUpdateChange, tariffUpdateSelling, waitingTariffUpdates } from "../../_lib/tariffUpdates";
@@ -347,9 +347,12 @@ export function QuoteWorkflow() {
   // the cargo has it, then the lines priced by their basis.
   // A Sea FCL quote's selling lines are then made from its buying lines and profit (fclPricing.ts) -
   // only once today's rates are known, as they convert each charge's profit into its currency.
-  const derived = (next: SalesQuoteData): Partial<SalesQuoteData> => {
+  const derived = (changed: SalesQuoteData): Partial<SalesQuoteData> => {
+    // Rates per container stay with their size, whatever is added to the cargo.
+    const sized = withContainerTypes(changed) ?? {};
+    const next = { ...changed, ...sized };
     const overweight = withOverweight(next) ?? {};
-    const based = { ...overweight, ...withLineBasis({ ...next, ...overweight }) };
+    const based = { ...sized, ...overweight, ...withLineBasis({ ...next, ...overweight }) };
     const priced = { ...next, ...based };
     // An open quote's blocks are sold at full fives (fclPricing.ts SELLING_ROUNDS_TO).
     const fcl = usesFclPricing(priced, false) ? withFclPricing(priced, exchange.rates, exchange, { roundUp: true, open: true }) : null;

@@ -107,7 +107,7 @@ describe("railDescription", () => {
 });
 
 describe("withRailOffer", () => {
-  it("prices a line per container when every container costs the same, with the operator as supplier", () => {
+  it("prices the line per container of its size, with the operator as supplier", () => {
     const pick = withRailOffer([haulage], 0, offer(), "DEHAM", "import", QUOTE);
     expect(pick).toMatchObject({ at: 0, count: 1, removed: [] });
     expect(pick.lines[0]).toMatchObject({
@@ -117,6 +117,7 @@ describe("withRailOffer", () => {
       supplierCustomerId: "metrans",
       currency: "EUR",
       basis: "container",
+      containerType: "20' DC",
       unitPrice: 905,
       qty: 2,
       amount: 1810,

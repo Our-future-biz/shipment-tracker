@@ -95,6 +95,35 @@ export function blockKeyOf(line: CostLine, types: readonly string[]): string {
   return types.length === 1 ? types[0]! : ALL_CONTAINERS;
 }
 
+// The container type a line charged per container but saved without one is for: the quote's only
+// type, or the only one its tariff priced it for. "" when that can't be told.
+function ownContainerType(line: CostLine, types: readonly string[]): string {
+  if (line.basis !== "container" || line.containerType || !priceable(line)) return "";
+  if (types.length === 1) return types[0]!;
+  const priced = (line.pricedFor ?? "").split(", ").map((box) => /^(.+) \d+(?:\.\d+)? kg$/.exec(box)?.[1]);
+  return priced.length === 1 && priced[0] && types.includes(priced[0]) ? priced[0] : "";
+}
+
+/**
+ * A rate per container is the rate of one size: the lines saved without their container type get
+ * it, so they stay in that type's block when another type is added to the cargo, and count only
+ * its containers. Null when no line needs it.
+ */
+export function withContainerTypes(data: SalesQuoteData): Pick<SalesQuoteData, "buyingLines" | "sellingLines"> | null {
+  if (!isContainerQuote(data)) return null;
+  const types = quoteTypes(data);
+  let changed = false;
+  const typed = (lines: CostLine[] | undefined) =>
+    lines?.map((line) => {
+      const type = ownContainerType(line, types);
+      if (!type) return line;
+      changed = true;
+      return { ...line, containerType: type };
+    });
+  const result = { buyingLines: typed(data.buyingLines), sellingLines: typed(data.sellingLines) };
+  return changed ? result : null;
+}
+
 /** The blocks of a quote: one per container type of its cargo, then any its lines have besides, then the charges per shipment. */
 export function fclBlocks(data: SalesQuoteData): FclBlock[] {
   const types = quoteTypes(data);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { fclBlocks, fclChanges, fclLines, fclOfferRows, fclProfitBlock, isInAllIn, priceFclBlock, usesFclPricing, withFclPricing } from "./fclPricing";
-import { computeTotals, convertLine } from "./salesQuote";
+import { fclBlocks, fclChanges, fclLines, fclOfferRows, fclProfitBlock, isInAllIn, priceFclBlock, usesFclPricing, withContainerTypes, withFclPricing } from "./fclPricing";
+import { basisUnits, computeTotals, convertLine } from "./salesQuote";
 import type { CostLine, SalesQuoteData } from "./types";
 
 // CZK per 1 unit.
@@ -118,6 +118,43 @@ describe("a block's profit", () => {
     expect(profits(data, "20' DC")).toEqual([50, 0, 0, 125]);
   });
 
+});
+
+describe("a rate per container stays with its size", () => {
+  const untyped = { type: "Inland container haulage", chargeCode: "inland_haulage", description: "Rail", currency: "EUR", basis: "container" as const, unitPrice: 560, amount: 1120, tariffRef: "rail:v1:r1" };
+  const one = [{ qty: 2, type: "20' DC" }];
+  const two = [...one, { qty: 1, type: "40' DC" }];
+
+  it("gives a line saved without a type the quote's only type, buying and selling", () => {
+    const out = withContainerTypes({ serviceType: "Sea FCL", containers: one, buyingLines: [untyped], sellingLines: [untyped] })!;
+    expect(out.buyingLines![0]!.containerType).toBe("20' DC");
+    expect(out.sellingLines![0]!.containerType).toBe("20' DC");
+  });
+
+  it("stays in that type's block when another type is added, counting only its containers", () => {
+    const typed = withContainerTypes({ serviceType: "Sea FCL", containers: one, buyingLines: [untyped] })!;
+    const data: SalesQuoteData = { serviceType: "Sea FCL", currency: "EUR", containers: two, ...typed };
+    expect(fclBlocks(data).map((b) => [b.key, b.lines])).toEqual([["20' DC", [0]], ["40' DC", []], ["", []]]);
+    expect(basisUnits(data, "container", typed.buyingLines![0]!.containerType)).toBe(2);
+  });
+
+  it("puts a line already moved to All containers back by the size its tariff priced", () => {
+    const moved = { ...untyped, pricedFor: "20' DC 12000 kg" };
+    expect(withContainerTypes({ serviceType: "Sea FCL", containers: two, buyingLines: [moved] })!.buyingLines![0]!.containerType).toBe("20' DC");
+  });
+
+  it("does not guess: several sizes priced, a size no longer on the quote, or nothing to go by", () => {
+    for (const pricedFor of ["20' DC 0 kg, 40' DC 0 kg", "45' HC 0 kg", undefined]) {
+      expect(withContainerTypes({ serviceType: "Sea FCL", containers: two, buyingLines: [{ ...untyped, pricedFor }] })).toBeNull();
+    }
+  });
+
+  it("leaves typed lines, lump sums, trucking lines and other freight modes alone", () => {
+    expect(withContainerTypes({ serviceType: "Sea FCL", containers: one, buyingLines: [{ ...untyped, containerType: "40' DC" }] })).toBeNull();
+    expect(withContainerTypes({ serviceType: "Sea FCL", containers: one, buyingLines: [{ ...untyped, basis: "lumpsum" }] })).toBeNull();
+    expect(withContainerTypes({ serviceType: "Sea FCL", containers: one, buyingLines: [{ ...untyped, tariffRef: "trucking:v1:std" }] })).toBeNull();
+    expect(withContainerTypes({ serviceType: "Sea LCL", containers: one, buyingLines: [untyped] })).toBeNull();
+  });
 });
 
 describe("a profit per charge", () => {
