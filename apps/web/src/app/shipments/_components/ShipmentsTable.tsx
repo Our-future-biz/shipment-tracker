@@ -25,7 +25,7 @@ import {
 import { getFieldValue, buildRowData, useShipmentMutations, type ShipmentItem } from "@/hooks/useShipments";
 import { ListCapNotice } from "@/components/ListCapNotice";
 import Link from "next/link";
-import { canChangeShipmentDetails, canChangeShipmentField, isApprovedByLocked, isCreditCheckLocked } from "@/lib/shipmentEditRule";
+import { canChangeShipmentDetails, canChangeShipmentField, isApprovedByLocked, isCreditCheckLocked, SALES_REFERENCE_LOCKED_HINT, salesReferenceLocked } from "@/lib/shipmentEditRule";
 import { CUSTOMS_PROCEDURE_LOCKED_HINT, customsProcedureLocked } from "@/lib/customsOffices";
 import { COLUMNS, COLUMN_MAP, getCellConditionalStyle, getFilteredStatusOptions, getRowConditionalStyle, getShipmentUrgency, isFixedColumn, type CellStyle } from "@/lib/columnConfig";
 import { useAuth, useCanChangeCustomsOffice } from "@/lib/auth/AuthContext";
@@ -592,6 +592,14 @@ export const ShipmentsTable = ({
         if (col.key === "customsProcedure" && customsProcedureLocked(record.customsProcedure, record.customsOffice, canChangeOffice)) {
           return (
             <span className="text-slate-700" style={textStyle} title={CUSTOMS_PROCEDURE_LOCKED_HINT}>
+              {val}
+            </span>
+          );
+        }
+        // An invoiced shipment keeps the offer it was invoiced from (the server refuses a change too).
+        if (col.key === "salesNumber" && salesReferenceLocked(record.invoicingStatus)) {
+          return (
+            <span className="text-slate-700" style={textStyle} title={SALES_REFERENCE_LOCKED_HINT}>
               {val}
             </span>
           );

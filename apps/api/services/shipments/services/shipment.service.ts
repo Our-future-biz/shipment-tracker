@@ -52,13 +52,13 @@ import { isUuid } from "../../../lib/uuid";
 import { publicFields } from "../lib/rows";
 import { changesTaxDate } from "../lib/taxDate";
 import { customsOfficeForProcedure, customsOfficeLockRefusal, customsOfficeRefusal } from "../lib/customsOffice";
-import { approvedByLockRefusal, creditCheckLockRefusal, DETAILS_REFUSAL, isDetailsManager, isOpenToPerson, touchesDetails } from "../lib/shipmentEditRule";
+import { approvedByLockRefusal, creditCheckLockRefusal, DETAILS_REFUSAL, SALES_REFERENCE_INVOICED, isDetailsManager, isOpenToPerson, touchesDetails } from "../lib/shipmentEditRule";
 import { dangerousFromAdr, normalizeCargoDimensions, normalizeStops } from "../lib/roadFreight";
 import { detailRowChanges, type DetailRowLists } from "../lib/detailRowsAudit";
 import { partyContact, partyStop, stopKeys, type Party } from "../lib/partyAddress";
 import { CONSIGNEE_CONTACT, CUSTOMER_PIC, SHIPPER_CONTACT, linkContact, type ContactMode } from "../lib/contactLinks";
 import { shipmentDeleted, shipmentPartiesChanged } from "../topics";
-import { jobNumberFor, referenceIsFinal } from "../lib/jobNumber";
+import { INVOICED_STATUS, jobNumberFor, referenceIsFinal } from "../lib/jobNumber";
 import { jobNumberDigits } from "../../../lib/jobNumber";
 import { companyUsers, matchUser, requireUserEmail, userEmailOf, type CompanyUser } from "../../../lib/companyUsers";
 import { PERSON_FIELDS, planPeopleNormalize, requireApprovedBy } from "../lib/people";
@@ -1214,6 +1214,7 @@ class ShipmentService {
     const previousSalesNumber = existing.salesNumber.trim();
     const nextSalesNumber = shipmentData.salesNumber;
     const salesNumberChanged = nextSalesNumber !== undefined && nextSalesNumber !== previousSalesNumber;
+    if (salesNumberChanged && existing.invoicingStatus === INVOICED_STATUS) throw APIError.failedPrecondition(SALES_REFERENCE_INVOICED);
     if (salesNumberChanged && nextSalesNumber) {
       const quote = await this.linkableQuoteOwner(nextSalesNumber);
       const owner = quote && !("salesPerson" in shipmentData) ? await this.quoteOwnerEmail(quote, users) : "";
@@ -1341,7 +1342,8 @@ class ShipmentService {
     const previous = from.trim();
     const next = to.trim();
     if (!previous || !next || previous === next) return [];
-    const naming = await shipmentRepository.liveBySalesNumber(companyId, previous);
+    // An invoiced shipment stays with the offer it was invoiced from.
+    const naming = (await shipmentRepository.liveBySalesNumber(companyId, previous)).filter((shipment) => shipment.invoicingStatus !== INVOICED_STATUS);
     for (const shipment of naming) {
       await shipmentAuditRepository.create({ companyId, shipmentId: shipment.id, userId, field: "salesNumber", oldValue: previous, newValue: next });
       await shipmentRepository.updateForCompany(shipment.id, companyId, { salesNumber: next });

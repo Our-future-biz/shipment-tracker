@@ -34,7 +34,7 @@ import { useShipment } from "@/hooks/useShipment";
 import { NOT_STACKABLE, STACKABLE_OPTIONS, shipmentStackability, withShipmentStackability } from "@/lib/cargo";
 import { useInvoicing } from "@/hooks/useInvoicing";
 import { useAuth, useCanDeleteShipments } from "@/lib/auth/AuthContext";
-import { canChangeShipmentDetails, isApprovedByLocked, isCreditCheckLocked } from "@/lib/shipmentEditRule";
+import { canChangeShipmentDetails, isApprovedByLocked, isCreditCheckLocked, salesReferenceLocked } from "@/lib/shipmentEditRule";
 import { useShipmentMutations, getFieldValue, buildRowData, type ShipmentItem } from "@/hooks/useShipments";
 import { getCellConditionalStyle, getRowConditionalStyle } from "@/lib/columnConfig";
 import { businessToday, formatDate } from "@/lib/date";
@@ -1356,7 +1356,8 @@ export function ShipmentDetailContent() {
                     { key: "loadType", label: "Load Type" },
                     { key: "serviceType", label: "Service Type" },
                     { key: "customerReference", label: "Customer Reference" },
-                    { key: "salesNumber", label: "Sales Reference" },
+                    // An invoiced shipment keeps the offer it was invoiced from (the server refuses a change too).
+                    { key: "salesNumber", label: "Sales Reference", ro: salesReferenceLocked(shipment.invoicingStatus) },
                     { key: "serviceName", label: "Service Name" },
                     { key: "customer", label: "Customer", ro: true },
                     // Picked from the customer's contacts (the contact cell), with its card on hover.

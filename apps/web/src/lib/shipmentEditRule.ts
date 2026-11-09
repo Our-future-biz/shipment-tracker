@@ -6,6 +6,10 @@
 
 const MANAGER_ROLES = ["superadmin", "admin", "manager"];
 
+/** An invoiced shipment keeps the offer it was invoiced from, until the invoice is credited. */
+export const salesReferenceLocked = (invoicingStatus: string | null | undefined): boolean => invoicingStatus === "Invoiced";
+export const SALES_REFERENCE_LOCKED_HINT = "This shipment is invoiced: its Sales Reference can't be changed";
+
 /** Whether a role is a manager's, who may do what a regular user may not. */
 export const isDetailsManager = (role: string): boolean => MANAGER_ROLES.includes(role);
 
