@@ -49,6 +49,9 @@ const CUSTOMS_LEFT = [
   { key: "totalVolumeCbm", label: "Total Volume In CBM", ro: true },
   { key: "cargoDescription", label: "Cargo Description", ro: true },
   { key: "hsCode", label: "HS Code", ro: true },
+  // The goods' country of origin, which customs declares: the shipment's own field, edited here as
+  // in the Cargo & Commercial card (a country picker), by whoever may change it there.
+  { key: "cargoOrigin", label: "Cargo Origin" },
 ];
 
 // Left out of the card in the Customs section: Container Number is a link there instead
@@ -92,8 +95,8 @@ const CUSTOMS_RIGHT = [
   { key: "containerNumber", label: "Container Number", ro: true },
   { key: "sealNumber", label: "Seal Number", ro: true },
   { key: "containerTypeSummary", label: "Container Type", ro: true },
-  { key: "commercialInvoice", label: "Commercial Invoice number(s)" },
-  { key: "commercialInvoiceValue", label: "Commercial Invoice(s) Value", ro: true },
+  { key: "commercialInvoice", label: "Invoice Number(s)" },
+  { key: "commercialInvoiceValue", label: "Invoice Value", ro: true },
 ];
 
 // Columns of the documents table. The layout is fixed, so a long file name or reviewer
@@ -290,7 +293,7 @@ export function CustomsTab({
   const filePreview = useFilePreview();
   const [search, setSearch] = useState("");
   const { updateShipment } = useShipmentMutations();
-  // Commercial Invoice(s) Value is the total of the cargo lines per currency whenever they
+  // Invoice Value is the total of the cargo lines per currency whenever they
   // carry values; the shipment's own field is only the fallback.
   const cardShipment = useMemo(
     () => (shipment.civByCurrency ? { ...shipment, commercialInvoiceValue: shipment.civByCurrency } : shipment),
@@ -304,7 +307,7 @@ export function CustomsTab({
   const paperworkIn = !PAPERWORK_STATUSES.includes(shipment.customsStatus);
   // The status is drawn by its own row: LockedStatusRow while it follows the paperwork (same
   // colours, no editing), ManualStatusRow with only the allowed steps after that.
-  // In the shipment's own Customs tab Commercial Invoice(s) Value closes the left column, so
+  // In the shipment's own Customs tab Invoice Value closes the left column, so
   // both columns have the same number of rows. The Customs section's card is already even
   // (Principal Party on the left, two container rows fewer on the right), so it keeps the value on the right.
   const civOnLeft = !canReview;

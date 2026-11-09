@@ -55,8 +55,8 @@ const DATE_LABELS = {
 const ROUTING_LABELS = {
   vessel: "Vessel",
   voyage: "Voyage",
-  pol: "POL",
-  pod: "POD",
+  pol: "Port of Loading",
+  pod: "Port of Discharge",
 } as const satisfies Partial<Record<Field, string>>;
 
 const CHANGE_LABELS: Record<string, string> = { ...DATE_LABELS, ...ROUTING_LABELS, freeTime: "Free time" };

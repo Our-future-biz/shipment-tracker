@@ -98,9 +98,9 @@ describe("oceanRouteProblem and oceanOffersRequest", () => {
     expect(oceanRouteProblem({ ...route, fcl: false })).toContain("Sea FCL");
     expect(oceanRouteProblem(oceanRouteOf({ ...QUOTE, direction: undefined }, TODAY))).toBe(TRADE_DIRECTION_FIRST);
     expect(oceanRouteProblem({ ...route, containers: [] })).toContain("containers");
-    expect(oceanRouteProblem({ ...route, pol: "" })).toContain("port of loading");
+    expect(oceanRouteProblem({ ...route, pol: "" })).toContain("Port of Loading");
     expect(oceanRouteProblem({ ...route, pol: "", comparePols: true })).toBeNull();
-    expect(oceanRouteProblem({ ...route, pod: "" })).toContain("port of discharge");
+    expect(oceanRouteProblem({ ...route, pod: "" })).toContain("Port of Discharge");
     expect(oceanRouteProblem(route)).toBeNull();
   });
 

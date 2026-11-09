@@ -568,7 +568,7 @@ export const ShipmentsTable = ({
             </Tooltip>
           );
         }
-        // Commercial Invoice number(s) / value \u2192 the shipment's invoices, shown and edited in a
+        // Invoice Number(s) / Invoice Value \u2192 the shipment's invoices, shown and edited in a
         // dialog. The value is the invoices' total per currency.
         if (col.key === "commercialInvoice" || col.key === "commercialInvoiceValue") {
           const shown = col.key === "commercialInvoiceValue" ? record.civByCurrency || val : val;
@@ -1052,7 +1052,7 @@ export const ShipmentsTable = ({
         onClose={() => setInvoicesShipmentId(null)}
         onSave={(shipment, commercialInvoices) =>
           updateShipment({ id: shipment.id, data: { commercialInvoices } }).catch((e) => {
-            toast.error("Could not save the commercial invoices");
+            toast.error("Could not save the invoices");
             throw e;
           })
         }

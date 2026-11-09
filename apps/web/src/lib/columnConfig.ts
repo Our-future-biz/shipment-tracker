@@ -159,17 +159,18 @@ export const COLUMNS: ColumnDef[] = [
   { key: "customerPic", title: "Customer's PIC", width: 170, type: "contact", apiField: "customerPic" },
   { key: "customerReference", title: "Customer Reference", width: 170, type: "text", apiField: "customerReference" },
 
-  // Pickup + POL
+  // Pickup + Port of Loading
   { key: "pickupAddress", title: "Pickup Address", width: 200, type: "text", apiField: "pickupAddress" },
-  { key: "pol", title: "POL", width: 160, type: "place", apiField: "pol" },
+  { key: "pol", title: "Port of Loading", width: 160, type: "place", apiField: "pol" },
 
   // Shipper/Consignee
   { key: "shipper", title: "Shipper", width: 180, type: "text", apiField: "shipper" },
   { key: "consignee", title: "Consignee", width: 180, type: "text", apiField: "consignee" },
 
-  // Delivery + POD
+  // Delivery + Port of Discharge
   { key: "deliveryAddress", title: "Delivery Address", width: 200, type: "text", apiField: "deliveryAddress" },
-  { key: "pod", title: "POD", width: 160, type: "place", apiField: "pod" },
+  // Wide enough for its title in caps beside the Master Jobs list's sort arrow.
+  { key: "pod", title: "Port of Discharge", width: 170, type: "place", apiField: "pod" },
   { key: "destination", title: "Destination", width: 160, type: "place", apiField: "destination" },
 
   // Status block
@@ -200,8 +201,9 @@ export const COLUMNS: ColumnDef[] = [
   { key: "agentPic", title: "Agent's PIC", width: 170, type: "text", apiField: "agentPic" },
   { key: "shippingLine", title: "Shipping line / Coloader", width: 180, type: "text", apiField: "shippingLine" },
   { key: "serviceType", title: "Service Type", width: 160, type: "dropdown", options: DROPDOWN_OPTIONS["Service Type"], apiField: "serviceType" },
-  { key: "incotermOrigin", title: "Incoterms Origin", width: 120, type: "dropdown", options: DROPDOWN_OPTIONS["Incoterms Origin"], apiField: "incotermOrigin" },
-  { key: "incotermDestination", title: "Incoterms Dest.", width: 120, type: "dropdown", options: DROPDOWN_OPTIONS["Incoterms Destination"], apiField: "incotermDestination" },
+  // Wide enough for their full titles in caps beside a sort arrow (112px and 150px of text).
+  { key: "incotermOrigin", title: "Incoterms Origin", width: 150, type: "dropdown", options: DROPDOWN_OPTIONS["Incoterms Origin"], apiField: "incotermOrigin" },
+  { key: "incotermDestination", title: "Incoterms Destination", width: 190, type: "dropdown", options: DROPDOWN_OPTIONS["Incoterms Destination"], apiField: "incotermDestination" },
   { key: "insurance", title: "Insurance", width: 100, type: "dropdown", options: DROPDOWN_OPTIONS["Insurance"], apiField: "insurance" },
 
   // Dates
@@ -235,8 +237,8 @@ export const COLUMNS: ColumnDef[] = [
   { key: "origin", title: "Origin", width: 160, type: "place", apiField: "origin" },
 
   // Commercial
-  { key: "commercialInvoice", title: "Commercial Invoice number(s)", width: 170, type: "text", apiField: "commercialInvoice" },
-  { key: "commercialInvoiceValue", title: "Commercial Invoice Value", width: 160, type: "text", apiField: "commercialInvoiceValue" },
+  { key: "commercialInvoice", title: "Invoice Number(s)", width: 170, type: "text", apiField: "commercialInvoice" },
+  { key: "commercialInvoiceValue", title: "Invoice Value", width: 160, type: "text", apiField: "commercialInvoiceValue" },
   { key: "hsCode", title: "HS Code", width: 110, type: "text", readonly: true, apiField: "hsCode" },
   { key: "cargoDescription", title: "Cargo Description", width: 220, type: "text", readonly: true, apiField: "cargoDescription" },
   { key: "dangerous", title: "Dangerous", width: 110, type: "dropdown", options: DROPDOWN_OPTIONS["Dangerous"], apiField: "dangerous" },

@@ -555,7 +555,7 @@ export function buildReportSummary(
     const cap = EQUIPMENT_CAPACITY_CBM[c.equipment];
     const when = c.gatedOut || c.createdAt.toISOString().slice(0, 10);
     if (c.direction !== "Loading" || !cap || c.cbm == null || when < since) continue;
-    const lane = c.dischargePort || "(no discharge port)";
+    const lane = c.dischargePort || "(no Port of Discharge)";
     const e = byLane.get(lane) ?? { n: 0, cbm: 0, cap: 0, fill: 0, pieces: 0 };
     e.n += 1;
     e.cbm += c.cbm;

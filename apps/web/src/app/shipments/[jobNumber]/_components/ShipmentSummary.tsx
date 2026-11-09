@@ -16,7 +16,7 @@ const SHIPMENT_STAGES = [
   "Booking confirmed",
   "Cargo ready",
   "In transit",
-  "Arrive at POD",
+  "Arrive at Port of Discharge",
   "Customs clearance",
   "Delivered",
 ];
@@ -56,9 +56,9 @@ export function ShipmentFacts({ shipment }: { shipment: ShipmentItem }) {
 
   return (
     // Two rows of six on a wide screen; the columns line up across both rows. The second row
-    // always reads POL, ETD, POD, ETA. The status gets the widest column, so it stays on one line.
+    // always reads Port of Loading, ETD, Port of Discharge, ETA. The status gets the widest column, so it stays on one line.
     // The first column is never narrower than the job number (they run up to CZPROJECT00000023),
-    // and only the job number sizes it: a long POL below stays cut. Below xl six columns would
+    // and only the job number sizes it: a long Port of Loading below stays cut. Below xl six columns would
     // leave the others too narrow for a date, so the job number has a row of its own there.
     <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-[minmax(max-content,1.1fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,0.85fr)_minmax(0,0.9fr)_minmax(0,1.45fr)] 2xl:grid-cols-[minmax(max-content,1fr)_minmax(0,1fr)_minmax(0,1.05fr)_minmax(0,0.8fr)_minmax(0,1.25fr)_minmax(0,1.35fr)] gap-x-6 gap-y-3 xl:gap-y-1.5 xl:[&>*:not(:first-child)]:[contain:inline-size] xl:[&>*:nth-child(n+7)]:pt-1.5 xl:[&>*:nth-child(n+7)]:border-t xl:[&>*:nth-child(n+7)]:border-indigo-100">
       <Fact label="Job" className="col-span-full xl:col-span-1">
@@ -94,11 +94,11 @@ export function ShipmentFacts({ shipment }: { shipment: ShipmentItem }) {
           dash
         )}
       </Fact>
-      <Fact label="POL">{text(getFieldValue(shipment, "pol"))}</Fact>
+      <Fact label="Port of Loading">{text(getFieldValue(shipment, "pol"))}</Fact>
       <Fact label="ETD Estimated">
         <span className="tabular-nums text-[14px] font-semibold">{formatDate(shipment.estimatedDeparture) || dash}</span>
       </Fact>
-      <Fact label="POD">
+      <Fact label="Port of Discharge">
         <span className="min-w-0">
           {/* A block, so a long port is cut short rather than running into the ETA column. */}
           {pod ? <span className="block truncate" title={pod}>{pod}</span> : dash}
@@ -143,7 +143,7 @@ export function ShipmentProgress({ shipment }: { shipment: ShipmentItem }) {
   // Which fact a stage rests on, when it rests on one.
   const factOf: Record<string, string> = {
     "In transit": shipment.actualDeparture ? `ATD ${formatDate(shipment.actualDeparture)}` : "",
-    "Arrive at POD": shipment.actualArrival ? `ATA ${formatDate(shipment.actualArrival)}` : "",
+    "Arrive at Port of Discharge": shipment.actualArrival ? `ATA ${formatDate(shipment.actualArrival)}` : "",
     "Customs clearance": shipment.customsStatus === CUSTOMS_CLEARED ? CUSTOMS_CLEARED : "",
     Delivered: shipment.actualDeliveryDate ? `Delivered ${formatDate(shipment.actualDeliveryDate)}` : "",
   };

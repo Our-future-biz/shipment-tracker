@@ -84,7 +84,7 @@ export function StuffingPlan({ c, api }: { c: WarehouseContainer; api: Api }) {
                   <th className={TH} aria-label="Order" />
                   <th className={TH}>{TERMS.warehouseRef}</th>
                   <th className={TH}>Customer</th>
-                  <th className={TH}>POD · ETD</th>
+                  <th className={TH}>Port of Discharge · ETD</th>
                   <th className={`${TH} !text-right`}>{TERMS.pieces}</th>
                   <th className={`${TH} !text-right`}>kg</th>
                   <th className={`${TH} !text-right`}>cbm</th>
@@ -202,7 +202,7 @@ export function StuffingPlan({ c, api }: { c: WarehouseContainer; api: Api }) {
       {!closed && (
         <Card title="Add positions in the warehouse" extra={`${candidates.length} available`} bodyClassName="p-0">
           <p className="m-0 px-4 pt-3 text-[11px] text-slate-500">
-            Inbound positions received in the warehouse, not on hold and not in another container — by POD, then ETD.
+            Inbound positions received in the warehouse, not on hold and not in another container — by Port of Discharge, then ETD.
           </p>
           {candidates.length === 0 ? (
             <div className="p-4 text-xs text-slate-400">Nothing to add right now.</div>

@@ -41,7 +41,7 @@ const CUSTOMS_DEFAULT_COLUMNS = [
   "commercialInvoiceValue",
 ];
 
-// Commercial Invoice Value is what the cargo lines add up to, so it is not typed in here.
+// Invoice Value is what the cargo lines add up to, so it is not typed in here.
 const CUSTOMS_READONLY_COLUMNS = ["commercialInvoiceValue"];
 
 // Customs filters its list by priority where Shipments has the shipment status.
@@ -111,7 +111,7 @@ export function CustomsView() {
   const listQs = listParams.toString();
   const listHref = listQs ? `/customs?${listQs}` : "/customs";
 
-  // Commercial Invoice Value shows the per-currency total of the cargo lines whenever they
+  // Invoice Value shows the per-currency total of the cargo lines whenever they
   // carry values (the same rule as the Customs tab); the shipment's own field is the fallback.
   const rows = useMemo(
     () => shipments.map((s) => (s.civByCurrency ? { ...s, commercialInvoiceValue: s.civByCurrency } : s)),

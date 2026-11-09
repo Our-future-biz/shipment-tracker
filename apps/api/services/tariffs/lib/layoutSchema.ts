@@ -77,11 +77,14 @@ export function tidyConditions(input: unknown, max = 30): string[] {
     .slice(0, max);
 }
 
-/** A layout as checked and tidied by its schema; one that does not hold is refused with the first problem found. */
-export function parseLayout<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, input: unknown): T {
+/**
+ * A layout as checked and tidied by its schema; one that does not hold is refused with the first
+ * problem found, its field named as the user sees it where `fieldName` knows it, else by its key path.
+ */
+export function parseLayout<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, input: unknown, fieldName?: (path: (string | number)[]) => string | null): T {
   const parsed = schema.safeParse(input);
   if (parsed.success) return parsed.data;
   const issue = parsed.error.issues[0]!;
-  const where = issue.path.join(".");
+  const where = fieldName?.(issue.path) ?? issue.path.join(".");
   throw APIError.invalidArgument(`The tariff layout is not usable: ${where ? `${where} ` : ""}${issue.message}`);
 }

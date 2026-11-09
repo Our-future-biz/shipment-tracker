@@ -70,14 +70,14 @@ export type PortFilter = "all" | interfaces.OceanPortStatus;
 export const portsOf = <T extends Pick<interfaces.OceanPort, "status">>(ports: readonly T[], filter: PortFilter): T[] =>
   filter === "all" ? [...ports] : ports.filter((p) => p.status === filter);
 
-/** Which rates a surcharge is added to, in words: "Far East direct · reefer only · ports of discharge in CN, HK". */
+/** Which rates a surcharge is added to, in words: "Far East direct · reefer only · Ports of Discharge in CN, HK". */
 export function surchargeScopeText(
   s: Pick<interfaces.OceanSurcharge, "tables" | "equipment" | "countries" | "exceptCountries" | "ports" | "exceptPorts">,
   tables: readonly Pick<interfaces.OceanTable, "label">[],
 ): string {
   const parts = [s.tables.length ? s.tables.map((i) => tables[i]?.label || `Table ${i + 1}`).join(", ") : "Every table"];
   if (s.equipment.length === 1) parts.push(`${s.equipment[0]} only`);
-  if (s.countries.length) parts.push(`ports of discharge in ${s.countries.join(", ")}`);
+  if (s.countries.length) parts.push(`Ports of Discharge in ${s.countries.join(", ")}`);
   if (s.exceptCountries.length) parts.push(`not to ${s.exceptCountries.join(", ")}`);
   if (s.ports.length) parts.push(`to ${s.ports.join(", ")}`);
   if (s.exceptPorts.length) parts.push(`not to ${s.exceptPorts.join(", ")}`);

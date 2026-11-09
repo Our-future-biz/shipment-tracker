@@ -90,9 +90,9 @@ export const OceanVersionLayoutForm = ({ form, onChange, preview, disabled }: Oc
               </Tooltip>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              <Field label="POL column" hint="None when every row has the same ports of loading">
+              <Field label="Port of Loading column" hint="None when every row has the same Ports of Loading">
                 <Select
-                  aria-label={`${name} POL column`}
+                  aria-label={`${name} Port of Loading column`}
                   value={t.pol ?? NONE}
                   disabled={disabled}
                   options={optional}
@@ -102,12 +102,12 @@ export const OceanVersionLayoutForm = ({ form, onChange, preview, disabled }: Oc
                 />
               </Field>
               {!t.pol && (
-                <Field label="Ports of loading" hint="As the tariff writes them, e.g. Hamburg; Bremerhaven">
-                  <Input aria-label={`${name} ports of loading`} value={t.polFixed ?? ""} maxLength={500} disabled={disabled} onChange={(e) => setTable(i, { polFixed: e.target.value })} />
+                <Field label="Ports of Loading" hint="As the tariff writes them, e.g. Hamburg; Bremerhaven">
+                  <Input aria-label={`${name} Ports of Loading`} value={t.polFixed ?? ""} maxLength={500} disabled={disabled} onChange={(e) => setTable(i, { polFixed: e.target.value })} />
                 </Field>
               )}
-              <Field label="POD column">
-                <Select aria-label={`${name} POD column`} value={t.pod || undefined} placeholder="Column" disabled={disabled} options={columns} showSearch optionFilterProp="label" onChange={(v: string) => setTable(i, { pod: v })} />
+              <Field label="Port of Discharge column">
+                <Select aria-label={`${name} Port of Discharge column`} value={t.pod || undefined} placeholder="Column" disabled={disabled} options={columns} showSearch optionFilterProp="label" onChange={(v: string) => setTable(i, { pod: v })} />
               </Field>
               <Field label="Via column" hint="The transshipment port(s)">
                 <Select aria-label={`${name} via column`} value={t.via ?? NONE} disabled={disabled} options={optional} showSearch optionFilterProp="label" onChange={(v: string) => setTable(i, { via: v || null })} />
@@ -131,8 +131,8 @@ export const OceanVersionLayoutForm = ({ form, onChange, preview, disabled }: Oc
               <Field label="Note column" hint="Remarks such as No DG acceptance">
                 <Select aria-label={`${name} note column`} value={t.note ?? NONE} disabled={disabled} options={optional} showSearch optionFilterProp="label" onChange={(v: string) => setTable(i, { note: v || null })} />
               </Field>
-              <Field label="POD countries" hint="To tell ports of one name apart, e.g. CN, HK; empty for any">
-                <TypedList value={t.podCountries} format={codesText} parse={parseCountries} onChange={(podCountries) => setTable(i, { podCountries })} label={`${name} POD countries`} placeholder="CN, HK" disabled={disabled} />
+              <Field label="Port of Discharge countries" hint="To tell ports of one name apart, e.g. CN, HK; empty for any">
+                <TypedList value={t.podCountries} format={codesText} parse={parseCountries} onChange={(podCountries) => setTable(i, { podCountries })} label={`${name} Port of Discharge countries`} placeholder="CN, HK" disabled={disabled} />
               </Field>
             </div>
             <div className="flex flex-col gap-2">
@@ -234,17 +234,17 @@ export const OceanVersionLayoutForm = ({ form, onChange, preview, disabled }: Oc
                 </fieldset>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                <Field label="Only for POD countries">
+                <Field label="Only for Port of Discharge countries">
                   <TypedList value={s.countries} format={codesText} parse={parseCountries} onChange={(countries) => setSurcharge(i, { countries })} label={`${name} countries`} placeholder="any" size="small" disabled={disabled} />
                 </Field>
-                <Field label="Except POD countries">
+                <Field label="Except Port of Discharge countries">
                   <TypedList value={s.exceptCountries} format={codesText} parse={parseCountries} onChange={(exceptCountries) => setSurcharge(i, { exceptCountries })} label={`${name} except countries`} placeholder="none" size="small" disabled={disabled} />
                 </Field>
-                <Field label="Only for PODs" hint="UN/LOCODEs, e.g. NGAPP, NGLOS">
-                  <TypedList value={s.ports} format={codesText} parse={parsePorts} onChange={(ports) => setSurcharge(i, { ports })} label={`${name} ports`} placeholder="any" size="small" disabled={disabled} />
+                <Field label="Only for Ports of Discharge" hint="UN/LOCODEs, e.g. NGAPP, NGLOS">
+                  <TypedList value={s.ports} format={codesText} parse={parsePorts} onChange={(ports) => setSurcharge(i, { ports })} label={`${name} Ports of Discharge`} placeholder="any" size="small" disabled={disabled} />
                 </Field>
-                <Field label="Except PODs">
-                  <TypedList value={s.exceptPorts} format={codesText} parse={parsePorts} onChange={(exceptPorts) => setSurcharge(i, { exceptPorts })} label={`${name} except ports`} placeholder="none" size="small" disabled={disabled} />
+                <Field label="Except Ports of Discharge">
+                  <TypedList value={s.exceptPorts} format={codesText} parse={parsePorts} onChange={(exceptPorts) => setSurcharge(i, { exceptPorts })} label={`${name} except Ports of Discharge`} placeholder="none" size="small" disabled={disabled} />
                 </Field>
               </div>
             </div>

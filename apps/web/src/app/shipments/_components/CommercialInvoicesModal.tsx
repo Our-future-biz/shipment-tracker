@@ -9,7 +9,7 @@ import type { interfaces } from "@/lib/api/client";
 import { CURRENCIES } from "@/lib/cargo";
 import { HINT, LABEL_TEXT } from "@/styles/ui";
 
-// The Commercial Invoice number(s) / value cells open this: the shipment's commercial
+// The Invoice Number(s) / Invoice Value cells open this: the shipment's commercial
 // invoices (number, value, currency), edited as a whole like the Dimensions dialog —
 // nothing is written until Save.
 
@@ -94,7 +94,7 @@ export function CommercialInvoicesModal({
   return (
     <Modal
       open={!!shipment}
-      title={`Commercial Invoices — ${shipment?.jobNumber ?? ""}`}
+      title={`Invoices — ${shipment?.jobNumber ?? ""}`}
       width={640}
       centered
       destroyOnHidden
@@ -114,7 +114,7 @@ export function CommercialInvoicesModal({
       }
     >
       <div className={`${COLS} px-1 pb-1.5 ${LABEL_TEXT} border-b border-slate-200`}>
-        <span className="text-center truncate">Commercial Invoice Number</span>
+        <span className="text-center truncate">Invoice Number</span>
         <span className="text-center truncate">Value</span>
         <span className="text-center truncate">Currency</span>
         <span />

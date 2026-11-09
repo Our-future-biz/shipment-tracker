@@ -551,7 +551,7 @@ function laneFill(containers: KpiContainer[], houses: KpiHouse[], movements: Kpi
     const cbm = stuffed.length ? sum(stuffed, (m) => m.measureCbm) : c.cbm;
     if (cbm == null || cbm <= 0) continue;
     const pieces = stuffed.length ? sum(stuffed, (m) => m.colli) : (c.pieces ?? 0);
-    const lane = c.dischargePort || "(no discharge port)";
+    const lane = c.dischargePort || "(no Port of Discharge)";
     const e = byLane.get(lane) ?? { n: 0, cbm: 0, cap: 0, fill: 0, pieces: 0 };
     e.n += 1;
     e.cbm += cbm;

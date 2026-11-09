@@ -184,8 +184,8 @@ export function oceanLayoutProblems(layout: Layout): string[] {
     if (!t.sheet) add(`${name}: choose its sheet`);
     if (!(t.firstDataRow > t.headerRow)) add(`${name}: the first rate row must come after the headings row`);
     if (t.lastDataRow !== null && t.lastDataRow < t.firstDataRow) add(`${name}: the last rate row comes before the first`);
-    if (!isLetter(t.pol) && !(t.polFixed ?? "").trim()) add(`${name}: choose the column of the ports of loading, or type them`);
-    if (!isLetter(t.pod)) add(`${name}: choose the column of the ports of discharge`);
+    if (!isLetter(t.pol) && !(t.polFixed ?? "").trim()) add(`${name}: choose the column of the Ports of Loading, or type them`);
+    if (!isLetter(t.pod)) add(`${name}: choose the column of the Ports of Discharge`);
     if (!isLetter(t.currency) && !/^[A-Za-z]{3}$/.test((t.currencyFixed ?? "").trim())) add(`${name}: choose the currency column, or type the currency (e.g. USD)`);
     if (!t.prices.length) add(`${name}: add at least one price column`);
     if (t.prices.some((p) => !isLetter(p.column))) add(`${name}: every price column needs its column`);

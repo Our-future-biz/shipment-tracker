@@ -84,8 +84,8 @@ export function oceanRouteProblem(route: OceanRoute): string | null {
   if (route.directionChosen === false) return TRADE_DIRECTION_FIRST;
   if (!route.fcl) return "Shipping lines' tariffs price Sea FCL quotes";
   if (!route.containers.length) return "Add the containers in Cargo details first";
-  if (!route.comparePols && !oceanPlaceCode(route.pol)) return "Choose the port of loading";
-  if (!oceanPlaceCode(route.pod)) return "Choose the port of discharge";
+  if (!route.comparePols && !oceanPlaceCode(route.pol)) return "Choose the Port of Loading";
+  if (!oceanPlaceCode(route.pod)) return "Choose the Port of Discharge";
   return null;
 }
 

@@ -255,12 +255,13 @@ export function ShipmentsTab({ customerId }: ShipmentsTabProps) {
           <Input
             allowClear
             prefix={<SearchOutlined className="text-slate-400" />}
-            placeholder="Search job #, POL, POD"
+            placeholder="Search job #, Port of Loading, Port of Discharge"
             aria-label="Search shipments"
             value={search}
             onChange={handleSearchChange}
             // antd sets the input to width: 100% outside Tailwind's cascade layers, so the width needs the important flag.
-            className="!w-60"
+            // Wide enough for the whole placeholder; the filters wrap below it on a narrow screen.
+            className="!w-96 !max-w-full"
           />
           {/* Statuses are long, so the dropdown may be wider than the field. */}
           <Select

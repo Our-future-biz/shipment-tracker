@@ -92,7 +92,8 @@ describe("railRouteProblem", () => {
     // A tariff is for import, export or both: none is asked before the quote has a Trade Direction.
     expect(railRouteProblem(railRouteOf({ ...QUOTE, direction: undefined }, TODAY))).toBe(TRADE_DIRECTION_FIRST);
     expect(railOffersRequest(railRouteOf({ ...QUOTE, direction: undefined }, TODAY))).toBeNull();
-    expect(railRouteProblem({ ...route, port: null })).toContain("port");
+    expect(railRouteProblem({ ...route, port: null })).toContain("Choose the Port of Discharge");
+    expect(railRouteProblem({ ...route, direction: "export", port: null })).toContain("Choose the Port of Loading");
     expect(railRouteProblem({ ...route, place: " " })).toContain("place");
     expect(railRouteProblem(route)).toBeNull();
     expect(railOffersRequest({ ...route, port: null })).toBeNull();

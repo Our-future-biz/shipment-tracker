@@ -22,7 +22,7 @@ import { EMPTY, HINT, LINK, TD, TH } from "@/styles/ui";
 const ro = (key: string, label: string) => ({ key, label, ro: true });
 
 const ROUTE = [
-  ro("pol", "POL"),
+  ro("pol", "Port of Loading"),
   ro("origin", "Origin"),
   ro("shippingLine", "Shipping line / Coloader"),
   ro("vessel", "Vessel"),
@@ -30,7 +30,7 @@ const ROUTE = [
 ];
 
 const REFERENCES = [
-  ro("pod", "POD"),
+  ro("pod", "Port of Discharge"),
   ro("destination", "Destination"),
   ro("houseBolNumber", "House BoL Number"),
   ro("insurance", "Insurance"),

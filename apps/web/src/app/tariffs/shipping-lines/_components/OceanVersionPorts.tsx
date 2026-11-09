@@ -19,7 +19,7 @@ const STATUS_TONE: Record<OceanPort["status"], Tone> = {
   pending: "a",
 };
 
-const SIDE_TEXT: Record<OceanPort["side"], string> = { pol: "POL", pod: "POD" };
+const SIDE_TEXT: Record<OceanPort["side"], string> = { pol: "Port of Loading", pod: "Port of Discharge" };
 
 const portKey = (p: Pick<OceanPort, "side" | "name">) => `${p.side}:${p.name}`;
 
@@ -58,7 +58,7 @@ export const OceanVersionPorts = ({ version, editable }: OceanVersionPortsProps)
   };
 
   const columns: TableColumnsType<OceanPort> = [
-    { key: "side", title: "Side", width: 64, render: (_, p) => <span className="text-xs font-semibold text-slate-500">{SIDE_TEXT[p.side]}</span> },
+    { key: "side", title: "Side", width: 128, render: (_, p) => <span className="text-xs font-semibold text-slate-500 whitespace-nowrap">{SIDE_TEXT[p.side]}</span> },
     {
       key: "name",
       title: "Port as the tariff writes it",

@@ -52,7 +52,7 @@ export function convertOcean(sheets: Sheet[], layout: OceanLayout): OceanConvers
       // A blank row, a heading or a remark between the rates: nothing to read.
       if (!numbers.length && (!podText || priced.every((p) => p.cell.kind !== "text"))) continue;
       if (!podText) {
-        found.add("warning", "rate_without_pod", `${table.label}: a row with prices but no port of discharge in column ${table.pod} is left out`, rowNo, table.pod);
+        found.add("warning", "rate_without_pod", `${table.label}: a row with prices but no Port of Discharge in column ${table.pod} is left out`, rowNo, table.pod);
         continue;
       }
       if (!numbers.length) {
@@ -77,11 +77,11 @@ export function convertOcean(sheets: Sheet[], layout: OceanLayout): OceanConvers
       const pols = splitPorts(table.pol ? cellText(cells[table.pol]) : (table.polFixed ?? ""));
       const pods = splitPorts(podText);
       if (!pols.length) {
-        found.add("error", "no_pol", `${table.label}: a row names no port of loading`, rowNo, table.pol ?? undefined);
+        found.add("error", "no_pol", `${table.label}: a row names no Port of Loading`, rowNo, table.pol ?? undefined);
         continue;
       }
       if (pols.length * pods.length > MAX_PORT_PAIRS) {
-        found.add("error", "too_many_ports", `${table.label}: a row names more than ${MAX_PORT_PAIRS} port of loading × port of discharge pairs; check its port columns`, rowNo);
+        found.add("error", "too_many_ports", `${table.label}: a row names more than ${MAX_PORT_PAIRS} Port of Loading × Port of Discharge pairs; check its port columns`, rowNo);
         continue;
       }
       const via = table.via ? cellText(cells[table.via]) : "";

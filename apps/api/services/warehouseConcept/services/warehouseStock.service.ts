@@ -295,7 +295,7 @@ class WarehouseStockService {
     if (!cur) throw notFound("Stock line");
     let patch: Partial<typeof warehouseStockLineTable.$inferInsert>;
     if (cur.source === "auto") {
-      const labels: Record<string, string> = { job: "House job", customer: "Customer", shipper: "Shipper", pod: "POD", pieces: "Pieces", packageType: "Package", weightKg: "Gross weight", cbm: "Volume", receivedAt: "Received date", freeDays: "Free days", customs: "Customs" };
+      const labels: Record<string, string> = { job: "House job", customer: "Customer", shipper: "Shipper", pod: "Port of Discharge", pieces: "Pieces", packageType: "Package", weightKg: "Gross weight", cbm: "Volume", receivedAt: "Received date", freeDays: "Free days", customs: "Customs" };
       for (const [key, label] of Object.entries(labels)) {
         const v = (input as Record<string, unknown>)[key];
         if (v !== undefined && v !== null && v !== (cur as Record<string, unknown>)[key]) throw APIError.failedPrecondition(`${label} ${FOLLOWS_GATE}`);
