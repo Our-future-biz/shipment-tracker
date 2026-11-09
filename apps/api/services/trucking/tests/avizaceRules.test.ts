@@ -57,7 +57,7 @@ describe("avizace", () => {
     expect(t.cs).toContain("TCZ2026000007");
     expect(t.cs).toContain("Beta a.s., Masarykova 5, 60200 Brno");
     expect(t.cs).toContain("19. 10. 2026, 08:00–12:00");
-    expect(t.cs).toContain("12 ks, 4 pal. míst, 1,250.5 kg");
+    expect(t.cs).toContain("12 ks, 4 pal. míst, 1\u00a0250,5 kg");
     expect(t.cs).toContain("hydraulickým čelem");
     expect(t.cs).toContain("soukromou adresu");
     expect(t.en).toContain("19 Oct 2026, 08:00–12:00");

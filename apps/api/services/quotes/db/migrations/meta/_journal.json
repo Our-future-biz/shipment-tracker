@@ -120,6 +120,13 @@
       "when": 1793972394850,
       "tag": "0016_chat_message_struck",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1794230364137,
+      "tag": "0017_quote_comment_author_name",
+      "breakpoints": true
     }
   ]
 }

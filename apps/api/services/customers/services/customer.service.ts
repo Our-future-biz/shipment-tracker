@@ -164,7 +164,7 @@ async function approvalOf(actorRole: string, request: NewSupplierRequest | undef
   if (!request || canManageSales(actorRole)) return {};
   const quoteNumber = request.quoteNumber.trim();
   if (!quoteNumber) throw APIError.invalidArgument("A new supplier names the quote it is added from");
-  const { users } = await auth.userLookup({ ids: [request.userId] });
+  const { users } = await auth.userLookup({ ids: [request.userId], selfInOwnCompany: true });
   const user = users.find((u) => u.id === request.userId);
   return {
     approvalStatus: "pending",

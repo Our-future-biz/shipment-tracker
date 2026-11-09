@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // quote's row lock, the inquiry table, the rates and the users.
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn() } }));
-vi.mock("~encore/clients", () => ({ auth: { usersList: vi.fn() } }));
+vi.mock("~encore/clients", () => ({ auth: { usersList: vi.fn(), userLookup: vi.fn() } }));
 vi.mock("../../services/marginRates", () => ({ marginsFor: vi.fn() }));
 vi.mock("../../repositories/quoteComment.repository", () => ({ quoteCommentRepository: { createForCompany: vi.fn() } }));
 const TX = vi.hoisted(() => ({ fake: "tx" }));
@@ -182,6 +182,19 @@ describe("decide", () => {
     expect(w.serverKeys).toEqual({ marginApproval: expect.objectContaining({ byUserId: BOSS, marginCzk: 400, marginPercent: 4, reason: "Approved on request: Competitor price" }) });
     expect(w).not.toHaveProperty("document");
     expect(w.entries[0]!.comment).toBe("Margin approved: 400 CZK (4 %) - Approved on request: Competitor price");
+  });
+
+  it("stamps a superadmin working as the company with their own e-mail: the answer, the approval, the history and the chat", async () => {
+    const ROOT = "5e1d2c3b-4a59-4687-9a6b-7c8d9e0f1a2b";
+    // No user of the company: the auth service finds them, as the caller, in their own company only when asked.
+    vi.mocked(auth.userLookup).mockImplementation(
+      async ({ ids, selfInOwnCompany }) => ({ users: selfInOwnCompany && ids.includes(ROOT) ? [{ id: ROOT, name: "Root", email: "Root@Platform.cz", role: "superadmin" }] : [] }) as never,
+    );
+    await marginInquiryService.decide({ userID: ROOT, companyID: COMPANY, role: "superadmin" }, REF, INQUIRY, { decision: "approve" });
+    expect(vi.mocked(quoteInquiryRepository.answer).mock.calls[0]![2]).toMatchObject({ status: "approved", decidedById: ROOT, decidedByName: "root@platform.cz" });
+    expect(written().serverKeys).toEqual({ marginApproval: expect.objectContaining({ byUserId: ROOT, byName: "root@platform.cz" }) });
+    expect(written().entries[0]).toMatchObject({ user: "root@platform.cz", userId: ROOT });
+    expect(quoteCommentRepository.createForCompany).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ authorId: ROOT, authorName: "root@platform.cz" }));
   });
 
   it("approves down to a counter margin, and rejects with a reason", async () => {

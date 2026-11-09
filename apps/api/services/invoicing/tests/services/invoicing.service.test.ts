@@ -260,7 +260,7 @@ describe("getInvoicingData", () => {
 
 describe("selling rows on an issued invoice", () => {
   const ROW = "0f5c1c3e-6a0e-4d7f-9a59-2d1b6f0c7a11";
-  const RECORD = { id: ROW, shipmentId: SHIPMENT, category: "", description: "", customer: "", qty: "1", amount: "0", currency: "CZK", invoice: true, vatCode: null, sortOrder: 0 };
+  const RECORD = { id: ROW, shipmentId: SHIPMENT, category: "", description: "", customer: "", qty: "1", amount: "0", currency: "CZK", invoice: true, vatCode: null, sortOrder: 0, createdAt: new Date("2026-11-09T08:00:00Z") };
   const updateLine = vi.fn();
   const writeUnlessInvoiced = vi.fn();
   const isSplitRow = vi.fn();
@@ -311,16 +311,48 @@ describe("selling rows on an issued invoice", () => {
 });
 
 describe("a billed shipment", () => {
+  // Its first invoice issued and not credited.
+  const billed = () => vi.mocked(invoiceRepository.countOpenInvoices).mockResolvedValue(1);
+  const ROW = "0f5c1c3e-6a0e-4d7f-9a59-2d1b6f0c7a12";
+  const RECORD = { id: ROW, shipmentId: SHIPMENT, category: "storage", description: "", customer: "", qty: "1", amount: "250.00", currency: "EUR", invoice: true, vatCode: null, sortOrder: 4, createdAt: new Date("2026-11-20T08:00:00Z") };
+  const createForCompany = vi.fn();
+  const writeUnlessInvoiced = vi.fn();
+  const isSplitRow = vi.fn();
+
+  beforeEach(() => {
+    Object.assign(sellingCostRepository, { createForCompany, writeUnlessInvoiced, isSplitRow });
+    createForCompany.mockResolvedValue(RECORD);
+    writeUnlessInvoiced.mockResolvedValue(RECORD);
+    isSplitRow.mockResolvedValue(false);
+  });
+
+  it("takes a new selling row (a late storage), which goes on its next invoice", async () => {
+    billed();
+    await expect(invoicingService.addSellingCost(SHIPMENT, COMPANY, { category: "storage", amount: "250", currency: "EUR" })).resolves.toMatchObject({ id: ROW, invoice: true, createdAt: "2026-11-20T08:00:00.000Z" });
+    expect(createForCompany).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ shipmentId: SHIPMENT, category: "storage", amount: "250", currency: "EUR" }));
+    vi.mocked(invoiceRepository.countOpenInvoices).mockReset().mockResolvedValue(0);
+  });
+
+  it("edits and deletes a selling row that is on no issued invoice, and refuses one that is", async () => {
+    billed();
+    await expect(invoicingService.updateSellingCost(ROW, COMPANY, SHIPMENT, { amount: "300" })).resolves.toMatchObject({ id: ROW });
+    await expect(invoicingService.deleteSellingCost(ROW, COMPANY, SHIPMENT)).resolves.toBeUndefined();
+    writeUnlessInvoiced.mockResolvedValue("invoiced");
+    await expect(invoicingService.updateSellingCost(ROW, COMPANY, SHIPMENT, { amount: "300" })).rejects.toThrow(/issued invoice/);
+    await expect(invoicingService.deleteSellingCost(ROW, COMPANY, SHIPMENT)).rejects.toThrow(/issued invoice/);
+    vi.mocked(invoiceRepository.countOpenInvoices).mockReset().mockResolvedValue(0);
+  });
+});
+
+describe("a billed shipment's buying", () => {
   const billed = () => vi.mocked(invoiceRepository.countOpenInvoices).mockResolvedValueOnce(1);
   const refused = /billed.*Credit the invoice/;
 
-  it("takes no new or changed cost by hand", async () => {
+  it("takes no new or changed cost by hand, no estimate and no quote's costs", async () => {
     billed();
-    await expect(invoicingService.addSellingCost("ship", "co", { amount: "10" })).rejects.toThrow(refused);
+    await expect(invoicingService.addBuyingCost("ship", "co", { estAmount: "10" })).rejects.toThrow(refused);
     billed();
-    await expect(invoicingService.updateSellingCost("row", "co", "ship", { amount: "10" })).rejects.toThrow(refused);
-    billed();
-    await expect(invoicingService.deleteSellingCost("row", "co", "ship")).rejects.toThrow(refused);
+    await expect(invoicingService.updateBuyingCost("row", "co", "ship", { estAmount: "10" })).rejects.toThrow(refused);
     billed();
     await expect(invoicingService.addBuyingCost("ship", "co", { realAmount: "10" })).rejects.toThrow(refused);
     billed();

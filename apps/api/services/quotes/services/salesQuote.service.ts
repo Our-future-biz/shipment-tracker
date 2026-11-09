@@ -69,7 +69,7 @@ import { searchTokens } from "../utils/quoteSearch.utils";
 import { holdsSending, toItem } from "../utils/salesQuoteItem.utils";
 import { ownerBackfillService } from "./ownerBackfill.service";
 import { companyUsers } from "../../../lib/companyUsers";
-import { companyPeople, peopleOf, type People } from "../lib/people";
+import { companyPeople, peopleOf, withCaller, type People } from "../lib/people";
 
 /** A change of status as the API takes it: the choice, and what the user's screen showed when it was made. */
 export interface TransitionRequest extends StatusChange {
@@ -265,14 +265,16 @@ function warehouseItem(r: WarehouseInquiryWithQuote, emails: Map<string, string>
 }
 
 // A warehouse question or answer also goes to the quote's chat, as a message of the one who asked
-// or answered, so the conversation about the quote has it (and the notification under the bell
-// leads to it). The quote is already saved: a chat that cannot be written is logged, not refused.
-async function postInquiryToChat(actor: Actor, quoteNumber: string, message: string): Promise<void> {
+// or answered (`ctx`: who, by e-mail), so the conversation about the quote has it (and the
+// notification under the bell leads to it). The quote is already saved: a chat that cannot be
+// written is logged, not refused.
+async function postInquiryToChat(actor: Actor, ctx: LifecycleContext, quoteNumber: string, message: string): Promise<void> {
   try {
     await quoteCommentRepository.createForCompany(actor.companyID, {
       threadRef: revisionRoot(quoteNumber),
       quoteNumber,
       authorId: actor.userID,
+      authorName: ctx.userEmail,
       message,
       mentionedUserIds: [],
     });
@@ -493,7 +495,7 @@ class SalesQuoteService {
     const at = new Date();
     // Read first: a list is sorted and searched by the owner as it shows them (by the user's
     // e-mail; a search finds them by name too).
-    const people = await companyPeople();
+    const people = await companyPeople(actor);
     const { rows, total } = await salesQuoteRepository.list(
       actor.companyID,
       filter,
@@ -512,7 +514,7 @@ class SalesQuoteService {
     await this.catchUp(actor.companyID);
     const quote = await salesQuoteRepository.loadSales(actor.companyID, quoteNumber);
     if (!quote) throw notFound();
-    return this.item(quote, await companyPeople(), actor, new Date());
+    return this.item(quote, await companyPeople(actor), actor, new Date());
   }
 
   // A new quote. The reference is assigned here, inside the insert, so two people creating at
@@ -520,7 +522,7 @@ class SalesQuoteService {
   async create(actor: Actor, fields: Record<string, unknown>): Promise<SalesQuoteItem> {
     const document = await linkedDocument(fields, null);
     const at = new Date();
-    const people = await companyPeople();
+    const people = await companyPeople(actor);
     const prefix = salesPrefix(businessDay(at));
     const quote = await salesQuoteRepository.createWithReference(
       actor.companyID,
@@ -542,7 +544,7 @@ class SalesQuoteService {
     // Variants always branch off the base, also when a variant is the one being duplicated.
     const base = baseReference(source.quoteNumber);
     const at = new Date();
-    const people = await companyPeople();
+    const people = await companyPeople(actor);
     const quote = await salesQuoteRepository.createWithReference(
       actor.companyID,
       `${base}-`,
@@ -578,7 +580,7 @@ class SalesQuoteService {
     );
     // Nothing was written: somebody saved, or deleted, the quote in this very moment.
     if (!saved) throw (await salesQuoteRepository.loadSales(companyID, quoteNumber)) ? conflict() : notFound();
-    return this.item(saved, await companyPeople(), actor, new Date());
+    return this.item(saved, await companyPeople(actor), actor, new Date());
   }
 
   // A change of status, with everything it stamps and its history line. Setting the status the
@@ -588,7 +590,7 @@ class SalesQuoteService {
   // salesPolicy. Add a canChangeLifecycle rule there if that is not intended.
   async transition(actor: Actor, quoteNumber: string, request: TransitionRequest): Promise<{ quote: SalesQuoteItem; changed: boolean }> {
     const at = new Date();
-    const people = await companyPeople();
+    const people = await companyPeople(actor);
     const ctx = contextOf(actor, at, people);
     // Only a status the quote may be sent with can need them; read before the lock (see todaysFx).
     const today = mayStampFx(request.to) ? await todaysFx() : undefined;
@@ -678,7 +680,7 @@ class SalesQuoteService {
     expectedDataVersion?: number,
   ): Promise<{ quote: SalesQuoteItem; revision: SalesQuoteItem; warning?: string }> {
     const at = new Date();
-    const people = await companyPeople();
+    const people = await companyPeople(actor);
     const ctx = contextOf(actor, at, people);
     const root = revisionRoot(quoteNumber);
     // A revision is an open quote again: it names its customer and contact as the Customer Database
@@ -776,7 +778,7 @@ class SalesQuoteService {
     const sellLines = truckingLines(sell, result.serviceLevel);
     const buyLines = buy ? truckingLines(buy, result.serviceLevel, { name: buy.ownerName ?? "", customerId: buy.ownerCustomerId ?? "" }) : [];
 
-    const people = await companyPeople();
+    const people = await companyPeople(actor);
     const ctx = contextOf(actor, at, people);
     const written = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
       expectPriceable(quote);
@@ -807,7 +809,7 @@ class SalesQuoteService {
       throw APIError.invalidArgument(`The reason must be ${MIN_APPROVAL_REASON} to ${MAX_APPROVAL_REASON} characters`);
     }
     const at = new Date();
-    const [margins, people] = await Promise.all([this.marginsOf(actor.companyID, quoteNumber, at), companyPeople()]);
+    const [margins, people] = await Promise.all([this.marginsOf(actor.companyID, quoteNumber, at), companyPeople(actor)]);
     const ctx = contextOf(actor, at, people);
     const written = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
       if (quote.dataVersion !== expectedDataVersion) throw conflict();
@@ -854,7 +856,7 @@ class SalesQuoteService {
     const note = (request.note ?? "").trim();
     if (note.length > MAX_INQUIRY_NOTE) throw APIError.invalidArgument(`The note is too long (at most ${MAX_INQUIRY_NOTE} characters)`);
     const at = new Date();
-    const people = await companyPeople();
+    const people = await companyPeople(actor);
     const ctx = contextOf(actor, at, people);
     const comment = `Warehouse asked about ${pieces} piece${pieces === 1 ? "" : "s"} of 12.5 t or more${note ? ` - ${note}` : ""}`;
     const written = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
@@ -886,7 +888,7 @@ class SalesQuoteService {
       return salesQuoteRepository.writeLifecycle(tx, quote, { state: stateOf(quote), entries: [pricingEntry("warehouse_inquiry", comment, ctx)], serverKeys: { warehouseInquiry: inquiry } });
     });
     if (!written) throw notFound();
-    await postInquiryToChat(actor, written.quoteNumber, comment);
+    await postInquiryToChat(actor, ctx, written.quoteNumber, comment);
     return this.item(written, people, actor, at);
   }
 
@@ -895,7 +897,7 @@ class SalesQuoteService {
   async listWarehouseInquiries(actor: Actor): Promise<QuoteWarehouseInquiryItem[]> {
     if (!canDecideQuoteInquiry(actor.role)) throw APIError.permissionDenied("only a warehouse manager answers the warehouse inquiries");
     const since = new Date(Date.now() - INQUIRY_HISTORY_DAYS * 86_400_000);
-    const [rows, people] = await Promise.all([quoteInquiryRepository.listWarehouse(actor.companyID, since, INQUIRY_LIST_LIMIT), companyPeople()]);
+    const [rows, people] = await Promise.all([quoteInquiryRepository.listWarehouse(actor.companyID, since, INQUIRY_LIST_LIMIT), companyPeople(actor)]);
     return rows.map((r) => warehouseItem(r, people.emails)).filter((i): i is QuoteWarehouseInquiryItem => i !== null);
   }
 
@@ -916,7 +918,7 @@ class SalesQuoteService {
       throw APIError.invalidArgument("Say why the warehouse rejects the pieces");
     }
     const at = new Date();
-    const people = await companyPeople();
+    const people = await companyPeople(actor);
     const ctx = contextOf(actor, at, people);
     // The answer as the quote's history says it; it goes to the quote's chat too.
     let line = "";
@@ -954,7 +956,7 @@ class SalesQuoteService {
       return salesQuoteRepository.writeLifecycle(tx, quote, { state: stateOf(quote), entries: [pricingEntry("warehouse_inquiry", line, ctx)], serverKeys: { warehouseInquiry: decided } });
     });
     if (!written) throw notFound();
-    await postInquiryToChat(actor, written.quoteNumber, line);
+    await postInquiryToChat(actor, ctx, written.quoteNumber, line);
     return inquiryItem(written, people.emails)!;
   }
 
@@ -962,7 +964,7 @@ class SalesQuoteService {
   // last READ_ANSWER_KEEP_DAYS days (answerSeenAt says which).
   async myInquiryAnswers(actor: Actor): Promise<QuoteWarehouseInquiryItem[]> {
     const seenSince = new Date(Date.now() - READ_ANSWER_KEEP_DAYS * 86_400_000);
-    const [rows, people] = await Promise.all([quoteInquiryRepository.warehouseAnswersFor(actor.companyID, actor.userID, seenSince, INQUIRY_LIST_LIMIT), companyPeople()]);
+    const [rows, people] = await Promise.all([quoteInquiryRepository.warehouseAnswersFor(actor.companyID, actor.userID, seenSince, INQUIRY_LIST_LIMIT), companyPeople(actor)]);
     return rows.map((r) => warehouseItem(r, people.emails)).filter((i): i is QuoteWarehouseInquiryItem => i !== null);
   }
 
@@ -987,7 +989,7 @@ class SalesQuoteService {
   // A new "Valid until" date, or none.
   async setValidity(actor: Actor, quoteNumber: string, validUntil: string | null): Promise<SalesQuoteItem> {
     const at = new Date();
-    const people = await companyPeople();
+    const people = await companyPeople(actor);
     const ctx = contextOf(actor, at, people);
     const written = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
       const change = ruled(() => applyValidity(stateOf(quote), validUntil, ctx, { wonRevision: isWonRevision(quote.status, quote.data) }));
@@ -1003,7 +1005,7 @@ class SalesQuoteService {
   // the others - the document keeps its version, an open editor is not disturbed.
   async followUp(actor: Actor, quoteNumber: string, note?: string): Promise<SalesQuoteItem> {
     const at = new Date();
-    const people = await companyPeople();
+    const people = await companyPeople(actor);
     const ctx = contextOf(actor, at, people);
     const written = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
       const { state, entry } = ruled(() => applyFollowUp(stateOf(quote), note, ctx));
@@ -1027,7 +1029,7 @@ class SalesQuoteService {
     }
     const at = new Date();
     // A repair is recorded as the system's: nobody is looked up for it.
-    const ctx = contextOf(actor, at, automatic ? peopleOf([]) : await companyPeople());
+    const ctx = contextOf(actor, at, automatic ? peopleOf([]) : await companyPeople(actor));
     // A quote a shipment was created from becomes Won here, and a Won quote is a sent one: it
     // keeps the rates stored when it was sent, or gets today's (read before any lock).
     const today = items.some((item) => item.wonByShipmentId) ? await todaysFx() : undefined;
@@ -1109,11 +1111,12 @@ class SalesQuoteService {
   async setOwner(actor: Actor, quoteNumber: string, ownerUserId: string | null): Promise<{ quote: SalesQuoteItem; changed: boolean }> {
     const at = new Date();
     // Read here and not through companyPeople(), which answers "nobody" when the users cannot be
-    // read: an owner can only be chosen from users that were.
+    // read: an owner can only be chosen from users that were (a superadmin working as the company is
+    // none of them; their own e-mail only stamps the change).
     const users = await companyUsers();
     const owner = ownerUserId === null ? null : users.find((u) => u.id === ownerUserId);
     if (owner === undefined) throw APIError.invalidArgument("not a user of this company");
-    const people = peopleOf(users);
+    const people = await withCaller(peopleOf(users), actor);
     const ctx = contextOf(actor, at, people);
     const result = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
       const state = stateOf(quote);
@@ -1148,7 +1151,7 @@ class SalesQuoteService {
       );
     }
     const at = new Date();
-    const ctx = contextOf(actor, at, await companyPeople());
+    const ctx = contextOf(actor, at, await companyPeople(actor));
     const deleted = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
       const state = stateOf(quote);
       const everSent = wasEverSent(state, isPlainObject(quote.data) ? quote.data.timeline : undefined);

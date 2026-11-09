@@ -26,7 +26,7 @@ describe("a communication entry", () => {
     userLookup.mockResolvedValue({ users: [{ id: "u1", name: "Martin Koubek", email: "Martin@OurFuture.biz", role: "superadmin" }] });
     const input = { type: "Note" as const, content: "Called them", author: "Austromar" };
     const note = await noteService.create("co", "c1", "u1", input);
-    expect(userLookup).toHaveBeenCalledWith({ ids: ["u1"] });
+    expect(userLookup).toHaveBeenCalledWith({ ids: ["u1"], selfInOwnCompany: true });
     expect(notes.createForCompany).toHaveBeenCalledWith("co", { customerId: "c1", type: "Note", content: "Called them", author: "martin@ourfuture.biz", colleagues: [] });
     expect(note.author).toBe("martin@ourfuture.biz");
   });

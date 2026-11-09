@@ -6,12 +6,15 @@ import { buildLabelsPdf } from "../lib/labelsPdf";
 import { buildLtlTransportOrderPdf } from "../lib/ltlTransportOrderPdf";
 import { sampleLabels, sampleLtlTransportOrder, sampleManifest } from "./fixtures/ltlDocumentSamples";
 
-/** Text of every page; pdf-parse takes over the buffer it is given, so it gets a copy. */
-async function pageTexts(bytes: Uint8Array): Promise<string[]> {
+/** Text of every page as printed; pdf-parse takes over the buffer it is given, so it gets a copy. */
+async function rawPageTexts(bytes: Uint8Array): Promise<string[]> {
   const parser = new PDFParse({ data: bytes.slice() });
   await (parser as unknown as { load(): Promise<void> }).load();
-  return (await parser.getText()).pages.map((p) => squash(p.text));
+  return (await parser.getText()).pages.map((p) => p.text);
 }
+
+/** Text of every page without white space. */
+const pageTexts = async (bytes: Uint8Array) => (await rawPageTexts(bytes)).map((t) => squash(t));
 
 /** Text extraction may split words across runs; compare without whitespace. */
 const squash = (t: string) => t.replace(/\s+/g, "");
@@ -22,6 +25,8 @@ describe("manifest PDF", () => {
   it("prints the trip, every row, totals, capacity and signatures on landscape pages", async () => {
     const bytes = await buildManifestPdf(sampleManifest);
     expect(header(bytes)).toBe("%PDF-");
+    // a bilingual manifest writes figures for both readers: thousands apart, a decimal point
+    expect((await rawPageTexts(bytes)).join("\n")).toMatch(/18[ \u00a0]450/);
     const pages = await pageTexts(bytes);
     expect(pages.length).toBeGreaterThanOrEqual(2);
     expect(pages.length).toBeLessThanOrEqual(4);
@@ -40,9 +45,9 @@ describe("manifest PDF", () => {
       "602 00 Brno",
       "České Budějovice",
       "UN 1263, 3, II",
-      "18,450", // total kg
+      "18 450", // total kg
       "Celkem / Total",
-      "13,6 LDM / 24 000 kg — 82 % LDM, 41 % kg",
+      "13.6 LDM / 24 000 kg — 82 % LDM, 41 % kg",
       "NALOŽIL / LOADED BY",
       "PŘEVZAL (MÍSTO URČENÍ) / RECEIVED AT",
     ]) {
@@ -82,7 +87,7 @@ describe("labels PDF", () => {
 
   it("prints destination, consignee, ref, piece number, zone, service and the marks when set", async () => {
     const [first, adr, whole] = await pageTexts(await buildLabelsPdf(sampleLabels));
-    for (const v of ["702 00", "Ostrava", "Odběratel Ostrava, s.r.o.", "Mostní 1", "TCZ2026001234", "1 / 3", "MS-2", "+1 den", "Barvy Šťastný s.r.o., Kladno", "CZ00000142", "412.5 kg"]) {
+    for (const v of ["702 00", "Ostrava", "Odběratel Ostrava, s.r.o.", "Mostní 1", "TCZ2026001234", "1 / 3", "MS-2", "+1 den", "Barvy Šťastný s.r.o., Kladno", "CZ00000142", "412,5 kg"]) {
       expect(first).toContain(squash(v));
     }
     expect(first).not.toContain("TAILLIFT");
@@ -106,6 +111,7 @@ describe("LTL transport order PDF", () => {
   it("prints the stops table with totals, the PIN, the POD link and the signatures", async () => {
     const bytes = await buildLtlTransportOrderPdf(sampleLtlTransportOrder);
     expect(header(bytes)).toBe("%PDF-");
+    expect((await rawPageTexts(bytes)).join("\n")).toMatch(/1[ \u00a0]320 kg/);
     const pages = await pageTexts(bytes);
     expect(pages.length).toBeGreaterThanOrEqual(2);
     expect(pages.length).toBeLessThanOrEqual(4);
@@ -121,12 +127,12 @@ describe("LTL transport order PDF", () => {
       "Avízo nutné / Avizace required",
       "ADR UN 1263, 3",
       "Celkem / Total",
-      "1,320 kg",
+      "1 320 kg",
       "2.4 LDM",
       "482913",
       "tracker.example.cz/trucking/pod",
       "1AB2345 / 2CD6789",
-      "12,500.00 CZK",
+      "12 500.00 CZK",
       "ZA ZASÍLATELE / FOR THE FORWARDER",
       "Počet zastávek / Number of stops",
     ]) {

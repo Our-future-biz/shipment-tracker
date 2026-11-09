@@ -94,11 +94,19 @@ export const DOCUMENT_GROUPS = [
   { title: "Suppliers Invoice(s)", types: SUPPLIER_INVOICE_TYPES },
 ] as const;
 
+/** The tables the Customs tab can show: all but the suppliers' invoices, which customs doesn't work with. */
+export const CUSTOMS_TAB_GROUPS = DOCUMENT_GROUPS.filter((g) => g.title !== "Suppliers Invoice(s)");
+
 /**
- * The tables the Customs tab shows: all but the suppliers' invoices, which customs doesn't work with,
- * and the safety paperwork of dangerous goods, kept on the Documents tab.
+ * The tables the Customs tab shows for a shipment: Safety Paperwork (MSDS, Dangerous Goods Declaration)
+ * only for dangerous goods, or once such a file is on the shipment - customs may need the MSDS to
+ * classify the goods. `documentTypes`: the types of the shipment's files.
  */
-export const CUSTOMS_TAB_GROUPS = DOCUMENT_GROUPS.filter((g) => g.title !== "Suppliers Invoice(s)" && g.title !== "Safety Paperwork");
+export function customsTabGroups(dangerous: boolean, documentTypes: readonly string[]): (typeof DOCUMENT_GROUPS)[number][] {
+  return CUSTOMS_TAB_GROUPS.filter(
+    (g) => g.title !== "Safety Paperwork" || dangerous || documentTypes.some((type) => documentGroupOf(type) === g),
+  );
+}
 
 const FALLBACK_DOCUMENT_GROUP = DOCUMENT_GROUPS[1];
 

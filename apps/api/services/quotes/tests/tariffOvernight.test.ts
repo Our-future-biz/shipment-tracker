@@ -6,9 +6,11 @@ import {
   roadActionFor,
   roadPricingOf,
   roadRatingDay,
+  isTariffCheckable,
   sameLines,
   tariffRefsOf,
   type OfferSummary,
+  type RoadRated,
   type TariffAction,
   type TariffUpdate,
 } from "../lib/tariffOvernight";
@@ -249,6 +251,15 @@ describe("a road quote", () => {
   };
   const pricing = roadPricingOf(roadQuote)!;
   const side = (tariffVersionId: string, total: number, versionNo = 2) => ({ tariffVersionId, versionNo, currency: "CZK", total });
+  // Today's rating: the sides as a pricing records them, and the buying lines the buy price makes.
+  const rated = (sellSide: ReturnType<typeof side>, buySide: ReturnType<typeof side>, haulier = { haulierCustomerId: "h1", haulierName: "Haulier" }): RoadRated => ({
+    sell: sellSide,
+    buy: { ...buySide, ...haulier },
+    buyLines: [
+      { type: "Road freight", chargeCode: "road_freight", description: "Freight", supplier: haulier.haulierName, supplierCustomerId: haulier.haulierCustomerId, currency: "CZK", amount: buySide.total - 200, qty: 1, unit: "shipment", unitPrice: buySide.total - 200, tariffRef: `trucking:${buySide.tariffVersionId}:EXPRESS` },
+      { type: "Road freight", chargeCode: "road_freight", description: "Fuel surcharge", supplier: haulier.haulierName, supplierCustomerId: haulier.haulierCustomerId, currency: "CZK", amount: 200, qty: 1, unit: "shipment", unitPrice: 200, tariffRef: `trucking:${buySide.tariffVersionId}:EXPRESS` },
+    ],
+  });
 
   it("is rated today once its pickup date has passed, else on that date", () => {
     expect(roadRatingDay("2026-11-01", "2026-11-09")).toBe("2026-11-09");
@@ -261,12 +272,14 @@ describe("a road quote", () => {
   });
 
   it("stays when today's rate is the same, and is left alone when it can't be rated but its tariffs still hold", () => {
-    expect(roadActionFor(pricing, { sell: side("sv1", 4250), buy: side("bv1", 3000) }, true).do).toBe("keep");
+    const keep = roadActionFor(pricing, rated(side("sv1", 4250), side("bv1", 3000, 3)), true);
+    expect(keep.do).toBe("keep");
+    expect(applyTariffActions(roadQuote, [keep]).changed).toBe(false);
     expect(roadActionFor(pricing, null, true).do).toBe("keep");
   });
 
   it("moves quietly to a new version at the same price", () => {
-    const action = roadActionFor(pricing, { sell: side("sv2", 4250, 5), buy: side("bv1", 3000, 3) }, true);
+    const action = roadActionFor(pricing, rated(side("sv2", 4250, 5), side("bv1", 3000, 3)), true);
     expect(action.do).toBe("roadSwap");
     const { data, messages } = applyTariffActions(roadQuote, [action]);
     expect(messages).toEqual([]);
@@ -275,10 +288,68 @@ describe("a road quote", () => {
     expect(data.roadPricing).toMatchObject({ sell: { tariffVersionId: "sv2", versionNo: 5, total: 4250 } });
   });
 
-  it("waits for approval when either price moved, saying both, and changes no line", () => {
-    const action = roadActionFor(pricing, { sell: side("sv2", 4500), buy: side("bv1", 3100) }, true);
+  describe("whose tariff versions still hold, rated otherwise today", () => {
+    it("refreshes its buying quietly, keeps its selling, says so once and holds nothing", () => {
+      const action = roadActionFor(pricing, rated(side("sv1", 4250), side("bv1", 3100, 3)), true);
+      expect(action.do).toBe("roadRefresh");
+      const { data, messages, changed } = applyTariffActions(roadQuote, [action]);
+      expect(changed).toBe(true);
+      // The road buying lines are today's, in their place; the other lines and the selling stay.
+      expect(data.buyingLines).toEqual([...(action as Extract<TariffAction, { do: "roadRefresh" }>).buyLines, roadQuote.buyingLines[1]]);
+      expect(data.sellingLines).toEqual(roadQuote.sellingLines);
+      expect(data.roadPricing).toMatchObject({ sell, buy: { haulierCustomerId: "h1", tariffVersionId: "bv1", total: 3100 } });
+      expect(data.marginApproval).toEqual(roadQuote.marginApproval);
+      expect(data).not.toHaveProperty("tariffUpdates");
+      expect(tariffUpdateGateMessage(data)).toBeNull();
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toContain("Buying was CZK 3000.00, now CZK 3100.00; the road buying lines were updated.");
+      expect(messages[0]).toContain("so no approval of a new rate is needed");
+      // The next night finds it as it is: nothing to write, nothing to tell.
+      const again = applyTariffActions(data, [roadActionFor(roadPricingOf(data)!, rated(side("sv1", 4250), side("bv1", 3100, 3)), true)]);
+      expect(again).toMatchObject({ changed: false, messages: [] });
+    });
+
+    it("says when the buying now comes from another haulier", () => {
+      const action = roadActionFor(pricing, rated(side("sv1", 4250), side("bv9", 3000, 1), { haulierCustomerId: "h2", haulierName: "Other Haulier" }), true);
+      expect(action.do).toBe("roadRefresh");
+      const { data, messages } = applyTariffActions(roadQuote, [action]);
+      expect(messages[0]).toContain("Buying (now from Other Haulier) stays CZK 3000.00");
+      expect(data.roadPricing).toMatchObject({ buy: { haulierCustomerId: "h2", haulierName: "Other Haulier", tariffVersionId: "bv9" } });
+      expect((data.buyingLines as { supplier?: string }[])[0]!.supplier).toBe("Other Haulier");
+    });
+
+    it("tells today's selling once, keeping the quote's, and forgets it once they agree again", () => {
+      // A discount, or a new fuel index on the sell side: the buying is the same.
+      const today = rated(side("sv1", 4500), side("bv1", 3000, 3));
+      const action = roadActionFor(pricing, today, true);
+      expect(action).toMatchObject({ do: "roadRefresh", buy: null, buyLines: [] });
+      const first = applyTariffActions(roadQuote, [action]);
+      expect(first.changed).toBe(true);
+      expect(first.data.buyingLines).toEqual(roadQuote.buyingLines);
+      expect(first.data.sellingLines).toEqual(roadQuote.sellingLines);
+      expect(first.messages[0]).toContain("Selling from the tariff would now be CZK 4500.00; the quote keeps its CZK 4250.00");
+      expect(tariffUpdateGateMessage(first.data)).toBeNull();
+      const again = applyTariffActions(first.data, [roadActionFor(roadPricingOf(first.data)!, today, true)]);
+      expect(again).toMatchObject({ changed: false, messages: [] });
+      const agreed = applyTariffActions(first.data, [roadActionFor(roadPricingOf(first.data)!, rated(side("sv1", 4250), side("bv1", 3000, 3)), true)]);
+      expect(agreed.changed).toBe(true);
+      expect(agreed.messages).toEqual([]);
+      expect(agreed.data.roadPricing).not.toHaveProperty("sellNoted");
+    });
+
+    it("drops a rate that waited from before, as nothing holds the quote now", () => {
+      const waiting = { ...roadQuote, tariffUpdates: [{ oldRef: "trucking:sv1:EXPRESS", kind: "road", newVersionId: "sv1", newRateId: null, supplierName: "Standard", was: [], now: [] }] };
+      const { data, changed } = applyTariffActions(waiting, [roadActionFor(pricing, rated(side("sv1", 4250), side("bv1", 3000, 3)), true)]);
+      expect(changed).toBe(true);
+      expect(data).not.toHaveProperty("tariffUpdates");
+    });
+  });
+
+  it("waits for approval once its tariff versions lapsed and either price moved, saying both, and changes no line", () => {
+    const action = roadActionFor(pricing, rated(side("sv2", 4500), side("bv1", 3100)), false);
     const { data, messages } = applyTariffActions(roadQuote, [action]);
     expect(data.sellingLines).toEqual(roadQuote.sellingLines);
+    expect(data.buyingLines).toEqual(roadQuote.buyingLines);
     expect(messages[0]).toContain("Selling was CZK 4250.00, now CZK 4500.00");
     expect(messages[0]).toContain("Buying was CZK 3000.00, now CZK 3100.00");
     expect(tariffUpdateGateMessage(data)).toMatch(/approve it in Pricing/);
@@ -295,5 +366,15 @@ describe("a road quote", () => {
     expect(data).not.toHaveProperty("marginApproval");
     expect(data.road).toEqual(roadQuote.road);
     expect(messages[0]).toContain("road tariff");
+  });
+});
+
+describe("which quotes the check may move", () => {
+  it("is those not sent yet, and the revision of a Won quote - never a Won quote that is no revision", () => {
+    for (const status of ["draft", "ready_to_send", "revised"]) expect(isTariffCheckable(status, {})).toBe(true);
+    expect(isTariffCheckable("won", { wonRevisionOf: "QCZ20261101001" })).toBe(true);
+    expect(isTariffCheckable("won", {})).toBe(false);
+    expect(isTariffCheckable("won", { wonRevisionOf: "" })).toBe(false);
+    for (const status of ["quoted", "feedback", "lost", "replaced"]) expect(isTariffCheckable(status, { wonRevisionOf: "QCZ20261101001" })).toBe(false);
   });
 });

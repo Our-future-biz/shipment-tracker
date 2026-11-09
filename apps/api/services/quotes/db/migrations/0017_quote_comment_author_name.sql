@@ -1,0 +1,1 @@
+ALTER TABLE "quote_comment" ADD COLUMN "author_name" text DEFAULT '' NOT NULL;

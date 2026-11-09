@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDate, formatMoney, formatNumber, formatQuantity, label, partyLines, stopAddressLines, titleLines, wrapText } from "../lib/docFormat";
+import { NBSP, formatDate, formatMoney, formatNumber, formatQuantity, label, partyLines, stopAddressLines, titleLines, wrapText } from "../lib/docFormat";
 import type { DocParty, DocStop } from "../lib/documentTypes";
 
 describe("labels", () => {
@@ -20,27 +20,44 @@ describe("labels", () => {
 });
 
 describe("numbers", () => {
-  it("writes figures the one way in Czech too", () => {
-    expect(formatQuantity(1250.5, "kg", "cs")).toBe("1,250.5 kg");
-    expect(formatNumber(1234567.891, "both")).toBe("1,234,567.89");
+  // The figures as a reader sees them: the no-break space shown as a space.
+  const seen = (s: string) => s.replace(new RegExp(NBSP, "g"), " ");
+
+  it("formats Czech style with a no-break space and a decimal comma", () => {
+    expect(formatQuantity(1250.5, "kg", "cs")).toBe(`1${NBSP}250,5 kg`);
+    expect(seen(formatNumber(1234567.891, "cs"))).toBe("1 234 567,89");
   });
 
   it("formats English style with a comma and a decimal point", () => {
     expect(formatQuantity(1250.5, "kg", "en")).toBe("1,250.5 kg");
+    expect(formatNumber(1234567.891, "en")).toBe("1,234,567.89");
+  });
+
+  it("formats a bilingual document with a no-break space and a decimal point", () => {
+    expect(formatQuantity(1250.5, "kg", "both")).toBe(`1${NBSP}250.5 kg`);
+    expect(seen(formatNumber(1234567.891, "both"))).toBe("1 234 567.89");
   });
 
   it("drops trailing zeros and respects the decimals asked for", () => {
-    expect(formatNumber(13.6, "cs")).toBe("13.6");
+    expect(formatNumber(13.6, "cs")).toBe("13,6");
+    expect(formatNumber(13.6, "both")).toBe("13.6");
     expect(formatNumber(33, "cs")).toBe("33");
-    expect(formatNumber(2.4567, "cs", 3)).toBe("2.457");
-    expect(formatNumber(-1500, "cs")).toBe("-1,500");
+    expect(formatNumber(2.4567, "cs", 3)).toBe("2,457");
+    expect(seen(formatNumber(-1500, "cs"))).toBe("-1 500");
+    expect(formatNumber(-1500, "en")).toBe("-1,500");
+    expect(seen(formatNumber(-1500, "both"))).toBe("-1 500");
     expect(formatNumber(-0.001, "cs")).toBe("0");
     expect(formatNumber(Number.NaN, "cs")).toBe("0");
   });
 
   it("prints money with two decimals", () => {
-    expect(formatMoney(12500, "CZK", "cs")).toBe("12,500.00 CZK");
+    expect(seen(formatMoney(12500, "CZK", "cs"))).toBe("12 500,00 CZK");
+    expect(formatMoney(12500, "CZK", "en")).toBe("12,500.00 CZK");
+    expect(seen(formatMoney(12500, "CZK", "both"))).toBe("12 500.00 CZK");
     expect(formatMoney(980.5, "EUR", "en")).toBe("980.50 EUR");
+    expect(formatMoney(980.5, "EUR", "cs")).toBe("980,50 EUR");
+    expect(seen(formatMoney(-1234.5, "CZK", "cs"))).toBe("-1 234,50 CZK");
+    expect(formatMoney(0, "CZK", "cs")).toBe("0,00 CZK");
   });
 });
 
@@ -67,6 +84,10 @@ describe("wrapText", () => {
   it("breaks between words and keeps the text's own line breaks", () => {
     expect(wrapText("one two three four", 9, width)).toEqual(["one two", "three", "four"]);
     expect(wrapText("a\nb c", 9, width)).toEqual(["a", "b c"]);
+  });
+
+  it("never breaks a figure at its no-break space", () => {
+    expect(wrapText(`Weight 1${NBSP}250,5 kg`, 9, width)).toEqual(["Weight", `1${NBSP}250,5`, "kg"]);
   });
 
   it("cuts a word longer than the line", () => {

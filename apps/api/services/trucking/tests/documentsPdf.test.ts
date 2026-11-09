@@ -22,7 +22,11 @@ describe("transport order PDF", () => {
   it("prints the order, both languages, Czech characters, ADR and the PIN", async () => {
     const bytes = await buildTransportOrderPdf(sampleTransportOrder);
     expect(header(bytes)).toBe("%PDF-");
-    const text = squash(await textOf(bytes));
+    const raw = await textOf(bytes);
+    // a bilingual order writes figures for both readers: thousands apart, a decimal point
+    expect(raw).toMatch(/1[ \u00a0]250\.5 kg/);
+    expect(raw).toMatch(/12[ \u00a0]500\.00 CZK/);
+    const text = squash(raw);
     for (const v of [
       "LCZ2026000001",
       "TCZ2026000001",
@@ -33,11 +37,11 @@ describe("transport order PDF", () => {
       "Šťastný Transport a.s.",
       "Žižkova845",
       "Avízonutné/Avizacerequired",
-      "1,250.5kg",
-      "42.125m³",
+      "1 250.5 kg",
+      "42.125 m³",
       "UN1263",
       "Obalováskupina/Packinggroup",
-      "12,500.00CZK",
+      "12 500.00 CZK",
       "482913",
       "1AB2345/2CD6789",
       "16.10.2026",
@@ -66,9 +70,14 @@ describe("transport order PDF", () => {
   });
 
   it("prints Czech only labels for a Czech order", async () => {
-    const text = squash(await textOf(await buildTransportOrderPdf({ ...sampleTransportOrder, language: "cs", terms: [] })));
+    const raw = await textOf(await buildTransportOrderPdf({ ...sampleTransportOrder, language: "cs", terms: [] }));
+    const text = squash(raw);
     expect(text).toContain("MÍSTONAKLÁDKY");
     expect(text).not.toContain("Loadingplace");
+    // and Czech figures: thousands apart, a decimal comma
+    expect(raw).toMatch(/1[ \u00a0]250,5 kg/);
+    expect(raw).toMatch(/42,125 m³/);
+    expect(raw).toMatch(/12[ \u00a0]500,00 CZK/);
   });
 
   it("prints a short order without ADR on fewer pages", async () => {
@@ -127,7 +136,7 @@ describe("consignment note PDF", () => {
       "Šťastný Transport a.s.",
       "1AB2345/2CD6789",
       "ADR:UN1263",
-      "1,250.5",
+      "1 250.5",
       "Dodací list č. 2026/1187",
       "Zbožípřevzal",
     ]) {
@@ -136,8 +145,10 @@ describe("consignment note PDF", () => {
   });
 
   it("prints English labels and an empty carrier box when the haulier is not known", async () => {
-    const text = squash(await textOf(await buildCmrPdf({ ...sampleCmr, language: "en", carrier: null, plates: "" })));
+    const raw = await textOf(await buildCmrPdf({ ...sampleCmr, language: "en", carrier: null, plates: "" }));
+    const text = squash(raw);
     expect(text).toContain("CONSIGNMENTNOTE");
+    expect(text).toContain("1,250.5");
     expect(text).toContain("Carrier(name,address,plates)");
     expect(text).not.toContain("ŠťastnýTransport");
     expect(text).not.toContain("Odesílatel(");

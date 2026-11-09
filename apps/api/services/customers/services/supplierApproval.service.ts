@@ -122,7 +122,8 @@ class SupplierApprovalService {
     if (decision === "decline" && reason.length < MIN_DECLINE_REASON) {
       throw APIError.invalidArgument("Say why the supplier is declined: the one who added it is told");
     }
-    const { users } = await auth.userLookup({ ids: [actor.userID] });
+    // Who answered, by e-mail: a superadmin working as this company is found in their own.
+    const { users } = await auth.userLookup({ ids: [actor.userID], selfInOwnCompany: true });
     const by = storedEmail(users.find((u) => u.id === actor.userID)?.email ?? "");
     const answer: RegistrationAnswer = { status: decision === "approve" ? "approved" : "declined", by, byUserId: actor.userID, comment: reason };
     const duplicate = await companyRegistrationRepository.duplicateById(actor.companyID, id);

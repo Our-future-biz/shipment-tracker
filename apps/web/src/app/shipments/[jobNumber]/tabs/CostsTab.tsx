@@ -17,7 +17,7 @@ import { useShipmentSellingAmountRequests } from "@/hooks/useSellingAmountReques
 import { SoldAtCostAmount, SoldAtCostRemove } from "./SoldAtCostAmount";
 import { INVOICE_KEYS } from "@/hooks/useInvoiceQueue";
 import { openInvoicePdf, useInvoiceDocList, type InvoiceDoc } from "@/hooks/useInvoiceDocs";
-import { isOpenInvoice } from "@/app/invoicing/_lib/openInvoices";
+import { isOpenInvoice, notInvoicedMark } from "@/app/invoicing/_lib/openInvoices";
 import { chargeLabel, chargeOptions } from "@/lib/chargeCodes";
 import { money, signed, num, type BuyingRow, type SellingRow } from "./costsCalc";
 import { useCostsData } from "./useCostsData";
@@ -167,9 +167,8 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
   /* Row locking: a filled row turns read-only once left, a double-click opens it again.
      The ids of unlocked rows are kept; every other filled row is locked. */
   const [unlocked, setUnlocked] = useState<Set<string>>(new Set());
-  const unlock = (id: string) => {
-    if (!billed) setUnlocked((p) => new Set(p).add(id));
-  };
+  // A billed shipment's buying stays shut (buyLocked); its selling rows open as anywhere until invoiced.
+  const unlock = (id: string) => setUnlocked((p) => new Set(p).add(id));
   const lock = (id: string) => setUnlocked((p) => {
     const n = new Set(p);
     n.delete(id);
@@ -359,7 +358,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
   const buyLocked = (r: BuyingRow) =>
     billed || (!unlocked.has(r.id) && !!(r.category || num(r.estAmount) || num(r.realAmount)));
   const sellLocked = (r: SellingRow) =>
-    billed || ((!unlocked.has(r.id) || !invoicedKnown) && !!(r.category || num(r.amount)));
+    (!unlocked.has(r.id) || !invoicedKnown) && !!(r.category || num(r.amount));
 
   // Selling rows on an issued invoice (a credited one frees them): the invoice each is on.
   // Until the list has come, no filled row opens for editing (it may turn out to be invoiced).
@@ -372,8 +371,19 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
     if (!isOpenInvoice(doc)) continue;
     for (const line of doc.lines) if (line.sourceSellingCostId) invoicedBy.set(line.sourceSellingCostId, doc);
   }
-  // Billed: with an issued invoice no cost is changed by hand until it is credited (the server refuses it too).
+  // Billed: with an issued invoice what is invoiced stays as it was, and so does the buying, until the
+  // invoice is credited (the server refuses it too). Selling rows can still come and change: they go
+  // on the next invoice, and each shows it is not on an invoice yet, so the change in profit is seen.
   const billed = (invoiceDocs?.invoices ?? []).some(isOpenInvoice);
+  const notInvoiced = (r: SellingRow) => notInvoicedMark(r, invoiceDocs?.invoices ?? []);
+  const notInvoicedPill = (r: SellingRow) => {
+    const mark = notInvoiced(r);
+    return mark ? (
+      <span className="block px-[9px] pb-[3px]">
+        <Pill tone="amber" title="On no issued invoice yet: it goes on the next one, and changes the job's profit">{mark}</Pill>
+      </span>
+    ) : null;
+  };
 
   /** a locked row: fields look like text, a double-click opens them (or Enter on the row; the
    *  fields themselves are read-only and out of the Tab order meanwhile, see `closed`) */
@@ -639,8 +649,8 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
           type="info"
           showIcon
           icon={<LockOutlined />}
-          message="This shipment is billed: its costs are locked"
-          description="Credit the invoice to change them. A supplier's invoice can still be posted through Document / Text Reading, and paid dates can still be noted."
+          message="This shipment is billed: what is invoiced is locked"
+          description="The rows on the issued invoice and the buying costs stay as they are until the invoice is credited. Selling rows can still be added and changed: they go on the next invoice. A supplier's invoice can still be posted through Document / Text Reading, and paid dates can still be noted."
         />
       )}
       {/* ═══════════ 1. BUYING COSTS ═══════════ */}
@@ -736,8 +746,8 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                 return (
                 <tr
                   key={r.id}
-                  className={`hover:bg-slate-50/60 ${locked ? `cursor-pointer ${ROW_FOCUS}` : ""}`}
-                  title={locked ? "Double-click to edit" : undefined}
+                  className={`hover:bg-slate-50/60 ${locked && !billed ? `cursor-pointer ${ROW_FOCUS}` : ""}`}
+                  title={billed ? "Billed: the buying costs stay as they are until the invoice is credited" : locked ? "Double-click to edit" : undefined}
                   data-cost-row={r.id}
                   onDoubleClick={() => unlock(r.id)}
                   {...rowKeys(r.id, locked)}
@@ -936,12 +946,12 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
         bodyClassName="rounded-b-xl overflow-hidden"
         extra={
           <>
-            <HeadBtn onClick={guarded("Could not restore the row", undoSell)} disabled={billed || !undoSellCount} title="Bring back the last deleted selling cost" ariaLabel="Undo the last deleted selling cost">
+            <HeadBtn onClick={guarded("Could not restore the row", undoSell)} disabled={!undoSellCount} title="Bring back the last deleted selling cost" ariaLabel="Undo the last deleted selling cost">
               <RollbackOutlined />
               Undo
             </HeadBtn>
-            <HeadBtn disabled={billed} onClick={guarded("Could not copy from buying", copyFromBuying)}>Copy from buying</HeadBtn>
-            <HeadBtn primary disabled={billed} onClick={() => addSell.mutate({})}><PlusOutlined />Add selling cost</HeadBtn>
+            <HeadBtn onClick={guarded("Could not copy from buying", copyFromBuying)}>Copy from buying</HeadBtn>
+            <HeadBtn primary onClick={() => addSell.mutate({})}><PlusOutlined />Add selling cost</HeadBtn>
           </>
         }
       >
@@ -998,11 +1008,12 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                         </span>
                         {r.customer.trim() && <span className={OWN_TEXT_HINT}>Own text from Issue invoice</span>}
                         {truckingTag && <TruckingCostTagLink tag={truckingTag} />}
+                        {!invoicedOn && notInvoicedPill(r)}
                       </td>
                       <td className={CELL}><span className={`${READ} text-center`}>{amountInBox(r.qty)}</span></td>
                       <td className={CELL}>
                         {/* A cost sold on from a master job: its number is the one thing that changes here. */}
-                        {masterJobRows.has(r.id) && !invoicedOn && !billed ? (
+                        {masterJobRows.has(r.id) && !invoicedOn ? (
                           <SoldAtCostAmount
                             amount={r.amount}
                             currency={r.currency}
@@ -1027,7 +1038,6 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                           <Tooltip title="Duplicate row">
                             <button
                               onClick={guarded("Could not duplicate the row", () => duplicateSell(r, rowIndex, true))}
-                              disabled={billed}
                               aria-label="Duplicate selling cost row"
                               className={ROW_BTN}
                             >
@@ -1035,7 +1045,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                             </button>
                           </Tooltip>
                         ))}
-                        {masterJobRows.has(r.id) && !invoicedOn && !billed && (
+                        {masterJobRows.has(r.id) && !invoicedOn && (
                           <SoldAtCostRemove
                             amount={r.amount}
                             currency={r.currency}
@@ -1113,6 +1123,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                         onBlur={(e) => e.target.value !== r.description && updateSell.mutate({ id: r.id, description: e.target.value })}
                       />
                     )}
+                    {notInvoicedPill(r)}
                   </td>
                   <td className={CELL}>
                     <input
@@ -1142,7 +1153,6 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                     <Tooltip title="Duplicate row">
                       <button
                         onClick={guarded("Could not duplicate the row", () => duplicateSell(r, rowIndex))}
-                        disabled={billed}
                         aria-label="Duplicate selling cost row"
                         className={ROW_BTN}
                       >
@@ -1152,7 +1162,6 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                     <Tooltip title="Delete row">
                       <button
                         onClick={() => removeSell(r, rowIndex)}
-                        disabled={billed}
                         aria-label="Delete selling cost row"
                         className={ROW_DELETE_BTN}
                       >
@@ -1168,7 +1177,7 @@ export function CostsTab({ shipment, onIssueInvoice }: CostsTabProps) {
                   <td colSpan={8} className="px-4 py-8 text-center">
                     <button
                       onClick={() => addSell.mutate({})}
-                      disabled={billed || addSell.isPending}
+                      disabled={addSell.isPending}
                       className={ADD_FIRST_BTN}
                     >
                       No selling costs yet — add the first one

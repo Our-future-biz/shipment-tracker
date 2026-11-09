@@ -19444,6 +19444,11 @@ export namespace interfaces {
          * The master job's line the row sells on at cost ("master:<masterJobId>:<lineId>"); null otherwise. Read-only then.
          */
         sourceMasterJobRef: string | null
+
+        /**
+         * When the row was added: on a billed shipment, before or after its first invoice
+         */
+        createdAt: string
     }
 
     /**

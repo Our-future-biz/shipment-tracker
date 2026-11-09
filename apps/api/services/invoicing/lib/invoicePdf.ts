@@ -59,18 +59,22 @@ export interface PdfFonts {
 
 // ── Formatting ────────────────────────────────────────────────────────────────
 
-/** 29999.5 -> "29,999.50", as figures are written everywhere in the app. */
+/**
+ * 29999.5 -> "29 999.50": the invoice is bilingual (Czech / English), so its figures group thousands
+ * with a non-breaking space and take a decimal point, which neither reader can take amiss. The
+ * screens write 1,250.50 whatever the language.
+ */
 export function docMoney(v: string | number): string {
   const n = typeof v === "number" ? v : Number(v);
   const fixed = (Number.isFinite(n) ? n : 0).toFixed(2);
   const [int, dec] = fixed.split(".");
   const neg = int!.startsWith("-");
   const digits = neg ? int!.slice(1) : int!;
-  const grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/g, "\u00a0");
   return `${neg && Number(fixed) !== 0 ? "-" : ""}${grouped}.${dec}`;
 }
 
-/** A line's quantity: whole ones without decimals ("1", "1,000"), others as money ("2.50"). */
+/** A line's quantity: whole ones without decimals ("1", "1 000"), others as money ("2.50"). */
 export function docQty(v: string | number): string {
   return docMoney(v).replace(/\.00$/, "");
 }
@@ -179,7 +183,8 @@ class Writer {
     const out: string[] = [];
     for (const para of t.split(/\r?\n/)) {
       let line = "";
-      for (const word of para.split(/\s+/).filter(Boolean)) {
+      // Any white space but the no-break one, which holds a figure such as "1\u00a0121.00" together.
+      for (const word of para.split(/[^\S\u00a0]+/).filter(Boolean)) {
         const next = line ? `${line} ${word}` : word;
         if (font.widthOfTextAtSize(next, size) <= maxWidth) line = next;
         else {

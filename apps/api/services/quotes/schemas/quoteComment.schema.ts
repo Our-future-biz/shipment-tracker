@@ -14,6 +14,9 @@ export const quoteCommentTable = pgTable(
     threadRef: text("thread_ref").notNull(),
     quoteNumber: text("quote_number").notNull(),
     authorId: uuid("author_id").notNull(),
+    // Who wrote it, by e-mail as it was then: shown when the writer is no user of the company now - one
+    // who left, or a superadmin who wrote while working as the company. "" for the app's own messages.
+    authorName: text("author_name").notNull().default(""),
     message: text("message").notNull(),
     /** Colleagues tagged with @ in the message; each gets a notification until they open the chat. */
     mentionedUserIds: uuid("mentioned_user_ids").array().notNull().default(sql`'{}'::uuid[]`),

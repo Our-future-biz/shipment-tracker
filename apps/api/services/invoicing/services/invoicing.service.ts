@@ -3,7 +3,7 @@ import log from "encore.dev/log";
 import { customers, quotes, shipments } from "~encore/clients";
 import { iso } from "../../../lib/db/serialize";
 import { assertShipmentExists } from "../../../lib/shipmentRefs";
-import { BILLED, assertNotBilled, isBilled, leavesBuyingCostAlone, leavesSellingCostAlone } from "../lib/billedLock";
+import { BILLED, assertNotBilled, isBilled, leavesBuyingCostAlone } from "../lib/billedLock";
 import { toChargeCode } from "../../../lib/chargeCodes";
 import { canDecideQuoteInquiry, quoteCostCopyRefusal } from "../../../lib/salesPolicy";
 import { isSalesReference } from "../../../lib/salesReference";
@@ -102,6 +102,7 @@ const toSellingItem = (r: InvoiceSellingCostRecord): SellingCostItem => ({
   sortOrder: r.sortOrder,
   sourceTruckingRef: r.sourceTruckingRef,
   sourceMasterJobRef: r.sourceMasterJobRef,
+  createdAt: r.createdAt.toISOString(),
 });
 
 const toChargeItem = (r: InvoiceAdditionalChargeRecord): AdditionalChargeItem => ({
@@ -585,15 +586,15 @@ class InvoicingService {
   }
 
   // ── Selling costs ──
+  // A billed shipment still takes selling rows (a late demurrage, storage): they go on its next
+  // invoice. Only a row on an issued invoice is refused a change (lib/billedLock).
   async addSellingCost(shipmentId: string, companyId: string, input: SellingCostInput): Promise<SellingCostItem> {
-    await assertNotBilled(shipmentId, companyId);
     const values = { shipmentId, ...sellingChanges(input) };
     await assertShipmentExists(shipmentId);
     return toSellingItem(await sellingCostRepository.createForCompany(companyId, values));
   }
 
   async updateSellingCost(id: string, companyId: string, shipmentId: string, input: SellingCostInput, role?: string): Promise<SellingCostItem> {
-    if (!leavesSellingCostAlone(input)) await assertNotBilled(shipmentId, companyId);
     // A master job's demurrage taken off the invoice is sold for nothing: a manager's to do, as its
     // deletion is (asked for, then approved). A call from inside the app (no role) may.
     const mayUntickSplit = role === undefined || canDecideQuoteInquiry(role);
@@ -611,7 +612,6 @@ class InvoicingService {
   }
 
   async deleteSellingCost(id: string, companyId: string, shipmentId: string): Promise<void> {
-    await assertNotBilled(shipmentId, companyId);
     const row = await sellingCostRepository.writeUnlessInvoiced(id, companyId, shipmentId, { delete: true });
     if (row === "invoiced") throw APIError.failedPrecondition(INVOICED_ROW);
     if (!row) throw APIError.notFound("Selling cost not found");

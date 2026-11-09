@@ -144,33 +144,48 @@ export function titleLines(lang: DocLanguage, key: LabelKey): { main: string; su
   return { main: lang === "cs" ? cs : en, sub: "" };
 }
 
-/** English formatting only for an English-only document; Czech and bilingual ones use Czech style. */
+/** English dates only for an English-only document; Czech and bilingual ones write them the Czech way. */
 const isEnglish = (lang: DocLanguage) => lang === "en";
 
-/**
- * 1250.5 -> "1,250.5", at most `maxDecimals` decimals, trailing zeros dropped. Figures are written
- * this way in every language of the documents, as everywhere in the app.
- */
-export function formatNumber(value: number, _lang: DocLanguage, maxDecimals = 2): string {
+/** Groups thousands in Czech and bilingual figures: a word break never falls inside a number (wrapText). */
+export const NBSP = "\u00a0";
+
+// How a document writes figures in its language (the screens write 1,250.50 whatever the language):
+// Czech "1 250,5", English "1,250.5", and bilingual "1 250.5", which neither reader can take amiss.
+const FIGURES: Record<DocLanguage, { group: string; decimal: string }> = {
+  cs: { group: NBSP, decimal: "," },
+  en: { group: ",", decimal: "." },
+  both: { group: NBSP, decimal: "." },
+};
+
+// `value` with `decimals` places, trailing zeros dropped when `trim`, in the language's figures.
+function figure(value: number, lang: DocLanguage, decimals: number, trim: boolean): string {
   const n = Number.isFinite(value) ? value : 0;
-  const fixed = Math.abs(n).toFixed(maxDecimals);
+  const fixed = Math.abs(n).toFixed(decimals);
   const [int, dec = ""] = fixed.split(".");
-  const decimals = dec.replace(/0+$/, "");
-  const grouped = int!.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const shown = trim ? dec.replace(/0+$/, "") : dec;
+  const { group, decimal } = FIGURES[lang];
+  const grouped = int!.replace(/\B(?=(\d{3})+(?!\d))/g, group);
   const sign = n < 0 && Number(fixed) !== 0 ? "-" : "";
-  return `${sign}${grouped}${decimals ? `.${decimals}` : ""}`;
+  return `${sign}${grouped}${shown ? `${decimal}${shown}` : ""}`;
 }
 
-/** 1250.5, "kg" -> "1,250.5 kg" */
+/**
+ * 1250.5 -> "1 250,5" (cs), "1,250.5" (en) or "1 250.5" (both), at most `maxDecimals` decimals,
+ * trailing zeros dropped. Thousands are grouped with a non-breaking space in cs and both.
+ */
+export function formatNumber(value: number, lang: DocLanguage, maxDecimals = 2): string {
+  return figure(value, lang, maxDecimals, true);
+}
+
+/** 1250.5, "kg" -> "1 250,5 kg" (cs), "1,250.5 kg" (en), "1 250.5 kg" (both) */
 export function formatQuantity(value: number, unit: string, lang: DocLanguage, maxDecimals = 2): string {
   return `${formatNumber(value, lang, maxDecimals)} ${unit}`;
 }
 
-/** Money always with two decimals: 12500, "CZK" -> "12,500.00 CZK". */
+/** Money always with two decimals: 12500, "CZK" -> "12 500,00 CZK" (cs), "12,500.00 CZK" (en), "12 500.00 CZK" (both). */
 export function formatMoney(total: number, currency: string, lang: DocLanguage): string {
-  const s = formatNumber(total, lang, 2);
-  const [int, dec = ""] = s.split(".");
-  return `${int}.${dec.padEnd(2, "0")} ${currency}`;
+  return `${figure(total, lang, 2, false)} ${currency}`;
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -199,7 +214,8 @@ export function wrapText(text: string, maxWidth: number, widthOf: (s: string) =>
   const out: string[] = [];
   for (const para of text.split(/\r?\n/)) {
     let line = "";
-    for (const word of para.split(/\s+/).filter(Boolean)) {
+    // Any white space but the non-breaking one, which holds a figure together ("1 250,5").
+    for (const word of para.split(/[^\S\u00a0]+/).filter(Boolean)) {
       const next = line ? `${line} ${word}` : word;
       if (widthOf(next) <= maxWidth) {
         line = next;

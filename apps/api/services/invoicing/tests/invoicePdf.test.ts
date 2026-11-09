@@ -81,9 +81,10 @@ const base: InvoiceForPdf = {
 };
 
 describe("formatting", () => {
-  it("formats money and rates as the app writes figures, dates the Czech way", () => {
-    expect(docMoney("29999.5")).toBe("29,999.50");
-    expect(docMoney(-1234567.891)).toBe("-1,234,567.89");
+  it("formats money for both readers of the bilingual invoice and rates with a dot, dates the Czech way", () => {
+    // thousands apart by a no-break space, a decimal point
+    expect(docMoney("29999.5")).toBe("29\u00a0999.50");
+    expect(docMoney(-1234567.891)).toBe("-1\u00a0234\u00a0567.89");
     expect(docMoney("0")).toBe("0.00");
     expect(docMoney("-0.001")).toBe("0.00");
     expect(docRate("25.123400")).toBe("25.123");
@@ -93,7 +94,7 @@ describe("formatting", () => {
   it("writes a whole quantity without decimals and any other one as money", () => {
     expect(docQty("1.00")).toBe("1");
     expect(docQty("-1.00")).toBe("-1");
-    expect(docQty("1000.00")).toBe("1,000");
+    expect(docQty("1000.00")).toBe("1\u00a0000");
     expect(docQty("2.50")).toBe("2.50");
     expect(docQty("0.25")).toBe("0.25");
   });
@@ -130,7 +131,11 @@ describe("QR Platba", () => {
 describe("renderInvoicePdf", () => {
   it("prints every required field, Czech characters included", async () => {
     const bytes = await renderInvoicePdf(base, await loadPdfFonts());
-    const text = squash(await textOf(bytes));
+    const raw = await textOf(bytes);
+    // the totals keep their thousands apart: the no-break space is drawn as a space
+    expect(raw).toMatch(/1[ \u00a0]121\.00 EUR/);
+    expect(raw).toMatch(/28[ \u00a0]163\.33 CZK/);
+    const text = squash(raw);
     for (const expected of [
       "FAKTURA–DAŇOVÝDOKLAD",
       "INV2026CZ00000028-001",
@@ -147,8 +152,8 @@ describe("renderInvoicePdf", () => {
       "CZ65 0800 0000 1920 0014 5399",
       "GIBACZPX",
       "MSCU1234567",
-      "1,121.00EUR", // total due
-      "CelkemCZK/TotalCZK28,163.33CZK", // total in CZK
+      "1 121.00 EUR", // total due
+      "Celkem CZK / Total CZK 28 163.33 CZK", // total in CZK
       "1EUR=25.123CZK",
       "Osvobozeno od daně dle §69 ZDPH",
       "Děkujemezaspolupráci.",
@@ -192,7 +197,7 @@ describe("renderInvoicePdf", () => {
     expect(text).toContain("INV2026CZ00000028-001");
     expect(text).toContain("Špatnásazba");
     expect(text).toContain("KVRÁCENÍ");
-    expect(text).toContain("1,121.00EUR");
+    expect(text).toContain(squash("1 121.00 EUR"));
   });
 
   it("continues long invoices on further pages and keeps the same output", async () => {

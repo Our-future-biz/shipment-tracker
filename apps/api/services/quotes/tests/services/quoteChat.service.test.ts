@@ -30,6 +30,7 @@ vi.mock("../../repositories/quoteComment.repository", () => ({
   },
 }));
 
+import { companyPeople } from "../../lib/people";
 import { salesQuoteRepository } from "../../repositories/salesQuote.repository";
 import { quoteCommentRepository } from "../../repositories/quoteComment.repository";
 import { quoteChatService, READ_MENTION_KEEP_DAYS, threadOf } from "../../services/quoteChat.service";
@@ -62,11 +63,22 @@ describe("the thread of a quote", () => {
     expect(repo.listByThread).toHaveBeenCalledWith("c1", ROOT);
     repo.createForCompany.mockImplementation(async (_c, row) => ({ id: "m1", companyId: "c1", createdAt: new Date("2026-10-23T10:00:00Z"), ...row }) as never);
     const item = await quoteChatService.create(me, `${ROOT}-R2`, { message: "hello @Eva Novak", fileIds: ["f1", "f1"], mentionedUserIds: ["u-eva", "u-me", "u-stranger"] });
-    expect(repo.createForCompany).toHaveBeenCalledWith("c1", { threadRef: ROOT, quoteNumber: `${ROOT}-R2`, authorId: "u-me", message: "hello @Eva Novak", mentionedUserIds: ["u-eva"] });
+    expect(repo.createForCompany).toHaveBeenCalledWith("c1", { threadRef: ROOT, quoteNumber: `${ROOT}-R2`, authorId: "u-me", authorName: "lukas@ourfuture.biz", message: "hello @Eva Novak", mentionedUserIds: ["u-eva"] });
     expect(repo.linkFiles).toHaveBeenCalledWith("c1", ROOT, ["f1"], "m1");
     expect(item).toMatchObject({ quoteNumber: `${ROOT}-R2`, threadRef: ROOT, authorName: "lukas@ourfuture.biz" });
     await quoteChatService.markRead(me, `${ROOT}-R1`);
     expect(repo.markRead).toHaveBeenCalledWith("c1", "u-me", ROOT);
+  });
+
+  it("shows a writer who is no user of the company by the e-mail the message recorded (a superadmin who worked as it)", async () => {
+    repo.listByThread.mockResolvedValue([
+      { id: "m2", companyId: "c1", threadRef: ROOT, quoteNumber: ROOT, authorId: "u-root", authorName: "root@platform.cz", message: "hi", createdAt: new Date("2026-10-23T10:00:00Z"), struckAt: null },
+      { id: "m3", companyId: "c1", threadRef: ROOT, quoteNumber: ROOT, authorId: "u-me", authorName: "old@ourfuture.biz", message: "yo", createdAt: new Date("2026-10-23T10:01:00Z"), struckAt: null },
+    ] as never);
+    const items = await quoteChatService.list(me, ROOT);
+    // A colleague is shown as the users have them now; the record only stands in for one who is none.
+    expect(items.map((i) => i.authorName)).toEqual(["root@platform.cz", "lukas@ourfuture.biz"]);
+    expect(companyPeople).toHaveBeenCalledWith(me);
   });
 
   it("refuses a quote that is not there, and an empty message", async () => {

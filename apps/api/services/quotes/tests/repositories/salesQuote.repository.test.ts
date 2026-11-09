@@ -41,6 +41,8 @@ const fake = vi.hoisted(() => {
     /** What a read of the customers' open quotes returns, and every such read. */
     openQuotes: [] as Record<string, unknown>[],
     openQuoteReads: [] as { fields: Record<string, unknown>; where: unknown; orderBy: unknown[] }[],
+    /** Every page the overnight tariff check asked for: its condition, order and size. */
+    tariffChecks: [] as { where: unknown; orderBy: unknown[]; limit?: number }[],
   };
 
   // The text of a hand-written statement, without its parameters.
@@ -109,6 +111,22 @@ const fake = vi.hoisted(() => {
             state.steps.push(`${name} read links`);
             state.linkReads.push(where);
             return Promise.resolve(state.links);
+          }
+          if ("id" in fields && "companyId" in fields && "quoteNumber" in fields && !("needsAdoption" in fields)) {
+            const read: (typeof state.tariffChecks)[number] = { where, orderBy: [] };
+            const chain = {
+              orderBy: (...order: unknown[]) => {
+                read.orderBy = order;
+                return chain;
+              },
+              limit: (limit: number) => {
+                read.limit = limit;
+                state.steps.push(`${name} read quotes to check`);
+                state.tariffChecks.push(read);
+                return Promise.resolve(state.listed);
+              },
+            };
+            return chain;
           }
           if (!("needsAdoption" in fields)) {
             state.steps.push("read");
@@ -693,12 +711,48 @@ describe("saveDocument", () => {
     await expect(salesQuoteRepository.saveDocument(COMPANY, "QCZ20261010001", { data, carry }, { dataVersion: 1 })).resolves.toBeNull();
   });
 
+  it("writes, with wonRevision, also while the quote is a Won quote's revision - and no other Won quote", async () => {
+    await salesQuoteRepository.saveDocument(COMPANY, "QCZ20261010001", { data, carry }, { dataVersion: 4 }, { statuses: ["draft"], wonRevision: true });
+    const { sql, params } = rendered(fake.state.updates[0]!.where);
+    expect(sql).toContain(
+      `("quote"."status" in ($4) or ("quote"."status" = 'won' AND jsonb_typeof("quote"."data"->'wonRevisionOf') = 'string' AND "quote"."data"->>'wonRevisionOf' <> ''))`,
+    );
+    expect(params).toEqual([COMPANY, "QCZ20261010001", 4, "draft"]);
+  });
+
   it("writes only while the quote has one of the statuses named (the overnight tariff check: not sent yet)", async () => {
     await salesQuoteRepository.saveDocument(COMPANY, "QCZ20261010001", { data, carry }, { dataVersion: 4 }, { statuses: ["draft", "ready_to_send", "revised"] });
     expect(rendered(fake.state.updates[0]!.where)).toMatchObject({
       sql: '(("quote"."company_id" = $1 and "quote"."quote_number" = $2 and "quote"."deleted_at" is null and "quote"."status" is not null and "quote"."data_version" = $3) and "quote"."status" in ($4, $5, $6))',
       params: [COMPANY, "QCZ20261010001", 4, "draft", "ready_to_send", "revised"],
     });
+  });
+});
+
+describe("unsentWithTariffLines", () => {
+  beforeEach(() => {
+    fake.state.tariffChecks = [];
+  });
+
+  it("finds a page of every company's quotes with open prices and a tariff line, by id, after the last one", async () => {
+    fake.state.listed = [{ id: "q2", companyId: COMPANY, quoteNumber: "QCZ20261010002" }];
+    await expect(salesQuoteRepository.unsentWithTariffLines("q1", 200)).resolves.toEqual(fake.state.listed);
+    const { where, orderBy, limit } = fake.state.tariffChecks[0]!;
+    const { sql, params } = rendered(where);
+    expect(sql).toContain(`("quote"."status" in ($1, $2, $3) or ("quote"."status" = 'won' AND jsonb_typeof("quote"."data"->'wonRevisionOf') = 'string' AND "quote"."data"->>'wonRevisionOf' <> ''))`);
+    expect(sql).toContain(`"quote"."deleted_at" is null`);
+    expect(sql).toContain(`"quote"."data"::text LIKE '%"tariffRef"%'`);
+    expect(sql).toContain(`"quote"."id" > $4`);
+    // Every company's: no company condition.
+    expect(sql).not.toContain("company_id");
+    expect(params).toEqual(["draft", "ready_to_send", "revised", "q1"]);
+    expect(orderBy.map((o) => rendered(o).sql)).toEqual(['"quote"."id" asc']);
+    expect(limit).toBe(200);
+  });
+
+  it("starts from the first id", async () => {
+    await salesQuoteRepository.unsentWithTariffLines(null, 200);
+    expect(rendered(fake.state.tariffChecks[0]!.where).sql).not.toContain('"quote"."id" >');
   });
 });
 

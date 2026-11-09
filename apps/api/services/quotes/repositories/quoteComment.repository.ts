@@ -99,7 +99,7 @@ class QuoteCommentRepository extends TenantRepository<typeof quoteCommentTable> 
       .where(and(eq(r.companyId, companyId), eq(r.userId, userId)))
       .as("read");
     return this.db
-      .select({ id: c.id, threadRef: c.threadRef, quoteNumber: c.quoteNumber, authorId: c.authorId, message: c.message, createdAt: c.createdAt, readAt: read.readAt })
+      .select({ id: c.id, threadRef: c.threadRef, quoteNumber: c.quoteNumber, authorId: c.authorId, authorName: c.authorName, message: c.message, createdAt: c.createdAt, readAt: read.readAt })
       .from(c)
       .leftJoin(read, eq(read.threadRef, c.threadRef))
       .where(

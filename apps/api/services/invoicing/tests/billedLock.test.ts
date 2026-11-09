@@ -4,7 +4,7 @@ vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
 const countOpenInvoices = vi.hoisted(() => vi.fn());
 vi.mock("../repositories/invoice.repository", () => ({ invoiceRepository: { countOpenInvoices } }));
 
-import { assertNotBilled, leavesBuyingCostAlone, leavesSellingCostAlone } from "../lib/billedLock";
+import { assertNotBilled, leavesBuyingCostAlone } from "../lib/billedLock";
 
 beforeEach(() => countOpenInvoices.mockReset());
 
@@ -35,18 +35,10 @@ describe("what still goes on a billed shipment", () => {
     expect(leavesBuyingCostAlone({ vendor: "Maersk", supplierCustomerId: "s1" })).toBe(false);
   });
 
-  it("on a selling row: its place and how it is billed", () => {
-    expect(leavesSellingCostAlone({ sortOrder: 2 })).toBe(true);
-    expect(leavesSellingCostAlone({ vatCode: "S" })).toBe(true);
-    expect(leavesSellingCostAlone({ invoice: true })).toBe(true);
-    expect(leavesSellingCostAlone({ customer: "ACME" })).toBe(true);
-  });
-
-  it("not the money or the words", () => {
+  it("not the money, the estimate or the words of a buying row", () => {
     expect(leavesBuyingCostAlone({ realAmount: "10" })).toBe(false);
+    expect(leavesBuyingCostAlone({ estAmount: "10" })).toBe(false);
+    expect(leavesBuyingCostAlone({ estCurrency: "EUR", sortOrder: 1 })).toBe(false);
     expect(leavesBuyingCostAlone({ invoiceNumber: "F1", paidOn: "" })).toBe(false);
-    expect(leavesSellingCostAlone({ amount: "10" })).toBe(false);
-    expect(leavesSellingCostAlone({ category: "ocean_freight" })).toBe(false);
-    expect(leavesSellingCostAlone({ currency: "EUR", invoice: true })).toBe(false);
   });
 });

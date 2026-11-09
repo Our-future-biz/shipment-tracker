@@ -16,11 +16,15 @@ export async function companyUsersWithRoles(): Promise<(CompanyUser & { role: st
   return users.map((u) => ({ id: u.id, email: storedEmail(u.email), displayName: u.displayName, role: u.role }));
 }
 
-/** The e-mail of the user `userId` (the signed-in one, typically) as it is stored; "" when it can't be looked up. */
+/**
+ * The e-mail of the user `userId` (the signed-in one, typically: who created or decided something) as it
+ * is stored; "" when it can't be looked up. A user of the company the request works in - or the signed-in
+ * user themself, found in their own company when a superadmin works as another one (auth selfInOwnCompany).
+ */
 export async function userEmailOf(userId: string): Promise<string> {
   if (!userId) return "";
   try {
-    const { users } = await auth.userLookup({ ids: [userId] });
+    const { users } = await auth.userLookup({ ids: [userId], selfInOwnCompany: true });
     return storedEmail(users.find((u) => u.id === userId)?.email ?? "");
   } catch (err) {
     log.warn(err, "user e-mail could not be looked up");

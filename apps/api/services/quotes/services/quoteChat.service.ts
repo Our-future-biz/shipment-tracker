@@ -58,7 +58,7 @@ class QuoteChatService {
       quoteCommentRepository.listByThread(actor.companyID, threadRef),
       quoteCommentRepository.listChatFiles(actor.companyID, threadRef),
       quoteCommentRepository.lastReadByOthers(actor.companyID, actor.userID, threadRef),
-      companyPeople(),
+      companyPeople(actor),
     ]);
     return comments.map((c) => toItem(c, files, othersReadAt, emails, actor.userID));
   }
@@ -82,12 +82,13 @@ class QuoteChatService {
     if (fileIds.length > MAX_FILES_PER_MESSAGE) throw APIError.invalidArgument(`At most ${MAX_FILES_PER_MESSAGE} files per message`);
     const { threadRef, quoteNumber: writtenOn } = await this.thread(actor, quoteNumber);
     // Only real colleagues of the company can be tagged, and never yourself.
-    const { emails } = await companyPeople();
+    const { emails } = await companyPeople(actor);
     const mentions = [...new Set(input.mentionedUserIds ?? [])].filter((id) => id !== actor.userID && emails.has(id));
     const comment = await quoteCommentRepository.createForCompany(actor.companyID, {
       threadRef,
       quoteNumber: writtenOn,
       authorId: actor.userID,
+      authorName: emails.get(actor.userID) ?? "",
       message,
       mentionedUserIds: mentions,
     });
@@ -131,12 +132,12 @@ class QuoteChatService {
 
   // The bell's quote mentions: unread ones, and read ones written in the last 7 days.
   async mentions(actor: Actor): Promise<QuoteCommentMentionItem[]> {
-    const [rows, { emails }] = await Promise.all([quoteCommentRepository.mentions(actor.companyID, actor.userID, READ_MENTION_KEEP_DAYS), companyPeople()]);
+    const [rows, { emails }] = await Promise.all([quoteCommentRepository.mentions(actor.companyID, actor.userID, READ_MENTION_KEEP_DAYS), companyPeople(actor)]);
     return rows.map((m) => ({
       id: m.id,
       quoteNumber: m.quoteNumber,
       threadRef: m.threadRef,
-      authorName: authorNameOf(m.authorId, emails),
+      authorName: authorNameOf(m.authorId, emails, m.authorName),
       message: m.message,
       createdAt: m.createdAt.toISOString(),
       unread: !m.readAt || m.createdAt > m.readAt,
@@ -158,9 +159,10 @@ class QuoteChatService {
   }
 }
 
-// A message of the overnight tariff check has no colleague behind it.
-const authorNameOf = (authorId: string, emails: Map<string, string>) =>
-  authorId === TARIFF_CHECK_AUTHOR_ID ? TARIFF_CHECK_AUTHOR_NAME : (emails.get(authorId) ?? "");
+// A message of the overnight tariff check has no colleague behind it. A writer who is no user of the
+// company now keeps the e-mail the message recorded.
+const authorNameOf = (authorId: string, emails: Map<string, string>, recorded = "") =>
+  authorId === TARIFF_CHECK_AUTHOR_ID ? TARIFF_CHECK_AUTHOR_NAME : emails.get(authorId) || recorded || "";
 
 function toItem(c: QuoteCommentRecord, files: ChatFile[], othersReadAt: Date | null, emails: Map<string, string>, userId: string): QuoteCommentItem {
   return {
@@ -168,7 +170,7 @@ function toItem(c: QuoteCommentRecord, files: ChatFile[], othersReadAt: Date | n
     quoteNumber: c.quoteNumber,
     threadRef: c.threadRef,
     authorId: c.authorId,
-    authorName: authorNameOf(c.authorId, emails),
+    authorName: authorNameOf(c.authorId, emails, c.authorName),
     message: c.message,
     createdAt: c.createdAt.toISOString(),
     attachments: files

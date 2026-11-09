@@ -67,6 +67,8 @@ export interface SellingRow {
   invoice: boolean;
   /** link to the buying row it was copied from */
   sourceBuyId: string | null;
+  /** When the row was added (ISO): on a billed shipment, before or after its first invoice. */
+  createdAt?: string;
 }
 
 export interface RxeRow {

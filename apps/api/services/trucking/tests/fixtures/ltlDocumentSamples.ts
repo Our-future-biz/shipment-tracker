@@ -53,7 +53,7 @@ export const sampleManifest: ManifestDoc = {
   to: { ...sampleTransportOrder.delivery, name: "Depo Brno – Černovice", street: "Táborská 200", postcode: "618 00", city: "Brno" },
   rows: manifestRows,
   totals: { pieces: sum("pieces"), palletPlaces: sum("palletPlaces"), ldm: sum("ldm"), weightKg: sum("weightKg") },
-  capacityText: "13,6 LDM / 24 000 kg — 82 % LDM, 41 % kg",
+  capacityText: "13.6 LDM / 24\u00a0000 kg — 82 % LDM, 41 % kg",
 };
 
 const label: LabelDoc = {

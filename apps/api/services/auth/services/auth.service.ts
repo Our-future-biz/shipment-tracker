@@ -11,6 +11,7 @@ import { userRepository, type UserPatch } from "../repositories/user.repository"
 import { companyRepository } from "../repositories/company.repository";
 import type { AdminContact, UserRef } from "../interfaces/interfaces";
 import { departmentRepository, branchRepository } from "../repositories/orgUnit.repository";
+import { ownCompanyToLookIn, type LookupCaller } from "../lib/selfLookup";
 
 // The signing key comes from the Encore secret store (set via `encore secret set JWT_SECRET`).
 // A local-dev fallback keeps `encore run` working without a configured secret, but production
@@ -441,6 +442,17 @@ class AuthService {
   async userRefs(companyId: string, ids: string[]): Promise<UserRef[]> {
     const rows = await userRepository.listByIdsInCompany([...new Set(ids)], companyId);
     return rows.map((u) => ({ id: u.id, name: u.displayName || u.email || "", email: u.email, role: u.role }));
+  }
+
+  /**
+   * userRefs in the company the request works in, and the caller themself from their own company when a
+   * superadmin works as another one: for a stamp of who did something (created by, decided by). Nobody
+   * else is looked up outside the acting company (lib/selfLookup).
+   */
+  async userRefsWithSelf(caller: LookupCaller, ids: string[]): Promise<UserRef[]> {
+    const refs = await this.userRefs(caller.companyID, ids);
+    const own = ownCompanyToLookIn(caller, ids, refs);
+    return own ? [...refs, ...(await this.userRefs(own, [caller.userID]))] : refs;
   }
 }
 

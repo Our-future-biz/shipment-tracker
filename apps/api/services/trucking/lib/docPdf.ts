@@ -122,8 +122,9 @@ export class Writer {
     this.page.drawText(s, { x: left, y, size, font, color: opts.color ?? DARK });
   }
 
+  // The no-break spaces stay until the lines are drawn: a figure such as "1\u00a0250,5" is never split.
   wrap(t: string, size: number, maxWidth: number, bold = false): string[] {
-    return wrapText(clean(t), maxWidth, (s) => this.width(s, size, bold));
+    return wrapText(t.replace(/[\u202f\t]/g, " "), maxWidth, (s) => this.width(s, size, bold));
   }
 
   hline(x1: number, x2: number, y: number, color: RGB = LINE, thickness = 0.6) {
@@ -156,7 +157,7 @@ export class Writer {
   }
 }
 
-/** No-break and narrow no-break spaces as plain spaces, tabs as spaces. */
+/** No-break and narrow no-break spaces as plain spaces, tabs as spaces, as a line is drawn (wrap keeps them). */
 function clean(t: string): string {
   return t.replace(/[  \t]/g, " ");
 }

@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 vi.mock("~encore/clients", () => ({
-  auth: { usersList: vi.fn() },
+  auth: { usersList: vi.fn(), userLookup: vi.fn() },
   customers: { customerActivate: vi.fn(), _internalCustomerRefs: vi.fn(), _internalSupplierApprovalStates: vi.fn() },
   fx: { fxRatesOn: vi.fn() },
   shipments: { _internalShipmentsNamingQuote: vi.fn(), _internalShipmentsMoveQuote: vi.fn(), _internalQuoteReferencesByJob: vi.fn() },
@@ -445,6 +445,26 @@ describe("create and duplicate", () => {
     expect(item.data).toMatchObject({ reference: REF, origin: "Brno", quoteStatus: "draft", salesOwner: "martin@forwarder.cz" });
     const [, , , build] = repository.createWithReference.mock.calls[0]!;
     expect(build(REF)).toMatchObject({ status: "draft", ownerUserId: U_MARTIN, ownerMatchCheckedAt: NOW });
+  });
+
+  it("is owned, by their own e-mail, by a superadmin working as the company who creates it (found in their own company)", async () => {
+    const ROOT = "5e1d2c3b-4a59-4687-9a6b-7c8d9e0f1a2b";
+    // The superadmin is no user of the company; the auth service finds them, as the caller, only when asked.
+    vi.mocked(auth.userLookup).mockImplementation(
+      async ({ ids, selfInOwnCompany }) => ({ users: selfInOwnCompany && ids.includes(ROOT) ? [{ id: ROOT, name: "Root", email: "Root@Platform.cz", role: "superadmin" }] : [] }) as never,
+    );
+    const root = { userID: ROOT, companyID: martin.companyID, role: "superadmin" };
+    const item = await salesQuoteService.create(root, { origin: "Brno" });
+    expect(auth.userLookup).toHaveBeenCalledWith({ ids: [ROOT], selfInOwnCompany: true });
+    expect(item).toMatchObject({ ownerUserId: ROOT, ownerLabel: "root@platform.cz" });
+    expect(item.data).toMatchObject({ salesOwner: "root@platform.cz" });
+    // They are no colleague to pick: the users the quote offers are the company's own.
+    expect(USERS.some((u) => u.id === ROOT)).toBe(false);
+  });
+
+  it("asks nobody outside the company for a plain user", async () => {
+    await salesQuoteService.create(martin, { origin: "Brno" });
+    expect(auth.userLookup).not.toHaveBeenCalled();
   });
 
   it("duplicates into the next variant of the base reference - also when a variant is duplicated", async () => {
@@ -1939,6 +1959,7 @@ describe("the warehouse inquiry of pieces of 12.5 t or more", () => {
       threadRef: REF,
       quoteNumber: REF,
       authorId: U_MARTIN,
+      authorName: "martin@forwarder.cz",
       message: "Warehouse asked about 2 pieces of 12.5 t or more - two press frames",
       mentionedUserIds: [],
     });

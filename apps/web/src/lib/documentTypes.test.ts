@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CUSTOMS_TAB_GROUPS,
+  customsTabGroups,
   DOCUMENT_TYPES,
   documentGroupOf,
   documentTypeLabel,
@@ -27,6 +28,7 @@ describe("suppliers' invoices", () => {
       "Commercial Documents",
       "Shipping Documents",
       "Customs Documents",
+      "Safety Paperwork",
     ]);
   });
 
@@ -63,7 +65,15 @@ describe("the safety paperwork of dangerous goods", () => {
       expect(documentGroupOf(type).title).toBe("Safety Paperwork");
       expect(isReviewedDocumentType(type)).toBe(false);
     }
-    expect(CUSTOMS_TAB_GROUPS.map((g) => g.title)).not.toContain("Safety Paperwork");
+  });
+
+  it("show on the Customs tab for dangerous goods, or once such a file is on the shipment", () => {
+    const titles = (dangerous: boolean, types: string[]) => customsTabGroups(dangerous, types).map((g) => g.title);
+    expect(titles(false, [])).not.toContain("Safety Paperwork");
+    expect(titles(false, ["Commercial Invoice"])).not.toContain("Safety Paperwork");
+    expect(titles(true, [])).toContain("Safety Paperwork");
+    expect(titles(false, [SAFETY_PAPERWORK_TYPES[0]!])).toContain("Safety Paperwork");
+    expect(titles(true, [])).not.toContain("Suppliers Invoice(s)");
   });
 
   it("are required only for dangerous goods", () => {

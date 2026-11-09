@@ -4,12 +4,28 @@
 // one does not (tariffUpdates, the Approve button in Pricing). With no such rate the lines go, with
 // the selling lines made from them. A quote whose route can't be asked for today's rates keeps its
 // lines, and the user is told once (tariffUnchecked).
+//
+// A road quote is priced by the trucking tariffs on both sides. It is held for approval only once
+// the tariff versions it was priced on have lapsed. While they still hold, a rating that comes out
+// otherwise today (a new fuel index, another haulier, a discount) only refreshes its buying, quietly,
+// and the user is told once; its selling stays the quote's, as a change of buying leaves it in either
+// layout of Pricing (the FCL layout leaves the trucking lines out of its charges).
+
+import { isWonRevision } from "../utils/quoteDocument.utils";
+import { replaceTruckingLines, type PricedCostLine } from "./roadPricing";
 
 export const TARIFF_CHECK_AUTHOR_ID = "00000000-0000-0000-0000-000000000000";
 export const TARIFF_CHECK_AUTHOR_NAME = "Tariff check";
 
 /** The statuses of a quote not yet sent, whose prices the check may still move. */
 export const TARIFF_CHECK_STATUSES: readonly string[] = ["draft", "ready_to_send", "revised"];
+
+/**
+ * Whether the check may move a quote's prices: one not sent yet, or the revision of a Won quote,
+ * which stays Won with its prices open (web QuoteWorkflow's wonRevision). A Won quote that is no
+ * such revision is decided, and never touched.
+ */
+export const isTariffCheckable = (status: string, data: unknown): boolean => TARIFF_CHECK_STATUSES.includes(status) || isWonRevision(status, data);
 
 export type TariffKind = "ocean" | "rail" | "collection";
 export const ROAD_REF_PREFIX = "trucking:";
@@ -39,6 +55,22 @@ export interface RoadSide {
   versionNo: number;
   currency: string;
   total: number;
+}
+
+/** The buying side of a road pricing as data.roadPricing.buy records it: also its haulier. */
+export interface RoadBuySide extends RoadSide {
+  haulierCustomerId?: string;
+  haulierName?: string;
+}
+
+/**
+ * A road quote rated today as the Sales editor would rate it (lib/roadPricing roadPricingOf):
+ * each side as the pricing records it, and the buying lines today's buy price makes.
+ */
+export interface RoadRated {
+  sell: RoadSide;
+  buy: RoadBuySide | null;
+  buyLines: PricedCostLine[];
 }
 
 /** One line an offer makes on a quote: a rate per container of its type, or (null) any other line. */
@@ -72,7 +104,10 @@ export type TariffAction =
   | { ref: string; do: "remove" }
   | { ref: string; do: "unchecked"; reason: string }
   | { ref: string; do: "roadRemove" }
-  | { ref: string; do: "roadSwap"; sell: RoadSide; buy: RoadSide | null };
+  | { ref: string; do: "roadSwap"; sell: RoadSide; buy: RoadSide | null }
+  // The quote's tariffs still hold, its rating today does not: the buying (null when it is the
+  // same) is refreshed with `buyLines`, and today's selling is only told.
+  | { ref: string; do: "roadRefresh"; buy: RoadBuySide | null; buyLines: PricedCostLine[]; sell: RoadSide };
 
 type Doc = Record<string, unknown>;
 type Line = Doc & { tariffRef?: unknown };
@@ -233,7 +268,9 @@ const money = (totals: Money[]) => totals.map((t) => `${t.currency} ${t.amount.t
 interface StoredRoadPricing {
   serviceLevel: string;
   sell: RoadSide & { tariffName?: string };
-  buy: (RoadSide & { haulierCustomerId?: string; haulierName?: string }) | null;
+  buy: RoadBuySide | null;
+  /** Today's selling the user was last told of, while the quote keeps another (roadRefresh) */
+  sellNoted?: Money[];
 }
 
 /** The road pricing of a quote that still has lines priced from it; null otherwise. */
@@ -250,17 +287,32 @@ export const roadRatingDay = (pickupDate: unknown, today: string) => (typeof pic
 const sideMoney = (side: Pick<RoadSide, "currency" | "total">): Money[] => [{ currency: side.currency, amount: cents(side.total) }];
 const sameSide = (a: RoadSide | null, b: RoadSide | null) => (!a || !b ? !a && !b : sameMoney(sideMoney(a), sideMoney(b)));
 
+// Whether today's buying is another than the quote's: its money or its haulier. Another version at
+// the same money is only a new tag on the lines (roadSwap).
+const buyMoved = (stored: RoadBuySide | null, today: RoadBuySide | null) =>
+  !!stored && !!today && (!sameSide(stored, today) || (stored.haulierCustomerId ?? "") !== (today.haulierCustomerId ?? ""));
+
 /**
  * What becomes of a road quote's pricing. `rated` is what the tariffs give today, null when they
- * can't price it; `versionsValid` whether the versions it was priced from are still binding. A quote
- * that can't be rated for any other reason than a lapsed tariff is left alone.
+ * can't price it; `versionsValid` whether the versions it was priced from are still binding. Only a
+ * lapsed version holds the quote for approval of a new rate (or, with no rate, takes its road lines
+ * away); while its versions hold, a rate that came out otherwise today refreshes the buying alone.
+ * A quote that can't be rated for any other reason than a lapsed tariff is left alone.
  */
-export function roadActionFor(pricing: StoredRoadPricing, rated: { sell: RoadSide; buy: RoadSide | null } | null, versionsValid: boolean): TariffAction {
+export function roadActionFor(pricing: StoredRoadPricing, rated: RoadRated | null, versionsValid: boolean): TariffAction {
   const ref = "road";
   if (!rated) return versionsValid ? { ref, do: "keep" } : { ref, do: "roadRemove" };
   const buy = pricing.buy ? rated.buy : null;
   const sameVersions = rated.sell.tariffVersionId === pricing.sell.tariffVersionId && buy?.tariffVersionId === pricing.buy?.tariffVersionId;
-  if (sameSide(rated.sell, pricing.sell) && sameSide(buy, pricing.buy)) return sameVersions ? { ref, do: "keep" } : { ref, do: "roadSwap", sell: rated.sell, buy };
+  const sameRates = sameSide(rated.sell, pricing.sell) && sameSide(buy, pricing.buy);
+  if (versionsValid) {
+    const moved = buyMoved(pricing.buy, buy);
+    // A selling told of before, the quote's again today: what was told is forgotten (roadRefresh).
+    const told = Array.isArray(pricing.sellNoted) && pricing.sellNoted.length > 0;
+    if (sameRates && !moved && !(sameVersions && told)) return sameVersions ? { ref, do: "keep" } : { ref, do: "roadSwap", sell: rated.sell, buy };
+    return { ref, do: "roadRefresh", buy: moved ? buy : null, buyLines: moved ? rated.buyLines : [], sell: rated.sell };
+  }
+  if (sameRates) return sameVersions ? { ref, do: "keep" } : { ref, do: "roadSwap", sell: rated.sell, buy };
   return {
     ref,
     do: "update",
@@ -313,6 +365,47 @@ function updateMessage(update: TariffUpdate, name: string, data: Doc): string {
   return `The ${update.supplierName} tariff behind "${name}" has a new rate: ${change}. Approve it in Pricing: the quote can't be sent until then. ${sellingAfterApproval(data)}`;
 }
 
+const without = (doc: Doc, key: string): Doc => Object.fromEntries(Object.entries(doc).filter(([k]) => k !== key));
+
+/**
+ * A road quote whose trucking tariffs still hold, rated otherwise today: its buying refreshed when
+ * that is what moved (the trucking buying lines and the pricing's buy side), and today's selling
+ * told while the quote keeps its own (pricing.sellNoted), each said once. `pricing` is null when
+ * the road pricing stays as stored, `buyLines` when the buying lines do.
+ */
+function roadRefresh(data: Doc, action: Extract<TariffAction, { do: "roadRefresh" }>): { buyLines: PricedCostLine[] | null; pricing: Doc | null; message: string | null } {
+  const stored = data.roadPricing as Doc;
+  const storedSell = stored.sell as RoadSide;
+  const storedBuy = (stored.buy ?? null) as RoadBuySide | null;
+  let pricing: Doc = stored;
+  const told: string[] = [];
+  if (action.buy && storedBuy) {
+    pricing = { ...pricing, buy: { ...(storedBuy as unknown as Doc), ...action.buy } };
+    const otherHaulier = (storedBuy.haulierCustomerId ?? "") !== (action.buy.haulierCustomerId ?? "");
+    const from = otherHaulier && action.buy.haulierName ? ` (now from ${action.buy.haulierName})` : "";
+    told.push(
+      sameSide(storedBuy, action.buy)
+        ? `Buying${from} stays ${money(sideMoney(action.buy))}; the road buying lines were updated.`
+        : `Buying${from} was ${money(sideMoney(storedBuy))}, now ${money(sideMoney(action.buy))}; the road buying lines were updated.`,
+    );
+  }
+  const sellNow = sideMoney(action.sell);
+  const noted = Array.isArray(stored.sellNoted) ? (stored.sellNoted.filter(isObject) as unknown as Money[]) : null;
+  if (!sameMoney(sellNow, sideMoney(storedSell))) {
+    if (!noted || !sameMoney(noted, sellNow)) {
+      pricing = { ...pricing, sellNoted: sellNow };
+      told.push(`Selling from the tariff would now be ${money(sellNow)}; the quote keeps its ${money(sideMoney(storedSell))} - price the road transport again in Pricing to take today's.`);
+    }
+  } else if (noted) {
+    pricing = without(pricing, "sellNoted");
+  }
+  return {
+    buyLines: action.buy ? action.buyLines : null,
+    pricing: pricing === stored ? null : pricing,
+    message: told.length ? `The road rates of this quote came out otherwise today, while its trucking tariffs still hold, so no approval of a new rate is needed. ${told.join(" ")}` : null,
+  };
+}
+
 const textList = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 const sameSet = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((x) => b.includes(x));
 
@@ -347,7 +440,18 @@ export function applyTariffActions(data: Doc, actions: TariffAction[]): { data: 
       linesChanged = true;
       const stored = data.roadPricing as Doc;
       const version = (side: RoadSide) => ({ tariffVersionId: side.tariffVersionId, versionNo: side.versionNo });
-      road = { ...stored, sell: { ...(stored.sell as Doc), ...version(action.sell) }, ...(action.buy ? { buy: { ...(stored.buy as Doc), ...version(action.buy) } } : {}) };
+      // Today's selling is the quote's again: nothing is left to tell of it.
+      road = { ...without(stored, "sellNoted"), sell: { ...(stored.sell as Doc), ...version(action.sell) }, ...(action.buy ? { buy: { ...(stored.buy as Doc), ...version(action.buy) } } : {}) };
+      continue;
+    }
+    if (action.do === "roadRefresh") {
+      const refreshed = roadRefresh(data, action);
+      if (refreshed.buyLines) {
+        buying = replaceTruckingLines(buying, refreshed.buyLines) as Line[];
+        linesChanged = true;
+      }
+      if (refreshed.pricing) road = refreshed.pricing;
+      if (refreshed.message) messages.push(refreshed.message);
       continue;
     }
     const lines = buying.filter((l) => text(l.tariffRef) === action.ref);

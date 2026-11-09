@@ -52,4 +52,5 @@ export const sellRowsOf = (sellingCosts: InvoicingData["sellingCosts"] | undefin
     currency: c.currency || "CZK",
     invoice: !!c.invoice,
     sourceBuyId: c.sourceBuyId ?? null,
+    createdAt: c.createdAt,
   }));

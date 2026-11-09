@@ -46,10 +46,11 @@ const toItem = (r: DocumentChangeRequestRow): DocumentChangeRequestItem => ({
   answerSeenAt: r.answerSeenAt ? iso(r.answerSeenAt) : null,
 });
 
-// The name a request keeps of who asked or answered; a failed look-up doesn't stop the request.
+// The name a request keeps of who asked or answered (a superadmin working as this company is found in
+// their own); a failed look-up doesn't stop the request.
 async function nameOf(userId: string): Promise<string> {
   try {
-    const { users } = await auth.userLookup({ ids: [userId] });
+    const { users } = await auth.userLookup({ ids: [userId], selfInOwnCompany: true });
     return users[0]?.name ?? "";
   } catch (err) {
     log.warn(err, "document change request: user not resolved", { userId });

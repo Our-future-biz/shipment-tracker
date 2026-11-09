@@ -7,13 +7,14 @@ import { isUuid } from "../../../lib/uuid";
 import { toDecimal } from "../lib/amounts";
 import { answerProblem } from "../lib/sellingAmount";
 import { sellingAmountRequestRepository as requests } from "../repositories/sellingAmountRequest.repository";
-import { assertNotBilled } from "../lib/billedLock";
 import type { SellingAmountRequestRecord } from "../schemas/sellingAmountRequest.schema";
 import type { SellingAmountChangeResult, SellingAmountRequestItem } from "../interfaces/interfaces";
 
 // The number of a selling row a shipment sells on at cost (a master job's demurrage). The same as
 // the cost or more is written at once. Less takes a reason and a manager's approval, asked on
-// Sales → Managers → Quote inquiries: the row stays as it is until a manager approves.
+// Sales → Managers → Quote inquiries: the row stays as it is until a manager approves. A row on an
+// issued invoice is refused ("invoiced"); on a billed shipment every other row is open as anywhere
+// (lib/billedLock).
 
 const ANSWERED_DAYS = 30;
 const LIST_LIMIT = 300;
@@ -50,7 +51,6 @@ const toItem = (r: SellingAmountRequestRecord): SellingAmountRequestItem => ({
 class SellingAmountRequestService {
   async change(actor: Actor, shipmentId: string, sellingId: string, input: { amount: string; reason?: string }): Promise<SellingAmountChangeResult> {
     if (!isUuid(shipmentId) || !isUuid(sellingId)) throw notFound();
-    await assertNotBilled(shipmentId, actor.companyID);
     const amount = toDecimal(input.amount, "amount");
     if (amount == null) throw APIError.invalidArgument("Enter an amount");
     if (Number(amount) < 0) throw APIError.invalidArgument("The amount can't be below zero");
@@ -79,7 +79,6 @@ class SellingAmountRequestService {
   /** Asks a manager to take the row off the shipment's selling: it stays until a manager approves. */
   async askRemoval(actor: Actor, shipmentId: string, sellingId: string, input: { reason: string }): Promise<SellingAmountRequestItem> {
     if (!isUuid(shipmentId) || !isUuid(sellingId)) throw notFound();
-    await assertNotBilled(shipmentId, actor.companyID);
     const reason = (input.reason ?? "").trim();
     if (reason.length < 3) throw APIError.invalidArgument("Say why the row should go");
     const [job, userEmail] = await Promise.all([assertShipmentExists(shipmentId), userEmailOf(actor.userID)]);
@@ -104,10 +103,6 @@ class SellingAmountRequestService {
     const comment = (input.comment ?? "").trim();
     const problem = answerProblem(input.decision, comment);
     if (problem) throw APIError.invalidArgument(problem);
-    if (input.decision === "approve") {
-      const asked = await requests.byId(actor.companyID, id);
-      if (asked) await assertNotBilled(asked.shipmentId, actor.companyID);
-    }
     const userEmail = await userEmailOf(actor.userID);
     const result = await requests.answer(actor.companyID, id, { approve: input.decision === "approve", comment, userId: actor.userID, userEmail });
     switch (result.outcome) {

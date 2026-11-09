@@ -1,4 +1,5 @@
-import { fmt, showPostcode } from "./rateEngine";
+import { showPostcode } from "./rateEngine";
+import { formatNumber } from "./docFormat";
 import { docLoad, docStop, platesText, say, transportOrderDoc, transportOrderTerms, vehicleText } from "./truckingDocs";
 import { TRIP_KIND_LABEL } from "./ltlRules";
 import type { DocLanguage, DocLoad, DocParty } from "./documentTypes";
@@ -90,10 +91,11 @@ const totalsOf = (loads: LoadInput[]) => {
   return { pieces: s.pieces, palletPlaces: s.palletPlaces, ldm: s.ldm, weightKg: s.weightKg };
 };
 
-/** "13.6 LDM / 24 000 kg — 82 % LDM, 41 % kg", "" without a vehicle. */
-export function capacityText(cap: TripCapacity | null, fill: TripFill): string {
+/** "13.6 LDM / 24 000 kg — 82 % LDM, 41 % kg" in the figures of the manifest's language, "" without a vehicle. */
+export function capacityText(cap: TripCapacity | null, fill: TripFill, lang: DocLanguage): string {
   if (!cap) return "";
-  return `${fmt(cap.ldm)} LDM / ${fmt(cap.kg)} kg — ${fmt(fill.ldmPercent ?? 0)} % LDM, ${fmt(fill.kgPercent ?? 0)} % kg`;
+  const n = (v: number) => formatNumber(v, lang);
+  return `${n(cap.ldm)} LDM / ${n(cap.kg)} kg — ${n(fill.ldmPercent ?? 0)} % LDM, ${n(fill.kgPercent ?? 0)} % kg`;
 }
 
 /** Where a trip starts and ends: a pick-up run ends at our warehouse, a line haul ends at the depot, a delivery run has many ends. */
@@ -163,7 +165,7 @@ export function manifestDoc(i: ManifestInput): ManifestDoc {
     to: ends.to ? docStop(ends.to) : null,
     rows,
     totals: totalsOf(i.legs.map((l) => l.consignment.load)),
-    capacityText: capacityText(i.capacity, i.fill),
+    capacityText: capacityText(i.capacity, i.fill, i.language),
   };
 }
 

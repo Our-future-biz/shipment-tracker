@@ -34,7 +34,9 @@ import { useShipment } from "@/hooks/useShipment";
 import { NOT_STACKABLE, STACKABLE_OPTIONS, shipmentStackability, withShipmentStackability } from "@/lib/cargo";
 import { useInvoicing } from "@/hooks/useInvoicing";
 import { useAuth, useCanDeleteShipments } from "@/lib/auth/AuthContext";
-import { canChangeShipmentDetails, isApprovedByLocked, isCreditCheckLocked } from "@/lib/shipmentEditRule";
+import { canChangeShipmentDetails, isApprovedByLocked, isCreditCheckLocked, SALES_REFERENCE_LOCKED_HINT, salesReferenceLocked } from "@/lib/shipmentEditRule";
+import { useInvoiceDocList } from "@/hooks/useInvoiceDocs";
+import { isOpenInvoice } from "@/app/invoicing/_lib/openInvoices";
 import { useShipmentMutations, getFieldValue, buildRowData, type ShipmentItem } from "@/hooks/useShipments";
 import { getCellConditionalStyle, getRowConditionalStyle } from "@/lib/columnConfig";
 import { businessToday, formatDate } from "@/lib/date";
@@ -348,6 +350,49 @@ function FieldRow({
         emptyClassName={EMPTY}
         // Customer's PIC is a link like the Customer row's, which takes no rule colour here either.
         displayStyle={fieldKey === "customerPic" ? undefined : styleFor?.(fieldKey, value)}
+      />
+    </div>
+  );
+}
+
+interface SalesReferenceRowProps {
+  shipment: ShipmentItem;
+  /** The quote the shipment's costs were copied from (Costs tab > Copy from quote). */
+  costsQuoteRef: string;
+  onCommit: CommitFn;
+  styleFor?: StyleFor;
+}
+
+// The Sales Reference on the Quote card, edited as in the grid: the same field, the same request and the
+// server's same rules (the details rule; the quote's owner becomes the Sales Person). An invoiced shipment
+// keeps the offer it was invoiced from - marked Invoiced, or with an issued invoice not credited - until the
+// invoice is credited: read-only, as the server refuses a change. Until the shipment names a quote, the one
+// its costs were copied from shows in its place, in grey.
+function SalesReferenceRow({ shipment, costsQuoteRef, onCommit, styleFor }: SalesReferenceRowProps) {
+  const { data: docs } = useInvoiceDocList(shipment.id);
+  const salesNumber = (shipment.salesNumber ?? "").trim();
+  const invoiced = salesReferenceLocked(shipment.invoicingStatus) || (docs?.invoices ?? []).some(isOpenInvoice);
+  if (invoiced) {
+    const shown = salesNumber || costsQuoteRef;
+    return (
+      <div className={ROW} title={SALES_REFERENCE_LOCKED_HINT}>
+        <span className={LABEL}>Sales Reference</span>
+        {shown ? <FadeText className="flex-1 text-slate-900 tabular-nums">{shown}</FadeText> : <span className={`flex-1 min-w-0 ${EMPTY}`}>—</span>}
+      </div>
+    );
+  }
+  return (
+    <div className={ROW}>
+      <span className={LABEL}>Sales Reference</span>
+      <EditableCell
+        className="flex-1 min-w-0"
+        fieldKey="salesNumber"
+        value={salesNumber}
+        onCommit={onCommit}
+        placeholder={costsQuoteRef || "—"}
+        displayClassName="text-slate-900"
+        emptyClassName={costsQuoteRef ? "text-slate-500" : EMPTY}
+        displayStyle={styleFor?.("salesNumber", salesNumber)}
       />
     </div>
   );
@@ -860,11 +905,12 @@ const PARTIES_AGENTS: FieldDef[] = [
   { key: "equipmentDeliveryDate", label: "Equipment Delivery/Pick-Up Date" },
   { key: "customsProcedure", label: "Customs Procedure" },
 ];
-// The Quote card is read-only: it shows the quote uploaded in the Costs Breakdown tab, and its
-// selling, buying and profit are that tab's totals.
+// The Quote card shows the quote uploaded in the Costs Breakdown tab, and its selling, buying and
+// profit are that tab's totals. Only the Sales Reference is edited here.
 // The quote itself on the left, its money on the right.
 const QUOTE_L: FieldDef[] = [
-  { key: "salesNumber", label: "Sales Reference", ro: true },
+  // Edited here as in the grid (SalesReferenceRow); the rest of the card is read-only.
+  { key: "salesNumber", label: "Sales Reference" },
   { key: "quoteValidity", label: "Quote Validity", ro: true },
   { key: "validityStatus", label: "Validity Status", ro: true },
   { key: "salesPerson", label: "Sales Person", ro: true },
@@ -1709,13 +1755,13 @@ export function ShipmentDetailContent() {
                   // The money comes straight from the Costs Breakdown tab, in the billing currency.
                   // Without costs the row shows its empty "—", in the light grey every empty value has.
                   const amount = (v: number) => (costs.totals.hasAny ? `${money(v)} ${costs.billingCur}` : "");
-                  // The rest is the quote uploaded there; nothing on this card is typed in. Ok while
+                  // The rest is the quote uploaded there; nothing else on this card is typed in. Ok while
                   // the quote is valid, Check once its date has passed (as Create shipment sets it).
                   const validUntil = costsQuote?.validUntil ?? null;
                   const validity = validUntil ? (validUntil >= businessToday() ? "Ok" : "Check") : null;
                   const custom: Record<string, React.ReactNode> = {
-                    // The shipment's own Sales Reference; without one, the quote its costs were copied from.
-                    salesNumber: <RoRow key="salesNumber" label="Sales Reference" value={salesNumber || costsQuoteRef} />,
+                    // The shipment's own Sales Reference, edited here as in the grid; without one, the quote its costs were copied from.
+                    salesNumber: <SalesReferenceRow key="salesNumber" shipment={shipment} costsQuoteRef={costsQuoteRef} onCommit={handleCommit} styleFor={styleFor} />,
                     selling: <RoRow key="selling" label="Total Selling Costs" value={amount(costs.totals.sellTotal)} />,
                     buying: <RoRow key="buying" label="Total Buying Costs" value={amount(costs.totals.buyTotal)} />,
                     profit: <RoRow key="profit" label="Profit" value={amount(costs.totals.sellTotal - costs.totals.buyTotal)} />,

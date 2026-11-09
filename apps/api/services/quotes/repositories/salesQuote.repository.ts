@@ -57,6 +57,16 @@ const documentIsObject = sql`jsonb_typeof(${quoteTable.data}) = 'object'`;
 const withSalesOwner = (label: string) =>
   sql`CASE WHEN ${documentIsObject} THEN ${quoteTable.data} || jsonb_build_object('salesOwner', ${label}::text) ELSE ${quoteTable.data} END`;
 
+// The revision of a Won quote: Won, its prices open (quoteDocument.utils isWonRevision, the same
+// test - a wonRevisionOf that is a text and not empty).
+const isWonRevisionRow = sql`(${quoteTable.status} = 'won' AND jsonb_typeof(${quoteTable.data}->'wonRevisionOf') = 'string' AND ${quoteTable.data}->>'wonRevisionOf' <> '')`;
+
+// A quote in one of `statuses` - or, with `wonRevision`, a Won quote's revision.
+const inStatuses = (statuses: readonly string[], wonRevision: boolean) => {
+  const listed = inArray(quoteTable.status, [...statuses]);
+  return wonRevision ? or(listed, isWonRevisionRow)! : listed;
+};
+
 // THE FRAGMENTS OF THE LIST QUERIES, each written once. They restate rules of
 // quoteLifecycle.utils in SQL; "today" (the business day) and the moment a follow-up is due
 // before are worked out in TypeScript and passed in, so SQL has no clock and no time zone of its
@@ -439,15 +449,16 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
    * it, so nothing can slip in between the check and the write. The keys in `carry` are taken
    * from the stored document, whatever the incoming one says - the lifecycle keys always, so a
    * save can neither change nor lose them. `statuses`: written only while the quote still has one
-   * of them (the overnight tariff check, for a quote not yet sent). Null when nothing was written:
-   * the quote is not that version any more, not in such a status, or not there.
+   * of them - or, with `wonRevision`, is the revision of a Won quote (the overnight tariff check, for
+   * a quote whose prices are open). Null when nothing was written: the quote is not that version any
+   * more, not in such a status, or not there.
    */
   async saveDocument(
     companyId: string,
     quoteNumber: string,
     save: { data: Record<string, unknown>; carry: string[] },
     expected: SavedVersion,
-    { statuses }: { statuses?: readonly string[] } = {},
+    { statuses, wonRevision = false }: { statuses?: readonly string[]; wonRevision?: boolean } = {},
   ): Promise<SalesQuoteRecord | null> {
     const carry = textArray(save.carry);
     const live = this.liveSalesQuote(companyId, quoteNumber, expected);
@@ -461,7 +472,7 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
         dataVersion: sql`${quoteTable.dataVersion} + 1`,
         updatedAt: new Date(),
       })
-      .where(statuses ? and(live, inArray(quoteTable.status, [...statuses])) : live)
+      .where(statuses ? and(live, inStatuses(statuses, wonRevision)) : live)
       .returning();
     return salesRows(saved)[0] ?? null;
   }
@@ -513,8 +524,8 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
   }
 
   /**
-   * For the overnight check: every company's live quotes not yet sent with a line priced from a
-   * tariff, a page at a time by id (after `afterId`). Only which quotes they are - each is read again
+   * For the overnight check: every company's live quotes not yet sent, and revisions of Won quotes,
+   * with a line priced from a tariff, a page at a time by id (after `afterId`). Only which quotes they are - each is read again
    * whole when its turn comes.
    */
   async unsentWithTariffLines(afterId: string | null, limit: number): Promise<{ id: string; companyId: string; quoteNumber: string }[]> {
@@ -524,7 +535,7 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
       .where(
         and(
           isNull(quoteTable.deletedAt),
-          inArray(quoteTable.status, [...TARIFF_CHECK_STATUSES]),
+          inStatuses(TARIFF_CHECK_STATUSES, true),
           sql`${quoteTable.data}::text LIKE '%"tariffRef"%'`,
           afterId ? gt(quoteTable.id, afterId) : undefined,
         ),

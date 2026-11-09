@@ -55,6 +55,8 @@ export interface SellingCostItem {
   sourceTruckingRef: string | null;
   /** The master job's line the row sells on at cost ("master:<masterJobId>:<lineId>"); null otherwise. Read-only then. */
   sourceMasterJobRef: string | null;
+  /** When the row was added: on a billed shipment, before or after its first invoice */
+  createdAt: string;
 }
 
 /** A request about a cost a shipment sells on at cost: to sell it for less, or to take it off the selling. */

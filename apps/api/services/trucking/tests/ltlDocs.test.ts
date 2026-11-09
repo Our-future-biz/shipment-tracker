@@ -46,8 +46,11 @@ describe("LTL documents", () => {
     expect(doc.rows[1]!.notes).toBe("tail lift");
     expect(doc.totals).toEqual({ pieces: 4, palletPlaces: 4, ldm: 1.6, weightKg: 1200 });
     expect(doc.capacityText).toBe("7.2 LDM / 9,000 kg — 22.2 % LDM, 13.3 % kg");
+    // in the figures of the manifest's language
+    expect(capacityText(cap, fill, "cs")).toBe("7,2 LDM / 9\u00a0000 kg — 22,2 % LDM, 13,3 % kg");
+    expect(capacityText(cap, fill, "both")).toBe("7.2 LDM / 9\u00a0000 kg — 22.2 % LDM, 13.3 % kg");
     expect(doc.vehicleText).toBe("Solo truck 7.2 m with tail lift, tail lift");
-    expect(capacityText(null, fill)).toBe("");
+    expect(capacityText(null, fill, "en")).toBe("");
   });
 
   it("a line haul's manifest runs from our warehouse to the partner's depot", () => {

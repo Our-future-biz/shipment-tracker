@@ -21,6 +21,7 @@ const users = vi.hoisted(() => ({
   sessionState: vi.fn(),
   updateInCompany: vi.fn(),
   create: vi.fn(),
+  listByIdsInCompany: vi.fn(),
 }));
 vi.mock("../repositories/user.repository", () => ({ userRepository: users }));
 const companies = vi.hoisted(() => ({ getById: vi.fn(async () => null) }));
@@ -189,5 +190,30 @@ describe("a superadmin's company switcher", () => {
     await expect(authService.workingCompany(superadmin, DEMO)).resolves.toEqual({ id: DEMO, name: "Demo s.r.o.", switched: true });
     await expect(authService.workingCompany(superadmin, GONE)).resolves.toEqual({ id: HOME, name: "Platform", switched: false });
     await expect(authService.workingCompany({ ...superadmin, role: "admin" }, DEMO)).resolves.toEqual({ id: HOME, name: "Platform", switched: false });
+  });
+});
+
+describe("looking users up for a stamp of who did something", () => {
+  const ROOT = "11111111-1111-4111-8111-111111111111";
+  const JANA = "22222222-2222-4222-8222-222222222222";
+  const PLATFORM = "a0000000-0000-4000-8000-000000000001";
+  const TENANT = "b0000000-0000-4000-8000-000000000002";
+  const row = (id: string, email: string, role: string) => ({ id, displayName: "", email, role });
+  // Jana is a user of the tenant; the superadmin only of the platform company.
+  const byCompany: Record<string, ReturnType<typeof row>[]> = { [TENANT]: [row(JANA, "jana@tenant.cz", "user")], [PLATFORM]: [row(ROOT, "root@platform.cz", "superadmin")] };
+
+  it("finds a superadmin working as a tenant in their own company, and nobody else outside the tenant", async () => {
+    users.listByIdsInCompany.mockImplementation(async (ids: string[], companyId: string) => (byCompany[companyId] ?? []).filter((u) => ids.includes(u.id)));
+    const caller = { userID: ROOT, companyID: TENANT, homeCompanyID: PLATFORM };
+    await expect(authService.userRefsWithSelf(caller, [ROOT, JANA])).resolves.toEqual([
+      { id: JANA, name: "jana@tenant.cz", email: "jana@tenant.cz", role: "user" },
+      { id: ROOT, name: "root@platform.cz", email: "root@platform.cz", role: "superadmin" },
+    ]);
+    expect(users.listByIdsInCompany).toHaveBeenLastCalledWith([ROOT], PLATFORM);
+    // Somebody else of the platform company is never found through a tenant.
+    users.listByIdsInCompany.mockClear();
+    await expect(authService.userRefsWithSelf({ userID: JANA, companyID: TENANT, homeCompanyID: TENANT }, [ROOT])).resolves.toEqual([]);
+    expect(users.listByIdsInCompany).toHaveBeenCalledTimes(1);
+    expect(users.listByIdsInCompany).toHaveBeenCalledWith([ROOT], TENANT);
   });
 });

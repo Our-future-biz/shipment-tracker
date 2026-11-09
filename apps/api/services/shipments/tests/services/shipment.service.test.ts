@@ -416,7 +416,17 @@ describe("Created by", () => {
     await shipmentService.create(COMPANY, { fromQuoteNumber: REF, createdBy: "someone else" } as never, USER);
     const createdBy = [repository.createWithJobNumber.mock.calls[0]![1].createdBy, repository.createFromQuote.mock.calls[0]![2].createdBy];
     for (const stamp of createdBy) expect(stamp).toBe("jan@firma.cz");
-    expect(auth.userLookup).toHaveBeenCalledWith({ ids: [USER] });
+    expect(auth.userLookup).toHaveBeenCalledWith({ ids: [USER], selfInOwnCompany: true });
+  });
+
+  it("is the superadmin's own e-mail when a superadmin working as the company creates it (found in their own company)", async () => {
+    const ROOT = "5e1d2c3b-4a59-4687-9a6b-7c8d9e0f1a2b";
+    // The auth service finds the caller themself in their own company only when asked to (selfInOwnCompany).
+    vi.mocked(auth.userLookup).mockImplementation(
+      async ({ ids, selfInOwnCompany }) => ({ users: selfInOwnCompany && ids.includes(ROOT) ? [{ id: ROOT, name: "Root", email: "Root@Platform.cz", role: "superadmin" }] : [] }) as never,
+    );
+    await shipmentService.create(COMPANY, {} as never, ROOT);
+    expect(repository.createWithJobNumber.mock.calls[0]![1].createdBy).toBe("root@platform.cz");
   });
 
   it("takes the e-mail from the users list when the lookup fails, and never writes a display name", async () => {
@@ -935,7 +945,7 @@ describe("people are users of the company, stored by e-mail", () => {
 
     it("is the e-mail of the user who owns the quote", async () => {
       await expect(takenFrom({ ownerUserId: JANA.id, ownerName: "Jana Nováková" })).resolves.toBe("jana@firma.cz");
-      expect(auth.userLookup).toHaveBeenCalledWith({ ids: [JANA.id] });
+      expect(auth.userLookup).toHaveBeenCalledWith({ ids: [JANA.id], selfInOwnCompany: true });
     });
 
     it("is the one user the owner's name fits, for a quote owned by a typed name", async () => {

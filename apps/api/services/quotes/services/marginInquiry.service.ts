@@ -53,11 +53,12 @@ const snapshotOf = (row: QuoteInquiryRecord) => row.snapshot ?? NO_SNAPSHOT;
 // A person by e-mail as the users have it now; one who left keeps the e-mail the row recorded.
 const nameOf = (people: People, id: string | null, recorded = "") => (id ? people.emails.get(id) || recorded : "");
 
-// The question goes to the quote's chat as a message of whoever asks or answers, so the quote's
-// conversation has it. The quote is already saved: a chat that cannot be written is logged.
-async function postToChat(actor: Actor, quoteNumber: string, message: string): Promise<void> {
+// The question goes to the quote's chat as a message of whoever asks or answers (`ctx`: who, by
+// e-mail), so the quote's conversation has it. The quote is already saved: a chat that cannot be
+// written is logged.
+async function postToChat(actor: Actor, ctx: LifecycleContext, quoteNumber: string, message: string): Promise<void> {
   try {
-    await quoteCommentRepository.createForCompany(actor.companyID, { threadRef: revisionRoot(quoteNumber), quoteNumber, authorId: actor.userID, message, mentionedUserIds: [] });
+    await quoteCommentRepository.createForCompany(actor.companyID, { threadRef: revisionRoot(quoteNumber), quoteNumber, authorId: actor.userID, authorName: ctx.userEmail, message, mentionedUserIds: [] });
   } catch (err) {
     log.warn("the margin inquiry could not be posted to the quote's chat", { quoteNumber, error: String(err) });
   }
@@ -108,7 +109,7 @@ class MarginInquiryService {
     if (problem) throw APIError.invalidArgument(problem);
     const stored = await salesQuoteRepository.loadSales(actor.companyID, quoteNumber);
     if (!stored) throw notFound();
-    const [margins, people] = await Promise.all([marginsFor(actor.companyID, [stored], at), companyDirectory()]);
+    const [margins, people] = await Promise.all([marginsFor(actor.companyID, [stored], at), companyDirectory(actor)]);
     const ctx = contextOf(actor, at, people);
     let created: QuoteInquiryRecord | null = null;
     const written = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
@@ -157,7 +158,7 @@ class MarginInquiryService {
     });
     if (!written || !created) throw notFound();
     const manager = nameOf(people, (created as QuoteInquiryRecord).notifyUserId);
-    await postToChat(actor, written.quoteNumber, `Asked a manager to approve the margin (${input.reason})${manager ? ` - ${manager} is told` : " - the admins are told"}.`);
+    await postToChat(actor, ctx, written.quoteNumber, `Asked a manager to approve the margin (${input.reason})${manager ? ` - ${manager} is told` : " - the admins are told"}.`);
     return toInquiryItem(created, people, at, people.managers);
   }
 
@@ -167,7 +168,7 @@ class MarginInquiryService {
     if (!quote) throw notFound();
     const row = await quoteInquiryRepository.latestOf(actor.companyID, quote.id);
     if (!row) return null;
-    const people = await companyDirectory();
+    const people = await companyDirectory(actor);
     return toInquiryItem(row, people, new Date(), people.managers);
   }
 
@@ -175,7 +176,7 @@ class MarginInquiryService {
   async withdraw(actor: Actor, quoteNumber: string, inquiryId: string): Promise<QuoteMarginInquiryItem> {
     if (!isUuid(inquiryId)) throw APIError.invalidArgument("inquiryId must be a uuid");
     const at = new Date();
-    const people = await companyPeople();
+    const people = await companyPeople(actor);
     const ctx = contextOf(actor, at, people);
     let changed: QuoteInquiryRecord | null = null;
     const written = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
@@ -188,7 +189,7 @@ class MarginInquiryService {
       return salesQuoteRepository.writeLifecycle(tx, quote, { state: stateOf(quote), entries: [pricingEntry("margin_approval", "Margin approval request withdrawn", ctx)] });
     });
     if (!written || !changed) throw notFound();
-    await postToChat(actor, written.quoteNumber, "Took back the question to approve the margin.");
+    await postToChat(actor, ctx, written.quoteNumber, "Took back the question to approve the margin.");
     return toInquiryItem(changed, people, at);
   }
 
@@ -199,7 +200,7 @@ class MarginInquiryService {
     const problem = answerProblem(answer);
     if (problem) throw APIError.invalidArgument(problem);
     const at = new Date();
-    const people = await companyPeople();
+    const people = await companyPeople(actor);
     const ctx = contextOf(actor, at, people);
     const comment = (answer.comment ?? "").trim();
     let decided: QuoteInquiryRecord | null = null;
@@ -253,7 +254,7 @@ class MarginInquiryService {
     if (!written || !decided) throw notFound();
     const done = decided as QuoteInquiryRecord;
     const said = done.status === "rejected" ? `Rejected the margin: ${comment}` : done.decision === "counter" ? `Approved the margin down to ${formatMargin(done.approvedMarginCzk!, done.approvedMarginPercent)}${comment ? `: ${comment}` : ""}` : `Approved the margin${comment ? `: ${comment}` : ""}`;
-    await postToChat(actor, written.quoteNumber, said);
+    await postToChat(actor, ctx, written.quoteNumber, said);
     return toInquiryItem(done, people, at);
   }
 
@@ -284,7 +285,7 @@ class MarginInquiryService {
   async list(actor: Actor): Promise<QuoteMarginInquiryRow[]> {
     if (!canDecideQuoteInquiry(actor.role)) throw APIError.permissionDenied("Quote Inquiries are for managers");
     const now = new Date();
-    const [rows, people] = await Promise.all([quoteInquiryRepository.list(actor.companyID, new Date(now.getTime() - ANSWERED_DAYS * DAY), LIST_LIMIT), companyDirectory()]);
+    const [rows, people] = await Promise.all([quoteInquiryRepository.list(actor.companyID, new Date(now.getTime() - ANSWERED_DAYS * DAY), LIST_LIMIT), companyDirectory(actor)]);
     return this.rowsOf(actor, rows, now, people, people.managers);
   }
 
@@ -294,7 +295,7 @@ class MarginInquiryService {
     const [pending, answerRows, people] = await Promise.all([
       canDecideQuoteInquiry(actor.role) ? quoteInquiryRepository.pending(actor.companyID) : Promise.resolve([]),
       quoteInquiryRepository.answersFor(actor.companyID, actor.userID, new Date(now.getTime() - ANSWERED_DAYS * DAY), new Date(now.getTime() - SEEN_KEEP_DAYS * DAY), 100),
-      companyDirectory(),
+      companyDirectory(actor),
     ]);
     // The role as the token has it now (the auth handler reads it from the user on every request).
     const me = { id: actor.userID, role: actor.role };

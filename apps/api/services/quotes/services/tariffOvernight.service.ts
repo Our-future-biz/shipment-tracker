@@ -9,10 +9,11 @@ import { salesQuoteRepository } from "../repositories/salesQuote.repository";
 import type { SalesQuoteRecord } from "../schemas/quote.schema";
 import type { ServiceLevelCode } from "../../trucking/interfaces/interfaces";
 import type { QuoteRoadInput } from "../interfaces/interfaces";
-import { choosePricing, rateRequestOf } from "../lib/roadPricing";
+import { choosePricing, rateRequestOf, roadPricingOf as pricingRecordOf, truckingLines } from "../lib/roadPricing";
 import {
   actionForLapsed,
   applyTariffActions,
+  isTariffCheckable,
   offersRequestOf,
   roadActionFor,
   roadPricingOf,
@@ -23,13 +24,14 @@ import {
   tariffRefsOf,
   unaskableReason,
   type OffersAsked,
+  type RoadRated,
   type TariffAction,
   type TariffKind,
 } from "../lib/tariffOvernight";
 import { carryKeys } from "../utils/quoteDocument.utils";
 
-// Checks the tariffs behind every quote not yet sent, once a night (lib/tariffOvernight says what
-// becomes of each). What changes is told in the quote's Sales chat, tagging its owner, which also
+// Checks the tariffs behind every quote not yet sent, and every revision of a Won quote (its prices
+// are open), once a night (lib/tariffOvernight says what becomes of each). What changes is told in the quote's Sales chat, tagging its owner, which also
 // puts it under the owner's bell. A quote someone saved meanwhile is left for the next night, as
 // is one whose tariffs could not be read.
 
@@ -50,36 +52,41 @@ export const TARIFF_CHECK_CARRY: readonly string[] = carryKeys().filter((key) =>
 const authOf = (quote: SalesQuoteRecord) => ({ userID: TARIFF_CHECK_AUTHOR_ID, companyID: quote.companyId, role: "user" });
 type CheckAuth = ReturnType<typeof authOf>;
 
-// A road quote is rated again as the Sales editor would, for its service level and haulier.
+// A road quote is rated again as the Sales editor would, for its service level and haulier, and the
+// trucking tariffs are asked whether the versions it was priced on still hold on its rating day: only
+// a lapsed version holds it for approval (lib/tariffOvernight roadActionFor).
 async function roadAction(quote: SalesQuoteRecord, data: Record<string, unknown>, today: string, authData: CheckAuth): Promise<TariffAction | null> {
   const pricing = roadPricingOf(data);
   if (!pricing) return null;
   const road = data.road as unknown as QuoteRoadInput;
   const level = pricing.serviceLevel as ServiceLevelCode;
-  const rate = async () => {
+  const day = roadRatingDay(road.pickupDate, today);
+  const rate = async (): Promise<RoadRated | null> => {
     try {
-      const request = rateRequestOf({ ...road, pickupDate: roadRatingDay(road.pickupDate, today) }, level, quote.customerId, today);
-      const rated = await trucking.truckingRate(request, { authData });
+      const rated = await trucking.truckingRate(rateRequestOf({ ...road, pickupDate: day }, level, quote.customerId, today), { authData });
       const result = rated.results.find((r) => r.serviceLevel === level);
       const choice = result ? choosePricing(result, pricing.buy?.haulierCustomerId ?? null) : null;
-      return choice?.ok ? { sell: choice.sell, buy: choice.buy } : null;
+      if (!result || !choice?.ok) return null;
+      // As a pricing in the editor records it (salesQuote.service roadPrice).
+      const recorded = pricingRecordOf(result, choice.sell, choice.buy, rated.ratedAt);
+      const buyLines = choice.buy ? truckingLines(choice.buy, result.serviceLevel, { name: choice.buy.ownerName ?? "", customerId: choice.buy.ownerCustomerId ?? "" }) : [];
+      return { sell: recorded.sell, buy: recorded.buy, buyLines };
     } catch (err) {
       if (err instanceof APIError && err.code === ErrCode.InvalidArgument) return null;
       throw err;
     }
   };
-  const rated = await rate();
-  if (rated) return roadActionFor(pricing, rated, true);
   const ids = [pricing.sell.tariffVersionId, ...(pricing.buy ? [pricing.buy.tariffVersionId] : [])];
-  const { valid } = await trucking._internalTruckingVersionsValid({ ids, date: roadRatingDay(road.pickupDate, today) }, { authData });
-  return roadActionFor(pricing, null, ids.every((id) => valid.includes(id)));
+  const [rated, { valid }] = await Promise.all([rate(), trucking._internalTruckingVersionsValid({ ids, date: day }, { authData })]);
+  return roadActionFor(pricing, rated, ids.every((id) => valid.includes(id)));
 }
 
 /** Checks one quote, read again now; whether it was changed. */
 export async function checkQuote(found: { companyId: string; quoteNumber: string }, today: string): Promise<boolean> {
   // As it is now, not as it was when the run found it: it may have been sent, decided or edited since.
+  // Not sent yet, or the revision of a Won quote: a Won quote that is no revision is never touched.
   const quote = await salesQuoteRepository.loadSales(found.companyId, found.quoteNumber);
-  if (!quote || !TARIFF_CHECK_STATUSES.includes(quote.status)) return false;
+  if (!quote || !isTariffCheckable(quote.status, quote.data)) return false;
   const data = quote.data as Record<string, unknown>;
   const authData = authOf(quote);
   const refs = tariffRefsOf(data);
@@ -106,13 +113,13 @@ export async function checkQuote(found: { companyId: string; quoteNumber: string
 
   const { data: next, messages, changed } = applyTariffActions(data, actions);
   if (!changed) return false;
-  // Written only while the quote is the version read above and still not sent.
+  // Written only while the quote is the version read above and its prices are still open.
   const saved = await salesQuoteRepository.saveDocument(
     quote.companyId,
     quote.quoteNumber,
     { data: next, carry: [...TARIFF_CHECK_CARRY] },
     { dataVersion: quote.dataVersion },
-    { statuses: TARIFF_CHECK_STATUSES },
+    { statuses: TARIFF_CHECK_STATUSES, wonRevision: true },
   );
   if (!saved) return false;
   if (messages.length) {

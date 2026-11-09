@@ -25,7 +25,7 @@ vi.mock("../../repositories/salesQuote.repository", () => ({
 vi.mock("../../repositories/quoteComment.repository", () => ({ quoteCommentRepository: { createForCompany: vi.fn() } }));
 
 import log from "encore.dev/log";
-import { tariffs } from "~encore/clients";
+import { tariffs, trucking } from "~encore/clients";
 import { quoteCommentRepository } from "../../repositories/quoteComment.repository";
 import { salesQuoteRepository } from "../../repositories/salesQuote.repository";
 import type { SalesQuoteRecord } from "../../schemas/quote.schema";
@@ -34,6 +34,7 @@ import { TARIFF_CHECK_AUTHOR_ID, TARIFF_CHECK_STATUSES } from "../../lib/tariffO
 
 const repository = vi.mocked(salesQuoteRepository);
 const tariffApi = vi.mocked(tariffs);
+const truckingApi = vi.mocked(trucking);
 const chat = vi.mocked(quoteCommentRepository);
 
 const COMPANY = "11111111-1111-4111-8111-111111111111";
@@ -87,7 +88,7 @@ describe("the overnight tariff check of a quote", () => {
   it("saves only the version it read and only while the quote is not sent, keeping the keys only the server writes as stored", async () => {
     await expect(checkQuote(found, TODAY)).resolves.toBe(true);
     const [company, quoteNumber, save, expected, options] = repository.saveDocument.mock.calls[0]!;
-    expect([company, quoteNumber, expected, options]).toEqual([COMPANY, found.quoteNumber, { dataVersion: 7 }, { statuses: TARIFF_CHECK_STATUSES }]);
+    expect([company, quoteNumber, expected, options]).toEqual([COMPANY, found.quoteNumber, { dataVersion: 7 }, { statuses: TARIFF_CHECK_STATUSES, wonRevision: true }]);
     expect(save.carry).toEqual([...TARIFF_CHECK_CARRY]);
     expect(save.carry).toEqual(expect.arrayContaining(["quoteStatus", "timeline", "salesOwner", "validUntil", "fx"]));
     // The road pricing and its margin approval are the check's own to move.
@@ -117,6 +118,95 @@ describe("the overnight tariff check of a quote", () => {
     await checkQuote(found, TODAY);
     expect(tariffApi._quoteTariffOffers).not.toHaveBeenCalled();
     expect(repository.saveDocument.mock.calls[0]![2].data.buyingLines).toEqual(data.buyingLines);
+  });
+});
+
+describe("the revision of a Won quote", () => {
+  it("is checked as an open quote, its save let through for a Won quote's revision only", async () => {
+    repository.loadSales.mockResolvedValue(record({ status: "won", data: { ...data, wonRevisionOf: "QCZ20261020001" } }));
+    await expect(checkQuote(found, TODAY)).resolves.toBe(true);
+    expect(repository.saveDocument.mock.calls[0]![4]).toEqual({ statuses: TARIFF_CHECK_STATUSES, wonRevision: true });
+  });
+
+  it("is told apart from a Won quote that is no revision, which is never touched", async () => {
+    repository.loadSales.mockResolvedValue(record({ status: "won", data }));
+    await expect(checkQuote(found, TODAY)).resolves.toBe(false);
+    expect(tariffApi._quoteTariffRefs).not.toHaveBeenCalled();
+    expect(truckingApi.truckingRate).not.toHaveBeenCalled();
+    expect(repository.saveDocument).not.toHaveBeenCalled();
+  });
+});
+
+describe("a road quote", () => {
+  const HAULIER = "33333333-3333-4333-8333-333333333333";
+  const side = (tariffVersionId: string, total: number, owner: { id: string; name: string } | null) => ({
+    tariffId: `t-${tariffVersionId}`,
+    tariffName: owner ? "Haulier list" : "Standard",
+    tariffVersionId,
+    versionNo: 4,
+    ownerCustomerId: owner?.id ?? null,
+    ownerName: owner?.name ?? null,
+    currency: "CZK",
+    zoneCode: "Z1",
+    zoneLabel: "Zone 1",
+    bandLabel: "1 pallet",
+    chargeable: { basis: "PALLET", quantity: 1, explanation: "" },
+    lines: [{ code: "FREIGHT", label: "Freight", qty: 1, unit: "shipment", unitPrice: total, amount: total }],
+    total,
+    totalCzk: total,
+    fx: null,
+    preferred: true,
+  });
+  const roadData = {
+    serviceType: "Road",
+    road: { fromPostcode: "11000", toPostcode: "60200", pickupDate: null, pallets: 1 },
+    roadPricing: {
+      serviceLevel: "EXPRESS",
+      sell: { tariffId: "t-sv1", tariffName: "Standard", tariffVersionId: "sv1", versionNo: 4, currency: "CZK", total: 4250, totalCzk: 4250 },
+      buy: { haulierCustomerId: HAULIER, haulierName: "Haulier", tariffVersionId: "bv1", versionNo: 4, currency: "CZK", total: 3000, totalCzk: 3000, preferred: true },
+    },
+    buyingLines: [{ type: "Road freight", chargeCode: "road_freight", description: "Freight", currency: "CZK", amount: 3000, tariffRef: "trucking:bv1:EXPRESS" }],
+    sellingLines: [{ type: "Road freight", chargeCode: "road_freight", description: "Freight", currency: "CZK", amount: 4250, tariffRef: "trucking:sv1:EXPRESS" }],
+  };
+  const rateToday = (buyTotal: number) =>
+    truckingApi.truckingRate.mockResolvedValue({
+      ratedAt: "2026-11-09T02:00:00Z",
+      results: [{ serviceLevel: "EXPRESS", label: "Express", promisedDate: null, promisedTime: null, promiseNote: "", sell: side("sv1", 4250, null), buy: [side("bv1", buyTotal, { id: HAULIER, name: "Haulier" })], excluded: [] }],
+    } as never);
+
+  beforeEach(() => {
+    repository.loadSales.mockResolvedValue(record({ data: roadData }));
+  });
+
+  it("asks the trucking tariffs, as the quote's company, whether the versions it was priced on still hold on its rating day", async () => {
+    rateToday(3000);
+    truckingApi._internalTruckingVersionsValid.mockResolvedValue({ valid: ["sv1", "bv1"] });
+    await expect(checkQuote(found, TODAY)).resolves.toBe(false);
+    expect(truckingApi._internalTruckingVersionsValid).toHaveBeenCalledWith({ ids: ["sv1", "bv1"], date: TODAY }, { authData });
+    expect(truckingApi.truckingRate).toHaveBeenCalledWith(expect.objectContaining({ serviceLevels: ["EXPRESS"], pickupDate: TODAY }), { authData });
+    // Nothing moved: nothing is written.
+    expect(repository.saveDocument).not.toHaveBeenCalled();
+  });
+
+  it("refreshes only its buying while they hold, telling the owner and holding nothing", async () => {
+    rateToday(3100);
+    truckingApi._internalTruckingVersionsValid.mockResolvedValue({ valid: ["sv1", "bv1"] });
+    await expect(checkQuote(found, TODAY)).resolves.toBe(true);
+    const saved = repository.saveDocument.mock.calls[0]![2].data;
+    expect(saved.buyingLines).toEqual([expect.objectContaining({ amount: 3100, supplier: "Haulier", supplierCustomerId: HAULIER, tariffRef: "trucking:bv1:EXPRESS" })]);
+    expect(saved.sellingLines).toEqual(roadData.sellingLines);
+    expect(saved.roadPricing).toMatchObject({ buy: { total: 3100 }, sell: { total: 4250 } });
+    expect(saved).not.toHaveProperty("tariffUpdates");
+    expect(chat.createForCompany.mock.calls[0]![1].message).toContain("Buying was CZK 3000.00, now CZK 3100.00");
+  });
+
+  it("holds it for approval once a version it was priced on has lapsed", async () => {
+    rateToday(3100);
+    truckingApi._internalTruckingVersionsValid.mockResolvedValue({ valid: ["sv1"] });
+    await expect(checkQuote(found, TODAY)).resolves.toBe(true);
+    const saved = repository.saveDocument.mock.calls[0]![2].data;
+    expect(saved.buyingLines).toEqual(roadData.buyingLines);
+    expect(saved.tariffUpdates).toEqual([expect.objectContaining({ kind: "road", buyNow: [{ currency: "CZK", amount: 3100 }] })]);
   });
 });
 

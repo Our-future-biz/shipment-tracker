@@ -21,14 +21,14 @@ import { api, apiFileUrl } from "@/lib/api";
 import { useFilePreview } from "@/hooks/useFilePreview";
 import { useShipmentMutations, type ShipmentItem } from "@/hooks/useShipments";
 import { DetailCard, RoRow, makeStyleFor, type CommitFn } from "../ShipmentDetailContent";
-import { fmtNum, shipmentWeightKg } from "@/lib/cargo";
+import { fmtNum, isDangerousShipment, shipmentWeightKg } from "@/lib/cargo";
 import { formatDateTime } from "@/lib/date";
 import { useShipmentAttachments } from "@/hooks/useShipmentAttachments";
 import type { interfaces } from "@/lib/api/client";
 import { FileCell, CustomsPill, docPlural } from "./docsShared";
 import { CustomerLinkField } from "../_components/CustomerLinkField";
 import { EditableCell } from "../_components/EditableCell";
-import { CUSTOMS_TAB_GROUPS, documentGroupOf, isReviewedDocumentType } from "@/lib/documentTypes";
+import { customsTabGroups, documentGroupOf, isReviewedDocumentType } from "@/lib/documentTypes";
 import { LABEL, ROW } from "../_components/detailStyles";
 import { CountChip } from "@/components/SectionCard";
 import { BTN, BTN_DANGER, CARD, CARD_BAR, CARD_ICON, CARD_TITLE, EMPTY, HINT, ICON_BTN_GHOST, LABEL_TEXT, LINK, TH } from "@/styles/ui";
@@ -418,7 +418,7 @@ export function CustomsTab({
           onClose={() => setChanging(null)}
         />
       )}
-      {section !== "details" && CUSTOMS_TAB_GROUPS.map((group, index) => {
+      {section !== "details" && customsTabGroups(isDangerousShipment(shipment), attachments.map((a) => a.documentType)).map((group, index) => {
         const inGroup = (d: { documentType: string }) => documentGroupOf(d.documentType) === group;
         const documents = attachments.filter(inGroup);
         const filtered = matching.filter(inGroup);
