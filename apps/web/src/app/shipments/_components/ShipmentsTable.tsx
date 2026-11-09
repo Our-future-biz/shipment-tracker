@@ -39,6 +39,7 @@ import { ColumnPicker } from "./ColumnPicker";
 import { OverviewTiles, type TileId } from "./OverviewTiles";
 import { NeedsAttentionTable } from "./NeedsAttentionTable";
 import { DocumentsPanel } from "./DocumentsPanel";
+import { dimensionLineIsEmpty } from "@/lib/cargo";
 import { DimensionsModal } from "./DimensionsModal";
 import { MasterJobHoverCard } from "@/components/MasterJobHoverCard";
 import { ShipmentHoverCard } from "@/components/ShipmentHoverCard";
@@ -520,12 +521,12 @@ export const ShipmentsTable = ({
             <span className={EMPTY}>{"\u2014"}</span>
           );
         }
-        // Dimensions \u2192 a link to the dimension lines, shown and edited in a dialog.
+        // Dimensions \u2192 a link to the dimension lines, shown and edited in a dialog. Bold once some are filled in.
         if (col.key === "dimensionsSummary") {
           return (
             <button
               onClick={(e) => { e.stopPropagation(); setDimsShipmentId(record.id); }}
-              className={`${cellLinkClass(textStyle?.color)} font-medium bg-transparent border-none p-0 cursor-pointer`}
+              className={`${cellLinkClass(textStyle?.color)} ${(record.cargoDimensions ?? []).some((l) => !dimensionLineIsEmpty(l)) ? "font-bold" : "font-medium"} bg-transparent border-none p-0 cursor-pointer`}
               style={textStyle}
             >
               Click for Preview
