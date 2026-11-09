@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // The rules around the number, against a stand-in for the repository (which holds the writes).
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
+vi.mock("../../lib/billedLock", () => ({ assertNotBilled: vi.fn(async () => undefined) }));
 const repo = vi.hoisted(() => ({ change: vi.fn(), answer: vi.fn(), byId: vi.fn(), withdraw: vi.fn(), list: vi.fn(), ofShipment: vi.fn(), pending: vi.fn(), answersFor: vi.fn(), markSeen: vi.fn(), askRemoval: vi.fn() }));
 vi.mock("../../repositories/sellingAmountRequest.repository", () => ({ sellingAmountRequestRepository: repo }));
 vi.mock("../../../../lib/companyUsers", () => ({ userEmailOf: async () => "rep@example.test" }));

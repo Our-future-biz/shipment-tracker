@@ -12,7 +12,7 @@ vi.mock("../../repositories/additionalCharge.repository", () => ({ additionalCha
 vi.mock("../../repositories/billingSettings.repository", () => ({ billingSettingsRepository: {} }));
 vi.mock("../../repositories/billingOverride.repository", () => ({ billingOverrideRepository: {} }));
 vi.mock("../../repositories/generatedInvoice.repository", () => ({ generatedInvoiceRepository: {} }));
-vi.mock("../../repositories/invoice.repository", () => ({ invoiceRepository: { listByShipment: vi.fn() } }));
+vi.mock("../../repositories/invoice.repository", () => ({ invoiceRepository: { listByShipment: vi.fn(), countOpenInvoices: vi.fn(async () => 0) } }));
 vi.mock("../../repositories/sellingCost.repository", () => ({ sellingCostRepository: {} }));
 vi.mock("../../repositories/quoteCostImport.repository", () => ({ quoteCostImportRepository: { copy: vi.fn() } }));
 vi.mock("../../repositories/truckingLines.repository", () => ({ truckingLinesRepository: { hasConsignmentRows: vi.fn() } }));
@@ -307,5 +307,32 @@ describe("selling rows on an issued invoice", () => {
   it("answers a row that is not there as before", async () => {
     writeUnlessInvoiced.mockResolvedValue(null);
     await expect(invoicingService.deleteSellingCost(ROW, COMPANY, SHIPMENT)).rejects.toThrow(/not found/);
+  });
+});
+
+describe("a billed shipment", () => {
+  const billed = () => vi.mocked(invoiceRepository.countOpenInvoices).mockResolvedValueOnce(1);
+  const refused = /billed.*Credit the invoice/;
+
+  it("takes no new or changed cost by hand", async () => {
+    billed();
+    await expect(invoicingService.addSellingCost("ship", "co", { amount: "10" })).rejects.toThrow(refused);
+    billed();
+    await expect(invoicingService.updateSellingCost("row", "co", "ship", { amount: "10" })).rejects.toThrow(refused);
+    billed();
+    await expect(invoicingService.deleteSellingCost("row", "co", "ship")).rejects.toThrow(refused);
+    billed();
+    await expect(invoicingService.addBuyingCost("ship", "co", { realAmount: "10" })).rejects.toThrow(refused);
+    billed();
+    await expect(invoicingService.updateBuyingCost("row", "co", "ship", { realAmount: "10" })).rejects.toThrow(refused);
+    billed();
+    await expect(invoicingService.deleteBuyingCost("row", "co", "ship")).rejects.toThrow(refused);
+    billed();
+    await expect(invoicingService.restoreBuyingCost("row", "co", "ship")).rejects.toThrow(refused);
+    billed();
+    await expect(invoicingService.importQuote("ship", "co", "QCZ1", "both", false)).rejects.toThrow(refused);
+    billed();
+    await expect(invoicingService.addAdditionalCharge("ship", "co", {})).rejects.toThrow(refused);
+    vi.mocked(invoiceRepository.countOpenInvoices).mockReset().mockResolvedValue(0);
   });
 });
