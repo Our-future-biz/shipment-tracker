@@ -11,6 +11,8 @@ import type { controllers, interfaces } from "@/lib/api/client";
 import { CURRENCIES } from "@/lib/cargo";
 import { chargeLabel, chargeOptions } from "@/lib/chargeCodes";
 import { money, normaliseAmount } from "@/lib/money";
+import { useLatestRates } from "@/lib/fx";
+import { eurTotal, type EurTotal } from "../_lib/eurTotal";
 import { ProfitVsEstimate } from "@/components/ProfitVsEstimate";
 import { EMPTY_CELL } from "@/components/EmptyCell";
 import { CountChip, SectionCard } from "@/components/SectionCard";
@@ -69,10 +71,14 @@ interface Props {
   masterJob: interfaces.MasterJobItem;
 }
 
+// A sum in EUR as the screen writes it; a currency without a ČNB rate is named instead of being left out.
+const eurText = ({ eur, missing }: EurTotal) => (eur === null ? `no ČNB rate for ${missing.join(", ")}` : `${money(eur)} EUR`);
+
 // A master job's buying costs. Each line is shared out over the master job's shipments - by W/M or
 // the same part each, as the line says. The split below always shows how that stands; a shipment
 // carries its share, as a read-only row of its own Costs Breakdown, once the split is processed.
 export function MasterJobCostsTab({ masterJob }: Props) {
+  const { rates, fixingLabel } = useLatestRates();
   const message = useMessages();
   const queryClient = useQueryClient();
   const { data, isLoading, isError, error } = useQuery({
@@ -168,6 +174,8 @@ export function MasterJobCostsTab({ masterJob }: Props) {
     const shown = shownTotal(l);
     if (shown) allIn.set(shown.currency, (allIn.get(shown.currency) ?? 0) + shown.total);
   }
+  // For checking the total: the same amounts in EUR at today's ČNB rates, without the ROE %. The split itself stays in the currencies as received.
+  const allInEur = eurTotal([...allIn], rates);
   const housesInLine = (l: Line) => houses.filter((h) => !l.excludedShipmentIds.includes(h.shipmentId));
   // The shipments that would carry a part of the line: by W/M, only those with a W/M.
   const carriersOf = (l: Line) => houses.filter((h) => l.splitMethod !== "wm" || h.freightTon > 0);
@@ -465,6 +473,11 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                       return (
                         <td key={l.id} className={FOOT}>
                           {total != null ? `${money(total)} ${currency}` : EMPTY_CELL}
+                          {total != null && currency !== "EUR" && (
+                            <span className="block text-[11px] font-normal text-slate-500">
+                              {eurText(eurTotal([[currency ?? "", total]], rates))}
+                            </span>
+                          )}
                           {/* What one W/M costs on a line split by W/M, over the shipments in its split. */}
                           {total != null && byWm && lineWm > 0 && (
                             <span className="block text-[11px] font-normal text-slate-500">
@@ -508,6 +521,11 @@ export function MasterJobCostsTab({ masterJob }: Props) {
                   {[...allIn]
                     .map(([currency, total]) => `${money(total)} ${currency}`)
                     .join(" + ")}
+                  {!(allIn.size === 1 && allIn.has("EUR")) && (
+                    <Tooltip title={`At the rates of ${fixingLabel || "today's ČNB fixing"}, without the ROE %. The split stays in the currencies as received.`}>
+                      <span className="ml-1.5 text-indigo-700"> = {eurText(allInEur)}</span>
+                    </Tooltip>
+                  )}
                 </span>
               )}
               <button
