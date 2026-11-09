@@ -27,6 +27,7 @@ import {
   REQUIRED_DOCUMENT_TYPES,
   SAFETY_PAPERWORK_TYPES,
   requiredDocumentTypes,
+  receivedDocumentsByType,
   guessDocumentType,
   isReviewedDocumentType,
   isKnownDocumentType,
@@ -305,11 +306,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
     return q ? attachments.filter((a) => a.fileName.toLowerCase().includes(q)) : attachments;
   }, [attachments, search]);
 
-  const byType = useMemo(() => {
-    const m = new Map<string, AttachmentFile>();
-    for (const a of attachments) if (a.documentType && !m.has(a.documentType)) m.set(a.documentType, a);
-    return m;
-  }, [attachments]);
+  const byType = useMemo(() => receivedDocumentsByType(attachments), [attachments]);
 
   // Every card takes dropped files, so a drop that just misses the strip still lands. Only a drag
   // of files is taken - text dragged onto the search box goes in as usual.

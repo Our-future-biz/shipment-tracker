@@ -5,6 +5,7 @@ import {
   documentGroupOf,
   documentTypeLabel,
   guessDocumentType,
+  receivedDocumentsByType,
   requiredDocumentTypes,
   SAFETY_PAPERWORK_TYPES,
   isReviewedDocumentType,
@@ -76,5 +77,27 @@ describe("the safety paperwork of dangerous goods", () => {
     expect(guessDocumentType("Safety Data Sheet.pdf")).toBe("MSDS");
     expect(guessDocumentType("DGD_CZLCL41.pdf")).toBe("Dangerous Goods Declaration");
     expect(guessDocumentType("Dangerous Goods Declaration.pdf")).toBe("Dangerous Goods Declaration");
+  });
+});
+
+describe("the documents that stand for each required type", () => {
+  const file = (documentType: string, customsStatus: string, fileName = "a.pdf") => ({ documentType, customsStatus, fileName });
+
+  it("do not include one customs declined, so the type is missing again", () => {
+    expect(receivedDocumentsByType([file("Invoice", "declined")]).has("Invoice")).toBe(false);
+  });
+
+  it("count a file waiting for review or approved", () => {
+    expect(receivedDocumentsByType([file("Invoice", ""), file("Packing list", "approved")]).size).toBe(2);
+  });
+
+  it("count the replacement of a declined file, whichever came first", () => {
+    const replaced = [file("Invoice", "declined", "old.pdf"), file("Invoice", "", "new.pdf")];
+    expect(receivedDocumentsByType(replaced).get("Invoice")?.fileName).toBe("new.pdf");
+    expect(receivedDocumentsByType([...replaced].reverse()).get("Invoice")?.fileName).toBe("new.pdf");
+  });
+
+  it("leave out a file without a type", () => {
+    expect(receivedDocumentsByType([file("", "")]).size).toBe(0);
   });
 });

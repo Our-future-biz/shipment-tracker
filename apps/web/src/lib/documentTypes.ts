@@ -124,5 +124,17 @@ export const CUSTOMS_DOCUMENT_TYPES: readonly string[] = ["Invoice", "Packing li
 export const isReviewedDocumentType = (documentType: string) =>
   ([...DOCUMENT_GROUPS[0].types, ...DOCUMENT_GROUPS[2].types] as string[]).includes(documentType);
 
+/**
+ * The document that stands for each type among a shipment's files. One customs declined does not:
+ * the type counts as missing until a file that was not declined is there.
+ */
+export function receivedDocumentsByType<T extends { documentType: string; customsStatus: string }>(files: readonly T[]): Map<string, T> {
+  const byType = new Map<string, T>();
+  for (const file of files) {
+    if (file.documentType && file.customsStatus !== "declined" && !byType.has(file.documentType)) byType.set(file.documentType, file);
+  }
+  return byType;
+}
+
 /** Customs review status of one document. */
 export type CustomsReviewStatus = "" | "approved" | "declined";
