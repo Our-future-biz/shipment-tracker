@@ -34,7 +34,7 @@ import { useShipment } from "@/hooks/useShipment";
 import { NOT_STACKABLE, STACKABLE_OPTIONS, shipmentStackability, withShipmentStackability } from "@/lib/cargo";
 import { useInvoicing } from "@/hooks/useInvoicing";
 import { useAuth, useCanDeleteShipments } from "@/lib/auth/AuthContext";
-import { canChangeShipmentDetails, isApprovedByLocked, isCreditCheckLocked, salesReferenceLocked } from "@/lib/shipmentEditRule";
+import { canChangeShipmentDetails, isApprovedByLocked, isCreditCheckLocked } from "@/lib/shipmentEditRule";
 import { useShipmentMutations, getFieldValue, buildRowData, type ShipmentItem } from "@/hooks/useShipments";
 import { getCellConditionalStyle, getRowConditionalStyle } from "@/lib/columnConfig";
 import { businessToday, formatDate } from "@/lib/date";
@@ -1356,8 +1356,6 @@ export function ShipmentDetailContent() {
                     { key: "loadType", label: "Load Type" },
                     { key: "serviceType", label: "Service Type" },
                     { key: "customerReference", label: "Customer Reference" },
-                    // An invoiced shipment keeps the offer it was invoiced from (the server refuses a change too).
-                    { key: "salesNumber", label: "Sales Reference", ro: salesReferenceLocked(shipment.invoicingStatus) },
                     { key: "serviceName", label: "Service Name" },
                     { key: "customer", label: "Customer", ro: true },
                     // Picked from the customer's contacts (the contact cell), with its card on hover.
@@ -1682,7 +1680,8 @@ export function ShipmentDetailContent() {
                   const validUntil = costsQuote?.validUntil ?? null;
                   const validity = validUntil ? (validUntil >= businessToday() ? "Ok" : "Check") : null;
                   const custom: Record<string, React.ReactNode> = {
-                    salesNumber: <RoRow key="salesNumber" label="Sales Reference" value={costsQuoteRef} />,
+                    // The quote the costs were copied from, else the one the shipment names.
+                    salesNumber: <RoRow key="salesNumber" label="Sales Reference" value={costsQuoteRef || salesNumber} />,
                     selling: <RoRow key="selling" label="Total Selling Costs" value={amount(costs.totals.sellTotal)} />,
                     buying: <RoRow key="buying" label="Total Buying Costs" value={amount(costs.totals.buyTotal)} />,
                     profit: <RoRow key="profit" label="Profit" value={amount(costs.totals.sellTotal - costs.totals.buyTotal)} />,
