@@ -92,7 +92,7 @@ import { buyingBasis, buyingQuantity, counterpartIndex, lineRemovals, newPairId,
 import { CostLinesEditor } from "./_components/CostLinesEditor";
 import { FclPricingEditor } from "./_components/FclPricingEditor";
 import { FclTruckingBlock } from "./_components/FclTruckingBlock";
-import { fclChanges, usesFclPricing, withFclPricing } from "../../_lib/fclPricing";
+import { fclChanges, fclProfitBlock, usesFclPricing, withFclPricing } from "../../_lib/fclPricing";
 import { templateTerms, termsDifferFromTemplate } from "../../_lib/shippingTerms";
 import { linesForOtherDirection, linesToRecheck, otherDirectionBlock, rechecked, stampDirection, stampPricedFor, withPricedForNow } from "../../_lib/tariffRecheck";
 import { isOfferOfUpdate, linesWaitingForRate, roadForToday, tariffUpdateChange, tariffUpdateSelling, waitingTariffUpdates } from "../../_lib/tariffUpdates";
@@ -790,9 +790,14 @@ export function QuoteWorkflow() {
   // And a buying line linked to a new supplier that waits for a manager's approval, or was declined, or
   // with a supplier only typed: the server refuses the sending too, this says it beforehand.
   // So does a line priced from a tariff in the other Trade Direction (a tariff prices only the directions it is for).
+  // And a Sea FCL quote with a container type that has no profit yet.
   const sendBlocked =
     quote.sendBlocked ??
-    (quoteClosed ? null : (supplierSendBlock(draft.buyingLines ?? [], (id) => supplierDirectory.byId.get(id), supplierApprovals.byId) ?? otherDirectionBlock(draft)));
+    (quoteClosed
+      ? null
+      : (supplierSendBlock(draft.buyingLines ?? [], (id) => supplierDirectory.byId.get(id), supplierApprovals.byId) ??
+        otherDirectionBlock(draft) ??
+        (exchange.isLoading ? null : fclProfitBlock(fclView ?? draft, exchange.rates, exchange))));
   // E-mailing sends the quote only where Export PDF would close it - one that has not gone out yet
   // - and on the revision of a Won quote, whose new prices go to the customer. A quote that went
   // out is e-mailed again as it was sent, whatever its margin says now.

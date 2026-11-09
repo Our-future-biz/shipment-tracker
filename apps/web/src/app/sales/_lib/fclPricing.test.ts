@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fclBlocks, fclChanges, fclLines, fclOfferRows, priceFclBlock, usesFclPricing, withFclPricing } from "./fclPricing";
+import { fclBlocks, fclChanges, fclLines, fclOfferRows, fclProfitBlock, priceFclBlock, usesFclPricing, withFclPricing } from "./fclPricing";
 import { computeTotals, convertLine } from "./salesQuote";
 import type { CostLine, SalesQuoteData } from "./types";
 
@@ -122,6 +122,39 @@ describe("a block's profit", () => {
     const lines = quote().buyingLines!.map((l) => ({ ...l, profitBasis: false }));
     const data = quote({ buyingLines: lines, fclPricing: { blocks: { "20' DC": { mode: "sum", value: 100 } } } });
     expect(priceFclBlock(data, SHEET, block(data, "20' DC")).profitUnplaced).toBe(true);
+  });
+});
+
+describe("a profit on every container type before the quote goes out", () => {
+  const twoTypes = (blocks: Record<string, { mode: "percent" | "sum"; value: number }>, over: Partial<SalesQuoteData> = {}) => quote({ fclPricing: { blocks }, ...over });
+  const twenty = { mode: "sum" as const, value: 100 };
+
+  it("names the types without one", () => {
+    expect(fclProfitBlock(twoTypes({}), SHEET)).toMatch(/^No profit on 20' DC, 40' HC yet/);
+    expect(fclProfitBlock(twoTypes({ "20' DC": twenty }), SHEET)).toMatch(/^No profit on 40' HC yet/);
+  });
+
+  it("lets it go once each has one", () => {
+    expect(fclProfitBlock(twoTypes({ "20' DC": twenty, "40' HC": { mode: "percent", value: 10 } }), SHEET)).toBeNull();
+  });
+
+  it("does not take a profit per shipment for one on a container", () => {
+    expect(fclProfitBlock(twoTypes({ "": twenty }), SHEET)).toMatch(/20' DC, 40' HC/);
+  });
+
+  it("holds a loss", () => {
+    expect(fclProfitBlock(twoTypes({ "20' DC": twenty, "40' HC": { mode: "sum", value: -1 } }), SHEET)).toMatch(/^No profit on 40' HC yet/);
+  });
+
+  it("counts the charges per container of every type for each", () => {
+    const buyingLines = [perCtr("ocean_freight", "20' DC", 1000, 2), perCtr("ocean_freight", "40' HC", 1800, 1), perCtr("fcl_baf", "", 50, 3, { profitBasis: true })];
+    expect(fclProfitBlock(twoTypes({ "*": twenty }, { buyingLines }), SHEET)).toBeNull();
+  });
+
+  it("does not hold a type no container is chosen of, or another freight mode", () => {
+    const containers = [{ qty: 2, type: "20' DC" }, { qty: 0, type: "40' HC" }];
+    expect(fclProfitBlock(twoTypes({ "20' DC": twenty }, { containers }), SHEET)).toBeNull();
+    expect(fclProfitBlock(twoTypes({}, { serviceType: "Sea LCL" }), SHEET)).toBeNull();
   });
 });
 

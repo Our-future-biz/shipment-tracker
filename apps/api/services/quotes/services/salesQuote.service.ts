@@ -29,6 +29,7 @@ import { carryKeys, closedCarryKeys, isPlainObject, isWonRevision, newDocument }
 import { customerIdOf, linkForSave, refreshCopies, withRefresh } from "../utils/customerLinks.utils";
 import { tryCustomerRefs } from "../lib/customerRefs";
 import { linkedSupplierIds, supplierGate, type LinkedSupplierState } from "../utils/supplierApproval.utils";
+import { fclProfitGateMessage } from "../utils/fclProfit.utils";
 import { shippingTermsGateMessage } from "../utils/shippingTerms.utils";
 import { tariffDirectionGateMessage, tariffUpdateGateMessage, withoutRoadUpdates } from "../utils/tariffDirection.utils";
 import { columnFiltersOf } from "../utils/quoteColumnFilters.utils";
@@ -601,6 +602,9 @@ class SalesQuoteService {
         if (guardrailModeOf(quote.data) !== guardrailModeOf(before?.data)) throw conflict();
         const modeGate = freightModeGateMessage(quote.data);
         if (modeGate) throw APIError.failedPrecondition(modeGate);
+        // A Sea FCL quote has a profit on every container type it offers.
+        const profitGate = fclProfitGateMessage(quote.data, margins);
+        if (profitGate) throw APIError.failedPrecondition(profitGate);
         // Its Shipping terms come from a template, chosen before it goes on.
         const termsGate = shippingTermsGateMessage(quote.data);
         if (termsGate) throw APIError.failedPrecondition(termsGate);

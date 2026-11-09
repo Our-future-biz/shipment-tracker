@@ -1,6 +1,7 @@
 import { businessDay } from "../../../lib/businessDate";
 import { canApproveMargin, ownerChangeRight, quoteDeletePermission, type OwnerChangeRight } from "../../../lib/salesPolicy";
 import { freightModeGateMessage, marginGateMessage, roadMargin, type MarginContext } from "../lib/roadMargin";
+import { fclProfitGateMessage } from "./fclProfit.utils";
 import { inquiryGateMessage } from "./warehouseInquiry.utils";
 import { shippingTermsGateMessage } from "./shippingTerms.utils";
 import { tariffDirectionGateMessage } from "./tariffDirection.utils";
@@ -16,10 +17,12 @@ const iso = (at: Date | null) => at?.toISOString() ?? null;
  * prices are open is held (a draft, ready to send, a revision, a Won quote's revision): one that
  * went out passed the gates when it was sent, and is not held again (Council Outlay 6).
  */
-function sendBlockedOf(row: SalesQuoteRecord, shown: string, margin: RoadMargin | null): string | null {
+function sendBlockedOf(row: SalesQuoteRecord, shown: string, margin: RoadMargin | null, margins?: MarginContext): string | null {
   if (PRICING_CLOSED.includes(shown) && !isWonRevision(row.status, row.data)) return null;
   const mode = freightModeGateMessage(row.data);
   if (mode) return mode;
+  const profit = fclProfitGateMessage(row.data, margins);
+  if (profit) return profit;
   const terms = shippingTermsGateMessage(row.data);
   if (terms) return terms;
   const direction = tariffDirectionGateMessage(row.data);
@@ -98,7 +101,7 @@ export function toItem(
     shipmentId: state.shipmentId,
     shipmentJobNumber: state.shipmentJobNumber,
     roadMargin: margin ? shownMargin(margin, userEmails) : null,
-    sendBlocked: sendBlockedOf(row, shown, margin),
+    sendBlocked: sendBlockedOf(row, shown, margin, margins),
     permissions: {
       ...ownerPermission(actor, state, row.data),
       canDelete: deletion.allowed,

@@ -640,6 +640,17 @@ describe("transition", () => {
     await expect(salesQuoteService.transition(martin, REF, { to: "lost", lostReason: "Price: too high" })).resolves.toMatchObject({ changed: true });
   });
 
+  it("refuses a send of a Sea FCL quote with a container type without a profit; Lost is let", async () => {
+    const line = (containerType: string, unitPrice: number) => ({ type: "Ocean freight", basis: "container", containerType, unitPrice, amount: unitPrice, currency: "EUR" });
+    const data = { reference: REF, quoteStatus: "draft", salesOwner: "martin@forwarder.cz", timeline: [], shippingTerms: "Standard", direction: "Import", serviceType: "Sea FCL", containers: [{ type: "20' DC", qty: 1 }, { type: "40' DC", qty: 1 }] };
+    stored = quote({ data: { ...data, buyingLines: [line("20' DC", 100), line("40' DC", 200)], sellingLines: [line("20' DC", 150), line("40' DC", 200)] } });
+    for (const to of ["ready_to_send", "quoted"] as const) {
+      await expect(salesQuoteService.transition(martin, REF, { to })).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringMatching(/^No profit on 40' DC yet/) });
+    }
+    expect(repository.writeLifecycle).not.toHaveBeenCalled();
+    await expect(salesQuoteService.transition(martin, REF, { to: "lost", lostReason: "Price: too high" })).resolves.toMatchObject({ changed: true });
+  });
+
   it("refuses a send while a rail or ocean line is priced in the other Trade Direction; Lost is let", async () => {
     const data = { reference: REF, quoteStatus: "draft", salesOwner: "martin@forwarder.cz", timeline: [], shippingTerms: "Standard", direction: "Import", serviceType: "Sea FCL" };
     stored = quote({ data: { ...data, buyingLines: [{ type: "Ocean freight", tariffRef: "ocean:v1", pricedDirection: "export" }] } });

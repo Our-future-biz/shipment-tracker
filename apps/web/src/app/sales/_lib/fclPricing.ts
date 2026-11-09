@@ -207,6 +207,24 @@ export function priceFclBlock(data: SalesQuoteData, sheet: ExchangeRates, block:
   };
 }
 
+/**
+ * Why a Sea FCL quote can't go out: a container type it offers without a profit. What counts is the
+ * profit of the type's block, with what the charges per container of every type add to each; the
+ * charges per shipment and the trucking lines are not on a container, and the ROE % is no profit.
+ * Twin of apps/api/services/quotes/utils/fclProfit.utils.ts, which refuses it.
+ */
+export function fclProfitBlock(data: SalesQuoteData, sheet: ExchangeRates, live?: LivePricing): string | null {
+  if (!isContainerQuote(data)) return null;
+  const blocks = fclBlocks(data);
+  const everyType = blocks.find((b) => b.key === ALL_CONTAINERS);
+  const onEvery = everyType ? priceFclBlock(data, sheet, everyType, live).profit : 0;
+  const without = blocks
+    .filter((b) => b.perContainer && b.key !== ALL_CONTAINERS && b.units > 0)
+    .filter((b) => priceFclBlock(data, sheet, b, live).profit + onEvery <= 0)
+    .map((b) => b.label);
+  return without.length ? `No profit on ${without.join(", ")} yet — every container type needs a profit in Pricing before the quote goes out` : null;
+}
+
 // A charge's selling from its buying and profit: the ROE % on a charge in another currency than the quote's.
 function sell(c: FclChargePrice, line: CostLine, data: SalesQuoteData, live?: LivePricing) {
   const sold = roundCents(c.buying! + c.profit);
