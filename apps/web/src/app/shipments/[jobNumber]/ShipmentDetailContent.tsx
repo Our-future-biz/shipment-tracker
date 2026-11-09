@@ -1667,6 +1667,9 @@ export function ShipmentDetailContent() {
 
               </div>
 
+              {/* CARGO & COMMERCIAL */}
+              <CargoCommercialCard shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
+
               {/* QUOTE — full width, the money of the shipment */}
               <div className={CARD}>
                 {(() => {
@@ -1711,9 +1714,6 @@ export function ShipmentDetailContent() {
                   );
                 })()}
               </div>
-
-              {/* CARGO & COMMERCIAL */}
-              <CargoCommercialCard shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
 
               {/* BASIC INFORMATION — admin of the job, at the bottom */}
               <div className={CARD}>
