@@ -5,7 +5,7 @@ import { Modal, Button, Input, Checkbox, Radio, Space, Spin } from "antd";
 import { LockOutlined, SearchOutlined } from "@ant-design/icons";
 import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
 import { useMasterJobs } from "@/hooks/useMasterJobs";
-import { nextMczNumber } from "@/lib/mcz";
+import { compareMczNumbers, nextMczNumber } from "@/lib/mcz";
 import { Badge } from "@/components/Badge";
 import { EMPTY_CELL } from "@/components/EmptyCell";
 import { PillTabs } from "@/components/SectionCard";
@@ -111,7 +111,7 @@ export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initi
     }
     // The server knows the full count, including shipments older than the loaded ones.
     for (const m of masterJobs) map.set(m.mczNumber, m.shipmentCount);
-    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
+    return Array.from(map.entries()).sort(([a], [b]) => compareMczNumbers(a, b));
   }, [shipments, masterJobs]);
 
   const filteredShipments = useMemo(() => shipmentsOffered(shipments, search, onlyIds), [shipments, search, onlyIds]);

@@ -11,6 +11,7 @@ import { shipmentCustomerNoticeTable } from "../schemas/shipmentCustomerNotice.s
 import { shipmentTrackingEventTable } from "../schemas/shipmentTrackingEvent.schema";
 import { shipmentRefCounterRepository, type Tx as CounterTx } from "./shipmentRefCounter.repository";
 import { jobNumberFor } from "../lib/jobNumber";
+import { masterJobNumberForms } from "../lib/masterJobNumber";
 import { masterJobTable } from "../schemas/masterJob.schema";
 import { containerTable } from "../schemas/container.schema";
 import { containsAllWords, escapeLike, foldDiacritics, foldSql } from "../../../lib/db/textSearch";
@@ -643,7 +644,7 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
           this.db
             .select({ id: masterJobTable.id })
             .from(masterJobTable)
-            .where(and(eq(masterJobTable.companyId, companyId), eq(masterJobTable.mczNumber, f.masterJobMcz), isNull(masterJobTable.deletedAt))),
+            .where(and(eq(masterJobTable.companyId, companyId), inArray(masterJobTable.mczNumber, masterJobNumberForms(f.masterJobMcz)), isNull(masterJobTable.deletedAt))),
         ),
       );
     }

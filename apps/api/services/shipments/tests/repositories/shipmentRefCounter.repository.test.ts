@@ -50,7 +50,7 @@ describe("storedMaxSql", () => {
   it("reads the highest MCZ number of the company over all its master jobs", () => {
     const { sql, params } = sent(storedMaxSql(COMPANY, "MCZ"));
     expect(flat(sql)).toBe(
-      `(SELECT coalesce(max(substring("master_job"."mcz_number" from '^MCZ([0-9]{1,12})([^0-9]|$)')::bigint), 0) FROM "master_job" WHERE "master_job"."company_id" = $1 AND "master_job"."mcz_number" LIKE 'MCZ%')`,
+      `(SELECT coalesce(max(substring("master_job"."mcz_number" from '^MCZ(?:PROJECT|CONSOL|FULL)?([0-9]{1,12})([^0-9]|$)')::bigint), 0) FROM "master_job" WHERE "master_job"."company_id" = $1 AND "master_job"."mcz_number" LIKE 'MCZ%')`,
     );
     expect(params).toEqual([COMPANY]);
   });

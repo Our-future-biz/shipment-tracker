@@ -11,6 +11,7 @@ import { TOOLBAR_BUTTON_CLASS } from "@/components/gridFilters";
 import { COLUMN_MAP, DROPDOWN_OPTIONS, joinDateTime } from "@/lib/columnConfig";
 import { formatDate } from "@/lib/date";
 import { LOAD_TYPE_FILTER_OPTIONS, loadTypeLabel } from "@/lib/enums";
+import { compareMczNumbers } from "@/lib/mcz";
 import type { MasterJobItem } from "@/hooks/useMasterJobs";
 import { PillTabs } from "@/components/SectionCard";
 import { Pill } from "@/components/Pill";
@@ -153,7 +154,7 @@ export function MasterJobsList({ masterJobs, isLoading, isError, creating, onCre
       // The MCZ stays frozen on the left while the rest scrolls.
       fixed: "left",
       text: (m) => m.mczNumber,
-      sorter: (a, b) => byText(a.mczNumber, b.mczNumber),
+      sorter: (a, b) => compareMczNumbers(a.mczNumber, b.mczNumber),
       render: (_, m) => (
         // The row opens the same master job on click; without stopping the event here a
         // Ctrl/Cmd-click would open a new tab and also navigate this one.

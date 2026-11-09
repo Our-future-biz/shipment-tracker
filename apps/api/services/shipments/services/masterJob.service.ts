@@ -7,6 +7,7 @@ import { shipmentRepository } from "../repositories/shipment.repository";
 import { containerRepository } from "../repositories/container.repository";
 import { shipmentService, type ShipmentUpdateData } from "./shipment.service";
 import { isValidContainerNumber, normalizeContainerNumber } from "../lib/cargoProjection";
+import { masterJobNumberFor } from "../lib/masterJobNumber";
 import { changesTaxDate } from "../lib/taxDate";
 import {
   FULL_LOAD,
@@ -233,6 +234,9 @@ class MasterJobService {
     }
     if (editor && touchesDetails(synced)) await this.assertMayChangeHouses(houses, editor);
 
+    // The Load Type names the reference (lib/masterJobNumber), in the same write. It locks once
+    // set, so a master job goes from its plain MCZ to its letters only once.
+    if (data.loadType) clean.mczNumber = masterJobNumberFor(existing.mczNumber, data.loadType);
     const row = await masterJobRepository.updateForCompany(id, companyId, clean as MasterJobUpdate);
     if (!row) throw APIError.notFound("Master job not found");
     if (houses.length > 0) {
