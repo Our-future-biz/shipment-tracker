@@ -17,6 +17,7 @@ import { useMutation } from "@tanstack/react-query";
 import { useShipmentAttachments, type AttachmentItem } from "@/hooks/useShipmentAttachments";
 import { api, apiFileUrl } from "@/lib/api";
 import { useFilePreview } from "@/hooks/useFilePreview";
+import { isDangerousShipment } from "@/lib/cargo";
 import { fileToBase64 } from "@/lib/files";
 import { formatFileSize, docPlural, ExtBadge, CustomsPill } from "./docsShared";
 import type { ShipmentItem } from "@/hooks/useShipments";
@@ -24,6 +25,8 @@ import { formatDate } from "@/lib/date";
 import {
   DOCUMENT_TYPES,
   REQUIRED_DOCUMENT_TYPES,
+  SAFETY_PAPERWORK_TYPES,
+  requiredDocumentTypes,
   guessDocumentType,
   isReviewedDocumentType,
   isKnownDocumentType,
@@ -87,14 +90,69 @@ function RequiredMilestones({
   byType,
   onPick,
   loading,
+  dangerous,
 }: {
   byType: Map<string, AttachmentFile>;
   onPick: (type: string) => void;
   /** While the list loads the states are not known yet: grey bars, no Missing. */
   loading: boolean;
+  /** Dangerous goods: the safety paperwork is required too. */
+  dangerous: boolean;
 }) {
-  const have = REQUIRED_DOCUMENT_TYPES.filter((t) => byType.has(t)).length;
-  const left = REQUIRED_DOCUMENT_TYPES.length - have;
+  const required = requiredDocumentTypes(dangerous);
+  const have = required.filter((t) => byType.has(t)).length;
+  const left = required.length - have;
+  const milestone = (type: string) => {
+      const file = byType.get(type);
+      const done = !!file;
+      const label = documentTypeLabel(type);
+      const body = (
+        <>
+          <span
+            className={`block truncate text-center text-[13px] leading-4 mb-1.5 ${
+              done ? "text-slate-700" : "text-slate-900 font-medium group-hover:text-indigo-700"
+            }`}
+          >
+            {label}
+          </span>
+          <span
+            aria-hidden
+            className={`block h-1.5 w-full rounded-full transition-colors ${
+              loading ? "bg-slate-100 animate-pulse" : done ? "bg-emerald-500" : "bg-slate-200 group-hover:bg-indigo-300"
+            }`}
+          />
+          {!loading && (
+            <span
+              className={`mt-1 flex items-center justify-center gap-1 text-[11px] font-semibold uppercase tracking-wide ${
+                done ? "text-emerald-700" : "text-amber-700"
+              }`}
+            >
+              {done && <CheckOutlined aria-hidden className="text-[10px]" />}
+              {done ? "Received" : "Missing"}
+            </span>
+          )}
+        </>
+      );
+      return (
+        <li key={type} className="min-w-0">
+          {done || loading ? (
+            <Tooltip title={file?.fileName}>
+              <div className="px-1 py-1">{body}</div>
+            </Tooltip>
+          ) : (
+            <Tooltip title={`Add the ${label === "MSDS" ? label : label.toLowerCase()}`}>
+              <button
+                type="button"
+                onClick={() => onPick(type)}
+                className={`group block w-full px-1 py-1 rounded-md border-0 bg-transparent cursor-pointer hover:bg-slate-50 transition-colors ${FOCUS}`}
+              >
+                {body}
+              </button>
+            </Tooltip>
+          )}
+        </li>
+      );
+  };
   return (
     <div>
       <div className="flex items-center gap-2 mb-2.5">
@@ -102,7 +160,7 @@ function RequiredMilestones({
           Required documents
         </h3>
         <span className="text-[12px] font-medium text-indigo-600 tabular-nums">
-          {have} / {REQUIRED_DOCUMENT_TYPES.length}
+          {have} / {required.length}
         </span>
         {!loading && (
           <span className={`ml-auto text-[13px] font-medium ${left ? "text-amber-700" : "text-emerald-700"}`}>
@@ -115,58 +173,18 @@ function RequiredMilestones({
         )}
       </div>
       <ol aria-labelledby="req-docs-title" className="list-none m-0 p-0 grid grid-cols-3 md:grid-cols-6 gap-x-1.5 gap-y-3">
-        {REQUIRED_DOCUMENT_TYPES.map((type) => {
-          const file = byType.get(type);
-          const done = !!file;
-          const label = documentTypeLabel(type);
-          const body = (
-            <>
-              <span
-                className={`block truncate text-center text-[13px] leading-4 mb-1.5 ${
-                  done ? "text-slate-700" : "text-slate-900 font-medium group-hover:text-indigo-700"
-                }`}
-              >
-                {label}
-              </span>
-              <span
-                aria-hidden
-                className={`block h-1.5 w-full rounded-full transition-colors ${
-                  loading ? "bg-slate-100 animate-pulse" : done ? "bg-emerald-500" : "bg-slate-200 group-hover:bg-indigo-300"
-                }`}
-              />
-              {!loading && (
-                <span
-                  className={`mt-1 flex items-center justify-center gap-1 text-[11px] font-semibold uppercase tracking-wide ${
-                    done ? "text-emerald-700" : "text-amber-700"
-                  }`}
-                >
-                  {done && <CheckOutlined aria-hidden className="text-[10px]" />}
-                  {done ? "Received" : "Missing"}
-                </span>
-              )}
-            </>
-          );
-          return (
-            <li key={type} className="min-w-0">
-              {done || loading ? (
-                <Tooltip title={file?.fileName}>
-                  <div className="px-1 py-1">{body}</div>
-                </Tooltip>
-              ) : (
-                <Tooltip title={`Add the ${label.toLowerCase()}`}>
-                  <button
-                    type="button"
-                    onClick={() => onPick(type)}
-                    className={`group block w-full px-1 py-1 rounded-md border-0 bg-transparent cursor-pointer hover:bg-slate-50 transition-colors ${FOCUS}`}
-                  >
-                    {body}
-                  </button>
-                </Tooltip>
-              )}
-            </li>
-          );
-        })}
+        {REQUIRED_DOCUMENT_TYPES.map(milestone)}
       </ol>
+      {dangerous && (
+        <div className="mt-3">
+          <h3 id="safety-docs-title" className={`m-0 mb-2.5 ${LABEL_TEXT}`}>
+            Safety Paperwork
+          </h3>
+          <ol aria-labelledby="safety-docs-title" className="list-none m-0 p-0 grid grid-cols-2 md:grid-cols-3 gap-x-1.5 gap-y-3">
+            {SAFETY_PAPERWORK_TYPES.map(milestone)}
+          </ol>
+        </div>
+      )}
     </div>
   );
 }
@@ -190,6 +208,7 @@ const clearedWhenDone = (list: PendingFile[]) => (list.every((p) => p.status ===
 export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
   const toast = useToast();
   const filePreview = useFilePreview();
+  const dangerous = isDangerousShipment(shipment);
   // Anyone can add a document; only a manager, an admin or a superadmin can delete one.
   const canManageDocuments = useCanManageDocuments();
   // A regular user changes an approved document by a request for a manager's approval, with the new file.
@@ -312,6 +331,9 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
       addFiles(e.dataTransfer.files, null);
     },
   };
+
+  // Safety Paperwork is listed for dangerous goods, or once such a file is on the shipment.
+  const shownGroups = DOCUMENT_GROUPS.filter((g) => g.title !== "Safety Paperwork" || dangerous || attachments.some((a) => documentGroupOf(a.documentType) === g));
 
   return (
     // Adding files (with the required documents as milestones under it) and the list of files,
@@ -495,7 +517,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
 
       {/* The required documents as milestones, in a card of their own (as the shipment's progress bar). */}
       <section aria-labelledby="req-docs-title" className={`${CARD} px-4 pt-3.5 pb-3`} {...dropProps}>
-        <RequiredMilestones byType={byType} onPick={openPicker} loading={isLoading} />
+        <RequiredMilestones byType={byType} onPick={openPicker} loading={isLoading} dangerous={dangerous} />
       </section>
 
       {/* Documents: how many, the search, and one table for all the groups, so their columns line
@@ -537,7 +559,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                   </th>
                 </tr>
               </thead>
-              {DOCUMENT_GROUPS.map((group, gi) => {
+              {shownGroups.map((group, gi) => {
                 const inGroup = (a: AttachmentFile) => documentGroupOf(a.documentType) === group;
                 const all = attachments.filter(inGroup);
                 const rows = filtered.filter(inGroup);

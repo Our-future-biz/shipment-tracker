@@ -12,6 +12,8 @@ export const DOCUMENT_TYPES = [
   "Carrier notice",
   "Insurance",
   "Certificate of origin",
+  "MSDS",
+  "Dangerous Goods Declaration",
   "Airfreight Charges",
   "Railfreight Charges",
   "Seafreight Charges",
@@ -42,12 +44,21 @@ export const REQUIRED_DOCUMENT_TYPES = [
   "CMR / POD",
 ] as const;
 
+/** The safety paperwork a shipment of dangerous goods has to have as well. */
+export const SAFETY_PAPERWORK_TYPES = ["MSDS", "Dangerous Goods Declaration"] as const;
+
+/** Every document a shipment is expected to have; missing ones are flagged. */
+export const requiredDocumentTypes = (dangerous: boolean): readonly string[] =>
+  dangerous ? [...REQUIRED_DOCUMENT_TYPES, ...SAFETY_PAPERWORK_TYPES] : REQUIRED_DOCUMENT_TYPES;
+
 /**
  * Best-effort type guess from a file name, offered to the user as a
  * pre-filled suggestion — never applied silently.
  */
 export function guessDocumentType(fileName: string): string {
   const n = fileName.toLowerCase();
+  if (/((^|[^a-z])m?sds([^a-z]|$)|safety.?data.?sheet)/.test(n)) return "MSDS";
+  if (/((^|[^a-z])dgd([^a-z]|$)|dangerous.?goods|(^|[^a-z])imo.?decl)/.test(n)) return "Dangerous Goods Declaration";
   if (/(^|[^a-z])(inv|invoice|faktura)/.test(n)) return "Invoice";
   if (/(packing|balic|pack.?list)/.test(n)) return "Packing list";
   if (/(bill.?of.?lading|\bbol\b|\bhbl\b|\bmbl\b|konosament)/.test(n)) return "Bill of Lading";
@@ -78,6 +89,7 @@ export const DOCUMENT_GROUPS = [
   { title: "Commercial Documents", types: ["Invoice", "Packing list"] },
   { title: "Shipping Documents", types: ["Bill of Lading", "Booking confirmation", "CMR / POD", "Insurance"] },
   { title: "Customs Documents", types: ["Customs document", "Certificate of origin"] },
+  { title: "Safety Paperwork", types: SAFETY_PAPERWORK_TYPES },
   { title: "Suppliers Invoice(s)", types: SUPPLIER_INVOICE_TYPES },
 ] as const;
 

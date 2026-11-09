@@ -4,6 +4,9 @@ import {
   DOCUMENT_TYPES,
   documentGroupOf,
   documentTypeLabel,
+  guessDocumentType,
+  requiredDocumentTypes,
+  SAFETY_PAPERWORK_TYPES,
   isReviewedDocumentType,
   supplierInvoiceType,
   SUPPLIER_INVOICE_TYPES,
@@ -49,5 +52,29 @@ describe("document type names on screen", () => {
     expect(documentTypeLabel("Invoice")).toBe("Commercial Invoice");
     expect(documentTypeLabel("Packing list")).toBe("Packing list");
     expect(documentTypeLabel("")).toBe("");
+  });
+});
+
+describe("the safety paperwork of dangerous goods", () => {
+  it("are options, listed under their own heading, and not reviewed by customs", () => {
+    for (const type of SAFETY_PAPERWORK_TYPES) {
+      expect(DOCUMENT_TYPES).toContain(type);
+      expect(documentGroupOf(type).title).toBe("Safety Paperwork");
+      expect(isReviewedDocumentType(type)).toBe(false);
+    }
+    expect(CUSTOMS_TAB_GROUPS.map((g) => g.title)).not.toContain("Safety Paperwork");
+  });
+
+  it("are required only for dangerous goods", () => {
+    expect(requiredDocumentTypes(false)).toHaveLength(6);
+    expect(requiredDocumentTypes(true)).toEqual([...requiredDocumentTypes(false), "MSDS", "Dangerous Goods Declaration"]);
+  });
+
+  it("are recognised from the file name", () => {
+    expect(guessDocumentType("MSDS paint.pdf")).toBe("MSDS");
+    expect(guessDocumentType("SDS-2673.pdf")).toBe("MSDS");
+    expect(guessDocumentType("Safety Data Sheet.pdf")).toBe("MSDS");
+    expect(guessDocumentType("DGD_CZLCL41.pdf")).toBe("Dangerous Goods Declaration");
+    expect(guessDocumentType("Dangerous Goods Declaration.pdf")).toBe("Dangerous Goods Declaration");
   });
 });
