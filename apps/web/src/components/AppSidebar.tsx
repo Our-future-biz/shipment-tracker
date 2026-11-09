@@ -116,8 +116,8 @@ export const navSection = (path: string): NavItem | undefined => NAV_ITEMS.find(
 
 // The menu's text: dark enough to read crisply on white (the app's body slate-700, a submenu one
 // step lighter), black on hover. "Here" is marked in bold white on indigo: the page you are on, or
-// the group you last clicked to pick a page from (navLooks). A group open over the page you are on
-// is tinted, bold indigo. Each state carries its own weight, so a row never has two weights for
+// the item you just clicked while its page is on its way (navLooks). A section open over the page
+// you are on is tinted, bold indigo. Each state carries its own weight, so a row never has two weights for
 // the stylesheet's order to decide between.
 const NAV_IDLE = "font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-100";
 const NAV_CHILD_IDLE = "font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100";
@@ -135,6 +135,8 @@ function NavIcon({ icon: I, filled }: { icon: Icon; filled: boolean }) {
 
 // The rows are buttons, so the menu works from the keyboard too; the ring shows for the keyboard only.
 const FOCUS = "outline-none focus-visible:ring-2 focus-visible:ring-indigo-500";
+// Inside the row, for the sub-pages, whose sliding wrapper would cut off a ring drawn outside them.
+const FOCUS_INSET = "outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500";
 
 // The row of a menu item: a 40px square tile in the folded menu, a full-width row otherwise.
 const navRow = (collapsed: boolean) =>
@@ -159,8 +161,8 @@ export const navItemOwns = (item: Pick<NavItem, "path" | "children">, pathname: 
   isUnder(pathname, item.path) || (item.children ?? []).some((c) => childOwns(c, pathname));
 
 /**
- * The submenu item lit at `pathname`: the most specific one holding it, so Managers wins over the
- * concept's Overview, whose address is above it. None when no item holds the page.
+ * The submenu item lit at `pathname`: the one holding it, the most specific when two do (one's
+ * address under another's). None when no item holds the page.
  */
 export function navActiveChild<T extends NavChild>(children: T[], pathname: string): T | undefined {
   let lit: T | undefined;
@@ -180,48 +182,71 @@ export function navActiveChild<T extends NavChild>(children: T[], pathname: stri
 export const navGroupHolding = (items: NavItem[], pathname: string): string | null =>
   items.find((i) => i.children && navItemOwns(i, pathname))?.path ?? null;
 
-/** The menu's groups: the one unfolded (at most one), and the one you last clicked. */
+/**
+ * The menu's sections: the one unfolded (at most one), and the item you last clicked, a section or
+ * any other, which is the one marked until a page is reached.
+ */
 export interface NavGroups {
   open: string | null;
   selected: string | null;
 }
 
-/** What changes the menu's groups. */
+/** What changes the menu's sections. */
 export type NavGroupEvent =
-  // A click on a group.
+  // A click on a section from outside it: its page is on its way and the section unfolds.
+  | { type: "open"; group: string }
+  // A click on the section you are in: it folds or unfolds, and you stay on your page.
   | { type: "toggle"; group: string }
-  // A click on any other item, or on the logo.
-  | { type: "leaf" }
+  // A click on any other item (`path`, its page), or on the logo.
+  | { type: "leaf"; path: string }
   // A page reached by any route: a click here, a link elsewhere, Back.
   | { type: "arrive"; holding: string | null };
 
 /**
- * The groups after an event. A click on a group unfolds it and folds any other, or folds it when it
- * is the unfolded one; either way that group is the one you are on until you pick a page, so folding
- * it again never hands the mark back to the page you came from. A click on any other item folds
- * the group, and arriving on a page leaves unfolded only the group holding that page.
+ * The sections after an event. A click on a section unfolds it and folds any other, or, inside it,
+ * folds it when it is the unfolded one; either way the section is the one marked, so folding it
+ * again never hands the mark to another item. A click on any other item folds the section and
+ * marks that item at once, before its page is here. Arriving on a page leaves unfolded only the
+ * section holding it, and the page marked.
  */
 export function nextNavGroups(groups: NavGroups, event: NavGroupEvent): NavGroups {
   switch (event.type) {
+    case "open":
+      return { open: event.group, selected: event.group };
     case "toggle":
       return { open: groups.open === event.group ? null : event.group, selected: event.group };
     case "leaf":
-      return { open: null, selected: null };
+      return { open: null, selected: event.path };
     case "arrive":
       return { open: event.holding, selected: null };
   }
 }
 
 /**
- * How the unfolded menu marks where you are. One place only is marked "here": the page you are on,
- * or the section you just clicked while its page is on its way. A section on its own page is
+ * Whether a click on a section opens its page: from outside the section, and also while another
+ * click's page is on its way, the address still showing the page you are leaving. Inside the
+ * section, with nothing on its way, it only folds or unfolds.
+ */
+export const sectionClickOpensPage = (groups: NavGroups, holding: string | null, holdsPage: boolean): boolean =>
+  !holdsPage || (groups.selected !== null && groups.selected !== holding);
+
+/** The folded menu's flyout once a page is reached: kept when it is the section holding the page. */
+export const flyoutAfterArrival = (flyout: string | null, holding: string | null): string | null =>
+  flyout !== null && flyout === holding ? flyout : null;
+
+/**
+ * How the unfolded menu marks where you are. One place only is marked "here": the item you just
+ * clicked while its page is on its way, else the page you are on. A section on its own page is
  * marked itself; on one of its pages it is tinted while that page shows under it, and marked
  * itself when folded over it.
  */
 export function navLooks({ open, selected }: NavGroups, holding: string | null) {
   const picking = selected !== null && selected !== holding;
   return {
-    item: (isPage: boolean): NavLook => (isPage && !picking ? "active" : "idle"),
+    // A top-level item, at `path`.
+    leaf: (path: string, isPage: boolean): NavLook => (picking ? (path === selected ? "active" : "idle") : isPage ? "active" : "idle"),
+    // A section's sub-page.
+    child: (isPage: boolean): NavLook => (isPage && !picking ? "active" : "idle"),
     group: (path: string, holdsPage: boolean, ownPage = false): NavLook => {
       if (picking) return path === selected ? "active" : "idle";
       if (holdsPage) return !ownPage && path === open ? "lit" : "active";
@@ -233,14 +258,13 @@ export function navLooks({ open, selected }: NavGroups, holding: string | null) 
 /**
  * What `user`'s menu calls the page at `pathname`: its submenu item when it has one, otherwise its
  * item. The item `user` sees comes first (an admin's Warehouse Managers, a superadmin's Managers
- * under Warehouse Concept); a page their menu does not list takes the name it has in anyone's. A
- * group's own page keeps the group's name, not "Overview".
+ * under Warehouse Concept); a page their menu does not list takes the name it has in anyone's.
  */
 export function navLabelOf(pathname: string, user: { role: string } | null): string | null {
   const path = pathname.replace(/\/$/, "");
   const owns = (i: NavItem) => navItemOwns(i, path);
   const item = visibleNavItems(user).find(owns) ?? NAV_ITEMS.find(owns);
-  return item?.children?.find((c) => c.path !== item.path && isUnder(path, c.path))?.label ?? item?.label ?? null;
+  return item?.children?.find((c) => isUnder(path, c.path))?.label ?? item?.label ?? null;
 }
 
 export function AppSidebar() {
@@ -267,7 +291,8 @@ export function AppSidebar() {
   if (arrivedAt !== arrival) {
     setArrivedAt(arrival);
     setGroups(nextNavGroups(groups, { type: "arrive", holding }));
-    setFlyout(null);
+    // A flyout open under the pointer stays when its section's page is the one reached.
+    setFlyout(flyoutAfterArrival(flyout, holding));
   }
   if (flyoutMenu !== collapsed) {
     setFlyoutMenu(collapsed);
@@ -275,9 +300,10 @@ export function AppSidebar() {
   }
 
   const fold = (event: NavGroupEvent) => setGroups((g) => nextNavGroups(g, event));
-  // Another page than a group's: the group you had unfolded folds, even when the page is this one.
+  // Another page than a section's: the section you had unfolded folds, even when the page is this
+  // one, and the item clicked is marked at once.
   const goTo = (path: string) => {
-    fold({ type: "leaf" });
+    fold({ type: "leaf", path });
     router.push(path);
   };
   const looks = navLooks(groups, holding);
@@ -287,7 +313,7 @@ export function AppSidebar() {
   const renderLeaf = (item: NavItem) => {
     const isPage = isUnder(pathname, item.path);
     // The folded menu unfolds no group: the page is the one marked there.
-    const look: NavLook = collapsed ? (isPage ? "active" : "idle") : looks.item(isPage);
+    const look: NavLook = collapsed ? (isPage ? "active" : "idle") : looks.leaf(item.path, isPage);
     const row = (
       <button
         type="button"
@@ -317,10 +343,15 @@ export function AppSidebar() {
     // The section's own page, or one of its pages its menu doesn't list (the concept's Gate Log).
     const ownPage = holdsPage && !current;
     // From outside the section, a click opens the section's own page, its menu unfolding; inside
-    // it, the click only folds or unfolds the menu, and you stay on your page.
-    const openSection = () => {
-      fold({ type: "toggle", group: item.path });
-      if (!holdsPage) router.push(item.path);
+    // it, the click only folds or unfolds the menu, and you stay on your page. The second click of
+    // a double click is no new choice (it would fold the section just opened).
+    const opensPage = sectionClickOpensPage(groups, holding, holdsPage);
+    const openSection = (e: React.MouseEvent) => {
+      if (e.detail > 1) return;
+      if (opensPage) {
+        fold({ type: "open", group: item.path });
+        router.push(item.path);
+      } else fold({ type: "toggle", group: item.path });
     };
 
     // Folded menu: the tile shows its pages as a flyout to the right of the rail, on hover, and a
@@ -337,6 +368,8 @@ export function AppSidebar() {
           // left when it would leave the window.
           align={{ points: ["tl", "tr"], offset: [20, 0], overflow: { adjustX: true, adjustY: true } }}
           trigger={["hover"]}
+          // It grows from the tile rather than sliding down, as a menu beside the rail.
+          transitionName="ant-zoom-big"
           // Time to cross the gap from the tile to the flyout.
           mouseLeaveDelay={0.2}
           open={picking}
@@ -351,8 +384,15 @@ export function AppSidebar() {
         >
           <button
             type="button"
-            onClick={() => (holdsPage ? setFlyout(item.path) : router.push(item.path))}
+            onClick={(e) => {
+              if (e.detail > 1) return;
+              if (!opensPage) return setFlyout(item.path);
+              fold({ type: "open", group: item.path });
+              router.push(item.path);
+            }}
             aria-label={item.label}
+            // Folded, the tile stands for its pages too: it is the current one on any of them.
+            aria-current={holdsPage ? "page" : undefined}
             aria-haspopup="menu"
             aria-expanded={picking}
             className={`${navRow(true)} ${LOOK_CLASS[look]}`}
@@ -371,6 +411,7 @@ export function AppSidebar() {
           type="button"
           onClick={openSection}
           aria-expanded={isOpen}
+          aria-current={ownPage ? "page" : undefined}
           className={`${navRow(false)} ${LOOK_CLASS[look]}`}
         >
           <NavIcon icon={item.icon} filled={look !== "idle"} />
@@ -394,8 +435,8 @@ export function AppSidebar() {
                       type="button"
                       onClick={() => router.push(c.path)}
                       aria-current={isPage ? "page" : undefined}
-                      className={`block w-full text-left px-3 py-2 rounded-lg text-[13px] cursor-pointer transition-all duration-150 ${FOCUS} ${
-                        looks.item(isPage) === "active" ? NAV_ACTIVE : NAV_CHILD_IDLE
+                      className={`block w-full text-left px-3 py-2 rounded-lg text-[13px] cursor-pointer transition-all duration-150 ${FOCUS_INSET} ${
+                        looks.child(isPage) === "active" ? NAV_ACTIVE : NAV_CHILD_IDLE
                       }`}
                     >
                       {c.label}

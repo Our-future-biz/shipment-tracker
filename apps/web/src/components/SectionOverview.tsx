@@ -11,9 +11,12 @@ import { CARD, HINT, PAGE_SUBTITLE, PAGE_TITLE } from "@/styles/ui";
 // section's pages as the menu unfolds them, each with a line on what it is for, to pick from.
 export function SectionOverview({ path }: { path: string }) {
   const section = navSection(path);
-  const { canManageSales } = useSalesPermissions();
+  const { canManageSales, status } = useSalesPermissions();
   if (!section) return null;
   const pages = (section.children ?? []).filter((c) => !c.managersOnly || canManageSales);
+  // A section with managers' pages (Sales) shows its cards once it is known whether you are one, so
+  // those cards don't drop in after the others; usually that answer is at hand from the menu.
+  const waiting = status === "loading" && (section.children ?? []).some((c) => c.managersOnly);
   const SectionIcon = section.icon;
   return (
     <div className="bg-slate-50 min-h-full px-8 py-6">
@@ -27,8 +30,8 @@ export function SectionOverview({ path }: { path: string }) {
             {section.description && <p className={`${PAGE_SUBTITLE} mt-0.5`}>{section.description}</p>}
           </div>
         </div>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {pages.map((page) => (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3" aria-busy={waiting || undefined}>
+          {!waiting && pages.map((page) => (
             <Fragment key={page.path}>
               {/* As in the menu, pages set apart there (the managers' ones) start a row of their own. */}
               {page.divided && <div role="separator" className="col-span-full h-px bg-slate-200" />}
