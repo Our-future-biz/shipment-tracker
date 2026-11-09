@@ -3,7 +3,6 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Alert, Spin } from "antd";
-import { ArrowLeftOutlined } from "@ant-design/icons";
 import { useToast } from "@/lib/toast";
 import { useWarehouse } from "@/hooks/useWarehouse";
 import { useGateLog, useGateMovement } from "@/hooks/useGateLog";
@@ -28,7 +27,8 @@ import { Worklist } from "../remeasurement/Worklist";
 import { useJobDraft } from "../remeasurement/useJobDraft";
 import { useWarehouseShipment } from "@/hooks/useWarehouseShipment";
 import { informedText } from "@/lib/informOperations";
-import { ICON_BTN_GHOST, LINK, MODAL_TITLE, REF } from "@/styles/ui";
+import { LINK, MODAL_TITLE, REF } from "@/styles/ui";
+import { BackButton } from "@/components/BackLink";
 
 // Remeasurement / Release: the warehouse's work on one POSITION — linked to a shipment or
 // stand-alone. Opened from the Job no. in Positions (?position=<task id>), from "Shipment Details"
@@ -54,16 +54,8 @@ function Resolve({ shipmentId, positionId, onBack }: { shipmentId: string | null
   if (shipmentId) return <ShipmentOnlyPart shipmentId={shipmentId} onBack={onBack} />;
   return (
     <div className="flex items-center gap-2 text-slate-500">
-      <BackButton onBack={onBack} /> Warehouse position not found — it may have been removed.
+      <BackButton onClick={onBack}>Worklist</BackButton> Warehouse position not found — it may have been removed.
     </div>
-  );
-}
-
-function BackButton({ onBack }: { onBack: () => void }) {
-  return (
-    <button type="button" onClick={onBack} aria-label="Back to the worklist" className={ICON_BTN_GHOST}>
-      <ArrowLeftOutlined />
-    </button>
   );
 }
 
@@ -190,7 +182,7 @@ function ShipmentOnlyPart({ shipmentId, onBack }: { shipmentId: string; onBack: 
   if (isError || !data) {
     return (
       <div className="flex items-center gap-2 text-slate-500">
-        <BackButton onBack={onBack} /> Shipment not found.
+        <BackButton onClick={onBack}>Worklist</BackButton> Shipment not found.
       </div>
     );
   }
@@ -198,7 +190,7 @@ function ShipmentOnlyPart({ shipmentId, onBack }: { shipmentId: string; onBack: 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-2">
-        <BackButton onBack={onBack} />
+        <BackButton onClick={onBack}>Worklist</BackButton>
         <h2 className={`${MODAL_TITLE} ${REF}`}>{shipment.jobNumber}</h2>
         {shipment.customer && <span className="ml-2 text-[13px] text-slate-500">{shipment.customer}</span>}
       </div>

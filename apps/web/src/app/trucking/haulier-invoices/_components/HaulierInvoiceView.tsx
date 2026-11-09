@@ -4,7 +4,7 @@ import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Alert, DatePicker, Modal, Spin, Tooltip } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
-import { ArrowLeftOutlined, DownloadOutlined } from "@ant-design/icons";
+import { DownloadOutlined } from "@ant-design/icons";
 import { apiErrorMessage, isNotFound } from "@/lib/api";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { formatDate, businessDateTime, businessToday } from "@/lib/date";
@@ -15,7 +15,6 @@ import { btnDefault, btnPrimary } from "@/components/buttons";
 import { SectionCard } from "@/components/SectionCard";
 import { CARD, EMPTY, HINT, LINK, PAGE_SUBTITLE, PAGE_TITLE, REF, TD, TD_TOTAL, TH } from "@/styles/ui";
 import { downloadDataUrl } from "@/lib/files";
-import { LINK_ICON_BTN_GHOST } from "../../_lib/linkButtons";
 import { formatBankAccount } from "../../_lib/bankAccounts";
 import { tripHref } from "../../_lib/consignments";
 import { TERMS } from "../../_lib/glossary";
@@ -25,6 +24,7 @@ import { formatMoney } from "../../_lib/tariffs";
 import { fileDataUrl } from "../../_lib/tariffUpload";
 import { TruckingStatusChip } from "../../_components/TruckingStatusChip";
 import { TruckingTextModal } from "../../_components/TruckingTextModal";
+import { BackLink } from "@/components/BackLink";
 
 const LIST_HREF = "/trucking?tab=haulierInvoices";
 const Line = ({ k, v, tone = "" }: { k: string; v: ReactNode; tone?: string }) => (
@@ -108,10 +108,8 @@ export const HaulierInvoiceView = ({ invoiceId }: HaulierInvoiceViewProps) => {
       <div className="bg-white border-b border-slate-200 px-6 py-4">
         <div className="flex flex-wrap items-start gap-4">
           <div className="flex min-w-[240px] flex-1 items-start gap-2">
-            <Link href={LIST_HREF} aria-label="Back to Haulier invoices" className={LINK_ICON_BTN_GHOST}>
-              <ArrowLeftOutlined />
-            </Link>
             <div className="min-w-0">
+<BackLink href={LIST_HREF} className="mb-1">Haulier invoices</BackLink>
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className={`${PAGE_TITLE} ${REF}`}>{inv.invoiceNumber}</h1>
                 <TruckingStatusChip chip={INVOICE_STATUS_CHIP[inv.status]} />

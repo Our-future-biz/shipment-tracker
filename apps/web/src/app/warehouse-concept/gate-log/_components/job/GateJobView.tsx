@@ -4,7 +4,7 @@ import { Fragment, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Alert, Dropdown, Spin, Tabs, Tooltip } from "antd";
-import { ArrowLeftOutlined, CheckCircleOutlined, DownOutlined, PrinterOutlined, ReloadOutlined, RightOutlined } from "@ant-design/icons";
+import { CheckCircleOutlined, DownOutlined, PrinterOutlined, ReloadOutlined, RightOutlined } from "@ant-design/icons";
 import { useGateMovement, type GateMovement, type GateStampKind } from "@/hooks/useGateLog";
 import { useToast } from "@/lib/toast";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -31,6 +31,7 @@ import { ReweighModal } from "./ReweighSection";
 import { LifecycleStrip } from "@/app/warehouse-concept/_components/LifecycleStrip";
 import { Badge } from "@/components/Badge";
 import { CARD, EMPTY, HINT, ICON_BTN_GHOST, LABEL_TEXT, LINK, PAGE_TITLE, REF } from "@/styles/ui";
+import { BackLink } from "@/components/BackLink";
 
 // The job's tab lives in the URL (?tab=survey), so refresh, Back and shared links keep it.
 const TABS = ["overview", "survey", "shipman", "history"] as const;
@@ -352,14 +353,8 @@ export function GateJobView({ id }: { id: string }) {
       <div className="bg-white border-b border-slate-200 px-6 pt-4 pb-0">
         <div className="flex flex-wrap items-start gap-4">
           <div className="flex items-start gap-2 flex-1 min-w-[240px]">
-            <button
-              onClick={() => router.push(GATE_LOG_HREF)}
-              aria-label="Back to Gate Log"
-              className={ICON_BTN_GHOST}
-            >
-              <ArrowLeftOutlined />
-            </button>
             <div className="min-w-0">
+<BackLink href={GATE_LOG_HREF} className="mb-1">Gate Log</BackLink>
               <h1 className={`${PAGE_TITLE} ${REF}`}>{m.gateRef}</h1>
               <div className={`flex flex-wrap items-baseline gap-x-4 gap-y-0.5 ${HINT} mt-0.5`}>
                 <span>

@@ -3,7 +3,6 @@
 import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Alert, Button, Checkbox, Select, Spin, Switch, Tag } from "antd";
-import { ArrowLeftOutlined } from "@ant-design/icons";
 import { useToast } from "@/lib/toast";
 import { formatDateTime } from "@/lib/date";
 import { APIError, ErrCode } from "@/lib/api/client";
@@ -12,7 +11,8 @@ import { Card } from "../../_components/tabs/shared";
 import { useUnsavedGuard } from "../../_lib/useUnsavedGuard";
 import { isEmailAddress, normaliseList, recipientsProblem, splitAddresses } from "../_lib/emailList";
 import { useWarehouseSettings, type SupplierKind, type SupplierRecipients, type WarehouseSettings } from "@/hooks/useWarehouseSettings";
-import { HINT, ICON_BTN_GHOST, LABEL_TEXT, LINK, PAGE_SUBTITLE, PAGE_TITLE } from "@/styles/ui";
+import { HINT, LABEL_TEXT, LINK, PAGE_SUBTITLE, PAGE_TITLE } from "@/styles/ui";
+import { BackLink } from "@/components/BackLink";
 
 // Warehouse settings: who gets the supplier e-mails (VGM, Survey, Remeasurement) — an on/off switch
 // and To / Cc per type — and the docks with their opening hours (the Dock Schedule grid and dock
@@ -135,10 +135,8 @@ export function WarehouseSettingsView() {
     <div className="bg-slate-50 min-h-full">
       <div className="bg-white border-b border-slate-200 px-6 py-4">
         <div className="flex items-start gap-2">
-          <Link href="/warehouse-concept" aria-label="Back to Warehouse" className={ICON_BTN_GHOST}>
-            <ArrowLeftOutlined />
-          </Link>
           <div className="min-w-0">
+<BackLink href="/warehouse-concept" className="mb-1">Warehouse</BackLink>
             <h1 className={PAGE_TITLE}>Warehouse settings</h1>
             <div className={`${PAGE_SUBTITLE} mt-1`}>
               Who gets the supplier e-mails, and the docks with their opening hours.

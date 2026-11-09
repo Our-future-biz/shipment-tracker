@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Alert, Dropdown, Spin, Tabs, Tooltip } from "antd";
-import { ArrowLeftOutlined, DownOutlined, UploadOutlined } from "@ant-design/icons";
+import { DownOutlined, UploadOutlined } from "@ant-design/icons";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { apiErrorMessage, isNotFound } from "@/lib/api";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -18,7 +18,7 @@ import { LifecycleStrip } from "@/app/warehouse-concept/_components/LifecycleStr
 import { useUrlParam } from "@/hooks/useUrlParam";
 import { btnDefault, btnPrimary } from "@/components/buttons";
 import { CARD, LABEL_TEXT, LINK, PAGE_SUBTITLE, PAGE_TITLE, REF } from "@/styles/ui";
-import { LINK_BTN, LINK_BTN_PRIMARY, LINK_ICON_BTN_GHOST } from "../../_lib/linkButtons";
+import { LINK_BTN, LINK_BTN_PRIMARY } from "../../_lib/linkButtons";
 import { CONSIGNMENT_STATUS_CHIP, STAMP_LABELS, consignmentActions, consignmentLifecycle, reasonsBesideNotices, stampOf, statusRank, tripHref, type ActionState } from "../../_lib/consignments";
 import { isExceptionOpen } from "../../_lib/exceptions";
 import { consignmentInternalAmount, monthOf } from "../../_lib/internalBilling";
@@ -54,6 +54,7 @@ import { ExceptionPhotoModal } from "./ExceptionPhotoModal";
 import { PartnerLegModal } from "./PartnerLegModal";
 import { PlanTripModal } from "./PlanTripModal";
 import { StampModal } from "./StampModal";
+import { BackLink } from "@/components/BackLink";
 
 const TABS = ["overview", "trip", "exceptions", "documents", "history"] as const;
 type Tab = (typeof TABS)[number];
@@ -198,10 +199,8 @@ export const ConsignmentView = ({ consignmentId }: ConsignmentViewProps) => {
       <div className="bg-white border-b border-slate-200 px-6 pt-4 pb-0">
         <div className="flex flex-wrap items-start gap-4">
           <div className="flex min-w-[240px] flex-1 items-start gap-2">
-            <Link href={LIST_HREF} aria-label="Back to Consignments" className={LINK_ICON_BTN_GHOST}>
-              <ArrowLeftOutlined />
-            </Link>
             <div className="min-w-0">
+<BackLink href={LIST_HREF} className="mb-1">Consignments</BackLink>
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className={`${PAGE_TITLE} ${REF}`}>{c.ref}</h1>
                 <TruckingStatusChip chip={CONSIGNMENT_STATUS_CHIP[c.status]} />

@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Alert, Button, Input, InputNumber, Spin } from "antd";
-import { ArrowLeftOutlined } from "@ant-design/icons";
 import { SectionCard } from "@/components/SectionCard";
 import { apiErrorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -12,7 +11,6 @@ import { useToast } from "@/lib/toast";
 import { useTruckingSettings, type TruckingSettings } from "@/hooks/useTrucking";
 import { HINT, LINK, PAGE_SUBTITLE, PAGE_TITLE } from "@/styles/ui";
 import { useUnsavedGuard } from "@/app/warehouse-concept/_lib/useUnsavedGuard";
-import { LINK_ICON_BTN_GHOST } from "../../_lib/linkButtons";
 import { TERMS } from "../../_lib/glossary";
 import { isTruckingManager } from "../../_lib/roles";
 import { CONFLICT_TEXT, isVersionConflict } from "../../_lib/saveConflict";
@@ -22,6 +20,7 @@ import { HubSection } from "./HubSection";
 import { ServiceLevelsTable } from "./ServiceLevelsTable";
 import { TruckingField } from "../../_components/TruckingField";
 import { VehicleTypesTable } from "./VehicleTypesTable";
+import { BackLink } from "@/components/BackLink";
 
 // Trucking settings: service levels with their cut-offs, vehicle types, chargeable-weight factors,
 // the margin floor, the free waiting time and the transport-order e-mail. Everyone can see them; only a manager changes them.
@@ -104,10 +103,8 @@ export const TruckingSettingsView = () => {
     <div className="bg-slate-50 min-h-full">
       <div className="bg-white border-b border-slate-200 px-6 py-4">
         <div className="flex items-start gap-2">
-          <Link href="/trucking" aria-label="Back to Trucking" className={LINK_ICON_BTN_GHOST}>
-            <ArrowLeftOutlined />
-          </Link>
           <div className="min-w-0">
+<BackLink href="/trucking" className="mb-1">Trucking</BackLink>
             <h1 className={PAGE_TITLE}>Trucking settings</h1>
             <div className={`${PAGE_SUBTITLE} mt-1`}>
               {TERMS.serviceLevel}s, vehicle types, {TERMS.chargeableWeight.toLowerCase()}, margin floor, our warehouse ({TERMS.hub.toLowerCase()}), the {TERMS.transportOrder.toLowerCase()} e-mail and the {TERMS.fuelIndex.toLowerCase()}.

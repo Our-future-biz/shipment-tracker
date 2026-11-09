@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Alert, Button, Spin, Steps } from "antd";
-import { ArrowLeftOutlined } from "@ant-design/icons";
 import { SectionCard } from "@/components/SectionCard";
 import { apiErrorMessage, isNotFound } from "@/lib/api";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -12,7 +11,6 @@ import { fileToBase64 } from "@/lib/files";
 import { useToast } from "@/lib/toast";
 import { useTariff, useTariffImport, useTruckingSettings, type TariffImportResult } from "@/hooks/useTrucking";
 import { HINT, LINK, PAGE_SUBTITLE, PAGE_TITLE } from "@/styles/ui";
-import { LINK_ICON_BTN_GHOST } from "../../_lib/linkButtons";
 import { isTruckingManager } from "../../_lib/roles";
 import { DISCOUNT_NO_FILE, UPLOAD_STEPS, tariffFileProblem } from "../../_lib/tariffUpload";
 import { countErrors, versionLabel } from "../../_lib/tariffs";
@@ -22,6 +20,7 @@ import { TariffSheetReportTable } from "./TariffSheetReportTable";
 import { TariffTestLane } from "./TariffTestLane";
 import { TariffUploadActivateStep } from "./TariffUploadActivateStep";
 import { TariffUploadFileStep } from "./TariffUploadFileStep";
+import { BackLink } from "@/components/BackLink";
 
 const STEP_HINTS: Record<(typeof UPLOAD_STEPS)[number]["key"], string> = {
   file: "Choose the filled-in template.",
@@ -124,10 +123,8 @@ export const TariffUploadWizard = ({ tariffId }: TariffUploadWizardProps) => {
     <div className="bg-slate-50 min-h-full">
       <div className="bg-white border-b border-slate-200 px-6 py-4">
         <div className="flex flex-wrap items-start gap-2">
-          <Link href={tariffHref} aria-label="Back to the tariff" className={LINK_ICON_BTN_GHOST}>
-            <ArrowLeftOutlined />
-          </Link>
           <div className="min-w-0 flex-1">
+<BackLink href={tariffHref} className="mb-1">Tariff</BackLink>
             <h1 className={PAGE_TITLE}>Upload a tariff file · {tariff.name}</h1>
             <div className={`${PAGE_SUBTITLE} mt-1`}>
               {version

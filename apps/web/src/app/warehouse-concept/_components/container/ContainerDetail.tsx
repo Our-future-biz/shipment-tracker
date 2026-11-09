@@ -4,14 +4,14 @@ import { Fragment, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Alert, Dropdown, Input, Modal, Spin, Tooltip } from "antd";
-import { ArrowLeftOutlined, CheckCircleOutlined, DownOutlined, MobileOutlined, RightOutlined } from "@ant-design/icons";
+import { CheckCircleOutlined, DownOutlined, MobileOutlined, RightOutlined } from "@ant-design/icons";
 import { useWarehouseContainer, useWarehouseContainers, type ContainerStampKind, type WarehouseContainer } from "@/hooks/useWarehouseRecords";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useToast } from "@/lib/toast";
 import { formatDateTime } from "@/lib/date";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { KPI_TILE_CLASS, KpiTile } from "@/components/KpiTile";
-import { HINT, ICON_BTN_GHOST, LABEL_TEXT, LINK, PAGE_TITLE, REF } from "@/styles/ui";
+import { HINT, LABEL_TEXT, LINK, PAGE_TITLE, REF } from "@/styles/ui";
 import { TERMS } from "@/app/warehouse-concept/_lib/glossary";
 import {
   CONTAINER_STAMP_LABEL,
@@ -29,6 +29,7 @@ import { ContainerFormModal, type ContainerFormMode } from "./containerForm";
 import { FillBar } from "./FillBar";
 import { StuffingPlan } from "./StuffingPlan";
 import { StrippingTally } from "./StrippingTally";
+import { BackLink } from "@/components/BackLink";
 
 // One container and its houses — the container page. Its stamps in strict order (import:
 // gate-in → start stripping → gate-out; export: gate-in → close with the seal → gate-out), the
@@ -100,10 +101,8 @@ export function ContainerDetail({ id }: { id: string }) {
       <div className="bg-white border-b border-slate-200 px-6 py-4">
         <div className="flex flex-wrap items-start gap-4">
           <div className="flex items-start gap-2 flex-1 min-w-[260px]">
-            <button type="button" onClick={() => router.push(CONTAINERS_HREF)} aria-label="Back to Containers" className={ICON_BTN_GHOST}>
-              <ArrowLeftOutlined />
-            </button>
             <div className="min-w-0">
+<BackLink href={CONTAINERS_HREF} className="mb-1">Containers</BackLink>
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className={`${PAGE_TITLE} ${REF}`}>{c.number}</h1>
                 <Badge tone={kind === "export" ? "i" : "b"}>{KIND_LABEL[kind]}</Badge>

@@ -49,6 +49,7 @@ import { ClaimsTab } from "./tabs/ClaimsTab";
 import { CostsTab } from "./tabs/CostsTab";
 import { InvoicePanel } from "@/app/invoicing/_components/InvoicePanel";
 import { AppModal } from "@/components/AppModal";
+import { BackLink } from "@/components/BackLink";
 import { useCostsData } from "./tabs/useCostsData";
 import { money } from "./tabs/costsCalc";
 import { ContainerDetailsTab } from "./tabs/ContainerDetailsTab";
@@ -1235,9 +1236,9 @@ export function ShipmentDetailContent() {
     <div className="bg-slate-50 min-h-full">
       {/* ── Header ── */}
       <div className="bg-white border-b border-slate-200 px-4 md:px-6 pt-3.5 pb-0">
-        {/* Top row: the actions, all one height and look, on the right. The way back to the
-            list is the sidebar's Shipments item. */}
-        <div className="flex items-center justify-end gap-x-6 gap-y-2 flex-wrap">
+        {/* Top row: the way back to the grid on the left, the actions, all one height and look, on the right. */}
+        <div className="flex items-center justify-between gap-x-6 gap-y-2 flex-wrap">
+          <BackLink href="/shipments">Shipments</BackLink>
           <div className="flex items-center gap-2 flex-wrap">
             {/* The shipment's quote, shown once: the sales quote in its Sales Number, with a link
                 to its page. A shipment without one may still carry the reference its costs were

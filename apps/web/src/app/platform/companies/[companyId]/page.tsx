@@ -1,8 +1,7 @@
 "use client";
 
-import { useParams, useRouter } from "next/navigation";
-import { Button } from "antd";
-import { ArrowLeftOutlined } from "@ant-design/icons";
+import { useParams } from "next/navigation";
+import { BackLink } from "@/components/BackLink";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { usePlatformCompanies, usePlatformCompanyUsers } from "@/hooks/useUserAdmin";
 import { useDepartments, useBranches } from "@/hooks/useOrgUnits";
@@ -11,7 +10,6 @@ import { UsersManager } from "../../../settings/_components/UsersManager";
 
 export default function PlatformCompanyUsersPage() {
   const { user } = useAuth();
-  const router = useRouter();
   const { companyId } = useParams<{ companyId: string }>();
   const { companies } = usePlatformCompanies();
   const cu = usePlatformCompanyUsers(companyId);
@@ -28,9 +26,7 @@ export default function PlatformCompanyUsersPage() {
 
   return (
     <div className="p-6 max-w-4xl">
-      <Button type="text" size="small" icon={<ArrowLeftOutlined />} className="mb-2 -ml-2" onClick={() => router.push("/platform/companies")}>
-        Companies
-      </Button>
+      <BackLink href="/platform/companies" className="mb-2">Companies</BackLink>
       <h1 className={`${PAGE_TITLE} mb-1`}>{company?.name ?? "Company"} — Users</h1>
       <p className={`${PAGE_SUBTITLE} mb-4`}>Manage users for this company as a platform administrator.</p>
       <UsersManager

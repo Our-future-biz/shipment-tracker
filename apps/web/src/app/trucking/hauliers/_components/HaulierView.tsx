@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import dayjs from "dayjs";
 import { Alert, Button, DatePicker, Input, InputNumber, Select, Spin, Switch, Tooltip } from "antd";
-import { ArrowLeftOutlined, LockOutlined, UnlockOutlined } from "@ant-design/icons";
+import { LockOutlined, UnlockOutlined } from "@ant-design/icons";
 import { SectionCard } from "@/components/SectionCard";
 import { HINT, LINK, PAGE_SUBTITLE, PAGE_TITLE } from "@/styles/ui";
 import { apiErrorMessage, isNotFound } from "@/lib/api";
@@ -13,7 +13,6 @@ import { formatDate, businessDateTime } from "@/lib/date";
 import { useToast } from "@/lib/toast";
 import { useHaulier, useTruckingSettings, type HaulierDetail, type HaulierUpdate } from "@/hooks/useTrucking";
 import { useUnsavedGuard } from "@/app/warehouse-concept/_lib/useUnsavedGuard";
-import { LINK_ICON_BTN_GHOST } from "../../_lib/linkButtons";
 import { TERMS } from "../../_lib/glossary";
 import { COST_SPLIT_LABELS, CURRENCIES, profileProblems, type LaneDraft } from "../../_lib/hauliers";
 import { isTruckingManager, managerOnlyReason } from "../../_lib/roles";
@@ -25,6 +24,7 @@ import { HaulierBankAccounts } from "./HaulierBankAccounts";
 import { HaulierBlockDialog } from "./HaulierBlockDialog";
 import { HaulierLanesTable } from "./HaulierLanesTable";
 import { HaulierPortalUsers } from "./HaulierPortalUsers";
+import { BackLink } from "@/components/BackLink";
 
 type ProfileDraft = Omit<HaulierUpdate, "version" | "preferredLanes"> & { preferredLanes: LaneDraft[] };
 
@@ -176,10 +176,8 @@ export const HaulierView = ({ customerId }: HaulierViewProps) => {
     <div className="bg-slate-50 min-h-full">
       <div className="bg-white border-b border-slate-200 px-6 py-4">
         <div className="flex flex-wrap items-start gap-2">
-          <Link href="/trucking?tab=hauliers" aria-label="Back to Hauliers" className={LINK_ICON_BTN_GHOST}>
-            <ArrowLeftOutlined />
-          </Link>
           <div className="min-w-0 flex-1">
+<BackLink href="/trucking?tab=hauliers" className="mb-1">Hauliers</BackLink>
             <div className="flex flex-wrap items-center gap-3">
               <h1 className={PAGE_TITLE}>{haulier.companyName}</h1>
               <HaulierStatusChip status={haulier.status} />
