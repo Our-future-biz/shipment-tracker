@@ -4,8 +4,8 @@ import type { ReactNode } from "react";
 import { Modal } from "antd";
 import { HINT, MODAL_TITLE } from "@/styles/ui";
 
-// A dialog that is filled in, and one that shows a document.
-const WIDTH = { form: 520, reading: 820 } as const;
+// A dialog that is filled in, one that shows a document, and one that shows a wide table.
+const WIDTH = { form: 520, reading: 820, wide: 1160 } as const;
 
 interface SalesDialogProps {
   open: boolean;
