@@ -6,13 +6,10 @@ import { ExclamationCircleOutlined } from "@ant-design/icons";
 import { useDebounced } from "@/hooks/useDebounced";
 import { useAirportSearch, usePlaceSearch, useRecordPlacePick, useTerminalSearch } from "@/hooks/usePlaceSearch";
 import { COUNTRIES } from "@/lib/countries";
-import type { geo } from "@/lib/api/client";
+import { airportWhere, inlandWhere, placeWhere, terminalWhere, whereOfCode } from "@/lib/placeWhere";
 import { countryCodeOf, countryLabel, countryMatches, countryValue, isUnmatched, placeCodeOf, UNMATCHED_HINT, type GeoKind } from "@/lib/places";
 
 const COUNTRY_OPTIONS = COUNTRIES.map((c) => ({ code: c.code, label: countryLabel(c.code) }));
-
-// What an inland terminal is, beside its town.
-const INLAND_KIND: Record<geo.InlandTerminalKind, string> = { dry_port: "Dry port", intermodal: "Intermodal", rail: "Rail" };
 
 // What a place field asks for, by the codes it offers besides the places.
 function placePrompt(airports: boolean, terminals: boolean): string {
@@ -48,12 +45,6 @@ interface GeoOption {
   /** where it is, as the list says it at the side */
   where?: string;
 }
-
-// Where a place, airport or terminal is, as its option says it at the side.
-const placeWhere = (p: geo.Place) => [p.subdivisionName, p.countryCode].filter(Boolean).join(", ");
-const airportWhere = (a: geo.Airport) => [a.city, a.countryCode].filter(Boolean).join(", ");
-const terminalWhere = (t: geo.Terminal) => [t.port, t.countryCode].filter(Boolean).join(", ");
-const inlandWhere = (t: geo.InlandTerminal) => [INLAND_KIND[t.kind], t.town, t.countryCode].filter(Boolean).join(", ");
 
 // An airport or terminal: its code first, then its name, and where it is at the side.
 const codedOption = (code: string, name: string, where: string): GeoOption => ({
@@ -219,21 +210,6 @@ export function GeoSelect({
       popupMatchSelectWidth={kind === "place" ? (airports || terminals ? 420 : 340) : true}
     />
   );
-}
-
-/** Where the place, airport or terminal of exactly this code is, from what a search for it found; "" when it found none. */
-function whereOfCode(
-  code: string,
-  found: { airports?: geo.Airport[]; terminals?: geo.Terminal[]; inland?: geo.InlandTerminal[]; places?: geo.Place[] },
-): string {
-  const airport = found.airports?.find((a) => a.code === code);
-  if (airport) return airportWhere(airport);
-  const terminal = found.terminals?.find((t) => t.code === code);
-  if (terminal) return terminalWhere(terminal);
-  const inland = found.inland?.find((t) => t.code === code);
-  if (inland) return inlandWhere(inland);
-  const place = found.places?.find((p) => p.code === code);
-  return place ? placeWhere(place) : "";
 }
 
 /** The part of a free-text place worth searching: "PORT OF HALIFAX, CANADA" → "HALIFAX". */

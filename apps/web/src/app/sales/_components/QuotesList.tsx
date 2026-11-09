@@ -46,6 +46,7 @@ import type { SettableQuoteStatus } from "../_lib/types";
 import type { StoredCompanyDetails } from "../_lib/companyDetails";
 import { QUOTE_STATUS_MAP, SETTABLE_QUOTE_STATUSES } from "../_lib/types";
 import { printQuote } from "../_lib/printQuote";
+import { useFetchRouteWhere } from "@/hooks/usePlaceSearch";
 import { matchesUserOption, userIdOptions, UserOptionLabel } from "../_lib/userOptions";
 import { PRINT_WINDOW_BLOCKED, exportClosesQuote } from "../_lib/exportClose";
 import { ExportCloseDialog } from "./ExportCloseDialog";
@@ -214,6 +215,7 @@ export function QuotesList() {
   const exchange = useCurrentExchangeRates();
   const company = useCompanyDetails();
   const people = useUsers();
+  const fetchRouteWhere = useFetchRouteWhere();
   const { users } = people;
   const toast = useToast();
 
@@ -484,13 +486,15 @@ export function QuotesList() {
 
   // Export PDF: a quote that went out is printed as it is; one that has not is closed first -
   // marked as sent (Quoted) through the same request as on its page, after the user confirms.
-  const printNow = (quote: SalesQuote, target?: Window | null) => {
-    const blocked = printQuote(quote.quoteNumber, quote.data, exchange, company, people, target);
+  // The window is opened before asking where the route's places are, while it is still the click.
+  const printNow = async (quote: SalesQuote, target: Window | null) => {
+    const route = await fetchRouteWhere(quote.data);
+    const blocked = printQuote(quote.quoteNumber, quote.data, exchange, company, people, route, target);
     if (blocked) toast.error(`${quote.quoteNumber}: ${blocked}`);
   };
   const exportQuote = (quote: SalesQuote) => {
     if (exportClosesQuote(quote.storedStatus)) setExportTarget(quote);
-    else printNow(quote);
+    else void printNow(quote, window.open("", "_blank"));
   };
   exportQuoteRef.current = exportQuote;
   // The print window is opened on the click itself - after the server's answer the browser would
@@ -522,7 +526,7 @@ export function QuotesList() {
       return;
     }
     toast.success(`${quote.quoteNumber} closed and marked as sent`);
-    printNow({ ...quote, data: stored }, target);
+    void printNow({ ...quote, data: stored }, target);
   };
 
   const bulkExport = () => exportQuotesCsv(selected, csvColumns());

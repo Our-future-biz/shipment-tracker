@@ -45,6 +45,7 @@ import { fmtMoney, moneyInputParser } from "@/lib/money";
 import { useToast } from "@/lib/toast";
 import { CustomerAccountTypeBadge } from "@/app/customers/_components/CustomerAccountTypeBadge";
 import { GeoFlag, GeoSelect } from "@/components/GeoSelect";
+import { useRouteWhere } from "@/hooks/usePlaceSearch";
 import { NewSupplierFromQuote } from "@/components/SupplierPicker";
 import { useSupplierApprovals } from "@/hooks/useSupplierApprovals";
 import { useSupplierDirectory } from "@/hooks/useSupplierDirectory";
@@ -620,8 +621,10 @@ export function QuoteWorkflow() {
   const oceanCount = useOceanOffers(
     !quoteClosed && draft.serviceType === "Sea FCL" && (draft.buyingLines ?? []).some(isOceanFreightLine) ? oceanOffersRequest(oceanRouteOf(draft, businessToday())) : null,
   );
+  // Where the route's places are: the quotation says it, as Routing does.
+  const routeWhere = useRouteWhere(draft);
   const printNow = () => {
-    const blocked = printQuote(ref, draft, exchange, company, people);
+    const blocked = printQuote(ref, draft, exchange, company, people, routeWhere);
     if (blocked) toast.error(blocked);
   };
   // Export PDF closes a quote that has not gone out yet: it is sent as it stands (Quoted), which
@@ -656,7 +659,7 @@ export function QuoteWorkflow() {
     }
     setModal(null);
     toast.success(`${ref} closed and marked as sent`);
-    const blocked = printQuote(ref, sent ?? draft, exchange, company, people, target);
+    const blocked = printQuote(ref, sent ?? draft, exchange, company, people, routeWhere, target);
     if (blocked) toast.error(blocked);
   };
   // A quote that can't go out is not e-mailed either: the server never sees a mail, so it is

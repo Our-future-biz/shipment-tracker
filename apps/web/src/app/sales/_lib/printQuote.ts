@@ -4,6 +4,7 @@ import type { SalesQuoteData, PackageLine, CostLine } from "./types";
 import { UNSENT_QUOTE_STATUSES } from "./types";
 import { hasCompanyDetails, type StoredCompanyDetails } from "./companyDetails";
 import { escapeHtml } from "@/lib/html";
+import type { RouteWhere } from "@/lib/placeWhere";
 import { unpricedOverweight } from "./overweight";
 import { fclOfferRows } from "./fclPricing";
 import type { PickableUser } from "@/lib/people";
@@ -37,13 +38,15 @@ export interface QuoteDocumentUsers {
 // buying/cost/margin. A total that cannot be worked out must not reach the customer, so such a
 // quote has no document. `exchange` is today's ČNB fixing and ROE % (useCurrentExchangeRates); a
 // sent quote is priced at the rates stored on it. `people` are the company's users, to name the
-// sales owner for the customer.
+// sales owner for the customer. `route` says where its Origin and Destination are, as the quote's
+// Routing does.
 export function quoteDocument(
   quoteNumber: string,
   data: SalesQuoteData,
   exchange: Pick<CurrentExchangeRates, "rates" | "isError" | "isLoading" | "roePct" | "fixingDate">,
   company: StoredCompanyDetails,
   people: QuoteDocumentUsers,
+  route: RouteWhere,
 ): QuoteDocument {
   // A draft with lines in other currencies is priced at today's rates: not before they are in.
   if (!data.fx && exchange.isLoading && ratesNeeded(data).length) {
@@ -52,6 +55,9 @@ export function quoteDocument(
   // The owner is recorded by e-mail and the customer reads a name: not before the users are in.
   if (ownerNameLoading(data.salesOwner, people.isLoading)) {
     return { html: null, blocked: "The company's users are still loading. Try again in a moment." };
+  }
+  if (route.isLoading) {
+    return { html: null, blocked: "The route's places are still loading. Try again in a moment." };
   }
   const sheet = exchange.rates;
   const totals = computeTotals(data, sheet, exchange);
@@ -195,6 +201,12 @@ export function quoteDocument(
   const preparedBy = ownerNameForCustomer(data.salesOwner, people.users);
   const signature = [preparedBy, from.name].filter(Boolean).join(" · ");
 
+  // Origin and Destination in full: the place, and where it is in light grey behind it.
+  const routePlace = (place: string | undefined) => {
+    const where = route.where[place?.trim() ?? ""];
+    return `${esc(place) || "—"}${where ? `<span class="where">${esc(where)}</span>` : ""}`;
+  };
+
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(quoteNumber)}</title>
   <style>
     /* Backgrounds are part of the document - the header is white on dark - so they print as shown. */
@@ -220,6 +232,7 @@ export function quoteDocument(
     .from .name { font-size: 15px; font-weight: bold; }
     .route { font-size: 15px; font-weight: bold; margin: 4px 0 8px; }
     .route .arrow { color: #64748b; padding: 0 8px; }
+    .route .where { color: #64748b; font-size: 12px; font-weight: normal; margin-left: 6px; }
     .chargeable { margin-top: 8px; font-size: 13px; color: #334155; }
     .chargeable strong { color: #1e293b; }
     .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -258,7 +271,7 @@ export function quoteDocument(
     </div>
 
     <h2>Shipment routing</h2>
-    <div class="route">${esc(data.origin) || "—"}<span class="arrow">→</span>${esc(data.destination) || "—"}</div>
+    <div class="route">${routePlace(data.origin)}<span class="arrow">→</span>${routePlace(data.destination)}</div>
     <div class="grid">
       <div><span>Direction</span>${esc(data.direction) || "—"}</div>
       <div><span>Incoterms</span>${esc(data.incoterm) || "—"}</div>
@@ -310,9 +323,10 @@ export function printQuote(
   exchange: Pick<CurrentExchangeRates, "rates" | "isError" | "isLoading" | "roePct" | "fixingDate">,
   company: StoredCompanyDetails,
   people: QuoteDocumentUsers,
+  route: RouteWhere,
   target?: Window | null,
 ): string | null {
-  const doc = quoteDocument(quoteNumber, data, exchange, company, people);
+  const doc = quoteDocument(quoteNumber, data, exchange, company, people, route);
   if (doc.blocked !== null) {
     target?.close();
     return doc.blocked;

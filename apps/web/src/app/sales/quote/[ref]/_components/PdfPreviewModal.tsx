@@ -6,6 +6,7 @@ import { Alert, Button, Spin } from "antd";
 import { LINK_CLASS } from "@/components/linkClass";
 import { PillTabs } from "@/components/SectionCard";
 import { useCurrentExchangeRates } from "@/hooks/useExchangeRates";
+import { useRouteWhere } from "@/hooks/usePlaceSearch";
 import { useSalesPermissions } from "@/hooks/useSalesPermissions";
 import { useCompanyDetails } from "@/hooks/useSalesPrefs";
 import { useUsers } from "@/hooks/useUsers";
@@ -61,7 +62,8 @@ export function PdfPreviewModal({
   // The preview is not a second layout: it shows the very document Export PDF prints. A quote
   // that has no document - an incomplete total, company details or exchange rates that did not
   // load - shows the reason instead.
-  const doc = quoteDocument(shownRef, shown, exchange, company, people);
+  const route = useRouteWhere(shown);
+  const doc = quoteDocument(shownRef, shown, exchange, company, people, route);
   // What did not load can be asked for again right here.
   const retry = company.status === "error" ? company.reload : exchange.isError ? exchange.reload : null;
 
@@ -76,7 +78,7 @@ export function PdfPreviewModal({
       onExport();
       return;
     }
-    const blocked = printQuote(shownRef, shown, exchange, company, people);
+    const blocked = printQuote(shownRef, shown, exchange, company, people, route);
     if (blocked) toast.error(blocked);
   };
 
@@ -116,7 +118,7 @@ export function PdfPreviewModal({
         {family && family.length > 1 && (
           <PillTabs tabs={family.map((q) => ({ key: q.quoteNumber, label: q.quoteNumber }))} active={activeRef} onChange={setActiveRef} />
         )}
-        {company.status === "loading" ? (
+        {company.status === "loading" || route.isLoading ? (
           <div className="flex justify-center py-16">
             <Spin />
           </div>
