@@ -67,6 +67,7 @@ import { MasterJobHoverCard } from "@/components/MasterJobHoverCard";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { LOCKED_BOX } from "@/components/LockedBox";
 import { ReleasedMark } from "./_components/ReleasedMark";
+import { PAIRED_FIELD, PairedColumns } from "./_components/PairedColumns";
 import { FadeText } from "@/components/FadeText";
 import { CustomerLinkField } from "./_components/CustomerLinkField";
 import { PartyContactField } from "./_components/PartyContactField";
@@ -601,6 +602,8 @@ interface DetailCardProps {
   renderField?: Record<string, React.ReactNode>;
   /** "stack": all columns one under another in a single column (same field order). */
   layout?: "stack";
+  /** Two columns whose rows line up across (PairedColumns); a field and its extra rows are one cell. */
+  paired?: boolean;
 }
 
 // A card of horizontal rows, optionally split into two columns.
@@ -618,6 +621,7 @@ export function DetailCard({
   children,
   className,
   layout,
+  paired = false,
 }: DetailCardProps) {
   const { visibleKeys } = useCardFields();
   const allFields = columns.flat();
@@ -626,6 +630,25 @@ export function DetailCard({
     : null;
 
   const shownColumns = layout === "stack" ? [allFields] : columns;
+  const fieldsOf = (col: FieldDef[]) => col.filter((f) => !shown || shown.has(f.key));
+  const fieldRow = (f: FieldDef) =>
+    renderField?.[f.key] ? (
+      renderField[f.key]
+    ) : INVOICE_FIELDS.has(f.key) ? (
+      <InvoiceRow label={f.label} fieldKey={f.key} shipment={shipment} styleFor={styleFor} />
+    ) : f.ro ? (
+      <RoRow label={f.label} value={getFieldValue(shipment, f.key)} />
+    ) : (
+      <FieldRow label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={onCommit} styleFor={styleFor} customsOffice={shipment.customsOffice} shipmentId={shipment.id} />
+    );
+  const [pairedLeft, pairedRight] = shownColumns;
+  const pairedCell = (f: FieldDef) => (
+    <div key={f.key} className={PAIRED_FIELD}>
+      {renderBefore?.[f.key]}
+      {fieldRow(f)}
+      {renderAfter?.[f.key]}
+    </div>
+  );
 
   return (
     <div className={`${CARD} ${className ?? ""}`}>
@@ -640,27 +663,23 @@ export function DetailCard({
         renderField={renderField}
       />
       <div className={CARD_BODY}>
-      <div className={shownColumns.length > 1 ? COLS2 : ""}>
-        {shownColumns.map((col, i) => (
-          <div key={i} className="min-w-0">
-            {col.filter((f) => !shown || shown.has(f.key)).map((f) => (
-              <React.Fragment key={f.key}>
-                {renderBefore?.[f.key]}
-                {renderField?.[f.key] ? (
-                  renderField[f.key]
-                ) : INVOICE_FIELDS.has(f.key) ? (
-                  <InvoiceRow label={f.label} fieldKey={f.key} shipment={shipment} styleFor={styleFor} />
-                ) : f.ro ? (
-                  <RoRow label={f.label} value={getFieldValue(shipment, f.key)} />
-                ) : (
-                  <FieldRow label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={onCommit} styleFor={styleFor} customsOffice={shipment.customsOffice} shipmentId={shipment.id} />
-                )}
-                {renderAfter?.[f.key]}
-              </React.Fragment>
-            ))}
-          </div>
-        ))}
-      </div>
+      {paired && pairedLeft && pairedRight && shownColumns.length === 2 ? (
+        <PairedColumns className="" left={fieldsOf(pairedLeft).map(pairedCell)} right={fieldsOf(pairedRight).map(pairedCell)} />
+      ) : (
+        <div className={shownColumns.length > 1 ? COLS2 : ""}>
+          {shownColumns.map((col, i) => (
+            <div key={i} className="min-w-0">
+              {fieldsOf(col).map((f) => (
+                <React.Fragment key={f.key}>
+                  {renderBefore?.[f.key]}
+                  {fieldRow(f)}
+                  {renderAfter?.[f.key]}
+                </React.Fragment>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
       {children}
       </div>
     </div>
@@ -797,6 +816,8 @@ const KEY_DATES_L: FieldDef[] = [
   { key: "cargoReadinessDate", label: "Cargo Readiness" },
   { key: "etaWarehouse", label: "ETA Warehouse/HUB" },
   { key: "pickupDate", label: "Pick-Up Date" },
+  { key: "amsDeadline", label: "AMS Deadline" },
+  { key: "isfDeadline", label: "ISF Deadline" },
 ];
 const KEY_DATES_R: FieldDef[] = [
   { key: "estimatedDepartureWeek", label: "Est. Departure Week", ro: true },
@@ -806,8 +827,6 @@ const KEY_DATES_R: FieldDef[] = [
   { key: "closingDate", label: "Closing Date (Cargo Closing)" },
   { key: "vgmClosing", label: "VGM Closing" },
   { key: "siClosing", label: "SI Closing" },
-  { key: "amsDeadline", label: "AMS Deadline" },
-  { key: "isfDeadline", label: "ISF Deadline" },
   { key: "plannedDeliveryDate", label: "Planned Delivery" },
 ];
 /** Equipment & Depot dle mockupu (id "equip") */
@@ -842,16 +861,17 @@ const PARTIES_AGENTS: FieldDef[] = [
 ];
 // The Quote card is read-only: it shows the quote uploaded in the Costs Breakdown tab, and its
 // selling, buying and profit are that tab's totals.
+// The quote itself on the left, its money on the right.
 const QUOTE_L: FieldDef[] = [
   { key: "salesNumber", label: "Sales Reference", ro: true },
-  { key: "selling", label: "Total Selling Costs", ro: true },
-  { key: "buying", label: "Total Buying Costs", ro: true },
-  { key: "profit", label: "Profit", ro: true },
-];
-const QUOTE_R: FieldDef[] = [
   { key: "quoteValidity", label: "Quote Validity", ro: true },
   { key: "validityStatus", label: "Validity Status", ro: true },
   { key: "salesPerson", label: "Sales Person", ro: true },
+];
+const QUOTE_R: FieldDef[] = [
+  { key: "selling", label: "Total Selling Costs", ro: true },
+  { key: "buying", label: "Total Buying Costs", ro: true },
+  { key: "profit", label: "Profit", ro: true },
 ];
 const COMPLIANCE_FIELDS: FieldDef[] = [
   { key: "bookingConfirmation", label: "Booking Confirmation" },
@@ -893,7 +913,6 @@ const CARGO_COMMERCIAL_L: CargoField[] = [
   { key: "cargoDescription", label: "Cargo description", highlight: true },
   { key: "cargoOrigin", label: "Cargo origin" },
   { key: "commercialInvoice", label: "Commercial invoice number(s)" },
-  { key: "commercialInvoiceValue", label: "Commercial invoice value" },
 ];
 const CARGO_COMMERCIAL_R: CargoField[] = [
   { key: "containerTypeSummary", label: "Container type", ro: true },
@@ -901,6 +920,7 @@ const CARGO_COMMERCIAL_R: CargoField[] = [
   { key: "dimensionsSummary", label: "Dimensions", ro: true },
   { key: "creditCheck", label: "Credit check" },
   { key: "approvedBy", label: "Approved by" },
+  { key: "commercialInvoiceValue", label: "Commercial invoice value" },
 ];
 
 interface CargoRowProps {
@@ -979,6 +999,8 @@ function CargoCommercialCard({
   const cargoShown = new Set(
     visibleKeys("cargo", [...CARGO_COMMERCIAL_L, ...CARGO_COMMERCIAL_R].map((f) => f.key)),
   );
+  const rows = (col: CargoField[]) =>
+    col.filter((f) => cargoShown.has(f.key)).map((f) => <CargoRow key={f.key} field={f} shipment={shipment} onCommit={onCommit} styleFor={styleFor} />);
 
   return (
     <div className={CARD}>
@@ -991,15 +1013,7 @@ function CargoCommercialCard({
         onCommit={onCommit}
         styleFor={styleFor}
       />
-      <div className={`${CARD_BODY} ${COLS2}`}>
-        {[CARGO_COMMERCIAL_L, CARGO_COMMERCIAL_R].map((col, i) => (
-          <div key={i} className="min-w-0">
-            {col.filter((f) => cargoShown.has(f.key)).map((f) => (
-              <CargoRow key={f.key} field={f} shipment={shipment} onCommit={onCommit} styleFor={styleFor} />
-            ))}
-          </div>
-        ))}
-      </div>
+      <PairedColumns left={rows(CARGO_COMMERCIAL_L)} right={rows(CARGO_COMMERCIAL_R)} />
     </div>
   );
 }
@@ -1519,6 +1533,7 @@ export function ShipmentDetailContent() {
                 title="Key Dates"
                 cardId="dates"
                 columns={[KEY_DATES_L, KEY_DATES_R]}
+                paired
                 shipment={shipment}
                 onCommit={handleCommit}
                 styleFor={styleFor}
@@ -1721,10 +1736,7 @@ export function ShipmentDetailContent() {
                         styleFor={styleFor}
                         renderField={custom}
                       />
-                      <div className={`${CARD_BODY} ${COLS2}`}>
-                        <div>{renderCol(QUOTE_L)}</div>
-                        <div>{renderCol(QUOTE_R)}</div>
-                      </div>
+                      <PairedColumns left={renderCol(QUOTE_L)} right={renderCol(QUOTE_R)} />
                     </>
                   );
                 })()}
@@ -1739,12 +1751,12 @@ export function ShipmentDetailContent() {
                   const left: FieldDef[] = [
                     { key: "jobNumber", label: "Internal Reference", ro: true },
                     { key: "department", label: "Department" },
+                    { key: "createdOn", label: "Created On", ro: true },
                   ];
                   const right: FieldDef[] = [
                     { key: "personInCharge", label: "Person In Charge" },
                     { key: "holidayCover", label: "Holiday Cover" },
                     { key: "createdBy", label: "Created By", ro: true },
-                    { key: "createdOn", label: "Created On", ro: true },
                   ];
                   const allKeys = [...left, ...right].map((f) => f.key);
                   const shown = new Set(visibleCardKeys("basic", allKeys));
@@ -1768,10 +1780,7 @@ export function ShipmentDetailContent() {
                         onCommit={handleCommit}
                         styleFor={styleFor}
                       />
-                      <div className={`${CARD_BODY} ${COLS2}`}>
-                        <div>{renderCol(left)}</div>
-                        <div>{renderCol(right)}</div>
-                      </div>
+                      <PairedColumns left={renderCol(left)} right={renderCol(right)} />
                     </>
                   );
                 })()}
