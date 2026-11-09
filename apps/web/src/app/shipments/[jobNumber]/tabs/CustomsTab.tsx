@@ -1,7 +1,8 @@
 "use client";
 
 import { useDocumentChangeRequests } from "@/hooks/useDocumentChangeRequests";
-import { useCanManageDocuments } from "@/lib/auth/AuthContext";
+import { useAuth, useCanManageDocuments } from "@/lib/auth/AuthContext";
+import { canChangeShipmentDetails } from "@/lib/shipmentEditRule";
 import { ChangeAfterApprovalModal, ChangeRequestNote } from "./ChangeAfterApprovalModal";
 import { Fragment, useMemo, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
@@ -311,7 +312,13 @@ export function CustomsTab({
   // both columns have the same number of rows. The Customs section's card is already even
   // (Principal Party on the left, two container rows fewer on the right), so it keeps the value on the right.
   const civOnLeft = !canReview;
-  const leftColumn = civOnLeft ? [...CUSTOMS_LEFT, ...CUSTOMS_RIGHT.filter((f) => f.key === "commercialInvoiceValue")] : CUSTOMS_LEFT;
+  // Cargo Origin is a detail of the shipment, changed only by those the shipment edit rule lets
+  // (lib/shipmentEditRule); the customs fields of the card stay open to the department.
+  const { user } = useAuth();
+  const detailsEditable = canChangeShipmentDetails(user, shipment);
+  const leftFields = civOnLeft ? [...CUSTOMS_LEFT, ...CUSTOMS_RIGHT.filter((f) => f.key === "commercialInvoiceValue")] : CUSTOMS_LEFT;
+  // Cargo Origin reads as text for whoever the edit rule doesn't let change the shipment's details.
+  const leftColumn = detailsEditable ? leftFields : leftFields.map((f) => (f.key === "cargoOrigin" ? { ...f, ro: true } : f));
   const rightColumn = (canReview ? CUSTOMS_RIGHT.filter((f) => !CUSTOMS_OVERVIEW_HIDDEN.includes(f.key)) : CUSTOMS_RIGHT).filter(
     (f) => f.key !== "customsStatus" && !(civOnLeft && f.key === "commercialInvoiceValue"),
   );

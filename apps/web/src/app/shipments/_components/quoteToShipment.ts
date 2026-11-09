@@ -194,8 +194,9 @@ export function quotePreview(data: SalesQuoteData, sheet: ExchangeRates): { labe
     { label: "Direction", value: data.direction ?? "" },
     { label: "Service", value: data.serviceType ?? "" },
     { label: "Incoterms", value: data.incoterm ?? "" },
-    { label: "Port of Loading", value: data.origin ?? "" },
-    { label: "Port of Discharge", value: data.destination ?? "" },
+    // The ports the quote names; a quote from before POL / POD has only its origin and destination (as the request above).
+    { label: "Port of Loading", value: data.pol || data.origin || "" },
+    { label: "Port of Discharge", value: data.pod || data.destination || "" },
     { label: "Commodity", value: data.commodity ?? "" },
     { label: "Dangerous goods", value: data.dangerous ? adrText(quoteAdr(data)) || "Yes" : "" },
     { label: "Containers", value: equipment ? `${equipment} (${teu} TEU)` : "" },
